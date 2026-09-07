@@ -1,5 +1,1 @@
-NPCs: {
-	Companion: {
-		DisplayName: Companion
-	}
-}
+NPCs.Companion.DisplayName: Companion
