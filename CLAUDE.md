@@ -62,7 +62,9 @@ Build for the game (what Caner does to play it): tModLoader → Workshop → Dev
 - **`CheckActive` returns false**, so the companion is never culled for distance. If a companion ever needs removing, the command or a future despawn path has to do it explicitly.
 - **`dontTakeDamage` is toggled by the downed state**, off while alive and on while downed. `CheckDead` returns false and enters Downed; forgetting to set life to 1 there would fire CheckDead every tick.
 - **The health bar draws in raw screen pixels** (`InterfaceScaleType.None`) and scales sizes by `Main.UIScale` by hand, because `Main.mouseX/Y` are screen pixels and comparing them against a UI-scaled layer misses at any scale other than 100%.
-- **Nothing in this folder has been watched running yet as of 2026-09-07.** Every behaviour above compiles; the first in-game run is Caner's, and what it shows goes into the Slate record.
+- **`WorldGen.GetTreeBottom` returns the ground tile under the trunk, not the lowest trunk tile.** Its loop walks down while the tile is a trunk and stops on the first tile that is not. The first run hit dirt with the axe and rejected every tree whose "standing spot" row was solid ground. `TreeFinder.TrunkBottom` subtracts one row; use it, never the raw call.
+- **The player renderer draws the held item from `lastVisualizedSelectedItem`, not from the inventory.** Only `Player.Update` sets that field, and the drawing-only body never runs `Update`, so `CompanionAppearance.Sync` assigns it by hand. Symptom if lost: the swing animation plays with empty hands.
+- **The first in-game run on 2026-09-07 showed the body draws, chops nothing, picks far trees and hugs the player.** Trees and hands were the two traps above; the leash was 160 px and is now most of the screen width. Every behaviour above compiles; the first in-game run is Caner's, and what it shows goes into the Slate record.
 
 ## Planned work
 

@@ -30,8 +30,18 @@ public static class TreeFinder
         int x = Player.tileTargetX, y = Player.tileTargetY;
         if (!WorldGen.InWorld(x, y) || !IsTreeTile(x, y))
             return null;
+        return TrunkBottom(x, y);
+    }
+
+    /// <summary>
+    /// The lowest trunk tile of the tree containing (<paramref name="x"/>, <paramref name="y"/>).
+    /// WorldGen.GetTreeBottom walks down while the tile is trunk and returns the first tile
+    /// that is not, which is the ground under the tree; the trunk bottom is one row above it.
+    /// </summary>
+    public static Point TrunkBottom(int x, int y)
+    {
         WorldGen.GetTreeBottom(x, y, out int bx, out int by);
-        return new Point(bx, by);
+        return IsTreeTile(bx, by - 1) ? new Point(bx, by - 1) : new Point(bx, by);
     }
 
     /// <summary>
@@ -51,8 +61,7 @@ public static class TreeFinder
             {
                 if (!WorldGen.InWorld(x, y, 10) || !IsTreeTile(x, y))
                     continue;
-                WorldGen.GetTreeBottom(x, y, out int bx, out int by);
-                Point bottom = new(bx, by);
+                Point bottom = TrunkBottom(x, y);
                 if (exclude is Point ex && ex == bottom)
                     continue;
 

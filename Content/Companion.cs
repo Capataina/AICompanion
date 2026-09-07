@@ -133,7 +133,7 @@ public class Companion : ModNPC
             RunShoot(player);
         else if (Chopper.WantsToChop(NPC, player))
             RunChop(player);
-        else if (MathF.Abs(player.Center.X - NPC.Center.X) <= WanderBehaviour.Leash && MathF.Abs(player.Center.Y - NPC.Center.Y) < 96f)
+        else if (MathF.Abs(player.Center.X - NPC.Center.X) <= WanderBehaviour.Leash && MathF.Abs(player.Center.Y - NPC.Center.Y) < 320f)
             RunWander(player);
         else
             RunFollow(player);
@@ -275,7 +275,7 @@ public class Companion : ModNPC
     private void SyncBody()
     {
         if (appearance.UsesPlayerRenderer)
-            appearance.Sync(NPC, heldItemType, itemAnimation, itemAnimationMax, itemRotation);
+            appearance.Sync(NPC, Main.LocalPlayer, heldItemType, itemAnimation, itemAnimationMax, itemRotation);
     }
 
     public override bool PreDraw(SpriteBatch spriteBatch, Vector2 screenPos, Color drawColor)

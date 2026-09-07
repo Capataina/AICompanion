@@ -31,8 +31,6 @@ public class CompanionAppearance
         body = new Player
         {
             whoAmI = Main.maxPlayers,
-            skinVariant = PlayerVariantID.FemaleStarter,
-            hair = 2,
             width = 20,
             height = 42,
             gravDir = 1f,
@@ -41,9 +39,30 @@ public class CompanionAppearance
         body.selectedItem = 0;
     }
 
-    /// <summary>Copy the NPC's motion into the body and run the game's own frame logic.</summary>
-    public void Sync(NPC npc, int heldItemType, int itemAnimation, int itemAnimationMax, float itemRotation)
+    /// <summary>
+    /// The companion is the female version of the player's own character: same hair,
+    /// colours and body variant, with a male variant swapped to its female counterpart
+    /// through the game's own gender table.
+    /// </summary>
+    private void CopyLook(Player player)
     {
+        body.hair = player.hair;
+        body.hairColor = player.hairColor;
+        body.skinColor = player.skinColor;
+        body.eyeColor = player.eyeColor;
+        body.shirtColor = player.shirtColor;
+        body.underShirtColor = player.underShirtColor;
+        body.pantsColor = player.pantsColor;
+        body.shoeColor = player.shoeColor;
+        body.skinVariant = PlayerVariantID.Sets.Male[player.skinVariant]
+            ? PlayerVariantID.Sets.AltGenderReference[player.skinVariant]
+            : player.skinVariant;
+    }
+
+    /// <summary>Copy the NPC's motion into the body and run the game's own frame logic.</summary>
+    public void Sync(NPC npc, Player player, int heldItemType, int itemAnimation, int itemAnimationMax, float itemRotation)
+    {
+        CopyLook(player);
         body.position = npc.Bottom - new Vector2(body.width / 2f, body.height);
         body.velocity = npc.velocity;
         body.direction = npc.direction == 0 ? 1 : npc.direction;
@@ -57,6 +76,9 @@ public class CompanionAppearance
             if (heldItemType > 0)
                 Main.instance.LoadItem(heldItemType);
         }
+        // The held-item draw layer reads lastVisualizedSelectedItem, which only the
+        // game's own player update sets; the body never runs that update.
+        body.lastVisualizedSelectedItem = body.inventory[0];
         body.itemAnimation = itemAnimation;
         body.itemAnimationMax = itemAnimationMax;
         body.itemRotation = itemRotation;
