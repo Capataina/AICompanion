@@ -6,6 +6,8 @@ A tModLoader mod that adds an AI companion to Terraria: an NPC that follows you,
 
 The companion is an NPC, deliberately, not a second `Player` slot. Abilities are the mod's own closed set, never real player items routed through NPC code, because that routing is the class of bug (bows that will not fire, potions that cannot be used) that keeps the existing companion mod, TerraGuardians, feeling like an NPC that does some stuff. The one requirement the NPC shape makes harder is keeping a boss fight alive after the human dies; AIC-8 on the board carries the two routes and the check.
 
+**Before implementing any mechanic, read the decompiled game for the path that already does it, and reuse it unless it is gated on the local player.** Caner's standing instruction on 2026-09-07: most of what the companion does already exists in the game for the player. Chopping reuses `HitTile` plus the vanilla axe formula and `Main.DrawTileCracks`; the body reuses the player renderer; arrows are vanilla projectiles owned by the player so the player's on-hit accessories and ranged stats apply. Decompile with `ilspycmd -t Terraria.<Type> "<Steam>/tModLoader/tModLoader.dll"` (installed under `~/.dotnet/tools`) and grep the result; the reflection scratch tool at `/tmp/tmlreflect` lists member signatures.
+
 ## The map
 
 ```
@@ -17,8 +19,22 @@ AICompanion/
 ├─ AICompanion.csproj              imports ../tModLoader.targets, which imports tMLMod.targets from the Steam install
 ├─ AICompanion.cs                  the Mod subclass; logs on load, nothing else
 ├─ Content/
-│  └─ Companion.cs                 the companion ModNPC: aiStyle -1, follow AI (walk, jump, far-teleport),
-│                                  Guide sprite borrowed until it has its own art, never despawns, no damage taken
+│  ├─ Companion.cs                 the companion ModNPC: mirrors the player's max life and defence, runs the
+│  │                               behaviour priority Downed > Shoot > Chop > Wander > Follow, downs instead of
+│  │                               dying, revives after 3 s beside the player, draws through CompanionAppearance
+│  ├─ CompanionAppearance.cs       a drawing-only Player (female starter body) synced to the NPC each tick and
+│  │                               drawn by Main.PlayerRenderer; falls back to the Guide sprite if the renderer throws
+│  └─ Behaviours/
+│     ├─ TreeFinder.cs             the tree under the player's axe, and the nearest other tree with a standing spot
+│     ├─ TileChopper.cs            the companion's own HitTile and the vanilla axe formula against a trunk's bottom tile
+│     ├─ TileCracksRenderer.cs     ModSystem: draws the companion's cracks with Main.DrawTileCracks after tiles
+│     ├─ ArrowAimer.cs             WeaponProfile + arc simulation against solid tiles, leading the target's velocity
+│     ├─ BowBehaviour.cs           picks an on-screen hostile, asks the aimer, fires a player-owned wooden arrow
+│     └─ WanderBehaviour.cs        idle stroll/stand/hop inside a 160 px leash
+├─ Players/
+│  └─ CompanionPlayer.cs           ModPlayer: has-companion flag (auto-spawn on world enter) and health bar position
+├─ UI/
+│  └─ CompanionHealthBar.cs        ModSystem: HUD bar after "Vanilla: Resource Bars"; drag with left mouse, right-click resets
 ├─ Commands/
 │  └─ CompanionCommand.cs          /companion: spawns one companion at the player, or calls the existing one over
 └─ Localization/
@@ -34,17 +50,20 @@ cd "~/Library/Application Support/Terraria/tModLoader/ModSources/AICompanion"
 dotnet build -nologo -v q
 ```
 
-Exit 0 and `bin/Debug/net8.0/AICompanion.dll` present is the pass. The shell build proves it compiles; it does not produce the `.tmod` tModLoader loads.
+Zero `error CS` lines and a fresh `bin/Debug/net8.0/AICompanion.dll` is the pass. While the game is open the same command then fails at the `.tmod` packaging step with `TML003: Please close tModLoader or disable the mod in-game`; that is the packaging step, not the compile, and the DLL timestamp is the thing to check.
 
-Build for the game (what Caner does to play it): tModLoader → Workshop → Develop Mods → AICompanion → Build + Reload. Then in a world, type `/companion` in chat. The companion appears at your feet and follows; walk away and it walks after you, jumps at ledges, and teleports to you past about 1,400 pixels.
+Build for the game (what Caner does to play it): tModLoader → Workshop → Develop Mods → AICompanion → Build + Reload. Then in a world, type `/companion` in chat. The companion appears at your feet and from then on spawns with you on every world enter. It follows past 64 px, wanders when close, teleports to you past about 1,400 px, chops the nearest other tree when you swing an axe at one, and shoots any hostile on screen with a wooden bow.
 
 ## Traps
 
 - **The shell build says "Build succeeded" in under two seconds.** That is real: the project is tiny and tMLMod.targets references the installed tModLoader.dll directly. Check the DLL exists before trusting it, as the first session did.
-- **`Texture` borrows the Guide's sheet** (`Terraria/Images/NPC_22`). `FindFrame` assumes the town-NPC layout (frame 0 idle, 2–15 walking). Replacing the sprite means replacing `FindFrame` too.
+- **`Texture` still borrows the Guide's sheet** (`Terraria/Images/NPC_22`) and `FindFrame` still assumes the town-NPC layout, but only as the fallback when `CompanionAppearance` reports the player renderer failed. The normal path draws the dummy Player in `PreDraw` and returns false.
+- **The dummy Player is never placed in `Main.player`.** Its `whoAmI` is `Main.maxPlayers` so no draw layer treats it as the local player. `ItemCheck_ApplyHoldStyle` is private, so at rest the hands are empty; the held item only shows while an animation runs.
 - **`CheckActive` returns false**, so the companion is never culled for distance. If a companion ever needs removing, the command or a future despawn path has to do it explicitly.
-- **`dontTakeDamage` is on** for the hello world. Combat (AIC-7) turns it off and gives the companion real health.
+- **`dontTakeDamage` is toggled by the downed state**, off while alive and on while downed. `CheckDead` returns false and enters Downed; forgetting to set life to 1 there would fire CheckDead every tick.
+- **The health bar draws in raw screen pixels** (`InterfaceScaleType.None`) and scales sizes by `Main.UIScale` by hand, because `Main.mouseX/Y` are screen pixels and comparing them against a UI-scaled layer misses at any scale other than 100%.
+- **Nothing in this folder has been watched running yet as of 2026-09-07.** Every behaviour above compiles; the first in-game run is Caner's, and what it shows goes into the Slate record.
 
 ## Planned work
 
-See the Slate project `ai-companion`. Next after the hello world: AIC-8 (boss persistence after the human dies) before any tech-tree work, because it decides whether the NPC shape meets the spec.
+See the Slate project `ai-companion`. AIC-11 (this batch) is compiled and awaiting the in-game run. After that: AIC-8 (boss persistence after the human dies) before any tech-tree work, because it decides whether the NPC shape meets the spec.
