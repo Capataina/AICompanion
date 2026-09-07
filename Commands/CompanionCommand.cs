@@ -4,13 +4,15 @@ using Microsoft.Xna.Framework;
 using Terraria;
 using Terraria.ModLoader;
 using AICompanion.Content;
+using AICompanion.Players;
 
 namespace AICompanion.Commands;
 
 /// <summary>
 /// <c>/companion</c> in chat. Spawns one companion at the player's feet, or, if
 /// one already exists anywhere in the world, brings it to the player instead.
-/// There is deliberately never more than one.
+/// There is deliberately never more than one. Summoning once marks the character
+/// so the companion returns on every later world enter.
 /// </summary>
 public class CompanionCommand : ModCommand
 {
@@ -22,22 +24,18 @@ public class CompanionCommand : ModCommand
     public override void Action(CommandCaller caller, string input, string[] args)
     {
         Player player = caller.Player;
-        int type = ModContent.NPCType<Companion>();
+        player.GetModPlayer<CompanionPlayer>().HasCompanion = true;
 
-        for (int i = 0; i < Main.maxNPCs; i++)
+        NPC? existing = Companion.Find();
+        if (existing != null)
         {
-            NPC npc = Main.npc[i];
-            if (npc.active && npc.type == type)
-            {
-                npc.Bottom = player.Bottom;
-                npc.velocity = Vector2.Zero;
-                caller.Reply("Your companion is here.", Color.LightGreen);
-                return;
-            }
+            existing.Bottom = player.Bottom;
+            existing.velocity = Vector2.Zero;
+            caller.Reply("Your companion is here.", Color.LightGreen);
+            return;
         }
 
-        int index = NPC.NewNPC(player.GetSource_Misc("companion"), (int)player.Center.X, (int)player.Bottom.Y, type);
-        if (index < Main.maxNPCs)
+        if (Companion.Spawn(player) < Main.maxNPCs)
             caller.Reply("A companion joins you.", Color.LightGreen);
         else
             caller.Reply("No room for a companion right now (NPC limit reached).", Color.OrangeRed);
