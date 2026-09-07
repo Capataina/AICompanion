@@ -88,9 +88,8 @@ public class TileChopper
             return;
 
         int id = HitTile.HitObject(x, y, 1);
-        int damage = (int)(axePower * 1.2f);
-        if (tile.TileType == TileID.Cactus)
-            damage *= 3;
+        // Vanilla rounds once, after the cactus multiplier: (int)(axe * 3 * 1.2).
+        int damage = (int)(axePower * (tile.TileType == TileID.Cactus ? 3 : 1) * 1.2f);
         if (!WorldGen.CanKillTile(x, y))
             damage = 0;
 

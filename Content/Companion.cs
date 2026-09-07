@@ -155,7 +155,11 @@ public class Companion : ModNPC
     private void RunShoot(Player player)
     {
         Current = Behaviour.Shoot;
-        Stop();
+        // Keep up with the player while fighting; only stand still once close enough.
+        if (MathF.Abs(player.Center.X - NPC.Center.X) > WanderBehaviour.Leash)
+            MoveToward(player.Center, WalkSpeed);
+        else
+            Stop();
         if (bow.Update(NPC, player) is Vector2 launch)
         {
             Item bowItem = ContentSamples.ItemsByType[BowBehaviour.BowItemType];
@@ -283,7 +287,14 @@ public class Companion : ModNPC
         if (!appearance.UsesPlayerRenderer)
             return true; // Guide sprite fallback
         float rotation = IsDowned ? NPC.direction * MathHelper.PiOver2 : 0f;
+
+        // The player renderer writes to the device directly and expects a closed batch, which is
+        // how vanilla calls it; drawing inside the open NPC batch puts the body behind everything
+        // queued in it. Close, draw, then reopen with the NPC batch's own state.
+        spriteBatch.End();
         appearance.Draw(rotation);
+        spriteBatch.Begin(SpriteSortMode.Deferred, BlendState.AlphaBlend, Main.DefaultSamplerState,
+            DepthStencilState.None, Main.Rasterizer, null, Main.Transform);
         return appearance.UsesPlayerRenderer ? false : true;
     }
 

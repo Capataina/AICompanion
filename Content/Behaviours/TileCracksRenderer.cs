@@ -1,5 +1,6 @@
 #nullable enable
 
+using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Terraria;
 using Terraria.ModLoader;
@@ -18,8 +19,13 @@ public class TileCracksRenderer : ModSystem
         if (Companion.Find()?.ModNPC is not Companion companion)
             return;
 
+        // DrawTileCracks adds Main.offScreenRange to every position unless drawToScreen, because
+        // vanilla calls it inside the oversized tile render target. PostDrawTiles is screen space,
+        // so that offset is taken back out through the batch transform.
+        float offset = Main.drawToScreen ? 0f : -Main.offScreenRange;
+        Matrix transform = Matrix.CreateTranslation(offset, offset, 0f) * Main.GameViewMatrix.TransformationMatrix;
         Main.spriteBatch.Begin(SpriteSortMode.Deferred, BlendState.AlphaBlend, Main.DefaultSamplerState,
-            DepthStencilState.None, Main.Rasterizer, null, Main.GameViewMatrix.TransformationMatrix);
+            DepthStencilState.None, Main.Rasterizer, null, transform);
         Main.instance.DrawTileCracks(1, companion.Chopper.HitTile);
         Main.spriteBatch.End();
     }

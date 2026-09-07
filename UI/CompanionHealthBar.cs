@@ -37,7 +37,7 @@ public class CompanionHealthBar : ModSystem
 
     private bool Draw()
     {
-        if (Main.gameMenu || Main.LocalPlayer == null || !Main.LocalPlayer.active)
+        if (Main.gameMenu || !Main.LocalPlayer.active)
             return true;
         NPC? npc = Companion.Find();
         if (npc?.ModNPC is not Companion companion)

@@ -71,8 +71,9 @@ public class BowBehaviour
         Vector2? launch = ArrowAimer.Solve(muzzle, target, profile);
         if (launch is not Vector2 velocity)
         {
-            // No arc reaches this target from here; look again next tick, maybe from a new spot.
-            Target = null;
+            // No arc reaches this target from here. Solve costs thousands of tile checks, so
+            // wait a third of a second before trying again rather than re-solving every tick.
+            cooldown = 20;
             return null;
         }
 

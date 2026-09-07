@@ -82,7 +82,10 @@ public static class TreeFinder
     private static bool IsTreeTile(int x, int y)
     {
         Tile tile = Main.tile[x, y];
-        return tile.HasTile && Main.tileAxe[tile.TileType] && TileID.Sets.IsATreeTrunk[tile.TileType];
+        // The same set the vanilla axe code treats as a tree: trunks, plus palm trees and cactus,
+        // which IsATreeTrunk leaves out.
+        return tile.HasTile && Main.tileAxe[tile.TileType]
+            && (TileID.Sets.IsATreeTrunk[tile.TileType] || tile.TileType == TileID.PalmTree || tile.TileType == TileID.Cactus);
     }
 
     /// <summary>Pick a standing spot beside the trunk: left first, then right.</summary>

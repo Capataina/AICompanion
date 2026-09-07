@@ -62,6 +62,20 @@ public class CompanionAppearance
     /// <summary>Copy the NPC's motion into the body and run the game's own frame logic.</summary>
     public void Sync(NPC npc, Player player, int heldItemType, int itemAnimation, int itemAnimationMax, float itemRotation)
     {
+        if (rendererFailed)
+            return;
+        try
+        {
+            SyncBody(npc, player, heldItemType, itemAnimation, itemAnimationMax, itemRotation);
+        }
+        catch (Exception e)
+        {
+            Fail("Player frame logic refused the companion body; falling back to the Guide sprite.", e);
+        }
+    }
+
+    private void SyncBody(NPC npc, Player player, int heldItemType, int itemAnimation, int itemAnimationMax, float itemRotation)
+    {
         CopyLook(player);
         body.position = npc.Bottom - new Vector2(body.width / 2f, body.height);
         body.velocity = npc.velocity;
@@ -71,11 +85,7 @@ public class CompanionAppearance
         body.gravDir = 1f;
 
         if (body.inventory[0].type != heldItemType)
-        {
             body.inventory[0].SetDefaults(heldItemType);
-            if (heldItemType > 0)
-                Main.instance.LoadItem(heldItemType);
-        }
         // The held-item draw layer reads lastVisualizedSelectedItem, which only the
         // game's own player update sets; the body never runs that update.
         body.lastVisualizedSelectedItem = body.inventory[0];
@@ -91,6 +101,12 @@ public class CompanionAppearance
         }
     }
 
+    private void Fail(string message, Exception e)
+    {
+        rendererFailed = true;
+        ModContent.GetInstance<AICompanion>().Logger.Error(message, e);
+    }
+
     /// <summary>Draw the body at the NPC's position; <paramref name="rotation"/> lays it down while downed.</summary>
     public void Draw(float rotation)
     {
@@ -102,8 +118,7 @@ public class CompanionAppearance
         }
         catch (Exception e)
         {
-            rendererFailed = true;
-            ModContent.GetInstance<AICompanion>().Logger.Error("Player renderer refused the companion body; falling back to the Guide sprite.", e);
+            Fail("Player renderer refused the companion body; falling back to the Guide sprite.", e);
         }
     }
 }
