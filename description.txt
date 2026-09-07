@@ -1,3 +1,5 @@
 An AI companion that plays Terraria with you. It follows you, fights beside you, does what you are doing, takes orders, and grows with your progression through its own upgrade tree.
 
+Singleplayer only.
+
 Early development. Right now: type /companion in chat to spawn a companion that follows you around the world.

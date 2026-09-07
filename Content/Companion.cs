@@ -9,7 +9,7 @@ namespace AICompanion.Content;
 
 /// <summary>
 /// The companion. A friendly NPC with a custom AI (aiStyle -1, so vanilla runs
-/// none of its own logic) that follows the nearest living player: walks toward
+/// none of its own logic) that follows the player: walks toward
 /// them, jumps when it runs into a wall, and teleports to them when it falls
 /// too far behind. It cannot be damaged and never despawns.
 ///
@@ -64,8 +64,9 @@ public class Companion : ModNPC
 
     public override void AI()
     {
-        Player? target = FindNearestLivingPlayer();
-        if (target is null)
+        // Singleplayer only, by decision: the one player is always Main.LocalPlayer.
+        Player target = Main.LocalPlayer;
+        if (target.dead)
         {
             NPC.velocity.X *= 0.8f;
             return;
@@ -77,7 +78,6 @@ public class Companion : ModNPC
         {
             NPC.Bottom = target.Bottom;
             NPC.velocity = Vector2.Zero;
-            NPC.netUpdate = true;
             return;
         }
 
@@ -119,24 +119,5 @@ public class Companion : ModNPC
         int walkFrames = 14;
         int index = 2 + (int)(NPC.frameCounter / 6) % walkFrames;
         NPC.frame.Y = frameHeight * index;
-    }
-
-    private Player? FindNearestLivingPlayer()
-    {
-        Player? best = null;
-        float bestDistance = float.MaxValue;
-        for (int i = 0; i < Main.maxPlayers; i++)
-        {
-            Player p = Main.player[i];
-            if (!p.active || p.dead)
-                continue;
-            float d = Vector2.DistanceSquared(p.Center, NPC.Center);
-            if (d < bestDistance)
-            {
-                best = p;
-                bestDistance = d;
-            }
-        }
-        return best;
     }
 }

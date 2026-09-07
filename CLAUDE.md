@@ -2,6 +2,8 @@
 
 A tModLoader mod that adds an AI companion to Terraria: an NPC that follows you, and will fight beside you, do what you are doing, take orders, and grow through its own upgrade tree. The internal mod name is `AICompanion`; the display name on the mod browser is `Multi... Player?`. This is the first step of a long-standing aspiration recorded in the LifeOS vault at `Profile/Personal/AI-Populated Games.md`, and its plan lives in the Slate project `ai-companion` (prefix AIC).
 
+**This mod is singleplayer only, by Caner's ruling on 2026-09-07, and every line of code assumes it.** The player is always `Main.LocalPlayer`; there is no netcode, no `netUpdate`, no server/client branching, no iteration over `Main.player`. A change that adds any of those is wrong even if it works, because it spends effort on a case the mod refuses to support and makes every later feature carry the same cost.
+
 The companion is an NPC, deliberately, not a second `Player` slot. Abilities are the mod's own closed set, never real player items routed through NPC code, because that routing is the class of bug (bows that will not fire, potions that cannot be used) that keeps the existing companion mod, TerraGuardians, feeling like an NPC that does some stuff. The one requirement the NPC shape makes harder is keeping a boss fight alive after the human dies; AIC-8 on the board carries the two routes and the check.
 
 ## The map

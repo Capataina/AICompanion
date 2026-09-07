@@ -31,7 +31,6 @@ public class CompanionCommand : ModCommand
             {
                 npc.Bottom = player.Bottom;
                 npc.velocity = Vector2.Zero;
-                npc.netUpdate = true;
                 caller.Reply("Your companion is here.", Color.LightGreen);
                 return;
             }
