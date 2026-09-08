@@ -28,6 +28,28 @@ public static class Weights
     public const float WanderFloor = 0.05f;
     public const float FollowIntentDistance = 140f;
 
+    /// <summary>
+    /// Stranded: the companion's plans to the player return nothing and the flood from its feet
+    /// closes without spending its budget, so it is in a pocket the world seals. After this many
+    /// ticks of that it stops pressing the wall nearest the player and walks the pocket instead
+    /// (Caner, 2026-09-08: "rather than standing perfectly still"), which is also how a way out
+    /// the first start tile could not see gets found, because each new start gets its own plan.
+    /// </summary>
+    public const int StrandedAfterTicks = 180;
+
+    /// <summary>Stranded: how long each walk of the pocket lasts before the follow gets a window to try the player again, and how long that window is.</summary>
+    public const int RoamTicks = 300;
+    public const int RoamRetryTicks = 30;
+
+    /// <summary>Stranded: what wander scores while roaming, under every combat action's ceiling so a threat in the pocket still wins.</summary>
+    public const float StrandedWander = 0.9f;
+
+    /// <summary>Stranded: what walk-with's score is multiplied by while roaming, so the follow yields the body it cannot use.</summary>
+    public const float StrandedFollowDiscount = 0.3f;
+
+    /// <summary>Positioner: how long a roam spot is kept before another is picked, in ticks.</summary>
+    public const int RoamHoldTicks = 180;
+
     /// <summary>Loot: value of the nearest pickup fades with distance over this many px.</summary>
     public const float LootReach = 900f;
     public const int LootTripTicksPerPx = 1; // approximates 1 px per tick allowing for jumps

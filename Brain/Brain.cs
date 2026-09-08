@@ -36,6 +36,31 @@ public sealed class Brain
     public double SensesMs, ReflexMs, DecideMs, PositionMs, NavigateMs, TotalMs;
     private readonly System.Diagnostics.Stopwatch phase = new(), whole = new();
 
+    /// <summary>
+    /// How long the body has been sealed off from the player: counted from the first plan to a
+    /// player-anchored spot that found nothing while the flood from the feet closed under its
+    /// budget (a pocket the world seals, never a player who is merely far), ageing every tick
+    /// after, and cleared by the next such plan that finds anything. A roam's own plans neither
+    /// age it nor clear it, so the follow's retry window is what decides the count.
+    /// </summary>
+    public int StrandedTicks { get; private set; }
+
+    /// <summary>
+    /// This tick is one for walking the pocket: stranded long enough, and inside the roam part of
+    /// the roam-then-retry cycle, whose retry part hands the body back to the follow for a few
+    /// ticks so a plan to the player runs again and the count can clear.
+    /// </summary>
+    public bool Roaming
+    {
+        get
+        {
+            if (StrandedTicks < Weights.StrandedAfterTicks)
+                return false;
+            int cycle = (StrandedTicks - Weights.StrandedAfterTicks) % (Weights.RoamTicks + Weights.RoamRetryTicks);
+            return cycle < Weights.RoamTicks;
+        }
+    }
+
     public void Tick(CompanionNPC companion, Terraria.Player player)
     {
         whole.Restart();
@@ -71,7 +96,7 @@ public sealed class Brain
         if (taken)
             return;
 
-        var ctx = new ActionContext(companion, Senses);
+        var ctx = new ActionContext(companion, Senses, Roaming);
         CompanionAction action = Chooser.Choose(ctx);
         LastRequest = action.Execute(ctx);
         DecideMs = Lap();
@@ -104,6 +129,16 @@ public sealed class Brain
         {
             NavigateMs = Lap();
         }
+        CountStranded();
+    }
+
+    private void CountStranded()
+    {
+        bool towardPlayer = LastRequest.Kind is RequestKind.WithPlayer or RequestKind.Guard;
+        if (towardPlayer && Navigator.PlannedThisTick)
+            StrandedTicks = Navigator.LastPlanEmpty && Positioner.ReachComplete ? System.Math.Max(StrandedTicks, 1) : 0;
+        else if (StrandedTicks > 0)
+            StrandedTicks++;
     }
 
     private void Navigate(CompanionNPC companion, Vector2? spot)

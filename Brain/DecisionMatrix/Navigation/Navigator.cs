@@ -24,6 +24,10 @@ public sealed class Navigator
     public NavPath? Path { get; private set; }
     public Point? GoalTile { get; private set; }
     public bool LastPlanFailed { get; private set; }
+    /// <summary>The last plan found nothing at all, as against a partial path that walks toward the goal: the brain's stranded count reads this and not the failure, because a goal beyond the budget is far and not sealed off.</summary>
+    public bool LastPlanEmpty { get; private set; }
+    /// <summary>A plan ran on this tick, so <see cref="LastPlanFailed"/> and <see cref="LastPlanEmpty"/> describe the current goal and not an earlier one's.</summary>
+    public bool PlannedThisTick => ticksSincePlan == 0;
     public int LastExpansions { get; private set; }
 
     /// <summary>Ticks the body has not moved while the follower had somewhere to go; the scenario capture reads it.</summary>
@@ -121,6 +125,7 @@ public sealed class Navigator
         {
             Path = null;
             LastPlanFailed = true;
+            LastPlanEmpty = true;
             LastExpansions = 0;
             global::AICompanion.Brain.Debug.BrainTelemetry.DumpPlan(start, goal, from, 0, "no standable tile at the start");
             return;
@@ -137,6 +142,7 @@ public sealed class Navigator
         // A partial path is followed, and still counted as a failure: the goal was not reached
         // by the plan, and the record needs to say so even while the body walks toward it.
         LastPlanFailed = Path == null || Path.Partial;
+        LastPlanEmpty = Path == null;
         if (LastPlanFailed)
             global::AICompanion.Brain.Debug.BrainTelemetry.DumpPlan(from.Value, goal, Path?.Goal, used, Path == null ? "no path" : "partial path");
     }

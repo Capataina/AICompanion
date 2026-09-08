@@ -12,4 +12,4 @@ DecisionMatrix/
 └─ Reflexes/      the pre-scoring fast path: simulated dodges against predicted hitboxes
 ```
 
-Data flows one way: senses → (reflexes) → decision → positioning → navigation. A part reading from a later part is wrong.
+Data flows one way: senses → (reflexes) → decision → positioning → navigation. A part reading from a later part is wrong. The one thing that travels back up is a fact about the body from last tick's outcome, the brain's stranded flag on the action context, which decision reads the way it reads the breath: as a state the body is in, never as a decision navigation made.

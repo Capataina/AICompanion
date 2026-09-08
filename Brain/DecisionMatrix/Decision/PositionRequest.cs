@@ -19,6 +19,8 @@ public enum RequestKind
     Retreat,
     /// <summary>Stand still.</summary>
     Hold,
+    /// <summary>Somewhere else the walker can reach from where it stands, the further the better: a stranded companion walking its pocket.</summary>
+    Roam,
 }
 
 /// <summary>What the running action wants from the positioner.</summary>

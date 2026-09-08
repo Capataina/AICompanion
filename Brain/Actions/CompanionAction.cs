@@ -6,8 +6,13 @@ using AICompanion.Companion;
 
 namespace AICompanion.Brain.Actions;
 
-/// <summary>Everything an action needs in one handle.</summary>
-public readonly record struct ActionContext(CompanionNPC Companion, DecisionMatrix.Senses.Senses Senses)
+/// <summary>
+/// Everything an action needs in one handle. <paramref name="Stranded"/> is the one fact that
+/// comes back up from navigation: the brain's word that the body is in a sealed pocket and this
+/// tick is one for walking it rather than pressing at the player, read like the breath is read,
+/// as last tick's outcome about the body and never as a decision.
+/// </summary>
+public readonly record struct ActionContext(CompanionNPC Companion, DecisionMatrix.Senses.Senses Senses, bool Stranded = false)
 {
     public Terraria.NPC Npc => Companion.NPC;
     public Terraria.Player Player => Senses.PlayerEntity;

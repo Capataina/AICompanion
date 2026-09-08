@@ -9,7 +9,9 @@ namespace AICompanion.Brain.Actions.Companionship;
 
 /// <summary>
 /// Nothing better to do: stand a while, stroll a while, occasionally hop, inside the
-/// calm band. Its score is a floor, so anything real outscores it.
+/// calm band. Its score is a floor, so anything real outscores it. Stranded, it is the
+/// action that walks the pocket: the score rises under every combat action's ceiling and
+/// the request is a roam, which the positioner answers from the region the body can reach.
 /// </summary>
 public sealed class WanderAction : CompanionAction
 {
@@ -22,13 +24,15 @@ public sealed class WanderAction : CompanionAction
     private bool hop;
 
     public override float Score(in ActionContext ctx)
-        => ctx.Senses.Player.IsDead ? 0f : Weights.WanderFloor;
+        => ctx.Senses.Player.IsDead ? 0f : ctx.Stranded ? Weights.StrandedWander : Weights.WanderFloor;
 
     public override PositionRequest Execute(in ActionContext ctx)
     {
         ctx.Companion.HoldItem(ItemID.None);
         if (ctx.Senses.Player.IsDead)
             return PositionRequest.Hold;
+        if (ctx.Stranded)
+            return new PositionRequest(RequestKind.Roam, ctx.Npc.Bottom);
         if (--ticksLeft <= 0)
             PickNext(ctx);
 

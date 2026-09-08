@@ -79,6 +79,20 @@ public sealed class Positioner
                 Point? tile = NavGrid.NearestStandable(around, 3, t => InReach(t) && Allowed(t)) ?? NavGrid.NearestStandable(around, 3, Allowed);
                 Chosen = tile is Point t ? NavGrid.FeetWorld(t) : null;
                 return Chosen;
+            case RequestKind.Roam:
+                // Anywhere in the region the body can reach, the further from its feet the better,
+                // kept for a while so the walk is a walk and not a twitch between picks. The region
+                // is the one every other kind reads, so a roam never leaves what the flood found,
+                // and the flood ran under the brain's one-way rule for a roam (off), so a pocket is
+                // walked and never deepened. Nothing reachable but the tile underfoot is a hold.
+                sinceScore++;
+                if (Chosen != null && lastRequest.Kind == RequestKind.Roam && sinceScore < Weights.RoamHoldTicks)
+                    return Chosen;
+                lastRequest = request;
+                sinceScore = 0;
+                RefreshReach(senses);
+                Chosen = RoamSpot(NavGrid.FeetTile(request.Anchor));
+                return Chosen;
         }
 
         sinceScore++;
@@ -115,6 +129,35 @@ public sealed class Positioner
 
     /// <summary>Wall-clock of the last reach flood, for the telemetry.</summary>
     public double LastFloodMs { get; private set; }
+
+    /// <summary>
+    /// The farthest of a handful of reachable tiles drawn at random, which is far without being
+    /// the same far corner every time: a pocket is walked end to end over a few picks rather
+    /// than paced between its two ends. Banned tiles and the tile underfoot are not offered.
+    /// </summary>
+    private Vector2? RoamSpot(Point feet)
+    {
+        if (reach == null || reach.Count < 2)
+            return null;
+        var tiles = new List<Point>(reach);
+        Point? best = null;
+        int bestDistance = 0;
+        for (int i = 0; i < RoamSamples; i++)
+        {
+            Point t = tiles[Main.rand.Next(tiles.Count)];
+            if (t == feet || !Allowed(t))
+                continue;
+            int distance = Math.Abs(t.X - feet.X) + Math.Abs(t.Y - feet.Y);
+            if (distance > bestDistance)
+            {
+                best = t;
+                bestDistance = distance;
+            }
+        }
+        return best is Point b ? NavGrid.FeetWorld(b) : null;
+    }
+
+    private const int RoamSamples = 12;
 
     private Vector2? Best(in PositionRequest request, Senses.Senses senses, WeaponProfile? fireProfile)
     {
