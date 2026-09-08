@@ -119,7 +119,7 @@ public sealed class TextTileWorld : ITileWorld
                 }
                 continue;
             }
-            if (line.StartsWith("companion ", StringComparison.Ordinal) || line.StartsWith("player ", StringComparison.Ordinal) || line.StartsWith("threat ", StringComparison.Ordinal))
+            if (line.StartsWith("companion ", StringComparison.Ordinal) || line.StartsWith("player ", StringComparison.Ordinal) || line.StartsWith("threat ", StringComparison.Ordinal) || line.StartsWith("trail ", StringComparison.Ordinal))
             {
                 extras.Add(line);
                 continue;

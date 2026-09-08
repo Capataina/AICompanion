@@ -7,7 +7,7 @@ Senses/
 ├─ CLAUDE.md
 ├─ Senses.cs             aggregate; Update(npc, player, breath) runs the parts in order and stamps the tick
 ├─ CompanionSense.cs     the companion's own body: breath fraction and head-under-water from the NPC's breath, lava-wet, on fire, life fraction, damage over the last second; derives SelfDanger
-├─ PlayerSense.cs        position, smoothed travel intent (outlives a pause), fighting, real chopping, sight to companion
+├─ PlayerSense.cs        position, smoothed travel intent (outlives a pause), fighting, real chopping, sight to companion, and the trail: the player's feet tiles over the last while, one per change of tile, which every scenario dump writes as the tiles the companion must be able to stand in
 ├─ ThreatSense.cs        one ThreatRecord per hostile; reachability (cached, staggered), observed speed, shooters; derives PlayerDanger and Horizon
 ├─ ThreatRecord.cs       the per-hostile record and its predicted hitbox
 ├─ LootSense.cs          items on the ground within reach, nearest first, with a value

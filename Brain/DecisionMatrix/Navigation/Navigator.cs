@@ -26,6 +26,9 @@ public sealed class Navigator
     public bool LastPlanFailed { get; private set; }
     public int LastExpansions { get; private set; }
 
+    /// <summary>Ticks the body has not moved while the follower had somewhere to go; the scenario capture reads it.</summary>
+    public int StuckTicks => stuckTicks;
+
     private int ticksSincePlan = ReplanInterval;
     private int stuckTicks;
     private Vector2 lastPosition;

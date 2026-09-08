@@ -46,7 +46,7 @@ foreach (string file in files)
 {
     foreach ((int index, List<string> block) in Blocks(File.ReadAllLines(file)))
     {
-        var world = TextTileWorld.Parse(block, out string header, out _);
+        var world = TextTileWorld.Parse(block, out string header, out List<string> extras);
         NavGrid.World = world;
         AStar.AllowLava = false;
         AStar.Avoid.Clear();
@@ -90,6 +90,32 @@ foreach (string file in files)
             string goalIn = region.Contains(goal.Value) ? "in" : "out";
             string playerIn = player is Point pl3 ? (region.Contains(pl3) ? ", player in" : ", player out") : "";
             Console.WriteLine($"     reach flood:   {region.Count} tiles, {(complete ? "complete" : "budget spent")}, goal {goalIn}{playerIn}");
+            // The player's trail is the design's own pass line: every tile the player's feet were
+            // in is a tile the companion must be able to stand in and get to. The first tile the
+            // grid refuses names the missing link; a tile outside a complete region is refused too.
+            foreach (string extra in extras)
+            {
+                if (!extra.StartsWith("trail "))
+                    continue;
+                int inWindow = 0, total = 0;
+                string? refused = null;
+                foreach (string pair in extra[6..].Split(' ', StringSplitOptions.RemoveEmptyEntries))
+                {
+                    string[] xy = pair.Split(',');
+                    var tile = new Point(int.Parse(xy[0]), int.Parse(xy[1]));
+                    total++;
+                    if (tile.X < world.OriginX || tile.X >= world.OriginX + world.Width || tile.Y < world.OriginY || tile.Y >= world.OriginY + world.Height)
+                        continue;
+                    inWindow++;
+                    if (refused != null)
+                        continue;
+                    if (!NavGrid.IsStandable(tile.X, tile.Y))
+                        refused = $"{Fmt(tile)} not standable";
+                    else if (complete && !region.Contains(tile))
+                        refused = $"{Fmt(tile)} unreachable from the start";
+                }
+                Console.WriteLine($"     trail:         {inWindow} of {total} tiles in the window, {(refused == null ? "every one standable and reachable" : "first refused " + refused)}");
+            }
         }
         Console.WriteLine(Draw(world, path, start.Value, goal.Value, pass ? null : AStar.TraceClosed));
     }
@@ -163,7 +189,7 @@ static IEnumerable<(int, List<string>)> Blocks(string[] lines)
             continue;
         }
         block.Add(line);
-        if (!line.StartsWith("tick ") && !line.StartsWith("scenario ") && !line.StartsWith("companion ") && !line.StartsWith("player ") && !line.StartsWith("threat "))
+        if (!line.StartsWith("tick ") && !line.StartsWith("scenario ") && !line.StartsWith("companion ") && !line.StartsWith("player ") && !line.StartsWith("threat ") && !line.StartsWith("trail "))
             inRows = true;
     }
     if (block.Count > 0)

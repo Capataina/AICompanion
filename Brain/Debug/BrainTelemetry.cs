@@ -104,6 +104,23 @@ public sealed class BrainTelemetry : ModSystem
         if (plansPath == null || Main.GameUpdateCount - lastDumpTick < DumpEveryTicks)
             return;
         lastDumpTick = Main.GameUpdateCount;
+        WriteWindow(start, goal, partialEnd, expansions, why);
+    }
+
+    /// <summary>
+    /// The same window, written by a scenario detector (<see cref="ScenarioCapture"/>) under its
+    /// own reason and its own cooldown, so a follow failure or a stuck run becomes a replayable
+    /// block whether or not a plan failed in the same second.
+    /// </summary>
+    public static void DumpScenario(Point start, Point goal, string why)
+    {
+        if (plansPath == null)
+            return;
+        WriteWindow(start, goal, null, 0, why);
+    }
+
+    private static void WriteWindow(Point start, Point goal, Point? partialEnd, int expansions, string why)
+    {
         try
         {
             NPC? npc = CompanionNPC.Find();
@@ -123,6 +140,15 @@ public sealed class BrainTelemetry : ModSystem
             sb.Append($"tick {Main.GameUpdateCount} {why}: start {start.X},{start.Y} goal {goal.X},{goal.Y}");
             if (partialEnd is Point e) sb.Append($" partial-end {e.X},{e.Y}");
             sb.Append($" expansions {expansions} npc {n.X},{n.Y} player {p.X},{p.Y} window x {x0}..{x1} y {y0}..{y1}\n");
+            // The player's trail is the design's own pass line ("if I can get through, it can"),
+            // written as one line the replay tool reads back and checks tile by tile.
+            if (npc is NPC body && body.ModNPC is CompanionNPC companion && companion.Brain.Senses.Player.Trail.Count > 0)
+            {
+                sb.Append("trail");
+                foreach (Point t in companion.Brain.Senses.Player.Trail)
+                    sb.Append(' ').Append(t.X).Append(',').Append(t.Y);
+                sb.Append('\n');
+            }
             for (int y = y0; y <= y1; y++)
             {
                 for (int x = x0; x <= x1; x++)
@@ -159,6 +185,7 @@ public sealed class BrainTelemetry : ModSystem
     {
         if (writer == null)
             return;
+        ScenarioCapture.Watch(companion);
         Brain brain = companion.Brain;
         var senses = brain.Senses;
         NPC npc = companion.NPC;

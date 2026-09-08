@@ -1,8 +1,10 @@
 #nullable enable
 
 using System;
+using System.Collections.Generic;
 using Microsoft.Xna.Framework;
 using Terraria;
+using AICompanion.Brain.DecisionMatrix.Navigation;
 
 namespace AICompanion.Brain.DecisionMatrix.Senses;
 
@@ -39,11 +41,27 @@ public sealed class PlayerSense
     /// <summary>Where the player will be if they keep their intent for <paramref name="ticks"/>.</summary>
     public Vector2 Predict(int ticks) => Bottom + Intent * ticks;
 
+    /// <summary>
+    /// The player's feet tiles, oldest first, one entry per change of tile, up to TrailLength: the
+    /// record of where a body the player's size actually got through, which every scenario dump
+    /// carries so the replay tool can name the first trail tile the grid refuses.
+    /// </summary>
+    public IReadOnlyList<Point> Trail => trail;
+    private readonly List<Point> trail = new();
+    private const int TrailLength = 240;
+
     public void Update(Player player, NPC companion)
     {
         Position = player.Center;
         Bottom = player.Bottom;
         Velocity = player.velocity;
+        Point feet = NavGrid.FeetTile(player.Bottom);
+        if (trail.Count == 0 || trail[^1] != feet)
+        {
+            trail.Add(feet);
+            if (trail.Count > TrailLength)
+                trail.RemoveAt(0);
+        }
         IsDead = player.dead;
         HealthFraction = player.statLifeMax2 > 0 ? player.statLife / (float)player.statLifeMax2 : 1f;
         IsAttacking = player.itemAnimation > 0 && player.HeldItem.damage > 0;
