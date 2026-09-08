@@ -119,7 +119,7 @@ public sealed class TextTileWorld : ITileWorld
                 }
                 continue;
             }
-            if (line.StartsWith("companion ", StringComparison.Ordinal) || line.StartsWith("player ", StringComparison.Ordinal) || line.StartsWith("threat ", StringComparison.Ordinal) || line.StartsWith("trail ", StringComparison.Ordinal))
+            if (line.StartsWith("companion ", StringComparison.Ordinal) || line.StartsWith("player ", StringComparison.Ordinal) || line.StartsWith("threat ", StringComparison.Ordinal) || line.StartsWith("trail ", StringComparison.Ordinal) || line.StartsWith("markers ", StringComparison.Ordinal))
             {
                 extras.Add(line);
                 continue;
@@ -132,6 +132,23 @@ public sealed class TextTileWorld : ITileWorld
             }
             rows.Add(line);
         }
-        return new TextTileWorld(ox, oy, rows);
+        var world = new TextTileWorld(ox, oy, rows);
+        // A markers line names every position outright, so a marker never has to replace the
+        // shape of the tile it stands in (on a half block or a floor slope the feet tile is the
+        // support itself); it overrides whatever the grid carried, and old dumps without one
+        // still read their markers off the grid.
+        foreach (string extra in extras)
+        {
+            if (!extra.StartsWith("markers ", StringComparison.Ordinal))
+                continue;
+            string[] parts = extra[8..].Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            for (int i = 0; i + 1 < parts.Length; i += 2)
+            {
+                string[] xy = parts[i + 1].Split(',');
+                if (parts[i].Length == 1 && xy.Length == 2 && int.TryParse(xy[0], out int mx) && int.TryParse(xy[1], out int my))
+                    world.Markers[parts[i][0]] = new Point(mx, my);
+            }
+        }
+        return world;
     }
 }

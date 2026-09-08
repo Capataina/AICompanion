@@ -209,11 +209,20 @@ public static class BodyPhysics
             float bottom = from.Bottom + dy * i / steps;
             // The body never sinks below the ground on the way: where the surface between the
             // two poses is higher than the straight line (a slope steeper than the line, the
-            // lip of a step), it rides the surface; where it is lower it is in the air.
+            // lip of a step), it rides the surface. Where there is no surface under it at all
+            // it would be falling, and a walk is not a walk: two lip poses either side of a
+            // two-wide shaft each stand by a two-pixel overhang, and the line between them
+            // crosses the open shaft.
+            bool supported = false;
             for (int row = rowLo; row <= rowHi; row++)
-                if (RestBottom(world, left, row) is float surface && surface < bottom)
+            {
+                if (RestBottom(world, left, row) is not float surface)
+                    continue;
+                supported = true;
+                if (surface < bottom)
                     bottom = surface;
-            if (!Fits(world, left, bottom))
+            }
+            if (!supported || !Fits(world, left, bottom))
                 return false;
         }
         return true;

@@ -55,14 +55,25 @@ foreach (string file in files)
         Point? start = world.Markers.TryGetValue('S', out Point s) ? s : world.Markers.TryGetValue('N', out Point n0) ? n0 : null;
         Point? goal = world.Markers.TryGetValue('G', out Point g) ? g : null;
         Point? player = world.Markers.TryGetValue('P', out Point p) ? p : null;
-        if (start == null || (goal == null && player == null))
+        // The header carries the recorded request in full; the grid only carries what the window
+        // captured and what no other marker hid. A goal the header names but the window does not
+        // hold is untestable, never a pass to the player's tile instead.
+        Point? headerGoal = HeaderPoint(header, "goal");
+        Point? headerStart = HeaderPoint(header, "start");
+        goal ??= headerGoal ?? (headerStart == null && player != null ? player : null);
+        start ??= headerStart;
+        if (start == null || goal == null)
         {
-            Console.WriteLine($"SKIP {name}: no start or goal marker ({header})");
+            Console.WriteLine($"SKIP {name}: no start or goal ({header})");
             skipped++;
             continue;
         }
-        // The overlay hides G under P when the goal is the player's own tile; then they are one question.
-        goal ??= player;
+        if (!world.InWorld(goal.Value.X, goal.Value.Y))
+        {
+            Console.WriteLine($"SKIP {name}: recorded goal {Fmt(goal.Value)} is outside the captured window ({header})");
+            skipped++;
+            continue;
+        }
 
         // --trace-jump: the simulated jump from S to G, tick by tick, from standing and from a
         // run-up, so a jump the planner refuses can be read as the arc the body would fly.
@@ -73,14 +84,15 @@ foreach (string file in files)
         }
 
         Point? from = Ground(world, start.Value);
-        (NavPath? path, int used, bool pass) = Run(from, goal!.Value);
-        (NavPath? toPlayer, int usedPlayer, bool passPlayer) = player is Point pl && pl != goal ? Run(from, pl) : (path, used, pass);
+        Search main = Run(from, goal.Value);
+        Search toPlayer = player is Point pl && pl != goal ? Run(from, pl) : main;
+        bool pass = main.Pass;
         if (pass) passed++; else failed++;
 
         Console.WriteLine($"{(pass ? "PASS" : "FAIL")} {name}: {header}");
-        Console.WriteLine($"     recorded goal: start {Fmt(start.Value)} -> {(from == null ? "no standable tile" : Fmt(from.Value))}, goal {Fmt(goal.Value)}, {Describe(path, used)}");
+        Console.WriteLine($"     recorded goal: start {Fmt(start.Value)} -> {(from == null ? "no standable tile" : Fmt(from.Value))}, goal {Fmt(goal.Value)}, {Describe(main)}");
         if (player is Point pl2 && pl2 != goal)
-            Console.WriteLine($"     player:        {(passPlayer ? "reached" : "NOT reached")} at {Fmt(pl2)}, {Describe(toPlayer, usedPlayer)}");
+            Console.WriteLine($"     player:        {(toPlayer.Pass ? "reached" : "NOT reached")} at {Fmt(pl2)}, {Describe(toPlayer)}");
         // The positioner's own question, with the positioner's own budget: is the goal inside the
         // region the companion can flood to from its feet? "out" with a complete region is a goal
         // that can never be reached; "out" with the budget spent is a goal the flood did not get to.
@@ -117,7 +129,7 @@ foreach (string file in files)
                 Console.WriteLine($"     trail:         {inWindow} of {total} tiles in the window, {(refused == null ? "every one standable and reachable" : "first refused " + refused)}");
             }
         }
-        Console.WriteLine(Draw(world, path, start.Value, goal.Value, pass ? null : AStar.TraceClosed));
+        Console.WriteLine(Draw(world, main.Path, start.Value, goal.Value, pass ? null : main.Closed));
     }
 }
 Console.WriteLine($"{passed}/{passed + failed} passed, {skipped} skipped, {missing} missing inputs, planner {Timing.PlannerMs:F0} ms in total");
@@ -145,8 +157,18 @@ static void TraceJump(Point start, Point goal)
     }
 }
 
-static string Describe(NavPath? path, int used)
-    => $"{(path == null ? "no path" : $"{path.Steps.Count} steps{(path.Partial ? $", partial, ends {Fmt(path.Goal)}" : "")}")}, {used} expansions, {AStar.TraceClosed?.Count ?? 0} tiles reached";
+static string Describe(Search s)
+    => $"{(s.Path == null ? "no path" : $"{s.Path.Steps.Count} steps{(s.Path.Partial ? $", partial, ends {Fmt(s.Path.Goal)}" : "")}")}, {s.Used} expansions, {s.Closed.Count} tiles reached";
+
+// "goal 3526,480" out of a dump header; null when the header does not carry that key.
+static Point? HeaderPoint(string header, string key)
+{
+    int at = header.IndexOf(key + " ", StringComparison.Ordinal);
+    if (at < 0)
+        return null;
+    string[] xy = header[(at + key.Length + 1)..].Split(' ', 2)[0].Split(',');
+    return xy.Length == 2 && int.TryParse(xy[0], out int x) && int.TryParse(xy[1], out int y) ? new Point(x, y) : null;
+}
 
 // A start captured mid-jump lands first: the game plans only from the ground now, so the
 // question is what the body can do from where it comes down. The fall runs to the bottom of
@@ -159,7 +181,9 @@ static Point? Ground(TextTileWorld world, Point start)
     return NavGrid.NearestStandable(grounded, 2);
 }
 
-static (NavPath?, int, bool) Run(Point? from, Point goal)
+// Each search keeps its own closed set: the recorded-goal search and the player search share
+// the planner's trace slot, and the drawing must show the tiles the search it explains reached.
+static Search Run(Point? from, Point goal)
 {
     Point? to = NavGrid.NearestStandable(goal, 3);
     AStar.TraceClosed = new HashSet<Point>();
@@ -167,7 +191,7 @@ static (NavPath?, int, bool) Run(Point? from, Point goal)
     var clock = System.Diagnostics.Stopwatch.StartNew();
     NavPath? path = from == null || to == null ? null : AStar.Find(from.Value, to.Value, 20000, out used);
     Timing.PlannerMs += clock.Elapsed.TotalMilliseconds;
-    return (path, used, path != null && !path.Partial);
+    return new Search(path, used, new HashSet<Point>(AStar.TraceClosed), path != null && !path.Partial);
 }
 
 // A plans file holds many dumps separated by blank lines; a scenario file holds one.
@@ -189,7 +213,7 @@ static IEnumerable<(int, List<string>)> Blocks(string[] lines)
             continue;
         }
         block.Add(line);
-        if (!line.StartsWith("tick ") && !line.StartsWith("scenario ") && !line.StartsWith("companion ") && !line.StartsWith("player ") && !line.StartsWith("threat ") && !line.StartsWith("trail "))
+        if (!line.StartsWith("tick ") && !line.StartsWith("scenario ") && !line.StartsWith("companion ") && !line.StartsWith("player ") && !line.StartsWith("threat ") && !line.StartsWith("trail ") && !line.StartsWith("markers "))
             inRows = true;
     }
     if (block.Count > 0)
@@ -235,3 +259,6 @@ static class Timing
 {
     public static double PlannerMs;
 }
+
+/// <summary>One search's answer with its own closed set, so two searches in one scenario never share a drawing.</summary>
+record Search(NavPath? Path, int Used, HashSet<Point> Closed, bool Pass);

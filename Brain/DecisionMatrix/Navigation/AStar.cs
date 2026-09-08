@@ -186,18 +186,22 @@ public static class AStar
                 walked = true;
                 yield return (new Point(nx, t.Y + dy), MoveKind.Walk, Price(nx, t.Y + dy, cost * costScale));
             }
-            if (!walked && NavGrid.IsBodyClear(nx, t.Y))
+            if (NavGrid.IsBodyClear(nx, t.Y))
             {
                 // Edge: drop to the first standable tile below; one row down was a walk above.
+                // Offered beside any walk, not instead of one: the column past a shaft's lip is
+                // standable by a two-pixel overhang, and a walk onto that lip must not hide the
+                // descent. A landing is asked for before the shape is called a block, because on
+                // a half block or a floor slope the feet rest inside the tile itself.
                 for (int dy = 1; dy <= NavGrid.MaxDropTiles; dy++)
                 {
-                    if (NavGrid.IsBlock(nx, t.Y + dy))
-                        break;
                     if (dy >= 2 && NavGrid.IsStandable(nx, t.Y + dy, lava))
                     {
                         yield return (new Point(nx, t.Y + dy), MoveKind.Drop, PriceSwept(t, new Point(nx, t.Y + dy), (1f + dy * 0.2f) * costScale));
                         break;
                     }
+                    if (NavGrid.IsBlock(nx, t.Y + dy))
+                        break;
                 }
             }
         }
@@ -208,11 +212,15 @@ public static class AStar
         {
             for (int dy = 2; dy <= NavGrid.MaxDropTiles; dy++)
             {
-                if (NavGrid.IsBlock(t.X, t.Y + dy))
-                    break;
+                // A landing inside a half block or a floor slope is asked for before the shape
+                // is called a block, as in the drop scan.
                 if (NavGrid.IsStandable(t.X, t.Y + dy, lava))
                 {
                     yield return (new Point(t.X, t.Y + dy), MoveKind.FallThrough, PriceSwept(t, new Point(t.X, t.Y + dy), (1f + dy * 0.2f) * costScale));
+                    break;
+                }
+                if (NavGrid.IsBlock(t.X, t.Y + dy))
+                {
                     break;
                 }
             }

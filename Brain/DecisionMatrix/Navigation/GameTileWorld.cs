@@ -23,9 +23,15 @@ public sealed class GameTileWorld : ITileWorld
         Tile t = Main.tile[x, y];
         if (!t.HasTile || t.IsActuated)
             return TileShape.Air;
-        if (Main.tileSolidTop[t.TileType])
-            return t.TileFrameY == 0 ? TileShape.Platform : TileShape.Air;
-        if (!Main.tileSolid[t.TileType])
+        // The game collides with a tile when tileSolid, or when tileSolidTop with frame 0; a
+        // tile that collides and is tileSolidTop behaves as a top surface whatever its frame.
+        // Vanilla platforms carry both flags and their style in frameY (18 per style), so a
+        // frame test on every solid-top tile turned every non-default platform style into air.
+        bool solidTop = Main.tileSolidTop[t.TileType];
+        bool solid = Main.tileSolid[t.TileType];
+        if (solidTop && (solid || t.TileFrameY == 0))
+            return TileShape.Platform;
+        if (!solid)
             return TileShape.Air;
         if (t.IsHalfBlock)
             return TileShape.Half;

@@ -140,6 +140,9 @@ public sealed class BrainTelemetry : ModSystem
             sb.Append($"tick {Main.GameUpdateCount} {why}: start {start.X},{start.Y} goal {goal.X},{goal.Y}");
             if (partialEnd is Point e) sb.Append($" partial-end {e.X},{e.Y}");
             sb.Append($" expansions {expansions} npc {n.X},{n.Y} player {p.X},{p.Y} window x {x0}..{x1} y {y0}..{y1}\n");
+            sb.Append($"markers S {start.X},{start.Y} G {goal.X},{goal.Y} N {n.X},{n.Y} P {p.X},{p.Y}");
+            if (partialEnd is Point pe) sb.Append($" E {pe.X},{pe.Y}");
+            sb.Append('\n');
             // The player's trail is the design's own pass line ("if I can get through, it can"),
             // written as one line the replay tool reads back and checks tile by tile.
             if (npc is NPC body && body.ModNPC is CompanionNPC companion && companion.Brain.Senses.Player.Trail.Count > 0)
@@ -154,18 +157,20 @@ public sealed class BrainTelemetry : ModSystem
                 for (int x = x0; x <= x1; x++)
                 {
                     var t = new Point(x, y);
-                    char c;
-                    if (t == p) c = 'P';
-                    else if (t == n) c = 'N';
-                    else if (t == start) c = 'S';
-                    else if (t == goal) c = 'G';
-                    else if (partialEnd == t) c = 'E';
-                    else
+                    // The replay tool reads this alphabet back through the same function, so a
+                    // slope or half block dumped here is the shape the offline planner sees. A
+                    // marker is drawn over air only: on a half block or a floor slope the feet
+                    // tile is the supporting tile itself, and a marker written there erased the
+                    // support from the replay. The markers line above carries every position.
+                    char c = TextTileWorld.Glyph(NavGrid.World.Shape(x, y), NavGrid.IsLiquid(x, y), NavGrid.IsLava(x, y));
+                    if (c == '.' && NavGrid.IsStandable(x, y)) c = 'o';
+                    if (c is '.' or 'o')
                     {
-                        // The replay tool reads this alphabet back through the same function, so a
-                        // slope or half block dumped here is the shape the offline planner sees.
-                        c = TextTileWorld.Glyph(NavGrid.World.Shape(x, y), NavGrid.IsLiquid(x, y), NavGrid.IsLava(x, y));
-                        if (c == '.' && NavGrid.IsStandable(x, y)) c = 'o';
+                        if (t == p) c = 'P';
+                        else if (t == n) c = 'N';
+                        else if (t == start) c = 'S';
+                        else if (t == goal) c = 'G';
+                        else if (partialEnd == t) c = 'E';
                     }
                     sb.Append(c);
                 }
