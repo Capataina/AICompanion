@@ -3,6 +3,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text;
 using Microsoft.Xna.Framework;
 using AICompanion.Brain.DecisionMatrix.Navigation;
@@ -18,7 +19,7 @@ using AICompanion.Brain.DecisionMatrix.Navigation;
 // Exit code: 0 when every executed scenario passed and nothing was skipped or missing, 1
 // otherwise; the counts are in the last line, never in the status, which wraps at 256.
 
-int failed = 0, passed = 0, skipped = 0, missing = 0;
+int failed = 0, passed = 0, sealedCount = 0, skipped = 0, missing = 0;
 bool traceJump = false;
 var files = new List<string>();
 foreach (string arg in args)
@@ -106,10 +107,39 @@ foreach (string file in files)
         // that can never be reached; "out" with the budget spent is a goal the flood did not get to.
         if (from is Point f)
         {
+            world.AskedOutside = false;
             HashSet<Point> region = AStar.Region(f, AICompanion.Brain.DecisionMatrix.Decision.Weights.ReachFloodBudget, out bool complete);
+            bool startClipped = world.AskedOutside;
             string goalIn = region.Contains(goal.Value) ? "in" : "out";
             string playerIn = player is Point pl3 ? (region.Contains(pl3) ? ", player in" : ", player out") : "";
-            Console.WriteLine($"     reach flood:   {region.Count} tiles, {(complete ? "complete" : "budget spent")}, goal {goalIn}{playerIn}");
+            // A complete region with the goal out is one of three things, and the window's edge
+            // tells them apart. The flood records whether it ever read a tile outside the window
+            // (the edge is a wall only to the tool), so a flood that never asked is a region the
+            // world itself closes. Closed around the start it is a pocket with no way out, which
+            // is a rescue's job and not the planner's (Caner, 2026-09-08: a pit too deep to jump
+            // out of is not a pathfinding failure); closed around the goal it is a spot the
+            // positioner should never have offered (AIC-135's finding); clipped on both sides it
+            // is undecidable as cut and wants reshape.py --pad.
+            string pocket = "";
+            if (!pass && complete && goalIn == "out")
+            {
+                world.AskedOutside = false;
+                HashSet<Point> goalRegion = Ground(world, goal.Value) is Point goalFeet
+                    ? AStar.Region(goalFeet, AICompanion.Brain.DecisionMatrix.Decision.Weights.ReachFloodBudget, out _)
+                    : new HashSet<Point>();
+                bool goalClipped = world.AskedOutside;
+                pocket = !startClipped ? "; SEALED START: the region closes without touching the window, so no route out existed in the world and the fix is a rescue, not a plan"
+                    : !goalClipped ? $"; SEALED GOAL: the goal's own region ({goalRegion.Count} tiles) closes without touching the window, a spot the positioner must not offer"
+                    : "; both regions reach the window's edge: undecidable as cut, widen it with reshape.py --pad";
+                // A sealed block is a verdict, not a failure: the planner answered "no route" and
+                // the world agrees, so it counts on its own and does not fail the run.
+                if (!startClipped || !goalClipped)
+                {
+                    failed--;
+                    sealedCount++;
+                }
+            }
+            Console.WriteLine($"     reach flood:   {region.Count} tiles, {(complete ? "complete" : "budget spent")}, goal {goalIn}{playerIn}{pocket}");
             // The player's trail is the design's own pass line: every tile the player's feet were
             // in is a tile the companion must be able to stand in and get to. The first tile the
             // grid refuses names the missing link; a tile outside a complete region is refused too.
@@ -151,7 +181,7 @@ foreach (string file in files)
         Console.WriteLine(Draw(world, main.Path, start.Value, goal.Value, pass ? null : main.Closed));
     }
 }
-Console.WriteLine($"{passed}/{passed + failed} passed, {skipped} skipped, {missing} missing inputs, planner {Timing.PlannerMs:F0} ms in total");
+Console.WriteLine($"{passed}/{passed + failed} passed, {sealedCount} sealed (no route exists in the world), {skipped} skipped, {missing} missing inputs, planner {Timing.PlannerMs:F0} ms in total");
 return failed == 0 && skipped == 0 && missing == 0 && passed > 0 ? 0 : 1;
 
 static string Fmt(Point p) => $"{p.X},{p.Y}";

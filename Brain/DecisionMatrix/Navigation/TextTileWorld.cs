@@ -54,10 +54,20 @@ public sealed class TextTileWorld : ITileWorld
     private char At(int x, int y)
     {
         int lx = x - OriginX, ly = y - OriginY;
-        if (ly >= Height)
-            return '.';
-        return lx < 0 || ly < 0 || lx >= Width ? '#' : tiles[lx, ly];
+        if (lx < 0 || ly < 0 || lx >= Width || ly >= Height)
+        {
+            AskedOutside = true;
+            return ly >= Height ? '.' : '#';
+        }
+        return tiles[lx, ly];
     }
+
+    /// <summary>
+    /// Set whenever a tile outside the window is read, and cleared by whoever wants to know.
+    /// A search that never asked is a search the window's edge had no part in, which is how the
+    /// replay tells a pocket sealed in the world from a region the capture cut short.
+    /// </summary>
+    public bool AskedOutside;
 
     public bool InWorld(int x, int y) => x >= OriginX && y >= OriginY && x < OriginX + Width && y < OriginY + Height;
     public TileShape Shape(int x, int y) => ShapeOf(At(x, y));

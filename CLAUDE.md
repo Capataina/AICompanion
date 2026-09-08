@@ -80,13 +80,13 @@ dotnet run --project Tools/NavReplay -- Tools/Scenarios
 dotnet run --project Tools/NavReplay -- --trace-jump <scenario.txt>   # the simulated jump S→G, tick by tick
 ```
 
-Every block is one scenario; the tool prints PASS or FAIL for the recorded start-to-goal plan, a second line saying whether the player's feet were reachable when they are in the window, a third saying whether the goal and the player lie inside the region the positioner's own flood reaches from the start (a goal "out" of a "complete" region can never be reached, which is the positioner's finding rather than the grid's), a fourth naming the first tile of the player's trail the grid refuses when the block carries one, and the map with the path (`w j d f`) or, on a failure, every tile the search closed (`c`) so "no path" reads as "it got this far". Exit 0 only when everything passed and nothing was skipped; a recorded goal the window does not hold is skipped as untestable, never replayed to the player's tile instead. A dump written before the mod knew about slopes draws them as walls; rewrite it from the saved world first, which needs the `lihzahrd` parser in a venv (`python3 -m venv /tmp/wldenv && /tmp/wldenv/bin/pip install lihzahrd`):
+Every block is one scenario; the tool prints PASS or FAIL for the recorded start-to-goal plan, a second line saying whether the player's feet were reachable when they are in the window, a third saying whether the goal and the player lie inside the region the positioner's own flood reaches from the start (a goal "out" of a "complete" region is then classed by whether the flood ever read past the window's edge: SEALED START is a pocket the world closes, which is a rescue's job and not the planner's; SEALED GOAL is a spot the positioner must not offer; both clipped is undecidable as cut and wants `--pad`; a sealed block is its own count and does not fail the run), a fourth naming the first tile of the player's trail the grid refuses when the block carries one, and the map with the path (`w j d f`) or, on a failure, every tile the search closed (`c`) so "no path" reads as "it got this far". Exit 0 only when everything passed and nothing was skipped; a recorded goal the window does not hold is skipped as untestable, never replayed to the player's tile instead. A dump written before the mod knew about slopes draws them as walls; rewrite it from the saved world first, which needs the `lihzahrd` parser in a venv (`python3 -m venv /tmp/wldenv && /tmp/wldenv/bin/pip install lihzahrd`):
 
 ```
-/tmp/wldenv/bin/python Tools/WorldWindow/reshape.py Telemetry/<stamp>-plans.txt "~/Library/Application Support/Terraria/tModLoader/Worlds/<world>.wld"
+/tmp/wldenv/bin/python Tools/WorldWindow/reshape.py Telemetry/<stamp>-plans.txt "~/Library/Application Support/Terraria/tModLoader/Worlds/<world>.wld" --pad 48
 ```
 
-The output lands in `Tools/Scenarios/` and is committed, because the scenarios are the growing database of places the companion must be able to go.
+The output lands in `Tools/Scenarios/` and is committed, because the scenarios are the growing database of places the companion must be able to go. `--pad N` grows every window by N tiles from the saved world, because the edge is a wall to the tool and a window cut close fails for the edge rather than the planner; the world is the end of the session, so a padded tile can differ from what the run saw.
 
 ## Traps
 
@@ -101,7 +101,7 @@ The output lands in `Tools/Scenarios/` and is committed, because the scenarios a
 - **`CheckActive` returns false**, so the companion is never culled for distance.
 - **The health bar draws in raw screen pixels** because `Main.mouseX/Y` are screen pixels.
 - **A tile that "has a solid tile" is not a wall.** Worldgen smooths cave corners into slopes and half blocks, the game's collision skips a slope from its open side and rests the body on its diagonal, and the fourth run of 2026-09-08 parked the companion for six thousand ticks above a staircase of five such slopes that the grid drew as `#`. Every tile question goes through `ITileWorld.Shape`, never `tileSolid` alone.
-- **The brain has been watched for four short runs as of 2026-09-08, all on the surface and the first cave.** Jump edges are simulated with the motor's own arithmetic and not yet confirmed in play; the replay tool under `Tools/` is where a navigation claim is checked before a playtest, and `--trace-jump` prints an arc tick by tick.
+- **The brain has been watched for five short runs as of 2026-09-08, all on the surface and the first cave.** Jump edges are simulated with the motor's own arithmetic, the profile chosen per edge and the run-up that supplies its speed are not yet confirmed in play; the replay tool under `Tools/` is where a navigation claim is checked before a playtest, and `--trace-jump` prints an arc tick by tick.
 
 ## Planned work
 
