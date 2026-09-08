@@ -4,7 +4,7 @@ using Microsoft.Xna.Framework;
 using Terraria;
 using Terraria.ID;
 
-namespace AICompanion.Content.Behaviours;
+namespace AICompanion.Work;
 
 /// <summary>
 /// Finds trees the companion can chop. A tree is identified by its bottom trunk
@@ -79,13 +79,14 @@ public static class TreeFinder
         return best;
     }
 
+    /// <summary>The same set the vanilla axe code treats as a tree: trunks, plus palm trees and cactus, which IsATreeTrunk leaves out.</summary>
+    public static bool IsTreeType(int type)
+        => Main.tileAxe[type] && (TileID.Sets.IsATreeTrunk[type] || type == TileID.PalmTree || type == TileID.Cactus);
+
     private static bool IsTreeTile(int x, int y)
     {
         Tile tile = Main.tile[x, y];
-        // The same set the vanilla axe code treats as a tree: trunks, plus palm trees and cactus,
-        // which IsATreeTrunk leaves out.
-        return tile.HasTile && Main.tileAxe[tile.TileType]
-            && (TileID.Sets.IsATreeTrunk[tile.TileType] || tile.TileType == TileID.PalmTree || tile.TileType == TileID.Cactus);
+        return tile.HasTile && IsTreeType(tile.TileType);
     }
 
     /// <summary>Pick a standing spot beside the trunk: left first, then right.</summary>

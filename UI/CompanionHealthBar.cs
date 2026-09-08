@@ -7,7 +7,7 @@ using Terraria;
 using Terraria.GameContent;
 using Terraria.ModLoader;
 using Terraria.UI;
-using AICompanion.Content;
+using AICompanion.Companion;
 using AICompanion.Players;
 
 namespace AICompanion.UI;
@@ -39,8 +39,8 @@ public class CompanionHealthBar : ModSystem
     {
         if (Main.gameMenu || !Main.LocalPlayer.active)
             return true;
-        NPC? npc = Companion.Find();
-        if (npc?.ModNPC is not Companion companion)
+        NPC? npc = CompanionNPC.Find();
+        if (npc?.ModNPC is not CompanionNPC companion)
             return true;
 
         CompanionPlayer save = Main.LocalPlayer.GetModPlayer<CompanionPlayer>();
@@ -87,7 +87,7 @@ public class CompanionHealthBar : ModSystem
         return true;
     }
 
-    private static void DrawBar(Rectangle box, NPC npc, Companion companion, float scale)
+    private static void DrawBar(Rectangle box, NPC npc, CompanionNPC companion, float scale)
     {
         Texture2D pixel = TextureAssets.MagicPixel.Value;
         SpriteBatch sb = Main.spriteBatch;

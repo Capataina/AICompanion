@@ -4,8 +4,9 @@ using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Terraria;
 using Terraria.ModLoader;
+using AICompanion.Companion;
 
-namespace AICompanion.Content.Behaviours;
+namespace AICompanion.Work;
 
 /// <summary>
 /// Draws the companion's tile cracks. The game only draws cracks from the local
@@ -16,7 +17,7 @@ public class TileCracksRenderer : ModSystem
 {
     public override void PostDrawTiles()
     {
-        if (Companion.Find()?.ModNPC is not Companion companion)
+        if (CompanionNPC.Instance is not CompanionNPC companion)
             return;
 
         // DrawTileCracks adds Main.offScreenRange to every position unless drawToScreen, because

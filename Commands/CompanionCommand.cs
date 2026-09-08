@@ -3,7 +3,7 @@
 using Microsoft.Xna.Framework;
 using Terraria;
 using Terraria.ModLoader;
-using AICompanion.Content;
+using AICompanion.Companion;
 using AICompanion.Players;
 
 namespace AICompanion.Commands;
@@ -26,7 +26,7 @@ public class CompanionCommand : ModCommand
         Player player = caller.Player;
         player.GetModPlayer<CompanionPlayer>().HasCompanion = true;
 
-        NPC? existing = Companion.Find();
+        NPC? existing = CompanionNPC.Find();
         if (existing != null)
         {
             existing.Bottom = player.Bottom;
@@ -35,7 +35,7 @@ public class CompanionCommand : ModCommand
             return;
         }
 
-        if (Companion.Spawn(player) < Main.maxNPCs)
+        if (CompanionNPC.Spawn(player) < Main.maxNPCs)
             caller.Reply("A companion joins you.", Color.LightGreen);
         else
             caller.Reply("No room for a companion right now (NPC limit reached).", Color.OrangeRed);

@@ -4,7 +4,7 @@ using System;
 using Microsoft.Xna.Framework;
 using Terraria;
 
-namespace AICompanion.Content.Behaviours;
+namespace AICompanion.Combat.Ballistics;
 
 /// <summary>
 /// How a projectile flies, in the terms the game's own projectile AI uses: a launch
@@ -26,7 +26,7 @@ public readonly record struct WeaponProfile(float Speed, int StraightTicks, floa
 /// behind a wall), and leads a moving target by advancing the target's hitbox along
 /// its velocity for every simulated tick.
 /// </summary>
-public static class ArrowAimer
+public static class TrajectoryAimer
 {
     private const float AngleStepRadians = MathHelper.Pi / 60f; // 3 degrees
     private const float MaxDepressionRadians = MathHelper.Pi / 3f;   // 60 degrees below the direct line

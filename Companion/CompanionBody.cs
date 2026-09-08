@@ -6,7 +6,7 @@ using Terraria;
 using Terraria.ID;
 using Terraria.ModLoader;
 
-namespace AICompanion.Content;
+namespace AICompanion.Companion;
 
 /// <summary>
 /// Draws the companion as the game's own female starter body. A drawing-only
@@ -19,14 +19,14 @@ namespace AICompanion.Content;
 /// to the Guide sprite for the rest of the session; by decision, a companion that
 /// looks like the Guide beats a companion that crashes the draw loop.
 /// </summary>
-public class CompanionAppearance
+public class CompanionBody
 {
     private readonly Player body;
     private bool rendererFailed;
 
     public bool UsesPlayerRenderer => !rendererFailed;
 
-    public CompanionAppearance()
+    public CompanionBody()
     {
         body = new Player
         {
