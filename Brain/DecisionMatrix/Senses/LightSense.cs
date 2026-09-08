@@ -16,10 +16,13 @@ namespace AICompanion.Brain.DecisionMatrix.Senses;
 /// and hysteresis on top of it removes the last way to flicker.
 ///
 /// The window follows the companion, not the camera: a companion sent into a cave while
-/// the player stands in daylight must read the cave. Off screen the lighting engine
-/// holds nothing, so every sample reads 0 there and a companion far away lights its
-/// torch wherever it is; underground that is the wanted behaviour, and on the surface
-/// at noon it is the price, and small.
+/// the player stands in daylight must read the cave. The lighting engine only holds
+/// values for the visible screen, and reads 0 outside it, so the window is clipped to
+/// the screen before averaging; otherwise a companion standing near the screen edge
+/// would count the unlit outside as black and light a torch in a place that is dim, not
+/// dark. When no sample is left the companion is fully off screen, ambient reads 0 and
+/// a companion far away lights its torch wherever it is; underground that is the wanted
+/// behaviour, and on the surface at noon it is the price, and small.
 /// </summary>
 public sealed class LightSense
 {
@@ -51,13 +54,21 @@ public sealed class LightSense
 
         int halfWidth = Main.screenWidth / 32;
         int halfHeight = Main.screenHeight / 32;
+        int screenLeft = (int)(Main.screenPosition.X / 16f);
+        int screenTop = (int)(Main.screenPosition.Y / 16f);
+        int screenRight = screenLeft + Main.screenWidth / 16;
+        int screenBottom = screenTop + Main.screenHeight / 16;
+        int left = Math.Max(c.X - halfWidth, screenLeft);
+        int top = Math.Max(c.Y - halfHeight, screenTop);
+        int right = Math.Min(c.X + halfWidth, screenRight);
+        int bottom = Math.Min(c.Y + halfHeight, screenBottom);
         int excluded2 = ExcludeRadiusTiles * ExcludeRadiusTiles;
 
         float sum = 0f;
         int n = 0;
-        for (int x = c.X - halfWidth; x <= c.X + halfWidth; x += SampleStrideTiles)
+        for (int x = left; x <= right; x += SampleStrideTiles)
         {
-            for (int y = c.Y - halfHeight; y <= c.Y + halfHeight; y += SampleStrideTiles)
+            for (int y = top; y <= bottom; y += SampleStrideTiles)
             {
                 int dx = x - c.X, dy = y - c.Y;
                 if (dx * dx + dy * dy < excluded2)
@@ -66,7 +77,9 @@ public sealed class LightSense
                 n++;
             }
         }
-        Ambient = n > 0 ? sum / n : AtCompanion;
+        // No sample inside the screen means the companion is off screen, where the engine
+        // reads 0 anyway; the window that remains is its own dark or lit neighbourhood.
+        Ambient = n > 0 ? sum / n : 0f;
     }
 
     private static float Brightness(int x, int y)

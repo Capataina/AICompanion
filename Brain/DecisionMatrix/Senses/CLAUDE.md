@@ -17,7 +17,7 @@ Senses/
 
 ## The light numbers
 
-`Ambient` is what the torch decision reads, because it is the one number the companion's own torch cannot raise: the cut-out disc is wider than a torch's glow. The window it averages follows the companion, not the camera: the first version sampled the screen, which is the camera on the player, so a companion sent into a cave while the player stood in daylight read the player's light and never lit up. `AtPlayer` and `AtCompanion` are for the overlay and later factors. Off screen the lighting engine holds nothing and every sample reads 0, so a companion far away lights its torch wherever it is.
+`Ambient` is what the torch decision reads, because it is the one number the companion's own torch cannot raise: the cut-out disc is wider than a torch's glow. The window it averages follows the companion, not the camera: the first version sampled the screen, which is the camera on the player, so a companion sent into a cave while the player stood in daylight read the player's light and never lit up. `AtPlayer` and `AtCompanion` are for the overlay and later factors. The lighting engine only holds values for the visible screen and reads 0 outside it, so the window is clipped to the screen before averaging; without the clip a companion near the screen edge counted the unlit outside as black and lit a torch in a place that was dim, not dark. With no sample left the companion is off screen, ambient reads 0, and a companion far away lights its torch wherever it is.
 
 ## The two derived numbers
 
