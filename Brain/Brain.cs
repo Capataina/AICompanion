@@ -44,6 +44,17 @@ public sealed class Brain
         Vector2? spot = Positioner.Resolve(LastRequest, Senses, profile);
         // Lava is a crossable cost only while there is life to pay it with.
         AStar.AllowLava = Senses.Self.LifeFraction > 0.6f && !Senses.Self.InLava;
+        // Reachable enemies are priced like lava on the route, so a path to a spot beyond one
+        // goes round it rather than through it.
+        AStar.Avoid.Clear();
+        foreach (var threat in Senses.Threats.Threats)
+        {
+            if (!threat.Reachable)
+                continue;
+            Rectangle box = threat.Npc.Hitbox;
+            box.Inflate(24, 24);
+            AStar.Avoid.Add(box);
+        }
         if (spot is Vector2 feet)
             Navigator.MoveTo(companion.NPC, companion.Motor, feet);
         else

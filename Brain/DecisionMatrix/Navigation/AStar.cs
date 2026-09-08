@@ -50,9 +50,11 @@ public static class AStar
         var g = new Dictionary<Point, float>();
         var cameFrom = new Dictionary<Point, (Point from, MoveKind kind)>();
         var closed = new HashSet<Point>();
+        Point nearest = start;
+        float nearestH = H(start, goal);
 
         g[start] = 0f;
-        open.Add(new Open(start, H(start, goal)));
+        open.Add(new Open(start, nearestH));
 
         while (open.Count > 0)
         {
@@ -64,10 +66,16 @@ public static class AStar
             closed.Add(tile);
 
             if (tile == goal)
-                return Rebuild(cameFrom, start, goal);
+                return Rebuild(cameFrom, start, goal, partial: false);
 
+            float h = H(tile, goal);
+            if (h < nearestH)
+            {
+                nearestH = h;
+                nearest = tile;
+            }
             if (++expansions > budget)
-                return null;
+                break;
 
             float gHere = g[tile];
             foreach ((Point next, MoveKind kind, float cost) in Neighbours(tile))
@@ -82,7 +90,9 @@ public static class AStar
                 open.Add(new Open(next, tentative + H(next, goal)));
             }
         }
-        return null;
+        // Out of budget or out of region: the closest tile the search reached is still the
+        // best place to be, and walking there beats standing where the goal went out of view.
+        return nearest == start ? null : Rebuild(cameFrom, start, nearest, partial: true);
     }
 
     private static float H(Point a, Point b)
@@ -91,10 +101,10 @@ public static class AStar
         return dx + dy * 0.5f;
     }
 
-    private static NavPath Rebuild(Dictionary<Point, (Point from, MoveKind kind)> cameFrom, Point start, Point goal)
+    private static NavPath Rebuild(Dictionary<Point, (Point from, MoveKind kind)> cameFrom, Point start, Point end, bool partial)
     {
         var steps = new List<NavStep>();
-        Point at = goal;
+        Point at = end;
         while (at != start)
         {
             (Point from, MoveKind kind) = cameFrom[at];
@@ -102,7 +112,7 @@ public static class AStar
             at = from;
         }
         steps.Reverse();
-        return new NavPath(steps, goal);
+        return new NavPath(steps, end, partial);
     }
 
     /// <summary>
@@ -197,8 +207,29 @@ public static class AStar
         if (NavGrid.HeadSubmergedAt(x, y))
             move *= SubmergedCost;
         int lavaTiles = NavGrid.LavaTilesAt(x, y);
-        return lavaTiles == 0 ? move : move + lavaTiles * LavaTileCost;
+        if (lavaTiles > 0)
+            move += lavaTiles * LavaTileCost;
+        if (Avoid.Count > 0)
+        {
+            Rectangle body = new(x * 16, (y - NavGrid.BodyHeightTiles + 1) * 16, 16, NavGrid.BodyHeightTiles * 16);
+            foreach (Rectangle r in Avoid)
+                if (r.Intersects(body))
+                {
+                    move += AvoidCost;
+                    break;
+                }
+        }
+        return move;
     }
+
+    /// <summary>
+    /// Rectangles the search prices as if they were a wall of lava: the bodies of reachable
+    /// enemies, set by the brain each tick. A route through an enemy is what jumped the
+    /// companion onto zombies on the way to a firing spot beyond them; the price makes the
+    /// detour win wherever one exists and leaves the direct route for when none does.
+    /// </summary>
+    public static readonly List<Rectangle> Avoid = new();
+    public const float AvoidCost = 30f;
 
     private static bool ColumnClearBetween(int x0, int x1, int y)
     {

@@ -52,7 +52,7 @@ AICompanion/
 ├─ Players/                  the ModPlayer: persistence and input
 ├─ Commands/                 /companion
 ├─ Localization/             en-US strings (display name, keybind)
-└─ Telemetry/                written by the mod at run time, one .tsv per world session; ignored by git and the packager, read by an agent after a playtest
+└─ Telemetry/                written by the mod at run time, one .tsv per world session plus a -plans.txt of tile windows for failed plans; ignored by git and the packager, read by an agent after a playtest
 ```
 
 ## Operating manual

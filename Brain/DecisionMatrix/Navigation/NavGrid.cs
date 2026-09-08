@@ -83,7 +83,29 @@ public static class NavGrid
         for (int i = 0; i < BodyHeightTiles; i++)
             if (IsSolid(x, y - i) || (!allowLava && IsLava(x, y - i)))
                 return false;
+        // The body is wider than a tile (20 px against 16), so a column walled on both sides
+        // is a slot it cannot enter however clear the column itself is; one open neighbour
+        // gives it the room to sit off-centre.
+        if (!IsBodyClear(x - 1, y) && !IsBodyClear(x + 1, y))
+            return false;
         return allowLava || !IsLava(x, y + 1);
+    }
+
+    /// <summary>
+    /// The X, in world pixels, of the middle of the open run of columns around
+    /// <paramref name="column"/> at the row the feet are on: columns the body is clear in
+    /// with nothing solid beneath them, a few each way at most. A body dropping into a hole
+    /// steers here rather than to a tile centre, because centred on one column of a two-wide
+    /// shaft it still overhangs the lip by a couple of pixels and the game keeps it standing.
+    /// </summary>
+    public static float OpenSpanCentreX(int column, int feetRow)
+    {
+        const int Reach = 3;
+        bool Open(int c) => IsBodyClear(c, feetRow) && !IsSolid(c, feetRow + 1);
+        int left = column, right = column;
+        while (left > column - Reach && Open(left - 1)) left--;
+        while (right < column + Reach && Open(right + 1)) right++;
+        return (left * 16f + (right + 1) * 16f) / 2f;
     }
 
     /// <summary>How many tiles of the body column and the support under it hold lava.</summary>

@@ -43,8 +43,11 @@ public sealed class BrainTelemetry : ModSystem
         try
         {
             Directory.CreateDirectory(Folder);
-            string path = Path.Combine(Folder, $"{DateTime.Now:yyyy-MM-dd_HH-mm-ss}.tsv");
+            string stamp = $"{DateTime.Now:yyyy-MM-dd_HH-mm-ss}";
+            string path = Path.Combine(Folder, $"{stamp}.tsv");
             writer = new StreamWriter(path, false, Encoding.UTF8);
+            plansPath = Path.Combine(Folder, $"{stamp}-plans.txt");
+            lastDumpTick = -DumpEveryTicks;
             headerWritten = false;
             Mod.Logger.Info($"BrainTelemetry: writing {path}");
         }
@@ -68,6 +71,70 @@ public sealed class BrainTelemetry : ModSystem
         writer?.Flush();
         writer?.Dispose();
         writer = null;
+        plansPath = null;
+    }
+
+    private const int DumpEveryTicks = 300;
+    private const int DumpMaxWidth = 160, DumpMaxHeight = 200, DumpPad = 6;
+    private static string? plansPath;
+    private static long lastDumpTick;
+
+    /// <summary>
+    /// Write the tile window between a failed plan's start and its goal to a sidecar text
+    /// file beside the session's telemetry, a few seconds apart at most, so the link the grid
+    /// is missing can be read off the terrain after the run instead of guessed at. One
+    /// character per tile: # solid, = platform or half block, ~ water or honey, L lava,
+    /// o air the body can stand in, . other air; then S start, G goal, E where a partial
+    /// path ends, N the companion's feet, P the player's feet on top.
+    /// </summary>
+    public static void DumpPlan(Point start, Point goal, Point? partialEnd, int expansions, string why)
+    {
+        if (plansPath == null || Main.GameUpdateCount - lastDumpTick < DumpEveryTicks)
+            return;
+        lastDumpTick = Main.GameUpdateCount;
+        try
+        {
+            int x0 = Math.Min(start.X, goal.X) - DumpPad, x1 = Math.Max(start.X, goal.X) + DumpPad;
+            int y0 = Math.Min(start.Y, goal.Y) - DumpPad, y1 = Math.Max(start.Y, goal.Y) + DumpPad;
+            // A window too big to read is cut to the start's side, because the first missing link is near it.
+            if (x1 - x0 > DumpMaxWidth) { if (goal.X > start.X) x1 = x0 + DumpMaxWidth; else x0 = x1 - DumpMaxWidth; }
+            if (y1 - y0 > DumpMaxHeight) { if (goal.Y > start.Y) y1 = y0 + DumpMaxHeight; else y0 = y1 - DumpMaxHeight; }
+
+            NPC? npc = CompanionNPC.Find();
+            Point n = npc == null ? new Point(-1, -1) : NavGrid.FeetTile(npc.Bottom);
+            Point p = NavGrid.FeetTile(Main.LocalPlayer.Bottom);
+
+            var sb = new StringBuilder((x1 - x0 + 2) * (y1 - y0 + 1) + 200);
+            sb.Append($"tick {Main.GameUpdateCount} {why}: start {start.X},{start.Y} goal {goal.X},{goal.Y}");
+            if (partialEnd is Point e) sb.Append($" partial-end {e.X},{e.Y}");
+            sb.Append($" expansions {expansions} npc {n.X},{n.Y} player {p.X},{p.Y} window x {x0}..{x1} y {y0}..{y1}\n");
+            for (int y = y0; y <= y1; y++)
+            {
+                for (int x = x0; x <= x1; x++)
+                {
+                    var t = new Point(x, y);
+                    char c;
+                    if (t == p) c = 'P';
+                    else if (t == n) c = 'N';
+                    else if (t == start) c = 'S';
+                    else if (t == goal) c = 'G';
+                    else if (partialEnd == t) c = 'E';
+                    else if (NavGrid.IsSolid(x, y)) c = '#';
+                    else if (NavGrid.IsSupport(x, y)) c = '=';
+                    else if (NavGrid.IsLava(x, y)) c = 'L';
+                    else if (NavGrid.IsLiquid(x, y)) c = '~';
+                    else c = NavGrid.IsStandable(x, y) ? 'o' : '.';
+                    sb.Append(c);
+                }
+                sb.Append('\n');
+            }
+            sb.Append('\n');
+            File.AppendAllText(plansPath, sb.ToString());
+        }
+        catch (Exception e)
+        {
+            ModContent.GetInstance<AICompanion>().Logger.Warn($"BrainTelemetry.DumpPlan: {e.Message}");
+        }
     }
 
     /// <summary>Write this tick's line; called once per tick by the NPC after its brain and body have run.</summary>

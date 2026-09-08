@@ -75,11 +75,17 @@ public sealed class Navigator
         {
             Path = null;
             LastPlanFailed = true;
+            LastExpansions = 0;
+            global::AICompanion.Brain.Debug.BrainTelemetry.DumpPlan(start, goal, from, 0, "no standable tile at the start");
             return;
         }
         Path = AStar.Find(from.Value, goal, PlanBudget, out int used);
         LastExpansions = used;
-        LastPlanFailed = Path == null;
+        // A partial path is followed, and still counted as a failure: the goal was not reached
+        // by the plan, and the record needs to say so even while the body walks toward it.
+        LastPlanFailed = Path == null || Path.Partial;
+        if (LastPlanFailed)
+            global::AICompanion.Brain.Debug.BrainTelemetry.DumpPlan(from.Value, goal, Path?.Goal, used, Path == null ? "no path" : "partial path");
     }
 
     private void Follow(NPC npc, CompanionMotor motor)
@@ -117,13 +123,22 @@ public sealed class Navigator
                 motor.MoveX(dir * CompanionMotor.WalkSpeed);
                 break;
             case MoveKind.Drop:
-                motor.MoveX(dir * CompanionMotor.WalkSpeed * 0.8f);
+            {
+                // Steer to the middle of the opening, not the tile: centred on one column of a
+                // two-wide shaft the body still overhangs the lip and never falls.
+                float gap = NavGrid.OpenSpanCentreX(step.Tile.X, NavGrid.FeetTile(npc.Bottom).Y) - npc.Bottom.X;
+                int toGap = MathF.Sign(gap) == 0 ? dir : MathF.Sign(gap);
+                motor.MoveX(motor.OnGround || MathF.Abs(gap) > 2f ? toGap * CompanionMotor.WalkSpeed * 0.8f : 0f);
                 break;
+            }
             case MoveKind.FallThrough:
-                // Centre on the column and let the body pass the platform this tick.
-                motor.MoveX(MathF.Abs(dx) > 2f ? dir * CompanionMotor.WalkSpeed * 0.5f : 0f);
+            {
+                // Same steer, then let the body pass the platform this tick.
+                float gap = NavGrid.OpenSpanCentreX(step.Tile.X, NavGrid.FeetTile(npc.Bottom).Y) - npc.Bottom.X;
+                motor.MoveX(MathF.Abs(gap) > 2f ? MathF.Sign(gap) * CompanionMotor.WalkSpeed * 0.5f : 0f);
                 motor.WantsFallThrough = true;
                 break;
+            }
             default:
                 motor.MoveX(dir * CompanionMotor.WalkSpeed);
                 if (motor.OnGround && (WallAhead(npc, dir) || riseTiles >= 2))
