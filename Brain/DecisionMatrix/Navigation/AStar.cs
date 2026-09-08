@@ -157,10 +157,10 @@ public static class AStar
     /// <summary>
     /// What the body can reach from a feet tile. Walk to a standable neighbour on the same
     /// row or one up (a step). Drop off an edge to the first standable tile below. Fall
-    /// through the platform underfoot to the first standable tile below it. Jump to
-    /// standable tiles up to JumpHeightTiles up and JumpGapTiles across when the column
-    /// above the start and the body at the landing are clear. From inside liquid every move
-    /// costs more and the jump envelope is halved, because the game halves a wet NPC's
+    /// through the platform underfoot to the first standable tile below it. Jump to any
+    /// standable tile in the jump box where the follower's own jump, simulated tick by tick
+    /// against the shapes, lands in that tile. From inside liquid every move costs more, and
+    /// the simulated jump moves at half speed while wet because the game halves a wet NPC's
     /// movement; the search then prefers walking out along the floor to jumping in place.
     /// </summary>
     private static IEnumerable<(Point, MoveKind, float)> Neighbours(Point t)
@@ -218,46 +218,53 @@ public static class AStar
             }
         }
 
-        // Jumps: need headroom above the start.
-        int maxUp = wet ? NavGrid.JumpHeightTiles / 2 : NavGrid.JumpHeightTiles;
-        int maxGap = wet ? NavGrid.JumpGapTiles / 2 : NavGrid.JumpGapTiles;
-        int headroom = 0;
-        while (headroom < maxUp && !NavGrid.IsBlock(t.X, t.Y - NavGrid.BodyHeightTiles - headroom))
-            headroom++;
-        if (headroom == 0)
+        // Jumps: the follower's own jump, simulated tick by tick against the shapes, to every
+        // standable tile in the search box; an edge exists only where the simulated body lands
+        // in exactly that tile, so the planner offers the jumps the body makes and no others. The
+        // box (JumpHeightTiles up, JumpGapTiles across, two rows down for a gap jumped downhill) is
+        // only where to look; the arc decides. A jump straight up onto the tile above needs a
+        // platform to pass through, which Fits allows and a block refuses.
+        if (here is not BodyPhysics.Pose fromPose || NavGrid.IsBlock(t.X, t.Y - NavGrid.BodyHeightTiles))
             yield break;
-
-        for (int dx = -maxGap; dx <= maxGap; dx++)
+        for (int dx = -NavGrid.JumpGapTiles; dx <= NavGrid.JumpGapTiles; dx++)
         {
-            for (int up = 1; up <= headroom; up++)
+            for (int ny = t.Y - NavGrid.JumpHeightTiles; ny <= t.Y + 2; ny++)
             {
-                int nx = t.X + dx, ny = t.Y - up;
-                if (!NavGrid.IsStandable(nx, ny, lava))
+                int nx = t.X + dx;
+                if ((dx == 0 && ny >= t.Y) || !NavGrid.IsStandable(nx, ny, lava))
                     continue;
-                // Coarse arc check: the body must be clear at the apex column above the start and at the landing.
-                if (!NavGrid.IsBodyClear(t.X, t.Y - up) || !ColumnClearBetween(t.X, nx, ny))
+                int rise = t.Y - ny;
+                // The same scale the follower picks for this rise (Navigator's Jump step). The
+                // speed the body carries into the jump is not part of a node, so the edge exists
+                // if either a standing jump or a running jump lands in the tile: a path mostly
+                // walks into its jumps at speed, and a jump the body cannot make from a stand
+                // after a reversal shows up as a stuck count and a replan rather than a missing edge.
+                float scale = rise >= 2 ? BodyPhysics.JumpScaleForTiles(rise) : 1f;
+                var target = new Point(nx, ny);
+                int ticks = -1;
+                foreach (float startVx in new[] { 0f, Math.Sign(dx) * BodyPhysics.WalkSpeed })
+                {
+                    if (BodyPhysics.SimulateJump(NavGrid.World, fromPose, scale, startVx, nx, MaxJumpTicks, out int flight) is not BodyPhysics.Pose landing)
+                        continue;
+                    var landed = new Point((int)Math.Floor(landing.CentreX / 16f), BodyPhysics.FeetRow(landing.Bottom));
+                    if (landed == target && (ticks < 0 || flight < ticks))
+                        ticks = flight;
+                }
+                if (ticks < 0)
                     continue;
-                yield return (new Point(nx, ny), MoveKind.Jump, PriceSwept(t, new Point(nx, ny), JumpCost(dx, up) * costScale));
+                yield return (target, MoveKind.Jump, PriceSwept(t, target, JumpCost(ticks) * costScale));
             }
-            // Gap jump on the same row, only over a real gap: with every tile between standable
-            // the walk exists and is cheaper, and offering the jump as well priced a four-tile
-            // hop level with a four-tile walk, which is how the body hopped along flat ground.
-            if (Math.Abs(dx) >= 2 && NavGrid.IsStandable(t.X + dx, t.Y, lava) && !RowStandableBetween(t.X, t.X + dx, t.Y, lava) && ColumnClearBetween(t.X, t.X + dx, t.Y - 1))
-                yield return (new Point(t.X + dx, t.Y), MoveKind.Jump, PriceSwept(t, new Point(t.X + dx, t.Y), JumpCost(dx, 0) * costScale));
         }
     }
 
-    /// <summary>A jump always costs more than walking the same tiles, so it is taken only where the walk does not exist.</summary>
-    private static float JumpCost(int dx, int up) => 2f + Math.Abs(dx) * 1f + up * 0.5f;
+    /// <summary>The longest flight the planner follows before giving up on a landing.</summary>
+    private const int MaxJumpTicks = 120;
 
-    private static bool RowStandableBetween(int x0, int x1, int y, bool lava)
-    {
-        int step = Math.Sign(x1 - x0);
-        for (int x = x0 + step; x != x1; x += step)
-            if (!NavGrid.IsStandable(x, y, lava))
-                return false;
-        return true;
-    }
+    /// <summary>
+    /// A jump costs its flight time in walked tiles plus one, so a jump is taken only where the
+    /// walk of the same width does not exist, and a long arc costs more than a short hop.
+    /// </summary>
+    private static float JumpCost(int ticks) => 1f + ticks * BodyPhysics.WalkSpeed / 16f;
 
     /// <summary>
     /// What arriving at a node costs on top of the move: a submerged head multiplies (a
@@ -310,14 +317,4 @@ public static class AStar
     public static readonly List<Rectangle> Avoid = new();
     public const float AvoidCost = 30f;
 
-    private static bool ColumnClearBetween(int x0, int x1, int y)
-    {
-        int step = Math.Sign(x1 - x0);
-        if (step == 0)
-            return true;
-        for (int x = x0 + step; x != x1; x += step)
-            if (!NavGrid.IsBodyClear(x, y))
-                return false;
-        return NavGrid.IsBodyClear(x1, y);
-    }
 }

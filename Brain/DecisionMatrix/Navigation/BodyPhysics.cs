@@ -71,6 +71,85 @@ public static class BodyPhysics
     /// <summary>Vertical offset of a full jump from standing after so many ticks, from the jump velocity and gravity (negative is up).</summary>
     public static float JumpOffsetAt(int ticks) => JumpVelocity * ticks + Gravity / 2f * ticks * ticks;
 
+    /// <summary>
+    /// The speed to ask the motor for when steering the body's centre onto <paramref name="targetX"/>
+    /// in the air: full walk speed toward it, and nothing once the remaining distance is inside the
+    /// stopping distance at the current speed (v² over twice the slowdown), so the body coasts onto
+    /// the column instead of hunting across it at full speed and landing a tile beyond. The path
+    /// follower and the planner's jump simulation share this rule, which is what lets the planner
+    /// promise a landing tile the follower then reaches.
+    /// </summary>
+    public static float SteerToward(float targetX, float centreX, float vx)
+    {
+        float d = targetX - centreX;
+        if (MathF.Abs(d) <= 2f)
+            return 0f;
+        float stopping = vx * vx / (2f * Slowdown);
+        if (MathF.Sign(d) == MathF.Sign(vx) && MathF.Abs(d) <= stopping)
+            return 0f;
+        return MathF.Sign(d) * WalkSpeed;
+    }
+
+    /// <summary>
+    /// The jump the path follower makes, tick by tick: from a standing pose, a jump at
+    /// <paramref name="scale"/> of the full velocity, steering toward the centre of
+    /// <paramref name="steerColumn"/> every tick with SteerToward and the motor's own acceleration
+    /// rule, under NPC gravity, with the displacement halved while the feet are in liquid the way the
+    /// game halves a wet NPC's movement. Sideways the body is stopped by any shape it meets; upward it
+    /// stops under a ceiling and falls; downward it lands on the first surface it crosses, checked in
+    /// short steps so a fast fall cannot pass through a thin ledge. Returns the pose it lands in, or
+    /// null if it never lands inside <paramref name="maxTicks"/>; <paramref name="ticks"/> is the
+    /// flight time, which is what the edge costs. <paramref name="startVx"/> is the horizontal
+    /// speed the body carries into the jump: zero from standing, the walk speed from a run-up,
+    /// and the difference is about three tiles against seven, because the motor takes most of a
+    /// second to reach walk speed from rest.
+    /// </summary>
+    public static Pose? SimulateJump(ITileWorld world, Pose from, float scale, float startVx, int steerColumn, int maxTicks, out int ticks)
+        => SimulateJump(world, from, scale, startVx, steerColumn, maxTicks, out ticks, null);
+
+    /// <summary>One tick of a simulated jump, handed to a trace callback by the replay tool.</summary>
+    public readonly record struct JumpTick(int Tick, float Left, float Bottom, float Vx, float Vy, int FeetColumn, int FeetRow);
+
+    public static Pose? SimulateJump(ITileWorld world, Pose from, float scale, float startVx, int steerColumn, int maxTicks, out int ticks, System.Action<JumpTick>? trace)
+    {
+        float left = from.Left, bottom = from.Bottom;
+        float vx = startVx, vy = JumpVelocity * scale;
+        float targetCentre = steerColumn * 16f + 8f;
+        for (ticks = 1; ticks <= maxTicks; ticks++)
+        {
+            vx = StepVelocity(vx, SteerToward(targetCentre, left + Width / 2f, vx));
+            vy = StepFall(vy);
+            int feetColumn = (int)MathF.Floor((left + Width / 2f) / 16f);
+            int feetRow = FeetRow(bottom);
+            trace?.Invoke(new JumpTick(ticks, left, bottom, vx, vy, feetColumn, feetRow));
+            float move = world.Water(feetColumn, feetRow) || world.Lava(feetColumn, feetRow) ? 0.5f : 1f;
+
+            float nextLeft = left + vx * move;
+            if (Fits(world, nextLeft, bottom)) left = nextLeft; else vx = 0f;
+
+            float nextBottom = bottom + vy * move;
+            if (vy < 0f)
+            {
+                if (Fits(world, left, nextBottom)) bottom = nextBottom; else vy = 0f;
+                continue;
+            }
+            float remaining = nextBottom - bottom;
+            while (remaining > 0f)
+            {
+                float step = MathF.Min(4f, remaining);
+                if (Fits(world, left, bottom + step))
+                {
+                    bottom += step;
+                    remaining -= step;
+                    continue;
+                }
+                float? rest = RestBottom(world, left, FeetRow(bottom));
+                return rest is float r && r >= bottom - 1f && Fits(world, left, r) ? new Pose(left, r) : null;
+            }
+        }
+        return null;
+    }
+
     /// <summary>A place the body stands: its left edge and the pixel row its feet rest on, both in world pixels.</summary>
     public readonly record struct Pose(float Left, float Bottom)
     {

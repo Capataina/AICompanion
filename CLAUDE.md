@@ -77,6 +77,7 @@ Replay a run's failed plans without the game (what a session does after a playte
 ```
 dotnet run --project Tools/NavReplay -- Telemetry/<stamp>-plans.txt
 dotnet run --project Tools/NavReplay -- Tools/Scenarios
+dotnet run --project Tools/NavReplay -- --trace-jump <scenario.txt>   # the simulated jump S→G, tick by tick
 ```
 
 Every block is one scenario; the tool prints PASS or FAIL for the recorded start-to-goal plan, a second line saying whether the player's feet were reachable when they are in the window, a third saying whether the goal and the player lie inside the region the positioner's own flood reaches from the start (a goal "out" of a "complete" region can never be reached, which is the positioner's finding rather than the grid's), and the map with the path (`w j d f`) or, on a failure, every tile the search closed (`c`) so "no path" reads as "it got this far". Exit 0 only when everything passed and nothing was skipped. A dump written before the mod knew about slopes draws them as walls; rewrite it from the saved world first, which needs the `lihzahrd` parser in a venv (`python3 -m venv /tmp/wldenv && /tmp/wldenv/bin/pip install lihzahrd`):
@@ -100,7 +101,7 @@ The output lands in `Tools/Scenarios/` and is committed, because the scenarios a
 - **`CheckActive` returns false**, so the companion is never culled for distance.
 - **The health bar draws in raw screen pixels** because `Main.mouseX/Y` are screen pixels.
 - **A tile that "has a solid tile" is not a wall.** Worldgen smooths cave corners into slopes and half blocks, the game's collision skips a slope from its open side and rests the body on its diagonal, and the fourth run of 2026-09-08 parked the companion for six thousand ticks above a staircase of five such slopes that the grid drew as `#`. Every tile question goes through `ITileWorld.Shape`, never `tileSolid` alone.
-- **The brain has been watched for four short runs as of 2026-09-08, all on the surface and the first cave.** Jump reach in `NavGrid` is derived, not measured; the replay tool under `Tools/` is where a navigation claim is checked before a playtest.
+- **The brain has been watched for four short runs as of 2026-09-08, all on the surface and the first cave.** Jump edges are simulated with the motor's own arithmetic and not yet confirmed in play; the replay tool under `Tools/` is where a navigation claim is checked before a playtest, and `--trace-jump` prints an arc tick by tick.
 
 ## Planned work
 

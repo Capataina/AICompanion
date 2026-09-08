@@ -19,10 +19,13 @@ using AICompanion.Brain.DecisionMatrix.Navigation;
 // otherwise; the counts are in the last line, never in the status, which wraps at 256.
 
 int failed = 0, passed = 0, skipped = 0, missing = 0;
+bool traceJump = false;
 var files = new List<string>();
 foreach (string arg in args)
 {
-    if (Directory.Exists(arg))
+    if (arg == "--trace-jump")
+        traceJump = true;
+    else if (Directory.Exists(arg))
         files.AddRange(Directory.GetFiles(arg, "*.txt"));
     else if (File.Exists(arg))
         files.Add(arg);
@@ -61,6 +64,14 @@ foreach (string file in files)
         // The overlay hides G under P when the goal is the player's own tile; then they are one question.
         goal ??= player;
 
+        // --trace-jump: the simulated jump from S to G, tick by tick, from standing and from a
+        // run-up, so a jump the planner refuses can be read as the arc the body would fly.
+        if (traceJump)
+        {
+            TraceJump(start.Value, goal.Value);
+            continue;
+        }
+
         Point? from = Ground(world, start.Value);
         (NavPath? path, int used, bool pass) = Run(from, goal!.Value);
         (NavPath? toPlayer, int usedPlayer, bool passPlayer) = player is Point pl && pl != goal ? Run(from, pl) : (path, used, pass);
@@ -83,10 +94,30 @@ foreach (string file in files)
         Console.WriteLine(Draw(world, path, start.Value, goal.Value, pass ? null : AStar.TraceClosed));
     }
 }
-Console.WriteLine($"{passed}/{passed + failed} passed, {skipped} skipped, {missing} missing inputs");
+Console.WriteLine($"{passed}/{passed + failed} passed, {skipped} skipped, {missing} missing inputs, planner {Timing.PlannerMs:F0} ms in total");
 return failed == 0 && skipped == 0 && missing == 0 && passed > 0 ? 0 : 1;
 
 static string Fmt(Point p) => $"{p.X},{p.Y}";
+
+static void TraceJump(Point start, Point goal)
+{
+    if (NavGrid.StandAt(start.X, start.Y, false) is not BodyPhysics.Pose from)
+    {
+        Console.WriteLine($"trace-jump: no pose at {Fmt(start)}");
+        return;
+    }
+    int rise = start.Y - goal.Y;
+    float scale = rise >= 2 ? BodyPhysics.JumpScaleForTiles(rise) : 1f;
+    foreach (float startVx in new[] { 0f, Math.Sign(goal.X - start.X) * BodyPhysics.WalkSpeed })
+    {
+        Console.WriteLine($"trace-jump {Fmt(start)} -> {Fmt(goal)} scale {scale:F2} startVx {startVx:F1}: pose left {from.Left} bottom {from.Bottom}");
+        BodyPhysics.Pose? landing = BodyPhysics.SimulateJump(NavGrid.World, from, scale, startVx, goal.X, 120, out int ticks, tick =>
+            Console.WriteLine($"   t{tick.Tick,3} left {tick.Left,7:F1} bottom {tick.Bottom,7:F1} vx {tick.Vx,5:F2} vy {tick.Vy,5:F2} feet {tick.FeetColumn},{tick.FeetRow}"));
+        Console.WriteLine(landing is BodyPhysics.Pose l
+            ? $"   landed after {ticks} ticks at left {l.Left:F1} bottom {l.Bottom:F1}, feet tile {(int)Math.Floor(l.CentreX / 16f)},{BodyPhysics.FeetRow(l.Bottom)}"
+            : $"   never landed within {ticks} ticks");
+    }
+}
 
 static string Describe(NavPath? path, int used)
     => $"{(path == null ? "no path" : $"{path.Steps.Count} steps{(path.Partial ? $", partial, ends {Fmt(path.Goal)}" : "")}")}, {used} expansions, {AStar.TraceClosed?.Count ?? 0} tiles reached";
@@ -107,7 +138,9 @@ static (NavPath?, int, bool) Run(Point? from, Point goal)
     Point? to = NavGrid.NearestStandable(goal, 3);
     AStar.TraceClosed = new HashSet<Point>();
     int used = 0;
+    var clock = System.Diagnostics.Stopwatch.StartNew();
     NavPath? path = from == null || to == null ? null : AStar.Find(from.Value, to.Value, 20000, out used);
+    Timing.PlannerMs += clock.Elapsed.TotalMilliseconds;
     return (path, used, path != null && !path.Partial);
 }
 
@@ -169,4 +202,10 @@ static string Draw(TextTileWorld world, NavPath? path, Point start, Point goal, 
         sb.Append('\n');
     }
     return sb.ToString();
+}
+
+/// <summary>Planner wall-clock over the run, because the simulated jump is the first edge whose cost is a number worth watching.</summary>
+static class Timing
+{
+    public static double PlannerMs;
 }

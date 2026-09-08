@@ -122,10 +122,13 @@ public sealed class Navigator
         switch (step.Kind)
         {
             case MoveKind.Jump:
-                // Jump first so the arc starts from the current tile, then steer in the air.
+                // Jump first so the arc starts from the current tile, then steer in the air with
+                // the same rule the planner simulated: full speed toward the landing column, and
+                // coast once inside the stopping distance, so the body lands on the tile the plan
+                // promised instead of hunting past it.
                 if (motor.OnGround)
                     motor.Jump(riseTiles >= 2 ? CompanionMotor.JumpScaleForTiles(riseTiles) : 1f);
-                motor.MoveX(dir * CompanionMotor.WalkSpeed);
+                motor.MoveX(BodyPhysics.SteerToward(stepWorld.X, npc.Bottom.X, npc.velocity.X));
                 break;
             case MoveKind.Drop:
             {
