@@ -48,7 +48,9 @@ public sealed class Navigator
         // A failed plan is not retried every tick: at the full budget that is ~3 ms per tick for
         // as long as the goal stays unreachable. It waits FailedPlanRetry ticks unless the goal moves.
         bool failedRecently = LastPlanFailed && ticksSincePlan < FailedPlanRetry;
-        bool stale = (Path == null && !failedRecently) || (Path != null && (Path.Finished || ticksSincePlan >= ReplanInterval || stuckTicks > 40));
+        // A finished partial path is a failed plan that has been walked out: it waits like one.
+        bool noPath = Path == null || (Path.Partial && Path.Finished);
+        bool stale = (noPath && !failedRecently) || (!noPath && (Path!.Finished || ticksSincePlan >= ReplanInterval || stuckTicks > 40));
         // Plan only from the ground: an airborne body has no standable tile under it, and a
         // plan that failed for that reason blocked replanning for the retry wait, during which
         // straight walking hopped every kerb and put the body back in the air for the next try.
@@ -129,7 +131,7 @@ public sealed class Navigator
             {
                 // Steer to the middle of the opening, not the tile: centred on one column of a
                 // two-wide shaft the body still overhangs the lip and never falls.
-                float gap = NavGrid.OpenSpanCentreX(step.Tile.X, NavGrid.FeetTile(npc.Bottom).Y) - npc.Bottom.X;
+                float gap = NavGrid.OpenSpanCentreX(step.Tile.X, NavGrid.FeetTile(npc.Bottom).Y, throughPlatform: false) - npc.Bottom.X;
                 int toGap = MathF.Sign(gap) == 0 ? dir : MathF.Sign(gap);
                 motor.MoveX(motor.OnGround || MathF.Abs(gap) > 2f ? toGap * CompanionMotor.WalkSpeed * 0.8f : 0f);
                 break;
@@ -137,7 +139,7 @@ public sealed class Navigator
             case MoveKind.FallThrough:
             {
                 // Same steer, then let the body pass the platform this tick.
-                float gap = NavGrid.OpenSpanCentreX(step.Tile.X, NavGrid.FeetTile(npc.Bottom).Y) - npc.Bottom.X;
+                float gap = NavGrid.OpenSpanCentreX(step.Tile.X, NavGrid.FeetTile(npc.Bottom).Y, throughPlatform: true) - npc.Bottom.X;
                 motor.MoveX(MathF.Abs(gap) > 2f ? MathF.Sign(gap) * CompanionMotor.WalkSpeed * 0.5f : 0f);
                 motor.WantsFallThrough = true;
                 break;

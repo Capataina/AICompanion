@@ -64,6 +64,9 @@ public sealed class HuntAction : CompanionAction
                 continue; // sealed off and no shot: not worth a thought
             float score = 0.4f * t.Urgency + 0.6f * Consideration.Inverse(t.DistanceToCompanion, Weights.HuntReach);
             if (t.IsBoss) score += 0.3f;
+            // An on-screen enemy is always a candidate: beyond HuntReach the distance term is zero
+            // and a calm enemy's urgency is zero too, which vetoed it before the screen rule scored it.
+            if (score <= 0f && t.Npc.Hitbox.Intersects(screen)) score = 0.05f;
             if (score > bestScore)
             {
                 bestScore = score;

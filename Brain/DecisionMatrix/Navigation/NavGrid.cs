@@ -30,7 +30,9 @@ public static class NavGrid
         if (!WorldGen.InWorld(x, y, 5))
             return true;
         Tile t = Main.tile[x, y];
-        return t.HasTile && Main.tileSolid[t.TileType] && !Main.tileSolidTop[t.TileType];
+        // An actuated block is drawn but not collided with, and the game's own collision skips
+        // it; a grid that counted it solid walled off passages the body walks through.
+        return t.HasTile && !t.IsActuated && Main.tileSolid[t.TileType] && !Main.tileSolidTop[t.TileType];
     }
 
     /// <summary>A platform or half block: something feet rest on that the body can also pass through.</summary>
@@ -98,10 +100,12 @@ public static class NavGrid
     /// steers here rather than to a tile centre, because centred on one column of a two-wide
     /// shaft it still overhangs the lip by a couple of pixels and the game keeps it standing.
     /// </summary>
-    public static float OpenSpanCentreX(int column, int feetRow)
+    public static float OpenSpanCentreX(int column, int feetRow, bool throughPlatform)
     {
         const int Reach = 3;
-        bool Open(int c) => IsBodyClear(c, feetRow) && !IsSolid(c, feetRow + 1);
+        // A drop wants the open air beside the lip; a fall-through wants the platform the body
+        // is passing, because steering off a one-tile platform into open air loses the landing.
+        bool Open(int c) => IsBodyClear(c, feetRow) && (throughPlatform ? IsPlatformUnder(c, feetRow) : !IsSupport(c, feetRow + 1));
         int left = column, right = column;
         while (left > column - Reach && Open(left - 1)) left--;
         while (right < column + Reach && Open(right + 1)) right++;

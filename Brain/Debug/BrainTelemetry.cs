@@ -109,8 +109,8 @@ public sealed class BrainTelemetry : ModSystem
             int x0 = Math.Min(start.X, goal.X) - DumpPad, x1 = Math.Max(start.X, goal.X) + DumpPad;
             int y0 = Math.Min(start.Y, goal.Y) - DumpPad, y1 = Math.Max(start.Y, goal.Y) + DumpPad;
             // A window too big to read is cut to the start's side, because the first missing link is near it.
-            if (x1 - x0 > DumpMaxWidth) { if (goal.X > start.X) x1 = x0 + DumpMaxWidth; else x0 = x1 - DumpMaxWidth; }
-            if (y1 - y0 > DumpMaxHeight) { if (goal.Y > start.Y) y1 = y0 + DumpMaxHeight; else y0 = y1 - DumpMaxHeight; }
+            if (x1 - x0 >= DumpMaxWidth) { if (goal.X > start.X) x1 = x0 + DumpMaxWidth - 1; else x0 = x1 - DumpMaxWidth + 1; }
+            if (y1 - y0 >= DumpMaxHeight) { if (goal.Y > start.Y) y1 = y0 + DumpMaxHeight - 1; else y0 = y1 - DumpMaxHeight + 1; }
 
             NPC? npc = CompanionNPC.Find();
             Point n = npc == null ? new Point(-1, -1) : NavGrid.FeetTile(npc.Bottom);

@@ -23,7 +23,9 @@ public static class Reachability
         if (start == null || goal == null)
             return true;
         NavPath? path = AStar.Find(start.Value, goal.Value, WalkerBudget, out int used);
-        return path != null || used > WalkerBudget;
+        // A partial path is the search saying it could get closer, not that it arrived; only a
+        // whole path or a budget that ran out answers yes.
+        return (path != null && !path.Partial) || used > WalkerBudget;
     }
 
     /// <summary>Flood fill through non-solid tiles from the flyer toward a box around the target.</summary>

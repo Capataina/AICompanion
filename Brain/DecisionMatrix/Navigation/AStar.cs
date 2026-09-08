@@ -69,7 +69,9 @@ public static class AStar
                 return Rebuild(cameFrom, start, goal, partial: false);
 
             float h = H(tile, goal);
-            if (h < nearestH)
+            // A partial end is chosen by closeness alone, so a lava tile must not be eligible:
+            // its price steers a whole path round it but cannot stop it being the nearest.
+            if (h < nearestH && NavGrid.LavaTilesAt(tile.X, tile.Y) == 0)
             {
                 nearestH = h;
                 nearest = tile;
@@ -146,7 +148,7 @@ public static class AStar
                         break;
                     if (NavGrid.IsStandable(nx, t.Y + dy, lava))
                     {
-                        yield return (new Point(nx, t.Y + dy), MoveKind.Drop, Price(nx, t.Y + dy, (1f + dy * 0.2f) * costScale));
+                        yield return (new Point(nx, t.Y + dy), MoveKind.Drop, PriceSwept(t, new Point(nx, t.Y + dy), (1f + dy * 0.2f) * costScale));
                         break;
                     }
                 }
@@ -163,7 +165,7 @@ public static class AStar
                     break;
                 if (NavGrid.IsStandable(t.X, t.Y + dy, lava))
                 {
-                    yield return (new Point(t.X, t.Y + dy), MoveKind.FallThrough, Price(t.X, t.Y + dy, (1f + dy * 0.2f) * costScale));
+                    yield return (new Point(t.X, t.Y + dy), MoveKind.FallThrough, PriceSwept(t, new Point(t.X, t.Y + dy), (1f + dy * 0.2f) * costScale));
                     break;
                 }
             }
@@ -188,13 +190,13 @@ public static class AStar
                 // Coarse arc check: the body must be clear at the apex column above the start and at the landing.
                 if (!NavGrid.IsBodyClear(t.X, t.Y - up) || !ColumnClearBetween(t.X, nx, ny))
                     continue;
-                yield return (new Point(nx, ny), MoveKind.Jump, Price(nx, ny, JumpCost(dx, up) * costScale));
+                yield return (new Point(nx, ny), MoveKind.Jump, PriceSwept(t, new Point(nx, ny), JumpCost(dx, up) * costScale));
             }
             // Gap jump on the same row, only over a real gap: with every tile between standable
             // the walk exists and is cheaper, and offering the jump as well priced a four-tile
             // hop level with a four-tile walk, which is how the body hopped along flat ground.
             if (Math.Abs(dx) >= 2 && NavGrid.IsStandable(t.X + dx, t.Y, lava) && !RowStandableBetween(t.X, t.X + dx, t.Y, lava) && ColumnClearBetween(t.X, t.X + dx, t.Y - 1))
-                yield return (new Point(t.X + dx, t.Y), MoveKind.Jump, Price(t.X + dx, t.Y, JumpCost(dx, 0) * costScale));
+                yield return (new Point(t.X + dx, t.Y), MoveKind.Jump, PriceSwept(t, new Point(t.X + dx, t.Y), JumpCost(dx, 0) * costScale));
         }
     }
 
@@ -223,17 +225,33 @@ public static class AStar
         int lavaTiles = NavGrid.LavaTilesAt(x, y);
         if (lavaTiles > 0)
             move += lavaTiles * LavaTileCost;
-        if (Avoid.Count > 0)
-        {
-            Rectangle body = new(x * 16, (y - NavGrid.BodyHeightTiles + 1) * 16, 16, NavGrid.BodyHeightTiles * 16);
-            foreach (Rectangle r in Avoid)
-                if (r.Intersects(body))
-                {
-                    move += AvoidCost;
-                    break;
-                }
-        }
+        if (InAvoid(Body(x, y)))
+            move += AvoidCost;
         return move;
+    }
+
+    /// <summary>
+    /// The price of a move that passes through the air between two tiles (a drop, a fall, a
+    /// jump): the destination's price, plus the enemy price once if the body's sweep between
+    /// the two meets an enemy the destination alone does not, because a long drop through a
+    /// flyer was otherwise free.
+    /// </summary>
+    private static float PriceSwept(Point from, Point to, float move)
+    {
+        float price = Price(to.X, to.Y, move);
+        if (Avoid.Count > 0 && !InAvoid(Body(to.X, to.Y)) && InAvoid(Rectangle.Union(Body(from.X, from.Y), Body(to.X, to.Y))))
+            price += AvoidCost;
+        return price;
+    }
+
+    private static Rectangle Body(int x, int y) => new(x * 16, (y - NavGrid.BodyHeightTiles + 1) * 16, 16, NavGrid.BodyHeightTiles * 16);
+
+    private static bool InAvoid(Rectangle body)
+    {
+        foreach (Rectangle r in Avoid)
+            if (r.Intersects(body))
+                return true;
+        return false;
     }
 
     /// <summary>
