@@ -34,8 +34,9 @@ public sealed class Reflexes
         if (holdTicks > 0)
         {
             holdTicks--;
-            if (Active == "step-back")
-                motor.MoveX(stepDirection * CompanionMotor.WalkSpeed);
+            // Both dodges steer away from the threat for the hold: a jump that kept the speed
+            // the hunt had built toward the enemy landed on the enemy.
+            motor.MoveX(stepDirection * CompanionMotor.WalkSpeed);
             if (holdTicks == 0)
                 refractory = RefractoryTicks;
             return true;
@@ -55,16 +56,19 @@ public sealed class Reflexes
             if (!WillHit(t, me))
                 continue;
 
-            // Both dodges are simulated against the predicted hitbox before either is taken: the
-            // first run jumped at everything, which lifts the body into a flyer at head height.
+            // Both dodges are simulated against every reachable threat's prediction before either
+            // is taken, with the body drifting the way the motor will actually carry it: the
+            // first run jumped at everything, which lifts the body into a flyer at head height,
+            // and the second run's jump kept its run-up and landed on the enemy it was chasing.
             int away = t.Npc.Center.X > npc.Center.X ? -1 : 1;
-            bool jumpClears = motor.OnGround && !WillHitWhileJumping(t, me, npc);
-            bool stepClears = !WillHitWhileStepping(t, me, away, npc);
+            bool jumpClears = motor.OnGround && !WillHitWhileJumping(senses, me, away, npc);
+            bool stepClears = !WillHitWhileStepping(senses, me, away, npc);
             Point feet = NavGrid.FeetTile(npc.Bottom);
             bool room = NavGrid.IsBodyClear(feet.X + away, feet.Y) && NavGrid.IsBodyClear(feet.X + 2 * away, feet.Y);
 
             if (jumpClears && motor.Jump())
             {
+                stepDirection = away;
                 Active = "dodge-jump";
                 holdTicks = JumpHoldTicks;
                 return true;
@@ -92,19 +96,8 @@ public sealed class Reflexes
         return false;
     }
 
-    private static bool WillHitWhileJumping(ThreatRecord t, Rectangle me, NPC npc)
-    {
-        for (int tick = 2; tick <= Weights.DodgeLookaheadTicks; tick += 2)
-        {
-            Rectangle body = me;
-            body.Y += (int)CompanionMotor.JumpOffsetAt(tick);
-            if (t.PredictedHitbox(tick).Intersects(body))
-                return true;
-        }
-        return false;
-    }
-
-    private static bool WillHitWhileStepping(ThreatRecord t, Rectangle me, int away, NPC npc)
+    /// <summary>The jump arc with the motor steering away, against every reachable threat.</summary>
+    private static bool WillHitWhileJumping(Senses.Senses senses, Rectangle me, int away, NPC npc)
     {
         float v = npc.velocity.X;
         float x = 0f;
@@ -116,9 +109,37 @@ public sealed class Reflexes
                 continue;
             Rectangle body = me;
             body.X += (int)x;
-            if (t.PredictedHitbox(tick).Intersects(body))
+            body.Y += (int)CompanionMotor.JumpOffsetAt(tick);
+            if (AnyThreatHits(senses, body, tick))
                 return true;
         }
+        return false;
+    }
+
+    /// <summary>The step-back with the motor's own acceleration, against every reachable threat.</summary>
+    private static bool WillHitWhileStepping(Senses.Senses senses, Rectangle me, int away, NPC npc)
+    {
+        float v = npc.velocity.X;
+        float x = 0f;
+        for (int tick = 1; tick <= Weights.DodgeLookaheadTicks; tick++)
+        {
+            v = CompanionMotor.StepVelocity(v, away * CompanionMotor.WalkSpeed);
+            x += v;
+            if (tick % 2 != 0)
+                continue;
+            Rectangle body = me;
+            body.X += (int)x;
+            if (AnyThreatHits(senses, body, tick))
+                return true;
+        }
+        return false;
+    }
+
+    private static bool AnyThreatHits(Senses.Senses senses, Rectangle body, int tick)
+    {
+        foreach (ThreatRecord other in senses.Threats.Threats)
+            if (other.Reachable && other.PredictedHitbox(tick).Intersects(body))
+                return true;
         return false;
     }
 }
