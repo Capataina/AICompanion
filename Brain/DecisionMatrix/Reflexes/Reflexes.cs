@@ -110,7 +110,7 @@ public sealed class Reflexes
         float x = 0f;
         for (int tick = 1; tick <= Weights.DodgeLookaheadTicks; tick++)
         {
-            v = MathHelper.Lerp(v, away * CompanionMotor.WalkSpeed, CompanionMotor.Acceleration);
+            v = CompanionMotor.StepVelocity(v, away * CompanionMotor.WalkSpeed);
             x += v;
             if (tick % 2 != 0)
                 continue;

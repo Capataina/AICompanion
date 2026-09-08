@@ -106,6 +106,18 @@ public class CompanionNPC : ModNPC
     /// <summary>Never culled for being far from players; the companion manages its own distance.</summary>
     public override bool CheckActive() => false;
 
+    /// <summary>
+    /// The body passes through the platform it stands on only on a tick the navigator asked
+    /// for it (a fall-through step of the path), the way a player presses down; the flag is
+    /// cleared here so a request never outlives its tick.
+    /// </summary>
+    public override bool? CanFallThroughPlatforms()
+    {
+        bool wants = Motor.WantsFallThrough;
+        Motor.WantsFallThrough = false;
+        return wants ? true : null;
+    }
+
     /// <summary>Zero life downs the companion instead of killing it.</summary>
     public override bool CheckDead()
     {

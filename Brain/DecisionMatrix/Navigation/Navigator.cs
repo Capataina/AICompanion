@@ -119,9 +119,14 @@ public sealed class Navigator
             case MoveKind.Drop:
                 motor.MoveX(dir * CompanionMotor.WalkSpeed * 0.8f);
                 break;
+            case MoveKind.FallThrough:
+                // Centre on the column and let the body pass the platform this tick.
+                motor.MoveX(MathF.Abs(dx) > 2f ? dir * CompanionMotor.WalkSpeed * 0.5f : 0f);
+                motor.WantsFallThrough = true;
+                break;
             default:
                 motor.MoveX(dir * CompanionMotor.WalkSpeed);
-                if (motor.OnGround && (npc.collideX || riseTiles >= 2))
+                if (motor.OnGround && (WallAhead(npc, dir) || riseTiles >= 2))
                     motor.Jump(CompanionMotor.JumpScaleForTiles(Math.Max(2, riseTiles)));
                 break;
         }
@@ -135,11 +140,27 @@ public sealed class Navigator
             motor.Stop();
             return;
         }
-        motor.MoveX(MathF.Sign(dx) * CompanionMotor.WalkSpeed);
+        int dir = MathF.Sign(dx);
+        motor.MoveX(dir * CompanionMotor.WalkSpeed);
         // Only a wall earns a jump here. Jumping because the target is above produced a hop every
         // tick under any ledge the planner could not route to.
-        if (motor.OnGround && npc.collideX)
+        if (motor.OnGround && WallAhead(npc, dir))
             motor.Jump();
+    }
+
+    /// <summary>
+    /// A real wall in the walking direction: solid at the feet row and the row above it, so the
+    /// motor's StepUp cannot take it. A collision flag alone is not that test: the game sets
+    /// collideX for a one-tile kerb on the tick it is met, before StepUp lifts the body over it,
+    /// and jumping on the flag made every kerb a hop.
+    /// </summary>
+    private static bool WallAhead(NPC npc, int dir)
+    {
+        if (!npc.collideX)
+            return false;
+        Point feet = NavGrid.FeetTile(npc.Bottom);
+        int ahead = feet.X + dir;
+        return NavGrid.IsSolid(ahead, feet.Y) && NavGrid.IsSolid(ahead, feet.Y - 1);
     }
 
     private void TrackStuck(NPC npc)

@@ -24,7 +24,7 @@ Brain/
 │  ├─ Mining/          ores and the pickaxe
 │  └─ Torch/           the torch in the dark
 ├─ Aiming/             the arc solver every ranged weapon and the positioner share
-└─ Debug/              the overlay that shows all of the above (key left of 1)
+└─ Debug/              the overlay that shows all of the above (F6)
 ```
 
 ## One tick, in order
@@ -142,13 +142,16 @@ Each kind's `k` is its own tolerance for danger: guarding accepts more than foll
 
 The navigator receives a feet position each tick. Within a short arrival slack it is "arrived". Otherwise it plans when the goal tile changes, on a cadence, when the path is finished, or after a stretch without moving; a plan that failed is not retried for a while unless the goal moves, because a full failed search is the expensive case. With no path it walks straight at the target and jumps only at a wall.
 
-The grid is not the tile map; it is the set of *feet tiles a one-wide, three-tall body can stand on*: support beneath (solid or a platform), a clear body column above, no lava anywhere in the column. Edges are generated on the fly from what the body can do, and this is what answers the ledge question:
+The grid is not the tile map; it is the set of *feet tiles a one-wide, three-tall body can stand on*: support beneath (solid or a platform), a clear body column above, no lava anywhere in the column. Water is a node like any other, but a slow one: the game halves a wet NPC's movement, so every edge that starts in liquid costs more and the jump envelope from there is halved, which is what makes the search walk out of a pool along its floor instead of jumping in place under a ledge. Edges are generated on the fly from what the body can do, and this is what answers the ledge question:
 
 ```
 from a feet tile, the neighbours are
 ├─ walk      the tile beside it, if standable                                            cheapest
 ├─ step      the tile beside and one up, if standable and the column above is clear      a little more
 ├─ drop      off an edge, straight down to the first standable tile within the fall limit  cost grows with the fall
+├─ fall      through the platform underfoot, straight down to the first standable tile,
+│            the way a player presses down; the follower tells the body to pass the
+│            platform for that one tick                                                    like a drop
 └─ jump      any standable tile inside the jump envelope (so many up, so many across), given
              headroom above the start, a clear body column at the apex above the start and
              a clear row to the landing; also a same-row gap the jump can clear            cost grows with distance and rise
@@ -156,13 +159,13 @@ from a feet tile, the neighbours are
 
 A* (the textbook best-first search, with a heuristic that weights horizontal distance more than vertical) runs over those edges with a bounded budget. So the three-ledge climb to a high ore in the sketch is found in the ordinary way: each ledge is a node, each hop between them is a jump edge, and the search chains them because a path is just a sequence of edges. What A* "as you know it" could not do is the part the edge generator does: deciding that a jump from here lands there. The limits are the edge generator's, not the search's: the jump envelope is derived from the jump velocity and gravity rather than measured; the arc check is coarse (apex column above the start plus the landing row, so a low ceiling mid-arc is missed and shows up as a stuck counter and a replan); and a jump that needs a run-up is not modelled, the follower jumps from standing.
 
-Following the path: advance past every step whose feet point is within a small slack; for a walk step, move toward it and jump only for a real wall (a horizontal collision after the game's step-up has already handled one-tile kerbs) or a rise of two or more tiles, at the jump height the rise needs (the fighter AI's own table, scaled from the full jump); for a jump step, jump from the ground at that height and steer in the air; for a drop, walk off at reduced speed and let gravity work. The motor lerps horizontal velocity toward the walk speed.
+Following the path: advance past every step whose feet point is within a small slack; for a walk step, move toward it and jump only for a real wall or a rise of two or more tiles, at the jump height the rise needs (the fighter AI's own table, scaled from the full jump); for a jump step, jump from the ground at that height and steer in the air; for a drop, walk off at reduced speed and let gravity work; for a fall-through, centre on the column and ask the body to pass its platform this tick. A real wall is solid at the feet row *and* the row above, read from the tiles: the game's collision flag alone is not that test, because a one-tile kerb raises it on the tick it is met, before the motor's step-up lifts the body over it, and a follower that jumped on the flag hopped at every kerb. The motor moves the way the player does: speed builds by a small fixed amount per tick up to the walk speed and bleeds by a larger one when stopping or reversing, on the ground and in the air alike, so a reversal takes the ticks it takes a player and cannot happen inside one jump.
 
 No digging, no building, by ruling: the grid never plans through a tile.
 
 ## Reflexes: the dodge that skips scoring
 
-Before any scoring, for each reachable, moving threat: if its predicted hitbox (straight-line for flyers and phasers, under NPC gravity for walkers) meets the standing body at any sampled tick inside the lookahead, simulate both dodges against the same prediction. The jump: the body offset by the real jump arc, from the motor's own jump velocity and the game's gravity. The step-back: the body offset by the motor's own lerped acceleration away from the threat, with a room check that way. Take the jump if it never intersects, else the step if it never intersects and there is room; if neither clears it, take the hit and rest briefly rather than moving into the enemy. Hostile projectiles are not yet considered; that is a second loop to add.
+Before any scoring, for each reachable, moving threat: if its predicted hitbox (straight-line for flyers and phasers, under NPC gravity for walkers) meets the standing body at any sampled tick inside the lookahead, simulate both dodges against the same prediction. The jump: the body offset by the real jump arc, from the motor's own jump velocity and the game's gravity. The step-back: the body offset by the motor's own acceleration rule away from the threat (the same function the motor runs, so the simulation and the real step agree), with a room check that way. Take the jump if it never intersects, else the step if it never intersects and there is room; if neither clears it, take the hit and rest briefly rather than moving into the enemy. Hostile projectiles are not yet considered; that is a second loop to add.
 
 ## Aiming: how a shot is solved, and what it cannot solve
 
@@ -182,7 +185,7 @@ Finding ore is the expensive half, so it runs only when the player starts on a n
 
 ## What is verified and what is not
 
-Verified in play (the first two runs): the body draws and swings, chopping the right tree at the trunk, arrows fly, the health bar, persistence, and that the brain runs (first tick logged, action = wander). Everything else in this file describes code that compiles and has not been watched: the horizon charge, kiting, dodging after the simulation rewrite, the navigator on anything but flat ground, mining, the torch thresholds against real cave light, the map reveal and the map head. The overlay (key left of 1) shows every score, the danger and horizon, the light readings and whether the torch is shown, the chosen spot and the path, and is how a wrong choice is read rather than guessed; telemetry to a file with a "this looked wrong" key is the next instrument (AIC-51).
+Verified in play (the first two runs): the body draws and swings, chopping the right tree at the trunk, arrows fly, the health bar, persistence, and that the brain runs (first tick logged, action = wander). Everything else in this file describes code that compiles and has not been watched: the horizon charge, kiting, dodging after the simulation rewrite, the navigator on anything but flat ground, mining, the torch thresholds against real cave light, the map reveal and the map head. The overlay (F6) shows every score, the danger and horizon, the light readings and whether the torch is shown, the chosen spot and the path, and is how a wrong choice is read rather than guessed; telemetry to a file with a "this looked wrong" key is the next instrument (AIC-51).
 
 ## Where a new thing goes
 

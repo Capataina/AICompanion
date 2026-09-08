@@ -9,7 +9,8 @@ namespace AICompanion.Brain.DecisionMatrix.Navigation;
 /// The world as the navigator sees it: a tile is a node when a body one tile wide and
 /// three tall can stand on it (feet on the tile, three clear tiles above, solid or a
 /// platform beneath). Edges come from what the companion can do with its own legs,
-/// walk, step, jump and drop, and never from changing tiles: no digging, no building.
+/// walk, step, jump, drop and fall through a platform, and never from changing tiles:
+/// no digging, no building.
 /// </summary>
 public static class NavGrid
 {
@@ -41,6 +42,22 @@ public static class NavGrid
         if (!t.HasTile)
             return false;
         return Main.tileSolid[t.TileType] || Main.tileSolidTop[t.TileType];
+    }
+
+    /// <summary>The support under feet at (x, y) is a platform or half block: the body can drop through it on purpose.</summary>
+    public static bool IsPlatformUnder(int x, int y) => IsSupport(x, y + 1) && !IsSolid(x, y + 1);
+
+    /// <summary>
+    /// Any liquid but lava in this tile. Liquid is walkable but slow: the game halves an NPC's
+    /// movement while wet, so a jump from inside it reaches about half as far, and the edge
+    /// generator shrinks the jump envelope and raises the cost of every move that starts here.
+    /// </summary>
+    public static bool IsLiquid(int x, int y)
+    {
+        if (!WorldGen.InWorld(x, y, 5))
+            return false;
+        Tile t = Main.tile[x, y];
+        return t.LiquidAmount > 0 && t.LiquidType != Terraria.ID.LiquidID.Lava;
     }
 
     /// <summary>Lava in this tile. The companion takes damage and is not lava-immune, so no node may hold it.</summary>

@@ -5,8 +5,12 @@ using Microsoft.Xna.Framework;
 
 namespace AICompanion.Brain.DecisionMatrix.Navigation;
 
-/// <summary>How the companion gets from one node to the next.</summary>
-public enum MoveKind { Walk, Jump, Drop }
+/// <summary>
+/// How the companion gets from one node to the next: walk (a step up counts as a walk),
+/// jump, drop off an edge, or fall through the platform it stands on, which is a drop that
+/// needs the body told to pass the platform for that tick.
+/// </summary>
+public enum MoveKind { Walk, Jump, Drop, FallThrough }
 
 public readonly record struct NavStep(Point Tile, MoveKind Kind);
 

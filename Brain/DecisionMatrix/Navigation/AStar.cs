@@ -94,19 +94,25 @@ public static class AStar
 
     /// <summary>
     /// What the body can reach from a feet tile. Walk to a standable neighbour on the same
-    /// row or one up (a step). Drop off an edge to the first standable tile below. Jump to
+    /// row or one up (a step). Drop off an edge to the first standable tile below. Fall
+    /// through the platform underfoot to the first standable tile below it. Jump to
     /// standable tiles up to JumpHeightTiles up and JumpGapTiles across when the column
-    /// above the start and the body at the landing are clear.
+    /// above the start and the body at the landing are clear. From inside liquid every move
+    /// costs more and the jump envelope is halved, because the game halves a wet NPC's
+    /// movement; the search then prefers walking out along the floor to jumping in place.
     /// </summary>
     private static IEnumerable<(Point, MoveKind, float)> Neighbours(Point t)
     {
+        bool wet = NavGrid.IsLiquid(t.X, t.Y);
+        float costScale = wet ? 2f : 1f;
+
         foreach (int dir in new[] { -1, 1 })
         {
             int nx = t.X + dir;
             if (NavGrid.IsStandable(nx, t.Y))
-                yield return (new Point(nx, t.Y), MoveKind.Walk, 1f);
+                yield return (new Point(nx, t.Y), MoveKind.Walk, 1f * costScale);
             else if (NavGrid.IsStandable(nx, t.Y - 1) && NavGrid.IsBodyClear(t.X, t.Y - 1))
-                yield return (new Point(nx, t.Y - 1), MoveKind.Walk, 1.5f);
+                yield return (new Point(nx, t.Y - 1), MoveKind.Walk, 1.5f * costScale);
             else if (NavGrid.IsBodyClear(nx, t.Y))
             {
                 // Edge: drop to the first standable tile below.
@@ -116,37 +122,53 @@ public static class AStar
                         break;
                     if (NavGrid.IsStandable(nx, t.Y + dy))
                     {
-                        yield return (new Point(nx, t.Y + dy), MoveKind.Drop, 1f + dy * 0.2f);
+                        yield return (new Point(nx, t.Y + dy), MoveKind.Drop, (1f + dy * 0.2f) * costScale);
                         break;
                     }
                 }
             }
         }
 
+        // Standing on a platform: fall through it to the first standable tile below, the way a
+        // player presses down. A mine shaft capped with platforms is otherwise a ceiling.
+        if (NavGrid.IsPlatformUnder(t.X, t.Y))
+        {
+            for (int dy = 2; dy <= NavGrid.MaxDropTiles; dy++)
+            {
+                if (NavGrid.IsSolid(t.X, t.Y + dy))
+                    break;
+                if (NavGrid.IsStandable(t.X, t.Y + dy))
+                {
+                    yield return (new Point(t.X, t.Y + dy), MoveKind.FallThrough, (1f + dy * 0.2f) * costScale);
+                    break;
+                }
+            }
+        }
+
         // Jumps: need headroom above the start.
+        int maxUp = wet ? NavGrid.JumpHeightTiles / 2 : NavGrid.JumpHeightTiles;
+        int maxGap = wet ? NavGrid.JumpGapTiles / 2 : NavGrid.JumpGapTiles;
         int headroom = 0;
-        while (headroom < NavGrid.JumpHeightTiles && !NavGrid.IsSolid(t.X, t.Y - NavGrid.BodyHeightTiles - headroom))
+        while (headroom < maxUp && !NavGrid.IsSolid(t.X, t.Y - NavGrid.BodyHeightTiles - headroom))
             headroom++;
         if (headroom == 0)
             yield break;
 
-        for (int dx = -NavGrid.JumpGapTiles; dx <= NavGrid.JumpGapTiles; dx++)
+        for (int dx = -maxGap; dx <= maxGap; dx++)
         {
             for (int up = 1; up <= headroom; up++)
             {
                 int nx = t.X + dx, ny = t.Y - up;
-                if (dx == 0 && up == 0)
-                    continue;
                 if (!NavGrid.IsStandable(nx, ny))
                     continue;
                 // Coarse arc check: the body must be clear at the apex column above the start and at the landing.
                 if (!NavGrid.IsBodyClear(t.X, t.Y - up) || !ColumnClearBetween(t.X, nx, ny))
                     continue;
-                yield return (new Point(nx, ny), MoveKind.Jump, 2f + Math.Abs(dx) * 0.5f + up * 0.5f);
+                yield return (new Point(nx, ny), MoveKind.Jump, (2f + Math.Abs(dx) * 0.5f + up * 0.5f) * costScale);
             }
             // Gap jump on the same row.
             if (Math.Abs(dx) >= 2 && NavGrid.IsStandable(t.X + dx, t.Y) && ColumnClearBetween(t.X, t.X + dx, t.Y - 1))
-                yield return (new Point(t.X + dx, t.Y), MoveKind.Jump, 2f + Math.Abs(dx) * 0.5f);
+                yield return (new Point(t.X + dx, t.Y), MoveKind.Jump, (2f + Math.Abs(dx) * 0.5f) * costScale);
         }
     }
 
