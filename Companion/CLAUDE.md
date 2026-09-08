@@ -22,6 +22,7 @@ What this does not cover, known and accepted: an AI that acts on its target dire
 
 - **`PreDraw` closes and reopens the sprite batch** around the player renderer, which draws to the device directly and expects a closed batch. Reopen with the NPC pass's own parameters (`Main.Transform`).
 - **The body draws the held item from `lastVisualizedSelectedItem`**, set by hand in `CompanionBody.Sync`; without it the swing plays empty-handed.
+- **The held item is drawn at `itemLocation`, which only the game's `ItemCheck` sets**: the use style while a swing plays, the hold style otherwise. The body runs neither, so `Sync` applies the public use style during an animation and the private `ItemCheck_ApplyHoldStyle`, bound by reflection, for a hold-style item such as the torch at rest; without the second the torch floated beside the body at a stale position (2026-09-08).
 - **`knockBackResist` is backwards from its name: 1 is full knockback, 0 is immunity.** The companion sits at 0.75; the first run had it at 0 and it never moved when hit.
 - **`dontTakeDamage` toggles with downed.** `CheckDead` sets life to 1 first, or it fires every tick.
 - **The bag lives on `CompanionPlayer`, not here**, so it saves with the character; `Bag` is a pass-through.

@@ -135,12 +135,25 @@ public class CompanionBody
         body.itemRotation = itemRotation;
 
         body.PlayerFrame();
-        if (itemAnimation > 0 && heldItemType > 0)
+        if (heldItemType > 0)
         {
             Item item = body.inventory[0];
-            body.ItemCheck_ApplyUseStyle(0f, item, Item.GetDrawHitbox(item.type, body));
+            Rectangle frame = Item.GetDrawHitbox(item.type, body);
+            if (itemAnimation > 0)
+                body.ItemCheck_ApplyUseStyle(0f, item, frame);
+            else if (item.holdStyle != 0)
+                ApplyHoldStyle?.Invoke(body, new object[] { 0f, item, frame });
         }
     }
+
+    // The renderer draws a held item at itemLocation, which the game's ItemCheck sets every tick
+    // through the use style while a swing plays and the hold style otherwise. The body never runs
+    // ItemCheck, and only the use style is public: a torch (hold style 1) drawn without the hold
+    // style sits at whatever itemLocation last was, floating beside the body.
+    private static readonly System.Reflection.MethodInfo? ApplyHoldStyle = typeof(Player).GetMethod(
+        "ItemCheck_ApplyHoldStyle",
+        System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance,
+        null, new[] { typeof(float), typeof(Item), typeof(Rectangle) }, null);
 
     private void Fail(string message, Exception e)
     {
