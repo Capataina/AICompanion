@@ -104,7 +104,13 @@ public sealed class Navigator
         PlannedThisTick = false;
         LastFault = TraversalFault.None;
         Arrived = false;
-        if (Vector2.Distance(live.Feet, targetFeet) <= ArriveDistance)
+        // Standing within the slack, not merely passing through it: a body in mid-flight can be
+        // twelve pixels from the target with its path unfinished, and treating that as arrival
+        // threw the path away and stopped steering, so the body fell back out of the air, walked
+        // in and jumped again for ever. The ledge-four-up fixture did exactly that, and the follow
+        // harness scored it as a walk because it read this same flag (Codex review of 7525a1b, A17,
+        // which named the harness; the flag it reads is where the fault starts).
+        if (live.OnGround && Vector2.Distance(live.Feet, targetFeet) <= ArriveDistance)
         {
             Path = null;
             onStep = null;
@@ -123,9 +129,15 @@ public sealed class Navigator
         // A failed plan is not retried every tick: at the full budget that is ~3 ms per tick for
         // as long as the goal stays unreachable. It waits FailedPlanRetry ticks unless the goal moves.
         bool failedRecently = LastPlanFailed && ticksSincePlan < FailedPlanRetry;
-        // A finished partial path is a failed plan that has been walked out: it waits like one.
-        bool noPath = Path == null || (Path.Partial && Path.Finished);
-        bool stuck = !noPath && stuckTicks > StuckReplanTicks;
+        // A partial path walked to its end is progress and not a failure to wait on: the body is
+        // standing somewhere it has never planned from, so a fresh search reaches further, and
+        // making it wait the failed-plan retry instead handed it to the straight-walk fallback for
+        // ninety ticks, which carried it back the way it came and undid the steps it had just
+        // performed (Codex review of 7525a1b, traced at run-4 block 10 ticks 4545 to 4620). It
+        // becomes a real dead end only when the search from here returns nothing at all, which is
+        // the empty-path case this still waits on.
+        bool noPath = Path == null;
+        bool stuck = stuckTicks > StuckReplanTicks;
         // The cadence waits while the current step is part way through a move a fresh plan would
         // undo (a jump's back-off and run-in); a stuck body and a moved goal do not wait.
         bool midMove = !noPath && !Path!.Finished && For(Path.Current.Kind).MidMove;
@@ -133,26 +145,32 @@ public sealed class Navigator
         // Plan only from the ground: an airborne body has no standable tile under it, and a
         // plan that failed for that reason blocked replanning for the retry wait, during which
         // straight walking hopped every kerb and put the body back in the air for the next try.
-        if (goal != null && (goalMoved || stale) && live.OnGround)
+        // A body that has stood still long enough to replan while it had somewhere to go earns a
+        // strike, and it earns one whether or not a step is in hand. With a step, the grid offered
+        // a move the body cannot take and the step is priced so the next plan goes another way
+        // (replanning alone returned the same path three times over in run 5, 2026-09-08). With no
+        // step there is nothing to price, but the count still has to rise: until it did, a body
+        // being shoved at a wall by the fallback recorded no fault and no strike for thousands of
+        // ticks, so the brain never reached the two strikes that make it ask for another spot.
+        if (stuck && live.OnGround)
         {
-            // A body that stood still on a step long enough to replan has found a step the grid
-            // offers and the body cannot take. Replanning alone returned the same path three times
-            // over in run 5 (2026-09-08); the step is priced so the next plan goes another way.
-            if (stuck && !Path!.Finished)
-            {
+            if (!noPath && !Path!.Finished)
                 Strike(Path.Current.Tile);
-                // The strike consumes the count. A plan does not: the cadence replans every half
-                // second, and a count reset there could never reach the threshold while a path
-                // existed, which is why a parked body never struck in seven runs.
-                stuckTicks = 0;
-            }
-            Plan(start, goal.Value);
+            else
+                StuckStrikes++;
+            // The strike consumes the count. A plan does not: the cadence replans every half
+            // second, and a count reset there could never reach the threshold while a path
+            // existed, which is why a parked body never struck in seven runs.
+            stuckTicks = 0;
+            forceReplan = true;
+            stale = true;
         }
+        if (goal != null && (goalMoved || stale) && live.OnGround)
+            Plan(start, goal.Value);
 
-        if (Path == null || Path.Finished)
-            return WalkStraight(live, targetFeet);
-
-        Controls controls = Follow(live);
+        // Stuck is tracked in every branch, including the fallback: a body going nowhere is going
+        // nowhere whether it is following a step or walking straight at a target no plan reached.
+        Controls controls = Path == null || Path.Finished ? WalkStraight(live, targetFeet) : Follow(live);
         TrackStuck(live);
         return controls;
     }
