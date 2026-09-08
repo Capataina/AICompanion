@@ -19,6 +19,9 @@
     <Compile Include="../../Brain/DecisionMatrix/Navigation/World/ITileWorld.cs" />
     <Compile Include="../../Brain/DecisionMatrix/Navigation/World/TextTileWorld.cs" />
     <Compile Include="../../Brain/DecisionMatrix/Navigation/Body/BodyPhysics.cs" />
+    <Compile Include="../../Brain/DecisionMatrix/Navigation/Body/BodyState.cs" />
+    <Compile Include="../../Brain/DecisionMatrix/Navigation/Body/Controls.cs" />
+    <Compile Include="../../Brain/DecisionMatrix/Navigation/Body/BodyMotion.cs" />
     <Compile Include="../../Brain/DecisionMatrix/Navigation/Planning/NavGrid.cs" />
     <Compile Include="../../Brain/DecisionMatrix/Navigation/Planning/NavPath.cs" />
     <Compile Include="../../Brain/DecisionMatrix/Navigation/Planning/AStar.cs" />

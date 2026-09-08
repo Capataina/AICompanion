@@ -107,61 +107,41 @@ public static class BodyPhysics
     public static Pose? SimulateJump(ITileWorld world, Pose from, float scale, float startVx, int steerColumn, int landingRow, int maxTicks, out int ticks)
         => SimulateJump(world, from, scale, startVx, steerColumn, landingRow, maxTicks, out ticks, null);
 
-    /// <summary>One tick of a simulated jump, handed to a trace callback by the replay tool.</summary>
+    /// <summary>One tick of a simulated jump after it has moved, handed to a trace callback by the replay tool.</summary>
     public readonly record struct JumpTick(int Tick, float Left, float Bottom, float Vx, float Vy, int FeetColumn, int FeetRow);
 
     /// <param name="landingRow">The feet row the caller wants; once the body is falling past it the flight is abandoned, because it can no longer land there.</param>
     public static Pose? SimulateJump(ITileWorld world, Pose from, float scale, float startVx, int steerColumn, int landingRow, int maxTicks, out int ticks, System.Action<JumpTick>? trace)
     {
-        float left = from.Left, bottom = from.Bottom;
-        float vx = startVx, vy = JumpVelocity * scale;
+        // The jump is the body's own tick rule driven by the jump's steering: an impulse on the
+        // first tick, then the in-air steer toward the landing column every tick, and the body
+        // is wherever BodyMotion says it is. A jump never asks to fall through a platform.
+        var state = new BodyState(from.Left, from.Bottom, startVx, 0f, true);
         float targetCentre = steerColumn * 16f + 8f;
         float giveUpBelow = (landingRow + 2) * 16f;
         for (ticks = 1; ticks <= maxTicks; ticks++)
         {
-            vx = StepVelocity(vx, SteerToward(targetCentre, left + Width / 2f, vx));
-            vy = StepFall(vy);
-            int feetColumn = (int)MathF.Floor((left + Width / 2f) / 16f);
-            int feetRow = FeetRow(bottom);
-            trace?.Invoke(new JumpTick(ticks, left, bottom, vx, vy, feetColumn, feetRow));
-            float move = world.Water(feetColumn, feetRow) || world.Lava(feetColumn, feetRow) ? 0.5f : 1f;
-
-            float nextLeft = left + vx * move;
-            if (Fits(world, nextLeft, bottom)) left = nextLeft; else vx = 0f;
-
-            float nextBottom = bottom + vy * move;
-            if (vy < 0f)
-            {
-                if (Fits(world, left, nextBottom)) bottom = nextBottom; else vy = 0f;
-                continue;
-            }
-            if (bottom > giveUpBelow)
+            var controls = new Controls(SteerToward(targetCentre, state.CentreX, state.Vx), Jump: ticks == 1, JumpScale: scale);
+            state = BodyMotion.Step(world, state, controls);
+            trace?.Invoke(new JumpTick(ticks, state.Left, state.Bottom, state.Vx, state.Vy, state.FeetTile.X, state.FeetTile.Y));
+            if (state.Stuck)
                 return null;
-            float remaining = nextBottom - bottom;
-            while (remaining > 0f)
-            {
-                float step = MathF.Min(4f, remaining);
-                // A platform is not in Fits (the body passes it from below and stands on it from
-                // above), so a falling body crossing a platform's top lands on it here, the way
-                // the game's collision clips a downward move at a platform unless the body asked
-                // to fall through, which a jump never does.
-                if (PlatformTopCrossed(world, left, bottom, bottom + step) is float top)
-                    return Fits(world, left, top) ? new Pose(left, top) : null;
-                if (Fits(world, left, bottom + step))
-                {
-                    bottom += step;
-                    remaining -= step;
-                    continue;
-                }
-                float? rest = RestBottom(world, left, FeetRow(bottom));
-                return rest is float r && r >= bottom - 1f && Fits(world, left, r) ? new Pose(left, r) : null;
-            }
+            if (state.OnGround)
+                return state.Pose;
+            // Only a falling body has given up on the row: a jump upward starts below the line.
+            if (state.Vy >= 0f && state.Bottom > giveUpBelow)
+                return null;
         }
         return null;
     }
 
-    /// <summary>The top of a platform under the span that lies in (<paramref name="from"/>, <paramref name="to"/>], else null.</summary>
-    private static float? PlatformTopCrossed(ITileWorld world, float left, float from, float to)
+    /// <summary>
+    /// The top of a platform under the span that lies in (<paramref name="from"/>, <paramref name="to"/>], else null.
+    /// A platform is not in <see cref="Fits"/> (the body passes it from below and stands on it from above), so
+    /// a falling body crossing a platform's top lands on it through this, the way the game's collision clips
+    /// a downward move at a platform unless the body asked to fall through.
+    /// </summary>
+    public static float? PlatformTopCrossed(ITileWorld world, float left, float from, float to)
     {
         int x0 = (int)MathF.Floor(left / 16f), x1 = (int)MathF.Floor((left + Width - Touch) / 16f);
         int y0 = (int)MathF.Floor(from / 16f), y1 = (int)MathF.Floor(to / 16f);
