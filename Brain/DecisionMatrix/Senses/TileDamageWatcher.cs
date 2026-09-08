@@ -55,15 +55,20 @@ public sealed class TileDamageWatcher : GlobalTile
         CompanionIsHitting = false;
     }
 
-    /// <summary>A placed tile is a changed world too, and it is the case the platform rescue makes: the planner must see the platform on its next search.</summary>
-    public override void PlaceInWorld(int i, int j, int type, Item item) => Navigation.AStar.WorldVersion++;
+    /// <summary>
+    /// A placed tile is a changed world too, and it is the case the platform rescue makes: the
+    /// planner must see the platform on its next search. The game raises this for the player's
+    /// own placements only; sand that lands and a boulder that rolls place tiles through no hook,
+    /// which is what the planner's cache expiry is for.
+    /// </summary>
+    public override void PlaceInWorld(int i, int j, int type, Item item) => Navigation.AStar.TileChanged(i, j);
 
     public override void KillTile(int i, int j, int type, ref bool fail, ref bool effectOnly, ref bool noItem)
     {
-        // A tile that is really going invalidates every cached edge of the grid, whoever broke
+        // A tile that is really going takes the cached edges around it with it, whoever broke
         // it: the geometry the planner remembers is wrong the moment the world differs from it.
         if (!fail && !effectOnly)
-            Navigation.AStar.WorldVersion++;
+            Navigation.AStar.TileChanged(i, j);
         if (CompanionIsHitting || effectOnly || Main.gameMenu)
             return;
         if (TreeFinder.IsTreeType(type))

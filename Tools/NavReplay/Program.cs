@@ -20,7 +20,8 @@ using AICompanion.Brain.DecisionMatrix.Navigation;
 // otherwise; the counts are in the last line, never in the status, which wraps at 256.
 
 int failed = 0, passed = 0, sealedCount = 0, skipped = 0, missing = 0;
-bool traceJump = false;
+int churnTiles = 0, churnWrong = 0;
+bool traceJump = false, churn = false;
 var files = new List<string>();
 foreach (string arg in args)
 {
@@ -28,6 +29,8 @@ foreach (string arg in args)
         traceJump = true;
     else if (arg == "--no-cache")
         AStar.CacheEdges = false;
+    else if (arg == "--churn")
+        churn = true;
     else if (Directory.Exists(arg))
         files.AddRange(Directory.GetFiles(arg, "*.txt"));
     else if (File.Exists(arg))
@@ -191,10 +194,70 @@ foreach (string file in files)
             }
         }
         Console.WriteLine(Draw(world, main.Path, start.Value, goal.Value, pass ? null : main.Closed));
+
+        // --churn: the cache's invalidation box, tested the only way it can be. A corpus replay
+        // never changes a tile, so "the same verdicts with and without the cache" proves nothing
+        // about what a kill drops. Here every tile the found path stands on or steps through is
+        // broken in turn, the planner is told the way the game tells it, and the plan served
+        // from the warm cache must equal the plan from an empty one; a difference is an edge the
+        // box kept that the broken tile should have taken with it.
+        if (churn && from is Point cf && main.Path is NavPath found)
+        {
+            foreach (Point tile in ChurnTiles(found))
+            {
+                if (!world.InWorld(tile.X, tile.Y))
+                    continue;
+                char was = world.Glyph(tile.X, tile.Y);
+                world.Set(tile.X, tile.Y, '.');
+                AStar.TileChanged(tile.X, tile.Y);
+                string warm = Signature(cf, goal.Value);
+                AStar.InvalidateEdges();
+                string cold = Signature(cf, goal.Value);
+                world.Set(tile.X, tile.Y, was);
+                AStar.TileChanged(tile.X, tile.Y);
+                churnTiles++;
+                if (warm != cold)
+                {
+                    churnWrong++;
+                    Console.WriteLine($"     CHURN {name}: breaking {Fmt(tile)} ('{was}') left a stale edge: warm {warm} vs cold {cold}");
+                }
+            }
+        }
     }
 }
-Console.WriteLine($"{passed}/{passed + failed} passed, {sealedCount} sealed (no route exists in the world), {skipped} skipped, {missing} missing inputs, planner {Timing.PlannerMs:F0} ms in total");
-return failed == 0 && skipped == 0 && missing == 0 && passed > 0 ? 0 : 1;
+Console.WriteLine($"{passed}/{passed + failed} passed, {sealedCount} sealed (no route exists in the world), {skipped} skipped, {missing} missing inputs, planner {Timing.PlannerMs:F0} ms in total"
+    + (churn ? $"; churn: {churnTiles} tiles broken, {churnWrong} stale plans" : ""));
+return failed == 0 && skipped == 0 && missing == 0 && passed > 0 && churnWrong == 0 ? 0 : 1;
+
+// The tiles a path depends on: every step's tile and the tile under it (the support the
+// step stands on), which is what a pickaxe following the route would break.
+static IEnumerable<Point> ChurnTiles(NavPath path)
+{
+    var seen = new HashSet<Point>();
+    foreach (NavStep step in path.Steps)
+    {
+        if (seen.Add(step.Tile))
+            yield return step.Tile;
+        var under = new Point(step.Tile.X, step.Tile.Y + 1);
+        if (seen.Add(under))
+            yield return under;
+    }
+}
+
+// A plan reduced to a string that two plans can be compared by: each step's tile and kind.
+static string Signature(Point from, Point goal)
+{
+    Point? to = NavGrid.NearestStandable(goal, 3);
+    if (to == null)
+        return "no goal";
+    NavPath? path = AStar.Find(from, to.Value, 20000, out _);
+    if (path == null)
+        return "none";
+    var sb = new System.Text.StringBuilder(path.Partial ? "partial " : "");
+    foreach (NavStep step in path.Steps)
+        sb.Append(step.Kind.ToString()[0]).Append(Fmt(step.Tile)).Append(' ');
+    return sb.ToString().TrimEnd();
+}
 
 static string Fmt(Point p) => $"{p.X},{p.Y}";
 

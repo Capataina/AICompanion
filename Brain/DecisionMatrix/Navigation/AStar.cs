@@ -178,17 +178,17 @@ public static class AStar
     /// </summary>
     private static IEnumerable<(NavStep, float)> Neighbours(Point t)
     {
-        if (cachedVersion != WorldVersion || Clock - cacheBorn > EdgeCacheLifeTicks)
-            InvalidateEdges();
         (Point, bool) key = (t, AllowLava);
-        RawEdge[]? edges;
+        RawEdge[] edges;
         if (!CacheEdges)
             edges = System.Linq.Enumerable.ToArray(RawEdges(t, AllowLava));
-        else if (!edgeCache.TryGetValue(key, out edges))
+        else if (!edgeCache.TryGetValue(key, out CachedEdges cached) || Clock - cached.Born > EdgeCacheLifeTicks)
         {
             edges = System.Linq.Enumerable.ToArray(RawEdges(t, AllowLava));
-            edgeCache[key] = edges;
+            edgeCache[key] = new CachedEdges(edges, Clock);
         }
+        else
+            edges = cached.Edges;
         foreach (RawEdge e in edges)
         {
             if (e.Fall > NavGrid.JumpHeightTiles && !AllowOneWayDrops)
@@ -209,16 +209,17 @@ public static class AStar
     /// jumps costs about a sixth of a millisecond in the game and the positioner's reach flood
     /// opens hundreds of tiles every few ticks, most of them the same tiles as last time, which
     /// on the sixth run of 2026-09-08 was sixty milliseconds of one tick in every twelve. The
-    /// geometry only changes when a tile does, so the cache lives until a tile is killed or
-    /// placed (<see cref="WorldVersion"/>) or a short while has passed (liquids move and nothing
-    /// announces it). Prices are applied on read, because enemies move every tick.
+    /// geometry only changes when a tile does, and a changed tile can only change the edges of
+    /// the tiles whose scans reach it, so a kill or a placement drops that box of entries
+    /// (<see cref="TileChanged"/>) and nothing else: the first version dropped the whole cache,
+    /// which while mining (a tile dying every few ticks) is no cache at all. Each entry also
+    /// carries the tick it was made and is remade after <see cref="EdgeCacheLifeTicks"/>, because
+    /// the game announces only what a player or a pickaxe does to a tile: liquids settling, sand
+    /// landing, a door opening and a boulder rolling change the world through no hook the mod
+    /// can hear. Prices are applied on read, because enemies move every tick.
     /// </summary>
-    private static readonly Dictionary<(Point, bool), RawEdge[]> edgeCache = new();
-    private static int cachedVersion;
-    private static long cacheBorn;
-
-    /// <summary>Bumped by whoever changes a tile; every cached edge is dropped on the next search.</summary>
-    public static int WorldVersion;
+    private static readonly Dictionary<(Point, bool), CachedEdges> edgeCache = new();
+    private readonly record struct CachedEdges(RawEdge[] Edges, long Born);
 
     /// <summary>Off, every search simulates every edge afresh: the replay's --no-cache, which proves the cache changes no verdict.</summary>
     public static bool CacheEdges = true;
@@ -226,16 +227,52 @@ public static class AStar
     /// <summary>The brain's tick, for the cache's expiry; the replay tool leaves it at zero and the cache lives for the block.</summary>
     public static long Clock;
 
-    /// <summary>How long a tile's edges are trusted without a tile change: a second, the time a liquid takes to settle a row or two.</summary>
-    public const long EdgeCacheLifeTicks = 60;
+    /// <summary>
+    /// How long a tile's edges are trusted without a tile change announcing itself: three
+    /// seconds, long enough that a settled cave costs one remake per tile in that time and
+    /// short enough that a pool draining or a sand column landing is seen before the body walks
+    /// far on the old picture. A stale entry is a price, not a wall: liquid and lava are priced
+    /// on read from the live tile, so the worst of it is a walk edge priced dry through a tile
+    /// that is now wet.
+    /// </summary>
+    public const long EdgeCacheLifeTicks = 180;
 
-    /// <summary>Drop every cached edge: called when the world object changes and by the cache's own two rules.</summary>
-    public static void InvalidateEdges()
+    /// <summary>
+    /// How far sideways a tile's scans read: the drop lowers the body against a wall and lets it
+    /// drift a few pixels a row for up to <see cref="NavGrid.MaxDropTiles"/> rows, which is
+    /// fifteen tiles at the fast end, past the jump box's four. The open span beside a lip is
+    /// read to its walls whatever their distance, so a wall moved further away than this along
+    /// a bare row is the one change the box misses; the expiry covers it.
+    /// </summary>
+    public const int EdgeReachX = 16;
+
+    /// <summary>
+    /// A tile at (<paramref name="x"/>, <paramref name="y"/>) is no longer what it was: drop the
+    /// cached edges of every tile whose scans could have read it. A tile's edges look down as
+    /// far as a drop can fall and up as far as a jump can rise plus the body's own height, and
+    /// sideways by <see cref="EdgeReachX"/>, so the entries dropped are the tiles that lie
+    /// within the drop depth above the change, within the jump box below it, and within reach
+    /// either side. A pickaxe hit that only cracks the tile is not a change and is not announced.
+    /// </summary>
+    public static void TileChanged(int x, int y)
     {
-        edgeCache.Clear();
-        cachedVersion = WorldVersion;
-        cacheBorn = Clock;
+        if (edgeCache.Count == 0)
+            return;
+        int minY = y - NavGrid.MaxDropTiles - 1;
+        int maxY = y + NavGrid.JumpHeightTiles + NavGrid.BodyHeightTiles + 2;
+        var stale = new List<(Point, bool)>();
+        foreach ((Point, bool) key in edgeCache.Keys)
+        {
+            Point t = key.Item1;
+            if (Math.Abs(t.X - x) <= EdgeReachX && t.Y >= minY && t.Y <= maxY)
+                stale.Add(key);
+        }
+        foreach ((Point, bool) key in stale)
+            edgeCache.Remove(key);
     }
+
+    /// <summary>Drop every cached edge: a new world, or the replay tool starting a block or a flood it reads the edge flag from.</summary>
+    public static void InvalidateEdges() => edgeCache.Clear();
 
     /// <summary>How many tiles hold cached edges right now, for the overlay.</summary>
     public static int CachedTiles => edgeCache.Count;

@@ -70,6 +70,17 @@ public sealed class TextTileWorld : ITileWorld
     public bool AskedOutside;
 
     public bool InWorld(int x, int y) => x >= OriginX && y >= OriginY && x < OriginX + Width && y < OriginY + Height;
+
+    /// <summary>
+    /// Rewrite one tile inside the window, for the replay's churn check, which breaks a tile
+    /// the way a pickaxe does and asks whether the planner's cache noticed. Outside the window
+    /// nothing changes, the same as the game's edge.
+    /// </summary>
+    public void Set(int x, int y, char c)
+    {
+        if (InWorld(x, y))
+            tiles[x - OriginX, y - OriginY] = c;
+    }
     public TileShape Shape(int x, int y) => ShapeOf(At(x, y));
     public bool Water(int x, int y) => At(x, y) == '~';
     public bool Lava(int x, int y) => At(x, y) == 'L';
