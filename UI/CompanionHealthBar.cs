@@ -33,13 +33,18 @@ public class CompanionHealthBar : ModSystem
     private const int BaseFillet = 10;
 
     private static readonly Color Body = new(18, 18, 21);
-    private static readonly Color Border = new(78, 78, 86);
+    private static readonly Color Border = new(112, 112, 122);
     private static readonly Color Track = new(44, 44, 50);
     private static readonly Color Healthy = new(52, 199, 89);
     private static readonly Color Hurt = new(255, 69, 58);
     private static readonly Color Downed = new(142, 142, 147);
 
+    /// <summary>A press has to travel this far (UI-scaled) before it is a drag; released before that, it is a click.</summary>
+    private const float DragThreshold = 6f;
+
+    private bool pressed;
     private bool dragging;
+    private Vector2 pressPoint;
     private Vector2 dragOffset;
 
     private static readonly Dictionary<(int w, int h, int r, int corners), Texture2D> masks = new();
@@ -76,33 +81,46 @@ public class CompanionHealthBar : ModSystem
 
         Vector2 mouse = new(Main.mouseX, Main.mouseY);
         bool hovering = box.Contains(mouse.ToPoint());
-        if (hovering || dragging)
+        if (hovering || pressed)
             Main.LocalPlayer.mouseInterface = true;
 
-        if (dragging)
+        // A press is a click until it travels: the notch only moves once the button has been
+        // held through DragThreshold pixels, and a release before that opens the bag, so the
+        // notch is the bag's button as well as its handle.
+        if (pressed)
         {
             if (Main.mouseLeft)
             {
-                pos = mouse - dragOffset;
-                pos.X = MathHelper.Clamp(pos.X, 0f, Main.screenWidth - width);
-                pos.Y = MathHelper.Clamp(pos.Y, 0f, Main.screenHeight - height);
-                save.HealthBarPosition = pos;
-                box.Location = pos.ToPoint();
+                if (!dragging && Vector2.Distance(mouse, pressPoint) > DragThreshold * scale)
+                    dragging = true;
+                if (dragging)
+                {
+                    pos = mouse - dragOffset;
+                    pos.X = MathHelper.Clamp(pos.X, 0f, Main.screenWidth - width);
+                    pos.Y = MathHelper.Clamp(pos.Y, 0f, Main.screenHeight - height);
+                    save.HealthBarPosition = pos;
+                    box.Location = pos.ToPoint();
+                }
             }
             else
             {
+                if (!dragging)
+                    Inventory.CompanionBagSystem.Toggle();
+                pressed = false;
                 dragging = false;
             }
         }
         else if (hovering && Main.mouseLeft && Main.mouseLeftRelease)
         {
-            dragging = true;
+            pressed = true;
+            pressPoint = mouse;
             dragOffset = mouse - pos;
         }
 
         if (hovering && Main.mouseRight && Main.mouseRightRelease)
         {
             save.HealthBarPosition = null;
+            pressed = false;
             dragging = false;
             box.Location = defaultPos.ToPoint();
         }
@@ -121,12 +139,21 @@ public class CompanionHealthBar : ModSystem
 
         if (docked)
         {
-            // Body with only the bottom corners rounded, flush with the screen edge.
-            sb.Draw(RoundedMask(box.Width, box.Height, radius, corners: 0b1100), box, Body);
+            // Body with only the bottom corners rounded, flush with the screen edge. The border
+            // layer is the same shape one border wider on the sides and bottom, so a hairline
+            // follows the silhouette and the notch reads against a night sky; the top stays
+            // flush with no line, because the edge it hangs from is the screen.
+            sb.Draw(RoundedMask(box.Width, box.Height, radius, corners: 0b1100), box, Border);
+            Rectangle inner = new(box.X + border, box.Y, box.Width - 2 * border, box.Height - border);
+            sb.Draw(RoundedMask(inner.Width, inner.Height, Math.Max(2, radius - border), corners: 0b1100), inner, Body);
             // Concave fillets outside the top corners: a square with a quarter circle cut out, so
-            // the notch reads as part of the edge. Drawn in the body colour.
-            sb.Draw(FilletMask(fillet, flipX: false), new Rectangle(box.X - fillet, box.Y, fillet, fillet), Body);
-            sb.Draw(FilletMask(fillet, flipX: true), new Rectangle(box.Right, box.Y, fillet, fillet), Body);
+            // the notch reads as part of the edge. The border fillet has the plain radius and the
+            // body fillet a radius one border larger about the same centre, leaving a hairline
+            // along the curve that meets the side lines.
+            sb.Draw(FilletMask(fillet, fillet, flipX: false), new Rectangle(box.X - fillet, box.Y, fillet, fillet), Border);
+            sb.Draw(FilletMask(fillet, fillet, flipX: true), new Rectangle(box.Right, box.Y, fillet, fillet), Border);
+            sb.Draw(FilletMask(fillet, fillet + border, flipX: false), new Rectangle(box.X - fillet, box.Y, fillet, fillet), Body);
+            sb.Draw(FilletMask(fillet, fillet + border, flipX: true), new Rectangle(box.Right, box.Y, fillet, fillet), Body);
         }
         else
         {
@@ -188,10 +215,15 @@ public class CompanionHealthBar : ModSystem
         return tex;
     }
 
-    /// <summary>A square with a quarter circle removed from its outer bottom corner, so it fills the concave gap beside the notch's top corner.</summary>
-    private static Texture2D FilletMask(int s, bool flipX)
+    /// <summary>
+    /// A square of side <paramref name="s"/> with a circle of <paramref name="radius"/> about its
+    /// outer bottom corner removed, so it fills the concave gap beside the notch's top corner. A
+    /// radius larger than the side leaves a thinner sliver about the same centre, which is how
+    /// the border and body fillets nest.
+    /// </summary>
+    private static Texture2D FilletMask(int s, int radius, bool flipX)
     {
-        var key = (s, s, -1, flipX ? 1 : 0);
+        var key = (s, radius, -1, flipX ? 1 : 0);
         if (masks.TryGetValue(key, out Texture2D? cached))
             return cached;
         var data = new Color[s * s];
@@ -202,7 +234,7 @@ public class CompanionHealthBar : ModSystem
                 // The circle's centre is the outer bottom corner: bottom-left for the left fillet, bottom-right for the right.
                 float cx = flipX ? s : 0f, cy = s;
                 float d = MathF.Sqrt((x + 0.5f - cx) * (x + 0.5f - cx) + (y + 0.5f - cy) * (y + 0.5f - cy));
-                float a = MathHelper.Clamp(d - s + 0.5f, 0f, 1f);
+                float a = MathHelper.Clamp(d - radius + 0.5f, 0f, 1f);
                 data[y * s + x] = Color.White * a;
             }
         }
