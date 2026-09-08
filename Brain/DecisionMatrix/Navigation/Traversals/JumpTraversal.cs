@@ -21,6 +21,9 @@ public sealed class JumpTraversal : Traversal
     /// <summary>The longest flight the planner follows before giving up on a landing.</summary>
     public const int MaxJumpTicks = 120;
 
+    /// <summary>The full jump's own reach, which is the tallest climb the body has today.</summary>
+    public override int ClimbTiles => NavGrid.JumpHeightTiles;
+
     public override IEnumerable<NavEdge> Candidates(NavNode node, BodyPhysics.Pose? here, bool lava)
     {
         Point t = node.Tile;

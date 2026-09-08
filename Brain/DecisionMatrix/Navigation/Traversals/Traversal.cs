@@ -59,6 +59,13 @@ public abstract class Traversal
     /// </summary>
     public virtual bool MidMove => false;
 
+    /// <summary>
+    /// How many rows this kind of move can climb from a standing start, which is what decides
+    /// whether a fall is worth asking about: a drop no deeper than the best climb is recoverable
+    /// by construction and never needs a probe. Zero for a move that cannot gain height.
+    /// </summary>
+    public virtual int ClimbTiles => 0;
+
     /// <summary>A move the body makes from rest at its start tile: a descent, a standing jump, or a walk whose landing depends on arriving slowly. The walk before it coasts to rest on its point instead of arriving at speed.</summary>
     public static bool StartsFromRest(NavStep step)
         => step.Kind is MoveKind.Drop or MoveKind.FallThrough || (step.Kind == MoveKind.Jump && step.StartVx == 0f) || step.FromRest;
@@ -96,6 +103,23 @@ public abstract class Traversal
 
     /// <summary>The set the planner generates edges with; Candidates keeps no run state, so one set serves every search.</summary>
     public static readonly Traversal[] Planning = Fresh();
+
+    /// <summary>
+    /// The tallest climb any move in the planning set can make, taken from the set rather than
+    /// written down, so a new mobility widens it the day its traversal is registered and no rule
+    /// about what the body can escape has to be edited. A fall deeper than this is the only kind
+    /// worth asking whether it has a way back, and asking about too many falls costs a bounded
+    /// probe while asking about too few strands the body, so the error is deliberately one-sided.
+    /// </summary>
+    public static readonly int ClimbReachTiles = Max(Planning);
+
+    private static int Max(Traversal[] set)
+    {
+        int best = 0;
+        foreach (Traversal t in set)
+            best = Math.Max(best, t.ClimbTiles);
+        return best;
+    }
 
     /// <summary>Ticks a body takes to fall so many rows from rest under NPC gravity, for a descent's expected duration.</summary>
     public static int FallTicks(int rows)

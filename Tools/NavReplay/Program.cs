@@ -159,7 +159,7 @@ foreach (string file in files)
         // It is answered before the first line prints, because the first line is the verdict.
         HashSet<Point> region = new();
         bool complete = false, sealedBlock = false;
-        string goalIn = "", playerIn = "", pocket = "";
+        string goalIn = "", playerIn = "", pocket = "", homeIn = "";
         if (from is Point f)
         {
             // The sealed verdicts read whether a flood ever touched the window's edge, and a
@@ -171,6 +171,15 @@ foreach (string file in files)
             bool startClipped = world.AskedOutside;
             goalIn = region.Contains(goal.Value) ? "in" : "out";
             playerIn = player is Point pl3 ? (region.Contains(pl3) ? ", player in" : ", player out") : "";
+            // The same flood again with the edges that have no way back refused, which is the one
+            // the positioner actually scores against: a tile in the first region and not this one
+            // is somewhere the body can get to and not come home from, so it is offered only when
+            // nothing returnable is left. Reported beside the raw region rather than replacing it,
+            // because SEALED still has to mean what it has always meant, a region the world itself
+            // closes, and a region that closes only because its exit is one-way is a different fact.
+            HashSet<Point> returnable = AStar.Region(f, AICompanion.Brain.DecisionMatrix.Decision.Weights.ReachFloodBudget, out _, refuseOneWay: true);
+            homeIn = returnable.Count == region.Count ? ""
+                : $"; {returnable.Count} of them returnable, goal {(returnable.Contains(goal.Value) ? "in" : "out")}";
             // A complete region with the goal out is one of three things, and the window's edge
             // tells them apart. The flood records whether it ever read a tile outside the window
             // (the edge is a wall only to the tool), so a flood that never asked is a region the
@@ -203,7 +212,7 @@ foreach (string file in files)
             Console.WriteLine($"     player:        {(toPlayer.Pass ? "reached" : "NOT reached")} at {Fmt(pl2)}, {Describe(toPlayer)}");
         if (from != null)
         {
-            Console.WriteLine($"     reach flood:   {region.Count} tiles, {(complete ? "complete" : "budget spent")}, goal {goalIn}{playerIn}{pocket}");
+            Console.WriteLine($"     reach flood:   {region.Count} tiles, {(complete ? "complete" : "budget spent")}, goal {goalIn}{playerIn}{homeIn}{pocket}");
             // The player's trail is the design's own pass line: every tile the player's feet were
             // in is a tile the companion must be able to stand in and get to. The first tile the
             // grid refuses names the missing link; a tile outside a complete region is refused too.

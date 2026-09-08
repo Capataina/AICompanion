@@ -117,13 +117,9 @@ public sealed class Positioner
     /// <summary>The last flood from the companion's feet holds this tile: the brain reads the player's feet against it to end a stranded count.</summary>
     public bool Reaches(Point tile) => InReach(tile);
 
-    // The one-way rule the flood ran under: a roam runs with deep drops off and a follow with
-    // them on, and a region flooded under the other rule offers a roam the bottom of a pit.
-    private bool reachOneWay;
-
     private void RefreshReach(Senses.Senses senses)
     {
-        if (reach != null && sinceFlood < RescoreInterval && reachOneWay == AStar.AllowOneWayDrops)
+        if (reach != null && sinceFlood < RescoreInterval)
             return;
         sinceFlood = 0;
         Point? feet = NavGrid.NearestStandable(NavGrid.FeetTile(senses.Companion.Bottom), 2);
@@ -134,10 +130,18 @@ public sealed class Positioner
             return;
         }
         var clock = System.Diagnostics.Stopwatch.StartNew();
-        reach = AStar.Region(feet.Value, Weights.ReachFloodBudget, out bool complete);
+        // Always without the edges that have no way back, whatever the request is, so this region
+        // means "everywhere the body can go and come home from". That is what turns the tier below
+        // into the decision about whether to enter somewhere: while any candidate spot is in here
+        // only those are scored, and when none is, the tier opens and the unrecoverable ones are
+        // scored instead. So the companion shoots into a pit from its rim while a rim spot exists
+        // and drops in when none does, and it follows the player into a pocket because every
+        // candidate went in with him, with nothing in the code naming an enemy, a pit or a player.
+        // The flood no longer depends on the request kind, which is why it no longer re-floods when
+        // that changes.
+        reach = AStar.Region(feet.Value, Weights.ReachFloodBudget, out bool complete, refuseOneWay: true);
         LastFloodMs = clock.Elapsed.TotalMilliseconds;
         ReachComplete = complete;
-        reachOneWay = AStar.AllowOneWayDrops;
     }
 
     /// <summary>Wall-clock of the last reach flood, for the telemetry.</summary>

@@ -34,6 +34,9 @@ public sealed class WalkTraversal : Traversal
     private int blockedTicks;
     private int lastDir = 1;
 
+    /// <summary>A kerb: the game's StepUp lifts the body one row without leaving the ground.</summary>
+    public override int ClimbTiles => 1;
+
     public override IEnumerable<NavEdge> Candidates(NavNode node, BodyPhysics.Pose? here, bool lava)
     {
         Point t = node.Tile;

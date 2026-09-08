@@ -24,14 +24,22 @@ public static class AStar
     public static bool AllowLava;
 
     /// <summary>
-    /// A drop deeper than the body can jump back up is a door that closes behind it, and it is
-    /// offered only while this is true: the brain sets it for a tick in which the companion is
-    /// following or guarding the player, or saving itself, because the player being down there
-    /// is the one reason to go where there is no way back. A hunt took one in run 5 (2026-09-08,
-    /// tick 7155, fifteen rows into a sealed pocket) and stood at its rim for the rest of the
-    /// session. The reach flood the positioner uses shares the rule, so a firing spot at the
-    /// bottom of a pit is not offered either. The replay tool leaves it true: a scenario
-    /// records where the player went.
+    /// A drop with no way back is a door that closes behind the body, and a plan takes one only
+    /// while this is true: the brain sets it for a tick in which the companion is following or
+    /// guarding the player, or saving itself, because the player being down there is the one
+    /// reason to go where there is no way back. A hunt took one in run 5 (2026-09-08, tick 7155,
+    /// fifteen rows into a sealed pocket) and stood at its rim for the rest of the session. The
+    /// replay tool leaves it true: a scenario records where the player went.
+    ///
+    /// What "no way back" means is <see cref="OneWay"/>, a question asked of this same search,
+    /// and until 2026-09-08 it was the depth of the fall against the jump box, which was wrong in
+    /// both directions: a four-row drop into a sealed box read as safe and a twenty-row drop into
+    /// an open cavern with a ramp back up read as a door.
+    ///
+    /// The positioner's reach flood does not read this. It always refuses an edge with no way
+    /// back, whatever the request is, so its reachability tier means "spots the body can come home
+    /// from" and opens up only when there are none; that tier is where the decision to enter a
+    /// place actually gets made, and it makes it without anything in the code naming a scenario.
     /// </summary>
     public static bool AllowOneWayDrops = true;
 
@@ -82,7 +90,10 @@ public static class AStar
         var g = new Dictionary<NavNode, float>();
         var cameFrom = new Dictionary<NavNode, Arrival>();
         var closed = new HashSet<NavNode>();
-        TraceClosed?.Clear();
+        // A probe running inside another search must not touch the replay's trace, or the inner
+        // one clears the picture the outer search was drawing.
+        HashSet<Point>? trace = probing ? null : TraceClosed;
+        trace?.Clear();
         NavNode from = NavNode.At(start);
         NavNode nearest = from;
         float nearestH = H(start, goal);
@@ -97,7 +108,7 @@ public static class AStar
             NavNode node = current.Node;
             if (!closed.Add(node))
                 continue;
-            TraceClosed?.Add(node.Tile);
+            trace?.Add(node.Tile);
 
             if (node.Tile == goal)
                 return Rebuild(cameFrom, from, node, partial: false);
@@ -114,7 +125,7 @@ public static class AStar
                 break;
 
             float gHere = g[node];
-            foreach ((NavStep step, float cost) in Neighbours(node))
+            foreach ((NavStep step, float cost) in Neighbours(node, !AllowOneWayDrops))
             {
                 var next = new NavNode(step.Tile, step.Mobility);
                 if (closed.Contains(next))
@@ -139,7 +150,7 @@ public static class AStar
     /// is truly unreachable; otherwise a tile not in the set is unknown. One flood, reused for
     /// every candidate, is what makes "can I get there" affordable for a box of spots.
     /// </summary>
-    public static HashSet<Point> Region(Point start, int budget, out bool complete)
+    public static HashSet<Point> Region(Point start, int budget, out bool complete, bool refuseOneWay = false)
     {
         NavNode from = NavNode.At(start);
         var seen = new HashSet<NavNode> { from };
@@ -157,7 +168,7 @@ public static class AStar
                 break;
             }
             NavNode node = queue.Dequeue();
-            foreach ((NavStep step, _) in Neighbours(node))
+            foreach ((NavStep step, _) in Neighbours(node, refuseOneWay))
             {
                 var next = new NavNode(step.Tile, step.Mobility);
                 if (seen.Add(next))
@@ -199,7 +210,70 @@ public static class AStar
     /// the simulated jump moves at half speed while wet because the game halves a wet NPC's
     /// movement; the search then prefers walking out along the floor to jumping in place.
     /// </summary>
-    private static IEnumerable<(NavStep, float)> Neighbours(NavNode node)
+    /// <summary>
+    /// Whether the landing of <paramref name="edge"/> can get back to the tile it left, asked of
+    /// the same search that moves the body rather than compared against a depth. Only a fall
+    /// deeper than <see cref="Traversal.ClimbReachTiles"/> is asked about, and only by a caller
+    /// that would refuse the edge, so a companion following the player never pays for this at all.
+    ///
+    /// Three things make it affordable. It early-exits the moment it reaches the tile it left, so
+    /// a recoverable drop answers in a handful of expansions because the lip is right there. A
+    /// genuine pocket is small by construction, which the corpus's own fixtures show at thirty and
+    /// thirty-four tiles, so proving one closed is cheap too. And a budget that runs out answers
+    /// "there is a way back", which is the same convention <see cref="Reachability"/> uses for
+    /// threats and errs toward letting the body move: it refuses only where it has proved a pocket.
+    ///
+    /// The verdict is memoised on its own rather than with the edge, because the edge cache's
+    /// invalidation box is drawn from how far a scan reads and this verdict depends on the shape of
+    /// a whole region: a tile dug deep inside a pocket flips the verdict of a lip far outside any
+    /// such box. So it is dropped wholesale on any tile change, which is blunt and correct, and
+    /// verdicts are rare enough to pay for.
+    /// </summary>
+    private static bool OneWay(Point from, NavEdge edge)
+    {
+        // Inside a probe the rule is suppressed: without this, asking whether an edge has a way
+        // back generates edges, each of which asks the same question, and the failure arrives as
+        // a hang rather than a wrong answer.
+        if (probing || edge.Fall <= Traversal.ClimbReachTiles)
+            return false;
+        (Point, Point) key = (from, edge.Step.Tile);
+        if (oneWay.TryGetValue(key, out OneWayVerdict known) && unchecked(Clock - known.Born) <= EdgeCacheLifeTicks)
+            return known.Value;
+        Point? back = NavGrid.NearestStandable(edge.Step.Tile, 2);
+        Point? lip = NavGrid.NearestStandable(from, 2);
+        bool verdict;
+        if (back == null || lip == null)
+            verdict = false;
+        else
+        {
+            probing = true;
+            try
+            {
+                NavPath? route = Find(back.Value, lip.Value, OneWayProbeBudget, out int used);
+                verdict = !((route != null && !route.Partial) || used > OneWayProbeBudget);
+            }
+            finally
+            {
+                probing = false;
+            }
+        }
+        oneWay[key] = new OneWayVerdict(verdict, Clock);
+        return verdict;
+    }
+
+    private static readonly Dictionary<(Point, Point), OneWayVerdict> oneWay = new();
+    private readonly record struct OneWayVerdict(bool Value, uint Born);
+    private static bool probing;
+
+    /// <summary>
+    /// Expansions a return probe may spend before it answers "there is a way back". It has to
+    /// exceed the size of a pocket for the pocket to be provable, and the corpus's real ones are
+    /// tens of tiles; past that the cost is paid on every deep lip a refusing caller reads, so it
+    /// is deliberately nearer the pockets' size than the flood's budget.
+    /// </summary>
+    public const int OneWayProbeBudget = 150;
+
+    private static IEnumerable<(NavStep, float)> Neighbours(NavNode node, bool refuseOneWay)
     {
         (NavNode, bool) key = (node, AllowLava);
         NavEdge[] edges;
@@ -215,7 +289,9 @@ public static class AStar
         Point t = node.Tile;
         foreach (NavEdge e in edges)
         {
-            if (e.Fall > NavGrid.JumpHeightTiles && !AllowOneWayDrops)
+            // The cheap test first, deliberately: the probe behind OneWay runs only for a caller
+            // that would refuse the edge, so following the player never pays for it.
+            if (refuseOneWay && OneWay(t, e))
                 continue;
             yield return (e.Step, e.Swept ? PriceSwept(t, e.Step.Tile, e.Move) : Price(e.Step.Tile.X, e.Step.Tile.Y, e.Move));
         }
@@ -280,6 +356,10 @@ public static class AStar
     /// </summary>
     public static void TileChanged(int x, int y)
     {
+        // Every return verdict goes, not a box of them: a verdict is about the shape of a whole
+        // region, and a tile dug deep inside a pocket changes whether its lip has a way back
+        // while sitting far outside any box drawn from how far a scan reads.
+        oneWay.Clear();
         if (edgeCache.Count == 0)
             return;
         int minY = y - NavGrid.MaxDropTiles - 1;
@@ -296,7 +376,11 @@ public static class AStar
     }
 
     /// <summary>Drop every cached edge: a new world, or the replay tool starting a block or a flood it reads the edge flag from.</summary>
-    public static void InvalidateEdges() => edgeCache.Clear();
+    public static void InvalidateEdges()
+    {
+        edgeCache.Clear();
+        oneWay.Clear();
+    }
 
     /// <summary>How many tiles hold cached edges right now, for the overlay.</summary>
     public static int CachedTiles => edgeCache.Count;
