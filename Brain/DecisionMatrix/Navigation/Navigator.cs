@@ -49,7 +49,10 @@ public sealed class Navigator
         // as long as the goal stays unreachable. It waits FailedPlanRetry ticks unless the goal moves.
         bool failedRecently = LastPlanFailed && ticksSincePlan < FailedPlanRetry;
         bool stale = (Path == null && !failedRecently) || (Path != null && (Path.Finished || ticksSincePlan >= ReplanInterval || stuckTicks > 40));
-        if (goal != null && (goalMoved || stale))
+        // Plan only from the ground: an airborne body has no standable tile under it, and a
+        // plan that failed for that reason blocked replanning for the retry wait, during which
+        // straight walking hopped every kerb and put the body back in the air for the next try.
+        if (goal != null && (goalMoved || stale) && motor.OnGround)
         {
             Plan(start, goal.Value);
         }

@@ -85,7 +85,9 @@ public sealed class BrainTelemetry : ModSystem
     }
 
     private const int DumpEveryTicks = 300;
-    private const int DumpMaxWidth = 160, DumpMaxHeight = 200, DumpPad = 6;
+    // The pad is generous on purpose: the first dumps (13:48 run) cut the exit of a pocket
+    // off at six tiles, and a window that hides the way out answers nothing.
+    private const int DumpMaxWidth = 160, DumpMaxHeight = 200, DumpPad = 20;
     private static string? plansPath;
     private static long lastDumpTick;
 

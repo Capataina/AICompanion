@@ -188,12 +188,26 @@ public static class AStar
                 // Coarse arc check: the body must be clear at the apex column above the start and at the landing.
                 if (!NavGrid.IsBodyClear(t.X, t.Y - up) || !ColumnClearBetween(t.X, nx, ny))
                     continue;
-                yield return (new Point(nx, ny), MoveKind.Jump, Price(nx, ny, (2f + Math.Abs(dx) * 0.5f + up * 0.5f) * costScale));
+                yield return (new Point(nx, ny), MoveKind.Jump, Price(nx, ny, JumpCost(dx, up) * costScale));
             }
-            // Gap jump on the same row.
-            if (Math.Abs(dx) >= 2 && NavGrid.IsStandable(t.X + dx, t.Y, lava) && ColumnClearBetween(t.X, t.X + dx, t.Y - 1))
-                yield return (new Point(t.X + dx, t.Y), MoveKind.Jump, Price(t.X + dx, t.Y, (2f + Math.Abs(dx) * 0.5f) * costScale));
+            // Gap jump on the same row, only over a real gap: with every tile between standable
+            // the walk exists and is cheaper, and offering the jump as well priced a four-tile
+            // hop level with a four-tile walk, which is how the body hopped along flat ground.
+            if (Math.Abs(dx) >= 2 && NavGrid.IsStandable(t.X + dx, t.Y, lava) && !RowStandableBetween(t.X, t.X + dx, t.Y, lava) && ColumnClearBetween(t.X, t.X + dx, t.Y - 1))
+                yield return (new Point(t.X + dx, t.Y), MoveKind.Jump, Price(t.X + dx, t.Y, JumpCost(dx, 0) * costScale));
         }
+    }
+
+    /// <summary>A jump always costs more than walking the same tiles, so it is taken only where the walk does not exist.</summary>
+    private static float JumpCost(int dx, int up) => 2f + Math.Abs(dx) * 1f + up * 0.5f;
+
+    private static bool RowStandableBetween(int x0, int x1, int y, bool lava)
+    {
+        int step = Math.Sign(x1 - x0);
+        for (int x = x0 + step; x != x1; x += step)
+            if (!NavGrid.IsStandable(x, y, lava))
+                return false;
+        return true;
     }
 
     /// <summary>
