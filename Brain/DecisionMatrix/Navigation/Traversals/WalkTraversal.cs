@@ -50,7 +50,11 @@ public sealed class WalkTraversal : Traversal
                 // beyond them.
                 if (Simulate(pose, 0f, dir, t, lava) is not (Point landing, int ticks))
                     continue;
-                bool fromRest = Simulate(pose, dir * BodyPhysics.WalkSpeed, dir, t, lava) is not (Point atSpeed, _) || atSpeed.Y != landing.Y;
+                // The whole landing is compared and not its row alone: a walk that lands one
+                // column further along at speed than it did from rest promises a tile the body
+                // will not be standing on, so Done never fires there and the step faults or
+                // walks back. Comparing Y only let that through (Codex review of 7525a1b).
+                bool fromRest = Simulate(pose, dir * BodyPhysics.WalkSpeed, dir, t, lava) is not (Point atSpeed, _) || atSpeed != landing;
                 int dy = landing.Y - t.Y;
                 // A slope or a short ledge lowers the feet a row without a real fall, so the
                 // step down is a walk like the others and not a drop; a step up costs its kerb.
@@ -115,6 +119,13 @@ public sealed class WalkTraversal : Traversal
         // a jump is only for two tiles or more, at the height the rise needs, or for a real wall.
         int riseTiles = (int)MathF.Ceiling(-dy / 16f);
         bool jump = live.OnGround && (WallAhead(live, dir) || riseTiles >= 2);
+        // A walk proven from rest has to begin from rest, and the step before it is not always
+        // there to deliver that: a replan can make it the first step of a fresh path, and a jump
+        // or a descent can land on its start tile still moving. So it brakes itself while it is
+        // still on that tile, the way the descent does and for the same reason; once it has left
+        // the tile the brake stops, so a body can never sit in it (Codex review of 7525a1b).
+        if (step.FromRest && !jump && live.OnGround && MathF.Abs(live.Vx) > RestSpeed && live.Covers(step.From))
+            return Controls.None;
         // The step before a move proven from rest coasts onto its point, because a body that
         // arrives at a lip at the walk speed leaves it at that speed and lands where the
         // simulation from rest never went (the follow harness on run 7, 2026-09-08); the step

@@ -344,7 +344,10 @@ static (FollowOutcome, string, List<string>) FollowPath(TextTileWorld world, Poi
         // so a third fault is the verdict and not a loop of plans.
         if (faults >= 3)
             return (FollowOutcome.Parked, $"faulted three times by tick {tick}, the feet at {Fmt(body.FeetTile)} (first: {firstFault})", edges);
-        if (navigator.Arrived)
+        // Standing, not merely near: the navigator's own Arrived is a distance to the target, which
+        // a body flying past the goal satisfies in mid-air with steps still unperformed, so it is
+        // not a verdict that every move was made as proven (Codex review of 7525a1b).
+        if (navigator.Arrived && body.OnGround)
             return (FollowOutcome.Walked, $"arrived in {tick} ticks, {reported} steps performed, {faults} faults{(firstFault != null ? $" (first: {firstFault})" : "")}", edges);
         if (!sized && navigator.Path is NavPath planned)
         {
@@ -385,9 +388,13 @@ static IEnumerable<Point> ChurnTiles(NavPath path)
     }
 }
 
-// A plan reduced to a string that two plans can be compared by: each step's tile and kind, and
-// the parameters the follower executes it with (the jump's scale and start speed, a descent's
-// steer line), because two routes over the same tiles that ask for different moves are two plans.
+// A plan reduced to a string that two plans can be compared by: each step's tile and kind, the
+// tile it leaves from, and every parameter the follower executes it with (the jump's scale and
+// start speed, a descent's steer line, the proven tick count the allowance is sized from, whether
+// the move starts from rest, and the mobility state it lands in), because two routes over the same
+// tiles that ask for different moves are two plans. Ticks, FromRest, From and Mobility were added
+// after the Codex review of 7525a1b found the signature blind to fields that change execution and
+// fault timing, which made a churn pass agree where the two plans genuinely differed.
 static string Signature(Point from, Point goal)
 {
     Point? to = NavGrid.NearestStandable(goal, 3);
@@ -398,8 +405,10 @@ static string Signature(Point from, Point goal)
         return "none";
     var sb = new System.Text.StringBuilder(path.Partial ? "partial " : "");
     foreach (NavStep step in path.Steps)
-        sb.Append(step.Kind.ToString()[0]).Append(Fmt(step.Tile))
+        sb.Append(step.Kind.ToString()[0]).Append(Fmt(step.Tile)).Append('<').Append(Fmt(step.From))
           .Append('/').Append(step.JumpScale.ToString("0.##")).Append('/').Append(step.StartVx.ToString("0.##")).Append('/').Append(step.SteerX.ToString("0.#"))
+          .Append('/').Append(step.Ticks).Append(step.FromRest ? "/rest" : "/run")
+          .Append('/').Append(step.Mobility.AirJumpsLeft).Append(step.Mobility.Latched ? "L" : "-").Append(step.Mobility.DashCooldown)
           .Append(' ');
     return sb.ToString().TrimEnd();
 }

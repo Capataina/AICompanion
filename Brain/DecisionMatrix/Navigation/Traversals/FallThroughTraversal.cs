@@ -34,7 +34,7 @@ public sealed class FallThroughTraversal : Traversal
 
     public override Controls Steer(BodyState live, NavStep step, NavStep? next)
     {
-        Controls controls = DropTraversal.Perform(step, live, throughPlatform: true);
+        Controls controls = DropTraversal.Perform(step, live, throughPlatform: true, begun: pressed);
         pressed |= controls.FallThrough;
         return controls;
     }

@@ -95,19 +95,6 @@ public static class NavGrid
         return BodyPhysics.Stand(World, x, y);
     }
 
-    /// <summary>
-    /// The X, in world pixels, of the middle of the open run of columns around
-    /// <paramref name="column"/> at the row the feet are on: columns the body is clear in
-    /// with nothing solid beneath them, a few each way at most. A body dropping into a hole
-    /// steers here rather than to a tile centre, because centred on one column of a two-wide
-    /// shaft it still overhangs the lip by a couple of pixels and the game keeps it standing.
-    /// </summary>
-    public static float OpenSpanCentreX(int column, int feetRow, bool throughPlatform)
-    {
-        (int left, int right) = OpenSpan(column, feetRow, throughPlatform);
-        return (left * 16f + (right + 1) * 16f) / 2f;
-    }
-
     /// <summary>How many columns either way the open span beside a lip is read; the edge cache's invalidation box is sized from it.</summary>
     public const int OpenSpanReach = 3;
 

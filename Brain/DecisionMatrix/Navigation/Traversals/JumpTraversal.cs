@@ -224,18 +224,36 @@ public sealed class JumpTraversal : Traversal
     }
 
     /// <summary>
+    /// A jump's proven ticks are its flight and nothing else, so the allowance has to add the
+    /// preparation the follower does before it: a running profile backs away to its mark and runs
+    /// in, and the motor needs the speed divided by its acceleration to reach that speed, once
+    /// each way. Without this a full-speed jump whose back-off and run-in cost eighty ticks timed
+    /// out against an allowance sized for a twelve-tick flight, which is what the cadence hold
+    /// (MidMove) made reachable: before it, the replan cut the preparation short instead.
+    /// </summary>
+    protected override int Allowance(NavStep step)
+        => base.Allowance(step) + (step.StartVx == 0f ? 0 : (int)(2f * MathF.Abs(step.StartVx) / BodyPhysics.Acceleration));
+
+    /// <summary>
     /// How far behind a jump's take-off the body can back up along the take-off row, in pixels:
     /// the distance the motor needs to reach the profile's speed from rest, plus a tile to turn
     /// in, capped by the standable tiles actually there.
     /// </summary>
     private static float Runway(NavStep step, int direction)
-        => MathF.Min(RunwayNeeded(step.StartVx) + 16f, RunwayPixels(step.From, -direction));
+        => MathF.Min(RunwayNeeded(MathF.Abs(step.StartVx)) + 16f, RunwayPixels(step.From, -direction));
 
     /// <summary>How far under the profile's speed a body may cross the take-off and still make the jump; the planner proves the runway with the same slack the performer accepts.</summary>
     private const float SpeedSlack = 0.4f;
 
-    /// <summary>The distance the motor needs to reach a speed from rest, from its own acceleration: v² over twice the gain per tick.</summary>
-    private static float RunwayNeeded(float speed) => MathF.Max(0f, speed) * MathF.Max(0f, speed) / (2f * BodyPhysics.Acceleration);
+    /// <summary>
+    /// The distance the motor needs to reach a speed from rest, from its own acceleration: v²
+    /// over twice the gain per tick. The parameter is a speed <em>magnitude</em> and never a
+    /// signed velocity, which is why it is named one: the clamp is there because a caller
+    /// subtracts <see cref="SpeedSlack"/> first and that can go below zero, and a signed
+    /// velocity handed in instead reads every leftward jump as needing no runway at all
+    /// (a −3.5 profile asked for 16 px where its mirror asked for 81.6, Codex review of 7525a1b).
+    /// </summary>
+    private static float RunwayNeeded(float magnitude) => MathF.Max(0f, magnitude) * MathF.Max(0f, magnitude) / (2f * BodyPhysics.Acceleration);
 
     /// <summary>The standable floor behind a take-off along its row, in pixels, up to a few tiles; <paramref name="behind"/> is the direction away from the jump.</summary>
     private static float RunwayPixels(Point takeoff, int behind)

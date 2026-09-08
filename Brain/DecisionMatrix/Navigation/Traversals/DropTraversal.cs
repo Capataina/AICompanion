@@ -163,19 +163,23 @@ public sealed class DropTraversal : Traversal
     public override Controls Steer(BodyState live, NavStep step, NavStep? next)
     {
         airborne |= Falling(live);
-        return Perform(step, live, throughPlatform: false);
+        return Perform(step, live, throughPlatform: false, begun: airborne);
     }
 
     /// <summary>Landed: standing in the promised row with the promised column under the body, where the descent filed it.</summary>
     public override bool Done(BodyState live, NavStep step, NavStep? next) => live.Covers(step.Tile);
 
     /// <summary>
-    /// The descent as performed: a standing body still moving faster than rest brakes first,
-    /// because the edge was proven from rest and a lip left at speed lands elsewhere; from rest,
-    /// and in the air, the proving controls.
+    /// The descent as performed: before the move has begun, a standing body still moving faster
+    /// than rest brakes first, because the edge was proven from rest and a lip left at speed
+    /// lands elsewhere. Once it has begun (left the ground, or pressed its platform) the proving
+    /// controls run every tick without exception, because the proof calls them every tick: a
+    /// brake that also fired on the brief grounded rests inside a descent gave the performer a
+    /// control sequence the proof never used, which is the one thing this design forbids
+    /// (Codex review of 7525a1b).
     /// </summary>
-    internal static Controls Perform(NavStep step, BodyState live, bool throughPlatform)
-        => live.OnGround && MathF.Abs(live.Vx) > RestSpeed ? Controls.None : DescentControls(step.SteerX, live, throughPlatform);
+    internal static Controls Perform(NavStep step, BodyState live, bool throughPlatform, bool begun)
+        => !begun && live.OnGround && MathF.Abs(live.Vx) > RestSpeed ? Controls.None : DescentControls(step.SteerX, live, throughPlatform);
 
     /// <summary>
     /// Mislanded: come to rest off the promised tile two or more rows below the lip, which is the
