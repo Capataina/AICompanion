@@ -48,3 +48,17 @@ public sealed class CompanionAggro : GlobalNPC
 
     private static bool IsHostile(NPC npc) => !npc.friendly && !npc.townNPC && npc.damage > 0;
 }
+
+/// <summary>
+/// The backstop for the window above. tModLoader runs an NPC's AI hooks without a finally,
+/// so an exception thrown by any AI between our PreAI and PostAI leaves the stand-in active
+/// into the player update; the end of the NPC pass hides it again whatever happened. And a
+/// world exit leaves a stale stand-in in the slot for the next world's enemies to target, so
+/// the slot is emptied on world unload and rebuilt with the companion on the next entry.
+/// </summary>
+public sealed class CompanionAggroBackstop : ModSystem
+{
+    public override void PostUpdateNPCs() => CompanionBody.Expose(false);
+
+    public override void OnWorldUnload() => CompanionBody.Withdraw();
+}

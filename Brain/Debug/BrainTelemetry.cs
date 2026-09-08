@@ -68,10 +68,20 @@ public sealed class BrainTelemetry : ModSystem
 
     private static void Close()
     {
-        writer?.Flush();
-        writer?.Dispose();
-        writer = null;
-        plansPath = null;
+        try
+        {
+            writer?.Flush();
+            writer?.Dispose();
+        }
+        catch (Exception e)
+        {
+            ModContent.GetInstance<AICompanion>().Logger.Warn($"BrainTelemetry: close failed: {e.Message}");
+        }
+        finally
+        {
+            writer = null;
+            plansPath = null;
+        }
     }
 
     private const int DumpEveryTicks = 300;
@@ -162,7 +172,9 @@ public sealed class BrainTelemetry : ModSystem
 
         var sb = new StringBuilder(400);
         sb.Append(Main.GameUpdateCount);
-        sb.Append('\t').Append(companion.IsDowned ? "downed" : senses.Player.IsDead ? "player-dead" : "up");
+        // Read the player's death from the player, not the sense: the brain (and so the sense)
+        // stops ticking exactly when the player is dead, so the cached flag never turns.
+        sb.Append('\t').Append(companion.IsDowned ? "downed" : Main.LocalPlayer.dead ? "player-dead" : "up");
         sb.Append('\t').Append(brain.LastAction?.Name ?? "-");
         sb.Append('\t').Append(brain.Reflexes.Active ?? "-");
         foreach (var a in brain.Chooser.Actions)
@@ -214,16 +226,27 @@ public sealed class BrainTelemetry : ModSystem
 
         sb.Append('\t').Append(Tile(senses.Player.Bottom));
         sb.Append('\t').Append(senses.Player.Intent.X.ToString("0.0"));
-        sb.Append('\t').Append(senses.Player.IsDead ? 1 : 0);
+        sb.Append('\t').Append(Main.LocalPlayer.dead ? 1 : 0);
         sb.Append('\t').Append(senses.Player.IsAttacking ? 1 : 0);
         sb.Append('\t').Append(senses.Player.IsChoppingTree ? 1 : 0);
         sb.Append('\t').Append(senses.Player.MinedOre != null ? 1 : 0);
 
-        writer.WriteLine(sb.ToString());
-        if (++sinceFlush >= FlushEveryTicks)
+        // A write that fails (disk full, a stream the OS closed) must not escape the NPC's AI
+        // and take the companion with it; the record stops and the game goes on.
+        try
         {
-            sinceFlush = 0;
-            writer.Flush();
+            writer.WriteLine(sb.ToString());
+            if (++sinceFlush >= FlushEveryTicks)
+            {
+                sinceFlush = 0;
+                writer.Flush();
+            }
+        }
+        catch (Exception e)
+        {
+            ModContent.GetInstance<AICompanion>().Logger.Error($"BrainTelemetry: write failed, recording stops: {e.Message}");
+            try { writer.Dispose(); } catch { /* the stream is already broken */ }
+            writer = null;
         }
     }
 

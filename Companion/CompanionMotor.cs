@@ -75,7 +75,10 @@ public sealed class CompanionMotor
                 return v;
         }
         float next = v + MathF.Sign(target) * Acceleration;
-        return MathF.Abs(next) > MathF.Abs(target) ? target : next;
+        // Clamp to the target only once the speed is on the target's side: a magnitude test
+        // alone snapped -3.2 straight to +1.75 on a reversal, which is the instant turn the
+        // slowdown above exists to prevent.
+        return MathF.Sign(next) == MathF.Sign(target) && MathF.Abs(next) > MathF.Abs(target) ? target : next;
     }
 
     /// <summary>Jump if standing; returns whether it happened.</summary>
