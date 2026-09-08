@@ -52,6 +52,10 @@ AICompanion/
 ├─ Players/                  the ModPlayer: persistence and input
 ├─ Commands/                 /companion
 ├─ Localization/             en-US strings (display name, keybind)
+├─ Tools/                    console tools that are not mod code: excluded from the mod's compile and from the .tmod
+│  ├─ NavReplay/             runs the real planner on a plan dump or scenario file with no game running, and draws the answer
+│  ├─ WorldWindow/           rewrites a plan dump's tiles with the slope and half-block shapes from the saved world file
+│  └─ Scenarios/             the committed database of places the companion must be able to reach, one block per case
 └─ Telemetry/                written by the mod at run time, one .tsv per world session plus a -plans.txt of tile windows for failed plans; ignored by git and the packager, read by an agent after a playtest
 ```
 
@@ -68,6 +72,21 @@ Zero `error CS` lines and a fresh `bin/Debug/net8.0/AICompanion.dll` is the pass
 
 Build for the game (what Caner does to play it): with the game closed, the shell build above packages `Mods/AICompanion.tmod`; launch tModLoader and the mod is loaded. In a world, `/companion` once; from then on it spawns with you on every world enter. F6 (rebindable under Controls → Mod Controls; on a MacBook the F-keys need Fn unless set to standard) toggles the brain overlay. Right-click the companion within reach, or click its health notch, to open its bag.
 
+Replay a run's failed plans without the game (what a session does after a playtest, before touching the planner):
+
+```
+dotnet run --project Tools/NavReplay -- Telemetry/<stamp>-plans.txt
+dotnet run --project Tools/NavReplay -- Tools/Scenarios
+```
+
+Every block is one scenario; the tool prints PASS or FAIL for the recorded start-to-goal plan, a second line saying whether the player's feet were reachable when they are in the window, and the map with the path (`w j d f`) or, on a failure, every tile the search closed (`c`) so "no path" reads as "it got this far". Exit 0 only when everything passed and nothing was skipped. A dump written before the mod knew about slopes draws them as walls; rewrite it from the saved world first, which needs the `lihzahrd` parser in a venv (`python3 -m venv /tmp/wldenv && /tmp/wldenv/bin/pip install lihzahrd`):
+
+```
+/tmp/wldenv/bin/python Tools/WorldWindow/reshape.py Telemetry/<stamp>-plans.txt "~/Library/Application Support/Terraria/tModLoader/Worlds/<world>.wld"
+```
+
+The output lands in `Tools/Scenarios/` and is committed, because the scenarios are the growing database of places the companion must be able to go.
+
 ## Traps
 
 - **The shell build says "Build succeeded" in under two seconds.** That is real; check the DLL timestamp before trusting it.
@@ -80,7 +99,8 @@ Build for the game (what Caner does to play it): with the game closed, the shell
 - **`Main.DrawTileCracks` adds `offScreenRange`** unless `drawToScreen`; `TileCracksRenderer` cancels it.
 - **`CheckActive` returns false**, so the companion is never culled for distance.
 - **The health bar draws in raw screen pixels** because `Main.mouseX/Y` are screen pixels.
-- **Nothing in the brain has been watched running as of 2026-09-08.** The first batch (body, chop, bow, bar, persistence) was playtested twice on 2026-09-07; the brain, the navigator, the bag and the overlay compile and await the first run. Jump reach in `NavGrid` is derived, not measured.
+- **A tile that "has a solid tile" is not a wall.** Worldgen smooths cave corners into slopes and half blocks, the game's collision skips a slope from its open side and rests the body on its diagonal, and the fourth run of 2026-09-08 parked the companion for six thousand ticks above a staircase of five such slopes that the grid drew as `#`. Every tile question goes through `ITileWorld.Shape`, never `tileSolid` alone.
+- **The brain has been watched for four short runs as of 2026-09-08, all on the surface and the first cave.** Jump reach in `NavGrid` is derived, not measured; the replay tool under `Tools/` is where a navigation claim is checked before a playtest.
 
 ## Planned work
 
