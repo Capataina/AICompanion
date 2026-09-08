@@ -205,6 +205,7 @@ public sealed class BrainTelemetry : ModSystem
             h.Append("\trequest\tanchor\tspot\tspot_score\tpath_steps\tpath_at\tnext_kind\tplan_failed\texpansions");
             h.Append("\tnpc_tile\tnpc_px\tnpc_vel\tground\twet\tcollide_x\tcollide_y\tdir\tlife\tbreath\tself_danger\theld\tweapon\tshot\ttorch\tambient");
             h.Append("\tplayer_tile\tplayer_intent\tplayer_dead\tplayer_attacking\tplayer_chopping\tplayer_mining");
+            h.Append("\tplan_ms\tflood_ms");
             writer.WriteLine(h.ToString());
             headerWritten = true;
         }
@@ -269,6 +270,8 @@ public sealed class BrainTelemetry : ModSystem
         sb.Append('\t').Append(senses.Player.IsAttacking ? 1 : 0);
         sb.Append('\t').Append(senses.Player.IsChoppingTree ? 1 : 0);
         sb.Append('\t').Append(senses.Player.MinedOre != null ? 1 : 0);
+        // The cost of the pose grid in the game, per tick: the last plan's and the last reach flood's wall-clock.
+        sb.Append('\t').Append(brain.Navigator.LastPlanMs.ToString("0.00")).Append('\t').Append(brain.Positioner.LastFloodMs.ToString("0.00"));
 
         // A write that fails (disk full, a stream the OS closed) must not escape the NPC's AI
         // and take the companion with it; the record stops and the game goes on.

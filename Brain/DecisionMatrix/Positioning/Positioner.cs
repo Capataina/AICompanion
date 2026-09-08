@@ -84,9 +84,14 @@ public sealed class Positioner
             // and still the best answer to "where can I get to" until the body lands.
             return;
         }
+        var clock = System.Diagnostics.Stopwatch.StartNew();
         reach = AStar.Region(feet.Value, Weights.ReachFloodBudget, out bool complete);
+        LastFloodMs = clock.Elapsed.TotalMilliseconds;
         ReachComplete = complete;
     }
+
+    /// <summary>Wall-clock of the last reach flood, for the telemetry.</summary>
+    public double LastFloodMs { get; private set; }
 
     private Vector2? Best(in PositionRequest request, Senses.Senses senses, WeaponProfile? fireProfile)
     {

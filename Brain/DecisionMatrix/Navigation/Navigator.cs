@@ -29,6 +29,9 @@ public sealed class Navigator
     /// <summary>Ticks the body has not moved while the follower had somewhere to go; the scenario capture reads it.</summary>
     public int StuckTicks => stuckTicks;
 
+    /// <summary>Wall-clock of the last search, for the telemetry: the frame cost of the pose grid is otherwise unmeasured.</summary>
+    public double LastPlanMs { get; private set; }
+
     private int ticksSincePlan = ReplanInterval;
     private int stuckTicks;
     private Vector2 lastPosition;
@@ -87,7 +90,9 @@ public sealed class Navigator
             global::AICompanion.Brain.Debug.BrainTelemetry.DumpPlan(start, goal, from, 0, "no standable tile at the start");
             return;
         }
+        var clock = System.Diagnostics.Stopwatch.StartNew();
         Path = AStar.Find(from.Value, goal, PlanBudget, out int used);
+        LastPlanMs = clock.Elapsed.TotalMilliseconds;
         LastExpansions = used;
         // A partial path is followed, and still counted as a failure: the goal was not reached
         // by the plan, and the record needs to say so even while the body walks toward it.
