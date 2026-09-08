@@ -146,12 +146,26 @@ public sealed class Positioner
         // body on the rim of a shaft he had climbed down. The corpus's two-wide shaft fixture is
         // exactly that shape: eight rows down, seven rim tiles returnable and inside the sample
         // box, so a returnable candidate always survived and the tier never opened for him.
-        // This costs a second flood only when the player is out of the first one, which is the
-        // case where the companion has to go and get him.
+        //
+        // The raw region has to be read before the exception is granted, because "he is not in the
+        // returnable region" is also true of a player the body cannot reach at all — walled off
+        // behind a sand fall, which is a state the mod supports until he digs the body out. Opening
+        // the tier there refuses nothing and buys nothing: it hands the roam a region full of drops
+        // with no way back, so the pocket gets deeper, and it asserts a one-way route to a player
+        // no route reaches. The exception is for the drop that leads to him, so it is granted only
+        // where the region without the refusal actually holds him.
         Point? player = NavGrid.NearestStandable(NavGrid.FeetTile(senses.Player.Bottom), 2);
-        PlayerOnlyOneWay = player is Point p && !returnable.Contains(p);
-        if (PlayerOnlyOneWay)
-            reach = AStar.Region(feet.Value, Weights.ReachFloodBudget, out complete, refuseOneWay: false);
+        PlayerOnlyOneWay = false;
+        if (player is Point p && !returnable.Contains(p))
+        {
+            HashSet<Point> raw = AStar.Region(feet.Value, Weights.ReachFloodBudget, out bool rawComplete, refuseOneWay: false);
+            if (raw.Contains(p))
+            {
+                reach = raw;
+                complete = rawComplete;
+                PlayerOnlyOneWay = true;
+            }
+        }
 
         LastFloodMs = clock.Elapsed.TotalMilliseconds;
         ReachComplete = complete;

@@ -150,13 +150,15 @@ public static class ScenarioCapture
         // stayed closed on a rim tile and left the body above the player, which is what an
         // unconditional refusal did on 2026-09-08 and what the two-wide shaft fixture reproduces.
         // This should never fire; it is here so that if it ever does, the window is on disk.
-        bool heldOut = brain.LastAction?.Name == "walk-with" && brain.Positioner.PlayerOnlyOneWay && brain.Positioner.Chosen != null && brain.Positioner.ChosenReturnable;
+        // Both actions the drop gate opens for, not only the follow: guarding him at the bottom of a
+        // shaft is the same state and the same defect if the tier keeps the body on the lip.
+        bool heldOut = brain.LastAction?.Name is "walk-with" or "guard" && brain.Positioner.PlayerOnlyOneWay && brain.Positioner.Chosen != null && brain.Positioner.ChosenReturnable;
         tierHeldOut = heldOut ? tierHeldOut + 1 : 0;
         if (tierHeldOut >= OneWayHeldTicks && tick >= tierCooldown)
         {
             tierCooldown = tick + CooldownTicks;
             tierHeldOut = 0;
-            BrainTelemetry.DumpScenario(feet, playerFeet, $"tier held the body out, {OneWayHeldTicks} ticks following a player only reachable one-way while standing somewhere returnable");
+            BrainTelemetry.DumpScenario(feet, playerFeet, $"tier held the body out, {OneWayHeldTicks} ticks with the player only reachable one-way while the spot it picked was returnable");
         }
 
         // Missed mode: the player has been working, with pauses no longer than a swing between
