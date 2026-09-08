@@ -131,11 +131,13 @@ public sealed class BrainTelemetry : ModSystem
                     else if (t == start) c = 'S';
                     else if (t == goal) c = 'G';
                     else if (partialEnd == t) c = 'E';
-                    else if (NavGrid.IsSolid(x, y)) c = '#';
-                    else if (NavGrid.IsSupport(x, y)) c = '=';
-                    else if (NavGrid.IsLava(x, y)) c = 'L';
-                    else if (NavGrid.IsLiquid(x, y)) c = '~';
-                    else c = NavGrid.IsStandable(x, y) ? 'o' : '.';
+                    else
+                    {
+                        // The replay tool reads this alphabet back through the same function, so a
+                        // slope or half block dumped here is the shape the offline planner sees.
+                        c = TextTileWorld.Glyph(NavGrid.World.Shape(x, y), NavGrid.IsLiquid(x, y), NavGrid.IsLava(x, y));
+                        if (c == '.' && NavGrid.IsStandable(x, y)) c = 'o';
+                    }
                     sb.Append(c);
                 }
                 sb.Append('\n');

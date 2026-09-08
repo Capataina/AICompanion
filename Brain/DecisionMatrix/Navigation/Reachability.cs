@@ -31,7 +31,7 @@ public static class Reachability
     /// <summary>Flood fill through non-solid tiles from the flyer toward a box around the target.</summary>
     public static bool FlyerCanReach(Point from, Point to, int arriveRadius = 3)
     {
-        if (NavGrid.IsSolid(from.X, from.Y))
+        if (NavGrid.IsBlock(from.X, from.Y))
             return true;
         var seen = new HashSet<Point> { from };
         var queue = new Queue<Point>();
@@ -46,7 +46,7 @@ public static class Reachability
                 return true;
             foreach (Point n in new[] { new Point(p.X + 1, p.Y), new Point(p.X - 1, p.Y), new Point(p.X, p.Y + 1), new Point(p.X, p.Y - 1) })
             {
-                if (seen.Contains(n) || NavGrid.IsSolid(n.X, n.Y))
+                if (seen.Contains(n) || NavGrid.IsBlock(n.X, n.Y))
                     continue;
                 seen.Add(n);
                 queue.Enqueue(n);

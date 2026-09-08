@@ -40,7 +40,7 @@ public static class TorchMapReveal
             byte light = (byte)(255 * (1f - d / (float)(reachTiles + 1)));
             if (Main.Map.UpdateLighting(p.X, p.Y, light))
                 QueueRedraw(p);
-            if (NavGrid.IsSolid(p.X, p.Y) || d >= reachTiles)
+            if (NavGrid.IsBlock(p.X, p.Y) || d >= reachTiles)
                 continue; // a solid face is lit but not passed through
             foreach (Point o in Neighbours)
             {

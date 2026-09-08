@@ -139,21 +139,31 @@ public static class AStar
         float costScale = wet ? 2f : 1f;
         bool lava = AllowLava;
 
+        BodyPhysics.Pose? here = NavGrid.StandAt(t.X, t.Y, lava);
         foreach (int dir in new[] { -1, 1 })
         {
             int nx = t.X + dir;
-            if (NavGrid.IsStandable(nx, t.Y, lava))
-                yield return (new Point(nx, t.Y), MoveKind.Walk, Price(nx, t.Y, 1f * costScale));
-            else if (NavGrid.IsStandable(nx, t.Y - 1, lava) && NavGrid.IsBodyClear(t.X, t.Y - 1))
-                yield return (new Point(nx, t.Y - 1), MoveKind.Walk, Price(nx, t.Y - 1, 1.5f * costScale));
-            else if (NavGrid.IsBodyClear(nx, t.Y))
+            // Walk to the next column on the same row, a step up, or a step down, whichever
+            // poses exist and can be slid to. A slope lowers the feet a row without an edge
+            // to fall off, so the step down is a walk like the others and not a drop.
+            bool walked = false;
+            foreach ((int dy, float cost) in new[] { (0, 1f), (-1, 1.5f), (1, 1.2f) })
             {
-                // Edge: drop to the first standable tile below.
+                if (NavGrid.StandAt(nx, t.Y + dy, lava) is not BodyPhysics.Pose there)
+                    continue;
+                if (here is BodyPhysics.Pose h && !BodyPhysics.CanSlide(NavGrid.World, h, there))
+                    continue;
+                walked = true;
+                yield return (new Point(nx, t.Y + dy), MoveKind.Walk, Price(nx, t.Y + dy, cost * costScale));
+            }
+            if (!walked && NavGrid.IsBodyClear(nx, t.Y))
+            {
+                // Edge: drop to the first standable tile below; one row down was a walk above.
                 for (int dy = 1; dy <= NavGrid.MaxDropTiles; dy++)
                 {
-                    if (NavGrid.IsSolid(nx, t.Y + dy))
+                    if (NavGrid.IsBlock(nx, t.Y + dy))
                         break;
-                    if (NavGrid.IsStandable(nx, t.Y + dy, lava))
+                    if (dy >= 2 && NavGrid.IsStandable(nx, t.Y + dy, lava))
                     {
                         yield return (new Point(nx, t.Y + dy), MoveKind.Drop, PriceSwept(t, new Point(nx, t.Y + dy), (1f + dy * 0.2f) * costScale));
                         break;
@@ -168,7 +178,7 @@ public static class AStar
         {
             for (int dy = 2; dy <= NavGrid.MaxDropTiles; dy++)
             {
-                if (NavGrid.IsSolid(t.X, t.Y + dy))
+                if (NavGrid.IsBlock(t.X, t.Y + dy))
                     break;
                 if (NavGrid.IsStandable(t.X, t.Y + dy, lava))
                 {
@@ -182,7 +192,7 @@ public static class AStar
         int maxUp = wet ? NavGrid.JumpHeightTiles / 2 : NavGrid.JumpHeightTiles;
         int maxGap = wet ? NavGrid.JumpGapTiles / 2 : NavGrid.JumpGapTiles;
         int headroom = 0;
-        while (headroom < maxUp && !NavGrid.IsSolid(t.X, t.Y - NavGrid.BodyHeightTiles - headroom))
+        while (headroom < maxUp && !NavGrid.IsBlock(t.X, t.Y - NavGrid.BodyHeightTiles - headroom))
             headroom++;
         if (headroom == 0)
             yield break;

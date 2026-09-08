@@ -8,10 +8,13 @@ namespace AICompanion.Brain.DecisionMatrix.Navigation;
 
 /// <summary>
 /// A world read from the telemetry's plan-dump text: one character per tile, rows top to
-/// bottom, at a world offset the header names. The alphabet is the dump's: # solid,
-/// = platform or half block, ~ water, L lava, and everything else air, with the markers
-/// S G E N P treated as air and remembered as positions. Outside the window is solid, so
-/// a search cannot wander off the edge of what was captured.
+/// bottom, at a world offset the header names. The alphabet is the dump's, and the dump
+/// writes it through <see cref="Glyph"/> so the two can never disagree: # solid, = platform,
+/// _ half block, \ and / floor slopes (solid below the line drawn), &lt; and &gt; ceiling
+/// slopes (solid on the side the bracket points away from), ~ water, L lava, everything
+/// else air, with the markers S G E N P treated as air and remembered as positions.
+/// Outside the window is solid to the sides and above and open air below, so a search
+/// cannot wander off the edge of what was captured and cannot stand on ground it never saw.
 /// </summary>
 public sealed class TextTileWorld : ITileWorld
 {
@@ -43,20 +46,52 @@ public sealed class TextTileWorld : ITileWorld
         }
     }
 
+    /// <summary>
+    /// Outside the window is a wall on three sides and a void below: a wall so a search cannot
+    /// leave what was captured, a void so the last captured row never stands on ground nobody
+    /// saw, because a floor invented under the window's bottom edge passed an all-air scenario.
+    /// </summary>
     private char At(int x, int y)
     {
         int lx = x - OriginX, ly = y - OriginY;
-        return lx < 0 || ly < 0 || lx >= Width || ly >= Height ? '#' : tiles[lx, ly];
+        if (ly >= Height)
+            return '.';
+        return lx < 0 || ly < 0 || lx >= Width ? '#' : tiles[lx, ly];
     }
 
-    public bool InWorld(int x, int y) => At(x, y) != '#' || (x >= OriginX && y >= OriginY && x < OriginX + Width && y < OriginY + Height);
-    public bool Solid(int x, int y) => At(x, y) == '#';
-    public bool Support(int x, int y) => At(x, y) is '#' or '=';
+    public bool InWorld(int x, int y) => x >= OriginX && y >= OriginY && x < OriginX + Width && y < OriginY + Height;
+    public TileShape Shape(int x, int y) => ShapeOf(At(x, y));
     public bool Water(int x, int y) => At(x, y) == '~';
     public bool Lava(int x, int y) => At(x, y) == 'L';
 
     /// <summary>The character at a world tile, for drawing a result over the same window.</summary>
     public char Glyph(int x, int y) => At(x, y);
+
+    /// <summary>The shape a dump character means; anything not in the alphabet is air.</summary>
+    public static TileShape ShapeOf(char c) => c switch
+    {
+        '#' => TileShape.Solid,
+        '=' => TileShape.Platform,
+        '_' => TileShape.Half,
+        '\\' => TileShape.SolidLowerLeft,
+        '/' => TileShape.SolidLowerRight,
+        '<' => TileShape.SolidUpperLeft,
+        '>' => TileShape.SolidUpperRight,
+        _ => TileShape.Air,
+    };
+
+    /// <summary>The dump character for a tile, shape first because a liquid inside a block is not walkable water.</summary>
+    public static char Glyph(TileShape shape, bool water, bool lava) => shape switch
+    {
+        TileShape.Solid => '#',
+        TileShape.Platform => '=',
+        TileShape.Half => '_',
+        TileShape.SolidLowerLeft => '\\',
+        TileShape.SolidLowerRight => '/',
+        TileShape.SolidUpperLeft => '<',
+        TileShape.SolidUpperRight => '>',
+        _ => lava ? 'L' : water ? '~' : '.',
+    };
 
     /// <summary>
     /// Parse one scenario in the plan-dump shape: a header line carrying "window x A..B y C..D"

@@ -8,12 +8,17 @@ using Microsoft.Xna.Framework;
 using AICompanion.Brain.DecisionMatrix.Navigation;
 
 // Replays navigation scenarios off-game: for every file given, load its tile window, ask the
-// mod's own planner for a path from the companion's feet to the player's feet, draw the answer
+// mod's own planner for the path the game asked for (S to G, the recorded plan) and, when the
+// player's feet are also in the window, the path to the player (N or S to P), draw the answer
 // over the window, and say pass or fail. A scenario is the telemetry's plan-dump shape (or a
-// scenario file, which is the same with entity lines); S or N is the start, G or P the goal.
-// Exit code is the number of failed scenarios, so a shell loop or a CI step reads it directly.
+// scenario file, which is the same with entity lines). A scenario passes when the recorded
+// goal is reached by a whole path; the player line is printed beside it because "could it
+// have reached the player" is the question the design is judged on, and the two can differ
+// when the positioner picked a spot the player never stood on.
+// Exit code: 0 when every executed scenario passed and nothing was skipped or missing, 1
+// otherwise; the counts are in the last line, never in the status, which wraps at 256.
 
-int failed = 0, total = 0;
+int failed = 0, passed = 0, skipped = 0, missing = 0;
 var files = new List<string>();
 foreach (string arg in args)
 {
@@ -22,7 +27,10 @@ foreach (string arg in args)
     else if (File.Exists(arg))
         files.Add(arg);
     else
+    {
         Console.Error.WriteLine($"no such file: {arg}");
+        missing++;
+    }
 }
 if (files.Count == 0)
 {
@@ -35,43 +43,63 @@ foreach (string file in files)
 {
     foreach ((int index, List<string> block) in Blocks(File.ReadAllLines(file)))
     {
-        total++;
         var world = TextTileWorld.Parse(block, out string header, out _);
         NavGrid.World = world;
         AStar.AllowLava = false;
         AStar.Avoid.Clear();
-
-        Point? start = world.Markers.TryGetValue('N', out Point n) ? n : world.Markers.TryGetValue('S', out Point s) ? s : null;
-        Point? goal = world.Markers.TryGetValue('P', out Point p) ? p : world.Markers.TryGetValue('G', out Point g) ? g : null;
         string name = $"{Path.GetFileName(file)}#{index}";
-        if (start == null || goal == null)
+
+        Point? start = world.Markers.TryGetValue('S', out Point s) ? s : world.Markers.TryGetValue('N', out Point n0) ? n0 : null;
+        Point? goal = world.Markers.TryGetValue('G', out Point g) ? g : null;
+        Point? player = world.Markers.TryGetValue('P', out Point p) ? p : null;
+        if (start == null || (goal == null && player == null))
         {
             Console.WriteLine($"SKIP {name}: no start or goal marker ({header})");
+            skipped++;
             continue;
         }
+        // The overlay hides G under P when the goal is the player's own tile; then they are one question.
+        goal ??= player;
 
-        // A start captured mid-jump lands first: the game plans only from the ground now, so
-        // the question is what the body can do from where it comes down.
-        Point grounded = start.Value;
-        for (int drop = 0; drop < 12 && !NavGrid.IsSupport(grounded.X, grounded.Y + 1) && !NavGrid.IsSolid(grounded.X, grounded.Y + 1); drop++)
-            grounded.Y++;
-        Point? from = NavGrid.NearestStandable(grounded, 2);
-        Point? to = NavGrid.NearestStandable(goal.Value, 3);
-        AStar.TraceClosed = new HashSet<Point>();
-        int used = 0;
-        NavPath? path = from == null || to == null ? null : AStar.Find(from.Value, to.Value, 20000, out used);
-        bool pass = path != null && !path.Partial;
-        if (!pass) failed++;
+        Point? from = Ground(world, start.Value);
+        (NavPath? path, int used, bool pass) = Run(from, goal!.Value);
+        (NavPath? toPlayer, int usedPlayer, bool passPlayer) = player is Point pl && pl != goal ? Run(from, pl) : (path, used, pass);
+        if (pass) passed++; else failed++;
 
         Console.WriteLine($"{(pass ? "PASS" : "FAIL")} {name}: {header}");
-        Console.WriteLine($"     start {Fmt(start.Value)} -> {(from == null ? "no standable tile" : Fmt(from.Value))}, goal {Fmt(goal.Value)} -> {(to == null ? "no standable tile" : Fmt(to.Value))}, {(path == null ? "no path" : $"{path.Steps.Count} steps{(path.Partial ? $", partial, ends {Fmt(path.Goal)}" : "")}")}, {used} expansions, {AStar.TraceClosed.Count} tiles reached");
+        Console.WriteLine($"     recorded goal: start {Fmt(start.Value)} -> {(from == null ? "no standable tile" : Fmt(from.Value))}, goal {Fmt(goal.Value)}, {Describe(path, used)}");
+        if (player is Point pl2 && pl2 != goal)
+            Console.WriteLine($"     player:        {(passPlayer ? "reached" : "NOT reached")} at {Fmt(pl2)}, {Describe(toPlayer, usedPlayer)}");
         Console.WriteLine(Draw(world, path, start.Value, goal.Value, pass ? null : AStar.TraceClosed));
     }
 }
-Console.WriteLine($"{total - failed}/{total} passed");
-return failed;
+Console.WriteLine($"{passed}/{passed + failed} passed, {skipped} skipped, {missing} missing inputs");
+return failed == 0 && skipped == 0 && missing == 0 && passed > 0 ? 0 : 1;
 
 static string Fmt(Point p) => $"{p.X},{p.Y}";
+
+static string Describe(NavPath? path, int used)
+    => $"{(path == null ? "no path" : $"{path.Steps.Count} steps{(path.Partial ? $", partial, ends {Fmt(path.Goal)}" : "")}")}, {used} expansions, {AStar.TraceClosed?.Count ?? 0} tiles reached";
+
+// A start captured mid-jump lands first: the game plans only from the ground now, so the
+// question is what the body can do from where it comes down. The fall runs to the bottom of
+// the captured window; below it the world is unknown and the start stays unstandable.
+static Point? Ground(TextTileWorld world, Point start)
+{
+    Point grounded = start;
+    while (grounded.Y < world.OriginY + world.Height && !NavGrid.IsBlock(grounded.X, grounded.Y + 1) && !NavGrid.IsStandable(grounded.X, grounded.Y))
+        grounded.Y++;
+    return NavGrid.NearestStandable(grounded, 2);
+}
+
+static (NavPath?, int, bool) Run(Point? from, Point goal)
+{
+    Point? to = NavGrid.NearestStandable(goal, 3);
+    AStar.TraceClosed = new HashSet<Point>();
+    int used = 0;
+    NavPath? path = from == null || to == null ? null : AStar.Find(from.Value, to.Value, 20000, out used);
+    return (path, used, path != null && !path.Partial);
+}
 
 // A plans file holds many dumps separated by blank lines; a scenario file holds one.
 static IEnumerable<(int, List<string>)> Blocks(string[] lines)
@@ -111,7 +139,9 @@ static string Draw(TextTileWorld world, NavPath? path, Point start, Point goal, 
         foreach (NavStep step in path.Steps)
             overlay[step.Tile] = step.Kind switch { MoveKind.Walk => 'w', MoveKind.Jump => 'j', MoveKind.Drop => 'd', _ => 'f' };
     overlay[start] = 'N';
-    overlay[goal] = 'P';
+    overlay[goal] = 'G';
+    if (world.Markers.TryGetValue('P', out Point p) && p != goal)
+        overlay[p] = 'P';
     var sb = new StringBuilder();
     for (int y = world.OriginY; y < world.OriginY + world.Height; y++)
     {

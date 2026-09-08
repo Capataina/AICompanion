@@ -167,7 +167,7 @@ public sealed class Positioner
         int solid = 0;
         for (int dx = -2; dx <= 2; dx++)
             for (int dy = -3; dy <= -1; dy++)
-                if (NavGrid.IsSolid(p.X + dx, p.Y + dy))
+                if (NavGrid.IsBlock(p.X + dx, p.Y + dy))
                     solid++;
         return Consideration.Inverse(solid, 12f) * 0.7f + 0.3f;
     }

@@ -5,11 +5,12 @@ using Microsoft.Xna.Framework;
 namespace AICompanion.Brain.DecisionMatrix.Navigation;
 
 /// <summary>
-/// The world as the navigator sees it: a tile is a node when a body one tile wide and
-/// three tall can stand on it (feet on the tile, three clear tiles above, solid or a
-/// platform beneath). Edges come from what the companion can do with its own legs,
-/// walk, step, jump, drop and fall through a platform, and never from changing tiles:
-/// no digging, no building.
+/// The world as the navigator sees it: a tile is a node when the real body (20 px wide,
+/// 42 tall) has a place to stand with its feet in that tile, tested against the tiles'
+/// shapes the way the game tests the player, sitting a little off-centre when a wall at
+/// head height on one side and foot height on the other leaves room only there. Edges
+/// come from what the companion can do with its own legs, walk, step, jump, drop and fall
+/// through a platform, and never from changing tiles: no digging, no building.
 /// </summary>
 public static class NavGrid
 {
@@ -30,13 +31,17 @@ public static class NavGrid
     /// </summary>
     public static ITileWorld World = null!;
 
-    public static bool IsSolid(int x, int y) => World.Solid(x, y);
+    /// <summary>A full block: collided with from every side. A slope or half block is not this; ask <see cref="IsBlock"/> for anything the body cannot pass.</summary>
+    public static bool IsSolid(int x, int y) => World.Shape(x, y) == TileShape.Solid;
 
-    /// <summary>A solid block, or a platform or half block: something feet rest on.</summary>
-    public static bool IsSupport(int x, int y) => World.Support(x, y);
+    /// <summary>Anything but air and platforms: a full block, a half block or a slope, which a falling body lands on and a flood of air stops at.</summary>
+    public static bool IsBlock(int x, int y) => World.Shape(x, y) is not (TileShape.Air or TileShape.Platform);
 
-    /// <summary>The support under feet at (x, y) is a platform or half block: the body can drop through it on purpose.</summary>
-    public static bool IsPlatformUnder(int x, int y) => IsSupport(x, y + 1) && !IsSolid(x, y + 1);
+    /// <summary>Something feet rest on: any shape but air.</summary>
+    public static bool IsSupport(int x, int y) => World.Shape(x, y) != TileShape.Air;
+
+    /// <summary>The support under feet at (x, y) is a platform: the body can drop through it on purpose.</summary>
+    public static bool IsPlatformUnder(int x, int y) => World.Shape(x, y + 1) == TileShape.Platform;
 
     /// <summary>
     /// Any liquid but lava in this tile. Liquid is walkable but slow: the game halves an NPC's
@@ -48,26 +53,26 @@ public static class NavGrid
     /// <summary>Lava in this tile. The companion takes damage and is not lava-immune, so a node holding it is priced, never free.</summary>
     public static bool IsLava(int x, int y) => World.Lava(x, y);
 
-    /// <summary>Feet at (x, y): the tile below supports, the body column is clear, and nothing in it is lava.</summary>
+    /// <summary>Feet in tile (x, y): the body has a place to stand there and nothing in its column is lava.</summary>
     public static bool IsStandable(int x, int y) => IsStandable(x, y, allowLava: false);
 
     /// <summary>
-    /// Feet at (x, y) with lava allowed in the column: the same test with the lava rule
+    /// Feet in tile (x, y) with lava allowed in the column: the same test with the lava rule
     /// lifted, for a search that prices lava rather than refusing it.
     /// </summary>
-    public static bool IsStandable(int x, int y, bool allowLava)
+    public static bool IsStandable(int x, int y, bool allowLava) => StandAt(x, y, allowLava) != null;
+
+    /// <summary>
+    /// Where the body stands with its feet in tile (x, y), or null: the physics test in
+    /// <see cref="BodyPhysics.Stand"/>, plus the lava rule. On a slope the feet rest partway
+    /// down the slope's own tile, so the slope tile is the node and its pose is below the
+    /// tile's top; a walk step onto it is what the motor's own slope handling makes smooth.
+    /// </summary>
+    public static BodyPhysics.Pose? StandAt(int x, int y, bool allowLava)
     {
-        if (!IsSupport(x, y + 1))
-            return false;
-        for (int i = 0; i < BodyHeightTiles; i++)
-            if (IsSolid(x, y - i) || (!allowLava && IsLava(x, y - i)))
-                return false;
-        // The body is wider than a tile (20 px against 16), so a column walled on both sides
-        // is a slot it cannot enter however clear the column itself is; one open neighbour
-        // gives it the room to sit off-centre.
-        if (!IsBodyClear(x - 1, y) && !IsBodyClear(x + 1, y))
-            return false;
-        return allowLava || !IsLava(x, y + 1);
+        if (!allowLava && LavaTilesAt(x, y) > 0)
+            return null;
+        return BodyPhysics.Stand(World, x, y);
     }
 
     /// <summary>
@@ -102,14 +107,8 @@ public static class NavGrid
     /// <summary>The head row of a body standing at (x, y) is in liquid: it is drowning there.</summary>
     public static bool HeadSubmergedAt(int x, int y) => IsLiquid(x, y - BodyHeightTiles + 1);
 
-    /// <summary>The body column at (x, y) is free of solid tiles; used for flight and jump arcs.</summary>
-    public static bool IsBodyClear(int x, int y)
-    {
-        for (int i = 0; i < BodyHeightTiles; i++)
-            if (IsSolid(x, y - i))
-                return false;
-        return true;
-    }
+    /// <summary>The body can occupy column x with its feet at the bottom of row y, at some sideways offset; used for flight and jump arcs.</summary>
+    public static bool IsBodyClear(int x, int y) => BodyPhysics.FitsInColumn(World, x, y);
 
     /// <summary>The feet tile of an entity: the tile containing the bottom-centre point, nudged up if inside ground.</summary>
     public static Point FeetTile(Vector2 bottom)
@@ -142,6 +141,16 @@ public static class NavGrid
         return best;
     }
 
-    /// <summary>World position of the feet for a tile: bottom-centre of the tile.</summary>
-    public static Vector2 FeetWorld(Point tile) => new(tile.X * 16f + 8f, (tile.Y + 1) * 16f);
+    /// <summary>
+    /// World position of the feet for a tile: where the body actually rests there (off-centre
+    /// in a tight column, partway down a slope), or the tile's bottom-centre when nothing
+    /// stands there, so a target inside a slope steers to the slope's surface and not to a
+    /// point under it.
+    /// </summary>
+    public static Vector2 FeetWorld(Point tile)
+    {
+        return BodyPhysics.Stand(World, tile.X, tile.Y) is BodyPhysics.Pose p
+            ? new Vector2(p.CentreX, p.Bottom)
+            : new Vector2(tile.X * 16f + 8f, (tile.Y + 1) * 16f);
+    }
 }
