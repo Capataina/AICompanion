@@ -18,7 +18,9 @@ namespace AICompanion.Brain.Actions.Survival;
 ///
 /// The spot it asks for is the nearest standable tile whose head row is out of liquid
 /// and whose column touches no lava, found by widening rings around the feet; a wrong
-/// guess costs one replan, and a tile that stops being safe is dropped.
+/// guess costs one replan, and a tile that stops being safe is dropped. Where no such
+/// tile is reachable at all the body treads water rather than holding still, because a
+/// flooded pocket with no shore is survivable by bobbing and was not survived by standing.
 /// </summary>
 public sealed class SurviveAction : CompanionAction
 {
@@ -49,7 +51,18 @@ public sealed class SurviveAction : CompanionAction
         if (refuge is Point r && !IsRefuge(r.X, r.Y))
             refuge = null;
         refuge ??= FindRefuge(feet);
-        return refuge is Point spot ? PositionRequest.ExactAt(NavGrid.FeetWorld(spot)) : PositionRequest.Hold;
+        if (refuge is Point spot)
+            return PositionRequest.ExactAt(NavGrid.FeetWorld(spot));
+        // No refuge is reachable, which in water means a flooded pocket: tread water instead of
+        // standing in it. Holding still here is what drowned the companion in a pit on 2026-09-08
+        // while it had the whole breath to spend jumping. The motor takes a jump only from the
+        // ground, so asking every tick bobs the body off the floor whenever the feet touch down,
+        // and each break of the surface refills the breath. This saves the body wherever the
+        // surface is inside a wet jump's rise; a shaft deeper than that still drowns, which is
+        // what a player without a Flipper also suffers and what the swim traversal fixes.
+        if (ctx.Senses.Self.HeadUnderwater)
+            ctx.Companion.Motor.Jump();
+        return PositionRequest.Hold;
     }
 
     /// <summary>Standable, head row dry, nothing in the body column or under the feet is lava.</summary>
