@@ -79,7 +79,7 @@ dotnet run --project Tools/NavReplay -- Telemetry/<stamp>-plans.txt
 dotnet run --project Tools/NavReplay -- Tools/Scenarios
 ```
 
-Every block is one scenario; the tool prints PASS or FAIL for the recorded start-to-goal plan, a second line saying whether the player's feet were reachable when they are in the window, and the map with the path (`w j d f`) or, on a failure, every tile the search closed (`c`) so "no path" reads as "it got this far". Exit 0 only when everything passed and nothing was skipped. A dump written before the mod knew about slopes draws them as walls; rewrite it from the saved world first, which needs the `lihzahrd` parser in a venv (`python3 -m venv /tmp/wldenv && /tmp/wldenv/bin/pip install lihzahrd`):
+Every block is one scenario; the tool prints PASS or FAIL for the recorded start-to-goal plan, a second line saying whether the player's feet were reachable when they are in the window, a third saying whether the goal and the player lie inside the region the positioner's own flood reaches from the start (a goal "out" of a "complete" region can never be reached, which is the positioner's finding rather than the grid's), and the map with the path (`w j d f`) or, on a failure, every tile the search closed (`c`) so "no path" reads as "it got this far". Exit 0 only when everything passed and nothing was skipped. A dump written before the mod knew about slopes draws them as walls; rewrite it from the saved world first, which needs the `lihzahrd` parser in a venv (`python3 -m venv /tmp/wldenv && /tmp/wldenv/bin/pip install lihzahrd`):
 
 ```
 /tmp/wldenv/bin/python Tools/WorldWindow/reshape.py Telemetry/<stamp>-plans.txt "~/Library/Application Support/Terraria/tModLoader/Worlds/<world>.wld"

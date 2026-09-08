@@ -106,15 +106,18 @@ public sealed class BrainTelemetry : ModSystem
         lastDumpTick = Main.GameUpdateCount;
         try
         {
-            int x0 = Math.Min(start.X, goal.X) - DumpPad, x1 = Math.Max(start.X, goal.X) + DumpPad;
-            int y0 = Math.Min(start.Y, goal.Y) - DumpPad, y1 = Math.Max(start.Y, goal.Y) + DumpPad;
-            // A window too big to read is cut to the start's side, because the first missing link is near it.
-            if (x1 - x0 >= DumpMaxWidth) { if (goal.X > start.X) x1 = x0 + DumpMaxWidth - 1; else x0 = x1 - DumpMaxWidth + 1; }
-            if (y1 - y0 >= DumpMaxHeight) { if (goal.Y > start.Y) y1 = y0 + DumpMaxHeight - 1; else y0 = y1 - DumpMaxHeight + 1; }
-
             NPC? npc = CompanionNPC.Find();
             Point n = npc == null ? new Point(-1, -1) : NavGrid.FeetTile(npc.Bottom);
             Point p = NavGrid.FeetTile(Main.LocalPlayer.Bottom);
+
+            // The window holds the player's tile as well as the start and the goal, because "could
+            // it have reached the player" is the question the replay tool answers, and a goal the
+            // positioner picked above a pit says nothing about the player six rows below the window.
+            int x0 = Math.Min(Math.Min(start.X, goal.X), p.X) - DumpPad, x1 = Math.Max(Math.Max(start.X, goal.X), p.X) + DumpPad;
+            int y0 = Math.Min(Math.Min(start.Y, goal.Y), p.Y) - DumpPad, y1 = Math.Max(Math.Max(start.Y, goal.Y), p.Y) + DumpPad;
+            // A window too big to read is cut to the start's side, because the first missing link is near it.
+            if (x1 - x0 >= DumpMaxWidth) { if (goal.X > start.X) x1 = x0 + DumpMaxWidth - 1; else x0 = x1 - DumpMaxWidth + 1; }
+            if (y1 - y0 >= DumpMaxHeight) { if (goal.Y > start.Y) y1 = y0 + DumpMaxHeight - 1; else y0 = y1 - DumpMaxHeight + 1; }
 
             var sb = new StringBuilder((x1 - x0 + 2) * (y1 - y0 + 1) + 200);
             sb.Append($"tick {Main.GameUpdateCount} {why}: start {start.X},{start.Y} goal {goal.X},{goal.Y}");

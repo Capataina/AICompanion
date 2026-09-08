@@ -31,6 +31,15 @@ public sealed class Positioner
     private PositionRequest lastRequest;
     private int sinceScore = RescoreInterval;
 
+    // The feet tiles a walker can reach from where the companion stands, flooded once per
+    // rescore and read for every candidate. A spot the walker cannot reach is not a spot: the
+    // fourth run of 2026-09-08 parked the companion above a sealed cavity the scorer had picked.
+    private HashSet<Point>? reach;
+    private int sinceFlood = RescoreInterval;
+
+    /// <summary>Whether the flood from the companion's feet ran out of region before its budget, so a tile outside it is truly unreachable.</summary>
+    public bool ReachComplete { get; private set; }
+
     public Vector2? Resolve(in PositionRequest request, Senses.Senses senses, WeaponProfile? fireProfile)
     {
         switch (request.Kind)
@@ -39,9 +48,12 @@ public sealed class Positioner
                 Chosen = null;
                 return null;
             case RequestKind.Exact:
-                // Exact still means a real place to stand: the nearest standable tile, which
-                // NavGrid refuses when it is in or over lava.
-                Point? tile = NavGrid.NearestStandable(NavGrid.FeetTile(request.Anchor), 3);
+                // Exact still means a real place to stand: the nearest standable tile the walker can
+                // reach, which NavGrid refuses when it is in or over lava; when nothing reachable is
+                // near, the nearest standable tile at all, and the partial path walks as close as it can.
+                RefreshReach(senses);
+                Point around = NavGrid.FeetTile(request.Anchor);
+                Point? tile = NavGrid.NearestStandable(around, 3, InReach) ?? NavGrid.NearestStandable(around, 3);
                 Chosen = tile is Point t ? NavGrid.FeetWorld(t) : null;
                 return Chosen;
         }
@@ -53,8 +65,27 @@ public sealed class Positioner
 
         lastRequest = request;
         sinceScore = 0;
+        RefreshReach(senses);
         Chosen = Best(request, senses, fireProfile);
         return Chosen;
+    }
+
+    private bool InReach(Point tile) => reach != null && reach.Contains(tile);
+
+    private void RefreshReach(Senses.Senses senses)
+    {
+        if (reach != null && ++sinceFlood < RescoreInterval)
+            return;
+        sinceFlood = 0;
+        Point? feet = NavGrid.NearestStandable(NavGrid.FeetTile(senses.Companion.Bottom), 2);
+        if (feet == null)
+        {
+            // In the air or inside something: keep the last flood, which is a tick or two stale
+            // and still the best answer to "where can I get to" until the body lands.
+            return;
+        }
+        reach = AStar.Region(feet.Value, Weights.ReachFloodBudget, out bool complete);
+        ReachComplete = complete;
     }
 
     private Vector2? Best(in PositionRequest request, Senses.Senses senses, WeaponProfile? fireProfile)
@@ -67,13 +98,26 @@ public sealed class Positioner
 
         // Two passes: every candidate gets the cheap factors; only the best few then pay for an
         // aimer solve, which is the expensive one (up to 48 arcs × 150 ticks of tile checks).
+        // Reachability is a tier, not a factor: while any candidate is inside the flooded region,
+        // only those are scored, because a spot the walker cannot reach is not a worse spot but no
+        // spot. When none is (the flood ran out before it got here), every candidate stays, and the
+        // partial path walks the companion as close as it can, which is what it did before.
         var candidates = new List<(Vector2 feet, Vector2 eye, float baseScore)>();
+        bool anyReachable = false;
         for (int dx = -SampleRadiusTiles; dx <= SampleRadiusTiles; dx += SampleStride)
         {
             for (int dy = -SampleRadiusTiles; dy <= SampleRadiusTiles; dy += SampleStride)
             {
                 int x = centre.X + dx, y = centre.Y + dy;
                 if (!NavGrid.IsStandable(x, y))
+                    continue;
+                bool reachable = InReach(new Point(x, y));
+                if (reachable && !anyReachable)
+                {
+                    anyReachable = true;
+                    candidates.Clear();
+                }
+                else if (!reachable && anyReachable)
                     continue;
                 Vector2 feet = NavGrid.FeetWorld(new Point(x, y));
                 Vector2 eye = feet + new Vector2(0f, -30f);

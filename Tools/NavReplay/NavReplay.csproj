@@ -23,6 +23,7 @@
     <Compile Include="../../Brain/DecisionMatrix/Navigation/NavPath.cs" />
     <Compile Include="../../Brain/DecisionMatrix/Navigation/AStar.cs" />
     <Compile Include="../../Brain/DecisionMatrix/Navigation/Reachability.cs" />
+    <Compile Include="../../Brain/DecisionMatrix/Decision/Weights.cs" />
   </ItemGroup>
   <ItemGroup>
     <Reference Include="FNA">

@@ -70,6 +70,16 @@ foreach (string file in files)
         Console.WriteLine($"     recorded goal: start {Fmt(start.Value)} -> {(from == null ? "no standable tile" : Fmt(from.Value))}, goal {Fmt(goal.Value)}, {Describe(path, used)}");
         if (player is Point pl2 && pl2 != goal)
             Console.WriteLine($"     player:        {(passPlayer ? "reached" : "NOT reached")} at {Fmt(pl2)}, {Describe(toPlayer, usedPlayer)}");
+        // The positioner's own question, with the positioner's own budget: is the goal inside the
+        // region the companion can flood to from its feet? "out" with a complete region is a goal
+        // that can never be reached; "out" with the budget spent is a goal the flood did not get to.
+        if (from is Point f)
+        {
+            HashSet<Point> region = AStar.Region(f, AICompanion.Brain.DecisionMatrix.Decision.Weights.ReachFloodBudget, out bool complete);
+            string goalIn = region.Contains(goal.Value) ? "in" : "out";
+            string playerIn = player is Point pl3 ? (region.Contains(pl3) ? ", player in" : ", player out") : "";
+            Console.WriteLine($"     reach flood:   {region.Count} tiles, {(complete ? "complete" : "budget spent")}, goal {goalIn}{playerIn}");
+        }
         Console.WriteLine(Draw(world, path, start.Value, goal.Value, pass ? null : AStar.TraceClosed));
     }
 }

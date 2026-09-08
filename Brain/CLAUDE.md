@@ -121,7 +121,7 @@ Four consequences to read off that table. Survive is the only action allowed abo
 
 ## Positioning: where it stands once it knows what it is doing
 
-A position request has a kind, an anchor and an optional target. `Hold` means stand still; `Exact` means the nearest standable tile close to the point, no scoring. The other four are *scored*: every standable tile in a box around the anchor, sampled at a stride, gets a product of factors, and the best wins. Rescored on a cadence or when the request kind or target changes, so the companion does not twitch between two equal spots.
+A position request has a kind, an anchor and an optional target. `Hold` means stand still; `Exact` means the nearest standable tile close to the point that the walker can reach, no scoring. The other four are *scored*: every standable tile in a box around the anchor, sampled at a stride, gets a product of factors, and the best wins. Rescored on a cadence or when the request kind or target changes, so the companion does not twitch between two equal spots. Before any scoring, reachability is a tier and not a factor: on the same cadence the positioner floods the walker's edges outward from the companion's feet to a budget, and while any candidate lies inside that region only those are scored, because a spot the body cannot get to is not a worse spot but no spot; when none does (the flood ran out before it got there), every candidate stays and the partial path walks the companion as close as it can. This is what stops a walk-with anchor beside the player resolving to a standable tile inside a sealed cavity, which parked the companion above one on the fourth run of 2026-09-08.
 
 The factors, all 0..1:
 
@@ -140,7 +140,7 @@ LineOfFire   fire × max(band, floor) × (1 − k·danger) × open × standoff
 Retreat      (1 − danger) × max(band, floor) × fire × open
 ```
 
-Each kind's `k` is its own tolerance for danger: guarding accepts more than following. Only ground tiles are candidates. A jump apex as a firing spot (the "jump to shoot over the hill" idea) is not sampled yet.
+Each kind's `k` is its own tolerance for danger: guarding accepts more than following. Only ground tiles the flood reached are candidates. A jump apex as a firing spot (the "jump to shoot over the hill" idea) is not sampled yet.
 
 ## Navigation: how it gets there, and why the ledge climb is possible
 

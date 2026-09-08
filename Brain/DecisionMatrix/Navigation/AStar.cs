@@ -104,6 +104,36 @@ public static class AStar
         return nearest == start ? null : Rebuild(cameFrom, start, nearest, partial: true);
     }
 
+    /// <summary>
+    /// Every feet tile a walker can reach from <paramref name="start"/> over the same edges the
+    /// search uses, breadth first, up to <paramref name="budget"/> tiles. <paramref name="complete"/>
+    /// is true when the region ran out before the budget did, in which case a tile not in the set
+    /// is truly unreachable; otherwise a tile not in the set is unknown. One flood, reused for
+    /// every candidate, is what makes "can I get there" affordable for a box of spots.
+    /// </summary>
+    public static HashSet<Point> Region(Point start, int budget, out bool complete)
+    {
+        var seen = new HashSet<Point> { start };
+        var queue = new Queue<Point>();
+        queue.Enqueue(start);
+        complete = true;
+        while (queue.Count > 0)
+        {
+            if (seen.Count >= budget)
+            {
+                complete = false;
+                break;
+            }
+            Point tile = queue.Dequeue();
+            foreach ((Point next, _, _) in Neighbours(tile))
+            {
+                if (seen.Add(next))
+                    queue.Enqueue(next);
+            }
+        }
+        return seen;
+    }
+
     private static float H(Point a, Point b)
     {
         int dx = Math.Abs(a.X - b.X), dy = Math.Abs(a.Y - b.Y);

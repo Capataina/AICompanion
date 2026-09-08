@@ -40,4 +40,10 @@ public static class Weights
 
     /// <summary>Reflex: a threat whose predicted hitbox meets the companion inside this many ticks triggers a dodge.</summary>
     public const int DodgeLookaheadTicks = 20;
+
+    /// <summary>
+    /// Positioner: how many feet tiles the flood from the companion's feet may visit when it asks
+    /// which candidate spots are reachable. Spent once per rescore, not per candidate.
+    /// </summary>
+    public const int ReachFloodBudget = 400;
 }

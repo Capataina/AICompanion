@@ -120,8 +120,15 @@ public static class NavGrid
 
     /// <summary>The nearest standable tile to a point, searched in a small box; null if the area is solid or air.</summary>
     public static Point? NearestStandable(Point around, int radius = 3)
+        => NearestStandable(around, radius, null);
+
+    /// <summary>
+    /// The nearest standable tile that also passes <paramref name="accept"/>, so a caller holding
+    /// a reachable region can ask for the nearest tile it can actually get to.
+    /// </summary>
+    public static Point? NearestStandable(Point around, int radius, System.Func<Point, bool>? accept)
     {
-        if (IsStandable(around.X, around.Y))
+        if (IsStandable(around.X, around.Y) && (accept == null || accept(around)))
             return around;
         Point? best = null;
         int bestD = int.MaxValue;
@@ -129,7 +136,7 @@ public static class NavGrid
             for (int dy = -radius; dy <= radius; dy++)
             {
                 int x = around.X + dx, y = around.Y + dy;
-                if (!IsStandable(x, y))
+                if (!IsStandable(x, y) || (accept != null && !accept(new Point(x, y))))
                     continue;
                 int d = dx * dx + dy * dy;
                 if (d < bestD)
