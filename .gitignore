@@ -3,6 +3,9 @@ bin/
 obj/
 *.tmod
 
+# Per-session brain telemetry written by the mod at run time (Brain/Debug/BrainTelemetry.cs)
+Telemetry/
+
 # tModLoader / IDE local state
 .vs/
 *.user

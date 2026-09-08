@@ -42,7 +42,7 @@ AICompanion/
 │  │  ├─ Mining/             ores and the pickaxe
 │  │  └─ Torch/              the torch in the dark
 │  ├─ Aiming/                the arc solver every ranged weapon and the positioner share
-│  └─ Debug/                 the brain overlay (F6)
+│  └─ Debug/                 the brain overlay (F6) and the per-tick telemetry writer
 ├─ Combat/
 │  └─ Weapons/               the two equipped weapons and the arsenal that picks between them
 ├─ Map/                      the companion on the world map, and what its torch reveals there
@@ -50,7 +50,8 @@ AICompanion/
 ├─ UI/                       the HUD health notch
 ├─ Players/                  the ModPlayer: persistence and input
 ├─ Commands/                 /companion
-└─ Localization/             en-US strings (display name, keybind)
+├─ Localization/             en-US strings (display name, keybind)
+└─ Telemetry/                written by the mod at run time, one .tsv per world session; ignored by git and the packager, read by an agent after a playtest
 ```
 
 ## Operating manual

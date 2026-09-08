@@ -160,7 +160,11 @@ public class CompanionNPC : ModNPC
         }
 
         body.Sync(NPC, player, heldItemType, itemAnimation, itemAnimationMax, itemRotation);
+        global::AICompanion.Brain.Debug.BrainTelemetry.Record(this);
     }
+
+    /// <summary>What the hand holds this tick, for the telemetry and the HUD.</summary>
+    public int HeldItemType => heldItemType;
 
     // ---- what the brain and its actions call ----
 
