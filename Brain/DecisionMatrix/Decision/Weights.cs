@@ -46,4 +46,11 @@ public static class Weights
     /// which candidate spots are reachable. Spent once per rescore, not per candidate.
     /// </summary>
     public const int ReachFloodBudget = 400;
+
+    /// <summary>
+    /// Positioner: how long a spot stays refused after the navigator was stuck twice on the way
+    /// to it, in ticks. Long enough that the companion goes somewhere else and does something
+    /// there, short enough that a spot blocked by an enemy that has since moved comes back.
+    /// </summary>
+    public const int StuckSpotBanTicks = 600;
 }

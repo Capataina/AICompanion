@@ -12,7 +12,17 @@ namespace AICompanion.Brain.DecisionMatrix.Navigation;
 /// </summary>
 public enum MoveKind { Walk, Jump, Drop, FallThrough }
 
-public readonly record struct NavStep(Point Tile, MoveKind Kind);
+/// <summary>
+/// One move of a path: the feet tile it arrives at, how, and for a jump the profile the planner
+/// found it with, which the follower reproduces rather than re-deriving: <paramref name="From"/>
+/// is the take-off tile, <paramref name="JumpScale"/> the share of the full jump velocity and
+/// <paramref name="StartVx"/> the horizontal speed the body must carry into the jump, signed, so
+/// a standing hop and a full-speed running jump are two different steps and the follower backs
+/// up for the run-up the second one needs. For a drop or a fall-through <paramref name="SteerX"/>
+/// is the world X the body's centre falls along, because in a shaft wider than the body what it
+/// lands on depends on which wall it hugs; zero when the move has no steer point.
+/// </summary>
+public readonly record struct NavStep(Point Tile, MoveKind Kind, Point From = default, float JumpScale = 1f, float StartVx = 0f, float SteerX = 0f);
 
 /// <summary>
 /// A planned route as feet tiles, first step first. Goal is the tile the search was asked

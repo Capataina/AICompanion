@@ -14,8 +14,13 @@ namespace AICompanion.Brain.DecisionMatrix.Navigation;
 /// </summary>
 public static class NavGrid
 {
-    /// <summary>How many tiles up a jump reaches. From JumpVelocity -8.5 and NPC gravity 0.3: v²/2g ≈ 120 px, kept conservative.</summary>
-    public const int JumpHeightTiles = 5;
+    /// <summary>
+    /// How many rows up the jump box looks. The full jump's apex from JumpVelocity -8.5 and NPC
+    /// gravity 0.3 is v²/2g ≈ 120 px, seven and a half tiles, and the box reaches all of it; the
+    /// arc simulation decides which of those tiles are landings, so the box being generous costs
+    /// candidates and never invents an edge. At five it hid a platform the lowest real arc landed on.
+    /// </summary>
+    public const int JumpHeightTiles = 7;
 
     /// <summary>How many tiles across a running jump clears.</summary>
     public const int JumpGapTiles = 4;
@@ -84,6 +89,19 @@ public static class NavGrid
     /// </summary>
     public static float OpenSpanCentreX(int column, int feetRow, bool throughPlatform)
     {
+        (int left, int right) = OpenSpan(column, feetRow, throughPlatform);
+        return (left * 16f + (right + 1) * 16f) / 2f;
+    }
+
+    /// <summary>
+    /// The run of open columns around <paramref name="column"/> at the row the feet are on, as
+    /// its first and last column: columns the body is clear in with nothing solid beneath them
+    /// (or a platform beneath them, for a fall-through), a few each way at most. Where in this
+    /// span the body falls decides what it lands on, so the planner tries its edges and its
+    /// middle and the follower steers to the one the plan chose.
+    /// </summary>
+    public static (int left, int right) OpenSpan(int column, int feetRow, bool throughPlatform)
+    {
         const int Reach = 3;
         // A drop wants the open air beside the lip; a fall-through wants the platform the body
         // is passing, because steering off a one-tile platform into open air loses the landing.
@@ -91,7 +109,7 @@ public static class NavGrid
         int left = column, right = column;
         while (left > column - Reach && Open(left - 1)) left--;
         while (right < column + Reach && Open(right + 1)) right++;
-        return (left * 16f + (right + 1) * 16f) / 2f;
+        return (left, right);
     }
 
     /// <summary>How many tiles of the body column and the support under it hold lava.</summary>

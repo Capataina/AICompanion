@@ -32,17 +32,38 @@ public sealed class Navigator
     /// <summary>Wall-clock of the last search, for the telemetry: the frame cost of the pose grid is otherwise unmeasured.</summary>
     public double LastPlanMs { get; private set; }
 
+    /// <summary>
+    /// How many times in a row the body has stood still on a path to the current goal long enough
+    /// to replan. One strike prices the step it was stuck on so the next plan goes another way;
+    /// the brain reads two as "this spot cannot be reached the way the grid thinks" and asks the
+    /// positioner for a different one. Cleared when the goal moves or is reached.
+    /// </summary>
+    public int StuckStrikes { get; private set; }
+
+    /// <summary>Ticks a stuck step stays priced after the strike that added it.</summary>
+    private const int StuckAvoidTicks = 600;
+
+    private const int StuckReplanTicks = 40;
+
     private int ticksSincePlan = ReplanInterval;
     private int stuckTicks;
     private Vector2 lastPosition;
+    private int clock;
+
+    // The steps the body has been stuck on lately, each as the body rectangle at that tile and the
+    // tick it stops mattering; merged into the search's avoid list on every plan, priced and not
+    // banned, so a detour wins wherever one exists and the direct way is still there when none does.
+    private readonly System.Collections.Generic.List<(Rectangle box, int until)> stuckAvoid = new();
 
     /// <summary>Move toward <paramref name="targetFeet"/> this tick. Returns true when arrived.</summary>
     public bool MoveTo(NPC npc, CompanionMotor motor, Vector2 targetFeet)
     {
+        clock++;
         if (Vector2.Distance(npc.Bottom, targetFeet) <= ArriveDistance)
         {
             motor.Stop();
             Path = null;
+            StuckStrikes = 0;
             return true;
         }
 
@@ -51,17 +72,31 @@ public sealed class Navigator
         ticksSincePlan++;
 
         bool goalMoved = goal != GoalTile;
+        if (goalMoved)
+            StuckStrikes = 0;
         // A failed plan is not retried every tick: at the full budget that is ~3 ms per tick for
         // as long as the goal stays unreachable. It waits FailedPlanRetry ticks unless the goal moves.
         bool failedRecently = LastPlanFailed && ticksSincePlan < FailedPlanRetry;
         // A finished partial path is a failed plan that has been walked out: it waits like one.
         bool noPath = Path == null || (Path.Partial && Path.Finished);
-        bool stale = (noPath && !failedRecently) || (!noPath && (Path!.Finished || ticksSincePlan >= ReplanInterval || stuckTicks > 40));
+        bool stuck = !noPath && stuckTicks > StuckReplanTicks;
+        bool stale = (noPath && !failedRecently) || (!noPath && (Path!.Finished || ticksSincePlan >= ReplanInterval || stuck));
         // Plan only from the ground: an airborne body has no standable tile under it, and a
         // plan that failed for that reason blocked replanning for the retry wait, during which
         // straight walking hopped every kerb and put the body back in the air for the next try.
         if (goal != null && (goalMoved || stale) && motor.OnGround)
         {
+            // A body that stood still on a step long enough to replan has found a step the grid
+            // offers and the body cannot take. Replanning alone returned the same path three times
+            // over in run 5 (2026-09-08); the step is priced so the next plan goes another way.
+            if (stuck && !Path!.Finished)
+            {
+                Point tile = Path.Current.Tile;
+                var box = new Rectangle(tile.X * 16, (tile.Y - NavGrid.BodyHeightTiles + 1) * 16, 16, NavGrid.BodyHeightTiles * 16);
+                box.Inflate(4, 4);
+                stuckAvoid.Add((box, clock + StuckAvoidTicks));
+                StuckStrikes++;
+            }
             Plan(start, goal.Value);
         }
 
@@ -90,9 +125,14 @@ public sealed class Navigator
             global::AICompanion.Brain.Debug.BrainTelemetry.DumpPlan(start, goal, from, 0, "no standable tile at the start");
             return;
         }
-        var clock = System.Diagnostics.Stopwatch.StartNew();
+        // The brain refills the search's avoid list with the enemies every tick before this runs;
+        // the stuck steps join it here, for this plan, and leave when their time is up.
+        stuckAvoid.RemoveAll(entry => entry.until < clock);
+        foreach ((Rectangle box, _) in stuckAvoid)
+            AStar.Avoid.Add(box);
+        var watch = System.Diagnostics.Stopwatch.StartNew();
         Path = AStar.Find(from.Value, goal, PlanBudget, out int used);
-        LastPlanMs = clock.Elapsed.TotalMilliseconds;
+        LastPlanMs = watch.Elapsed.TotalMilliseconds;
         LastExpansions = used;
         // A partial path is followed, and still counted as a failure: the goal was not reached
         // by the plan, and the record needs to say so even while the body walks toward it.
@@ -130,19 +170,15 @@ public sealed class Navigator
         switch (step.Kind)
         {
             case MoveKind.Jump:
-                // Jump first so the arc starts from the current tile, then steer in the air with
-                // the same rule the planner simulated: full speed toward the landing column, and
-                // coast once inside the stopping distance, so the body lands on the tile the plan
-                // promised instead of hunting past it.
-                if (motor.OnGround)
-                    motor.Jump(riseTiles >= 2 ? CompanionMotor.JumpScaleForTiles(riseTiles) : 1f);
-                motor.MoveX(BodyPhysics.SteerToward(stepWorld.X, npc.Bottom.X, npc.velocity.X));
+                FollowJump(npc, motor, path, step, stepWorld);
                 break;
             case MoveKind.Drop:
             {
-                // Steer to the middle of the opening, not the tile: centred on one column of a
-                // two-wide shaft the body still overhangs the lip and never falls.
-                float gap = NavGrid.OpenSpanCentreX(step.Tile.X, NavGrid.FeetTile(npc.Bottom).Y, throughPlatform: false) - npc.Bottom.X;
+                // Steer to the line the planner dropped the body along (a wall of the shaft or its
+                // middle, whichever lands on this step's tile), not the tile: centred on one column
+                // of a two-wide shaft the body still overhangs the lip and never falls, and centred
+                // in a three-wide one it falls past the lip that only a wall-hugging body lands on.
+                float gap = SteerX(step, npc, throughPlatform: false) - npc.Bottom.X;
                 int toGap = MathF.Sign(gap) == 0 ? dir : MathF.Sign(gap);
                 motor.MoveX(motor.OnGround || MathF.Abs(gap) > 2f ? toGap * CompanionMotor.WalkSpeed * 0.8f : 0f);
                 break;
@@ -150,7 +186,7 @@ public sealed class Navigator
             case MoveKind.FallThrough:
             {
                 // Same steer, then let the body pass the platform this tick.
-                float gap = NavGrid.OpenSpanCentreX(step.Tile.X, NavGrid.FeetTile(npc.Bottom).Y, throughPlatform: true) - npc.Bottom.X;
+                float gap = SteerX(step, npc, throughPlatform: true) - npc.Bottom.X;
                 motor.MoveX(MathF.Abs(gap) > 2f ? MathF.Sign(gap) * CompanionMotor.WalkSpeed * 0.5f : 0f);
                 motor.WantsFallThrough = true;
                 break;
@@ -161,6 +197,115 @@ public sealed class Navigator
                     motor.Jump(CompanionMotor.JumpScaleForTiles(Math.Max(2, riseTiles)));
                 break;
         }
+    }
+
+    // The jump step the run-up state belongs to, and where the run-up stands: backing away from
+    // the take-off, or already run once (so a second arrival at the take-off jumps whatever the
+    // speed, rather than backing away for ever on a runway too short for the profile).
+    private int runUpIndex = -1;
+    private bool backingOff;
+    private bool ranUp;
+
+    /// <summary>
+    /// Make the jump the planner found, as it found it: at its velocity scale, from its take-off
+    /// tile, carrying its start speed. A standing jump settles onto the take-off first. A running
+    /// jump arriving at the take-off too slowly backs away along the row, as far as the runway
+    /// the profile's speed needs and the standable tiles behind allow, then runs in at that speed
+    /// and jumps as it crosses the take-off; past the take-off it jumps at once, because the next
+    /// step is the edge. In the air the body steers toward the landing column with the rule the
+    /// planner simulated: full speed, then coasting inside the stopping distance. This is what
+    /// makes a full-height running jump and a hop two different moves, and what lets the body
+    /// reach a ledge under an overhang from a few tiles back instead of from straight beneath it.
+    /// </summary>
+    private void FollowJump(NPC npc, CompanionMotor motor, NavPath path, NavStep step, Vector2 landing)
+    {
+        if (!motor.OnGround)
+        {
+            motor.MoveX(BodyPhysics.SteerToward(landing.X, npc.Bottom.X, npc.velocity.X));
+            return;
+        }
+        if (path.Index != runUpIndex)
+        {
+            runUpIndex = path.Index;
+            backingOff = false;
+            ranUp = false;
+        }
+
+        Vector2 takeoff = NavGrid.FeetWorld(step.From);
+        float need = step.StartVx;
+        float vx = npc.velocity.X;
+        if (need == 0f)
+        {
+            // A standing jump: be on the take-off, still, then jump.
+            float off = takeoff.X - npc.Bottom.X;
+            if (MathF.Abs(off) <= 6f && MathF.Abs(vx) < 0.6f)
+            {
+                motor.Jump(step.JumpScale);
+                return;
+            }
+            motor.MoveX(BodyPhysics.SteerToward(takeoff.X, npc.Bottom.X, vx));
+            return;
+        }
+
+        int jd = MathF.Sign(need);
+        float along = (npc.Bottom.X - takeoff.X) * jd; // positive once past the take-off toward the landing
+        bool fastEnough = vx * jd >= MathF.Abs(need) - 0.4f;
+        if (backingOff)
+        {
+            float runway = Runway(step, jd);
+            if (along <= -runway + 4f)
+            {
+                backingOff = false;
+                ranUp = true;
+            }
+            else
+            {
+                motor.MoveX(-jd * CompanionMotor.WalkSpeed);
+                return;
+            }
+        }
+        if (along > 6f || (along >= -2f && (fastEnough || ranUp)))
+        {
+            motor.Jump(step.JumpScale);
+            motor.MoveX(BodyPhysics.SteerToward(landing.X, npc.Bottom.X, vx));
+            return;
+        }
+        if (along >= -2f)
+        {
+            // At the take-off, too slow, and not run up yet: back away if there is anywhere to.
+            if (Runway(step, jd) < 12f)
+            {
+                motor.Jump(step.JumpScale);
+                motor.MoveX(BodyPhysics.SteerToward(landing.X, npc.Bottom.X, vx));
+                return;
+            }
+            backingOff = true;
+            motor.MoveX(-jd * CompanionMotor.WalkSpeed);
+            return;
+        }
+        // Behind the take-off: run in at the profile's own speed, not the walk speed, because the
+        // arc was simulated at that speed and a faster body flies a longer arc into the overhang
+        // the profile was chosen to clear.
+        motor.MoveX(jd * MathF.Abs(need));
+    }
+
+    /// <summary>The X a descending step falls along: the plan's own steer point, or the middle of the opening for a path made without one.</summary>
+    private static float SteerX(NavStep step, NPC npc, bool throughPlatform)
+        => step.SteerX > 0f ? step.SteerX : NavGrid.OpenSpanCentreX(step.Tile.X, NavGrid.FeetTile(npc.Bottom).Y, throughPlatform);
+
+    /// <summary>
+    /// How far behind a jump's take-off the body can back up along the take-off row, in pixels:
+    /// the distance the motor needs to reach the profile's speed from rest, plus a tile to turn
+    /// in, capped by the standable tiles actually there.
+    /// </summary>
+    private static float Runway(NavStep step, int direction)
+    {
+        float need = MathF.Abs(step.StartVx);
+        float wanted = need * need / (2f * BodyPhysics.Acceleration) + 16f;
+        int tiles = 0;
+        while (tiles * 16f < wanted && tiles < 8 && NavGrid.IsStandable(step.From.X - direction * (tiles + 1), step.From.Y))
+            tiles++;
+        return MathF.Min(wanted, tiles * 16f);
     }
 
     private void WalkStraight(NPC npc, CompanionMotor motor, Vector2 target)
@@ -203,9 +348,13 @@ public sealed class Navigator
         lastPosition = npc.position;
     }
 
+    /// <summary>The brain has acted on the strikes (asked for another spot); start counting again.</summary>
+    public void ResetStrikes() => StuckStrikes = 0;
+
     public void Clear()
     {
         Path = null;
         GoalTile = null;
+        StuckStrikes = 0;
     }
 }

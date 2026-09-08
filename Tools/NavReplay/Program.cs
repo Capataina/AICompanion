@@ -163,15 +163,15 @@ static bool? TraceJump(Point start, Point goal)
         Console.WriteLine($"trace-jump: no pose at {Fmt(start)}");
         return null;
     }
-    // The scale the planner and the follower both pick: the rise between the two poses' bottoms
-    // in pixels, rounded up to tiles; without a pose at the goal the row difference stands in.
+    // Every profile the planner tries, in its order: the rise between the two poses' bottoms in
+    // pixels rounded up to tiles picks the scales, and each is flown at the walk, half of it and
+    // from a stand; without a pose at the goal the row difference stands in for the rise.
     float goalBottom = NavGrid.StandAt(goal.X, goal.Y, false)?.Bottom ?? (goal.Y + 1) * 16f;
     int rise = (int)Math.Ceiling((from.Bottom - goalBottom) / 16f);
-    float scale = rise >= 2 ? BodyPhysics.JumpScaleForTiles(rise) : 1f;
     bool landedOnGoal = false;
-    foreach (float startVx in new[] { 0f, Math.Sign(goal.X - start.X) * BodyPhysics.WalkSpeed })
+    foreach ((float scale, float startVx) in AStar.JumpProfiles(rise, Math.Sign(goal.X - start.X)))
     {
-        Console.WriteLine($"trace-jump {Fmt(start)} -> {Fmt(goal)} rise {rise} scale {scale:F2} startVx {startVx:F1}: pose left {from.Left} bottom {from.Bottom}");
+        Console.WriteLine($"trace-jump {Fmt(start)} -> {Fmt(goal)} rise {rise} scale {scale:F2} startVx {startVx:F2}: pose left {from.Left} bottom {from.Bottom}");
         BodyPhysics.Pose? landing = BodyPhysics.SimulateJump(NavGrid.World, from, scale, startVx, goal.X, goal.Y, 120, out int ticks, tick =>
             Console.WriteLine($"   t{tick.Tick,3} left {tick.Left,7:F1} bottom {tick.Bottom,7:F1} vx {tick.Vx,5:F2} vy {tick.Vy,5:F2} feet {tick.FeetColumn},{tick.FeetRow}"));
         if (landing is BodyPhysics.Pose l)

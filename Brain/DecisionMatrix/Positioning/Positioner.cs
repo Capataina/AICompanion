@@ -40,11 +40,31 @@ public sealed class Positioner
     /// <summary>Whether the flood from the companion's feet ran out of region before its budget, so a tile outside it is truly unreachable.</summary>
     public bool ReachComplete { get; private set; }
 
+    // Spots the navigator could not reach however it planned, each with the tick it is allowed
+    // back; skipped by every resolve until then, so the next answer is a different place.
+    private readonly Dictionary<Point, int> banned = new();
+    private int clock;
+
+    /// <summary>
+    /// Refuse this feet tile for a while and pick again: the navigator stood still on the way to it
+    /// twice over, so the grid's opinion that it is reachable is wrong for the body in fact, and
+    /// the companion is better off somewhere else than standing.
+    /// </summary>
+    public void Ban(Point tile, int ticks)
+    {
+        banned[tile] = clock + ticks;
+        Chosen = null;
+        sinceScore = RescoreInterval;
+    }
+
+    private bool Allowed(Point tile) => !banned.TryGetValue(tile, out int until) || until < clock;
+
     public Vector2? Resolve(in PositionRequest request, Senses.Senses senses, WeaponProfile? fireProfile)
     {
         // The region ages in ticks, whatever the request does this tick: counted inside the
         // rescore it multiplied the two cadences and refloods came every 144 ticks.
         sinceFlood++;
+        clock++;
         switch (request.Kind)
         {
             case RequestKind.Hold:
@@ -56,7 +76,7 @@ public sealed class Positioner
                 // near, the nearest standable tile at all, and the partial path walks as close as it can.
                 RefreshReach(senses);
                 Point around = NavGrid.FeetTile(request.Anchor);
-                Point? tile = NavGrid.NearestStandable(around, 3, InReach) ?? NavGrid.NearestStandable(around, 3);
+                Point? tile = NavGrid.NearestStandable(around, 3, t => InReach(t) && Allowed(t)) ?? NavGrid.NearestStandable(around, 3, Allowed);
                 Chosen = tile is Point t ? NavGrid.FeetWorld(t) : null;
                 return Chosen;
         }
@@ -117,7 +137,7 @@ public sealed class Positioner
             for (int dy = -SampleRadiusTiles; dy <= SampleRadiusTiles; dy += SampleStride)
             {
                 int x = centre.X + dx, y = centre.Y + dy;
-                if (!NavGrid.IsStandable(x, y))
+                if (!NavGrid.IsStandable(x, y) || !Allowed(new Point(x, y)))
                     continue;
                 bool reachable = InReach(new Point(x, y));
                 if (!reachable && anyReachable)
