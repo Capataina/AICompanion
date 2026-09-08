@@ -18,6 +18,7 @@ public sealed class Navigator
 {
     public const int PlanBudget = 1500;
     private const int ReplanInterval = 30;
+    private const int FailedPlanRetry = 90;
     private const float ArriveDistance = 12f;
 
     public NavPath? Path { get; private set; }
@@ -44,7 +45,10 @@ public sealed class Navigator
         ticksSincePlan++;
 
         bool goalMoved = goal != GoalTile;
-        bool stale = Path == null || Path.Finished || ticksSincePlan >= ReplanInterval || stuckTicks > 40;
+        // A failed plan is not retried every tick: at the full budget that is ~3 ms per tick for
+        // as long as the goal stays unreachable. It waits FailedPlanRetry ticks unless the goal moves.
+        bool failedRecently = LastPlanFailed && ticksSincePlan < FailedPlanRetry;
+        bool stale = (Path == null && !failedRecently) || (Path != null && (Path.Finished || ticksSincePlan >= ReplanInterval || stuckTicks > 40));
         if (goal != null && (goalMoved || stale))
         {
             Plan(start, goal.Value);

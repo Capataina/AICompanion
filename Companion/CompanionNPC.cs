@@ -184,6 +184,10 @@ public class CompanionNPC : ModNPC
         {
             if (item.IsAir || item.noGrabDelay > 0 || !item.Hitbox.Intersects(reach))
                 continue;
+            // Hearts, mana stars and the like are consumed on touch by the player, never stored;
+            // the companion leaves them for the player they heal.
+            if (ItemID.Sets.IsAPickup[item.type])
+                continue;
             Bag.Collect(item, player);
         }
     }

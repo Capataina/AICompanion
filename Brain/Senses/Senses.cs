@@ -25,7 +25,6 @@ public sealed class Senses
     public void Update(NPC companion, Terraria.Player player)
     {
         Tick++;
-        TreeDamageWatcher.Tick();
         Companion = companion;
         PlayerEntity = player;
         Player.Update(player, companion);

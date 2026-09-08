@@ -23,10 +23,14 @@ public sealed class WalkWithPlayerAction : CompanionAction
             return 0f;
         Vector2 ahead = p.Predict(45);
         float gap = Vector2.Distance(ctx.Npc.Bottom, ahead);
-        float travelling = Consideration.Step(p.IsTravelling, 1f, 0.35f);
-        float far = Consideration.AtLeast(Consideration.Rising(gap, Weights.FollowIntentDistance * 2f), 0.15f);
         float hardLeash = Consideration.Step(ctx.Senses.DistanceToPlayer > Weights.LeashHard, 1f, 0f);
-        return MathF.Max(travelling * far, hardLeash);
+        if (p.IsTravelling)
+            return MathF.Max(Consideration.AtLeast(Consideration.Rising(gap, Weights.FollowIntentDistance * 2f), 0.3f), hardLeash);
+
+        // Standing player: only worth acting on when the companion has drifted well out of the
+        // calm band. Inside it this scores zero so wander can win.
+        float drifted = Consideration.Rising(ctx.Senses.DistanceToPlayer - Weights.CalmBandFar, 400f) * 0.6f;
+        return MathF.Max(drifted, hardLeash);
     }
 
     public override PositionRequest Execute(in ActionContext ctx)

@@ -24,6 +24,7 @@ public sealed class Positioner
     private const int RescoreInterval = 12;
     private const int SampleRadiusTiles = 14;
     private const int SampleStride = 2;
+    private const int MaxSolvesPerRescore = 8;
 
     public Vector2? Chosen { get; private set; }
     public float ChosenScore { get; private set; }
@@ -38,8 +39,11 @@ public sealed class Positioner
                 Chosen = null;
                 return null;
             case RequestKind.Exact:
-                Chosen = request.Anchor;
-                return request.Anchor;
+                // Exact still means a real place to stand: the nearest standable tile, which
+                // NavGrid refuses when it is in or over lava.
+                Point? tile = NavGrid.NearestStandable(NavGrid.FeetTile(request.Anchor), 3);
+                Chosen = tile is Point t ? NavGrid.FeetWorld(t) : null;
+                return Chosen;
         }
 
         sinceScore++;
@@ -61,9 +65,9 @@ public sealed class Positioner
         float bandNear = threatened ? Weights.ThreatBandNear : Weights.CalmBandNear;
         float bandFar = threatened ? Weights.ThreatBandFar : Weights.CalmBandFar;
 
-        Vector2? best = null;
-        float bestScore = -1f;
-
+        // Two passes: every candidate gets the cheap factors; only the best few then pay for an
+        // aimer solve, which is the expensive one (up to 48 arcs × 150 ticks of tile checks).
+        var candidates = new List<(Vector2 feet, Vector2 eye, float baseScore)>();
         for (int dx = -SampleRadiusTiles; dx <= SampleRadiusTiles; dx += SampleStride)
         {
             for (int dy = -SampleRadiusTiles; dy <= SampleRadiusTiles; dy += SampleStride)
@@ -73,34 +77,56 @@ public sealed class Positioner
                     continue;
                 Vector2 feet = NavGrid.FeetWorld(new Point(x, y));
                 Vector2 eye = feet + new Vector2(0f, -30f);
-                float score = ScoreSpot(request, feet, eye, playerBottom, senses, bandNear, bandFar, fireProfile);
-                if (score > bestScore)
-                {
-                    bestScore = score;
-                    best = feet;
-                }
+                float score = ScoreSpot(request, feet, eye, playerBottom, senses, bandNear, bandFar, fire: 1f);
+                if (score > 0f)
+                    candidates.Add((feet, eye, score));
+            }
+        }
+        if (candidates.Count == 0)
+        {
+            ChosenScore = -1f;
+            return null;
+        }
+
+        bool needsFire = request.Target is NPC && fireProfile != null;
+        candidates.Sort((a, b) => b.baseScore.CompareTo(a.baseScore));
+        int solves = needsFire ? Math.Min(MaxSolvesPerRescore, candidates.Count) : 0;
+
+        Vector2? best = null;
+        float bestScore = -1f;
+        for (int i = 0; i < candidates.Count; i++)
+        {
+            (Vector2 feet, Vector2 eye, float baseScore) = candidates[i];
+            float score = baseScore;
+            if (needsFire)
+            {
+                if (i >= solves)
+                    break; // unsolved candidates cannot beat a solved one above them
+                float fire = TrajectoryAimer.Solve(eye, request.Target!, fireProfile!.Value) != null ? 1f : 0.15f;
+                score = ScoreSpot(request, feet, eye, playerBottom, senses, bandNear, bandFar, fire);
+            }
+            if (score > bestScore)
+            {
+                bestScore = score;
+                best = feet;
             }
         }
         ChosenScore = bestScore;
         return best;
     }
 
-    private static float ScoreSpot(in PositionRequest request, Vector2 feet, Vector2 eye, Vector2 playerBottom, Senses.Senses senses, float bandNear, float bandFar, WeaponProfile? fireProfile)
+    private static float ScoreSpot(in PositionRequest request, Vector2 feet, Vector2 eye, Vector2 playerBottom, Senses.Senses senses, float bandNear, float bandFar, float fire)
     {
+        // The band is measured to the request's anchor (the player's predicted position when
+        // walking with them), with a gentle pull toward its centre so equal-band spots are not tied.
+        float toAnchor = Vector2.Distance(feet, request.Anchor);
         float toPlayer = Vector2.Distance(feet, playerBottom);
-        float band = Consideration.Band(toPlayer, bandNear, bandFar, 400f);
+        float band = Consideration.Band(toAnchor, bandNear, bandFar, 400f) * (0.6f + 0.4f * Consideration.Inverse(toAnchor, bandFar + 200f));
         bool seesPlayer = Collision.CanHitLine(eye, 1, 1, senses.PlayerEntity.position, senses.PlayerEntity.width, senses.PlayerEntity.height);
         float sight = seesPlayer ? 1f : 0.35f;
         float danger = DangerAt(feet, senses);
         float open = Openness(feet);
         float travel = TravelBias(feet, senses);
-
-        float fire = 1f;
-        if (request.Target is NPC target && fireProfile is WeaponProfile profile)
-        {
-            Vector2 muzzle = eye;
-            fire = TrajectoryAimer.Solve(muzzle, target, profile) != null ? 1f : 0.15f;
-        }
 
         return request.Kind switch
         {

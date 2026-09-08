@@ -26,8 +26,6 @@ public sealed class CompanionBagSystem : ModSystem
 
     public override void Load()
     {
-        if (Main.dedServ)
-            return;
         ui = new UserInterface();
     }
 
@@ -46,7 +44,11 @@ public sealed class CompanionBagSystem : ModSystem
         state.Activate();
         ui?.SetState(state);
         IsOpen = true;
-        Main.playerInventory = false;
+        // The bag is a container, and in this game a container only works while the player is
+        // in item-management mode: with Main.playerInventory false, Player.dropItemCheck throws
+        // whatever is on the cursor every tick, so nothing could ever be put into the bag.
+        // Every vanilla chest opens the inventory for the same reason.
+        Main.playerInventory = true;
     }
 
     private void Close()
@@ -73,7 +75,7 @@ public sealed class CompanionBagSystem : ModSystem
         if (!IsOpen)
             return;
         NPC? npc = CompanionNPC.Find();
-        if (npc == null || Vector2.Distance(Main.LocalPlayer.Center, npc.Center) > CloseDistance || Main.playerInventory)
+        if (npc == null || Vector2.Distance(Main.LocalPlayer.Center, npc.Center) > CloseDistance || !Main.playerInventory)
         {
             Close();
             return;

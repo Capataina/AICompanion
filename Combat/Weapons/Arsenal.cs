@@ -47,12 +47,26 @@ public sealed class Arsenal
     public WeaponProfile? ProfileFor(in ActionContext ctx, NPC? target)
         => target == null ? null : Choose(ctx, target).Profile;
 
-    /// <summary>Whether any equipped weapon has a solvable shot at the target from where the companion stands now.</summary>
+    private readonly int[] engageCheckedAt = new int[Main.maxNPCs];
+    private readonly bool[] engageResult = new bool[Main.maxNPCs];
+    private const int EngageCacheTicks = 20;
+
+    /// <summary>
+    /// Whether any equipped weapon has a solvable shot at the target from where the companion
+    /// stands now. Two aimer solves are dear, so the answer is cached per NPC for a third of a second.
+    /// </summary>
     public bool CanEngage(in ActionContext ctx, NPC target)
     {
+        int now = ctx.Senses.Tick;
+        int slot = target.whoAmI;
+        if (now - engageCheckedAt[slot] < EngageCacheTicks && engageCheckedAt[slot] != 0)
+            return engageResult[slot];
         Vector2 muzzle = Muzzle(ctx.Npc);
-        return TrajectoryAimer.Solve(muzzle, target, Primary.Profile) != null
+        bool can = TrajectoryAimer.Solve(muzzle, target, Primary.Profile) != null
             || TrajectoryAimer.Solve(muzzle, target, Secondary.Profile) != null;
+        engageCheckedAt[slot] = now;
+        engageResult[slot] = can;
+        return can;
     }
 
     /// <summary>Face the target and fire if a shot exists and the cooldown allows. Returns true on a shot.</summary>

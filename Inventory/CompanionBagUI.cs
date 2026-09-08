@@ -26,8 +26,10 @@ public sealed class CompanionBagUI : UIState
         var panel = new UIPanel();
         panel.Width.Set(Columns * SlotSize + 24f, 0f);
         panel.Height.Set(rows * SlotSize + 48f, 0f);
-        panel.HAlign = 0.5f;
-        panel.VAlign = 0.5f;
+        // The player's inventory occupies the top-left of the screen while the bag is open, so the
+        // bag sits to the right of centre where a chest's panel would not reach.
+        panel.HAlign = 0.8f;
+        panel.VAlign = 0.45f;
         Append(panel);
 
         var title = new UIText("Companion's bag", 0.9f);

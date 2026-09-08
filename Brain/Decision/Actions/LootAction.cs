@@ -24,8 +24,19 @@ public sealed class LootAction : CompanionAction
         target = null;
         if (ctx.Senses.Player.IsDead || ctx.Senses.Loot.Pickups.Count == 0)
             return 0f;
-        var pick = ctx.Senses.Loot.Pickups[0];
-        if (!ctx.Companion.Bag.CanAccept(pick.Item, ctx.Player))
+        // The nearest pickup that fits somewhere and has a standable tile beside it; one item
+        // in lava or on a ledge nobody can reach must not block every other item.
+        Senses.LootSense.Pickup? chosen = null;
+        foreach (var candidate in ctx.Senses.Loot.Pickups)
+        {
+            if (!ctx.Companion.Bag.CanAccept(candidate.Item, ctx.Player))
+                continue;
+            if (Navigation.NavGrid.NearestStandable(Navigation.NavGrid.FeetTile(candidate.Item.Bottom), 3) == null)
+                continue;
+            chosen = candidate;
+            break;
+        }
+        if (chosen is not Senses.LootSense.Pickup pick)
             return 0f;
         target = pick.Item;
         float near = Consideration.Inverse(pick.DistanceToCompanion, Weights.LootReach);

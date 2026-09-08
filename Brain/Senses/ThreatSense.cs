@@ -20,13 +20,21 @@ public sealed class ThreatSense
     private const int ReachabilityRefreshTicks = 60;
     private const float SpeedDecay = 0.995f;
 
-    /// <summary>Hostiles known to shoot in pre-hardmode; modded shooters are learned by watching projectiles.</summary>
+    /// <summary>
+    /// Hostiles whose AI spawns a projectile, pre-hardmode. Demon Eyes are not here: their
+    /// AI (AI_002_FloatingEye) never calls NewProjectile. Modded shooters are learned by
+    /// watching projectiles appear next to them.
+    /// </summary>
     private static readonly HashSet<int> KnownShooters = new()
     {
         NPCID.GoblinArcher, NPCID.Hornet, NPCID.Harpy, NPCID.DarkCaster, NPCID.Antlion,
-        NPCID.SkeletonArcher, NPCID.FireImp, NPCID.SnowFlinx, NPCID.DemonEye, NPCID.WanderingEye,
+        NPCID.SkeletonArcher, NPCID.FireImp, NPCID.SnowFlinx,
         NPCID.SpikedJungleSlime, NPCID.SpikedIceSlime, NPCID.GoblinSorcerer,
     };
+
+    /// <summary>Projectiles already attributed to a shooter, so each is counted once, at birth.</summary>
+    private readonly HashSet<int> seenProjectiles = new();
+    private readonly int[] projectileIdentity = new int[Main.maxProjectiles];
 
     private sealed class Memory
     {
@@ -77,10 +85,11 @@ public sealed class ThreatSense
                 mem.ReachableCheckedAt = -1000;
             }
 
-            float speed = npc.velocity.Length();
-            mem.PeakSpeed = MathF.Max(mem.PeakSpeed * SpeedDecay, speed);
-
             MovementClass cls = npc.noTileCollide ? MovementClass.Phaser : (npc.noGravity ? MovementClass.Flyer : MovementClass.Walker);
+
+            // A walker's approach speed is horizontal; its fall speed after a hop is not how fast it closes.
+            float speed = cls == MovementClass.Walker ? MathF.Abs(npc.velocity.X) : npc.velocity.Length();
+            mem.PeakSpeed = MathF.Max(mem.PeakSpeed * SpeedDecay, speed);
 
             if (cls != MovementClass.Phaser && tick - mem.ReachableCheckedAt >= ReachabilityRefreshTicks && (tick + npc.whoAmI) % 4 == 0)
             {
@@ -136,20 +145,38 @@ public sealed class ThreatSense
         return weight * closeness * sight;
     }
 
-    /// <summary>A hostile projectile near a hostile NPC marks that NPC as a shooter for a few seconds.</summary>
+    /// <summary>
+    /// A hostile projectile, on the tick it first appears, marks the nearest hostile NPC
+    /// within 48 px as a shooter for a few seconds. Counting only at birth keeps a
+    /// zombie that walks under an arrow's flight from inheriting the label.
+    /// </summary>
     private void LearnShootersFromProjectiles()
     {
         foreach (Projectile p in Main.ActiveProjectiles)
         {
             if (!p.hostile || p.friendly)
                 continue;
+            int identity = p.identity;
+            if (projectileIdentity[p.whoAmI] == identity && seenProjectiles.Contains(p.whoAmI))
+                continue;
+            projectileIdentity[p.whoAmI] = identity;
+            seenProjectiles.Add(p.whoAmI);
+
+            NPC? nearest = null;
+            float best = 48f * 48f;
             foreach (NPC npc in Main.ActiveNPCs)
             {
-                if (npc.friendly || Vector2.DistanceSquared(npc.Center, p.Center) > 48f * 48f)
+                if (npc.friendly)
                     continue;
-                Memory mem = memory[npc.whoAmI] ??= new Memory();
-                mem.LastShotSeenAt = tick;
+                float d = Vector2.DistanceSquared(npc.Center, p.Center);
+                if (d < best)
+                {
+                    best = d;
+                    nearest = npc;
+                }
             }
+            if (nearest != null)
+                (memory[nearest.whoAmI] ??= new Memory()).LastShotSeenAt = tick;
         }
     }
 }

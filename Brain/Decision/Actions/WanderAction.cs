@@ -26,6 +26,8 @@ public sealed class WanderAction : CompanionAction
     public override PositionRequest Execute(in ActionContext ctx)
     {
         ctx.Companion.HoldItem(ItemID.None);
+        if (ctx.Senses.Player.IsDead)
+            return PositionRequest.Hold;
         if (--ticksLeft <= 0)
             PickNext(ctx);
 

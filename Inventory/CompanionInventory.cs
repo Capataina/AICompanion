@@ -39,6 +39,12 @@ public sealed class CompanionInventory
         if (slot >= 0)
         {
             Item target = player.inventory[slot];
+            if (target.IsAir)
+            {
+                player.inventory[slot] = item.Clone();
+                player.inventory[slot].stack = 0;
+                target = player.inventory[slot];
+            }
             int room = target.maxStack - target.stack;
             int moved = System.Math.Min(room, item.stack);
             target.stack += moved;
@@ -71,10 +77,36 @@ public sealed class CompanionInventory
         return took;
     }
 
-    /// <summary>A slot in the player's main inventory holding the same item with room, else -1.</summary>
+    private const int CoinSlotsStart = 50, CoinSlotsEnd = 54;
+    private const int AmmoSlotsStart = 54, AmmoSlotsEnd = 58;
+
+    /// <summary>
+    /// A player slot the item belongs in with room, else -1. Same routing as the game's own
+    /// Player.ItemSpace: the main 50 slots for everything, the purse for coins, the ammo slots
+    /// for ammo. A coin also takes an empty purse slot, because the purse is where coins live.
+    /// </summary>
     private static int FindPlayerStack(Item item, Player player)
     {
-        for (int i = 0; i < PlayerMainSlots; i++)
+        int stack = FindStackIn(item, player, 0, PlayerMainSlots);
+        if (stack >= 0)
+            return stack;
+        if (item.IsACoin)
+        {
+            stack = FindStackIn(item, player, CoinSlotsStart, CoinSlotsEnd);
+            if (stack >= 0)
+                return stack;
+            for (int i = CoinSlotsStart; i < CoinSlotsEnd; i++)
+                if (player.inventory[i].IsAir)
+                    return i;
+        }
+        if (item.ammo > 0)
+            return FindStackIn(item, player, AmmoSlotsStart, AmmoSlotsEnd);
+        return -1;
+    }
+
+    private static int FindStackIn(Item item, Player player, int from, int to)
+    {
+        for (int i = from; i < to; i++)
         {
             Item slot = player.inventory[i];
             if (!slot.IsAir && slot.type == item.type && slot.prefix == item.prefix && slot.stack < slot.maxStack)

@@ -56,10 +56,11 @@ public class CompanionPlayer : ModPlayer
             BrainOverlay.Enabled = !BrainOverlay.Enabled;
     }
 
-    public override void PostUpdate()
+    public override void PreUpdate()
     {
-        // Right-click on the companion, within reach, opens or closes the bag. The click is
-        // consumed so it does not also use the held item.
+        // Right-click on the companion, within reach, opens or closes the bag. This runs before
+        // the player's item use for the tick, so setting mouseInterface here is what stops the
+        // held item firing on the same click; in PostUpdate the item would already have been used.
         if (Main.mouseRight && Main.mouseRightRelease && !Player.mouseInterface && CompanionBagSystem.MouseIsOnCompanionInReach(Player))
         {
             CompanionBagSystem.Toggle();

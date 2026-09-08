@@ -33,8 +33,11 @@ public sealed class Chooser
     {
         LastScores.Clear();
         float horizon = ctx.Senses.Threats.Horizon;
-        CompanionAction? best = null;
-        float bestScore = -1f;
+        // An all-zero board (the player is dead, nothing to do) falls to the last action, wander,
+        // which holds still in that case; starting below zero would hand the tick to whichever
+        // action happens to be listed first.
+        CompanionAction? best = Actions[^1];
+        float bestScore = 0f;
 
         foreach (CompanionAction action in Actions)
         {
@@ -59,7 +62,6 @@ public sealed class Chooser
             }
         }
 
-        best ??= Actions[^1];
         if (best != Current)
         {
             Current?.Exit(ctx);

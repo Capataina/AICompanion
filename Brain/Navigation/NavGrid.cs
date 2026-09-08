@@ -43,15 +43,24 @@ public static class NavGrid
         return Main.tileSolid[t.TileType] || Main.tileSolidTop[t.TileType];
     }
 
-    /// <summary>Feet at (x, y): the tile below supports, and the body column is clear.</summary>
+    /// <summary>Lava in this tile. The companion takes damage and is not lava-immune, so no node may hold it.</summary>
+    public static bool IsLava(int x, int y)
+    {
+        if (!WorldGen.InWorld(x, y, 5))
+            return false;
+        Tile t = Main.tile[x, y];
+        return t.LiquidAmount > 0 && t.LiquidType == Terraria.ID.LiquidID.Lava;
+    }
+
+    /// <summary>Feet at (x, y): the tile below supports, the body column is clear, and nothing in it is lava.</summary>
     public static bool IsStandable(int x, int y)
     {
         if (!IsSupport(x, y + 1))
             return false;
         for (int i = 0; i < BodyHeightTiles; i++)
-            if (IsSolid(x, y - i))
+            if (IsSolid(x, y - i) || IsLava(x, y - i))
                 return false;
-        return true;
+        return !IsLava(x, y + 1);
     }
 
     /// <summary>The body column at (x, y) is free of solid tiles; used for flight and jump arcs.</summary>

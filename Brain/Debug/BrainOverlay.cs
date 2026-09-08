@@ -24,7 +24,8 @@ public sealed class BrainOverlay : ModSystem
 
     public override void Load()
     {
-        ToggleKey = KeybindLoader.RegisterKeybind(Mod, "Brain Overlay", "F6");
+        // The name is the localisation key segment (Keybinds.BrainOverlay.DisplayName), so no space.
+        ToggleKey = KeybindLoader.RegisterKeybind(Mod, "BrainOverlay", "F6");
     }
 
     public override void Unload()
@@ -79,6 +80,7 @@ public sealed class BrainOverlay : ModSystem
         }
     }
 
+    /// <summary>World to interface coordinates: the zoom transform, then divided by the UI scale, the way Main does for its own world-anchored text.</summary>
     private static Vector2 ToScreen(Vector2 world)
-        => Vector2.Transform(world - Main.screenPosition, Main.GameViewMatrix.ZoomMatrix);
+        => Vector2.Transform(world - Main.screenPosition, Main.GameViewMatrix.ZoomMatrix) / Main.UIScale;
 }

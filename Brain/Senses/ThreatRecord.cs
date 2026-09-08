@@ -29,12 +29,29 @@ public sealed class ThreatRecord
     /// <summary>0..1: how much this threat endangers the player right now.</summary>
     public float Urgency;
 
-    public Vector2 PredictedPosition(int ticks) => Npc.Center + Npc.velocity * ticks;
+    /// <summary>NPC gravity per tick and terminal fall speed, from NPC.UpdateNPC.</summary>
+    private const float Gravity = 0.3f;
+    private const float MaxFall = 10f;
+
+    /// <summary>Where it will be: straight for flyers and phasers, under gravity for walkers.</summary>
+    public Vector2 PredictedPosition(int ticks)
+    {
+        if (Class != MovementClass.Walker)
+            return Npc.Center + Npc.velocity * ticks;
+        Vector2 pos = Npc.Center;
+        Vector2 vel = Npc.velocity;
+        for (int i = 0; i < ticks; i++)
+        {
+            vel.Y = System.MathF.Min(vel.Y + Gravity, MaxFall);
+            pos += vel;
+        }
+        return pos;
+    }
 
     public Rectangle PredictedHitbox(int ticks)
     {
         Rectangle r = Npc.Hitbox;
-        Vector2 lead = Npc.velocity * ticks;
+        Vector2 lead = PredictedPosition(ticks) - Npc.Center;
         r.Offset((int)lead.X, (int)lead.Y);
         return r;
     }
