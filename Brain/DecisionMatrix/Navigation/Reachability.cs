@@ -22,7 +22,22 @@ public static class Reachability
         Point? goal = NavGrid.NearestStandable(toFeet, 2);
         if (start == null || goal == null)
             return true;
-        NavPath? path = AStar.Find(start.Value, goal.Value, WalkerBudget, out int used);
+        // An enemy takes any drop. The brain sets the one-way rule for the companion's own plans
+        // at the end of its tick and it is still set when the senses run at the start of the
+        // next, so it is forced on around this search and put back after; left alone, a hunt
+        // read a zombie that reaches the player by dropping into a cave as unreachable.
+        bool oneWay = AStar.AllowOneWayDrops;
+        AStar.AllowOneWayDrops = true;
+        NavPath? path;
+        int used;
+        try
+        {
+            path = AStar.Find(start.Value, goal.Value, WalkerBudget, out used);
+        }
+        finally
+        {
+            AStar.AllowOneWayDrops = oneWay;
+        }
         // A partial path is the search saying it could get closer, not that it arrived; only a
         // whole path or a budget that ran out answers yes.
         return (path != null && !path.Partial) || used > WalkerBudget;
