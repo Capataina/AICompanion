@@ -27,6 +27,17 @@ public sealed class CompanionBagSystem : ModSystem
     public override void Load()
     {
         ui = new UserInterface();
+        Mod.Logger.Info("CompanionBagSystem.Load: done");
+    }
+
+    public override void Unload()
+    {
+        ui?.SetState(null);
+        ui = null;
+        state = null;
+        lastTime = null;
+        IsOpen = false;
+        Mod.Logger.Info("CompanionBagSystem.Unload: done");
     }
 
     public static void Toggle()

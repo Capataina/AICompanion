@@ -11,7 +11,7 @@ Brain/
 ├─ Positioning/        where to stand, as a score over candidate tiles
 ├─ Navigation/         how to get there: grid, A*, path following, reachability
 ├─ Reflexes/           the fast path that skips scoring: dodge-jump, step-back
-└─ Debug/              the F6 overlay that shows all of the above
+└─ Debug/              the overlay (key left of 1) that shows all of the above
 ```
 
 ## Where a new thing goes

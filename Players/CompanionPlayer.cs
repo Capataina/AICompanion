@@ -46,14 +46,19 @@ public class CompanionPlayer : ModPlayer
 
     public override void OnEnterWorld()
     {
+        bool spawned = false;
         if (HasCompanion && CompanionNPC.Find() == null)
-            CompanionNPC.Spawn(Player);
+            spawned = CompanionNPC.Spawn(Player) < Main.maxNPCs;
+        Mod.Logger.Info($"OnEnterWorld: hasCompanion={HasCompanion} spawned={spawned} bagItems={Bag.Count}");
     }
 
     public override void ProcessTriggers(TriggersSet triggersSet)
     {
         if (BrainOverlay.ToggleKey?.JustPressed == true)
+        {
             BrainOverlay.Enabled = !BrainOverlay.Enabled;
+            Mod.Logger.Info($"BrainOverlay toggled {(BrainOverlay.Enabled ? "on" : "off")}");
+        }
     }
 
     public override void PreUpdate()

@@ -25,12 +25,17 @@ public sealed class BrainOverlay : ModSystem
     public override void Load()
     {
         // The name is the localisation key segment (Keybinds.BrainOverlay.DisplayName), so no space.
-        ToggleKey = KeybindLoader.RegisterKeybind(Mod, "BrainOverlay", "F6");
+        // Default is the key left of 1 (§ on a Mac ISO keyboard, ` on ANSI): SDL reports the ISO
+        // section key on the grave scancode, which FNA names OemTilde. Rebindable under Controls.
+        ToggleKey = KeybindLoader.RegisterKeybind(Mod, "BrainOverlay", "OemTilde");
+        Mod.Logger.Info("BrainOverlay.Load: keybind registered, default OemTilde");
     }
 
     public override void Unload()
     {
         ToggleKey = null;
+        Enabled = false;
+        Mod.Logger.Info("BrainOverlay.Unload: done");
     }
 
     public override void PostDrawInterface(SpriteBatch spriteBatch)

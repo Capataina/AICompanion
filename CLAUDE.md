@@ -30,7 +30,7 @@ AICompanion/
 │  ├─ Positioning/           where to stand, scored over candidate tiles
 │  ├─ Navigation/            grid, A*, path following, reachability
 │  ├─ Reflexes/              dodge-jump and step-back, the path that skips scoring
-│  └─ Debug/                 the F6 overlay
+│  └─ Debug/                 the brain overlay (key left of 1)
 ├─ Combat/
 │  ├─ Weapons/               the two equipped weapons and the arsenal that picks between them
 │  └─ Ballistics/            weapon flight profiles and the arc-simulating aimer
@@ -53,11 +53,12 @@ dotnet build -nologo -v q
 
 Zero `error CS` lines and a fresh `bin/Debug/net8.0/AICompanion.dll` is the pass. With the game closed the same command also packages the `.tmod`; while the game is open it fails at that step with `TML003: Please close tModLoader or disable the mod in-game`, which is the packaging step, not the compile.
 
-Build for the game (what Caner does to play it): tModLoader → Workshop → Develop Mods → AICompanion → Build + Reload. In a world, `/companion` once; from then on it spawns with you on every world enter. F6 toggles the brain overlay. Right-click the companion within reach to open its bag.
+Build for the game (what Caner does to play it): with the game closed, the shell build above packages `Mods/AICompanion.tmod`; launch tModLoader and the mod is loaded. In a world, `/companion` once; from then on it spawns with you on every world enter. The key left of 1 (`§` on this Mac, `OemTilde` to the game, rebindable under Controls → Mod Controls) toggles the brain overlay. Right-click the companion within reach to open its bag.
 
 ## Traps
 
 - **The shell build says "Build succeeded" in under two seconds.** That is real; check the DLL timestamp before trusting it.
+- **In-game Build + Reload kills the game, silently, on this build.** Twice on 2026-09-08 `client.log` ended at `Unloading: ModLoader` with no exception and no macOS crash report; a fresh launch loaded the same `.tmod` cleanly. Decompiled `ModLoader.Mods_Unload`, that line is followed by `ModContent.Unload` and `AssemblyManager.Unload` (the assembly-load-context unload plus ten forced collections), where nothing of ours runs, so our hooks log their unload to prove it. The reloads on 0.1 and 0.2 survived with "AssemblyLoadContext still using memory" warnings, so the leak was already there. Build from the shell and relaunch instead; the cause is open.
 - **`WorldGen.GetTreeBottom` returns the ground tile under the trunk, not the lowest trunk tile.** Use `TreeFinder.TrunkBottom`.
 - **The player renderer draws the held item from `lastVisualizedSelectedItem`**, which only `Player.Update` sets; `CompanionBody.Sync` assigns it by hand.
 - **The player renderer expects a closed sprite batch**; `CompanionNPC.PreDraw` closes and reopens the NPC batch around it.

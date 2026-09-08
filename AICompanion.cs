@@ -15,4 +15,11 @@ public class AICompanion : Mod
     {
         Logger.Info("Multi... Player? loaded. Type /companion in chat to spawn a companion.");
     }
+
+    // Every hook of ours logs its unload so that, when Build + Reload dies inside tModLoader's
+    // assembly unload with no exception, the log shows whether our side finished first.
+    public override void Unload()
+    {
+        Logger.Info("Mod.Unload: done");
+    }
 }

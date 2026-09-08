@@ -41,6 +41,7 @@ public class CompanionNPC : ModNPC
     public int RevivePercent => reviveProgress * 100 / ReviveTicks;
 
     private int reviveProgress;
+    private bool loggedFirstTick;
     private int heldItemType;
     private int itemAnimation;
     private int itemAnimationMax;
@@ -118,6 +119,11 @@ public class CompanionNPC : ModNPC
         {
             Brain.Tick(this, player);
             CollectTouchedItems(player);
+            if (!loggedFirstTick)
+            {
+                loggedFirstTick = true;
+                Mod.Logger.Info($"CompanionNPC: first brain tick ran, action={Brain.LastAction?.Name ?? "-"} at tile {(int)(NPC.Center.X / 16)},{(int)(NPC.Center.Y / 16)}");
+            }
         }
 
         body.Sync(NPC, player, heldItemType, itemAnimation, itemAnimationMax, itemRotation);

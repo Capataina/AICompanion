@@ -21,6 +21,18 @@ public sealed class CompanionInventory
 
     public readonly Item[] Items = new Item[Slots];
 
+    /// <summary>Occupied slots, for the log line on world enter.</summary>
+    public int Count
+    {
+        get
+        {
+            int n = 0;
+            foreach (Item item in Items)
+                if (!item.IsAir) n++;
+            return n;
+        }
+    }
+
     public CompanionInventory()
     {
         for (int i = 0; i < Slots; i++)
