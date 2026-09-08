@@ -43,13 +43,20 @@ public static class AStar
     /// Path from <paramref name="start"/> to <paramref name="goal"/>, both feet tiles, or
     /// null when none is found inside <paramref name="budget"/> expansions.
     /// </summary>
+    /// <summary>
+    /// When set, every search leaves the tiles it closed here, so the replay tool can draw
+    /// the region a failed search reached. Null in the game: the copy is never made.
+    /// </summary>
+    public static HashSet<Point>? TraceClosed;
+
     public static NavPath? Find(Point start, Point goal, int budget, out int expansions)
     {
         expansions = 0;
         var open = new SortedSet<Open>(new OpenComparer());
         var g = new Dictionary<Point, float>();
         var cameFrom = new Dictionary<Point, (Point from, MoveKind kind)>();
-        var closed = new HashSet<Point>();
+        var closed = TraceClosed ?? new HashSet<Point>();
+        closed.Clear();
         Point nearest = start;
         float nearestH = H(start, goal);
 

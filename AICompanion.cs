@@ -1,18 +1,21 @@
 #nullable enable
 
 using Terraria.ModLoader;
+using AICompanion.Brain.DecisionMatrix.Navigation;
 
 namespace AICompanion;
 
 /// <summary>
 /// Mod entry point. tModLoader instantiates exactly one <see cref="Mod"/> subclass
 /// per mod; everything with behaviour lives in its own ModNPC, ModCommand or
-/// ModSystem type under Content/ and Commands/.
+/// ModSystem type. The one wiring done here: the navigation core reads tiles through
+/// an interface, and the game is the implementation the mod plugs in.
 /// </summary>
 public class AICompanion : Mod
 {
     public override void Load()
     {
+        NavGrid.World = new GameTileWorld();
         Logger.Info("Multi... Player? loaded. Type /companion in chat to spawn a companion.");
     }
 

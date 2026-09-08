@@ -6,4 +6,8 @@
     <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>
   </PropertyGroup>
+  <ItemGroup>
+    <!-- Tools/ holds console projects that compile the navigation core on their own; they are not mod code. -->
+    <Compile Remove="Tools/**" />
+  </ItemGroup>
 </Project>

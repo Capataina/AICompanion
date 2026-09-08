@@ -1,7 +1,6 @@
 #nullable enable
 
 using Microsoft.Xna.Framework;
-using Terraria;
 
 namespace AICompanion.Brain.DecisionMatrix.Navigation;
 
@@ -25,26 +24,16 @@ public static class NavGrid
 
     public const int BodyHeightTiles = 3;
 
-    public static bool IsSolid(int x, int y)
-    {
-        if (!WorldGen.InWorld(x, y, 5))
-            return true;
-        Tile t = Main.tile[x, y];
-        // An actuated block is drawn but not collided with, and the game's own collision skips
-        // it; a grid that counted it solid walled off passages the body walks through.
-        return t.HasTile && !t.IsActuated && Main.tileSolid[t.TileType] && !Main.tileSolidTop[t.TileType];
-    }
+    /// <summary>
+    /// Where the tiles come from: the game sets the live world at load, the replay tool sets a
+    /// text scenario. Every tile question below goes through it and nothing else.
+    /// </summary>
+    public static ITileWorld World = null!;
 
-    /// <summary>A platform or half block: something feet rest on that the body can also pass through.</summary>
-    public static bool IsSupport(int x, int y)
-    {
-        if (!WorldGen.InWorld(x, y, 5))
-            return false;
-        Tile t = Main.tile[x, y];
-        if (!t.HasTile)
-            return false;
-        return Main.tileSolid[t.TileType] || Main.tileSolidTop[t.TileType];
-    }
+    public static bool IsSolid(int x, int y) => World.Solid(x, y);
+
+    /// <summary>A solid block, or a platform or half block: something feet rest on.</summary>
+    public static bool IsSupport(int x, int y) => World.Support(x, y);
 
     /// <summary>The support under feet at (x, y) is a platform or half block: the body can drop through it on purpose.</summary>
     public static bool IsPlatformUnder(int x, int y) => IsSupport(x, y + 1) && !IsSolid(x, y + 1);
@@ -54,22 +43,10 @@ public static class NavGrid
     /// movement while wet, so a jump from inside it reaches about half as far, and the edge
     /// generator shrinks the jump envelope and raises the cost of every move that starts here.
     /// </summary>
-    public static bool IsLiquid(int x, int y)
-    {
-        if (!WorldGen.InWorld(x, y, 5))
-            return false;
-        Tile t = Main.tile[x, y];
-        return t.LiquidAmount > 0 && t.LiquidType != Terraria.ID.LiquidID.Lava;
-    }
+    public static bool IsLiquid(int x, int y) => World.Water(x, y);
 
-    /// <summary>Lava in this tile. The companion takes damage and is not lava-immune, so no node may hold it.</summary>
-    public static bool IsLava(int x, int y)
-    {
-        if (!WorldGen.InWorld(x, y, 5))
-            return false;
-        Tile t = Main.tile[x, y];
-        return t.LiquidAmount > 0 && t.LiquidType == Terraria.ID.LiquidID.Lava;
-    }
+    /// <summary>Lava in this tile. The companion takes damage and is not lava-immune, so a node holding it is priced, never free.</summary>
+    public static bool IsLava(int x, int y) => World.Lava(x, y);
 
     /// <summary>Feet at (x, y): the tile below supports, the body column is clear, and nothing in it is lava.</summary>
     public static bool IsStandable(int x, int y) => IsStandable(x, y, allowLava: false);

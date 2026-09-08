@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    The replay tool: runs the mod's real navigation core on a text scenario with no game
+    running. It compiles the core files straight out of the mod tree, so there is one
+    planner, not a copy, and references FNA only for Point, Rectangle and Vector2.
+    Run from the repository root:  dotnet run - -project Tools/NavReplay - - Telemetry/Scenarios/*.txt
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <RootNamespace>AICompanion.Tools.NavReplay</RootNamespace>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <TModLoaderRoot>$(HOME)/Library/Application Support/Steam/steamapps/common/tModLoader</TModLoaderRoot>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="Program.cs" />
+    <Compile Include="../../Brain/DecisionMatrix/Navigation/ITileWorld.cs" />
+    <Compile Include="../../Brain/DecisionMatrix/Navigation/TextTileWorld.cs" />
+    <Compile Include="../../Brain/DecisionMatrix/Navigation/BodyPhysics.cs" />
+    <Compile Include="../../Brain/DecisionMatrix/Navigation/NavGrid.cs" />
+    <Compile Include="../../Brain/DecisionMatrix/Navigation/NavPath.cs" />
+    <Compile Include="../../Brain/DecisionMatrix/Navigation/AStar.cs" />
+    <Compile Include="../../Brain/DecisionMatrix/Navigation/Reachability.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <Reference Include="FNA">
+      <HintPath>$(TModLoaderRoot)/Libraries/FNA/1.0.0/FNA.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+  </ItemGroup>
+</Project>

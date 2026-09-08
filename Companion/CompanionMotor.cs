@@ -3,6 +3,7 @@
 using System;
 using Microsoft.Xna.Framework;
 using Terraria;
+using AICompanion.Brain.DecisionMatrix.Navigation;
 
 namespace AICompanion.Companion;
 
@@ -20,14 +21,12 @@ namespace AICompanion.Companion;
 /// </summary>
 public sealed class CompanionMotor
 {
-    public const float WalkSpeed = 3.5f;
-    public const float JumpVelocity = -8.5f;
-
-    /// <summary>Speed gained per tick toward the target; the player's runAcceleration scaled to this walk speed.</summary>
-    public const float Acceleration = 0.08f * WalkSpeed / 3f;
-
-    /// <summary>Speed lost per tick when stopping or reversing; the player's runSlowdown.</summary>
-    public const float Slowdown = 0.2f;
+    // The numbers live in the navigation core's BodyPhysics so the planner's simulated jumps,
+    // the reflex simulation and the replay tool move the body exactly as this does.
+    public const float WalkSpeed = BodyPhysics.WalkSpeed;
+    public const float JumpVelocity = BodyPhysics.JumpVelocity;
+    public const float Acceleration = BodyPhysics.Acceleration;
+    public const float Slowdown = BodyPhysics.Slowdown;
 
     private readonly NPC npc;
 
@@ -65,21 +64,7 @@ public sealed class CompanionMotor
     /// target is zero, never overshooting. Shared with the reflex simulation so a simulated
     /// step-back moves exactly as the real one does.
     /// </summary>
-    public static float StepVelocity(float v, float target)
-    {
-        if (target == 0f || MathF.Sign(v) == -MathF.Sign(target))
-        {
-            float slowed = v - MathF.Sign(v) * Slowdown;
-            v = MathF.Sign(slowed) != MathF.Sign(v) ? 0f : slowed;
-            if (target == 0f)
-                return v;
-        }
-        float next = v + MathF.Sign(target) * Acceleration;
-        // Clamp to the target only once the speed is on the target's side: a magnitude test
-        // alone snapped -3.2 straight to +1.75 on a reversal, which is the instant turn the
-        // slowdown above exists to prevent.
-        return MathF.Sign(next) == MathF.Sign(target) && MathF.Abs(next) > MathF.Abs(target) ? target : next;
-    }
+    public static float StepVelocity(float v, float target) => BodyPhysics.StepVelocity(v, target);
 
     /// <summary>Jump if standing; returns whether it happened.</summary>
     public bool Jump(float scale = 1f)
@@ -94,13 +79,7 @@ public sealed class CompanionMotor
     /// Jump velocity for a rise of so many tiles, the heights the fighter AI uses (-6 for two
     /// tiles, -7 for three, -8 for four) and the full jump above that; one tile is a step, not a jump.
     /// </summary>
-    public static float JumpScaleForTiles(int tiles) => tiles switch
-    {
-        <= 2 => 6f / -JumpVelocity,
-        3 => 7f / -JumpVelocity,
-        4 => 8f / -JumpVelocity,
-        _ => 1f,
-    };
+    public static float JumpScaleForTiles(int tiles) => BodyPhysics.JumpScaleForTiles(tiles);
 
     /// <summary>
     /// Walk one-tile steps and slopes the way every vanilla walker does: Collision.StepUp lifts
@@ -117,6 +96,6 @@ public sealed class CompanionMotor
             Collision.StepUp(ref npc.position, ref npc.velocity, npc.width, npc.height, ref npc.stepSpeed, ref npc.gfxOffY, 1, false, 1);
     }
 
-    /// <summary>Vertical offset of a jump from standing after so many ticks, from the jump velocity and NPC gravity 0.3 (negative is up).</summary>
-    public static float JumpOffsetAt(int ticks) => JumpVelocity * ticks + 0.15f * ticks * ticks;
+    /// <summary>Vertical offset of a jump from standing after so many ticks (negative is up).</summary>
+    public static float JumpOffsetAt(int ticks) => BodyPhysics.JumpOffsetAt(ticks);
 }
