@@ -63,7 +63,7 @@ public sealed class TileChopper
         if (!WorldGen.CanKillTile(x, y))
             damage = 0;
 
-        TreeDamageWatcher.CompanionIsHitting = true;
+        TileDamageWatcher.CompanionIsHitting = true;
         try
         {
             if (HitTile.AddDamage(id, damage) >= 100)
@@ -78,7 +78,7 @@ public sealed class TileChopper
         }
         finally
         {
-            TreeDamageWatcher.CompanionIsHitting = false;
+            TileDamageWatcher.CompanionIsHitting = false;
         }
         if (damage != 0)
             HitTile.Prune();

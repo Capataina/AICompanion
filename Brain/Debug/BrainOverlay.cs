@@ -56,6 +56,7 @@ public sealed class BrainOverlay : ModSystem
         sb.AppendLine($"request {brain.LastRequest.Kind}   spot {(brain.Positioner.Chosen is Vector2 c ? $"{(int)(c.X / 16)},{(int)(c.Y / 16)}" : "-")} ({brain.Positioner.ChosenScore:0.00})");
         sb.AppendLine($"path {(brain.Navigator.Path == null ? "none" : $"{brain.Navigator.Path.Steps.Count} steps, at {brain.Navigator.Path.Index}")}   planned {brain.Navigator.LastExpansions} exp{(brain.Navigator.LastPlanFailed ? "  FAILED" : "")}");
         sb.AppendLine($"weapon {companion.Arsenal.LastChosen?.Name ?? "-"}   shot {(companion.Arsenal.LastShotSolved ? "solved" : "none")}");
+        sb.AppendLine($"light ambient {senses.Light.Ambient:0.00} player {senses.Light.AtPlayer:0.00} here {senses.Light.AtCompanion:0.00}   torch {(companion.Torch.Lit ? "lit" : "out")}");
 
         Vector2 head = ToScreen(companion.NPC.Top + new Vector2(0f, -8f));
         Vector2 size = FontAssets.MouseText.Value.MeasureString(sb.ToString()) * 0.7f;

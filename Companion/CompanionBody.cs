@@ -26,6 +26,9 @@ public class CompanionBody
 
     public bool UsesPlayerRenderer => !rendererFailed;
 
+    /// <summary>The drawing-only player, for the map head renderer.</summary>
+    public Player Player => body;
+
     public CompanionBody()
     {
         body = new Player

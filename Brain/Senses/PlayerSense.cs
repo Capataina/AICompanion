@@ -31,6 +31,9 @@ public sealed class PlayerSense
     public bool IsAttacking { get; private set; }
     public bool IsChoppingTree { get; private set; }
     public Point? ChoppedTree { get; private set; }
+
+    /// <summary>The ore tile and type the player hit within the last three quarters of a second, or null.</summary>
+    public (Point Tile, int Type)? MinedOre { get; private set; }
     public bool CompanionCanSeePlayer { get; private set; }
 
     /// <summary>Where the player will be if they keep their intent for <paramref name="ticks"/>.</summary>
@@ -51,8 +54,9 @@ public sealed class PlayerSense
         else
             Intent *= IntentDecayWhenStill;
 
-        ChoppedTree = TreeDamageWatcher.TreeHitByPlayerRecently();
+        ChoppedTree = TileDamageWatcher.TreeHitByPlayerRecently();
         IsChoppingTree = ChoppedTree != null;
+        MinedOre = TileDamageWatcher.OreHitByPlayerRecently();
         CompanionCanSeePlayer = LineOfSight.Between(companion, player);
     }
 }

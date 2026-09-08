@@ -6,7 +6,9 @@ A tModLoader mod that adds an AI companion to Terraria: an NPC that follows you,
 
 The companion is an NPC, deliberately, not a second `Player` slot. Abilities are the mod's own closed set: the companion never runs a real item through the game's item-use code, because that routing is the class of bug (bows that will not fire, potions that cannot be used) that keeps the existing companion mod, TerraGuardians, feeling like an NPC that does some stuff. Reading an item's *numbers* is fine and expected: the chopper takes axe power and use time from the player's held axe, the weapons take speed, damage and cooldown from `ContentSamples`, and nothing goes near `Player.ItemCheck`. The one requirement the NPC shape makes harder is keeping a boss fight alive after the human dies; AIC-8 on the board carries the two routes and the check.
 
-**The companion decides by scoring, not by a priority chain.** Every tick the brain reads the world into senses, lets a reflex take the body if something is about to hit, scores every possible action from the same facts and runs the best, asks where to stand, and walks there over a real path. The design is in `Brain/CLAUDE.md`; the Slate architecture field carries the durable version. The behaviour is as smart as it can be from the start; the mastery tree upgrades stats and weapons and never behaviour, by ruling.
+**The companion never teleports, by ruling on 2026-09-08.** Knocked off a boss platform it climbs back; sent away it walks back, watchable on the map, where it is drawn as its own head. A companion trapped behind a sand fall stays trapped until the player digs it out; rescue behaviours are later work (AIC-65). It reveals the map only with what its torch actually lights, never its whole screen, because that would show what is behind walls.
+
+**The companion decides by scoring, not by a priority chain.** Every tick the brain reads the world into senses, lets a reflex take the body if something is about to hit, scores every possible action from the same facts and runs the best, asks where to stand, and walks there over a real path. The design is in `Brain/CLAUDE.md`; the Slate architecture field carries the durable version. The behaviour is as smart as it can be from the start; the mastery tree upgrades stats and weapons, and by the 2026-09-08 revision may also gate *sending* behaviours (go gather, go farm) while doing-with-you behaviours (mine beside the player) come early or free. Its shape is undecided: a mix of levels and resource costs paid from the player's inventory at the tree, not skill points alone.
 
 **Before implementing any mechanic, read the decompiled game for the path that already does it, and reuse it unless it is gated on the local player.** Caner's standing instruction on 2026-09-07. Chopping reuses `HitTile` plus the vanilla axe formula and `Main.DrawTileCracks`; the body reuses the player renderer; arrows are vanilla projectiles owned by the player so the player's on-hit accessories and ranged stats apply; the bag uses the game's own `ItemSlot`. Decompile with `ilspycmd -t Terraria.<Type> "<Steam>/tModLoader/tModLoader.dll"` (installed under `~/.dotnet/tools`) and grep the result; the reflection scratch tool at `/tmp/tmlreflect` lists member signatures.
 
@@ -34,9 +36,10 @@ AICompanion/
 ├─ Combat/
 │  ├─ Weapons/               the two equipped weapons and the arsenal that picks between them
 │  └─ Ballistics/            weapon flight profiles and the arc-simulating aimer
-├─ Work/                     tools for doing what the player does: trees, chopping, cracks
+├─ Work/                     tools for doing what the player does: trees, chopping, ores, mining, the torch, cracks
+├─ Map/                      the companion on the world map, and what its torch reveals there
 ├─ Inventory/                the bag, its panel, and the right-click that opens it
-├─ UI/                       the HUD health bar
+├─ UI/                       the HUD health notch
 ├─ Players/                  the ModPlayer: persistence and input
 ├─ Commands/                 /companion
 └─ Localization/             en-US strings (display name, keybind)

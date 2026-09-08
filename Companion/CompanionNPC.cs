@@ -33,9 +33,19 @@ public class CompanionNPC : ModNPC
     public CompanionMotor Motor { get; private set; } = null!;
     public Arsenal Arsenal { get; } = new();
     public TileChopper Chopper { get; } = new();
+    public TileMiner Miner { get; }
+    public TorchBearer Torch { get; } = new();
     public CompanionInventory Bag => Main.LocalPlayer.GetModPlayer<CompanionPlayer>().Bag;
 
+    /// <summary>The drawing-only body; the map layer draws its head.</summary>
+    public CompanionBody Body => body;
+
     private readonly CompanionBody body = new();
+
+    public CompanionNPC()
+    {
+        Miner = new TileMiner(Chopper.HitTile);
+    }
 
     public bool IsDowned { get; private set; }
     public int RevivePercent => reviveProgress * 100 / ReviveTicks;
@@ -107,6 +117,7 @@ public class CompanionNPC : ModNPC
         MirrorStats(player);
         if (itemAnimation > 0)
             itemAnimation--;
+        Miner.Tick();
 
         if (IsDowned)
         {
@@ -121,6 +132,11 @@ public class CompanionNPC : ModNPC
             Brain.Tick(this, player);
             Motor.ApplySteps();
             CollectTouchedItems(player);
+            // The torch takes the hand only when no action claimed it this tick: a tool or a
+            // weapon held by chop, mine, hunt or guard always wins.
+            Torch.Update(Brain.Senses.Light, NPC);
+            if (Torch.Lit && heldItemType == ItemID.None)
+                heldItemType = ItemID.Torch;
             if (!loggedFirstTick)
             {
                 loggedFirstTick = true;

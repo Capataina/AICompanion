@@ -22,6 +22,7 @@ public sealed class Chooser
         new HuntAction(),
         new LootAction(),
         new ChopAction(),
+        new MineAction(),
         new WalkWithPlayerAction(),
         new WanderAction(),
     };
