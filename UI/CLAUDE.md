@@ -4,5 +4,5 @@
 
 ## Traps
 
-- **There are no rounded primitives on the HUD.** The shapes are alpha masks built once per pixel size (`RoundedMask`, `FilletMask`) on the graphics device and cached; `Unload` disposes them. Building a texture must happen on the main thread, which the draw layer is.
+- **There are no rounded primitives on the HUD.** The shapes are alpha masks built once per pixel size (`RoundedMask`, `FilletMask`) on the graphics device and cached. Building or disposing a texture must happen on the main thread: the draw layer is, `Unload` is not, so `Unload` queues the disposals through `Main.QueueMainThreadAction`; disposing them inline threw `ThreadStateException` and made the mod unable to unload (2026-09-08).
 - **Text is `DrawBorderStringFourWay` in the body colour**, so the label has no dark halo on the dark notch; `DrawBorderString` would.

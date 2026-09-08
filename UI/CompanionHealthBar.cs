@@ -62,9 +62,16 @@ public class CompanionHealthBar : ModSystem
 
     public override void Unload()
     {
-        foreach (Texture2D t in masks.Values)
-            t.Dispose();
+        // Unload runs on a worker thread and FNA3D refuses to release a texture anywhere but the
+        // main thread (ThreadStateException, and tModLoader then reports the mod as unable to
+        // unload). The masks are handed to the game's main-thread queue and released there.
+        var toDispose = new List<Texture2D>(masks.Values);
         masks.Clear();
+        Main.QueueMainThreadAction(() =>
+        {
+            foreach (Texture2D t in toDispose)
+                t.Dispose();
+        });
     }
 
     private bool Draw()
