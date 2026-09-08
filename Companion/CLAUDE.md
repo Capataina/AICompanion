@@ -4,11 +4,18 @@
 Companion/
 ├─ CLAUDE.md
 ├─ CompanionNPC.cs    the ModNPC: mirrors the player's max life and defence, downed at zero and revived by 3 s beside it, owns Brain, Motor, Arsenal, Chopper, Miner (which runs the game's PickTile on the body's player), Torch, held item and animation, picks up items on contact, draws through CompanionBody; the torch takes the hand after the brain when no action held anything, and gives light and reveals the map only then; Find/Spawn/Instance
-├─ CompanionBody.cs   a drawing-only Player (the player's own look with the gender swapped to female) synced each tick and drawn by Main.PlayerRenderer; Guide sprite fallback if the renderer ever throws; its whoAmI is the last slot the map head renderer's table accepts, one under the player array's spare slot, and its hitTile is the miner's crack table
+├─ CompanionBody.cs   the stand-in Player (the player's own look with the gender swapped to female) synced each tick and drawn by Main.PlayerRenderer; Guide sprite fallback if the renderer ever throws; its whoAmI is the last slot the map head renderer's table accepts, one under the player array's spare slot, it sits in that slot of Main.player inactive with position, velocity, life and dead (= downed) mirrored every tick, and its hitTile is the miner's crack table; Expose/Withdraw for the aggro window
+├─ CompanionAggro.cs  a GlobalNPC: PreAI on a hostile makes the stand-in active, PostAI makes it inactive again, so enemy targeting sees the companion and nothing else does; Enabled is the kill switch
 └─ CompanionMotor.cs  the only home of movement constants; MoveX and Stop through StepVelocity (the player's shape: a small gain per tick up to the walk speed, a larger loss when stopping or reversing, ground and air alike, shared with the reflex simulation), Face, Jump, JumpScaleForTiles, JumpOffsetAt, WantsFallThrough (set by the navigator for one tick, read by the NPC's CanFallThroughPlatforms), and ApplySteps (the game's StepUp/StepDown, run after the brain each tick)
 ```
 
-The NPC exposes what actions call: `HoldItem`, `StartAnimation`, `SetAimRotation`, `Motor`, `Arsenal`, `Chopper`, `Bag`. It makes no decisions; `AI()` mirrors stats, handles downed, ticks the brain, collects touched items, syncs the body.
+The NPC exposes what actions call: `HoldItem`, `StartAnimation`, `SetAimRotation`, `Motor`, `Arsenal`, `Chopper`, `Bag`. It makes no decisions; `AI()` mirrors stats, handles downed, ticks the brain, collects touched items, syncs the body, writes the telemetry line.
+
+## How enemies come to hunt the companion
+
+Every vanilla enemy, and every modded one that calls the game's targeting, picks its target by one loop over the player slots that skips inactive, dead and ghost players, and reads nothing else; there is no NPC-versus-NPC targeting outside a hand-picked set. So the stand-in player is placed in its slot of the array with `active` false, and the aggro GlobalNPC flips it true in `PreAI` of any hostile and back in `PostAI`. Inside that window the target loop finds a second player standing where the companion stands, and a boss's "anyone alive to fight" check finds it too; outside it, the slot is inactive, so the player update never runs on it, spawn waves never spawn around it, hostile projectiles never test it as a player, and the map never draws a second head for it. Damage reaches the companion through the NPC, not the stand-in: contact damage from hostiles to friendly NPCs and hostile projectiles against friendly NPCs are the game's own rules, and an enemy aiming at the stand-in's centre is aiming at the companion's hitbox. Downed mirrors to `dead`, so a downed companion is neither a target nor a reason to stay.
+
+What this does not cover, known and accepted: an AI that acts on its target directly rather than through position (a grab, a teleport, a debuff applied by hand) acts on the stand-in, whose reaction is whatever `Player` does with no update loop behind it; those are rare and each becomes a trap here when it bites. The rejected alternative was a per-AI-style redirect in a GlobalNPC, which would have been written once per vanilla style and never covered a modded enemy.
 
 ## Traps
 
@@ -17,3 +24,4 @@ The NPC exposes what actions call: `HoldItem`, `StartAnimation`, `SetAimRotation
 - **`knockBackResist` is backwards from its name: 1 is full knockback, 0 is immunity.** The companion sits at 0.75; the first run had it at 0 and it never moved when hit.
 - **`dontTakeDamage` toggles with downed.** `CheckDead` sets life to 1 first, or it fires every tick.
 - **The bag lives on `CompanionPlayer`, not here**, so it saves with the character; `Bag` is a pass-through.
+- **The stand-in is in `Main.player`, and it must never be active outside a hostile's AI.** Anything that leaves it active (an exception between PreAI and PostAI, a new code path that exposes it) makes the game run a player update on a body with no inventory, no respawn and no owner. `Expose(false)` in `PostAI` is unconditional for that reason, and `Withdraw` on unload puts an empty player back.

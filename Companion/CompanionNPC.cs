@@ -159,7 +159,7 @@ public class CompanionNPC : ModNPC
             }
         }
 
-        body.Sync(NPC, player, heldItemType, itemAnimation, itemAnimationMax, itemRotation);
+        body.Sync(NPC, player, heldItemType, itemAnimation, itemAnimationMax, itemRotation, IsDowned);
         global::AICompanion.Brain.Debug.BrainTelemetry.Record(this);
     }
 
