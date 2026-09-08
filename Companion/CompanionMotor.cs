@@ -51,4 +51,34 @@ public sealed class CompanionMotor
         npc.velocity.Y = JumpVelocity * scale;
         return true;
     }
+
+    /// <summary>
+    /// Jump velocity for a rise of so many tiles, the heights the fighter AI uses (-6 for two
+    /// tiles, -7 for three, -8 for four) and the full jump above that; one tile is a step, not a jump.
+    /// </summary>
+    public static float JumpScaleForTiles(int tiles) => tiles switch
+    {
+        <= 2 => 6f / -JumpVelocity,
+        3 => 7f / -JumpVelocity,
+        4 => 8f / -JumpVelocity,
+        _ => 1f,
+    };
+
+    /// <summary>
+    /// Walk one-tile steps and slopes the way every vanilla walker does: Collision.StepUp lifts
+    /// the body over a one-tile rise ahead of it and StepDown keeps its feet on a one-tile fall,
+    /// so neither ever registers as a wall. Custom-AI NPCs get none of this unless they call it,
+    /// which is why the companion used to jump at every kerb. Called once per tick after the
+    /// brain has set the velocity, in the same place the fighter AI calls it.
+    /// </summary>
+    public void ApplySteps()
+    {
+        if (npc.velocity.Y == 0f)
+            Collision.StepDown(ref npc.position, ref npc.velocity, npc.width, npc.height, ref npc.stepSpeed, ref npc.gfxOffY);
+        if (npc.velocity.Y >= 0f)
+            Collision.StepUp(ref npc.position, ref npc.velocity, npc.width, npc.height, ref npc.stepSpeed, ref npc.gfxOffY, 1, false, 1);
+    }
+
+    /// <summary>Vertical offset of a jump from standing after so many ticks, from the jump velocity and NPC gravity 0.3 (negative is up).</summary>
+    public static float JumpOffsetAt(int ticks) => JumpVelocity * ticks + 0.15f * ticks * ticks;
 }

@@ -5,6 +5,7 @@ using Terraria;
 using Terraria.Audio;
 using Terraria.ID;
 using Terraria.ModLoader.IO;
+using Terraria.UI;
 
 namespace AICompanion.Inventory;
 
@@ -85,8 +86,26 @@ public sealed class CompanionInventory
         }
         bool took = item.stack < before;
         if (took)
+        {
             SoundEngine.PlaySound(SoundID.Grab);
+            Sort();
+        }
         return took;
+    }
+
+    // ItemSorting.Sort(Item[] inv, params int[] ignoreSlots) is the game's own chest sort and is
+    // private; the public entry points are tied to the player's inventory and open chest. Called by
+    // reflection once bound, so the bag sorts exactly as a chest does with the sort button.
+    private static readonly System.Reflection.MethodInfo? SortMethod =
+        typeof(ItemSorting).GetMethod("Sort", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static,
+            null, new[] { typeof(Item[]), typeof(int[]) }, null);
+
+    /// <summary>Sort the bag the way the game sorts a chest. Never called while an item is on the cursor, so a drag is not disturbed.</summary>
+    public void Sort()
+    {
+        if (!Main.mouseItem.IsAir)
+            return;
+        SortMethod?.Invoke(null, new object[] { Items, System.Array.Empty<int>() });
     }
 
     private const int CoinSlotsStart = 50, CoinSlotsEnd = 54;

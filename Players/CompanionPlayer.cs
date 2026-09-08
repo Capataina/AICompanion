@@ -1,6 +1,7 @@
 #nullable enable
 
 using Microsoft.Xna.Framework;
+using Microsoft.Xna.Framework.Input;
 using Terraria;
 using Terraria.GameInput;
 using Terraria.ModLoader;
@@ -52,9 +53,23 @@ public class CompanionPlayer : ModPlayer
         Mod.Logger.Info($"OnEnterWorld: hasCompanion={HasCompanion} spawned={spawned} bagItems={Bag.Count}");
     }
 
+    private KeyboardState previousKeys;
+
     public override void ProcessTriggers(TriggersSet triggersSet)
     {
-        if (BrainOverlay.ToggleKey?.JustPressed == true)
+        // The keybind is the proper path; the raw keys are the fallback for the key left of 1,
+        // which SDL reports as either the grave or the ISO-section scancode depending on the
+        // keyboard, and the log line names any Oem key the moment it is pressed so the right one
+        // can be read off client.log rather than guessed.
+        KeyboardState keys = Main.keyState;
+        bool JustDown(Keys k) => keys.IsKeyDown(k) && !previousKeys.IsKeyDown(k);
+        bool toggle = BrainOverlay.ToggleKey?.JustPressed == true || JustDown(Keys.OemTilde) || JustDown(Keys.OemBackslash);
+        foreach (Keys k in keys.GetPressedKeys())
+            if (!previousKeys.IsKeyDown(k) && k.ToString().StartsWith("Oem"))
+                Mod.Logger.Info($"Key pressed: {k}");
+        previousKeys = keys;
+
+        if (toggle)
         {
             BrainOverlay.Enabled = !BrainOverlay.Enabled;
             Mod.Logger.Info($"BrainOverlay toggled {(BrainOverlay.Enabled ? "on" : "off")}");

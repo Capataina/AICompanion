@@ -14,6 +14,7 @@ Jump reach (`JumpHeightTiles` 5, `JumpGapTiles` 4) is derived from the motor's j
 
 ## Traps
 
+- **A one-tile rise is a step, never a jump.** The motor runs the game's `Collision.StepUp`/`StepDown` after the brain each tick, as the fighter AI does, so kerbs and slopes never set `collideX`. The follower jumps only for rises of two tiles or more (at the fighter AI's heights: -6, -7, -8, then the full jump) or when `collideX` is set by a real wall; straight-line walking jumps only for a wall. Before this (first run, 2026-09-08) every kerb was a jump and any target above 48 px got a hop per tick.
 - **The body is 20 px wide, the grid is one tile wide.** The motor drifts across tile columns; the follower advances a step when the feet are within 10 px, so a path is a suggestion the motor approximates.
 - **A jump edge only checks the apex column and the landing.** A low ceiling mid-arc is not detected; the follower's stuck counter (40 ticks) forces a replan when that bites.
 - **Budget exhaustion in Reachability means reachable.** A cave full of enemies far from the player costs the walker budget per enemy per second.

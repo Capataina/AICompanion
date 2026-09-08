@@ -105,12 +105,15 @@ public sealed class Navigator
         float dy = stepWorld.Y - npc.Bottom.Y; // negative = step is above
         int dir = MathF.Sign(dx) == 0 ? npc.direction : MathF.Sign(dx);
 
+        // Rises of one tile are steps, taken by the motor's StepUp without leaving the ground;
+        // a jump is only for two tiles or more, at the height the rise needs, or for a real wall.
+        int riseTiles = (int)MathF.Ceiling(-dy / 16f);
         switch (step.Kind)
         {
             case MoveKind.Jump:
                 // Jump first so the arc starts from the current tile, then steer in the air.
                 if (motor.OnGround)
-                    motor.Jump();
+                    motor.Jump(riseTiles >= 2 ? CompanionMotor.JumpScaleForTiles(riseTiles) : 1f);
                 motor.MoveX(dir * CompanionMotor.WalkSpeed);
                 break;
             case MoveKind.Drop:
@@ -118,8 +121,8 @@ public sealed class Navigator
                 break;
             default:
                 motor.MoveX(dir * CompanionMotor.WalkSpeed);
-                if (motor.OnGround && (npc.collideX || dy < -8f))
-                    motor.Jump(dy < -40f ? 1f : 0.75f);
+                if (motor.OnGround && (npc.collideX || riseTiles >= 2))
+                    motor.Jump(CompanionMotor.JumpScaleForTiles(Math.Max(2, riseTiles)));
                 break;
         }
     }
@@ -133,8 +136,9 @@ public sealed class Navigator
             return;
         }
         motor.MoveX(MathF.Sign(dx) * CompanionMotor.WalkSpeed);
-        bool targetAbove = target.Y - npc.Bottom.Y < -48f && MathF.Abs(dx) < 128f;
-        if (motor.OnGround && (npc.collideX || targetAbove))
+        // Only a wall earns a jump here. Jumping because the target is above produced a hop every
+        // tick under any ledge the planner could not route to.
+        if (motor.OnGround && npc.collideX)
             motor.Jump();
     }
 

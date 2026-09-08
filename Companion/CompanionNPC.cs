@@ -82,7 +82,8 @@ public class CompanionNPC : ModNPC
         NPC.defense = 0;
         NPC.lifeMax = 100;
         NPC.life = 100;
-        NPC.knockBackResist = 0f;
+        // 1 is full knockback and 0 is immunity in this game; a light walker like a zombie is 0.5.
+        NPC.knockBackResist = 0.75f;
         NPC.dontTakeDamage = false;
         NPC.HitSound = SoundID.NPCHit1;
         NPC.DeathSound = SoundID.NPCDeath1;
@@ -118,6 +119,7 @@ public class CompanionNPC : ModNPC
         else
         {
             Brain.Tick(this, player);
+            Motor.ApplySteps();
             CollectTouchedItems(player);
             if (!loggedFirstTick)
             {
