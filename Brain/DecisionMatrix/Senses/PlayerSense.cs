@@ -55,8 +55,10 @@ public sealed class PlayerSense
         Position = player.Center;
         Bottom = player.Bottom;
         Velocity = player.velocity;
+        // Only tiles the player stood in: the airborne part of a jump passes through tiles no
+        // body can stand in, and the replay tool would name one of those as the missing link.
         Point feet = NavGrid.FeetTile(player.Bottom);
-        if (trail.Count == 0 || trail[^1] != feet)
+        if (player.velocity.Y == 0f && (trail.Count == 0 || trail[^1] != feet))
         {
             trail.Add(feet);
             if (trail.Count > TrailLength)

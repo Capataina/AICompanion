@@ -104,17 +104,19 @@ public static class BodyPhysics
     /// and the difference is about three tiles against seven, because the motor takes most of a
     /// second to reach walk speed from rest.
     /// </summary>
-    public static Pose? SimulateJump(ITileWorld world, Pose from, float scale, float startVx, int steerColumn, int maxTicks, out int ticks)
-        => SimulateJump(world, from, scale, startVx, steerColumn, maxTicks, out ticks, null);
+    public static Pose? SimulateJump(ITileWorld world, Pose from, float scale, float startVx, int steerColumn, int landingRow, int maxTicks, out int ticks)
+        => SimulateJump(world, from, scale, startVx, steerColumn, landingRow, maxTicks, out ticks, null);
 
     /// <summary>One tick of a simulated jump, handed to a trace callback by the replay tool.</summary>
     public readonly record struct JumpTick(int Tick, float Left, float Bottom, float Vx, float Vy, int FeetColumn, int FeetRow);
 
-    public static Pose? SimulateJump(ITileWorld world, Pose from, float scale, float startVx, int steerColumn, int maxTicks, out int ticks, System.Action<JumpTick>? trace)
+    /// <param name="landingRow">The feet row the caller wants; once the body is falling past it the flight is abandoned, because it can no longer land there.</param>
+    public static Pose? SimulateJump(ITileWorld world, Pose from, float scale, float startVx, int steerColumn, int landingRow, int maxTicks, out int ticks, System.Action<JumpTick>? trace)
     {
         float left = from.Left, bottom = from.Bottom;
         float vx = startVx, vy = JumpVelocity * scale;
         float targetCentre = steerColumn * 16f + 8f;
+        float giveUpBelow = (landingRow + 2) * 16f;
         for (ticks = 1; ticks <= maxTicks; ticks++)
         {
             vx = StepVelocity(vx, SteerToward(targetCentre, left + Width / 2f, vx));
@@ -133,10 +135,18 @@ public static class BodyPhysics
                 if (Fits(world, left, nextBottom)) bottom = nextBottom; else vy = 0f;
                 continue;
             }
+            if (bottom > giveUpBelow)
+                return null;
             float remaining = nextBottom - bottom;
             while (remaining > 0f)
             {
                 float step = MathF.Min(4f, remaining);
+                // A platform is not in Fits (the body passes it from below and stands on it from
+                // above), so a falling body crossing a platform's top lands on it here, the way
+                // the game's collision clips a downward move at a platform unless the body asked
+                // to fall through, which a jump never does.
+                if (PlatformTopCrossed(world, left, bottom, bottom + step) is float top)
+                    return Fits(world, left, top) ? new Pose(left, top) : null;
                 if (Fits(world, left, bottom + step))
                 {
                     bottom += step;
@@ -146,6 +156,23 @@ public static class BodyPhysics
                 float? rest = RestBottom(world, left, FeetRow(bottom));
                 return rest is float r && r >= bottom - 1f && Fits(world, left, r) ? new Pose(left, r) : null;
             }
+        }
+        return null;
+    }
+
+    /// <summary>The top of a platform under the span that lies in (<paramref name="from"/>, <paramref name="to"/>], else null.</summary>
+    private static float? PlatformTopCrossed(ITileWorld world, float left, float from, float to)
+    {
+        int x0 = (int)MathF.Floor(left / 16f), x1 = (int)MathF.Floor((left + Width - Touch) / 16f);
+        int y0 = (int)MathF.Floor(from / 16f), y1 = (int)MathF.Floor(to / 16f);
+        for (int y = y0; y <= y1; y++)
+        {
+            float top = y * 16f;
+            if (top <= from || top > to)
+                continue;
+            for (int x = x0; x <= x1; x++)
+                if (world.Shape(x, y) == TileShape.Platform)
+                    return top;
         }
         return null;
     }

@@ -42,6 +42,9 @@ public sealed class Positioner
 
     public Vector2? Resolve(in PositionRequest request, Senses.Senses senses, WeaponProfile? fireProfile)
     {
+        // The region ages in ticks, whatever the request does this tick: counted inside the
+        // rescore it multiplied the two cadences and refloods came every 144 ticks.
+        sinceFlood++;
         switch (request.Kind)
         {
             case RequestKind.Hold:
@@ -74,7 +77,7 @@ public sealed class Positioner
 
     private void RefreshReach(Senses.Senses senses)
     {
-        if (reach != null && ++sinceFlood < RescoreInterval)
+        if (reach != null && sinceFlood < RescoreInterval)
             return;
         sinceFlood = 0;
         Point? feet = NavGrid.NearestStandable(NavGrid.FeetTile(senses.Companion.Bottom), 2);
@@ -117,18 +120,22 @@ public sealed class Positioner
                 if (!NavGrid.IsStandable(x, y))
                     continue;
                 bool reachable = InReach(new Point(x, y));
+                if (!reachable && anyReachable)
+                    continue;
+                Vector2 feet = NavGrid.FeetWorld(new Point(x, y));
+                Vector2 eye = feet + new Vector2(0f, -30f);
+                float score = ScoreSpot(request, feet, eye, playerBottom, senses, bandNear, bandFar, fire: 1f);
+                if (score <= 0f)
+                    continue;
+                // The tier opens only on a reachable candidate the action accepts: a reachable
+                // tile the score vetoes (a retreat spot under an enemy) must not empty the list and
+                // turn a movement request into a hold.
                 if (reachable && !anyReachable)
                 {
                     anyReachable = true;
                     candidates.Clear();
                 }
-                else if (!reachable && anyReachable)
-                    continue;
-                Vector2 feet = NavGrid.FeetWorld(new Point(x, y));
-                Vector2 eye = feet + new Vector2(0f, -30f);
-                float score = ScoreSpot(request, feet, eye, playerBottom, senses, bandNear, bandFar, fire: 1f);
-                if (score > 0f)
-                    candidates.Add((feet, eye, score));
+                candidates.Add((feet, eye, score));
             }
         }
         if (candidates.Count == 0)

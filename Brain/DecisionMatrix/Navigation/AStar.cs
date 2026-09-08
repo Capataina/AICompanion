@@ -176,14 +176,12 @@ public static class AStar
             // Walk to the next column on the same row, a step up, or a step down, whichever
             // poses exist and can be slid to. A slope lowers the feet a row without an edge
             // to fall off, so the step down is a walk like the others and not a drop.
-            bool walked = false;
             foreach ((int dy, float cost) in new[] { (0, 1f), (-1, 1.5f), (1, 1.2f) })
             {
                 if (NavGrid.StandAt(nx, t.Y + dy, lava) is not BodyPhysics.Pose there)
                     continue;
                 if (here is BodyPhysics.Pose h && !BodyPhysics.CanSlide(NavGrid.World, h, there))
                     continue;
-                walked = true;
                 yield return (new Point(nx, t.Y + dy), MoveKind.Walk, Price(nx, t.Y + dy, cost * costScale));
             }
             if (NavGrid.IsBodyClear(nx, t.Y))
@@ -236,27 +234,40 @@ public static class AStar
             yield break;
         for (int dx = -NavGrid.JumpGapTiles; dx <= NavGrid.JumpGapTiles; dx++)
         {
+            // A jump that lands level or lower is only worth flying from an edge: with the next
+            // tile in that direction standable, the walk reaches everything a level jump would at
+            // a lower price, and the edge node past the walk offers the gap jump itself. This is
+            // what keeps a flat floor from simulating sixteen jumps per node for nothing.
+            bool edgeThisWay = dx != 0 && !NavGrid.IsStandable(t.X + Math.Sign(dx), t.Y, lava);
             for (int ny = t.Y - NavGrid.JumpHeightTiles; ny <= t.Y + 2; ny++)
             {
                 int nx = t.X + dx;
-                if ((dx == 0 && ny >= t.Y) || !NavGrid.IsStandable(nx, ny, lava))
+                if ((dx == 0 && ny >= t.Y) || (ny >= t.Y && !edgeThisWay))
                     continue;
-                int rise = t.Y - ny;
-                // The same scale the follower picks for this rise (Navigator's Jump step). The
-                // speed the body carries into the jump is not part of a node, so the edge exists
-                // if either a standing jump or a running jump lands in the tile: a path mostly
-                // walks into its jumps at speed, and a jump the body cannot make from a stand
-                // after a reversal shows up as a stuck count and a replan rather than a missing edge.
+                if (NavGrid.StandAt(nx, ny, lava) is not BodyPhysics.Pose targetPose)
+                    continue;
+                // The scale the follower picks for this step: the rise in pixels between the two
+                // poses' bottoms, rounded up to tiles (Navigator's Jump step), which differs from
+                // the row difference on a slope or a half block by a whole scale step.
+                int rise = (int)Math.Ceiling((fromPose.Bottom - targetPose.Bottom) / 16f);
                 float scale = rise >= 2 ? BodyPhysics.JumpScaleForTiles(rise) : 1f;
                 var target = new Point(nx, ny);
+                // The speed the body carries into the jump is not part of a node, so the edge
+                // exists if either a running jump or a standing jump lands in the tile: a path
+                // mostly walks into its jumps at speed, so the running start is tried first and
+                // the standing start only when it failed; a jump the body cannot make from a stand
+                // after a reversal shows up as a stuck count and a replan rather than a missing edge.
                 int ticks = -1;
-                foreach (float startVx in new[] { 0f, Math.Sign(dx) * BodyPhysics.WalkSpeed })
+                foreach (float startVx in new[] { Math.Sign(dx) * BodyPhysics.WalkSpeed, 0f })
                 {
-                    if (BodyPhysics.SimulateJump(NavGrid.World, fromPose, scale, startVx, nx, MaxJumpTicks, out int flight) is not BodyPhysics.Pose landing)
+                    if (BodyPhysics.SimulateJump(NavGrid.World, fromPose, scale, startVx, nx, ny, MaxJumpTicks, out int flight) is not BodyPhysics.Pose landing)
                         continue;
                     var landed = new Point((int)Math.Floor(landing.CentreX / 16f), BodyPhysics.FeetRow(landing.Bottom));
-                    if (landed == target && (ticks < 0 || flight < ticks))
+                    if (landed == target)
+                    {
                         ticks = flight;
+                        break;
+                    }
                 }
                 if (ticks < 0)
                     continue;

@@ -49,6 +49,7 @@ public sealed class BrainTelemetry : ModSystem
             plansPath = Path.Combine(Folder, $"{stamp}-plans.txt");
             lastDumpTick = -DumpEveryTicks;
             headerWritten = false;
+            ScenarioCapture.Reset();
             Mod.Logger.Info($"BrainTelemetry: writing {path}");
         }
         catch (Exception e)

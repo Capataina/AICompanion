@@ -79,7 +79,15 @@ foreach (string file in files)
         // run-up, so a jump the planner refuses can be read as the arc the body would fly.
         if (traceJump)
         {
-            TraceJump(start.Value, goal.Value);
+            // A trace passes when either start lands on the goal tile, fails when neither does,
+            // and skips when there is no pose to jump from, so the exit code means the same thing
+            // it means for a replay.
+            switch (TraceJump(start.Value, goal.Value))
+            {
+                case true: passed++; break;
+                case false: failed++; break;
+                case null: skipped++; break;
+            }
             continue;
         }
 
@@ -109,14 +117,19 @@ foreach (string file in files)
             {
                 if (!extra.StartsWith("trail "))
                     continue;
-                int inWindow = 0, total = 0;
+                int inWindow = 0, total = 0, unknown = 0, malformed = 0;
                 string? refused = null;
                 foreach (string pair in extra[6..].Split(' ', StringSplitOptions.RemoveEmptyEntries))
                 {
                     string[] xy = pair.Split(',');
-                    var tile = new Point(int.Parse(xy[0]), int.Parse(xy[1]));
+                    if (xy.Length != 2 || !int.TryParse(xy[0], out int tx) || !int.TryParse(xy[1], out int ty))
+                    {
+                        malformed++;
+                        continue;
+                    }
+                    var tile = new Point(tx, ty);
                     total++;
-                    if (tile.X < world.OriginX || tile.X >= world.OriginX + world.Width || tile.Y < world.OriginY || tile.Y >= world.OriginY + world.Height)
+                    if (!world.InWorld(tile.X, tile.Y))
                         continue;
                     inWindow++;
                     if (refused != null)
@@ -125,8 +138,14 @@ foreach (string file in files)
                         refused = $"{Fmt(tile)} not standable";
                     else if (complete && !region.Contains(tile))
                         refused = $"{Fmt(tile)} unreachable from the start";
+                    else if (!complete && !region.Contains(tile))
+                        unknown++;
                 }
-                Console.WriteLine($"     trail:         {inWindow} of {total} tiles in the window, {(refused == null ? "every one standable and reachable" : "first refused " + refused)}");
+                string verdict = refused != null ? "first refused " + refused
+                    : inWindow == 0 ? "nothing to check"
+                    : unknown > 0 ? $"every one standable, {unknown} beyond the flood's budget so unchecked for reach"
+                    : "every one standable and reachable";
+                Console.WriteLine($"     trail:         {inWindow} of {total} tiles in the window, {verdict}{(malformed > 0 ? $"; {malformed} malformed pair(s) ignored" : "")}");
             }
         }
         Console.WriteLine(Draw(world, main.Path, start.Value, goal.Value, pass ? null : main.Closed));
@@ -137,24 +156,34 @@ return failed == 0 && skipped == 0 && missing == 0 && passed > 0 ? 0 : 1;
 
 static string Fmt(Point p) => $"{p.X},{p.Y}";
 
-static void TraceJump(Point start, Point goal)
+static bool? TraceJump(Point start, Point goal)
 {
     if (NavGrid.StandAt(start.X, start.Y, false) is not BodyPhysics.Pose from)
     {
         Console.WriteLine($"trace-jump: no pose at {Fmt(start)}");
-        return;
+        return null;
     }
-    int rise = start.Y - goal.Y;
+    // The scale the planner and the follower both pick: the rise between the two poses' bottoms
+    // in pixels, rounded up to tiles; without a pose at the goal the row difference stands in.
+    float goalBottom = NavGrid.StandAt(goal.X, goal.Y, false)?.Bottom ?? (goal.Y + 1) * 16f;
+    int rise = (int)Math.Ceiling((from.Bottom - goalBottom) / 16f);
     float scale = rise >= 2 ? BodyPhysics.JumpScaleForTiles(rise) : 1f;
+    bool landedOnGoal = false;
     foreach (float startVx in new[] { 0f, Math.Sign(goal.X - start.X) * BodyPhysics.WalkSpeed })
     {
-        Console.WriteLine($"trace-jump {Fmt(start)} -> {Fmt(goal)} scale {scale:F2} startVx {startVx:F1}: pose left {from.Left} bottom {from.Bottom}");
-        BodyPhysics.Pose? landing = BodyPhysics.SimulateJump(NavGrid.World, from, scale, startVx, goal.X, 120, out int ticks, tick =>
+        Console.WriteLine($"trace-jump {Fmt(start)} -> {Fmt(goal)} rise {rise} scale {scale:F2} startVx {startVx:F1}: pose left {from.Left} bottom {from.Bottom}");
+        BodyPhysics.Pose? landing = BodyPhysics.SimulateJump(NavGrid.World, from, scale, startVx, goal.X, goal.Y, 120, out int ticks, tick =>
             Console.WriteLine($"   t{tick.Tick,3} left {tick.Left,7:F1} bottom {tick.Bottom,7:F1} vx {tick.Vx,5:F2} vy {tick.Vy,5:F2} feet {tick.FeetColumn},{tick.FeetRow}"));
-        Console.WriteLine(landing is BodyPhysics.Pose l
-            ? $"   landed after {ticks} ticks at left {l.Left:F1} bottom {l.Bottom:F1}, feet tile {(int)Math.Floor(l.CentreX / 16f)},{BodyPhysics.FeetRow(l.Bottom)}"
-            : $"   never landed within {ticks} ticks");
+        if (landing is BodyPhysics.Pose l)
+        {
+            var tile = new Point((int)Math.Floor(l.CentreX / 16f), BodyPhysics.FeetRow(l.Bottom));
+            landedOnGoal |= tile == goal;
+            Console.WriteLine($"   landed after {ticks} ticks at left {l.Left:F1} bottom {l.Bottom:F1}, feet tile {Fmt(tile)}{(tile == goal ? " (the goal)" : "")}");
+        }
+        else
+            Console.WriteLine($"   never landed within {Math.Min(ticks, 120)} ticks, or fell past the goal row");
     }
+    return landedOnGoal;
 }
 
 static string Describe(Search s)
