@@ -21,8 +21,10 @@ public enum MoveKind { Walk, Jump, Drop, FallThrough }
 /// up for the run-up the second one needs. For a drop or a fall-through <paramref name="SteerX"/>
 /// is the world X the body's centre falls along, because in a shaft wider than the body what it
 /// lands on depends on which wall it hugs; zero when the move has no steer point.
+/// <paramref name="Ticks"/> is how long the move took when it was proven (a jump's flight, a
+/// fall's duration), which the follower's allowance and the executed-edge trace are read against.
 /// </summary>
-public readonly record struct NavStep(Point Tile, MoveKind Kind, Point From = default, float JumpScale = 1f, float StartVx = 0f, float SteerX = 0f);
+public readonly record struct NavStep(Point Tile, MoveKind Kind, Point From = default, float JumpScale = 1f, float StartVx = 0f, float SteerX = 0f, int Ticks = 0);
 
 /// <summary>
 /// A planned route as feet tiles, first step first. Goal is the tile the search was asked

@@ -21,7 +21,8 @@ using AICompanion.Brain.DecisionMatrix.Navigation;
 
 int failed = 0, passed = 0, sealedCount = 0, skipped = 0, missing = 0;
 int churnTiles = 0, churnWrong = 0;
-bool traceJump = false, churn = false;
+int followPassed = 0, followFailed = 0;
+bool traceJump = false, churn = false, follow = false;
 var files = new List<string>();
 foreach (string arg in args)
 {
@@ -31,6 +32,8 @@ foreach (string arg in args)
         AStar.CacheEdges = false;
     else if (arg == "--churn")
         churn = true;
+    else if (arg == "--follow")
+        follow = true;
     else if (Directory.Exists(arg))
         files.AddRange(Directory.GetFiles(arg, "*.txt"));
     else if (File.Exists(arg))
@@ -195,6 +198,21 @@ foreach (string file in files)
         }
         Console.WriteLine(Draw(world, main.Path, start.Value, goal.Value, pass ? null : main.Closed));
 
+        // --follow: the path is walked. The real navigator is run tick by tick over the body's
+        // own motion rule from the start pose, its controls applied by BodyMotion.Step, until it
+        // arrives, a step faults, the body is stuck, or the allowance runs out; every step it
+        // performs is printed with what was proven against what happened. A block that plans and
+        // does not follow is the class of defect the traversals exist to end, and this is the
+        // line that shows it without a game running.
+        if (follow && from is Point followFrom && main.Path != null)
+        {
+            (bool ok, string verdict, List<string> edges) = FollowPath(world, followFrom, goal.Value);
+            if (ok) followPassed++; else followFailed++;
+            Console.WriteLine($"     follow:        {(ok ? "PASS" : "FAIL")}, {verdict}");
+            foreach (string line in edges)
+                Console.WriteLine($"       {line}");
+        }
+
         // --churn: the cache's invalidation box, tested the only way it can be. A corpus replay
         // never changes a tile, so "the same verdicts with and without the cache" proves nothing
         // about what a kill drops. Here every tile the found path stands on or steps through is
@@ -226,8 +244,64 @@ foreach (string file in files)
     }
 }
 Console.WriteLine($"{passed}/{passed + failed} passed, {sealedCount} sealed (no route exists in the world), {skipped} skipped, {missing} missing inputs, planner {Timing.PlannerMs:F0} ms in total"
-    + (churn ? $"; churn: {churnTiles} tiles broken, {churnWrong} stale plans" : ""));
-return failed == 0 && skipped == 0 && missing == 0 && passed > 0 && churnWrong == 0 ? 0 : 1;
+    + (churn ? $"; churn: {churnTiles} tiles broken, {churnWrong} stale plans" : "")
+    + (follow ? $"; follow: {followPassed} walked, {followFailed} not" : ""));
+return failed == 0 && skipped == 0 && missing == 0 && passed > 0 && churnWrong == 0 && followFailed == 0 ? 0 : 1;
+
+// The navigator run over the simulated body from a standing start at `from` toward the goal's
+// feet, the way the game runs it: one MoveTo per tick, its controls stepped by BodyMotion. The
+// allowance is generous (a minute of ticks plus a second per planned step), because a slow
+// arrival is a pass and a parked body is the failure.
+static (bool, string, List<string>) FollowPath(TextTileWorld world, Point from, Point goal)
+{
+    var edges = new List<string>();
+    if (NavGrid.StandAt(from.X, from.Y, false) is not BodyPhysics.Pose pose)
+        return (false, $"no pose at {Fmt(from)} to start from", edges);
+    Point? to = NavGrid.NearestStandable(goal, 3);
+    if (to == null)
+        return (false, "no standable goal", edges);
+    Vector2 target = NavGrid.FeetWorld(to.Value);
+    var navigator = new Navigator();
+    BodyState body = BodyState.Standing(pose);
+    int reported = 0, faults = 0;
+    string? firstFault = null;
+    // Sized once, from the first plan the navigator makes: a minute of ticks plus a second a
+    // step, which an arrival never needs and a parked body always exhausts.
+    int allowance = 3600;
+    bool sized = false;
+    for (int tick = 1; tick <= allowance; tick++)
+    {
+        Controls controls = navigator.MoveTo(body, target);
+        if (navigator.EdgeCount > reported && navigator.LastEdge is EdgeReport e)
+        {
+            reported = navigator.EdgeCount;
+            edges.Add($"t{tick,5} {e.Kind,-11} {Fmt(e.From)} -> {Fmt(e.Tile)}  proven {e.Expected,3} ticks, took {e.Actual,3}  {(e.Outcome == TraversalFault.None ? "ok" : e.Outcome.ToString().ToUpperInvariant())}");
+            if (e.Outcome != TraversalFault.None)
+            {
+                faults++;
+                firstFault ??= $"{e.Outcome} on {e.Kind} {Fmt(e.From)} -> {Fmt(e.Tile)} at tick {tick}";
+            }
+        }
+        // In the game two strikes make the brain ask for another spot; here the goal is fixed,
+        // so a third fault is the verdict and not a loop of plans.
+        if (faults >= 3)
+            return (false, $"faulted three times by tick {tick}, the feet at {Fmt(body.FeetTile)} (first: {firstFault})", edges);
+        if (navigator.Arrived)
+            return (true, $"arrived in {tick} ticks, {reported} steps performed, {faults} faults{(firstFault != null ? $" (first: {firstFault})" : "")}", edges);
+        if (!sized && navigator.Path is NavPath planned)
+        {
+            allowance += planned.Steps.Count * 60;
+            sized = true;
+        }
+        body = BodyMotion.Step(world, body, controls);
+        if (body.Stuck)
+            return (false, $"the body is stuck inside a shape at feet {Fmt(body.FeetTile)} on tick {tick}", edges);
+    }
+    string where = navigator.Path is NavPath p && !p.Finished
+        ? $"on step {p.Index + 1}/{p.Steps.Count}, a {p.Current.Kind} {Fmt(p.Current.From)} -> {Fmt(p.Current.Tile)}"
+        : "with no path";
+    return (false, $"never arrived: after {allowance} ticks the feet are at {Fmt(body.FeetTile)} {where}, {faults} faults{(firstFault != null ? $" (first: {firstFault})" : "")}", edges);
+}
 
 // The tiles a path depends on: every step's tile and the tile under it (the support the
 // step stands on), which is what a pickaxe following the route would break.
@@ -278,7 +352,7 @@ static bool? TraceJump(Point start, Point goal)
     float goalBottom = NavGrid.StandAt(goal.X, goal.Y, false)?.Bottom ?? (goal.Y + 1) * 16f;
     int rise = (int)Math.Ceiling((from.Bottom - goalBottom) / 16f);
     bool landedOnGoal = false;
-    foreach ((float scale, float startVx) in AStar.JumpProfiles(rise, Math.Sign(goal.X - start.X)))
+    foreach ((float scale, float startVx) in JumpTraversal.JumpProfiles(rise, Math.Sign(goal.X - start.X)))
     {
         Console.WriteLine($"trace-jump {Fmt(start)} -> {Fmt(goal)} rise {rise} scale {scale:F2} startVx {startVx:F2}: pose left {from.Left} bottom {from.Bottom}");
         BodyPhysics.Pose? landing = BodyPhysics.SimulateJump(NavGrid.World, from, scale, startVx, goal.X, goal.Y, 120, out int ticks, tick =>

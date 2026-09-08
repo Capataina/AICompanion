@@ -179,30 +179,23 @@ public static class AStar
     private static IEnumerable<(NavStep, float)> Neighbours(Point t)
     {
         (Point, bool) key = (t, AllowLava);
-        RawEdge[] edges;
+        NavEdge[] edges;
         if (!CacheEdges)
-            edges = System.Linq.Enumerable.ToArray(RawEdges(t, AllowLava));
+            edges = System.Linq.Enumerable.ToArray(NavEdges(t, AllowLava));
         else if (!edgeCache.TryGetValue(key, out CachedEdges cached) || unchecked(Clock - cached.Born) > EdgeCacheLifeTicks)
         {
-            edges = System.Linq.Enumerable.ToArray(RawEdges(t, AllowLava));
+            edges = System.Linq.Enumerable.ToArray(NavEdges(t, AllowLava));
             edgeCache[key] = new CachedEdges(edges, Clock);
         }
         else
             edges = cached.Edges;
-        foreach (RawEdge e in edges)
+        foreach (NavEdge e in edges)
         {
             if (e.Fall > NavGrid.JumpHeightTiles && !AllowOneWayDrops)
                 continue;
             yield return (e.Step, e.Swept ? PriceSwept(t, e.Step.Tile, e.Move) : Price(e.Step.Tile.X, e.Step.Tile.Y, e.Move));
         }
     }
-
-    /// <summary>
-    /// An edge as the tiles alone decide it: the step, its move cost before any price the
-    /// tick sets (enemies, submersion, lava), how many rows it falls (so the one-way rule can
-    /// be applied on read) and whether it passes through the air between two tiles.
-    /// </summary>
-    private readonly record struct RawEdge(NavStep Step, float Move, int Fall, bool Swept);
 
     /// <summary>
     /// The edges of every tile a search has opened, kept between searches. Simulating a tile's
@@ -219,7 +212,7 @@ public static class AStar
     /// can hear. Prices are applied on read, because enemies move every tick.
     /// </summary>
     private static readonly Dictionary<(Point, bool), CachedEdges> edgeCache = new();
-    private readonly record struct CachedEdges(RawEdge[] Edges, uint Born);
+    private readonly record struct CachedEdges(NavEdge[] Edges, uint Born);
 
     /// <summary>Off, every search simulates every edge afresh: the replay's --no-cache, which proves the cache changes no verdict.</summary>
     public static bool CacheEdges = true;
@@ -246,12 +239,12 @@ public static class AStar
     /// How far sideways a tile's scans read, summed from the scan itself so the box cannot fall
     /// behind it: the drop starts in the neighbouring column, the open span reaches
     /// <see cref="NavGrid.OpenSpanReach"/> columns past that and the body is put against its far
-    /// wall, the fall drifts <see cref="DriftPerRow"/> pixels a row for up to
+    /// wall, the fall drifts <see cref="DropTraversal.DriftPerRow"/> pixels a row for up to
     /// <see cref="NavGrid.MaxDropTiles"/> rows, and the shape tests around the landing read the
     /// body's width, which spans two columns. The Codex review of 87e8d20 found a support
     /// nineteen columns out changing an edge the hand-set sixteen kept.
     /// </summary>
-    public const int EdgeReachX = 1 + NavGrid.OpenSpanReach + (NavGrid.MaxDropTiles * (int)DriftPerRow + 15) / 16 + 2;
+    public const int EdgeReachX = 1 + NavGrid.OpenSpanReach + (NavGrid.MaxDropTiles * (int)DropTraversal.DriftPerRow + 15) / 16 + 2;
 
     /// <summary>
     /// A tile at (<paramref name="x"/>, <paramref name="y"/>) is no longer what it was: drop the
@@ -284,217 +277,20 @@ public static class AStar
     /// <summary>How many tiles hold cached edges right now, for the overlay.</summary>
     public static int CachedTiles => edgeCache.Count;
 
-    private static IEnumerable<RawEdge> RawEdges(Point t, bool lava)
+    /// <summary>
+    /// Every edge out of a node, as the traversals prove them: each kind of move is owned by one
+    /// object that both generates its edges here and performs them in the follower, so an edge
+    /// offered is a move the body makes. From inside liquid every move costs double, because the
+    /// game halves a wet NPC's movement.
+    /// </summary>
+    private static IEnumerable<NavEdge> NavEdges(Point t, bool lava)
     {
-        bool wet = NavGrid.IsLiquid(t.X, t.Y);
-        float costScale = wet ? 2f : 1f;
-
+        float costScale = NavGrid.IsLiquid(t.X, t.Y) ? 2f : 1f;
         BodyPhysics.Pose? here = NavGrid.StandAt(t.X, t.Y, lava);
-        foreach (int dir in new[] { -1, 1 })
-        {
-            int nx = t.X + dir;
-            // Walk to the next column on the same row, a step up, or a step down, whichever
-            // poses exist and can be slid to. A slope lowers the feet a row without an edge
-            // to fall off, so the step down is a walk like the others and not a drop.
-            foreach ((int dy, float cost) in new[] { (0, 1f), (-1, 1.5f), (1, 1.2f) })
-            {
-                if (NavGrid.StandAt(nx, t.Y + dy, lava) is not BodyPhysics.Pose there)
-                    continue;
-                if (here is BodyPhysics.Pose h && !BodyPhysics.CanSlide(NavGrid.World, h, there))
-                    continue;
-                yield return new RawEdge(new NavStep(new Point(nx, t.Y + dy), MoveKind.Walk, t), cost * costScale, 0, false);
-            }
-            // Edge: step off the lip and fall to the first surface that holds the body where the
-            // follower steers it, the middle of the open span beside the lip. The body is put there
-            // and asked what it rests on, row by row, rather than the grid being asked whether a
-            // tile is standable: a tile is standable by a two-pixel overhang, which the body in the
-            // open span is not on, and a platform one row down is not a block, which is how a
-            // real support one row down was scanned past and a drop offered that the body at the
-            // lip never made (run 5, 2026-09-08). A rest one row down is the walk step-down's job
-            // and yields no edge; two or more rows is the drop. The column beside the lip must be
-            // open underneath as well as clear: a platform there is a floor the body walks onto
-            // and stands on, and the way down through it is the fall-through edge from that tile,
-            // never a drop from this one (run 6, 2026-09-08: a shaft capped with platforms, the
-            // body parked on the lip for the rest of the run pushing at a drop it could not make).
-            if (NavGrid.IsBodyClear(nx, t.Y) && !NavGrid.IsSupport(nx, t.Y + 1))
-                foreach ((Point drop, int fall, float steerX) in Landings(nx, t.Y, throughPlatform: false, lava))
-                    if (fall >= 2)
-                        yield return new RawEdge(new NavStep(drop, MoveKind.Drop, t, SteerX: steerX), (1f + fall * 0.2f) * costScale, fall, true);
-        }
-
-        // Standing on a platform: fall through it to the first surface below, the way a player
-        // presses down. A mine shaft capped with platforms is otherwise a ceiling.
-        if (NavGrid.IsPlatformUnder(t.X, t.Y))
-            foreach ((Point through, int depth, float steerX) in Landings(t.X, t.Y, throughPlatform: true, lava))
-                if (depth >= 2)
-                    yield return new RawEdge(new NavStep(through, MoveKind.FallThrough, t, SteerX: steerX), (1f + depth * 0.2f) * costScale, depth, true);
-
-        // Jumps: the follower's own jump, simulated tick by tick against the shapes, to every
-        // standable tile in the search box; an edge exists only where the simulated body lands
-        // in exactly that tile, so the planner offers the jumps the body makes and no others. The
-        // box (JumpHeightTiles up, JumpGapTiles across, two rows down for a gap jumped downhill) is
-        // only where to look; the arc decides. A jump straight up onto the tile above needs a
-        // platform to pass through, which Fits allows and a block refuses.
-        if (here is not BodyPhysics.Pose fromPose || NavGrid.IsBlock(t.X, t.Y - NavGrid.BodyHeightTiles))
-            yield break;
-        for (int dx = -NavGrid.JumpGapTiles; dx <= NavGrid.JumpGapTiles; dx++)
-        {
-            // A jump that lands level or lower is only worth flying from an edge: with the next
-            // tile in that direction standable, the walk reaches everything a level jump would at
-            // a lower price, and the edge node past the walk offers the gap jump itself. This is
-            // what keeps a flat floor from simulating sixteen jumps per node for nothing.
-            bool edgeThisWay = dx != 0 && !NavGrid.IsStandable(t.X + Math.Sign(dx), t.Y, lava);
-            for (int ny = t.Y - NavGrid.JumpHeightTiles; ny <= t.Y + 2; ny++)
-            {
-                int nx = t.X + dx;
-                if ((dx == 0 && ny >= t.Y) || (ny >= t.Y && !edgeThisWay))
-                    continue;
-                if (NavGrid.StandAt(nx, ny, lava) is not BodyPhysics.Pose targetPose)
-                    continue;
-                var target = new Point(nx, ny);
-                // The rise in pixels between the two poses' bottoms, rounded up to tiles, which
-                // differs from the row difference on a slope or a half block by a whole scale step.
-                int rise = (int)Math.Ceiling((fromPose.Bottom - targetPose.Bottom) / 16f);
-                // Every profile that could land, lowest arc and fastest start first, and the first
-                // that does is the edge. The profile is carried on the step: the follower makes
-                // exactly this jump, backing up for the run-up when it needs one, instead of
-                // re-deriving a height from the rise and a speed from whatever it arrived with.
-                foreach ((float scale, float startVx) in JumpProfiles(rise, Math.Sign(dx)))
-                {
-                    if (BodyPhysics.SimulateJump(NavGrid.World, fromPose, scale, startVx, nx, ny, MaxJumpTicks, out int flight) is not BodyPhysics.Pose landing)
-                        continue;
-                    var landed = new Point((int)Math.Floor(landing.CentreX / 16f), BodyPhysics.FeetRow(landing.Bottom));
-                    if (landed != target)
-                        continue;
-                    yield return new RawEdge(new NavStep(target, MoveKind.Jump, t, scale, startVx), JumpCost(flight) * costScale, 0, true);
-                    break;
-                }
-            }
-        }
+        foreach (Traversal traversal in Traversal.Planning)
+            foreach (NavEdge edge in traversal.Candidates(t, here, lava))
+                yield return edge with { Move = edge.Move * costScale };
     }
-
-    /// <summary>
-    /// Every place a body stepping off the lip of feet tile (<paramref name="column"/>, <paramref name="feetRow"/>)
-    /// can come to rest, each with how many rows it fell and the X its centre fell along. The
-    /// open span beside the lip is wider than the body in most shafts, and what the body lands on
-    /// depends on where in it the body falls: hugging one wall it rests on a lip that the other
-    /// wall's side falls past, which is how a zigzag shaft is descended a lip at a time. So the
-    /// body is dropped against the span's left wall, down its middle and against its right wall,
-    /// and each distinct landing is an edge whose step tells the follower where to steer. Nothing
-    /// is yielded for a way down the body cannot pass or a fall past the limit.
-    /// </summary>
-    private static IEnumerable<(Point tile, int fall, float steerX)> Landings(int column, int feetRow, bool throughPlatform, bool lava)
-    {
-        (int spanLeft, int spanRight) = NavGrid.OpenSpan(column, feetRow, throughPlatform);
-        float hugLeft = spanLeft * 16f + 1f;
-        float hugRight = (spanRight + 1) * 16f - BodyPhysics.Width - 1f;
-        float centre = (spanLeft * 16f + (spanRight + 1) * 16f) / 2f - BodyPhysics.Width / 2f;
-        var seen = new HashSet<Point>();
-        foreach ((float left, int drift) in new[] { (centre, 0), (hugLeft, -1), (hugRight, 1) })
-        {
-            if (Landing(left, feetRow, drift, lava) is (Point tile, int fall, float restLeft) && seen.Add(tile))
-                yield return (tile, fall, restLeft + BodyPhysics.Width / 2f);
-        }
-    }
-
-    /// <summary>
-    /// A falling body pressed toward a wall moves this far sideways per row of fall, at most:
-    /// under NPC gravity the body clears a row in a couple of ticks near its top speed and in
-    /// many at the start, and the motor moves it a few pixels a tick, so this is the fast end.
-    /// </summary>
-    private const float DriftPerRow = 6f;
-
-    /// <summary>
-    /// Where a body whose left edge is <paramref name="left"/>, feet in <paramref name="feetRow"/>,
-    /// comes to rest when lowered a row at a time, how many rows it fell and where its left edge
-    /// ended up: the first row whose surface holds it there is the landing, a row it does not fit
-    /// in is a ceiling it cannot pass, and null is either of those failing inside the drop limit.
-    /// With <paramref name="drift"/> set the body presses that way as it falls, sliding across each
-    /// row as far as it fits, which is how it follows a shaft's wall into a wider segment and rests
-    /// on a lip the wall above stood over. The landing must also be a node with lava as the
-    /// caller allows it, so the path can continue from it.
-    /// </summary>
-    private static (Point, int, float)? Landing(float left, int feetRow, int drift, bool lava)
-    {
-        ITileWorld world = NavGrid.World;
-        if (!BodyPhysics.Fits(world, left, (feetRow + 1) * 16f))
-            return null;
-        for (int dy = 1; dy <= NavGrid.MaxDropTiles; dy++)
-        {
-            int row = feetRow + dy;
-            float floor = (row + 1) * 16f;
-            if (drift != 0)
-            {
-                for (float slid = left + drift * DriftPerRow; drift * (slid - left) > 0f; slid -= drift * 2f)
-                {
-                    if (BodyPhysics.Fits(world, slid, floor))
-                    {
-                        left = slid;
-                        break;
-                    }
-                }
-            }
-            if (BodyPhysics.RestBottom(world, left, row) is float rest && BodyPhysics.FeetRow(rest) == row && BodyPhysics.Fits(world, left, rest))
-            {
-                // The node the resting body is filed under: the column of its centre when that
-                // tile is a node, else either column it covers, because a body two pixels over a
-                // lip rests on the lip's tile and stands there in the game whichever column its
-                // centre is in.
-                int centreColumn = (int)Math.Floor((left + BodyPhysics.Width / 2f) / 16f);
-                int leftColumn = (int)Math.Floor(left / 16f), rightColumn = (int)Math.Floor((left + BodyPhysics.Width - 0.02f) / 16f);
-                foreach (int node in new[] { centreColumn, leftColumn, rightColumn })
-                    if (NavGrid.StandAt(node, row, lava) != null)
-                        return (new Point(node, row), dy, left);
-                return null;
-            }
-            if (!BodyPhysics.Fits(world, left, floor))
-                return null;
-        }
-        return null;
-    }
-
-    /// <summary>
-    /// The jumps the body can start with for a rise of so many tiles, in the order the planner
-    /// tries them: each velocity scale of the fighter AI's table and the full jump whose apex
-    /// clears the rise, lowest first, and for each the start speed at the walk, half of it and
-    /// standing. Lowest first because the shortest flight is the cheapest edge and the arc
-    /// least likely to meet a ceiling; the table alone over-jumped a four-tile rise onto a
-    /// platform above it, and the walk alone hit a three-tile overhang the half-speed arc
-    /// clears. A jump straight up has no run-up, so only the standing start is offered.
-    /// </summary>
-    public static IEnumerable<(float scale, float startVx)> JumpProfiles(int rise, int direction)
-    {
-        float need = Math.Max(0, rise) * 16f;
-        foreach (float scale in JumpScales)
-        {
-            float apex = BodyPhysics.JumpVelocity * scale;
-            apex = apex * apex / (2f * BodyPhysics.Gravity);
-            if (apex < need)
-                continue;
-            if (direction == 0)
-            {
-                yield return (scale, 0f);
-                continue;
-            }
-            yield return (scale, direction * BodyPhysics.WalkSpeed);
-            yield return (scale, direction * BodyPhysics.WalkSpeed * 0.5f);
-            yield return (scale, 0f);
-        }
-    }
-
-    private static readonly float[] JumpScales =
-    {
-        BodyPhysics.JumpScaleForTiles(2), BodyPhysics.JumpScaleForTiles(3), BodyPhysics.JumpScaleForTiles(4), 1f,
-    };
-
-    /// <summary>The longest flight the planner follows before giving up on a landing.</summary>
-    private const int MaxJumpTicks = 120;
-
-    /// <summary>
-    /// A jump costs its flight time in walked tiles plus one, so a jump is taken only where the
-    /// walk of the same width does not exist, and a long arc costs more than a short hop.
-    /// </summary>
-    private static float JumpCost(int ticks) => 1f + ticks * BodyPhysics.WalkSpeed / 16f;
 
     /// <summary>
     /// What arriving at a node costs on top of the move: a submerged head multiplies (a

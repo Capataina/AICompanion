@@ -26,6 +26,12 @@
     <Compile Include="../../Brain/DecisionMatrix/Navigation/Planning/NavPath.cs" />
     <Compile Include="../../Brain/DecisionMatrix/Navigation/Planning/AStar.cs" />
     <Compile Include="../../Brain/DecisionMatrix/Navigation/Planning/Reachability.cs" />
+    <Compile Include="../../Brain/DecisionMatrix/Navigation/Traversals/Traversal.cs" />
+    <Compile Include="../../Brain/DecisionMatrix/Navigation/Traversals/WalkTraversal.cs" />
+    <Compile Include="../../Brain/DecisionMatrix/Navigation/Traversals/JumpTraversal.cs" />
+    <Compile Include="../../Brain/DecisionMatrix/Navigation/Traversals/DropTraversal.cs" />
+    <Compile Include="../../Brain/DecisionMatrix/Navigation/Traversals/FallThroughTraversal.cs" />
+    <Compile Include="../../Brain/DecisionMatrix/Navigation/Following/Navigator.cs" />
     <Compile Include="../../Brain/DecisionMatrix/Decision/Weights.cs" />
   </ItemGroup>
   <ItemGroup>

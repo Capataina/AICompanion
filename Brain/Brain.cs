@@ -24,6 +24,10 @@ public sealed class Brain
     public readonly Navigator Navigator = new();
     public readonly DecisionMatrix.Reflexes.Reflexes Reflexes = new();
 
+    // The navigator names nothing of the game, so the failed-plan dump reaches the telemetry
+    // through this seam; the replay tool leaves it unset.
+    static Brain() => Navigator.PlanFailed = Debug.BrainTelemetry.DumpPlan;
+
     public PositionRequest LastRequest { get; private set; }
     public CompanionAction? LastAction => Chooser.Current;
 
@@ -149,7 +153,7 @@ public sealed class Brain
     {
         if (spot is Vector2 feet)
         {
-            Navigator.MoveTo(companion.NPC, companion.Motor, feet);
+            companion.Motor.Apply(Navigator.MoveTo(companion.Motor.State, feet));
             // Stuck twice on the way to one spot: the first strike priced the step and the replan
             // found nothing better, so the spot itself is the problem. Refuse it for a while and
             // let the positioner answer with another, which is Caner's "choose a different

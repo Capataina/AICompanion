@@ -255,7 +255,16 @@ public static class BodyPhysics
     /// which is the game's own rule (SlopeCollision rests the body at the tile's top plus the
     /// edge's inset, and at the tile's top when the edge is outside the tile).
     /// </summary>
-    public static float? RestBottom(ITileWorld world, float left, int row)
+    public static float? RestBottom(ITileWorld world, float left, int row) => RestBottom(world, left, row, float.NegativeInfinity);
+
+    /// <summary>
+    /// The same, counting no surface above <paramref name="noHigherThan"/>: a platform whose top
+    /// is at the body's knee is passed through sideways in the game, and a body standing beside
+    /// one is resting on its own floor and not on the platform, which the unbounded query would
+    /// name as the highest surface under the span (the follow harness on run 7, 2026-09-08,
+    /// stuck the body beside a platform staircase this way).
+    /// </summary>
+    public static float? RestBottom(ITileWorld world, float left, int row, float noHigherThan)
     {
         float right = left + Width;
         int x0 = (int)MathF.Floor(left / 16f), x1 = (int)MathF.Floor((right - Touch) / 16f);
@@ -273,7 +282,7 @@ public static class BodyPhysics
                     TileShape.SolidLowerRight => top + MathF.Max(0f, x * 16f + 16f - right),
                     _ => top,
                 };
-                if (surface is float s && (best == null || s < best))
+                if (surface is float s && s >= noHigherThan - Touch && (best == null || s < best))
                     best = s;
             }
         }

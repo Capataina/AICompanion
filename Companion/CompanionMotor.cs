@@ -40,6 +40,18 @@ public sealed class CompanionMotor
     /// </summary>
     public bool WantsFallThrough { get; set; }
 
+    /// <summary>The body as the navigator reads it, built from the NPC every tick; the seam that lets the replay run the same navigator over a simulated body.</summary>
+    public BodyState State => new(npc.position.X, npc.Bottom.Y, npc.velocity.X, npc.velocity.Y, OnGround, npc.collideX);
+
+    /// <summary>Drive the NPC with one tick's controls: the speed to build toward, the jump, the platform to pass.</summary>
+    public void Apply(Controls controls)
+    {
+        MoveX(controls.MoveX);
+        if (controls.Jump)
+            Jump(controls.JumpScale);
+        WantsFallThrough = controls.FallThrough;
+    }
+
     /// <summary>Accelerate toward a horizontal speed; sign is direction, magnitude is pace.</summary>
     public void MoveX(float speedX)
     {

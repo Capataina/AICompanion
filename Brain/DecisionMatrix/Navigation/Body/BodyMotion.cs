@@ -96,8 +96,8 @@ public static class BodyMotion
                 remaining -= step;
                 continue;
             }
-            float? rest = BodyPhysics.RestBottom(world, left, BodyPhysics.FeetRow(bottom));
-            return rest is float r && r >= bottom - 1f && BodyPhysics.Fits(world, left, r)
+            float? rest = BodyPhysics.RestBottom(world, left, BodyPhysics.FeetRow(bottom), bottom - 1f);
+            return rest is float r && BodyPhysics.Fits(world, left, r)
                 ? new BodyState(left, r, vx, 0f, true, collideX, false, s.Mobility)
                 : new BodyState(left, bottom, vx, 0f, true, collideX, true, s.Mobility);
         }
@@ -106,7 +106,7 @@ public static class BodyMotion
 
     /// <summary>A surface under the span sits exactly at the bottom: the body is standing on it.</summary>
     private static bool SurfaceAt(ITileWorld world, float left, float bottom)
-        => BodyPhysics.RestBottom(world, left, BodyPhysics.FeetRow(bottom)) is float s && MathF.Abs(s - bottom) <= 0.5f;
+        => BodyPhysics.RestBottom(world, left, BodyPhysics.FeetRow(bottom), bottom - 1f) is float s && MathF.Abs(s - bottom) <= 0.5f;
 
     /// <summary>
     /// The bottom the body rests on when lifted over a one-tile kerb at <paramref name="nextLeft"/>,
@@ -121,7 +121,7 @@ public static class BodyMotion
     /// <summary>The bottom one tile or less below that a surface holds the body at, or null when the fall ahead is deeper than a step.</summary>
     private static float? StepDown(ITileWorld world, float left, float bottom)
     {
-        float? rest = BodyPhysics.RestBottom(world, left, BodyPhysics.FeetRow(bottom) + 1);
+        float? rest = BodyPhysics.RestBottom(world, left, BodyPhysics.FeetRow(bottom) + 1, bottom);
         return rest is float r && r > bottom && r <= bottom + 16f && BodyPhysics.Fits(world, left, r) ? r : null;
     }
 }

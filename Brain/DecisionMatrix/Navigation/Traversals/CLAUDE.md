@@ -1,0 +1,23 @@
+# Traversals — each kind of move is owned once, proved and performed by the same object
+
+A traversal is one kind of move the body can make, and it is the answer to the defect that ran through every watched session of 2026-09-08: a companion standing still with a valid path in hand. Each time, the planner had proved a move by one rule (a body lowered row by row, a jump simulated with the follower's steering) and the follower had performed it by another (a steer to a tile centre, a jump at whatever speed the walk left), and the move that existed on paper did not exist for the body. So the two halves live in one class: `Candidates` proves every edge of that kind out of a node, `Steer` returns the controls that perform a step, `Done` says when it is reached and `Check` names why it cannot be, and both halves use the body in `../Body/` and the grid in `../Planning/` and nothing else. This is the navmesh-plus-character-controller split every engine ends up with, taken at the point where the two are one object rather than two teams' code.
+
+```
+Traversals/
+├─ CLAUDE.md
+├─ Traversal.cs             the base class (Kind, Candidates, Begin, Steer, Done, Check, the allowance), NavEdge (a proven edge before the tick's prices), TraversalFault (Timeout, Misland, Blocked, Stuck), Fresh (one instance of each for a follower) and Planning (the shared set the search generates edges with)
+├─ WalkTraversal.cs         a walk to the next column, same row or one up or one down, where both poses exist and the body slides between them; performed by walking at the step's feet point, with the one move the follower still derives itself, a jump at a real wall or a two-tile rise, kept until the follow harness shows it is never needed
+├─ JumpTraversal.cs         a jump to any tile in the box that a profile lands in when simulated with the body's own tick; the step carries the profile and the flight time, and performing it is the run-up, the take-off and the in-air steer the simulation used (JumpProfiles, Runway)
+├─ DropTraversal.cs         a drop off a lip down the open span beside it, against either wall or down the middle, each landing an edge carrying the line the body fell along; performed by steering to that line at reduced speed
+└─ FallThroughTraversal.cs  a fall through the platform underfoot, planned by the drop's scan with the platform passed and performed by the same steer with the body asked to pass its platform each tick
+```
+
+## How a step moves through a traversal
+
+The follower in `../Following/` hands every step to the traversal of its kind. `Begin` runs once when the follower starts the step, which is where a jump's run-up state is reset (keyed on the edge and not the path index, because a replan resets the index and a fresh path with a jump at the same index would otherwise inherit another jump's run-up). Every tick after that, `Done` is asked first, and the follower advances past every step that is done; then `Check` is asked, and a fault (the body stood past its allowance, came to rest on a tile the step never promised, pressed a shape for too long, or the motion rule could not resolve where it is) ends the step: the follower prices the step, counts a strike, asks for nothing until the next ground tick, and replans from there, so a step the body cannot take is replanned around instead of pressed against. Only then does `Steer` produce the tick's controls. The allowance is twice the ticks the step was proven to take plus a second, so a misland is caught by the landing and a park by the clock.
+
+The rule that binds every subclass is that `Steer` uses the same functions `Candidates` simulated with: the jump's first tick steers toward the landing with `SteerToward` because the simulation's first tick did; the drop steers to the line the scan lowered the body along and never to the tile. Where a subclass breaks that rule (the walk's own wall jump, the drop's analytical scan against the body's real tick), its file says so and the replay's `--follow` is the instrument that shows what it costs.
+
+## Adding a mobility
+
+A new move (a second jump in the air, a dash, a swim, a wall latch, flight for a duration) is a new subclass and one line in `Traversal.Fresh`. Its `Candidates` simulates the move with `BodyMotion.Step` from the node's pose and yields the tiles the body ends on; its `Steer` produces the same controls tick by tick; and if the move depends on what came before it (jumps left, a cooldown) it reads and writes `MobilityState` on the body state, which the planner's node carries so two states on one tile are two nodes. Nothing else changes: the search, the follower, the replay, the reach flood and the reflex rollouts all take the new edges from the same set.
