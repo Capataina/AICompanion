@@ -26,8 +26,13 @@ public sealed class Navigator
     public bool LastPlanFailed { get; private set; }
     /// <summary>The last plan found nothing at all, as against a partial path that walks toward the goal: the brain's stranded count reads this and not the failure, because a goal beyond the budget is far and not sealed off.</summary>
     public bool LastPlanEmpty { get; private set; }
-    /// <summary>A plan ran on this tick, so <see cref="LastPlanFailed"/> and <see cref="LastPlanEmpty"/> describe the current goal and not an earlier one's.</summary>
-    public bool PlannedThisTick => ticksSincePlan == 0;
+    /// <summary>
+    /// A plan ran on this tick, so <see cref="LastPlanFailed"/> and <see cref="LastPlanEmpty"/>
+    /// describe the current goal and not an earlier one's. Set by the plan and cleared at the
+    /// start of every move and by <see cref="Clear"/>, never read off the replan counter, which
+    /// an arrival or a cleared goal leaves at zero for a tick that planned nothing.
+    /// </summary>
+    public bool PlannedThisTick { get; private set; }
     public int LastExpansions { get; private set; }
 
     /// <summary>Ticks the body has not moved while the follower had somewhere to go; the scenario capture reads it.</summary>
@@ -63,6 +68,7 @@ public sealed class Navigator
     public bool MoveTo(NPC npc, CompanionMotor motor, Vector2 targetFeet)
     {
         clock++;
+        PlannedThisTick = false;
         if (Vector2.Distance(npc.Bottom, targetFeet) <= ArriveDistance)
         {
             motor.Stop();
@@ -120,6 +126,7 @@ public sealed class Navigator
         GoalTile = goal;
         ticksSincePlan = 0;
         stuckTicks = 0;
+        PlannedThisTick = true;
         Point? from = NavGrid.NearestStandable(start, 2);
         if (from == null)
         {
@@ -371,5 +378,6 @@ public sealed class Navigator
         Path = null;
         GoalTile = null;
         StuckStrikes = 0;
+        PlannedThisTick = false;
     }
 }

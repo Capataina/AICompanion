@@ -182,7 +182,7 @@ public static class AStar
         RawEdge[] edges;
         if (!CacheEdges)
             edges = System.Linq.Enumerable.ToArray(RawEdges(t, AllowLava));
-        else if (!edgeCache.TryGetValue(key, out CachedEdges cached) || Clock - cached.Born > EdgeCacheLifeTicks)
+        else if (!edgeCache.TryGetValue(key, out CachedEdges cached) || unchecked(Clock - cached.Born) > EdgeCacheLifeTicks)
         {
             edges = System.Linq.Enumerable.ToArray(RawEdges(t, AllowLava));
             edgeCache[key] = new CachedEdges(edges, Clock);
@@ -219,13 +219,18 @@ public static class AStar
     /// can hear. Prices are applied on read, because enemies move every tick.
     /// </summary>
     private static readonly Dictionary<(Point, bool), CachedEdges> edgeCache = new();
-    private readonly record struct CachedEdges(RawEdge[] Edges, long Born);
+    private readonly record struct CachedEdges(RawEdge[] Edges, uint Born);
 
     /// <summary>Off, every search simulates every edge afresh: the replay's --no-cache, which proves the cache changes no verdict.</summary>
     public static bool CacheEdges = true;
 
-    /// <summary>The brain's tick, for the cache's expiry; the replay tool leaves it at zero and the cache lives for the block.</summary>
-    public static long Clock;
+    /// <summary>
+    /// The brain's tick, for the cache's expiry; the replay tool leaves it at zero and the cache
+    /// lives for the block. Unsigned like the game's own counter, so an age is the unchecked
+    /// difference and still reads right after the counter wraps (a long widened from the uint
+    /// read a negative age there and never expired the entry).
+    /// </summary>
+    public static uint Clock;
 
     /// <summary>
     /// How long a tile's edges are trusted without a tile change announcing itself: three
@@ -235,16 +240,18 @@ public static class AStar
     /// on read from the live tile, so the worst of it is a walk edge priced dry through a tile
     /// that is now wet.
     /// </summary>
-    public const long EdgeCacheLifeTicks = 180;
+    public const uint EdgeCacheLifeTicks = 180;
 
     /// <summary>
-    /// How far sideways a tile's scans read: the drop lowers the body against a wall and lets it
-    /// drift a few pixels a row for up to <see cref="NavGrid.MaxDropTiles"/> rows, which is
-    /// fifteen tiles at the fast end, past the jump box's four. The open span beside a lip is
-    /// read to its walls whatever their distance, so a wall moved further away than this along
-    /// a bare row is the one change the box misses; the expiry covers it.
+    /// How far sideways a tile's scans read, summed from the scan itself so the box cannot fall
+    /// behind it: the drop starts in the neighbouring column, the open span reaches
+    /// <see cref="NavGrid.OpenSpanReach"/> columns past that and the body is put against its far
+    /// wall, the fall drifts <see cref="DriftPerRow"/> pixels a row for up to
+    /// <see cref="NavGrid.MaxDropTiles"/> rows, and the shape tests around the landing read the
+    /// body's width, which spans two columns. The Codex review of 87e8d20 found a support
+    /// nineteen columns out changing an edge the hand-set sixteen kept.
     /// </summary>
-    public const int EdgeReachX = 16;
+    public const int EdgeReachX = 1 + NavGrid.OpenSpanReach + (NavGrid.MaxDropTiles * (int)DriftPerRow + 15) / 16 + 2;
 
     /// <summary>
     /// A tile at (<paramref name="x"/>, <paramref name="y"/>) is no longer what it was: drop the

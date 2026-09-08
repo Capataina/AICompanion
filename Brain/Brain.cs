@@ -40,8 +40,10 @@ public sealed class Brain
     /// How long the body has been sealed off from the player: counted from the first plan to a
     /// player-anchored spot that found nothing while the flood from the feet closed under its
     /// budget (a pocket the world seals, never a player who is merely far), ageing every tick
-    /// after, and cleared by the next such plan that finds anything. A roam's own plans neither
-    /// age it nor clear it, so the follow's retry window is what decides the count.
+    /// after whatever the request, and cleared by the next such plan that finds anything or by
+    /// the player's feet turning up inside the flood from the companion's own (a player who
+    /// walked into the pocket and stopped beside it asks for no plan, and was stranded for ever
+    /// on the plan rule alone: the Codex review of 2303802).
     /// </summary>
     public int StrandedTicks { get; private set; }
 
@@ -135,7 +137,9 @@ public sealed class Brain
     private void CountStranded()
     {
         bool towardPlayer = LastRequest.Kind is RequestKind.WithPlayer or RequestKind.Guard;
-        if (towardPlayer && Navigator.PlannedThisTick)
+        if (StrandedTicks > 0 && Positioner.Reaches(NavGrid.FeetTile(Senses.Player.Bottom)))
+            StrandedTicks = 0;
+        else if (towardPlayer && Navigator.PlannedThisTick)
             StrandedTicks = Navigator.LastPlanEmpty && Positioner.ReachComplete ? System.Math.Max(StrandedTicks, 1) : 0;
         else if (StrandedTicks > 0)
             StrandedTicks++;

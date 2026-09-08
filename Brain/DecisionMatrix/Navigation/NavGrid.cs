@@ -93,16 +93,19 @@ public static class NavGrid
         return (left * 16f + (right + 1) * 16f) / 2f;
     }
 
+    /// <summary>How many columns either way the open span beside a lip is read; the edge cache's invalidation box is sized from it.</summary>
+    public const int OpenSpanReach = 3;
+
     /// <summary>
     /// The run of open columns around <paramref name="column"/> at the row the feet are on, as
     /// its first and last column: columns the body is clear in with nothing solid beneath them
-    /// (or a platform beneath them, for a fall-through), a few each way at most. Where in this
-    /// span the body falls decides what it lands on, so the planner tries its edges and its
-    /// middle and the follower steers to the one the plan chose.
+    /// (or a platform beneath them, for a fall-through), <see cref="OpenSpanReach"/> each way at
+    /// most. Where in this span the body falls decides what it lands on, so the planner tries
+    /// its edges and its middle and the follower steers to the one the plan chose.
     /// </summary>
     public static (int left, int right) OpenSpan(int column, int feetRow, bool throughPlatform)
     {
-        const int Reach = 3;
+        const int Reach = OpenSpanReach;
         // A drop wants the open air beside the lip; a fall-through wants the platform the body
         // is passing, because steering off a one-tile platform into open air loses the landing.
         bool Open(int c) => IsBodyClear(c, feetRow) && (throughPlatform ? IsPlatformUnder(c, feetRow) : !IsSupport(c, feetRow + 1));

@@ -41,8 +41,13 @@ public static class Weights
     public const int RoamTicks = 300;
     public const int RoamRetryTicks = 30;
 
-    /// <summary>Stranded: what wander scores while roaming, under every combat action's ceiling so a threat in the pocket still wins.</summary>
-    public const float StrandedWander = 0.9f;
+    /// <summary>
+    /// Stranded: what wander scores while roaming. Under every combat action's ceiling even
+    /// after the commitment bonus a running roam gets, so an urgent threat in the pocket still
+    /// takes the body (the Codex review of 2303802: at 0.9 an incumbent roam scored 1.035 and
+    /// nothing but survive could win), and above the stranded follow with the same bonus.
+    /// </summary>
+    public const float StrandedWander = 0.6f;
 
     /// <summary>Stranded: what walk-with's score is multiplied by while roaming, so the follow yields the body it cannot use.</summary>
     public const float StrandedFollowDiscount = 0.3f;

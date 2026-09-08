@@ -244,7 +244,9 @@ static IEnumerable<Point> ChurnTiles(NavPath path)
     }
 }
 
-// A plan reduced to a string that two plans can be compared by: each step's tile and kind.
+// A plan reduced to a string that two plans can be compared by: each step's tile and kind, and
+// the parameters the follower executes it with (the jump's scale and start speed, a descent's
+// steer line), because two routes over the same tiles that ask for different moves are two plans.
 static string Signature(Point from, Point goal)
 {
     Point? to = NavGrid.NearestStandable(goal, 3);
@@ -255,7 +257,9 @@ static string Signature(Point from, Point goal)
         return "none";
     var sb = new System.Text.StringBuilder(path.Partial ? "partial " : "");
     foreach (NavStep step in path.Steps)
-        sb.Append(step.Kind.ToString()[0]).Append(Fmt(step.Tile)).Append(' ');
+        sb.Append(step.Kind.ToString()[0]).Append(Fmt(step.Tile))
+          .Append('/').Append(step.JumpScale.ToString("0.##")).Append('/').Append(step.StartVx.ToString("0.##")).Append('/').Append(step.SteerX.ToString("0.#"))
+          .Append(' ');
     return sb.ToString().TrimEnd();
 }
 

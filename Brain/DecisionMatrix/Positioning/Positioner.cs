@@ -68,12 +68,17 @@ public sealed class Positioner
         switch (request.Kind)
         {
             case RequestKind.Hold:
+                // A hold or an exact ends whatever was being held (a roam's spot, a scored spot),
+                // so the next scored or roam request picks afresh instead of reading the spot an
+                // interruption left in Chosen for the rest of a hold (Codex review of 2303802).
+                lastRequest = request;
                 Chosen = null;
                 return null;
             case RequestKind.Exact:
                 // Exact still means a real place to stand: the nearest standable tile the walker can
                 // reach, which NavGrid refuses when it is in or over lava; when nothing reachable is
                 // near, the nearest standable tile at all, and the partial path walks as close as it can.
+                lastRequest = request;
                 RefreshReach(senses);
                 Point around = NavGrid.FeetTile(request.Anchor);
                 Point? tile = NavGrid.NearestStandable(around, 3, t => InReach(t) && Allowed(t)) ?? NavGrid.NearestStandable(around, 3, Allowed);
@@ -109,9 +114,16 @@ public sealed class Positioner
 
     private bool InReach(Point tile) => reach != null && reach.Contains(tile);
 
+    /// <summary>The last flood from the companion's feet holds this tile: the brain reads the player's feet against it to end a stranded count.</summary>
+    public bool Reaches(Point tile) => InReach(tile);
+
+    // The one-way rule the flood ran under: a roam runs with deep drops off and a follow with
+    // them on, and a region flooded under the other rule offers a roam the bottom of a pit.
+    private bool reachOneWay;
+
     private void RefreshReach(Senses.Senses senses)
     {
-        if (reach != null && sinceFlood < RescoreInterval)
+        if (reach != null && sinceFlood < RescoreInterval && reachOneWay == AStar.AllowOneWayDrops)
             return;
         sinceFlood = 0;
         Point? feet = NavGrid.NearestStandable(NavGrid.FeetTile(senses.Companion.Bottom), 2);
@@ -125,6 +137,7 @@ public sealed class Positioner
         reach = AStar.Region(feet.Value, Weights.ReachFloodBudget, out bool complete);
         LastFloodMs = clock.Elapsed.TotalMilliseconds;
         ReachComplete = complete;
+        reachOneWay = AStar.AllowOneWayDrops;
     }
 
     /// <summary>Wall-clock of the last reach flood, for the telemetry.</summary>
