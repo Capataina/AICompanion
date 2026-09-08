@@ -3,6 +3,7 @@
 using System.Collections.Generic;
 using Microsoft.Xna.Framework;
 using Terraria;
+using Terraria.ID;
 using AICompanion.Brain.DecisionMatrix.Decision;
 using AICompanion.Brain.DecisionMatrix.Senses;
 using AICompanion.Brain.Work.Mining;
@@ -65,12 +66,15 @@ public sealed class MineAction : CompanionAction
     public override PositionRequest Execute(in ActionContext ctx)
     {
         Item pickaxe = TileMiner.PickaxeFor(ctx.Player);
-        ctx.Companion.HoldItem(pickaxe.type);
+        // The pickaxe comes out only in position; on the walk there the hand stays empty, so
+        // the torch can hold it in the dark.
+        ctx.Companion.HoldItem(ItemID.None);
         if (target is not OreFinder.OreTarget t)
             return PositionRequest.Hold;
 
         if (Vector2.Distance(ctx.Npc.Bottom, t.StandPosition) <= 20f)
         {
+            ctx.Companion.HoldItem(pickaxe.type);
             Point tile = swingAt ?? t.Tile;
             if (!OreFinder.IsOre(tile.X, tile.Y) || !OreFinder.InReach(ctx.Npc.Bottom, tile))
             {

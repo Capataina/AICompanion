@@ -2,6 +2,7 @@
 
 using Microsoft.Xna.Framework;
 using Terraria;
+using Terraria.ID;
 using AICompanion.Brain.DecisionMatrix.Decision;
 using AICompanion.Brain.Work.Chopping;
 
@@ -51,12 +52,15 @@ public sealed class ChopAction : CompanionAction
     public override PositionRequest Execute(in ActionContext ctx)
     {
         Item axe = TileChopper.AxeFor(ctx.Player);
-        ctx.Companion.HoldItem(axe.type);
+        // The axe comes out only in position; on the walk there the hand stays empty, so the
+        // torch can hold it in the dark.
+        ctx.Companion.HoldItem(ItemID.None);
         if (tree is not TreeFinder.ChoppableTree t)
             return PositionRequest.Hold;
 
         if (System.MathF.Abs(ctx.Npc.Center.X - t.StandPosition.X) <= 20f)
         {
+            ctx.Companion.HoldItem(axe.type);
             ctx.Companion.Motor.Face(t.Bottom.X * 16f + 8f);
             if (ctx.Companion.Chopper.Swing(t.Bottom, axe))
                 ctx.Companion.StartAnimation(axe.type, axe.useAnimation);
