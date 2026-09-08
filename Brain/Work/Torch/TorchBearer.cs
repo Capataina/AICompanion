@@ -13,9 +13,11 @@ namespace AICompanion.Brain.Work.Torch;
 /// decision reads the light sense's ambient number, which is measured away from the
 /// companion's own glow, and switches with hysteresis (raise below one level, lower
 /// above a higher one) plus a minimum hold, so the torch cannot flicker on its own
-/// light. Lit, it emits a torch's colour at the hand and reveals the map through
-/// <see cref="TorchMapReveal"/>. Whether the torch is actually shown is the NPC's
-/// call: any action that holds a tool or weapon wins the hand.
+/// light. Whether the hand is free is the NPC's call (any action that holds a tool or
+/// weapon wins it), and light, map reveal and the torch in the hand all follow that
+/// one answer: a companion swinging a pickaxe neither glows nor reveals, because the
+/// torch is not out. <see cref="Lit"/> is the decision; <see cref="Shown"/> is the
+/// decision and a free hand together.
 /// </summary>
 public sealed class TorchBearer
 {
@@ -29,10 +31,14 @@ public sealed class TorchBearer
     public int ReachTiles { get; set; } = 7;
 
     public bool Lit { get; private set; }
+
+    /// <summary>The torch is actually out: lit and the hand was free this tick.</summary>
+    public bool Shown { get; private set; }
+
     private int sinceChange;
     private int sinceReveal;
 
-    public void Update(LightSense light, NPC npc)
+    public void Update(LightSense light, NPC npc, bool handFree)
     {
         sinceChange++;
         if (sinceChange >= MinimumHoldTicks)
@@ -48,7 +54,8 @@ public sealed class TorchBearer
                 sinceChange = 0;
             }
         }
-        if (!Lit)
+        Shown = Lit && handFree;
+        if (!Shown)
             return;
 
         TorchID.TorchColor(TorchID.Torch, out float r, out float g, out float b);

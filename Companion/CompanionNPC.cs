@@ -46,7 +46,7 @@ public class CompanionNPC : ModNPC
 
     public CompanionNPC()
     {
-        Miner = new TileMiner(Chopper.HitTile);
+        Miner = new TileMiner(body.Player);
     }
 
     public bool IsDowned { get; private set; }
@@ -135,9 +135,10 @@ public class CompanionNPC : ModNPC
             Motor.ApplySteps();
             CollectTouchedItems(player);
             // The torch takes the hand only when no action claimed it this tick: a tool or a
-            // weapon held by chop, mine, hunt or guard always wins.
-            Torch.Update(Brain.Senses.Light, NPC);
-            if (Torch.Lit && heldItemType == ItemID.None)
+            // weapon held by chop, mine, hunt or guard always wins, and a torch that is not
+            // in the hand gives no light and reveals nothing.
+            Torch.Update(Brain.Senses.Light, NPC, heldItemType == ItemID.None);
+            if (Torch.Shown)
                 heldItemType = ItemID.Torch;
             if (!loggedFirstTick)
             {

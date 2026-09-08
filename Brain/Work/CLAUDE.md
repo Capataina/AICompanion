@@ -11,4 +11,4 @@ Work/
 └─ TileCracksRenderer.cs draws the shared cracks with Main.DrawTileCracks from PostDrawTiles, cancelling the offScreenRange offset
 ```
 
-The torch is the one tool without an action: it is what the hand does when no action wants it, decided in `CompanionNPC.AI` after the brain, so an action that wants empty hands in the dark must hold something else (none does today).
+The torch is the one tool without an action: it is what the hand does when no action wants it, decided in `CompanionNPC.AI` after the brain, and its light and map reveal exist only while it is actually in the hand. An action that wants empty hands in the dark must hold something else (none does today).

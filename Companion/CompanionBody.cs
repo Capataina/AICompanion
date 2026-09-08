@@ -10,8 +10,10 @@ namespace AICompanion.Companion;
 
 /// <summary>
 /// Draws the companion as the game's own female starter body. A drawing-only
-/// <see cref="Player"/> instance (never placed in Main.player, whoAmI set to the
-/// unused last slot so no draw layer mistakes it for the local player) is kept in
+/// <see cref="Player"/> instance (never placed in Main.player; whoAmI is the highest
+/// slot the map head renderer's per-player table accepts, which is one below the
+/// player array's spare last slot, so no draw layer mistakes it for the local player
+/// and the head renderer does not throw on it) is kept in
 /// step with the NPC each tick and handed to the game's player renderer. The held
 /// item follows the vanilla use-style pose while an animation runs.
 ///
@@ -33,7 +35,7 @@ public class CompanionBody
     {
         body = new Player
         {
-            whoAmI = Main.maxPlayers,
+            whoAmI = Main.maxPlayers - 1,
             width = 20,
             height = 42,
             gravDir = 1f,

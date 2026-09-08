@@ -11,13 +11,13 @@ Senses/
 ├─ ThreatRecord.cs       the per-hostile record and its predicted hitbox
 ├─ LootSense.cs          items on the ground within reach, nearest first, with a value
 ├─ TileDamageWatcher.cs  GlobalTile.KillTile hook: the player really hit a tree or an ore (fail hits included); companion hits excluded by a flag
-├─ LightSense.cs         ambient brightness on a 4-tile grid over the screen with a 10-tile disc around the companion cut out, plus the light at the player and at the companion; refreshed every 10 ticks
+├─ LightSense.cs         ambient brightness on a coarse grid over a screen-sized window centred on the companion with a disc around the companion cut out, plus the light at the player and at the companion; refreshed on a short cadence
 └─ LineOfSight.cs        names over Collision.CanHitLine
 ```
 
 ## The light numbers
 
-`Ambient` is what the torch decision reads, because it is the one number the companion's own torch cannot raise: a torch's glow reaches about eight tiles and the cut-out is ten. `AtPlayer` and `AtCompanion` are for the overlay and later factors. Off screen every reading is 0, since the lighting engine holds nothing there, so a companion sent away lights its torch wherever it is.
+`Ambient` is what the torch decision reads, because it is the one number the companion's own torch cannot raise: the cut-out disc is wider than a torch's glow. The window it averages follows the companion, not the camera: the first version sampled the screen, which is the camera on the player, so a companion sent into a cave while the player stood in daylight read the player's light and never lit up. `AtPlayer` and `AtCompanion` are for the overlay and later factors. Off screen the lighting engine holds nothing and every sample reads 0, so a companion far away lights its torch wherever it is.
 
 ## The two derived numbers
 

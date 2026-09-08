@@ -3,8 +3,8 @@
 ```
 Companion/
 ├─ CLAUDE.md
-├─ CompanionNPC.cs    the ModNPC: mirrors the player's max life and defence, downed at zero and revived by 3 s beside it, owns Brain, Motor, Arsenal, Chopper, Miner (sharing the chopper's HitTile), Torch, held item and animation, picks up items on contact, draws through CompanionBody; the torch takes the hand after the brain when no action held anything; Find/Spawn/Instance
-├─ CompanionBody.cs   a drawing-only Player (the player's own look with the gender swapped to female) synced each tick and drawn by Main.PlayerRenderer; Guide sprite fallback if the renderer ever throws
+├─ CompanionNPC.cs    the ModNPC: mirrors the player's max life and defence, downed at zero and revived by 3 s beside it, owns Brain, Motor, Arsenal, Chopper, Miner (which runs the game's PickTile on the body's player), Torch, held item and animation, picks up items on contact, draws through CompanionBody; the torch takes the hand after the brain when no action held anything, and gives light and reveals the map only then; Find/Spawn/Instance
+├─ CompanionBody.cs   a drawing-only Player (the player's own look with the gender swapped to female) synced each tick and drawn by Main.PlayerRenderer; Guide sprite fallback if the renderer ever throws; its whoAmI is the last slot the map head renderer's table accepts, one under the player array's spare slot, and its hitTile is the miner's crack table
 └─ CompanionMotor.cs  the only home of movement constants; MoveX, Stop, Face, Jump, JumpScaleForTiles, JumpOffsetAt, and ApplySteps (the game's StepUp/StepDown, run after the brain each tick)
 ```
 

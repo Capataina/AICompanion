@@ -18,6 +18,11 @@ namespace AICompanion.Map;
 /// </summary>
 public sealed class CompanionMapLayer : ModMapLayer
 {
+    /// <summary>Set the first time the head renderer throws; logged once, Guide head from then on.</summary>
+    private static bool headRendererFailed;
+
+    public override void Unload() => headRendererFailed = false;
+
     public override void Draw(ref MapOverlayDrawContext context, ref string text)
     {
         if (CompanionNPC.Instance is not CompanionNPC companion)
@@ -29,16 +34,17 @@ public sealed class CompanionMapLayer : ModMapLayer
             return;
 
         bool drawn = false;
-        if (companion.Body.UsesPlayerRenderer)
+        if (companion.Body.UsesPlayerRenderer && !headRendererFailed)
         {
             try
             {
                 Main.MapPlayerRenderer.DrawPlayerHead(Main.Camera, companion.Body.Player, screen, 1f, context.DrawScale, Color.White);
                 drawn = true;
             }
-            catch
+            catch (System.Exception e)
             {
-                drawn = false;
+                headRendererFailed = true;
+                Mod.Logger.Error("Map head renderer refused the companion body; falling back to the Guide head.", e);
             }
         }
         if (!drawn)

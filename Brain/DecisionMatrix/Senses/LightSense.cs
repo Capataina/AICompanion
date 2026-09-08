@@ -7,17 +7,19 @@ using Terraria;
 namespace AICompanion.Brain.DecisionMatrix.Senses;
 
 /// <summary>
-/// How dark it is, measured so the companion's own torch cannot answer the question.
-/// Three numbers: light at the player's tiles, light on a coarse grid over the screen
-/// with a disc around the companion cut out (a torch's glow reaches roughly eight tiles,
-/// the cut is ten), and light right at the companion for the overlay. The screen sample
-/// is the one the torch decision uses, because it is the only one the torch cannot
-/// brighten, and hysteresis on top of it removes the last way to flicker.
+/// How dark it is where the companion is, measured so its own torch cannot answer the
+/// question. Three numbers: light at the player's tile, light at the companion's tile
+/// (which includes its own torch, so it is for the overlay only), and <see cref="Ambient"/>,
+/// the mean over a coarse grid of a screen-sized window centred on the companion with a
+/// disc around the companion cut out that is wider than a torch's glow. Ambient is the
+/// one the torch decision reads, because it is the only one the torch cannot brighten,
+/// and hysteresis on top of it removes the last way to flicker.
 ///
-/// Off screen the lighting engine holds nothing, so every number reads 0 there; a
-/// companion sent away underground therefore lights its torch, which is the wanted
-/// behaviour, and one sent away across the surface at noon does too, which is the
-/// price and is small.
+/// The window follows the companion, not the camera: a companion sent into a cave while
+/// the player stands in daylight must read the cave. Off screen the lighting engine
+/// holds nothing, so every sample reads 0 there and a companion far away lights its
+/// torch wherever it is; underground that is the wanted behaviour, and on the surface
+/// at noon it is the price, and small.
 /// </summary>
 public sealed class LightSense
 {
@@ -25,7 +27,7 @@ public sealed class LightSense
     private const int ExcludeRadiusTiles = 10;
     private const int RefreshTicks = 10;
 
-    /// <summary>Mean brightness of the screen away from the companion, 0..1.</summary>
+    /// <summary>Mean brightness around the companion, away from its own glow, 0..1.</summary>
     public float Ambient { get; private set; } = 1f;
 
     /// <summary>Brightness at the player's tile, 0..1.</summary>
@@ -47,17 +49,15 @@ public sealed class LightSense
         AtCompanion = Brightness(c.X, c.Y);
         AtPlayer = Brightness(p.X, p.Y);
 
-        int left = (int)(Main.screenPosition.X / 16f);
-        int top = (int)(Main.screenPosition.Y / 16f);
-        int right = left + Main.screenWidth / 16;
-        int bottom = top + Main.screenHeight / 16;
+        int halfWidth = Main.screenWidth / 32;
+        int halfHeight = Main.screenHeight / 32;
         int excluded2 = ExcludeRadiusTiles * ExcludeRadiusTiles;
 
         float sum = 0f;
         int n = 0;
-        for (int x = left; x <= right; x += SampleStrideTiles)
+        for (int x = c.X - halfWidth; x <= c.X + halfWidth; x += SampleStrideTiles)
         {
-            for (int y = top; y <= bottom; y += SampleStrideTiles)
+            for (int y = c.Y - halfHeight; y <= c.Y + halfHeight; y += SampleStrideTiles)
             {
                 int dx = x - c.X, dy = y - c.Y;
                 if (dx * dx + dy * dy < excluded2)
@@ -66,7 +66,7 @@ public sealed class LightSense
                 n++;
             }
         }
-        Ambient = n > 0 ? sum / n : AtPlayer;
+        Ambient = n > 0 ? sum / n : AtCompanion;
     }
 
     private static float Brightness(int x, int y)

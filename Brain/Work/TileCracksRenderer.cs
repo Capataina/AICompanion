@@ -28,6 +28,7 @@ public class TileCracksRenderer : ModSystem
         Main.spriteBatch.Begin(SpriteSortMode.Deferred, BlendState.AlphaBlend, Main.DefaultSamplerState,
             DepthStencilState.None, Main.Rasterizer, null, transform);
         Main.instance.DrawTileCracks(1, companion.Chopper.HitTile);
+        Main.instance.DrawTileCracks(1, companion.Miner.HitTile);
         Main.spriteBatch.End();
     }
 }
