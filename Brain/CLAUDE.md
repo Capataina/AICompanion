@@ -7,7 +7,7 @@ Nothing here draws or touches health; that is `../Companion/`. The weapons are e
 ```
 Brain/
 ├─ CLAUDE.md
-├─ Brain.cs            the tick order below; holds one of each decision-matrix part and the last position request
+├─ Brain.cs            the tick order below; holds one of each decision-matrix part, the last position request, and the wall-clock each phase of the last tick cost, which the telemetry and the overlay read
 ├─ DecisionMatrix/     how a choice is made, independent of what the choices are
 │  ├─ Senses/          the world model and the derived numbers (danger, horizon, light); never decides
 │  ├─ Decision/        the chooser, the considerations, the weights, position requests

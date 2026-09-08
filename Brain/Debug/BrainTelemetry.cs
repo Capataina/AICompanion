@@ -211,7 +211,7 @@ public sealed class BrainTelemetry : ModSystem
             h.Append("\trequest\tanchor\tspot\tspot_score\tpath_steps\tpath_at\tnext_kind\tplan_failed\texpansions");
             h.Append("\tnpc_tile\tnpc_px\tnpc_vel\tground\twet\tcollide_x\tcollide_y\tdir\tlife\tbreath\tself_danger\theld\tweapon\tshot\ttorch\tambient");
             h.Append("\tplayer_tile\tplayer_intent\tplayer_dead\tplayer_attacking\tplayer_chopping\tplayer_mining");
-            h.Append("\tplan_ms\tflood_ms");
+            h.Append("\tplan_ms\tflood_ms\tsenses_ms\treflex_ms\tdecide_ms\tposition_ms\tnavigate_ms\tbrain_ms\tedge_cache");
             writer.WriteLine(h.ToString());
             headerWritten = true;
         }
@@ -278,6 +278,12 @@ public sealed class BrainTelemetry : ModSystem
         sb.Append('\t').Append(senses.Player.MinedOre != null ? 1 : 0);
         // The cost of the pose grid in the game, per tick: the last plan's and the last reach flood's wall-clock.
         sb.Append('\t').Append(brain.Navigator.LastPlanMs.ToString("0.00")).Append('\t').Append(brain.Positioner.LastFloodMs.ToString("0.00"));
+        // The two above are sticky (the last search's cost, repeated until the next); these six
+        // are this tick's, so a sum over a stretch of rows is the brain's real share of the wall.
+        sb.Append('\t').Append(brain.SensesMs.ToString("0.00")).Append('\t').Append(brain.ReflexMs.ToString("0.00"))
+          .Append('\t').Append(brain.DecideMs.ToString("0.00")).Append('\t').Append(brain.PositionMs.ToString("0.00"))
+          .Append('\t').Append(brain.NavigateMs.ToString("0.00")).Append('\t').Append(brain.TotalMs.ToString("0.00"))
+          .Append('\t').Append(DecisionMatrix.Navigation.AStar.CachedTiles);
 
         // A write that fails (disk full, a stream the OS closed) must not escape the NPC's AI
         // and take the companion with it; the record stops and the game goes on.
