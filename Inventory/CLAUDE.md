@@ -3,7 +3,7 @@
 ```
 Inventory/
 ├─ CLAUDE.md
-├─ CompanionInventory.cs  100 slots (twice the player's main inventory); Collect applies the quick-stack rule: a player stack with room first, then the bag, and rolls a hundred coins up into the next coin on both sides the way Player.DoCoins does; Sort merges stacks and orders items through the game's own sorting layers, without the game's glow; Save/Load through ItemIO
+├─ CompanionInventory.cs  100 slots (twice the player's main inventory); Collect applies the quick-stack rule: a player stack with room first, asked again after every merge because a coin conversion frees the slot, then the bag, and rolls a hundred coins up into the next coin on both sides the way Player.DoCoins does; Sort merges stacks and orders items through the game's own sorting layers, without the game's glow; Save/Load through ItemIO
 ├─ CompanionBagUI.cs      the panel: a bordered box with title and fill count, five rows of ten ItemSlot-backed slots in a viewport, a scrollbar for the rest, placed right of centre beside the open inventory; re-sorts after any interaction that leaves the cursor empty
 └─ CompanionBagSystem.cs  opens on right-click on the companion within 160 px (read in Players/CompanionPlayer.PreUpdate, so the click does not also use the held item), and opens the player's inventory with it; the notch click opens it from anywhere; closes on a second click or when the inventory closes, never on distance, because the bag is the companion's and not a chest in the world
 ```

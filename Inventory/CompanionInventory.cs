@@ -49,9 +49,14 @@ public sealed class CompanionInventory
     public bool Collect(Item item, Player player)
     {
         int before = item.stack;
-        int slot = FindPlayerStack(item, player);
-        if (slot >= 0)
+        // The player is asked again after every merge, because a merge can change what fits:
+        // a hundred copper rolled into a silver by DoCoins frees the purse slot, and the rest of
+        // the pile belongs there, not in the bag. Every pass moves at least one, so this ends.
+        while (item.stack > 0)
         {
+            int slot = FindPlayerStack(item, player);
+            if (slot < 0)
+                break;
             Item target = player.inventory[slot];
             if (target.IsAir)
             {
