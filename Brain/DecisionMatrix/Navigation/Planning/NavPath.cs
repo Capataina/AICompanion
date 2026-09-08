@@ -23,8 +23,11 @@ public enum MoveKind { Walk, Jump, Drop, FallThrough }
 /// lands on depends on which wall it hugs; zero when the move has no steer point.
 /// <paramref name="Ticks"/> is how long the move took when it was proven (a jump's flight, a
 /// fall's duration), which the follower's allowance and the executed-edge trace are read against.
+/// <paramref name="FromRest"/> marks a walk that was proven from rest and lands elsewhere at the
+/// walk speed (a ledge onto a narrow lip), so the step before it coasts to a stop the way it
+/// does before a descent; a drop, a fall-through and a standing jump start from rest by kind.
 /// </summary>
-public readonly record struct NavStep(Point Tile, MoveKind Kind, Point From = default, float JumpScale = 1f, float StartVx = 0f, float SteerX = 0f, int Ticks = 0);
+public readonly record struct NavStep(Point Tile, MoveKind Kind, Point From = default, float JumpScale = 1f, float StartVx = 0f, float SteerX = 0f, int Ticks = 0, bool FromRest = false);
 
 /// <summary>
 /// A planned route as feet tiles, first step first. Goal is the tile the search was asked

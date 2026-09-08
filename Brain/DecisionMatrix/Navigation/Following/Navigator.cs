@@ -126,7 +126,10 @@ public sealed class Navigator
         // A finished partial path is a failed plan that has been walked out: it waits like one.
         bool noPath = Path == null || (Path.Partial && Path.Finished);
         bool stuck = !noPath && stuckTicks > StuckReplanTicks;
-        bool stale = forceReplan || (noPath && !failedRecently) || (!noPath && (Path!.Finished || ticksSincePlan >= ReplanInterval || stuck));
+        // The cadence waits while the current step is part way through a move a fresh plan would
+        // undo (a jump's back-off and run-in); a stuck body and a moved goal do not wait.
+        bool midMove = !noPath && !Path!.Finished && For(Path.Current.Kind).MidMove;
+        bool stale = forceReplan || (noPath && !failedRecently) || (!noPath && (Path!.Finished || (ticksSincePlan >= ReplanInterval && !midMove) || stuck));
         // Plan only from the ground: an airborne body has no standable tile under it, and a
         // plan that failed for that reason blocked replanning for the retry wait, during which
         // straight walking hopped every kerb and put the body back in the air for the next try.
@@ -202,6 +205,9 @@ public sealed class Navigator
 
     private Traversal For(MoveKind kind) => traversals[(int)kind];
 
+    /// <summary>The step after the path's current one, or null at its end; a step's traversal reads it to arrive the way the next move starts.</summary>
+    private static NavStep? After(NavPath path) => path.Index + 1 < path.Steps.Count ? path.Steps[path.Index + 1] : null;
+
     /// <summary>
     /// One tick along the path: advance past every step its traversal says is done, then let the
     /// current step's traversal check and steer. A step that faults is priced, counted as a
@@ -211,7 +217,7 @@ public sealed class Navigator
     private Controls Follow(BodyState live)
     {
         NavPath path = Path!;
-        while (!path.Finished && For(path.Current.Kind).Done(live, path.Current))
+        while (!path.Finished && For(path.Current.Kind).Done(live, path.Current, After(path)))
         {
             if (onStep is NavStep done && done == path.Current)
                 Report(done, ticksOnStep, TraversalFault.None);
@@ -247,7 +253,8 @@ public sealed class Navigator
             forceReplan = true;
             return Controls.None;
         }
-        return traversal.Steer(live, step);
+        NavStep? next = After(path);
+        return traversal.Steer(live, step, next);
     }
 
     private void Report(NavStep step, int ticks, TraversalFault outcome)

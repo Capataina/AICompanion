@@ -1,5 +1,6 @@
 #nullable enable
 
+using System;
 using Microsoft.Xna.Framework;
 
 namespace AICompanion.Brain.DecisionMatrix.Navigation;
@@ -47,6 +48,20 @@ public static class NavGrid
 
     /// <summary>The support under feet at (x, y) is a platform: the body can drop through it on purpose.</summary>
     public static bool IsPlatformUnder(int x, int y) => World.Shape(x, y + 1) == TileShape.Platform;
+
+    /// <summary>
+    /// A platform lies under some part of a body standing in <paramref name="pose"/> with its
+    /// feet in <paramref name="feetRow"/>: the body is wider than a tile, so it stands on a
+    /// platform whose column is not the one its centre is in, at the end of a platform
+    /// staircase's tread, and pressing down there passes that platform all the same.
+    /// </summary>
+    public static bool IsPlatformUnder(BodyPhysics.Pose pose, int feetRow)
+    {
+        for (int c = (int)MathF.Floor(pose.Left / 16f); c <= (int)MathF.Floor((pose.Left + BodyPhysics.Width - 0.02f) / 16f); c++)
+            if (IsPlatformUnder(c, feetRow))
+                return true;
+        return false;
+    }
 
     /// <summary>
     /// Any liquid but lava in this tile. Liquid is walkable but slow: the game halves an NPC's

@@ -79,10 +79,10 @@ public static class BodyPhysics
     /// follower and the planner's jump simulation share this rule, which is what lets the planner
     /// promise a landing tile the follower then reaches.
     /// </summary>
-    public static float SteerToward(float targetX, float centreX, float vx)
+    public static float SteerToward(float targetX, float centreX, float vx, float tolerance = 2f)
     {
         float d = targetX - centreX;
-        if (MathF.Abs(d) <= 2f)
+        if (MathF.Abs(d) <= tolerance)
             return 0f;
         float stopping = vx * vx / (2f * Slowdown);
         if (MathF.Sign(d) == MathF.Sign(vx) && MathF.Abs(d) <= stopping)
@@ -172,13 +172,17 @@ public static class BodyPhysics
     private static readonly float[] Offsets = { 0f, -2f, 2f, -4f, 4f, -6f, 6f, -8f, 8f };
 
     /// <summary>Touching counts as fitting, the way the game's own pushes of 0.01 px leave a body resting against a face.</summary>
-    private const float Touch = 0.02f;
+    public const float Touch = 0.02f;
 
     /// <summary>
     /// Where the body stands with its feet in tile <paramref name="column"/>, <paramref name="row"/>,
     /// or null when nothing there holds it: the first sideways offset whose rectangle rests on a
     /// surface inside that feet row and overlaps no solid. A body on a slope rests partway down
-    /// the slope's own tile, which is why the feet row of a slope is the slope tile itself.
+    /// the slope's own tile, which is why the feet row of a slope is the slope tile itself. The
+    /// surface is looked for below the row's top edge only, because a platform whose top is that
+    /// edge passes through the body's shins in the game while a lower tread under the body's
+    /// other edge holds it, which is the body one step down a platform staircase; the highest
+    /// surface under the span would name that platform and refuse the tile.
     /// </summary>
     public static Pose? Stand(ITileWorld world, int column, int row)
     {
@@ -189,50 +193,13 @@ public static class BodyPhysics
         foreach (float off in Offsets)
         {
             float left = column * 16f + 8f + off - Width / 2f;
-            float? bottom = RestBottom(world, left, row);
+            float? bottom = RestBottom(world, left, row, row * 16f + 2f * Touch);
             if (bottom is not float b || FeetRow(b) != row)
                 continue;
             if (Fits(world, left, b))
                 return new Pose(left, b);
         }
         return null;
-    }
-
-    /// <summary>
-    /// The body can move from one standing pose to a neighbouring one along the straight line
-    /// between them: it fits at every few pixels of the way. Along a slope the line is the
-    /// slope's own surface, so a walk down a staircase of slopes passes under a ceiling slope
-    /// that a body held at the upper pose's height would hit; for a one-tile step the line is
-    /// the diagonal the step-up or step-down sweeps.
-    /// </summary>
-    public static bool CanSlide(ITileWorld world, Pose from, Pose to)
-    {
-        float dx = to.Left - from.Left, dy = to.Bottom - from.Bottom;
-        int steps = Math.Max(1, (int)MathF.Ceiling(MathF.Max(MathF.Abs(dx), MathF.Abs(dy)) / 4f));
-        int rowLo = FeetRow(MathF.Min(from.Bottom, to.Bottom)), rowHi = FeetRow(MathF.Max(from.Bottom, to.Bottom));
-        for (int i = 1; i < steps; i++)
-        {
-            float left = from.Left + dx * i / steps;
-            float bottom = from.Bottom + dy * i / steps;
-            // The body never sinks below the ground on the way: where the surface between the
-            // two poses is higher than the straight line (a slope steeper than the line, the
-            // lip of a step), it rides the surface. Where there is no surface under it at all
-            // it would be falling, and a walk is not a walk: two lip poses either side of a
-            // two-wide shaft each stand by a two-pixel overhang, and the line between them
-            // crosses the open shaft.
-            bool supported = false;
-            for (int row = rowLo; row <= rowHi; row++)
-            {
-                if (RestBottom(world, left, row) is not float surface)
-                    continue;
-                supported = true;
-                if (surface < bottom)
-                    bottom = surface;
-            }
-            if (!supported || !Fits(world, left, bottom))
-                return false;
-        }
-        return true;
     }
 
     /// <summary>The tile row a body with this bottom has its feet in: the row containing the last pixel above the bottom.</summary>

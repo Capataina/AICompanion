@@ -45,12 +45,34 @@ public abstract class Traversal
     /// <summary>The follower has started performing this step; run state for it begins here.</summary>
     public virtual void Begin(NavStep step) { }
 
-    /// <summary>The controls that perform this step from where the body is now.</summary>
-    public abstract Controls Steer(BodyState live, NavStep step);
+    /// <summary>The controls that perform this step from where the body is now; <paramref name="next"/> is the step after it, so a move can arrive the way the next one starts.</summary>
+    public abstract Controls Steer(BodyState live, NavStep step, NavStep? next);
 
-    /// <summary>The step is complete: standing within the slack of its feet point.</summary>
-    public virtual bool Done(BodyState live, NavStep step)
+    /// <summary>
+    /// The step is part way through a move that a fresh plan would undo: a jump backing away
+    /// to its runway mark or running in from it. The navigator's cadence replan waits while
+    /// this is true, because a plan made from the mark offered the mirror jump from the same
+    /// take-off, which the body moving away from it jumped at once, and the next plan sent it
+    /// back for the first, so the body circled between two jumps for eight thousand ticks with
+    /// no fault (the follow harness on run 7's platform cap, 2026-09-08). A stuck body and a
+    /// moved goal still replan, so a run-up that never ends is still a strike.
+    /// </summary>
+    public virtual bool MidMove => false;
+
+    /// <summary>A move the body makes from rest at its start tile: a descent, a standing jump, or a walk whose landing depends on arriving slowly. The walk before it coasts to rest on its point instead of arriving at speed.</summary>
+    public static bool StartsFromRest(NavStep step)
+        => step.Kind is MoveKind.Drop or MoveKind.FallThrough || (step.Kind == MoveKind.Jump && step.StartVx == 0f) || step.FromRest;
+
+    /// <summary>A standing body has settled: still enough that a move proven from rest begins as it was proven.</summary>
+    public const float RestSpeed = 0.6f;
+
+    /// <summary>The step is complete: standing within the slack of its feet point; <paramref name="next"/> is the step after it, because a step before a move proven from rest is complete only once the body is at rest.</summary>
+    public virtual bool Done(BodyState live, NavStep step, NavStep? next)
         => live.OnGround && Vector2.Distance(live.Feet, NavGrid.FeetWorld(step.Tile)) < ArriveSlack;
+
+    /// <summary>The body has settled enough for the next step to begin as it was proven: at rest where the next move starts from rest, anything otherwise.</summary>
+    protected static bool SettledFor(BodyState live, NavStep? next)
+        => next is not NavStep n || !StartsFromRest(n) || MathF.Abs(live.Vx) <= RestSpeed;
 
     /// <summary>Why the step cannot be completed, or None.</summary>
     public virtual TraversalFault Check(BodyState live, NavStep step, int ticksOnStep)
@@ -65,9 +87,9 @@ public abstract class Traversal
     /// <summary>How many ticks a step may take before it has failed: twice what was proven, plus a second of slack for the approach.</summary>
     protected virtual int Allowance(NavStep step) => Math.Max(90, step.Ticks * 2 + 60);
 
-    /// <summary>A body that has come to rest on a tile the step never promised, after having left the ground for it.</summary>
+    /// <summary>A body that has come to rest covering neither the step's tile nor the one it left, after having left the ground for it.</summary>
     protected static bool LandedElsewhere(BodyState live, NavStep step)
-        => live.OnGround && live.FeetTile != step.Tile && live.FeetTile != step.From;
+        => live.OnGround && !live.Covers(step.Tile) && !live.Covers(step.From);
 
     /// <summary>A fresh set of every traversal, one instance each, for a follower to own its run state.</summary>
     public static Traversal[] Fresh() => new Traversal[] { new WalkTraversal(), new JumpTraversal(), new DropTraversal(), new FallThroughTraversal() };

@@ -98,14 +98,19 @@ public sealed class CompanionMotor
     /// the body over a one-tile rise ahead of it and StepDown keeps its feet on a one-tile fall,
     /// so neither ever registers as a wall. Custom-AI NPCs get none of this unless they call it,
     /// which is why the companion used to jump at every kerb. Called once per tick after the
-    /// brain has set the velocity, in the same place the fighter AI calls it.
+    /// brain has set the velocity, in the same place the fighter AI calls it. StepUp's
+    /// holdsMatching is true, which is the player's "holding up": the body steps onto a platform
+    /// at its knee as a player climbing a platform staircase does, which is the rule the
+    /// planner's walk proof drives the body with (BodyMotion.PlatformStepUp); a fighter passes
+    /// false and walks through the platform, which left the companion unable to make a walk
+    /// the plan had proven.
     /// </summary>
     public void ApplySteps()
     {
         if (npc.velocity.Y == 0f)
             Collision.StepDown(ref npc.position, ref npc.velocity, npc.width, npc.height, ref npc.stepSpeed, ref npc.gfxOffY);
         if (npc.velocity.Y >= 0f)
-            Collision.StepUp(ref npc.position, ref npc.velocity, npc.width, npc.height, ref npc.stepSpeed, ref npc.gfxOffY, 1, false, 1);
+            Collision.StepUp(ref npc.position, ref npc.velocity, npc.width, npc.height, ref npc.stepSpeed, ref npc.gfxOffY, 1, true, 1);
     }
 
     /// <summary>Vertical offset of a jump from standing after so many ticks (negative is up).</summary>

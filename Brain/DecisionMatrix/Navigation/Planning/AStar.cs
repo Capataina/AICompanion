@@ -239,12 +239,12 @@ public static class AStar
     /// How far sideways a tile's scans read, summed from the scan itself so the box cannot fall
     /// behind it: the drop starts in the neighbouring column, the open span reaches
     /// <see cref="NavGrid.OpenSpanReach"/> columns past that and the body is put against its far
-    /// wall, the fall drifts <see cref="DropTraversal.DriftPerRow"/> pixels a row for up to
-    /// <see cref="NavGrid.MaxDropTiles"/> rows, and the shape tests around the landing read the
-    /// body's width, which spans two columns. The Codex review of 87e8d20 found a support
+    /// wall, the simulated fall steers at the walk speed for as many ticks as the deepest drop
+    /// (<see cref="NavGrid.MaxDropTiles"/> rows) takes, and the shape tests around the landing read
+    /// the body's width, which spans two columns. The Codex review of 87e8d20 found a support
     /// nineteen columns out changing an edge the hand-set sixteen kept.
     /// </summary>
-    public const int EdgeReachX = 1 + NavGrid.OpenSpanReach + (NavGrid.MaxDropTiles * (int)DropTraversal.DriftPerRow + 15) / 16 + 2;
+    public static readonly int EdgeReachX = 1 + NavGrid.OpenSpanReach + (int)Math.Ceiling(Traversal.FallTicks(NavGrid.MaxDropTiles) * BodyPhysics.WalkSpeed / 16f) + 2;
 
     /// <summary>
     /// A tile at (<paramref name="x"/>, <paramref name="y"/>) is no longer what it was: drop the

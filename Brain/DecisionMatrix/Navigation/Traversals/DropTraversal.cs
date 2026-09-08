@@ -7,147 +7,183 @@ using Microsoft.Xna.Framework;
 namespace AICompanion.Brain.DecisionMatrix.Navigation;
 
 /// <summary>
-/// A drop off a lip: the body lowered down the open span beside it, against either wall or down
-/// the middle, to the first surface that holds it, each distinct landing its own edge carrying
-/// the line the body fell along. Performing it is steering to that line at reduced speed and
-/// letting gravity work. The landing is found by lowering the body a row at a time with a fixed
-/// drift toward the wall it hugs, which is the analytical scan the planner has used since run 5
-/// (2026-09-08); the traversal work replaces it with the body's own tick rule so the line the
-/// step carries is the one the follower steers to from the lip and not the one the body ended
-/// on after drifting, which is the parked fall-through of run 7 (AIC-180).
+/// A drop off a lip: the body walks to a line in the open span beside the lip (against either
+/// wall or down the middle, because in a shaft wider than the body what it lands on depends on
+/// which wall it hugs), falls, and comes to rest on the first surface that holds it. The edge
+/// is proven by driving the body's own tick rule with the descent's steering from the lip's
+/// pose until it lands, and performing it is the same steering from wherever the body is, so
+/// the line the step carries is the line the body steers to from the lip and the landing is
+/// wherever that line took the simulated body. The row-by-row lowering scan with a fixed drift
+/// that proved drops before this (run 5 to run 7, 2026-09-08) carried the X the body had drifted
+/// to by the landing as the line to steer to at the top, which parked the run-7 body four pixels
+/// onto the block beside its platform and pressing down (AIC-180), and mislanded every diagonal
+/// drop in the follow harness's first baseline.
 /// </summary>
 public sealed class DropTraversal : Traversal
 {
     public override MoveKind Kind => MoveKind.Drop;
 
-    /// <summary>
-    /// A falling body pressed toward a wall moves this far sideways per row of fall, at most:
-    /// under NPC gravity the body clears a row in a couple of ticks near its top speed and in
-    /// many at the start, and the motor moves it a few pixels a tick, so this is the fast end.
-    /// </summary>
-    public const float DriftPerRow = 6f;
-
     public override IEnumerable<NavEdge> Candidates(Point t, BodyPhysics.Pose? here, bool lava)
     {
+        if (here is not BodyPhysics.Pose pose)
+            yield break;
         foreach (int dir in new[] { -1, 1 })
         {
             int nx = t.X + dir;
-            // Edge: step off the lip and fall to the first surface that holds the body where the
-            // follower steers it. The body is put there and asked what it rests on, row by row,
-            // rather than the grid being asked whether a tile is standable: a tile is standable by
-            // a two-pixel overhang, which the body in the open span is not on, and a platform one
-            // row down is not a block, which is how a real support one row down was scanned past
-            // and a drop offered that the body at the lip never made (run 5, 2026-09-08). A rest
-            // one row down is the walk step-down's job and yields no edge; two or more rows is the
-            // drop. The column beside the lip must be open underneath as well as clear: a platform
-            // there is a floor the body walks onto and stands on, and the way down through it is
-            // the fall-through edge from that tile, never a drop from this one (run 6, 2026-09-08).
+            // The column beside the lip must be clear for the body and open underneath: a support
+            // one row down is the walk step-down's job, and a platform there is a floor the body
+            // walks onto, whose way down is the fall-through edge from that tile (run 6, 2026-09-08).
             if (!NavGrid.IsBodyClear(nx, t.Y) || NavGrid.IsSupport(nx, t.Y + 1))
                 continue;
-            foreach ((Point drop, int fall, float steerX) in Landings(nx, t.Y, throughPlatform: false, lava))
-                if (fall >= 2)
-                    yield return new NavEdge(new NavStep(drop, MoveKind.Drop, t, SteerX: steerX, Ticks: FallTicks(fall)), 1f + fall * 0.2f, fall, true);
+            foreach (NavEdge edge in Descents(t, pose, nx, throughPlatform: false, lava, MoveKind.Drop))
+                yield return edge;
         }
     }
 
     /// <summary>
-    /// Every place a body stepping off the lip of feet tile (<paramref name="column"/>, <paramref name="feetRow"/>)
-    /// can come to rest, each with how many rows it fell and the X its centre fell along. The
-    /// open span beside the lip is wider than the body in most shafts, and what the body lands on
-    /// depends on where in it the body falls: hugging one wall it rests on a lip that the other
-    /// wall's side falls past, which is how a zigzag shaft is descended a lip at a time. So the
-    /// body is dropped against the span's left wall, down its middle and against its right wall,
-    /// and each distinct landing is an edge whose step tells the follower where to steer. Nothing
-    /// is yielded for a way down the body cannot pass or a fall past the limit.
+    /// Every place the body comes to rest when it descends from <paramref name="t"/> through the
+    /// open span around <paramref name="column"/>: the span's middle and its two walls are the
+    /// lines tried, and for a fall-through the place the body already stands as well, because
+    /// a platform staircase is descended by pressing down where the tread ends, with the body
+    /// hanging over the next tread, and no line in the span puts it there. Each line is
+    /// simulated with <see cref="DescentControls"/> over the body's tick rule, and each distinct
+    /// landing is an edge carrying its line, its fall and its ticks.
     /// </summary>
-    internal static IEnumerable<(Point tile, int fall, float steerX)> Landings(int column, int feetRow, bool throughPlatform, bool lava)
+    internal static IEnumerable<NavEdge> Descents(Point t, BodyPhysics.Pose pose, int column, bool throughPlatform, bool lava, MoveKind kind)
     {
-        (int spanLeft, int spanRight) = NavGrid.OpenSpan(column, feetRow, throughPlatform);
-        float hugLeft = spanLeft * 16f + 1f;
-        float hugRight = (spanRight + 1) * 16f - BodyPhysics.Width - 1f;
-        float centre = (spanLeft * 16f + (spanRight + 1) * 16f) / 2f - BodyPhysics.Width / 2f;
+        (int spanLeft, int spanRight) = NavGrid.OpenSpan(column, t.Y, throughPlatform);
+        // A hugged wall is held a few pixels off, wider than the ground steering's tolerance, so
+        // the body can never come to rest with an edge still on the lip it is leaving.
+        float hugLeft = spanLeft * 16f + WallGap + BodyPhysics.Width / 2f;
+        float hugRight = (spanRight + 1) * 16f - WallGap - BodyPhysics.Width / 2f;
+        float centre = (spanLeft * 16f + (spanRight + 1) * 16f) / 2f;
         var seen = new HashSet<Point>();
-        foreach ((float left, int drift) in new[] { (centre, 0), (hugLeft, -1), (hugRight, 1) })
+        IEnumerable<float> lines = throughPlatform ? new[] { pose.CentreX, centre, hugLeft, hugRight } : new[] { centre, hugLeft, hugRight };
+        foreach (float line in lines)
         {
-            if (Landing(left, feetRow, drift, lava) is (Point tile, int fall, float restLeft) && seen.Add(tile))
-                yield return (tile, fall, restLeft + BodyPhysics.Width / 2f);
+            if (Simulate(pose, line, throughPlatform, lava, t.Y, out Point landing, out int ticks, out int fall) && seen.Add(landing))
+                yield return new NavEdge(new NavStep(landing, kind, t, SteerX: line, Ticks: ticks), 1f + fall * 0.2f, fall, true);
         }
     }
 
+    /// <summary>The longest descent followed: the deepest drop's fall plus the walk to the line.</summary>
+    private static readonly int MaxTicks = FallTicks(NavGrid.MaxDropTiles) + 120;
+
     /// <summary>
-    /// Where a body whose left edge is <paramref name="left"/>, feet in <paramref name="feetRow"/>,
-    /// comes to rest when lowered a row at a time, how many rows it fell and where its left edge
-    /// ended up: the first row whose surface holds it there is the landing, a row it does not fit
-    /// in is a ceiling it cannot pass, and null is either of those failing inside the drop limit.
-    /// With <paramref name="drift"/> set the body presses that way as it falls, sliding across each
-    /// row as far as it fits, which is how it follows a shaft's wall into a wider segment and rests
-    /// on a lip the wall above stood over. The landing must also be a node with lava as the
-    /// caller allows it, so the path can continue from it.
+    /// The body driven from <paramref name="pose"/> toward <paramref name="line"/> until it has
+    /// left the ground and come to rest again: the landing is a node it is filed under (the
+    /// column of its centre when that is a node, else either column it covers, because a body
+    /// two pixels over a lip rests on the lip's tile and stands there in the game whichever
+    /// column its centre is in), and the fall is in rows from the lip. A rest less than two
+    /// rows down before any press is a step or a hop on the way to the line, not the descent,
+    /// and the body walks on; once it has pressed through its platform, the first rest below is
+    /// the landing however shallow, because the next tread of a staircase is one row down. A
+    /// body that cannot reach its line (a wall on the way), presses on a platform something
+    /// else holds it above, gets stuck in a shape, or falls past the limit proves nothing.
     /// </summary>
-    private static (Point, int, float)? Landing(float left, int feetRow, int drift, bool lava)
+    private static bool Simulate(BodyPhysics.Pose pose, float line, bool throughPlatform, bool lava, int lipRow, out Point landing, out int ticks, out int fall)
     {
         ITileWorld world = NavGrid.World;
-        if (!BodyPhysics.Fits(world, left, (feetRow + 1) * 16f))
-            return null;
-        for (int dy = 1; dy <= NavGrid.MaxDropTiles; dy++)
+        BodyState state = BodyState.Standing(pose);
+        bool airborne = false, pressed = false;
+        float giveUpBelow = (lipRow + NavGrid.MaxDropTiles + 2) * 16f;
+        landing = default;
+        fall = 0;
+        for (ticks = 1; ticks <= MaxTicks; ticks++)
         {
-            int row = feetRow + dy;
-            float floor = (row + 1) * 16f;
-            if (drift != 0)
+            Controls controls = DescentControls(line, state, throughPlatform);
+            float before = state.Bottom;
+            state = BodyMotion.Step(world, state, controls);
+            if (state.Stuck || state.Bottom > giveUpBelow)
+                return false;
+            if (state.OnGround && state.CollideX)
+                return false;
+            if (controls.FallThrough && state.OnGround && state.Bottom <= before)
+                return false;
+            pressed |= controls.FallThrough;
+            airborne |= Falling(state) || (pressed && !state.OnGround);
+            if (!airborne || !state.OnGround)
+                continue;
+            fall = state.FeetTile.Y - lipRow;
+            if (fall < (pressed ? 1 : 2))
             {
-                for (float slid = left + drift * DriftPerRow; drift * (slid - left) > 0f; slid -= drift * 2f)
-                {
-                    if (BodyPhysics.Fits(world, slid, floor))
-                    {
-                        left = slid;
-                        break;
-                    }
-                }
+                airborne = false;
+                continue;
             }
-            if (BodyPhysics.RestBottom(world, left, row) is float rest && BodyPhysics.FeetRow(rest) == row && BodyPhysics.Fits(world, left, rest))
+            int row = state.FeetTile.Y;
+            foreach (int node in new[] { state.FeetTile.X, state.LeftColumn, state.RightColumn })
             {
-                // The node the resting body is filed under: the column of its centre when that
-                // tile is a node, else either column it covers, because a body two pixels over a
-                // lip rests on the lip's tile and stands there in the game whichever column its
-                // centre is in.
-                int centreColumn = (int)Math.Floor((left + BodyPhysics.Width / 2f) / 16f);
-                int leftColumn = (int)Math.Floor(left / 16f), rightColumn = (int)Math.Floor((left + BodyPhysics.Width - 0.02f) / 16f);
-                foreach (int node in new[] { centreColumn, leftColumn, rightColumn })
-                    if (NavGrid.StandAt(node, row, lava) != null)
-                        return (new Point(node, row), dy, left);
-                return null;
+                if (NavGrid.StandAt(node, row, lava) == null)
+                    continue;
+                landing = new Point(node, row);
+                return true;
             }
-            if (!BodyPhysics.Fits(world, left, floor))
-                return null;
+            return false;
         }
-        return null;
+        return false;
     }
 
-    /// <summary>The X a descending step falls along: the plan's own steer point, or the middle of the opening for a path made without one.</summary>
-    internal static float SteerX(NavStep step, BodyState live, bool throughPlatform)
-        => step.SteerX > 0f ? step.SteerX : NavGrid.OpenSpanCentreX(step.Tile.X, live.FeetTile.Y, throughPlatform);
+    /// <summary>
+    /// The descent's steering, used identically to prove and to perform it: the in-air steering
+    /// rule toward the line (full speed, then coasting inside the stopping distance) on the
+    /// ground and in the air alike, and for a fall-through the press on the platform only once
+    /// the body is on the line and still on the platform, so a stack of platforms is descended
+    /// one edge at a time and a body pressing before it is on the line does not land beside it.
+    /// </summary>
+    internal static Controls DescentControls(float line, BodyState live, bool throughPlatform)
+    {
+        // On the ground the body creeps to within half a pixel of the line, because the in-air
+        // tolerance of two pixels is wider than the overhang that keeps a body standing on a lip.
+        float steer = BodyPhysics.SteerToward(line, live.CentreX, live.Vx, live.OnGround ? GroundTolerance : 2f);
+        bool press = throughPlatform && live.OnGround && MathF.Abs(line - live.CentreX) <= GroundTolerance;
+        return new Controls(steer, FallThrough: press);
+    }
+
+    /// <summary>How close to its line a standing body gets before the descent counts it there.</summary>
+    private const float GroundTolerance = 0.5f;
+
+    /// <summary>How far off a hugged wall the body's edge is held; more than the ground tolerance, so a lip is always left.</summary>
+    private const float WallGap = 3f;
+
+    /// <summary>
+    /// The body has left the ground for real: falling faster than a kerb hop ever falls. A body
+    /// walking down a slope leaves the ground for a few ticks at a time under the game's own
+    /// step-down window, and a descent must not read that as its fall.
+    /// </summary>
+    internal static bool Falling(BodyState live) => !live.OnGround && live.Vy > HopFallSpeed;
+
+    /// <summary>The fastest a body falls closing a gap the game's StepDown leaves to gravity (seven pixels, seven ticks).</summary>
+    private const float HopFallSpeed = 2.4f;
 
     private bool airborne;
-    private int lastDir = 1;
 
     public override void Begin(NavStep step) => airborne = false;
 
-    public override Controls Steer(BodyState live, NavStep step)
+    public override Controls Steer(BodyState live, NavStep step, NavStep? next)
     {
-        airborne |= !live.OnGround;
-        // Steer to the line the planner dropped the body along (a wall of the shaft or its
-        // middle, whichever lands on this step's tile), not the tile: centred on one column
-        // of a two-wide shaft the body still overhangs the lip and never falls, and centred
-        // in a three-wide one it falls past the lip that only a wall-hugging body lands on.
-        float gap = SteerX(step, live, throughPlatform: false) - live.CentreX;
-        int toGap = MathF.Sign(gap) == 0 ? lastDir : MathF.Sign(gap);
-        lastDir = toGap;
-        return new Controls(live.OnGround || MathF.Abs(gap) > 2f ? toGap * BodyPhysics.WalkSpeed * 0.8f : 0f);
+        airborne |= Falling(live);
+        return Perform(step, live, throughPlatform: false);
     }
 
+    /// <summary>Landed: standing in the promised row with the promised column under the body, where the descent filed it.</summary>
+    public override bool Done(BodyState live, NavStep step, NavStep? next) => live.Covers(step.Tile);
+
+    /// <summary>
+    /// The descent as performed: a standing body still moving faster than rest brakes first,
+    /// because the edge was proven from rest and a lip left at speed lands elsewhere; from rest,
+    /// and in the air, the proving controls.
+    /// </summary>
+    internal static Controls Perform(NavStep step, BodyState live, bool throughPlatform)
+        => live.OnGround && MathF.Abs(live.Vx) > RestSpeed ? Controls.None : DescentControls(step.SteerX, live, throughPlatform);
+
+    /// <summary>
+    /// Mislanded: come to rest off the promised tile two or more rows below the lip, which is the
+    /// rest the proof would have taken as the landing; a shallower rest on the way (a slope's
+    /// point beside the lip) is one the proof walked on from, and the performer walks on too.
+    /// </summary>
     public override TraversalFault Check(BodyState live, NavStep step, int ticksOnStep)
     {
-        if (airborne && LandedElsewhere(live, step))
+        if (airborne && LandedElsewhere(live, step) && live.FeetTile.Y - step.From.Y >= 2)
             return TraversalFault.Misland;
         return base.Check(live, step, ticksOnStep);
     }

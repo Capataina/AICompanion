@@ -39,7 +39,7 @@ public static class ScenarioCapture
     private static long lastDodgeTick = long.MinValue;
     private static string? lastDodge;
     private static Vector2 lastPosition;
-    private static long followCooldown, stuckCooldown, dodgeCooldown, modeCooldown;
+    private static long followCooldown, stuckCooldown, dodgeCooldown, modeCooldown, faultCooldown;
 
     /// <summary>Forget everything: a new session, a new world, a new companion.</summary>
     public static void Reset()
@@ -48,7 +48,7 @@ public static class ScenarioCapture
         lastLife = -1;
         lastDodgeTick = long.MinValue;
         lastDodge = null;
-        followCooldown = stuckCooldown = dodgeCooldown = modeCooldown = 0;
+        followCooldown = stuckCooldown = dodgeCooldown = modeCooldown = faultCooldown = 0;
     }
 
     public static void Watch(CompanionNPC companion)
@@ -77,6 +77,16 @@ public static class ScenarioCapture
                 BrainTelemetry.DumpScenario(feet, playerFeet, $"follow failure, more than {FollowGapTiles} tiles behind for {FollowGapTicks} ticks and no nearer");
             }
             followBehind = 0;
+        }
+
+        // A step the follower could not complete, named by its traversal: which move, from where
+        // to where, and why (stood past its allowance, landed elsewhere, pressed a shape, lost
+        // inside a shape). This is the follow class's own detector; the stuck count below is
+        // the backstop for a body that stands with no step faulting.
+        if (brain.Navigator.LastFault != TraversalFault.None && tick >= faultCooldown && brain.Navigator.LastEdge is EdgeReport fault)
+        {
+            faultCooldown = tick + CooldownTicks;
+            BrainTelemetry.DumpScenario(feet, goal, $"traversal fault, {fault.Outcome} on {fault.Kind} {fault.From.X},{fault.From.Y} -> {fault.Tile.X},{fault.Tile.Y} after {fault.Actual} ticks, proven {fault.Expected}");
         }
 
         // Stuck: a path to follow and a body that has not moved, counted here across replans.

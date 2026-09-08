@@ -35,6 +35,19 @@ public readonly record struct BodyState(float Left, float Bottom, float Vx, floa
     /// <summary>The tile the feet are in: the column of the centre, the row of the last pixel above the bottom.</summary>
     public Point FeetTile => new((int)MathF.Floor(CentreX / 16f), BodyPhysics.FeetRow(Bottom));
 
+    /// <summary>The first and last tile columns the body's width covers; wider than a tile, it always covers two.</summary>
+    public int LeftColumn => (int)MathF.Floor(Left / 16f);
+    public int RightColumn => (int)MathF.Floor((Left + BodyPhysics.Width - 0.02f) / 16f);
+
+    /// <summary>
+    /// The body stands with its feet in <paramref name="tile"/>'s row and that column under
+    /// some part of its width: the test for having arrived where a simulated landing was filed,
+    /// because a landing is filed under a column the body covers and not only the one its
+    /// centre is in, and a performer that measured to that column's centre pressed or walked on
+    /// from a landing it had already made.
+    /// </summary>
+    public bool Covers(Point tile) => OnGround && FeetTile.Y == tile.Y && tile.X >= LeftColumn && tile.X <= RightColumn;
+
     public BodyPhysics.Pose Pose => new(Left, Bottom);
 
     /// <summary>A body standing still in a pose, the state every simulated move starts from.</summary>

@@ -212,6 +212,7 @@ public sealed class BrainTelemetry : ModSystem
             h.Append("\tnpc_tile\tnpc_px\tnpc_vel\tground\twet\tcollide_x\tcollide_y\tdir\tlife\tbreath\tself_danger\theld\tweapon\tshot\ttorch\tambient");
             h.Append("\tplayer_tile\tplayer_intent\tplayer_dead\tplayer_attacking\tplayer_chopping\tplayer_mining");
             h.Append("\tplan_ms\tflood_ms\tsenses_ms\treflex_ms\tdecide_ms\tposition_ms\tnavigate_ms\tbrain_ms\tedge_cache\tstranded");
+            h.Append("\tedge_n\tedge_kind\tedge_from\tedge_to\tedge_proven\tedge_took\tedge_outcome");
             writer.WriteLine(h.ToString());
             headerWritten = true;
         }
@@ -286,6 +287,17 @@ public sealed class BrainTelemetry : ModSystem
           .Append('\t').Append(DecisionMatrix.Navigation.AStar.CachedTiles)
           // Ticks sealed off from the player; a roam is a wander row while this stays above zero.
           .Append('\t').Append(brain.StrandedTicks);
+        // The last step the follower finished or faulted, sticky until the next: the move, the
+        // ticks it was proven to take against the ticks it took, and how it ended. Read against
+        // the replay's --follow on the same block, this is where the body model and the game's
+        // engine disagree per kind of move; the count column says when a new one has landed.
+        if (brain.Navigator.LastEdge is DecisionMatrix.Navigation.EdgeReport edge)
+            sb.Append('\t').Append(brain.Navigator.EdgeCount).Append('\t').Append(edge.Kind)
+              .Append('\t').Append(edge.From.X).Append(',').Append(edge.From.Y)
+              .Append('\t').Append(edge.Tile.X).Append(',').Append(edge.Tile.Y)
+              .Append('\t').Append(edge.Expected).Append('\t').Append(edge.Actual).Append('\t').Append(edge.Outcome);
+        else
+            sb.Append("\t0\t-\t-\t-\t0\t0\t-");
 
         // A write that fails (disk full, a stream the OS closed) must not escape the NPC's AI
         // and take the companion with it; the record stops and the game goes on.

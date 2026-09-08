@@ -56,8 +56,8 @@ AICompanion/
 ├─ Players/                  the ModPlayer: persistence and input
 ├─ Commands/                 /companion
 ├─ Localization/             en-US strings (display name, keybind)
-├─ Tools/                    console tools that are not mod code: excluded from the mod's compile and from the .tmod
-│  ├─ NavReplay/             runs the real planner on a plan dump or scenario file with no game running, and draws the answer
+├─ Tools/                    console tools that are not mod code: excluded from the mod's compile and from the .tmod; check-navigation-boundary.sh keeps the navigation core free of game types
+│  ├─ NavReplay/             runs the real planner on a plan dump or scenario file with no game running, walks the plan with the real navigator, and draws the answer
 │  ├─ WorldWindow/           rewrites a plan dump's tiles with the slope and half-block shapes from the saved world file
 │  └─ Scenarios/             the committed database of places the companion must be able to reach, one block per case
 └─ Telemetry/                written by the mod at run time, one .tsv per world session plus a -plans.txt of tile windows for failed plans and detected scenarios (a follow failure, a stuck run, a hit through a dodge, a missed mode), each with the player's trail; ignored by git and the packager, read by an agent after a playtest
@@ -84,6 +84,11 @@ dotnet run --project Tools/NavReplay -- Tools/Scenarios
 dotnet run --project Tools/NavReplay -- --trace-jump <scenario.txt>   # the simulated jump S→G, tick by tick
 dotnet run --project Tools/NavReplay -- --no-cache Tools/Scenarios      # every edge simulated afresh; must read the same verdicts as with the cache
 dotnet run --project Tools/NavReplay -- --churn Tools/Scenarios         # breaks every tile under a found path in turn; the warm cache's plan must equal a cold one's (0 stale plans)
+dotnet run --project Tools/NavReplay -- --follow Tools/Scenarios        # the real navigator walks each found plan over the simulated body; every edge and its outcome, the state tick by tick at the first fault
+dotnet run --project Tools/NavReplay -- --edges X,Y <scenario.txt>      # every edge each traversal offers from that tile, with the profile, line and ticks each carries
+dotnet run --project Tools/NavReplay -- --trace-walk X,Y,DIR <scenario.txt>   # the walk proof from that tile that way, tick by tick
+dotnet run --project Tools/NavReplay -- --follow-ticks A,B <scenario.txt>     # --follow with every tick from A to B printed, for a stall that never faults
+sh Tools/check-navigation-boundary.sh                                    # no code line under Navigation/ names the game outside World/GameTileWorld.cs; exit 0 is the pass
 ```
 
 Every block is one scenario; the tool prints PASS, FAIL or SEALED for the recorded start-to-goal plan, a second line saying whether the player's feet were reachable when they are in the window, a third saying whether the goal and the player lie inside the region the positioner's own flood reaches from the start (a goal "out" of a "complete" region is then classed by whether the flood ever read past the window's edge: SEALED START is a pocket the world closes, which is a rescue's job and not the planner's; SEALED GOAL is a spot the positioner must not offer; both clipped is undecidable as cut and wants `--pad`; a sealed block is its own count and does not fail the run), a fourth naming the first tile of the player's trail the grid refuses when the block carries one (read with the player's own mobility in mind: Caner plays with a double jump, by his own note on 2026-09-08, so a trail tile the body could never jump to is his accessory and not a planner defect), and the map with the path (`w j d f`) or, on a failure, every tile the search closed (`c`) so "no path" reads as "it got this far". Exit 0 only when everything passed and nothing was skipped; a recorded goal the window does not hold is skipped as untestable, never replayed to the player's tile instead. A dump written before the mod knew about slopes draws them as walls; rewrite it from the saved world first, which needs the `lihzahrd` parser in a venv (`python3 -m venv /tmp/wldenv && /tmp/wldenv/bin/pip install lihzahrd`):

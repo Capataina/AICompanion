@@ -49,6 +49,12 @@ public sealed class JumpTraversal : Traversal
                 // that does is the edge.
                 foreach ((float scale, float startVx) in JumpProfiles(rise, Math.Sign(dx)))
                 {
+                    // A running start exists only where the floor behind the take-off is long
+                    // enough to build it: the follow harness (2026-09-08) found sixteen blocks
+                    // proving a walk-speed jump off a slope at the bottom of a pool with rock
+                    // behind it, which the body could only make moving the wrong way.
+                    if (startVx != 0f && RunwayPixels(t, -Math.Sign(dx)) < RunwayNeeded(MathF.Abs(startVx) - SpeedSlack))
+                        continue;
                     if (BodyPhysics.SimulateJump(NavGrid.World, fromPose, scale, startVx, nx, ny, MaxJumpTicks, out int flight) is not BodyPhysics.Pose landing)
                         continue;
                     var landed = new Point((int)Math.Floor(landing.CentreX / 16f), BodyPhysics.FeetRow(landing.Bottom));
@@ -109,24 +115,39 @@ public sealed class JumpTraversal : Traversal
     private bool backingOff;
     private bool ranUp;
     private bool jumped;
+    private bool fell;
+
+    /// <summary>Backing away to the runway mark, or running in from it and not yet in the air.</summary>
+    public override bool MidMove => backingOff || (ranUp && !jumped);
 
     public override void Begin(NavStep step)
     {
-        // The state belongs to the edge, not the path index: a replan resets the index, and a new
-        // path with a jump at the same index would otherwise inherit another jump's run-up.
+        // Each attempt at the step starts with the jump not yet made; an airborne body sets it
+        // again on its first steer, so a replan that returns the edge mid-flight loses nothing.
+        jumped = false;
+        fell = false;
+        // The run-up state belongs to the edge, not the path index: a replan resets the index,
+        // and a new path with a jump at the same index would otherwise inherit another jump's run-up.
         if ((step.From, step.Tile) == runUpEdge)
             return;
         runUpEdge = (step.From, step.Tile);
         backingOff = false;
         ranUp = false;
-        jumped = false;
     }
 
-    public override Controls Steer(BodyState live, NavStep step)
+    public override Controls Steer(BodyState live, NavStep step, NavStep? next)
     {
         Vector2 landing = NavGrid.FeetWorld(step.Tile);
         if (!live.OnGround)
+        {
+            // A rising body has jumped; a falling one may only have stepped off a kerb, unless
+            // it falls faster than a kerb hop ever does, which is a body that left its take-off
+            // without jumping and is judged where it lands like a body that jumped.
+            if (live.Vy < 0f)
+                jumped = true;
+            fell |= DropTraversal.Falling(live);
             return new Controls(BodyPhysics.SteerToward(landing.X, live.CentreX, live.Vx));
+        }
 
         Vector2 takeoff = NavGrid.FeetWorld(step.From);
         float need = step.StartVx;
@@ -136,14 +157,14 @@ public sealed class JumpTraversal : Traversal
             // A standing jump: be on the take-off, still, then jump. The first tick of the jump
             // steers as the simulation's first tick did.
             float off = takeoff.X - live.CentreX;
-            if (MathF.Abs(off) <= 6f && MathF.Abs(vx) < 0.6f)
+            if (MathF.Abs(off) <= 6f && MathF.Abs(vx) < RestSpeed)
                 return Jump(step, landing, live);
             return new Controls(BodyPhysics.SteerToward(takeoff.X, live.CentreX, vx));
         }
 
         int jd = MathF.Sign(need);
         float along = (live.CentreX - takeoff.X) * jd; // positive once past the take-off toward the landing
-        bool fastEnough = vx * jd >= MathF.Abs(need) - 0.4f;
+        bool fastEnough = vx * jd >= MathF.Abs(need) - SpeedSlack;
         float runway = Runway(step, jd);
         float mark = takeoff.X - jd * runway;
         if (backingOff)
@@ -151,7 +172,7 @@ public sealed class JumpTraversal : Traversal
             // Coast onto the runway mark with the jump's own steering rule rather than walking
             // through it: a reversal from the walk speed takes about two tiles to stop, and when
             // the runway is capped by the floor the mark is the last standable tile behind.
-            if (MathF.Abs(live.CentreX - mark) <= 6f && MathF.Abs(vx) < 0.6f)
+            if (MathF.Abs(live.CentreX - mark) <= 6f && MathF.Abs(vx) < RestSpeed)
             {
                 backingOff = false;
                 ranUp = true;
@@ -185,9 +206,18 @@ public sealed class JumpTraversal : Traversal
         return new Controls(BodyPhysics.SteerToward(landing.X, live.CentreX, live.Vx), Jump: true, JumpScale: step.JumpScale);
     }
 
+    /// <summary>
+    /// Landed: standing within the slack of the landing's feet point, or covering the landing
+    /// tile, because a jump is one flight and a body that has come down with the tile under it
+    /// is where the flight ends; the next step's steering absorbs the rest. A body judged
+    /// neither landed nor mislanded walked back to its take-off and flew again for ever.
+    /// </summary>
+    public override bool Done(BodyState live, NavStep step, NavStep? next)
+        => base.Done(live, step, next) || ((jumped || fell) && live.Covers(step.Tile));
+
     public override TraversalFault Check(BodyState live, NavStep step, int ticksOnStep)
     {
-        if (jumped && LandedElsewhere(live, step))
+        if ((jumped || fell) && LandedElsewhere(live, step))
             return TraversalFault.Misland;
         return base.Check(live, step, ticksOnStep);
     }
@@ -198,12 +228,20 @@ public sealed class JumpTraversal : Traversal
     /// in, capped by the standable tiles actually there.
     /// </summary>
     private static float Runway(NavStep step, int direction)
+        => MathF.Min(RunwayNeeded(step.StartVx) + 16f, RunwayPixels(step.From, -direction));
+
+    /// <summary>How far under the profile's speed a body may cross the take-off and still make the jump; the planner proves the runway with the same slack the performer accepts.</summary>
+    private const float SpeedSlack = 0.4f;
+
+    /// <summary>The distance the motor needs to reach a speed from rest, from its own acceleration: v² over twice the gain per tick.</summary>
+    private static float RunwayNeeded(float speed) => MathF.Max(0f, speed) * MathF.Max(0f, speed) / (2f * BodyPhysics.Acceleration);
+
+    /// <summary>The standable floor behind a take-off along its row, in pixels, up to a few tiles; <paramref name="behind"/> is the direction away from the jump.</summary>
+    private static float RunwayPixels(Point takeoff, int behind)
     {
-        float need = MathF.Abs(step.StartVx);
-        float wanted = need * need / (2f * BodyPhysics.Acceleration) + 16f;
         int tiles = 0;
-        while (tiles * 16f < wanted && tiles < 8 && NavGrid.IsStandable(step.From.X - direction * (tiles + 1), step.From.Y))
+        while (tiles < 8 && NavGrid.IsStandable(takeoff.X + behind * (tiles + 1), takeoff.Y))
             tiles++;
-        return MathF.Min(wanted, tiles * 16f);
+        return tiles * 16f;
     }
 }
