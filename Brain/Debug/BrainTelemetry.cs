@@ -127,6 +127,12 @@ public sealed class BrainTelemetry : ModSystem
 
     private static void WriteWindow(Point start, Point goal, Point? partialEnd, int expansions, string why)
     {
+        // Read once and check here rather than trusting the caller's check: both callers do check,
+        // but the field is a mutable static that world unload clears, so the check has to be in the
+        // scope that uses it for the write to be sound as well as for the compiler to agree.
+        string? path = plansPath;
+        if (path == null)
+            return;
         try
         {
             NPC? npc = CompanionNPC.Find();
@@ -183,11 +189,11 @@ public sealed class BrainTelemetry : ModSystem
                 sb.Append('\n');
             }
             sb.Append('\n');
-            File.AppendAllText(plansPath, sb.ToString());
+            File.AppendAllText(path, sb.ToString());
         }
         catch (Exception e)
         {
-            ModContent.GetInstance<AICompanion>().Logger.Warn($"BrainTelemetry.DumpPlan: {e.Message}");
+            ModContent.GetInstance<AICompanion>().Logger.Warn($"BrainTelemetry.WriteWindow ({why}): {e.Message}");
         }
     }
 
@@ -212,6 +218,11 @@ public sealed class BrainTelemetry : ModSystem
             h.Append("\tnpc_tile\tnpc_px\tnpc_vel\tground\twet\tcollide_x\tcollide_y\tdir\tlife\tbreath\tself_danger\theld\tweapon\tshot\ttorch\tambient");
             h.Append("\tplayer_tile\tplayer_intent\tplayer_dead\tplayer_attacking\tplayer_chopping\tplayer_mining");
             h.Append("\tplan_ms\tflood_ms\tsenses_ms\treflex_ms\tdecide_ms\tposition_ms\tnavigate_ms\tbrain_ms\tedge_cache\tstranded");
+            // The reachability tier, which is where the companion decides whether to enter somewhere
+            // it cannot leave and the one decision no offline pass can watch: how many tiles it can
+            // reach, how many of those it can come home from, whether the spot it picked is one of
+            // them, and whether the refusing flood was discarded because the player was outside it.
+            h.Append("\treach_n\treturnable_n\tspot_home\tplayer_one_way");
             h.Append("\tedge_n\tedge_kind\tedge_from\tedge_to\tedge_proven\tedge_took\tedge_outcome");
             writer.WriteLine(h.ToString());
             headerWritten = true;
@@ -286,7 +297,11 @@ public sealed class BrainTelemetry : ModSystem
           .Append('\t').Append(brain.NavigateMs.ToString("0.00")).Append('\t').Append(brain.TotalMs.ToString("0.00"))
           .Append('\t').Append(DecisionMatrix.Navigation.AStar.CachedTiles)
           // Ticks sealed off from the player; a roam is a wander row while this stays above zero.
-          .Append('\t').Append(brain.StrandedTicks);
+          .Append('\t').Append(brain.StrandedTicks)
+          .Append('\t').Append(brain.Positioner.ReachCount)
+          .Append('\t').Append(brain.Positioner.ReturnableCount)
+          .Append('\t').Append(brain.Positioner.ChosenReturnable ? 1 : 0)
+          .Append('\t').Append(brain.Positioner.PlayerOnlyOneWay ? 1 : 0);
         // The last step the follower finished or faulted, sticky until the next: the move, the
         // ticks it was proven to take against the ticks it took, and how it ended. Read against
         // the replay's --follow on the same block, this is where the body model and the game's

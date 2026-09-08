@@ -11,16 +11,24 @@ namespace AICompanion.Brain.Debug;
 /// <summary>
 /// Turns the failures a playtest shows into scenario blocks the replay tool can run, so
 /// every "it did not follow me there" becomes a deterministic offline test instead of a
-/// memory. Four detectors, each with its own threshold and cooldown, each writing the same
+/// memory. Seven detectors, each with its own threshold and cooldown, each writing the same
 /// tile window the failed-plan dump writes (with the player's trail) under its own reason:
 /// a follow failure (walking with the player, far behind, and no nearer than five seconds
-/// ago, so a companion catching up is never one), a stuck run (the body has not moved for
-/// two seconds while the follower had a path, counted here so a replan cannot reset it), a
-/// hit taken just after a reflex approved a dodge (the dodge did not clear what it was
-/// simulated against; lava and fire are excluded because the reflex never promised those),
-/// and a missed mode (the player has been mining or chopping for five seconds of activity,
-/// pauses of up to a second allowed, and the matching action scored zero throughout, so the
-/// icon never showed). Every duration is in game ticks. Thresholds live here and not in
+/// ago, so a companion catching up is never one), a traversal fault (a step the follower
+/// could not complete, named by its traversal and its outcome), a stuck run (the body has
+/// not moved for two seconds while the follower had a path, counted here so a replan cannot
+/// reset it), a hit taken just after a reflex approved a dodge (the dodge did not clear what
+/// it was simulated against; lava and fire are excluded because the reflex never promised
+/// those), a missed mode (the player has been mining or chopping for five seconds of
+/// activity, pauses of up to a second allowed, and the matching action scored zero
+/// throughout, so the icon never showed), and two for the reachability tier, which is the
+/// one decision no offline pass can watch because the replay runs the planner and the
+/// follower while the positioner needs the game: a one-way place entered (a spot held with
+/// no way back, which is legitimate behind the player and is captured because it is the
+/// state a companion gets stuck from), and the invariant behind it (the tier holding the
+/// body somewhere returnable while the player can only be reached one-way, which should
+/// never happen and is what an unconditional refusal did on 2026-09-08).
+/// Every duration is in game ticks. Thresholds live here and not in
 /// Weights because they tune the instrument, not the brain; Reset runs on every session.
 /// </summary>
 public static class ScenarioCapture
@@ -34,21 +42,25 @@ public static class ScenarioCapture
     private const int ModePauseTicks = 60;
     private const int CooldownTicks = 600;
 
+    private const int OneWayHeldTicks = 90;
+
     private static int followBehind, stuck, mineZero, mineIdle, chopZero, chopIdle, lastLife = -1;
+    private static int oneWayCommitted, tierHeldOut;
     private static float followDistanceAtStart;
     private static long lastDodgeTick = long.MinValue;
     private static string? lastDodge;
     private static Vector2 lastPosition;
-    private static long followCooldown, stuckCooldown, dodgeCooldown, modeCooldown, faultCooldown;
+    private static long followCooldown, stuckCooldown, dodgeCooldown, modeCooldown, faultCooldown, oneWayCooldown, tierCooldown;
 
     /// <summary>Forget everything: a new session, a new world, a new companion.</summary>
     public static void Reset()
     {
         followBehind = stuck = mineZero = mineIdle = chopZero = chopIdle = 0;
+        oneWayCommitted = tierHeldOut = 0;
         lastLife = -1;
         lastDodgeTick = long.MinValue;
         lastDodge = null;
-        followCooldown = stuckCooldown = dodgeCooldown = modeCooldown = faultCooldown = 0;
+        followCooldown = stuckCooldown = dodgeCooldown = modeCooldown = faultCooldown = oneWayCooldown = tierCooldown = 0;
     }
 
     public static void Watch(CompanionNPC companion)
@@ -113,6 +125,39 @@ public static class ScenarioCapture
             BrainTelemetry.DumpScenario(feet, goal, $"hit through a dodge, {lastDodge} {tick - lastDodgeTick} ticks ago");
         }
         lastLife = npc.life;
+
+        // The reachability tier's own two events, which no offline pass can see: the replay tool
+        // runs the planner and the follower, and the positioner needs the game, so the only view of
+        // the decision about entering somewhere unrecoverable is from inside a session.
+        //
+        // First, the body committed to a spot it cannot come home from. That is not a fault by
+        // itself: following the player into a pocket he chose to be in is the behaviour, and the
+        // dump exists because it is the state a companion gets stuck from and the one with no
+        // offline coverage at all. Held for a while first, so a spot re-scored away next tick is
+        // not reported.
+        bool oneWaySpot = brain.Positioner.Chosen != null && !brain.Positioner.ChosenReturnable;
+        oneWayCommitted = oneWaySpot ? oneWayCommitted + 1 : 0;
+        if (oneWayCommitted >= OneWayHeldTicks && tick >= oneWayCooldown)
+        {
+            oneWayCooldown = tick + CooldownTicks;
+            oneWayCommitted = 0;
+            BrainTelemetry.DumpScenario(feet, goal, $"entered a one-way place, spot held {OneWayHeldTicks} ticks with no way back, {brain.Positioner.ReturnableCount} of {brain.Positioner.ReachCount} tiles returnable");
+        }
+
+        // Second, the invariant behind that: while the player is somewhere the body can only reach
+        // through an edge with no way back, the tier must be scoring the raw region, so the spot it
+        // picks is one it cannot come home from. A returnable spot in that state means the tier
+        // stayed closed on a rim tile and left the body above the player, which is what an
+        // unconditional refusal did on 2026-09-08 and what the two-wide shaft fixture reproduces.
+        // This should never fire; it is here so that if it ever does, the window is on disk.
+        bool heldOut = brain.LastAction?.Name == "walk-with" && brain.Positioner.PlayerOnlyOneWay && brain.Positioner.Chosen != null && brain.Positioner.ChosenReturnable;
+        tierHeldOut = heldOut ? tierHeldOut + 1 : 0;
+        if (tierHeldOut >= OneWayHeldTicks && tick >= tierCooldown)
+        {
+            tierCooldown = tick + CooldownTicks;
+            tierHeldOut = 0;
+            BrainTelemetry.DumpScenario(feet, playerFeet, $"tier held the body out, {OneWayHeldTicks} ticks following a player only reachable one-way while standing somewhere returnable");
+        }
 
         // Missed mode: the player has been working, with pauses no longer than a swing between
         // hits, and the matching action never scored. The ore-hit marker lives less than a second,
