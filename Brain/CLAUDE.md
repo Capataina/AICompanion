@@ -15,6 +15,7 @@ Brain/
 │  ├─ Navigation/      how to get there: grid, A*, path following, reachability
 │  └─ Reflexes/        the fast path that skips scoring: simulated dodges
 ├─ Actions/            what can be chosen, by family; each scores itself and asks for a spot
+│  ├─ Survival/        survive: the body's own rescue
 │  ├─ Companionship/   walk-with, guard, wander
 │  ├─ Combat/          hunt, kite
 │  ├─ Gathering/       loot
@@ -56,7 +57,7 @@ Then the game applies gravity and tile collision to the velocity the motor set. 
 
 ## Senses: what the companion knows, and the numbers it derives
 
-The world model is rebuilt every tick and read by everything else. Senses do not have weights; they produce facts and a few derived numbers, and the *actions* weight those numbers in their scores. Five senses:
+The world model is rebuilt every tick and read by everything else. Senses do not have weights; they produce facts and a few derived numbers, and the *actions* weight those numbers in their scores. Six senses:
 
 **PlayerSense.** Position, bottom, velocity, health fraction, dead, attacking (item animation running with a damaging item). Travel *intent*: the horizontal velocity smoothed toward its current value while moving and decaying while still, so it converges over a few seconds of travel and fades over a couple of seconds of standing; `IsTravelling` is intent above a small floor, and `Predict(ticks)` is bottom plus intent times ticks, where the player will be if they keep going, which is what the walk-with action aims at. Also whether the player really hit a tree or an ore in the last moment, from the tile damage watcher, and whether the companion has a sight line to the player.
 
@@ -84,6 +85,8 @@ The three factors multiply on purpose: a zero on any one is fatal and no other c
 
 **LightSense.** Three brightness readings, refreshed every few ticks: at the player's tile, at the companion's tile, and *ambient*, the mean over a coarse grid of a screen-sized window centred on the companion with a disc around the companion cut out that is wider than a torch's glow. Ambient is the one the torch reads, because it is the only one the companion's own torch cannot raise. The window follows the companion and not the camera, so a companion sent into a cave while the player stands in daylight reads the cave; it is clipped to the screen, because the lighting engine reads 0 outside it and a companion at the screen edge would otherwise count the outside as black. Fully off screen no sample is left, ambient reads 0, and a far companion lights its torch wherever it is.
 
+**CompanionSense.** The companion's own body, kept apart from the threat sense so "the player is safe" never hides "I am drowning": breath and whether the head is under water (the breath itself is body physics on the NPC, the player's own rule: a countdown while the head is under, one unit of breath per completed countdown, damage per countdown at zero, quick recovery in air), lava and fire, life, and damage over the last second. From those, `SelfDanger`, the largest of drowning (nothing until breath is half gone, total near none), burning (total in lava, partial on fire) and bleeding (recent loss scaled by how little life is left).
+
 **TileDamageWatcher.** Not polled: the game's own `KillTile` hook fires for every axe or pickaxe hit including the ones that only crack the tile, and this records the last tree (its trunk bottom) and the last ore (tile and type) the *player* hit, with a tick stamp; the companion's own tools raise a flag around their hits so they are excluded. This is what makes "the player is really chopping" true only when an axe is really hitting a tree, and never when an axe-sword is swung at a boss.
 
 ## Decision: how an action wins
@@ -104,6 +107,7 @@ The actions and what each one values. `safe` below is `1 − PlayerDanger` with 
 
 | action | scores on | forecast | asks the positioner for | in hand |
 |---|---|---|---|---|
+| **survive** | the companion's own danger alone, rising from nothing to above every other action's ceiling as breath or life runs out; zero while the body is fine | 0 | Exact at the nearest reachable standable tile whose head row is dry and whose column holds no lava | empty |
 | **guard** | danger, raised by distance from the player; zero when the player is dead | 0 | Guard near the player, target = the most urgent threat | the chosen weapon (it fires) |
 | **kite** | how close the nearest reachable threat is to the companion: full at contact, gone a short way out | 0 | Retreat, target = most urgent | the chosen weapon (it fires) |
 | **hunt** | `safe` × nearness of the target (floored so a far target still scores) × a boss bonus; the target is the threat best on a blend of urgency and nearness to the companion, among threats that are reachable or on screen with a solvable shot | the walk to firing range plus a fight allowance | LineOfFire at the target | the chosen weapon |
@@ -113,7 +117,7 @@ The actions and what each one values. `safe` below is `1 − PlayerDanger` with 
 | **walk-with** | travelling player: the gap to the player's predicted position (floored, so it keeps a pull); standing player: zero inside the calm band, rising past it; either way full beyond the hard leash | 0 | WithPlayer, anchored at the predicted position (or the player when still) | empty |
 | **wander** | a flat trickle; zero when the player is dead | 0 | Hold while standing, Exact at a random spot inside the calm band while strolling; a rare hop | empty |
 
-Three consequences to read off that table. Guard beats everything as danger approaches 1, which is what pulls the companion off a hunt or a loot run when a shooter gets a line on the player. The working score of chop and mine is set above walk-with's ceiling while the player travels and above loot unless the loot is close and valuable, so a job continues while the player keeps working and stops once the job's memory of the player's last hit runs out; the mine memory is much longer than the chop memory, because a vein takes longer to clear than a tree takes to fell. Wander only wins when everything else is zero, which by design is "the player is standing still, nothing is around, the companion is inside the calm band".
+Four consequences to read off that table. Survive is the only action allowed above the top of the scale, and only near the end, so a drowning or burning companion leaves even a boss fight; it does not keep the companion out of water, because crossing a pool is priced in the navigator and this is the backstop for a crossing that runs longer than the breath. Guard beats everything else as danger approaches 1, which is what pulls the companion off a hunt or a loot run when a shooter gets a line on the player. The working score of chop and mine is set above walk-with's ceiling while the player travels and above loot unless the loot is close and valuable, so a job continues while the player keeps working and stops once the job's memory of the player's last hit runs out; the mine memory is much longer than the chop memory, because a vein takes longer to clear than a tree takes to fell. Wander only wins when everything else is zero, which by design is "the player is standing still, nothing is around, the companion is inside the calm band".
 
 ## Positioning: where it stands once it knows what it is doing
 
@@ -142,7 +146,7 @@ Each kind's `k` is its own tolerance for danger: guarding accepts more than foll
 
 The navigator receives a feet position each tick. Within a short arrival slack it is "arrived". Otherwise it plans when the goal tile changes, on a cadence, when the path is finished, or after a stretch without moving; a plan that failed is not retried for a while unless the goal moves, because a full failed search is the expensive case. With no path it walks straight at the target and jumps only at a wall.
 
-The grid is not the tile map; it is the set of *feet tiles a one-wide, three-tall body can stand on*: support beneath (solid or a platform), a clear body column above, no lava anywhere in the column. Water is a node like any other, but a slow one: the game halves a wet NPC's movement, so every edge that starts in liquid costs more and the jump envelope from there is halved, which is what makes the search walk out of a pool along its floor instead of jumping in place under a ledge. Edges are generated on the fly from what the body can do, and this is what answers the ledge question:
+The grid is not the tile map; it is the set of *feet tiles a one-wide, three-tall body can stand on*: support beneath (solid or a platform), a clear body column above. Water and lava are priced, not banned, by Caner's ruling: a player crosses a pool and jumps a lava stream to escape two zombies, and so should this. Water is a node like any other, but a slow one: the game halves a wet NPC's movement, so every edge that starts in liquid costs more and the jump envelope from there is halved, which is what makes the search walk out of a pool along its floor instead of jumping in place under a ledge; a node where the head would be under water costs more again, so shallow water is free and deep water is taken only when the dry way is much longer. Lava tiles are nodes with a large flat price per lava tile in the column, offered only while the companion has life to pay with (the brain sets the switch from the self sense each tick), so a one-tile stream is crossed when the detour is long and refused when it is short, and a long lava walk is never chosen. What the grid does not yet do is budget breath along a path: a submerged route longer than the breath is planned like any other, and the survive action is the backstop when that happens. Edges are generated on the fly from what the body can do, and this is what answers the ledge question:
 
 ```
 from a feet tile, the neighbours are
@@ -165,7 +169,7 @@ No digging, no building, by ruling: the grid never plans through a tile.
 
 ## Reflexes: the dodge that skips scoring
 
-Before any scoring, for each reachable, moving threat: if its predicted hitbox (straight-line for flyers and phasers, under NPC gravity for walkers) meets the standing body at any sampled tick inside the lookahead, simulate both dodges against the same prediction. The jump: the body offset by the real jump arc, from the motor's own jump velocity and the game's gravity. The step-back: the body offset by the motor's own acceleration rule away from the threat (the same function the motor runs, so the simulation and the real step agree), with a room check that way. Take the jump if it never intersects, else the step if it never intersects and there is room; if neither clears it, take the hit and rest briefly rather than moving into the enemy. Hostile projectiles are not yet considered; that is a second loop to add.
+Before any scoring, for each reachable, moving threat: if its predicted hitbox (straight-line for flyers and phasers, under NPC gravity for walkers) meets the standing body at any sampled tick inside the lookahead, simulate both dodges against *every* reachable threat's prediction, not only the one that triggered. Both dodges steer away from the trigger for the whole hold, and both simulations carry the body sideways with the motor's own acceleration rule (the same function the motor runs, so the simulation and the real move agree), starting from the speed the body already has; the jump adds the real arc from the motor's jump velocity and the game's gravity. That drift is the point: a jump simulated as vertical while the body kept the run-up the hunt had built toward the enemy landed on the enemy. Take the jump if it never intersects, else the step if it never intersects and there is body room that way; if neither clears it, take the hit and rest briefly rather than moving into the enemy. Hostile projectiles are not yet considered; that is a second loop to add.
 
 ## Aiming: how a shot is solved, and what it cannot solve
 

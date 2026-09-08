@@ -37,6 +37,7 @@ public class CompanionNPC : ModNPC
     public TileChopper Chopper { get; } = new();
     public TileMiner Miner { get; }
     public TorchBearer Torch { get; } = new();
+    public CompanionBreath Breath { get; } = new();
     public CompanionInventory Bag => Main.LocalPlayer.GetModPlayer<CompanionPlayer>().Bag;
 
     /// <summary>The drawing-only body; the map layer draws its head.</summary>
@@ -143,6 +144,9 @@ public class CompanionNPC : ModNPC
         }
         else
         {
+            // Breath before the brain, so the senses read this tick's value; a drowning strike
+            // here can down the companion, and the downed branch takes over next tick.
+            Breath.Update(NPC);
             Brain.Tick(this, player);
             Motor.ApplySteps();
             CollectTouchedItems(player);
@@ -214,6 +218,7 @@ public class CompanionNPC : ModNPC
         IsDowned = false;
         NPC.life = NPC.lifeMax;
         NPC.dontTakeDamage = false;
+        Breath.Reset();
         reviveProgress = 0;
     }
 

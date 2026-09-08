@@ -29,7 +29,7 @@ public sealed class Brain
 
     public void Tick(CompanionNPC companion, Terraria.Player player)
     {
-        Senses.Update(companion.NPC, player);
+        Senses.Update(companion.NPC, player, companion.Breath);
         companion.Arsenal.Tick();
         companion.Chopper.Tick();
 
@@ -42,6 +42,8 @@ public sealed class Brain
 
         var profile = companion.Arsenal.ProfileFor(ctx, LastRequest.Target);
         Vector2? spot = Positioner.Resolve(LastRequest, Senses, profile);
+        // Lava is a crossable cost only while there is life to pay it with.
+        AStar.AllowLava = Senses.Self.LifeFraction > 0.6f && !Senses.Self.InLava;
         if (spot is Vector2 feet)
             Navigator.MoveTo(companion.NPC, companion.Motor, feet);
         else

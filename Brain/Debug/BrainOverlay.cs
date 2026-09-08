@@ -59,6 +59,7 @@ public sealed class BrainOverlay : ModSystem
         sb.AppendLine($"path {(brain.Navigator.Path == null ? "none" : $"{brain.Navigator.Path.Steps.Count} steps, at {brain.Navigator.Path.Index}")}   planned {brain.Navigator.LastExpansions} exp{(brain.Navigator.LastPlanFailed ? "  FAILED" : "")}");
         sb.AppendLine($"weapon {companion.Arsenal.LastChosen?.Name ?? "-"}   shot {(companion.Arsenal.LastShotSolved ? "solved" : "none")}");
         sb.AppendLine($"light ambient {senses.Light.Ambient:0.00} player {senses.Light.AtPlayer:0.00} here {senses.Light.AtCompanion:0.00}   torch {(companion.Torch.Shown ? "shown" : companion.Torch.Lit ? "lit, hand busy" : "out")}");
+        sb.AppendLine($"self danger {senses.Self.SelfDanger:0.00}   breath {senses.Self.BreathFraction:0.00}{(senses.Self.HeadUnderwater ? " under" : "")}{(senses.Self.InLava ? "  LAVA" : senses.Self.OnFire ? "  on fire" : "")}   lava paths {(AStar.AllowLava ? "on" : "off")}");
 
         Vector2 head = ToScreen(companion.NPC.Top + new Vector2(0f, -8f));
         Vector2 size = FontAssets.MouseText.Value.MeasureString(sb.ToString()) * 0.7f;

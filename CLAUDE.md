@@ -33,6 +33,7 @@ AICompanion/
 │  │  ├─ Navigation/         grid, A*, path following, reachability
 │  │  └─ Reflexes/           simulated dodges, the path that skips scoring
 │  ├─ Actions/               what can be chosen, one file each, by family
+│  │  ├─ Survival/           survive: the body's own rescue from drowning, lava and fire
 │  │  ├─ Companionship/      walk-with, guard, wander
 │  │  ├─ Combat/             hunt, kite
 │  │  ├─ Gathering/          loot

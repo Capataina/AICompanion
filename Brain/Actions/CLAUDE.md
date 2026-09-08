@@ -6,6 +6,7 @@ One file per action, grouped by the kind of thing it is, so the list never becom
 Actions/
 ├─ CLAUDE.md
 ├─ CompanionAction.cs   the base and ActionContext (the companion, the senses, the player)
+├─ Survival/            the body's own rescue: survive, which is the one action that scores above the scale
 ├─ Companionship/       being with the player: walk-with, guard, wander
 ├─ Combat/              going after or backing off from enemies: hunt, kite
 ├─ Gathering/           picking things up: loot

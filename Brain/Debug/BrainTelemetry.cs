@@ -87,7 +87,7 @@ public sealed class BrainTelemetry : ModSystem
                 h.Append('\t').Append(a.Name).Append("_raw\t").Append(a.Name).Append("_fin");
             h.Append("\tdanger\thorizon\tthreats\treachable\ttop_threat\ttarget\tloot");
             h.Append("\trequest\tanchor\tspot\tspot_score\tpath_steps\tpath_at\tnext_kind\tplan_failed\texpansions");
-            h.Append("\tnpc_tile\tnpc_px\tnpc_vel\tground\twet\tcollide_x\tcollide_y\tdir\tlife\theld\tweapon\tshot\ttorch\tambient");
+            h.Append("\tnpc_tile\tnpc_px\tnpc_vel\tground\twet\tcollide_x\tcollide_y\tdir\tlife\tbreath\tself_danger\theld\tweapon\tshot\ttorch\tambient");
             h.Append("\tplayer_tile\tplayer_intent\tplayer_dead\tplayer_attacking\tplayer_chopping\tplayer_mining");
             writer.WriteLine(h.ToString());
             headerWritten = true;
@@ -137,6 +137,8 @@ public sealed class BrainTelemetry : ModSystem
         sb.Append('\t').Append(npc.collideX ? 1 : 0).Append('\t').Append(npc.collideY ? 1 : 0);
         sb.Append('\t').Append(npc.direction);
         sb.Append('\t').Append(npc.life).Append('/').Append(npc.lifeMax);
+        sb.Append('\t').Append(senses.Self.BreathFraction.ToString("0.00")).Append(senses.Self.HeadUnderwater ? "u" : "");
+        sb.Append('\t').Append(senses.Self.SelfDanger.ToString("0.00")).Append(senses.Self.InLava ? "L" : senses.Self.OnFire ? "f" : "");
         sb.Append('\t').Append(companion.HeldItemType == 0 ? "-" : Lang.GetItemNameValue(companion.HeldItemType));
         sb.Append('\t').Append(companion.Arsenal.LastChosen?.Name ?? "-");
         sb.Append('\t').Append(companion.Arsenal.LastShotSolved ? 1 : 0);

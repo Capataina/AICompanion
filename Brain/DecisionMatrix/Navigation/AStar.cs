@@ -13,6 +13,19 @@ namespace AICompanion.Brain.DecisionMatrix.Navigation;
 /// </summary>
 public static class AStar
 {
+    /// <summary>
+    /// Lava tiles are nodes at a high cost while this is true, so a short lava crossing beats
+    /// a long detour and a long one does not; the brain sets it from the companion's life
+    /// each tick, and false makes lava impassable as before.
+    /// </summary>
+    public static bool AllowLava;
+
+    /// <summary>Cost added per lava tile in a node's column, against a walk step of one.</summary>
+    public const float LavaTileCost = 40f;
+
+    /// <summary>Multiplier on every edge into a node where the body's head is under liquid, on top of the wet-feet multiplier.</summary>
+    public const float SubmergedCost = 2f;
+
     private readonly record struct Open(Point Tile, float F);
 
     private sealed class OpenComparer : IComparer<Open>
@@ -105,14 +118,15 @@ public static class AStar
     {
         bool wet = NavGrid.IsLiquid(t.X, t.Y);
         float costScale = wet ? 2f : 1f;
+        bool lava = AllowLava;
 
         foreach (int dir in new[] { -1, 1 })
         {
             int nx = t.X + dir;
-            if (NavGrid.IsStandable(nx, t.Y))
-                yield return (new Point(nx, t.Y), MoveKind.Walk, 1f * costScale);
-            else if (NavGrid.IsStandable(nx, t.Y - 1) && NavGrid.IsBodyClear(t.X, t.Y - 1))
-                yield return (new Point(nx, t.Y - 1), MoveKind.Walk, 1.5f * costScale);
+            if (NavGrid.IsStandable(nx, t.Y, lava))
+                yield return (new Point(nx, t.Y), MoveKind.Walk, Price(nx, t.Y, 1f * costScale));
+            else if (NavGrid.IsStandable(nx, t.Y - 1, lava) && NavGrid.IsBodyClear(t.X, t.Y - 1))
+                yield return (new Point(nx, t.Y - 1), MoveKind.Walk, Price(nx, t.Y - 1, 1.5f * costScale));
             else if (NavGrid.IsBodyClear(nx, t.Y))
             {
                 // Edge: drop to the first standable tile below.
@@ -120,9 +134,9 @@ public static class AStar
                 {
                     if (NavGrid.IsSolid(nx, t.Y + dy))
                         break;
-                    if (NavGrid.IsStandable(nx, t.Y + dy))
+                    if (NavGrid.IsStandable(nx, t.Y + dy, lava))
                     {
-                        yield return (new Point(nx, t.Y + dy), MoveKind.Drop, (1f + dy * 0.2f) * costScale);
+                        yield return (new Point(nx, t.Y + dy), MoveKind.Drop, Price(nx, t.Y + dy, (1f + dy * 0.2f) * costScale));
                         break;
                     }
                 }
@@ -137,9 +151,9 @@ public static class AStar
             {
                 if (NavGrid.IsSolid(t.X, t.Y + dy))
                     break;
-                if (NavGrid.IsStandable(t.X, t.Y + dy))
+                if (NavGrid.IsStandable(t.X, t.Y + dy, lava))
                 {
-                    yield return (new Point(t.X, t.Y + dy), MoveKind.FallThrough, (1f + dy * 0.2f) * costScale);
+                    yield return (new Point(t.X, t.Y + dy), MoveKind.FallThrough, Price(t.X, t.Y + dy, (1f + dy * 0.2f) * costScale));
                     break;
                 }
             }
@@ -159,17 +173,31 @@ public static class AStar
             for (int up = 1; up <= headroom; up++)
             {
                 int nx = t.X + dx, ny = t.Y - up;
-                if (!NavGrid.IsStandable(nx, ny))
+                if (!NavGrid.IsStandable(nx, ny, lava))
                     continue;
                 // Coarse arc check: the body must be clear at the apex column above the start and at the landing.
                 if (!NavGrid.IsBodyClear(t.X, t.Y - up) || !ColumnClearBetween(t.X, nx, ny))
                     continue;
-                yield return (new Point(nx, ny), MoveKind.Jump, (2f + Math.Abs(dx) * 0.5f + up * 0.5f) * costScale);
+                yield return (new Point(nx, ny), MoveKind.Jump, Price(nx, ny, (2f + Math.Abs(dx) * 0.5f + up * 0.5f) * costScale));
             }
             // Gap jump on the same row.
-            if (Math.Abs(dx) >= 2 && NavGrid.IsStandable(t.X + dx, t.Y) && ColumnClearBetween(t.X, t.X + dx, t.Y - 1))
-                yield return (new Point(t.X + dx, t.Y), MoveKind.Jump, (2f + Math.Abs(dx) * 0.5f) * costScale);
+            if (Math.Abs(dx) >= 2 && NavGrid.IsStandable(t.X + dx, t.Y, lava) && ColumnClearBetween(t.X, t.X + dx, t.Y - 1))
+                yield return (new Point(t.X + dx, t.Y), MoveKind.Jump, Price(t.X + dx, t.Y, (2f + Math.Abs(dx) * 0.5f) * costScale));
         }
+    }
+
+    /// <summary>
+    /// What arriving at a node costs on top of the move: a submerged head multiplies (a
+    /// drowning tile is dearer than a wet one), and each lava tile in the column adds a flat
+    /// price, so a one-tile lava stream is crossed when the detour is long and refused when
+    /// it is short. Lava is only ever offered while <see cref="AllowLava"/> is true.
+    /// </summary>
+    private static float Price(int x, int y, float move)
+    {
+        if (NavGrid.HeadSubmergedAt(x, y))
+            move *= SubmergedCost;
+        int lavaTiles = NavGrid.LavaTilesAt(x, y);
+        return lavaTiles == 0 ? move : move + lavaTiles * LavaTileCost;
     }
 
     private static bool ColumnClearBetween(int x0, int x1, int y)

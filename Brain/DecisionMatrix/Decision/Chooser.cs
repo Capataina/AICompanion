@@ -6,6 +6,7 @@ using AICompanion.Brain.Actions;
 using AICompanion.Brain.Actions.Combat;
 using AICompanion.Brain.Actions.Companionship;
 using AICompanion.Brain.Actions.Gathering;
+using AICompanion.Brain.Actions.Survival;
 using AICompanion.Brain.Actions.Work;
 
 namespace AICompanion.Brain.DecisionMatrix.Decision;
@@ -21,6 +22,7 @@ public sealed class Chooser
 
     public readonly List<CompanionAction> Actions = new()
     {
+        new SurviveAction(),
         new GuardAction(),
         new KiteAction(),
         new HuntAction(),

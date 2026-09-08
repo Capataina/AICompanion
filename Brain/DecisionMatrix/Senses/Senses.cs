@@ -16,6 +16,7 @@ public sealed class Senses
     public readonly ThreatSense Threats = new();
     public readonly LootSense Loot = new();
     public readonly LightSense Light = new();
+    public readonly CompanionSense Self = new();
 
     public NPC Companion { get; private set; } = null!;
     public Terraria.Player PlayerEntity { get; private set; } = null!;
@@ -23,7 +24,7 @@ public sealed class Senses
 
     public float DistanceToPlayer { get; private set; }
 
-    public void Update(NPC companion, Terraria.Player player)
+    public void Update(NPC companion, Terraria.Player player, global::AICompanion.Companion.CompanionBreath breath)
     {
         Tick++;
         Companion = companion;
@@ -32,6 +33,7 @@ public sealed class Senses
         Threats.Update(player, companion);
         Loot.Update(companion, player);
         Light.Update(companion, player);
+        Self.Update(companion, breath);
         DistanceToPlayer = Microsoft.Xna.Framework.Vector2.Distance(companion.Center, player.Center);
     }
 }

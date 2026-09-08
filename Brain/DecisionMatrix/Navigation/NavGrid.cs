@@ -70,15 +70,34 @@ public static class NavGrid
     }
 
     /// <summary>Feet at (x, y): the tile below supports, the body column is clear, and nothing in it is lava.</summary>
-    public static bool IsStandable(int x, int y)
+    public static bool IsStandable(int x, int y) => IsStandable(x, y, allowLava: false);
+
+    /// <summary>
+    /// Feet at (x, y) with lava allowed in the column: the same test with the lava rule
+    /// lifted, for a search that prices lava rather than refusing it.
+    /// </summary>
+    public static bool IsStandable(int x, int y, bool allowLava)
     {
         if (!IsSupport(x, y + 1))
             return false;
         for (int i = 0; i < BodyHeightTiles; i++)
-            if (IsSolid(x, y - i) || IsLava(x, y - i))
+            if (IsSolid(x, y - i) || (!allowLava && IsLava(x, y - i)))
                 return false;
-        return !IsLava(x, y + 1);
+        return allowLava || !IsLava(x, y + 1);
     }
+
+    /// <summary>How many tiles of the body column and the support under it hold lava.</summary>
+    public static int LavaTilesAt(int x, int y)
+    {
+        int n = IsLava(x, y + 1) ? 1 : 0;
+        for (int i = 0; i < BodyHeightTiles; i++)
+            if (IsLava(x, y - i))
+                n++;
+        return n;
+    }
+
+    /// <summary>The head row of a body standing at (x, y) is in liquid: it is drowning there.</summary>
+    public static bool HeadSubmergedAt(int x, int y) => IsLiquid(x, y - BodyHeightTiles + 1);
 
     /// <summary>The body column at (x, y) is free of solid tiles; used for flight and jump arcs.</summary>
     public static bool IsBodyClear(int x, int y)

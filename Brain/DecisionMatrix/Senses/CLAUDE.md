@@ -5,7 +5,8 @@ Rebuilt every tick from the game, read by every other part, and never a decision
 ```
 Senses/
 ├─ CLAUDE.md
-├─ Senses.cs             aggregate; Update(npc, player) runs the parts in order and stamps the tick
+├─ Senses.cs             aggregate; Update(npc, player, breath) runs the parts in order and stamps the tick
+├─ CompanionSense.cs     the companion's own body: breath fraction and head-under-water from the NPC's breath, lava-wet, on fire, life fraction, damage over the last second; derives SelfDanger
 ├─ PlayerSense.cs        position, smoothed travel intent (outlives a pause), fighting, real chopping, sight to companion
 ├─ ThreatSense.cs        one ThreatRecord per hostile; reachability (cached, staggered), observed speed, shooters; derives PlayerDanger and Horizon
 ├─ ThreatRecord.cs       the per-hostile record and its predicted hitbox
@@ -18,6 +19,10 @@ Senses/
 ## The light numbers
 
 `Ambient` is what the torch decision reads, because it is the one number the companion's own torch cannot raise: the cut-out disc is wider than a torch's glow. The window it averages follows the companion, not the camera: the first version sampled the screen, which is the camera on the player, so a companion sent into a cave while the player stood in daylight read the player's light and never lit up. `AtPlayer` and `AtCompanion` are for the overlay and later factors. The lighting engine only holds values for the visible screen and reads 0 outside it, so the window is clipped to the screen before averaging; without the clip a companion near the screen edge counted the unlit outside as black and lit a torch in a place that was dim, not dark. With no sample left the companion is off screen, ambient reads 0, and a companion far away lights its torch wherever it is.
+
+## The companion's own danger
+
+`SelfDanger` is the largest of three readings and is kept apart from `PlayerDanger` on purpose, so "the player is safe" never hides "I am drowning": drowning, which is zero until breath is half gone, climbs to one as it runs out and is one outright once it is nearly gone with the head still under; burning, which is one in lava and a fraction while on fire; and bleeding, the share of max life lost in the last second scaled by how little life is left, so a big hit at full health is a note and the same hit near death is an alarm. The breath itself lives on `Companion/CompanionBreath.cs`, because it changes the body (drowning damage); this sense only reads it.
 
 ## The two derived numbers
 

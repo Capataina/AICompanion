@@ -172,6 +172,7 @@ public class CompanionHealthBar : ModSystem
         Player player = Main.LocalPlayer;
         return action switch
         {
+            "survive" => (ItemID.BreathingReed, "saving itself"),
             "guard" => (ItemID.CobaltShield, "guarding you"),
             "kite" => (ItemID.HermesBoots, "kiting"),
             "hunt" => (companion.Arsenal.LastChosen?.ItemType ?? companion.Arsenal.Primary.ItemType, "hunting"),

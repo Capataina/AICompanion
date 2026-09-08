@@ -3,14 +3,14 @@
 ```
 Navigation/
 ├─ CLAUDE.md
-├─ NavGrid.cs        what a node is (a feet tile the 1×3 body can stand on), liquid and platform-underfoot tests, and the jump/drop limits
-├─ AStar.cs          the search; neighbours generated on the fly: walk, step, drop to first standable, fall through the platform underfoot, jump within reach; from liquid every edge costs double and the jump envelope is halved
+├─ NavGrid.cs        what a node is (a feet tile the 1×3 body can stand on, with or without lava allowed in the column), liquid, submerged-head, lava-count and platform-underfoot tests, and the jump/drop limits
+├─ AStar.cs          the search; neighbours generated on the fly: walk, step, drop to first standable, fall through the platform underfoot, jump within reach; from liquid every edge costs double and the jump envelope is halved; arriving with the head under water multiplies again; each lava tile in a node adds a flat price, and lava nodes exist only while AllowLava is true (the brain sets it from the companion's life each tick)
 ├─ NavPath.cs        the steps, first first, with the move kind per step (walk, jump, drop, fall-through)
 ├─ Navigator.cs      plans on goal change or on a cadence or when stuck, follows the path through the motor, falls back to straight walking; jumps only for a wall two tiles high read from the tiles, or a rise of two or more; a fall-through step sets the motor's one-tick flag
 └─ Reachability.cs   can a walker/flyer get from A to B; bounded searches that answer "yes" when the budget runs out
 ```
 
-Jump reach (`JumpHeightTiles` 5, `JumpGapTiles` 4) is derived from the motor's jump velocity and NPC gravity, not measured in play; the first navigation playtest should confirm a 5-tile step is climbed and a 4-tile gap cleared, and lower the numbers if not. The grid never plans through tiles: no digging, no building, by ruling.
+Jump reach is derived from the motor's jump velocity and NPC gravity, not measured in play; a navigation playtest should confirm the tallest step is climbed and the widest gap cleared, and lower the limits if not. The grid never plans through tiles: no digging, no building, by ruling. Water and lava are priced rather than banned, by Caner's ruling on 2026-09-08 (a player crosses a pool, and jumps a lava stream to escape two zombies): the price shapes are in `AStar.Price`, and the one thing not priced yet is breath along a path, so a submerged route longer than the breath is planned like any other and the survive action in `../../Actions/Survival/` is the backstop.
 
 ## Traps
 
