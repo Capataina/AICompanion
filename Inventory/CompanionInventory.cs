@@ -41,35 +41,38 @@ public sealed class CompanionInventory
             Items[i] = new Item();
     }
 
-    /// <summary>Whether a pickup has anywhere to go: a player stack with room, or a bag slot.</summary>
+    /// <summary>Whether a pickup has anywhere to go: the player's own inventory for a coin, a player stack with room, or a bag slot.</summary>
     public bool CanAccept(Item item, Player player)
-        => FindPlayerStack(item, player) >= 0 || FindBagSlot(item) >= 0;
+        => (item.IsACoin && player.ItemSpace(item).CanTakeItem) || FindPlayerStack(item, player) >= 0 || FindBagSlot(item) >= 0;
 
     /// <summary>Take the world item. Returns true if anything was taken.</summary>
     public bool Collect(Item item, Player player)
     {
         int before = item.stack;
-        // The player is asked again after every merge, because a merge can change what fits:
-        // a hundred copper rolled into a silver by DoCoins frees the purse slot, and the rest of
-        // the pile belongs there, not in the bag. Every pass moves at least one, so this ends.
+        // A coin is the player's, and it takes the player's own pickup path: the game fills the
+        // purse first and then any slot, rolls a hundred into the next coin as it goes, plays the
+        // sound and shows the popup, and hands back what did not fit. The bag's own merge did the
+        // same on paper and left copper in the bag as stacks that never became silver in play
+        // (run 5, 2026-09-08); the game's path is the one the player's own pickups already prove.
+        if (item.IsACoin)
+        {
+            Item rest = player.GetItem(player.whoAmI, item, GetItemSettings.PickupItemFromWorld);
+            if (rest.IsAir)
+                item.stack = 0;
+        }
+        // Anything else tops up a stack the player already holds, asked again after every merge
+        // because a merge can change what fits, and otherwise goes to the bag: new kinds of thing
+        // are the companion's to carry, and the player's empty slots are left to the player.
         while (item.stack > 0)
         {
             int slot = FindPlayerStack(item, player);
             if (slot < 0)
                 break;
             Item target = player.inventory[slot];
-            if (target.IsAir)
-            {
-                player.inventory[slot] = item.Clone();
-                player.inventory[slot].stack = 0;
-                target = player.inventory[slot];
-            }
             int room = target.maxStack - target.stack;
             int moved = System.Math.Min(room, item.stack);
             target.stack += moved;
             item.stack -= moved;
-            if (target.IsACoin)
-                player.DoCoins(slot);
         }
         while (item.stack > 0)
         {
@@ -197,28 +200,18 @@ public sealed class CompanionInventory
         }
     }
 
-    private const int CoinSlotsStart = 50, CoinSlotsEnd = 54;
     private const int AmmoSlotsStart = 54, AmmoSlotsEnd = 58;
 
     /// <summary>
-    /// A player slot the item belongs in with room, else -1. Same routing as the game's own
-    /// Player.ItemSpace: the main 50 slots for everything, the purse for coins, the ammo slots
-    /// for ammo. A coin also takes an empty purse slot, because the purse is where coins live.
+    /// A player slot holding this item with room, else -1: the main 50 slots for everything and
+    /// the ammo slots for ammo, the same places the game's own Player.ItemSpace looks. Coins never
+    /// come here; they take the game's pickup path in Collect.
     /// </summary>
     private static int FindPlayerStack(Item item, Player player)
     {
         int stack = FindStackIn(item, player, 0, PlayerMainSlots);
         if (stack >= 0)
             return stack;
-        if (item.IsACoin)
-        {
-            stack = FindStackIn(item, player, CoinSlotsStart, CoinSlotsEnd);
-            if (stack >= 0)
-                return stack;
-            for (int i = CoinSlotsStart; i < CoinSlotsEnd; i++)
-                if (player.inventory[i].IsAir)
-                    return i;
-        }
         if (item.ammo > 0)
             return FindStackIn(item, player, AmmoSlotsStart, AmmoSlotsEnd);
         return -1;
