@@ -178,9 +178,72 @@ public static class AStar
     /// </summary>
     private static IEnumerable<(NavStep, float)> Neighbours(Point t)
     {
+        if (cachedVersion != WorldVersion || Clock - cacheBorn > EdgeCacheLifeTicks)
+            InvalidateEdges();
+        (Point, bool) key = (t, AllowLava);
+        RawEdge[]? edges;
+        if (!CacheEdges)
+            edges = System.Linq.Enumerable.ToArray(RawEdges(t, AllowLava));
+        else if (!edgeCache.TryGetValue(key, out edges))
+        {
+            edges = System.Linq.Enumerable.ToArray(RawEdges(t, AllowLava));
+            edgeCache[key] = edges;
+        }
+        foreach (RawEdge e in edges)
+        {
+            if (e.Fall > NavGrid.JumpHeightTiles && !AllowOneWayDrops)
+                continue;
+            yield return (e.Step, e.Swept ? PriceSwept(t, e.Step.Tile, e.Move) : Price(e.Step.Tile.X, e.Step.Tile.Y, e.Move));
+        }
+    }
+
+    /// <summary>
+    /// An edge as the tiles alone decide it: the step, its move cost before any price the
+    /// tick sets (enemies, submersion, lava), how many rows it falls (so the one-way rule can
+    /// be applied on read) and whether it passes through the air between two tiles.
+    /// </summary>
+    private readonly record struct RawEdge(NavStep Step, float Move, int Fall, bool Swept);
+
+    /// <summary>
+    /// The edges of every tile a search has opened, kept between searches. Simulating a tile's
+    /// jumps costs about a sixth of a millisecond in the game and the positioner's reach flood
+    /// opens hundreds of tiles every few ticks, most of them the same tiles as last time, which
+    /// on the sixth run of 2026-09-08 was sixty milliseconds of one tick in every twelve. The
+    /// geometry only changes when a tile does, so the cache lives until a tile is killed or
+    /// placed (<see cref="WorldVersion"/>) or a short while has passed (liquids move and nothing
+    /// announces it). Prices are applied on read, because enemies move every tick.
+    /// </summary>
+    private static readonly Dictionary<(Point, bool), RawEdge[]> edgeCache = new();
+    private static int cachedVersion;
+    private static long cacheBorn;
+
+    /// <summary>Bumped by whoever changes a tile; every cached edge is dropped on the next search.</summary>
+    public static int WorldVersion;
+
+    /// <summary>Off, every search simulates every edge afresh: the replay's --no-cache, which proves the cache changes no verdict.</summary>
+    public static bool CacheEdges = true;
+
+    /// <summary>The brain's tick, for the cache's expiry; the replay tool leaves it at zero and the cache lives for the block.</summary>
+    public static long Clock;
+
+    /// <summary>How long a tile's edges are trusted without a tile change: a second, the time a liquid takes to settle a row or two.</summary>
+    public const long EdgeCacheLifeTicks = 60;
+
+    /// <summary>Drop every cached edge: called when the world object changes and by the cache's own two rules.</summary>
+    public static void InvalidateEdges()
+    {
+        edgeCache.Clear();
+        cachedVersion = WorldVersion;
+        cacheBorn = Clock;
+    }
+
+    /// <summary>How many tiles hold cached edges right now, for the overlay.</summary>
+    public static int CachedTiles => edgeCache.Count;
+
+    private static IEnumerable<RawEdge> RawEdges(Point t, bool lava)
+    {
         bool wet = NavGrid.IsLiquid(t.X, t.Y);
         float costScale = wet ? 2f : 1f;
-        bool lava = AllowLava;
 
         BodyPhysics.Pose? here = NavGrid.StandAt(t.X, t.Y, lava);
         foreach (int dir in new[] { -1, 1 })
@@ -195,7 +258,7 @@ public static class AStar
                     continue;
                 if (here is BodyPhysics.Pose h && !BodyPhysics.CanSlide(NavGrid.World, h, there))
                     continue;
-                yield return (new NavStep(new Point(nx, t.Y + dy), MoveKind.Walk, t), Price(nx, t.Y + dy, cost * costScale));
+                yield return new RawEdge(new NavStep(new Point(nx, t.Y + dy), MoveKind.Walk, t), cost * costScale, 0, false);
             }
             // Edge: step off the lip and fall to the first surface that holds the body where the
             // follower steers it, the middle of the open span beside the lip. The body is put there
@@ -204,19 +267,23 @@ public static class AStar
             // open span is not on, and a platform one row down is not a block, which is how a
             // real support one row down was scanned past and a drop offered that the body at the
             // lip never made (run 5, 2026-09-08). A rest one row down is the walk step-down's job
-            // and yields no edge; two or more rows is the drop.
-            if (NavGrid.IsBodyClear(nx, t.Y))
+            // and yields no edge; two or more rows is the drop. The column beside the lip must be
+            // open underneath as well as clear: a platform there is a floor the body walks onto
+            // and stands on, and the way down through it is the fall-through edge from that tile,
+            // never a drop from this one (run 6, 2026-09-08: a shaft capped with platforms, the
+            // body parked on the lip for the rest of the run pushing at a drop it could not make).
+            if (NavGrid.IsBodyClear(nx, t.Y) && !NavGrid.IsSupport(nx, t.Y + 1))
                 foreach ((Point drop, int fall, float steerX) in Landings(nx, t.Y, throughPlatform: false, lava))
-                    if (fall >= 2 && (fall <= NavGrid.JumpHeightTiles || AllowOneWayDrops))
-                        yield return (new NavStep(drop, MoveKind.Drop, t, SteerX: steerX), PriceSwept(t, drop, (1f + fall * 0.2f) * costScale));
+                    if (fall >= 2)
+                        yield return new RawEdge(new NavStep(drop, MoveKind.Drop, t, SteerX: steerX), (1f + fall * 0.2f) * costScale, fall, true);
         }
 
         // Standing on a platform: fall through it to the first surface below, the way a player
         // presses down. A mine shaft capped with platforms is otherwise a ceiling.
         if (NavGrid.IsPlatformUnder(t.X, t.Y))
             foreach ((Point through, int depth, float steerX) in Landings(t.X, t.Y, throughPlatform: true, lava))
-                if (depth >= 2 && (depth <= NavGrid.JumpHeightTiles || AllowOneWayDrops))
-                    yield return (new NavStep(through, MoveKind.FallThrough, t, SteerX: steerX), PriceSwept(t, through, (1f + depth * 0.2f) * costScale));
+                if (depth >= 2)
+                    yield return new RawEdge(new NavStep(through, MoveKind.FallThrough, t, SteerX: steerX), (1f + depth * 0.2f) * costScale, depth, true);
 
         // Jumps: the follower's own jump, simulated tick by tick against the shapes, to every
         // standable tile in the search box; an edge exists only where the simulated body lands
@@ -255,7 +322,7 @@ public static class AStar
                     var landed = new Point((int)Math.Floor(landing.CentreX / 16f), BodyPhysics.FeetRow(landing.Bottom));
                     if (landed != target)
                         continue;
-                    yield return (new NavStep(target, MoveKind.Jump, t, scale, startVx), PriceSwept(t, target, JumpCost(flight) * costScale));
+                    yield return new RawEdge(new NavStep(target, MoveKind.Jump, t, scale, startVx), JumpCost(flight) * costScale, 0, true);
                     break;
                 }
             }

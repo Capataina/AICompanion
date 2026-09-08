@@ -26,6 +26,8 @@ foreach (string arg in args)
 {
     if (arg == "--trace-jump")
         traceJump = true;
+    else if (arg == "--no-cache")
+        AStar.CacheEdges = false;
     else if (Directory.Exists(arg))
         files.AddRange(Directory.GetFiles(arg, "*.txt"));
     else if (File.Exists(arg))
@@ -49,6 +51,8 @@ foreach (string file in files)
     {
         var world = TextTileWorld.Parse(block, out string header, out List<string> extras);
         NavGrid.World = world;
+        // Every block is its own world, and the edge cache remembers the last one's tiles.
+        AStar.InvalidateEdges();
         AStar.AllowLava = false;
         AStar.Avoid.Clear();
         string name = $"{Path.GetFileName(file)}#{index}";
@@ -106,6 +110,10 @@ foreach (string file in files)
         string goalIn = "", playerIn = "", pocket = "";
         if (from is Point f)
         {
+            // The sealed verdicts read whether a flood ever touched the window's edge, and a
+            // flood served from the edge cache never reads the world at all; each flood that
+            // answers that question starts from an empty cache.
+            AStar.InvalidateEdges();
             world.AskedOutside = false;
             region = AStar.Region(f, AICompanion.Brain.DecisionMatrix.Decision.Weights.ReachFloodBudget, out complete);
             bool startClipped = world.AskedOutside;
@@ -121,6 +129,7 @@ foreach (string file in files)
             // is undecidable as cut and wants reshape.py --pad.
             if (!pass && complete && goalIn == "out")
             {
+                AStar.InvalidateEdges();
                 world.AskedOutside = false;
                 HashSet<Point> goalRegion = Ground(world, goal.Value) is Point goalFeet
                     ? AStar.Region(goalFeet, AICompanion.Brain.DecisionMatrix.Decision.Weights.ReachFloodBudget, out _)

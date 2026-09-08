@@ -11,7 +11,7 @@ Senses/
 ├─ ThreatSense.cs        one ThreatRecord per hostile; reachability (cached, staggered), observed speed, shooters; derives PlayerDanger and Horizon
 ├─ ThreatRecord.cs       the per-hostile record and its predicted hitbox
 ├─ LootSense.cs          items on the ground within reach, nearest first, with a value
-├─ TileDamageWatcher.cs  GlobalTile.KillTile hook: the player really hit a tree or an ore (fail hits included); companion hits excluded by a flag
+├─ TileDamageWatcher.cs  GlobalTile.KillTile hook: the player really hit a tree or an ore (fail hits included); companion hits excluded by a flag; also the one place the world's change is announced to the planner, bumping AStar.WorldVersion on every tile really killed or placed and emptying its edge cache on world load
 ├─ LightSense.cs         ambient brightness on a coarse grid over a screen-sized window centred on the companion with a disc around the companion cut out, plus the light at the player and at the companion; refreshed on a short cadence
 └─ LineOfSight.cs        names over Collision.CanHitLine
 ```

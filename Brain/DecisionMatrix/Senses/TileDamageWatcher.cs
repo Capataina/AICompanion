@@ -55,8 +55,15 @@ public sealed class TileDamageWatcher : GlobalTile
         CompanionIsHitting = false;
     }
 
+    /// <summary>A placed tile is a changed world too, and it is the case the platform rescue makes: the planner must see the platform on its next search.</summary>
+    public override void PlaceInWorld(int i, int j, int type, Item item) => Navigation.AStar.WorldVersion++;
+
     public override void KillTile(int i, int j, int type, ref bool fail, ref bool effectOnly, ref bool noItem)
     {
+        // A tile that is really going invalidates every cached edge of the grid, whoever broke
+        // it: the geometry the planner remembers is wrong the moment the world differs from it.
+        if (!fail && !effectOnly)
+            Navigation.AStar.WorldVersion++;
         if (CompanionIsHitting || effectOnly || Main.gameMenu)
             return;
         if (TreeFinder.IsTreeType(type))
@@ -77,6 +84,11 @@ public sealed class TileDamageWatcher : GlobalTile
 public sealed class TileDamageClock : ModSystem
 {
     public override void PostUpdateEverything() => TileDamageWatcher.Advance();
-    public override void OnWorldLoad() => TileDamageWatcher.Reset();
+    public override void OnWorldLoad()
+    {
+        TileDamageWatcher.Reset();
+        // A new world is new geometry; whatever the planner remembered of the last one is gone.
+        Navigation.AStar.InvalidateEdges();
+    }
     public override void OnWorldUnload() => TileDamageWatcher.Reset();
 }
