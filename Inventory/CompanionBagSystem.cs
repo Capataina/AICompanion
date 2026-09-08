@@ -10,13 +10,14 @@ using AICompanion.Companion;
 namespace AICompanion.Inventory;
 
 /// <summary>
-/// Owns the bag window: opens on a right-click on the companion within reach, closes
-/// on a second right-click, on the inventory key, or when the player walks away.
+/// Owns the bag window: opens on a right-click on the companion within reach or on a
+/// click on the HUD notch from anywhere, and closes on a second click or on the
+/// inventory key. Distance never closes it: the bag is the companion's, not a chest
+/// in the world, so the player can rummage in it from across the map.
 /// </summary>
 public sealed class CompanionBagSystem : ModSystem
 {
     private const float OpenReach = 160f;
-    private const float CloseDistance = 320f;
 
     private UserInterface? ui;
     private CompanionBagUI? state;
@@ -85,8 +86,7 @@ public sealed class CompanionBagSystem : ModSystem
         lastTime = gameTime;
         if (!IsOpen)
             return;
-        NPC? npc = CompanionNPC.Find();
-        if (npc == null || Vector2.Distance(Main.LocalPlayer.Center, npc.Center) > CloseDistance || !Main.playerInventory)
+        if (!Main.playerInventory)
         {
             Close();
             return;
