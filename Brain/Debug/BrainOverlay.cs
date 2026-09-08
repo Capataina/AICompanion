@@ -25,10 +25,12 @@ public sealed class BrainOverlay : ModSystem
     public override void Load()
     {
         // The name is the localisation key segment (Keybinds.BrainOverlay.DisplayName), so no space.
-        // Default is the key left of 1 (§ on a Mac ISO keyboard, ` on ANSI): SDL reports the ISO
-        // section key on the grave scancode, which FNA names OemTilde. Rebindable under Controls.
-        ToggleKey = KeybindLoader.RegisterKeybind(Mod, "BrainOverlay", "OemTilde");
-        Mod.Logger.Info("BrainOverlay.Load: keybind registered, default OemTilde");
+        // Default is F6. The key left of 1 was tried and can never work on a Mac ISO keyboard:
+        // FNA logs "KEY/SCANCODE MISSING FROM SDL2->XNA DICTIONARY: SDL_SCANCODE_GRAVE" and drops
+        // the press before it becomes a key, so neither a keybind nor a raw-key fallback sees it.
+        // F6 needs Fn on a MacBook unless the F-keys are set to standard; rebindable under Controls.
+        ToggleKey = KeybindLoader.RegisterKeybind(Mod, "BrainOverlay", "F6");
+        Mod.Logger.Info("BrainOverlay.Load: keybind registered, default F6");
     }
 
     public override void Unload()
@@ -69,7 +71,7 @@ public sealed class BrainOverlay : ModSystem
             for (int i = path.Index; i < path.Steps.Count; i++)
             {
                 Vector2 p = ToScreen(NavGrid.FeetWorld(path.Steps[i].Tile) + new Vector2(0f, -8f));
-                Color colour = path.Steps[i].Kind switch { MoveKind.Jump => Color.Orange, MoveKind.Drop => Color.SkyBlue, _ => Color.LimeGreen };
+                Color colour = path.Steps[i].Kind switch { MoveKind.Jump => Color.Orange, MoveKind.Drop => Color.SkyBlue, MoveKind.FallThrough => Color.Violet, _ => Color.LimeGreen };
                 spriteBatch.Draw(pixel, new Rectangle((int)p.X - 3, (int)p.Y - 3, 6, 6), colour);
             }
         }

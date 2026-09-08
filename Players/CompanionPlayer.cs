@@ -63,7 +63,7 @@ public class CompanionPlayer : ModPlayer
         // can be read off client.log rather than guessed.
         KeyboardState keys = Main.keyState;
         bool JustDown(Keys k) => keys.IsKeyDown(k) && !previousKeys.IsKeyDown(k);
-        bool toggle = BrainOverlay.ToggleKey?.JustPressed == true || JustDown(Keys.OemTilde) || JustDown(Keys.OemBackslash);
+        bool toggle = BrainOverlay.ToggleKey?.JustPressed == true || JustDown(Keys.F6) || JustDown(Keys.OemTilde) || JustDown(Keys.OemBackslash);
         foreach (Keys k in keys.GetPressedKeys())
             if (!previousKeys.IsKeyDown(k) && k.ToString().StartsWith("Oem"))
                 Mod.Logger.Info($"Key pressed: {k}");
