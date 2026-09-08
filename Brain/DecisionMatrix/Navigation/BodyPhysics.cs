@@ -96,6 +96,10 @@ public static class BodyPhysics
     /// </summary>
     public static Pose? Stand(ITileWorld world, int column, int row)
     {
+        // The feet cannot be inside a full block: every offset overlaps this column, so RestBottom
+        // would land on the block's top and the feet row above. Skip the probe on every rock tile.
+        if (world.Shape(column, row) == TileShape.Solid)
+            return null;
         foreach (float off in Offsets)
         {
             float left = column * 16f + 8f + off - Width / 2f;
