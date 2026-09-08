@@ -59,6 +59,10 @@ public sealed class CompanionInventory
             Item rest = player.GetItem(player.whoAmI, item, GetItemSettings.PickupItemFromWorld);
             if (rest.IsAir)
                 item.stack = 0;
+            // One line per coin pickup, so the next playtest's log measures where a coin went
+            // instead of the report guessing at it.
+            ModContent.GetInstance<AICompanion>().Logger.Info(
+                $"coin pickup: {before} {item.Name} -> purse took {before - item.stack}, bag gets {item.stack}");
         }
         // Anything else tops up a stack the player already holds, asked again after every merge
         // because a merge can change what fits, and otherwise goes to the bag: new kinds of thing
