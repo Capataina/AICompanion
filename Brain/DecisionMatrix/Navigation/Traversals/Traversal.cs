@@ -39,8 +39,8 @@ public abstract class Traversal
 
     public abstract MoveKind Kind { get; }
 
-    /// <summary>Every edge of this kind out of a node, proven; <paramref name="here"/> is the pose at the node when one exists.</summary>
-    public abstract IEnumerable<NavEdge> Candidates(Point tile, BodyPhysics.Pose? here, bool lava);
+    /// <summary>Every edge of this kind out of a node (its tile and the mobility state the body arrives with), proven; <paramref name="here"/> is the pose at the node when one exists. A step's own Mobility is the state at its landing; a move that spends or restores a counter sets it, and every move today leaves it as it found it.</summary>
+    public abstract IEnumerable<NavEdge> Candidates(NavNode node, BodyPhysics.Pose? here, bool lava);
 
     /// <summary>The follower has started performing this step; run state for it begins here.</summary>
     public virtual void Begin(NavStep step) { }

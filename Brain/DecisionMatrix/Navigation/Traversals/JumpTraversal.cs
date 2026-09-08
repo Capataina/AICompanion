@@ -21,8 +21,9 @@ public sealed class JumpTraversal : Traversal
     /// <summary>The longest flight the planner follows before giving up on a landing.</summary>
     public const int MaxJumpTicks = 120;
 
-    public override IEnumerable<NavEdge> Candidates(Point t, BodyPhysics.Pose? here, bool lava)
+    public override IEnumerable<NavEdge> Candidates(NavNode node, BodyPhysics.Pose? here, bool lava)
     {
+        Point t = node.Tile;
         // A jump straight up onto the tile above needs a platform to pass through, which Fits
         // allows and a block refuses.
         if (here is not BodyPhysics.Pose fromPose || NavGrid.IsBlock(t.X, t.Y - NavGrid.BodyHeightTiles))

@@ -34,8 +34,9 @@ public sealed class WalkTraversal : Traversal
     private int blockedTicks;
     private int lastDir = 1;
 
-    public override IEnumerable<NavEdge> Candidates(Point t, BodyPhysics.Pose? here, bool lava)
+    public override IEnumerable<NavEdge> Candidates(NavNode node, BodyPhysics.Pose? here, bool lava)
     {
+        Point t = node.Tile;
         foreach (int dir in new[] { -1, 1 })
         {
             if (here is BodyPhysics.Pose pose)

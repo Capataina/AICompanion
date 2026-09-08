@@ -27,7 +27,20 @@ public enum MoveKind { Walk, Jump, Drop, FallThrough }
 /// walk speed (a ledge onto a narrow lip), so the step before it coasts to a stop the way it
 /// does before a descent; a drop, a fall-through and a standing jump start from rest by kind.
 /// </summary>
-public readonly record struct NavStep(Point Tile, MoveKind Kind, Point From = default, float JumpScale = 1f, float StartVx = 0f, float SteerX = 0f, int Ticks = 0, bool FromRest = false);
+public readonly record struct NavStep(Point Tile, MoveKind Kind, Point From = default, float JumpScale = 1f, float StartVx = 0f, float SteerX = 0f, int Ticks = 0, bool FromRest = false, MobilityState Mobility = default);
+
+/// <summary>
+/// What the search plans over: a feet tile and the body's mobility state on arriving there (air
+/// jumps left, a latch, a dash cooldown), so two states on one tile are two nodes and a move
+/// that spends or restores a counter plans as an ordinary edge. Every mobility is zero today,
+/// so a node is its tile; the key exists so an air jump or a dash is a traversal and not a
+/// rewrite of the search. The public seams stay tiles: a search is asked from a tile to a tile
+/// and a flood returns tiles, because the brain, the positioner and the replay reason in tiles.
+/// </summary>
+public readonly record struct NavNode(Point Tile, MobilityState Mobility)
+{
+    public static NavNode At(Point tile) => new(tile, default);
+}
 
 /// <summary>
 /// A planned route as feet tiles, first step first. Goal is the tile the search was asked

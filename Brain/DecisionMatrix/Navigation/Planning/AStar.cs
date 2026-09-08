@@ -7,9 +7,12 @@ using Microsoft.Xna.Framework;
 namespace AICompanion.Brain.DecisionMatrix.Navigation;
 
 /// <summary>
-/// A* over the navigation grid. Nodes are feet tiles; neighbours are generated on the
-/// fly from what the body can do. Bounded by an expansion budget so a hopeless search
-/// (the goal sealed off) costs a known amount and returns null rather than hanging.
+/// A* over the navigation grid. A node is a feet tile and the body's mobility state on
+/// arriving there (<see cref="NavNode"/>); neighbours are generated on the fly from what the
+/// body can do. The search is asked from a tile to a tile and answers with tiles, and the goal
+/// is reached in whatever mobility state the body arrives with. Bounded by an expansion budget
+/// so a hopeless search (the goal sealed off) costs a known amount and returns null rather
+/// than hanging.
 /// </summary>
 public static class AStar
 {
@@ -38,18 +41,29 @@ public static class AStar
     /// <summary>Multiplier on every edge into a node where the body's head is under liquid, on top of the wet-feet multiplier.</summary>
     public const float SubmergedCost = 2f;
 
-    private readonly record struct Open(Point Tile, float F);
+    private readonly record struct Open(NavNode Node, float F);
 
+    /// <summary>A total order, so two nodes are never read as one entry by the set: the price, then the tile, then every mobility counter.</summary>
     private sealed class OpenComparer : IComparer<Open>
     {
         public int Compare(Open a, Open b)
         {
             int c = a.F.CompareTo(b.F);
             if (c != 0) return c;
-            c = a.Tile.X.CompareTo(b.Tile.X);
-            return c != 0 ? c : a.Tile.Y.CompareTo(b.Tile.Y);
+            c = a.Node.Tile.X.CompareTo(b.Node.Tile.X);
+            if (c != 0) return c;
+            c = a.Node.Tile.Y.CompareTo(b.Node.Tile.Y);
+            if (c != 0) return c;
+            MobilityState m = a.Node.Mobility, n = b.Node.Mobility;
+            c = m.AirJumpsLeft.CompareTo(n.AirJumpsLeft);
+            if (c != 0) return c;
+            c = m.Latched.CompareTo(n.Latched);
+            return c != 0 ? c : m.DashCooldown.CompareTo(n.DashCooldown);
         }
     }
+
+    /// <summary>The path's previous node and the step that arrived from it, for the rebuild.</summary>
+    private readonly record struct Arrival(NavStep Step, NavNode From);
 
     /// <summary>
     /// Path from <paramref name="start"/> to <paramref name="goal"/>, both feet tiles, or
@@ -65,56 +79,57 @@ public static class AStar
     {
         expansions = 0;
         var open = new SortedSet<Open>(new OpenComparer());
-        var g = new Dictionary<Point, float>();
-        var cameFrom = new Dictionary<Point, NavStep>();
-        var closed = TraceClosed ?? new HashSet<Point>();
-        closed.Clear();
-        Point nearest = start;
+        var g = new Dictionary<NavNode, float>();
+        var cameFrom = new Dictionary<NavNode, Arrival>();
+        var closed = new HashSet<NavNode>();
+        TraceClosed?.Clear();
+        NavNode from = NavNode.At(start);
+        NavNode nearest = from;
         float nearestH = H(start, goal);
 
-        g[start] = 0f;
-        open.Add(new Open(start, nearestH));
+        g[from] = 0f;
+        open.Add(new Open(from, nearestH));
 
         while (open.Count > 0)
         {
             Open current = open.Min;
             open.Remove(current);
-            Point tile = current.Tile;
-            if (closed.Contains(tile))
+            NavNode node = current.Node;
+            if (!closed.Add(node))
                 continue;
-            closed.Add(tile);
+            TraceClosed?.Add(node.Tile);
 
-            if (tile == goal)
-                return Rebuild(cameFrom, start, goal, partial: false);
+            if (node.Tile == goal)
+                return Rebuild(cameFrom, from, node, partial: false);
 
-            float h = H(tile, goal);
+            float h = H(node.Tile, goal);
             // A partial end is chosen by closeness alone, so a lava tile must not be eligible:
             // its price steers a whole path round it but cannot stop it being the nearest.
-            if (h < nearestH && NavGrid.LavaTilesAt(tile.X, tile.Y) == 0)
+            if (h < nearestH && NavGrid.LavaTilesAt(node.Tile.X, node.Tile.Y) == 0)
             {
                 nearestH = h;
-                nearest = tile;
+                nearest = node;
             }
             if (++expansions > budget)
                 break;
 
-            float gHere = g[tile];
-            foreach ((NavStep step, float cost) in Neighbours(tile))
+            float gHere = g[node];
+            foreach ((NavStep step, float cost) in Neighbours(node))
             {
-                Point next = step.Tile;
+                var next = new NavNode(step.Tile, step.Mobility);
                 if (closed.Contains(next))
                     continue;
                 float tentative = gHere + cost;
                 if (g.TryGetValue(next, out float known) && tentative >= known)
                     continue;
                 g[next] = tentative;
-                cameFrom[next] = step;
-                open.Add(new Open(next, tentative + H(next, goal)));
+                cameFrom[next] = new Arrival(step, node);
+                open.Add(new Open(next, tentative + H(step.Tile, goal)));
             }
         }
         // Out of budget or out of region: the closest tile the search reached is still the
         // best place to be, and walking there beats standing where the goal went out of view.
-        return nearest == start ? null : Rebuild(cameFrom, start, nearest, partial: true);
+        return nearest == from ? null : Rebuild(cameFrom, from, nearest, partial: true);
     }
 
     /// <summary>
@@ -126,25 +141,33 @@ public static class AStar
     /// </summary>
     public static HashSet<Point> Region(Point start, int budget, out bool complete)
     {
-        var seen = new HashSet<Point> { start };
-        var queue = new Queue<Point>();
-        queue.Enqueue(start);
+        NavNode from = NavNode.At(start);
+        var seen = new HashSet<NavNode> { from };
+        var tiles = new HashSet<Point> { start };
+        var queue = new Queue<NavNode>();
+        queue.Enqueue(from);
         complete = true;
         while (queue.Count > 0)
         {
-            if (seen.Count >= budget)
+            // The budget is tiles, because the caller asks how many places it can reach: a tile
+            // reached in two mobility states is one place, and the flood costs one node per state.
+            if (tiles.Count >= budget)
             {
                 complete = false;
                 break;
             }
-            Point tile = queue.Dequeue();
-            foreach ((NavStep step, _) in Neighbours(tile))
+            NavNode node = queue.Dequeue();
+            foreach ((NavStep step, _) in Neighbours(node))
             {
-                if (seen.Add(step.Tile))
-                    queue.Enqueue(step.Tile);
+                var next = new NavNode(step.Tile, step.Mobility);
+                if (seen.Add(next))
+                {
+                    tiles.Add(step.Tile);
+                    queue.Enqueue(next);
+                }
             }
         }
-        return seen;
+        return tiles;
     }
 
     private static float H(Point a, Point b)
@@ -153,18 +176,18 @@ public static class AStar
         return dx + dy * 0.5f;
     }
 
-    private static NavPath Rebuild(Dictionary<Point, NavStep> cameFrom, Point start, Point end, bool partial)
+    private static NavPath Rebuild(Dictionary<NavNode, Arrival> cameFrom, NavNode start, NavNode end, bool partial)
     {
         var steps = new List<NavStep>();
-        Point at = end;
+        NavNode at = end;
         while (at != start)
         {
-            NavStep step = cameFrom[at];
-            steps.Add(step);
-            at = step.From;
+            Arrival arrival = cameFrom[at];
+            steps.Add(arrival.Step);
+            at = arrival.From;
         }
         steps.Reverse();
-        return new NavPath(steps, end, partial);
+        return new NavPath(steps, end.Tile, partial);
     }
 
     /// <summary>
@@ -176,19 +199,20 @@ public static class AStar
     /// the simulated jump moves at half speed while wet because the game halves a wet NPC's
     /// movement; the search then prefers walking out along the floor to jumping in place.
     /// </summary>
-    private static IEnumerable<(NavStep, float)> Neighbours(Point t)
+    private static IEnumerable<(NavStep, float)> Neighbours(NavNode node)
     {
-        (Point, bool) key = (t, AllowLava);
+        (NavNode, bool) key = (node, AllowLava);
         NavEdge[] edges;
         if (!CacheEdges)
-            edges = System.Linq.Enumerable.ToArray(NavEdges(t, AllowLava));
+            edges = System.Linq.Enumerable.ToArray(NavEdges(node, AllowLava));
         else if (!edgeCache.TryGetValue(key, out CachedEdges cached) || unchecked(Clock - cached.Born) > EdgeCacheLifeTicks)
         {
-            edges = System.Linq.Enumerable.ToArray(NavEdges(t, AllowLava));
+            edges = System.Linq.Enumerable.ToArray(NavEdges(node, AllowLava));
             edgeCache[key] = new CachedEdges(edges, Clock);
         }
         else
             edges = cached.Edges;
+        Point t = node.Tile;
         foreach (NavEdge e in edges)
         {
             if (e.Fall > NavGrid.JumpHeightTiles && !AllowOneWayDrops)
@@ -211,7 +235,7 @@ public static class AStar
     /// landing, a door opening and a boulder rolling change the world through no hook the mod
     /// can hear. Prices are applied on read, because enemies move every tick.
     /// </summary>
-    private static readonly Dictionary<(Point, bool), CachedEdges> edgeCache = new();
+    private static readonly Dictionary<(NavNode, bool), CachedEdges> edgeCache = new();
     private readonly record struct CachedEdges(NavEdge[] Edges, uint Born);
 
     /// <summary>Off, every search simulates every edge afresh: the replay's --no-cache, which proves the cache changes no verdict.</summary>
@@ -260,14 +284,14 @@ public static class AStar
             return;
         int minY = y - NavGrid.MaxDropTiles - 1;
         int maxY = y + NavGrid.JumpHeightTiles + NavGrid.BodyHeightTiles + 2;
-        var stale = new List<(Point, bool)>();
-        foreach ((Point, bool) key in edgeCache.Keys)
+        var stale = new List<(NavNode, bool)>();
+        foreach ((NavNode, bool) key in edgeCache.Keys)
         {
-            Point t = key.Item1;
+            Point t = key.Item1.Tile;
             if (Math.Abs(t.X - x) <= EdgeReachX && t.Y >= minY && t.Y <= maxY)
                 stale.Add(key);
         }
-        foreach ((Point, bool) key in stale)
+        foreach ((NavNode, bool) key in stale)
             edgeCache.Remove(key);
     }
 
@@ -283,12 +307,13 @@ public static class AStar
     /// offered is a move the body makes. From inside liquid every move costs double, because the
     /// game halves a wet NPC's movement.
     /// </summary>
-    private static IEnumerable<NavEdge> NavEdges(Point t, bool lava)
+    private static IEnumerable<NavEdge> NavEdges(NavNode node, bool lava)
     {
+        Point t = node.Tile;
         float costScale = NavGrid.IsLiquid(t.X, t.Y) ? 2f : 1f;
         BodyPhysics.Pose? here = NavGrid.StandAt(t.X, t.Y, lava);
         foreach (Traversal traversal in Traversal.Planning)
-            foreach (NavEdge edge in traversal.Candidates(t, here, lava))
+            foreach (NavEdge edge in traversal.Candidates(node, here, lava))
                 yield return edge with { Move = edge.Move * costScale };
     }
 

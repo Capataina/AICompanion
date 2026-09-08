@@ -115,7 +115,7 @@ foreach (string file in files)
             BodyPhysics.Pose? here = NavGrid.StandAt(node.X, node.Y, false);
             Console.WriteLine($"edges from {Fmt(node)} in {name}: {(here is BodyPhysics.Pose hp ? $"pose left {hp.Left} bottom {hp.Bottom}" : "no pose (not a node)")}");
             foreach (Traversal traversal in Traversal.Planning)
-                foreach (NavEdge edge in traversal.Candidates(node, here, false))
+                foreach (NavEdge edge in traversal.Candidates(NavNode.At(node), here, false))
                     Console.WriteLine($"   {edge.Step.Kind,-11} -> {Fmt(edge.Step.Tile)}  cost {edge.Move:F2} fall {edge.Fall} ticks {edge.Step.Ticks} scale {edge.Step.JumpScale:F2} startVx {edge.Step.StartVx:F2} steerX {edge.Step.SteerX:F1}");
             skipped++;
             continue;

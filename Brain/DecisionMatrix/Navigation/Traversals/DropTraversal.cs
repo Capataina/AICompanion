@@ -23,8 +23,9 @@ public sealed class DropTraversal : Traversal
 {
     public override MoveKind Kind => MoveKind.Drop;
 
-    public override IEnumerable<NavEdge> Candidates(Point t, BodyPhysics.Pose? here, bool lava)
+    public override IEnumerable<NavEdge> Candidates(NavNode node, BodyPhysics.Pose? here, bool lava)
     {
+        Point t = node.Tile;
         if (here is not BodyPhysics.Pose pose)
             yield break;
         foreach (int dir in new[] { -1, 1 })

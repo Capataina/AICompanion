@@ -15,8 +15,9 @@ public sealed class FallThroughTraversal : Traversal
 {
     public override MoveKind Kind => MoveKind.FallThrough;
 
-    public override IEnumerable<NavEdge> Candidates(Point t, BodyPhysics.Pose? here, bool lava)
+    public override IEnumerable<NavEdge> Candidates(NavNode node, BodyPhysics.Pose? here, bool lava)
     {
+        Point t = node.Tile;
         if (here is not BodyPhysics.Pose pose || !NavGrid.IsPlatformUnder(pose, t.Y))
             yield break;
         foreach (NavEdge edge in DropTraversal.Descents(t, pose, t.X, throughPlatform: true, lava, MoveKind.FallThrough))
