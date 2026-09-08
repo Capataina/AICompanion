@@ -112,7 +112,8 @@ public sealed class Brain
         AStar.AllowLava = Senses.Self.LifeFraction > 0.6f && !Senses.Self.InLava;
         // A drop with no way back is taken only after the player, or to save the body: a hunt
         // that dropped into a sealed pocket after its target stood at the rim for the rest of
-        // run 5 (2026-09-08). Set before the positioner resolves, whose reach flood shares the rule.
+        // run 5 (2026-09-08). This gates the planner alone; the positioner's reach flood answers
+        // the same question for itself and against the player's tile rather than the request kind.
         AStar.AllowOneWayDrops = LastRequest.Kind is RequestKind.WithPlayer or RequestKind.Guard || action is Actions.Survival.SurviveAction;
         Vector2? spot = Positioner.Resolve(LastRequest, Senses, profile);
         PositionMs = Lap();

@@ -95,6 +95,12 @@ foreach (string file in files)
         Point? headerStart = HeaderPoint(header, "start");
         goal ??= headerGoal ?? (headerStart == null && player != null ? player : null);
         start ??= headerStart;
+        // After the goal is settled, deliberately: the header's player must not become a goal for a
+        // block that names no start, which is what the line above uses the marker player for. A
+        // hand-cut fixture whose player stands on the goal tile can carry only one glyph there, so
+        // its player exists in the header alone, and the flood lines below need him or the block
+        // reads as having no player at all.
+        player ??= HeaderPoint(header, "player");
         if (start == null || goal == null)
         {
             Console.WriteLine($"SKIP {name}: no start or goal ({header})");
@@ -178,7 +184,14 @@ foreach (string file in files)
             // because SEALED still has to mean what it has always meant, a region the world itself
             // closes, and a region that closes only because its exit is one-way is a different fact.
             HashSet<Point> returnable = AStar.Region(f, AICompanion.Brain.DecisionMatrix.Decision.Weights.ReachFloodBudget, out _, refuseOneWay: true);
-            homeIn = returnable.Count == region.Count ? ""
+            // And the positioner's own escape hatch, modelled here or this line reports a region the
+            // positioner does not use: a returnable region that does not hold the player is the wrong
+            // map, because being stuck is having no way to the player and not having no way back, so
+            // the positioner floods again without the refusal. Printed as "player only via a one-way
+            // drop" because that is the whole reason the returnable region was discarded.
+            bool playerOut = player is Point pl4 && region.Contains(pl4) && !returnable.Contains(pl4);
+            homeIn = playerOut ? "; the player is reachable only through an edge with no way back, so the positioner floods without the refusal and scores the raw region"
+                : returnable.Count == region.Count ? ""
                 : $"; {returnable.Count} of them returnable, goal {(returnable.Contains(goal.Value) ? "in" : "out")}";
             // A complete region with the goal out is one of three things, and the window's edge
             // tells them apart. The flood records whether it ever read a tile outside the window

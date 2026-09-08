@@ -130,19 +130,53 @@ public sealed class Positioner
             return;
         }
         var clock = System.Diagnostics.Stopwatch.StartNew();
-        // Always without the edges that have no way back, whatever the request is, so this region
-        // means "everywhere the body can go and come home from". That is what turns the tier below
-        // into the decision about whether to enter somewhere: while any candidate spot is in here
-        // only those are scored, and when none is, the tier opens and the unrecoverable ones are
-        // scored instead. So the companion shoots into a pit from its rim while a rim spot exists
-        // and drops in when none does, and it follows the player into a pocket because every
-        // candidate went in with him, with nothing in the code naming an enemy, a pit or a player.
-        // The flood no longer depends on the request kind, which is why it no longer re-floods when
-        // that changes.
-        reach = AStar.Region(feet.Value, Weights.ReachFloodBudget, out bool complete, refuseOneWay: true);
+        // Without the edges that have no way back, so this region means "everywhere the body can go
+        // and come home from". That is what turns the tier below into the decision about whether to
+        // enter somewhere: while any candidate spot is in here only those are scored, and when none
+        // is, the tier opens and the unrecoverable ones are scored instead. So the companion shoots
+        // into a pit from its rim while a rim spot exists and drops in when none does, with nothing
+        // in the code naming an enemy or a pit.
+        returnable = AStar.Region(feet.Value, Weights.ReachFloodBudget, out bool complete, refuseOneWay: true);
+        reach = returnable;
+
+        // Unless that map does not hold the player, in which case it is the wrong map. Being stuck
+        // is not having a way back to the take-off; it is not having a way to the player (Caner's
+        // own definition, 2026-09-08), so a place he is standing in is by definition not somewhere
+        // the companion strands itself, and refusing the only edges that reach him would leave the
+        // body on the rim of a shaft he had climbed down. The corpus's two-wide shaft fixture is
+        // exactly that shape: eight rows down, seven rim tiles returnable and inside the sample
+        // box, so a returnable candidate always survived and the tier never opened for him.
+        // This costs a second flood only when the player is out of the first one, which is the
+        // case where the companion has to go and get him.
+        Point? player = NavGrid.NearestStandable(NavGrid.FeetTile(senses.Player.Bottom), 2);
+        PlayerOnlyOneWay = player is Point p && !returnable.Contains(p);
+        if (PlayerOnlyOneWay)
+            reach = AStar.Region(feet.Value, Weights.ReachFloodBudget, out complete, refuseOneWay: false);
+
         LastFloodMs = clock.Elapsed.TotalMilliseconds;
         ReachComplete = complete;
     }
+
+    // The refusing flood is kept beside the one being scored against, because after the second
+    // flood `reach` no longer answers "can I come home from here" and that is the question the
+    // telemetry and the scenario capture ask. Nothing in the scoring reads it.
+    private HashSet<Point>? returnable;
+
+    /// <summary>
+    /// The refusing flood did not hold the player, so the region being scored is the raw one and
+    /// the companion is willing to go somewhere it cannot come back from. True is not a fault: it
+    /// is the companion following the player into a place he chose to be. It is worth recording
+    /// because it is the one state where prevention is deliberately switched off.
+    /// </summary>
+    public bool PlayerOnlyOneWay { get; private set; }
+
+    /// <summary>How many tiles the body can reach at all, and how many of those it can come home from.</summary>
+    public int ReachCount => reach?.Count ?? 0;
+    public int ReturnableCount => returnable?.Count ?? 0;
+
+    /// <summary>Whether the spot last chosen is one the body can come home from; true when nothing is chosen.</summary>
+    public bool ChosenReturnable
+        => Chosen is not Vector2 c || returnable == null || returnable.Contains(NavGrid.FeetTile(c));
 
     /// <summary>Wall-clock of the last reach flood, for the telemetry.</summary>
     public double LastFloodMs { get; private set; }

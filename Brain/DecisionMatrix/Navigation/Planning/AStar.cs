@@ -202,32 +202,33 @@ public static class AStar
     }
 
     /// <summary>
-    /// What the body can reach from a feet tile. Walk to a standable neighbour on the same
-    /// row or one up (a step). Drop off an edge to the first standable tile below. Fall
-    /// through the platform underfoot to the first standable tile below it. Jump to any
-    /// standable tile in the jump box where the follower's own jump, simulated tick by tick
-    /// against the shapes, lands in that tile. From inside liquid every move costs more, and
-    /// the simulated jump moves at half speed while wet because the game halves a wet NPC's
-    /// movement; the search then prefers walking out along the floor to jumping in place.
-    /// </summary>
-    /// <summary>
     /// Whether the landing of <paramref name="edge"/> can get back to the tile it left, asked of
     /// the same search that moves the body rather than compared against a depth. Only a fall
     /// deeper than <see cref="Traversal.ClimbReachTiles"/> is asked about, and only by a caller
-    /// that would refuse the edge, so a companion following the player never pays for this at all.
+    /// that would refuse the edge. That is not the same as "only when the companion is not
+    /// following the player": the plan for a follow permits these edges and pays nothing, while the
+    /// positioner's flood refuses them on every request and pays on the same tick, so a following
+    /// companion does pay for this through its positioner.
     ///
-    /// Three things make it affordable. It early-exits the moment it reaches the tile it left, so
-    /// a recoverable drop answers in a handful of expansions because the lip is right there. A
-    /// genuine pocket is small by construction, which the corpus's own fixtures show at thirty and
-    /// thirty-four tiles, so proving one closed is cheap too. And a budget that runs out answers
-    /// "there is a way back", which is the same convention <see cref="Reachability"/> uses for
-    /// threats and errs toward letting the body move: it refuses only where it has proved a pocket.
+    /// Two things make it affordable, and a third that was claimed here is not one of them. It
+    /// early-exits the moment it reaches the tile it left, so a recoverable drop answers in a
+    /// handful of expansions because the lip is right there, and that is the case that dominates.
+    /// A budget that runs out answers "there is a way back", the same convention
+    /// <see cref="Reachability"/> uses for threats, so it refuses only where it has proved a pocket
+    /// closed. What is NOT true is that a genuine pocket is small by construction: that read the
+    /// corpus's two real pockets, at thirty and thirty-four tiles, as the shape of the class, and a
+    /// review built a sealed chamber of any size at all. <see cref="OneWayProbeBudget"/> carries
+    /// what that costs and where the guarantee now stops.
     ///
     /// The verdict is memoised on its own rather than with the edge, because the edge cache's
     /// invalidation box is drawn from how far a scan reads and this verdict depends on the shape of
     /// a whole region: a tile dug deep inside a pocket flips the verdict of a lip far outside any
-    /// such box. So it is dropped wholesale on any tile change, which is blunt and correct, and
-    /// verdicts are rare enough to pay for.
+    /// such box. So it is dropped wholesale, and the key carries the lava switch because the
+    /// probe's own search generates neighbours under it. Wholesale covers the changes the game
+    /// announces through <see cref="TileChanged"/>, which is placing and killing a tile and not a
+    /// liquid or a sand column moving on its own; those are what the cache lifetime is for, here as
+    /// for the geometry, so a remembered exit can be closed by an unannounced change and stay
+    /// remembered until it expires.
     /// </summary>
     private static bool OneWay(Point from, NavEdge edge)
     {
@@ -236,20 +237,35 @@ public static class AStar
         // a hang rather than a wrong answer.
         if (probing || edge.Fall <= Traversal.ClimbReachTiles)
             return false;
-        (Point, Point) key = (from, edge.Step.Tile);
-        if (oneWay.TryGetValue(key, out OneWayVerdict known) && unchecked(Clock - known.Born) <= EdgeCacheLifeTicks)
+        // The lava switch is part of the key, not just the geometry's: the probe's own search
+        // generates neighbours under it, so a return route through a lava passage exists for a
+        // healthy body and not for a hurt one, and the brain flips the switch every tick from the
+        // companion's life. Keyed only on the two tiles, a verdict earned at full health kept
+        // granting permission after the passage it depended on had left the graph.
+        // CacheEdges gates this too, or the replay's --no-cache pass proves what it claims about the
+        // geometry cache and nothing at all about this one, which is the weaker half of the same
+        // question: whether a remembered answer ever differs from a fresh one.
+        (Point, Point, bool) key = (from, edge.Step.Tile, AllowLava);
+        if (CacheEdges && oneWay.TryGetValue(key, out OneWayVerdict known) && unchecked(Clock - known.Born) <= EdgeCacheLifeTicks)
             return known.Value;
-        Point? back = NavGrid.NearestStandable(edge.Step.Tile, 2);
-        Point? lip = NavGrid.NearestStandable(from, 2);
+
+        // Both endpoints are already nodes under the search's own rules: the lip is the node being
+        // expanded, and the landing is a tile the traversal proved standable with the same lava
+        // permission. So they are used as they are. Snapping to a nearest standable tile was the
+        // first version and it read the world through the lava-refusing overload, so a landing on a
+        // lava floor resolved to nothing at all, the probe was skipped, and the drop into a sealed
+        // lava chamber was admitted as having a way back — the exact case the rule exists to refuse.
+        // A tile that is not standable here is a state this cannot reason about, and the safe answer
+        // to a question it cannot ask is that there is no way back.
         bool verdict;
-        if (back == null || lip == null)
-            verdict = false;
+        if (!NavGrid.IsStandable(from.X, from.Y, AllowLava) || !NavGrid.IsStandable(edge.Step.Tile.X, edge.Step.Tile.Y, AllowLava))
+            verdict = true;
         else
         {
             probing = true;
             try
             {
-                NavPath? route = Find(back.Value, lip.Value, OneWayProbeBudget, out int used);
+                NavPath? route = Find(edge.Step.Tile, from, OneWayProbeBudget, out int used);
                 verdict = !((route != null && !route.Partial) || used > OneWayProbeBudget);
             }
             finally
@@ -257,22 +273,46 @@ public static class AStar
                 probing = false;
             }
         }
-        oneWay[key] = new OneWayVerdict(verdict, Clock);
+        if (CacheEdges)
+            oneWay[key] = new OneWayVerdict(verdict, Clock);
         return verdict;
     }
 
-    private static readonly Dictionary<(Point, Point), OneWayVerdict> oneWay = new();
+    private static readonly Dictionary<(Point, Point, bool), OneWayVerdict> oneWay = new();
     private readonly record struct OneWayVerdict(bool Value, uint Born);
     private static bool probing;
 
     /// <summary>
-    /// Expansions a return probe may spend before it answers "there is a way back". It has to
-    /// exceed the size of a pocket for the pocket to be provable, and the corpus's real ones are
-    /// tens of tiles; past that the cost is paid on every deep lip a refusing caller reads, so it
-    /// is deliberately nearer the pockets' size than the flood's budget.
+    /// Expansions a return probe may spend before it answers "there is a way back".
+    ///
+    /// This is not a performance knob, it is the largest pocket the rule can refuse. A probe
+    /// refuses an edge only where it has exhausted the landing's whole region without finding the
+    /// lip, so a sealed region bigger than this budget spends the budget instead of closing, and
+    /// the edge into it is permitted. A review on 2026-09-08 built exactly that: a chamber with no
+    /// exit at all, provably sealed by a full reverse search, whose drop was refused at 150 floor
+    /// tiles and admitted at 151. The failure grows with the size of the trap, which is the wrong
+    /// direction, so the budget is set to cover a cavern rather than a pit.
+    ///
+    /// Raising it is close to free in the case that dominates, because a drop with a way back
+    /// early-exits as soon as the heuristic reaches the lip and never approaches the budget; the
+    /// full cost is paid only by a genuinely sealed region, which is the one case worth paying for,
+    /// and once per lip-and-landing pair per cache lifetime. What remains true at any value: a
+    /// sealed region larger than this is entered, so the guarantee is "no small trap" rather than
+    /// "no trap", and a rescue behaviour (AIC-65) is what covers the rest.
     /// </summary>
-    public const int OneWayProbeBudget = 150;
+    public const int OneWayProbeBudget = 1200;
 
+    /// <summary>
+    /// What the body can reach from a feet tile. Walk to a standable neighbour on the same
+    /// row or one up (a step). Drop off an edge to the first standable tile below. Fall
+    /// through the platform underfoot to the first standable tile below it. Jump to any
+    /// standable tile in the jump box where the follower's own jump, simulated tick by tick
+    /// against the shapes, lands in that tile. From inside liquid every move costs more, and
+    /// the simulated jump moves at half speed while wet because the game halves a wet NPC's
+    /// movement; the search then prefers walking out along the floor to jumping in place.
+    /// With <paramref name="refuseOneWay"/> an edge whose landing cannot get back to this node
+    /// is dropped, which is <see cref="OneWay"/> and the only thing that costs a caller extra.
+    /// </summary>
     private static IEnumerable<(NavStep, float)> Neighbours(NavNode node, bool refuseOneWay)
     {
         (NavNode, bool) key = (node, AllowLava);
