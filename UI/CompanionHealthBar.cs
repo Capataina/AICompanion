@@ -6,8 +6,11 @@ using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Terraria;
 using Terraria.GameContent;
+using Terraria.ID;
 using Terraria.ModLoader;
 using Terraria.UI;
+using AICompanion.Brain.Work.Chopping;
+using AICompanion.Brain.Work.Mining;
 using AICompanion.Companion;
 using AICompanion.Players;
 
@@ -127,7 +130,58 @@ public class CompanionHealthBar : ModSystem
 
         bool docked = save.HealthBarPosition == null;
         DrawNotch(box, docked, npc, companion, scale);
+        DrawModeIcon(box, npc, companion, scale, hovering);
         return true;
+    }
+
+    /// <summary>
+    /// What the companion is doing, as one of the game's own item sprites to the left of the
+    /// notch, so the mode is readable without the debug overlay: the tool for a job, the
+    /// weapon for a fight, a shield for guarding, boots for kiting, a coin for looting, a
+    /// compass for following, a sunflower for wandering, a torch when it is holding one up,
+    /// a tombstone when it is down. Hover names the action.
+    /// </summary>
+    private static void DrawModeIcon(Rectangle box, NPC npc, CompanionNPC companion, float scale, bool hoveringNotch)
+    {
+        (int itemType, string name) = ModeOf(npc, companion);
+        if (itemType <= 0)
+            return;
+        Main.instance.LoadItem(itemType);
+        Texture2D tex = TextureAssets.Item[itemType].Value;
+        Rectangle frame = Main.itemAnimations[itemType]?.GetFrame(tex) ?? tex.Bounds;
+        int side = (int)(22 * scale);
+        float fit = Math.Min(side / (float)frame.Width, side / (float)frame.Height);
+        int gap = (int)(8 * scale);
+        Rectangle slot = new(box.X - gap - side, box.Y + (box.Height - side) / 2, side, side);
+        Vector2 centre = slot.Center.ToVector2();
+        Main.spriteBatch.Draw(tex, centre, frame, Color.White, 0f, frame.Size() / 2f, fit, SpriteEffects.None, 0f);
+
+        if (slot.Contains(Main.mouseX, Main.mouseY) && !hoveringNotch)
+            Main.instance.MouseText(name);
+    }
+
+    private static (int, string) ModeOf(NPC npc, CompanionNPC companion)
+    {
+        if (companion.IsDowned)
+            return (ItemID.Tombstone, "downed");
+        if (companion.Brain.Reflexes.Active is string reflex)
+            return (ItemID.Feather, reflex);
+        if (companion.Torch.Shown)
+            return (ItemID.Torch, "torch");
+        string action = companion.Brain.LastAction?.Name ?? "";
+        Player player = Main.LocalPlayer;
+        return action switch
+        {
+            "guard" => (ItemID.CobaltShield, "guarding you"),
+            "kite" => (ItemID.HermesBoots, "kiting"),
+            "hunt" => (companion.Arsenal.LastChosen?.ItemType ?? companion.Arsenal.Primary.ItemType, "hunting"),
+            "loot" => (ItemID.GoldCoin, "looting"),
+            "chop" => (TileChopper.AxeFor(player).type, "chopping"),
+            "mine" => (TileMiner.PickaxeFor(player).type, "mining"),
+            "walk-with" => (ItemID.Compass, "following you"),
+            "wander" => (ItemID.Sunflower, "wandering"),
+            _ => (0, action),
+        };
     }
 
     private static void DrawNotch(Rectangle box, bool docked, NPC npc, CompanionNPC companion, float scale)
