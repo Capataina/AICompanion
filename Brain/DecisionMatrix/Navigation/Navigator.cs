@@ -202,7 +202,7 @@ public sealed class Navigator
     // The jump step the run-up state belongs to, and where the run-up stands: backing away from
     // the take-off, or already run once (so a second arrival at the take-off jumps whatever the
     // speed, rather than backing away for ever on a runway too short for the profile).
-    private int runUpIndex = -1;
+    private (Point From, Point Tile) runUpEdge;
     private bool backingOff;
     private bool ranUp;
 
@@ -224,9 +224,11 @@ public sealed class Navigator
             motor.MoveX(BodyPhysics.SteerToward(landing.X, npc.Bottom.X, npc.velocity.X));
             return;
         }
-        if (path.Index != runUpIndex)
+        // The state belongs to the edge, not the path index: a replan resets the index, and a new
+        // path with a jump at the same index would otherwise inherit another jump's run-up.
+        if ((step.From, step.Tile) != runUpEdge)
         {
-            runUpIndex = path.Index;
+            runUpEdge = (step.From, step.Tile);
             backingOff = false;
             ranUp = false;
         }
@@ -250,21 +252,25 @@ public sealed class Navigator
         int jd = MathF.Sign(need);
         float along = (npc.Bottom.X - takeoff.X) * jd; // positive once past the take-off toward the landing
         bool fastEnough = vx * jd >= MathF.Abs(need) - 0.4f;
+        float runway = Runway(step, jd);
+        float mark = takeoff.X - jd * runway;
         if (backingOff)
         {
-            float runway = Runway(step, jd);
-            if (along <= -runway + 4f)
+            // Coast onto the runway mark with the jump's own steering rule rather than walking
+            // through it: a reversal from the walk speed takes about two tiles to stop, and when
+            // the runway is capped by the floor the mark is the last standable tile behind.
+            if (MathF.Abs(npc.Bottom.X - mark) <= 6f && MathF.Abs(vx) < 0.6f)
             {
                 backingOff = false;
                 ranUp = true;
             }
             else
             {
-                motor.MoveX(-jd * CompanionMotor.WalkSpeed);
+                motor.MoveX(BodyPhysics.SteerToward(mark, npc.Bottom.X, vx));
                 return;
             }
         }
-        if (along > 6f || (along >= -2f && (fastEnough || ranUp)))
+        if (along >= -2f && (fastEnough || ranUp))
         {
             motor.Jump(step.JumpScale);
             motor.MoveX(BodyPhysics.SteerToward(landing.X, npc.Bottom.X, vx));
@@ -272,15 +278,18 @@ public sealed class Navigator
         }
         if (along >= -2f)
         {
-            // At the take-off, too slow, and not run up yet: back away if there is anywhere to.
-            if (Runway(step, jd) < 12f)
+            // At or past the take-off, too slow, and not run up yet: back away if there is
+            // anywhere to. Past the take-off counts too, because a fresh plan can start with the
+            // body a few pixels beyond the pose centre and a jump from there at no speed is a
+            // strike, while backing away is a move away from the edge.
+            if (runway < 12f)
             {
                 motor.Jump(step.JumpScale);
                 motor.MoveX(BodyPhysics.SteerToward(landing.X, npc.Bottom.X, vx));
                 return;
             }
             backingOff = true;
-            motor.MoveX(-jd * CompanionMotor.WalkSpeed);
+            motor.MoveX(BodyPhysics.SteerToward(mark, npc.Bottom.X, vx));
             return;
         }
         // Behind the take-off: run in at the profile's own speed, not the walk speed, because the
