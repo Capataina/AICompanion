@@ -4,8 +4,8 @@ using Microsoft.Xna.Framework;
 using Terraria;
 using Terraria.ID;
 using Terraria.ModLoader;
-using AICompanion.Brain.Decision.Actions;
-using AICompanion.Combat.Ballistics;
+using AICompanion.Brain.Actions;
+using AICompanion.Brain.Aiming;
 
 namespace AICompanion.Combat.Weapons;
 

@@ -3,9 +3,9 @@
 using System;
 using Microsoft.Xna.Framework;
 using Terraria;
-using AICompanion.Brain.Decision.Actions;
-using AICompanion.Brain.Senses;
-using AICompanion.Combat.Ballistics;
+using AICompanion.Brain.Actions;
+using AICompanion.Brain.Aiming;
+using AICompanion.Brain.DecisionMatrix.Senses;
 
 namespace AICompanion.Combat.Weapons;
 

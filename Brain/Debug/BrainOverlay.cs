@@ -6,7 +6,7 @@ using Microsoft.Xna.Framework.Graphics;
 using Terraria;
 using Terraria.GameContent;
 using Terraria.ModLoader;
-using AICompanion.Brain.Navigation;
+using AICompanion.Brain.DecisionMatrix.Navigation;
 using AICompanion.Companion;
 
 namespace AICompanion.Brain.Debug;

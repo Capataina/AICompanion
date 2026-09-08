@@ -9,7 +9,9 @@ using Terraria.ModLoader;
 using AICompanion.Combat.Weapons;
 using AICompanion.Inventory;
 using AICompanion.Players;
-using AICompanion.Work;
+using AICompanion.Brain.Work.Chopping;
+using AICompanion.Brain.Work.Mining;
+using AICompanion.Brain.Work.Torch;
 
 namespace AICompanion.Companion;
 

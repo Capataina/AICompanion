@@ -25,18 +25,26 @@ AICompanion/
 ├─ AICompanion.csproj        imports ../tModLoader.targets → tMLMod.targets from the Steam install
 ├─ AICompanion.cs            the Mod subclass; logs on load, nothing else
 ├─ Companion/                the NPC, its drawn body, its motor
-├─ Brain/                    the mind: tick order, and one folder per part
-│  ├─ Senses/                the world model and the derived danger and horizon
-│  ├─ Decision/              the utility chooser, considerations, weights, position requests
-│  │  └─ Actions/            one file per thing the companion can be doing
-│  ├─ Positioning/           where to stand, scored over candidate tiles
-│  ├─ Navigation/            grid, A*, path following, reachability
-│  ├─ Reflexes/              dodge-jump and step-back, the path that skips scoring
+├─ Brain/                    how the companion behaves: deciding, and doing what it decided
+│  ├─ DecisionMatrix/        how a choice is made, independent of what the choices are
+│  │  ├─ Senses/             the world model and the derived danger, horizon and light
+│  │  ├─ Decision/           the utility chooser, considerations, weights, position requests
+│  │  ├─ Positioning/        where to stand, scored over candidate tiles
+│  │  ├─ Navigation/         grid, A*, path following, reachability
+│  │  └─ Reflexes/           simulated dodges, the path that skips scoring
+│  ├─ Actions/               what can be chosen, one file each, by family
+│  │  ├─ Companionship/      walk-with, guard, wander
+│  │  ├─ Combat/             hunt, kite
+│  │  ├─ Gathering/          loot
+│  │  └─ Work/               chop, mine
+│  ├─ Work/                  the tools a chosen action drives
+│  │  ├─ Chopping/           trees and the axe
+│  │  ├─ Mining/             ores and the pickaxe
+│  │  └─ Torch/              the torch in the dark
+│  ├─ Aiming/                the arc solver every ranged weapon and the positioner share
 │  └─ Debug/                 the brain overlay (key left of 1)
 ├─ Combat/
-│  ├─ Weapons/               the two equipped weapons and the arsenal that picks between them
-│  └─ Ballistics/            weapon flight profiles and the arc-simulating aimer
-├─ Work/                     tools for doing what the player does: trees, chopping, ores, mining, the torch, cracks
+│  └─ Weapons/               the two equipped weapons and the arsenal that picks between them
 ├─ Map/                      the companion on the world map, and what its torch reveals there
 ├─ Inventory/                the bag, its panel, and the right-click that opens it
 ├─ UI/                       the HUD health notch

@@ -1,10 +1,11 @@
 #nullable enable
 
 using Microsoft.Xna.Framework;
-using AICompanion.Brain.Decision;
-using AICompanion.Brain.Decision.Actions;
-using AICompanion.Brain.Navigation;
-using AICompanion.Brain.Positioning;
+using AICompanion.Brain.Actions;
+using AICompanion.Brain.DecisionMatrix;
+using AICompanion.Brain.DecisionMatrix.Decision;
+using AICompanion.Brain.DecisionMatrix.Navigation;
+using AICompanion.Brain.DecisionMatrix.Positioning;
 using AICompanion.Companion;
 
 namespace AICompanion.Brain;
@@ -17,11 +18,11 @@ namespace AICompanion.Brain;
 /// </summary>
 public sealed class Brain
 {
-    public readonly Senses.Senses Senses = new();
+    public readonly DecisionMatrix.Senses.Senses Senses = new();
     public readonly Chooser Chooser = new();
     public readonly Positioner Positioner = new();
     public readonly Navigator Navigator = new();
-    public readonly Reflexes.Reflexes Reflexes = new();
+    public readonly DecisionMatrix.Reflexes.Reflexes Reflexes = new();
 
     public PositionRequest LastRequest { get; private set; }
     public CompanionAction? LastAction => Chooser.Current;
