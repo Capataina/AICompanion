@@ -86,9 +86,14 @@ public sealed class BrainTelemetry : ModSystem
     }
 
     private const int DumpEveryTicks = 300;
-    // The pad is generous on purpose: the first dumps (13:48 run) cut the exit of a pocket
-    // off at six tiles, and a window that hides the way out answers nothing.
-    private const int DumpMaxWidth = 160, DumpMaxHeight = 200, DumpPad = 20;
+    // The window is wider than the screen on purpose, by Caner's ruling on 2026-09-08: the
+    // replay treats the window's edge as a wall, so a route that leaves the box reads as "no
+    // path", and the first dumps (six-tile pad) and the fifth run's (twenty) both had to be
+    // widened from the saved world before they said anything. A screen is about 120 by 70
+    // tiles at normal zoom; the pad alone is more than half of that on every side, so an
+    // alternate route the companion never took is in the picture too. A block costs about
+    // a byte per tile, so a run of sixty dumps is a few megabytes of git-ignored text.
+    private const int DumpMaxWidth = 480, DumpMaxHeight = 400, DumpPad = 80;
     private static string? plansPath;
     private static long lastDumpTick;
 
