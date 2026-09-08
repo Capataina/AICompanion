@@ -11,8 +11,11 @@ namespace AICompanion.Brain.Actions.Combat;
 /// <summary>
 /// Go and kill a reachable hostile. Scores by having a target the weapons can engage
 /// and by the player being safe enough to leave; the forecast is the trip to a firing
-/// spot, which the chooser charges against the horizon. A second enemy appearing does
-/// not end a hunt; only the danger and horizon it changes can.
+/// spot, which the chooser charges against the horizon. Distance is charged there and
+/// only there: an enemy anywhere on screen is worth the full hunt, because a companion
+/// that keeps chopping while a zombie walks across the screen reads as not having seen
+/// it, and only a target beyond the screen loses value with range. A second enemy
+/// appearing does not end a hunt; only the danger and horizon it changes can.
 /// </summary>
 public sealed class HuntAction : CompanionAction
 {
@@ -22,14 +25,20 @@ public sealed class HuntAction : CompanionAction
 
     public override float Score(in ActionContext ctx)
     {
-        Target = PickTarget(ctx);
+        Rectangle screen = ScreenWithMargin();
+        Target = PickTarget(ctx, screen);
         if (Target == null || ctx.Senses.Player.IsDead)
             return 0f;
         float safe = Consideration.AtLeast(1f - ctx.Senses.Threats.PlayerDanger, 0.1f);
-        float near = Consideration.AtLeast(Consideration.Inverse(Target.DistanceToCompanion, Weights.HuntReach), 0.2f);
+        float near = Target.Npc.Hitbox.Intersects(screen)
+            ? 1f
+            : Consideration.AtLeast(Consideration.Inverse(Target.DistanceToCompanion, Weights.HuntReach), 0.2f);
         float worth = Target.IsBoss ? 1f : 0.85f;
         return safe * near * worth;
     }
+
+    private static Rectangle ScreenWithMargin()
+        => new((int)Main.screenPosition.X - 200, (int)Main.screenPosition.Y - 200, Main.screenWidth + 400, Main.screenHeight + 400);
 
     public override float ForecastTicks(in ActionContext ctx)
         => Target == null ? 0f : MathF.Max(0f, Target.DistanceToCompanion - 200f) / Companion.CompanionMotor.WalkSpeed + 60f;
@@ -43,11 +52,10 @@ public sealed class HuntAction : CompanionAction
     }
 
     /// <summary>Threats endangering the player first, then the nearest reachable one a weapon can reach.</summary>
-    private static ThreatRecord? PickTarget(in ActionContext ctx)
+    private static ThreatRecord? PickTarget(in ActionContext ctx, Rectangle screen)
     {
         ThreatRecord? best = null;
         float bestScore = 0f;
-        Rectangle screen = new((int)Main.screenPosition.X - 200, (int)Main.screenPosition.Y - 200, Main.screenWidth + 400, Main.screenHeight + 400);
         foreach (ThreatRecord t in ctx.Senses.Threats.Threats)
         {
             if (!t.Reachable && !t.Npc.Hitbox.Intersects(screen))
