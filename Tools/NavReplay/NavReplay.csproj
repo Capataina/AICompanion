@@ -16,13 +16,13 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="Program.cs" />
-    <Compile Include="../../Brain/DecisionMatrix/Navigation/ITileWorld.cs" />
-    <Compile Include="../../Brain/DecisionMatrix/Navigation/TextTileWorld.cs" />
-    <Compile Include="../../Brain/DecisionMatrix/Navigation/BodyPhysics.cs" />
-    <Compile Include="../../Brain/DecisionMatrix/Navigation/NavGrid.cs" />
-    <Compile Include="../../Brain/DecisionMatrix/Navigation/NavPath.cs" />
-    <Compile Include="../../Brain/DecisionMatrix/Navigation/AStar.cs" />
-    <Compile Include="../../Brain/DecisionMatrix/Navigation/Reachability.cs" />
+    <Compile Include="../../Brain/DecisionMatrix/Navigation/World/ITileWorld.cs" />
+    <Compile Include="../../Brain/DecisionMatrix/Navigation/World/TextTileWorld.cs" />
+    <Compile Include="../../Brain/DecisionMatrix/Navigation/Body/BodyPhysics.cs" />
+    <Compile Include="../../Brain/DecisionMatrix/Navigation/Planning/NavGrid.cs" />
+    <Compile Include="../../Brain/DecisionMatrix/Navigation/Planning/NavPath.cs" />
+    <Compile Include="../../Brain/DecisionMatrix/Navigation/Planning/AStar.cs" />
+    <Compile Include="../../Brain/DecisionMatrix/Navigation/Planning/Reachability.cs" />
     <Compile Include="../../Brain/DecisionMatrix/Decision/Weights.cs" />
   </ItemGroup>
   <ItemGroup>

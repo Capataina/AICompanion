@@ -12,7 +12,7 @@ Brain/
 │  ├─ Senses/          the world model and the derived numbers (danger, horizon, light); never decides
 │  ├─ Decision/        the chooser, the considerations, the weights, position requests
 │  ├─ Positioning/     where to stand, as a score over candidate tiles
-│  ├─ Navigation/      how to get there: grid, A*, path following, reachability
+│  ├─ Navigation/      how to get there: World/ (tile interface), Body/ (the body's arithmetic), Planning/ (grid, A*, path), Following/ (the navigator)
 │  └─ Reflexes/        the fast path that skips scoring: simulated dodges
 ├─ Actions/            what can be chosen, by family; each scores itself and asks for a spot
 │  ├─ Survival/        survive: the body's own rescue

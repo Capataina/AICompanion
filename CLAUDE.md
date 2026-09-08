@@ -30,7 +30,11 @@ AICompanion/
 │  │  ├─ Senses/             the world model and the derived danger, horizon and light
 │  │  ├─ Decision/           the utility chooser, considerations, weights, position requests
 │  │  ├─ Positioning/        where to stand, scored over candidate tiles
-│  │  ├─ Navigation/         grid, A*, path following, reachability
+│  │  ├─ Navigation/         how to get there, split by owner
+│  │  │  ├─ World/           the tile interface, the game world, the text world of dumps and scenarios
+│  │  │  ├─ Body/            the body's numbers and shape tests, shared by the motor, the planner and the reflexes
+│  │  │  ├─ Planning/        the grid, A*, the path, reachability
+│  │  │  └─ Following/       the navigator that performs the path through the motor
 │  │  └─ Reflexes/           simulated dodges, the path that skips scoring
 │  ├─ Actions/               what can be chosen, one file each, by family
 │  │  ├─ Survival/           survive: the body's own rescue from drowning, lava and fire
