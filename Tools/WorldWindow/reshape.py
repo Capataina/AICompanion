@@ -58,7 +58,10 @@ SOLID = {0, 1, 2, 6, 7, 8, 9, 10, 19, 22, 23, 25, 30, 37, 38, 39, 40, 41, 43, 44
 SOLID_TOP = {14, 16, 18, 19, 87, 88, 101, 114, 134, 239, 275, 276, 277, 278, 279, 280, 281, 285, 286, 296, 297, 298, 299, 309, 310, 339, 358, 359, 361, 362, 363, 364, 376, 380, 391, 392, 393, 394, 405, 413, 414, 427, 469, 532, 533, 538, 542, 544, 550, 551, 553, 554, 555, 556, 558, 559, 582, 599, 600, 601, 602, 603, 604, 605, 606, 607, 608, 609, 610, 611, 612, 619, 629, 632, 640, 643, 644, 645}
 
 HEADER = re.compile(r"window x (\d+)\.\.(\d+) y (\d+)\.\.(\d+)")
-EXTRA = ("companion ", "player ", "threat ", "trail ")
+# Every line the dump writes that is not a row of tiles. The markers line names S, G, N, P and
+# E outright; counted as a row it shifts every tile row down one and its letters become the
+# start the replay searches from.
+EXTRA = ("companion ", "player ", "threat ", "trail ", "markers ")
 
 
 def blocks(lines):

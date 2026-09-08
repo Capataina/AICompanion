@@ -96,22 +96,21 @@ foreach (string file in files)
         Search main = Run(from, goal.Value);
         Search toPlayer = player is Point pl && pl != goal ? Run(from, pl) : main;
         bool pass = main.Pass;
-        if (pass) passed++; else failed++;
 
-        Console.WriteLine($"{(pass ? "PASS" : "FAIL")} {name}: {header}");
-        Console.WriteLine($"     recorded goal: start {Fmt(start.Value)} -> {(from == null ? "no standable tile" : Fmt(from.Value))}, goal {Fmt(goal.Value)}, {Describe(main)}");
-        if (player is Point pl2 && pl2 != goal)
-            Console.WriteLine($"     player:        {(toPlayer.Pass ? "reached" : "NOT reached")} at {Fmt(pl2)}, {Describe(toPlayer)}");
         // The positioner's own question, with the positioner's own budget: is the goal inside the
         // region the companion can flood to from its feet? "out" with a complete region is a goal
         // that can never be reached; "out" with the budget spent is a goal the flood did not get to.
+        // It is answered before the first line prints, because the first line is the verdict.
+        HashSet<Point> region = new();
+        bool complete = false, sealedBlock = false;
+        string goalIn = "", playerIn = "", pocket = "";
         if (from is Point f)
         {
             world.AskedOutside = false;
-            HashSet<Point> region = AStar.Region(f, AICompanion.Brain.DecisionMatrix.Decision.Weights.ReachFloodBudget, out bool complete);
+            region = AStar.Region(f, AICompanion.Brain.DecisionMatrix.Decision.Weights.ReachFloodBudget, out complete);
             bool startClipped = world.AskedOutside;
-            string goalIn = region.Contains(goal.Value) ? "in" : "out";
-            string playerIn = player is Point pl3 ? (region.Contains(pl3) ? ", player in" : ", player out") : "";
+            goalIn = region.Contains(goal.Value) ? "in" : "out";
+            playerIn = player is Point pl3 ? (region.Contains(pl3) ? ", player in" : ", player out") : "";
             // A complete region with the goal out is one of three things, and the window's edge
             // tells them apart. The flood records whether it ever read a tile outside the window
             // (the edge is a wall only to the tool), so a flood that never asked is a region the
@@ -120,7 +119,6 @@ foreach (string file in files)
             // out of is not a pathfinding failure); closed around the goal it is a spot the
             // positioner should never have offered (AIC-135's finding); clipped on both sides it
             // is undecidable as cut and wants reshape.py --pad.
-            string pocket = "";
             if (!pass && complete && goalIn == "out")
             {
                 world.AskedOutside = false;
@@ -133,12 +131,17 @@ foreach (string file in files)
                     : "; both regions reach the window's edge: undecidable as cut, widen it with reshape.py --pad";
                 // A sealed block is a verdict, not a failure: the planner answered "no route" and
                 // the world agrees, so it counts on its own and does not fail the run.
-                if (!startClipped || !goalClipped)
-                {
-                    failed--;
-                    sealedCount++;
-                }
+                sealedBlock = !startClipped || !goalClipped;
             }
+        }
+        if (pass) passed++; else if (sealedBlock) sealedCount++; else failed++;
+
+        Console.WriteLine($"{(pass ? "PASS" : sealedBlock ? "SEALED" : "FAIL")} {name}: {header}");
+        Console.WriteLine($"     recorded goal: start {Fmt(start.Value)} -> {(from == null ? "no standable tile" : Fmt(from.Value))}, goal {Fmt(goal.Value)}, {Describe(main)}");
+        if (player is Point pl2 && pl2 != goal)
+            Console.WriteLine($"     player:        {(toPlayer.Pass ? "reached" : "NOT reached")} at {Fmt(pl2)}, {Describe(toPlayer)}");
+        if (from != null)
+        {
             Console.WriteLine($"     reach flood:   {region.Count} tiles, {(complete ? "complete" : "budget spent")}, goal {goalIn}{playerIn}{pocket}");
             // The player's trail is the design's own pass line: every tile the player's feet were
             // in is a tile the companion must be able to stand in and get to. The first tile the
