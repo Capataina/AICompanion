@@ -1,8 +1,8 @@
 # Brain — how the companion behaves
 
-This file is the whole account of how the companion decides and acts, as the code stands on 2026-09-08. It is written so that someone who has never opened a source file can predict what the companion will do in a given situation and, when it does something else, know which number or rule to look at. Every subfolder has its own `CLAUDE.md` with the file map and the traps; this one is the mechanism. Where a number appears it is the live constant, and `DecisionMatrix/Decision/Weights.cs` is the only place most of them are set.
+This file is the whole account of how the companion decides and acts. It is written so that someone who has never opened a source file can predict what the companion will do in a given situation and, when it does something else, know which part to open. It carries the shape of every rule and none of the tunables that fill the shapes in: a weight, a threshold, a budget or a distance lives in exactly one place in the code (`DecisionMatrix/Decision/Weights.cs` for most of them, the owning class for the rest) and is read there, because a number copied here is wrong the first time someone tunes it. Every subfolder has its own `CLAUDE.md` with the file map, its own mechanism at its own depth, and the traps that bit there; this file is how the parts fit and hand off.
 
-Nothing here draws or touches health; that is `../Companion/`. The weapons are equipment and live in `../Combat/`. Nothing in the brain has been watched running as of this writing beyond one short surface run; every claim below is what the code does, and "verified in play" is stated where it is true and nowhere else.
+Nothing here draws or touches health; that is `../Companion/`. The weapons are equipment and live in `../Combat/`. Nothing in the brain has been watched running beyond one short surface run; every claim below is what the code does, and "verified in play" is stated where it is true and nowhere else.
 
 ```
 Brain/
@@ -39,50 +39,50 @@ CompanionNPC.AI
 ├─ 4  Brain.Tick
 │  ├─ 4a  Senses.Update        read the world into the world model (player, threats, loot, light, tile hits)
 │  ├─ 4b  Arsenal.Tick, Chopper.Tick   weapon and tool cooldowns
-│  ├─ 4c  Reflexes.TryTake     if a threat will hit the standing body within 20 ticks and a simulated jump or step clears it, take the body for 8 ticks and STOP the tick here
+│  ├─ 4c  Reflexes.TryTake     if a threat will hit the standing body inside the lookahead and a simulated jump or step clears it, take the body for a few ticks and STOP the tick here
 │  ├─ 4d  Chooser.Choose       every action scores itself; the best (with commitment and the horizon charge) becomes Current
 │  ├─ 4e  action.Execute       the winner acts (fires, swings, sets the held item) and returns a PositionRequest
 │  ├─ 4f  Positioner.Resolve   the request becomes a feet position, or null for Hold
 │  └─ 4g  Navigator.MoveTo     plan or follow a path to it through the motor; or stop and clear the path
 ├─ 5  Motor.ApplySteps          the game's StepUp/StepDown, so one-tile kerbs are walked not jumped
 ├─ 6  CollectTouchedItems       anything the body overlaps goes to the player's stacks or the bag
-├─ 7  Torch.Update              decide lit/out from the light sense; if lit, emit light and reveal the map
-└─ 8  if lit and no action set a held item this tick, the hand holds the torch
+├─ 7  Torch.Update              decide lit/out from the light sense; if lit AND the hand is free, emit light and reveal the map
+└─ 8  if the torch is shown, the hand holds it
 ```
 
-Then the game applies gravity and tile collision to the velocity the motor set. The body is drawn afterwards from `heldItemType` and the animation, so what you see in its hand is whatever step 4e or step 8 left there.
+Then the game applies gravity and tile collision to the velocity the motor set. The body is drawn afterwards from the held item and the animation, so what you see in its hand is whatever step 4e or step 8 left there.
 
-**What the reflex stop means:** on a tick a reflex takes the body, nothing is scored, no action runs, the position request is stale and the navigator is not called. The hold lasts 8 ticks, then a 45-tick refractory period during which the reflex will not fire again, so an enemy that stays adjacent cannot hold the companion in an endless dodge while the chooser never gets to shoot.
+**What the reflex stop means:** on a tick a reflex takes the body, nothing is scored, no action runs, the position request is stale and the navigator is not called. The hold lasts a few ticks, then a refractory period during which the reflex will not fire again, so an enemy that stays adjacent cannot hold the companion in an endless dodge while the chooser never gets to shoot.
 
 ## Senses: what the companion knows, and the numbers it derives
 
 The world model is rebuilt every tick and read by everything else. Senses do not have weights; they produce facts and a few derived numbers, and the *actions* weight those numbers in their scores. Five senses:
 
-**PlayerSense.** Position, bottom, velocity, health fraction, dead, attacking (item animation running with a damaging item). Travel *intent*: the horizontal velocity smoothed toward its current value at 6 % per tick while moving faster than 0.5 px/tick, decaying by 1.5 % per tick when still, so it converges over about three seconds and fades over about two. `IsTravelling` is |intent| above 1.2 px/tick. `Predict(ticks)` is bottom plus intent times ticks: where the player will be if they keep going, which is what the walk-with action aims at. Also whether the player really hit a tree or an ore in the last 45 ticks, from the tile damage watcher, and whether the companion has a sight line to the player.
+**PlayerSense.** Position, bottom, velocity, health fraction, dead, attacking (item animation running with a damaging item). Travel *intent*: the horizontal velocity smoothed toward its current value while moving and decaying while still, so it converges over a few seconds of travel and fades over a couple of seconds of standing; `IsTravelling` is intent above a small floor, and `Predict(ticks)` is bottom plus intent times ticks, where the player will be if they keep going, which is what the walk-with action aims at. Also whether the player really hit a tree or an ore in the last moment, from the tile damage watcher, and whether the companion has a sight line to the player.
 
-**ThreatSense.** One record per active hostile that is not friendly, alive, deals damage, is not a critter and can be chased. For each: its movement class (phaser if it ignores tiles, flyer if it ignores gravity, else walker); whether it is *reachable* (walkers: the same A* the companion uses, from the enemy's feet to the player's, budget 400 expansions; flyers: a flood fill through air, budget 1500; phasers: always; a search that runs out of budget answers *reachable*, because a threat wrongly ignored costs more than one wrongly feared; refreshed once per 60 ticks per enemy on a stagger so at most a quarter of them refresh on any tick); its observed speed (the peak of |horizontal velocity| for walkers or full velocity for others, decaying 0.5 % per tick, floored at 0.5 px/tick, starting at 1); whether it shoots (a fixed list of pre-hardmode shooters, or any enemy that had a hostile projectile appear within 48 px of it in the last 240 ticks; Demon Eyes are deliberately not shooters, their AI never spawns a projectile); its distance to player and companion; whether it has a sight line to the player; and `TicksToPlayer` = distance to player ÷ observed speed.
+**ThreatSense.** One record per active hostile that is not friendly, alive, deals damage, is not a critter and can be chased. For each: its movement class (phaser if it ignores tiles, flyer if it ignores gravity, else walker); whether it is *reachable* (walkers by the same A* the companion uses from the enemy's feet to the player's, flyers by a flood fill through connected air, phasers always; both searches are bounded and a search that runs out of budget answers *reachable*, because a threat wrongly ignored costs more than one wrongly feared; refreshed on a stagger so only a fraction of enemies refresh on any tick); its observed speed (the peak of its speed so far, decaying slowly, floored, so a dashing enemy is underestimated until its first dash is seen); whether it shoots (a fixed list of shooters, or any enemy that had a hostile projectile appear beside it recently; Demon Eyes are deliberately not shooters, their AI never spawns a projectile); its distance to player and companion; whether it has a sight line to the player; and `TicksToPlayer`, distance to player divided by observed speed.
 
 From those, two numbers the whole brain leans on:
 
 ```
-Urgency(threat)  = weight × closeness × sight                            (0 if unreachable)
-   weight        = 1 for a boss, else clamp(damage ÷ (25 % of player max life), 0.2, 1)
-   closeness     = clamp(1 − TicksToPlayer ÷ 360, 0, 1)                   1 at contact, 0 six seconds out
-                   raised to at least 0.8 for a shooter with a sight line   (it is effectively already there)
-   sight         = 1 with a sight line to the player, else 0.5
+Urgency(threat)  = weight × closeness × sight                        (0 if unreachable)
+   weight        = 1 for a boss, else its damage as a share of the player's max life, clamped to a floor and 1
+   closeness     = 1 at contact, falling linearly to 0 a few seconds out;
+                   raised to near 1 for a shooter with a sight line (it is effectively already there)
+   sight         = 1 with a sight line to the player, else a fraction
 
-PlayerDanger     = max Urgency over threats                               "PlayerIsSafe" is danger < 0.25
+PlayerDanger     = max Urgency over threats                          "PlayerIsSafe" is danger under a small level
 Horizon          = min over reachable threats of max(0, arrives − companionReturnTicks)
    arrives       = 0 for a shooter with sight, else TicksToPlayer
-   return        = companion-to-player distance ÷ walk speed (3.5 px/tick)
+   return        = companion-to-player distance ÷ walk speed
                  = float.MaxValue with no reachable threat
 ```
 
-The horizon is the mechanism behind every "go do something, but come back in time" behaviour: it is how many ticks the companion may stay away before the player is at risk. Any action that forecasts a job longer than that is charged for the overrun (next section).
+The three factors multiply on purpose: a zero on any one is fatal and no other can buy it back, so an unreachable threat is nothing, a distant one is almost nothing, and only close, reachable and in sight makes a full urgency. The horizon is the mechanism behind every "go do something, but come back in time" behaviour: it is how many ticks the companion may stay away before the player is at risk. Any action that forecasts a job longer than that is charged for the overrun (next section).
 
-**LootSense.** Every ground item within 1200 px that can be grabbed, sorted nearest first, each with a value: coins 1.0, everything else 0.3 rising with sell value to 1.0. Junk is still collected; value only ranks.
+**LootSense.** Every ground item within a reach that can be grabbed, sorted nearest first, each with a value: coins at the top, everything else a floor rising with sell value. Junk is still collected; value only ranks.
 
-**LightSense.** Three brightness readings, refreshed every 10 ticks: at the player's tile, at the companion's tile, and *ambient*, the mean over a 4-tile grid across the screen with a 10-tile disc around the companion cut out. Ambient is the one the torch reads, because the companion's own torch reaches about eight tiles and so cannot raise it. Off screen the lighting engine holds nothing and every reading is 0.
+**LightSense.** Three brightness readings, refreshed every few ticks: at the player's tile, at the companion's tile, and *ambient*, the mean over a coarse grid of a screen-sized window centred on the companion with a disc around the companion cut out that is wider than a torch's glow. Ambient is the one the torch reads, because it is the only one the companion's own torch cannot raise. The window follows the companion and not the camera, so a companion sent into a cave while the player stands in daylight reads the cave. Off screen the lighting engine holds nothing and every sample reads 0, so a far companion lights its torch wherever it is.
 
 **TileDamageWatcher.** Not polled: the game's own `KillTile` hook fires for every axe or pickaxe hit including the ones that only crack the tile, and this records the last tree (its trunk bottom) and the last ore (tile and type) the *player* hit, with a tick stamp; the companion's own tools raise a flag around their hits so they are excluded. This is what makes "the player is really chopping" true only when an axe is really hitting a tree, and never when an axe-sword is swung at a boss.
 
@@ -94,117 +94,95 @@ The chooser then applies two adjustments and takes the highest:
 
 ```
 final = raw
-      × 1.15 if this action is the one currently running          (commitment: no flicker between near-equal scores)
-      × max(0, 1 − (forecast − horizon) ÷ 240)   if forecast > horizon   (the horizon charge)
+      × a commitment bonus if this action is the one currently running   (no flicker between near-equal scores)
+      × a charge that falls linearly to 0 as forecast overruns horizon     (only when forecast > horizon)
 ```
 
-`forecast` is the action's own estimate of how many ticks it keeps the companion away from the player (0 for anything that stays with them). An action that would outlast the horizon loses score linearly and hits zero once it overruns by 240 ticks. So a far loot run is fine with no threats (horizon infinite), gets discounted when a slime is three seconds out, and is impossible when a shooter has a line on the player (horizon 0). An all-zero board falls to the last action, wander, which holds still when the player is dead.
+`forecast` is the action's own estimate of how many ticks it keeps the companion away from the player (0 for anything that stays with them). So a far loot run is fine with no threats (horizon infinite), gets discounted when a slime is a few seconds out, and is impossible when a shooter has a line on the player (horizon 0). An all-zero board falls to the last action, wander, which holds still when the player is dead.
 
-The actions and exactly what they value. `safe` below means `max(1 − PlayerDanger, floor)`.
+The actions and what each one values. `safe` below is `1 − PlayerDanger` with a floor, so danger discounts a job without ever vetoing it outright.
 
-| action | score | forecast | asks the positioner for | in hand |
+| action | scores on | forecast | asks the positioner for | in hand |
 |---|---|---|---|---|
-| **guard** | `danger × max(Rising(distance to player over 400), 0.4)` — zero when the player is dead | 0 | Guard near the player, target = the most urgent threat | the chosen weapon (it fires) |
-| **kite** | `Inverse(nearest reachable threat's distance to the companion, 96)` — 1 when touching, 0 at 96 px | 0 | Retreat, target = most urgent | the chosen weapon (it fires) |
-| **hunt** | `safe(0.1) × max(Inverse(target distance, 1100), 0.2) × (1 boss / 0.85)`; target = best of `0.4 × urgency + 0.6 × Inverse(distance to companion, 1100)` (+0.3 boss), over threats that are reachable or on screen with a solvable shot | `max(0, distance − 200) ÷ 3.5 + 60` | LineOfFire at the target | the chosen weapon |
-| **loot** | `max(Inverse(distance, 900), 0.2) × item value × safe(0.05)` for the nearest pickup that fits somewhere and has a standable tile beside it | `distance ÷ 3.5 × 1.5` | Exact at the item | empty |
-| **chop** | `0.7 × safe(0.1)` while the player has hit a tree in the last 45 ticks or the job is under 120 ticks old; target = nearest other standing tree within 40 tiles with a standing spot | `trip ÷ 3.5 + 120` | Exact at the standing spot, then Hold while swinging | empty on the walk, the player's axe in position |
-| **mine** | `0.7 × safe(0.1)` while the player hit an ore in the last 45 ticks or in the last 600; target = nearest same-type ore outside the player's vein within 45 tiles, else any ore, with a standing spot in reach | `trip ÷ 3.5 + 180` | Exact at the standing spot, then Hold while swinging | empty on the walk, the player's pickaxe in position |
-| **walk-with** | travelling player: `max(Rising(gap to the player's predicted position 45 ticks ahead, 280), 0.3)`; standing player: `Rising(distance − 560, 400) × 0.6`, so zero inside the calm band; either way at least 1 when the companion is past the hard leash of 1400 px | 0 | WithPlayer, anchored at the predicted position (or the player when still) | empty |
-| **wander** | a flat 0.05; zero when the player is dead | 0 | Hold while standing, Exact at a random spot within 70 % of the calm band while strolling; a rare hop | empty |
+| **guard** | danger, raised by distance from the player; zero when the player is dead | 0 | Guard near the player, target = the most urgent threat | the chosen weapon (it fires) |
+| **kite** | how close the nearest reachable threat is to the companion: full at contact, gone a short way out | 0 | Retreat, target = most urgent | the chosen weapon (it fires) |
+| **hunt** | `safe` × nearness of the target (floored so a far target still scores) × a boss bonus; the target is the threat best on a blend of urgency and nearness to the companion, among threats that are reachable or on screen with a solvable shot | the walk to firing range plus a fight allowance | LineOfFire at the target | the chosen weapon |
+| **loot** | nearness of the item (floored) × item value × `safe`, for the nearest pickup that fits somewhere and has a standable tile beside it | the walk, padded for the pickup | Exact at the item | empty |
+| **chop** | a fixed working score × `safe`, while the player has hit a tree just now or the job is younger than its memory; target = the nearest other standing tree in range with a standing spot | the walk plus a chopping allowance | Exact at the standing spot, then Hold while swinging | empty on the walk, the player's axe in position |
+| **mine** | the same fixed working score × `safe`, while the player hit an ore within the job's memory; target = the nearest same-type ore outside the player's vein, else any ore, with a standing spot in reach the walker can get to | the walk plus a mining allowance | Exact at the standing spot, then Hold while swinging | empty on the walk, the player's pickaxe in position |
+| **walk-with** | travelling player: the gap to the player's predicted position (floored, so it keeps a pull); standing player: zero inside the calm band, rising past it; either way full beyond the hard leash | 0 | WithPlayer, anchored at the predicted position (or the player when still) | empty |
+| **wander** | a flat trickle; zero when the player is dead | 0 | Hold while standing, Exact at a random spot inside the calm band while strolling; a rare hop | empty |
 
-Three consequences worth reading off that table. Guard beats everything as danger approaches 1, which is what pulls the companion off a hunt or a loot run when a shooter gets a line on the player. Chop and mine at 0.7 beat walk-with (at most 0.3 while you travel, 0 while you stand near) and beat loot unless the loot is close and valuable, so a job continues while the player keeps working, and stops within two seconds (chop) or ten (mine) of the player stopping. Wander only wins when everything else is zero, which by design is "the player is standing still, nothing is around, the companion is inside the calm band".
+Three consequences to read off that table. Guard beats everything as danger approaches 1, which is what pulls the companion off a hunt or a loot run when a shooter gets a line on the player. The working score of chop and mine is set above walk-with's ceiling while the player travels and above loot unless the loot is close and valuable, so a job continues while the player keeps working and stops once the job's memory of the player's last hit runs out; the mine memory is much longer than the chop memory, because a vein takes longer to clear than a tree takes to fell. Wander only wins when everything else is zero, which by design is "the player is standing still, nothing is around, the companion is inside the calm band".
 
 ## Positioning: where it stands once it knows what it is doing
 
-A position request has a kind, an anchor and an optional target. `Hold` means stand still; `Exact` means the nearest standable tile within 3 of the point, no scoring. The other four are *scored*: every standable tile in a 29×29 box around the anchor at a stride of 2 (about 200 candidates) gets a product of factors, and the best wins. Rescored every 12 ticks or when the request kind or target changes, so the companion does not twitch between two equal spots.
+A position request has a kind, an anchor and an optional target. `Hold` means stand still; `Exact` means the nearest standable tile close to the point, no scoring. The other four are *scored*: every standable tile in a box around the anchor, sampled at a stride, gets a product of factors, and the best wins. Rescored on a cadence or when the request kind or target changes, so the companion does not twitch between two equal spots.
 
 The factors, all 0..1:
 
-- **band**: `Band(distance to the anchor, near, far, falloff 400) × (0.6 + 0.4 × Inverse(distance, far + 200))`; the band is 96–560 px when the player is safe and 32–160 px when not, so it closes in under threat.
-- **sight**: 1 if the spot's eye can see the player, else 0.35.
-- **fire**: 1 if the aimer solves a shot at the target from the spot with the chosen weapon, else 0.15 (only for requests with a target, and only computed for the 8 best candidates by the cheap factors, because an aimer solve is up to 48 arcs × 150 ticks of tile checks).
-- **danger**: 1 if any reachable threat's predicted hitbox passes through a 20×42 body at the spot in the next 40 ticks, else `0.6 × Inverse(distance to the nearest threat, 160)`.
-- **open**: `0.7 × Inverse(solid tiles in a 5×3 box at eye height, 12) + 0.3`, penalising crevices.
-- **travel**: 0.6 for a spot behind the travelling player, 1 otherwise.
-- **standoff**: `Band(distance to the target, 120, 520, 300)`, so a firing spot is neither on top of the enemy nor out of range.
+- **band**: a `Band` on the distance to the anchor, with a narrow near-and-close band when the player is in danger and a wide calm band when safe, times a mild preference for the nearer end of the band.
+- **sight**: full if the spot's eye can see the player, a fraction otherwise.
+- **fire**: full if the aimer solves a shot at the target from the spot with the chosen weapon, a small fraction otherwise (only for requests with a target, and only computed for the handful of best candidates by the cheap factors, because an aimer solve is a sweep of arcs simulated tick by tick).
+- **danger**: full if any reachable threat's predicted hitbox passes through the body at the spot inside the lookahead, else a fraction falling with the nearest threat's distance.
+- **open**: how few solid tiles surround eye height, penalising crevices.
+- **travel**: a penalty for a spot behind a travelling player.
+- **standoff**: a `Band` on the distance to the target, so a firing spot is neither on top of the enemy nor out of range.
 
 ```
-WithPlayer   band × sight × (1 − 0.8·danger) × open × travel
-Guard        Band(distance to player, 24, 120, 200) × sight × fire × (1 − 0.5·danger) × open
-LineOfFire   fire × max(band, 0.3) × (1 − 0.7·danger) × open × standoff
-Retreat      (1 − danger) × max(band, 0.3) × fire × open
+WithPlayer   band × sight × (1 − k·danger) × open × travel
+Guard        a tight band on the player × sight × fire × (1 − k·danger) × open
+LineOfFire   fire × max(band, floor) × (1 − k·danger) × open × standoff
+Retreat      (1 − danger) × max(band, floor) × fire × open
 ```
 
-Only ground tiles are candidates. A jump apex as a firing spot (the "jump to shoot over the hill" idea) is not sampled yet.
+Each kind's `k` is its own tolerance for danger: guarding accepts more than following. Only ground tiles are candidates. A jump apex as a firing spot (the "jump to shoot over the hill" idea) is not sampled yet.
 
 ## Navigation: how it gets there, and why the ledge climb is possible
 
-The navigator receives a feet position each tick. It is "arrived" within 12 px. Otherwise it plans when the goal tile changes, every 30 ticks, when the path is finished, or after 40 ticks without moving; a plan that failed is not retried for 90 ticks unless the goal moves, because a full failed search costs about 3 ms. With no path it walks straight at the target and jumps only at a wall.
+The navigator receives a feet position each tick. Within a short arrival slack it is "arrived". Otherwise it plans when the goal tile changes, on a cadence, when the path is finished, or after a stretch without moving; a plan that failed is not retried for a while unless the goal moves, because a full failed search is the expensive case. With no path it walks straight at the target and jumps only at a wall.
 
-The grid is not the tile map; it is the set of *feet tiles a 1×3 body can stand on*: support beneath (solid or a platform), three clear tiles above, no lava anywhere in the column. Edges are generated on the fly from what the body can do, and this is what answers the ledge question:
+The grid is not the tile map; it is the set of *feet tiles a one-wide, three-tall body can stand on*: support beneath (solid or a platform), a clear body column above, no lava anywhere in the column. Edges are generated on the fly from what the body can do, and this is what answers the ledge question:
 
 ```
 from a feet tile, the neighbours are
-├─ walk      the tile beside it, if standable                                            cost 1
-├─ step      the tile beside and one up, if standable and the column above is clear      cost 1.5
-├─ drop      off an edge, straight down to the first standable tile within 40           cost 1 + 0.2 per tile
-└─ jump      any standable tile up to 5 up and 4 across, given headroom above the start,
-             a clear body column at the apex above the start and a clear row to the landing;
-             also a same-row gap of 2–4 tiles                                            cost 2 + 0.5 per tile across + 0.5 per tile up
+├─ walk      the tile beside it, if standable                                            cheapest
+├─ step      the tile beside and one up, if standable and the column above is clear      a little more
+├─ drop      off an edge, straight down to the first standable tile within the fall limit  cost grows with the fall
+└─ jump      any standable tile inside the jump envelope (so many up, so many across), given
+             headroom above the start, a clear body column at the apex above the start and
+             a clear row to the landing; also a same-row gap the jump can clear            cost grows with distance and rise
 ```
 
-A* (the textbook best-first search with the heuristic `|dx| + 0.5·|dy|`) runs over those edges with a budget of 1500 expansions. So the three-ledge climb to a high ore in the sketch is found in the ordinary way: each ledge is a node, each hop between them is a jump edge, and the search chains them because a path is just a sequence of edges. What A* "as you know it" could not do is the part the edge generator does: deciding that a jump from here lands there. The limits are the edge generator's, not the search's: 5 up and 4 across are derived from the jump velocity and gravity, not measured; the arc check is coarse (apex column above the start plus the landing row, so a low ceiling mid-arc is missed and shows up as a stuck counter and a replan); and a jump that needs a run-up is not modelled, the follower jumps from standing.
+A* (the textbook best-first search, with a heuristic that weights horizontal distance more than vertical) runs over those edges with a bounded budget. So the three-ledge climb to a high ore in the sketch is found in the ordinary way: each ledge is a node, each hop between them is a jump edge, and the search chains them because a path is just a sequence of edges. What A* "as you know it" could not do is the part the edge generator does: deciding that a jump from here lands there. The limits are the edge generator's, not the search's: the jump envelope is derived from the jump velocity and gravity rather than measured; the arc check is coarse (apex column above the start plus the landing row, so a low ceiling mid-arc is missed and shows up as a stuck counter and a replan); and a jump that needs a run-up is not modelled, the follower jumps from standing.
 
-Following the path: advance past every step whose feet point is within 10 px; for a walk step, move toward it and jump only for a real wall (`collideX` after the game's step-up has already handled one-tile kerbs) or a rise of two or more tiles, at the fighter AI's jump heights (−6 for two tiles, −7 for three, −8 for four, the full −8.5 above); for a jump step, jump from the ground at the height the rise needs and steer in the air; for a drop, walk off at 80 % speed and let gravity work. The motor lerps horizontal velocity toward ±3.5 px/tick at 25 % per tick.
+Following the path: advance past every step whose feet point is within a small slack; for a walk step, move toward it and jump only for a real wall (a horizontal collision after the game's step-up has already handled one-tile kerbs) or a rise of two or more tiles, at the jump height the rise needs (the fighter AI's own table, scaled from the full jump); for a jump step, jump from the ground at that height and steer in the air; for a drop, walk off at reduced speed and let gravity work. The motor lerps horizontal velocity toward the walk speed.
 
 No digging, no building, by ruling: the grid never plans through a tile.
 
 ## Reflexes: the dodge that skips scoring
 
-Before any scoring, for each reachable, moving threat: if its predicted hitbox (straight-line for flyers and phasers, under NPC gravity 0.3 for walkers) meets the standing body at any even tick up to 20, simulate both dodges against the same prediction. The jump: the body offset by the real jump arc (`−8.5·t + 0.15·t²`). The step-back: the body offset by the motor's own lerped acceleration away from the threat, with a room check two tiles that way. Take the jump if it never intersects, else the step if it never intersects and there is room; if neither clears it, take the hit and rest 15 ticks rather than moving into the enemy. Hostile projectiles are not yet considered; that is a second loop to add.
+Before any scoring, for each reachable, moving threat: if its predicted hitbox (straight-line for flyers and phasers, under NPC gravity for walkers) meets the standing body at any sampled tick inside the lookahead, simulate both dodges against the same prediction. The jump: the body offset by the real jump arc, from the motor's own jump velocity and the game's gravity. The step-back: the body offset by the motor's own lerped acceleration away from the threat, with a room check that way. Take the jump if it never intersects, else the step if it never intersects and there is room; if neither clears it, take the hit and rest briefly rather than moving into the enemy. Hostile projectiles are not yet considered; that is a second loop to add.
 
 ## Aiming: how a shot is solved, and what it cannot solve
 
-Every ranged weapon hands the aimer a *flight profile*: launch speed, how many ticks the projectile flies straight before gravity, the gravity added per tick after that, a terminal fall speed, a maximum flight time and a hitbox size. The vanilla arrow profile is speed = bow + arrow shoot speeds, 15 straight ticks, gravity 0.1 (these are the numbers from the arrow's own AI style). The knife drops from tick 0. The aimer sweeps launch angles from the direct line outward in 3° steps, above the line first, alternating below down to 60° and above up to 81°, and for each angle simulates the flight tick by tick against solid tiles, advancing the target's hitbox along its velocity for the lead; the first arc that lands is the answer. So a clear shot is a straight shot, a lob is chosen only when the straight line fails, and a target behind a wall or under the floor gets no shot.
+Every ranged weapon hands the aimer a *flight profile*: launch speed, how many ticks the projectile flies straight before gravity, the gravity added per tick after that, a terminal fall speed, a maximum flight time and a hitbox size; the arrow's profile is the arrow AI style's own numbers with the speed being bow plus arrow, and the knife drops from launch. The aimer sweeps launch angles from the direct line outward in small steps, above the line first, alternating below and above to their respective limits, and for each angle simulates the flight tick by tick against solid tiles, advancing the target's hitbox along its velocity for the lead; the first arc that lands is the answer. So a clear shot is a straight shot, a lob is chosen only when the straight line fails, and a target behind a wall or under the floor gets no shot.
 
-Two limits. The profile is per weapon class, not read off the projectile's AI: seven bows firing vanilla arrows are seven correct speeds on one correct arc, but a projectile with different physics (a rocket, a boomerang, a modded arrow with its own AI) needs its profile written by hand, and until it is, the aimer would lob it like an arrow. And a solve is expensive, so `CanEngage` is cached 20 ticks per enemy, a failed solve rests the weapon 15 ticks, and the positioner only solves for its 8 best candidates.
+Two limits. The profile is per weapon class, not read off the projectile's AI: seven bows firing vanilla arrows are seven correct speeds on one correct arc, but a projectile with different physics (a rocket, a boomerang, a modded arrow with its own AI) needs its profile written by hand, and until it is, the aimer would lob it like an arrow. And a solve is expensive, so whether a target is engageable is cached per enemy for a short while, a failed solve rests the weapon briefly, and the positioner only solves for its best few candidates.
 
-Weapon choice: each weapon rates its *suitability* for the target (bow: distance over 500 px, single target, boss; knife: within 420 px, crowd of two or more, not a boss) and the higher wins. Fire rate is the item's use time × 2 and every shot is rotated by up to ±4°, until the mastery tree lifts either. Every projectile is spawned with the player as owner and damage from the player's ranged stat, so kills, drops and on-hit accessories are the player's.
+Weapon choice: each weapon rates its *suitability* for the target (the bow prefers range, a single target and a boss; the knife prefers close crowds that are not a boss) and the higher wins. Fire rate is handicapped and every shot is rotated by a little noise until the mastery tree lifts either. Every projectile is spawned with the player as owner and damage from the player's ranged stat, so kills, drops and on-hit accessories are the player's.
 
 ## Work: the tools, and the torch's place among them
 
-A tool never decides; it swings when its action says so, with the game's own formula and the player's held item's numbers. The chopper: axe power × 1.2 (× 3 on cactus), the tile breaks at 100 accumulated damage, every non-lethal hit is a fail-hit for the sound and dust, on the companion's own crack table which the cracks renderer draws. The miner: the same shape with `Player.GetPickaxeDamage` copied line for line (per-type multipliers, the minimum-power gates by tile and depth, a modded tile's mine resistance), on the *same* crack table. If the player's pickaxe could not break a tile, neither can the companion's.
+A tool never decides; it swings when its action says so, with the game's own formula and the player's held item's numbers. The chopper applies the vanilla axe formula (power scaled, more on cactus) to its own crack table, the tile breaks at full damage, every non-lethal hit is a fail-hit for the sound and dust, and the cracks renderer draws the table. The miner does not copy anything: it runs the game's own `Player.PickTile` on the companion's drawing-only player, so the per-type multipliers, the minimum-power gates by tile and depth, a modded tile's power check, the crack table and the break are all the game's; if the player's pickaxe could not break a tile, neither can the companion's. The "can this pick damage that tile" question the ore finder asks before committing is answered by a delegate bound to the game's private damage formula, not a copy. Reach is the player's own reach as the game keeps it, wider sideways than up and down, so an accessory that extends the player's reach extends the companion's.
 
-**The torch is the odd one out: it has no action, and it is not in the chooser.** It is what the hand does when nothing else wants it. Step 7 of the tick decides lit or out from the ambient light with hysteresis (lit below 0.22, out above 0.42, never switching within 180 ticks of the last switch); step 8 puts the torch in the hand only if no action set a held item this tick. Actions that want the hand: guard, kite and hunt (the weapon, but only while `TryFire` is called with a live target), chop and mine (the tool, but only in position). So the answer to "does it hold the torch while walking to an ore in the dark" is yes: the mine action leaves the hand empty on the walk and takes the pickaxe out when it arrives, and the torch fills the gap both before and after the swing. On a mine job the hand goes torch → pickaxe → torch as it arrives, mines and leaves, and the light goes with it. A lit torch also reveals the map every 10 ticks: a flood through air tiles to 7 tiles marks the air and the first solid face, never what is behind a wall, on or off screen alike.
+Finding ore is the expensive half, so it runs only when the player starts on a new ore or the companion's target is gone, on a cooldown, never per tick. The search floods the player's vein (bounded), scans a box around the companion for the nearest ore of that type outside the vein, then any ore, and for each candidate looks for a standing tile inside reach with a sight line from the eye that the walker can reach from where it is. A companion that arrives and finds the tile not swingable from there (the stand was approximate, or the world changed) never swings anyway; it drops that tile and takes the next of the patch. After a tile dies the next is the nearest patch tile still in reach of the current stand, and only when none is does it re-approach.
 
-## The numbers in one place
-
-| constant | value | where | what it does |
-|---|---|---|---|
-| Commitment | 1.15 | Weights | bonus for the running action |
-| HorizonOverrunToZero | 240 ticks | Weights | overrun at which a charged action scores 0 |
-| CalmBand | 96–560 px | Weights | distance band to the player when safe |
-| ThreatBand | 32–160 px | Weights | the band when the player is in danger |
-| LeashHard | 1400 px | Weights | walk-with scores 1 beyond this whatever else |
-| WanderFloor | 0.05 | Weights | wander's flat score |
-| FollowIntentDistance | 140 px | Weights | walk-with's gap scale (× 2) |
-| LootReach / HuntReach | 900 / 1100 px | Weights | distance over which loot/hunt scores fade |
-| KiteTrigger | 64 px (× 1.5) | Weights | kite is 1 at contact, 0 at 96 px |
-| DodgeLookaheadTicks | 20 | Weights | how far ahead the reflex looks |
-| WalkSpeed / JumpVelocity | 3.5 / −8.5 px/tick | Companion/Motor | the body |
-| JumpHeightTiles / JumpGapTiles | 5 / 4 | Navigation/NavGrid | jump edges, derived not measured |
-| PlanBudget / ReplanInterval | 1500 / 30 | Navigation/Navigator | search size and cadence |
-| Walker / Flyer reachability budget | 400 / 1500 | Navigation/Reachability | out of budget = reachable |
-| Reflex hold / refractory | 8 / 45 ticks | Reflexes | body taken, then rest |
-| Torch raise / lower / hold | 0.22 / 0.42 / 180 ticks | Work/Torch | hysteresis |
-| Torch reach | 7 tiles | Work/Torch | map reveal radius |
-| Ore search / vein bound / pick reach | 45 tiles / 400 / 5 | Work/Mining | mining ranges |
-| FireRateFactor / AimNoise | 2 / 4° | Combat/Weapons | the launch handicaps |
+**The torch is the odd one out: it has no action, and it is not in the chooser.** It is what the hand does when nothing else wants it. Step 7 of the tick decides lit or out from the ambient light with hysteresis (lit below one level, out above a higher one, never switching within a minimum hold of the last switch); the light, the map reveal and the torch in the hand then all follow one answer, whether the hand is free this tick. Actions that want the hand: guard, kite and hunt (the weapon, but only while a shot is being taken at a live target), chop and mine (the tool, but only in position). So the answer to "does it hold the torch while walking to an ore in the dark" is yes: the mine action leaves the hand empty on the walk and takes the pickaxe out when it arrives, and the torch fills the gap both before and after the swing. On a mine job the hand goes torch → pickaxe → torch as it arrives, mines and leaves, and the light and the reveal go with it; while the pickaxe is out there is no glow, because the torch is not out. A shown torch reveals the map on a cadence: a flood through air tiles to the torch's reach marks the air and the first solid face, never what is behind a wall, on or off screen alike, and each changed map tile is queued the way the game queues its own changed tiles so only those are redrawn.
 
 ## What is verified and what is not
 
-Verified in play (2026-09-07 and the first run of 2026-09-08): the body draws and swings, chopping the right tree at the trunk, arrows fly, the health bar, persistence, and that the brain runs (first tick logged, action = wander). Everything else in this file describes code that compiles and has not been watched: the horizon charge, kiting, dodging after the simulation rewrite, the navigator on anything but flat ground, mining, the torch thresholds against real cave light, the map reveal and the map head. The overlay (key left of 1) shows every score, the danger and horizon, the chosen spot and the path, and is how a wrong choice is read rather than guessed; telemetry to a file with a "this looked wrong" key is the next instrument (AIC-51).
+Verified in play (the first two runs): the body draws and swings, chopping the right tree at the trunk, arrows fly, the health bar, persistence, and that the brain runs (first tick logged, action = wander). Everything else in this file describes code that compiles and has not been watched: the horizon charge, kiting, dodging after the simulation rewrite, the navigator on anything but flat ground, mining, the torch thresholds against real cave light, the map reveal and the map head. The overlay (key left of 1) shows every score, the danger and horizon, the light readings and whether the torch is shown, the chosen spot and the path, and is how a wrong choice is read rather than guessed; telemetry to a file with a "this looked wrong" key is the next instrument (AIC-51).
 
 ## Where a new thing goes
 
@@ -216,4 +194,5 @@ A new fact about the world is a field on a sense, computed once. A new thing the
 - **The horizon is float.MaxValue with no threats.** Any arithmetic on it must handle that, or a forecast compared against it overflows into nonsense.
 - **Scores are 0..1 and considerations multiply.** A consideration returning 0 vetoes; use `Consideration.AtLeast` when an action should stay eligible.
 - **An action that holds a tool on the walk hides the torch.** Hold the tool only in position; the hand must be empty on the way.
+- **An action's `Score` that searches the world is called every tick for every action, winner or not.** Put a search behind a trigger and a cooldown, as the mine action does, or the losing action pays it while something else runs.
 - **`Senses` and `Reflexes` are both a namespace and a class.** From outside `DecisionMatrix` write `DecisionMatrix.Senses.Senses`; inside it the short form resolves.
