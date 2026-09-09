@@ -38,9 +38,6 @@ public sealed class BowWeapon : CompanionWeapon
     public override int BaseDamage => Bow.damage + Arrow.damage;
     public override float Reach => 1100f;
 
-    public override Vector2 Fire(in ActionContext ctx, Vector2 muzzle, Vector2 launch)
-    {
-        Projectile.NewProjectile(ctx.Npc.GetSource_FromAI(), muzzle, launch, ProjectileType, DamagePerHit(ctx), Bow.knockBack + Arrow.knockBack, Main.myPlayer);
-        return launch;
-    }
+    public override int Fire(in ActionContext ctx, Vector2 muzzle, Vector2 launch)
+        => Projectile.NewProjectile(ctx.Npc.GetSource_FromAI(), muzzle, launch, ProjectileType, DamagePerHit(ctx), Bow.knockBack + Arrow.knockBack, Main.myPlayer);
 }

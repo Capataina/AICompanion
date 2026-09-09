@@ -78,7 +78,10 @@ internal static class VerifyEngineMotion
             }
         }
         Console.WriteLine($"engine motion: {checkedCases - failed}/{checkedCases} matched native NPC collision; {failed} mismatches; Collision scratch preserved");
+        failed += VerifyObservedMotion.Run();
+        failed += VerifyGodsEyeEvents.Run();
         failed += VerifyRoutes();
+        failed += VerifyProjectileMotion.Run();
         return failed == 0 ? 0 : 1;
     }
 

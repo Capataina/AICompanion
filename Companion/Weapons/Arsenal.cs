@@ -7,7 +7,9 @@ using Terraria;
 using Terraria.ID;
 using Terraria.ModLoader;
 using AICompanion.Companion.Brain.Behaviours;
+using AICompanion.Companion.Brain.BehaviourDiagnostics;
 using AICompanion.Companion.Brain.ProjectileAiming;
+using AICompanion.Companion.Brain.SharedMovementSystem;
 using AICompanion.Companion.Brain.WorldObservation;
 
 namespace AICompanion.Companion.Weapons;
@@ -75,6 +77,17 @@ public sealed class Arsenal
     }
 
     private int cooldown;
+
+    // A failed trace is a fact about a particular muzzle, target pose and terrain revision, not a
+    // weapon cooldown. Keeping those states separate means a door opening or either body moving can
+    // create a shot immediately, while a sealed cave does not spend two full solves every tick.
+    private int failedTarget = -1;
+    private Vector2 failedMuzzle;
+    private Vector2 failedTargetCenter;
+    private Vector2 failedTargetVelocity;
+    private int failedTerrainRevision;
+    private int failedUntilTick;
+    private const int FailedTraceFreshnessTicks = 6;
 
     private readonly NPC[] pierced = new NPC[MaxPierceCounted];
     private readonly List<NPC> hostiles = new();
@@ -299,39 +312,75 @@ public sealed class Arsenal
         }
 
         Vector2 muzzle = Muzzle(ctx.Npc);
-        Vector2? solved = TrajectoryAimer.Solve(muzzle, target, weapon.Profile);
-        if (solved == null)
+        if (FailedTraceStillApplies(ctx, target, muzzle))
+        {
+            ctx.Companion.HoldItem(weapon.ItemType);
+            LastShotSolved = false;
+            LastFireOutcome = "no-arc";
+            return false;
+        }
+
+        bool solved = TrajectoryAimer.TrySolve(muzzle, target, weapon.Profile, out TrajectorySolution solution);
+        if (!solved)
         {
             // The choice is a dozen ticks old and the world has moved: the arc that scored is gone.
             // The other weapon is tried before giving up, because standing still holding an unusable
             // weapon is how the companion died with thirteen hostiles on it and a bow in its hand.
             CompanionWeapon other = ReferenceEquals(weapon, Primary) ? Secondary : Primary;
-            if (TrajectoryAimer.Solve(muzzle, target, other.Profile) is Vector2 fallback)
+            if (TrajectoryAimer.TrySolve(muzzle, target, other.Profile, out TrajectorySolution fallback))
             {
                 weapon = other;
                 chosen = other;
                 LastChosen = other;
-                solved = fallback;
+                solution = fallback;
+                solved = true;
             }
         }
 
         ctx.Companion.HoldItem(weapon.ItemType);
-        LastShotSolved = solved != null;
-        if (solved is not Vector2 launch)
+        LastShotSolved = solved;
+        if (!solved)
         {
             LastFireOutcome = "no-arc";
-            cooldown = 15; // do not re-solve every tick against a target with no arc
+            RememberFailedTrace(ctx, target, muzzle);
             return false;
         }
 
         float noise = (Main.rand.NextFloat() * 2f - 1f) * weapon.AimNoise;
-        launch = launch.RotatedBy(noise);
-        weapon.Fire(ctx, muzzle, launch);
+        Vector2 launch = solution.LaunchVelocity.RotatedBy(noise);
+        if (!TrajectoryAimer.TryTrace(muzzle, launch, target, weapon.Profile, out TrajectorySolution finalShot))
+        {
+            LastShotSolved = false;
+            LastFireOutcome = "no-arc";
+            return false;
+        }
+
+        int projectileIndex = weapon.Fire(ctx, muzzle, launch);
+        if (projectileIndex >= 0)
+            GodsEyeEvents.RecordShot(ctx.Npc, target, projectileIndex, muzzle, launch, finalShot.ExpectedImpact, weapon.Name, finalShot.ImpactTick);
         cooldown = weapon.UseTime;
         ctx.Companion.StartAnimation(weapon.ItemType, Math.Max(10, weapon.BaseUseTime));
         ctx.Companion.SetAimRotation(launch);
         LastFireOutcome = "fired";
         return true;
+    }
+
+    private bool FailedTraceStillApplies(in ActionContext ctx, NPC target, Vector2 muzzle)
+        => ctx.Senses.Tick < failedUntilTick
+            && target.whoAmI == failedTarget
+            && TerrainChanges.Revision == failedTerrainRevision
+            && muzzle == failedMuzzle
+            && target.Center == failedTargetCenter
+            && target.velocity == failedTargetVelocity;
+
+    private void RememberFailedTrace(in ActionContext ctx, NPC target, Vector2 muzzle)
+    {
+        failedTarget = target.whoAmI;
+        failedMuzzle = muzzle;
+        failedTargetCenter = target.Center;
+        failedTargetVelocity = target.velocity;
+        failedTerrainRevision = TerrainChanges.Revision;
+        failedUntilTick = ctx.Senses.Tick + FailedTraceFreshnessTicks;
     }
 
     private static Vector2 Muzzle(NPC npc) => npc.Center + new Vector2(npc.direction * 10f, -4f);

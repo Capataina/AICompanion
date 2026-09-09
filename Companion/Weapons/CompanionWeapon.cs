@@ -83,8 +83,8 @@ public abstract class CompanionWeapon
     public int DamagePerHit(in ActionContext ctx)
         => (int)ctx.Player.GetTotalDamage(DamageClass.Ranged).ApplyTo(BaseDamage * DamageFactor);
 
-    /// <summary>Spawn the projectile. Returns the launch velocity for the arm pose.</summary>
-    public abstract Vector2 Fire(in ActionContext ctx, Vector2 muzzle, Vector2 launch);
+    /// <summary>Spawn the projectile and return its Terraria slot for the causal shot record.</summary>
+    public abstract int Fire(in ActionContext ctx, Vector2 muzzle, Vector2 launch);
 
     public int UseTime => (int)(BaseUseTime * FireRateFactor);
 }
