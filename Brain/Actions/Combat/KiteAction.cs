@@ -24,8 +24,9 @@ public sealed class KiteAction : CompanionAction
 
     public override PositionRequest Execute(in ActionContext ctx)
     {
+        // Backing off is all this does now; the shooting happens in Brain.Engage whatever is
+        // chosen, which is what stops kiting being a mode you have to be in to fight back.
         var target = ctx.Senses.Threats.MostUrgent?.Npc;
-        ctx.Companion.Arsenal.TryFire(ctx, target);
         return new PositionRequest(RequestKind.Retreat, ctx.Senses.Player.Bottom, target);
     }
 }

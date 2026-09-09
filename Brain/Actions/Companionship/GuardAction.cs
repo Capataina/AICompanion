@@ -26,8 +26,8 @@ public sealed class GuardAction : CompanionAction
 
     public override PositionRequest Execute(in ActionContext ctx)
     {
+        // Standing between him and them is all this does now; the shooting happens in Brain.Engage.
         var target = ctx.Senses.Threats.MostUrgent?.Npc;
-        ctx.Companion.Arsenal.TryFire(ctx, target);
         return new PositionRequest(RequestKind.Guard, ctx.Senses.Player.Bottom, target);
     }
 }

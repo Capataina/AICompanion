@@ -45,6 +45,15 @@ public static class Weights
     /// <summary>Beyond this the companion drops everything and comes back, whatever else is going on.</summary>
     public const float LeashHard = 1400f;
 
+    /// <summary>
+    /// How far the companion may stray before hunting starts losing value, and how much further
+    /// takes it to nothing. Hunting is the opportunistic behaviour — something to do when there is
+    /// little else on — so it is the one that yields to staying with the player, and the free
+    /// distance is about a screen's half-width because the standing goal is that he can see it.
+    /// </summary>
+    public const float HuntLeashFree = 700f;
+    public const float HuntLeashToZero = 900f;
+
     public const float WanderFloor = 0.05f;
     public const float FollowIntentDistance = 140f;
 

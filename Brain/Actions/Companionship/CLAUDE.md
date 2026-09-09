@@ -4,11 +4,13 @@
 Companionship/
 ├─ CLAUDE.md
 ├─ WalkWithPlayerAction.cs   follow the player's predicted position while they travel; scores zero when they stand inside the calm band so wander can win; hard leash at 1400 px; discounted while the brain says the body is stranded
-├─ GuardAction.cs            danger high: stand by the player with sight lines and shoot the most urgent threat
+├─ GuardAction.cs            danger high: stand within a wide band of the player, in sight of him and at a standoff from the most urgent threat
 └─ WanderAction.cs           the floor score; stand, stroll, hop inside the calm band; stranded, the action that walks the pocket with a Roam request
 ```
 
-These three are what the companion does when nothing else scores, and the torch (in `../../Work/Torch/`) rides on them: it takes the hand whenever an action here leaves it empty in the dark.
+These three are what the companion does when nothing else scores, and the torch (in `../../Work/Torch/`) rides on them: it takes the hand whenever nothing else has claimed it in the dark.
+
+None of the three fires a weapon and neither does guard, which used to. Shooting is the hands, run every tick from `Brain.Engage` whichever action won the feet, so a companion walking with the player shoots as readily as one guarding him — which is the whole point, because a player does not choose between travelling and attacking. Guarding is therefore a statement about *where to stand*, and the band it asks for is deliberately wide rather than tight: protecting someone means being able to hit what is attacking him, not standing where he stands, and a band that narrowed as danger rose was walking a ranged companion into the melee that was already hitting him.
 
 ## A stranded companion walks its pocket
 

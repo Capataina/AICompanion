@@ -34,7 +34,21 @@ public sealed class HuntAction : CompanionAction
             ? 1f
             : Consideration.AtLeast(Consideration.Inverse(Target.DistanceToCompanion, Weights.HuntReach), 0.2f);
         float worth = Target.IsBoss ? 1f : 0.85f;
-        return safe * near * worth;
+        // Two things this used to ignore, both of which killed it.
+        //
+        // Where the player is. Hunting is opportunistic — something to do when there is little
+        // else going on — and it was scored as though the companion stood alone in the world, so
+        // a hunt 84 tiles away scored exactly as well as one at his shoulder. Worse, the only
+        // safety term was about the *player*, who is safest of all when the companion has wandered
+        // off, so straying made hunting score higher. That is a loop with a body at the end of it.
+        //
+        // Its own skin. Every danger term in the brain read PlayerDanger, so a companion being
+        // surrounded 84 tiles out was in a world with no danger in it (2026-09-09, five hits in
+        // 330 ticks, danger 0.00 on every one). Hunting now yields as its own danger rises, which
+        // is what lets disengaging outscore pressing on.
+        float leash = Consideration.Inverse(MathF.Max(0f, ctx.Senses.DistanceToPlayer - Weights.HuntLeashFree), Weights.HuntLeashToZero);
+        float ownSkin = Consideration.AtLeast(1f - ctx.Senses.Threats.CompanionDanger, 0.05f);
+        return safe * near * worth * leash * ownSkin;
     }
 
     private static Rectangle ScreenWithMargin()
@@ -47,7 +61,9 @@ public sealed class HuntAction : CompanionAction
     {
         if (Target == null)
             return PositionRequest.Hold;
-        ctx.Companion.Arsenal.TryFire(ctx, Target.Npc);
+        // No firing here. Shooting is not something a mode does, it is what the hands do every
+        // tick whatever the feet were told, so it lives in the brain's own tick; hunting is now
+        // only the decision to walk toward something. See Brain.Engage.
         return new PositionRequest(RequestKind.LineOfFire, Target.Npc.Center, Target.Npc);
     }
 

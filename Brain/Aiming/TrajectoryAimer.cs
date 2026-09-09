@@ -13,9 +13,9 @@ namespace AICompanion.Brain.Aiming;
 /// applies, and the gravity added to its vertical speed on every tick after that.
 /// A vanilla arrow (aiStyle 1) flies straight for 15 ticks then gains 0.1 per tick.
 /// </summary>
-public readonly record struct WeaponProfile(float Speed, int StraightTicks, float Gravity, float MaxFallSpeed, int MaxFlightTicks, int HitboxSize)
+public readonly record struct WeaponProfile(float Speed, int StraightTicks, float Gravity, float MaxFallSpeed, int MaxFlightTicks, int HitboxSize, float Reach = 1100f)
 {
-    public static readonly WeaponProfile Arrow = new(Speed: 9.6f, StraightTicks: 15, Gravity: 0.1f, MaxFallSpeed: 16f, MaxFlightTicks: 150, HitboxSize: 10);
+    public static readonly WeaponProfile Arrow = new(Speed: 9.6f, StraightTicks: 15, Gravity: 0.1f, MaxFallSpeed: 16f, MaxFlightTicks: 150, HitboxSize: 10, Reach: 1100f);
 
     public WeaponProfile WithSpeed(float speed) => this with { Speed = speed };
 }

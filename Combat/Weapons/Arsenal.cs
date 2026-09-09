@@ -58,6 +58,22 @@ public sealed class Arsenal
     public float LastPrimaryExpected { get; private set; }
     public float LastSecondaryExpected { get; private set; }
 
+    /// <summary>
+    /// Why the last tick did or did not put a projectile in the air, as one word: <c>fired</c>,
+    /// <c>cooldown</c>, <c>no-arc</c> (a target, and no launch angle that reaches it), <c>no-target</c>
+    /// (nothing worth shooting) or <c>hands-busy</c> (a tool is in the arm the throw needs). A record
+    /// that says only whether a shot happened cannot separate "it was reloading" from "it stood there
+    /// with a bow it could not fire", and those two want opposite fixes.
+    /// </summary>
+    public string LastFireOutcome { get; private set; } = "-";
+
+    /// <summary>The hands are driving a tool this tick, so no shot was even attempted.</summary>
+    public void NoteHandsBusy()
+    {
+        LastFireOutcome = "hands-busy";
+        LastShotSolved = false;
+    }
+
     private int cooldown;
 
     private readonly NPC[] pierced = new NPC[MaxPierceCounted];
@@ -116,26 +132,22 @@ public sealed class Arsenal
         if (crossed == 0)
             return 0f;
 
-        // A crit doubles the hit in this game, so the expected hit is the plain damage scaled by
-        // how often that happens. Scoring on the expectation rather than the plain number is what
-        // lets a weapon that crits often beat one that hits slightly harder and never does.
-        float crit = 1f + ctx.Player.GetTotalCritChance(DamageClass.Ranged) / 100f;
-        float perHit = weapon.DamagePerHit(ctx) * crit;
-
         int bodies = Math.Min(weapon.Pierce, crossed);
         int shots = Math.Max(1, HorizonTicks / Math.Max(1, weapon.UseTime));
-        int hits = shots * bodies * weapon.ProjectilesPerShot;
+        int volley = Math.Max(1, weapon.ProjectilesPerShot);
 
-        // Hand the hits out one at a time down the line the shot crosses, and let each hostile
-        // absorb only the life it has left. That is what stops a weapon being scored for damage
-        // it would pour into something already dead: a shot worth three hundred against a slime
-        // worth twenty is worth twenty, and the weapon that spends the same window killing eight
-        // of them is worth all eight.
+        // Walk the window shot by shot, and inside each shot give every body the arc pierces its
+        // own hit, which is what pierce means. An earlier version handed out shots × bodies hits
+        // to whichever body was still alive, which is the same total while nothing dies and
+        // undercounts a piercing weapon once the front body drops mid-window (69 against 72 on
+        // two 45-life zombies, found by review). Each hostile absorbs only the life it has left,
+        // and that clamp is the whole reason a heavy single-target weapon does not win against a
+        // slime it overkills fifteen times over.
         spent.Clear();
         float total = 0f;
-        for (int hit = 0; hit < hits; hit++)
+        for (int shot = 0; shot < shots; shot++)
         {
-            bool landed = false;
+            bool any = false;
             for (int i = 0; i < bodies; i++)
             {
                 NPC npc = pierced[i];
@@ -143,17 +155,96 @@ public sealed class Arsenal
                 int remaining = npc.life - already;
                 if (remaining <= 0)
                     continue;
-                int dealt = (int)MathF.Min(perHit, remaining);
+                int dealt = (int)MathF.Min(PerHit(ctx, weapon, npc) * volley, remaining);
                 spent[npc.whoAmI] = already + dealt;
                 total += dealt;
-                landed = true;
-                break;
+                any = true;
             }
-            if (!landed)
+            if (!any)
                 break; // everything on this arc is dead inside the window; more shots buy nothing
         }
         return total;
     }
+
+    /// <summary>
+    /// The hostile worth shooting from where the companion stands: the one whose best weapon lands
+    /// the most damage, weighted by how urgently it is coming for someone. A target nothing can
+    /// solve an arc to scores zero and is therefore never picked, so this returns null exactly when
+    /// there is genuinely nothing to shoot rather than when the companion is in the wrong mode.
+    ///
+    /// Held for a while, because a cold evaluation simulates arcs for every candidate and this runs
+    /// every tick. Only the nearest few are considered for the same reason: with thirteen hostiles
+    /// on screen, scoring all of them costs an order of magnitude more flight simulation than the
+    /// whole rest of the brain tick.
+    /// </summary>
+    public NPC? BestTarget(in ActionContext ctx)
+    {
+        int now = ctx.Senses.Tick;
+        if (held != null && (!held.active || held.life <= 0))
+            held = null;
+        if (held != null && now - heldAt < TargetHoldTicks)
+            return held;
+
+        Collect(ctx);
+        candidates.Clear();
+        foreach (ThreatRecord t in ctx.Senses.Threats.Threats)
+            if (t.Npc != null && t.Npc.active && t.Npc.life > 0 && t.DistanceToCompanion <= MathF.Max(Primary.Reach, Secondary.Reach))
+                candidates.Add(t);
+        candidates.Sort((x, y) => x.DistanceToCompanion.CompareTo(y.DistanceToCompanion));
+
+        NPC? best = null;
+        float bestScore = 0f;
+        int considered = Math.Min(candidates.Count, MaxTargetsConsidered);
+        for (int i = 0; i < considered; i++)
+        {
+            ThreatRecord t = candidates[i];
+            float damage = MathF.Max(ExpectedDamage(ctx, Primary, t.Npc), ExpectedDamage(ctx, Secondary, t.Npc));
+            if (damage <= 0f)
+                continue;
+            // Urgency breaks ties toward whatever is about to reach someone, so a zombie two steps
+            // from the player beats an equally shootable one wandering the far side of the cave.
+            float score = damage * (1f + MathF.Max(t.Urgency, t.UrgencyToCompanion));
+            if (score > bestScore)
+            {
+                bestScore = score;
+                best = t.Npc;
+            }
+        }
+
+        held = best;
+        heldAt = now;
+        LastTargetExpected = bestScore;
+        return best;
+    }
+
+    /// <summary>
+    /// What one hit actually takes off this hostile, which is the weapon's damage less the armour
+    /// in the way. Defence matters to the comparison and not only to the absolute number, because
+    /// it is subtracted rather than scaled: a defence of 6 costs a 6-damage knife hit its whole
+    /// value and an 18-damage arrow a sixth of it, so ignoring it silently favours the weapon that
+    /// throws many small hits at exactly the enemies it is worst against.
+    ///
+    /// Crit is deliberately absent. It would belong, and the reason it is not here is that these
+    /// projectiles are spawned from the companion's own NPC source rather than through the player's
+    /// item use, and that path does not carry the player's crit chance — so scoring for a crit the
+    /// shot will not get is scoring a fiction. It was in the first version and came out on review.
+    /// If crits do turn out to land, this is the one place it goes back.
+    /// </summary>
+    private static float PerHit(in ActionContext ctx, CompanionWeapon weapon, NPC target)
+        => MathF.Max(1f, weapon.DamagePerHit(ctx) - target.defense / 2f);
+
+    /// <summary>How long a target is kept before the candidates are scored again.</summary>
+    private const int TargetHoldTicks = 15;
+
+    /// <summary>How many of the nearest candidates get their arcs simulated.</summary>
+    private const int MaxTargetsConsidered = 4;
+
+    /// <summary>The score the held target won with, for the overlay and the telemetry.</summary>
+    public float LastTargetExpected { get; private set; }
+
+    private NPC? held;
+    private int heldAt = 0;
+    private readonly List<ThreatRecord> candidates = new();
 
     /// <summary>The hostiles worth simulating against: the threat sense's own list, alive and hostile.</summary>
     private void Collect(in ActionContext ctx)
@@ -192,12 +283,17 @@ public sealed class Arsenal
         if (target == null || !target.active || target.life <= 0)
         {
             LastShotSolved = false;
+            LastFireOutcome = "no-target";
             return false;
         }
         CompanionWeapon weapon = Choose(ctx, target);
         ctx.Companion.Motor.Face(target.Center.X);
         if (cooldown > 0)
         {
+            // No solve is attempted on a cooldown tick, so the solved flag would otherwise report
+            // the last tick that did attempt one and read as a live shot for the whole reload.
+            LastShotSolved = false;
+            LastFireOutcome = "cooldown";
             ctx.Companion.HoldItem(weapon.ItemType);
             return false;
         }
@@ -223,6 +319,7 @@ public sealed class Arsenal
         LastShotSolved = solved != null;
         if (solved is not Vector2 launch)
         {
+            LastFireOutcome = "no-arc";
             cooldown = 15; // do not re-solve every tick against a target with no arc
             return false;
         }
@@ -233,6 +330,7 @@ public sealed class Arsenal
         cooldown = weapon.UseTime;
         ctx.Companion.StartAnimation(weapon.ItemType, Math.Max(10, weapon.BaseUseTime));
         ctx.Companion.SetAimRotation(launch);
+        LastFireOutcome = "fired";
         return true;
     }
 

@@ -6,7 +6,7 @@ Weapons/
 ├─ CompanionWeapon.cs     the base, and facts only: the item drawn in hand, the projectile it fires, the flight profile handed to the aimer, base damage and use time, reach, pierce read off the projectile, projectiles per shot, the fire-rate and damage factors the tree lifts, Fire
 ├─ BowWeapon.cs           wooden bow, a vanilla WoodenArrowFriendly owned by the player; one body a shot, the harder hitter per second against that body
 ├─ ThrowingKnifeWeapon.cs a vanilla throwing knife, whose projectile passes through two bodies; softer per throw, twice as fast
-└─ Arsenal.cs             the two equipped weapons; chooses by expected damage over a window, cached 12 ticks per target, CanEngage cached 20, a failed solve rests 15; solves through ../../Brain/Aiming/, adds AimNoise, fires on cooldown
+└─ Arsenal.cs             the two equipped weapons and what to shoot with them; picks the target by expected damage weighted by urgency and the weapon by expected damage over a window, both cached per target; solves through ../../Brain/Aiming/, adds AimNoise, fires on cooldown, and records why it did not
 ```
 
 ## The weapon holds no opinion about when to use it
@@ -22,6 +22,14 @@ What replaced it is one quantity, computed per weapon per target: **the damage t
 Read forward, that is what lets a roster of ninety weapons need no per-weapon behaviour. A weapon that pierces, sprays, crits, hits hard, fires fast or reaches further is compared on the same scale as every other, and a weapon whose shot has no solution scores zero — which is also the fix for a companion standing still holding a weapon it cannot fire, a state it died in on 2026-09-09 with thirteen hostiles on it and a bow in its hand.
 
 The one thing scoring cannot do is rescue a weapon that is strictly worse, and both of the launch pair were: vanilla gives the bow 4 + 5 damage every 30 ticks and the knife 12 every 15, so before any scaling the knife dealt 2.67 times the bow's damage a second *and* pierced twice, and a correct chooser would simply never pick the bow. `DamageFactor` is the knob that fixes the roster rather than the rule, and it is set so that one enemy on the line favours the bow and two favour the knife, because a crossing point somewhere inside the situations that actually occur is what makes both slots get used. A roster whose weapons are never all chosen is a roster with dead slots, which is the same defect as a chooser that always picks one thing.
+
+## The arsenal also picks what to shoot at, because the hands are no longer the feet's passenger
+
+Firing left the actions on 2026-09-09 and became a step of its own that runs every tick from `Brain.Engage`, which meant the target could no longer be "whatever the running action was walking toward" — a companion following the player has no combat target at all, and that used to be the whole reason it could not shoot while following. `BestTarget` supplies one: among the nearest few reachable hostiles, the one with the largest expected damage weighted by the greater of its urgency to the player and its urgency to the companion. So it shoots what it can most hurt, tilted toward whatever is most about to hurt someone.
+
+Three things keep that affordable, since it is asked every tick while the brain is also deciding: only the nearest handful of candidates are considered, the winner is held for a short while so the aim does not flick between two equal enemies, and the per-weapon expected-damage arithmetic behind it is itself cached per target. The damage per hit subtracts half the target's defence, the way the game does, and counts no critical hits at all — a projectile spawned from an NPC source carries none of the player's crit chance however the player's ranged damage multiplier is applied, so counting one would score every weapon above what it lands.
+
+`LastFireOutcome` records why no projectile left the hands — `fired`, `cooldown`, `no-arc`, `no-target`, `hands-busy` — and it exists because a record saying only whether a shot happened cannot separate a reload from a body standing where nothing can be hit, and those two want opposite fixes. It is written to the telemetry's `fire` column and is what the session reader keys "it was under attack and did nothing" on.
 
 ## Traps
 

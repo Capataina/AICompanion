@@ -31,7 +31,7 @@ public sealed class ThrowingKnifeWeapon : CompanionWeapon
     public override string Name => "knife";
     public override int ItemType => ItemID.ThrowingKnife;
     public override int ProjectileType => ProjectileID.ThrowingKnife;
-    public override WeaponProfile Profile => new(Speed: Knife.shootSpeed, StraightTicks: 0, Gravity: 0.1f, MaxFallSpeed: 16f, MaxFlightTicks: 90, HitboxSize: 10);
+    public override WeaponProfile Profile => new(Speed: Knife.shootSpeed, StraightTicks: 0, Gravity: 0.1f, MaxFallSpeed: 16f, MaxFlightTicks: 90, HitboxSize: 10, Reach: 380f);
     public override int BaseUseTime => Knife.useTime;
     public override int BaseDamage => Knife.damage;
     public override float Reach => 380f;

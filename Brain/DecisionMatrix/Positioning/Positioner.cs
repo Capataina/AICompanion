@@ -231,6 +231,10 @@ public sealed class Positioner
         bool threatened = !senses.Threats.PlayerIsSafe;
         float bandNear = threatened ? Weights.ThreatBandNear : Weights.CalmBandNear;
         float bandFar = threatened ? Weights.ThreatBandFar : Weights.CalmBandFar;
+        // How far the weapon in hand can actually shoot, so the standoff never prefers a spot the
+        // shot cannot arrive from. Without a profile there is nothing to shoot and the standoff is
+        // inert anyway, so the wide default costs nothing.
+        float reach = fireProfile?.Reach ?? Weights.StandoffFar;
 
         // Two passes: every candidate gets the cheap factors; only the best few then pay for an
         // aimer solve, which is the expensive one (up to 48 arcs × 150 ticks of tile checks).
@@ -252,7 +256,7 @@ public sealed class Positioner
                     continue;
                 Vector2 feet = NavGrid.FeetWorld(new Point(x, y));
                 Vector2 eye = feet + new Vector2(0f, -30f);
-                float score = ScoreSpot(request, feet, eye, playerBottom, senses, bandNear, bandFar, fire: 1f);
+                float score = ScoreSpot(request, feet, eye, playerBottom, senses, bandNear, bandFar, fire: 1f, reach);
                 if (score <= 0f)
                     continue;
                 // The tier opens only on a reachable candidate the action accepts: a reachable
@@ -287,7 +291,7 @@ public sealed class Positioner
                 if (i >= solves)
                     break; // unsolved candidates cannot beat a solved one above them
                 float fire = TrajectoryAimer.Solve(eye, request.Target!, fireProfile!.Value) != null ? 1f : 0.15f;
-                score = ScoreSpot(request, feet, eye, playerBottom, senses, bandNear, bandFar, fire);
+                score = ScoreSpot(request, feet, eye, playerBottom, senses, bandNear, bandFar, fire, reach);
             }
             if (score > bestScore)
             {
@@ -299,7 +303,7 @@ public sealed class Positioner
         return best;
     }
 
-    private static float ScoreSpot(in PositionRequest request, Vector2 feet, Vector2 eye, Vector2 playerBottom, Senses.Senses senses, float bandNear, float bandFar, float fire)
+    private static float ScoreSpot(in PositionRequest request, Vector2 feet, Vector2 eye, Vector2 playerBottom, Senses.Senses senses, float bandNear, float bandFar, float fire, float reach)
     {
         // The band is measured to the request's anchor (the player's predicted position when
         // walking with them), with a gentle pull toward its centre so equal-band spots are not tied.
@@ -314,14 +318,19 @@ public sealed class Positioner
 
         return request.Kind switch
         {
-            RequestKind.WithPlayer => band * sight * (1f - 0.8f * danger) * open * travel,
+            // Getting back to him is a disengage, not a charge: the walk home gained the clear-way
+            // test the firing requests already had, so a route that passes through a zombie is
+            // discounted and the body goes round rather than paying for the shortest line. The
+            // planner already prices reachable enemies on the route; this is the same idea applied
+            // to choosing the destination, so the two agree instead of one undoing the other.
+            RequestKind.WithPlayer => band * sight * (1f - 0.8f * danger) * open * travel * ClearWayTo(feet, senses),
             // Guarding him is being able to shoot what is attacking him, which is not the same as
             // standing where he stands. It carried neither a standoff from the target nor the
             // clear-way test, so the only thing pulling the body anywhere was a band measured to
             // the player and the threats are on the player: every guard spot worth having was
             // inside the melee. It now scores the same two factors the line-of-fire request does.
-            RequestKind.Guard => Consideration.Band(toPlayer, Weights.GuardBandNear, Weights.GuardBandFar, 260f) * sight * fire * (1f - 0.7f * danger) * open * StandoffFromTarget(feet, request.Target) * ClearWayTo(feet, senses),
-            RequestKind.LineOfFire => fire * Consideration.AtLeast(band, 0.3f) * (1f - 0.7f * danger) * open * StandoffFromTarget(feet, request.Target) * ClearWayTo(feet, senses),
+            RequestKind.Guard => Consideration.Band(toPlayer, Weights.GuardBandNear, Weights.GuardBandFar, 260f) * sight * fire * (1f - 0.7f * danger) * open * StandoffFromTarget(feet, request.Target, reach) * ClearWayTo(feet, senses),
+            RequestKind.LineOfFire => fire * Consideration.AtLeast(band, 0.3f) * (1f - 0.7f * danger) * open * StandoffFromTarget(feet, request.Target, reach) * ClearWayTo(feet, senses),
             RequestKind.Retreat => (1f - danger) * Consideration.AtLeast(band, 0.3f) * fire * open * ClearWayTo(feet, senses),
             _ => 0f,
         };
@@ -379,13 +388,21 @@ public sealed class Positioner
     /// means every remaining distance is one the shot solves at, and the further of two is strictly
     /// better for a body that would rather not be reached.
     /// </summary>
-    private static float StandoffFromTarget(Vector2 feet, NPC? target)
+    private static float StandoffFromTarget(Vector2 feet, NPC? target, float reach)
     {
         if (target == null)
             return 1f;
+        // The far edge is whatever the weapon in hand can actually reach, never a fixed distance.
+        // The band's own 520 px outran the knife's 380 px reach, so the outward lean could walk the
+        // body to about 500 px from the target and hold it there — where its shot does not arrive
+        // and the line-of-fire factor, which scores a failed solve at 0.15 rather than 0, was too
+        // weak to veto it. Found by review before it reached a playtest. A little inside the reach,
+        // because the target moves and a spot exactly at the limit stops working when it steps back.
+        float far = MathF.Min(Weights.StandoffFar, reach * 0.85f);
+        float near = MathF.Min(Weights.StandoffNear, far * 0.5f);
         float d = Vector2.Distance(feet, target.Center);
-        float across = MathHelper.Clamp((d - Weights.StandoffNear) / (Weights.StandoffFar - Weights.StandoffNear), 0f, 1f);
-        return Consideration.Band(d, Weights.StandoffNear, Weights.StandoffFar, 300f) * (0.55f + 0.45f * across);
+        float across = MathHelper.Clamp((d - near) / MathF.Max(1f, far - near), 0f, 1f);
+        return Consideration.Band(d, near, far, 300f) * (0.55f + 0.45f * across);
     }
 
     /// <summary>

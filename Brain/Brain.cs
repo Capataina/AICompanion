@@ -136,8 +136,41 @@ public sealed class Brain
         {
             NavigateMs = Lap();
         }
+        Engage(companion, ctx, action);
         CountStranded();
     }
+
+    /// <summary>
+    /// The hands, run every tick whatever the feet were told. A player does not choose between
+    /// walking and shooting and neither does this: attacking used to live inside three actions —
+    /// hunt, guard and kite — which meant the companion was literally incapable of shooting while
+    /// following the player, looting, wandering or working, and "it should be attacking things
+    /// regardless" was impossible to satisfy by any amount of scoring. So firing left the actions
+    /// and came here, and hunting is now only the decision to walk toward something rather than
+    /// the decision to fight at all.
+    ///
+    /// It runs after Navigate on purpose. The motor has already been told where to go, so facing
+    /// the target wins the tick and the body aims where it shoots while walking somewhere else,
+    /// which is what a player looks like. The hands stay out of it while they are driving a tool,
+    /// because a swing and a throw cannot share the same arm.
+    /// </summary>
+    private void Engage(CompanionNPC companion, in ActionContext ctx, CompanionAction action)
+    {
+        // An axe or a pickaxe occupies the arm the throw needs, so working is the one thing that
+        // stops the hands. Everything else — following, guarding, kiting, looting, wandering,
+        // saving itself from drowning — shoots.
+        if (action.Name is "chop" or "mine")
+        {
+            EngageTarget = null;
+            companion.Arsenal.NoteHandsBusy();
+            return;
+        }
+        EngageTarget = companion.Arsenal.BestTarget(ctx);
+        companion.Arsenal.TryFire(ctx, EngageTarget);
+    }
+
+    /// <summary>What the hands are shooting at, independent of what the feet were told to do.</summary>
+    public Terraria.NPC? EngageTarget { get; private set; }
 
     private void CountStranded()
     {
