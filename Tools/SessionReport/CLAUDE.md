@@ -14,7 +14,8 @@ SessionReport/
 ├─ CheckTheRecord.cs      is the instrument sane — ticks advancing, the returnable count inside the reach count, every numeric column parsing
 ├─ CheckTheBody.cs        did the body move when driven, did each proven move take its proven time, was being unable to reach him ever noticed
 ├─ CheckTheFight.cs       did it see the damage coming, did the hands work while threatened, was the fired weapon the higher-scoring one, did it go down
-└─ CheckTheChoices.cs     did hunting stay on his screen, did the action board get used, was the torch in the hand during a fight, did the brain fit in a frame
+├─ CheckTheChoices.cs     did hunting stay on his screen, did the action board get used, was the torch in the hand during a fight, did the brain fit in a frame
+└─ CheckTheInstrument.cs  was the body ever held in place with a velocity it never spent, do the offline motion rule and the engine still agree, and was every kind of move the plan offered ever actually made
 ```
 
 ## The operating manual
@@ -68,5 +69,9 @@ Neither exclusion has fired on a real session, because no playtest has yet taken
 - **One check saying the same thing five times moves the reading cost rather than removing it**, which is the failure this tool exists to fix, so repeats past three fold into one line with their tick ranges.
 
 ## Where a new check goes
+
+**A check is a detector, and a detector can only find a failure somebody imagined, so the report opens with something that is not one.** Every class here fires on a threshold a person chose, which means a behaviour nobody thought to threshold produces no finding at all — and zero findings is indistinguishable from zero coverage, which is the failure the coverage block was already built to name for *missing columns* and could not name for missing questions. On 2026-09-09 the follower completed 1,227 walks, eight drops, no jumps and no fall-throughs in nine minutes; every number was in columns 85 to 90, nothing asked, the session read clean. So the mod writes a census beside each session counting every category whether or not anything happened in it, and this tool prints it above every finding: `Jump: planned 47, begun 1, completed 0` is a row nobody reads past. A missing census is reported by name rather than passed over, because an absent one and an empty one mean opposite things.
+
+When adding a check, prefer the form with no threshold in it where one exists. `EveryMoveOfferedGetsMade` asks whether a kind of move that was offered was ever once completed, which has no number to tune and therefore no failure it is blind to; it fires on the 2026-09-09 session retroactively, which is the only proof a check ever really has.
 
 A file per family of question, a class per check, and the class name is the question: `TheBodyMovesWhenDriven`, `HuntingStaysOnHisScreen`. Add it to the array in `Program.cs`, declare every column it reads in `Needs` (including the ones it only reads for the finding's detail, or an old file crashes it instead of skipping it), and put the threshold in a named constant with the reason it is that number in its own comment. State the threshold inside the finding's text as well, because a finding that cannot be argued with is one that gets believed when it is wrong.

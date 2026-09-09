@@ -20,10 +20,11 @@ Brain/
 │  ├─ Combat/          hunt, kite
 │  ├─ Gathering/       loot
 │  └─ Work/            chop, mine
-├─ Work/               the tools an action drives once chosen
+├─ Work/               the tools an action drives once chosen, and the two that run outside the chooser
 │  ├─ Chopping/        trees and the axe
 │  ├─ Mining/          ores and the pickaxe
-│  └─ Torch/           the torch in the dark
+│  ├─ Torch/           the torch in the dark
+│  └─ Doors/           the door in the way: opened on the walk, shut behind
 ├─ Aiming/             the arc solver every ranged weapon and the positioner share
 └─ Debug/              the overlay that shows all of the above (left square bracket), and the per-tick telemetry file
 ```
@@ -46,7 +47,8 @@ CompanionNPC.AI
 │  ├─ 4f  Positioner.Resolve   the request becomes a feet position, or null for Hold
 │  ├─ 4g  Navigator.MoveTo     plan or follow a path to it through the motor; or stop and clear the path
 │  └─ 4h  Engage               the hands: pick the best target and shoot at it, whatever the feet were told, unless a tool is in the arm
-├─ 5  Motor.ApplySteps          the game's StepUp/StepDown as a player holding up runs them, so one-tile kerbs and platform treads are walked not jumped
+├─ 5  Motor.ApplySteps          the game's StepUp/StepDown as a player holding up runs them, so one-tile kerbs and platform treads are walked not jumped — with the platform lift refused while the move in hand is a descent, or the body climbs what it is falling through
+├─ 5b Doors.Tick               a closed door ahead swings the way the body is going, or inward when that side is blocked, and shuts again once the body is two tiles past
 ├─ 6  CollectTouchedItems       anything the body overlaps goes to the player's stacks or the bag
 ├─ 7  Torch.Update              decide lit/out from the light sense; if lit AND the hand is free, emit light and reveal the map
 └─ 8  if the torch is shown, the hand holds it

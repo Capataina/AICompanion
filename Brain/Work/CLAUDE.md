@@ -8,6 +8,7 @@ Work/
 ├─ Chopping/             trees: which tiles are trees, the trunk bottom, the nearest tree with a standing spot, and the axe formula over the companion's own HitTile
 ├─ Mining/               ores: which tiles are ore, a bounded vein, the nearest ore outside a vein with a standing spot in pickaxe reach, and the pickaxe formula over the shared HitTile
 ├─ Torch/                the torch ability: lit from the light sense with hysteresis, emits light, reveals the map
+├─ Doors/                the door in the way: the game is asked whether it can swing each direction, so nothing here measures clearance
 └─ TileCracksRenderer.cs draws the shared cracks with Main.DrawTileCracks from PostDrawTiles, cancelling the offScreenRange offset
 ```
 

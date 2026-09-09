@@ -46,9 +46,10 @@ AICompanion/
 │  ├─ Work/                  the tools a chosen action drives
 │  │  ├─ Chopping/           trees and the axe
 │  │  ├─ Mining/             ores and the pickaxe
-│  │  └─ Torch/              the torch in the dark
+│  │  ├─ Torch/              the torch in the dark
+│  │  └─ Doors/              the door in the way, opened the way a villager opens it
 │  ├─ Aiming/                the arc solver every ranged weapon and the positioner share
-│  └─ Debug/                 the brain overlay (left square bracket) and the per-tick telemetry writer
+│  └─ Debug/                 the brain overlay (left square bracket), the per-tick telemetry writer, the nine scenario detectors, and the whole-session map
 ├─ Combat/
 │  └─ Weapons/               the two equipped weapons and the arsenal that picks between them
 ├─ Map/                      the companion on the world map, and what its torch reveals there
@@ -62,7 +63,7 @@ AICompanion/
 │  ├─ SessionReport/         reads a playtest's .tsv back and prints what is definitely wrong, probably wrong and merely odd, with a coverage block for the checks the file is too old to run
 │  ├─ WorldWindow/           rewrites a plan dump's tiles with the slope and half-block shapes from the saved world file
 │  └─ Scenarios/             the committed database of places the companion must be able to reach, one block per case
-└─ Telemetry/                written by the mod at run time, one .tsv per world session plus a -plans.txt of tile windows for failed plans and detected scenarios (a follow failure, a stuck run, a hit through a dodge, a missed mode), each with the player's trail; ignored by git and the packager, read by an agent after a playtest
+└─ Telemetry/                written by the mod at run time, one .tsv per world session plus three siblings under the same stamp: a -plans.txt of tile windows for failed plans and detected scenarios (a follow failure, a stuck run, a hit through a dodge, a missed mode, one spot wanted and never approached, a pinned body) each with the player's trail, a -census.txt counting every move the planner offered against every one the body made, and a -map.txt drawing the whole session; ignored by git and the packager, read by an agent after a playtest
 ```
 
 ## Operating manual
@@ -122,6 +123,7 @@ The output lands in `Tools/Scenarios/` and is committed, because the scenarios a
 - **`Main.DrawTileCracks` adds `offScreenRange`** unless `drawToScreen`; `TileCracksRenderer` cancels it.
 - **`CheckActive` returns false**, so the companion is never culled for distance.
 - **The health bar draws in raw screen pixels** because `Main.mouseX/Y` are screen pixels.
+- **Anything of ours that writes `npc.position` during the AI phase is invisible to the record, and one such writer cost three failed fixes.** `oldPosition = position` is assigned inside the engine's `Collision_MoveWhileDry` immediately before `position += velocity`, so the telemetry's `moved` column spans the engine's own move and nothing our brain, motor or a `Collision.*` helper did beforehand. `Collision.StepUp` writes position by reference and never touches `velocity.Y`, and calling it with `holdsMatching: true` on every tick of a descent made the companion climb the platform it was falling through for 265 ticks while reading as a body with a large velocity, no collision and no movement. The general rule: a reused game helper that takes a "the player is holding this" flag needs that flag computed per tick from the same intent a vanilla NPC computes it from, never hard-coded — the town NPC recomputes it from whether it is above its home, the fighter from whether its target is below. The `pinned` column exists to catch the whole class without knowing which writer it is.
 - **A tile that "has a solid tile" is not a wall.** Worldgen smooths cave corners into slopes and half blocks, the game's collision skips a slope from its open side and rests the body on its diagonal, and the fourth run of 2026-09-08 parked the companion for six thousand ticks above a staircase of five such slopes that the grid drew as `#`. Every tile question goes through `ITileWorld.Shape`, never `tileSolid` alone.
 - **The brain has been watched for six short runs as of 2026-09-08, all on the surface and the first cave.** Jump edges are simulated with the motor's own arithmetic, the profile chosen per edge and the run-up that supplies its speed are not yet confirmed in play; the replay tool under `Tools/` is where a navigation claim is checked before a playtest, and `--trace-jump` prints an arc tick by tick.
 
