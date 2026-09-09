@@ -38,6 +38,13 @@ public sealed class Session
     public int Count { get; private init; }
     public IReadOnlyList<string> Names { get; private init; } = Array.Empty<string>();
 
+    /// <summary>
+    /// Session-wide facts written before the tabular header. Metadata is deliberately separate
+    /// from the rows: a start timestamp describes the file, whereas repeating it in every row
+    /// invites a reader to mistake a game-tick estimate for an observed wall-clock timestamp.
+    /// </summary>
+    public IReadOnlyDictionary<string, string> Metadata { get; private init; } = new Dictionary<string, string>();
+
     /// <summary>Rows the file held that had the wrong number of cells; a truncated last line is the usual cause.</summary>
     public int Ragged { get; private init; }
 
@@ -53,17 +60,30 @@ public sealed class Session
     public static Session Load(string path)
     {
         string[] lines = File.ReadAllLines(path);
-        if (lines.Length < 2)
-            throw new InvalidDataException($"{path} holds {lines.Length} line(s); a session needs a header and at least one row.");
+        int headerRow = Array.FindIndex(lines, line => line.Length > 0 && !line.StartsWith('#'));
+        if (headerRow < 0)
+            throw new InvalidDataException($"{path} holds {lines.Length} line(s); a session needs a tabular header.");
+
+        var metadata = new Dictionary<string, string>(StringComparer.Ordinal);
+        for (int i = 0; i < headerRow; i++)
+        {
+            string line = lines[i];
+            if (!line.StartsWith("# ", StringComparison.Ordinal))
+                continue;
+            int equals = line.IndexOf('=', 2);
+            if (equals <= 2)
+                continue;
+            metadata[line[2..equals]] = line[(equals + 1)..];
+        }
 
         // The writer opens the stream as UTF-8 and the framework prefixes a byte-order mark, so the
         // first column's name arrives as "﻿tick" and every lookup for "tick" misses.
-        string[] names = lines[0].TrimStart('﻿').Split('\t');
+        string[] names = lines[headerRow].TrimStart('﻿').Split('\t');
         int width = names.Length;
 
         var cells = new List<string[]>(lines.Length - 1);
         int ragged = 0;
-        for (int i = 1; i < lines.Length; i++)
+        for (int i = headerRow + 1; i < lines.Length; i++)
         {
             if (lines[i].Length == 0)
                 continue;
@@ -110,6 +130,7 @@ public sealed class Session
             Names = names,
             Ragged = ragged,
             Ticks = ticks,
+            Metadata = metadata,
         };
         foreach (var pair in columns)
             session.byName[pair.Key] = pair.Value;

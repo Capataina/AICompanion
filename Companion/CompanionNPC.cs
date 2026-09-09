@@ -9,10 +9,10 @@ using Terraria.ModLoader;
 using AICompanion.Combat.Weapons;
 using AICompanion.Inventory;
 using AICompanion.Players;
-using AICompanion.Brain.Work.Chopping;
-using AICompanion.Brain.Work.Doors;
-using AICompanion.Brain.Work.Mining;
-using AICompanion.Brain.Work.Torch;
+using AICompanion.Brain.WorldInteractions.Chopping;
+using AICompanion.Brain.WorldInteractions.Doors;
+using AICompanion.Brain.WorldInteractions.Mining;
+using AICompanion.Brain.WorldInteractions.Torch;
 
 namespace AICompanion.Companion;
 
@@ -108,6 +108,11 @@ public class CompanionNPC : ModNPC
         NPC.HitSound = SoundID.NPCHit1;
         NPC.DeathSound = SoundID.NPCDeath1;
         NPC.value = 0f;
+        // SimulateTerrariaBody previews these ordinary NPC liquid multipliers. Keep the
+        // companion's defaults explicit so an inherited NPC type cannot change its physics.
+        NPC.waterMovementSpeed = NPC.lavaMovementSpeed = 0.5f;
+        NPC.honeyMovementSpeed = 0.25f;
+        NPC.shimmerMovementSpeed = 0.375f;
         Motor = new CompanionMotor(NPC);
     }
 
@@ -131,6 +136,12 @@ public class CompanionNPC : ModNPC
     {
         EnterDowned();
         return false;
+    }
+
+    public override void HitEffect(NPC.HitInfo hit)
+    {
+        Motor?.NotifyExternalHit();
+        global::AICompanion.Brain.BehaviourDiagnostics.BrainTelemetry.RecordCompanionHit(hit);
     }
 
     public override void AI()
@@ -159,8 +170,10 @@ public class CompanionNPC : ModNPC
             // Breath before the brain, so the senses read this tick's value; a drowning strike
             // here can down the companion, and the downed branch takes over next tick.
             Breath.Update(NPC);
-            Brain.Tick(this, player);
-            Motor.ApplySteps();
+            if (IsDowned)
+                UpdateDowned(player);
+            else
+                Brain.Tick(this, player);
             // After the steps, because the direction the door swings is the direction the brain
             // asked the motor for this tick, and before anything reads the tiles again: a door the
             // body just opened is an opening the rest of the tick can use.
@@ -180,7 +193,7 @@ public class CompanionNPC : ModNPC
         }
 
         body.Sync(NPC, player, heldItemType, itemAnimation, itemAnimationMax, itemRotation, IsDowned);
-        global::AICompanion.Brain.Debug.BrainTelemetry.Record(this);
+        global::AICompanion.Brain.BehaviourDiagnostics.BrainTelemetry.Record(this);
     }
 
     /// <summary>What the hand holds this tick, for the telemetry and the HUD.</summary>
@@ -217,16 +230,16 @@ public class CompanionNPC : ModNPC
         IsDowned = true;
         NPC.life = 1;
         NPC.dontTakeDamage = true;
-        NPC.velocity.X = 0f;
+        Motor.EnterDowned();
         reviveProgress = 0;
         heldItemType = ItemID.None;
         itemAnimation = 0;
-        Brain.Navigator.Clear();
+        Brain.Movement.Hold(Motor.State);
     }
 
     private void UpdateDowned(Player player)
     {
-        NPC.velocity.X *= 0.8f;
+        Motor.Apply(global::AICompanion.Brain.SharedMovementSystem.Controls.None, "downed");
         bool playerBeside = !player.dead && Vector2.Distance(player.Center, NPC.Center) <= ReviveDistance;
         reviveProgress = playerBeside ? reviveProgress + 1 : Math.Max(0, reviveProgress - 2);
         if (reviveProgress < ReviveTicks)

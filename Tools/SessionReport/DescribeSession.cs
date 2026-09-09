@@ -18,6 +18,13 @@ public static class DescribeSession
     public static string Of(Session session)
     {
         var sb = new StringBuilder();
+        if (session.Count == 0)
+        {
+            sb.Append($"file      {Path.GetFileName(session.Path)}\n");
+            sb.Append("rows      0; the recorder wrote its header but no samples\n");
+            sb.Append($"columns   {session.Names.Count}\n");
+            return sb.ToString();
+        }
         int first = session.Tick(0), last = session.Tick(session.Count - 1);
         int span = Math.Max(0, last - first);
         sb.Append($"file      {Path.GetFileName(session.Path)}\n");

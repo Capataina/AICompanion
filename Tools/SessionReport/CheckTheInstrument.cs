@@ -81,14 +81,14 @@ public sealed class TheTwoBodiesAgree : ICheck
     private const int MinTicks = 30;
 
     public string Name => "do the simulated body and the engine still agree";
-    public string[] Needs => new[] { "diverge" };
+    public string[] Needs => new[] { "diverge", "diverge_valid", "diverge_invalid_reason" };
 
     public IEnumerable<Finding> Run(Session session)
     {
-        Column diverge = session["diverge"];
+        Column diverge = session["diverge"], valid = session["diverge_valid"];
         Column? kind = session.Find("next_kind");
 
-        var readings = diverge.Number.Where(v => !float.IsNaN(v)).ToArray();
+        var readings = diverge.Number.Where((v, i) => valid.Number[i] == 1f && !float.IsNaN(v)).ToArray();
         if (readings.Length == 0)
             yield break;
         Array.Sort(readings);
@@ -104,7 +104,7 @@ public sealed class TheTwoBodiesAgree : ICheck
                 + "is proven with the offline one.",
             session.Tick(0), session.Tick(session.Count - 1), session.Count);
 
-        foreach (var stretch in FindStretches.Where(session.Count, i => diverge.Number[i] > SeriousPx, MinTicks, allowGap: 10))
+        foreach (var stretch in FindStretches.Where(session.Count, i => valid.Number[i] == 1f && diverge.Number[i] > SeriousPx, MinTicks, allowGap: 10))
         {
             string moves = kind == null ? "" : $" The step in hand was {FindStretches.Summarise(kind, stretch, 3)}.";
             yield return new Finding(

@@ -16,8 +16,7 @@
 # compare them.
 #
 # Success looks like each mode's own summary line, e.g.:
-#   plain:    67/71 passed, 34 sealed (no route exists in the world), 0 skipped, 0 missing
-#             inputs, planner NN ms in total
+#   plain:    passed, model-closed, skipped and missing-input counts, plus planner time
 #   --full also prints "cache: verdicts match" (or names every scenario that diverged).
 
 cd "$(dirname "$0")/.." || exit 2

@@ -4,7 +4,7 @@ using System.Collections.Generic;
 using Microsoft.Xna.Framework;
 using Terraria;
 using Terraria.Map;
-using AICompanion.Brain.DecisionMatrix.Navigation;
+using AICompanion.Brain.SharedMovementSystem;
 
 namespace AICompanion.Map;
 

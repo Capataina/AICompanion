@@ -1,7 +1,7 @@
 #nullable enable
 
 using Terraria.ModLoader;
-using AICompanion.Brain.DecisionMatrix.Navigation;
+using AICompanion.Brain.SharedMovementSystem;
 
 namespace AICompanion;
 

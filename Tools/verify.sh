@@ -2,11 +2,11 @@
 # The compile-and-boundary check reconstructed by hand dozens of times a session: build the
 # mod without packaging it, prove the build actually produced a fresh DLL rather than a cached
 # "succeeded" (the root CLAUDE.md's own trap — a no-op build reports success in under two
-# seconds), then run the navigation boundary check. Exit 0 only when all three hold; prints
-# only the lines the next decision needs, never the whole build log.
+# seconds), then run the navigation boundary, movement contracts, chronological reader and
+# native engine tests. Exit 0 requires every check; full failure output remains visible.
 #
 # Usage, from the repository root:  sh Tools/verify.sh
-# Success looks like:               "verify: build fresh, boundary holds"  and exit 0
+# Success ends with "native engine checks pass" and exits 0.
 
 cd "$(dirname "$0")/.." || exit 2
 
@@ -54,5 +54,23 @@ if [ $boundary_status -ne 0 ]; then
 fi
 rm -f "$boundary_log"
 
-echo "verify: build fresh, boundary holds"
+for project in Tools/NavReplay Tools/SessionReport; do
+  test_log=$(mktemp)
+  if ! dotnet run --project "$project" -- --self-test >"$test_log" 2>&1; then
+    cat "$test_log"
+    rm -f "$test_log"
+    exit 1
+  fi
+  tail -n 1 "$test_log"
+  rm -f "$test_log"
+done
+engine_log=$(mktemp)
+if ! dotnet run --project Tools/EngineReplay >"$engine_log" 2>&1; then
+  cat "$engine_log"
+  rm -f "$engine_log"
+  exit 1
+fi
+cat "$engine_log"
+rm -f "$engine_log"
+echo "verify: build fresh, boundary holds, movement and chronology contracts pass, native engine checks pass"
 exit 0

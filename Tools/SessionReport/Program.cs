@@ -58,9 +58,15 @@ public static class Program
 
     public static int Main(string[] args)
     {
+        if (args.Length == 1 && args[0] == "--self-test")
+            return ChronicleTests.Run();
+
+        bool fullTimeline = args.Length > 0 && args[0] == "--timeline";
+        if (fullTimeline)
+            args = args[1..];
         if (args.Length == 0)
         {
-            Console.Error.WriteLine("usage: dotnet run --project Tools/SessionReport -- <session.tsv | Telemetry folder>");
+            Console.Error.WriteLine("usage: dotnet run --project Tools/SessionReport -- [--timeline] <session.tsv | Telemetry folder>");
             return 2;
         }
 
@@ -83,6 +89,9 @@ public static class Program
         }
 
         Console.Write(DescribeSession.Of(session));
+        Console.Write(Chronicle.Of(session, fullTimeline));
+        if (session.Count == 0)
+            return 0;
         // The census opens the report, above every finding, because it is the one part that says
         // what did *not* happen. Every check below it fires on a threshold somebody chose and can
         // only find a failure somebody imagined, so a category nobody thought to threshold reads as

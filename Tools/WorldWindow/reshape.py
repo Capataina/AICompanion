@@ -86,7 +86,7 @@ def world_glyph(world, x, y):
     if block is not None and block.is_active is not False:
         tid = int(block.type.value)
         if tid in SOLID_TOP:
-            return "="
+            return {Shape.TOP_RIGHT_SLOPE: "(", Shape.TOP_LEFT_SLOPE: ")", Shape.HALF_TILE: "{"}.get(block.shape, "=")
         if tid in SOLID:
             return GLYPH.get(block.shape, "#")
     liquid = tile.liquid
@@ -110,12 +110,12 @@ def reshape(block, world, pad):
     for row, line in enumerate(rows):
         for col, c in enumerate(line):
             x, y = x0 + col, y0 + row
-            if c == "#" and 0 <= x < world.size.x and 0 <= y < world.size.y:
+            if c in "#=" and 0 <= x < world.size.x and 0 <= y < world.size.y:
                 tile = world.tiles[x, y]
                 block_ = tile.block
                 if block_ is not None and block_.is_active is not False:
-                    glyph = GLYPH.get(block_.shape)
-                    if glyph:
+                    glyph = world_glyph(world, x, y)
+                    if glyph != c:
                         c = glyph
                         changed += 1
             grid[x, y] = c

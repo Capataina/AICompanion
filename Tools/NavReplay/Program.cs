@@ -7,7 +7,7 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using Microsoft.Xna.Framework;
-using AICompanion.Brain.DecisionMatrix.Navigation;
+using AICompanion.Brain.SharedMovementSystem;
 
 // Replays navigation scenarios off-game: for every file given, load its tile window, ask the
 // mod's own planner for the path the game asked for (S to G, the recorded plan) and, when the
@@ -19,6 +19,8 @@ using AICompanion.Brain.DecisionMatrix.Navigation;
 // when the positioner picked a spot the player never stood on.
 // Exit code: 0 when every executed scenario passed and nothing was skipped or missing, 1
 // otherwise; the counts are in the last line, never in the status, which wraps at 256.
+
+if (args.Length == 1 && args[0] == "--self-test") return VerifyMovementContracts.Run();
 
 int failed = 0, passed = 0, sealedCount = 0, skipped = 0, missing = 0;
 int churnTiles = 0, churnWrong = 0;
@@ -174,7 +176,7 @@ foreach (string file in files)
             // answers that question starts from an empty cache.
             AStar.InvalidateEdges();
             world.AskedOutside = false;
-            region = AStar.Region(f, AICompanion.Brain.DecisionMatrix.Decision.Weights.ReachFloodBudget, out complete);
+            region = AStar.Region(f, AICompanion.Brain.BehaviourSelection.Weights.ReachFloodBudget, out complete);
             bool startClipped = world.AskedOutside;
             goalIn = region.Contains(goal.Value) ? "in" : "out";
             playerIn = player is Point pl3 ? (region.Contains(pl3) ? ", player in" : ", player out") : "";
@@ -184,7 +186,7 @@ foreach (string file in files)
             // nothing returnable is left. Reported beside the raw region rather than replacing it,
             // because SEALED still has to mean what it has always meant, a region the world itself
             // closes, and a region that closes only because its exit is one-way is a different fact.
-            HashSet<Point> returnable = AStar.Region(f, AICompanion.Brain.DecisionMatrix.Decision.Weights.ReachFloodBudget, out _, refuseOneWay: true);
+            HashSet<Point> returnable = AStar.Region(f, AICompanion.Brain.BehaviourSelection.Weights.ReachFloodBudget, out _, refuseOneWay: true);
             // And the positioner's own escape hatch, modelled here or this line reports a region the
             // positioner does not use: a returnable region that does not hold the player is the wrong
             // map, because being stuck is having no way to the player and not having no way back, so
@@ -207,11 +209,11 @@ foreach (string file in files)
                 AStar.InvalidateEdges();
                 world.AskedOutside = false;
                 HashSet<Point> goalRegion = Ground(world, goal.Value) is Point goalFeet
-                    ? AStar.Region(goalFeet, AICompanion.Brain.DecisionMatrix.Decision.Weights.ReachFloodBudget, out _)
+                    ? AStar.Region(goalFeet, AICompanion.Brain.BehaviourSelection.Weights.ReachFloodBudget, out _)
                     : new HashSet<Point>();
                 bool goalClipped = world.AskedOutside;
-                pocket = !startClipped ? "; SEALED START: the region closes without touching the window, so no route out existed in the world and the fix is a rescue, not a plan"
-                    : !goalClipped ? $"; SEALED GOAL: the goal's own region ({goalRegion.Count} tiles) closes without touching the window, a spot the positioner must not offer"
+                pocket = !startClipped ? "; SEALED START IN MODEL: the graph closes inside the capture; physical impossibility is not established"
+                    : !goalClipped ? $"; SEALED GOAL IN MODEL: the goal's region ({goalRegion.Count} tiles) closes inside the capture; inspect terrain and movement coverage"
                     : "; both regions reach the window's edge: undecidable as cut, widen it with reshape.py --pad";
                 // A sealed block is a verdict, not a failure: the planner answered "no route" and
                 // the world agrees, so it counts on its own and does not fail the run.
@@ -312,7 +314,7 @@ foreach (string file in files)
         }
     }
 }
-Console.WriteLine($"{passed}/{passed + failed} passed, {sealedCount} sealed (no route exists in the world), {skipped} skipped, {missing} missing inputs, planner {Timing.PlannerMs:F0} ms in total"
+Console.WriteLine($"{passed}/{passed + failed} passed, {sealedCount} model-closed (not proof of physical impossibility), {skipped} skipped, {missing} missing inputs, planner {Timing.PlannerMs:F0} ms in total"
     + (churn ? $"; churn: {churnTiles} tiles broken, {churnWrong} stale plans" : "")
     + (follow ? $"; follow: {followPassed} walked, {followPartial} to a partial plan's end, {followFailed} not" : ""));
 return failed == 0 && skipped == 0 && missing == 0 && passed > 0 && churnWrong == 0 && followFailed == 0 ? 0 : 1;
@@ -360,7 +362,7 @@ static (FollowOutcome, string, List<string>) FollowPath(TextTileWorld world, Poi
         {
             reported = navigator.EdgeCount;
             edges.Add($"t{tick,5} {e.Kind,-11} {Fmt(e.From)} -> {Fmt(e.Tile)}  proven {e.Expected,3} ticks, took {e.Actual,3}  {(e.Outcome == TraversalFault.None ? "ok" : e.Outcome.ToString().ToUpperInvariant())}");
-            if (e.Outcome != TraversalFault.None)
+            if (e.Outcome is not (TraversalFault.None or TraversalFault.Interrupted))
             {
                 faults++;
                 if (firstFault == null)

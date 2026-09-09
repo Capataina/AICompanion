@@ -6,7 +6,7 @@ using Terraria;
 using Terraria.GameInput;
 using Terraria.ModLoader;
 using Terraria.ModLoader.IO;
-using AICompanion.Brain.Debug;
+using AICompanion.Brain.BehaviourDiagnostics;
 using AICompanion.Companion;
 using AICompanion.Inventory;
 
@@ -52,6 +52,12 @@ public class CompanionPlayer : ModPlayer
             spawned = CompanionNPC.Spawn(Player) < Main.maxNPCs;
         Mod.Logger.Info($"OnEnterWorld: hasCompanion={HasCompanion} spawned={spawned} bagItems={Bag.Count}");
     }
+
+    /// <summary>
+    /// Terraria has calculated the final damage, cause and knockback here. The next telemetry row
+    /// consumes that exact event; inferring it from a later life value would make each property a guess.
+    /// </summary>
+    public override void OnHurt(Player.HurtInfo info) => BrainTelemetry.RecordPlayerHurt(info);
 
     private KeyboardState previousKeys;
 

@@ -9,8 +9,8 @@ using Terraria.GameContent;
 using Terraria.ID;
 using Terraria.ModLoader;
 using Terraria.UI;
-using AICompanion.Brain.Work.Chopping;
-using AICompanion.Brain.Work.Mining;
+using AICompanion.Brain.WorldInteractions.Chopping;
+using AICompanion.Brain.WorldInteractions.Mining;
 using AICompanion.Companion;
 using AICompanion.Players;
 

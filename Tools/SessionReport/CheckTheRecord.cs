@@ -99,6 +99,9 @@ public sealed class ColumnsHoldWhatTheyClaim : ICheck
         "state", "action", "reflex", "top_threat", "target", "request", "anchor", "spot", "next_kind",
         "npc_tile", "npc_px", "npc_vel", "held", "weapon", "fire", "engage", "torch", "player_tile",
         "edge_kind", "edge_from", "edge_to", "edge_outcome", "spot_home",
+        "diverge_invalid_reason", "sample_phase", "player_px", "player_vel", "player_liquid", "player_hit", "npc_hit",
+        "player_state", "player_activity", "player_support", "npc_support", "control", "control_source",
+        "observed_vel", "observed_mobility", "predicted_vel", "predicted_mobility",
     };
 
     public IEnumerable<Finding> Run(Session session)

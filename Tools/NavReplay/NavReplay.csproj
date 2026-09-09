@@ -16,6 +16,7 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="Program.cs" />
+    <Compile Include="VerifyMovementContracts.cs" />
     <!--
       The whole navigation tree, by pattern rather than file by file, with the one file that
       names the game excluded. Listing them by hand meant a new file in the core compiled into
@@ -25,9 +26,9 @@
       game-free by construction — Tools/check-navigation-boundary.sh enforces exactly this same
       single exception, so the two agree on what the boundary is.
     -->
-    <Compile Include="../../Brain/DecisionMatrix/Navigation/**/*.cs"
-             Exclude="../../Brain/DecisionMatrix/Navigation/World/GameTileWorld.cs" />
-    <Compile Include="../../Brain/DecisionMatrix/Decision/Weights.cs" />
+    <Compile Include="../../Brain/SharedMovementSystem/**/*.cs"
+             Exclude="../../Brain/SharedMovementSystem/TerrariaIntegration/**/*.cs" />
+    <Compile Include="../../Brain/BehaviourWeights.cs" />
   </ItemGroup>
   <ItemGroup>
     <Reference Include="FNA">
