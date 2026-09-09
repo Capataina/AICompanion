@@ -18,6 +18,9 @@ public sealed class DamageArrivesWhereDangerWasSeen : ICheck
     /// <summary>A danger reading this low is "nothing is happening", not "something small is happening".</summary>
     private const float Blind = 0.01f;
 
+    /// <summary>An empty breath bar. Above this the head being under water is swimming, not drowning.</summary>
+    private const float Suffocating = 0.01f;
+
     public string Name => "did it see the danger before the damage arrived";
     public string[] Needs => new[] { "life" };
 
@@ -30,16 +33,40 @@ public sealed class DamageArrivesWhereDangerWasSeen : ICheck
         Column? player = session.Find("danger");
         Column? sense = own ?? player;
         string senseName = own != null ? "self_threat" : "danger";
+        // Read rather than required, the same way the danger column is: a file without them still
+        // answers the question, less precisely, and the finding says so instead of being skipped.
+        Column? selfDanger = session.Find("self_danger");
+        Column? breath = session.Find("breath");
 
         var hits = new List<(int Row, float Lost, float Danger)>();
+        int environmental = 0;
         for (int i = 1; i < session.Count; i++)
         {
             float before = life.Number[i - 1], after = life.Number[i];
             if (float.IsNaN(before) || float.IsNaN(after) || after >= before)
                 continue;
+            // Lava, fire and a drained breath bar all take life with no hostile in the world, so the
+            // threat sense is *correct* to read zero on those ticks and counting them as unseen hits
+            // turns a cave session into a page of definitive findings. This is the same exclusion
+            // ScenarioCapture makes for the same reason, plus drowning, which it does not take damage
+            // from. Being under water is not the test: the session of 2026-09-08 holds two real hits
+            // at breath 0.85 and 0.98, so the suffix alone would have suppressed two true findings.
+            bool burning = selfDanger != null && (selfDanger.Text[i].EndsWith('L') || selfDanger.Text[i].EndsWith('f'));
+            bool suffocating = breath != null && breath.Text[i].EndsWith('u') && breath.Number[i] <= Suffocating;
+            if (burning || suffocating)
+            {
+                environmental++;
+                continue;
+            }
             float reading = sense == null ? float.NaN : sense.Number[i];
             hits.Add((i, before - after, reading));
         }
+        string aside = environmental == 0
+            ? (selfDanger == null || breath == null
+                ? " This file carries no self_danger or breath column, so a hit from lava, fire or drowning cannot be told from a hit by something alive."
+                : "")
+            : $" A further {environmental} life loss(es) came from lava, fire or a drained breath bar and are excluded, "
+              + "because a threat sense is right to read zero when nothing alive is in the room.";
         if (hits.Count == 0)
             yield break;
 
@@ -87,7 +114,8 @@ public sealed class DamageArrivesWhereDangerWasSeen : ICheck
                           + "rather than at which body the danger was measured for."
                         : "This file predates the companion's own danger sense, so the column read is the danger to "
                           + "the *player*: a hit taken at distance with this reading at zero is the known feedback "
-                          + "loop where straying from him made every threat term vanish and hunting score higher."),
+                          + "loop where straying from him made every threat term vanish and hunting score higher.")
+                    + aside,
                 session.Tick(stretch.Start), session.Tick(stretch.End), blind.Count);
         }
 
@@ -96,7 +124,7 @@ public sealed class DamageArrivesWhereDangerWasSeen : ICheck
             Name,
             $"{hits.Count} damage event(s) over the session, {lostTotal:0} life lost in total",
             $"The heaviest single hit cost {Worst(hits):0} life. This is the baseline the other findings are read "
-                + "against: a session with no damage proves nothing about kiting.",
+                + "against: a session with no damage proves nothing about kiting." + aside,
             session.Tick(hits[0].Row), session.Tick(hits[^1].Row), hits.Count);
     }
 
@@ -131,9 +159,14 @@ public sealed class TheHandsWorkWhileThreatened : ICheck
         Column? fire = session.Find("fire");
         Column? engage = session.Find("engage");
 
+        // No gap allowance, because a tick that fired *is* the break in the stretch. With one, a
+        // healthy fight reads as one enormous finding: the reload ticks between two shots satisfy the
+        // condition and a single "fired" row between them falls inside the allowance, so a two-minute
+        // exchange folds into a single "nothing fired for 7,000 ticks" whose own tally shows the shots
+        // it fired. The gap allowance is for a condition that flickers, and this one does not.
         var quiet = FindStretches.Where(session.Count, i =>
             reachable.Number[i] > 0f && shot.Number[i] == 0f && (fire == null || fire.Text[i] != "fired"),
-            MinTicks, allowGap: 2);
+            MinTicks, allowGap: 0);
 
         foreach (var stretch in quiet)
         {
@@ -216,15 +249,21 @@ public sealed class TheChosenWeaponIsTheBetterOne : ICheck
         if (wrong == 0)
             yield break;
 
+        // Potential rather than definitive, by this reader's own boundary: a known legitimate cause
+        // exists, because TryFire's fallback can swap the held weapon on the tick it fires without
+        // rewriting either expected-damage column, so the row is the two facts having been recorded a
+        // few ticks apart rather than the arsenal having chosen wrongly. What would settle it is the
+        // fallback recording its own swap; until it does, the row cannot distinguish the two.
         yield return new Finding(
-            Severity.Definitive,
+            Severity.Potential,
             Name,
             $"{wrong} row(s) held a weapon whose rejected alternative scored higher, the worst by {worstGap:0.0} damage",
             $"At the worst row the chosen weapon was {weapon.Text[worstRow]} with the bow at {bow.Number[worstRow]:0.0} "
                 + $"and the knife at {knife.Number[worstRow]:0.0} expected damage. The arsenal picks the larger of the "
                 + "two, so a row like this means the columns and the choice were written at different moments: the "
                 + $"choice is cached for a dozen ticks and the fallback in TryFire may swap the weapon on the tick it "
-                + "fires without rescoring, which would produce exactly this and is the first place to look.",
+                + "fires without rescoring, which would produce exactly this and is the first place to look. What would "
+                + "settle it is a column recording the swap, which is why this is potential and not definitive.",
             session.Tick(worstRow), session.Tick(worstRow), wrong);
     }
 }
