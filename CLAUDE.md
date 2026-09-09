@@ -33,6 +33,7 @@ AICompanion/
 │  │  ├─ Navigation/         how to get there, split by owner
 │  │  │  ├─ World/           the tile interface, the game world, the text world of dumps and scenarios
 │  │  │  ├─ Body/            the body's numbers and shape tests, shared by the motor, the planner and the reflexes
+│  │  │  ├─ Traversals/      one class per move kind (walk, jump, drop, fall-through), each proving the move for the grid and performing it for the follower from one shared steering rule
 │  │  │  ├─ Planning/        the grid, A*, the path, reachability
 │  │  │  └─ Following/       the navigator that performs the path through the motor
 │  │  └─ Reflexes/           simulated dodges, the path that skips scoring
