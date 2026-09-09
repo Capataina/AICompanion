@@ -51,17 +51,28 @@ public sealed class SurviveAction : CompanionAction
         if (refuge is Point r && !IsRefuge(r.X, r.Y))
             refuge = null;
         refuge ??= FindRefuge(feet);
+        // Breaking the surface refills the breath, so it is worth asking for whether or not a
+        // refuge was found. The motor takes a jump only from the ground, so asking every tick bobs
+        // the body off the floor whenever the feet touch down and does nothing while it is
+        // airborne; nothing downstream clears the request, because Motor.Apply only ever sets a
+        // jump and Motor.Stop touches the horizontal speed alone.
+        //
+        // This sat below the refuge return until 2026-09-09, which made it the alternative to
+        // having a plan rather than a floor underneath one, so it could not fire in the case that
+        // actually drowns the companion: a refuge is found, the route to it finishes short, and
+        // the body stands on the bottom of the pool with a finished path and an empty breath bar.
+        // That is what killed it in the underground session at tick 20,679 — action survive,
+        // request Exact, path 1 step of 1, velocity zero, press zero, breath zero, for a hundred
+        // and twenty ticks. Whether a refuge exists says nothing about whether the head is out of
+        // the water, and only the second question has anything to do with drowning.
+        if (ctx.Senses.Self.HeadUnderwater)
+            ctx.Companion.Motor.Jump();
         if (refuge is Point spot)
             return PositionRequest.ExactAt(NavGrid.FeetWorld(spot));
         // No refuge is reachable, which in water means a flooded pocket: tread water instead of
-        // standing in it. Holding still here is what drowned the companion in a pit on 2026-09-08
-        // while it had the whole breath to spend jumping. The motor takes a jump only from the
-        // ground, so asking every tick bobs the body off the floor whenever the feet touch down,
-        // and each break of the surface refills the breath. This saves the body wherever the
-        // surface is inside a wet jump's rise; a shaft deeper than that still drowns, which is
-        // what a player without a Flipper also suffers and what the swim traversal fixes.
-        if (ctx.Senses.Self.HeadUnderwater)
-            ctx.Companion.Motor.Jump();
+        // standing in it. The bob above saves the body wherever the surface is inside a wet jump's
+        // rise; a shaft deeper than that still drowns, which is what a player without a Flipper
+        // also suffers and what the swim traversal fixes (AIC-187).
         return PositionRequest.Hold;
     }
 

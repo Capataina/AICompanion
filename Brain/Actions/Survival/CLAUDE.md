@@ -10,7 +10,16 @@ Survival/
 
 `Score` is the self sense's `SelfDanger` scaled past one: nothing while the body is fine, a pull once breath is half gone or fire has caught, and above guard's ceiling near the end. It never keeps the companion out of water; crossing a pool is priced in `../../DecisionMatrix/Navigation/`, and this is the backstop when a crossing turns out longer than the breath or a lava price was paid and the fire is still burning. `Execute` finds a refuge by widening rings around the feet, checks the walker can reach it through `Reachability`, keeps it while it stays a refuge, and drops it the tick it stops being one. Forecast is zero: it never counts as time away from the player.
 
+## Two rescues, and the second one is a floor rather than an alternative
+
+Getting to a refuge is the plan; breaking the surface is the floor underneath it. Asking the motor to jump while the head is under water bobs the body off the floor whenever its feet touch down, and every break of the surface refills the breath, so the body survives anywhere the surface sits inside a wet jump's rise even with no route anywhere.
+
+**The two are not alternatives, and writing them as alternatives is what made this folder's headline defect.** The bob used to run only where no refuge had been found at all, which reads as sensible and quietly excludes the case that actually drowns a companion: a refuge exists, the route to it stops short, and the body stands on the bottom of the pool holding a finished path. Whether a refuge was found is a fact about the map; whether the head is under water is the only fact drowning cares about, so the bob is asked for on the second and never gated on the first.
+
+The shape of that mistake generalises past this folder: a last resort placed in the `else` of the ordinary path can only fire when the ordinary path was never attempted, which is the one situation it was not written for. A last resort belongs on the condition it exists to answer.
+
 ## Traps
 
 - **The score must be able to beat guard at full danger**, which is why it is the one score scaled above one; a survive that tops out at one ties guard and loses to guard's commitment bonus while the companion drowns.
-- **Reachability is walker reachability**, so a refuge across a jump the wet envelope cannot make is still offered and the navigator's replan finds another; the ring search returns the first refuge, not the best.
+- **Reachability is walker reachability**, so a refuge across a jump the wet envelope cannot make is still offered and the navigator's replan finds another; the ring search returns the first refuge, not the best. Worse, `Reachability.WalkerCanReach` answers *reachable* when it cannot find a standable start or runs out of budget, which is the right conservatism for the threat sense that shares it and the wrong one here: it means an unknown reads as a promise, and this action then holds the refuge it was promised. Self-rescue wants a route it can prove, and that distinction is unbuilt.
+- **A held refuge is dropped only when it stops being a refuge**, never when the navigator fails to reach it, so a route that finishes short leaves the body committed to a place it cannot get to.
