@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    The reader for a playtest: takes the .tsv the mod wrote and prints what is wrong with the
+    run, sorted into definitive issues, potential issues and oddities. It compiles nothing out
+    of the mod tree and references no game assembly, because the record is text and reading it
+    needs none of the types that produced it.
+    Run from the repository root:  dotnet run - -project Tools/SessionReport - - Telemetry/<stamp>.tsv
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <RootNamespace>AICompanion.Tools.SessionReport</RootNamespace>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+</Project>

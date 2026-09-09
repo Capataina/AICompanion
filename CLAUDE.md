@@ -59,6 +59,7 @@ AICompanion/
 ├─ Localization/             en-US strings (display name, keybind)
 ├─ Tools/                    console tools that are not mod code: excluded from the mod's compile and from the .tmod; check-navigation-boundary.sh keeps the navigation core free of game types
 │  ├─ NavReplay/             runs the real planner on a plan dump or scenario file with no game running, walks the plan with the real navigator, and draws the answer
+│  ├─ SessionReport/         reads a playtest's .tsv back and prints what is definitely wrong, probably wrong and merely odd, with a coverage block for the checks the file is too old to run
 │  ├─ WorldWindow/           rewrites a plan dump's tiles with the slope and half-block shapes from the saved world file
 │  └─ Scenarios/             the committed database of places the companion must be able to reach, one block per case
 └─ Telemetry/                written by the mod at run time, one .tsv per world session plus a -plans.txt of tile windows for failed plans and detected scenarios (a follow failure, a stuck run, a hit through a dodge, a missed mode), each with the player's trail; ignored by git and the packager, read by an agent after a playtest
@@ -76,6 +77,14 @@ dotnet build -nologo -v q
 Zero `error CS` lines and a fresh `bin/Debug/net8.0/AICompanion.dll` is the pass. With the game closed the same command also packages the `.tmod`; while the game is open it fails at that step with `TML003: Please close tModLoader or disable the mod in-game`, which is the packaging step, not the compile.
 
 Build for the game (what Caner does to play it): with the game closed, the shell build above packages `Mods/AICompanion.tmod`; launch tModLoader and the mod is loaded. In a world, `/companion` once; from then on it spawns with you on every world enter. The left square bracket toggles the brain overlay, and so do F6, the key left of 1 and the ISO-section key, because every one of them is also read raw: a binding saved by an earlier version overrides the registered default permanently, so the raw list rather than the default is what makes the overlay reachable. Rebindable under Controls → Mod Controls. Right-click the companion within reach, or click its health notch, to open its bag.
+
+Read a playtest back (the first command after he stops playing, before opening any column by hand):
+
+```
+dotnet run --project Tools/SessionReport -- Telemetry
+```
+
+It takes the newest `.tsv` in the folder, prints the session's shape, then every finding sorted into definitive issues, potential issues and oddities, and exits non-zero when anything is definitively wrong. A check whose columns the file predates is skipped by name in a coverage block, so an old session reads as reduced coverage rather than as a clean run. `Tools/SessionReport/CLAUDE.md` has what separates the three categories and how to add a check.
 
 Replay a run's failed plans without the game (what a session does after a playtest, before touching the planner):
 

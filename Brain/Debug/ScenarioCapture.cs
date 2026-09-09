@@ -119,7 +119,11 @@ public static class ScenarioCapture
             lastDodge = dodge;
         }
         bool environmental = brain.Senses.Self.InLava || brain.Senses.Self.OnFire;
-        if (lastLife >= 0 && npc.life < lastLife && !environmental && tick - lastDodgeTick <= DodgeMemoryTicks && tick >= dodgeCooldown)
+        // The dodge must have happened. Without that first clause the age is `tick - long.MinValue`,
+        // which overflows a signed long and wraps to a large negative number, so every hit in a
+        // session where no reflex had ever fired was reported as a hit through a dodge — with an age
+        // of -9223372036854773868 ticks printed in the window header, which is how it was found.
+        if (lastDodge != null && lastLife >= 0 && npc.life < lastLife && !environmental && tick - lastDodgeTick <= DodgeMemoryTicks && tick >= dodgeCooldown)
         {
             dodgeCooldown = tick + CooldownTicks;
             BrainTelemetry.DumpScenario(feet, goal, $"hit through a dodge, {lastDodge} {tick - lastDodgeTick} ticks ago");

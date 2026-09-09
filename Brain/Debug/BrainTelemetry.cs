@@ -213,9 +213,9 @@ public sealed class BrainTelemetry : ModSystem
             h.Append("tick\tstate\taction\treflex");
             foreach (var a in brain.Chooser.Actions)
                 h.Append('\t').Append(a.Name).Append("_raw\t").Append(a.Name).Append("_fin");
-            h.Append("\tdanger\thorizon\tthreats\treachable\ttop_threat\ttarget\tloot");
+            h.Append("\tdanger\tself_threat\thorizon\tthreats\treachable\ttop_threat\ttarget\tloot");
             h.Append("\trequest\tanchor\tspot\tspot_score\tpath_steps\tpath_at\tnext_kind\tplan_failed\texpansions");
-            h.Append("\tnpc_tile\tnpc_px\tnpc_vel\tground\twet\tcollide_x\tcollide_y\tdir\tlife\tbreath\tself_danger\theld\tweapon\tshot\texp_bow\texp_knife\ttorch\tambient");
+            h.Append("\tnpc_tile\tnpc_px\tnpc_vel\tground\twet\tcollide_x\tcollide_y\tpress\tdir\tlife\tbreath\tself_danger\theld\tweapon\tshot\tfire\texp_bow\texp_knife\texp_target\tengage\ttorch\tambient");
             h.Append("\tplayer_tile\tplayer_intent\tplayer_dead\tplayer_attacking\tplayer_chopping\tplayer_mining");
             h.Append("\tplan_ms\tflood_ms\tsenses_ms\treflex_ms\tdecide_ms\tposition_ms\tnavigate_ms\tbrain_ms\tedge_cache\tstranded");
             // The reachability tier, which is where the companion decides whether to enter somewhere
@@ -251,6 +251,9 @@ public sealed class BrainTelemetry : ModSystem
             if (top == null || t.Urgency > top.Urgency) top = t;
         }
         sb.Append('\t').Append(senses.Threats.PlayerDanger.ToString("0.00"));
+        // Danger to the companion beside danger to the player, because the two came apart badly:
+        // it died 84 tiles out with the player's danger reading 0.00 on every hit it took.
+        sb.Append('\t').Append(senses.Threats.CompanionDanger.ToString("0.00"));
         sb.Append('\t').Append(senses.Threats.Horizon == float.MaxValue ? "inf" : senses.Threats.Horizon.ToString("0"));
         sb.Append('\t').Append(senses.Threats.Threats.Count).Append('\t').Append(reachable);
         sb.Append('\t').Append(top == null ? "-" : $"{top.Npc.TypeName}:{top.Class.ToString()[0]}:u{top.Urgency:0.00}:t{(top.TicksToPlayer > 9999 ? 9999 : (int)top.TicksToPlayer)}:{(top.Reachable ? "r" : "x")}{(top.Shoots ? ":s" : "")}");
@@ -272,6 +275,12 @@ public sealed class BrainTelemetry : ModSystem
         sb.Append('\t').Append(companion.Motor.OnGround ? 1 : 0);
         sb.Append('\t').Append(npc.wet ? 1 : 0);
         sb.Append('\t').Append(npc.collideX ? 1 : 0).Append('\t').Append(npc.collideY ? 1 : 0);
+        // Whether the body asked to pass its platform this tick. It is written here because the
+        // game reads and clears the flag in UpdateCollision, which runs after this line, and
+        // because two attempts at the fall-through defect were spent inferring this column's value
+        // from velocity and ground: a press that is not held shows as a three-tick fall and a
+        // catch, and with the column present that reads directly instead of being reconstructed.
+        sb.Append('\t').Append(companion.Motor.WantsFallThrough ? 1 : 0);
         sb.Append('\t').Append(npc.direction);
         sb.Append('\t').Append(npc.life).Append('/').Append(npc.lifeMax);
         sb.Append('\t').Append(senses.Self.BreathFraction.ToString("0.00")).Append(senses.Self.HeadUnderwater ? "u" : "");
@@ -279,10 +288,17 @@ public sealed class BrainTelemetry : ModSystem
         sb.Append('\t').Append(companion.HeldItemType == 0 ? "-" : Lang.GetItemNameValue(companion.HeldItemType));
         sb.Append('\t').Append(companion.Arsenal.LastChosen?.Name ?? "-");
         sb.Append('\t').Append(companion.Arsenal.LastShotSolved ? 1 : 0);
+        // Why no projectile left the hands, which the shot flag alone cannot say: a reload and a
+        // target with no reachable arc both read as a zero there, and they want opposite fixes.
+        sb.Append('\t').Append(companion.Arsenal.LastFireOutcome);
         // Both weapons' expected damage, the rejected one included, so the choice can be read back
         // instead of re-derived: a row where the loser scored higher is a defect with no other tell.
         sb.Append('\t').Append(companion.Arsenal.LastPrimaryExpected.ToString("0.0"));
         sb.Append('\t').Append(companion.Arsenal.LastSecondaryExpected.ToString("0.0"));
+        sb.Append('\t').Append(companion.Arsenal.LastTargetExpected.ToString("0.0"));
+        // What the hands are shooting at, which is now independent of what the feet were told, so
+        // "it was following me and not attacking" is a row where engage reads "-" beside threats.
+        sb.Append('\t').Append(brain.EngageTarget is NPC eng && eng.active ? eng.TypeName : "-");
         sb.Append('\t').Append(companion.Torch.Shown ? "shown" : companion.Torch.Lit ? "lit-busy" : "out");
         sb.Append('\t').Append(senses.Light.Ambient.ToString("0.00"));
 

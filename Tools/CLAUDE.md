@@ -1,12 +1,15 @@
 # Tools — the navigation core run without the game
 
-Console tools and the scenario database, none of it mod code: `build.txt` ignores this folder for the `.tmod` and the mod's project excludes it from the compile. The tools exist because a navigation claim is checked here before a playtest and never by launching the game: the replay compiles the real planner, the real traversals and the real navigator against a text world read from a telemetry dump, so the plan it prints is the plan the game would have made, and the walk it performs is the walk the game's navigator would have driven over the simulated body. The one seam the game supplies is the tile world (`Brain/DecisionMatrix/Navigation/World/`), and `check-navigation-boundary.sh` is what keeps the core compilable without it.
+Console tools and the scenario database, none of it mod code: `build.txt` ignores this folder for the `.tmod` and the mod's project excludes it with a `Tools/**` glob, so a new project here needs no change to either. Two kinds of tool live here and they answer opposite halves of the same question. The replay asks what the companion *would* do, running the real planner on a saved world with no game attached; the session report asks what it *did*, reading back the record a playtest wrote. Between them there is no question about the companion that needs the game running to answer, which is the point, because launching the game takes over the machine and answers one question a session.
+
+The replay exists because a navigation claim is checked here before a playtest and never by launching the game: the replay compiles the real planner, the real traversals and the real navigator against a text world read from a telemetry dump, so the plan it prints is the plan the game would have made, and the walk it performs is the walk the game's navigator would have driven over the simulated body. The one seam the game supplies is the tile world (`Brain/DecisionMatrix/Navigation/World/`), and `check-navigation-boundary.sh` is what keeps the core compilable without it.
 
 ```
 Tools/
 ├─ CLAUDE.md
 ├─ check-navigation-boundary.sh   greps every code line under Brain/DecisionMatrix/Navigation/ for a Terraria type, the NPC, Main or the motor, outside World/GameTileWorld.cs; comments are excused; exit 0 is the pass
 ├─ NavReplay/                     the console project: a scenario file or folder in, a verdict per block out, with the flags below; its .csproj lists the navigation source files it compiles, so a new file under Navigation/ is added there or the tool does not see it
+├─ SessionReport/                 the reader for a playtest's .tsv: one command in, findings out, sorted into definitive issues, potential issues and oddities, with a coverage block saying which checks the file was too old to run; exits non-zero on a definitive finding
 ├─ WorldWindow/                   reshape.py: rewrites a plan dump's walls into the slope and half-block shapes the saved world carries, and with --pad grows the window from the world; needs the lihzahrd parser in a venv
 └─ Scenarios/                     the committed database: one file per run's shaped dump (<stamp>-plans-shaped.txt, many blocks) and one per hand-cut case named for what it holds; every in-game failure becomes a block here, by ruling
 ```
@@ -22,6 +25,8 @@ For every block the tool plans from the recorded start to the recorded goal and 
 From the repository root:
 
 ```
+dotnet run --project Tools/SessionReport -- Telemetry                        # the newest session, read and categorised: this is the first command after a playtest
+dotnet run --project Tools/SessionReport -- Telemetry/<stamp>.tsv            # a named session
 dotnet run --project Tools/NavReplay -- Telemetry/<stamp>-plans.txt         # a fresh run's failed plans
 dotnet run --project Tools/NavReplay -- Tools/Scenarios                      # the whole database
 dotnet run --project Tools/NavReplay -- --trace-jump <scenario.txt>          # every jump profile's arc from S to G, tick by tick
