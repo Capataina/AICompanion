@@ -92,7 +92,7 @@ public sealed class DropTraversal : Traversal
         fall = 0;
         for (ticks = 1; ticks <= MaxTicks; ticks++)
         {
-            Controls controls = DescentControls(line, state, throughPlatform);
+            Controls controls = DescentControls(line, state, throughPlatform, lipRow, pressed);
             float before = state.Bottom;
             state = BodyMotion.Step(world, state, controls);
             if (state.Stuck || state.Bottom > giveUpBelow)
@@ -127,16 +127,22 @@ public sealed class DropTraversal : Traversal
     /// <summary>
     /// The descent's steering, used identically to prove and to perform it: the in-air steering
     /// rule toward the line (full speed, then coasting inside the stopping distance) on the
-    /// ground and in the air alike, and for a fall-through the press on the platform only once
-    /// the body is on the line and still on the platform, so a stack of platforms is descended
-    /// one edge at a time and a body pressing before it is on the line does not land beside it.
+    /// ground and in the air alike, and for a fall-through a press that begins only once the body
+    /// is on the line and still standing, so a stack of platforms is descended one edge at a time
+    /// and a body pressing before it is on the line does not land beside it, then is held until
+    /// the feet leave <paramref name="lipRow"/>. Holding it is what makes the move possible at
+    /// all: the game asks once a tick whether the body may pass its platform and treats a
+    /// platform as solid under any falling body whose feet are still inside its top band, so a
+    /// press released on the first airborne tick is answered by the platform reappearing under
+    /// feet that have travelled less than a pixel, and the body is put back on top of it.
     /// </summary>
-    internal static Controls DescentControls(float line, BodyState live, bool throughPlatform)
+    internal static Controls DescentControls(float line, BodyState live, bool throughPlatform, int lipRow, bool pressing)
     {
         // On the ground the body creeps to within half a pixel of the line, because the in-air
         // tolerance of two pixels is wider than the overhang that keeps a body standing on a lip.
         float steer = BodyPhysics.SteerToward(line, live.CentreX, live.Vx, live.OnGround ? GroundTolerance : 2f);
-        bool press = throughPlatform && live.OnGround && MathF.Abs(line - live.CentreX) <= GroundTolerance;
+        bool onLine = MathF.Abs(line - live.CentreX) <= GroundTolerance;
+        bool press = throughPlatform && (live.OnGround ? onLine : pressing) && live.FeetTile.Y <= lipRow;
         return new Controls(steer, FallThrough: press);
     }
 
@@ -179,7 +185,7 @@ public sealed class DropTraversal : Traversal
     /// (Codex review of 7525a1b).
     /// </summary>
     internal static Controls Perform(NavStep step, BodyState live, bool throughPlatform, bool begun)
-        => !begun && live.OnGround && MathF.Abs(live.Vx) > RestSpeed ? Controls.None : DescentControls(step.SteerX, live, throughPlatform);
+        => !begun && live.OnGround && MathF.Abs(live.Vx) > RestSpeed ? Controls.None : DescentControls(step.SteerX, live, throughPlatform, step.From.Y, begun);
 
     /// <summary>
     /// Mislanded: come to rest off the promised tile two or more rows below the lip, which is the
