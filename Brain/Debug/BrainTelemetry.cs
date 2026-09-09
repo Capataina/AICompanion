@@ -1,6 +1,7 @@
 #nullable enable
 
 using System;
+using System.Globalization;
 using System.IO;
 using System.Text;
 using Microsoft.Xna.Framework;
@@ -148,10 +149,25 @@ public sealed class BrainTelemetry : ModSystem
             if (x1 - x0 >= DumpMaxWidth) { if (goal.X > start.X) x1 = x0 + DumpMaxWidth - 1; else x0 = x1 - DumpMaxWidth + 1; }
             if (y1 - y0 >= DumpMaxHeight) { if (goal.Y > start.Y) y1 = y0 + DumpMaxHeight - 1; else y0 = y1 - DumpMaxHeight + 1; }
 
+            // The body is a rectangle at a pixel, and a tile is not enough to reproduce it. A tile
+            // names a column and the grid proves a move at one of nine sub-tile offsets inside it,
+            // so a dump that records only the tile is replayed from whichever offset the grid picks
+            // rather than the one the body was actually at — which is how a fall-through that welds
+            // the body into a wall at left 55795 replays clean from left 55788 (2026-09-09, the
+            // 3487,362 shaft). Every question about clearance is asked of these four numbers.
+            float boxLeft = npc == null ? 0f : npc.position.X;
+            float boxTop = npc == null ? 0f : npc.position.Y;
+            int boxW = npc?.width ?? 0, boxH = npc?.height ?? 0;
+            int bx0 = (int)MathF.Floor(boxLeft / 16f), bx1 = (int)MathF.Floor((boxLeft + boxW - BodyPhysics.Touch) / 16f);
+            int by0 = (int)MathF.Floor(boxTop / 16f), by1 = (int)MathF.Floor((boxTop + boxH - BodyPhysics.Touch) / 16f);
+
             var sb = new StringBuilder((x1 - x0 + 2) * (y1 - y0 + 1) + 200);
             sb.Append($"tick {Main.GameUpdateCount} {why}: start {start.X},{start.Y} goal {goal.X},{goal.Y}");
             if (partialEnd is Point e) sb.Append($" partial-end {e.X},{e.Y}");
-            sb.Append($" expansions {expansions} npc {n.X},{n.Y} player {p.X},{p.Y} window x {x0}..{x1} y {y0}..{y1}\n");
+            sb.Append($" expansions {expansions} npc {n.X},{n.Y}");
+            if (npc != null)
+                sb.Append($" npcbox {boxLeft.ToString("0.0", CultureInfo.InvariantCulture)},{(boxTop + boxH).ToString("0.0", CultureInfo.InvariantCulture)},{boxW},{boxH}");
+            sb.Append($" player {p.X},{p.Y} window x {x0}..{x1} y {y0}..{y1}\n");
             sb.Append($"markers S {start.X},{start.Y} G {goal.X},{goal.Y} N {n.X},{n.Y} P {p.X},{p.Y}");
             if (partialEnd is Point pe) sb.Append($" E {pe.X},{pe.Y}");
             sb.Append('\n');
@@ -183,6 +199,12 @@ public sealed class BrainTelemetry : ModSystem
                         else if (t == start) c = 'S';
                         else if (t == goal) c = 'G';
                         else if (partialEnd == t) c = 'E';
+                        // The rest of the body, lowest priority so no other marker is lost to it,
+                        // and lowercase so the marker reader still finds exactly one N. A body
+                        // drawn as one glyph reads as a point that fits anywhere; drawn as the
+                        // tiles its rectangle overlaps it reads as the two-wide, three-tall thing
+                        // that has to fit through the gap, which is what the map is for.
+                        else if (x >= bx0 && x <= bx1 && y >= by0 && y <= by1) c = 'n';
                     }
                     sb.Append(c);
                 }
@@ -215,7 +237,7 @@ public sealed class BrainTelemetry : ModSystem
                 h.Append('\t').Append(a.Name).Append("_raw\t").Append(a.Name).Append("_fin");
             h.Append("\tdanger\tself_threat\thorizon\tthreats\treachable\ttop_threat\ttarget\tloot");
             h.Append("\trequest\tanchor\tspot\tspot_score\tpath_steps\tpath_at\tnext_kind\tplan_failed\texpansions");
-            h.Append("\tnpc_tile\tnpc_px\tnpc_vel\tground\twet\tcollide_x\tcollide_y\tpress\tdir\tlife\tbreath\tself_danger\theld\tweapon\tshot\tfire\texp_bow\texp_knife\texp_target\tengage\ttorch\tambient");
+            h.Append("\tnpc_tile\tnpc_px\tnpc_vel\tground\twet\tcollide_x\tcollide_y\tmoved\tvel_cut\tpress\tdir\tlife\tbreath\tself_danger\theld\tweapon\tshot\tfire\texp_bow\texp_knife\texp_target\tengage\ttorch\tambient");
             h.Append("\tplayer_tile\tplayer_intent\tplayer_dead\tplayer_attacking\tplayer_chopping\tplayer_mining");
             h.Append("\tplan_ms\tflood_ms\tsenses_ms\treflex_ms\tdecide_ms\tposition_ms\tnavigate_ms\tbrain_ms\tedge_cache\tstranded");
             // The reachability tier, which is where the companion decides whether to enter somewhere
@@ -275,6 +297,18 @@ public sealed class BrainTelemetry : ModSystem
         sb.Append('\t').Append(companion.Motor.OnGround ? 1 : 0);
         sb.Append('\t').Append(npc.wet ? 1 : 0);
         sb.Append('\t').Append(npc.collideX ? 1 : 0).Append('\t').Append(npc.collideY ? 1 : 0);
+        // What the engine did with the last tick's request, which is the one thing this record has
+        // never held. Record runs inside AI, before the engine's collision and its position += velocity,
+        // so every number on this line describes the tick before — and three attempts at the platform
+        // freeze were argued from position and collision values nobody had established were a tick
+        // apart. `moved` is the engine's own displacement (position - oldPosition) and `vel_cut` is
+        // what its collision took off the velocity it was handed (velocity - oldVelocity). A body
+        // frozen with moved 0,0 and vel_cut 0,0 is not being blocked, it is not being integrated,
+        // and those two cells say which without anyone reading twenty rows to infer it.
+        sb.Append('\t').Append((npc.position.X - npc.oldPosition.X).ToString("0.00", CultureInfo.InvariantCulture))
+          .Append(',').Append((npc.position.Y - npc.oldPosition.Y).ToString("0.00", CultureInfo.InvariantCulture));
+        sb.Append('\t').Append((npc.velocity.X - npc.oldVelocity.X).ToString("0.00", CultureInfo.InvariantCulture))
+          .Append(',').Append((npc.velocity.Y - npc.oldVelocity.Y).ToString("0.00", CultureInfo.InvariantCulture));
         // Whether the body asked to pass its platform this tick. It is written here because the
         // game reads and clears the flag in UpdateCollision, which runs after this line, and
         // because two attempts at the fall-through defect were spent inferring this column's value

@@ -2,6 +2,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -274,7 +275,7 @@ foreach (string file in files)
         // line that shows it without a game running.
         if (follow && from is Point followFrom && main.Path != null)
         {
-            (FollowOutcome outcome, string verdict, List<string> edges) = FollowPath(world, followFrom, goal.Value, followTickWindow, main.Path.Partial ? main.Path.Goal : null);
+            (FollowOutcome outcome, string verdict, List<string> edges) = FollowPath(world, followFrom, goal.Value, followTickWindow, main.Path.Partial ? main.Path.Goal : null, HeaderPose(header));
             if (outcome == FollowOutcome.Walked) followPassed++; else if (outcome == FollowOutcome.PartialEnd) followPartial++; else followFailed++;
             Console.WriteLine($"     follow:        {outcome switch { FollowOutcome.Walked => "PASS", FollowOutcome.PartialEnd => "PARTIAL", _ => "FAIL" }}, {verdict}");
             foreach (string line in edges)
@@ -324,11 +325,19 @@ return failed == 0 && skipped == 0 && missing == 0 && passed > 0 && churnWrong =
 // or on the tile its feet rest in) with no path left has walked what it was given, and is
 // its own outcome rather than a park: the stall is the search's budget (AIC-143), never the
 // follower's.
-static (FollowOutcome, string, List<string>) FollowPath(TextTileWorld world, Point from, Point goal, (int from, int to) window, Point? partialEnd)
+static (FollowOutcome, string, List<string>) FollowPath(TextTileWorld world, Point from, Point goal, (int from, int to) window, Point? partialEnd, BodyPhysics.Pose? recorded)
 {
     var edges = new List<string>();
-    if (NavGrid.StandAt(from.X, from.Y, false) is not BodyPhysics.Pose pose)
+    // The recorded pose wins over the proven one whenever the dump carries it. This is the whole
+    // reason a fall-through that hung in play replayed clean for three attempts: StandAt returns
+    // the first of nine sub-tile offsets that fits, so it hands the follower the pose the grid
+    // proved the move from, while the game's body was at whatever offset it drifted to. Starting
+    // from the tile rather than the box measured the planner and never the body.
+    BodyPhysics.Pose? standing = NavGrid.StandAt(from.X, from.Y, false);
+    if ((recorded ?? standing) is not BodyPhysics.Pose pose)
         return (FollowOutcome.Parked, $"no pose at {Fmt(from)} to start from", edges);
+    if (recorded is BodyPhysics.Pose r && standing is BodyPhysics.Pose sp && MathF.Abs(r.Left - sp.Left) > BodyPhysics.Touch)
+        edges.Add($"start pose: recorded left {r.Left:F1} bottom {r.Bottom:F1}, the grid would have proven from left {sp.Left:F1} — {r.Left - sp.Left:+0.0;-0.0} px apart");
     Point? to = NavGrid.NearestStandable(goal, 3);
     if (to == null)
         return (FollowOutcome.Parked, "no standable goal", edges);
@@ -500,6 +509,24 @@ static void TraceWalk(Point start, int dir)
 
 static string Describe(Search s)
     => $"{(s.Path == null ? "no path" : $"{s.Path.Steps.Count} steps{(s.Path.Partial ? $", partial, ends {Fmt(s.Path.Goal)}" : "")}")}, {s.Used} expansions, {s.Closed.Count} tiles reached";
+
+// "npcbox 55795.0,5808.0,20,42" out of a dump header: the companion's own rectangle at the tick
+// the window was written, as the pose the follower starts from. Null for any dump older than the
+// column, which keeps every committed scenario replayable and makes those blocks measure the
+// planner alone, the way they always did.
+static BodyPhysics.Pose? HeaderPose(string header)
+{
+    const string Key = "npcbox ";
+    int at = header.IndexOf(Key, StringComparison.Ordinal);
+    if (at < 0)
+        return null;
+    string[] parts = header[(at + Key.Length)..].Split(' ', 2)[0].Split(',');
+    return parts.Length >= 2
+        && float.TryParse(parts[0], NumberStyles.Float, CultureInfo.InvariantCulture, out float left)
+        && float.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out float bottom)
+            ? new BodyPhysics.Pose(left, bottom)
+            : null;
+}
 
 // "goal 3526,480" out of a dump header; null when the header does not carry that key.
 static Point? HeaderPoint(string header, string key)

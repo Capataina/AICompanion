@@ -41,6 +41,11 @@ public sealed class TextTileWorld : ITileWorld
                     Markers[c] = new Point(originX + x, originY + y);
                     c = '.';
                 }
+                // The rest of the companion's own rectangle, drawn by the recorder so a body reads
+                // as the two-wide, three-tall thing it is. It is air like every other marker and it
+                // records no position, because the feet tile is the N and the header carries the box.
+                else if (c == 'n')
+                    c = '.';
                 tiles[x, y] = c;
             }
         }
