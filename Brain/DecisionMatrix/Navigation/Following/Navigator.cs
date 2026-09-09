@@ -268,6 +268,21 @@ public sealed class Navigator
             floor.Reset();
             BehaviourCensus.Planned(Path);
         }
+        // A partial path that ends on the tile the search started from is not a route. Every step
+        // it carries is already covered by the body, so the follower reads them all as done on
+        // the first tick and the path is finished without anything having moved — and read as a
+        // found path that is strictly worse than no path at all, because it disarms the mechanisms
+        // that answer "there is no way there". The brain clears its stranded count on any plan
+        // that is not empty, so the roam that walks a sealed pocket never starts; the cadence sees
+        // a finished path and replans every tick instead of honouring the failed-plan wait; and
+        // the census records a plan that was found. That is the state the record caught at tick
+        // 20,679 of the 2026-09-09 underground session: survive running, an Exact request, path 1
+        // step of 1, velocity zero, breath zero, for a hundred and twenty ticks. It is discarded
+        // rather than walked, which hands the body to the straight-line fallback exactly as no
+        // path does, and the plan is reported as the failure it is.
+        Point end = Path is { Steps.Count: > 0 } p ? p.Steps[^1].Tile : from.Value;
+        if (Path != null && Path.Partial && end == from.Value)
+            Path = null;
         // A partial path is followed, and still counted as a failure: the goal was not reached
         // by the plan, and the record needs to say so even while the body walks toward it.
         LastPlanFailed = Path == null || Path.Partial;

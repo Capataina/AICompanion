@@ -33,6 +33,14 @@ A plan is worth nothing if it is replaced before a step of it completes. Measure
 
 `OnGround` was deliberately not redefined. Vanilla gates every jump on `velocity.Y == 0f` — the fighter's ladder, the town NPC's step block, all of it — so that test is the game's own reused path, and replacing it with an invention to paper over a symptom caused elsewhere is the wrong direction. The pin gets its own reading instead.
 
+## A partial path that ends where it started is worse than no path, so it is discarded as one
+
+A partial path is followed on purpose: walking to the nearest point a search reached beats standing where the goal went out of view. The degenerate member of that set is the exception, and it is worse than the failure it looks like. When the nearest node the search reached *is* the tile it was asked from, every step the path carries is already covered by the body, the follower reads them all as done on its first tick, and the path is finished with nothing moved.
+
+The damage is not the wasted tick, it is that a path object exists. `LastPlanEmpty` is what the brain reads to count stranded ticks, and it clears that count on any plan that is not empty, so the roam that walks a sealed pocket can never start while these keep arriving. The cadence sees a finished path and replans every tick rather than honouring the failed-plan wait. And the census records a plan that was found. So the plan is discarded to null, which hands the body to the straight-line fallback exactly as no path does and arms every one of those mechanisms.
+
+The general property, which is not about paths: **a result that is technically non-empty and semantically empty disables every guard written against emptiness**, and the guards are the ones that would have caught the situation. The emptiness test belongs on what the result achieved, never on whether an object came back.
+
 ## A plan has a wall-clock budget, and it is off by default
 
 `Navigator.PlanMsBudget` is zero unless something sets it, and the mod sets it at world load. The replay tool runs this same navigator and must give one answer per scenario however busy the machine is, so a wall-clock limit in the core would make the committed corpus non-reproducible. An expansion budget cannot bound the cost on its own: every slow plan of the 2026-09-09 session sat at exactly the expansion cap with the reachability flood costing 1 to 15 ms beside it, so the time goes into the search's own edge proving, where one expansion on bare floor offers a few walks and one on a ledge over a shaft simulates every jump profile and descent line.
