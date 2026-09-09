@@ -391,6 +391,8 @@ static (FollowOutcome, string, List<string>) FollowPath(TextTileWorld world, Poi
         if (tick >= window.from && tick <= window.to)
             Console.WriteLine($"          {stateLine}  step {(navigator.Path is NavPath cur && !cur.Finished ? $"{cur.Current.Kind} {Fmt(cur.Current.From)} -> {Fmt(cur.Current.Tile)}" : "none")}");
         recent.Enqueue(stateLine);
+        if (tick >= window.from && tick <= window.to)
+            Console.WriteLine($"          attempts: {navigator.EdgeCount} outcomes, {navigator.FaultCount} faults, {navigator.StuckStrikes} strikes, last {navigator.LastFault}, planned {navigator.PlannedThisTick}, plan_ms {navigator.LastPlanMs:F2}");
         if (recent.Count > 24)
             recent.Dequeue();
         body = BodyMotion.Step(world, body, controls);

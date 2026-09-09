@@ -61,6 +61,23 @@ internal static class VerifyMovementContracts
             "an active movement attempt must record its interruption");
         navigator.Clear();
         Require(navigator.EdgeCount == beforeInterrupt + 1, "clearing an interrupted attempt must not report it twice");
+        navigator = new Navigator();
+        AStar.Avoid.Clear();
+        for (int tick = 0; tick < 150; tick++) navigator.MoveTo(live, target);
+        Require(navigator.FaultCount > 0, "replanning cannot hide a stationary body's failed movement request");
+        Require(navigator.EdgeCount >= navigator.FaultCount, "retrying a failed edge starts a separately recorded attempt");
+        Require(AStar.Avoid.Count == 0, "navigator-local failure prices must not leak into the caller's obstacle list");
+
+        var immobile = new CountingStillWorld();
+        var rejectedExecution = new TraversalExecution(new WalkTraversal(), step, null);
+        local = new PlanLocalMovement();
+        Require(!local.TryExecute(immobile, rejectedExecution, live, null, out _, out _), "an immobile macro must fail its proof");
+        int simulations = immobile.Simulations;
+        local.TryExecute(immobile, rejectedExecution, live, null, out _, out _);
+        Require(immobile.Simulations == simulations, "an identical failed physical proof must not rerun every frame");
+        immobile.Revision++;
+        local.TryExecute(immobile, rejectedExecution, live, null, out _, out _);
+        Require(immobile.Simulations > simulations, "terrain change invalidates a failed proof");
 
         Console.WriteLine("movement contracts: unsafe controls, retained threats, capability chains, liquid exit, macro isolation, walk stalls, search limits and interruption outcomes passed");
         return 0;
@@ -71,13 +88,24 @@ internal static class VerifyMovementContracts
         if (!value) throw new InvalidOperationException(message);
     }
 
-    private sealed class FloorWorld : ITileWorld
+    private class FloorWorld : ITileWorld
     {
         public bool InWorld(int x, int y) => x >= 0 && x < 100 && y >= 0 && y < 100;
         public TileShape Shape(int x, int y) => y >= 10 ? TileShape.Solid : TileShape.Air;
         public bool PassThrough(int x, int y) => false;
         public bool Water(int x, int y) => false;
         public bool Lava(int x, int y) => false;
+    }
+
+    private sealed class CountingStillWorld : FloorWorld, ITileWorld, IBodySimulationWorld
+    {
+        public int Simulations { get; private set; }
+        public int Revision { get; set; }
+        public BodyState Simulate(BodyState state, Controls controls, MovementCapabilities capabilities)
+        {
+            Simulations++;
+            return state;
+        }
     }
 
     private sealed class CountingTraversal : Traversal

@@ -225,6 +225,15 @@ public sealed class Navigator
         // is capable of moving.
         if (stuck && (live.OnGround || live.CannotAct))
         {
+            // Progress belongs to the body, so replacing a route cannot renew its allowance.
+            // Otherwise a stationary entry is repeatedly interrupted before its timer expires.
+            if (onStep is NavStep stalled && !edgeReported)
+            {
+                LastFault = TraversalFault.Stuck;
+                FaultCount++;
+                Report(stalled, ticksOnStep, TraversalFault.Stuck);
+                stepFaulted = true;
+            }
             if (!noPath && !Path!.Finished)
                 Strike(Path.Current.Tile);
             else
@@ -317,9 +326,13 @@ public sealed class Navigator
         forceReplan = false;
         PlannedThisTick = true;
         // The step in hand keeps its clock across a plan that returns it again, so a step the
-        // body cannot take runs out its allowance once and faults; a faulted step gets one more
-        // attempt from the fresh plan, and if that is the same step it faults again at once,
-        // which is the second strike the brain answers with a different spot.
+        // body cannot take runs out its allowance once and faults. A faulted step is terminal;
+        // selecting the same edge again begins a new attempt with its own outcome.
+        if (stepFaulted)
+        {
+            onStep = null;
+            execution = null;
+        }
         stepFaulted = false;
         Point? from = NavGrid.NearestStandable(start, 2);
         if (from == null)
@@ -335,11 +348,22 @@ public sealed class Navigator
         // The brain refills the search's avoid list with the enemies every tick before this runs;
         // the stuck steps join it here, for this plan, and leave when their time is up.
         stuckAvoid.RemoveAll(entry => entry.until < clock);
+        int externalAvoidCount = AStar.Avoid.Count;
         foreach ((Rectangle box, _) in stuckAvoid)
             AStar.Avoid.Add(box);
         var watch = System.Diagnostics.Stopwatch.StartNew();
         AStar.MsBudget = PlanMsBudget;
-        Path = AStar.Find(from.Value, goal, PlanBudget, out int used);
+        int used;
+        try
+        {
+            Path = AStar.Find(from.Value, goal, PlanBudget, out used);
+        }
+        finally
+        {
+            // These prices belong to this navigator's query. Leaving them in the caller's list
+            // grows it on every retry and prevents expired failures from ever leaving it.
+            AStar.Avoid.RemoveRange(externalAvoidCount, AStar.Avoid.Count - externalAvoidCount);
+        }
         LastPlanMs = watch.Elapsed.TotalMilliseconds;
         LastExpansions = used;
         if (Path != null)

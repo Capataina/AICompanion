@@ -20,11 +20,14 @@ public sealed class PlanLocalMovement
     private TraversalExecution? macroOwner;
     private ITileWorld? macroWorld;
     private int macroRevision;
+    private BodyState? rejectedState;
+    private TraversalFault rejectedFault;
 
     private static bool Matches(BodyState expected, BodyState actual) =>
         Vector2.DistanceSquared(expected.Feet, actual.Feet) < .01f
         && MathF.Abs(expected.Vx - actual.Vx) < .01f && MathF.Abs(expected.Vy - actual.Vy) < .01f
         && expected.OnGround == actual.OnGround && expected.Wet == actual.Wet
+        && expected.CollideX == actual.CollideX && expected.Stuck == actual.Stuck && expected.Pinned == actual.Pinned
         && expected.LiquidKind == actual.LiquidKind && expected.StairFall == actual.StairFall
         && expected.Mobility == actual.Mobility && expected.Capabilities == actual.Capabilities;
 
@@ -77,6 +80,13 @@ public sealed class PlanLocalMovement
     public bool TryExecute(ITileWorld world, TraversalExecution execution, BodyState live, Func<BodyState, int, bool>? unsafeAtTick, out Controls controls, out TraversalFault fault)
     {
         fault = TraversalFault.None;
+        if (macroOwner == execution && macroWorld == world && macroRevision == world.Revision
+            && rejectedState is BodyState rejected && Matches(rejected, live))
+        {
+            controls = Controls.None;
+            fault = rejectedFault;
+            return false;
+        }
         if (macroOwner != execution || macroWorld != world || macroRevision != world.Revision
             || macro.Count == 0 || !Matches(macro.Peek().before, live))
         {
@@ -84,33 +94,41 @@ public sealed class PlanLocalMovement
             macroOwner = execution;
             macroWorld = world;
             macroRevision = world.Revision;
-        TraversalExecution probe = execution.Copy();
-        BodyState predicted = live;
-        // Validate the complete remaining macro from the body the engine actually left, not one
-        // hopeful tick. The bound is deliberately the edge's own proof plus preparation slack;
-        // a running jump may need its runway before its flight begins.
-        int limit = Math.Max(90, execution.Step.Ticks * 2 + 120);
-        for (int tick = 1; tick <= limit; tick++)
-        {
-            if (probe.IsDone(predicted))
-                break;
-            BodyState before = predicted;
-            predicted = probe.Simulate(world, predicted, out Controls planned, out fault);
-            macro.Enqueue((planned, before, predicted));
-            if (fault != TraversalFault.None || (unsafeAtTick?.Invoke(predicted, tick) ?? false))
+            rejectedState = null;
+            TraversalExecution probe = execution.Copy();
+            BodyState predicted = live;
+            // Validate the complete remaining macro from the body the engine actually left, not one
+            // hopeful tick. The bound is deliberately the edge's own proof plus preparation slack;
+            // a running jump may need its runway before its flight begins.
+            int limit = Math.Max(90, execution.Step.Ticks * 2 + 120);
+            for (int tick = 1; tick <= limit; tick++)
             {
-                controls = Controls.None;
-                macro.Clear();
-                return false;
+                if (probe.IsDone(predicted))
+                    break;
+                BodyState before = predicted;
+                predicted = probe.Simulate(world, predicted, out Controls planned, out fault);
+                macro.Enqueue((planned, before, predicted));
+                if (fault != TraversalFault.None || (unsafeAtTick?.Invoke(predicted, tick) ?? false))
+                {
+                    if (fault != TraversalFault.None)
+                    {
+                        rejectedState = live;
+                        rejectedFault = fault;
+                    }
+                    controls = Controls.None;
+                    macro.Clear();
+                    return false;
+                }
+                if (tick == limit)
+                {
+                    controls = Controls.None;
+                    fault = TraversalFault.Timeout;
+                    rejectedState = live;
+                    rejectedFault = fault;
+                    macro.Clear();
+                    return false;
+                }
             }
-            if (tick == limit)
-            {
-                controls = Controls.None;
-                fault = TraversalFault.Timeout;
-                macro.Clear();
-                return false;
-            }
-        }
         }
         // Threats move independently of terrain. Recheck the remaining commitment against the
         // current observations even while its physical control sequence remains reusable.
