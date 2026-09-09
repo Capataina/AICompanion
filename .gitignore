@@ -16,3 +16,7 @@ Telemetry/
 
 # Agent worktrees
 .claude/worktrees/
+
+# Session run logs dropped here by the agent harness, not by the mod; tens of
+# megabytes each, so an accidental `git add -A` would push one to a public repo
+runs/
