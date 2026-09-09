@@ -20,3 +20,8 @@ Telemetry/
 # Session run logs dropped here by the agent harness, not by the mod; tens of
 # megabytes each, so an accidental `git add -A` would push one to a public repo
 runs/
+
+# Decompiled game source written by Tools/decompile.sh; regenerated on demand from the
+# installed tModLoader.dll, so committing a copy would drift from whatever version is
+# actually installed
+Tools/Decompiled/
