@@ -363,8 +363,6 @@ public sealed class Positioner
         Rectangle body = new((int)feet.X - 10, (int)feet.Y - 42, 20, 42);
         foreach (ThreatRecord t in senses.Threats.Threats)
         {
-            if (!t.Reachable)
-                continue;
             float d = Vector2.Distance(t.Npc.Center, feet);
             float proximity = Consideration.Inverse(d, 160f) * 0.6f;
             for (int tick = 0; tick <= 40; tick += 10)
@@ -427,7 +425,7 @@ public sealed class Positioner
 
     /// <summary>
     /// Near 1 when the straight line from where the companion stands to this spot passes no
-    /// reachable enemy closely, low when it runs through one, because a firing spot on the
+    /// enemy closely, low when it runs through one, because a firing spot on the
     /// far side of a zombie is reached by walking into the zombie.
     /// </summary>
     private static float ClearWayTo(Vector2 feet, Senses.Senses senses)
@@ -440,8 +438,6 @@ public sealed class Positioner
             return 1f;
         foreach (ThreatRecord t in senses.Threats.Threats)
         {
-            if (!t.Reachable)
-                continue;
             float along = MathHelper.Clamp(Vector2.Dot(t.Npc.Center - from, way) / (length * length), 0f, 1f);
             Vector2 closest = from + way * along;
             if (Vector2.Distance(closest, t.Npc.Center) < Clearance)

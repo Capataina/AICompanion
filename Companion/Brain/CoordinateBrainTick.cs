@@ -137,13 +137,11 @@ public sealed class Brain
             LastRequest.Kind is RequestKind.WithPlayer or RequestKind.Guard || action is Behaviours.Survival.SurviveAction);
         Vector2? spot = Positioner.Resolve(LastRequest, Senses, profile);
         PositionMs = Lap();
-        // Reachable enemies are priced like lava on the route, so a path to a spot beyond one
-        // goes round it rather than through it.
+        // Enemy bodies are hazards wherever the route passes them, even when neither actor
+        // is currently reachable from the enemy's pocket.
         var obstacles = new System.Collections.Generic.List<Rectangle>();
         foreach (var threat in Senses.Threats.Threats)
         {
-            if (!threat.Reachable)
-                continue;
             Rectangle box = threat.Npc.Hitbox;
             box.Inflate(24, 24);
             obstacles.Add(box);

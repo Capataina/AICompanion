@@ -10,6 +10,9 @@
     <Compile Include="../../Companion/Brain/SharedMovementSystem/**/*.cs" Exclude="../../Companion/Brain/SharedMovementSystem/TerrariaIntegration/ApplyControlsToCompanion.cs" />
     <Compile Include="../../Companion/Brain/ProjectileAiming/**/*.cs" />
     <Compile Include="../../Companion/Brain/WorldObservation/PredictObservedMotion.cs" />
+    <Compile Include="../../Companion/Brain/WorldObservation/ObserveThreats.cs" />
+    <Compile Include="../../Companion/Brain/WorldObservation/ThreatRecord.cs" />
+    <Compile Include="../../Companion/Brain/WorldObservation/LineOfSight.cs" />
     <Compile Include="../../Companion/Brain/WorldObservation/CalculateRegroupUrgency.cs" />
     <Compile Include="../../Companion/Brain/BehaviourDiagnostics/RecordGodsEyeEvents.cs" />
     <Compile Include="../../Companion/Brain/BehaviourDiagnostics/ObserveNativeCombatEvents.cs" />

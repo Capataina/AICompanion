@@ -27,6 +27,8 @@ Player tool hits are evidence, not animation guessed as intent. `ObservePlayerWo
 
 ## Traps
 
+Reachability is destination-specific: `CanReachPlayer` gates player urgency and the safety horizon, while `CanReachCompanion` gates personal urgency and retreat eligibility. The two results use the same bounded searches and staggered refresh, with a shared answer only when their destination tiles coincide. A cached negative becomes unknown/potential danger when the enemy, destination, movement class or terrain changes; that invalidation does not add unbudgeted searches. Neither endpoint's reachability determines whether an enemy occupies a proposed future position or route.
+
 Enemy predictions share one observed-motion history across aiming and reflexes. Consecutive observations supply acceleration; collision impulses and abrupt jumps are not repeated as acceleration. The forecast snapshots each NPC's current `gravity`, `maxFallSpeed`, liquid flags and movement-speed fields, then uses native tile and slope collision with the same wet slowdown before restoring the game's shared collision scratch state. Forecasts are cached per observed entity state and tick, and cleared on spawn, death and world closure. They predict current motion over a bounded horizon; they cannot know an arbitrary modded enemy's next scripted decision or reproduce a future NPC-specific step/slope policy. Hostile projectile velocity is converted from sub-update units to game-tick units before reflex projection.
 
 - Never calculate a world fact inside a behaviour: selection runs every behaviour every tick and duplicated readings drift.

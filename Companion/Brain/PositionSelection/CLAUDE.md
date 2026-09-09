@@ -15,6 +15,7 @@ One-way drops are refused by default. The exception is for following the player 
 
 ## Traps
 
+- Candidate danger and approach clearance test hostile geometry directly. An enemy unable to reach either actor's current position can still occupy the place the companion is considering entering.
 - Do not resolve a route here. Position selection states where the companion would be useful; `CoordinateMovement` decides how its body gets there.
 - The current chosen tile gets a small incumbent preference. Removing it turns equal candidates into repeated replans.
 - A weapon trajectory solve is expensive; apply it only after the cheap scoring pass.

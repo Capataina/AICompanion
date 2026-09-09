@@ -373,7 +373,7 @@ public sealed class BrainTelemetry : ModSystem
         WorldObservation.ThreatRecord? top = null;
         foreach (var t in senses.Threats.Threats)
         {
-            if (t.Reachable) reachable++;
+            if (t.CanReachPlayer) reachable++;
             if (top == null || t.Urgency > top.Urgency) top = t;
         }
         sb.Append('\t').Append(senses.Threats.PlayerDanger.ToString("0.00"));
@@ -382,7 +382,7 @@ public sealed class BrainTelemetry : ModSystem
         sb.Append('\t').Append(senses.Threats.CompanionDanger.ToString("0.00"));
         sb.Append('\t').Append(senses.Threats.Horizon == float.MaxValue ? "inf" : senses.Threats.Horizon.ToString("0"));
         sb.Append('\t').Append(senses.Threats.Threats.Count).Append('\t').Append(reachable);
-        sb.Append('\t').Append(top == null ? "-" : $"{top.Npc.TypeName}:{top.Class.ToString()[0]}:u{top.Urgency:0.00}:t{(top.TicksToPlayer > 9999 ? 9999 : (int)top.TicksToPlayer)}:{(top.Reachable ? "r" : "x")}{(top.Shoots ? ":s" : "")}");
+        sb.Append('\t').Append(top == null ? "-" : $"{top.Npc.TypeName}:{top.Class.ToString()[0]}:u{top.Urgency:0.00}:t{(top.TicksToPlayer > 9999 ? 9999 : (int)top.TicksToPlayer)}:{(top.CanReachPlayer ? "r" : "x")}{(top.Shoots ? ":s" : "")}");
         sb.Append('\t').Append(brain.LastRequest.Target is NPC target && target.active ? target.TypeName : "-");
         sb.Append('\t').Append(senses.Loot.Pickups.Count);
 
@@ -467,7 +467,7 @@ public sealed class BrainTelemetry : ModSystem
         // is right behaviour, so guessing which one it is risks fixing a thing that is not broken.
         float nearest = float.MaxValue;
         foreach (WorldObservation.ThreatRecord t in senses.Threats.Threats)
-            if (t.Reachable && t.Npc != null && t.Npc.active)
+            if (t.CanReachEither && t.Npc != null && t.Npc.active)
                 nearest = MathF.Min(nearest, t.DistanceToCompanion);
         sb.Append('\t').Append(nearest == float.MaxValue ? "-" : (nearest / 16f).ToString("0.0", CultureInfo.InvariantCulture));
         sb.Append('\t').Append((MathF.Max(companion.Arsenal.Primary.Reach, companion.Arsenal.Secondary.Reach) / 16f).ToString("0.0", CultureInfo.InvariantCulture));

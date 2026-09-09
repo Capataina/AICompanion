@@ -4,6 +4,8 @@ This console tool loads the installed tModLoader assembly without opening a game
 
 The occurrence fixture also instantiates the real player observer through ModPlayer.NewInstance and invokes OnHurt with surviving and fatal damage. It asserts the callback's pre-subtraction life and explicitly expected successor health. Player is a read-only view of the attached entity; assigning that property through reflection is not the native attachment lifecycle.
 
+The personal-danger fixture runs the real threat observer against sealed native-tile chambers. It checks both player/companion arrangements for a walker, a tile-colliding flyer, a wall-crossing phaser, and entry into an enemy's chamber before a cached reachability refresh. These isolate destination coupling; they do not measure live combat judgement or a modded hostile's own pathfinding skill.
+
 ```
 EngineReplay/
 ├─ CLAUDE.md                 setup, scope and evidence limits
@@ -12,6 +14,7 @@ EngineReplay/
 ├─ VerifyEngineMotion.cs     terrain/liquid matrix, scratch-state assertions and native route checks
 ├─ VerifyObservedMotion.cs   native-terrain hostile forecast and pure regroup-urgency contracts
 ├─ VerifyProjectileMotion.cs native projectile-AI and swept-shot contracts
+├─ VerifyPersonalDanger.cs   separated chambers verify actor-specific hostile reachability
 ├─ GodsEyeTestStubs.cs       unrelated mod and TSV seams; the real player hurt observer remains compiled
 └─ VerifyGodsEyeEvents.cs    real sparse-event writer, native-hook, generation and terrain-capture contracts
 ```

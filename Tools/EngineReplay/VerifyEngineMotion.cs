@@ -82,6 +82,7 @@ internal static class VerifyEngineMotion
         failed += VerifyGodsEyeEvents.Run();
         failed += VerifyRoutes();
         failed += VerifyProjectileMotion.Run();
+        failed += VerifyPersonalDanger.Run();
         return failed == 0 ? 0 : 1;
     }
 

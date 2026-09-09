@@ -53,12 +53,12 @@ public sealed class BrainOverlay : ModSystem
 
         var sb = new StringBuilder();
         sb.AppendLine($"action  {brain.LastAction?.Name ?? "-"}   reflex {brain.Reflexes.Active ?? "-"}");
-        sb.AppendLine($"danger  {senses.Threats.PlayerDanger:0.00}   horizon {(senses.Threats.Horizon == float.MaxValue ? "inf" : senses.Threats.Horizon.ToString("0"))}   intent {senses.Player.Intent.X:0.0}");
+        sb.AppendLine($"danger player {senses.Threats.PlayerDanger:0.00} self {senses.Threats.CompanionDanger:0.00}   horizon {(senses.Threats.Horizon == float.MaxValue ? "inf" : senses.Threats.Horizon.ToString("0"))}   intent {senses.Player.Intent.X:0.0}");
         foreach (var s in brain.Chooser.LastScores)
             sb.AppendLine($"  {s.Action.Name,-10} {s.Raw:0.00} -> {s.Final:0.00}");
         int reachable = 0;
-        foreach (var t in senses.Threats.Threats) if (t.Reachable) reachable++;
-        sb.AppendLine($"threats {senses.Threats.Threats.Count} ({reachable} reachable)   loot {senses.Loot.Pickups.Count}");
+        foreach (var t in senses.Threats.Threats) if (t.CanReachEither) reachable++;
+        sb.AppendLine($"threats {senses.Threats.Threats.Count} ({reachable} reach either)   loot {senses.Loot.Pickups.Count}");
         sb.AppendLine($"request {brain.LastRequest.Kind}   spot {(brain.Positioner.Chosen is Vector2 c ? $"{(int)(c.X / 16)},{(int)(c.Y / 16)}" : "-")} ({brain.Positioner.ChosenScore:0.00})");
         sb.AppendLine($"route {(brain.Navigator.Path == null ? "none" : $"{brain.Navigator.Path.Steps.Count} steps, at {brain.Navigator.Path.Index}")}   execution {brain.Navigator.Status}   search {brain.Navigator.LastSearchStop}");
         sb.AppendLine($"regroup {brain.Chooser.RegroupUrgency:0.00}   estimated return {brain.Chooser.EstimatedReturnTicks / 60f:0.0}s   preparation {brain.Navigator.PreparationResult}");
@@ -91,8 +91,8 @@ public sealed class BrainOverlay : ModSystem
         foreach (var t in senses.Threats.Threats)
         {
             Vector2 p = ToScreen(t.Npc.Top + new Vector2(0f, -12f));
-            string label = $"{(t.Reachable ? "" : "x ")}{t.Class.ToString()[0]} u{t.Urgency:0.0} t{(t.TicksToPlayer > 999 ? 999 : (int)t.TicksToPlayer)}{(t.Shoots ? " s" : "")}";
-            Utils.DrawBorderString(spriteBatch, label, p - new Vector2(20f, 0f), t.Reachable ? Color.OrangeRed : Color.Gray, 0.6f);
+            string label = $"p{(t.CanReachPlayer ? "+" : "-")} c{(t.CanReachCompanion ? "+" : "-")} {t.Class.ToString()[0]} u{t.Urgency:0.0}/{t.UrgencyToCompanion:0.0}{(t.Shoots ? " s" : "")}";
+            Utils.DrawBorderString(spriteBatch, label, p - new Vector2(20f, 0f), t.CanReachEither ? Color.OrangeRed : Color.Gray, 0.6f);
         }
     }
 

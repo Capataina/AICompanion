@@ -11,8 +11,8 @@ namespace AICompanion.Companion.Brain.WorldObservation;
 
 /// <summary>
 /// Every hostile that matters, and the two numbers the brain leans on: the player's
-/// danger and the safety horizon. A threat that cannot reach the player contributes
-/// nothing. Reachability and speed history are cached per NPC slot and refreshed on a
+/// danger and the safety horizon. Player and companion danger each use reachability
+/// to their own body. Reachability and speed history are cached per NPC slot and refreshed on a
 /// stagger so the expensive searches never all run in one tick.
 /// </summary>
 public sealed class ThreatSense
@@ -40,7 +40,12 @@ public sealed class ThreatSense
     {
         public int Type;
         public float PeakSpeed;
-        public bool Reachable = true;
+        public bool CanReachPlayer = true;
+        public bool CanReachCompanion = true;
+        public Point From, PlayerTarget, CompanionTarget;
+        public ITileWorld? World;
+        public int Revision;
+        public MovementClass Class;
         public int ReachableCheckedAt = -1000;
         public int LastShotSeenAt = -1000;
     }
@@ -95,7 +100,8 @@ public sealed class ThreatSense
         LearnShootersFromProjectiles();
 
         Point playerFeet = MovementQueries.FeetTile(player.Bottom);
-        float companionReturnTicks = Vector2.Distance(companion.Bottom, player.Bottom) / Companion.CompanionMotor.WalkSpeed;
+        Point companionFeet = MovementQueries.FeetTile(companion.Bottom);
+        float companionReturnTicks = Vector2.Distance(companion.Bottom, player.Bottom) / BodyPhysics.WalkSpeed;
 
         foreach (NPC npc in Main.ActiveNPCs)
         {
@@ -108,6 +114,7 @@ public sealed class ThreatSense
             {
                 mem.Type = npc.type;
                 mem.PeakSpeed = 1f;
+                mem.CanReachPlayer = mem.CanReachCompanion = true;
                 mem.ReachableCheckedAt = -1000;
             }
 
@@ -117,12 +124,30 @@ public sealed class ThreatSense
             float speed = cls == MovementClass.Walker ? MathF.Abs(npc.velocity.X) : npc.velocity.Length();
             mem.PeakSpeed = MathF.Max(mem.PeakSpeed * SpeedDecay, speed);
 
+            Point from = cls == MovementClass.Walker ? MovementQueries.FeetTile(npc.Bottom) : npc.Center.ToTileCoordinates();
+            Point playerTarget = cls == MovementClass.Walker ? playerFeet : player.Center.ToTileCoordinates();
+            Point companionTarget = cls == MovementClass.Walker ? companionFeet : companion.Center.ToTileCoordinates();
+            bool sourceChanged = mem.From != from || mem.World != MovementQueries.World
+                || mem.Revision != MovementQueries.World.Revision || mem.Class != cls;
+            // A negative result only describes the positions and terrain that were searched.
+            // Treat changed inputs as unknown (potential danger) until the budgeted refresh.
+            if (sourceChanged || mem.PlayerTarget != playerTarget) mem.CanReachPlayer = true;
+            if (sourceChanged || mem.CompanionTarget != companionTarget) mem.CanReachCompanion = true;
+            mem.From = from;
+            mem.PlayerTarget = playerTarget;
+            mem.CompanionTarget = companionTarget;
+            mem.World = MovementQueries.World;
+            mem.Revision = MovementQueries.World.Revision;
+            mem.Class = cls;
             if (cls != MovementClass.Phaser && tick - mem.ReachableCheckedAt >= ReachabilityRefreshTicks && (tick + npc.whoAmI) % 4 == 0)
             {
-                Point from = MovementQueries.FeetTile(npc.Bottom);
-                mem.Reachable = cls == MovementClass.Walker
-                    ? MovementQueries.WalkerCanReach(from, playerFeet)
-                    : MovementQueries.FlyerCanReach(new Point((int)(npc.Center.X / 16f), (int)(npc.Center.Y / 16f)), new Point((int)(player.Center.X / 16f), (int)(player.Center.Y / 16f)));
+                mem.CanReachPlayer = cls == MovementClass.Walker
+                    ? MovementQueries.WalkerCanReach(from, playerTarget)
+                    : MovementQueries.FlyerCanReach(from, playerTarget);
+                mem.CanReachCompanion = playerTarget == companionTarget ? mem.CanReachPlayer
+                    : cls == MovementClass.Walker
+                        ? MovementQueries.WalkerCanReach(from, companionTarget)
+                        : MovementQueries.FlyerCanReach(from, companionTarget);
                 mem.ReachableCheckedAt = tick;
             }
 
@@ -130,7 +155,8 @@ public sealed class ThreatSense
             {
                 Npc = npc,
                 Class = cls,
-                Reachable = cls == MovementClass.Phaser || mem.Reachable,
+                CanReachPlayer = cls == MovementClass.Phaser || mem.CanReachPlayer,
+                CanReachCompanion = cls == MovementClass.Phaser || mem.CanReachCompanion,
                 Shoots = KnownShooters.Contains(npc.type) || tick - mem.LastShotSeenAt < 240,
                 IsBoss = npc.boss,
                 ObservedSpeed = MathF.Max(mem.PeakSpeed, 0.5f),
@@ -139,19 +165,19 @@ public sealed class ThreatSense
             };
             rec.HasSightOnPlayer = LineOfSight.Between(npc, player);
             rec.TicksToPlayer = rec.DistanceToPlayer / rec.ObservedSpeed;
-            rec.Urgency = rec.Reachable ? Urgency(rec, player) : 0f;
+            rec.Urgency = rec.CanReachPlayer ? Urgency(rec, player) : 0f;
             // The same reckoning about the companion. Sight is only raycast for threats close
             // enough for the answer to change anything, because this runs per threat per tick and
             // a line-of-sight test is the dearest thing in this loop.
             rec.TicksToCompanion = rec.DistanceToCompanion / rec.ObservedSpeed;
-            rec.UrgencyToCompanion = rec.Reachable ? UrgencyToCompanion(rec, player, npc, companion) : 0f;
+            rec.UrgencyToCompanion = rec.CanReachCompanion ? UrgencyToCompanion(rec, npc, companion) : 0f;
             Threats.Add(rec);
 
             if (rec.Urgency > (MostUrgent?.Urgency ?? 0f))
                 MostUrgent = rec;
             playerMiss *= 1f - MathHelper.Clamp(rec.Urgency, 0f, 1f);
             companionMiss *= 1f - MathHelper.Clamp(rec.UrgencyToCompanion, 0f, 1f);
-            if (rec.Reachable)
+            if (rec.CanReachPlayer)
             {
                 float arrives = rec.Shoots && rec.HasSightOnPlayer ? 0f : rec.TicksToPlayer;
                 Horizon = MathF.Min(Horizon, MathF.Max(0f, arrives - companionReturnTicks));
@@ -167,7 +193,7 @@ public sealed class ThreatSense
     /// as <see cref="Urgency"/> uses about the player: how hard it hits relative to a life bar,
     /// how soon it arrives, and whether it can see what it is coming for.
     /// </summary>
-    private static float UrgencyToCompanion(ThreatRecord t, Player player, NPC npc, NPC companion)
+    private static float UrgencyToCompanion(ThreatRecord t, NPC npc, NPC companion)
     {
         float damageShare = MathHelper.Clamp(t.Npc.damage / MathF.Max(1f, companion.lifeMax * 0.25f), 0.2f, 1f);
         float weight = t.IsBoss ? 1f : damageShare;

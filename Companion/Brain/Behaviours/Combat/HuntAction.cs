@@ -75,9 +75,9 @@ public sealed class HuntAction : CompanionAction
         float bestScore = 0f;
         foreach (ThreatRecord t in ctx.Senses.Threats.Threats)
         {
-            if (!t.Reachable && !t.Npc.Hitbox.Intersects(screen))
+            if (!t.CanReachEither && !t.Npc.Hitbox.Intersects(screen))
                 continue;
-            if (!t.Reachable && t.Npc.Hitbox.Intersects(screen) && t.Class != MovementClass.Phaser && !ctx.Companion.Arsenal.CanEngage(ctx, t.Npc))
+            if (!t.CanReachEither && t.Npc.Hitbox.Intersects(screen) && t.Class != MovementClass.Phaser && !ctx.Companion.Arsenal.CanEngage(ctx, t.Npc))
                 continue; // sealed off and no shot: not worth a thought
             float score = 0.4f * t.Urgency + 0.6f * Consideration.Inverse(t.DistanceToCompanion, Weights.HuntReach);
             if (t.IsBoss) score += 0.3f;

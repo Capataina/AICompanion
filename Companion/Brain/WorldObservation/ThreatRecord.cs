@@ -12,7 +12,9 @@ public sealed class ThreatRecord
 {
     public NPC Npc = null!;
     public MovementClass Class;
-    public bool Reachable = true;
+    public bool CanReachPlayer = true;
+    public bool CanReachCompanion = true;
+    public bool CanReachEither => CanReachPlayer || CanReachCompanion;
     public bool Shoots;
     public bool IsBoss;
 

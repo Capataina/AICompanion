@@ -19,7 +19,7 @@ public sealed class KiteAction : CompanionAction
     {
         float closest = float.MaxValue;
         foreach (ThreatRecord t in ctx.Senses.Threats.Threats)
-            if (t.Reachable && t.DistanceToCompanion < closest)
+            if (t.CanReachCompanion && t.DistanceToCompanion < closest)
                 closest = t.DistanceToCompanion;
         return Consideration.Inverse(closest, Weights.KiteTrigger * 1.5f);
     }
