@@ -21,7 +21,14 @@ public sealed class GuardAction : CompanionAction
             return 0f;
         float danger = t.PlayerDanger;
         float away = Consideration.AtLeast(Consideration.Rising(ctx.Senses.DistanceToPlayer, 400f), 0.4f);
-        return danger * away;
+        // Scaled past the ordinary 0..1 band because guarding has to be able to interrupt, and an
+        // action that tops out at 1 cannot interrupt anything: the running action carries
+        // Weights.Commitment, so a following body already at 1 sits at 1.15 and no danger reading
+        // could ever displace it. That is not a tuning miss, it is arithmetic, and it is what left
+        // the companion holding a torch with the player's danger reading full and slimes on him
+        // through the 2026-09-09 underground session. Weights.GuardUrgency owns the ladder and
+        // why survive sits above this in turn.
+        return danger * away * Weights.GuardUrgency;
     }
 
     public override PositionRequest Execute(in ActionContext ctx)

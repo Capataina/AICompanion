@@ -97,12 +97,23 @@ public sealed class Brain
         companion.Chopper.Tick();
         SensesMs = Lap();
 
+        var ctx = new ActionContext(companion, Senses, Roaming);
+
         bool taken = Reflexes.TryTake(companion.NPC, companion.Motor, Senses);
         ReflexMs = Lap();
         if (taken)
+        {
+            // A reflex takes the *feet*, and this used to return before the hands ran, which
+            // quietly contradicted the contract Engage is written under: the weapon fires every
+            // tick whatever the feet were told. A dodge is exactly when there is most worth
+            // shooting at, and the dodge itself is a jump or a step — it wants the legs, never the
+            // arm — so the hands have no reason to stop. The 2026-09-09 combat session spent 153
+            // ticks inside reflexes with the fire column frozen on whatever it last read, which is
+            // both a lost shot and a lying column.
+            Engage(companion, ctx, null);
             return;
+        }
 
-        var ctx = new ActionContext(companion, Senses, Roaming);
         CompanionAction action = Chooser.Choose(ctx);
         LastRequest = action.Execute(ctx);
         DecideMs = Lap();
@@ -154,12 +165,13 @@ public sealed class Brain
     /// which is what a player looks like. The hands stay out of it while they are driving a tool,
     /// because a swing and a throw cannot share the same arm.
     /// </summary>
-    private void Engage(CompanionNPC companion, in ActionContext ctx, CompanionAction action)
+    private void Engage(CompanionNPC companion, in ActionContext ctx, CompanionAction? action)
     {
         // An axe or a pickaxe occupies the arm the throw needs, so working is the one thing that
         // stops the hands. Everything else — following, guarding, kiting, looting, wandering,
-        // saving itself from drowning — shoots.
-        if (action.Name is "chop" or "mine")
+        // saving itself from drowning — shoots. A null action is a reflex tick: nothing was
+        // chosen, so nothing can be holding a tool, and the hands are free by construction.
+        if (action?.Name is "chop" or "mine")
         {
             EngageTarget = null;
             companion.Arsenal.NoteHandsBusy();

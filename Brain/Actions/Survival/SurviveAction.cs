@@ -39,9 +39,12 @@ public sealed class SurviveAction : CompanionAction
             refuge = null;
             return 0f;
         }
-        // Pulls from a modest score as danger appears to the top of the scale near the end,
-        // above guard's ceiling, so a drowning companion leaves even a fight.
-        return Consideration.Rising(danger, 1f) * 1.2f;
+        // Pulls from a modest score as danger appears to the top of the scale near the end, above
+        // a *committed* guard rather than merely above guard's raw ceiling, which is the whole
+        // point of the ladder in Weights: guarding is now scaled to interrupt an ordinary action,
+        // so surviving has to be scaled to interrupt guarding or a drowning companion would stand
+        // and shoot. The two constants move together.
+        return Consideration.Rising(danger, 1f) * Weights.SurviveUrgency;
     }
 
     public override PositionRequest Execute(in ActionContext ctx)

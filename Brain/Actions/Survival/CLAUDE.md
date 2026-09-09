@@ -8,7 +8,7 @@ Survival/
 └─ SurviveAction.cs   scores on the self sense's danger alone; asks for Exact at the nearest reachable refuge (standable, head row dry, no lava in the column); hand empty
 ```
 
-`Score` is the self sense's `SelfDanger` scaled past one: nothing while the body is fine, a pull once breath is half gone or fire has caught, and above guard's ceiling near the end. It never keeps the companion out of water; crossing a pool is priced in `../../DecisionMatrix/Navigation/`, and this is the backstop when a crossing turns out longer than the breath or a lava price was paid and the fire is still burning. `Execute` finds a refuge by widening rings around the feet, checks the walker can reach it through `Reachability`, keeps it while it stays a refuge, and drops it the tick it stops being one. Forecast is zero: it never counts as time away from the player.
+`Score` is the self sense's `SelfDanger` scaled by `Weights.SurviveUrgency`, the top rung of the urgency ladder: nothing while the body is fine, a pull once breath is half gone or fire has caught, and past a *committed* guard near the end. It never keeps the companion out of water; crossing a pool is priced in `../../DecisionMatrix/Navigation/`, and this is the backstop when a crossing turns out longer than the breath or a lava price was paid and the fire is still burning. `Execute` finds a refuge by widening rings around the feet, checks the walker can reach it through `Reachability`, keeps it while it stays a refuge, and drops it the tick it stops being one. Forecast is zero: it never counts as time away from the player.
 
 ## Two rescues, and the second one is a floor rather than an alternative
 
@@ -20,6 +20,6 @@ The shape of that mistake generalises past this folder: a last resort placed in 
 
 ## Traps
 
-- **The score must be able to beat guard at full danger**, which is why it is the one score scaled above one; a survive that tops out at one ties guard and loses to guard's commitment bonus while the companion drowns.
+- **The score must be able to beat a *committed* guard, not guard's raw ceiling.** The incumbent action keeps the commitment bonus, so beating guard means clearing guard's own urgency times that bonus; a survive that merely tops the band ties a running guard and loses to its bonus while the companion drowns. `Weights.GuardUrgency` and `Weights.SurviveUrgency` are one ladder for that reason and are changed together.
 - **Reachability is walker reachability**, so a refuge across a jump the wet envelope cannot make is still offered and the navigator's replan finds another; the ring search returns the first refuge, not the best. Worse, `Reachability.WalkerCanReach` answers *reachable* when it cannot find a standable start or runs out of budget, which is the right conservatism for the threat sense that shares it and the wrong one here: it means an unknown reads as a promise, and this action then holds the refuge it was promised. Self-rescue wants a route it can prove, and that distinction is unbuilt.
 - **A held refuge is dropped only when it stops being a refuge**, never when the navigator fails to reach it, so a route that finishes short leaves the body committed to a place it cannot get to.
