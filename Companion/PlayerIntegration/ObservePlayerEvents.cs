@@ -1,14 +1,7 @@
 #nullable enable
 
-using Microsoft.Xna.Framework;
-using Microsoft.Xna.Framework.Input;
 using Terraria;
-using Terraria.GameInput;
-using Terraria.ModLoader;
-using Terraria.ModLoader.IO;
 using AICompanion.Companion.Brain.BehaviourDiagnostics;
-using AICompanion.Companion.CharacterBody;
-using AICompanion.Companion.Inventory;
 
 namespace AICompanion.Companion.PlayerIntegration;
 
@@ -22,7 +15,7 @@ public partial class CompanionPlayer
     public override void OnHurt(Player.HurtInfo info)
     {
         BrainTelemetry.RecordPlayerHurt(info);
-        GodsEyeEvents.RecordPlayerDamage(Player, info, System.Math.Max(0, Player.statLife + info.Damage), System.Math.Max(0, Player.statLife));
+        GodsEyeEvents.RecordPlayerDamage(Player, info);
     }
 
 }

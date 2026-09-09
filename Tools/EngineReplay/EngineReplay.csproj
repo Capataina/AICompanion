@@ -15,6 +15,7 @@
     <Compile Include="../../Companion/Brain/BehaviourDiagnostics/ObserveNativeCombatEvents.cs" />
     <Compile Include="../../Companion/Brain/BehaviourDiagnostics/ObserveTerrainChanges.cs" />
     <Compile Include="../../Companion/Brain/BehaviourWeights.cs" />
+    <Compile Include="../../Companion/PlayerIntegration/ObservePlayerEvents.cs" />
     <Reference Include="tModLoader"><HintPath>$(TModLoaderRoot)/tModLoader.dll</HintPath></Reference>
     <Reference Include="FNA"><HintPath>$(TModLoaderRoot)/Libraries/FNA/1.0.0/FNA.dll</HintPath></Reference>
     <Reference Include="ReLogic"><HintPath>$(TModLoaderRoot)/Libraries/ReLogic/1.0.0/ReLogic.dll</HintPath></Reference>

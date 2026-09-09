@@ -74,8 +74,11 @@ public static class GodsEyeEvents
     public static void RecordEffectiveNpcDamage(NPC subject, NPC.HitInfo hit, int damageDone)
         => Write("npc-damage", Stable(npcGenerations, subject.whoAmI), "", subject.TypeName, "", subject.Center, subject.velocity, Vector2.Zero, Math.Max(0, damageDone), $"raw={hit.Damage};effective={Math.Max(0, damageDone)};life-now={subject.life};knockback={hit.Knockback:0.00}");
 
-    public static void RecordPlayerDamage(Player subject, Player.HurtInfo hit, int lifeBefore, int lifeAfter)
-        => Write("player-damage", 0, "", "player", "", subject.Center, subject.velocity, Vector2.Zero, Math.Min(hit.Damage, Math.Max(0, lifeBefore - lifeAfter)), $"raw={hit.Damage};before={lifeBefore};after={lifeAfter};knockback={hit.Knockback:0.00}");
+    // ModPlayer.OnHurt precedes health subtraction; PostHurt omits fatal hits. Preserve the
+    // observed pre-state and label the computed successor as expected, never observed health.
+    public static void RecordPlayerDamage(Player subject, Player.HurtInfo hit)
+        => Write("player-damage", 0, "", "player", "before-health-subtraction", subject.Center, subject.velocity, Vector2.Zero,
+            Math.Min(hit.Damage, Math.Max(0, subject.statLife)), $"resolved-damage={hit.Damage};life-before={subject.statLife};expected-life-after={Math.Max(0, subject.statLife - hit.Damage)};knockback={hit.Knockback:0.00}");
 
     public static void RecordMovementOutcome(NPC companion, string step, string outcome, string detail)
         => Write("movement-" + outcome, Stable(npcGenerations, companion.whoAmI), "", step, "", companion.Center, companion.velocity, Vector2.Zero, 0, detail);

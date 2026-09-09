@@ -53,6 +53,11 @@ internal static class VerifyGodsEyeEvents
         projectileHooks.OnSpawn(reusedProjectile, source);
 
         Player owner = new() { width = 20, height = 42, position = new Vector2(320f, 800f), active = true };
+        var playerHooks = new AICompanion.Companion.PlayerIntegration.CompanionPlayer().NewInstance(owner);
+        owner.statLife = 100;
+        playerHooks.OnHurt(new Player.HurtInfo { Damage = 20 });
+        owner.statLife = 10;
+        playerHooks.OnHurt(new Player.HurtInfo { Damage = 300 });
         RecordTerrainChunks.ObserveActors(reusedNpc, owner);
         var capture = new RecordTerrainChunks();
         for (int tick = 0; tick < 49; tick++) capture.PostUpdateEverything();
@@ -72,6 +77,12 @@ internal static class VerifyGodsEyeEvents
 
         List<Event> events = Read(path);
         int failures = 0;
+        Event[] playerHits = events.Where(record => record.Kind == "player-damage").ToArray();
+        failures += Require(playerHits.Length == 2
+            && playerHits[0].Channel == "before-health-subtraction"
+            && playerHits[0].Detail.Contains("life-before=100;expected-life-after=80")
+            && playerHits[1].Detail.Contains("life-before=10;expected-life-after=0"),
+            "OnHurt must record actual pre-hit health and label its predicted successor, including fatal overkill");
         failures += Require(beforeEdit > 0, "the initial rolling terrain scan wrote no event");
         failures += Require(beforePostUpdate == beforeEdit, "a dirty tile was recorded before post-update observed the applied edit");
         failures += Require(events[^1].Kind == "session-end", "normal close did not write session-end");

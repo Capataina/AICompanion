@@ -2,6 +2,8 @@
 
 This console tool loads the installed tModLoader assembly without opening a game window. It compares SimulateTerrariaBody with Terraria’s own NPC collision wrapper; it does not compare two copies of the portable text-world simulator.
 
+The occurrence fixture also instantiates the real player observer through ModPlayer.NewInstance and invokes OnHurt with surviving and fatal damage. It asserts the callback's pre-subtraction life and explicitly expected successor health. Player is a read-only view of the attached entity; assigning that property through reflection is not the native attachment lifecycle.
+
 ```
 EngineReplay/
 ├─ CLAUDE.md                 setup, scope and evidence limits
@@ -10,6 +12,7 @@ EngineReplay/
 ├─ VerifyEngineMotion.cs     terrain/liquid matrix, scratch-state assertions and native route checks
 ├─ VerifyObservedMotion.cs   native-terrain hostile forecast and pure regroup-urgency contracts
 ├─ VerifyProjectileMotion.cs native projectile-AI and swept-shot contracts
+├─ GodsEyeTestStubs.cs       unrelated mod and TSV seams; the real player hurt observer remains compiled
 └─ VerifyGodsEyeEvents.cs    real sparse-event writer, native-hook, generation and terrain-capture contracts
 ```
 

@@ -13,5 +13,12 @@ namespace AICompanion.Companion.Brain.BehaviourDiagnostics
     internal static class BrainTelemetry
     {
         internal static double ElapsedMilliseconds => 123.456;
+        internal static void RecordPlayerHurt(Terraria.Player.HurtInfo info) { }
     }
+}
+
+namespace AICompanion.Companion.PlayerIntegration
+{
+    // Only the persistent/input half is excluded. The actual OnHurt observer is compiled.
+    public partial class CompanionPlayer : ModPlayer { }
 }
