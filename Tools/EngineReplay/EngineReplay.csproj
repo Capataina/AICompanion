@@ -7,8 +7,8 @@
     <TModLoaderRoot>$(HOME)/Library/Application Support/Steam/steamapps/common/tModLoader</TModLoaderRoot>
   </PropertyGroup>
   <ItemGroup>
-    <Compile Include="../../Brain/SharedMovementSystem/**/*.cs" Exclude="../../Brain/SharedMovementSystem/TerrariaIntegration/ApplyControlsToCompanion.cs" />
-    <Compile Include="../../Brain/BehaviourWeights.cs" />
+    <Compile Include="../../Companion/Brain/SharedMovementSystem/**/*.cs" Exclude="../../Companion/Brain/SharedMovementSystem/TerrariaIntegration/ApplyControlsToCompanion.cs" />
+    <Compile Include="../../Companion/Brain/BehaviourWeights.cs" />
     <Reference Include="tModLoader"><HintPath>$(TModLoaderRoot)/tModLoader.dll</HintPath></Reference>
     <Reference Include="FNA"><HintPath>$(TModLoaderRoot)/Libraries/FNA/1.0.0/FNA.dll</HintPath></Reference>
   </ItemGroup>

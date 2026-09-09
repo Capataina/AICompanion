@@ -5,8 +5,8 @@
 # every offending line, and exit 1. Run from the repository root:  sh Tools/check-navigation-boundary.sh
 cd "$(dirname "$0")/.." || exit 2
 # Comment lines are prose and may say "NPC"; only code lines count.
-test -d Brain/SharedMovementSystem || { echo 'movement source directory missing'; exit 1; }
-hits=$(rg -n 'using Terraria|Terraria\.|\bNPC\b|\bMain\.|CompanionMotor' Brain/SharedMovementSystem -g '*.cs' -g '!TerrariaIntegration/**' | grep -v '/TerrariaIntegration/' | grep -v -E '^[^:]*:[0-9]+:[[:space:]]*(///|//)')
+test -d Companion/Brain/SharedMovementSystem || { echo 'movement source directory missing'; exit 1; }
+hits=$(rg -n 'using Terraria|Terraria\.|\bNPC\b|\bMain\.|CompanionMotor' Companion/Brain/SharedMovementSystem -g '*.cs' -g '!TerrariaIntegration/**' | grep -v '/TerrariaIntegration/' | grep -v -E '^[^:]*:[0-9]+:[[:space:]]*(///|//)')
 if [ -n "$hits" ]; then
   echo "movement core names the game outside TerrariaIntegration:"
   echo "$hits"

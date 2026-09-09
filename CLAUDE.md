@@ -18,7 +18,7 @@ Terraria world ─► Brain/WorldObservation
                                   └─► WorldInteractions and the hands
 ```
 
-`Brain/CoordinateBrainTick.cs` owns the tick order. `SharedMovementSystem/CoordinateMovement.cs` is the single movement request interface; its query surface is how other brain systems ask movement questions. The motor is the only component permitted to apply resolved controls to the live NPC. The portable simulation, route planner and offline replay share the core; Terraria integration is an adapter outside that core. EngineReplay compares the native collision adapter with Terraria’s own NPC collision routine, including liquid transitions. The portable text-world simulation is a separate approximation. The live parity recorder checks each requested tick during gameplay, which still needs playtest evidence.
+`Companion/Brain/CoordinateBrainTick.cs` owns the tick order. `Companion/Brain/SharedMovementSystem/CoordinateMovement.cs` is the single movement request interface; its query surface is how other brain systems ask movement questions. The motor is the only component permitted to apply resolved controls to the live NPC. The portable simulation, route planner and offline replay share the core; Terraria integration is an adapter outside that core. EngineReplay compares the native collision adapter with Terraria’s own NPC collision routine, including liquid transitions. The portable text-world simulation is a separate approximation. The live parity recorder checks each requested tick during gameplay, which still needs playtest evidence.
 
 ## Rulings that constrain every change
 
@@ -32,39 +32,39 @@ Terraria world ─► Brain/WorldObservation
 
 ```
 AICompanion/
-├─ Companion/                NPC, renderer and hostile targeting bridge
-├─ Brain/                    observation, behaviour, movement and interactions
-│  ├─ WorldObservation/      player, terrain, threat and activity facts
-│  ├─ BehaviourSelection/    utility scoring and considerations
-│  ├─ Behaviours/            choices grouped by purpose
-│  │  ├─ Companionship/      follow, guard and wander
-│  │  ├─ Combat/             hunt and kite
-│  │  ├─ Gathering/          collect nearby drops
-│  │  ├─ Survival/           seek safety for the companion
-│  │  └─ Work/               help with trees and ore
-│  ├─ PositionSelection/     position requests and candidate scoring
-│  ├─ CombatReflexes/        immediate threat assessment
-│  ├─ SharedMovementSystem/  shared travel, avoidance and control contracts
-│  │  ├─ TerrainModel/      tile geometry and pass-through properties
-│  │  ├─ BodySimulation/    body state and portable motion
-│  │  ├─ MovementAbilities/ movement capabilities and resource transitions
-│  │  ├─ RoutePlanning/     coarse routes, reachability and cache
-│  │  ├─ MovementExecution/ actual-state validation and retained movement
-│  │  └─ TerrariaIntegration/ native collision, terrain and live control adapter
-│  ├─ WorldInteractions/    tools and environment interactions
-│  │  ├─ Chopping/          tree discovery and axe use
-│  │  ├─ Mining/            ore discovery and pickaxe use
-│  │  ├─ Torch/             light when the hand is free
-│  │  └─ Doors/             open a door in the route
-│  ├─ ProjectileAiming/     shared projectile trajectory solver
-│  └─ BehaviourDiagnostics/ overlay, timeline recording and scenario capture
-├─ Combat/                   combat interfaces
-│  └─ Weapons/              equipped weapons and outcome-based arsenal choice
-├─ Inventory/                companion bag and panel
-├─ Map/                      map head and torch-driven reveal
-├─ UI/                       health notch
-├─ Players/                  persistence and input
-├─ Commands/                 /companion command
+├─ Companion/                the complete companion gameplay subsystem
+│  ├─ CharacterBody/         NPC lifecycle, rendering and breath
+│  ├─ EnemyIntegration/      hostile targeting bridge and spawn-rate adjustment
+│  ├─ Brain/                 observation, behaviour, movement and interactions
+│  │  ├─ WorldObservation/      player, terrain, threat and activity facts
+│  │  ├─ BehaviourSelection/    utility scoring and considerations
+│  │  ├─ Behaviours/            choices grouped by purpose
+│  │  │  ├─ Companionship/      follow, guard and wander
+│  │  │  ├─ Combat/             hunt and kite
+│  │  │  ├─ Gathering/          collect nearby drops
+│  │  │  ├─ Survival/           seek safety for the companion
+│  │  │  └─ Work/               help with trees and ore
+│  │  ├─ PositionSelection/     position requests and candidate scoring
+│  │  ├─ CombatReflexes/        immediate threat assessment
+│  │  ├─ SharedMovementSystem/  shared travel, avoidance and control contracts
+│  │  │  ├─ TerrainModel/       tile geometry and pass-through properties
+│  │  │  ├─ BodySimulation/     body state and portable motion
+│  │  │  ├─ MovementAbilities/  movement capabilities and resource transitions
+│  │  │  ├─ RoutePlanning/      coarse routes, reachability and cache
+│  │  │  ├─ MovementExecution/  actual-state validation and retained movement
+│  │  │  └─ TerrariaIntegration/ native collision, terrain and live control adapter
+│  │  ├─ WorldInteractions/     tools and environment interactions
+│  │  │  ├─ Chopping/           tree discovery and axe use
+│  │  │  ├─ Mining/             ore discovery and pickaxe use
+│  │  │  ├─ Torch/              light when the hand is free
+│  │  │  └─ Doors/              open a door in the route
+│  │  ├─ ProjectileAiming/      shared projectile trajectory solver
+│  │  └─ BehaviourDiagnostics/  overlay, timeline recording and scenario capture
+│  ├─ Weapons/               companion equipment and arsenal choice
+│  ├─ Inventory/             persistent cargo bag and panel
+│  ├─ PlayerIntegration/     persistence, input, player events and /companion
+│  ├─ MapIntegration/        map head and torch-limited reveal
+│  └─ HeadsUpDisplay/        player-facing health notch
 ├─ Localization/             display strings
 ├─ Tools/                    headless replay, report, reshape and verification tools
 │  ├─ NavReplay/             portable route replay and movement contract tests
@@ -98,7 +98,7 @@ Read a playtest with `dotnet run --project Tools/SessionReport -- Telemetry`; re
 - **Mod unload runs on a worker thread, and FNA3D refuses graphics calls there.** Disposing a texture in `Unload` throws `ThreadStateException: most FNA3D audio/graphics functions must be called on the main thread`, and tModLoader then reports the mod unable to unload and demands a restart (seen on 2026-09-08 after a reload, `client.log` 13:0x, from `CompanionHealthBar.Unload`). Anything graphics-side that must be released at unload goes through `Main.QueueMainThreadAction`.
 - **In-game Build + Reload has died three times and survived twice on 2026-09-08, and the cause is open.** Every death ends the log at `Unloading: ModLoader` with every hook of ours having logged its unload; nothing of ours runs after that line, and the mod holds no hooks and no game-event subscriptions (searched). The notch's texture disposal was suspected and is refuted: the third death, at 13:41, ran with that fix in. Two signatures, from `terrariasteamclient.log`'s "connection closed" line against the last client line: the two morning deaths closed 0.6 s after it (an exit), the 13:41 one 65 s after it (a hang, then most likely a force-quit), and neither wrote a macOS crash report. The survivors (11:41, 13:23) each logged "AICompanion mod class still using memory", so the assembly context leaks on every unload. The fourth hang (17:37, the same last line) was sampled alive with macOS `sample <pid> 5 -file out.txt` (`dotnet-stack` hangs too, because the runtime's diagnostic thread is suspended with everything else): a thread-pool worker is inside the loader's own `GC.Collect` (the unload's memory check, `ModLoader.cs` WarnModsStillLoaded) with the collector's mark phase spinning in a handful of instructions for every sample of five seconds, and every other thread parked in the runtime's suspension wait. A marking loop that never ends is a corrupted object graph or a runtime fault, under Rosetta (the process is x86-64 translated); the mod has no unsafe code, only two bounds-checked texture uploads, so what our side contributes, if anything, is the leaked assembly context the survivors log. Until the cause is known, the shell build with the game closed and a fresh launch is the reliable route; the in-game build itself works (the `.tmod` is packaged before the unload starts), so a hang costs a force-quit and nothing else.
 - **The key left of 1 can never reach the mod on a Mac ISO keyboard.** FNA logs `KEY/SCANCODE MISSING FROM SDL2->XNA DICTIONARY: SDL_SCANCODE_GRAVE` and drops the press before it becomes a key, so no keybind and no raw-key fallback sees it; a whole playtest on 2026-09-08 produced zero key lines. The overlay default is the left square bracket.
-- **A keybind saved by an earlier version outranks the registered default for ever, so moving a default moves nothing for anyone who has already played.** The overlay was dead through the whole 2026-09-09 session against a saved binding of the key FNA drops, while the default in code was F6 and the raw fallback would have answered F6 immediately — the Mod Controls screen showing the dead key was the only visible symptom and it pointed at the wrong thing. Anything the mod wants reachable regardless of saved state is listed in the raw key check in `Players/CompanionPlayer.cs`, not just registered as a default.
+- **A keybind saved by an earlier version outranks the registered default for ever, so moving a default moves nothing for anyone who has already played.** The overlay was dead through the whole 2026-09-09 session against a saved binding of the key FNA drops, while the default in code was F6 and the raw fallback would have answered F6 immediately — the Mod Controls screen showing the dead key was the only visible symptom and it pointed at the wrong thing. Anything the mod wants reachable regardless of saved state is listed in the raw key check in `Companion/PlayerIntegration/CompanionPlayer.cs`, not just registered as a default.
 - **`WorldGen.GetTreeBottom` returns the ground tile under the trunk, not the lowest trunk tile.** Use `TreeFinder.TrunkBottom`.
 - **The player renderer draws the held item from `lastVisualizedSelectedItem`**, which only `Player.Update` sets; `CompanionBody.Sync` assigns it by hand.
 - **The player renderer expects a closed sprite batch**; `CompanionNPC.PreDraw` closes and reopens the NPC batch around it.

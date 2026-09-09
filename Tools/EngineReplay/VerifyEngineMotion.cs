@@ -1,5 +1,5 @@
 using System.Reflection;
-using AICompanion.Brain.SharedMovementSystem;
+using AICompanion.Companion.Brain.SharedMovementSystem;
 using Microsoft.Xna.Framework;
 using Terraria;
 

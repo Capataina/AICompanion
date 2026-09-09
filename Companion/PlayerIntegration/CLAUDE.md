@@ -1,0 +1,16 @@
+# Player integration — persistent companion state, input and explicit recovery
+
+```
+PlayerIntegration/
+├─ CLAUDE.md                 this guide
+├─ PersistCompanionState.cs  `CompanionPlayer` fields plus stable save/load keys and world entry
+├─ HandleCompanionInput.cs   `CompanionPlayer` keybind, raw-key fallback and bag click handling
+├─ ObservePlayerEvents.cs    `CompanionPlayer` authoritative player-event observation
+└─ CompanionCommand.cs       /companion setup and explicit recovery command
+```
+
+`CompanionPlayer` is one partial `ModPlayer` class split by responsibility. It owns state that belongs to the character across worlds: whether the companion has been introduced, bag storage and player-facing layout/input preferences. `PersistCompanionState.cs` retains the existing save keys while `HandleCompanionInput.cs` and `ObservePlayerEvents.cs` add no second player-state object.
+
+`/companion` introduces a companion when none exists and is the explicit player recovery action when one does. Autonomous companion behaviour never teleports. The command is deliberately the only player-initiated exception for a body stranded where the player cannot yet rescue it.
+
+This folder forwards player facts to the brain and HUD but does not own the NPC. `CharacterBody/` creates and controls the live body; `Inventory/` defines cargo behaviour; `HeadsUpDisplay/` draws the notch; diagnostics owns its own overlay input contract.

@@ -1,23 +1,27 @@
-# Companion — the NPC body and engine boundary
+# Companion — one gameplay subsystem around the NPC
 
-This folder owns the Terraria NPC, its player-derived rendering, temporary targeting stand-in, life state and the sole live motor. The brain requests controls through shared movement; this folder applies them to the engine body.
+`Companion/` contains everything that belongs to the companion as a game entity: its body and engine bridge, decision-making brain, equipment, bag, player-facing integrations, map/HUD presentation and enemy integration. The root contains the mod shell and tools; it no longer owns a parallel set of companion feature folders.
 
 ```
 Companion/
-├─ CLAUDE.md                this guide
-├─ CompanionNPC.cs          NPC lifecycle, brain tick, item pickup and engine-facing state
-├─ CompanionBody.cs         player renderer adapter and held-item presentation
-├─ CompanionAggro.cs        temporary stand-in player while hostile AI runs
-├─ CompanionBreath.cs       drowning countdown and damage
-└─ CompanionSpawnRate.cs    spawn-rate adjustment while a living companion exists
+├─ CLAUDE.md                 this guide
+├─ CharacterBody/            NPC lifecycle, player-shaped rendering and breath
+├─ EnemyIntegration/         temporary targeting stand-in and spawn-rate changes
+├─ Brain/                    observation, behaviour, positioning and movement requests
+├─ Weapons/                  companion equipment and outcome-based arsenal selection
+├─ Inventory/                bag storage and its UI
+├─ PlayerIntegration/        persistence, input, player events and /companion
+├─ MapIntegration/           map head and torch-driven reveal
+└─ HeadsUpDisplay/           the player-facing health notch
 ```
 
-`CompanionNPC.AI` updates breath, lets the brain produce a movement intent, applies door work, synchronises the renderer, and records telemetry. `SharedMovementSystem/TerrariaIntegration/ApplyControlsToCompanion.cs` is the motor implementation used here: it is the only authority allowed to change NPC movement state. External hits are reported to that motor so engine knockback becomes part of its next body state instead of a competing write.
+The brain requests a control set through its shared movement boundary. `CharacterBody` applies it to the live NPC; no other subsystem writes the NPC’s movement. Enemy integration’s temporary stand-in player is a targeting device only, never the companion’s owner of life or position.
 
-The targeting stand-in is not the companion. `CompanionAggro` makes it visible only around a hostile’s AI call, then hides it again; damage, life, death and movement remain on the NPC. A downed companion reads as absent to hostile targeting.
+The companion remains an opportunistic presence: it follows loosely, helps with nearby work already in progress, and fights while moving. It has no player-directed mission system. Future mastery may add movement capabilities but none is documented as current unless its implementation appears in the active capability surface.
 
-## Traps
+## Cross-subsystem rules
 
-- The renderer expects `lastVisualizedSelectedItem` to be synchronised and a closed sprite batch around player drawing.
-- The motor is an engine adapter, while planner and replay use portable movement. Do not document those as one proven physics implementation; native parity requires playtest evidence.
-- Never move the NPC directly from another brain subsystem. That bypasses motor ownership and makes body diagnostics incomplete.
+- The bag carries cargo, not equipment. Weapons are fixed companion capabilities selected by the arsenal.
+- HUD and map surfaces show companion state; they do not decide behaviour or movement.
+- Player integration owns character-persistent state and input. The body owns spawning an actual NPC from that state.
+- The companion does not teleport under autonomous behaviour. The `/companion` command is the explicit player recovery exception.

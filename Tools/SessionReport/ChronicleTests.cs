@@ -160,7 +160,7 @@ public static class ChronicleTests
 
     private static void RecorderChronologyContractUsesActualLifeColumn()
     {
-        string source = File.ReadAllText(Path.Combine("Brain", "BehaviourDiagnostics", "RecordBrainTelemetry.cs"));
+        string source = File.ReadAllText(Path.Combine("Companion", "Brain", "BehaviourDiagnostics", "RecordBrainTelemetry.cs"));
         Require(source.Contains("\\tplayer_life\\tplayer_hit\\tnpc_hit\\tplayer_state", StringComparison.Ordinal), "recorder header lost the hit-event sequence consumed by Chronicle");
         Require(source.Contains("\\tdir\\tlife\\tbreath", StringComparison.Ordinal), "recorder no longer writes the actual companion life column");
         Require(!source.Contains("npc_life", StringComparison.Ordinal), "recorder contract invented an npc_life column it does not write");

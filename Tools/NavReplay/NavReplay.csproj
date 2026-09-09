@@ -26,9 +26,9 @@
       game-free by construction — Tools/check-navigation-boundary.sh enforces exactly this same
       single exception, so the two agree on what the boundary is.
     -->
-    <Compile Include="../../Brain/SharedMovementSystem/**/*.cs"
-             Exclude="../../Brain/SharedMovementSystem/TerrariaIntegration/**/*.cs" />
-    <Compile Include="../../Brain/BehaviourWeights.cs" />
+    <Compile Include="../../Companion/Brain/SharedMovementSystem/**/*.cs"
+             Exclude="../../Companion/Brain/SharedMovementSystem/TerrariaIntegration/**/*.cs" />
+    <Compile Include="../../Companion/Brain/BehaviourWeights.cs" />
   </ItemGroup>
   <ItemGroup>
     <Reference Include="FNA">

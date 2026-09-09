@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 using Microsoft.Xna.Framework;
-using AICompanion.Brain.SharedMovementSystem;
+using AICompanion.Companion.Brain.SharedMovementSystem;
 
 internal static class VerifyMovementContracts
 {
