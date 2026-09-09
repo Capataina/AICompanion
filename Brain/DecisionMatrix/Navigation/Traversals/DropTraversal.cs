@@ -142,7 +142,13 @@ public sealed class DropTraversal : Traversal
         // tolerance of two pixels is wider than the overhang that keeps a body standing on a lip.
         float steer = BodyPhysics.SteerToward(line, live.CentreX, live.Vx, live.OnGround ? GroundTolerance : 2f);
         bool onLine = MathF.Abs(line - live.CentreX) <= GroundTolerance;
-        bool press = throughPlatform && (live.OnGround ? onLine : pressing) && live.FeetTile.Y <= lipRow;
+        // The row that has to be cleared is the platform's, not the lip's. A body standing on a
+        // platform has its feet in the row above it — NavGrid.IsPlatformUnder asks about y + 1 —
+        // so releasing the press when the feet leave the lip row releases it after less than two
+        // pixels of fall, while the body is still inside the platform tile, and the game makes the
+        // platform solid again underneath it. That is a three-tick fall and a catch, for ever.
+        int lastRow = lipRow + 1;
+        bool press = throughPlatform && (live.OnGround ? onLine : pressing) && live.FeetTile.Y <= lastRow;
         return new Controls(steer, FallThrough: press);
     }
 
