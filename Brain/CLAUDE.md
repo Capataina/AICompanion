@@ -25,7 +25,7 @@ Brain/
 │  ├─ Mining/          ores and the pickaxe
 │  └─ Torch/           the torch in the dark
 ├─ Aiming/             the arc solver every ranged weapon and the positioner share
-└─ Debug/              the overlay that shows all of the above (F6), and the per-tick telemetry file
+└─ Debug/              the overlay that shows all of the above (left square bracket), and the per-tick telemetry file
 ```
 
 ## One tick, in order
@@ -198,7 +198,7 @@ Finding ore is the expensive half, so it runs only when the player starts on a n
 
 ## What is verified and what is not
 
-Verified in play (the first two runs): the body draws and swings, chopping the right tree at the trunk, arrows fly, the health bar, persistence, and that the brain runs (first tick logged, action = wander). Everything else in this file describes code that compiles and has not been watched: the horizon charge, kiting, dodging after the simulation rewrite, the navigator on anything but flat ground, mining, the torch thresholds against real cave light, the map reveal and the map head. The overlay (F6) shows every score, the danger and horizon, the light readings and whether the torch is shown, the chosen spot and the path; the telemetry in `Debug/` writes the same and more to a file every tick, and is how a wrong choice is read after the session rather than guessed from memory.
+Verified in play (the first two runs): the body draws and swings, chopping the right tree at the trunk, arrows fly, the health bar, persistence, and that the brain runs (first tick logged, action = wander). Everything else in this file describes code that compiles and has not been watched: the horizon charge, kiting, dodging after the simulation rewrite, the navigator on anything but flat ground, mining, the torch thresholds against real cave light, the map reveal and the map head. The overlay (left square bracket) shows every score, the danger and horizon, the light readings and whether the torch is shown, the chosen spot and the path; the telemetry in `Debug/` writes the same and more to a file every tick, and is how a wrong choice is read after the session rather than guessed from memory.
 
 ## Where a new thing goes
 

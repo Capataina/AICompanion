@@ -25,12 +25,16 @@ public sealed class BrainOverlay : ModSystem
     public override void Load()
     {
         // The name is the localisation key segment (Keybinds.BrainOverlay.DisplayName), so no space.
-        // Default is F6. The key left of 1 was tried and can never work on a Mac ISO keyboard:
-        // FNA logs "KEY/SCANCODE MISSING FROM SDL2->XNA DICTIONARY: SDL_SCANCODE_GRAVE" and drops
-        // the press before it becomes a key, so neither a keybind nor a raw-key fallback sees it.
-        // F6 needs Fn on a MacBook unless the F-keys are set to standard; rebindable under Controls.
-        ToggleKey = KeybindLoader.RegisterKeybind(Mod, "BrainOverlay", "F6");
-        Mod.Logger.Info("BrainOverlay.Load: keybind registered, default F6");
+        // Default is the left square bracket, which needs no Fn on a MacBook where F6 does. The key
+        // left of 1 was tried first and can never work on a Mac ISO keyboard: FNA logs
+        // "KEY/SCANCODE MISSING FROM SDL2->XNA DICTIONARY: SDL_SCANCODE_GRAVE" and drops the press
+        // before it becomes a key, so neither a keybind nor a raw-key fallback sees it. The bracket
+        // sits in a standard position and should map, but that is unconfirmed on this keyboard until
+        // a press either toggles the overlay or writes another MISSING line naming LEFTBRACKET.
+        // Rebindable under Controls; a binding already saved from an earlier version wins over this
+        // default, so changing it here does nothing until "Reset to Default" is pressed once.
+        ToggleKey = KeybindLoader.RegisterKeybind(Mod, "BrainOverlay", "OemOpenBrackets");
+        Mod.Logger.Info("BrainOverlay.Load: keybind registered, default OemOpenBrackets");
     }
 
     public override void Unload()
@@ -59,6 +63,7 @@ public sealed class BrainOverlay : ModSystem
         sb.AppendLine($"path {(brain.Navigator.Path == null ? "none" : $"{brain.Navigator.Path.Steps.Count} steps, at {brain.Navigator.Path.Index}")}   planned {brain.Navigator.LastExpansions} exp{(brain.Navigator.LastPlanFailed ? "  FAILED" : "")}");
         sb.AppendLine($"tick {brain.TotalMs:0.0} ms  (senses {brain.SensesMs:0.0} reflex {brain.ReflexMs:0.0} decide {brain.DecideMs:0.0} position {brain.PositionMs:0.0} navigate {brain.NavigateMs:0.0})   last plan {brain.Navigator.LastPlanMs:0.0} flood {brain.Positioner.LastFloodMs:0.0}   edges cached {AStar.CachedTiles}   stranded {brain.StrandedTicks}{(brain.Roaming ? " roaming" : "")}");
         sb.AppendLine($"weapon {companion.Arsenal.LastChosen?.Name ?? "-"}   shot {(companion.Arsenal.LastShotSolved ? "solved" : "none")}");
+        sb.AppendLine($"expected  bow {companion.Arsenal.LastPrimaryExpected:0.0}   knife {companion.Arsenal.LastSecondaryExpected:0.0}");
         sb.AppendLine($"light ambient {senses.Light.Ambient:0.00} player {senses.Light.AtPlayer:0.00} here {senses.Light.AtCompanion:0.00}   torch {(companion.Torch.Shown ? "shown" : companion.Torch.Lit ? "lit, hand busy" : "out")}");
         sb.AppendLine($"self danger {senses.Self.SelfDanger:0.00}   breath {senses.Self.BreathFraction:0.00}{(senses.Self.HeadUnderwater ? " under" : "")}{(senses.Self.InLava ? "  LAVA" : senses.Self.OnFire ? "  on fire" : "")}   lava paths {(AStar.AllowLava ? "on" : "off")}");
 
