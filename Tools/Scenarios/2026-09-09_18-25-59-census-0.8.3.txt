@@ -1,0 +1,21 @@
+﻿behaviour census — everything offered and everything managed, no verdict attached
+
+  plans run 392, of which 384 returned a path carrying 3,943 steps in total
+
+  move            planned    begun completed  faulted   faults by reason
+  Walk             3,245      486      409        0   -
+  Jump               305       29        0       15   Timeout 15
+  Drop               249       33        1        2   Misland 2
+  FallThrough        144       21        1        0   -
+
+  walks by direction, because a descent refused and a descent failed are different defects
+  up (a kerb)                  394       39       27
+  flat                       2,599      416      363
+  down (a slope or lip)        252       31       19
+
+  places asked for, and whether the body got there
+    Exact          asked     9   reached     0   abandoned     9
+    WithPlayer     asked    34   reached     5   abandoned    29
+    LineOfFire     asked    31   reached     7   abandoned    24
+    Guard          asked    13   reached     2   abandoned    11
+    Roam           asked     1   reached     1   abandoned     0
