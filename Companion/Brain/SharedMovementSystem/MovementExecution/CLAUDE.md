@@ -60,6 +60,8 @@ Four hypotheses are dead and are written as the property that failed, because ea
 
 ## Adding a mobility
 
+The historical underground-house partial-goal fixtures still contain an unresolved progress failure: adjacent completed walks can alternate for thousands of ticks without a traversal fault. A per-edge success is not progress towards the final goal. AIC-177 retains those cases for goal-level progress accounting; the captured-entry fix and its no-stationary-preparation assertion do not establish freedom from every partial-route loop.
+
 Every begun attempt has one terminal outcome. Arrival and replanning settle a completed step before replacing its policy state; interruption and clearing close an unfinished attempt. A fault already reported must not be reported again on the following clear. The census sizes its categories from the enums and counts interruptions separately from failures, because ordinary replanning is not a failed collision.
 
 A movement allowance cannot belong only to an edge identity: a cadence replan can replace the edge before its allowance expires while the body never moves. The body-level stall monitor therefore reports a typed failure across replans. Failed physical proofs are retained against their exact input state and terrain revision, just like successful proofs; repeating an identical rejected simulation every frame adds cost without information. Threat-based rejection is never cached this way because its oracle changes independently of the terrain.
