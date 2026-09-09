@@ -45,7 +45,13 @@ public static class BodyMotion
         // and the speed lost against the shape.
         bool collideX = false;
         float nextLeft = left + vx * move;
-        if (grounded && vx != 0f && PlatformStepUp(world, nextLeft, bottom, MathF.Sign(vx)) is float onto)
+        // The platform lift is refused while the move in hand is going down. Without that clause
+        // this rule and the game's disagreed about *when* rather than about what: here the lift
+        // needs a grounded body, so a falling body never took it and a descent simulated clean,
+        // while the motor in the game ran the same lift on every tick with a non-negative vertical
+        // velocity — true throughout a fall — and climbed the platform it was descending. The
+        // shaft that replayed in 264 ticks and froze in play was that one word of difference.
+        if (grounded && !c.Descend && vx != 0f && PlatformStepUp(world, nextLeft, bottom, MathF.Sign(vx)) is float onto)
         {
             left = nextLeft;
             bottom = onto;

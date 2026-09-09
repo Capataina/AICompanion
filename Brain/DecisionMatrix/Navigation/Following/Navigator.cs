@@ -25,6 +25,18 @@ public readonly record struct EdgeReport(MoveKind Kind, Point From, Point Tile, 
 public sealed class Navigator
 {
     public const int PlanBudget = 1500;
+
+    /// <summary>
+    /// The wall-clock one plan may spend in the game, in milliseconds. Zero is no limit, which is
+    /// the default on purpose: the replay tool runs this same navigator, and a bound on wall-clock
+    /// would make a scenario pass or fail with the machine's load, so the committed corpus would
+    /// stop being reproducible. The mod turns it on; the offline tool never does.
+    ///
+    /// Eight milliseconds is half a frame, which leaves the other half for the rest of the brain
+    /// and for the game. A plan cut off here returns the partial path to the nearest node it
+    /// reached, so the cost of the limit is a rougher route rather than a missing one.
+    /// </summary>
+    public static double PlanMsBudget { get; set; }
     private const int ReplanInterval = 30;
     private const int FailedPlanRetry = 90;
     private const float ArriveDistance = 12f;
@@ -78,12 +90,19 @@ public sealed class Navigator
 
     private const int StuckReplanTicks = 40;
 
+    /// <summary>
+    /// How far the requested goal tile may drift before it counts as somewhere else. The
+    /// positioner picks afresh on its own cadence, so the tile it names moves continuously even
+    /// while the request behind it does not; this is what separates the request changing from the
+    /// scorer twitching.
+    /// </summary>
+    private const int GoalSlackTiles = 2;
+
     private int ticksSincePlan = ReplanInterval;
     private int stuckTicks;
     private Vector2 lastPosition;
     private int clock;
     private bool forceReplan;
-    private int lastDir = 1;
 
     // The traversals this follower performs steps with, one instance each, because a jump's
     // run-up is state that belongs to the follower and not to the planner's shared set.
@@ -116,6 +135,8 @@ public sealed class Navigator
             onStep = null;
             StuckStrikes = 0;
             Arrived = true;
+            floor.Reset();
+            BehaviourCensus.RequestReached();
             return Controls.None;
         }
 
@@ -123,9 +144,22 @@ public sealed class Navigator
         Point? goal = NavGrid.NearestStandable(NavGrid.FeetTile(targetFeet), 3);
         ticksSincePlan++;
 
-        bool goalMoved = goal != GoalTile;
-        if (goalMoved)
-            StuckStrikes = 0;
+        // A goal that shifted a tile or two is the same goal. The positioner rescores on its own
+        // cadence with no memory of what it last picked, so the exact tile it returns wanders
+        // continuously even while the companion is doing one thing, and reading every wander as a
+        // new goal cost three things at once: a full search several times a second, a replan
+        // landing in the middle of a jump's run-up, and — through the strike reset below — an
+        // escalation that could never reach its own threshold. The path is walked to within the
+        // arrival slack of the real request rather than of this tile, so the slack costs nothing
+        // at the end: the reactive walk covers the last tile or two.
+        bool goalMoved = goal is Point want
+            && (GoalTile is not Point had || Math.Abs(want.X - had.X) > GoalSlackTiles || Math.Abs(want.Y - had.Y) > GoalSlackTiles);
+        // The strike count is not reset here. It used to be, and with the goal tile changing every
+        // seventeen ticks that zeroed it about three times a second, so the two-strike escalation
+        // the brain reads to ask for a different spot was unreachable by construction: the body
+        // could stand at an impossible step for a whole session and never reach it. The count
+        // belongs to the attempt rather than to the tile, and it is cleared on arrival and by
+        // ResetStrikes when the brain has acted on it.
         // A failed plan is not retried every tick: at the full budget that is ~3 ms per tick for
         // as long as the goal stays unreachable. It waits FailedPlanRetry ticks unless the goal moves.
         bool failedRecently = LastPlanFailed && ticksSincePlan < FailedPlanRetry;
@@ -152,7 +186,13 @@ public sealed class Navigator
         // step there is nothing to price, but the count still has to rise: until it did, a body
         // being shoved at a wall by the fallback recorded no fault and no strike for thousands of
         // ticks, so the brain never reached the two strikes that make it ask for another spot.
-        if (stuck && live.OnGround)
+        // A pinned body earns its strike and its replan as well as a grounded one. Grounded is
+        // velocity.Y == 0, which a body being held with gravity accumulating under it is not, so
+        // through the whole shaft freeze both this gate and the planning gate below were shut and
+        // the body could neither strike, replan nor escape — independently of the strike reset
+        // that has just been removed. Standing still is only the body's own choice while the body
+        // is capable of moving.
+        if (stuck && (live.OnGround || live.CannotAct))
         {
             if (!noPath && !Path!.Finished)
                 Strike(Path.Current.Tile);
@@ -165,12 +205,18 @@ public sealed class Navigator
             forceReplan = true;
             stale = true;
         }
-        if (goal != null && (goalMoved || stale) && live.OnGround)
+        // A moved goal waits for the run-up the same way the cadence does. It did not, and the
+        // consequence was that a replan could land in the middle of a jump backing away to its
+        // runway mark: the fresh plan offered the mirror jump from the same take-off, the body
+        // turned round, and it circled between two jumps with nothing ever faulting. The mid-move
+        // guard exists for exactly that and was applied to one of the two ways a plan starts.
+        bool replan = goalMoved ? !midMove || stuck : stale;
+        if (goal != null && replan && (live.OnGround || live.CannotAct))
             Plan(start, goal.Value);
 
         // Stuck is tracked in every branch, including the fallback: a body going nowhere is going
         // nowhere whether it is following a step or walking straight at a target no plan reached.
-        Controls controls = Path == null || Path.Finished ? WalkStraight(live, targetFeet) : Follow(live);
+        Controls controls = Path == null || Path.Finished ? floor.Toward(live, targetFeet) : Follow(live);
         TrackStuck(live);
         return controls;
     }
@@ -201,6 +247,7 @@ public sealed class Navigator
             LastPlanFailed = true;
             LastPlanEmpty = true;
             LastExpansions = 0;
+            BehaviourCensus.PlanFailed();
             PlanFailed?.Invoke(start, goal, from, 0, "no standable tile at the start");
             return;
         }
@@ -210,13 +257,23 @@ public sealed class Navigator
         foreach ((Rectangle box, _) in stuckAvoid)
             AStar.Avoid.Add(box);
         var watch = System.Diagnostics.Stopwatch.StartNew();
+        AStar.MsBudget = PlanMsBudget;
         Path = AStar.Find(from.Value, goal, PlanBudget, out int used);
         LastPlanMs = watch.Elapsed.TotalMilliseconds;
         LastExpansions = used;
+        if (Path != null)
+        {
+            // The floor's stall counter is about one attempt at one target, so it starts clean
+            // whenever a path exists to hand back to it later.
+            floor.Reset();
+            BehaviourCensus.Planned(Path);
+        }
         // A partial path is followed, and still counted as a failure: the goal was not reached
         // by the plan, and the record needs to say so even while the body walks toward it.
         LastPlanFailed = Path == null || Path.Partial;
         LastPlanEmpty = Path == null;
+        if (Path == null)
+            BehaviourCensus.PlanFailed();
         if (LastPlanFailed)
             PlanFailed?.Invoke(from.Value, goal, Path?.Goal, used, Path == null ? "no path" : "partial path");
     }
@@ -254,6 +311,7 @@ public sealed class Navigator
             ticksOnStep = 0;
             stepFaulted = false;
             traversal.Begin(step);
+            BehaviourCensus.Begun(step);
         }
         else
             ticksOnStep++;
@@ -279,19 +337,17 @@ public sealed class Navigator
     {
         LastEdge = new EdgeReport(step.Kind, step.From, step.Tile, step.Ticks, ticks, outcome);
         EdgeCount++;
+        BehaviourCensus.Finished(step, outcome);
     }
 
-    private Controls WalkStraight(BodyState live, Vector2 target)
-    {
-        float dx = target.X - live.CentreX;
-        if (MathF.Abs(dx) < 4f)
-            return Controls.None;
-        int dir = MathF.Sign(dx);
-        lastDir = dir;
-        // Only a wall earns a jump here. Jumping because the target is above produced a hop every
-        // tick under any ledge the planner could not route to.
-        return new Controls(dir * BodyPhysics.WalkSpeed, live.OnGround && WalkTraversal.WallAhead(live, dir));
-    }
+    /// <summary>
+    /// The floor: a move from the current state with no plan, which is what every vanilla walker
+    /// has and this had only a stub of. It used to walk at the target and jump for a wall and
+    /// nothing else, which meant an unroutable ledge one tile high stopped the body dead — the
+    /// planner was the only thing that could produce a climb, so a plan that failed produced a
+    /// statue. <see cref="ReactiveWalk"/> is the fighter AI's own obstacle ladder and gap leap.
+    /// </summary>
+    private readonly ReactiveWalk floor = new();
 
     private void TrackStuck(BodyState live)
     {
@@ -314,5 +370,6 @@ public sealed class Navigator
         PlannedThisTick = false;
         onStep = null;
         forceReplan = false;
+        floor.Reset();
     }
 }

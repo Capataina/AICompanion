@@ -149,7 +149,12 @@ public sealed class DropTraversal : Traversal
         // platform solid again underneath it. That is a three-tick fall and a catch, for ever.
         int lastRow = lipRow + 1;
         bool press = throughPlatform && (live.OnGround ? onLine : pressing) && live.FeetTile.Y <= lastRow;
-        return new Controls(steer, FallThrough: press);
+        // Every tick of a descent carries the descent's own vertical intent, whether or not this
+        // is the tick that presses. That is what the kerb rules read to stop lifting the body onto
+        // the platform it is on its way through, and it has to cover the whole move rather than the
+        // press alone: the press is released once the feet clear the take-off row, and the ticks
+        // after it are exactly the ticks the body is falling past platforms it must not catch.
+        return new Controls(steer, FallThrough: press, Descend: true);
     }
 
     /// <summary>How close to its line a standing body gets before the descent counts it there.</summary>
@@ -191,7 +196,12 @@ public sealed class DropTraversal : Traversal
     /// (Codex review of 7525a1b).
     /// </summary>
     internal static Controls Perform(NavStep step, BodyState live, bool throughPlatform, bool begun)
-        => !begun && live.OnGround && MathF.Abs(live.Vx) > RestSpeed ? Controls.None : DescentControls(step.SteerX, live, throughPlatform, step.From.Y, begun);
+        => !begun && live.OnGround && MathF.Abs(live.Vx) > RestSpeed
+            // The brake still carries the descent's intent: the body is standing on the platform it
+            // is about to pass, and a kerb rule that lifts it onto the next tread while it brakes
+            // walks it off the line the descent was proven along.
+            ? Controls.NoneDescending
+            : DescentControls(step.SteerX, live, throughPlatform, step.From.Y, begun);
 
     /// <summary>
     /// Mislanded: come to rest off the promised tile two or more rows below the lip, which is the

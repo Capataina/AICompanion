@@ -83,9 +83,34 @@ public static class AStar
     /// </summary>
     public static HashSet<Point>? TraceClosed;
 
+    /// <summary>
+    /// The wall-clock a whole plan may spend, in milliseconds; zero or less is no limit. It is a
+    /// separate limit from the expansion budget because the two bound different things and only
+    /// one of them was bounded: on 2026-09-09 every slow plan sat at exactly the expansion cap
+    /// with the reachability flood costing 1 to 15 ms beside it, so the time was going into the
+    /// search's own edge proving, where one expansion can cost a hundred times another — a node on
+    /// bare floor offers a few walks, and a node on a ledge over a shaft simulates every jump
+    /// profile and every descent line. A budget in expansions therefore prices those the same and
+    /// the worst plan of that session took 778 ms, forty-six frames, for a decision that had to be
+    /// made in one.
+    ///
+    /// It is a static rather than a parameter so that the one-way probe, which calls this
+    /// recursively from inside the loop, spends the same allowance rather than a fresh one each
+    /// time. The deadline is set by the outermost call and inherited by every search under it,
+    /// which is what makes the bound "a plan costs at most this" instead of "one search does".
+    /// </summary>
+    public static double MsBudget { get; set; }
+
+    private static long deadline;
+
+    /// <summary>How many expansions between clock reads; often enough to bound the overrun, rare enough that the read is not the cost.</summary>
+    private const int ClockEvery = 32;
+
     public static NavPath? Find(Point start, Point goal, int budget, out int expansions)
     {
         expansions = 0;
+        if (!probing)
+            deadline = MsBudget > 0d ? System.Diagnostics.Stopwatch.GetTimestamp() + (long)(MsBudget * System.Diagnostics.Stopwatch.Frequency / 1000d) : 0L;
         var open = new SortedSet<Open>(new OpenComparer());
         var g = new Dictionary<NavNode, float>();
         var cameFrom = new Dictionary<NavNode, Arrival>();
@@ -122,6 +147,11 @@ public static class AStar
                 nearest = node;
             }
             if (++expansions > budget)
+                break;
+            // Out of time counts as out of budget: the partial path to the nearest node reached is
+            // returned either way, so a plan that runs long degrades to walking toward the goal
+            // rather than to a dropped frame.
+            if (deadline != 0L && expansions % ClockEvery == 0 && System.Diagnostics.Stopwatch.GetTimestamp() > deadline)
                 break;
 
             float gHere = g[node];

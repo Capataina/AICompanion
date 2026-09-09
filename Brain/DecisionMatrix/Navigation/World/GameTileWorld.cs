@@ -29,14 +29,31 @@ public sealed class GameTileWorld : ITileWorld
         // frame test on every solid-top tile turned every non-default platform style into air.
         bool solidTop = Main.tileSolidTop[t.TileType];
         bool solid = Main.tileSolid[t.TileType];
+        // The game's slope ids 1..4 are the enum's own values; 0 is no slope.
+        int slope = (int)t.Slope;
         if (solidTop && (solid || t.TileFrameY == 0))
-            return TileShape.Platform;
+        {
+            // A platform can be hammered, and then its geometry is the shape and not a flat top.
+            // Reading it as a plain platform put the body on a surface the game does not give it:
+            // Collision.SlopeCollision acts on any tile with a slope id, and every branch of it
+            // that would push a body upward is guarded by `fall && Platforms[type]`, so with no
+            // fall-through requested the diagonal applies and the engine rests the body on it. The
+            // grid believed a flat tread, the game gave a ramp, and a pose proven on the tread is
+            // a pose the body never holds.
+            //
+            // The cost of being right here is that a hammered platform stops offering a
+            // fall-through edge, since a platform is the only thing that edge exists for. That is
+            // the correct trade rather than a regression: a body resting on a diagonal is not
+            // inside the platform's top band, which is the band the engine's own platform catch
+            // tests, so the press would not have carried it through anyway.
+            if (t.IsHalfBlock)
+                return TileShape.Half;
+            return slope == 0 ? TileShape.Platform : (TileShape)slope;
+        }
         if (!solid)
             return TileShape.Air;
         if (t.IsHalfBlock)
             return TileShape.Half;
-        // The game's slope ids 1..4 are the enum's own values; 0 is no slope.
-        int slope = (int)t.Slope;
         return slope == 0 ? TileShape.Solid : (TileShape)slope;
     }
 

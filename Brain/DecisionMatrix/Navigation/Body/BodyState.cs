@@ -25,8 +25,17 @@ public readonly record struct MobilityState(int AirJumpsLeft = 0, bool Latched =
 /// <see cref="Stuck"/> is the motion rule's own admission: the body is inside a shape it cannot
 /// resolve, which a simulation reads as "this move does not exist" and a follower as a fault.
 /// </summary>
-public readonly record struct BodyState(float Left, float Bottom, float Vx, float Vy, bool OnGround, bool CollideX = false, bool Stuck = false, MobilityState Mobility = default)
+public readonly record struct BodyState(float Left, float Bottom, float Vx, float Vy, bool OnGround, bool CollideX = false, bool Stuck = false, MobilityState Mobility = default, bool Pinned = false)
 {
+    /// <summary>
+    /// The body holds a velocity and is not moving, which the engine cannot do to a body it is
+    /// integrating, so something is writing the position back underneath it. Always false for a
+    /// simulated body, because the simulation is the rule rather than a thing the rule happens to;
+    /// the motor sets it from the engine's own displacement. The follower reads it as a body that
+    /// cannot act, which is the one state where standing still is not the body's own choice.
+    /// </summary>
+    public bool CannotAct => Pinned;
+
     public float CentreX => Left + BodyPhysics.Width / 2f;
 
     /// <summary>The bottom-centre point, which is what the navigator measures distances from.</summary>

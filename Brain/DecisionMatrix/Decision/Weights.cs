@@ -84,6 +84,20 @@ public static class Weights
     /// <summary>Positioner: how long a roam spot is kept before another is picked, in ticks.</summary>
     public const int RoamHoldTicks = 180;
 
+    /// <summary>
+    /// Positioner: how much the spot already being walked to is favoured over an equal one, so a
+    /// rescore that finds two spots worth the same keeps the one the body is already on its way
+    /// to. The chooser has had exactly this at the action layer since it was written — the running
+    /// action keeps a small bonus so near-equal scores do not flicker — and the spot layer had
+    /// nothing, so the goal tile changed every seventeen ticks on average while the request behind
+    /// it never changed at all. A bonus rather than a hold, because a genuinely better spot must
+    /// still win at once: a threat arriving is exactly when the companion has to move.
+    /// </summary>
+    public const float IncumbentSpotBonus = 1.15f;
+
+    /// <summary>Positioner: how near a candidate must be to the held spot to count as the same place, in px.</summary>
+    public const float IncumbentSlackPx = 24f;
+
     /// <summary>Loot: value of the nearest pickup fades with distance over this many px.</summary>
     public const float LootReach = 900f;
     public const int LootTripTicksPerPx = 1; // approximates 1 px per tick allowing for jumps

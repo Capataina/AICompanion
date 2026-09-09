@@ -10,6 +10,7 @@ using AICompanion.Combat.Weapons;
 using AICompanion.Inventory;
 using AICompanion.Players;
 using AICompanion.Brain.Work.Chopping;
+using AICompanion.Brain.Work.Doors;
 using AICompanion.Brain.Work.Mining;
 using AICompanion.Brain.Work.Torch;
 
@@ -38,6 +39,7 @@ public class CompanionNPC : ModNPC
     public TileMiner Miner { get; }
     public TorchBearer Torch { get; } = new();
     public CompanionBreath Breath { get; } = new();
+    public DoorOpener Doors { get; } = new();
     public CompanionInventory Bag => Main.LocalPlayer.GetModPlayer<CompanionPlayer>().Bag;
 
     /// <summary>The drawing-only body; the map layer draws its head.</summary>
@@ -133,6 +135,11 @@ public class CompanionNPC : ModNPC
         if (itemAnimation > 0)
             itemAnimation--;
         Miner.Tick();
+        // What the engine did with the last tick, read before anything acts on this one: whether
+        // the body is being held in place, and how far the offline motion rule's prediction of
+        // where it would be missed. Both describe the tick before, because the engine's collision
+        // and its position += velocity run after AI returns.
+        Motor.Track();
 
         if (IsDowned)
         {
@@ -149,6 +156,10 @@ public class CompanionNPC : ModNPC
             Breath.Update(NPC);
             Brain.Tick(this, player);
             Motor.ApplySteps();
+            // After the steps, because the direction the door swings is the direction the brain
+            // asked the motor for this tick, and before anything reads the tiles again: a door the
+            // body just opened is an opening the rest of the tick can use.
+            Doors.Tick(NPC);
             CollectTouchedItems(player);
             // The torch takes the hand only when no action claimed it this tick: a tool or a
             // weapon held by chop, mine, hunt or guard always wins, and a torch that is not

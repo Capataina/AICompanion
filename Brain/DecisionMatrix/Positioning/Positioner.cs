@@ -226,6 +226,12 @@ public sealed class Positioner
 
     private Vector2? Best(in PositionRequest request, Senses.Senses senses, WeaponProfile? fireProfile)
     {
+        // The spot being walked to, read before it is overwritten, so it can be favoured over an
+        // equal one. Without this the scorer picked afresh every rescore with no memory of its own
+        // last answer, and since two standable tiles a couple of pixels apart score within noise
+        // of each other, the tile it named wandered continuously under a request that had not
+        // changed — which the navigator then read as a new goal and replanned for.
+        Vector2? held = Chosen;
         Point centre = NavGrid.FeetTile(request.Anchor);
         Vector2 playerBottom = senses.Player.Bottom;
         bool threatened = !senses.Threats.PlayerIsSafe;
@@ -256,7 +262,7 @@ public sealed class Positioner
                     continue;
                 Vector2 feet = NavGrid.FeetWorld(new Point(x, y));
                 Vector2 eye = feet + new Vector2(0f, -30f);
-                float score = ScoreSpot(request, feet, eye, playerBottom, senses, bandNear, bandFar, fire: 1f, reach);
+                float score = ScoreSpot(request, feet, eye, playerBottom, senses, bandNear, bandFar, fire: 1f, reach) * Incumbency(feet, held);
                 if (score <= 0f)
                     continue;
                 // The tier opens only on a reachable candidate the action accepts: a reachable
@@ -291,7 +297,7 @@ public sealed class Positioner
                 if (i >= solves)
                     break; // unsolved candidates cannot beat a solved one above them
                 float fire = TrajectoryAimer.Solve(eye, request.Target!, fireProfile!.Value) != null ? 1f : 0.15f;
-                score = ScoreSpot(request, feet, eye, playerBottom, senses, bandNear, bandFar, fire, reach);
+                score = ScoreSpot(request, feet, eye, playerBottom, senses, bandNear, bandFar, fire, reach) * Incumbency(feet, held);
             }
             if (score > bestScore)
             {
@@ -302,6 +308,16 @@ public sealed class Positioner
         ChosenScore = bestScore;
         return best;
     }
+
+    /// <summary>
+    /// The bonus the spot already held gets over an equal one; 1 for everything else. Applied to
+    /// the cheap pass as well as the scored one, because the cheap pass decides which candidates
+    /// are worth an aimer solve and an incumbent dropped there never gets to defend itself.
+    /// </summary>
+    private static float Incumbency(Vector2 feet, Vector2? held)
+        => held is Vector2 h && Vector2.DistanceSquared(feet, h) < Weights.IncumbentSlackPx * Weights.IncumbentSlackPx
+            ? Weights.IncumbentSpotBonus
+            : 1f;
 
     private static float ScoreSpot(in PositionRequest request, Vector2 feet, Vector2 eye, Vector2 playerBottom, Senses.Senses senses, float bandNear, float bandFar, float fire, float reach)
     {
