@@ -315,7 +315,12 @@ public sealed class Positioner
         return request.Kind switch
         {
             RequestKind.WithPlayer => band * sight * (1f - 0.8f * danger) * open * travel,
-            RequestKind.Guard => Consideration.Band(toPlayer, 24f, 120f, 200f) * sight * fire * (1f - 0.5f * danger) * open,
+            // Guarding him is being able to shoot what is attacking him, which is not the same as
+            // standing where he stands. It carried neither a standoff from the target nor the
+            // clear-way test, so the only thing pulling the body anywhere was a band measured to
+            // the player and the threats are on the player: every guard spot worth having was
+            // inside the melee. It now scores the same two factors the line-of-fire request does.
+            RequestKind.Guard => Consideration.Band(toPlayer, Weights.GuardBandNear, Weights.GuardBandFar, 260f) * sight * fire * (1f - 0.7f * danger) * open * StandoffFromTarget(feet, request.Target) * ClearWayTo(feet, senses),
             RequestKind.LineOfFire => fire * Consideration.AtLeast(band, 0.3f) * (1f - 0.7f * danger) * open * StandoffFromTarget(feet, request.Target) * ClearWayTo(feet, senses),
             RequestKind.Retreat => (1f - danger) * Consideration.AtLeast(band, 0.3f) * fire * open * ClearWayTo(feet, senses),
             _ => 0f,
@@ -365,12 +370,22 @@ public sealed class Positioner
         return along >= 0f ? 1f : 0.6f;
     }
 
+    /// <summary>
+    /// How good this spot's distance from the thing being shot at is. The band alone was a plateau,
+    /// so a spot pressed against an enemy scored exactly as well as one across the room and which
+    /// one got picked was down to the other factors and the walk; the companion closed on things it
+    /// could already hit. Distance now leans outward across the band, because the line-of-fire
+    /// factor is a separate multiplier and it is what refuses a spot too far to shoot from — which
+    /// means every remaining distance is one the shot solves at, and the further of two is strictly
+    /// better for a body that would rather not be reached.
+    /// </summary>
     private static float StandoffFromTarget(Vector2 feet, NPC? target)
     {
         if (target == null)
             return 1f;
         float d = Vector2.Distance(feet, target.Center);
-        return Consideration.Band(d, 120f, 520f, 300f);
+        float across = MathHelper.Clamp((d - Weights.StandoffNear) / (Weights.StandoffFar - Weights.StandoffNear), 0f, 1f);
+        return Consideration.Band(d, Weights.StandoffNear, Weights.StandoffFar, 300f) * (0.55f + 0.45f * across);
     }
 
     /// <summary>

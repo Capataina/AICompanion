@@ -18,9 +18,29 @@ public static class Weights
     public const float CalmBandNear = 96f;
     public const float CalmBandFar = 560f;
 
-    /// <summary>The band when the player is in danger.</summary>
+    /// <summary>
+    /// The band when the player is in danger. It is wider than the calm band's near edge rather
+    /// than tighter, because the threats are on the player: a band that closes as danger rises
+    /// scores a ranged companion into the melee that is already hitting him, and what should
+    /// decide the distance is whether the shot solves from further out.
+    /// </summary>
     public const float ThreatBandNear = 32f;
-    public const float ThreatBandFar = 160f;
+    public const float ThreatBandFar = 384f;
+
+    /// <summary>
+    /// Distance band to the player while guarding him. Guarding means being able to shoot what is
+    /// attacking him, not standing on him, so this is wide and the line of fire does the rest.
+    /// </summary>
+    public const float GuardBandNear = 48f;
+    public const float GuardBandFar = 360f;
+
+    /// <summary>
+    /// Distance band from the thing being shot at. Distance is preferred across the band rather
+    /// than merely permitted, because the line-of-fire factor already refuses a spot that cannot
+    /// reach the target, so anything the shot still solves from is free to be further away.
+    /// </summary>
+    public const float StandoffNear = 120f;
+    public const float StandoffFar = 520f;
 
     /// <summary>Beyond this the companion drops everything and comes back, whatever else is going on.</summary>
     public const float LeashHard = 1400f;
