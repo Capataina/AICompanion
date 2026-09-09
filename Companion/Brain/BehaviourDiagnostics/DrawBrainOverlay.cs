@@ -60,7 +60,8 @@ public sealed class BrainOverlay : ModSystem
         foreach (var t in senses.Threats.Threats) if (t.Reachable) reachable++;
         sb.AppendLine($"threats {senses.Threats.Threats.Count} ({reachable} reachable)   loot {senses.Loot.Pickups.Count}");
         sb.AppendLine($"request {brain.LastRequest.Kind}   spot {(brain.Positioner.Chosen is Vector2 c ? $"{(int)(c.X / 16)},{(int)(c.Y / 16)}" : "-")} ({brain.Positioner.ChosenScore:0.00})");
-        sb.AppendLine($"path {(brain.Navigator.Path == null ? "none" : $"{brain.Navigator.Path.Steps.Count} steps, at {brain.Navigator.Path.Index}")}   planned {brain.Navigator.LastExpansions} exp{(brain.Navigator.LastPlanFailed ? "  FAILED" : "")}");
+        sb.AppendLine($"route {(brain.Navigator.Path == null ? "none" : $"{brain.Navigator.Path.Steps.Count} steps, at {brain.Navigator.Path.Index}")}   execution {brain.Navigator.Status}   search {brain.Navigator.LastSearchStop}");
+        sb.AppendLine($"regroup {brain.Chooser.RegroupUrgency:0.00}   estimated return {brain.Chooser.EstimatedReturnTicks / 60f:0.0}s   preparation {brain.Navigator.PreparationResult}");
         sb.AppendLine($"tick {brain.TotalMs:0.0} ms  (senses {brain.SensesMs:0.0} reflex {brain.ReflexMs:0.0} decide {brain.DecideMs:0.0} position {brain.PositionMs:0.0} navigate {brain.NavigateMs:0.0})   last plan {brain.Navigator.LastPlanMs:0.0} flood {brain.Positioner.LastFloodMs:0.0}   edges cached {AStar.CachedTiles}   stranded {brain.StrandedTicks}{(brain.Roaming ? " roaming" : "")}");
         sb.AppendLine($"weapon {companion.Arsenal.LastChosen?.Name ?? "-"}   shot {(companion.Arsenal.LastShotSolved ? "solved" : "none")}");
         sb.AppendLine($"expected  bow {companion.Arsenal.LastPrimaryExpected:0.0}   knife {companion.Arsenal.LastSecondaryExpected:0.0}");

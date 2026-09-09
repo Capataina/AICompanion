@@ -11,6 +11,7 @@ SessionReport/
 ├─ Finding.cs             a finding, the three severities and what separates them, and the contract a check implements
 ├─ FindStretches.cs       the shared shape of nearly every check: "this condition held for long enough to matter", with a gap allowance
 ├─ DescribeSession.cs     the measurement block above the findings, and the reader for the sibling -plans.txt window file
+├─ DescribeGodsEyeEvents.cs reads the occurrence sibling, checks completeness, joins projectile launches to contacts and spans the full session
 ├─ Chronicle.cs           the bounded event-and-interval account of player movement and companion response, with observation and inference kept distinct
 ├─ ChronicleTests.cs      deterministic synthetic-record tests run through the real parser and chronology reader
 ├─ CheckTheRecord.cs      is the instrument sane — ticks advancing, the returnable count inside the reach count, every numeric column parsing
@@ -37,6 +38,8 @@ New records begin with a schema and UTC start metadata, then carry `wall_elapsed
 
 ## Severity is decided by evidence, not by how bad it feels
 
+The event reader consumes the sibling `-events.jsonl` automatically. It validates required schema fields, monotonic sequence numbers and explicit session start/end markers. Missing, malformed or interrupted capture is printed as reduced coverage. Default output groups meaningful events across the entire run; `--timeline` preserves each occurrence beside the TSV's continuous movement chronology. Projectile identity includes its spawn generation, so a reused slot cannot connect one shot to another shot's impact. Terrain contact before any recorded enemy contact is reported as an observed obstruction with launch intent and actual impact coordinates; a piercing projectile hitting terrain after an enemy is not labelled as that failure. The reader does not infer the cause from contact alone. Terrain is locally sampled, and unknown regions or sampling delays remain limits on reconstruction.
+
 The categories are the whole point. A report that says "take a look around tick 3000" hands the reading back to whoever asked for it, so every finding lands in one of three places and the boundary between them is what would settle the question.
 
 | | what it means | example |
@@ -59,7 +62,7 @@ The cells are not all plain numbers, and a float parse throws on a third of the 
 
 Run against `2026-09-09_12-29-48.tsv`, the file whose two defects had already been found by hand over a long afternoon, the first version of this tool raised both unprompted plus one nobody had looked for: 774 ticks of hunting at up to 84 tiles from the player, 8 of 10 hits landing while the danger column read zero, and three stretches totalling nearly seven hundred ticks where the body sat at one pixel while being driven at 0.9 px/tick — the platform fall-through freeze, in the same file, in a stretch nobody had opened. That is the pass line the tool was built against and it is worth restating whenever a check is added: a reader that cannot find the defects already known from the file they are in has no coverage, however many checks it lists.
 
-It also found a defect in the instrument on its first run. The scenario capture's dodge detector compared `tick - lastDodgeTick` against a memory window with `lastDodgeTick` initialised to `long.MinValue`, so the subtraction overflowed a signed long and wrapped to a large negative number that passed the test: every hit in a session where no reflex had ever fired was dumped as a hit through a dodge, and the age printed in the window header was −9,223,372,036,854,773,868 ticks. The fix is in `../../Brain/BehaviourDiagnostics/CaptureMovementScenario.cs` and the tell was visible only because this tool prints the window reasons.
+It also found a defect in the instrument on its first run. The scenario capture's dodge detector compared `tick - lastDodgeTick` against a memory window with `lastDodgeTick` initialised to `long.MinValue`, so the subtraction overflowed a signed long and wrapped to a large negative number that passed the test: every hit in a session where no reflex had ever fired was dumped as a hit through a dodge, and the age printed in the window header was −9,223,372,036,854,773,868 ticks. The fix is in `../../Companion/Brain/BehaviourDiagnostics/CaptureMovementScenario.cs` and the tell was visible only because this tool prints the window reasons.
 
 ## A hit the world dealt is not a hit the companion failed to see
 

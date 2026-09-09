@@ -14,3 +14,5 @@ PlayerIntegration/
 `/companion` introduces a companion when none exists and is the explicit player recovery action when one does. Autonomous companion behaviour never teleports. The command is deliberately the only player-initiated exception for a body stranded where the player cannot yet rescue it.
 
 This folder forwards player facts to the brain and HUD but does not own the NPC. `CharacterBody/` creates and controls the live body; `Inventory/` defines cargo behaviour; `HeadsUpDisplay/` draws the notch; diagnostics owns its own overlay input contract.
+
+`ObservePlayerEvents.OnHurt` records Terraria's final hurt calculation in the continuous telemetry and the occurrence stream. The callback happens after life changes; it preserves final damage, knockback and the source information the native hook exposes. Recorder failures must not interrupt the player's hurt lifecycle.

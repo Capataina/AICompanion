@@ -19,6 +19,10 @@ public partial class CompanionPlayer
     /// Terraria has calculated the final damage, cause and knockback here. The next telemetry row
     /// consumes that exact event; inferring it from a later life value would make each property a guess.
     /// </summary>
-    public override void OnHurt(Player.HurtInfo info) => BrainTelemetry.RecordPlayerHurt(info);
+    public override void OnHurt(Player.HurtInfo info)
+    {
+        BrainTelemetry.RecordPlayerHurt(info);
+        GodsEyeEvents.RecordPlayerDamage(Player, info, System.Math.Max(0, Player.statLife + info.Damage), System.Math.Max(0, Player.statLife));
+    }
 
 }

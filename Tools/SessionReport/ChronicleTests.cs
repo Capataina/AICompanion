@@ -24,7 +24,8 @@ public static class ChronicleTests
             SustainedRequestedMovementWithoutObservedProgressIsReported();
             EmptyHeaderOnlySessionIsReadable();
             RecorderChronologyContractUsesActualLifeColumn();
-            Console.WriteLine("Chronicle self-tests passed (7 assertion groups).");
+            EventSiblingReportsCountsAndCorruption();
+            Console.WriteLine("Chronicle self-tests passed (8 assertion groups).");
             return 0;
         }
         catch (Exception error)
@@ -164,6 +165,50 @@ public static class ChronicleTests
         Require(source.Contains("\\tplayer_life\\tplayer_hit\\tnpc_hit\\tplayer_state", StringComparison.Ordinal), "recorder header lost the hit-event sequence consumed by Chronicle");
         Require(source.Contains("\\tdir\\tlife\\tbreath", StringComparison.Ordinal), "recorder no longer writes the actual companion life column");
         Require(!source.Contains("npc_life", StringComparison.Ordinal), "recorder contract invented an npc_life column it does not write");
+    }
+
+    private static void EventSiblingReportsCountsAndCorruption()
+    {
+        string file = Path.GetTempFileName();
+        string events = Path.ChangeExtension(file, null) + "-events.jsonl";
+        try
+        {
+            File.WriteAllText(events, "{\"v\":1,\"seq\":0,\"tick\":0,\"wall_elapsed_ms\":0,\"kind\":\"session\",\"subject\":0,\"related\":\"\",\"label\":\"\",\"channel\":\"\",\"pos_x\":0,\"pos_y\":0,\"vel_x\":0,\"vel_y\":0,\"expected_x\":0,\"expected_y\":0,\"amount\":0,\"detail\":\"\"}\n{\"v\":1,\"seq\":1,\"tick\":7,\"wall_elapsed_ms\":12.5,\"kind\":\"shot\",\"subject\":1,\"related\":\"\",\"label\":\"bow\",\"channel\":\"\",\"pos_x\":1,\"pos_y\":2,\"vel_x\":0,\"vel_y\":0,\"expected_x\":3,\"expected_y\":4,\"amount\":1,\"detail\":\"\"}\nnot-json\n");
+            string report = DescribeGodsEyeEvents.Of(file);
+            Require(report.Contains("1 occurrence record"), "event sibling did not count the valid occurrence");
+            Require(report.Contains("1 malformed line"), "event sibling silently accepted corrupt JSONL");
+            Require(report.Contains("end=missing"), "an interrupted event stream must not claim normal closure");
+            var lines = new System.Collections.Generic.List<string>();
+            void Add(string kind, int subject = 0, string channel = "", double wall = 0, string related = "")
+                => lines.Add(System.Text.Json.JsonSerializer.Serialize(new {
+                    v = 1, seq = lines.Count, tick = lines.Count, wall_elapsed_ms = wall, kind, subject, related,
+                    label = "knife", channel, pos_x = 5, pos_y = 6, vel_x = 2, vel_y = -1,
+                    expected_x = 20, expected_y = 30, amount = 0, detail = "test" }));
+            Add("session");
+            Add("shot", 1, "projectile=1000001", 100, "enemy-1");
+            Add("projectile-terrain-hit", 1000001, wall: 200);
+            Add("shot", 1, "projectile=1000002", 300, "enemy-2");
+            Add("projectile-enemy-hit", 1000002, wall: 400, related: "enemy-2");
+            Add("projectile-terrain-hit", 1000002, wall: 500);
+            for (int i = 0; i < 30; i++) Add("decision", 1, "WithPlayer", 1000 + i * 30000);
+            Add("session-end", wall: 902000);
+            File.WriteAllLines(events, lines);
+            report = DescribeGodsEyeEvents.Of(file);
+            Require(report.Contains("projectile 1000001 intended target enemy-1"), "a reused projectile slot lost its first shot identity");
+            Require(!report.Contains("projectile 1000002 intended target enemy-2"), "a piercing shot hitting terrain after an enemy is not a blocked shot");
+            Require(report.Contains("00:14:30"), "default causal summary omitted the end of a long run");
+            Require(report.Contains("end=normal close"), "normal recorder closure must be visible");
+            string full = DescribeGodsEyeEvents.Of(file, true);
+            Require(full.Contains("projectile-enemy-hit subject=1000002"), "full event trace discarded native contact details");
+            Require(full.Contains("velocity=2.0,-1.0") && full.Contains("channel=projectile=1000001"), "full event trace must retain launch controls and the projectile link");
+            File.AppendAllText(events, "{\"v\":1,\"kind\":\"shot\"}\n");
+            Require(DescribeGodsEyeEvents.Of(file).Contains("1 malformed line"), "missing occurrence fields must not default to valid zero values");
+        }
+        finally
+        {
+            File.Delete(file);
+            File.Delete(events);
+        }
     }
 
     private static void Require(bool condition, string message)

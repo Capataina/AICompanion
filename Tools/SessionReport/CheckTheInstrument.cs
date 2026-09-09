@@ -47,9 +47,9 @@ public sealed class TheBodyIsNeverPinned : ICheck
                 Name,
                 $"the body was pinned for up to {worst:n0} consecutive ticks",
                 $"Velocity over the stretch was {FindStretches.Summarise(velocity, stretch, 3)} while the position did not change. "
-                    + "A body the engine is integrating cannot hold a velocity and not move, so something wrote its position "
-                    + "back inside the AI phase. The motor's own step-up did exactly this before the guard of 2026-09-09; "
-                    + "another writer of npc.position during AI is the thing to look for."
+                    + "This establishes a motion stall, not its cause. Compare the applied controls, actual-entry rejection, "
+                    + "collision state and valid prediction divergence before attributing it to an AI-phase position writer; "
+                    + "the historical step-up defect is one possible mechanism, not a diagnosis of this interval."
                     + doing + intent,
                 session.Tick(stretch.Start), session.Tick(stretch.End), stretch.End - stretch.Start + 1);
         }

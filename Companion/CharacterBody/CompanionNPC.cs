@@ -265,7 +265,10 @@ public class CompanionNPC : ModNPC
             // the companion leaves them for the player they heal.
             if (ItemID.Sets.IsAPickup[item.type])
                 continue;
-            Bag.Collect(item, player);
+            Item snapshot = item.Clone();
+            int before = item.stack;
+            if (Bag.Collect(item, player))
+                global::AICompanion.Companion.Brain.BehaviourDiagnostics.GodsEyeEvents.RecordPickup(NPC, snapshot, before - (item.IsAir ? 0 : item.stack), "player-stacks-or-companion-bag");
         }
     }
 

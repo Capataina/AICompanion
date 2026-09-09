@@ -89,6 +89,7 @@ public static class Program
         }
 
         Console.Write(DescribeSession.Of(session));
+        Console.Write(DescribeGodsEyeEvents.Of(path, fullTimeline));
         Console.Write(Chronicle.Of(session, fullTimeline));
         if (session.Count == 0)
             return 0;

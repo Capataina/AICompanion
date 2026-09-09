@@ -37,26 +37,17 @@ public sealed class BrainTelemetry : ModSystem
     private static bool headerWritten;
     private static string? censusPath;
     private static string? mapPath;
+    private static string? eventsPath;
     private static readonly Stopwatch sessionClock = new();
     private static DateTime sessionStartedUtc;
     private const string Schema = "0.9.0";
     private static string? pendingPlayerHit;
     private static string? pendingCompanionHit;
-
-    /// <summary>
-    /// The wall-clock one plan may spend in the game, in milliseconds; half a frame. Set on the
-    /// navigator at world load rather than being its default, because the replay tool runs the
-    /// same navigator and a wall-clock limit would make the committed corpus's verdicts depend on
-    /// how busy the machine was. The 2026-09-09 session's worst plan took 778 ms — forty-six
-    /// frames for a decision due in one — and every slow plan sat at the expansion cap with the
-    /// reachability flood costing 1 to 15 ms beside it, so the time is the search's own edge
-    /// proving and an expansion budget cannot bound it: one expansion on bare floor offers a few
-    /// walks, and one on a ledge over a shaft simulates every jump profile and descent line.
-    /// </summary>
-    private const double PlanMsBudget = 8d;
+    private static string? lastDecision;
 
     /// <summary>The folder the files land in: the mod's source folder, which is where the repository is.</summary>
     public static string Folder => Path.Combine(Main.SavePath, "ModSources", "AICompanion", "Telemetry");
+    internal static double ElapsedMilliseconds => sessionClock.Elapsed.TotalMilliseconds;
 
     public override void OnWorldLoad()
     {
@@ -70,18 +61,18 @@ public sealed class BrainTelemetry : ModSystem
             plansPath = Path.Combine(Folder, $"{stamp}-plans.txt");
             censusPath = Path.Combine(Folder, $"{stamp}-census.txt");
             mapPath = Path.Combine(Folder, $"{stamp}-map.txt");
+            eventsPath = Path.Combine(Folder, $"{stamp}-events.jsonl");
             lastDumpTick = -DumpEveryTicks;
             headerWritten = false;
             sessionStartedUtc = DateTime.UtcNow;
             sessionClock.Restart();
+            GodsEyeEvents.Open(eventsPath);
             pendingPlayerHit = null;
             pendingCompanionHit = null;
+            lastDecision = null;
             ScenarioCapture.Reset();
             BehaviourCensus.Reset();
             SessionMap.Reset();
-            // The plan's wall-clock limit is a game-runtime setting and stays off in the replay
-            // tool, which runs this same navigator and must keep giving one answer per scenario.
-            Navigator.PlanMsBudget = PlanMsBudget;
             Mod.Logger.Info($"BrainTelemetry: writing {path}");
         }
         catch (Exception e)
@@ -131,6 +122,7 @@ public sealed class BrainTelemetry : ModSystem
         // told where to look.
         WriteWhole(censusPath, BehaviourCensus.Report, "census");
         WriteWhole(mapPath, SessionMap.Report, "map");
+        GodsEyeEvents.Close();
         try
         {
             writer?.Flush();
@@ -143,10 +135,12 @@ public sealed class BrainTelemetry : ModSystem
         finally
         {
             sessionClock.Reset();
+            global::AICompanion.Companion.Brain.WorldObservation.PredictObservedMotion.Clear();
             writer = null;
             plansPath = null;
             censusPath = null;
             mapPath = null;
+            eventsPath = null;
         }
     }
 
@@ -316,6 +310,17 @@ public sealed class BrainTelemetry : ModSystem
         Brain brain = companion.Brain;
         var senses = brain.Senses;
         NPC npc = companion.NPC;
+        RecordTerrainChunks.ObserveActors(npc, Main.LocalPlayer);
+        string decision = brain.Reflexes.Active ?? brain.LastAction?.Name ?? "-";
+        if (decision != lastDecision || Main.GameUpdateCount % 60 == 0)
+        {
+            var board = new StringBuilder();
+            foreach (var score in brain.Chooser.LastScores) { if (board.Length > 0) board.Append(','); board.Append(score.Action.Name).Append('=').Append(score.Raw.ToString("0.000", CultureInfo.InvariantCulture)).Append("->").Append(score.Final.ToString("0.000", CultureInfo.InvariantCulture)); }
+            board.Append(CultureInfo.InvariantCulture, $";regroup={brain.Chooser.RegroupUrgency:0.000};return-ticks={brain.Chooser.EstimatedReturnTicks:0.0}");
+            GodsEyeEvents.RecordDecision(npc, decision, board.ToString(), brain.LastRequest.Kind.ToString(), DescribeControls(companion.Motor.AppliedControls));
+            lastDecision = decision;
+        }
+        GodsEyeEvents.RecordMovementState(npc, brain.Navigator);
         SessionMap.Watch(
             NavGrid.FeetTile(npc.Bottom),
             NavGrid.FeetTile(senses.Player.Bottom),
@@ -541,6 +546,7 @@ public sealed class BrainTelemetry : ModSystem
             {
                 sinceFlush = 0;
                 writer.Flush();
+                GodsEyeEvents.Flush();
             }
         }
         catch (Exception e)
