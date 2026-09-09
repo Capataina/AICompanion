@@ -3,7 +3,7 @@
 ```
 Companionship/
 ├─ CLAUDE.md
-├─ WalkWithPlayerAction.cs   follow the player's predicted position while they travel; scores zero when they stand inside the calm band so wander can win; hard leash at 1400 px; discounted while the brain says the body is stranded
+├─ WalkWithPlayerAction.cs   follow the player's predicted position while they travel; scores zero when they stand inside the calm band so wander can win; a hard leash past which the score is full whatever else is happening (`Weights.LeashHard`); discounted while the brain says the body is stranded
 ├─ GuardAction.cs            danger high: stand within a wide band of the player, in sight of him and at a standoff from the most urgent threat
 └─ WanderAction.cs           the floor score; stand, stroll, hop inside the calm band; stranded, the action that walks the pocket with a Roam request
 ```

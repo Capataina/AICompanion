@@ -2,7 +2,7 @@
 
 This file is the whole account of how the companion decides and acts. It is written so that someone who has never opened a source file can predict what the companion will do in a given situation and, when it does something else, know which part to open. It carries the shape of every rule and none of the tunables that fill the shapes in: a weight, a threshold, a budget or a distance lives in exactly one place in the code (`DecisionMatrix/Decision/Weights.cs` for most of them, the owning class for the rest) and is read there, because a number copied here is wrong the first time someone tunes it. Every subfolder has its own `CLAUDE.md` with the file map, its own mechanism at its own depth, and the traps that bit there; this file is how the parts fit and hand off.
 
-Nothing here draws or touches health; that is `../Companion/`. The weapons are equipment and live in `../Combat/`. Nothing in the brain has been watched running beyond one short surface run; every claim below is what the code does, and "verified in play" is stated where it is true and nowhere else.
+Nothing here draws or touches health; that is `../Companion/`. The weapons are equipment and live in `../Combat/`. Every claim below is what the code does; what has been *watched* is a separate question and is answered in its own section at the end, because several of these systems have now been read back off a session's telemetry rather than only compiled.
 
 ```
 Brain/
@@ -41,7 +41,7 @@ CompanionNPC.AI
 ├─ 4  Brain.Tick
 │  ├─ 4a  Senses.Update        read the world into the world model (player, threats, loot, light, tile hits)
 │  ├─ 4b  Arsenal.Tick, Chopper.Tick   weapon and tool cooldowns
-│  ├─ 4c  Reflexes.TryTake     if a threat will hit the standing body inside the lookahead and a simulated jump or step clears it, take the body for a few ticks and STOP the tick here
+│  ├─ 4c  Reflexes.TryTake     if a threat will hit the standing body inside the lookahead and a simulated jump or step clears it, take the body for a few ticks: 4d to 4g are skipped, and the tick goes straight to the hands at 4h with no action to consult
 │  ├─ 4d  Chooser.Choose       every action scores itself; the best (with commitment and the horizon charge) becomes Current
 │  ├─ 4e  action.Execute       the winner acts (fires, swings, sets the held item) and returns a PositionRequest
 │  ├─ 4f  Positioner.Resolve   the request becomes a feet position, or null for Hold
@@ -64,7 +64,7 @@ The world model is rebuilt every tick and read by everything else. Senses do not
 
 **PlayerSense.** Position, bottom, velocity, health fraction, dead, attacking (item animation running with a damaging item). Travel *intent*: the horizontal velocity smoothed toward its current value while moving and decaying while still, so it converges over a few seconds of travel and fades over a couple of seconds of standing; `IsTravelling` is intent above a small floor, and `Predict(ticks)` is bottom plus intent times ticks, where the player will be if they keep going, which is what the walk-with action aims at. Also whether the player really hit a tree or an ore in the last moment, from the tile damage watcher, and whether the companion has a sight line to the player.
 
-**ThreatSense.** One record per active hostile that is not friendly, alive, deals damage, is not a critter and can be chased. For each: its movement class (phaser if it ignores tiles, flyer if it ignores gravity, else walker); whether it is *reachable* (walkers by the same A* the companion uses from the enemy's feet to the player's, flyers by a flood fill through connected air, phasers always; both searches are bounded and a search that runs out of budget answers *reachable*, because a threat wrongly ignored costs more than one wrongly feared; refreshed on a stagger so only a fraction of enemies refresh on any tick); its observed speed (the peak of its speed so far, decaying slowly, floored, so a dashing enemy is underestimated until its first dash is seen); whether it shoots (a fixed list of shooters, or any enemy that had a hostile projectile appear beside it recently; Demon Eyes are deliberately not shooters, their AI never spawns a projectile); its distance to player and companion; whether it has a sight line to the player; and `TicksToPlayer`, distance to player divided by observed speed.
+**ThreatSense.** One record per active hostile that is not friendly, alive, deals damage, is not a critter and can be chased. For each: its movement class (phaser if it ignores tiles, flyer if it ignores gravity, else walker); whether it is *reachable* (walkers by the same A* the companion uses from the enemy's feet to the player's, flyers by a flood fill through connected air, phasers always; both searches are bounded, and the walker search reports what it established rather than a rounding of it, with this caller choosing to read an unknown as *reachable* because a threat wrongly ignored costs more than one wrongly feared — the companion's own rescue takes the opposite rounding of the same helper, so any new caller names the one it wants; refreshed on a stagger so only a fraction of enemies refresh on any tick); its observed speed (the peak of its speed so far, decaying slowly, floored, so a dashing enemy is underestimated until its first dash is seen); whether it shoots (a fixed list of shooters, or any enemy that had a hostile projectile appear beside it recently; Demon Eyes are deliberately not shooters, their AI never spawns a projectile); its distance to player and companion; whether it has a sight line to the player; and `TicksToPlayer`, distance to player divided by observed speed.
 
 From those, two numbers the whole brain leans on:
 
@@ -119,7 +119,7 @@ The actions and what each one values. `safe` below is `1 − PlayerDanger` with 
 
 | action | scores on | forecast | asks the positioner for | in hand |
 |---|---|---|---|---|
-| **survive** | the companion's own danger alone, rising from nothing to above every other action's ceiling as breath or life runs out; zero while the body is fine | 0 | Exact at the nearest reachable standable tile whose head row is dry and whose column holds no lava | empty |
+| **survive** | the companion's own danger alone, rising from nothing to above every other action's ceiling as breath or life runs out; zero while the body is fine | 0 | Exact at the nearest standable tile whose head row is dry and whose column holds no lava and to which the walker search has *proved* a route, re-asked on a cadence while it is held; and, whenever the head is under water, a jump every tick to break the surface, which is a floor under the plan rather than the alternative to having one | empty |
 | **guard** | danger, raised by distance from the player; zero when the player is dead | 0 | Guard near the player, target = the most urgent threat | the chosen weapon |
 | **kite** | how close the nearest reachable threat is to the companion: full at contact, gone a short way out | 0 | Retreat, target = most urgent | the chosen weapon |
 | **hunt** | `safe` × reach × a boss bonus × a leash on the distance to the player × the companion's own skin, where reach is full for any target whose hitbox meets the screen and falls with distance (floored, so a far target still scores) only beyond it, because distance is already charged as the trip in the forecast and charging it twice let chopping beat a zombie walking across the screen; the target is the threat best on a blend of urgency and nearness to the companion, among threats that are reachable or on screen with a solvable shot | the walk to firing range plus a fight allowance | LineOfFire at the target | the chosen weapon |
@@ -213,7 +213,15 @@ Finding ore is the expensive half, so it runs only when the player starts on a n
 
 ## What is verified and what is not
 
-Verified in play (the first two runs): the body draws and swings, chopping the right tree at the trunk, arrows fly, the health bar, persistence, and that the brain runs (first tick logged, action = wander). Everything else in this file describes code that compiles and has not been watched: the horizon charge, kiting, dodging after the simulation rewrite, the navigator on anything but flat ground, mining, the torch thresholds against real cave light, the map reveal and the map head. The overlay (left square bracket) shows every score, the danger and horizon, the light readings and whether the torch is shown, the chosen spot and the path; the telemetry in `Debug/` writes the same and more to a file every tick, and is how a wrong choice is read after the session rather than guessed from memory.
+Three tiers, and the distinction is the point: what has been seen working, what has been *recorded* running and read back off the telemetry, and what has only ever compiled.
+
+Seen working in play: the body draws and swings, chopping the right tree at the trunk, arrows fly, the health bar, persistence, and that the brain runs.
+
+Recorded and read back, which is weaker than working — the telemetry shows these systems executing and is also where their defects were found: the chooser, the navigator and the follower over surface and cave runs, the reflexes (the 2026-09-09 combat session spent 153 ticks inside a reflex hold), the survive action under water, and the whole plan-and-follow chain. Several of the traps and findings in this file and in `DecisionMatrix/Navigation/` are corrections read out of those sessions rather than reasoned from the code, and the pass lines they declared are checked on the next session rather than assumed.
+
+Only compiled, never watched: the horizon charge, kiting, the stranded roam-and-retry cycle, mining, the torch thresholds against real cave light, the map reveal and the map head.
+
+The overlay (left square bracket) shows every score, the danger and horizon, the light readings and whether the torch is shown, the chosen spot and the path; the telemetry in `Debug/` writes the same and more to a file every tick, and is how a wrong choice is read after the session rather than guessed from memory.
 
 ## Where a new thing goes
 
@@ -229,3 +237,44 @@ A new fact about the world is a field on a sense, computed once. A new thing the
 - **An action that holds a tool on the walk hides the torch.** Hold the tool only in position; the hand must be empty on the way.
 - **An action's `Score` that searches the world is called every tick for every action, winner or not.** Put a search behind a trigger and a cooldown, as the chop and mine actions do, or the losing action pays it while something else runs.
 - **`Senses` and `Reflexes` are both a namespace and a class.** From outside `DecisionMatrix` write `DecisionMatrix.Senses.Senses`; inside it the short form resolves.
+
+## Planned work
+
+### This file has outgrown one reading, and every oversized section is a child folder's inside
+
+Recorded 2026-09-09, not executed, and the gate is a boundary rather than a judgement: this is one of the three files the owner reads directly, and restructuring it at a session close would hand him a shape he did not ask for. The plan is at execution granularity so a later deliberate pass carries it out without re-deriving it.
+
+At around forty-five thousand characters this is the largest file in the repository, and the diagnosis is not length. Six of its sections are a walkthrough of one child folder's system, written here, while that child's own file is a few thousand characters and in two cases holds no mechanism at all. That is the local-delta rule inverted: the parent should say how the parts fit and hand off, and each child should say how its part works inside.
+
+```
+section                     child's file today   what the child gets, and what stays here
+──────────────────────────  ──────────────────   ────────────────────────────────────────
+Senses (six senses, the     Senses/  5.9k        the six senses' fields and the derived
+derived numbers, the two    has the light and    numbers move down. Stays: that senses
+danger numbers)             danger sections      produce facts and never decide, and the
+                            already              one-way flow into the chooser
+Decision (the product of    Decision/  now       the considerations and the action table
+considerations, the         carries the ladder   move down. Stays: that a choice is a
+action table, the ladder)                        product and the ladder exists
+Positioning (the factors,   Positioning/ 5.5k    the factor list and the four formula
+the four formulas, the      holds the same       lines are ALREADY THERE — this is
+reachability tier)          factor list          duplication to consolidate to a pointer,
+                                                 not content to move
+Navigation (the grid, the   Navigation/ 34.7k    already fully covered downstairs; the
+edge kinds, the follower)   plus four children   whole section becomes the handoff
+                                                 paragraph plus a pointer
+Reflexes (the dodge         Reflexes/  1.8k      the whole mechanism moves down; that
+simulation)                 map and traps only   file is a map with a traps list today
+Aiming (the arc sweep,      Aiming/  1.9k        the sweep, the profile and both limits
+the two limits)                                  move down
+Work (the tools, the        Work/  1.4k          the tools move to their own subfolders'
+torch's place)              a map only           files; the torch's rule about the free
+                                                 hand stays here, because it is a
+                                                 statement about the whole tick
+```
+
+Read each child before moving anything, because the four rows differ in kind: Positioning and Navigation are consolidations where the parent's copy is deleted in favour of a pointer, Reflexes and Aiming are genuine moves into a file that has nowhere to put them yet, and Senses is partly each. Moving a section into a child that already says it is how a fact ends up with two owners, which is the failure this whole plan is meant to remove rather than relocate.
+
+What must survive the split, and it is the reason this file exists at all: the one-tick chain, the four foundations, the handoff between the stages, the ladder's existence, and the traps that are about the *seams* rather than about one folder. A reader who has opened no source file must still be able to predict what the companion does; if the split leaves that impossible, it has gone too far and the walkthrough belongs back here.
+
+The reference surface, enumerated 2026-09-09: the root file points at this one by name for how the deciding works, `Combat/Weapons/CLAUDE.md` and `DecisionMatrix/Positioning/CLAUDE.md` point at parents by relative path, and no document in the tree links to a heading anchor anywhere, so nothing breaks silently. The sweep is the six child files plus those three pointers.

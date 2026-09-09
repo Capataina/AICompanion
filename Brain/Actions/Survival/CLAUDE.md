@@ -1,6 +1,6 @@
 # Survival — the body's own rescue
 
-One action, and the only one allowed to score above the top of the scale, because nothing the companion could be doing for the player is worth drowning for.
+One action, and the top rung of the urgency ladder that scores above the ordinary band, because nothing the companion could be doing for the player — including guarding him, the rung below — is worth drowning for.
 
 ```
 Survival/

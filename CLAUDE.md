@@ -67,7 +67,7 @@ The body's arithmetic lives in one place. `Brain/DecisionMatrix/Navigation/Body/
 
 The navigation core does not know the game exists. Everything under `Navigation/` talks to tiles through an interface, with exactly one implementation that names Terraria types; a shell script enforces the boundary. That is what lets the planner run headless in a console tool against a text file, which is where every navigation claim gets checked before a playtest.
 
-Every tunable number is in one file. `Brain/DecisionMatrix/Decision/Weights.cs` holds them, so a playtest note like "it hugs too close" is one edit in one place. A number that appears anywhere else is a bug or a fact of the world.
+Every tunable the player would feel is in one file. `Brain/DecisionMatrix/Decision/Weights.cs` holds the brain's own numbers — bands, leashes, urgencies, cadences — so a playtest note like "it hugs too close" is one edit in one place. It is not the only file in the tree with a constant in it and never claimed to be: the body's arithmetic, the aimer's sweep and each tool's own reach live with the code that owns them, because those are facts about the game rather than dials to turn. The test is whether a note from play could move it. If it could, it belongs here; if it appears in prose anywhere, that is a documentation defect rather than the current value.
 
 Every tick is recorded. `Brain/Debug/` writes a row per tick to a file, plus a census of what the planner offered against what the body actually did, a drawing of the whole session, and windows around anything that looked wrong. `Tools/SessionReport` reads that back and prints what is definitely wrong, probably wrong and merely odd. This exists because the alternative is diagnosing behaviour from memory of watching it, which produced several confident wrong fixes before the recorder existed.
 
@@ -97,9 +97,11 @@ Every tick is recorded. `Brain/Debug/` writes a row per tick to a file, plus a c
 
 ## Where it stands, 2026-09-09
 
-Ninety-four commits over three days. The whole chain above is built and compiles: senses, reflexes, the eight behaviours, the positioner, the A* navigator over proven moves, both weapons and the arsenal that picks between them, chopping, mining, the torch, doors, the bag, the HUD notch, the map head and its torch reveal, per-character persistence, the per-tick recorder and the session reader, and the headless replay tool with a committed scenario database.
+Three days of work, at a rate the log carries and this sentence deliberately does not, because a commit count is wrong the next time anyone commits. The whole chain above is built and compiles: senses, reflexes, the eight behaviours, the positioner, the A* navigator over proven moves, both weapons and the arsenal that picks between them, chopping, mining, the torch, doors, the bag, the HUD notch, the map head and its torch reveal, per-character persistence, the per-tick recorder and the session reader, and the headless replay tool with a committed scenario database.
 
-What is genuinely verified in play is much smaller than what is built, and the distinction matters: the body draws and swings, trees get chopped at the right trunk, arrows fly, the health bar and persistence work, and the brain runs. Navigation has been watched over a handful of short surface-and-first-cave runs, and the most recent fix — the motor climbing a platform it was meant to be falling through, which froze the body for hundreds of ticks — is packaged and awaiting a playtest at the time of writing.
+What is genuinely verified in play is much smaller than what is built, and the distinction matters: the body draws and swings, trees get chopped at the right trunk, arrows fly, the health bar and persistence work, and the brain runs. Navigation has been watched over a handful of short surface-and-first-cave runs and read back from the per-tick record for several more, which is a weaker kind of knowing and the kind most of this project has: the record says what the body did, and only play says whether it looked right.
+
+Two things are known from play rather than argued from code, and they are the standing shape of the problem. Guarding, weapon choice and dodging work. Getting somewhere does not: the companion still cannot pass a staircase, because a stair is a sloped platform and the grid cannot represent a tile that is both (see `Brain/DecisionMatrix/Navigation/`), and it still strands itself in one small underground structure it has now failed in across four separate sessions. Those are the two that matter and neither is a tuning question.
 
 The mastery tree is designed and unbuilt. Its shape is deliberately undecided: a mix of levels and resource costs paid from the player's inventory at the tree rather than skill points alone, and by the 2026-09-08 revision it may gate *sending* behaviours (go gather, go farm) while doing-with-you behaviours come early or free. Weapon direction is decided and partly unbuilt: short sword and bow at launch, throwing knives as a piercing upgrade, an overheat mechanic.
 
@@ -229,3 +231,31 @@ The output lands in `Tools/Scenarios/` and is committed, because the scenarios a
 ## Planned work
 
 See the Slate project `ai-companion`, milestone AIC-19 for the brain and AIC-8 for boss persistence before any tree work.
+
+### This file has outgrown one reading, and the surplus belongs in the tool folders it describes
+
+Recorded 2026-09-09, not executed. The reason it was recorded rather than done is a boundary rather than a judgement: this file is one of the three the owner reads directly, and reorganising it at a session close would hand him a documentation shape he did not ask for. Nothing below needs re-deriving — the split is decided, the destinations are named, and the reference surface is enumerated.
+
+The file is around thirty thousand characters, and it is not uniformly oversized. Two sections carry almost all of the surplus, and in both cases the surplus is a *subfolder's inside* written at the root, which is the local-delta rule broken rather than a file that is merely long:
+
+```
+what stays at the root                     what moves down, and where to
+├─ what this is trying to be               Operating manual
+├─ what the companion does                 ├─ the NavReplay invocation list — every
+├─ how the whole thing fits together       │  flag, --trace-jump through --follow-ticks,
+│  (the one-tick chain and the four        │  and what each line of its output means
+│   shared foundations)                    │  → Tools/NavReplay/CLAUDE.md
+├─ the rulings                             ├─ the reshape.py invocation, the venv, --pad
+├─ what this is not                        │  and the widen-until-decidable procedure
+├─ where it stands, dated                  │  → Tools/WorldWindow/CLAUDE.md
+├─ the whole-tree map (folders only)       └─ the SessionReport invocation's detail
+├─ the traps that are the repository's        → Tools/SessionReport/CLAUDE.md, which
+│  rather than one folder's                     already carries the three categories
+└─ what a reader will get wrong
+```
+
+What stays behind in the operating manual is one line per tool naming what it answers and pointing at its folder, plus the two commands a session runs whatever it is doing: the shell build and the navigation boundary check. The test for each line is whether a reader needs it *before* opening the tool's folder; the build command is, a `--churn` flag is not.
+
+Two of the three destinations do not exist. `Tools/NavReplay/` and `Tools/WorldWindow/` carry no `CLAUDE.md` at all, which the coverage pass already reports, so writing them is the first half of this work and not a step to fold in afterwards. `Tools/CLAUDE.md` gains the map lines pointing at them.
+
+The reference surface, enumerated 2026-09-09 rather than estimated: six folder files link to a parent `CLAUDE.md` by relative path, no document anywhere in the tree links to a heading anchor, and the tool invocations appear in prose in `Tools/CLAUDE.md`, `Tools/SessionReport/CLAUDE.md`, `Brain/DecisionMatrix/Navigation/CLAUDE.md` and `Brain/Debug/CLAUDE.md`. So no link breaks silently, and the sweep is those four prose mentions plus the map lines. Verify afterwards by searching for the moved flag names and finding them only in their new homes.
