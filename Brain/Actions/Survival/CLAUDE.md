@@ -18,6 +18,10 @@ Getting to a refuge is the plan; breaking the surface is the floor underneath it
 
 The shape of that mistake generalises past this folder: a last resort placed in the `else` of the ordinary path can only fire when the ordinary path was never attempted, which is the one situation it was not written for. A last resort belongs on the condition it exists to answer.
 
+## Open, and unmeasured: the ring search got more expensive the day it got stricter
+
+`FindRefuge` widens rings around the feet and asks the walker whether each candidate is reachable, returning on the first that answers yes. Tightening that question to `WalkerProvenReach` means strictly fewer candidates answer yes, so the search returns later and, where no refuge is provable at all, walks every ring — each one paying a bounded A* per tile of its perimeter. The stricter test is right and this is its price, paid on exactly the ticks the companion is drowning, and the brain has been recorded peaking well past a frame on an ordinary tick. Nobody has measured it (raised by a review on 2026-09-09 and not confirmed). The obvious answers if it bites are a ring budget, a cheap pre-filter by straight-line distance before any search, or reusing the positioner's flood, which has already answered this question for the whole region on its own cadence.
+
 ## Traps
 
 - **The score must be able to beat a *committed* guard, not guard's raw ceiling.** The incumbent action keeps the commitment bonus, so beating guard means clearing guard's own urgency times that bonus; a survive that merely tops the band ties a running guard and loses to its bonus while the companion drowns. `Weights.GuardUrgency` and `Weights.SurviveUrgency` are one ladder for that reason and are changed together.
