@@ -26,7 +26,12 @@ public sealed class Brain
 
     // The navigator names nothing of the game, so the failed-plan dump reaches the telemetry
     // through this seam; the replay tool leaves it unset.
-    static Brain() => Navigator.PlanFailed = BehaviourDiagnostics.BrainTelemetry.DumpPlan;
+    static Brain()
+    {
+        Navigator.PlanFailed = BehaviourDiagnostics.BrainTelemetry.DumpPlan;
+        Navigator.PlanMsBudget = Weights.RouteSearchMilliseconds;
+        PlanLocalMovement.PreparationMsBudget = Weights.MovementPreparationMilliseconds;
+    }
 
     public PositionRequest LastRequest { get; private set; }
     public CompanionAction? LastAction => Chooser.Current;
@@ -101,6 +106,7 @@ public sealed class Brain
 
         Navigator.Capabilities = companion.Motor.Capabilities;
         bool taken = Reflexes.TryAssess(companion.NPC, Senses, companion.Motor.State, out var unsafeAtTick);
+        Navigator.UnsafeAtTick = Senses.Threats.Threats.Count == 0 && Senses.Projectiles.Threats.Count == 0 ? null : unsafeAtTick;
         ReflexMs = Lap();
         if (taken)
         {
@@ -194,7 +200,8 @@ public sealed class Brain
         if (StrandedTicks > 0 && Positioner.Reaches(MovementQueries.FeetTile(Senses.Player.Bottom)))
             StrandedTicks = 0;
         else if (towardPlayer && Navigator.PlannedThisTick)
-            StrandedTicks = Navigator.LastPlanEmpty && Positioner.ReachComplete ? System.Math.Max(StrandedTicks, 1) : 0;
+            StrandedTicks = Navigator.LastPlanEmpty && Navigator.LastSearchStop == AStar.SearchStopReason.Exhausted
+                && Positioner.ReachComplete ? System.Math.Max(StrandedTicks, 1) : 0;
         else if (StrandedTicks > 0)
             StrandedTicks++;
     }

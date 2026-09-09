@@ -70,6 +70,8 @@ public abstract class Traversal
     /// moved goal still replan, so a run-up that never ends is still a strike.
     /// </summary>
     public virtual bool MidMove => false;
+    /// <summary>Conservative by default: successor-sensitive entry failures cannot ban an edge before its next move is known.</summary>
+    public virtual bool EntryDependsOnNext => true;
 
     /// <summary>
     /// How many rows this kind of move can climb from a standing start, which is what decides

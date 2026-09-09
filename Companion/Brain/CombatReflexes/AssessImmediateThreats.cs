@@ -21,6 +21,7 @@ public sealed class Reflexes
     {
         bool Unsafe(BodyState state, int tick)
         {
+            if (tick > Weights.DodgeLookaheadTicks) return false;
             Rectangle body = new((int)MathF.Floor(state.Left), (int)MathF.Floor(state.Bottom - BodyPhysics.Height),
                 BodyPhysics.Width + 1, BodyPhysics.Height + 1);
             foreach (ThreatRecord threat in senses.Threats.Threats)

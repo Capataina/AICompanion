@@ -17,7 +17,7 @@ namespace AICompanion.Companion.Brain.SharedMovementSystem;
 public static class AStar
 {
     /// <summary>Why a bounded search returned its result. Callers must not infer this from an expansion count.</summary>
-    public enum SearchStopReason { Found, Exhausted, ExpansionBudget, Deadline }
+    public enum SearchStopReason { Found, Exhausted, ExpansionBudget, Deadline, InvalidStart }
 
     /// <summary>
     /// Lava tiles are nodes at a high cost while this is true, so a short lava crossing beats
@@ -107,13 +107,13 @@ public static class AStar
     private static long deadline;
 
     /// <summary>How many expansions between clock reads; often enough to bound the overrun, rare enough that the read is not the cost.</summary>
-    private const int ClockEvery = 32;
+    private const int ClockEvery = 1;
 
     public static NavPath? Find(Point start, Point goal, int budget, out int expansions)
         => Find(start, goal, budget, out expansions, out _);
 
     /// <summary>Finds a route and reports whether its negative result is a proof or a limit.</summary>
-    public static NavPath? Find(Point start, Point goal, int budget, out int expansions, out SearchStopReason stopReason)
+    public static NavPath? Find(Point start, Point goal, int budget, out int expansions, out SearchStopReason stopReason, Func<NavStep, bool>? acceptFirstStep = null, BodyPhysics.Pose? startPose = null)
     {
         expansions = 0;
         stopReason = SearchStopReason.Exhausted;
@@ -172,8 +172,9 @@ public static class AStar
             }
 
             float gHere = g[node];
-            foreach ((NavStep step, float cost) in Neighbours(node, !AllowOneWayDrops))
+            foreach ((NavStep step, float cost) in Neighbours(node, !AllowOneWayDrops, node == from ? startPose : null))
             {
+                if (node == from && acceptFirstStep != null && !acceptFirstStep(step)) continue;
                 var next = new NavNode(step.Tile, step.Mobility);
                 if (closed.Contains(next))
                     continue;
@@ -365,11 +366,13 @@ public static class AStar
     /// With <paramref name="refuseOneWay"/> an edge whose landing cannot get back to this node
     /// is dropped, which is <see cref="OneWay"/> and the only thing that costs a caller extra.
     /// </summary>
-    private static IEnumerable<(NavStep, float)> Neighbours(NavNode node, bool refuseOneWay)
+    private static IEnumerable<(NavStep, float)> Neighbours(NavNode node, bool refuseOneWay, BodyPhysics.Pose? actualPose = null)
     {
         (NavNode, bool) key = (node, AllowLava);
         NavEdge[] edges;
-        if (!CacheEdges)
+        if (actualPose != null)
+            edges = System.Linq.Enumerable.ToArray(NavEdges(node, AllowLava, actualPose));
+        else if (!CacheEdges)
             edges = System.Linq.Enumerable.ToArray(NavEdges(node, AllowLava));
         else if (!edgeCache.TryGetValue(key, out CachedEdges cached) || unchecked(Clock - cached.Born) > EdgeCacheLifeTicks)
         {
@@ -483,11 +486,11 @@ public static class AStar
     /// offered is a move the body makes. From inside liquid every move costs double, because the
     /// game halves a wet NPC's movement.
     /// </summary>
-    private static IEnumerable<NavEdge> NavEdges(NavNode node, bool lava)
+    private static IEnumerable<NavEdge> NavEdges(NavNode node, bool lava, BodyPhysics.Pose? actualPose = null)
     {
         Point t = node.Tile;
         float costScale = NavGrid.IsLiquid(t.X, t.Y) ? 2f : 1f;
-        BodyPhysics.Pose? here = NavGrid.StandAt(t.X, t.Y, lava);
+        BodyPhysics.Pose? here = actualPose ?? NavGrid.StandAt(t.X, t.Y, lava);
         foreach (Traversal traversal in Traversal.Planning)
             foreach (NavEdge edge in traversal.Candidates(node, here, lava))
                 yield return edge with { Move = edge.Move * costScale };

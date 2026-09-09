@@ -24,6 +24,9 @@ public readonly record struct EdgeReport(MoveKind Kind, Point From, Point Tile, 
 /// </summary>
 public sealed class Navigator
 {
+    public enum ExecutionStatus { Idle, Arrived, Executable, Preparing, Partial, Unknown, Rejected }
+    public ExecutionStatus Status { get; private set; }
+    public AStar.SearchStopReason LastSearchStop { get; private set; }
     public const int PlanBudget = 1500;
 
     /// <summary>
@@ -118,6 +121,8 @@ public sealed class Navigator
     // run-up is state that belongs to the follower and not to the planner's shared set.
     private readonly Traversal[] traversals = Traversal.Fresh();
     private readonly PlanLocalMovement local = new();
+    public PlanLocalMovement.Rejection? LastRejection => local.LastRejection;
+    public string PreparationResult => local.PreparationResult;
     private NavStep? onStep;
     private bool edgeReported;
     private TraversalExecution? execution;
@@ -128,11 +133,14 @@ public sealed class Navigator
     // tick it stops mattering; merged into the search's avoid list on every plan, priced and not
     // banned, so a detour wins wherever one exists and the direct way is still there when none does.
     private readonly System.Collections.Generic.List<(Rectangle box, int until)> stuckAvoid = new();
+    private readonly System.Collections.Generic.List<(NavStep step, BodyState entry, ITileWorld world, int revision, int checkedAt)> failedEntries = new();
 
     /// <summary>The controls that move the body toward <paramref name="targetFeet"/> this tick; <see cref="Arrived"/> says whether it is there.</summary>
     public Controls MoveTo(BodyState live, Vector2 targetFeet)
     {
         clock++;
+        live = live with { Capabilities = Capabilities };
+        Status = ExecutionStatus.Unknown;
         PlannedThisTick = false;
         LastFault = TraversalFault.None;
         Arrived = false;
@@ -166,6 +174,7 @@ public sealed class Navigator
             execution = null;
             StuckStrikes = 0;
             Arrived = true;
+            Status = ExecutionStatus.Arrived;
             floor.Reset();
             BehaviourCensus.RequestReached();
             return Controls.None;
@@ -205,7 +214,7 @@ public sealed class Navigator
         bool stuck = stuckTicks > StuckReplanTicks;
         // The cadence waits while the current step is part way through a move a fresh plan would
         // undo (a jump's back-off and run-in); a stuck body and a moved goal do not wait.
-        bool midMove = !noPath && !Path!.Finished && (execution?.MidMove ?? For(Path.Current.Kind).MidMove);
+        bool midMove = !noPath && !Path!.Finished && (local.Preparing || (execution?.MidMove ?? For(Path.Current.Kind).MidMove));
         bool stale = forceReplan || (noPath && !failedRecently) || (!noPath && (Path!.Finished || (ticksSincePlan >= ReplanInterval && !midMove) || stuck));
         // Plan only from the ground: an airborne body has no standable tile under it, and a
         // plan that failed for that reason blocked replanning for the retry wait, during which
@@ -261,7 +270,7 @@ public sealed class Navigator
                 onStep = null;
                 execution = null;
             }
-            Plan(start, goal.Value);
+            Plan(live, goal.Value);
             if (onStep is NavStep replaced && (Path == null || Path.Finished || Path.Current != replaced))
             {
                 Report(replaced, ticksOnStep, TraversalFault.Interrupted);
@@ -301,6 +310,7 @@ public sealed class Navigator
 
     public void Interrupt(BodyState live)
     {
+        Status = ExecutionStatus.Idle;
         if (onStep is NavStep step)
             Report(step, ticksOnStep, TraversalFault.Interrupted);
         Path = null;
@@ -319,8 +329,9 @@ public sealed class Navigator
         StuckStrikes++;
     }
 
-    private void Plan(Point start, Point goal)
+    private void Plan(BodyState live, Point goal)
     {
+        Point start = live.FeetTile;
         GoalTile = goal;
         ticksSincePlan = 0;
         forceReplan = false;
@@ -337,6 +348,7 @@ public sealed class Navigator
         Point? from = NavGrid.NearestStandable(start, 2);
         if (from == null)
         {
+            LastSearchStop = AStar.SearchStopReason.InvalidStart;
             Path = null;
             LastPlanFailed = true;
             LastPlanEmpty = true;
@@ -356,7 +368,10 @@ public sealed class Navigator
         int used;
         try
         {
-            Path = AStar.Find(from.Value, goal, PlanBudget, out used);
+            RefreshRejectedEntries(live, clock);
+            Path = AStar.Find(from.Value, goal, PlanBudget, out used, out var stop,
+                step => !EntryRejected(step, live), live.Pose);
+            LastSearchStop = stop;
         }
         finally
         {
@@ -396,6 +411,33 @@ public sealed class Navigator
             BehaviourCensus.PlanFailed();
         if (LastPlanFailed)
             PlanFailed?.Invoke(from.Value, goal, Path?.Goal, used, Path == null ? "no path" : "partial path");
+    }
+
+    internal void RefreshRejectedEntries(BodyState live, int now)
+    {
+        failedEntries.RemoveAll(entry => entry.world != NavGrid.World || entry.revision != NavGrid.World.Revision || !PlanLocalMovement.Matches(entry.entry, live));
+        // Unannounced sand/liquid changes have no revision hook. Recheck old negative
+        // evidence physically; elapsed time alone never makes a failed edge admissible.
+        for (int i = failedEntries.Count - 1; i >= 0; i--)
+        {
+            var failed = failedEntries[i];
+            if (unchecked(now - failed.checkedAt) <= AStar.EdgeCacheLifeTicks) continue;
+            var proof = new PlanLocalMovement();
+            var retry = new TraversalExecution(For(failed.step.Kind).CopyForExecution(), failed.step, null);
+            if (proof.TryExecute(NavGrid.World, retry, live, null, out _, out _))
+            {
+                failedEntries.RemoveAt(i);
+                local.InvalidatePhysicalProof();
+            }
+            else failedEntries[i] = (failed.step, failed.entry, failed.world, failed.revision, now);
+        }
+    }
+
+    internal bool EntryRejected(NavStep step, BodyState live) => failedEntries.Exists(entry => entry.step == step && PlanLocalMovement.Matches(entry.entry, live));
+
+    internal void RememberRejectedEntry(NavStep step, BodyState live)
+    {
+        if (!EntryRejected(step, live)) failedEntries.Add((step, live, NavGrid.World, NavGrid.World.Revision, clock));
     }
 
     private Traversal For(MoveKind kind) => traversals[(int)kind];
@@ -449,13 +491,18 @@ public sealed class Navigator
             {
                 path.Steps[path.Index] = refined;
                 onStep = refined;
+                Status = path.Partial ? ExecutionStatus.Partial : ExecutionStatus.Executable;
                 return controls;
             }
-            // A valid resting-pose edge can have an invalid incoming velocity or offset.
-            // Give the shared controller a bounded preparation interval at its take-off;
-            // rejecting that entry must not immediately price the whole destination away.
-            if (execution!.Ticks == 0 && live.OnGround && ticksOnStep < 90)
-                return local.Choose(NavGrid.World, live, NavGrid.FeetWorld(step.From), Controls.None, Capabilities, UnsafeAtTick);
+            if (local.TryPrepare(NavGrid.World, execution!, live, UnsafeAtTick, out controls))
+            {
+                Status = ExecutionStatus.Preparing;
+                return controls;
+            }
+            if (fault != TraversalFault.None && execution!.Ticks == 0 && !traversal.EntryDependsOnNext)
+            {
+                RememberRejectedEntry(step, live);
+            }
             if (fault == TraversalFault.None)
                 fault = TraversalFault.Interrupted;
             stepFaulted = true;
@@ -464,6 +511,7 @@ public sealed class Navigator
             Report(step, ticksOnStep, fault);
             if (execution!.Ticks > 0) Strike(step.Tile);
             forceReplan = true;
+            Status = ExecutionStatus.Rejected;
             return Controls.None;
         }
         if (fault != TraversalFault.None)
@@ -476,6 +524,7 @@ public sealed class Navigator
             forceReplan = true;
             return Controls.None;
         }
+        Status = path.Partial ? ExecutionStatus.Partial : ExecutionStatus.Executable;
         return controls;
     }
 
@@ -543,6 +592,7 @@ public sealed class Navigator
 
     public void Clear()
     {
+        Status = ExecutionStatus.Idle;
         if (onStep is NavStep step)
             Report(step, ticksOnStep, TraversalFault.Interrupted);
         Path = null;

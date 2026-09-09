@@ -358,6 +358,8 @@ static (FollowOutcome, string, List<string>) FollowPath(TextTileWorld world, Poi
     for (int tick = 1; tick <= allowance; tick++)
     {
         Controls controls = navigator.MoveTo(body, target);
+        if (tick == 1 && navigator.LastRejection is { } rejection)
+            edges.Add($"initial proof rejected: {rejection.Reason} {rejection.Fault} at predicted tick {rejection.Tick}, entry {rejection.Entry}, predicted {rejection.Predicted}; preparation {navigator.PreparationResult}");
         if (navigator.EdgeCount > reported && navigator.LastEdge is EdgeReport e)
         {
             reported = navigator.EdgeCount;

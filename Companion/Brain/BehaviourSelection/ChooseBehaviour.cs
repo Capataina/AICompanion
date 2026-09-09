@@ -35,10 +35,26 @@ public sealed class Chooser
 
     public readonly List<Scored> LastScores = new();
     public CompanionAction? Current { get; private set; }
+    public float RegroupUrgency { get; private set; }
+    public float EstimatedReturnTicks { get; private set; }
 
     public CompanionAction Choose(in ActionContext ctx)
     {
         LastScores.Clear();
+        var delta = ctx.Senses.Player.Bottom - ctx.Npc.Bottom;
+        EstimatedReturnTicks = (MathF.Abs(delta.X) + MathF.Abs(delta.Y)) / SharedMovementSystem.BodyPhysics.WalkSpeed;
+        var navigator = ctx.Companion.Brain.Navigator;
+        if (ctx.Companion.Brain.LastRequest.Kind is PositionSelection.RequestKind.WithPlayer or PositionSelection.RequestKind.Guard
+            && navigator.Path is { Finished: false } route)
+        {
+            float routeTicks = 0f;
+            for (int i = route.Index; i < route.Steps.Count; i++) routeTicks += route.Steps[i].Ticks;
+            EstimatedReturnTicks = MathF.Max(EstimatedReturnTicks, routeTicks);
+        }
+        float movingAway = delta.LengthSquared() > 1f ? Microsoft.Xna.Framework.Vector2.Dot(ctx.Senses.Player.Velocity, Microsoft.Xna.Framework.Vector2.Normalize(delta)) : 0f;
+        RegroupUrgency = ctx.Senses.Player.IsDead ? 0f : WorldObservation.CalculateRegroupUrgency.Evaluate(
+            ctx.Senses.DistanceToPlayer, EstimatedReturnTicks, movingAway, navigator.StuckTicks,
+            Weights.CalmBandFar, Weights.RegroupFullDistance, Weights.RegroupFreeReturnTicks, Weights.RegroupFullReturnTicks);
         float horizon = ctx.Senses.Threats.Horizon;
         // An all-zero board (the player is dead, nothing to do) falls to the last action, wander,
         // which holds still in that case; starting below zero would hand the tick to whichever
@@ -50,6 +66,7 @@ public sealed class Chooser
         {
             float raw = action.Score(ctx);
             float final = raw;
+            if (action.IsExcursion && !ctx.Stranded) final *= 1f - RegroupUrgency;
             if (raw > 0f)
             {
                 if (action == Current)

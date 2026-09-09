@@ -14,6 +14,7 @@ namespace AICompanion.Companion.Brain.Behaviours.Companionship;
 public sealed class GuardAction : CompanionAction
 {
     public override string Name => "guard";
+    public override bool IsExcursion => false;
 
     public override float Score(in ActionContext ctx)
     {

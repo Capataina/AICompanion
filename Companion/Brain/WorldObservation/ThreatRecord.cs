@@ -35,24 +35,8 @@ public sealed class ThreatRecord
     /// <summary>Urgency on the same scale as <see cref="Urgency"/>, reckoned about the companion.</summary>
     public float UrgencyToCompanion;
 
-    /// <summary>NPC gravity per tick and terminal fall speed, from NPC.UpdateNPC.</summary>
-    private const float Gravity = 0.3f;
-    private const float MaxFall = 10f;
-
-    /// <summary>Where it will be: straight for flyers and phasers, under gravity for walkers.</summary>
-    public Vector2 PredictedPosition(int ticks)
-    {
-        if (Class != MovementClass.Walker)
-            return Npc.Center + Npc.velocity * ticks;
-        Vector2 pos = Npc.Center;
-        Vector2 vel = Npc.velocity;
-        for (int i = 0; i < ticks; i++)
-        {
-            vel.Y = System.MathF.Min(vel.Y + Gravity, MaxFall);
-            pos += vel;
-        }
-        return pos;
-    }
+    /// <summary>The same observed-motion forecast used by aiming, constrained by terrain.</summary>
+    public Vector2 PredictedPosition(int ticks) => PredictObservedMotion.Predict(Npc, ticks);
 
     public Rectangle PredictedHitbox(int ticks)
     {

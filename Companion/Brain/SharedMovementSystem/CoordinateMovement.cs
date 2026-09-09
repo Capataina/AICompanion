@@ -16,7 +16,6 @@ public sealed class CoordinateMovement
 
     public Controls MoveTo(BodyState live, Vector2 goal, float requestedJump = 0f)
     {
-        Navigator.UnsafeAtTick = null;
         return AddRequestedJump(Navigator.MoveTo(live, goal), requestedJump);
     }
 

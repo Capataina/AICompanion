@@ -29,6 +29,8 @@ public readonly record struct ActionContext(CompanionNPC Companion, WorldObserva
 public abstract class CompanionAction
 {
     public abstract string Name { get; }
+    /// <summary>Optional excursions yield to regrouping; protection and survival opt out.</summary>
+    public virtual bool IsExcursion => true;
 
     /// <summary>0..1. Zero means "not now"; the product-of-considerations shape lives in each override.</summary>
     public abstract float Score(in ActionContext ctx);

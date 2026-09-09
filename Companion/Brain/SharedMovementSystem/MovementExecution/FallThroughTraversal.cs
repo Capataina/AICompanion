@@ -14,6 +14,7 @@ namespace AICompanion.Companion.Brain.SharedMovementSystem;
 public sealed class FallThroughTraversal : Traversal
 {
     public override MoveKind Kind => MoveKind.FallThrough;
+    public override bool EntryDependsOnNext => false;
 
     public override IEnumerable<NavEdge> Candidates(NavNode node, BodyPhysics.Pose? here, bool lava)
     {

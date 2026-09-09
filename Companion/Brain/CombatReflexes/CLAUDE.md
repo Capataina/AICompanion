@@ -12,4 +12,6 @@ The passive body is stepped first, because existing momentum and gravity can pro
 
 ## Trap
 
+The same threat predicate also checks ordinary travel's simulated controls, even when the passive body would have been safe. Checking only the passive trajectory misses a companion walking into an incoming enemy. Its lookahead is bounded by `BehaviourWeights.DodgeLookaheadTicks`; an uncertain distant forecast cannot veto an entire long traversal. Physical macros can be reused, but moving threats are checked again each tick.
+
 - A simulated dodge that moves the NPC directly would create a second movement writer and invalidate the motor’s parity and diagnostics contract.

@@ -45,6 +45,8 @@ backend keeps the corpus deterministic.
 
 ## Traps
 
+The self-test includes captured sub-tile cave entries, rejects a stationary preparation allowance, checks rejection reuse across new execution objects, and verifies that an aged physical failure stays excluded until a fresh simulation succeeds after an unannounced world change. Deadline fixtures distinguish incomplete search from exhausted terrain. `--follow` prints the first rejected macro's entry and predicted failure state, so a route proposal and its execution can be diagnosed separately.
+
 - A new movement-core source normally enters the project through the shared glob. Confirm it
   builds with this project after moving a file; a mod build alone does not exercise the replay.
 - Marker glyphs are air. Move probes through a block header or command argument, never by

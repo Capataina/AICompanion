@@ -8,6 +8,10 @@ namespace AICompanion.Companion.Brain.BehaviourSelection;
 /// </summary>
 public static class Weights
 {
+    // Wall-clock budgets are live-brain policy. Headless core tests leave them disabled so
+    // machine load cannot change a fixture's reachability verdict.
+    public const double RouteSearchMilliseconds = 8d;
+    public const double MovementPreparationMilliseconds = 2d;
     /// <summary>Bonus multiplier the running action keeps, so scores do not flicker.</summary>
     public const float Commitment = 1.15f;
 
@@ -75,6 +79,9 @@ public static class Weights
 
     public const float WanderFloor = 0.05f;
     public const float FollowIntentDistance = 140f;
+    public const float RegroupFullDistance = 640f;
+    public const float RegroupFreeReturnTicks = 60f;
+    public const float RegroupFullReturnTicks = 240f;
 
     /// <summary>
     /// Stranded: the companion's plans to the player return nothing and the flood from its feet

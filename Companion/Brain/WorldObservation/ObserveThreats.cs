@@ -102,6 +102,7 @@ public sealed class ThreatSense
             if (npc.friendly || npc.life <= 0 || npc.damage <= 0 || npc.CountsAsACritter || !npc.CanBeChasedBy())
                 continue;
 
+            PredictObservedMotion.Observe(npc);
             Memory mem = memory[npc.whoAmI] ??= new Memory();
             if (mem.Type != npc.type)
             {

@@ -13,6 +13,7 @@ namespace AICompanion.Companion.Brain.Behaviours.Combat;
 public sealed class KiteAction : CompanionAction
 {
     public override string Name => "kite";
+    public override bool IsExcursion => false;
 
     public override float Score(in ActionContext ctx)
     {

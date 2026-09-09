@@ -22,6 +22,7 @@ namespace AICompanion.Companion.Brain.SharedMovementSystem;
 public sealed class DropTraversal : Traversal
 {
     public override MoveKind Kind => MoveKind.Drop;
+    public override bool EntryDependsOnNext => false;
 
     public override IEnumerable<NavEdge> Candidates(NavNode node, BodyPhysics.Pose? here, bool lava)
     {
@@ -195,21 +196,12 @@ public sealed class DropTraversal : Traversal
     public override bool Done(BodyState live, NavStep step, NavStep? next) => live.Covers(step.Tile);
 
     /// <summary>
-    /// The descent as performed: before the move has begun, a standing body still moving faster
-    /// than rest brakes first, because the edge was proven from rest and a lip left at speed
-    /// lands elsewhere. Once it has begun (left the ground, or pressed its platform) the proving
-    /// controls run every tick without exception, because the proof calls them every tick: a
-    /// brake that also fired on the brief grounded rests inside a descent gave the performer a
-    /// control sequence the proof never used, which is the one thing this design forbids
-    /// (Codex review of 7525a1b).
+    /// The same policy as the edge proof. Entry velocity and pose are validated by the complete
+    /// live-state macro before any controls are emitted. Repeatedly braking while grounded
+    /// changes the take-off trajectory and invalidates the planner's proof even from rest.
     /// </summary>
     internal static Controls Perform(NavStep step, BodyState live, bool throughPlatform, bool begun)
-        => !begun && live.OnGround && MathF.Abs(live.Vx) > RestSpeed
-            // The brake still carries the descent's intent: the body is standing on the platform it
-            // is about to pass, and a kerb rule that lifts it onto the next tread while it brakes
-            // walks it off the line the descent was proven along.
-            ? Controls.NoneDescending
-            : DescentControls(step.SteerX, live, throughPlatform, step.From.Y, begun);
+        => DescentControls(step.SteerX, live, throughPlatform, step.From.Y, begun);
 
     /// <summary>
     /// Mislanded: come to rest off the promised tile two or more rows below the lip, which is the

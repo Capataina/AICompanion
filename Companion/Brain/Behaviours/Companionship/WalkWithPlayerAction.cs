@@ -17,6 +17,7 @@ namespace AICompanion.Companion.Brain.Behaviours.Companionship;
 public sealed class WalkWithPlayerAction : CompanionAction
 {
     public override string Name => "walk-with";
+    public override bool IsExcursion => false;
 
     public override float Score(in ActionContext ctx)
     {
@@ -30,13 +31,14 @@ public sealed class WalkWithPlayerAction : CompanionAction
         // pressed at the wall nearest them is a body doing nothing, so wander's roam outscores
         // this while the brain says so and this wins back for the retry window between roams.
         float stranded = ctx.Stranded ? Weights.StrandedFollowDiscount : 1f;
+        float regroup = ctx.Companion.Brain.Chooser.RegroupUrgency;
         if (p.IsTravelling)
-            return MathF.Max(Consideration.AtLeast(Consideration.Rising(gap, Weights.FollowIntentDistance * 2f), 0.3f), hardLeash) * stranded;
+            return MathF.Max(regroup, MathF.Max(Consideration.AtLeast(Consideration.Rising(gap, Weights.FollowIntentDistance * 2f), 0.3f), hardLeash)) * stranded;
 
         // Standing player: only worth acting on when the companion has drifted well out of the
         // calm band. Inside it this scores zero so wander can win.
         float drifted = Consideration.Rising(ctx.Senses.DistanceToPlayer - Weights.CalmBandFar, 400f) * 0.6f;
-        return MathF.Max(drifted, hardLeash) * stranded;
+        return MathF.Max(regroup, MathF.Max(drifted, hardLeash)) * stranded;
     }
 
     public override PositionRequest Execute(in ActionContext ctx)

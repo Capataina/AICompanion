@@ -75,9 +75,39 @@ internal static class VerifyMovementContracts
         int simulations = immobile.Simulations;
         local.TryExecute(immobile, rejectedExecution, live, null, out _, out _);
         Require(immobile.Simulations == simulations, "an identical failed physical proof must not rerun every frame");
+        local.TryExecute(immobile, new TraversalExecution(new WalkTraversal(), step, null), live, null, out _, out _);
+        Require(immobile.Simulations == simulations, "a new route object must not erase identical failed entry evidence");
+        Require(!local.TryPrepare(immobile, rejectedExecution, live, null, out _), "standing still is not preparation when it cannot enable the move");
         immobile.Revision++;
         local.TryExecute(immobile, rejectedExecution, live, null, out _, out _);
         Require(immobile.Simulations > simulations, "terrain change invalidates a failed proof");
+
+        PlanLocalMovement.PreparationMsBudget = .000001;
+        Require(!local.TryPrepare(immobile, rejectedExecution, live, null, out _) && local.PreparationResult == "search-budget-exhausted",
+            "preparation deadline reports incomplete search rather than physical impossibility");
+        PlanLocalMovement.PreparationMsBudget = 0;
+
+        NavGrid.World = immobile;
+        navigator = new Navigator();
+        navigator.RememberRejectedEntry(step, live);
+        navigator.RefreshRejectedEntries(live, 181);
+        Require(navigator.EntryRejected(step, live), "elapsed time alone cannot forget a still-invalid movement");
+        immobile.Released = true;
+        navigator.RefreshRejectedEntries(live, 362);
+        Require(!navigator.EntryRejected(step, live), "fresh physical proof reopens an entry after an unannounced world change");
+
+        NavGrid.World = world;
+        AStar.InvalidateEdges();
+        var rejectedFirst = new HashSet<NavStep>();
+        var original = AStar.Find(new Point(6, 9), new Point(12, 9), 200, out _);
+        Require(original is { Steps.Count: > 0 }, "first-edge filter fixture has an initial route");
+        rejectedFirst.Add(original!.Steps[0]);
+        var alternative = AStar.Find(new Point(6, 9), new Point(12, 9), 200, out _, out _, edge => !rejectedFirst.Contains(edge));
+        Require(alternative == null || alternative.Steps.Count == 0 || !rejectedFirst.Contains(alternative.Steps[0]), "a rejected physical entry cannot be selected again by a new search");
+        VerifyCapturedEntry();
+        VerifyOffsetDescent();
+        Require(new WalkTraversal().EntryDependsOnNext && !new DropTraversal().EntryDependsOnNext,
+            "successor-sensitive walks cannot be excluded before their successor is known");
 
         Console.WriteLine("movement contracts: unsafe controls, retained threats, capability chains, liquid exit, macro isolation, walk stalls, search limits and interruption outcomes passed");
         return 0;
@@ -86,6 +116,29 @@ internal static class VerifyMovementContracts
     private static void Require(bool value, string message)
     {
         if (!value) throw new InvalidOperationException(message);
+    }
+
+    private static void VerifyCapturedEntry()
+    {
+        string path = System.IO.Path.Combine("Tools", "Scenarios", "actual-entry-drop-run-9.txt");
+        var world = TextTileWorld.Parse(new List<string>(System.IO.File.ReadAllLines(path)), out _, out _);
+        NavGrid.World = world;
+        AStar.InvalidateEdges();
+        AStar.AllowOneWayDrops = true;
+        var live = new BodyState(59834.5f, 8464f, 0, 0, true);
+        var navigator = new Navigator();
+        var goal = NavGrid.StandAt(3722, 541, false)!.Value;
+        int stationary = 0, worstStationary = 0;
+        for (int tick = 0; tick < 250 && !navigator.Arrived; tick++)
+        {
+            Controls input = navigator.MoveTo(live, new Vector2(goal.CentreX, goal.Bottom));
+            BodyState next = BodyMotion.Step(world, live, input);
+            stationary = Vector2.DistanceSquared(live.Feet, next.Feet) < .01f ? stationary + 1 : 0;
+            worstStationary = Math.Max(worstStationary, stationary);
+            live = next;
+        }
+        Require(navigator.Arrived && navigator.FaultCount == 0, "the recorded cave entry must complete without the original stall fault");
+        Require(worstStationary < 10, "the recorded entry must not consume a stationary preparation allowance");
     }
 
     private class FloorWorld : ITileWorld
@@ -97,14 +150,32 @@ internal static class VerifyMovementContracts
         public bool Lava(int x, int y) => false;
     }
 
+    private static void VerifyOffsetDescent()
+    {
+        string source = System.IO.File.ReadAllText(System.IO.Path.Combine("Tools", "Scenarios", "2026-09-08_13-48-44-plans-shaped.txt")).Replace("\r", "");
+        string[] blocks = System.Linq.Enumerable.ToArray(System.Linq.Enumerable.Where(source.Split("\n\n", StringSplitOptions.RemoveEmptyEntries), block => block.TrimStart().StartsWith("tick ")));
+        var world = TextTileWorld.Parse(new List<string>(blocks[28].Trim().Split('\n')), out _, out _);
+        NavGrid.World = world;
+        AStar.InvalidateEdges();
+        AStar.AllowLava = false;
+        AStar.Avoid.Clear();
+        var live = new BodyState(55899.3f, 8240, .72f, 0, true);
+        Vector2 goal = NavGrid.FeetWorld(new Point(3491, 517));
+        var navigator = new Navigator();
+        for (int tick = 0; tick < 500 && !navigator.Arrived; tick++)
+            live = BodyMotion.Step(world, live, navigator.MoveTo(live, goal));
+        Require(navigator.Arrived, "first-edge proposals must account for the recorded sub-tile descent entry");
+    }
+
     private sealed class CountingStillWorld : FloorWorld, ITileWorld, IBodySimulationWorld
     {
+        public bool Released;
         public int Simulations { get; private set; }
         public int Revision { get; set; }
         public BodyState Simulate(BodyState state, Controls controls, MovementCapabilities capabilities)
         {
             Simulations++;
-            return state;
+            return Released ? state with { Left = state.Left + 4 } : state;
         }
     }
 

@@ -22,7 +22,7 @@ public sealed class ObserveProjectiles
             // Include fast incoming shots even outside the ordinary local observation radius.
             float reach = 800f + projectile.velocity.Length() * 60f;
             if (Vector2.DistanceSquared(projectile.Center, companion.Center) > reach * reach) continue;
-            Threats.Add(new Threat(projectile.Hitbox, projectile.velocity, projectile.damage));
+            Threats.Add(new Threat(projectile.Hitbox, projectile.velocity * (projectile.extraUpdates + 1), projectile.damage));
         }
     }
 }
