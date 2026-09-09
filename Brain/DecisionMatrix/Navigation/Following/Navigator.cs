@@ -131,6 +131,23 @@ public sealed class Navigator
         // which named the harness; the flag it reads is where the fault starts).
         if (live.OnGround && Vector2.Distance(live.Feet, targetFeet) <= ArriveDistance)
         {
+            // The step that carried the body onto the goal is reported before the path is dropped,
+            // or the census never sees it. Arrival is tested before Follow runs, so a step whose
+            // Done turns true on the same tick the body lands inside the arrival slack used to be
+            // discarded here silently, counted as neither completed nor faulted. That is not an
+            // even loss across move kinds: a route ends on the move that reaches the goal, and a
+            // goal on a ledge is reached by jumping onto it, so jumps are overwhelmingly the last
+            // step while walks are overwhelmingly interior. The first telemetry from 0.8.3 read
+            // Jump begun 29, completed 0, faulted 15 against Walk begun 486, completed 409 — and
+            // the fourteen jumps that were neither is the tell, because a jump the body genuinely
+            // cannot finish runs out its allowance and faults rather than vanishing.
+            //
+            // A table that says every move except a walk is broken, when they are landing, is
+            // worse than no table: the plan of record for diagnosing descent hesitancy is to read
+            // this exact split, since a move planned often and completed rarely and a move never
+            // planned at all want opposite fixes.
+            if (onStep is NavStep landed && For(landed.Kind).Done(live, landed, null))
+                Report(landed, ticksOnStep, TraversalFault.None);
             Path = null;
             onStep = null;
             StuckStrikes = 0;
