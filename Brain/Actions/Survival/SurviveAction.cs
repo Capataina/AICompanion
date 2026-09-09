@@ -30,6 +30,19 @@ public sealed class SurviveAction : CompanionAction
 
     private Point? refuge;
 
+    /// <summary>
+    /// Ticks until the held refuge is asked again whether it can still be reached. A refuge is
+    /// otherwise dropped only when the tile stops being a refuge, which is a question about the
+    /// world and not about the route: a body that took a one-way drop, was cut off by settling
+    /// sand, or was simply promised a route the search never found stays committed to a place it
+    /// cannot arrive at until it drowns there. Asked on a cadence rather than every tick because
+    /// the check is a bounded A* and this action runs sixty times a second while it runs at all;
+    /// half a second is short against a breath bar and long against a search.
+    /// </summary>
+    private const int RefugeRecheckTicks = 30;
+
+    private int sinceRecheck;
+
     public override float Score(in ActionContext ctx)
     {
         CompanionSense self = ctx.Senses.Self;
@@ -53,6 +66,12 @@ public sealed class SurviveAction : CompanionAction
         Point feet = NavGrid.FeetTile(ctx.Npc.Bottom);
         if (refuge is Point r && !IsRefuge(r.X, r.Y))
             refuge = null;
+        if (refuge is Point held && ++sinceRecheck >= RefugeRecheckTicks)
+        {
+            sinceRecheck = 0;
+            if (!Reachability.WalkerProvenReach(feet, held))
+                refuge = null;
+        }
         refuge ??= FindRefuge(feet);
         // Breaking the surface refills the breath, so it is worth asking for whether or not a
         // refuge was found. The motor takes a jump only from the ground, so asking every tick bobs
@@ -101,7 +120,11 @@ public sealed class SurviveAction : CompanionAction
                     if (System.Math.Max(System.Math.Abs(dx), System.Math.Abs(dy)) != ring)
                         continue;
                     int x = from.X + dx, y = from.Y + dy;
-                    if (IsRefuge(x, y) && Reachability.WalkerCanReach(from, new Point(x, y)))
+                    // A proven route, not merely one the search could not rule out: this action
+                    // holds the refuge it is given until the tile stops being a refuge, so an
+                    // unknown accepted here is a commitment to walk at somewhere the body may
+                    // never arrive, with the breath running down the whole way.
+                    if (IsRefuge(x, y) && Reachability.WalkerProvenReach(from, new Point(x, y)))
                         return new Point(x, y);
                 }
             }
