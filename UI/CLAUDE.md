@@ -2,7 +2,7 @@
 
 The companion is an NPC in the world rather than a portrait in a party frame, so without a HUD element the player has two questions he cannot answer while playing: how hurt is it, and what does it think it is doing. This folder answers both in the smallest space that can carry them, and nothing else.
 
-That scope is deliberate. The debug overlay in `../Brain/Debug/` already shows every score, the chosen spot and the path, and it is a development instrument — dense, keyboard-toggled, and useless to a player. What a player needs is glanceable: a health reading he does not have to look for, and enough of the companion's intent that "why is it wandering off" has a visible answer. Everything past that belongs in the bag panel or the overlay, which is why this folder holds one file.
+That scope is deliberate. The debug overlay in `../Brain/BehaviourDiagnostics/` already shows every score, the chosen spot and the path, and it is a development instrument — dense, keyboard-toggled, and useless to a player. What a player needs is glanceable: a health reading he does not have to look for, and enough of the companion's intent that "why is it wandering off" has a visible answer. Everything past that belongs in the bag panel or the overlay, which is why this folder holds one file.
 
 ```
 UI/
@@ -29,7 +29,7 @@ the notch, clicked                   ──open──▶ ../Inventory/'s bag pan
 Players/CompanionPlayer              ──holds─▶ where the notch was dragged to
 ```
 
-The mode icon is a **read-only window onto the brain's decision**, which means this file is a consumer of the action set and has to know every action's name. Adding a behaviour to `../Brain/Actions/` without giving it an icon here leaves a player with a blank space where the answer should be — so the icon table is part of an action's cost, not part of this folder's.
+The mode icon is a **read-only window onto the brain's decision**, which means this file is a consumer of the action set and has to know every action's name. Adding a behaviour to `../Brain/Behaviours/` without giving it an icon here leaves a player with a blank space where the answer should be — so the icon table is part of an action's cost, not part of this folder's.
 
 The click behaviour is the piece worth understanding before editing anything: a press that is released before it has travelled a few pixels is a *click* and toggles the bag, and a press held past that distance becomes a *drag*. One control is therefore both the bag's button and the notch's handle, which is why there is no separate button anywhere. The position itself lives on `../Players/CompanionPlayer.cs`, so it persists per character rather than per world.
 

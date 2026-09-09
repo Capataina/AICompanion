@@ -1,14 +1,12 @@
-# Decision — utility scoring
+# Behaviour selection — utility scoring
 
-`Chooser.cs` asks every action in `../../Actions/` for a score, multiplies the incumbent by `Weights.Commitment`, charges any action whose `ForecastTicks` exceeds the senses' horizon (falling to zero over `Weights.HorizonOverrunToZero` ticks of overrun), and runs the winner. `LastScores` is kept for the overlay.
+`ChooseBehaviour.cs` asks every behaviour in `../Behaviours/` for a score, multiplies the incumbent by `BehaviourWeights.Commitment`, charges any behaviour whose forecast exceeds the observed threat horizon, and runs the winner. `LastScores` remains for diagnostics and the overlay. It receives world facts from `../WorldObservation/` and returns a `PositionRequest` to `../PositionSelection/`; it neither selects a tile nor controls the body.
 
 ```
-Decision/
+BehaviourSelection/
 ├─ CLAUDE.md
-├─ Chooser.cs          the scorer and the action list, the one place every action family is named
-├─ Consideration.cs    named curves: Inverse, Rising, Band, Step, AtLeast
-├─ Weights.cs          every tunable number of the brain
-└─ PositionRequest.cs  what an action asks the positioner for: WithPlayer, Guard, LineOfFire, Exact, Retreat, Hold, Roam
+├─ ChooseBehaviour.cs          the scorer and the sole list of behaviour instances
+└─ EvaluateConsiderations.cs   named scoring curves
 ```
 
 ## The urgency ladder, and why an action topping out at one can never interrupt anything
@@ -21,4 +19,4 @@ A fourth action that must interrupt guard is placed against these two, never giv
 
 **Nothing enforces the ordering, and that is a known gap rather than an oversight** (recorded 2026-09-09, unfixed): it is arithmetic in a comment, so a tuning session can invert a rung and the only symptom is a behaviour that stops happening. A test that scores two stub actions against each other and asserts each rung beats the committed rung below it is what would catch it.
 
-The actions themselves live in `../../Actions/`, grouped by family; the chooser imports each family's namespace and lists its instances. Adding a family means one `using` and its entries here, nothing else.
+The behaviours themselves live in `../Behaviours/`, grouped by family; the chooser imports each family's namespace and lists its instances. Adding a family means one `using` and its entries here, nothing else. The data flow is one way: observation → reflex assessment or selection → position selection → shared movement → motor. Movement outcomes are returned only as recorded body facts, such as being stranded, for the next selection tick.

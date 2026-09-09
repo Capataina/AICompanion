@@ -8,7 +8,7 @@ Survival/
 └─ SurviveAction.cs   scores on the self sense's danger alone; asks for Exact at the nearest reachable refuge (standable, head row dry, no lava in the column); hand empty
 ```
 
-`Score` is the self sense's `SelfDanger` scaled by `Weights.SurviveUrgency`, the top rung of the urgency ladder: nothing while the body is fine, a pull once breath is half gone or fire has caught, and past a *committed* guard near the end. It never keeps the companion out of water; crossing a pool is priced in `../../DecisionMatrix/Navigation/`, and this is the backstop when a crossing turns out longer than the breath or a lava price was paid and the fire is still burning. `Execute` finds a refuge by widening rings around the feet, checks the walker can reach it through `Reachability`, keeps it while it stays a refuge, and drops it the tick it stops being one. Forecast is zero: it never counts as time away from the player.
+`Score` is the self observation's `SelfDanger` scaled by `BehaviourWeights.SurviveUrgency`, the top rung of the urgency ladder. It never keeps the companion out of water; crossing a pool is priced by `../SharedMovementSystem/`, and this is the backstop when a crossing outlasts breath or leaves the body burning. `Execute` finds a refuge by widening rings around the feet, asks the shared movement query surface whether it is proven reachable, keeps it while it stays a refuge, and drops it when either tile or route stops being safe. Forecast is zero: it never counts as time away from the player.
 
 ## Two rescues, and the second one is a floor rather than an alternative
 

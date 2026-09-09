@@ -11,4 +11,4 @@ Combat/
 
 What hunting scores on, past the target being worth hitting, is two terms that exist to keep it opportunistic rather than a mode. A leash falls to zero as the distance to the player passes what his screen can hold, because a hunt that walks off the screen has inverted the design's first priority. And its own skin, `1 − CompanionDanger` with a floor, stops it walking toward a fight it is already losing. Without the second term the score contained `1 − PlayerDanger`, so straying from the player made the world look safer and hunting score *higher* the further it went — a loop that ended with the companion dead eighty-four tiles away on 2026-09-09.
 
-The weapon itself is picked and the shot solved in `../../../Combat/Weapons/Arsenal.cs` through `../../Aiming/`. The weapons are equipment, not behaviour, which is why they are not in the brain.
+The weapon itself is picked and the shot solved in `../../../Combat/Weapons/Arsenal.cs` through `../../ProjectileAiming/`. The weapons are equipment, not behaviour, which is why they are not in the brain.

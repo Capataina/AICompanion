@@ -23,7 +23,7 @@ Two properties come out of that shape rather than out of any rule written for th
 
 ```
 Companion/CompanionBody  ──the head is drawn from──▶ the stand-in player's own look
-Brain/Work/Torch         ──only while lit──────────▶ the reveal runs at all
+Brain/WorldInteractions/Torch         ──only while lit──────────▶ the reveal runs at all
 ```
 
 The reveal is gated on the torch genuinely being in the hand, not on darkness. That is the same rule the light itself follows, decided in `Companion/CompanionNPC.AI` after the brain has run: the torch is what the hand does when no action wanted it, so a companion mid-swing with a pickaxe is not lighting anything and therefore not revealing anything either. If the reveal were gated on ambient darkness instead, a companion would map a cave while holding a pickaxe, and the light on screen and the light on the map would disagree.

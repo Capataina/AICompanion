@@ -26,7 +26,7 @@ The bag is a leaf that four other systems reach into, and three of the four are 
 
 ```
 Players/CompanionPlayer ──owns──▶ the bag        state lives there, so it saves with the character
-Brain/Actions/Gathering ──asks──▶ CanAccept      a full bag scores looting at zero
+Brain/Behaviours/Gathering ──asks──▶ CanAccept      a full bag scores looting at zero
 Companion/CompanionNPC  ──calls─▶ Collect        on contact, every tick
 UI + Players input      ──open──▶ the panel      the notch click and the right-click
 ```

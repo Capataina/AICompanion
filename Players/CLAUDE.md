@@ -25,7 +25,7 @@ This folder is the persistence layer under three other folders, none of which kn
 ```
 Inventory/CompanionInventory  ──stored on──▶ CompanionPlayer.Bag
 UI/CompanionHealthBar         ──stored on──▶ the saved notch position
-Brain/Debug (the overlay)     ──toggled by─▶ the keybind read here
+Brain/BehaviourDiagnostics (the overlay)     ──toggled by─▶ the keybind read here
 Companion/CompanionNPC        ──spawned by─▶ the has-companion flag on world enter
 ```
 

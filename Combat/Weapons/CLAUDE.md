@@ -6,7 +6,7 @@ Weapons/
 ├─ CompanionWeapon.cs     the base, and facts only: the item drawn in hand, the projectile it fires, the flight profile handed to the aimer, base damage and use time, reach, pierce read off the projectile, projectiles per shot, the fire-rate and damage factors the tree lifts, Fire
 ├─ BowWeapon.cs           wooden bow, a vanilla WoodenArrowFriendly owned by the player; one body a shot, the harder hitter per second against that body
 ├─ ThrowingKnifeWeapon.cs a vanilla throwing knife, whose projectile passes through two bodies; softer per throw, twice as fast
-└─ Arsenal.cs             the two equipped weapons and what to shoot with them; picks the target by expected damage weighted by urgency and the weapon by expected damage over a window, both cached per target; solves through ../../Brain/Aiming/, adds AimNoise, fires on cooldown, and records why it did not
+└─ Arsenal.cs             the two equipped weapons and what to shoot with them; picks the target by expected damage weighted by urgency and the weapon by expected damage over a window, both cached per target; solves through ../../Brain/ProjectileAiming/, adds AimNoise, fires on cooldown, and records why it did not
 ```
 
 ## The weapon holds no opinion about when to use it
@@ -35,7 +35,7 @@ Three things keep that affordable, since it is asked every tick while the brain 
 
 - **A weapon scored on one damage number and fired with another is chosen for a reason that never happens.** `DamagePerHit` is the single method both the scorer and `Fire` read, deliberately; the first version computed damage inline inside each `Fire`.
 - **`Pierce` comes from the projectile, not from the weapon.** It is read from `ContentSamples.ProjectilesByType[...].penetrate`, so a weapon that later fires something else pierces whatever that fires. Unlimited penetration reports the width of the arsenal's pierce buffer, because nothing can hit more bodies than the arc is walked for.
-- **The pierce walk and the aim solve step through the same flight function.** Two loops with their own copy of the projectile physics is the instrument-versus-code split that has produced four defects elsewhere in this project; `Advance` in `../../Brain/Aiming/` is the one implementation.
+- **The pierce walk and the aim solve step through the same flight function.** Two loops with their own copy of the projectile physics is the instrument-versus-code split that has produced four defects elsewhere in this project; `Advance` in `../../Brain/ProjectileAiming/` is the one implementation.
 - **The choice is cached for a dozen ticks and the world moves inside that.** So `TryFire` re-solves the arc on the tick it fires and falls back to the other weapon when the cached winner's arc has since gone, rather than resting on a stale choice.
 - **Simulating both weapons' arcs is dear**, which is what the per-target choice cache is for. The pierce walk runs over the threat sense's own hostile list rather than every NPC slot, because it is asked while the brain is deciding.
 
