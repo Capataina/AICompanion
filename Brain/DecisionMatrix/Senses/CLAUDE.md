@@ -8,7 +8,7 @@ Senses/
 ├─ Senses.cs             aggregate; Update(npc, player, breath) runs the parts in order and stamps the tick
 ├─ CompanionSense.cs     the companion's own body: breath fraction and head-under-water from the NPC's breath, lava-wet, on fire, life fraction, damage over the last second; derives SelfDanger
 ├─ PlayerSense.cs        position, smoothed travel intent (outlives a pause), fighting, real chopping, sight to companion, and the trail: the player's feet tiles over the last while, one per change of tile, which every scenario dump writes as the tiles the companion must be able to stand in
-├─ ThreatSense.cs        one ThreatRecord per hostile; reachability (cached, staggered), observed speed, shooters; derives PlayerDanger and Horizon
+├─ ThreatSense.cs        one ThreatRecord per hostile; reachability (cached, staggered), observed speed, shooters; derives PlayerDanger, CompanionDanger and Horizon
 ├─ ThreatRecord.cs       the per-hostile record and its predicted hitbox
 ├─ LootSense.cs          items on the ground within reach, nearest first, with a value
 ├─ TileDamageWatcher.cs  GlobalTile.KillTile hook: the player really hit a tree or an ore (fail hits included); companion hits excluded by a flag; also the one place the world's change is announced to the planner, naming every tile really killed or placed to AStar.TileChanged (the game raises the placed hook for the player's own placing only) and emptying its edge cache on world load
@@ -26,7 +26,13 @@ Senses/
 
 ## The two derived numbers
 
-`PlayerDanger` is the most urgent reachable threat's urgency: weight(damage share, boss) × closeness(time-to-player, 0 at six seconds out) × sight factor, with a shooter that has a sight line treated as already there. `Horizon` is the smallest (time-to-player − the companion's return time) over reachable threats, clamped at zero, `float.MaxValue` with none. The chooser charges any action whose forecast outlasts it.
+Each threat carries **two** urgencies, computed the same way against two different bodies. `Urgency` is weight(damage share of the player's max life, boss) × closeness(time-to-player, zero a few seconds out) × sight factor, with a shooter that has a sight line treated as already there. `UrgencyToCompanion` is the identical expression against the companion's own max life, its own distance divided by the threat's observed speed, and a sight line from the threat to the companion. Both are zero for an unreachable threat.
+
+`PlayerDanger` and `CompanionDanger` are then those urgencies **aggregated as independent hazards**: each urgency is read as a chance of landing something, what survives all of them is the product of the misses, and the danger is one minus that. The worst threat still dominates, a second adds with diminishing weight, and the result cannot leave 0..1 however many bodies are in the room — where the maximum this replaced said eleven zombies were exactly as dangerous as one.
+
+**Both numbers exist because one of them was being read for the other's job.** Every danger term in the brain used to consume `PlayerDanger`, so a companion far from the player lived in a world with no danger in it; the hunt score, which multiplies by `1 − PlayerDanger`, therefore rose as the companion strayed, and on 2026-09-09 it took eight hits over five thousand ticks with that column reading 0.00 at every one and went down. Nothing about the arithmetic was wrong — the sense answered exactly the question it was asked, and the question was the wrong one. Any consumer that means "am I in danger" reads `CompanionDanger`; `PlayerDanger` is what makes a job wait while *he* is in trouble.
+
+`Horizon` is the smallest (time-to-player − the companion's return time) over reachable threats, clamped at zero, `float.MaxValue` with none. The chooser charges any action whose forecast outlasts it.
 
 ## Traps
 

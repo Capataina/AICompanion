@@ -29,6 +29,12 @@ public sealed class ThreatRecord
     /// <summary>0..1: how much this threat endangers the player right now.</summary>
     public float Urgency;
 
+    /// <summary>Ticks for this threat to reach the companion at its observed speed.</summary>
+    public float TicksToCompanion;
+
+    /// <summary>Urgency on the same scale as <see cref="Urgency"/>, reckoned about the companion.</summary>
+    public float UrgencyToCompanion;
+
     /// <summary>NPC gravity per tick and terminal fall speed, from NPC.UpdateNPC.</summary>
     private const float Gravity = 0.3f;
     private const float MaxFall = 10f;
