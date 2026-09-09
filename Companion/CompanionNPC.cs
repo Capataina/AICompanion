@@ -89,6 +89,11 @@ public class CompanionNPC : ModNPC
 
     public override void SetDefaults()
     {
+        // The player's own hitbox (Player.defaultWidth and defaultHeight), because the
+        // companion is drawn as a player and is meant to fit wherever the player fits.
+        // BodyPhysics.Width and Height are the same two numbers and must stay equal to
+        // these: the planner proves every move against that box and the game moves this
+        // one, so changing either alone plans routes the body cannot walk.
         NPC.width = 20;
         NPC.height = 42;
         NPC.aiStyle = -1;

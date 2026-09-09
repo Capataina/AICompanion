@@ -16,6 +16,16 @@ namespace AICompanion.Brain.DecisionMatrix.Navigation;
 /// </summary>
 public static class BodyPhysics
 {
+    /// <summary>
+    /// The body's box in world pixels. These are the player's own hitbox
+    /// (<c>Player.defaultWidth</c> and <c>defaultHeight</c>), not an NPC size and not a
+    /// sprite size, because the companion is drawn as a player and is meant to fit
+    /// wherever the player fits. <c>CompanionNPC.SetDefaults</c> declares the same two
+    /// numbers on the real NPC, and the two declarations have to agree: the planner
+    /// proves every move against this box while the game moves the other one, so a change
+    /// made in one place and not the other plans routes the body cannot walk. Neither is
+    /// a tunable.
+    /// </summary>
     public const int Width = 20;
     public const int Height = 42;
 
