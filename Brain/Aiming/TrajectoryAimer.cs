@@ -1,6 +1,7 @@
 #nullable enable
 
 using System;
+using System.Collections.Generic;
 using Microsoft.Xna.Framework;
 using Terraria;
 
@@ -53,6 +54,54 @@ public static class TrajectoryAimer
         return null;
     }
 
+    /// <summary>
+    /// Every hostile the shot passes through, in the order the projectile reaches them, written
+    /// into <paramref name="into"/> and counted in the return. A piercing weapon is worth what its
+    /// real arc crosses, so this asks the flight rather than counting enemies near the target: two
+    /// zombies abreast of the muzzle are one shot and two abreast of the target may be none. The
+    /// walk stops at the same wall and the same world edge the solve stops at, and it runs over the
+    /// caller's own hostile list rather than every slot in the world, because it is asked per weapon
+    /// per target while the brain is deciding.
+    /// </summary>
+    public static int PathHits(Vector2 muzzle, Vector2 launch, WeaponProfile weapon, IReadOnlyList<NPC> hostiles, NPC[] into)
+    {
+        Vector2 position = muzzle;
+        Vector2 velocity = launch;
+        int half = weapon.HitboxSize / 2;
+        int found = 0;
+
+        for (int tick = 0; tick < weapon.MaxFlightTicks && found < into.Length; tick++)
+        {
+            Advance(ref position, ref velocity, weapon, tick);
+            if (!WorldGen.InWorld((int)(position.X / 16f), (int)(position.Y / 16f), 5))
+                break;
+            if (Collision.SolidCollision(position - new Vector2(half), weapon.HitboxSize, weapon.HitboxSize))
+                break;
+
+            Rectangle projectileBox = new((int)position.X - half, (int)position.Y - half, weapon.HitboxSize, weapon.HitboxSize);
+            for (int i = 0; i < hostiles.Count && found < into.Length; i++)
+            {
+                NPC npc = hostiles[i];
+                if (npc == null || !npc.active || npc.life <= 0 || Seen(into, found, npc))
+                    continue;
+                Rectangle box = npc.Hitbox;
+                Vector2 lead = npc.velocity * tick;
+                box.Offset((int)lead.X, (int)lead.Y);
+                if (projectileBox.Intersects(box))
+                    into[found++] = npc;
+            }
+        }
+        return found;
+    }
+
+    private static bool Seen(NPC[] into, int count, NPC npc)
+    {
+        for (int i = 0; i < count; i++)
+            if (into[i] == npc)
+                return true;
+        return false;
+    }
+
     private static bool TryAngle(float angle, Vector2 muzzle, NPC target, WeaponProfile weapon, out Vector2 launch)
     {
         launch = angle.ToRotationVector2() * weapon.Speed;
@@ -62,13 +111,7 @@ public static class TrajectoryAimer
 
         for (int tick = 0; tick < weapon.MaxFlightTicks; tick++)
         {
-            if (tick >= weapon.StraightTicks)
-            {
-                velocity.Y += weapon.Gravity;
-                if (velocity.Y > weapon.MaxFallSpeed)
-                    velocity.Y = weapon.MaxFallSpeed;
-            }
-            position += velocity;
+            Advance(ref position, ref velocity, weapon, tick);
 
             if (!WorldGen.InWorld((int)(position.X / 16f), (int)(position.Y / 16f), 5))
                 return false;
@@ -83,5 +126,21 @@ public static class TrajectoryAimer
                 return true;
         }
         return false;
+    }
+
+    /// <summary>
+    /// One tick of flight, in the terms the game's projectile AI uses. Both the solve and the
+    /// pierce walk step through this, so the arc that is proven and the arc that is counted can
+    /// never be two different arcs.
+    /// </summary>
+    private static void Advance(ref Vector2 position, ref Vector2 velocity, WeaponProfile weapon, int tick)
+    {
+        if (tick >= weapon.StraightTicks)
+        {
+            velocity.Y += weapon.Gravity;
+            if (velocity.Y > weapon.MaxFallSpeed)
+                velocity.Y = weapon.MaxFallSpeed;
+        }
+        position += velocity;
     }
 }

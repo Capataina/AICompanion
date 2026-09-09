@@ -215,7 +215,7 @@ public sealed class BrainTelemetry : ModSystem
                 h.Append('\t').Append(a.Name).Append("_raw\t").Append(a.Name).Append("_fin");
             h.Append("\tdanger\thorizon\tthreats\treachable\ttop_threat\ttarget\tloot");
             h.Append("\trequest\tanchor\tspot\tspot_score\tpath_steps\tpath_at\tnext_kind\tplan_failed\texpansions");
-            h.Append("\tnpc_tile\tnpc_px\tnpc_vel\tground\twet\tcollide_x\tcollide_y\tdir\tlife\tbreath\tself_danger\theld\tweapon\tshot\ttorch\tambient");
+            h.Append("\tnpc_tile\tnpc_px\tnpc_vel\tground\twet\tcollide_x\tcollide_y\tdir\tlife\tbreath\tself_danger\theld\tweapon\tshot\texp_bow\texp_knife\ttorch\tambient");
             h.Append("\tplayer_tile\tplayer_intent\tplayer_dead\tplayer_attacking\tplayer_chopping\tplayer_mining");
             h.Append("\tplan_ms\tflood_ms\tsenses_ms\treflex_ms\tdecide_ms\tposition_ms\tnavigate_ms\tbrain_ms\tedge_cache\tstranded");
             // The reachability tier, which is where the companion decides whether to enter somewhere
@@ -279,6 +279,10 @@ public sealed class BrainTelemetry : ModSystem
         sb.Append('\t').Append(companion.HeldItemType == 0 ? "-" : Lang.GetItemNameValue(companion.HeldItemType));
         sb.Append('\t').Append(companion.Arsenal.LastChosen?.Name ?? "-");
         sb.Append('\t').Append(companion.Arsenal.LastShotSolved ? 1 : 0);
+        // Both weapons' expected damage, the rejected one included, so the choice can be read back
+        // instead of re-derived: a row where the loser scored higher is a defect with no other tell.
+        sb.Append('\t').Append(companion.Arsenal.LastPrimaryExpected.ToString("0.0"));
+        sb.Append('\t').Append(companion.Arsenal.LastSecondaryExpected.ToString("0.0"));
         sb.Append('\t').Append(companion.Torch.Shown ? "shown" : companion.Torch.Lit ? "lit-busy" : "out");
         sb.Append('\t').Append(senses.Light.Ambient.ToString("0.00"));
 

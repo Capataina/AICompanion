@@ -10,33 +10,37 @@ using AICompanion.Brain.Aiming;
 namespace AICompanion.Combat.Weapons;
 
 /// <summary>
-/// The long-range single-target weapon: a wooden bow firing a vanilla friendly arrow
-/// the player owns, so kills, drops and on-hit accessories are the player's. Suits
-/// distant and single targets and bosses; loses to the knife up close on a crowd.
+/// The single-target weapon: a wooden bow firing a vanilla friendly arrow the player owns, so
+/// kills, drops and on-hit accessories are the player's. Its arrow passes through one body, and
+/// it is the harder hitter per second against that one body — which is the whole of what makes it
+/// worth carrying beside the knife. Nothing here says "use me at range"; the arsenal works that
+/// out from the arc, because a bow is only a long-range weapon where a long shot actually solves.
 /// </summary>
 public sealed class BowWeapon : CompanionWeapon
 {
     private static Item Bow => ContentSamples.ItemsByType[ItemID.WoodenBow];
     private static Item Arrow => ContentSamples.ItemsByType[ItemID.WoodenArrow];
 
+    public BowWeapon()
+    {
+        // Vanilla gives the bow 4 + 5 damage every 30 ticks and the knife 12 every 15, so before
+        // any scaling the knife deals 2.67 times the bow's damage a second and also pierces twice.
+        // Doubling the bow puts it ahead on one target and leaves the knife ahead on two, which is
+        // the only relationship under which both slots get used.
+        DamageFactor = 2f;
+    }
+
     public override string Name => "bow";
     public override int ItemType => ItemID.WoodenBow;
+    public override int ProjectileType => ProjectileID.WoodenArrowFriendly;
     public override WeaponProfile Profile => WeaponProfile.Arrow.WithSpeed(Bow.shootSpeed + Arrow.shootSpeed);
     public override int BaseUseTime => Bow.useTime;
+    public override int BaseDamage => Bow.damage + Arrow.damage;
     public override float Reach => 1100f;
-
-    public override float Suitability(in ActionContext ctx, NPC target, float distance, int crowdAround)
-    {
-        float range = MathHelper.Clamp(distance / 500f, 0.35f, 1f);
-        float single = crowdAround <= 1 ? 1f : 0.6f;
-        float boss = target.boss ? 1f : 0.85f;
-        return range * single * boss;
-    }
 
     public override Vector2 Fire(in ActionContext ctx, Vector2 muzzle, Vector2 launch)
     {
-        int damage = (int)ctx.Player.GetTotalDamage(DamageClass.Ranged).ApplyTo(Bow.damage + Arrow.damage);
-        Projectile.NewProjectile(ctx.Npc.GetSource_FromAI(), muzzle, launch, ProjectileID.WoodenArrowFriendly, damage, Bow.knockBack + Arrow.knockBack, Main.myPlayer);
+        Projectile.NewProjectile(ctx.Npc.GetSource_FromAI(), muzzle, launch, ProjectileType, DamagePerHit(ctx), Bow.knockBack + Arrow.knockBack, Main.myPlayer);
         return launch;
     }
 }
