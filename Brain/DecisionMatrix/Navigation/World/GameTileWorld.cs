@@ -41,11 +41,26 @@ public sealed class GameTileWorld : ITileWorld
             // grid believed a flat tread, the game gave a ramp, and a pose proven on the tread is
             // a pose the body never holds.
             //
-            // The cost of being right here is that a hammered platform stops offering a
-            // fall-through edge, since a platform is the only thing that edge exists for. That is
-            // the correct trade rather than a regression: a body resting on a diagonal is not
-            // inside the platform's top band, which is the band the engine's own platform catch
-            // tests, so the press would not have carried it through anyway.
+            // The cost of being right here is that a hammered platform — a stair — stops offering
+            // a fall-through edge, since TileShape has one member per shape and Platform is not
+            // one of the slopes, so a tile cannot be both. That is a real capability gap and not,
+            // as this comment claimed until 2026-09-09, a trade that costs nothing: the claim was
+            // that a body resting on a diagonal sits outside the platform's top band and so could
+            // not have been pressed through anyway, and the decompile says otherwise. In
+            // Collision.SlopeCollision, `flag2 = fall && TileID.Sets.Platforms[type]`, and every
+            // branch that would rest the body on the diagonal — both the `val.Y = Position.Y +
+            // num7` path and the `val.Y = num8` path — is preceded by `if (flag2) { stairFall =
+            // true; continue; }`. Pressing down on a sloped platform drops the body through it,
+            // which is exactly what a player does on a staircase.
+            //
+            // Closing the gap is not a change here. It needs the fall-through intent to reach
+            // BodyPhysics.Fits, the rectangle-against-shapes test that every pose, jump arc, walk
+            // proof and descent runs, because the simulated body is stopped by the slope's
+            // geometry rather than by the platform catch. Teaching only this file, or only
+            // NavGrid.IsPlatformUnder, would offer an edge the planner cannot prove and the body
+            // cannot take, which is the proof-versus-performance divergence this folder exists to
+            // prevent. Until then the conservative reading stands and a stair is walked down as a
+            // ramp, never passed through.
             if (t.IsHalfBlock)
                 return TileShape.Half;
             return slope == 0 ? TileShape.Platform : (TileShape)slope;
