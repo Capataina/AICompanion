@@ -34,6 +34,20 @@ public sealed class BrainTelemetry : ModSystem
     private static StreamWriter? writer;
     private static int sinceFlush;
     private static bool headerWritten;
+    private static string? censusPath;
+    private static string? mapPath;
+
+    /// <summary>
+    /// The wall-clock one plan may spend in the game, in milliseconds; half a frame. Set on the
+    /// navigator at world load rather than being its default, because the replay tool runs the
+    /// same navigator and a wall-clock limit would make the committed corpus's verdicts depend on
+    /// how busy the machine was. The 2026-09-09 session's worst plan took 778 ms — forty-six
+    /// frames for a decision due in one — and every slow plan sat at the expansion cap with the
+    /// reachability flood costing 1 to 15 ms beside it, so the time is the search's own edge
+    /// proving and an expansion budget cannot bound it: one expansion on bare floor offers a few
+    /// walks, and one on a ledge over a shaft simulates every jump profile and descent line.
+    /// </summary>
+    private const double PlanMsBudget = 8d;
 
     /// <summary>The folder the files land in: the mod's source folder, which is where the repository is.</summary>
     public static string Folder => Path.Combine(Main.SavePath, "ModSources", "AICompanion", "Telemetry");
@@ -48,9 +62,16 @@ public sealed class BrainTelemetry : ModSystem
             string path = Path.Combine(Folder, $"{stamp}.tsv");
             writer = new StreamWriter(path, false, Encoding.UTF8);
             plansPath = Path.Combine(Folder, $"{stamp}-plans.txt");
+            censusPath = Path.Combine(Folder, $"{stamp}-census.txt");
+            mapPath = Path.Combine(Folder, $"{stamp}-map.txt");
             lastDumpTick = -DumpEveryTicks;
             headerWritten = false;
             ScenarioCapture.Reset();
+            BehaviourCensus.Reset();
+            SessionMap.Reset();
+            // The plan's wall-clock limit is a game-runtime setting and stays off in the replay
+            // tool, which runs this same navigator and must keep giving one answer per scenario.
+            Navigator.PlanMsBudget = PlanMsBudget;
             Mod.Logger.Info($"BrainTelemetry: writing {path}");
         }
         catch (Exception e)
@@ -70,6 +91,12 @@ public sealed class BrainTelemetry : ModSystem
 
     private static void Close()
     {
+        // The census and the map are written here rather than per tick because both are one
+        // artefact about the whole session; there is nothing to say until it is over. They land
+        // beside the .tsv under the same stamp, so the session reader finds them without being
+        // told where to look.
+        WriteWhole(censusPath, BehaviourCensus.Report, "census");
+        WriteWhole(mapPath, SessionMap.Report, "map");
         try
         {
             writer?.Flush();
@@ -83,6 +110,28 @@ public sealed class BrainTelemetry : ModSystem
         {
             writer = null;
             plansPath = null;
+            censusPath = null;
+            mapPath = null;
+        }
+    }
+
+    /// <summary>
+    /// One whole-session artefact to its own file. It runs on world unload, where a throw would
+    /// take the unload with it, so a failure to write a report is logged and swallowed: the report
+    /// is a convenience and the session's own record is already on disk.
+    /// </summary>
+    private static void WriteWhole(string? path, Func<string> produce, string what)
+    {
+        if (path == null || writer == null)
+            return;
+        try
+        {
+            File.WriteAllText(path, produce(), Encoding.UTF8);
+            ModContent.GetInstance<AICompanion>().Logger.Info($"BrainTelemetry: wrote the {what} to {path}");
+        }
+        catch (Exception e)
+        {
+            ModContent.GetInstance<AICompanion>().Logger.Warn($"BrainTelemetry: could not write the {what}: {e.Message}");
         }
     }
 
@@ -228,6 +277,11 @@ public sealed class BrainTelemetry : ModSystem
         Brain brain = companion.Brain;
         var senses = brain.Senses;
         NPC npc = companion.NPC;
+        SessionMap.Watch(
+            NavGrid.FeetTile(npc.Bottom),
+            NavGrid.FeetTile(senses.Player.Bottom),
+            brain.Navigator.GoalTile,
+            brain.Positioner.Chosen is Vector2 spot ? Vector2.Distance(npc.Bottom, spot) : float.MaxValue);
 
         if (!headerWritten)
         {
@@ -237,7 +291,7 @@ public sealed class BrainTelemetry : ModSystem
                 h.Append('\t').Append(a.Name).Append("_raw\t").Append(a.Name).Append("_fin");
             h.Append("\tdanger\tself_threat\thorizon\tthreats\treachable\ttop_threat\ttarget\tloot");
             h.Append("\trequest\tanchor\tspot\tspot_score\tpath_steps\tpath_at\tnext_kind\tplan_failed\texpansions");
-            h.Append("\tnpc_tile\tnpc_px\tnpc_vel\tground\twet\tcollide_x\tcollide_y\tmoved\tvel_cut\tpress\tdir\tlife\tbreath\tself_danger\theld\tweapon\tshot\tfire\texp_bow\texp_knife\texp_target\tengage\ttorch\tambient");
+            h.Append("\tnpc_tile\tnpc_px\tnpc_vel\tground\twet\tcollide_x\tcollide_y\tmoved\tvel_cut\tpress\tdescend\tpinned\tdiverge\tdir\tlife\tbreath\tself_danger\theld\tweapon\tshot\tfire\texp_bow\texp_knife\texp_target\tnear_threat\tweapon_reach\tengage\ttorch\tambient");
             h.Append("\tplayer_tile\tplayer_intent\tplayer_dead\tplayer_attacking\tplayer_chopping\tplayer_mining");
             h.Append("\tplan_ms\tflood_ms\tsenses_ms\treflex_ms\tdecide_ms\tposition_ms\tnavigate_ms\tbrain_ms\tedge_cache\tstranded");
             // The reachability tier, which is where the companion decides whether to enter somewhere
@@ -315,6 +369,27 @@ public sealed class BrainTelemetry : ModSystem
         // from velocity and ground: a press that is not held shows as a three-tick fall and a
         // catch, and with the column present that reads directly instead of being reconstructed.
         sb.Append('\t').Append(companion.Motor.WantsFallThrough ? 1 : 0);
+        // Whether the move in hand is going down, which is what decides whether the motor may lift
+        // the body onto a platform at its knee. It sits beside `press` because the two are
+        // different questions that looked like one: a press is this tick's request to pass the
+        // platform underfoot, and this is the whole descent's intent, held for the ticks after the
+        // press is released — which are exactly the ticks the body is falling past platforms it
+        // must not catch. Hard-coding the permission on was the shaft freeze.
+        sb.Append('\t').Append(companion.Motor.Descending ? 1 : 0);
+        // How long the body has held a velocity while not moving. The engine cannot do that to a
+        // body it is integrating, so any run above a tick or two means something wrote the
+        // position back during the AI phase, where `moved` cannot see it. During the 2026-09-09
+        // freeze this would have read a rising count for 265 ticks while `ground` read 0 and both
+        // collide flags read clear, which is the state that had to be inferred across twenty rows.
+        sb.Append('\t').Append(companion.Motor.PinnedTicks);
+        // How far the offline motion rule's prediction of this tick missed, in pixels: the rule
+        // every planned move is proven with, run on last tick's state and controls, against where
+        // the engine actually put the body. It is the divergence check for the boundary that has
+        // cost this project the most, because a move proved by one rule and performed by another
+        // is a body standing still holding a valid path — and it is measured continuously on the
+        // real world rather than by replaying a recording, which only ever covers the tiles the
+        // recording happened to visit.
+        sb.Append('\t').Append(companion.Motor.Divergence.ToString("0.00", CultureInfo.InvariantCulture));
         sb.Append('\t').Append(npc.direction);
         sb.Append('\t').Append(npc.life).Append('/').Append(npc.lifeMax);
         sb.Append('\t').Append(senses.Self.BreathFraction.ToString("0.00")).Append(senses.Self.HeadUnderwater ? "u" : "");
@@ -330,6 +405,20 @@ public sealed class BrainTelemetry : ModSystem
         sb.Append('\t').Append(companion.Arsenal.LastPrimaryExpected.ToString("0.0"));
         sb.Append('\t').Append(companion.Arsenal.LastSecondaryExpected.ToString("0.0"));
         sb.Append('\t').Append(companion.Arsenal.LastTargetExpected.ToString("0.0"));
+        // How far the nearest reachable hostile is, and how far the hands can actually throw,
+        // both in tiles. These exist because "no target" is ambiguous without them and the
+        // 2026-09-09 session could not be read: the hands reported no-target on 78.3% of ticks
+        // with reachable hostiles present, and reachable in the threat sense means "a walker could
+        // path from it to the player", which has nothing to do with being inside weapon range.
+        // Without both numbers on the row, a companion correctly declining a shot it cannot make
+        // and a companion failing to see a target it could hit are the same cell — and the first
+        // is right behaviour, so guessing which one it is risks fixing a thing that is not broken.
+        float nearest = float.MaxValue;
+        foreach (DecisionMatrix.Senses.ThreatRecord t in senses.Threats.Threats)
+            if (t.Reachable && t.Npc != null && t.Npc.active)
+                nearest = MathF.Min(nearest, t.DistanceToCompanion);
+        sb.Append('\t').Append(nearest == float.MaxValue ? "-" : (nearest / 16f).ToString("0.0", CultureInfo.InvariantCulture));
+        sb.Append('\t').Append((MathF.Max(companion.Arsenal.Primary.Reach, companion.Arsenal.Secondary.Reach) / 16f).ToString("0.0", CultureInfo.InvariantCulture));
         // What the hands are shooting at, which is now independent of what the feet were told, so
         // "it was following me and not attacking" is a row where engage reads "-" beside threats.
         sb.Append('\t').Append(brain.EngageTarget is NPC eng && eng.active ? eng.TypeName : "-");

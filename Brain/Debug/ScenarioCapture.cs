@@ -44,13 +44,32 @@ public static class ScenarioCapture
 
     private const int OneWayHeldTicks = 90;
 
+    /// <summary>How long one goal is held with the body moving and the distance flat before it is reported.</summary>
+    private const int IntentTicks = 240;
+
+    /// <summary>How much closer the body must get over that window for it to count as making progress, in px.</summary>
+    private const float IntentProgressPx = 32f;
+
+    /// <summary>How far the body must actually travel over the window for "moving but not arriving" to be the finding rather than "stuck".</summary>
+    private const float IntentTravelPx = 200f;
+
+    /// <summary>The goal may drift this far and still be the same goal; the navigator's own slack.</summary>
+    private const int IntentGoalSlackTiles = 2;
+
+    /// <summary>How long the body may be held with a velocity and no displacement before the window is written.</summary>
+    private const int PinnedTicksToReport = 45;
+
     private static int followBehind, stuck, mineZero, mineIdle, chopZero, chopIdle, lastLife = -1;
     private static int oneWayCommitted, tierHeldOut;
     private static float followDistanceAtStart;
     private static long lastDodgeTick = long.MinValue;
     private static string? lastDodge;
     private static Vector2 lastPosition;
-    private static long followCooldown, stuckCooldown, dodgeCooldown, modeCooldown, faultCooldown, oneWayCooldown, tierCooldown;
+    private static long followCooldown, stuckCooldown, dodgeCooldown, modeCooldown, faultCooldown, oneWayCooldown, tierCooldown, intentCooldown, pinnedCooldown;
+
+    private static Point? intentGoal;
+    private static int intentTicks;
+    private static float intentBest, intentTravelled;
 
     /// <summary>Forget everything: a new session, a new world, a new companion.</summary>
     public static void Reset()
@@ -60,7 +79,10 @@ public static class ScenarioCapture
         lastLife = -1;
         lastDodgeTick = long.MinValue;
         lastDodge = null;
-        followCooldown = stuckCooldown = dodgeCooldown = modeCooldown = faultCooldown = oneWayCooldown = tierCooldown = 0;
+        followCooldown = stuckCooldown = dodgeCooldown = modeCooldown = faultCooldown = oneWayCooldown = tierCooldown = intentCooldown = pinnedCooldown = 0;
+        intentGoal = null;
+        intentTicks = 0;
+        intentBest = intentTravelled = 0f;
     }
 
     public static void Watch(CompanionNPC companion)
@@ -99,6 +121,59 @@ public static class ScenarioCapture
         {
             faultCooldown = tick + CooldownTicks;
             BrainTelemetry.DumpScenario(feet, goal, $"traversal fault, {fault.Outcome} on {fault.Kind} {fault.From.X},{fault.From.Y} -> {fault.Tile.X},{fault.Tile.Y} after {fault.Actual} ticks, proven {fault.Expected}");
+        }
+
+        // Wanting to go somewhere and never getting nearer, which is a different failure from
+        // standing still and had no instrument at all. The stuck detector below needs the body to
+        // stop; this one needs it to move — the case Caner watched on 2026-09-09 was a marked spot
+        // right beside him with the companion going back and forth in front of it for seconds,
+        // covering real ground and closing no distance. Neither the stuck count nor the follow gap
+        // can see that: the body is not still, and it can happen at any distance from him.
+        //
+        // Three clauses, and each of them is doing work. One goal held, so a companion whose
+        // request keeps changing is not reported for failing to reach any of them. Real travel, so
+        // this stays distinct from stuck rather than firing alongside it. And the closest approach
+        // never improving, which is the actual claim: distance to the goal is the only measure
+        // that separates moving from getting there.
+        float toGoal = brain.Positioner.Chosen is Vector2 want ? Vector2.Distance(npc.Bottom, want) : float.MaxValue;
+        Point? held = brain.Navigator.GoalTile;
+        bool sameGoal = held is Point g && intentGoal is Point had
+            && Math.Abs(g.X - had.X) <= IntentGoalSlackTiles && Math.Abs(g.Y - had.Y) <= IntentGoalSlackTiles;
+        if (!sameGoal || held == null || brain.Navigator.Path == null)
+        {
+            intentGoal = brain.Navigator.Path != null ? held : null;
+            intentTicks = 0;
+            intentBest = toGoal;
+            intentTravelled = 0f;
+        }
+        else
+        {
+            intentGoal = held;
+            intentTicks++;
+            intentTravelled += Vector2.Distance(npc.position, lastPosition);
+            if (toGoal < intentBest)
+                intentBest = toGoal;
+            if (intentTicks >= IntentTicks && tick >= intentCooldown)
+            {
+                if (intentTravelled >= IntentTravelPx && intentBest > toGoal - IntentProgressPx && intentBest < float.MaxValue)
+                {
+                    intentCooldown = tick + CooldownTicks;
+                    BrainTelemetry.DumpScenario(feet, goal, $"intent without progress, one spot held {IntentTicks} ticks while the body travelled {intentTravelled:n0} px and never got within {intentBest:n0} px of it");
+                }
+                intentTicks = 0;
+                intentTravelled = 0f;
+            }
+        }
+
+        // A body held in place with a velocity it is not spending. That pair is impossible for a
+        // body the engine is integrating, so it means something wrote the position back during the
+        // AI phase — which is what the motor's own step-up did through the whole shaft freeze,
+        // where the body read as airborne (`ground` is velocity.Y == 0) and so registered as
+        // neither stuck nor grounded, and every escape route in the navigator was gated shut.
+        if (companion.Motor.PinnedTicks >= PinnedTicksToReport && tick >= pinnedCooldown)
+        {
+            pinnedCooldown = tick + CooldownTicks;
+            BrainTelemetry.DumpScenario(feet, goal, $"body pinned, {companion.Motor.PinnedTicks} ticks holding velocity {npc.velocity.X:0.00},{npc.velocity.Y:0.00} with no displacement");
         }
 
         // Stuck: a path to follow and a body that has not moved, counted here across replans.

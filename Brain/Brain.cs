@@ -187,6 +187,11 @@ public sealed class Brain
     {
         if (spot is Vector2 feet)
         {
+            // One continuous stretch of wanting one kind of place is one ask, so the census reads
+            // "asked for 40 places, reached 11" rather than counting a minute of following as
+            // 3,600 requests. The kind is the episode's identity because the exact tile moves
+            // under a request that has not changed.
+            BehaviourCensus.RequestBegan(LastRequest.Kind.ToString());
             companion.Motor.Apply(Navigator.MoveTo(companion.Motor.State, feet));
             // Stuck twice on the way to one spot: the first strike priced the step and the replan
             // found nothing better, so the spot itself is the problem. Refuse it for a while and
@@ -202,6 +207,10 @@ public sealed class Brain
         {
             companion.Motor.Stop();
             Navigator.Clear();
+            // Nothing is being asked for, so whatever was being asked for is over: reached if the
+            // navigator got there, abandoned otherwise. A Hold request is the ordinary way an
+            // episode ends, which is why this is not treated as a failure.
+            BehaviourCensus.RequestEnded();
         }
     }
 }

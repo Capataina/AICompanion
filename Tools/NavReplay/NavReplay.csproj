@@ -16,22 +16,17 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="Program.cs" />
-    <Compile Include="../../Brain/DecisionMatrix/Navigation/World/ITileWorld.cs" />
-    <Compile Include="../../Brain/DecisionMatrix/Navigation/World/TextTileWorld.cs" />
-    <Compile Include="../../Brain/DecisionMatrix/Navigation/Body/BodyPhysics.cs" />
-    <Compile Include="../../Brain/DecisionMatrix/Navigation/Body/BodyState.cs" />
-    <Compile Include="../../Brain/DecisionMatrix/Navigation/Body/Controls.cs" />
-    <Compile Include="../../Brain/DecisionMatrix/Navigation/Body/BodyMotion.cs" />
-    <Compile Include="../../Brain/DecisionMatrix/Navigation/Planning/NavGrid.cs" />
-    <Compile Include="../../Brain/DecisionMatrix/Navigation/Planning/NavPath.cs" />
-    <Compile Include="../../Brain/DecisionMatrix/Navigation/Planning/AStar.cs" />
-    <Compile Include="../../Brain/DecisionMatrix/Navigation/Planning/Reachability.cs" />
-    <Compile Include="../../Brain/DecisionMatrix/Navigation/Traversals/Traversal.cs" />
-    <Compile Include="../../Brain/DecisionMatrix/Navigation/Traversals/WalkTraversal.cs" />
-    <Compile Include="../../Brain/DecisionMatrix/Navigation/Traversals/JumpTraversal.cs" />
-    <Compile Include="../../Brain/DecisionMatrix/Navigation/Traversals/DropTraversal.cs" />
-    <Compile Include="../../Brain/DecisionMatrix/Navigation/Traversals/FallThroughTraversal.cs" />
-    <Compile Include="../../Brain/DecisionMatrix/Navigation/Following/Navigator.cs" />
+    <!--
+      The whole navigation tree, by pattern rather than file by file, with the one file that
+      names the game excluded. Listing them by hand meant a new file in the core compiled into
+      the mod and not into this tool, and since the mod's own build globs its sources that
+      failure surfaces only when someone runs the replay: ReactiveWalk.cs landed on 2026-09-09
+      and the corpus run was the thing that noticed. The pattern is safe because the tree is
+      game-free by construction — Tools/check-navigation-boundary.sh enforces exactly this same
+      single exception, so the two agree on what the boundary is.
+    -->
+    <Compile Include="../../Brain/DecisionMatrix/Navigation/**/*.cs"
+             Exclude="../../Brain/DecisionMatrix/Navigation/World/GameTileWorld.cs" />
     <Compile Include="../../Brain/DecisionMatrix/Decision/Weights.cs" />
   </ItemGroup>
   <ItemGroup>

@@ -35,8 +35,15 @@ public static class Program
         new TicksAdvance(),
         new ReturnableFitsInsideReach(),
         new ColumnsHoldWhatTheyClaim(),
+        // The two boundary checks, which ask whether the record can be believed at all: a body
+        // held by our own code rather than by the world, and the offline motion rule drifting away
+        // from the collision that performs it. Both come before the behaviour checks because a
+        // finding in either means the behaviour below it was measured on a broken body.
+        new TheBodyIsNeverPinned(),
+        new TheTwoBodiesAgree(),
         // Then the body, the fight and the choices.
         new TheBodyMovesWhenDriven(),
+        new EveryMoveOfferedGetsMade(),
         new ProvenMovesTakeTheirProvenTime(),
         new BeingUnableToReachHimGetsNoticed(),
         new DamageArrivesWhereDangerWasSeen(),
@@ -76,6 +83,14 @@ public static class Program
         }
 
         Console.Write(DescribeSession.Of(session));
+        // The census opens the report, above every finding, because it is the one part that says
+        // what did *not* happen. Every check below it fires on a threshold somebody chose and can
+        // only find a failure somebody imagined, so a category nobody thought to threshold reads as
+        // silence; a census prints a row per category whether or not anything happened in it, and a
+        // zero in a row is loud where zero findings from a detector is invisible. The mod writes it
+        // beside the session under the same stamp, so nobody has to be told where to look.
+        Companion(path, "-census.txt", "behaviour census");
+        Companion(path, "-map.txt", "session map");
 
         var findings = new List<Finding>();
         var skipped = new List<(string Name, string Missing)>();
@@ -173,6 +188,25 @@ public static class Program
                 rest[0].FirstTick, rest[^1].LastTick, rest.Sum(f => f.Rows)));
         }
         return kept.OrderByDescending(f => f.Rows).ToList();
+    }
+
+    /// <summary>
+    /// A whole-session artefact the mod wrote beside the .tsv under the same stamp, printed as it
+    /// is. Absent is reported by name rather than passed over, because a missing census reads
+    /// exactly like an empty one and the two mean opposite things: no file means the session
+    /// predates the census or ended without a clean world unload, and an empty one would be a
+    /// companion that never moved.
+    /// </summary>
+    private static void Companion(string sessionPath, string suffix, string what)
+    {
+        string path = Path.ChangeExtension(sessionPath, null) + suffix;
+        Console.WriteLine();
+        if (!File.Exists(path))
+        {
+            Console.WriteLine($"no {what} beside this session ({Path.GetFileName(path)} is absent), so treat its questions as unmeasured rather than clean");
+            return;
+        }
+        Console.Write(File.ReadAllText(path));
     }
 
     /// <summary>A file as given, or the newest .tsv in a folder, so a report is one command after a playtest.</summary>
