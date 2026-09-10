@@ -28,6 +28,25 @@ public readonly record struct ActionContext(CompanionNPC Companion, WorldObserva
 /// </summary>
 public abstract class CompanionAction
 {
+    private object? admittedIdentity;
+    public virtual Microsoft.Xna.Framework.Vector2? ActivityTarget => null;
+    public virtual object? ActivityIdentity => null;
+    public bool HasActivityAllowance => admittedIdentity != null;
+
+    /// <summary>Only an entered job earns the continuation radius; discovering a target does not.</summary>
+    protected bool AllowsTarget(in ActionContext ctx, Microsoft.Xna.Framework.Vector2 target, object? identity = null)
+    {
+        var preferences = PlayerIntegration.CompanionPreferences.Current;
+        bool sameJob = admittedIdentity != null && Equals(admittedIdentity, identity ?? ActivityIdentity);
+        bool collectingWork = Name == "loot" && ctx.Companion.Brain.Chooser.IsCollectingWork(target);
+        float radius = sameJob || collectingWork ? preferences.ActiveActivityRadius : preferences.NewActivityRadius;
+        bool allowed = Microsoft.Xna.Framework.Vector2.DistanceSquared(target, ctx.Player.Bottom) <= radius * radius
+            && Microsoft.Xna.Framework.Vector2.DistanceSquared(ctx.Npc.Bottom, ctx.Player.Bottom) <= radius * radius;
+        return allowed;
+    }
+
+    public void AdmitActivity() => admittedIdentity = ActivityIdentity;
+    protected void ReleaseActivity() => admittedIdentity = null;
     public abstract string Name { get; }
     /// <summary>Optional excursions yield to regrouping; protection and survival opt out.</summary>
     public virtual bool IsExcursion => true;
@@ -42,7 +61,7 @@ public abstract class CompanionAction
     public virtual void Enter(in ActionContext ctx) { }
 
     /// <summary>Called on the tick another action takes over.</summary>
-    public virtual void Exit(in ActionContext ctx) { }
+    public virtual void Exit(in ActionContext ctx) => ReleaseActivity();
 
     /// <summary>Run one tick and say where to stand.</summary>
     public abstract PositionRequest Execute(in ActionContext ctx);

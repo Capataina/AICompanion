@@ -128,7 +128,7 @@ public static class OreFinder
                 if (!MovementQueries.IsStandable(x, y))
                     continue;
                 Vector2 feet = MovementQueries.FeetWorld(new Point(x, y));
-                if (!InReach(feet, ore))
+                if (!InReach(feet, ore) || !InReach(feet + new Vector2(-8, 0), ore) || !InReach(feet + new Vector2(8, 0), ore))
                     continue;
                 float d = Vector2.DistanceSquared(feet + Eye, oreCentre);
                 Reachability.Reach reach = MovementQueries.WalkerReach(from, new Point(x, y));

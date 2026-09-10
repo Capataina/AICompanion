@@ -17,6 +17,7 @@ namespace AICompanion.Companion.Brain;
 /// </summary>
 public sealed class Brain
 {
+    public Brain() => WorldInteractions.WorldProtection.ProtectCompanionHomes.Reset();
     public readonly WorldObservation.Senses Senses = new();
     public readonly Chooser Chooser = new();
     public readonly Positioner Positioner = new();
@@ -37,6 +38,17 @@ public sealed class Brain
     public PositionRequest LastRequest { get; private set; }
     public CompanionAction? LastAction => Chooser.Current;
     public ulong LastTick { get; private set; } = ulong.MaxValue;
+    public bool MovementStalled { get; private set; }
+    public string ActivityStatus => FollowRecovery.Active ? "Catching up" : MovementStalled ? "Stuck: not making progress" : LastAction?.Name switch
+    {
+        "walk-with" => "Following you", "guard" => "Guarding you", "hunt" => "Hunting", "kite" => "Keeping distance",
+        "mine" => "Mining ore", "chop" => "Chopping a tree", "loot" => "Collecting drops", "survive" => "Getting to safety",
+        "place-torches" => "Lighting the way", "break-pots" => "Breaking pots", "wander" => "Looking around", _ => "Resting"
+    };
+    private Vector2 progressOrigin;
+    private int progressTicks;
+    private NavPath? progressPath;
+    private int progressStep;
 
     /// <summary>
     /// What each phase of the last tick cost, in milliseconds of wall-clock, so the lag has a
@@ -103,6 +115,7 @@ public sealed class Brain
     {
         phase.Restart();
         Senses.Update(companion.NPC, player, companion.Breath);
+        WorldInteractions.WorldProtection.ProtectCompanionHomes.Refresh(player.Bottom, companion.NPC.Bottom);
         companion.Arsenal.Tick();
         companion.Chopper.Tick();
         SensesMs = Lap();
@@ -174,6 +187,7 @@ public sealed class Brain
         }
         Engage(companion, ctx, action);
         CountStranded();
+        WatchProgress(companion);
     }
 
     private bool TryFollowRecovery(CompanionNPC companion, Terraria.Player player, bool mayStart)
@@ -236,6 +250,38 @@ public sealed class Brain
                 && Positioner.ReachComplete ? System.Math.Max(StrandedTicks, 1) : 0;
         else if (StrandedTicks > 0)
             StrandedTicks++;
+    }
+
+    private void WatchProgress(CompanionNPC companion)
+    {
+        if (progressTicks == 0)
+        {
+            progressOrigin = companion.NPC.Bottom;
+            progressPath = Navigator.Path;
+            progressStep = progressPath?.Index ?? 0;
+        }
+        bool wantsTravel = LastRequest.Kind == RequestKind.WithPlayer
+            ? !new FollowPlayerObjective(Senses.Player.Bottom, Senses.Player.Bottom).IsSatisfied(companion.NPC.Bottom,
+                WorldObservation.LineOfSight.Between(companion.NPC, Senses.PlayerEntity))
+            : LastRequest.Kind != RequestKind.Hold && (Positioner.Chosen is not Vector2 spot
+                || Vector2.DistanceSquared(spot, companion.NPC.Bottom) > 16f * 16f);
+        if (!wantsTravel)
+        {
+            progressOrigin = companion.NPC.Bottom; progressTicks = 0; MovementStalled = false;
+            progressPath = Navigator.Path; progressStep = progressPath?.Index ?? 0;
+            return;
+        }
+        if (MovementStalled && Vector2.DistanceSquared(progressOrigin, companion.NPC.Bottom) >= Weights.ObjectiveProgressPixels * Weights.ObjectiveProgressPixels)
+            MovementStalled = false;
+        if (++progressTicks >= Weights.ObjectiveProgressWindowTicks)
+        {
+            // Net displacement across a window catches stationary holds and local oscillation;
+            // it makes no claim that moving away from the player is a bad route detour.
+            bool advancedRoute = progressPath != null && ReferenceEquals(progressPath, Navigator.Path) && progressPath.Index > progressStep;
+            MovementStalled = !advancedRoute && Vector2.DistanceSquared(progressOrigin, companion.NPC.Bottom) < Weights.ObjectiveProgressPixels * Weights.ObjectiveProgressPixels;
+            progressOrigin = companion.NPC.Bottom; progressTicks = 0;
+            progressPath = Navigator.Path; progressStep = progressPath?.Index ?? 0;
+        }
     }
 
     private void Navigate(CompanionNPC companion, Vector2? spot)

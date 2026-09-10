@@ -26,6 +26,10 @@ public static class PredictObservedMotion
 
     public static void Forget(int slot) => tracks.Remove(slot);
     public static void Clear() => tracks.Clear();
+    /// <summary>Read-only evidence already computed by consumers; inspecting never extends a forecast.</summary>
+    public static IReadOnlyList<Vector2> ExistingForecast(NPC npc)
+        => tracks.TryGetValue(npc.whoAmI, out Track? track) && track.Subject == npc && track.Type == npc.type
+            && track.Tick == Main.GameUpdateCount ? track.Centres : Array.Empty<Vector2>();
 
     public static void Observe(NPC npc)
     {

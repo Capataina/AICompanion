@@ -113,7 +113,7 @@ public static class ChronicleTests
                 + "3\t40\tobserved_before_ai;request_after_ai;npc_px_after_helpers\t0,0\t0,0\t1\tdry\t100\t-\t-\talive\tidle\tsolid\t-10,0\t1,0\t100\tsolid\tmove\tnavigation\tup\twalk-with\twith-player\t0,0\n"
                 + "4\t60\tobserved_before_ai;request_after_ai;npc_px_after_helpers\t0,0\t0,0\t1\tdry\t100\t-\t-\talive\tidle\tsolid\t-10,0\t0,0\t100\tsolid\tnone\tnavigation\tup\twalk-with\twith-player\t0,0\n");
             string report = Chronicle.Of(Session.Load(file), full: true);
-            Require(report.Contains("net progress toward its recorded spot: 20.0->10.0 px"), "successful approach was not measured");
+            Require(report.Contains("net progress toward its recorded spot: 32.2->24.1 px"), "successful approach must convert the recorded feet tile to world pixels");
             Require(!report.Contains("hesitation", StringComparison.OrdinalIgnoreCase), "a neutral hold was mislabelled as failure");
         }
         finally

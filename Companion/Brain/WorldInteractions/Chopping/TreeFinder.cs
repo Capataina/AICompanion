@@ -49,7 +49,7 @@ public static class TreeFinder
     /// excluding the tree whose bottom is <paramref name="exclude"/>. Scans columns outward
     /// so the first hit in each column is the closest trunk there.
     /// </summary>
-    public static ChoppableTree? FindNearest(Vector2 from, int radiusTiles, Point? exclude)
+    public static ChoppableTree? FindNearest(Vector2 from, int radiusTiles, Point? exclude, System.Func<ChoppableTree, bool>? accept = null)
     {
         int cx = (int)(from.X / 16f), cy = (int)(from.Y / 16f);
         ChoppableTree? best = null;
@@ -68,6 +68,7 @@ public static class TreeFinder
                 ChoppableTree? tree = Approach(bottom);
                 if (tree is not ChoppableTree t)
                     continue;
+                if (accept != null && !accept(t)) continue;
                 float d = Vector2.DistanceSquared(from, t.StandPosition);
                 if (d < bestDist)
                 {

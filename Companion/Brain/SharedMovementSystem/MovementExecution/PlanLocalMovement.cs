@@ -267,21 +267,31 @@ public sealed class PlanLocalMovement
             retained.Dequeue();
     }
 
+    public static Func<bool>? CaptureRequested;
+    public static Action<Controls, Vector2[], float>? CandidateEvaluated;
+
     private static float Score(ITileWorld world, BodyState state, Vector2 target, Controls first, MovementCapabilities capabilities, Func<BodyState, int, bool>? unsafeAtTick)
     {
+        var trace = CaptureRequested?.Invoke() == true ? new System.Collections.Generic.List<Vector2> { state.Feet } : null;
         for (int tick = 0; tick < HorizonTicks; tick++)
         {
             Controls controls = tick == 0
                 ? first
                 : new Controls(BodyPhysics.SteerToward(target.X, state.CentreX, state.Vx));
             state = BodyMotion.Step(world, state, controls, capabilities);
+            trace?.Add(state.Feet);
             if (state.Stuck || (unsafeAtTick?.Invoke(state, tick) ?? false))
+            {
+                if (trace != null) CandidateEvaluated?.Invoke(first, trace.ToArray(), float.MaxValue);
                 return float.MaxValue;
+            }
         }
         float distance = Vector2.DistanceSquared(state.Feet, target);
         // A controller that stays airborne while the target is a standing route point is less
         // useful than one that reaches it on a surface; this is a finite preference, never a
         // veto, because jumps intentionally fly through most horizons.
-        return distance + (state.OnGround ? 0f : 64f);
+        float score = distance + (state.OnGround ? 0f : 64f);
+        if (trace != null) CandidateEvaluated?.Invoke(first, trace.ToArray(), score);
+        return score;
     }
 }

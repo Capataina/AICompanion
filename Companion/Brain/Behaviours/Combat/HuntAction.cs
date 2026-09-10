@@ -23,9 +23,12 @@ public sealed class HuntAction : CompanionAction
     public override string Name => "hunt";
 
     public ThreatRecord? Target { get; private set; }
+    public override Vector2? ActivityTarget => Target?.Npc.Bottom;
+    public override object? ActivityIdentity => Target?.Npc;
 
     public override float Score(in ActionContext ctx)
     {
+        if (!PlayerIntegration.CompanionPreferences.Current.Hunting) { Target = null; return 0f; }
         Rectangle screen = ScreenWithMargin();
         Target = PickTarget(ctx, screen);
         if (Target == null || ctx.Senses.Player.IsDead)
@@ -34,7 +37,7 @@ public sealed class HuntAction : CompanionAction
         float near = Target.Npc.Hitbox.Intersects(screen)
             ? 1f
             : Consideration.AtLeast(Consideration.Inverse(Target.DistanceToCompanion, Weights.HuntReach), 0.2f);
-        float worth = Target.IsBoss ? 1f : 0.85f;
+        float worth = Target.IsBoss ? 0.65f : 0.55f;
         // Two things this used to ignore, both of which killed it.
         //
         // Where the player is. Hunting is opportunistic — something to do when there is little
@@ -47,7 +50,7 @@ public sealed class HuntAction : CompanionAction
         // surrounded 84 tiles out was in a world with no danger in it (2026-09-09, five hits in
         // 330 ticks, danger 0.00 on every one). Hunting now yields as its own danger rises, which
         // is what lets disengaging outscore pressing on.
-        float leash = Consideration.Inverse(MathF.Max(0f, ctx.Senses.DistanceToPlayer - Weights.HuntLeashFree), Weights.HuntLeashToZero);
+        float leash = AllowsTarget(ctx, Target.Npc.Bottom) ? 1f : 0f;
         float ownSkin = Consideration.AtLeast(1f - ctx.Senses.Threats.CompanionDanger, 0.05f);
         return safe * near * worth * leash * ownSkin;
     }
@@ -69,12 +72,13 @@ public sealed class HuntAction : CompanionAction
     }
 
     /// <summary>Threats endangering the player first, then the nearest reachable one a weapon can reach.</summary>
-    private static ThreatRecord? PickTarget(in ActionContext ctx, Rectangle screen)
+    private ThreatRecord? PickTarget(in ActionContext ctx, Rectangle screen)
     {
         ThreatRecord? best = null;
         float bestScore = 0f;
         foreach (ThreatRecord t in ctx.Senses.Threats.Threats)
         {
+            if (!AllowsTarget(ctx, t.Npc.Bottom, t.Npc)) continue;
             if (!t.Npc.CanBeChasedBy()) continue;
             if (!t.CanReachEither && !t.Npc.Hitbox.Intersects(screen))
                 continue;

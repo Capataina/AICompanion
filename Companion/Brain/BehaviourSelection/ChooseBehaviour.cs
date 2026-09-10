@@ -29,6 +29,8 @@ public sealed class Chooser
         new LootAction(),
         new ChopAction(),
         new MineAction(),
+        new BreakNearbyPots(),
+        new PlaceNearbyTorches(),
         new WalkWithPlayerAction(),
         new WanderAction(),
     };
@@ -37,6 +39,17 @@ public sealed class Chooser
     public CompanionAction? Current { get; private set; }
     public float RegroupUrgency { get; private set; }
     public float EstimatedReturnTicks { get; private set; }
+    private Microsoft.Xna.Framework.Vector2? workSite;
+    private ulong workSiteTick;
+    public bool IsCollectingWork(Microsoft.Xna.Framework.Vector2 target)
+        => workSite is { } site && Terraria.Main.GameUpdateCount - workSiteTick <= Weights.WorkCollectionTicks
+            && Microsoft.Xna.Framework.Vector2.DistanceSquared(site, target) <= Weights.WorkSiteRadius * Weights.WorkSiteRadius;
+
+    public void RecordWork(Microsoft.Xna.Framework.Vector2 site)
+    {
+        workSite = site;
+        workSiteTick = Terraria.Main.GameUpdateCount;
+    }
 
     public CompanionAction Choose(in ActionContext ctx)
     {
@@ -57,9 +70,12 @@ public sealed class Chooser
         float movingAway = delta.LengthSquared() > 1f ? Microsoft.Xna.Framework.Vector2.Dot(ctx.Senses.Player.Velocity, Microsoft.Xna.Framework.Vector2.Normalize(delta)) : 0f;
         RegroupUrgency = ctx.Senses.Player.IsDead ? 0f : WorldObservation.CalculateRegroupUrgency.Evaluate(
             ctx.Senses.DistanceToPlayer, EstimatedReturnTicks, movingAway, navigator.StuckTicks,
-            Weights.FollowHorizontalComfort, Weights.RegroupFullDistance, Weights.RegroupFreeReturnTicks, Weights.RegroupFullReturnTicks);
+            Weights.FollowHorizontalComfort * PlayerIntegration.CompanionPreferences.Current.FollowComfortScale,
+            Weights.RegroupFullDistance, Weights.RegroupFreeReturnTicks, Weights.RegroupFullReturnTicks);
         var follow = new PositionSelection.FollowPlayerObjective(ctx.Senses.Player.Bottom, ctx.Senses.Player.Bottom);
-        if (!ctx.Senses.Player.IsDead && !follow.IsSatisfied(ctx.Npc.Bottom, WorldObservation.LineOfSight.Between(ctx.Npc, ctx.Player)))
+        bool arrived = follow.IsSatisfied(ctx.Npc.Bottom, WorldObservation.LineOfSight.Between(ctx.Npc, ctx.Player));
+        if (arrived) RegroupUrgency = 0f;
+        if (!ctx.Senses.Player.IsDead && !arrived)
         {
             // A nearby player behind a floor can have a long route. Geometric closeness must
             // not suppress measured return pressure when companionship is still unsatisfied.
@@ -78,12 +94,16 @@ public sealed class Chooser
         {
             float raw = action.Score(ctx);
             float final = raw;
-            if (action.IsExcursion && !ctx.Stranded) final *= 1f - Math.Max(RegroupUrgency, ctx.Senses.Threats.ProtectionUrgency);
+            // Optional jobs validate their target against the activity envelope themselves.
+            // The short follow comfort band must not veto an admitted, useful excursion.
+            if (action.IsExcursion && !ctx.Stranded) final *= 1f - ctx.Senses.Threats.ProtectionUrgency;
             if (raw > 0f)
             {
                 if (action == Current)
                     final *= Weights.Commitment;
-                float forecast = action.ForecastTicks(ctx);
+                // Work is interruptible at the next decision tick. Charging the whole vein
+                // against a momentary safety horizon made safe, resumable work impossible.
+                float forecast = action.IsExcursion ? Math.Min(Weights.InterruptibleActionTicks, action.ForecastTicks(ctx)) : action.ForecastTicks(ctx);
                 if (forecast > horizon)
                 {
                     float overrun = forecast - horizon;
@@ -91,6 +111,18 @@ public sealed class Chooser
                 }
             }
             LastScores.Add(new Scored(action, raw, final));
+        }
+
+        bool useful = LastScores.Exists(s => s.Action.IsExcursion && s.Action.ActivityTarget != null && s.Final > .1f);
+        for (int i = 0; i < LastScores.Count; i++)
+        {
+            var scored = LastScores[i];
+            float final = scored.Final;
+            CompanionAction action = scored.Action;
+            if (useful && action is WalkWithPlayerAction
+                && ctx.Senses.DistanceToPlayer <= PlayerIntegration.CompanionPreferences.Current.ActiveActivityRadius)
+                final *= Weights.FollowDuringUsefulWork;
+            LastScores[i] = scored with { Final = final };
             if (final > bestScore)
             {
                 bestScore = final;
@@ -104,6 +136,9 @@ public sealed class Chooser
             best.Enter(ctx);
             Current = best;
         }
+        // A behaviour can finish one target and select another without losing the tick.
+        // Score validates acquisition first; only the selected identity earns continuation.
+        best.AdmitActivity();
         return best;
     }
 }

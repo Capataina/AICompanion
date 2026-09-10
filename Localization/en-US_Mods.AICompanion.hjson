@@ -1,2 +1,13 @@
 NPCs.CompanionNPC.DisplayName: Companion
-Keybinds.BrainOverlay.DisplayName: Brain Overlay
+Keybinds.BrainOverlay.DisplayName: Companion Brain Inspector
+Configs.CompanionDiagnosticsConfig: {
+    DisplayName: Companion Diagnostics
+    EnableBrainInspector: {
+        Label: Enable brain inspector
+        Tooltip: "Allows the Brain Inspector key under Controls to open visual AI layers. Viewing does not require recording."
+    }
+    RecordTelemetry: {
+        Label: Record gameplay for bug reports
+        Tooltip: "Writes local files in tModLoader/ModSources/AICompanion/Telemetry. Enable before entering a world; disabling stops the current recording. After leaving, share all files with the same session timestamp. Game/runtime and loaded mod versions are included. Files contain local terrain and gameplay events; nothing is uploaded automatically."
+    }
+}

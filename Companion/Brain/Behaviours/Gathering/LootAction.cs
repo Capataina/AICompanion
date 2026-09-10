@@ -22,6 +22,8 @@ public sealed class LootAction : CompanionAction
     public override string Name => "loot";
 
     private Item? target;
+    public override Vector2? ActivityTarget => target?.Bottom;
+    public override object? ActivityIdentity => target;
 
     public override float Score(in ActionContext ctx)
     {
@@ -33,6 +35,7 @@ public sealed class LootAction : CompanionAction
         LootSense.Pickup? chosen = null;
         foreach (var candidate in ctx.Senses.Loot.Pickups)
         {
+            if (!AllowsTarget(ctx, candidate.Item.Bottom, candidate.Item)) continue;
             if (!ctx.Companion.Bag.CanAccept(candidate.Item, ctx.Player))
                 continue;
             if (MovementQueries.NearestStandable(MovementQueries.FeetTile(candidate.Item.Bottom), 3) == null)

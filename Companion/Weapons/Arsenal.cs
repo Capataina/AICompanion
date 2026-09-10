@@ -143,7 +143,11 @@ public sealed class Arsenal
 
         Vector2 muzzle = Muzzle(ctx.Npc);
         if (TrajectoryAimer.Solve(muzzle, target, weapon.Profile) is not Vector2 launch)
+        {
+            BrainInspectorSamples.RecordAim((ulong)ctx.Senses.Tick, muzzle, target.Center, weapon.Name, null, "no-arc");
             return 0f;
+        }
+        BrainInspectorSamples.RecordAim((ulong)ctx.Senses.Tick, muzzle, target.Center, weapon.Name, launch, "solved");
 
         int crossed = TrajectoryAimer.PathHits(muzzle, launch, weapon.Profile, hostiles, pierced);
         if (crossed == 0)

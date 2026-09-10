@@ -13,6 +13,7 @@ using AICompanion.Companion.Brain.WorldInteractions.Chopping;
 using AICompanion.Companion.Brain.WorldInteractions.Mining;
 using AICompanion.Companion.CharacterBody;
 using AICompanion.Companion.PlayerIntegration;
+using AICompanion.Companion.ProfileCard;
 
 namespace AICompanion.Companion.HeadsUpDisplay;
 
@@ -45,12 +46,29 @@ public class CompanionHealthBar : ModSystem
     /// <summary>A press has to travel this far (UI-scaled) before it is a drag; released before that, it is a click.</summary>
     private const float DragThreshold = 6f;
 
-    private bool pressed;
+    private static bool pressed;
     private bool dragging;
     private Vector2 pressPoint;
     private Vector2 dragOffset;
 
     private static readonly Dictionary<(int w, int h, int r, int corners), Texture2D> masks = new();
+
+    public static Rectangle Bounds(CompanionPlayer save)
+    {
+        int width = (int)(BaseWidth * Main.UIScale), height = (int)(BaseHeight * Main.UIScale);
+        Vector2 pos = save.HealthBarPosition ?? new Vector2((Main.screenWidth - width) / 2f, 0f);
+        return new Rectangle((int)pos.X, (int)pos.Y, width, height);
+    }
+
+    /// <summary>Consume the opening press before item use, including a cursor entering this tick.</summary>
+    public static void CaptureInput(CompanionPlayer save)
+    {
+        if (!Main.gameMenu && Main.LocalPlayer.active && CompanionNPC.Find() != null
+            && (pressed || Bounds(save).Contains(Main.mouseX, Main.mouseY)))
+            Main.LocalPlayer.mouseInterface = true;
+    }
+
+    public override void OnWorldUnload() { pressed = false; dragging = false; }
 
     public override void ModifyInterfaceLayers(List<GameInterfaceLayer> layers)
     {
@@ -87,7 +105,7 @@ public class CompanionHealthBar : ModSystem
         int width = (int)(BaseWidth * scale), height = (int)(BaseHeight * scale);
         Vector2 defaultPos = new((Main.screenWidth - width) / 2f, 0f);
         Vector2 pos = save.HealthBarPosition ?? defaultPos;
-        Rectangle box = new((int)pos.X, (int)pos.Y, width, height);
+        Rectangle box = Bounds(save);
 
         Vector2 mouse = new(Main.mouseX, Main.mouseY);
         bool hovering = box.Contains(mouse.ToPoint());
@@ -95,8 +113,7 @@ public class CompanionHealthBar : ModSystem
             Main.LocalPlayer.mouseInterface = true;
 
         // A press is a click until it travels: the notch only moves once the button has been
-        // held through DragThreshold pixels, and a release before that opens the bag, so the
-        // notch is the bag's button as well as its handle.
+        // held through DragThreshold pixels, and a release before that opens the profile.
         if (pressed)
         {
             if (Main.mouseLeft)
@@ -115,7 +132,7 @@ public class CompanionHealthBar : ModSystem
             else
             {
                 if (!dragging)
-                    Inventory.CompanionBagSystem.Toggle();
+                    CompanionProfileCardSystem.Toggle();
                 pressed = false;
                 dragging = false;
             }
@@ -163,6 +180,10 @@ public class CompanionHealthBar : ModSystem
         Vector2 centre = slot.Center.ToVector2();
         Main.spriteBatch.Draw(tex, centre, frame, Color.White, 0f, frame.Size() / 2f, fit, SpriteEffects.None, 0f);
 
+        if (companion.Brain.MovementStalled && !companion.IsDowned && !companion.Brain.FollowRecovery.Active)
+            Utils.DrawBorderStringFourWay(Main.spriteBatch, FontAssets.MouseText.Value, "Stuck", box.Center.X, box.Bottom + 3 * scale,
+                Color.Gold, Color.Black, new Vector2(FontAssets.MouseText.Value.MeasureString("Stuck").X / 2f, 0f), .65f * scale);
+
         if (slot.Contains(Main.mouseX, Main.mouseY) && !hoveringNotch)
             Main.instance.MouseText(name);
     }
@@ -173,8 +194,10 @@ public class CompanionHealthBar : ModSystem
             return (ItemID.Tombstone, "downed");
         if (companion.Brain.Reflexes.Active is string reflex)
             return (ItemID.Feather, reflex);
-        if (companion.Torch.Shown)
-            return (ItemID.Torch, "torch");
+        if (companion.Brain.FollowRecovery.Active)
+            return (ItemID.Feather, "catching up");
+        if (companion.Brain.MovementStalled)
+            return (ItemID.Compass, "stuck: not making progress");
         string action = companion.Brain.LastAction?.Name ?? "";
         Player player = Main.LocalPlayer;
         return action switch
@@ -186,6 +209,8 @@ public class CompanionHealthBar : ModSystem
             "loot" => (ItemID.GoldCoin, "looting"),
             "chop" => (TileChopper.AxeFor(player).type, "chopping"),
             "mine" => (TileMiner.PickaxeFor(player).type, "mining"),
+            "break-pots" => (ItemID.ClayPot, "breaking pots"),
+            "place-torches" => (ItemID.Torch, "placing torches"),
             "walk-with" => (ItemID.Compass, "following you"),
             "wander" => (ItemID.Sunflower, "wandering"),
             _ => (0, action),

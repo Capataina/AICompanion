@@ -28,12 +28,18 @@ public partial class CompanionPlayer : ModPlayer
 
     public CompanionInventory Bag { get; private set; } = new();
 
+    /// <summary>The saved choices currently backing <see cref="CompanionPreferences.Current"/>.</summary>
+    public CompanionPreferences Preferences { get; private set; } = new();
+
     public override void SaveData(TagCompound tag)
     {
         tag["hasCompanion"] = HasCompanion;
         if (HealthBarPosition is Vector2 p)
             tag["healthBar"] = p;
         tag["bag"] = Bag.Save();
+        var preferences = new TagCompound();
+        Preferences.Save(preferences);
+        tag["preferences"] = preferences;
     }
 
     public override void LoadData(TagCompound tag)
@@ -43,10 +49,25 @@ public partial class CompanionPlayer : ModPlayer
         Bag = new CompanionInventory();
         if (tag.ContainsKey("bag"))
             Bag.Load(tag.GetCompound("bag"));
+        try
+        {
+            Preferences = tag.ContainsKey("preferences")
+                ? CompanionPreferences.Load(tag.GetCompound("preferences"))
+                : new CompanionPreferences();
+        }
+        catch (System.Exception)
+        {
+            // A malformed optional settings compound must not prevent an older character from
+            // loading; defaults preserve the behaviour those saves had before settings existed.
+            Preferences = new CompanionPreferences();
+        }
     }
 
     public override void OnEnterWorld()
     {
+        // The static work-policy readers are evaluated by the brain after spawning. Point them
+        // at this character before that happens so changing worlds cannot use another save's UI.
+        CompanionPreferences.Current = Preferences;
         bool spawned = false;
         if (HasCompanion && CompanionNPC.Find() == null)
             spawned = CompanionNPC.Spawn(Player) < Main.maxNPCs;

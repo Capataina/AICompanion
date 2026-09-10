@@ -4,6 +4,7 @@ using System;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Text;
 using Microsoft.Xna.Framework;
 using Terraria;
@@ -54,6 +55,7 @@ public sealed class BrainTelemetry : ModSystem
     public override void OnWorldLoad()
     {
         Close();
+        if (!DiagnosticsConfiguration.CompanionDiagnosticsConfig.Current.RecordTelemetry) return;
         try
         {
             Directory.CreateDirectory(Folder);
@@ -97,7 +99,13 @@ public sealed class BrainTelemetry : ModSystem
         }
     }
 
-    public override void OnWorldUnload() => Close();
+    public override void OnWorldUnload()
+    {
+        Close();
+        global::AICompanion.Companion.Brain.WorldObservation.PredictObservedMotion.Clear();
+    }
+
+    public static void StopRecording() => Close();
 
     public override void LoadWorldData(TagCompound tag)
     {
@@ -115,6 +123,11 @@ public sealed class BrainTelemetry : ModSystem
 
     public override void PostUpdateEverything()
     {
+        if (!DiagnosticsConfiguration.CompanionDiagnosticsConfig.Current.RecordTelemetry)
+        {
+            if (writer != null) Close();
+            return;
+        }
         if (writer == null || firstUpdateRecorded)
             return;
         firstUpdateRecorded = true;
@@ -148,6 +161,7 @@ public sealed class BrainTelemetry : ModSystem
     public override void Unload()
     {
         Close();
+        global::AICompanion.Companion.Brain.WorldObservation.PredictObservedMotion.Clear();
         Mod.Logger.Info("BrainTelemetry.Unload: done");
     }
 
@@ -172,7 +186,6 @@ public sealed class BrainTelemetry : ModSystem
         finally
         {
             sessionClock.Reset();
-            global::AICompanion.Companion.Brain.WorldObservation.PredictObservedMotion.Clear();
             writer = null;
             plansPath = null;
             censusPath = null;
@@ -207,6 +220,8 @@ public sealed class BrainTelemetry : ModSystem
             return;
         writer.WriteLine($"# schema={Schema}");
         writer.WriteLine($"# started_utc={sessionStartedUtc:O}");
+        writer.WriteLine($"# terraria={Main.versionNumber};tml_assembly={typeof(Main).Assembly.GetName().Version};runtime={Environment.Version};os={Environment.OSVersion.Platform}");
+        writer.WriteLine("# mods=" + string.Join(";", (ModLoader.Mods ?? Array.Empty<Mod>()).Select(mod => mod.Name + "@" + mod.Version)));
         writer.WriteLine("# lifecycle=world-entry-observed;tag-load-not-yet-observed;first-update-not-yet-observed;outer-load-unobservable;save-not-observed");
         writer.Flush();
     }
@@ -371,6 +386,7 @@ public sealed class BrainTelemetry : ModSystem
     /// </summary>
     public static void Record(CompanionNPC companion)
     {
+        if (!DiagnosticsConfiguration.CompanionDiagnosticsConfig.Current.RecordTelemetry) { if (writer != null) Close(); return; }
         if (writer == null)
             return;
         ScenarioCapture.Watch(companion);
@@ -393,6 +409,8 @@ public sealed class BrainTelemetry : ModSystem
             var board = new StringBuilder();
             foreach (var score in brain.Chooser.LastScores) { if (board.Length > 0) board.Append(','); board.Append(score.Action.Name).Append('=').Append(score.Raw.ToString("0.000", CultureInfo.InvariantCulture)).Append("->").Append(score.Final.ToString("0.000", CultureInfo.InvariantCulture)); }
             board.Append(CultureInfo.InvariantCulture, $";regroup={brain.Chooser.RegroupUrgency:0.000};return-ticks={brain.Chooser.EstimatedReturnTicks:0.0}");
+            var preferences = PlayerIntegration.CompanionPreferences.Current;
+            board.Append(CultureInfo.InvariantCulture, $";movement-stalled={brain.MovementStalled};activity-status={brain.ActivityStatus};activity-target={brain.LastAction?.ActivityTarget};activity-radius={preferences.NewActivityRadius};continuation-radius={preferences.ActiveActivityRadius};recovery-radius={preferences.RecoveryRadius}");
             GodsEyeEvents.RecordDecision(npc, decision, board.ToString(), brain.LastRequest.Kind.ToString(), controls + $";freshness={(brainExecuted ? "fresh" : "stale-or-not-executed")}");
             lastDecision = decision;
         }

@@ -1,102 +1,217 @@
 #nullable enable
-
-using System.Text;
+using System;
+using System.Collections.Generic;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Terraria;
 using Terraria.GameContent;
 using Terraria.ModLoader;
 using AICompanion.Companion.Brain.SharedMovementSystem;
+using AICompanion.Companion.Brain.ProjectileAiming;
 using AICompanion.Companion.CharacterBody;
+using AICompanion.Companion.DiagnosticsConfiguration;
 
 namespace AICompanion.Companion.Brain.BehaviourDiagnostics;
 
-/// <summary>
-/// Draws what the brain is thinking above the companion: every action's score, the
-/// winner, danger and horizon, threats with reachability, the position request, the
-/// chosen spot and the path. Toggled with a keybind. The brain is tuned by watching
-/// it be wrong, and this is the window.
-/// </summary>
+/// <summary>Selectable evidence from the real brain. Closing the menu preserves the chosen world layers.</summary>
 public sealed class BrainOverlay : ModSystem
 {
     public static ModKeybind? ToggleKey;
-    public static bool Enabled;
-
+    public static bool Enabled, ShowWorld;
+    public static bool ShowThreats = true, ShowPredictions = true, ShowRoutes = true, ShowCandidates;
+    public static bool ShowProjectiles, ShowAiming, ShowMovement, ShowAttention = true;
+    private static int scroll;
+    private static bool decisionsPage;
+    private static bool openedThisWorld;
+    private static ulong inputTick = ulong.MaxValue;
+    private static readonly Color Panel = new(43, 48, 153), Edge = new(143, 147, 240);
+    public static bool MayCapture => CompanionDiagnosticsConfig.Current.EnableBrainInspector && ShowWorld;
     public override void Load()
     {
-        // The name is the localisation key segment (Keybinds.BrainOverlay.DisplayName), so no space.
-        // Default is the left square bracket, which needs no Fn on a MacBook where F6 does. The key
-        // left of 1 was tried first and can never work on a Mac ISO keyboard: FNA logs
-        // "KEY/SCANCODE MISSING FROM SDL2->XNA DICTIONARY: SDL_SCANCODE_GRAVE" and drops the press
-        // before it becomes a key, so neither a keybind nor a raw-key fallback sees it. The bracket
-        // sits in a standard position and should map, but that is unconfirmed on this keyboard until
-        // a press either toggles the overlay or writes another MISSING line naming LEFTBRACKET.
-        // Rebindable under Controls; a binding already saved from an earlier version wins over this
-        // default, so changing it here does nothing until "Reset to Default" is pressed once.
         ToggleKey = KeybindLoader.RegisterKeybind(Mod, "BrainOverlay", "OemOpenBrackets");
-        Mod.Logger.Info("BrainOverlay.Load: keybind registered, default OemOpenBrackets");
+        PlanLocalMovement.CaptureRequested = () => MayCapture && ShowMovement;
+        PlanLocalMovement.CandidateEvaluated = BrainInspectorSamples.RecordMovement;
+        TrajectoryAimer.CaptureRequested = () => MayCapture && ShowAiming;
+        TrajectoryAimer.TraceEvaluated = BrainInspectorSamples.RecordTrace;
     }
-
     public override void Unload()
     {
-        ToggleKey = null;
-        Enabled = false;
-        Mod.Logger.Info("BrainOverlay.Unload: done");
+        ToggleKey = null; Enabled = ShowWorld = false;
+        PlanLocalMovement.CaptureRequested = null; PlanLocalMovement.CandidateEvaluated = null;
+        TrajectoryAimer.CaptureRequested = null; TrajectoryAimer.TraceEvaluated = null;
+        BrainInspectorSamples.Reset();
     }
-
-    public override void PostDrawInterface(SpriteBatch spriteBatch)
+    public override void OnWorldUnload() { Enabled = ShowWorld = openedThisWorld = false; BrainInspectorSamples.Reset(); }
+    public static void ToggleMenu()
     {
-        if (!Enabled || CompanionNPC.Instance is not CompanionNPC companion)
-            return;
-        Brain brain = companion.Brain;
-        var senses = brain.Senses;
-
-        var sb = new StringBuilder();
-        sb.AppendLine($"action  {brain.LastAction?.Name ?? "-"}   reflex {brain.Reflexes.Active ?? "-"}");
-        sb.AppendLine($"danger player {senses.Threats.PlayerDanger:0.00} self {senses.Threats.CompanionDanger:0.00}   horizon {(senses.Threats.Horizon == float.MaxValue ? "inf" : senses.Threats.Horizon.ToString("0"))}   intent {senses.Player.Intent.X:0.0}");
-        foreach (var s in brain.Chooser.LastScores)
-            sb.AppendLine($"  {s.Action.Name,-10} {s.Raw:0.00} -> {s.Final:0.00}");
-        int reachable = 0;
-        foreach (var t in senses.Threats.Threats) if (t.CanReachEither) reachable++;
-        sb.AppendLine($"threats {senses.Threats.Threats.Count} ({reachable} reach either)   loot {senses.Loot.Pickups.Count}");
-        sb.AppendLine($"request {brain.LastRequest.Kind}   spot {(brain.Positioner.Chosen is Vector2 c ? $"{(int)(c.X / 16)},{(int)(c.Y / 16)}" : "-")} ({brain.Positioner.ChosenScore:0.00})");
-        sb.AppendLine($"route {(brain.Navigator.Path == null ? "none" : $"{brain.Navigator.Path.Steps.Count} steps, at {brain.Navigator.Path.Index}")}   execution {brain.Navigator.Status}   search {brain.Navigator.LastSearchStop}");
-        sb.AppendLine($"regroup {brain.Chooser.RegroupUrgency:0.00}   estimated return {brain.Chooser.EstimatedReturnTicks / 60f:0.0}s   preparation {brain.Navigator.PreparationResult}");
-        sb.AppendLine($"tick {brain.TotalMs:0.0} ms  (senses {brain.SensesMs:0.0} reflex {brain.ReflexMs:0.0} decide {brain.DecideMs:0.0} position {brain.PositionMs:0.0} navigate {brain.NavigateMs:0.0})   last plan {brain.Navigator.LastPlanMs:0.0} flood {brain.Positioner.LastFloodMs:0.0}   edges cached {AStar.CachedTiles}   stranded {brain.StrandedTicks}{(brain.Roaming ? " roaming" : "")}");
-        sb.AppendLine($"weapon {companion.Arsenal.LastChosen?.Name ?? "-"}   shot {(companion.Arsenal.LastShotSolved ? "solved" : "none")}");
-        sb.AppendLine($"expected  bow {companion.Arsenal.LastPrimaryExpected:0.0}   knife {companion.Arsenal.LastSecondaryExpected:0.0}");
-        sb.AppendLine($"light ambient {senses.Light.Ambient:0.00} player {senses.Light.AtPlayer:0.00} here {senses.Light.AtCompanion:0.00}   torch {(companion.Torch.Shown ? "shown" : companion.Torch.Lit ? "lit, hand busy" : "out")}");
-        sb.AppendLine($"self danger {senses.Self.SelfDanger:0.00}   breath {senses.Self.BreathFraction:0.00}{(senses.Self.HeadUnderwater ? " under" : "")}{(senses.Self.InLava ? "  LAVA" : senses.Self.OnFire ? "  on fire" : "")}   lava paths {(AStar.AllowLava ? "on" : "off")}");
-
-        Vector2 head = ToScreen(companion.NPC.Top + new Vector2(0f, -8f));
-        Vector2 size = FontAssets.MouseText.Value.MeasureString(sb.ToString()) * 0.7f;
-        Vector2 at = new(head.X - size.X / 2f, head.Y - size.Y);
-        Utils.DrawBorderString(spriteBatch, sb.ToString(), at, Color.White, 0.7f);
-
-        Texture2D pixel = TextureAssets.MagicPixel.Value;
-        if (brain.Navigator.Path is NavPath path)
+        Enabled = !Enabled;
+        if (Enabled && !openedThisWorld) { ShowWorld = true; openedThisWorld = true; }
+    }
+    public static Rectangle PanelBounds(int width, int height)
+        => new(12, 12, Math.Max(200, Math.Min(420, width - 24)), Math.Max(180, Math.Min(560, height - 24)));
+    private static Rectangle Bounds => PanelBounds((int)(Main.screenWidth / Main.UIScale), (int)(Main.screenHeight / Main.UIScale));
+    private static Point Mouse => new((int)(Main.mouseX / Main.UIScale), (int)(Main.mouseY / Main.UIScale));
+    private static readonly string[] labels = { "World layers", "Enemies: bodies and velocity", "Enemy forecasts already calculated", "Incoming projectile forecasts", "Route and next destination", "Alternative standing positions", "Aiming arcs and rejected shots", "Movement and dodge alternatives", "Attention: targets and work" };
+    private static readonly string[] hints = {
+        "Hide all drawings without losing your selected layers.", "Red boxes are observed bodies; arrows show current velocity.",
+        "Yellow paths contain only samples the brain calculated. Future enemy decisions remain unknown.",
+        "Orange paths use the brain's linear projectile forecast; curved attacks may deviate.",
+        "Green is walk, gold jump, blue drop. White marks the chosen destination.",
+        "Cyan dots are evaluated positions, not guaranteed routes. Only retained alternatives are shown.",
+        "Green arcs intercepted a target in simulation; red arcs were rejected. Evaluated does not mean fired. Samples expire after one second.",
+        "Blue paths are evaluated controls; red paths were unsafe. The orange marker is a predicted passive-body collision. Samples expire after half a second.",
+        "Lines connect the companion to its firing target, work target and player. Hands and feet may have different targets."
+    };
+    private static bool Value(int i) => i switch { 0 => ShowWorld, 1 => ShowThreats, 2 => ShowPredictions, 3 => ShowProjectiles, 4 => ShowRoutes, 5 => ShowCandidates, 6 => ShowAiming, 7 => ShowMovement, _ => ShowAttention };
+    private static void Flip(int i)
+    {
+        switch (i) { case 0: ShowWorld = !ShowWorld; break; case 1: ShowThreats = !ShowThreats; break; case 2: ShowPredictions = !ShowPredictions; break; case 3: ShowProjectiles = !ShowProjectiles; break; case 4: ShowRoutes = !ShowRoutes; break; case 5: ShowCandidates = !ShowCandidates; break; case 6: ShowAiming = !ShowAiming; break; case 7: ShowMovement = !ShowMovement; break; case 8: ShowAttention = !ShowAttention; break; }
+    }
+    public static void CaptureInput()
+    {
+        if (!Enabled || !CompanionDiagnosticsConfig.Current.EnableBrainInspector || !Bounds.Contains(Mouse)) return;
+        Main.LocalPlayer.mouseInterface = true;
+        if (inputTick == Main.GameUpdateCount) return;
+        inputTick = Main.GameUpdateCount;
+        Rectangle panel = Bounds;
+        int rows = VisibleRows(panel);
+        int count = decisionsPage ? CompanionNPC.Instance?.Brain.Chooser.LastScores.Count ?? 0 : labels.Length;
+        scroll = Math.Clamp(scroll - Math.Sign(Terraria.GameInput.PlayerInput.ScrollWheelDeltaForUI), 0, Math.Max(0, count - rows));
+        if (!Main.mouseLeft || !Main.mouseLeftRelease) return;
+        if (new Rectangle(panel.Right - 34, panel.Y + 8, 24, 24).Contains(Mouse)) { Enabled = false; return; }
+        if (new Rectangle(panel.X + 12, panel.Y + 102, panel.Width - 24, 24).Contains(Mouse))
+        { decisionsPage = Mouse.X >= panel.Center.X; scroll = 0; return; }
+        if (decisionsPage) return;
+        for (int row = 0; row < rows && scroll + row < labels.Length; row++)
+            if (RowBounds(panel, row).Contains(Mouse)) Flip(scroll + row);
+    }
+    public static int VisibleRows(Rectangle panel) => Math.Max(1, (panel.Height - 160) / 25);
+    public static Rectangle RowBounds(Rectangle panel, int row) => new(panel.X + 12, panel.Y + 132 + row * 25, panel.Width - 24, 23);
+    public override void PostDrawInterface(SpriteBatch sb)
+    {
+        if (!CompanionDiagnosticsConfig.Current.EnableBrainInspector || Main.gameMenu) return;
+        var companion = CompanionNPC.Instance;
+        if (ShowWorld && companion != null) DrawWorld(sb, companion);
+        if (Enabled) DrawMenu(sb, companion);
+    }
+    private static void DrawMenu(SpriteBatch sb, CompanionNPC? companion)
+    {
+        Rectangle panel = Bounds;
+        Fill(sb, panel, Panel * .94f); Border(sb, panel, Edge);
+        Text(sb, "COMPANION / BRAIN INSPECTOR", panel.X + 14, panel.Y + 13, Color.Gold, .65f);
+        Text(sb, "X", panel.Right - 28, panel.Y + 12, Color.White, .7f);
+        Text(sb, companion?.Brain.ActivityStatus ?? "Waiting for a companion", panel.X + 14, panel.Y + 40, Color.White, .65f);
+        Text(sb, "Choose your layers. Close to keep watching.", panel.X + 14, panel.Y + 64, Color.LightSteelBlue, .52f);
+        Text(sb, "Observed: red   Predicted: yellow   Chosen: white", panel.X + 14, panel.Y + 83, Color.LightGray, .48f);
+        Fill(sb, new(panel.X + 12, panel.Y + 102, (panel.Width - 24) / 2, 24), decisionsPage ? new Color(34, 39, 118) : new Color(74, 82, 184));
+        Fill(sb, new(panel.Center.X, panel.Y + 102, (panel.Width - 24) / 2, 24), decisionsPage ? new Color(74, 82, 184) : new Color(34, 39, 118));
+        Text(sb, "World layers", panel.X + 24, panel.Y + 106, decisionsPage ? Color.White : Color.Gold, .6f);
+        Text(sb, "Decisions", panel.Center.X + 12, panel.Y + 106, decisionsPage ? Color.Gold : Color.White, .6f);
+        int rows = VisibleRows(panel);
+        if (decisionsPage)
         {
-            for (int i = path.Index; i < path.Steps.Count; i++)
+            DrawDecisions(sb, panel, companion, rows);
+            return;
+        }
+        scroll = Math.Clamp(scroll, 0, Math.Max(0, labels.Length - rows));
+        int last = Math.Min(labels.Length, scroll + rows);
+        for (int i = scroll; i < last; i++)
+        {
+            Rectangle row = RowBounds(panel, i - scroll);
+            bool hover = row.Contains(Mouse);
+            Fill(sb, row, hover ? new Color(74, 82, 184) : new Color(34, 39, 118));
+            Border(sb, new Rectangle(row.X + 5, row.Y + 5, 12, 12), Value(i) ? Color.Gold : Edge);
+            if (Value(i)) Fill(sb, new Rectangle(row.X + 8, row.Y + 8, 6, 6), Color.Gold);
+            Text(sb, labels[i], row.X + 26, row.Y + 4, Color.White, .55f);
+            if (hover) Main.instance.MouseText(hints[i]);
+        }
+        Text(sb, last < labels.Length || scroll > 0 ? "Scroll for more layers" : "Hover a layer to learn what it means", panel.X + 14, panel.Bottom - 20, Color.LightSteelBlue, .48f);
+    }
+    private static void DrawDecisions(SpriteBatch sb, Rectangle panel, CompanionNPC? companion, int rows)
+    {
+        if (companion == null) return;
+        var scores = companion.Brain.Chooser.LastScores;
+        scroll = Math.Clamp(scroll, 0, Math.Max(0, scores.Count - rows));
+        for (int i = scroll; i < Math.Min(scores.Count, scroll + rows); i++)
+        {
+            var score = scores[i];
+            Rectangle row = RowBounds(panel, i - scroll);
+            Fill(sb, row, new Color(34, 39, 118));
+            int bottom = row.Y + 4;
+            Text(sb, score.Action.Name, panel.X + 15, bottom, Color.White, .55f);
+            int width = Math.Max(20, panel.Width - 152), start = panel.X + 108;
+            Border(sb, new Rectangle(start, bottom + 3, (int)(Math.Clamp(score.Raw / 1.5f, 0, 1) * width), 8), Color.LightSteelBlue);
+            Fill(sb, new Rectangle(start, bottom + 4, (int)(Math.Clamp(score.Final / 1.5f, 0, 1) * width), 6), ReferenceEquals(score.Action, companion.Brain.LastAction) ? Color.Gold : Color.CornflowerBlue);
+            Text(sb, score.Final.ToString("0.00"), panel.Right - 37, bottom, Color.White, .48f);
+            if (row.Contains(Mouse)) Main.instance.MouseText($"{score.Action.Name}: raw {score.Raw:0.000}, final {score.Final:0.000}. Gold is the chosen behaviour; the outline is before decision costs.");
+        }
+        Text(sb, scores.Count > rows ? "Scroll to inspect every behaviour" : "Raw score: outline   Final score: fill   Winner: gold", panel.X + 14, panel.Bottom - 20, Color.LightSteelBlue, .48f);
+    }
+    private static void DrawWorld(SpriteBatch sb, CompanionNPC c)
+    {
+        Brain brain = c.Brain;
+        if (ShowThreats) foreach (var t in brain.Senses.Threats.Threats)
+        {
+            Border(sb, WorldRect(t.Npc.Hitbox), Color.OrangeRed);
+            Line(sb, t.Npc.Center, t.Npc.Center + t.Npc.velocity * 12, Color.OrangeRed);
+            var p = Screen(t.Npc.Top);
+            Text(sb, $"you {t.Urgency:0.00} / companion {t.UrgencyToCompanion:0.00}", p.X, p.Y - 16, Color.Orange, .45f);
+        }
+        if (ShowPredictions) foreach (var t in brain.Senses.Threats.Threats) Path(sb, WorldObservation.PredictObservedMotion.ExistingForecast(t.Npc), Color.Yellow * .7f);
+        if (ShowProjectiles) foreach (var p in brain.Senses.Projectiles.Threats)
+        { Border(sb, WorldRect(p.Hitbox), Color.Orange); Line(sb, p.Hitbox.Center.ToVector2(), p.Predict(30).Center.ToVector2(), Color.Orange); }
+        if (ShowRoutes && brain.Navigator.Path is { } route)
+        {
+            Vector2 previous = c.NPC.Bottom;
+            for (int i = route.Index; i < Math.Min(route.Steps.Count, route.Index + 128); i++)
             {
-                Vector2 p = ToScreen(NavGrid.FeetWorld(path.Steps[i].Tile) + new Vector2(0f, -8f));
-                Color colour = path.Steps[i].Kind switch { MoveKind.Jump => Color.Orange, MoveKind.Drop => Color.SkyBlue, MoveKind.FallThrough => Color.Violet, _ => Color.LimeGreen };
-                spriteBatch.Draw(pixel, new Rectangle((int)p.X - 3, (int)p.Y - 3, 6, 6), colour);
+                var step = route.Steps[i]; Vector2 p = NavGrid.FeetWorld(step.Tile);
+                Color colour = step.Kind switch { MoveKind.Jump => Color.Gold, MoveKind.Drop => Color.SkyBlue, MoveKind.FallThrough => Color.Violet, _ => Color.LimeGreen };
+                Line(sb, previous, p, colour * .65f); Dot(sb, p, colour, 5); previous = p;
             }
         }
-        if (brain.Positioner.Chosen is Vector2 chosen)
+        if (ShowRoutes && brain.Positioner.Chosen is Vector2 chosen) Dot(sb, chosen, Color.White, 9);
+        if (ShowCandidates) foreach (string sample in brain.Positioner.CandidateEvidence.Split('|'))
         {
-            Vector2 p = ToScreen(chosen + new Vector2(0f, -8f));
-            spriteBatch.Draw(pixel, new Rectangle((int)p.X - 5, (int)p.Y - 5, 10, 10), Color.Magenta);
+            string[] fields = sample.Split(':'); string[] xy = fields[0].Split(',');
+            if (xy.Length == 2 && int.TryParse(xy[0], out int x) && int.TryParse(xy[1], out int y)) Dot(sb, NavGrid.FeetWorld(new Point(x, y)), Color.Cyan, 5);
         }
-        foreach (var t in senses.Threats.Threats)
+        if (ShowAiming) foreach (var trace in BrainInspectorSamples.AimTraces)
+            if (Main.GameUpdateCount - trace.Tick <= 60 && trace.Points.Length > 0)
+            {
+                Path(sb, trace.Points, trace.Accepted ? Color.LimeGreen : Color.IndianRed * .6f);
+                Dot(sb, trace.Points[^1], trace.Accepted ? Color.LimeGreen : Color.Red, 5);
+                HoverEvidence(trace.Points[^1], trace.Reason);
+            }
+        if (ShowAiming && BrainInspectorSamples.LastAim is { } aim && Main.GameUpdateCount - aim.Tick <= 60)
         {
-            Vector2 p = ToScreen(t.Npc.Top + new Vector2(0f, -12f));
-            string label = $"p{(t.CanReachPlayer ? "+" : "-")} c{(t.CanReachCompanion ? "+" : "-")} {t.Class.ToString()[0]} u{t.Urgency:0.0}/{t.UrgencyToCompanion:0.0}{(t.Shoots ? " s" : "")}";
-            Utils.DrawBorderString(spriteBatch, label, p - new Vector2(20f, 0f), t.CanReachEither ? Color.OrangeRed : Color.Gray, 0.6f);
+            Dot(sb, aim.Muzzle, Color.Gold, 7);
+            HoverEvidence(aim.Muzzle, $"{aim.Weapon}: {aim.Outcome}. Evaluated launch: {aim.Launch?.ToString() ?? "none"}");
+        }
+        if (ShowMovement)
+        {
+            foreach (var trace in BrainInspectorSamples.MovementTraces) if (Main.GameUpdateCount - trace.Tick <= 30 && trace.Points.Length > 0)
+            { Path(sb, trace.Points, trace.Accepted ? Color.Cyan : Color.Red * .65f); HoverEvidence(trace.Points[^1], trace.Reason); }
+            if (BrainInspectorSamples.LastReflex is { } r && Main.GameUpdateCount - r.Tick <= 30) Dot(sb, r.Body.Feet, Color.OrangeRed, 12);
+        }
+        if (ShowAttention)
+        {
+            if (brain.EngageTarget is { } target) Line(sb, c.NPC.Center, target.Center, Color.OrangeRed);
+            if (brain.LastAction?.ActivityTarget is Vector2 work) { Line(sb, c.NPC.Center, work, Color.Cyan); Dot(sb, work, Color.Cyan, 8); }
+            if (brain.LastRequest.Kind is PositionSelection.RequestKind.WithPlayer or PositionSelection.RequestKind.Guard) Line(sb, c.NPC.Center, brain.Senses.Player.Bottom, Color.White * .4f);
         }
     }
-
-    /// <summary>World to interface coordinates: the zoom transform, then divided by the UI scale, the way Main does for its own world-anchored text.</summary>
-    private static Vector2 ToScreen(Vector2 world)
-        => Vector2.Transform(world - Main.screenPosition, Main.GameViewMatrix.ZoomMatrix) / Main.UIScale;
+    private static void HoverEvidence(Vector2 point, string explanation)
+    {
+        if (Vector2.DistanceSquared(Screen(point), Mouse.ToVector2()) <= 12 * 12
+            && !(Enabled && Bounds.Contains(Mouse))) Main.instance.MouseText(explanation);
+    }
+    private static void Path(SpriteBatch sb, IReadOnlyList<Vector2> points, Color colour) { for (int i = 1; i < Math.Min(points.Count, 181); i++) Line(sb, points[i - 1], points[i], colour); }
+    private static void Fill(SpriteBatch sb, Rectangle r, Color c) { if (r.Width > 0 && r.Height > 0) sb.Draw(TextureAssets.MagicPixel.Value, r, c); }
+    private static void Border(SpriteBatch sb, Rectangle r, Color c) { Fill(sb, new(r.X, r.Y, r.Width, 1), c); Fill(sb, new(r.X, r.Bottom - 1, r.Width, 1), c); Fill(sb, new(r.X, r.Y, 1, r.Height), c); Fill(sb, new(r.Right - 1, r.Y, 1, r.Height), c); }
+    private static void Text(SpriteBatch sb, string text, float x, float y, Color c, float scale) => Utils.DrawBorderStringFourWay(sb, FontAssets.MouseText.Value, text, x, y, c, Color.Black, Vector2.Zero, scale);
+    private static Vector2 Screen(Vector2 p) => Vector2.Transform(p - Main.screenPosition, Main.GameViewMatrix.ZoomMatrix) / Main.UIScale;
+    private static Rectangle WorldRect(Rectangle r) { Vector2 a = Screen(r.TopLeft()), b = Screen(r.BottomRight()); return new((int)a.X, (int)a.Y, (int)(b.X - a.X), (int)(b.Y - a.Y)); }
+    private static void Dot(SpriteBatch sb, Vector2 p, Color c, int size) { p = Screen(p); Fill(sb, new((int)p.X - size / 2, (int)p.Y - size / 2, size, size), c); }
+    private static void Line(SpriteBatch sb, Vector2 from, Vector2 to, Color c) { Vector2 a = Screen(from), d = Screen(to) - a; if (d.LengthSquared() < .1f) return; sb.Draw(TextureAssets.MagicPixel.Value, a, null, c, d.ToRotation(), Vector2.Zero, new Vector2(d.Length(), 1.5f), SpriteEffects.None, 0); }
 }

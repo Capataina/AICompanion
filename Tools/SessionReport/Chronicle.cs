@@ -168,6 +168,9 @@ public static class Chronicle
         if (first == last || s["spot"].Text[first] != s["spot"].Text[last] || !Session.TryPair(s["spot"].Text[first], out float sx, out float sy)
             || !CompanionPosition(s, first, out float ax, out float ay) || !CompanionPosition(s, last, out float bx, out float by))
             return "";
+        // `spot` is a feet tile; observed companion positions are world pixels.
+        sx = sx * 16f + 8f;
+        sy = (sy + 1f) * 16f;
         float start = MathF.Sqrt((ax - sx) * (ax - sx) + (ay - sy) * (ay - sy));
         float end = MathF.Sqrt((bx - sx) * (bx - sx) + (by - sy) * (by - sy));
         return end < start - 0.1f

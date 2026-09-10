@@ -33,7 +33,7 @@ public sealed class RecoverDistantFollowing
                 Reason = "arrived-clear";
             }
         }
-        else if (following && distance > Weights.FollowRecoveryDistance)
+        else if (following && distance > PlayerIntegration.CompanionPreferences.Current.RecoveryRadius)
         {
             Active = true;
             Flights++;

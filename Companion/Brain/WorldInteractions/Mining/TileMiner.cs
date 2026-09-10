@@ -55,7 +55,7 @@ public sealed class TileMiner
     /// <summary>Hit the tile once with the given pickaxe. Returns true if a swing happened.</summary>
     public bool Swing(Point tile, Item pickaxe)
     {
-        if (!Ready || !WorldGen.InWorld(tile.X, tile.Y, 5) || !Main.tile[tile.X, tile.Y].HasTile)
+        if (!Ready || WorldProtection.ProtectCompanionHomes.IsProtected(tile) || !WorldGen.InWorld(tile.X, tile.Y, 5) || !Main.tile[tile.X, tile.Y].HasTile)
             return false;
         swingCooldown = pickaxe.useTime;
         TileDamageWatcher.CompanionIsHitting = true;

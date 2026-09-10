@@ -31,6 +31,15 @@ internal static class VerifyCompanionLifecycle
         Main.myPlayer = 0;
         Main.player[0] = new Player { active = true, dead = true, statLifeMax2 = 100,
             position = new Vector2(400, 1400) };
+        var companionPlayer = new live::AICompanion.Companion.PlayerIntegration.CompanionPlayer();
+        // Register one template, as tModLoader does. Registering every fixture instance turns
+        // ContentInstance<T>.Instance into null once the loader sees multiple templates.
+        if (ModContent.GetInstance<live::AICompanion.Companion.PlayerIntegration.CompanionPlayer>() == null)
+            ContentInstance.Register(companionPlayer);
+        typeof(ModPlayer).GetProperty("Entity", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)!
+            .SetValue(companionPlayer, Main.player[0]);
+        typeof(Player).GetField("modPlayers", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .SetValue(Main.player[0], new ModPlayer[] { companionPlayer });
         for (int i = 0; i < Main.npc.Length; i++) Main.npc[i] = new NPC { whoAmI = i, active = false };
         for (int i = 0; i < Main.projectile.Length; i++) Main.projectile[i] = new Projectile { whoAmI = i, active = false };
         for (int i = 0; i < Main.item.Length; i++) Main.item[i] = new Item { whoAmI = i, active = false };

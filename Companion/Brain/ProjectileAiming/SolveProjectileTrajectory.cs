@@ -57,6 +57,8 @@ public static class ProjectileFlight
 /// </summary>
 public static class TrajectoryAimer
 {
+    public static Func<bool>? CaptureRequested;
+    public static Action<Vector2[], string>? TraceEvaluated;
     private const float AngleStepRadians = MathHelper.Pi / 60f;
     private const float MaxDepressionRadians = MathHelper.Pi / 3f;
     private const float MaxElevationRadians = MathHelper.Pi * .45f;
@@ -111,6 +113,7 @@ public static class TrajectoryAimer
 
     private static bool Trace(Vector2 muzzle, Vector2 launch, NPC target, WeaponProfile weapon, out TrajectorySolution solution)
     {
+        var trace = CaptureRequested?.Invoke() == true ? new List<Vector2> { muzzle } : null;
         Vector2 position = muzzle;
         Vector2 velocity = launch;
         int phase = 0;
@@ -119,18 +122,22 @@ public static class TrajectoryAimer
         {
             Vector2 start = position;
             ProjectileFlight.Advance(ref position, ref velocity, weapon, ref phase);
+            trace?.Add(position);
             if (!TraceSegment(start, position, weapon, tick, null, null, ref ignored, target, out Vector2 impact))
             {
                 solution = default;
+                if (trace != null) { trace[^1] = impact; TraceEvaluated?.Invoke(trace.ToArray(), "blocked by terrain or world boundary"); }
                 return false;
             }
             if (impact != default)
             {
                 solution = new TrajectorySolution(launch, impact, tick);
+                if (trace != null) { trace[^1] = impact; TraceEvaluated?.Invoke(trace.ToArray(), "target intercepted"); }
                 return true;
             }
         }
         solution = default;
+        if (trace != null) TraceEvaluated?.Invoke(trace.ToArray(), "target not intercepted within flight limit");
         return false;
     }
 
@@ -144,7 +151,10 @@ public static class TrajectoryAimer
             Vector2 position = Vector2.Lerp(start, end, step / (float)samples);
             if (!WorldGen.InWorld((int)(position.X / 16f), (int)(position.Y / 16f), 5)
                 || Collision.SolidCollision(position - new Vector2(half), weapon.HitboxSize, weapon.HitboxSize))
+            {
+                impact = position;
                 return false;
+            }
 
             Rectangle projectileBox = new((int)position.X - half, (int)position.Y - half, weapon.HitboxSize, weapon.HitboxSize);
             if (stopAtTarget != null && projectileBox.Intersects(PredictedHitbox(stopAtTarget, tick)))

@@ -129,7 +129,7 @@ internal static class VerifyOreWork
             "unchanged retained work must reuse its reach verdict rather than search every scoring tick");
     }
 
-    private static (MineAction Action, ActionContext Context) SetUp(WorkPolicy policy, ushort tileType, params Point[] ore)
+    internal static (MineAction Action, ActionContext Context) SetUp(WorkPolicy policy, ushort tileType, params Point[] ore)
         => SetUp(policy, tileType, ore, null);
 
     private static (MineAction Action, ActionContext Context) SetUp(WorkPolicy policy, ushort tileType, Point ore, Point? playerHit)

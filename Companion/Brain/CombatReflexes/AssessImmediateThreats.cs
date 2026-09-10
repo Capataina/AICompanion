@@ -5,6 +5,7 @@ using Terraria;
 using AICompanion.Companion.Brain.BehaviourSelection;
 using AICompanion.Companion.Brain.SharedMovementSystem;
 using AICompanion.Companion.Brain.WorldObservation;
+using AICompanion.Companion.Brain.BehaviourDiagnostics;
 
 namespace AICompanion.Companion.Brain.CombatReflexes;
 
@@ -40,6 +41,7 @@ public sealed class Reflexes
         {
             predicted = BodyMotion.Step(MovementQueries.World, predicted, Controls.None);
             if (!Unsafe(predicted, tick)) continue;
+            BrainInspectorSamples.RecordReflex(Main.GameUpdateCount, tick, predicted);
             Active = "avoid-collision";
             return true;
         }

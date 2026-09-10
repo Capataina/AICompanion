@@ -25,6 +25,13 @@ public static class Weights
     public const float FollowRecoveryArrival = 80f;
     public const float FollowRecoverySpeed = 12f;
     public const float FollowRecoveryAcceleration = 0.45f;
+    public const float ActivityContinuationFactor = 1.25f;
+    public const float WorkSiteRadius = 160f;
+    public const int WorkCollectionTicks = 600;
+    public const float InterruptibleActionTicks = 12f;
+    public const float FollowDuringUsefulWork = .2f;
+    public const int ObjectiveProgressWindowTicks = 180;
+    public const float ObjectiveProgressPixels = 32f;
     /// <summary>Bonus multiplier the running action keeps, so scores do not flicker.</summary>
     public const float Commitment = 1.15f;
 

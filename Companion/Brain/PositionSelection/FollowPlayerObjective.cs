@@ -14,8 +14,8 @@ namespace AICompanion.Companion.Brain.PositionSelection;
 /// </summary>
 public readonly record struct FollowPlayerObjective(Vector2 PlayerFeet, Vector2 PredictedFeet)
 {
-    public float HorizontalComfort => Weights.FollowHorizontalComfort;
-    public float VerticalComfort => Weights.FollowVerticalComfort;
+    public float HorizontalComfort => Weights.FollowHorizontalComfort * PlayerIntegration.CompanionPreferences.Current.FollowComfortScale;
+    public float VerticalComfort => Weights.FollowVerticalComfort * PlayerIntegration.CompanionPreferences.Current.FollowComfortScale;
 
     public float HorizontalGap(Vector2 feet) => MathF.Abs(feet.X - PlayerFeet.X);
     public float VerticalGap(Vector2 feet) => MathF.Abs(feet.Y - PlayerFeet.Y);

@@ -17,6 +17,6 @@ public enum WorkPolicy
 /// </summary>
 public static class WorkPolicies
 {
-    public static WorkPolicy Mining { get; set; } = WorkPolicy.Opportunistic;
-    public static WorkPolicy Chopping { get; set; } = WorkPolicy.Opportunistic;
+    public static WorkPolicy Mining { get => PlayerIntegration.CompanionPreferences.Current.Mining; set => PlayerIntegration.CompanionPreferences.Current.Mining = value; }
+    public static WorkPolicy Chopping { get => PlayerIntegration.CompanionPreferences.Current.Chopping; set => PlayerIntegration.CompanionPreferences.Current.Chopping = value; }
 }

@@ -21,6 +21,7 @@ namespace AICompanion.Companion.Brain.Behaviours.Work;
 public sealed class MineAction : CompanionAction
 {
     public override string Name => "mine";
+    public override Vector2? ActivityTarget => target?.Tile.ToWorldCoordinates();
 
     private const int KeepJobTicks = 600;
     private const int SearchRadiusTiles = 45;
@@ -37,6 +38,7 @@ public sealed class MineAction : CompanionAction
     private int approachPickPower;
 
     public int JobId => jobId;
+    public override object? ActivityIdentity => jobId > 0 ? jobId : null;
     public WorkPolicy Policy => WorkPolicies.Mining;
     public string Status => status;
     public int RemainingTiles => patch.Count;
@@ -62,6 +64,14 @@ public sealed class MineAction : CompanionAction
             return 0f;
         }
         int pick = TileMiner.PickaxeFor(ctx.Player).pick;
+        if (patch.Count > 0)
+        {
+            var context = ctx;
+            patch.RemoveWhere(tile => !AllowsTarget(context, tile.ToWorldCoordinates())
+                || WorldInteractions.WorldProtection.ProtectCompanionHomes.IsProtected(tile));
+            if (target is { } selected && !patch.Contains(selected.Tile)) target = null;
+            if (patch.Count == 0) { ClearJob("outside activity range or protected home"); sinceSearch = SearchEveryTicks; }
+        }
         Point origin = MovementQueries.FeetTile(ctx.Npc.Bottom);
         if (origin != approachOrigin || TerrainChanges.Revision != approachRevision || pick != approachPickPower)
         {
@@ -101,7 +111,9 @@ public sealed class MineAction : CompanionAction
         sinceSearch = 0;
         int pick = TileMiner.PickaxeFor(ctx.Player).pick;
         var miner = ctx.Companion.Miner;
-        bool Mineable(Point tile) => miner.CanMine(tile, pick);
+        var context = ctx;
+        bool Mineable(Point tile) => miner.CanMine(tile, pick) && AllowsTarget(context, tile.ToWorldCoordinates())
+            && !WorldInteractions.WorldProtection.ProtectCompanionHomes.IsProtected(tile);
         OreFinder.SearchResult result = default;
         if (WorkPolicies.Mining == WorkPolicy.Mimic)
         {
@@ -148,20 +160,19 @@ public sealed class MineAction : CompanionAction
         if (target is not OreFinder.OreTarget t)
             return PositionRequest.Hold;
 
-        if (Vector2.Distance(ctx.Npc.Bottom, t.StandPosition) > 20f)
-            return PositionRequest.ExactAt(t.StandPosition);
-
         if (!OreFinder.InReach(ctx.Npc.Bottom, t.Tile))
         {
-            // Arrived, but the tile is not swingable from here (the stand was approximate, or
-            // the world changed): never swing at what cannot be reached; pick the next tile.
-            target = NextInPatch(ctx, t, pickaxe.pick);
-            return PositionRequest.Hold;
+            // A waypoint tolerance is not tool reach. Keep approaching the proven stand until
+            // the actual body can swing; returning Hold here made approximate arrival permanent.
+            return PositionRequest.ExactAt(t.StandPosition);
         }
         ctx.Companion.HoldItem(pickaxe.type);
         ctx.Companion.Motor.Face(t.Tile.X * 16f + 8f);
         if (ctx.Companion.Miner.Swing(t.Tile, pickaxe))
+        {
             ctx.Companion.StartAnimation(pickaxe.type, pickaxe.useAnimation);
+            ctx.Companion.Brain.Chooser.RecordWork(t.Tile.ToWorldCoordinates());
+        }
         return PositionRequest.Hold;
     }
 
@@ -169,10 +180,12 @@ public sealed class MineAction : CompanionAction
     private OreFinder.OreTarget? NextInPatch(in ActionContext ctx, OreFinder.OreTarget current, int pickPower)
     {
         var miner = ctx.Companion.Miner;
-        patch.RemoveWhere(p => !OreFinder.IsOre(p.X, p.Y) || !miner.CanMine(p, pickPower));
+        patch.RemoveWhere(p => !OreFinder.IsOre(p.X, p.Y) || !miner.CanMine(p, pickPower)
+            || WorldInteractions.WorldProtection.ProtectCompanionHomes.IsProtected(p));
         if (patch.Count == 0)
         {
             jobId = 0;
+            ReleaseActivity();
             status = "completed reachable ore";
             return null;
         }
@@ -212,6 +225,7 @@ public sealed class MineAction : CompanionAction
         // legal approach. End this job's reachable portion; a later discovery starts fresh.
         patch.Clear();
         jobId = 0;
+        ReleaseActivity();
         status = "completed reachable portion";
         return null;
     }
@@ -226,6 +240,7 @@ public sealed class MineAction : CompanionAction
         patch.Clear();
         jobId = 0;
         status = reason;
+        ReleaseActivity();
     }
     public override void Exit(in ActionContext ctx)
     {

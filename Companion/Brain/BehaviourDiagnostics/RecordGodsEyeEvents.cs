@@ -32,6 +32,9 @@ public static class GodsEyeEvents
     private static Vector2 cosmeticFirst, cosmeticLast;
     private static long cosmeticFirstTick;
     internal static bool Active => writer != null;
+    public static void RecordWorldInteraction(NPC companion, Point tile, string operation, string detail)
+        => Write("world-interaction", companion.whoAmI, "", operation, "", companion.Bottom, Vector2.Zero,
+            tile.ToWorldCoordinates(), 0, detail);
 
     internal static void Open(string path)
     {

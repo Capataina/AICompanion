@@ -39,7 +39,7 @@ public sealed class TileChopper
     /// <summary>Hit the trunk bottom once with the given axe. Returns true if a swing happened.</summary>
     public bool Swing(Microsoft.Xna.Framework.Point trunkBottom, Item axe)
     {
-        if (!Ready)
+        if (!Ready || WorldProtection.ProtectCompanionHomes.IsProtected(trunkBottom))
             return false;
         swingCooldown = axe.useTime;
         Hit(trunkBottom.X, trunkBottom.Y, axe.axe);

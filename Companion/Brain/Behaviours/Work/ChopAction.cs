@@ -18,6 +18,10 @@ namespace AICompanion.Companion.Brain.Behaviours.Work;
 public sealed class ChopAction : CompanionAction
 {
     public override string Name => "chop";
+    public override Vector2? ActivityTarget => tree?.Bottom.ToWorldCoordinates();
+    public override object? ActivityIdentity => tree?.Bottom;
+    public override void Exit(in ActionContext ctx) { } // The same tree survives a protective interruption.
+    private readonly System.Collections.Generic.Dictionary<Point, ulong> deferred = new();
 
     private const int KeepJobTicks = 120;
     private const int SearchRadiusTiles = 40;
@@ -38,11 +42,19 @@ public sealed class ChopAction : CompanionAction
             return 0f;
         sinceSearch++;
         sinceReach++;
+        if (tree is { } retained && (!AllowsTarget(ctx, retained.Bottom.ToWorldCoordinates())
+            || WorldInteractions.WorldProtection.ProtectCompanionHomes.IsProtected(retained.Bottom)))
+        { tree = null; ReleaseActivity(); sinceSearch = SearchEveryTicks; }
+        var context = ctx;
+        bool Accept(TreeFinder.ChoppableTree t) => AllowsTarget(context, t.Bottom.ToWorldCoordinates(), t.Bottom)
+            && !WorldInteractions.WorldProtection.ProtectCompanionHomes.IsProtected(t.Bottom)
+            && (!deferred.TryGetValue(t.Bottom, out ulong until) || Main.GameUpdateCount >= until);
 
         if (WorkPolicies.Chopping == WorkPolicy.Disabled)
         {
             tree = null;
             lastSearchedFor = null;
+            ReleaseActivity();
             return 0f;
         }
         if (WorkPolicies.Chopping == WorkPolicy.Mimic)
@@ -55,7 +67,7 @@ public sealed class ChopAction : CompanionAction
                 bool newTree = lastSearchedFor != p.ChoppedTree;
                 if (tree == null && (newTree || sinceSearch >= SearchEveryTicks))
                 {
-                    tree = TreeFinder.FindNearest(ctx.Npc.Center, SearchRadiusTiles, p.ChoppedTree);
+                    tree = TreeFinder.FindNearest(ctx.Npc.Center, SearchRadiusTiles, p.ChoppedTree, Accept);
                     lastSearchedFor = p.ChoppedTree;
                     sinceSearch = 0;
                 }
@@ -80,15 +92,14 @@ public sealed class ChopAction : CompanionAction
                 tree = null;
             if (tree == null && sinceSearch >= SearchEveryTicks)
             {
-                TreeFinder.ChoppableTree? nearCompanion = TreeFinder.FindNearest(ctx.Npc.Center, SearchRadiusTiles, null);
-                TreeFinder.ChoppableTree? nearPlayer = TreeFinder.FindNearest(ctx.Player.Center, SearchRadiusTiles, null);
+                TreeFinder.ChoppableTree? nearCompanion = TreeFinder.FindNearest(ctx.Npc.Center, SearchRadiusTiles, null, Accept);
+                TreeFinder.ChoppableTree? nearPlayer = TreeFinder.FindNearest(ctx.Player.Center, SearchRadiusTiles, null, Accept);
                 tree = Nearest(ctx.Npc.Center, nearCompanion, nearPlayer);
                 sinceSearch = 0;
             }
         }
 
-        if (tree == null)
-            return 0f;
+        if (tree == null) { ReleaseActivity(); return 0f; }
         // A clear standing tile beside a trunk is only a geometric candidate. A sealed or
         // unfinished approach must yield to other jobs rather than winning forever.
         var key = (MovementQueries.FeetTile(ctx.Npc.Bottom),
@@ -100,7 +111,13 @@ public sealed class ChopAction : CompanionAction
             sinceReach = 0;
         }
         if (approachReach != Reachability.Reach.Yes)
+        {
+            if (deferred.Count > 64) deferred.Clear();
+            deferred[tree.Value.Bottom] = Main.GameUpdateCount + 300;
+            tree = null;
+            ReleaseActivity();
             return 0f;
+        }
         float safe = Consideration.AtLeast(1f - ctx.Senses.Threats.PlayerDanger, 0.1f);
         return 0.7f * safe;
     }
@@ -122,7 +139,10 @@ public sealed class ChopAction : CompanionAction
             ctx.Companion.HoldItem(axe.type);
             ctx.Companion.Motor.Face(t.Bottom.X * 16f + 8f);
             if (ctx.Companion.Chopper.Swing(t.Bottom, axe))
+            {
                 ctx.Companion.StartAnimation(axe.type, axe.useAnimation);
+                ctx.Companion.Brain.Chooser.RecordWork(t.Bottom.ToWorldCoordinates());
+            }
             return PositionRequest.Hold;
         }
         return PositionRequest.ExactAt(t.StandPosition);

@@ -78,6 +78,7 @@ internal static class VerifyResponsiveFollowing
         companion.NPC.velocity = Vector2.Zero;
 
         bool initiallyMovedAway = false;
+        bool arrived = false;
         for (int tick = 0; tick < 720; tick++)
         {
             // The observed player is travelling right, so the leftward first control cannot be a
@@ -91,13 +92,18 @@ internal static class VerifyResponsiveFollowing
             Require(companion.Brain.Navigator.Path is not { Finished: false } || !companion.Brain.Navigator.LastPlanFailed,
                 "a usable route prefix must not be classified as a failed plan");
             AdvanceNative(companion);
-            if (companion.Brain.Positioner.FollowObjectiveSatisfied)
+            // Selection may already yield to idle after arrival, clearing the positioner's
+            // request-scoped flag. The contract is the actual body reaching the usable floor.
+            arrived = new FollowPlayerObjective(player.Bottom, player.Bottom).IsSatisfied(companion.NPC.Bottom,
+                Collision.CanHitLine(companion.NPC.position, companion.NPC.width, companion.NPC.height,
+                    player.position, player.width, player.height));
+            if (arrived)
                 break;
         }
         Require(initiallyMovedAway,
             "the production follow route must accept the initially-away first leg of a C-turn");
-        Require(companion.Brain.Positioner.FollowObjectiveSatisfied,
-            "the production brain must complete the C-turn at the player's usable floor rather than hold its start pocket");
+        Require(arrived,
+            $"the production brain must complete the C-turn at the player's usable floor rather than hold its start pocket; feet={companion.NPC.Bottom}, action={companion.Brain.LastAction?.Name}, spot={companion.Brain.Positioner.Chosen}, status={companion.Brain.Navigator.Status}, stop={companion.Brain.Navigator.LastSearchStop}");
     }
 
     private static void VerifyOccludedPlayerStillProvidesADestination()
