@@ -12,6 +12,8 @@ SessionReport/
 ├─ FindStretches.cs       the shared shape of nearly every check: "this condition held for long enough to matter", with a gap allowance
 ├─ DescribeSession.cs     the measurement block above the findings, and the reader for the sibling -plans.txt window file
 ├─ DescribeGodsEyeEvents.cs reads the occurrence sibling, checks completeness, joins projectile launches to contacts and spans the full session
+├─ MultiRunReport.cs       preserves each selected run's independent causal and continuous-motion coverage
+├─ WritePlaytestHtml.cs    writes a self-contained sampled actor timeline; it draws no terrain the record did not capture
 ├─ Chronicle.cs           the bounded event-and-interval account of player movement and companion response, with observation and inference kept distinct
 ├─ ChronicleTests.cs      deterministic synthetic-record tests run through the real parser and chronology reader
 ├─ CheckTheRecord.cs      is the instrument sane — ticks advancing, the returnable count inside the reach count, every numeric column parsing
@@ -23,10 +25,14 @@ SessionReport/
 
 ## The operating manual
 
+The HTML viewer keeps source-run identity, a sample scrubber, exact tick entry, event-kind filtering, previous/next event navigation, every sampled TSV field, and full retained event payloads. It streams sparse events across the entire run into bounded per-kind reservoirs so cosmetic terrain contacts cannot erase a late injury or death. Every omitted sample/event, malformed row, missing sidecar and missing normal closure is disclosed. HTML is a bounded inspection view; the ordinary and multi-run reports still analyse the full source records and share definitive-finding exit semantics. The writer's caps own output size; the UI never implies that its sampled trail is a complete recording or draws invented terrain.
+
 ```
 dotnet run --project Tools/SessionReport -- Telemetry/<stamp>.tsv
 dotnet run --project Tools/SessionReport -- Telemetry          # the newest session in the folder
 dotnet run --project Tools/SessionReport -- --timeline Telemetry/<stamp>.tsv  # complete chronological account
+dotnet run --project Tools/SessionReport -- --multirun Telemetry/<stamp-a>.tsv Telemetry/<stamp-b>.tsv  # each run keeps its own coverage; exits 1 if any ordinary-report definitive finding exists
+dotnet run --project Tools/SessionReport -- --html /tmp/aic-playtests.html Telemetry/<stamp-a>.tsv Telemetry/<stamp-b>.tsv  # headless, self-contained actor scrubber
 dotnet run --project Tools/SessionReport -- --self-test        # deterministic chronology parser and narration tests
 ```
 

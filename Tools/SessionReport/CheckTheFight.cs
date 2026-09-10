@@ -158,6 +158,9 @@ public sealed class TheHandsWorkWhileThreatened : ICheck
         Column reachable = session["reachable"], shot = session["shot"];
         Column? fire = session.Find("fire");
         Column? engage = session.Find("engage");
+        Column? fresh = session.Find("brain_fresh");
+        Column? playerDead = session.Find("player_dead");
+        Column? state = session.Find("state");
 
         // No gap allowance, because a tick that fired *is* the break in the stretch. With one, a
         // healthy fight reads as one enormous finding: the reload ticks between two shots satisfy the
@@ -165,7 +168,8 @@ public sealed class TheHandsWorkWhileThreatened : ICheck
         // exchange folds into a single "nothing fired for 7,000 ticks" whose own tally shows the shots
         // it fired. The gap allowance is for a condition that flickers, and this one does not.
         var quiet = FindStretches.Where(session.Count, i =>
-            reachable.Number[i] > 0f && shot.Number[i] == 0f && (fire == null || fire.Text[i] != "fired"),
+            reachable.Number[i] > 0f && shot.Number[i] == 0f && (fire == null || fire.Text[i] != "fired")
+                && (fresh != null ? fresh.Number[i] > 0f : playerDead?.Text[i] != "1") && state?.Text[i] != "downed",
             MinTicks, allowGap: 0);
 
         foreach (var stretch in quiet)

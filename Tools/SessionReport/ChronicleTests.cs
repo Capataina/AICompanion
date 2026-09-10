@@ -24,8 +24,11 @@ public static class ChronicleTests
             SustainedRequestedMovementWithoutObservedProgressIsReported();
             EmptyHeaderOnlySessionIsReadable();
             RecorderChronologyContractUsesActualLifeColumn();
+            RecorderCapturesFreshNavigationEvidence();
             EventSiblingReportsCountsAndCorruption();
-            Console.WriteLine("Chronicle self-tests passed (8 assertion groups).");
+            MultiRunAndHtmlKeepEverySelectedRun();
+            MultiRunRetainsDefinitiveExit();
+            Console.WriteLine("Chronicle self-tests passed (11 assertion groups).");
             return 0;
         }
         catch (Exception error)
@@ -167,6 +170,17 @@ public static class ChronicleTests
         Require(!source.Contains("npc_life", StringComparison.Ordinal), "recorder contract invented an npc_life column it does not write");
     }
 
+    private static void RecorderCapturesFreshNavigationEvidence()
+    {
+        string telemetry = File.ReadAllText(Path.Combine("Companion", "Brain", "BehaviourDiagnostics", "RecordBrainTelemetry.cs"));
+        string events = File.ReadAllText(Path.Combine("Companion", "Brain", "BehaviourDiagnostics", "RecordGodsEyeEvents.cs"));
+        Require(telemetry.Contains("brain.LastTick == Main.GameUpdateCount", StringComparison.Ordinal), "recorder does not distinguish an old brain action from this tick's action");
+        Require(telemetry.Contains("RecordNavigationEvidence", StringComparison.Ordinal), "recorder does not sample navigation evidence at the diagnostics boundary");
+        Require(events.Contains("search-id=", StringComparison.Ordinal) && events.Contains("attempt-id=", StringComparison.Ordinal)
+                && events.Contains("freshness=", StringComparison.Ordinal) && events.Contains("progress=", StringComparison.Ordinal),
+            "navigation occurrence omits causal identity, freshness or bounded progress reason");
+    }
+
     private static void EventSiblingReportsCountsAndCorruption()
     {
         string file = Path.GetTempFileName();
@@ -179,12 +193,13 @@ public static class ChronicleTests
             Require(report.Contains("1 malformed line"), "event sibling silently accepted corrupt JSONL");
             Require(report.Contains("end=missing"), "an interrupted event stream must not claim normal closure");
             var lines = new System.Collections.Generic.List<string>();
-            void Add(string kind, int subject = 0, string channel = "", double wall = 0, string related = "")
+            void Add(string kind, int subject = 0, string channel = "", double wall = 0, string related = "", string detail = "test")
                 => lines.Add(System.Text.Json.JsonSerializer.Serialize(new {
                     v = 1, seq = lines.Count, tick = lines.Count, wall_elapsed_ms = wall, kind, subject, related,
                     label = "knife", channel, pos_x = 5, pos_y = 6, vel_x = 2, vel_y = -1,
-                    expected_x = 20, expected_y = 30, amount = 0, detail = "test" }));
+                    expected_x = 20, expected_y = 30, amount = 0, detail }));
             Add("session");
+            Add("navigation-state", 1, "WithPlayer", 50, detail: "freshness=stale-or-not-executed;controls=move=3.50;search-id=9;attempt-id=11;search-pending=False;search-expansions=22;progress=idle;experience-routes=0");
             Add("shot", 1, "projectile=1000001", 100, "enemy-1");
             Add("projectile-terrain-hit", 1000001, wall: 200);
             Add("shot", 1, "projectile=1000002", 300, "enemy-2");
@@ -198,6 +213,7 @@ public static class ChronicleTests
             Require(!report.Contains("projectile 1000002 intended target enemy-2"), "a piercing shot hitting terrain after an enemy is not a blocked shot");
             Require(report.Contains("00:14:30"), "default causal summary omitted the end of a long run");
             Require(report.Contains("end=normal close"), "normal recorder closure must be visible");
+            Require(report.Contains("freshness=stale-or-not-executed"), "reader discarded freshness that prevents a stale action becoming a fictional stall");
             string full = DescribeGodsEyeEvents.Of(file, true);
             Require(full.Contains("projectile-enemy-hit subject=1000002"), "full event trace discarded native contact details");
             Require(full.Contains("velocity=2.0,-1.0") && full.Contains("channel=projectile=1000001"), "full event trace must retain launch controls and the projectile link");
@@ -209,6 +225,71 @@ public static class ChronicleTests
             File.Delete(file);
             File.Delete(events);
         }
+    }
+
+    private static void MultiRunAndHtmlKeepEverySelectedRun()
+    {
+        string first = Path.GetTempFileName();
+        string second = Path.GetTempFileName();
+        string html = Path.Combine(Path.GetTempPath(), $"aic-playtest-{Guid.NewGuid():N}.html");
+        const string header = "tick\twall_elapsed_ms\tplayer_px\n";
+        try
+        {
+            File.WriteAllText(first, header + "10\t0\t1,2\n");
+            File.WriteAllText(second, header + "20\t100\t3,4\n");
+            string multi = MultiRunReport.Of(new[] { first, second });
+            Require(multi.Contains(Path.GetFileName(first), StringComparison.Ordinal)
+                    && multi.Contains(Path.GetFileName(second), StringComparison.Ordinal),
+                "multi-run output omitted a selected session");
+            WritePlaytestHtml.Write(html, new[] { first, second });
+            string output = File.ReadAllText(html);
+            Require(output.Contains("Recorded actor timeline", StringComparison.Ordinal), "HTML timeline did not identify itself");
+            Require(output.Contains("Blank/unrecorded terrain and gaps are unknown", StringComparison.Ordinal), "HTML timeline claimed terrain it did not record");
+            Require(output.Contains("\"PlayerX\":1", StringComparison.Ordinal) && output.Contains("\"PlayerX\":3", StringComparison.Ordinal),
+                "HTML timeline omitted observations from one selected run");
+            string sidecar = Path.ChangeExtension(second, null) + "-events.jsonl";
+            try
+            {
+                using (var writer = File.CreateText(sidecar))
+                {
+                    for (int tick = 0; tick < 6000; tick++)
+                        writer.WriteLine($"{{\"kind\":\"projectile-terrain-hit\",\"tick\":{tick},\"wall_elapsed_ms\":{tick}}}");
+                    writer.WriteLine("{\"kind\":\"player-damage\",\"tick\":6001,\"wall_elapsed_ms\":6001,\"amount\":17}");
+                    writer.WriteLine("{broken");
+                }
+                WritePlaytestHtml.Write(html, new[] { first, second });
+                output = File.ReadAllText(html);
+                string data = output.Split("<script id=\"data\" type=\"application/json\">")[1].Split("</script>")[0];
+                using var json = System.Text.Json.JsonDocument.Parse(data);
+                var run = json.RootElement.GetProperty("Runs")[1];
+                Require(run.GetProperty("Events").GetProperty("player-damage")[0].GetProperty("amount").GetInt32() == 17,
+                    "late rare damage must survive cosmetic event overflow");
+                Require(run.GetProperty("Coverage").GetProperty("Malformed").GetInt32() == 1,
+                    "HTML must expose malformed source evidence");
+                Require(run.GetProperty("Events").GetProperty("projectile-terrain-hit").GetArrayLength() <= 256,
+                    "HTML event retention must have a finite bound");
+            }
+            finally { File.Delete(sidecar); }
+        }
+        finally
+        {
+            File.Delete(first);
+            File.Delete(second);
+            File.Delete(html);
+        }
+    }
+
+    private static void MultiRunRetainsDefinitiveExit()
+    {
+        string healthy = Path.GetTempFileName(), faulty = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllText(healthy, "tick\n1\n2\n");
+            File.WriteAllText(faulty, "tick\n2\n1\n");
+            Require(!MultiRunReport.HasDefinitive(new[] { healthy }), "healthy multi-run fixture became definitive");
+            Require(MultiRunReport.HasDefinitive(new[] { healthy, faulty }), "multi-run suppressed a definitive ordinary-report fault");
+        }
+        finally { File.Delete(healthy); File.Delete(faulty); }
     }
 
     private static void Require(bool condition, string message)

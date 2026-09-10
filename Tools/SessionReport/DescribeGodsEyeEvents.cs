@@ -49,6 +49,7 @@ public static class DescribeGodsEyeEvents
         chronology.Sort((a, b) => a.wall_elapsed_ms != b.wall_elapsed_ms ? a.wall_elapsed_ms.CompareTo(b.wall_elapsed_ms) : a.seq.CompareTo(b.seq));
         var launches = new Dictionary<int, EventLine>();
         var contacted = new HashSet<int>();
+        var rejections = new HashSet<string>(StringComparer.Ordinal);
         foreach (EventLine e in chronology)
         {
             if (e.kind == "shot" && e.channel.StartsWith("projectile=", StringComparison.Ordinal) && int.TryParse(e.channel[11..], out int id)) launches[id] = e;
@@ -56,6 +57,8 @@ public static class DescribeGodsEyeEvents
                 text.Append($"causal    {TimeSpan.FromMilliseconds(e.wall_elapsed_ms):hh\\:mm\\:ss\\.fff} tick {e.tick}: {shot.label} projectile {e.subject} intended target {shot.related} at {shot.expected_x:0.0},{shot.expected_y:0.0} from {shot.pos_x:0.0},{shot.pos_y:0.0} met terrain at {e.pos_x:0.0},{e.pos_y:0.0} before any recorded enemy contact (observed obstruction; cause requires the recorded trajectory and terrain)\n");
             if (e.kind == "projectile-enemy-hit" && launches.TryGetValue(e.subject, out EventLine? hitShot) && hitShot != null)
                 contacted.Add(e.subject);
+            if (e.kind == "movement-state" && TryRejection(e.detail, out string rejected) && rejections.Add(rejected))
+                text.Append($"causal    {TimeSpan.FromMilliseconds(e.wall_elapsed_ms):hh\\:mm\\:ss\\.fff} tick {e.tick}: recorded movement rejection at {e.pos_x:0.0},{e.pos_y:0.0}; {Abbreviate(rejected, 280)} (observed planner/execution evidence; its underlying terrain cause remains unknown unless a matching terrain snapshot covers it)\n");
         }
         // The default spans the entire run: aggregate each time window rather than showing only
         // the first few seconds of a long session. The full trace preserves every causal record.
@@ -63,16 +66,18 @@ public static class DescribeGodsEyeEvents
         {
             foreach (var episode in chronology.GroupBy(e => (long)(e.wall_elapsed_ms / 30000d)))
             {
-                var meaningful = episode.Where(e => e.kind is "decision" or "pickup" or "npc-death" or "player-damage" or "npc-damage" or "movement-state" or "shot").ToList();
+                var meaningful = episode.Where(e => e.kind is "decision" or "navigation-state" or "pickup" or "npc-death" or "player-damage" or "npc-damage" or "movement-state" or "shot").ToList();
                 if (meaningful.Count == 0) continue;
                 var last = meaningful[^1];
                 text.Append($"  {TimeSpan.FromSeconds(episode.Key * 30):hh\\:mm\\:ss}–{TimeSpan.FromSeconds((episode.Key + 1) * 30):hh\\:mm\\:ss}: "
                     + string.Join(", ", meaningful.GroupBy(e => e.kind).Select(group => $"{group.Count()} {group.Key}"))
                     + $"; latest position {last.pos_x:0.0},{last.pos_y:0.0}\n");
                 var decision = meaningful.LastOrDefault(e => e.kind == "decision");
-                if (decision != null) text.Append($"    intention {decision.label}, request {decision.channel}; {decision.detail}\n");
+                if (decision != null) text.Append($"    intention {decision.label}, request {decision.channel}; {Abbreviate(decision.detail, 700)}\n");
                 var movement = meaningful.LastOrDefault(e => e.kind == "movement-state");
-                if (movement != null) text.Append($"    movement {movement.detail}\n");
+                if (movement != null) text.Append($"    movement {MovementSummary(movement.detail)}\n");
+                var navigation = meaningful.LastOrDefault(e => e.kind == "navigation-state");
+                if (navigation != null) text.Append($"    decision/search {navigation.label}, request {navigation.channel}; {Abbreviate(navigation.detail, 700)}\n");
             }
             return text.Append("  Use --timeline for every occurrence record; TSV chronology below supplies continuous player and companion motion.\n").ToString();
         }
@@ -83,6 +88,32 @@ public static class DescribeGodsEyeEvents
             text.Append($"  {time:hh\\:mm\\:ss\\.fff} tick {e.tick:n0} {e.kind} subject={e.subject} related={e.related} {e.label} channel={e.channel} pos={e.pos_x:0.0},{e.pos_y:0.0} velocity={e.vel_x:0.0},{e.vel_y:0.0} expected={e.expected_x:0.0},{e.expected_y:0.0}" + (e.amount == 0 ? "" : $" amount={e.amount}") + (string.IsNullOrEmpty(e.detail) ? "\n" : $" {e.detail}\n"));
         }
         return text.ToString();
+    }
+
+    private static string MovementSummary(string detail)
+    {
+        const string rejection = ";last-rejection=";
+        int index = detail.IndexOf(rejection, StringComparison.Ordinal);
+        if (index < 0) return Abbreviate(detail, 700);
+        string before = detail[..index];
+        string value = detail[(index + rejection.Length)..];
+        if (string.IsNullOrEmpty(value)) return before + "; last rejection none";
+        int reason = value.LastIndexOf("Reason = ", StringComparison.Ordinal);
+        return reason >= 0
+            ? before + "; last rejection recorded (" + Abbreviate(value[reason..], 160) + ")"
+            : before + "; last rejection recorded (detail retained in --timeline)";
+    }
+
+    private static string Abbreviate(string value, int maximum)
+        => value.Length <= maximum ? value : value[..maximum] + "… (full detail in --timeline)";
+
+    private static bool TryRejection(string detail, out string rejection)
+    {
+        const string marker = "last-rejection=";
+        int start = detail.IndexOf(marker, StringComparison.Ordinal);
+        if (start < 0) { rejection = ""; return false; }
+        rejection = detail[(start + marker.Length)..];
+        return !string.IsNullOrEmpty(rejection);
     }
 
     private sealed record EventLine(int v, int seq, long tick, double wall_elapsed_ms, string kind, int subject, string related, string label, string channel,

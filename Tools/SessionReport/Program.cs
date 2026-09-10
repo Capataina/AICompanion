@@ -61,12 +61,45 @@ public static class Program
         if (args.Length == 1 && args[0] == "--self-test")
             return ChronicleTests.Run();
 
+        if (args.Length >= 2 && args[0] == "--multirun")
+        {
+            string[] paths = ResolveAll(args[1..]);
+            if (paths.Length != args.Length - 1)
+            {
+                Console.Error.WriteLine("--multirun needs one readable session file or Telemetry folder per run");
+                return 2;
+            }
+            Console.Write(MultiRunReport.Of(paths));
+            return MultiRunReport.HasDefinitive(paths) ? 1 : 0;
+        }
+
+        if (args.Length >= 3 && args[0] == "--html")
+        {
+            string[] paths = ResolveAll(args[2..]);
+            if (paths.Length != args.Length - 2)
+            {
+                Console.Error.WriteLine("--html needs an output .html path followed by one or more readable sessions");
+                return 2;
+            }
+            try
+            {
+                WritePlaytestHtml.Write(args[1], paths);
+                Console.WriteLine($"wrote recorded timeline {args[1]} for {paths.Length} session(s)");
+                return 0;
+            }
+            catch (Exception e)
+            {
+                Console.Error.WriteLine($"could not write {args[1]}: {e.Message}");
+                return 2;
+            }
+        }
+
         bool fullTimeline = args.Length > 0 && args[0] == "--timeline";
         if (fullTimeline)
             args = args[1..];
         if (args.Length == 0)
         {
-            Console.Error.WriteLine("usage: dotnet run --project Tools/SessionReport -- [--timeline] <session.tsv | Telemetry folder>");
+            Console.Error.WriteLine("usage: dotnet run --project Tools/SessionReport -- [--timeline] <session.tsv | Telemetry folder>\n       dotnet run --project Tools/SessionReport -- --multirun <session.tsv | Telemetry folder>...\n       dotnet run --project Tools/SessionReport -- --html <output.html> <session.tsv | Telemetry folder>...");
             return 2;
         }
 
@@ -102,34 +135,7 @@ public static class Program
         Companion(path, "-census.txt", "behaviour census");
         Companion(path, "-map.txt", "session map");
 
-        var findings = new List<Finding>();
-        var skipped = new List<(string Name, string Missing)>();
-        int ran = 0;
-        foreach (ICheck check in Checks)
-        {
-            string[] missing = check.Needs.Where(n => !session.Has(n)).ToArray();
-            if (missing.Length > 0)
-            {
-                skipped.Add((check.Name, string.Join(", ", missing)));
-                continue;
-            }
-            ran++;
-            try
-            {
-                findings.AddRange(check.Run(session));
-            }
-            catch (Exception e)
-            {
-                // A check that throws is a broken check, and a broken check that silently returns
-                // nothing is indistinguishable from a clean run, which is the failure this tool is
-                // built to remove. So it reports itself as a finding against the reader.
-                findings.Add(new Finding(Severity.Potential, check.Name,
-                    $"the check itself failed: {e.GetType().Name}",
-                    $"{e.Message}. Nothing was measured for this question, so treat it as no coverage rather than as "
-                        + "a clean result.",
-                    0, 0, 0));
-            }
-        }
+        var (findings, skipped, ran) = Evaluate(session);
 
         Console.WriteLine();
         Console.WriteLine($"coverage  {ran} of {Checks.Length} checks ran");
@@ -168,6 +174,25 @@ public static class Program
             ? "no definitive issue in this session."
             : $"{definitive} definitive issue(s): something in this session is wrong by construction.");
         return definitive == 0 ? 0 : 1;
+    }
+
+    /// <summary>One evaluator for ordinary and multi-run reports; no second check policy may drift.</summary>
+    internal static (List<Finding> Findings, List<(string Name, string Missing)> Skipped, int Ran) Evaluate(Session session)
+    {
+        var findings = new List<Finding>(); var skipped = new List<(string Name, string Missing)>(); int ran = 0;
+        foreach (ICheck check in Checks)
+        {
+            string[] missing = check.Needs.Where(n => !session.Has(n)).ToArray();
+            if (missing.Length > 0) { skipped.Add((check.Name, string.Join(", ", missing))); continue; }
+            ran++;
+            try { findings.AddRange(check.Run(session)); }
+            catch (Exception e)
+            {
+                findings.Add(new Finding(Severity.Potential, check.Name, $"the check itself failed: {e.GetType().Name}",
+                    $"{e.Message}. Nothing was measured for this question, so treat it as no coverage rather than as a clean result.", 0, 0, 0));
+            }
+        }
+        return (findings, skipped, ran);
     }
 
     /// <summary>How many times one check may say the same thing before the rest become a count.</summary>
@@ -230,6 +255,9 @@ public static class Program
                         .OrderByDescending(File.GetLastWriteTimeUtc)
                         .FirstOrDefault();
     }
+
+    private static string[] ResolveAll(IEnumerable<string> arguments)
+        => arguments.Select(Resolve).Where(path => path != null).Select(path => path!).ToArray();
 
     private static IEnumerable<string> Wrap(string text, int width)
     {
