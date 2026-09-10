@@ -6,20 +6,17 @@ using Terraria;
 using Terraria.ID;
 using AICompanion.Companion.Brain.BehaviourSelection;
 using AICompanion.Companion.Brain.PositionSelection;
+using AICompanion.Companion.Brain.SharedMovementSystem;
 using AICompanion.Companion.Brain.WorldObservation;
 using AICompanion.Companion.Brain.WorldInteractions.Mining;
 
 namespace AICompanion.Companion.Brain.Behaviours.Work;
 
 /// <summary>
-/// The player is really mining an ore: find the same ore outside the player's vein, or
-/// failing that any ore, walk to a spot in reach, and clear the whole patch with the
-/// player's pickaxe. The job survives a while past the player's last ore hit so a slow
-/// swing does not drop it, and a finished patch is followed by the next one while the
-/// player is still at it. The search for a new target is the expensive part (a vein
-/// flood and a scan of the area with a reachability check per candidate), so it runs
-/// only when the player starts on a new ore or the last target is gone, and never more
-/// often than a short cooldown, while the score itself stays cheap.
+/// Retains one ore-only job. Opportunistic mode can start from a vein near either body;
+/// mimic mode uses the player's recent ore contact as its trigger. Both clear every
+/// reachable tile of the selected vein, including the player's vein, and never excavate
+/// terrain merely to make an approach.
 /// </summary>
 public sealed class MineAction : CompanionAction
 {
@@ -31,8 +28,20 @@ public sealed class MineAction : CompanionAction
 
     private OreFinder.OreTarget? target;
     private HashSet<Point> patch = new();
-    private Point? lastSearchedFor;
+    private int nextJobId = 1;
+    private int jobId;
+    private string status = "idle";
     private int sinceSearch = SearchEveryTicks;
+    private Point? approachOrigin;
+    private int approachRevision;
+    private int approachPickPower;
+
+    public int JobId => jobId;
+    public WorkPolicy Policy => WorkPolicies.Mining;
+    public string Status => status;
+    public int RemainingTiles => patch.Count;
+    public Point? TargetTile => target?.Tile;
+    public Vector2? TargetStandPosition => target?.StandPosition;
 
     public override float Score(in ActionContext ctx)
     {
@@ -41,42 +50,89 @@ public sealed class MineAction : CompanionAction
             return 0f;
         sinceSearch++;
 
-        bool playerMining = p.MinedOre != null || TileDamageWatcher.TicksSinceOreHit <= KeepJobTicks;
-        if (!playerMining)
+        if (WorkPolicies.Mining == WorkPolicy.Disabled)
         {
-            target = null;
-            lastSearchedFor = null;
+            ClearJob("disabled");
             return 0f;
         }
-        if (target is OreFinder.OreTarget t && !OreFinder.IsOre(t.Tile.X, t.Tile.Y))
+        bool playerMining = p.MinedOre != null || TileDamageWatcher.TicksSinceOreHit <= KeepJobTicks;
+        if (WorkPolicies.Mining == WorkPolicy.Mimic && !playerMining)
+        {
+            ClearJob("mimic trigger expired");
+            return 0f;
+        }
+        int pick = TileMiner.PickaxeFor(ctx.Player).pick;
+        Point origin = MovementQueries.FeetTile(ctx.Npc.Bottom);
+        if (origin != approachOrigin || TerrainChanges.Revision != approachRevision || pick != approachPickPower)
+        {
+            // Scoring continues during a guard interruption. An early guard tick may propose
+            // an approach, but moving again invalidates it before it can win on resumption.
+            target = null;
+            if (patch.Count > 0) sinceSearch = SearchEveryTicks;
+            approachOrigin = origin;
+            approachRevision = TerrainChanges.Revision;
+            approachPickPower = pick;
+        }
+        if (target is OreFinder.OreTarget t && (!OreFinder.IsOre(t.Tile.X, t.Tile.Y) || !ctx.Companion.Miner.CanMine(t.Tile, pick)))
         {
             patch.Remove(t.Tile);
-            target = NextInPatch(ctx, t);
+            target = NextInPatch(ctx, t, pick);
         }
-        if (target == null && p.MinedOre is (Point hit, int type))
+        else if (target == null && patch.Count > 0 && (status != "approach unknown" || sinceSearch >= SearchEveryTicks))
         {
-            bool newOre = lastSearchedFor != hit;
-            if (newOre || sinceSearch >= SearchEveryTicks)
-                Search(ctx, hit, type);
+            target = NextInPatch(ctx, new OreFinder.OreTarget(default, 0, ctx.Npc.Bottom), pick);
+            sinceSearch = 0;
         }
-        if (target == null)
+        if (patch.Count == 0 && sinceSearch >= SearchEveryTicks)
+        {
+            Search(ctx, p.MinedOre);
+        }
+        if (patch.Count == 0)
+            return 0f;
+        if (target == null && status == "approach unknown")
             return 0f;
 
         float safe = Consideration.AtLeast(1f - ctx.Senses.Threats.PlayerDanger, 0.1f);
         return 0.7f * safe;
     }
 
-    private void Search(in ActionContext ctx, Point playersHit, int type)
+    private void Search(in ActionContext ctx, (Point Tile, int Type)? playerHit)
     {
         sinceSearch = 0;
-        lastSearchedFor = playersHit;
         int pick = TileMiner.PickaxeFor(ctx.Player).pick;
-        var playersVein = OreFinder.Vein(playersHit, type);
-        var found = OreFinder.FindNearest(ctx.Npc.Bottom, SearchRadiusTiles, type, playersVein);
-        if (found is OreFinder.OreTarget f && ctx.Companion.Miner.CanMine(f.Tile, pick))
+        var miner = ctx.Companion.Miner;
+        bool Mineable(Point tile) => miner.CanMine(tile, pick);
+        OreFinder.SearchResult result = default;
+        if (WorkPolicies.Mining == WorkPolicy.Mimic)
+        {
+            if (playerHit is (Point hit, int type))
+                result = OreFinder.FindNearest(ctx.Npc.Bottom, ctx.Player.Bottom, SearchRadiusTiles, type, Mineable);
+        }
+        else
+        {
+            OreFinder.SearchResult byPlayer = OreFinder.FindNearest(ctx.Npc.Bottom, ctx.Player.Bottom, SearchRadiusTiles, accept: Mineable);
+            OreFinder.SearchResult byCompanion = OreFinder.FindNearest(ctx.Npc.Bottom, ctx.Npc.Bottom, SearchRadiusTiles, accept: Mineable);
+            result = new OreFinder.SearchResult(Nearest(ctx.Npc.Bottom, byPlayer.Target, byCompanion.Target),
+                byPlayer.ApproachUnknown || byCompanion.ApproachUnknown);
+        }
+        OreFinder.OreTarget? found = result.Target;
+        if (found is OreFinder.OreTarget f)
         {
             target = f;
             patch = OreFinder.Vein(f.Tile, f.Type);
+            jobId = nextJobId++;
+            status = "approaching";
+        }
+        else if (result.ApproachUnknown)
+            status = "approach unknown";
+        else
+        {
+            // Search once without the tool predicate only after every mineable candidate was
+            // rejected, so a closer weak-pick ore cannot mask a farther usable one.
+            OreFinder.SearchResult anyOre = WorkPolicies.Mining == WorkPolicy.Mimic && playerHit is (Point _, int anyType)
+                ? OreFinder.FindNearest(ctx.Npc.Bottom, ctx.Player.Bottom, SearchRadiusTiles, anyType)
+                : OreFinder.FindNearest(ctx.Npc.Bottom, ctx.Npc.Bottom, SearchRadiusTiles);
+            status = anyOre.Target != null ? "no mineable ore" : anyOre.ApproachUnknown ? "approach unknown" : "no reachable ore";
         }
     }
 
@@ -99,8 +155,7 @@ public sealed class MineAction : CompanionAction
         {
             // Arrived, but the tile is not swingable from here (the stand was approximate, or
             // the world changed): never swing at what cannot be reached; pick the next tile.
-            patch.Remove(t.Tile);
-            target = NextInPatch(ctx, t);
+            target = NextInPatch(ctx, t, pickaxe.pick);
             return PositionRequest.Hold;
         }
         ctx.Companion.HoldItem(pickaxe.type);
@@ -111,29 +166,72 @@ public sealed class MineAction : CompanionAction
     }
 
     /// <summary>The next tile of the patch: one still in reach of the current stand, else the nearest with a new stand.</summary>
-    private OreFinder.OreTarget? NextInPatch(in ActionContext ctx, OreFinder.OreTarget current)
+    private OreFinder.OreTarget? NextInPatch(in ActionContext ctx, OreFinder.OreTarget current, int pickPower)
     {
-        patch.RemoveWhere(p => !OreFinder.IsOre(p.X, p.Y));
+        var miner = ctx.Companion.Miner;
+        patch.RemoveWhere(p => !OreFinder.IsOre(p.X, p.Y) || !miner.CanMine(p, pickPower));
         if (patch.Count == 0)
+        {
+            jobId = 0;
+            status = "completed reachable ore";
             return null;
+        }
         Point? inReach = null;
         float best = float.MaxValue;
         foreach (Point p in patch)
         {
             float d = Vector2.DistanceSquared(p.ToWorldCoordinates(), ctx.Npc.Center);
-            if (d < best && OreFinder.InReach(current.StandPosition, p))
+            if (d < best && OreFinder.InReach(ctx.Npc.Bottom, p))
             {
                 best = d;
                 inReach = p;
             }
         }
         if (inReach is Point r)
-            return current with { Tile = r };
+        {
+            status = "mining";
+            return current with { Tile = r, StandPosition = ctx.Npc.Bottom };
+        }
+        bool unknown = false;
         foreach (Point p in patch)
         {
-            if (OreFinder.Approach(p, ctx.Npc.Bottom) is Vector2 stand)
+            var approach = OreFinder.Approach(p, ctx.Npc.Bottom, out Vector2 stand);
+            if (approach == Reachability.Reach.Yes)
+            {
+                status = "relocating";
                 return new OreFinder.OreTarget(p, current.Type, stand);
+            }
+            unknown |= approach == Reachability.Reach.Unknown;
         }
+        if (unknown)
+        {
+            status = "approach unknown";
+            return null;
+        }
+        // A complete bounded search established that none of the remaining tiles has a
+        // legal approach. End this job's reachable portion; a later discovery starts fresh.
+        patch.Clear();
+        jobId = 0;
+        status = "completed reachable portion";
         return null;
+    }
+
+    private static OreFinder.OreTarget? Nearest(Vector2 from, OreFinder.OreTarget? a, OreFinder.OreTarget? b)
+        => a == null ? b : b == null ? a
+            : Vector2.DistanceSquared(from, a.Value.Tile.ToWorldCoordinates()) <= Vector2.DistanceSquared(from, b.Value.Tile.ToWorldCoordinates()) ? a : b;
+
+    private void ClearJob(string reason)
+    {
+        target = null;
+        patch.Clear();
+        jobId = 0;
+        status = reason;
+    }
+    public override void Exit(in ActionContext ctx)
+    {
+        // The vein survives interruption, but a route from the old body position does not.
+        target = null;
+        status = "resume requires approach";
+        sinceSearch = SearchEveryTicks;
     }
 }

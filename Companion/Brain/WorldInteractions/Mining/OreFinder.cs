@@ -24,6 +24,7 @@ public static class OreFinder
     private static int ReachY => Player.tileRangeY;
 
     public readonly record struct OreTarget(Point Tile, int Type, Vector2 StandPosition);
+    public readonly record struct SearchResult(OreTarget? Target, bool ApproachUnknown);
 
     public static bool IsOre(int x, int y)
     {
@@ -63,16 +64,25 @@ public static class OreFinder
     }
 
     /// <summary>
-    /// Nearest ore tile to <paramref name="fromFeet"/> within <paramref name="radiusTiles"/> that is
-    /// of <paramref name="preferredType"/> and outside <paramref name="exclude"/>; failing that,
-    /// the nearest ore of any type outside it. Null when nothing has a reachable standing spot.
+    /// Nearest ore tile near <paramref name="near"/> that the companion can reach from
+    /// <paramref name="fromFeet"/>. The search origin and the route origin differ when the player
+    /// sees a vein first: the companion still has to prove its own approach before selecting it.
     /// </summary>
-    public static OreTarget? FindNearest(Vector2 fromFeet, int radiusTiles, int preferredType, HashSet<Point> exclude)
-        => Nearest(fromFeet, radiusTiles, preferredType, exclude) ?? Nearest(fromFeet, radiusTiles, -1, exclude);
-
-    private static OreTarget? Nearest(Vector2 fromFeet, int radiusTiles, int type, HashSet<Point> exclude)
+    public static SearchResult FindNearest(Vector2 fromFeet, Vector2 near, int radiusTiles, int preferredType = -1,
+        System.Func<Point, bool>? accept = null)
     {
-        int cx = (int)(fromFeet.X / 16f), cy = (int)(fromFeet.Y / 16f);
+        bool unknown = false;
+        OreTarget? preferred = Nearest(fromFeet, near, radiusTiles, preferredType, accept, ref unknown);
+        if (preferred != null || preferredType < 0)
+            return new SearchResult(preferred, unknown);
+        OreTarget? any = Nearest(fromFeet, near, radiusTiles, -1, accept, ref unknown);
+        return new SearchResult(any, unknown);
+    }
+
+    private static OreTarget? Nearest(Vector2 fromFeet, Vector2 near, int radiusTiles, int type, System.Func<Point, bool>? accept,
+        ref bool approachUnknown)
+    {
+        int cx = (int)(near.X / 16f), cy = (int)(near.Y / 16f);
         OreTarget? best = null;
         float bestDist = float.MaxValue;
         for (int x = cx - radiusTiles; x <= cx + radiusTiles; x++)
@@ -82,12 +92,15 @@ public static class OreFinder
                 if (!IsOre(x, y) || (type >= 0 && Main.tile[x, y].TileType != type))
                     continue;
                 var tile = new Point(x, y);
-                if (exclude.Contains(tile))
+                if (accept != null && !accept(tile))
                     continue;
                 float d = Vector2.DistanceSquared(fromFeet, tile.ToWorldCoordinates());
                 if (d >= bestDist)
                     continue;
-                if (Approach(tile, fromFeet) is not Vector2 stand)
+                Reachability.Reach approach = Approach(tile, fromFeet, out Vector2 stand);
+                if (approach == Reachability.Reach.Unknown)
+                    approachUnknown = true;
+                if (approach != Reachability.Reach.Yes)
                     continue;
                 bestDist = d;
                 best = new OreTarget(tile, Main.tile[x, y].TileType, stand);
@@ -100,11 +113,12 @@ public static class OreFinder
     /// A standable feet tile within reach of the ore whose eye has a line to it and that the
     /// walker can reach from <paramref name="fromFeet"/>, nearest to the ore first.
     /// </summary>
-    public static Vector2? Approach(Point ore, Vector2 fromFeet)
+    public static Reachability.Reach Approach(Point ore, Vector2 fromFeet, out Vector2 stand)
     {
-        Vector2 oreCentre = ore.ToWorldCoordinates();
+        Vector2 oreCentre = ore.ToWorldCoordinates(8f, 8f);
         Point from = MovementQueries.FeetTile(fromFeet);
         Vector2? best = null;
+        bool unknown = false;
         float bestDist = float.MaxValue;
         for (int dx = -ReachX; dx <= ReachX; dx++)
         {
@@ -117,25 +131,45 @@ public static class OreFinder
                 if (!InReach(feet, ore))
                     continue;
                 float d = Vector2.DistanceSquared(feet + Eye, oreCentre);
-                if (d < bestDist && MovementQueries.WalkerCanReach(from, new Point(x, y)))
+                Reachability.Reach reach = MovementQueries.WalkerReach(from, new Point(x, y));
+                if (reach == Reachability.Reach.Unknown)
+                    unknown = true;
+                if (d < bestDist && reach == Reachability.Reach.Yes)
                 {
                     bestDist = d;
                     best = feet;
                 }
             }
         }
-        return best;
+        stand = best ?? default;
+        return best != null ? Reachability.Reach.Yes : unknown ? Reachability.Reach.Unknown : Reachability.Reach.No;
     }
 
     private static readonly Vector2 Eye = new(0f, -30f);
 
-    /// <summary>Whether a swing from <paramref name="feet"/> can reach <paramref name="ore"/>: inside the player's reach box with a line to it.</summary>
+    /// <summary>Whether a swing from <paramref name="feet"/> can reach <paramref name="ore"/>: inside the player's native reach box and with a line to one exposed face.</summary>
     public static bool InReach(Vector2 feet, Point ore)
     {
         Vector2 eye = feet + Eye;
-        Vector2 oreCentre = ore.ToWorldCoordinates();
+        Vector2 oreCentre = ore.ToWorldCoordinates(8f, 8f);
         return System.MathF.Abs(eye.X - oreCentre.X) <= ReachX * 16f + 8f
             && System.MathF.Abs(eye.Y - oreCentre.Y) <= ReachY * 16f + 8f
-            && Collision.CanHitLine(eye, 1, 1, oreCentre, 1, 1);
+            && HasLineToExposedFace(eye, ore);
+    }
+
+    private static bool HasLineToExposedFace(Vector2 eye, Point ore)
+    {
+        // PickTile itself checks only range. The companion adds occlusion so its closed-set
+        // ability does not mine through a wall. CanHitLine includes a solid destination tile,
+        // therefore the actual target is an adjacent open tile on an exposed ore face.
+        foreach (Point side in new[] { new Point(-1, 0), new Point(1, 0), new Point(0, -1), new Point(0, 1) })
+        {
+            Point face = ore + side;
+            if (!WorldGen.InWorld(face.X, face.Y, 5) || WorldGen.SolidTile(face.X, face.Y))
+                continue;
+            if (Collision.CanHitLine(eye, 1, 1, face.ToWorldCoordinates(8f, 8f), 1, 1))
+                return true;
+        }
+        return false;
     }
 }

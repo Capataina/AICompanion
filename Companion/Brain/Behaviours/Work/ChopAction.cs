@@ -5,18 +5,15 @@ using Terraria;
 using Terraria.ID;
 using AICompanion.Companion.Brain.BehaviourSelection;
 using AICompanion.Companion.Brain.PositionSelection;
+using AICompanion.Companion.Brain.SharedMovementSystem;
 using AICompanion.Companion.Brain.WorldInteractions.Chopping;
 
 namespace AICompanion.Companion.Brain.Behaviours.Work;
 
 /// <summary>
-/// The player is really chopping a tree: go to the nearest other tree and chop it.
-/// The target survives a pause in the player's swinging for a couple of seconds so a
-/// slow swing does not drop the job every frame. The search for a new target scans a
-/// box of tiles and solves a standing spot per hit, and Score runs every tick whether
-/// or not this action wins, so the search runs only when the player starts on a new tree
-/// or the target is gone, and never more often than a short cooldown; with one tree in
-/// view and no other, that is what stops the scan running sixty times a second.
+/// Retains one tree job. Mimic mode keeps the player-hit trigger and excludes that tree;
+/// opportunistic mode uses the existing nearby-tree finder without inventing a second
+/// chopping mechanism.
 /// </summary>
 public sealed class ChopAction : CompanionAction
 {
@@ -30,6 +27,9 @@ public sealed class ChopAction : CompanionAction
     private Point? lastSearchedFor;
     private int sincePlayerHit;
     private int sinceSearch = SearchEveryTicks;
+    private (Point from, Point goal, int revision)? reachKey;
+    private Reachability.Reach approachReach;
+    private int sinceReach = SearchEveryTicks;
 
     public override float Score(in ActionContext ctx)
     {
@@ -37,36 +37,69 @@ public sealed class ChopAction : CompanionAction
         if (p.IsDead)
             return 0f;
         sinceSearch++;
+        sinceReach++;
 
-        if (p.IsChoppingTree)
+        if (WorkPolicies.Chopping == WorkPolicy.Disabled)
         {
-            sincePlayerHit = 0;
-            if (tree is TreeFinder.ChoppableTree t && (!TileChopper.TreeStands(t.Bottom) || t.Bottom == p.ChoppedTree))
-                tree = null;
-            bool newTree = lastSearchedFor != p.ChoppedTree;
-            if (tree == null && (newTree || sinceSearch >= SearchEveryTicks))
+            tree = null;
+            lastSearchedFor = null;
+            return 0f;
+        }
+        if (WorkPolicies.Chopping == WorkPolicy.Mimic)
+        {
+            if (p.IsChoppingTree)
             {
-                tree = TreeFinder.FindNearest(ctx.Npc.Center, SearchRadiusTiles, p.ChoppedTree);
-                lastSearchedFor = p.ChoppedTree;
-                sinceSearch = 0;
+                sincePlayerHit = 0;
+                if (tree is TreeFinder.ChoppableTree t && (!TileChopper.TreeStands(t.Bottom) || t.Bottom == p.ChoppedTree))
+                    tree = null;
+                bool newTree = lastSearchedFor != p.ChoppedTree;
+                if (tree == null && (newTree || sinceSearch >= SearchEveryTicks))
+                {
+                    tree = TreeFinder.FindNearest(ctx.Npc.Center, SearchRadiusTiles, p.ChoppedTree);
+                    lastSearchedFor = p.ChoppedTree;
+                    sinceSearch = 0;
+                }
+            }
+            else
+            {
+                // Between two swings the hit flag is down; retain this mimic job long enough
+                // for a slow player swing, then release it rather than becoming a mission.
+                sincePlayerHit++;
+                if (sincePlayerHit > KeepJobTicks)
+                {
+                    tree = null;
+                    lastSearchedFor = null;
+                }
+                else if (tree is TreeFinder.ChoppableTree t && !TileChopper.TreeStands(t.Bottom))
+                    tree = null;
             }
         }
         else
         {
-            // Between two of the player's swings the hit flag is down; the job and the memory
-            // of what was searched for both outlive that gap, or the cooldown would reset
-            // on every swing.
-            sincePlayerHit++;
-            if (sincePlayerHit > KeepJobTicks)
+            if (tree is TreeFinder.ChoppableTree t && !TileChopper.TreeStands(t.Bottom))
+                tree = null;
+            if (tree == null && sinceSearch >= SearchEveryTicks)
             {
-                tree = null;
-                lastSearchedFor = null;
+                TreeFinder.ChoppableTree? nearCompanion = TreeFinder.FindNearest(ctx.Npc.Center, SearchRadiusTiles, null);
+                TreeFinder.ChoppableTree? nearPlayer = TreeFinder.FindNearest(ctx.Player.Center, SearchRadiusTiles, null);
+                tree = Nearest(ctx.Npc.Center, nearCompanion, nearPlayer);
+                sinceSearch = 0;
             }
-            else if (tree is TreeFinder.ChoppableTree t && !TileChopper.TreeStands(t.Bottom))
-                tree = null;
         }
 
         if (tree == null)
+            return 0f;
+        // A clear standing tile beside a trunk is only a geometric candidate. A sealed or
+        // unfinished approach must yield to other jobs rather than winning forever.
+        var key = (MovementQueries.FeetTile(ctx.Npc.Bottom),
+            MovementQueries.FeetTile(tree.Value.StandPosition), TerrainChanges.Revision);
+        if (reachKey != key || sinceReach >= SearchEveryTicks)
+        {
+            approachReach = MovementQueries.WalkerReach(key.Item1, key.Item2);
+            reachKey = key;
+            sinceReach = 0;
+        }
+        if (approachReach != Reachability.Reach.Yes)
             return 0f;
         float safe = Consideration.AtLeast(1f - ctx.Senses.Threats.PlayerDanger, 0.1f);
         return 0.7f * safe;
@@ -84,7 +117,7 @@ public sealed class ChopAction : CompanionAction
         if (tree is not TreeFinder.ChoppableTree t)
             return PositionRequest.Hold;
 
-        if (System.MathF.Abs(ctx.Npc.Center.X - t.StandPosition.X) <= 20f)
+        if (Vector2.Distance(ctx.Npc.Bottom, t.StandPosition) <= 20f)
         {
             ctx.Companion.HoldItem(axe.type);
             ctx.Companion.Motor.Face(t.Bottom.X * 16f + 8f);
@@ -94,4 +127,8 @@ public sealed class ChopAction : CompanionAction
         }
         return PositionRequest.ExactAt(t.StandPosition);
     }
+
+    private static TreeFinder.ChoppableTree? Nearest(Vector2 from, TreeFinder.ChoppableTree? a, TreeFinder.ChoppableTree? b)
+        => a == null ? b : b == null ? a
+            : Vector2.DistanceSquared(from, a.Value.StandPosition) <= Vector2.DistanceSquared(from, b.Value.StandPosition) ? a : b;
 }
