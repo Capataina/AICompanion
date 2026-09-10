@@ -10,4 +10,6 @@ The notch is a glanceable health surface for the companion, not a diagnostic ove
 
 It uses raw screen pixels because Terraria’s mouse coordinates are raw screen pixels. Graphics disposal at mod unload must be queued to the main thread.
 
-The same bounds supply drawing and pre-update mouse capture. A cursor entering and pressing on the notch in one update must be consumed before item use; setting `mouseInterface` only while drawing can miss that opening press. A drag keeps capture until release. Downing, reflexes and recovery precede the movement-stalled status; a stalled objective gets a visible label and cannot be hidden by a torch held in the free hand. The label reports non-progress, not an unproven route cause.
+Movement non-progress has a distinct exclamation badge and a tooltip saying another route is being sought. It does not reuse the follow compass and remains visible when the hand holds a torch. Downing and active recovery take precedence.
+
+The same bounds supply drawing and pre-update mouse capture. A cursor entering and pressing on the notch in one update must be consumed before item use; setting `mouseInterface` only while drawing can miss that opening press. A drag keeps capture until release. A stalled objective gets a visible label before ordinary action and reflex icons, so a torch held in the free hand cannot hide it. The label reports non-progress, not an unproven route cause.

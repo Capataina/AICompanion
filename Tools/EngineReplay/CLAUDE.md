@@ -11,6 +11,10 @@ EngineReplay/
 ├─ CLAUDE.md                 setup, scope and evidence limits
 ├─ EngineReplay.csproj       compiles the movement core and native adapter against the installed game
 ├─ Program.cs               resolves the installed game’s library dependencies
+├─ RenderNativeInterface.cs  hidden native graphics render, production controls and debug-line pixel regression
+├─ ReplayRecordedWater.cs    event-terrain reconstruction with native full-brain water replay and coverage limits
+├─ VerifyAttackOutcomes.cs   threat removal, overkill, multi-hit and follow-up attack valuation
+├─ VerifyHuntProgress.cs     ineffective engagements defer without cancelling productive travel
 ├─ VerifyEngineMotion.cs     terrain/liquid matrix, scratch-state assertions and native route checks
 ├─ VerifyObservedMotion.cs   native-terrain hostile forecast and pure regroup-urgency contracts
 ├─ VerifyProjectileMotion.cs native projectile-AI and swept-shot contracts
@@ -30,6 +34,12 @@ EngineReplay/
 ```
 
 From the repository root run `dotnet run --project Tools/EngineReplay`. Exit zero requires every matrix entry to match and all native route fixtures to arrive. `sh Tools/verify.sh` includes this command. The game location can be supplied as the executable’s first argument; MSBuild’s TModLoaderRoot controls the reference location when compiling on another installation.
+
+`--render-ui` uses a hidden SDL surface to render the actual profile, cargo, mastery and inspector pages with installed game assets. PNGs go under the process temporary directory's `aic-native-ui` folder. On macOS, provide `DYLD_LIBRARY_PATH` pointing to the installed loader's `Libraries/Native/OSX`. It exercises policy-button event handlers and bounds the painted pixels of a real debug line; no visible game is launched. Native UI setup must supply cached original screen dimensions, the UI matrix, the world view matrix and inventory gamepad link points. Missing those services produces blank/clipped pages or inventory exceptions that are harness failures rather than UI findings.
+
+`--replay-water=Telemetry/<stamp>.tsv --tick=<tick>` reconstructs local terrain from event snapshots preceding that sample's wall-clock time, restores the observed body and breath, and runs the full brain with native collision. The wall clock joins the files because their game-tick origins can differ across world entry. Exact tile flags, frames and liquid amounts are restored when present; older glyph snapshots normalise material and disclose that loss. Uncaptured terrain is closed, unknown mod content is rejected with context, and moving liquids and other entities are not reconstructed. This is a bounded static replay, not a saved-world loader or a complete reproduction of enemy interactions.
+
+Full-brain water tests require sustained native head clearance while alive. A one-cell head check can report air while the native breathing rectangle remains submerged. The captured older pool starts with its recorded remaining breath; full liquid cells are an explicit reconstruction assumption. Cosmetic combat-text slots are occupied in headless fixtures so native drowning strikes apply damage without requiring graphics fonts; the damage path itself remains active.
 
 The setup assigns Terraria.Program.SavePath before Main’s static constructor, constructs a small Tilemap through its non-public constructor and marks the process dedicated-server for headless operation. Each collision comparison creates an ordinary NPC, runs its private gravity setup, applies shared controls and the step helpers, adds the engine’s gravity, then invokes private UpdateCollision. It fixes wetCount to suppress liquid entry/exit audiovisual effects. That collision matrix invokes no game AI, enemy spawning, save loading or full NPC update. The separate lifecycle fixture invokes the actual companion's AI entry point; the captured escape fixture invokes its production survival action and senses over native collision.
 

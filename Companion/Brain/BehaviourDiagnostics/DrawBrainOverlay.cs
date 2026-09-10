@@ -13,19 +13,19 @@ using AICompanion.Companion.DiagnosticsConfiguration;
 
 namespace AICompanion.Companion.Brain.BehaviourDiagnostics;
 
-/// <summary>Selectable evidence from the real brain. Closing the menu preserves the chosen world layers.</summary>
+/// <summary>Selectable evidence from the real brain. Closing hides all layers and retains preferences.</summary>
 public sealed class BrainOverlay : ModSystem
 {
     public static ModKeybind? ToggleKey;
     public static bool Enabled, ShowWorld;
-    public static bool ShowThreats = true, ShowPredictions = true, ShowRoutes = true, ShowCandidates;
-    public static bool ShowProjectiles, ShowAiming, ShowMovement, ShowAttention = true;
+    public static bool ShowThreats, ShowPredictions, ShowRoutes = true, ShowCandidates;
+    public static bool ShowProjectiles, ShowAiming, ShowMovement, ShowAttention;
     private static int scroll;
     private static bool decisionsPage;
-    private static bool openedThisWorld;
     private static ulong inputTick = ulong.MaxValue;
-    private static readonly Color Panel = new(43, 48, 153), Edge = new(143, 147, 240);
-    public static bool MayCapture => CompanionDiagnosticsConfig.Current.EnableBrainInspector && ShowWorld;
+    private static readonly Color Panel = new(33, 43, 79), Edge = new(104, 130, 187);
+    private static readonly Color Row = new(39, 51, 92), Highlight = new(66, 88, 151);
+    public static bool MayCapture => CompanionDiagnosticsConfig.Current.EnableBrainInspector && Enabled && ShowWorld;
     public override void Load()
     {
         ToggleKey = KeybindLoader.RegisterKeybind(Mod, "BrainOverlay", "OemOpenBrackets");
@@ -41,17 +41,18 @@ public sealed class BrainOverlay : ModSystem
         TrajectoryAimer.CaptureRequested = null; TrajectoryAimer.TraceEvaluated = null;
         BrainInspectorSamples.Reset();
     }
-    public override void OnWorldUnload() { Enabled = ShowWorld = openedThisWorld = false; BrainInspectorSamples.Reset(); }
+    public override void OnWorldUnload() { Close(); BrainInspectorSamples.Reset(); }
+    public static void Close() { Enabled = ShowWorld = false; }
     public static void ToggleMenu()
     {
         Enabled = !Enabled;
-        if (Enabled && !openedThisWorld) { ShowWorld = true; openedThisWorld = true; }
+        ShowWorld = Enabled;
     }
     public static Rectangle PanelBounds(int width, int height)
-        => new(12, 12, Math.Max(200, Math.Min(420, width - 24)), Math.Max(180, Math.Min(560, height - 24)));
+        => new(12, 12, Math.Max(200, Math.Min(440, width - 24)), Math.Max(180, Math.Min(540, height - 24)));
     private static Rectangle Bounds => PanelBounds((int)(Main.screenWidth / Main.UIScale), (int)(Main.screenHeight / Main.UIScale));
     private static Point Mouse => new((int)(Main.mouseX / Main.UIScale), (int)(Main.mouseY / Main.UIScale));
-    private static readonly string[] labels = { "World layers", "Enemies: bodies and velocity", "Enemy forecasts already calculated", "Incoming projectile forecasts", "Route and next destination", "Alternative standing positions", "Aiming arcs and rejected shots", "Movement and dodge alternatives", "Attention: targets and work" };
+    private static readonly string[] labels = { "Show world drawings", "Enemies and their velocity", "Predicted enemy movement", "Incoming projectiles", "Current route and destination", "Alternative destinations", "Aiming and rejected shots", "Movement and dodge choices", "Targets and attention" };
     private static readonly string[] hints = {
         "Hide all drawings without losing your selected layers.", "Red boxes are observed bodies; arrows show current velocity.",
         "Yellow paths contain only samples the brain calculated. Future enemy decisions remain unknown.",
@@ -69,7 +70,9 @@ public sealed class BrainOverlay : ModSystem
     }
     public static void CaptureInput()
     {
-        if (!Enabled || !CompanionDiagnosticsConfig.Current.EnableBrainInspector || !Bounds.Contains(Mouse)) return;
+        if (!Enabled || !CompanionDiagnosticsConfig.Current.EnableBrainInspector) return;
+        if (Main.keyState.IsKeyDown(Microsoft.Xna.Framework.Input.Keys.Escape)) { Close(); return; }
+        if (!Bounds.Contains(Mouse)) return;
         Main.LocalPlayer.mouseInterface = true;
         if (inputTick == Main.GameUpdateCount) return;
         inputTick = Main.GameUpdateCount;
@@ -78,33 +81,33 @@ public sealed class BrainOverlay : ModSystem
         int count = decisionsPage ? CompanionNPC.Instance?.Brain.Chooser.LastScores.Count ?? 0 : labels.Length;
         scroll = Math.Clamp(scroll - Math.Sign(Terraria.GameInput.PlayerInput.ScrollWheelDeltaForUI), 0, Math.Max(0, count - rows));
         if (!Main.mouseLeft || !Main.mouseLeftRelease) return;
-        if (new Rectangle(panel.Right - 34, panel.Y + 8, 24, 24).Contains(Mouse)) { Enabled = false; return; }
+        if (new Rectangle(panel.Right - 34, panel.Y + 8, 24, 24).Contains(Mouse)) { Close(); return; }
         if (new Rectangle(panel.X + 12, panel.Y + 102, panel.Width - 24, 24).Contains(Mouse))
         { decisionsPage = Mouse.X >= panel.Center.X; scroll = 0; return; }
         if (decisionsPage) return;
         for (int row = 0; row < rows && scroll + row < labels.Length; row++)
             if (RowBounds(panel, row).Contains(Mouse)) Flip(scroll + row);
     }
-    public static int VisibleRows(Rectangle panel) => Math.Max(1, (panel.Height - 160) / 25);
-    public static Rectangle RowBounds(Rectangle panel, int row) => new(panel.X + 12, panel.Y + 132 + row * 25, panel.Width - 24, 23);
+    public static int VisibleRows(Rectangle panel) => Math.Max(1, (panel.Height - 160) / 36);
+    public static Rectangle RowBounds(Rectangle panel, int row) => new(panel.X + 12, panel.Y + 132 + row * 36, panel.Width - 24, 32);
     public override void PostDrawInterface(SpriteBatch sb)
     {
         if (!CompanionDiagnosticsConfig.Current.EnableBrainInspector || Main.gameMenu) return;
         var companion = CompanionNPC.Instance;
-        if (ShowWorld && companion != null) DrawWorld(sb, companion);
+        if (Enabled && ShowWorld && companion != null && !companion.IsDowned) DrawWorld(sb, companion);
         if (Enabled) DrawMenu(sb, companion);
     }
     private static void DrawMenu(SpriteBatch sb, CompanionNPC? companion)
     {
         Rectangle panel = Bounds;
         Fill(sb, panel, Panel * .94f); Border(sb, panel, Edge);
-        Text(sb, "COMPANION / BRAIN INSPECTOR", panel.X + 14, panel.Y + 13, Color.Gold, .65f);
+        Text(sb, "Companion's eye", panel.X + 14, panel.Y + 13, Color.Gold, 1f);
         Text(sb, "X", panel.Right - 28, panel.Y + 12, Color.White, .7f);
-        Text(sb, companion?.Brain.ActivityStatus ?? "Waiting for a companion", panel.X + 14, panel.Y + 40, Color.White, .65f);
-        Text(sb, "Choose your layers. Close to keep watching.", panel.X + 14, panel.Y + 64, Color.LightSteelBlue, .52f);
+        Text(sb, companion?.Brain.ActivityStatus ?? "Waiting for a companion", panel.X + 14, panel.Y + 42, Color.White, .75f);
+        Text(sb, "Choose layers. Close or press the key to hide all.", panel.X + 14, panel.Y + 64, Color.LightSteelBlue, .52f);
         Text(sb, "Observed: red   Predicted: yellow   Chosen: white", panel.X + 14, panel.Y + 83, Color.LightGray, .48f);
-        Fill(sb, new(panel.X + 12, panel.Y + 102, (panel.Width - 24) / 2, 24), decisionsPage ? new Color(34, 39, 118) : new Color(74, 82, 184));
-        Fill(sb, new(panel.Center.X, panel.Y + 102, (panel.Width - 24) / 2, 24), decisionsPage ? new Color(74, 82, 184) : new Color(34, 39, 118));
+        Fill(sb, new(panel.X + 12, panel.Y + 102, (panel.Width - 24) / 2, 24), decisionsPage ? Row : Highlight);
+        Fill(sb, new(panel.Center.X, panel.Y + 102, (panel.Width - 24) / 2, 24), decisionsPage ? Highlight : Row);
         Text(sb, "World layers", panel.X + 24, panel.Y + 106, decisionsPage ? Color.White : Color.Gold, .6f);
         Text(sb, "Decisions", panel.Center.X + 12, panel.Y + 106, decisionsPage ? Color.Gold : Color.White, .6f);
         int rows = VisibleRows(panel);
@@ -119,10 +122,10 @@ public sealed class BrainOverlay : ModSystem
         {
             Rectangle row = RowBounds(panel, i - scroll);
             bool hover = row.Contains(Mouse);
-            Fill(sb, row, hover ? new Color(74, 82, 184) : new Color(34, 39, 118));
-            Border(sb, new Rectangle(row.X + 5, row.Y + 5, 12, 12), Value(i) ? Color.Gold : Edge);
-            if (Value(i)) Fill(sb, new Rectangle(row.X + 8, row.Y + 8, 6, 6), Color.Gold);
-            Text(sb, labels[i], row.X + 26, row.Y + 4, Color.White, .55f);
+            Fill(sb, row, hover ? Highlight : Row);
+            Border(sb, new Rectangle(row.X + 8, row.Y + 8, 16, 16), Value(i) ? Color.Gold : Edge);
+            if (Value(i)) Fill(sb, new Rectangle(row.X + 12, row.Y + 12, 8, 8), Color.Gold);
+            Text(sb, labels[i], row.X + 34, row.Y + 6, Color.White, .75f);
             if (hover) Main.instance.MouseText(hints[i]);
         }
         Text(sb, last < labels.Length || scroll > 0 ? "Scroll for more layers" : "Hover a layer to learn what it means", panel.X + 14, panel.Bottom - 20, Color.LightSteelBlue, .48f);
@@ -136,14 +139,14 @@ public sealed class BrainOverlay : ModSystem
         {
             var score = scores[i];
             Rectangle row = RowBounds(panel, i - scroll);
-            Fill(sb, row, new Color(34, 39, 118));
+            Fill(sb, row, Row);
             int bottom = row.Y + 4;
-            Text(sb, score.Action.Name, panel.X + 15, bottom, Color.White, .55f);
+            Text(sb, score.Action.Name, panel.X + 15, bottom, Color.White, .7f);
             int width = Math.Max(20, panel.Width - 152), start = panel.X + 108;
             Border(sb, new Rectangle(start, bottom + 3, (int)(Math.Clamp(score.Raw / 1.5f, 0, 1) * width), 8), Color.LightSteelBlue);
             Fill(sb, new Rectangle(start, bottom + 4, (int)(Math.Clamp(score.Final / 1.5f, 0, 1) * width), 6), ReferenceEquals(score.Action, companion.Brain.LastAction) ? Color.Gold : Color.CornflowerBlue);
             Text(sb, score.Final.ToString("0.00"), panel.Right - 37, bottom, Color.White, .48f);
-            if (row.Contains(Mouse)) Main.instance.MouseText($"{score.Action.Name}: raw {score.Raw:0.000}, final {score.Final:0.000}. Gold is the chosen behaviour; the outline is before decision costs.");
+            if (row.Contains(Mouse)) Main.instance.MouseText($"{score.Action.Name}: {score.Raw:0.000} × protection {score.Protection:0.00} × commitment {score.Commitment:0.00} × safety horizon {score.Horizon:0.00} × useful work {score.UsefulWork:0.00} = {score.Final:0.000}");
         }
         Text(sb, scores.Count > rows ? "Scroll to inspect every behaviour" : "Raw score: outline   Final score: fill   Winner: gold", panel.X + 14, panel.Bottom - 20, Color.LightSteelBlue, .48f);
     }
@@ -213,5 +216,13 @@ public sealed class BrainOverlay : ModSystem
     private static Vector2 Screen(Vector2 p) => Vector2.Transform(p - Main.screenPosition, Main.GameViewMatrix.ZoomMatrix) / Main.UIScale;
     private static Rectangle WorldRect(Rectangle r) { Vector2 a = Screen(r.TopLeft()), b = Screen(r.BottomRight()); return new((int)a.X, (int)a.Y, (int)(b.X - a.X), (int)(b.Y - a.Y)); }
     private static void Dot(SpriteBatch sb, Vector2 p, Color c, int size) { p = Screen(p); Fill(sb, new((int)p.X - size / 2, (int)p.Y - size / 2, size, size), c); }
-    private static void Line(SpriteBatch sb, Vector2 from, Vector2 to, Color c) { Vector2 a = Screen(from), d = Screen(to) - a; if (d.LengthSquared() < .1f) return; sb.Draw(TextureAssets.MagicPixel.Value, a, null, c, d.ToRotation(), Vector2.Zero, new Vector2(d.Length(), 1.5f), SpriteEffects.None, 0); }
+    private static void Line(SpriteBatch sb, Vector2 from, Vector2 to, Color c)
+    {
+        Vector2 a = Screen(from), d = Screen(to) - a;
+        if (!float.IsFinite(a.X) || !float.IsFinite(a.Y) || !float.IsFinite(d.X) || !float.IsFinite(d.Y) || d.LengthSquared() < .1f) return;
+        // MagicPixel is an atlas texture, not a 1x1 image. Scaling its whole source
+        // multiplies both length and thickness by the atlas dimensions.
+        sb.Draw(TextureAssets.MagicPixel.Value, a, new Rectangle(0, 0, 1, 1), c,
+            d.ToRotation(), Vector2.Zero, new Vector2(d.Length(), 1.5f), SpriteEffects.None, 0);
+    }
 }

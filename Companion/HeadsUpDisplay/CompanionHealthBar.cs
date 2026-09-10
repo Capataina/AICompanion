@@ -167,6 +167,18 @@ public class CompanionHealthBar : ModSystem
     /// </summary>
     private static void DrawModeIcon(Rectangle box, NPC npc, CompanionNPC companion, float scale, bool hoveringNotch)
     {
+        if (companion.Brain.MovementStalled && !companion.IsDowned && !companion.Brain.FollowRecovery.Active)
+        {
+            int warningSide = (int)(24 * scale);
+            Rectangle warning = new(box.X - (int)(8 * scale) - warningSide, box.Center.Y - warningSide / 2, warningSide, warningSide);
+            Utils.DrawBorderStringFourWay(Main.spriteBatch, FontAssets.MouseText.Value, "!", warning.Center.X, warning.Y,
+                Color.Gold, Color.Black, new Vector2(FontAssets.MouseText.Value.MeasureString("!").X / 2f, 0f), 1.25f * scale);
+            Utils.DrawBorderStringFourWay(Main.spriteBatch, FontAssets.MouseText.Value, "Stuck", box.Center.X, box.Bottom + 3 * scale,
+                Color.Gold, Color.Black, new Vector2(FontAssets.MouseText.Value.MeasureString("Stuck").X / 2f, 0f), .65f * scale);
+            if (warning.Contains(Main.mouseX, Main.mouseY) && !hoveringNotch)
+                Main.instance.MouseText("Unable to make progress. Looking for another route.");
+            return;
+        }
         (int itemType, string name) = ModeOf(npc, companion);
         if (itemType <= 0)
             return;
@@ -180,10 +192,6 @@ public class CompanionHealthBar : ModSystem
         Vector2 centre = slot.Center.ToVector2();
         Main.spriteBatch.Draw(tex, centre, frame, Color.White, 0f, frame.Size() / 2f, fit, SpriteEffects.None, 0f);
 
-        if (companion.Brain.MovementStalled && !companion.IsDowned && !companion.Brain.FollowRecovery.Active)
-            Utils.DrawBorderStringFourWay(Main.spriteBatch, FontAssets.MouseText.Value, "Stuck", box.Center.X, box.Bottom + 3 * scale,
-                Color.Gold, Color.Black, new Vector2(FontAssets.MouseText.Value.MeasureString("Stuck").X / 2f, 0f), .65f * scale);
-
         if (slot.Contains(Main.mouseX, Main.mouseY) && !hoveringNotch)
             Main.instance.MouseText(name);
     }
@@ -196,8 +204,6 @@ public class CompanionHealthBar : ModSystem
             return (ItemID.Feather, reflex);
         if (companion.Brain.FollowRecovery.Active)
             return (ItemID.Feather, "catching up");
-        if (companion.Brain.MovementStalled)
-            return (ItemID.Compass, "stuck: not making progress");
         string action = companion.Brain.LastAction?.Name ?? "";
         Player player = Main.LocalPlayer;
         return action switch
