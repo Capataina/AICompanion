@@ -32,7 +32,8 @@ public static class ChronicleTests
             MultiRunAndHtmlKeepEverySelectedRun();
             MultiRunFolderKeepsFirstAndLastRuns();
             MultiRunRetainsDefinitiveExit();
-            Console.WriteLine("Chronicle self-tests passed (14 assertion groups).");
+            DecisionContractsDistinguishStallsFromProgress();
+            Console.WriteLine("Chronicle self-tests passed (15 assertion groups).");
             return 0;
         }
         catch (Exception error)
@@ -40,6 +41,50 @@ public static class ChronicleTests
             Console.Error.WriteLine($"Chronicle self-test failed: {error.Message}");
             return 1;
         }
+    }
+
+    private static void DecisionContractsDistinguishStallsFromProgress()
+    {
+        string file = Path.GetTempFileName();
+        try
+        {
+            var row = new System.Collections.Generic.Dictionary<string, string>
+            {
+                ["tick"] = "0", ["wall_elapsed_ms"] = "0", ["action"] = "walk-with", ["request"] = "WithPlayer",
+                ["brain_fresh"] = "1", ["recovery_active"] = "0", ["follow_objective_valid"] = "0",
+                ["spot"] = "31,79", ["path_steps"] = "0", ["control"] = "move=0.00;jump=0;scale=1.00",
+                ["observed_left"] = "500", ["observed_bottom"] = "1280", ["npc_width"] = "20",
+                ["follow_reason"] = "follow-horizontal-gap", ["nav_status"] = "Arrived", ["fire"] = "no-arc",
+                ["control_source"] = "travel", ["breath"] = "0.60u", ["attack_value"] = "25",
+                ["weapon"] = "bow", ["exp_bow"] = "5", ["exp_knife"] = "50"
+            };
+            Session Write(bool moving = false)
+            {
+                var text = new StringBuilder("# text_columns=action,request,spot,control,follow_reason,nav_status,fire,control_source,weapon\n");
+                text.AppendLine(string.Join('\t', row.Keys));
+                for (int i = 0; i < 130; i++)
+                {
+                    row["tick"] = i.ToString(); row["wall_elapsed_ms"] = (i * 16).ToString();
+                    row["observed_left"] = (500 + (moving ? i : 0)).ToString();
+                    text.AppendLine(string.Join('\t', row.Values));
+                }
+                File.WriteAllText(file, text.ToString()); return Session.Load(file);
+            }
+            Session stalled = Write();
+            Require(new ArrivalDoesNotStrandFollowing().Run(stalled).Any(), "arrival contradiction was missed");
+            Require(new SubmergedMotionGetsExplained().Run(stalled).Any(), "submerged stationary body was missed");
+            Require(!new ColumnsHoldWhatTheyClaim().Run(stalled).Any(), "declared text columns were called malformed numbers");
+            Require(!new TheChosenWeaponIsTheBetterOne().Run(stalled).Any(), "outcome-aware attack was judged by damage alone");
+            Require(MultiRunReport.Of(new[] { file }).Contains("destination while following remained unsatisfied"), "multi-run output omitted its definitive findings");
+            row["recovery_active"] = "1";
+            Require(!new ArrivalDoesNotStrandFollowing().Run(Write()).Any(), "flight was called a normal arrival failure");
+            row["recovery_active"] = "0"; row["action"] = "hunt";
+            Require(new HuntingProducesAnOutcome().Run(Write()).Any(), "ineffective hunt was missed");
+            Require(!new HuntingProducesAnOutcome().Run(Write(moving: true)).Any(), "travelling hunt was called stalled");
+            row["fire"] = "cooldown";
+            Require(!new HuntingProducesAnOutcome().Run(Write()).Any(), "weapon cooldown was called an ineffective hunt");
+        }
+        finally { File.Delete(file); }
     }
 
     private static void ObservedTransitionsStayChronological()

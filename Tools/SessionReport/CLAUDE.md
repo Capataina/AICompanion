@@ -19,6 +19,7 @@ SessionReport/
 ├─ Chronicle.cs           the bounded event-and-interval account of player movement and companion response, with observation and inference kept distinct
 ├─ ChronicleTests.cs      deterministic synthetic-record tests run through the real parser and chronology reader
 ├─ CheckTheRecord.cs      is the instrument sane — ticks advancing, the returnable count inside the reach count, every numeric column parsing
+├─ CheckDecisionContracts.cs arrival versus intent, ineffective hunts and stationary submerged bodies
 ├─ CheckTheBody.cs        did the body move when driven, did each proven move take its proven time, was being unable to reach him ever noticed
 ├─ CheckTheFight.cs       did it see the damage coming, did the hands work while threatened, was the fired weapon the higher-scoring one, did it go down
 ├─ CheckTheChoices.cs     did hunting stay on his screen, did the action board get used, was the torch in the hand during a fight, did the brain fit in a frame
@@ -27,6 +28,10 @@ SessionReport/
 ```
 
 ## The operating manual
+
+The writer declares text columns explicitly. Numeric validation consumes that declaration, with a named legacy set for older recordings; adding a reason string must not fabricate a malformed numeric-record finding. Outcome-aware attack recordings are not judged by the old maximum-damage-only weapon check, because sacrificing damage to remove an urgent threat is intentional. Their sequence estimates and alternatives remain inspectable evidence, not proof that the forecast was correct.
+
+The multi-run reader prints the same full-source findings and coverage gaps as the single-run reader, separately for each session. An arrived navigator with an unsatisfied follow objective and no controls is a contract contradiction. A stationary submerged body or an ineffective hunt is a potential issue whose report carries control source and rejection/escape evidence when available; neither observation alone proves physical reachability.
 
 The HTML viewer keeps source-run identity, a sample scrubber, exact tick entry, event-kind filtering, previous/next event navigation, every sampled TSV field, and full retained event payloads. It streams sparse events across the entire run into bounded per-kind reservoirs so cosmetic terrain contacts cannot erase a late injury or death. Every omitted sample/event, malformed row, missing sidecar and missing normal closure is disclosed. HTML is a bounded inspection view; the ordinary and multi-run reports still analyse the full source records and share definitive-finding exit semantics. The writer's caps own output size; the UI never implies that its sampled trail is a complete recording or draws invented terrain.
 

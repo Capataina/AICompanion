@@ -102,10 +102,13 @@ public sealed class ColumnsHoldWhatTheyClaim : ICheck
         "diverge_invalid_reason", "sample_phase", "player_px", "player_vel", "player_liquid", "player_hit", "npc_hit",
         "player_state", "player_activity", "player_support", "npc_support", "control", "control_source",
         "observed_vel", "observed_mobility", "predicted_vel", "predicted_mobility",
+        "follow_reason", "recovery_reason", "guard_reason", "mine_policy", "mine_status", "mine_target", "target_evidence",
     };
 
     public IEnumerable<Finding> Run(Session session)
     {
+        var textColumns = session.Metadata.TryGetValue("text_columns", out string? declared)
+            ? new HashSet<string>(declared.Split(','), System.StringComparer.Ordinal) : Wordy;
         if (session.Ragged > 0)
             yield return new Finding(
                 Severity.Potential,
@@ -118,7 +121,7 @@ public sealed class ColumnsHoldWhatTheyClaim : ICheck
 
         foreach (string name in session.Names)
         {
-            if (Wordy.Contains(name))
+            if (textColumns.Contains(name))
                 continue;
             Column column = session[name];
             if (column.Unparsed == 0)

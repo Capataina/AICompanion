@@ -51,6 +51,14 @@ public static class MultiRunReport
             // comparison cannot promote an unrecorded field in one run to evidence because a
             // different run happened to capture it.
             text.Append(Indent(DescribeGodsEyeEvents.Of(path, false)));
+            var diagnosis = Program.Evaluate(s);
+            foreach (var finding in diagnosis.Findings)
+            {
+                text.Append($"  {finding.Severity}: {finding.Title} [ticks {finding.FirstTick}..{finding.LastTick}]\n");
+                text.Append("    ").Append(finding.Detail).Append('\n');
+            }
+            foreach (var missing in diagnosis.Skipped)
+                text.Append($"  unavailable: {missing.Name}; missing {missing.Missing}\n");
             text.Append(Indent(Chronicle.Of(s, full: false)));
         }
         return count == 0 ? text.Append("  no readable sessions\n").ToString() : text.ToString();

@@ -230,6 +230,9 @@ public sealed class TheChosenWeaponIsTheBetterOne : ICheck
 
     public IEnumerable<Finding> Run(Session session)
     {
+        // Outcome-aware arsenals can deliberately choose less immediate damage to
+        // remove an urgent threat. The old damage-only comparison cannot judge them.
+        if (session.Has("attack_value")) yield break;
         Column weapon = session["weapon"], bow = session["exp_bow"], knife = session["exp_knife"];
 
         int wrong = 0, worstRow = -1;
