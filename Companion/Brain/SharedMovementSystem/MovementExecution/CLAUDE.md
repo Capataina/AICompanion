@@ -7,6 +7,7 @@ MovementExecution/
 ├─ CLAUDE.md
 ├─ Navigator.cs             owns routes, arrival, interruption, preparation and typed outcomes
 ├─ PlanLocalMovement.cs     validates complete macros and retains controls beside expected states
+├─ ProveInteractionJump.cs  verifies elevated tool reach during a ground jump with a safe nearby landing
 ├─ SearchControlSequences.cs bounded retained body-state search for clearance and safe-state requests
 ├─ TraversalExecution.cs    copies preparation and flight state for independent simulation
 ├─ ReactiveWalk.cs          proposes uncommitted terrain controls for shared evaluation
@@ -19,6 +20,8 @@ MovementExecution/
 ```
 
 ## How a step moves through a traversal
+
+Diagnostic callbacks can retain the actual sampled local alternatives without running another search. Capture is opt-in at the call site, bounded by the inspector, and absent during ordinary play with the relevant layer disabled. `ProveInteractionJump` similarly uses the shared body model, but answers a work predicate: whether a dry ground jump reaches a supplied interaction and then lands safely nearby. It never writes velocity or grants an air jump.
 
 An executable partial route is incomplete rather than failed, on both its first publication and later incremental replacements. An unfinished retained query without a prefix is pending rather than failed. Search status describes how much remains unknown; traversal outcomes describe what the body actually completed. A finished search with no usable prefix is a failed plan; retry cadence reads search completion independently of that reporting label.
 

@@ -81,6 +81,8 @@ Neither exclusion has fired on a real session, because no playtest has yet taken
 
 ## Traps
 
+- **A selected `spot` is a navigation tile, while the observed body is in world pixels.** Progress converts the spot to its feet anchor before comparison; mixing those units invents a large distance even when the companion has arrived.
+
 - **A check that throws is caught and reported as a finding against the reader**, never swallowed, because a broken check returning nothing is indistinguishable from a clean run.
 - **A gap allowance is wrong wherever the break in the run is the event being looked for.** `TheHandsWorkWhileThreatened` looks for ticks with nothing fired, so a tick that fired is the boundary of the stretch and not a flicker to be smoothed over; with an allowance of two, the reload ticks between two shots satisfy the condition and the single firing row between them falls inside the allowance, so a healthy two-minute exchange folds into one enormous "nothing fired" finding whose own tally lists the shots it fired. It was written with an allowance because every other check in the file wants one, and it survived a first run only because that session predates the `fire` column and the `shot` flag was sticky through a reload there — which is the shape of defect a check cannot be tested for on a file older than the column it reads.
 - **The edge columns are sticky.** One finished move fills every row until the next finishes, so anything reading them deduplicates on `edge_n` changing or reports one overrun a thousand times. `plan_ms` and `flood_ms` are sticky the same way and overstate any per-tick share taken from them; the phase columns are the per-tick ones.
