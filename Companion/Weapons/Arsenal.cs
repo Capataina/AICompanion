@@ -193,7 +193,7 @@ public sealed class Arsenal
     public NPC? BestTarget(in ActionContext ctx)
     {
         int now = ctx.Senses.Tick;
-        if (held != null && (!held.active || held.life <= 0))
+        if (held != null && (!held.active || held.life <= 0 || !held.CanBeChasedBy()))
             held = null;
         if (held != null && now - heldAt < TargetHoldTicks)
             return held;
@@ -201,17 +201,20 @@ public sealed class Arsenal
         Collect(ctx);
         candidates.Clear();
         foreach (ThreatRecord t in ctx.Senses.Threats.Threats)
-            if (t.Npc != null && t.Npc.active && t.Npc.life > 0 && t.DistanceToCompanion <= MathF.Max(Primary.Reach, Secondary.Reach))
+            if (t.Npc != null && t.Npc.active && t.Npc.life > 0 && t.Npc.CanBeChasedBy() && t.DistanceToCompanion <= MathF.Max(Primary.Reach, Secondary.Reach))
                 candidates.Add(t);
         candidates.Sort((x, y) => x.DistanceToCompanion.CompareTo(y.DistanceToCompanion));
 
         NPC? best = null;
         float bestScore = 0f;
         int considered = Math.Min(candidates.Count, MaxTargetsConsidered);
+        TargetEvidenceTick = now;
+        var evidence = new List<string>();
         for (int i = 0; i < considered; i++)
         {
             ThreatRecord t = candidates[i];
             float damage = MathF.Max(ExpectedDamage(ctx, Primary, t.Npc), ExpectedDamage(ctx, Secondary, t.Npc));
+            evidence.Add(FormattableString.Invariant($"{t.Npc.whoAmI}:{HostileAttackSources.Generation(t.Npc)}:{damage:0.000}:{MathF.Max(t.Urgency, t.UrgencyToCompanion):0.000}"));
             if (damage <= 0f)
                 continue;
             // Urgency breaks ties toward whatever is about to reach someone, so a zombie two steps
@@ -227,8 +230,12 @@ public sealed class Arsenal
         held = best;
         heldAt = now;
         LastTargetExpected = bestScore;
+        TargetEvidence = string.Join("|", evidence);
         return best;
     }
+
+    public int TargetEvidenceTick { get; private set; }
+    public string TargetEvidence { get; private set; } = "";
 
     /// <summary>
     /// What one hit actually takes off this hostile, which is the weapon's damage less the armour
@@ -255,6 +262,29 @@ public sealed class Arsenal
     /// <summary>The score the held target won with, for the overlay and the telemetry.</summary>
     public float LastTargetExpected { get; private set; }
 
+    private int interventionCheckedAt = int.MinValue;
+    private float interventionTicks = float.PositiveInfinity;
+    private NPC? interventionTarget;
+    private int interventionGeneration;
+
+    /// <summary>Bounded estimate to the next useful shot, including a real reload but never calling a reload failure a defect.</summary>
+    public float EstimateInterventionTicks(in ActionContext ctx)
+    {
+        NPC? target = ctx.Senses.Threats.MostUrgent?.Npc;
+        if (target == null || !target.CanBeChasedBy()) return interventionTicks = float.PositiveInfinity;
+        int generation = global::AICompanion.Companion.Brain.WorldObservation.HostileAttackSources.Generation(target);
+        if (target == interventionTarget && generation == interventionGeneration && interventionCheckedAt != int.MinValue
+            && unchecked(ctx.Senses.Tick - interventionCheckedAt) < ChoiceCacheTicks)
+            return interventionTicks;
+        interventionCheckedAt = ctx.Senses.Tick;
+        interventionTarget = target;
+        interventionGeneration = generation;
+        CompanionWeapon weapon = Choose(ctx, target);
+        if (!TrajectoryAimer.TrySolve(Muzzle(ctx.Npc), target, weapon.Profile, out TrajectorySolution solution))
+            return interventionTicks = float.PositiveInfinity;
+        return interventionTicks = Math.Max(0, cooldown) + solution.ImpactTick;
+    }
+
     private NPC? held;
     private int heldAt = 0;
     private readonly List<ThreatRecord> candidates = new();
@@ -264,7 +294,7 @@ public sealed class Arsenal
     {
         hostiles.Clear();
         foreach (ThreatRecord t in ctx.Senses.Threats.Threats)
-            if (t.Npc != null && t.Npc.active && t.Npc.life > 0)
+            if (t.Npc != null && t.Npc.active && t.Npc.life > 0 && t.Npc.CanBeChasedBy())
                 hostiles.Add(t.Npc);
     }
 
@@ -278,6 +308,7 @@ public sealed class Arsenal
     /// </summary>
     public bool CanEngage(in ActionContext ctx, NPC target)
     {
+        if (!target.active || target.life <= 0 || !target.CanBeChasedBy()) return false;
         int now = ctx.Senses.Tick;
         int slot = target.whoAmI;
         if (now - engageCheckedAt[slot] < EngageCacheTicks && engageCheckedAt[slot] != 0)
@@ -293,7 +324,7 @@ public sealed class Arsenal
     /// <summary>Face the target and fire if a shot exists and the cooldown allows. Returns true on a shot.</summary>
     public bool TryFire(in ActionContext ctx, NPC? target)
     {
-        if (target == null || !target.active || target.life <= 0)
+        if (target == null || !target.active || target.life <= 0 || !target.CanBeChasedBy())
         {
             LastShotSolved = false;
             LastFireOutcome = "no-target";

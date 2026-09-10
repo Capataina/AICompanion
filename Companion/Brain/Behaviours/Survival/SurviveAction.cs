@@ -9,19 +9,14 @@ using AICompanion.Companion.Brain.WorldObservation;
 namespace AICompanion.Companion.Brain.Behaviours.Survival;
 
 /// <summary>
-/// Save the companion's own body: get the head out of the water before the breath runs
-/// out, get out of lava and away from what is burning it. Scores on the self sense's
-/// danger alone, so it is nothing while the body is fine, starts to pull once breath is
-/// half gone or fire has caught, and outranks every other action near the end, because
-/// nothing the companion could do for the player is worth drowning for. It does not
-/// keep the companion out of water: crossing a pool is the navigator's business and
-/// priced there; this is the backstop when a crossing turns out longer than the breath.
-///
-/// The spot it asks for is the nearest standable tile whose head row is out of liquid
-/// and whose column touches no lava, found by widening rings around the feet; a wrong
-/// guess costs one replan, and a tile that stops being safe is dropped. Where no such
-/// tile is reachable at all the body treads water rather than holding still, because a
-/// flooded pocket with no shore is survivable by bobbing and was not survived by standing.
+/// Preserve the companion's own body independently of danger to the player. Submersion
+/// scores against remaining breath and estimated escape time, while fire and lava use
+/// the body's hazard pressure. A standable dry refuge feeds ordinary navigation; a
+/// separate, retained air target feeds the shared control-sequence search when the
+/// submerged body needs clearance before it can reach a shore. Keeping that target
+/// stable lets the search finish instead of restarting at each nearer air pocket.
+/// Controls are simulated with the current body and terrain; this grants no swimming
+/// ability and cannot promise escape from a physically sealed pool.
 /// </summary>
 public sealed class SurviveAction : CompanionAction
 {
@@ -29,6 +24,14 @@ public sealed class SurviveAction : CompanionAction
     public override bool IsExcursion => false;
 
     private Point? refuge;
+    private Point? airTarget;
+    private int airRevision = -1;
+    public Point? AirTarget => airTarget;
+    public override void Exit(in ActionContext ctx)
+    {
+        airTarget = null;
+        ctx.Companion.Brain.Movement.CancelStateSearch();
+    }
 
     /// <summary>
     /// Ticks until the held refuge is asked again whether it can still be reached. A refuge is
@@ -46,17 +49,30 @@ public sealed class SurviveAction : CompanionAction
     {
         CompanionSense self = ctx.Senses.Self;
         float danger = self.SelfDanger;
-        if (danger <= 0f)
+        if (danger <= 0f && !self.HeadUnderwater)
         {
             refuge = null;
             return 0f;
+        }
+        float escapePressure = 0f;
+        if (self.HeadUnderwater)
+        {
+            Point from = MovementQueries.FeetTile(ctx.Npc.Bottom);
+            Point? dry = FindDryHeadTarget(from);
+            // Wet movement is at most half ordinary walking speed.  This deliberately optimistic
+            // geometric time is still a lower bound: if even it consumes the remaining breath,
+            // the action must win before the old half-breath threshold.
+            float eta = dry is Point target
+                ? Microsoft.Xna.Framework.Vector2.Distance(MovementQueries.FeetWorld(from), MovementQueries.FeetWorld(target)) / (BodyPhysics.WalkSpeed * .5f)
+                : self.BreathTicksLeft;
+            escapePressure = System.Math.Clamp(eta / System.Math.Max(1, self.BreathTicksLeft), 0f, 1f);
         }
         // Pulls from a modest score as danger appears to the top of the scale near the end, above
         // a *committed* guard rather than merely above guard's raw ceiling, which is the whole
         // point of the ladder in Weights: guarding is now scaled to interrupt an ordinary action,
         // so surviving has to be scaled to interrupt guarding or a drowning companion would stand
         // and shoot. The two constants move together.
-        return Consideration.Rising(danger, 1f) * Weights.SurviveUrgency;
+        return System.Math.Max(Consideration.Rising(danger, 1f), escapePressure) * Weights.SurviveUrgency;
     }
 
     public override PositionRequest Execute(in ActionContext ctx)
@@ -77,26 +93,68 @@ public sealed class SurviveAction : CompanionAction
             refuge = FindRefuge(feet);
             searchCooldown = Weights.RefugeRecheckTicks;
         }
-        // Breaking the surface refills the breath, so it is worth asking for whether or not a
-        // refuge was found. The shared movement coordinator admits this ground jump while the
-        // body is uncommitted; an active route keeps its own jump and preparation controls.
-        //
-        // This sat below the refuge return until 2026-09-09, which made it the alternative to
-        // having a plan rather than a floor underneath one, so it could not fire in the case that
-        // actually drowns the companion: a refuge is found, the route to it finishes short, and
-        // the body stands on the bottom of the pool with a finished path and an empty breath bar.
-        // That is what killed it in the underground session at tick 20,679 — action survive,
-        // request Exact, path 1 step of 1, velocity zero, press zero, breath zero, for a hundred
-        // and twenty ticks. Whether a refuge exists says nothing about whether the head is out of
-        // the water, and only the second question has anything to do with drowning.
-        float jump = ctx.Senses.Self.HeadUnderwater ? 1f : 0f;
         if (refuge is Point spot)
-            return PositionRequest.ExactAt(MovementQueries.FeetWorld(spot)) with { JumpScale = jump };
-        // No refuge is reachable, which in water means a flooded pocket: tread water instead of
-        // standing in it. The bob above saves the body wherever the surface is inside a wet jump's
-        // rise; a shaft deeper than that still drowns, which is what a player without a Flipper
-        // also suffers and what the swim traversal fixes (AIC-187).
-        return PositionRequest.Hold with { JumpScale = jump };
+            return PositionRequest.ExactAt(MovementQueries.FeetWorld(spot));
+        // The coordinator asks TryEscape for a retained, collision-validated control prefix
+        // before resolving this fallback.  A stationary Hold+Jump was only a repeated vertical
+        // attempt: beneath an awning it never creates the side clearance needed to leave water.
+        return PositionRequest.Hold;
+    }
+
+    /// <summary>
+    /// Finds the next verified clearance control while the breathing sense says the head is
+    /// underwater.  The search belongs to <see cref="CoordinateMovement"/>: survival supplies
+    /// only why a state is safe and which of the legal states is useful.
+    /// </summary>
+    public bool TryEscape(in ActionContext ctx, out Controls controls, out bool pending)
+    {
+        controls = Controls.None;
+        pending = false;
+        if (!ctx.Senses.Self.HeadUnderwater)
+        {
+            airTarget = null;
+            return false;
+        }
+
+        // Breathing needs air, not a standable shore. A geometrically nearby dry floor can
+        // be below the pool behind rock and pull every short rollout away from its surface.
+        // Keep the objective stable while a prefix is being searched and executed. Selecting
+        // the nearest air cell again after every step can alternate between separate pockets
+        // and invalidate the progress that made the previous direction useful.
+        if (airRevision != MovementQueries.World.Revision || airTarget is Point heldAir && !IsDryHeadTarget(heldAir))
+        {
+            airRevision = MovementQueries.World.Revision;
+            airTarget = null;
+            ctx.Companion.Brain.Movement.CancelStateSearch();
+        }
+        airTarget ??= FindDryHeadTarget(ctx.Companion.Motor.State.FeetTile);
+        Point? target = airTarget ?? refuge;
+        bool chosen = ctx.Companion.Brain.Movement.SeekState(
+            ctx.Companion.Motor.State,
+            state => HeadIsDry(state) && state.LiquidKind != 1,
+            state => EscapeHeuristic(state, target),
+            Weights.EscapeSearchWork,
+            out controls,
+            out pending);
+        if (!chosen && !pending) airTarget = null;
+        return chosen;
+    }
+
+    private static bool HeadIsDry(BodyState state)
+    {
+        int headRow = (int)System.MathF.Floor((state.Bottom - BodyPhysics.Height) / 16f);
+        return !MovementQueries.World.Water((int)System.MathF.Floor(state.CentreX / 16f), headRow)
+            && !MovementQueries.World.Lava((int)System.MathF.Floor(state.CentreX / 16f), headRow);
+    }
+
+    private static float EscapeHeuristic(BodyState state, Point? refuge)
+    {
+        if (refuge is Point spot)
+            return Microsoft.Xna.Framework.Vector2.Distance(state.Feet, MovementQueries.FeetWorld(spot));
+        // Terraria's world Y grows downward.  In a pocket with no identified shore, an upward
+        // state is the only general progress signal; the sequence search is still free to step
+        // away from a wall first because this is an ordering value, never a movement constraint.
+        return state.Bottom / 16f;
     }
 
     /// <summary>Standable, head row dry, nothing in the body column or under the feet is lava.</summary>
@@ -112,20 +170,43 @@ public sealed class SurviveAction : CompanionAction
 
     private static Point? FindRefuge(Point from)
     {
-        // One bounded expansion provides candidates for the whole request. Running a
-        // separate A* for every dry tile makes a sealed wet pocket the most expensive case.
-        var reached = MovementQueries.Region(from, Weights.ReachFloodBudget, out _);
-        Point? nearest = null;
-        int nearestDistance = int.MaxValue;
-        foreach (Point candidate in reached)
+        // This is geometry only.  Reachability is established by the retained body-state search,
+        // rather than spending a synchronous flood on every survival tick or trusting a grid
+        // route that cannot start from the submerged live pose.
+        for (int radius = 0; radius <= Weights.RefugeSearchRadiusTiles; radius++)
         {
-            int dx = candidate.X - from.X, dy = candidate.Y - from.Y;
-            int distance = dx * dx + dy * dy;
-            if (System.Math.Max(System.Math.Abs(dx), System.Math.Abs(dy)) > Weights.RefugeSearchRadiusTiles
-                || distance >= nearestDistance || !IsRefuge(candidate.X, candidate.Y)) continue;
-            nearest = candidate;
-            nearestDistance = distance;
+            for (int dx = -radius; dx <= radius; dx++)
+            for (int dy = -radius; dy <= radius; dy++)
+            {
+                if (System.Math.Max(System.Math.Abs(dx), System.Math.Abs(dy)) != radius)
+                    continue;
+                Point candidate = new(from.X + dx, from.Y + dy);
+                if (IsRefuge(candidate.X, candidate.Y))
+                    return candidate;
+            }
         }
-        return nearest;
+        return null;
+    }
+
+    private static Point? FindDryHeadTarget(Point from)
+    {
+        for (int radius = 0; radius <= Weights.RefugeSearchRadiusTiles; radius++)
+        for (int dx = -radius; dx <= radius; dx++)
+        for (int dy = -radius; dy <= radius; dy++)
+        {
+            if (System.Math.Max(System.Math.Abs(dx), System.Math.Abs(dy)) != radius)
+                continue;
+            Point candidate = new(from.X + dx, from.Y + dy);
+            if (IsDryHeadTarget(candidate))
+                return candidate;
+        }
+        return null;
+    }
+
+    private static bool IsDryHeadTarget(Point candidate)
+    {
+        int head = candidate.Y - NavGrid.BodyHeightTiles + 1;
+        return !MovementQueries.IsLiquid(candidate.X, head) && !MovementQueries.IsLava(candidate.X, head)
+            && !MovementQueries.IsBlock(candidate.X, head);
     }
 }

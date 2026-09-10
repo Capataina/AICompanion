@@ -2,6 +2,8 @@
 
 `ChooseBehaviour.cs` asks every behaviour in `../Behaviours/` for a score, multiplies the incumbent by `BehaviourWeights.Commitment`, charges any behaviour whose forecast exceeds the observed threat horizon, and runs the winner. `LastScores` remains for diagnostics and the overlay. It receives world facts from `../WorldObservation/` and returns a `PositionRequest` to `../PositionSelection/`; it neither selects a tile nor controls the body.
 
+Regroup time uses available route-step durations and the positioner's observed travel estimate as well as straight-line distance. Excursions are discounted by regroup pressure and protection urgency. The shared safety horizon comes from enemy arrival minus demonstrated intervention time, not a second Euclidean return formula inside the chooser. Unknown intervention is conservative; the companion remains autonomous while the player is dead, with player-protection pressure removed.
+
 ```
 BehaviourSelection/
 ├─ CLAUDE.md

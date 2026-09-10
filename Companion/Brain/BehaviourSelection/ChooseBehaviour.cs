@@ -44,6 +44,9 @@ public sealed class Chooser
         var delta = ctx.Senses.Player.Bottom - ctx.Npc.Bottom;
         EstimatedReturnTicks = (MathF.Abs(delta.X) + MathF.Abs(delta.Y)) / SharedMovementSystem.BodyPhysics.WalkSpeed;
         var navigator = ctx.Companion.Brain.Navigator;
+        if (ctx.Companion.Brain.Positioner.EstimatedTravelTicks(SharedMovementSystem.NavGrid.FeetTile(ctx.Npc.Bottom),
+            SharedMovementSystem.NavGrid.FeetTile(ctx.Senses.Player.Bottom)) is float knownTravel)
+            EstimatedReturnTicks = MathF.Max(EstimatedReturnTicks, knownTravel);
         if (ctx.Companion.Brain.LastRequest.Kind is PositionSelection.RequestKind.WithPlayer or PositionSelection.RequestKind.Guard
             && navigator.Path is { Finished: false } route)
         {
@@ -66,7 +69,7 @@ public sealed class Chooser
         {
             float raw = action.Score(ctx);
             float final = raw;
-            if (action.IsExcursion && !ctx.Stranded) final *= 1f - RegroupUrgency;
+            if (action.IsExcursion && !ctx.Stranded) final *= 1f - Math.Max(RegroupUrgency, ctx.Senses.Threats.ProtectionUrgency);
             if (raw > 0f)
             {
                 if (action == Current)

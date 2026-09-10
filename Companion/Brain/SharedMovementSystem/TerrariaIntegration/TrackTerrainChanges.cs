@@ -1,5 +1,6 @@
 using Terraria;
 using Terraria.ModLoader;
+using Terraria.ModLoader.IO;
 
 namespace AICompanion.Companion.Brain.SharedMovementSystem;
 
@@ -36,6 +37,12 @@ public sealed class TrackTerrainChanges : GlobalTile
 
 public sealed class ResetTerrainChanges : ModSystem
 {
-    public override void OnWorldLoad() => TerrainChanges.Reset();
-    public override void OnWorldUnload() => TerrainChanges.Reset();
+    public override void OnWorldLoad() { TerrainChanges.Reset(); RememberExecutedRoutes.World.Clear(); }
+    public override void OnWorldUnload() { TerrainChanges.Reset(); RememberExecutedRoutes.World.Clear(); }
+    public override void SaveWorldData(TagCompound tag) => tag["executedRoutes"] = RememberExecutedRoutes.World.Save();
+    public override void LoadWorldData(TagCompound tag)
+    {
+        if (tag.ContainsKey("executedRoutes") && !RememberExecutedRoutes.World.Load(tag.GetString("executedRoutes")))
+            Mod.Logger.Warn("Discarded invalid or unsupported companion route memory; routes will be learned again.");
+    }
 }

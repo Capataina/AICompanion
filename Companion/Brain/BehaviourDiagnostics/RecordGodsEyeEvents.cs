@@ -27,6 +27,10 @@ public static class GodsEyeEvents
     private static int lastMovementEdges = -1;
     private static Navigator.ExecutionStatus lastMovementStatus;
     private static PlanLocalMovement.Rejection? lastMovementRejection;
+    private static string? lastNavigationEvidence;
+    private static int cosmeticContacts;
+    private static Vector2 cosmeticFirst, cosmeticLast;
+    private static long cosmeticFirstTick;
     internal static bool Active => writer != null;
 
     internal static void Open(string path)
@@ -37,11 +41,16 @@ public static class GodsEyeEvents
         RecordTerrainChunks.Reset();
         lastMovementEdges = -1;
         lastMovementRejection = null;
-        Write("session", 0, "", "", "", Vector2.Zero, Vector2.Zero, Vector2.Zero, 0, "schema=1;capture=sparse-events;terrain=rolling-local-16x16-chunks;radius=3-chunks;nominal-scan=49-ticks;max-chunks-per-tick=2;unseen=unknown");
+        lastNavigationEvidence = null;
+        cosmeticContacts = 0;
+        // Main.GameUpdateCount can survive a prior world in a host process. It is never claimed as
+        // this session's start tick; occurrence ticks remain useful only relative to one another.
+        Write("session", 0, "", "", "", Vector2.Zero, Vector2.Zero, Vector2.Zero, 0, "schema=1;start-tick=unknown;capture=sparse-events;terrain=rolling-local-16x16-chunks;radius=3-chunks;nominal-scan=49-ticks;max-chunks-per-tick=2;unseen=unknown");
     }
 
     internal static void Close()
     {
+        FlushCosmeticContacts();
         Write("session-end", 0, "", "", "", Vector2.Zero, Vector2.Zero, Vector2.Zero, sequence, "normal-close");
         try { writer?.Flush(); writer?.Dispose(); }
         catch (Exception error) { Disable(error); }
@@ -64,7 +73,27 @@ public static class GodsEyeEvents
     }
 
     public static void RecordProjectileOutcome(Projectile projectile, NPC? hit, string outcome)
-        => Write("projectile-" + outcome, outcome == "spawn" ? Next(projectileGenerations, projectile.whoAmI) : Stable(projectileGenerations, projectile.whoAmI), hit == null ? "" : Stable(npcGenerations, hit.whoAmI).ToString(CultureInfo.InvariantCulture), projectile.type.ToString(CultureInfo.InvariantCulture), $"owner={projectile.owner}", projectile.Center, projectile.velocity, Vector2.Zero, projectile.damage, "");
+    {
+        // Neutral, non-damaging projectiles create harmless terrain contacts continuously.
+        // Companion/friendly, hostile, damaging and every hit/death outcome remain exact.
+        if (outcome == "terrain-hit" && projectile.damage <= 0 && !projectile.friendly && !projectile.hostile)
+        {
+            if (cosmeticContacts == 0) { cosmeticFirst = projectile.Center; cosmeticFirstTick = Main.GameUpdateCount; }
+            cosmeticLast = projectile.Center;
+            cosmeticContacts++;
+            if (cosmeticContacts >= 128) FlushCosmeticContacts();
+            return;
+        }
+        Write("projectile-" + outcome, outcome == "spawn" ? Next(projectileGenerations, projectile.whoAmI) : Stable(projectileGenerations, projectile.whoAmI), hit == null ? "" : Stable(npcGenerations, hit.whoAmI).ToString(CultureInfo.InvariantCulture), projectile.type.ToString(CultureInfo.InvariantCulture), $"owner={projectile.owner}", projectile.Center, projectile.velocity, Vector2.Zero, projectile.damage, "");
+    }
+
+    private static void FlushCosmeticContacts()
+    {
+        if (cosmeticContacts == 0) return;
+        Write("projectile-terrain-contact-summary", 0, "", "cosmetic-glowstick", "coalesced", cosmeticLast, Vector2.Zero, cosmeticFirst, cosmeticContacts,
+            $"first-tick={cosmeticFirstTick};first={cosmeticFirst.X:0.0},{cosmeticFirst.Y:0.0};last={cosmeticLast.X:0.0},{cosmeticLast.Y:0.0}");
+        cosmeticContacts = 0;
+    }
 
     public static void RecordPickup(NPC companion, Item item, int amount, string destination)
         => Write("pickup", Stable(npcGenerations, companion.whoAmI), Stable(itemGenerations, item.whoAmI).ToString(CultureInfo.InvariantCulture), item.type.ToString(CultureInfo.InvariantCulture), destination, item.Center, Vector2.Zero, Vector2.Zero, amount, $"stack={item.stack}");
@@ -95,6 +124,24 @@ public static class GodsEyeEvents
         lastMovementRejection = navigator.LastRejection;
         string detail = $"status={navigator.Status};search={navigator.LastSearchStop};goal={navigator.GoalTile};partial={navigator.Path?.Partial};edges={navigator.EdgeCount};last-edge={navigator.LastEdge};preparation={navigator.PreparationResult};last-rejection={navigator.LastRejection}";
         RecordMovementOutcome(companion, navigator.Path is { Finished: false } path ? path.Current.ToString() : "none", "state", detail);
+    }
+
+    /// <summary>
+    /// A transition record from the navigation boundary. It is deliberately sampled by telemetry,
+    /// rather than letting navigation write diagnostics, so the portable mover remains independent
+    /// of game recording and the record can say whether this was a fresh brain decision.
+    /// </summary>
+    public static void RecordNavigationEvidence(NPC companion, bool brainExecuted, string action, string request, string controls,
+        long searchId, long attemptId, int expansions, bool pending, string progressReason, int experienceRoutesUsed,
+        int candidates, int reachableCandidates, int rejectedCandidates, string choiceReason, float interventionTicks, float protectionUrgency, float predictionConfidence, int predictionSamples, string localMovement = "")
+    {
+        string key = string.Join('|', brainExecuted, action, request, controls, searchId, attemptId, expansions, pending, progressReason, experienceRoutesUsed, candidates, reachableCandidates, rejectedCandidates, choiceReason, interventionTicks, protectionUrgency, predictionConfidence, predictionSamples, localMovement);
+        if (key == lastNavigationEvidence && Main.GameUpdateCount % 60 != 0)
+            return;
+        lastNavigationEvidence = key;
+        string freshness = brainExecuted ? "fresh" : "stale-or-not-executed";
+        Write("navigation-state", Stable(npcGenerations, companion.whoAmI), "", action, request, companion.Center, companion.velocity, Vector2.Zero, 0,
+            $"freshness={freshness};controls={controls};search-id={searchId};attempt-id={attemptId};search-pending={pending};search-expansions={expansions};progress={progressReason};experience-routes={experienceRoutesUsed};candidates={candidates};reachable-candidates={reachableCandidates};rejected-candidates={rejectedCandidates};choice={choiceReason};intervention-ticks={interventionTicks};protection={protectionUrgency:0.000};prediction-confidence={predictionConfidence:0.000};prediction-samples={predictionSamples};{localMovement}");
     }
 
     public static void RecordTerrainSnapshot(int x, int y, string data)

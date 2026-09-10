@@ -13,14 +13,30 @@ namespace AICompanion.Companion.Brain.SharedMovementSystem;
 public sealed class CoordinateMovement
 {
     public Navigator Navigator { get; } = new();
+    private readonly SearchControlSequences stateSearch = new();
+    public bool StateSearchPending => stateSearch.Pending;
+    public int StateSearchRetainedTicks => stateSearch.RetainedTicks;
+    public void CancelStateSearch() => stateSearch.Clear();
+
+    public bool SeekState(BodyState live, Func<BodyState, bool> goal, Func<BodyState, float> heuristic,
+        int workBudget, out Controls controls, out bool pending)
+    {
+        Navigator.Interrupt(live);
+        bool chosen = stateSearch.TryChoose(NavGrid.World, live, goal, heuristic, Navigator.Capabilities,
+            workBudget, BehaviourSelection.Weights.EscapeSearchMilliseconds, out controls);
+        pending = stateSearch.Pending;
+        return chosen;
+    }
 
     public Controls MoveTo(BodyState live, Vector2 goal, float requestedJump = 0f)
     {
+        stateSearch.Clear();
         return AddRequestedJump(Navigator.MoveTo(live, goal), requestedJump);
     }
 
     public Controls Hold(BodyState live, float requestedJump = 0f)
     {
+        stateSearch.Clear();
         // Releasing the movement request interrupts the retained route explicitly, including
         // its census outcome. Survival can request a ground jump through the same body rules.
         Navigator.Interrupt(live);

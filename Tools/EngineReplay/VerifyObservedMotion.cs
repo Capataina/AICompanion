@@ -177,7 +177,7 @@ internal static class VerifyObservedMotion
     private static (bool, bool, bool, bool, bool, bool, bool) Scratch() =>
         (Collision.up, Collision.down, Collision.stair, Collision.stairFall, Collision.honey, Collision.shimmer, Collision.sloping);
 
-    private static void SetTick(ulong tick)
+    internal static void SetTick(ulong tick)
     {
         FieldInfo? field = typeof(Main).GetField("GameUpdateCount", BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic)
             ?? typeof(Main).GetField("_gameUpdateCount", BindingFlags.Static | BindingFlags.NonPublic);

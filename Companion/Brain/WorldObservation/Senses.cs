@@ -25,6 +25,9 @@ public sealed class Senses
 
     public float DistanceToPlayer { get; private set; }
 
+    /// <summary>Applied after weapons inspect this tick's threats; infinity means no useful intervention was observed.</summary>
+    public void SetInterventionEstimate(float ticks) => Threats.SetInterventionEstimate(ticks);
+
     public void Update(NPC companion, Terraria.Player player, global::AICompanion.Companion.CharacterBody.CompanionBreath breath)
     {
         Tick++;

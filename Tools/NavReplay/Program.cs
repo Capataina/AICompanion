@@ -82,6 +82,7 @@ foreach (string file in files)
     {
         var world = TextTileWorld.Parse(block, out string header, out List<string> extras);
         NavGrid.World = world;
+        RememberExecutedRoutes.World.Clear();
         // Every block is its own world, and the edge cache remembers the last one's tiles.
         AStar.InvalidateEdges();
         AStar.AllowLava = false;

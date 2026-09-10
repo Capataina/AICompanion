@@ -51,6 +51,11 @@ public interface ITileWorld
     bool Water(int x, int y);
 
     bool Lava(int x, int y);
+
+    /// <summary>Physics-relevant liquid identity for durable route validation. Text captures
+    /// without quantity/type evidence represent their wet cells as full water or lava.</summary>
+    int LiquidKind(int x, int y) => Lava(x, y) ? 1 : 0;
+    byte LiquidAmount(int x, int y) => Water(x, y) || Lava(x, y) ? byte.MaxValue : (byte)0;
 }
 
 /// <summary>

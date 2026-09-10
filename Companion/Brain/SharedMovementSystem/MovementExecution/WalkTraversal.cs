@@ -63,8 +63,8 @@ public sealed class WalkTraversal : Traversal
                 int dy = landing.Y - t.Y;
                 // A slope or a short ledge lowers the feet a row without a real fall, so the
                 // step down is a walk like the others and not a drop; a step up costs its kerb.
-                float cost = (landing.X - t.X) * dir + dy switch { 0 => 0f, < 0 => 0.5f, _ => 0.2f };
-                yield return new NavEdge(new NavStep(landing, MoveKind.Walk, t, Ticks: ticks, FromRest: fromRest), cost, 0, false);
+                var step = new NavStep(landing, MoveKind.Walk, t, Ticks: ticks, FromRest: fromRest);
+                yield return new NavEdge(step, MovementCost(step), 0, false);
                 continue;
             }
             // A body standing where no pose exists (the plan's start, from a body between

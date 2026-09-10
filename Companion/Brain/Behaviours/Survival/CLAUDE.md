@@ -1,30 +1,19 @@
-# Survival — the body's own rescue
+# Survival — recover a safe body state before exposure becomes fatal
 
-One action, and the top rung of the urgency ladder that scores above the ordinary band, because nothing the companion could be doing for the player — including guarding him, the rung below — is worth drowning for.
+This action supplies the reason to escape; the shared movement system owns how to execute the escape. Its score combines observed personal danger with the geometric time to air relative to remaining breath, scaled by the survival urgency in BehaviourWeights. It can begin before the old low-breath threshold when even an optimistic escape would consume the remaining allowance. Crossing water normally remains ordinary travel.
 
 ```
 Survival/
-├─ CLAUDE.md
-└─ SurviveAction.cs   scores on the self sense's danger alone; asks for Exact at the nearest reachable refuge (standable, head row dry, no lava in the column); hand empty
+├─ CLAUDE.md           this contract and the failure properties it must preserve
+└─ SurviveAction.cs    survival scoring, dry refuge selection and a stable breathing target
 ```
 
-`Score` is the self observation's `SelfDanger` scaled by `BehaviourWeights.SurviveUrgency`, the top rung of the urgency ladder. It never keeps the companion out of water; crossing a pool is priced by `../SharedMovementSystem/`, and this is the backstop when a crossing outlasts breath or leaves the body burning. `Execute` finds a refuge by widening rings around the feet, asks the shared movement query surface whether it is proven reachable, keeps it while it stays a refuge, and drops it when either tile or route stops being safe. Forecast is zero: it never counts as time away from the player.
+Execute asks for a dry, standable refuge using cheap geometry. While the head is submerged, TryEscape instead asks movement for a state whose head reaches air. The breathing target is an ordering hint; any physically verified dry-head state succeeds. It is separate from the shore target because the nearest dry floor can be below a pool behind solid rock, whereas useful air is above its surface. No scenario, biome or named terrain arrangement is encoded.
 
-## Two rescues, and the second one is a floor rather than an alternative
+The air target stays fixed while a control prefix is searched and executed. Re-selecting the nearest air cell after every step can alternate between different pockets and undo useful travel. Terrain revision, loss of the target's dry/open geometry, action exit or an exhausted control search releases it. The movement owner cancels retained search state when the objective changes; a prefix proved for a previous objective does not acquire a new meaning silently.
 
-Getting to a refuge is the plan; breaking the surface is the floor underneath it. Asking the motor to jump while the head is under water bobs the body off the floor whenever its feet touch down, and every break of the surface refills the breath, so the body survives anywhere the surface sits inside a wet jump's rise even with no route anywhere.
+SearchControlSequences can move away from a slope, cross a low passage and jump after gaining clearance, using the same body backend as navigation. It retains physically verified prefixes and unfinished search work within a bounded allowance. Partial progress is judged at stable outcomes such as landings, because choosing a jump apex repeatedly can improve momentary height while returning to the same floor forever. A stationary repeated jump is insufficient beneath an awning and is no longer the rescue strategy.
 
-**The two are not alternatives, and writing them as alternatives is what made this folder's headline defect.** The bob used to run only where no refuge had been found at all, which reads as sensible and quietly excludes the case that actually drowns a companion: a refuge exists, the route to it stops short, and the body stands on the bottom of the pool holding a finished path. Whether a refuge was found is a fact about the map; whether the head is under water is the only fact drowning cares about, so the bob is asked for on the second and never gated on the first.
+The urgency must exceed a committed guard, including its commitment bonus; guard and survival weights form one ladder. Environmental danger and hostile danger remain separate observations, so a safe player cannot hide the companion's drowning state. Survival does not grant flight, swimming, teleportation or an extra jump.
 
-The shape of that mistake generalises past this folder: a last resort placed in the `else` of the ordinary path can only fire when the ordinary path was never attempted, which is the one situation it was not written for. A last resort belongs on the condition it exists to answer.
-
-## Open, and unmeasured: the ring search got more expensive the day it got stricter
-
-`FindRefuge` widens rings around the feet and asks the walker whether each candidate is reachable, returning on the first that answers yes. Tightening that question to `WalkerProvenReach` means strictly fewer candidates answer yes, so the search returns later and, where no refuge is provable at all, walks every ring — each one paying a bounded A* per tile of its perimeter. The stricter test is right and this is its price, paid on exactly the ticks the companion is drowning, and the brain has been recorded peaking well past a frame on an ordinary tick. Nobody has measured it (raised by a review on 2026-09-09 and not confirmed). The obvious answers if it bites are a ring budget, a cheap pre-filter by straight-line distance before any search, or reusing the positioner's flood, which has already answered this question for the whole region on its own cadence.
-
-## Traps
-
-- **The score must be able to beat a *committed* guard, not guard's raw ceiling.** The incumbent action keeps the commitment bonus, so beating guard means clearing guard's own urgency times that bonus; a survive that merely tops the band ties a running guard and loses to its bonus while the companion drowns. `Weights.GuardUrgency` and `Weights.SurviveUrgency` are one ladder for that reason and are changed together.
-- **Reachability is walker reachability**, so a refuge across a jump the wet envelope cannot make is still offered and the navigator's replan finds another; the ring search returns the first refuge, not the best.
-- **Self-rescue asks for a route the search proved, and it is the one caller that does.** `Reachability.WalkerReach` is three-valued, and this action reads its unknown as a no through `WalkerProvenReach`, because it *holds* the refuge it is given: an unknown accepted here is a commitment to walk somewhere the body may never arrive, with the breath running down the whole way. The threat sense's opposite rounding is right for the threat sense and fatal here.
-- **A refuge stops being valid when the route to it does, not only when the tile does.** The tile is re-checked every tick and the route on a cadence, because a route can close behind the body — a one-way drop taken on the way, settling sand — while the tile stays a perfectly good refuge. Without the second check the body walks at a shore it can no longer reach until it drowns at the foot of it.
+God's eye records the air target, remaining breathing ticks, applied control source, pending search and retained-control length. The native captured-pool fixture runs production Execute and TryEscape, its normal time budget and native NPC collision from the recorded body state. Mirrored synthetic awnings test the broader clearance class. These checks prove those inputs, not escape from every flooded cave; an actually sealed pocket can still be fatal.

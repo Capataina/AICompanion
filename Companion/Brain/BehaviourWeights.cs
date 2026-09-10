@@ -12,6 +12,12 @@ public static class Weights
     // machine load cannot change a fixture's reachability verdict.
     public const double RouteSearchMilliseconds = 8d;
     public const double MovementPreparationMilliseconds = 2d;
+    public const double PositionReachMilliseconds = 2d;
+    public const double PositionAimingMilliseconds = 2d;
+    public const double EscapeSearchMilliseconds = 2d;
+    public const int EscapeSearchWork = 120;
+    public const double TotalPlanningMilliseconds = 12d;
+    public const float ProtectionLeadTicks = 60f;
     /// <summary>Bonus multiplier the running action keeps, so scores do not flicker.</summary>
     public const float Commitment = 1.15f;
 

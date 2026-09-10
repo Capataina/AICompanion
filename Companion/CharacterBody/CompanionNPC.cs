@@ -148,6 +148,10 @@ public class CompanionNPC : ModNPC
     {
         Player player = Main.LocalPlayer;
         MirrorStats(player);
+        // A hand claim lasts one AI tick. Every consumer below reads the freshly resolved item;
+        // a previous torch or weapon must not occupy its own fallback's hand on the next tick.
+        heldItemType = ItemID.None;
+        Torch.Hide();
         if (itemAnimation > 0)
             itemAnimation--;
         Miner.Tick();
@@ -161,10 +165,6 @@ public class CompanionNPC : ModNPC
         {
             UpdateDowned(player);
         }
-        else if (player.dead)
-        {
-            Motor.Stop();
-        }
         else
         {
             // Breath before the brain, so the senses read this tick's value; a drowning strike
@@ -177,12 +177,15 @@ public class CompanionNPC : ModNPC
             // After the steps, because the direction the door swings is the direction the brain
             // asked the motor for this tick, and before anything reads the tiles again: a door the
             // body just opened is an opening the rest of the tick can use.
-            Doors.Tick(NPC);
-            CollectTouchedItems(player);
+            if (!IsDowned)
+            {
+                Doors.Tick(NPC);
+                CollectTouchedItems(player);
+            }
             // The torch takes the hand only when no action claimed it this tick: a tool or a
             // weapon held by chop, mine, hunt or guard always wins, and a torch that is not
             // in the hand gives no light and reveals nothing.
-            Torch.Update(Brain.Senses.Light, NPC, heldItemType == ItemID.None);
+            if (!IsDowned) Torch.Update(Brain.Senses.Light, NPC, heldItemType == ItemID.None);
             if (Torch.Shown)
                 heldItemType = ItemID.Torch;
             if (!loggedFirstTick)

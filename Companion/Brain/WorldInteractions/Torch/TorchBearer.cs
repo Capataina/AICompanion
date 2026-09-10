@@ -37,6 +37,7 @@ public sealed class TorchBearer
 
     private int sinceChange;
     private int sinceReveal;
+    public void Hide() => Shown = false;
 
     public void Update(LightSense light, NPC npc, bool handFree)
     {
@@ -54,7 +55,9 @@ public sealed class TorchBearer
                 sinceChange = 0;
             }
         }
-        Shown = Lit && handFree;
+        // Player.ItemCheck's held-torch path requires !wet for ItemID.Torch; only
+        // ItemID.Sets.WaterTorches bypass it. This ability holds the ordinary torch.
+        Shown = Lit && handFree && !npc.wet;
         if (!Shown)
             return;
 

@@ -18,6 +18,8 @@ public static class PredictObservedMotion
         public bool NoGravity, NoTileCollide, Wet, LavaWet, HoneyWet, ShimmerWet;
         public readonly List<Vector2> Centres = new();
         public Vector2 ForecastPosition, ForecastVelocity;
+        public float MeanError;
+        public int ErrorSamples;
     }
 
     private static readonly Dictionary<int, Track> tracks = new();
@@ -35,6 +37,13 @@ public static class PredictObservedMotion
 
         bool consecutive = track.Subject == npc && track.Type == npc.type && tick == track.Tick + 1
             && Vector2.DistanceSquared(npc.position, track.Position + track.Velocity) < 64f * 64f;
+        if (!consecutive) { track.MeanError = 0f; track.ErrorSamples = 0; }
+        if (consecutive && track.Centres.Count > 1)
+        {
+            float error = Vector2.Distance(npc.Center, track.Centres[1]);
+            track.MeanError = track.ErrorSamples == 0 ? error : track.MeanError * .8f + error * .2f;
+            track.ErrorSamples++;
+        }
         Vector2 delta = consecutive ? npc.velocity - track.Velocity : Vector2.Zero;
         // Collisions and jumps are impulses, not acceleration to extrapolate for an entire flight.
         if (npc.collideX || MathF.Abs(delta.X) > 1f) delta.X = 0f;
@@ -59,6 +68,9 @@ public static class PredictObservedMotion
         track.ShimmerWet = npc.shimmerWet;
         track.Centres.Clear();
         track.Centres.Add(npc.Center);
+        // Observation owns its next comparison. Relying on an aimer/reflex to request a
+        // forecast made confidence depend on NPC iteration order and which behaviour ran.
+        _ = Predict(npc, 1);
     }
 
     public static Vector2 Predict(NPC npc, int ticks)
@@ -127,4 +139,15 @@ public static class PredictObservedMotion
         }
         return track.Centres[ticks];
     }
+
+    /// <summary>Measured continuation confidence, not a claim to know the next enemy AI choice.</summary>
+    public static float Confidence(NPC npc, int ticks)
+    {
+        Observe(npc);
+        Track track = tracks[npc.whoAmI];
+        float measured = track.ErrorSamples == 0 ? .5f : MathF.Exp(-track.MeanError / 32f);
+        return MathHelper.Clamp(measured * MathF.Exp(-Math.Clamp(ticks, 0, 180) / 90f), .1f, 1f);
+    }
+
+    public static int ErrorSamples(NPC npc) { Observe(npc); return tracks[npc.whoAmI].ErrorSamples; }
 }

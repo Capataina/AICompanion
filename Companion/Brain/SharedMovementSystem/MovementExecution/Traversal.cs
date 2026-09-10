@@ -34,6 +34,14 @@ public enum TraversalFault { None, Timeout, Misland, Blocked, Stuck, Interrupted
 /// </summary>
 public abstract class Traversal
 {
+    /// <summary>The graph's movement cost before environment pricing, shared by generated
+    /// and remembered copies of a traversal so memory cannot create discounted physics.</summary>
+    public static float MovementCost(NavStep step) => step.Kind switch
+    {
+        MoveKind.Jump => 1f + step.Ticks * BodyPhysics.WalkSpeed / 16f,
+        MoveKind.Drop or MoveKind.FallThrough => 1f + Math.Max(0, step.Tile.Y - step.From.Y) * .2f,
+        _ => Math.Abs(step.Tile.X - step.From.X) + ((step.Tile.Y - step.From.Y) switch { 0 => 0f, < 0 => .5f, _ => .2f }),
+    };
     /// <summary>How close the feet come to a step's feet point before the step counts as reached.</summary>
     public const float ArriveSlack = 10f;
 
@@ -41,6 +49,13 @@ public abstract class Traversal
 
     /// <summary>Every edge of this kind out of a node (its tile and the mobility state the body arrives with), proven; <paramref name="here"/> is the pose at the node when one exists. A step's own Mobility is the state at its landing; a move that spends or restores a counter sets it, and every move today leaves it as it found it.</summary>
     public abstract IEnumerable<NavEdge> Candidates(NavNode node, BodyPhysics.Pose? here, bool lava);
+
+    /// <summary>Null marks completed bounded work without an edge, so a live search can yield
+    /// even when every trajectory is rejected. Consumers must never cache an unfinished stream.</summary>
+    public virtual IEnumerable<NavEdge?> CandidateWork(NavNode node, BodyPhysics.Pose? here, bool lava)
+    {
+        foreach (var edge in Candidates(node, here, lava)) yield return edge;
+    }
 
     /// <summary>The follower has started performing this step; run state for it begins here.</summary>
     public virtual void Begin(NavStep step) { }

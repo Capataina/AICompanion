@@ -105,6 +105,7 @@ public static class AStar
     public static double MsBudget { get; set; }
 
     private static long deadline;
+    internal static long Deadline { get => deadline; set => deadline = value; }
 
     /// <summary>How many expansions between clock reads; often enough to bound the overrun, rare enough that the read is not the cost.</summary>
     private const int ClockEvery = 1;
@@ -118,7 +119,7 @@ public static class AStar
         expansions = 0;
         stopReason = SearchStopReason.Exhausted;
         if (!probing)
-            deadline = MsBudget > 0d ? System.Diagnostics.Stopwatch.GetTimestamp() + (long)(MsBudget * System.Diagnostics.Stopwatch.Frequency / 1000d) : 0L;
+            deadline = LimitPlanningWork.Deadline(MsBudget);
         var open = new SortedSet<Open>(new OpenComparer());
         var g = new Dictionary<NavNode, float>();
         var cameFrom = new Dictionary<NavNode, Arrival>();
@@ -172,8 +173,12 @@ public static class AStar
             }
 
             float gHere = g[node];
-            foreach ((NavStep step, float cost) in Neighbours(node, !AllowOneWayDrops, node == from ? startPose : null))
+            foreach (var work in NeighbourWork(node, !AllowOneWayDrops, node == from ? startPose : null))
             {
+                if (deadline != 0 && System.Diagnostics.Stopwatch.GetTimestamp() >= deadline)
+                { stopReason = SearchStopReason.Deadline; return nearest == from ? null : Rebuild(cameFrom, from, nearest, true); }
+                if (work is not { } edge) continue;
+                (NavStep step, float cost) = edge;
                 if (node == from && acceptFirstStep != null && !acceptFirstStep(step)) continue;
                 var next = new NavNode(step.Tile, step.Mobility);
                 if (closed.Contains(next))
@@ -200,6 +205,7 @@ public static class AStar
     /// </summary>
     public static HashSet<Point> Region(Point start, int budget, out bool complete, bool refuseOneWay = false)
     {
+        long until = LimitPlanningWork.Deadline(0);
         NavNode from = NavNode.At(start);
         var seen = new HashSet<NavNode> { from };
         var tiles = new HashSet<Point> { start };
@@ -216,8 +222,12 @@ public static class AStar
                 break;
             }
             NavNode node = queue.Dequeue();
-            foreach ((NavStep step, _) in Neighbours(node, refuseOneWay))
+            foreach (var work in NeighbourWork(node, refuseOneWay))
             {
+                if (until != 0 && System.Diagnostics.Stopwatch.GetTimestamp() >= until)
+                { complete = false; return tiles; }
+                if (work is not { } edge) continue;
+                NavStep step = edge.Step;
                 var next = new NavNode(step.Tile, step.Mobility);
                 if (seen.Add(next))
                 {
@@ -331,6 +341,9 @@ public static class AStar
         return verdict;
     }
 
+    internal static bool RememberedStepHasReturn(NavStep step) => !OneWay(step.From,
+        new NavEdge(step, 0, Math.Max(0, step.Tile.Y - step.From.Y), true));
+
     private static readonly Dictionary<(Point, Point, bool), OneWayVerdict> oneWay = new();
     private readonly record struct OneWayVerdict(bool Value, uint Born);
     private static bool probing;
@@ -366,30 +379,36 @@ public static class AStar
     /// With <paramref name="refuseOneWay"/> an edge whose landing cannot get back to this node
     /// is dropped, which is <see cref="OneWay"/> and the only thing that costs a caller extra.
     /// </summary>
-    private static IEnumerable<(NavStep, float)> Neighbours(NavNode node, bool refuseOneWay, BodyPhysics.Pose? actualPose = null)
+    internal static IEnumerable<(NavStep Step, float Cost)?> NeighbourWork(NavNode node, bool refuseOneWay, BodyPhysics.Pose? actualPose = null)
     {
         (NavNode, bool) key = (node, AllowLava);
-        NavEdge[] edges;
-        if (actualPose != null)
-            edges = System.Linq.Enumerable.ToArray(NavEdges(node, AllowLava, actualPose));
-        else if (!CacheEdges)
-            edges = System.Linq.Enumerable.ToArray(NavEdges(node, AllowLava));
-        else if (!edgeCache.TryGetValue(key, out CachedEdges cached) || unchecked(Clock - cached.Born) > EdgeCacheLifeTicks)
-        {
-            edges = System.Linq.Enumerable.ToArray(NavEdges(node, AllowLava));
-            edgeCache[key] = new CachedEdges(edges, Clock);
-        }
-        else
-            edges = cached.Edges;
         Point t = node.Tile;
-        foreach (NavEdge e in edges)
+        bool cached = actualPose == null && CacheEdges && edgeCache.TryGetValue(key, out CachedEdges entry)
+            && unchecked(Clock - entry.Born) <= EdgeCacheLifeTicks;
+        IEnumerable<NavEdge?> work = cached ? System.Linq.Enumerable.Select(edgeCache[key].Edges, e => (NavEdge?)e)
+            : GenerateWork(node, AllowLava, actualPose);
+        var generated = cached ? null : new List<NavEdge>();
+        foreach (NavEdge? candidate in work)
         {
+            if (candidate is not NavEdge e) { yield return null; continue; }
+            generated?.Add(e);
             // The cheap test first, deliberately: the probe behind OneWay runs only for a caller
             // that would refuse the edge, so following the player never pays for it.
             if (refuseOneWay && OneWay(t, e))
                 continue;
             yield return (e.Step, e.Swept ? PriceSwept(t, e.Step.Tile, e.Move) : Price(e.Step.Tile.X, e.Step.Tile.Y, e.Move));
         }
+        if (!cached && CacheEdges && actualPose == null)
+            edgeCache[key] = new CachedEdges(generated!.ToArray(), Clock);
+    }
+
+    private static IEnumerable<NavEdge?> GenerateWork(NavNode node, bool lava, BodyPhysics.Pose? actualPose)
+    {
+        float scale = NavGrid.IsLiquid(node.Tile.X, node.Tile.Y) ? 2f : 1f;
+        var pose = actualPose ?? NavGrid.StandAt(node.Tile.X, node.Tile.Y, lava);
+        foreach (Traversal traversal in Traversal.Planning)
+            foreach (var work in traversal.CandidateWork(node, pose, lava))
+                yield return work is NavEdge edge ? edge with { Move = edge.Move * scale } : null;
     }
 
     /// <summary>
@@ -451,6 +470,7 @@ public static class AStar
     /// </summary>
     public static void TileChanged(int x, int y)
     {
+        RememberExecutedRoutes.World.TileChanged(x, y);
         // Every return verdict goes, not a box of them: a verdict is about the shape of a whole
         // region, and a tile dug deep inside a pocket changes whether its lip has a way back
         // while sitting far outside any box drawn from how far a scan reads.
@@ -479,22 +499,6 @@ public static class AStar
 
     /// <summary>How many tiles hold cached edges right now, for the overlay.</summary>
     public static int CachedTiles => edgeCache.Count;
-
-    /// <summary>
-    /// Every edge out of a node, as the traversals prove them: each kind of move is owned by one
-    /// object that both generates its edges here and performs them in the follower, so an edge
-    /// offered is a move the body makes. From inside liquid every move costs double, because the
-    /// game halves a wet NPC's movement.
-    /// </summary>
-    private static IEnumerable<NavEdge> NavEdges(NavNode node, bool lava, BodyPhysics.Pose? actualPose = null)
-    {
-        Point t = node.Tile;
-        float costScale = NavGrid.IsLiquid(t.X, t.Y) ? 2f : 1f;
-        BodyPhysics.Pose? here = actualPose ?? NavGrid.StandAt(t.X, t.Y, lava);
-        foreach (Traversal traversal in Traversal.Planning)
-            foreach (NavEdge edge in traversal.Candidates(node, here, lava))
-                yield return edge with { Move = edge.Move * costScale };
-    }
 
     /// <summary>
     /// What arriving at a node costs on top of the move: a submerged head multiplies (a
@@ -526,6 +530,12 @@ public static class AStar
         if (Avoid.Count > 0 && !InAvoid(Body(to.X, to.Y)) && InAvoid(Rectangle.Union(Body(from.X, from.Y), Body(to.X, to.Y))))
             price += AvoidCost;
         return price;
+    }
+
+    internal static float PriceRememberedStep(NavStep step)
+    {
+        float move = Traversal.MovementCost(step) * (NavGrid.IsLiquid(step.From.X, step.From.Y) ? 2f : 1f);
+        return step.Kind == MoveKind.Walk ? Price(step.Tile.X, step.Tile.Y, move) : PriceSwept(step.From, step.Tile, move);
     }
 
     private static Rectangle Body(int x, int y) => new(x * 16, (y - NavGrid.BodyHeightTiles + 1) * 16, 16, NavGrid.BodyHeightTiles * 16);

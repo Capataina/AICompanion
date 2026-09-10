@@ -15,13 +15,16 @@ EngineReplay/
 ├─ VerifyObservedMotion.cs   native-terrain hostile forecast and pure regroup-urgency contracts
 ├─ VerifyProjectileMotion.cs native projectile-AI and swept-shot contracts
 ├─ VerifyPersonalDanger.cs   separated chambers verify actor-specific hostile reachability
+├─ VerifyCompanionLifecycle.cs actual mod NPC attachment, player-death decisions and hand/downed lifecycle
+├─ VerifyThreatAnticipation.cs harmful unattackable actors, projectile attribution and measured forecast confidence
+├─ VerifyCapturedEscape.cs   captured pool and mirrored awnings exercised against native collision
 ├─ GodsEyeTestStubs.cs       unrelated mod and TSV seams; the real player hurt observer remains compiled
 └─ VerifyGodsEyeEvents.cs    real sparse-event writer, native-hook, generation and terrain-capture contracts
 ```
 
 From the repository root run `dotnet run --project Tools/EngineReplay`. Exit zero requires every matrix entry to match and all native route fixtures to arrive. `sh Tools/verify.sh` includes this command. The game location can be supplied as the executable’s first argument; MSBuild’s TModLoaderRoot controls the reference location when compiling on another installation.
 
-The setup assigns Terraria.Program.SavePath before Main’s static constructor, constructs a small Tilemap through its non-public constructor and marks the process dedicated-server for headless operation. Each comparison creates an ordinary NPC, runs its private gravity setup, applies shared controls and the step helpers, adds the engine’s gravity, then invokes private UpdateCollision. It fixes wetCount to suppress liquid entry/exit audiovisual effects. No game AI, enemy spawning, save loading or full NPC update is invoked.
+The setup assigns Terraria.Program.SavePath before Main’s static constructor, constructs a small Tilemap through its non-public constructor and marks the process dedicated-server for headless operation. Each collision comparison creates an ordinary NPC, runs its private gravity setup, applies shared controls and the step helpers, adds the engine’s gravity, then invokes private UpdateCollision. It fixes wetCount to suppress liquid entry/exit audiovisual effects. That collision matrix invokes no game AI, enemy spawning, save loading or full NPC update. The separate lifecycle fixture invokes the actual companion's AI entry point; the captured escape fixture invokes its production survival action and senses over native collision.
 
 The matrix covers floor and ceiling slope orientations, flat/sloped platforms, dry movement, water, honey, shimmer, liquid transitions, offsets, jump and fall-through controls, and both space-scaled and ordinary gravity. Position, velocity, wet state, liquid priority and stair state must agree; prediction must restore all seven Collision scratch fields. Native route cases cover flat travel, a two-tile ledge, staircase ascent and staircase descent. Their output reports recovery faults even when the destination is reached.
 
@@ -32,3 +35,5 @@ The same executable also verifies every projectile in the current companion kit 
 `VerifyGodsEyeEvents` compiles the actual sparse event writer and its native NPC, projectile and terrain hooks with only test-local telemetry and mod stubs. It writes and parses a temporary JSONL session, then deletes it. The fixture proves sequence/schema/timestamp validity, normal session closure, snapshot-at-occurrence behaviour, reused NPC/projectile slot generations, shot-to-terrain correlation through the first projectile generation, and tile dirtiness becoming a changed local terrain snapshot only after post-update sees the engine edit. Its terrain fixture includes a slope and water, checks the rolling initial capture, and requires the recorded local chunk to retain glyph, liquid and material fields.
 
 These are repeatable collision and route fixtures. They do not establish general world navigation, threat prediction quality or comfortable companionship. The historical text-world corpus and a recorded playtest answer those different questions. Private engine method names are intentional verification dependencies: if a game update removes them, the test must fail visibly rather than silently substitute another simulator.
+
+The project references the actual mod under the `live` assembly alias for lifecycle and behaviour checks. Those tests attach a real CompanionNPC through ModNPC.Entity, disable rendering/first-tick logging that require unavailable graphics/loader services, and keep the production brain, senses and movement components. `--lifecycle` and `--escape` run their focused subsets; the default run includes both. This does not launch a game, run enemy AI or test save-file loading through the full world loader.

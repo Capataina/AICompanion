@@ -26,6 +26,10 @@ public sealed class ThreatRecord
 
     /// <summary>Ticks until it could touch the player at its observed speed; large when far or slow.</summary>
     public float TicksToPlayer;
+    public float EffectiveTicksToPlayer;
+    public float PredictionConfidence;
+    public int PredictionSamples;
+    public int ExpectedDamage;
     public bool HasSightOnPlayer;
 
     /// <summary>0..1: how much this threat endangers the player right now.</summary>

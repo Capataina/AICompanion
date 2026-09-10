@@ -36,6 +36,12 @@ public sealed class Positioner
     // rescore and read for every candidate. A spot the walker cannot reach is not a spot: the
     // fourth run of 2026-09-08 parked the companion above a sealed cavity the scorer had picked.
     private HashSet<Point>? reach;
+    private ContinueRouteSearch? returnSearch, rawSearch;
+    private bool reachLava;
+    public int CandidateCount { get; private set; }
+    public int ReachableCandidateCount { get; private set; }
+    public int RejectedCandidateCount { get; private set; }
+    public string ChoiceReason { get; private set; } = "none";
     private int sinceFlood = RescoreInterval;
 
     /// <summary>Whether the flood from the companion's feet ran out of region before its budget, so a tile outside it is truly unreachable.</summary>
@@ -117,6 +123,8 @@ public sealed class Positioner
 
     /// <summary>The last flood from the companion's feet holds this tile: the brain reads the player's feet against it to end a stranded count.</summary>
     public bool Reaches(Point tile) => InReach(tile);
+    public float? EstimatedTravelTicks(Point from, Point tile) => rawSearch?.EstimatedTicks(from, tile)
+        ?? returnSearch?.EstimatedTicks(from, tile);
 
     private void RefreshReach(Senses.Senses senses)
     {
@@ -137,7 +145,18 @@ public sealed class Positioner
         // is, the tier opens and the unrecoverable ones are scored instead. So the companion shoots
         // into a pit from its rim while a rim spot exists and drops in when none does, with nothing
         // in the code naming an enemy or a pit.
-        returnable = MovementQueries.Region(feet.Value, Weights.ReachFloodBudget, out bool complete, refuseOneWay: true);
+        // Reuse needs generated connectivity in both directions, not a distance allowance.
+        // A body can cross a one-way boundary while moving only one tile.
+        if (returnSearch == null || !returnSearch.Valid || reachLava != AStar.AllowLava || !returnSearch.CanReuseFrom(feet.Value))
+        {
+            reachLava = AStar.AllowLava;
+            returnSearch?.Dispose(); rawSearch?.Dispose();
+            returnSearch = new ContinueRouteSearch(feet.Value, null, AStar.AllowLava, false);
+            rawSearch = new ContinueRouteSearch(feet.Value, null, AStar.AllowLava, true);
+        }
+        returnSearch.Advance(Weights.ReachFloodBudget, Weights.PositionReachMilliseconds / 2d);
+        returnable = returnSearch.Reached;
+        bool complete = returnSearch.Finished && returnSearch.Stop == AStar.SearchStopReason.Exhausted;
         reach = returnable;
 
         // Unless that map does not hold the player, in which case it is the wrong map. Being stuck
@@ -159,7 +178,9 @@ public sealed class Positioner
         PlayerOnlyOneWay = false;
         if (player is Point p && !returnable.Contains(p))
         {
-            HashSet<Point> raw = MovementQueries.Region(feet.Value, Weights.ReachFloodBudget, out bool rawComplete, refuseOneWay: false);
+            rawSearch!.Advance(Weights.ReachFloodBudget, Weights.PositionReachMilliseconds / 2d);
+            HashSet<Point> raw = new(rawSearch.Reached);
+            bool rawComplete = rawSearch.Finished && rawSearch.Stop == AStar.SearchStopReason.Exhausted;
             // Both bounded searches prove membership, but may spend their work on different
             // branches. Preserve all previously proven reachable tiles when opening the tier.
             raw.UnionWith(returnable);
@@ -230,6 +251,10 @@ public sealed class Positioner
 
     private Vector2? Best(in PositionRequest request, Senses.Senses senses, WeaponProfile? fireProfile)
     {
+        EvidenceTick = senses.Tick;
+        CandidateEvidence = "";
+        EvaluatedCandidates = 0;
+        var evidence = new List<(Point tile, float score, string shot)>();
         // The spot being walked to, read before it is overwritten, so it can be favoured over an
         // equal one. Without this the scorer picked afresh every rescore with no memory of its own
         // last answer, and since two standable tiles a couple of pixels apart score within noise
@@ -253,15 +278,31 @@ public sealed class Positioner
         // spot. When none is (the flood ran out before it got here), every candidate stays, and the
         // partial path walks the companion as close as it can, which is what it did before.
         var candidates = new List<(Vector2 feet, Vector2 eye, float baseScore)>();
+        CandidateCount = ReachableCandidateCount = RejectedCandidateCount = 0;
         bool anyReachable = false;
+        // The incumbent participates even when a moving anchor changes sample-grid parity.
+        // Otherwise hysteresis cannot retain a position the sampler never offered this tick.
+        if (held is Vector2 incumbent && Allowed(MovementQueries.FeetTile(incumbent))
+            && MovementQueries.IsStandable(MovementQueries.FeetTile(incumbent).X, MovementQueries.FeetTile(incumbent).Y))
+        {
+            Vector2 eye = incumbent + new Vector2(0, -30);
+            float score = ScoreSpot(request, incumbent, eye, playerBottom, senses, bandNear, bandFar, 1f, reach) * Weights.IncumbentSpotBonus;
+            if (score > 0)
+            { candidates.Add((incumbent, eye, score)); anyReachable = InReach(MovementQueries.FeetTile(incumbent)); }
+        }
         for (int dx = -SampleRadiusTiles; dx <= SampleRadiusTiles; dx += SampleStride)
         {
             for (int dy = -SampleRadiusTiles; dy <= SampleRadiusTiles; dy += SampleStride)
             {
                 int x = centre.X + dx, y = centre.Y + dy;
+                CandidateCount++;
                 if (!MovementQueries.IsStandable(x, y) || !Allowed(new Point(x, y)))
+                {
+                    RejectedCandidateCount++;
                     continue;
+                }
                 bool reachable = InReach(new Point(x, y));
+                if (reachable) ReachableCandidateCount++;
                 if (!reachable && anyReachable)
                     continue;
                 Vector2 feet = MovementQueries.FeetWorld(new Point(x, y));
@@ -283,6 +324,7 @@ public sealed class Positioner
         if (candidates.Count == 0)
         {
             ChosenScore = -1f;
+            ChoiceReason = "no-accepted-candidate";
             return null;
         }
 
@@ -292,17 +334,25 @@ public sealed class Positioner
 
         Vector2? best = null;
         float bestScore = -1f;
+        var solveClock = System.Diagnostics.Stopwatch.StartNew();
         for (int i = 0; i < candidates.Count; i++)
         {
             (Vector2 feet, Vector2 eye, float baseScore) = candidates[i];
             float score = baseScore;
+            string shot = "not-required";
             if (needsFire)
             {
+                if (i > 0 && solveClock.Elapsed.TotalMilliseconds >= Weights.PositionAimingMilliseconds) break;
                 if (i >= solves)
                     break; // unsolved candidates cannot beat a solved one above them
                 float fire = TrajectoryAimer.Solve(eye, request.Target!, fireProfile!.Value) != null ? 1f : 0.15f;
+                shot = fire == 1f ? "clear-arc" : "no-arc";
                 score = ScoreSpot(request, feet, eye, playerBottom, senses, bandNear, bandFar, fire, reach) * Incumbency(feet, held);
             }
+            EvaluatedCandidates++;
+            evidence.Add((MovementQueries.FeetTile(feet), score, shot));
+            evidence.Sort((a, b) => b.score.CompareTo(a.score));
+            if (evidence.Count > 4) evidence.RemoveAt(4);
             if (score > bestScore)
             {
                 bestScore = score;
@@ -310,8 +360,14 @@ public sealed class Positioner
             }
         }
         ChosenScore = bestScore;
+        CandidateEvidence = string.Join("|", evidence.ConvertAll(e => FormattableString.Invariant($"{e.tile.X},{e.tile.Y}:{e.score:0.000}:{e.shot}")));
+        ChoiceReason = best == held ? "retained-position" : anyReachable ? "reachable-candidate" : "reachability-unknown";
         return best;
     }
+
+    public int EvidenceTick { get; private set; }
+    public int EvaluatedCandidates { get; private set; }
+    public string CandidateEvidence { get; private set; } = "";
 
     /// <summary>
     /// The bonus the spot already held gets over an equal one; 1 for everything else. Applied to

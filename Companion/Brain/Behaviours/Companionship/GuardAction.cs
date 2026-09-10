@@ -21,7 +21,7 @@ public sealed class GuardAction : CompanionAction
         var t = ctx.Senses.Threats;
         if (ctx.Senses.Player.IsDead)
             return 0f;
-        float danger = t.PlayerDanger;
+        float danger = t.ProtectionUrgency;
         float away = Consideration.AtLeast(Consideration.Rising(ctx.Senses.DistanceToPlayer, 400f), 0.4f);
         // Scaled past the ordinary 0..1 band because guarding has to be able to interrupt, and an
         // action that tops out at 1 cannot interrupt anything: the running action carries

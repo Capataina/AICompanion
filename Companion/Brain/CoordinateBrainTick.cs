@@ -35,6 +35,7 @@ public sealed class Brain
 
     public PositionRequest LastRequest { get; private set; }
     public CompanionAction? LastAction => Chooser.Current;
+    public ulong LastTick { get; private set; } = ulong.MaxValue;
 
     /// <summary>
     /// What each phase of the last tick cost, in milliseconds of wall-clock, so the lag has a
@@ -74,7 +75,9 @@ public sealed class Brain
 
     public void Tick(CompanionNPC companion, Terraria.Player player)
     {
+        LastTick = Terraria.Main.GameUpdateCount;
         whole.Restart();
+        LimitPlanningWork.Begin(Weights.TotalPlanningMilliseconds);
         ReflexMs = DecideMs = PositionMs = NavigateMs = 0;
         Movement.Configure(Terraria.Main.GameUpdateCount, Senses.Self.LifeFraction > 0.6f, false);
         try
@@ -83,6 +86,7 @@ public sealed class Brain
         }
         finally
         {
+            LimitPlanningWork.End();
             TotalMs = whole.Elapsed.TotalMilliseconds;
         }
     }
@@ -103,6 +107,7 @@ public sealed class Brain
         SensesMs = Lap();
 
         var ctx = new ActionContext(companion, Senses, Roaming);
+        Senses.SetInterventionEstimate(companion.Arsenal.EstimateInterventionTicks(ctx));
 
         Navigator.Capabilities = companion.Motor.Capabilities;
         bool taken = Reflexes.TryAssess(companion.NPC, Senses, companion.Motor.State, out var unsafeAtTick);
@@ -125,6 +130,14 @@ public sealed class Brain
         CompanionAction action = Chooser.Choose(ctx);
         LastRequest = action.Execute(ctx);
         DecideMs = Lap();
+
+        if (action is Behaviours.Survival.SurviveAction survival && (survival.TryEscape(ctx, out Controls escape, out bool escapePending) || escapePending))
+        {
+            companion.Motor.Apply(escape, "survival-escape");
+            NavigateMs = Lap();
+            Engage(companion, ctx, action);
+            return;
+        }
 
         var profile = companion.Arsenal.ProfileFor(ctx, LastRequest.Target);
         // Lava is a crossable cost only while there is life to pay it with.

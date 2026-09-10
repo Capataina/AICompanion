@@ -7,10 +7,12 @@
     <TModLoaderRoot>$(HOME)/Library/Application Support/Steam/steamapps/common/tModLoader</TModLoaderRoot>
   </PropertyGroup>
   <ItemGroup>
+    <ProjectReference Include="../../AICompanion.csproj" Aliases="live" AdditionalProperties="BuildMod=false" />
     <Compile Include="../../Companion/Brain/SharedMovementSystem/**/*.cs" Exclude="../../Companion/Brain/SharedMovementSystem/TerrariaIntegration/ApplyControlsToCompanion.cs" />
     <Compile Include="../../Companion/Brain/ProjectileAiming/**/*.cs" />
     <Compile Include="../../Companion/Brain/WorldObservation/PredictObservedMotion.cs" />
     <Compile Include="../../Companion/Brain/WorldObservation/ObserveThreats.cs" />
+    <Compile Include="../../Companion/Brain/WorldObservation/ObserveHostileAttackSources.cs" />
     <Compile Include="../../Companion/Brain/WorldObservation/ThreatRecord.cs" />
     <Compile Include="../../Companion/Brain/WorldObservation/LineOfSight.cs" />
     <Compile Include="../../Companion/Brain/WorldObservation/CalculateRegroupUrgency.cs" />

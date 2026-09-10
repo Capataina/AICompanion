@@ -7,6 +7,7 @@ MovementExecution/
 ├─ CLAUDE.md
 ├─ Navigator.cs             owns routes, arrival, interruption, preparation and typed outcomes
 ├─ PlanLocalMovement.cs     validates complete macros and retains controls beside expected states
+├─ SearchControlSequences.cs bounded retained body-state search for clearance and safe-state requests
 ├─ TraversalExecution.cs    copies preparation and flight state for independent simulation
 ├─ ReactiveWalk.cs          proposes uncommitted terrain controls for shared evaluation
 ├─ BehaviourCensus.cs       counts movement requests and outcomes
@@ -59,6 +60,16 @@ Four hypotheses are dead and are written as the property that failed, because ea
 **The lasting lesson is not about platforms.** The reason three attempts argued about the press is that the offline body and the game's body were never run on the same input and compared, so a shaft that replayed clean in 264 ticks and froze in play looked like a mystery instead of a disagreement — and the disagreement was one word wide. `BodyMotion.Step` gated its platform lift on `grounded`, which a falling body is not, so the offline rule happened to be safe; the motor gated its on `velocity.Y >= 0f`, which a falling body is. The standing hypothesis that the two differed over `PlatformTopCrossed` being edge-triggered where the game's platform catch is level-triggered (AIC-203 to AIC-206) is retired by that finding. A `diverge` column now measures the gap between the two rules live, every tick, on the real world.
 
 ## Adding a mobility
+
+`SearchControlSequences` is the bounded local alternative when a route has no usable committed
+edge: it searches the actual `BodyState` with the same `BodyMotion` backend, keeps a certified
+prefix only while its predicted state, terrain revision and one-tick threat check still hold, and
+clears its visited set when an exhausted frontier is reseeded from the live body. A jump apex is
+not progress: non-goal prefixes are committed only at a landing or a liquid-boundary crossing,
+because selecting an airborne lower-Y state repeatedly returned the full captured pool body to
+the same submerged signature. The native full-capture replay in `EngineReplay --escape` exercises
+production survival target selection and its real search budget; mirrored awnings exercise the
+same generic rule in both directions.
 
 The historical underground-house partial-goal fixtures still contain an unresolved progress failure: adjacent completed walks can alternate for thousands of ticks without a traversal fault. A per-edge success is not progress towards the final goal. AIC-177 retains those cases for goal-level progress accounting; the captured-entry fix and its no-stationary-preparation assertion do not establish freedom from every partial-route loop.
 

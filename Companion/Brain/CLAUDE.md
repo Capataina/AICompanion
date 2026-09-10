@@ -20,6 +20,8 @@ Brain/
 
 ## One tick has one direction of flow
 
+Planning consumers share a soft deadline and retain unfinished work. Survival can supply a safe-state predicate directly to movement when the head needs air; the same controller searches legal controls for ordinary local clearance. Hands still resolve after that movement choice. The coordinator stamps the current engine tick when it runs, so diagnostics distinguish fresh decisions from the stale state intentionally left while the companion itself is downed. Player death no longer suspends its decisions.
+
 ```
 WorldObservation ──► CombatReflexes ──► SharedMovementSystem ──► Companion motor
        │                     │                  ▲

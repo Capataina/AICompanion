@@ -16,6 +16,8 @@ NavReplay/
 
 Run from the repository root:
 
+The self-test exercises tiny retained-search slices, minimum progress under an already-spent deadline, directed region reuse, actual traversal learning, archive reload, a new C-to-A approach using an executed A-to-B suffix, full current-cost pruning, liquid invalidation and external-displacement rejection. Returned-path assertions accompany work counters: a suffix merely offered to a frontier does not prove the returned path used it. The full historical corpus remains a separate regression surface with recorded partial and model-closed cases.
+
 ```
 dotnet run --project Tools/NavReplay -- --self-test
 dotnet run --project Tools/NavReplay -- Tools/Scenarios

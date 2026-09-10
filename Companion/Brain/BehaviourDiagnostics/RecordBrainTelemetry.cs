@@ -312,15 +312,24 @@ public sealed class BrainTelemetry : ModSystem
         NPC npc = companion.NPC;
         RecordTerrainChunks.ObserveActors(npc, Main.LocalPlayer);
         string decision = brain.Reflexes.Active ?? brain.LastAction?.Name ?? "-";
+        bool brainExecuted = brain.LastTick == Main.GameUpdateCount;
+        string controls = DescribeControls(companion.Motor.AppliedControls);
         if (decision != lastDecision || Main.GameUpdateCount % 60 == 0)
         {
             var board = new StringBuilder();
             foreach (var score in brain.Chooser.LastScores) { if (board.Length > 0) board.Append(','); board.Append(score.Action.Name).Append('=').Append(score.Raw.ToString("0.000", CultureInfo.InvariantCulture)).Append("->").Append(score.Final.ToString("0.000", CultureInfo.InvariantCulture)); }
             board.Append(CultureInfo.InvariantCulture, $";regroup={brain.Chooser.RegroupUrgency:0.000};return-ticks={brain.Chooser.EstimatedReturnTicks:0.0}");
-            GodsEyeEvents.RecordDecision(npc, decision, board.ToString(), brain.LastRequest.Kind.ToString(), DescribeControls(companion.Motor.AppliedControls));
+            GodsEyeEvents.RecordDecision(npc, decision, board.ToString(), brain.LastRequest.Kind.ToString(), controls + $";freshness={(brainExecuted ? "fresh" : "stale-or-not-executed")}");
             lastDecision = decision;
         }
         GodsEyeEvents.RecordMovementState(npc, brain.Navigator);
+        GodsEyeEvents.RecordNavigationEvidence(npc, brainExecuted, decision, brain.LastRequest.Kind.ToString(), controls,
+            brain.Navigator.SearchId, brain.Navigator.AttemptId, brain.Navigator.SearchExpansions, brain.Navigator.SearchPending,
+            brain.Navigator.ProgressReason, brain.Navigator.ExperienceRoutesUsed,
+            brain.Positioner.CandidateCount, brain.Positioner.ReachableCandidateCount, brain.Positioner.RejectedCandidateCount, brain.Positioner.ChoiceReason,
+            senses.Threats.InterventionTicks, senses.Threats.ProtectionUrgency,
+            senses.Threats.MostUrgent?.PredictionConfidence ?? 0f, senses.Threats.MostUrgent?.PredictionSamples ?? 0,
+            $"control-source={companion.Motor.ControlSource};state-search-pending={brain.Movement.StateSearchPending};retained-control-ticks={brain.Movement.StateSearchRetainedTicks};air-target={(brain.LastAction as Behaviours.Survival.SurviveAction)?.AirTarget};breath-ticks-left={companion.Breath.TicksLeft};position-evidence-tick={brain.Positioner.EvidenceTick};positions-evaluated={brain.Positioner.EvaluatedCandidates};position-alternatives={brain.Positioner.CandidateEvidence};target-evidence-tick={companion.Arsenal.TargetEvidenceTick};target-alternatives={companion.Arsenal.TargetEvidence}");
         SessionMap.Watch(
             NavGrid.FeetTile(npc.Bottom),
             NavGrid.FeetTile(senses.Player.Bottom),
@@ -348,7 +357,7 @@ public sealed class BrainTelemetry : ModSystem
             // them, and whether the refusing flood was discarded because the player was outside it.
             h.Append("\treach_n\treturnable_n\tspot_home\tplayer_one_way");
             h.Append("\tedge_n\tedge_kind\tedge_from\tedge_to\tedge_proven\tedge_took\tedge_outcome");
-            h.Append("\twall_elapsed_ms\tsample_phase\tplayer_px\tplayer_vel\tplayer_ground\tplayer_liquid\tplayer_life\tplayer_hit\tnpc_hit\tplayer_state\tplayer_activity\tplayer_support\tnpc_support\tcontrol\tcontrol_source");
+            h.Append("\twall_elapsed_ms\tsample_phase\tplayer_px\tplayer_vel\tplayer_ground\tplayer_liquid\tplayer_life\tplayer_hit\tnpc_hit\tplayer_state\tplayer_activity\tplayer_support\tnpc_support\tcontrol\tcontrol_source\tbrain_fresh");
             h.Append("\tobserved_left\tobserved_bottom\tobserved_vel\tobserved_ground\tobserved_wet\tobserved_mobility\tpredicted_left\tpredicted_bottom\tpredicted_vel\tpredicted_ground\tpredicted_wet\tpredicted_mobility\tnpc_width\tnpc_height");
             writer.WriteLine(h.ToString());
             headerWritten = true;
@@ -356,8 +365,8 @@ public sealed class BrainTelemetry : ModSystem
 
         var sb = new StringBuilder(400);
         sb.Append(Main.GameUpdateCount);
-        // Read the player's death from the player, not the sense: the brain (and so the sense)
-        // stops ticking exactly when the player is dead, so the cached flag never turns.
+        // Read player death from the live player rather than a cached observation. The brain now
+        // continues after death, but this remains the authoritative lifecycle state for the row.
         sb.Append('\t').Append(companion.IsDowned ? "downed" : Main.LocalPlayer.dead ? "player-dead" : "up");
         sb.Append('\t').Append(brain.LastAction?.Name ?? "-");
         sb.Append('\t').Append(brain.Reflexes.Active ?? "-");
@@ -533,6 +542,7 @@ public sealed class BrainTelemetry : ModSystem
         sb.Append('\t').Append(SupportAt(new Vector2(observed.Left + npc.width / 2f, observed.Bottom)));
         sb.Append('\t').Append(DescribeControls(companion.Motor.AppliedControls));
         sb.Append('\t').Append(companion.Motor.ControlSource);
+        sb.Append('\t').Append(brainExecuted ? 1 : 0);
         AppendState(sb, observed);
         AppendState(sb, companion.Motor.PredictedState);
         sb.Append('\t').Append(npc.width).Append('\t').Append(npc.height);

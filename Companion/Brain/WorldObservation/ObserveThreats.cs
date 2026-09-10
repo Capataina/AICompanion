@@ -6,6 +6,7 @@ using Microsoft.Xna.Framework;
 using Terraria;
 using Terraria.ID;
 using AICompanion.Companion.Brain.SharedMovementSystem;
+using AICompanion.Companion.Brain.BehaviourSelection;
 
 namespace AICompanion.Companion.Brain.WorldObservation;
 
@@ -20,25 +21,10 @@ public sealed class ThreatSense
     private const int ReachabilityRefreshTicks = 60;
     private const float SpeedDecay = 0.995f;
 
-    /// <summary>
-    /// Hostiles whose AI spawns a projectile, pre-hardmode. Demon Eyes are not here: their
-    /// AI (AI_002_FloatingEye) never calls NewProjectile. Modded shooters are learned by
-    /// watching projectiles appear next to them.
-    /// </summary>
-    private static readonly HashSet<int> KnownShooters = new()
-    {
-        NPCID.GoblinArcher, NPCID.Hornet, NPCID.Harpy, NPCID.DarkCaster, NPCID.Antlion,
-        NPCID.SkeletonArcher, NPCID.FireImp, NPCID.SnowFlinx,
-        NPCID.SpikedJungleSlime, NPCID.SpikedIceSlime, NPCID.GoblinSorcerer,
-    };
-
-    /// <summary>Projectiles already attributed to a shooter, so each is counted once, at birth.</summary>
-    private readonly HashSet<int> seenProjectiles = new();
-    private readonly int[] projectileIdentity = new int[Main.maxProjectiles];
-
     private sealed class Memory
     {
         public int Type;
+        public int Generation = -1;
         public float PeakSpeed;
         public bool CanReachPlayer = true;
         public bool CanReachCompanion = true;
@@ -47,7 +33,6 @@ public sealed class ThreatSense
         public int Revision;
         public MovementClass Class;
         public int ReachableCheckedAt = -1000;
-        public int LastShotSeenAt = -1000;
     }
 
     private readonly Memory[] memory = new Memory[Main.maxNPCs];
@@ -81,9 +66,12 @@ public sealed class ThreatSense
 
     /// <summary>Ticks the companion may stay away before the player is at risk; float.MaxValue when nothing threatens.</summary>
     public float Horizon { get; private set; } = float.MaxValue;
+    public float ProtectionUrgency { get; private set; }
+    public float InterventionTicks { get; private set; } = float.PositiveInfinity;
 
     public bool PlayerIsSafe => PlayerDanger < 0.25f;
     public ThreatRecord? MostUrgent { get; private set; }
+    public ThreatRecord? MostUrgentToCompanion { get; private set; }
 
     public void Update(Player player, NPC companion)
     {
@@ -92,26 +80,27 @@ public sealed class ThreatSense
         PlayerDanger = 0f;
         CompanionDanger = 0f;
         Horizon = float.MaxValue;
+        ProtectionUrgency = 0f;
         MostUrgent = null;
+        MostUrgentToCompanion = null;
         // Danger is accumulated as the survival product (the chance nothing lands) and inverted at
         // the end, which is what makes several threats add up while one big one still dominates.
         float playerMiss = 1f, companionMiss = 1f;
 
-        LearnShootersFromProjectiles();
-
         Point playerFeet = MovementQueries.FeetTile(player.Bottom);
         Point companionFeet = MovementQueries.FeetTile(companion.Bottom);
-        float companionReturnTicks = Vector2.Distance(companion.Bottom, player.Bottom) / BodyPhysics.WalkSpeed;
 
         foreach (NPC npc in Main.ActiveNPCs)
         {
-            if (npc.friendly || npc.life <= 0 || npc.damage <= 0 || npc.CountsAsACritter || !npc.CanBeChasedBy())
+            int projectileDamage = HostileAttackSources.RecentDamage(npc);
+            if (npc.friendly || npc.life <= 0 || (npc.damage <= 0 && projectileDamage <= 0) || npc.CountsAsACritter)
                 continue;
 
             PredictObservedMotion.Observe(npc);
             Memory mem = memory[npc.whoAmI] ??= new Memory();
-            if (mem.Type != npc.type)
+            if (mem.Type != npc.type || mem.Generation != HostileAttackSources.Generation(npc))
             {
+                mem.Generation = HostileAttackSources.Generation(npc);
                 mem.Type = npc.type;
                 mem.PeakSpeed = 1f;
                 mem.CanReachPlayer = mem.CanReachCompanion = true;
@@ -157,7 +146,8 @@ public sealed class ThreatSense
                 Class = cls,
                 CanReachPlayer = cls == MovementClass.Phaser || mem.CanReachPlayer,
                 CanReachCompanion = cls == MovementClass.Phaser || mem.CanReachCompanion,
-                Shoots = KnownShooters.Contains(npc.type) || tick - mem.LastShotSeenAt < 240,
+                Shoots = projectileDamage > 0,
+                ExpectedDamage = Math.Max(npc.damage, projectileDamage),
                 IsBoss = npc.boss,
                 ObservedSpeed = MathF.Max(mem.PeakSpeed, 0.5f),
                 DistanceToPlayer = Vector2.Distance(npc.Center, player.Center),
@@ -165,7 +155,10 @@ public sealed class ThreatSense
             };
             rec.HasSightOnPlayer = LineOfSight.Between(npc, player);
             rec.TicksToPlayer = rec.DistanceToPlayer / rec.ObservedSpeed;
-            rec.Urgency = rec.CanReachPlayer ? Urgency(rec, player) : 0f;
+            rec.PredictionConfidence = PredictObservedMotion.Confidence(npc, (int)MathF.Min(180f, rec.TicksToPlayer));
+            rec.PredictionSamples = PredictObservedMotion.ErrorSamples(npc);
+            rec.EffectiveTicksToPlayer = rec.TicksToPlayer * rec.PredictionConfidence;
+            rec.Urgency = !player.dead && rec.CanReachPlayer ? Urgency(rec, player) : 0f;
             // The same reckoning about the companion. Sight is only raycast for threats close
             // enough for the answer to change anything, because this runs per threat per tick and
             // a line-of-sight test is the dearest thing in this loop.
@@ -175,17 +168,35 @@ public sealed class ThreatSense
 
             if (rec.Urgency > (MostUrgent?.Urgency ?? 0f))
                 MostUrgent = rec;
+            if (rec.UrgencyToCompanion > (MostUrgentToCompanion?.UrgencyToCompanion ?? 0f))
+                MostUrgentToCompanion = rec;
             playerMiss *= 1f - MathHelper.Clamp(rec.Urgency, 0f, 1f);
             companionMiss *= 1f - MathHelper.Clamp(rec.UrgencyToCompanion, 0f, 1f);
-            if (rec.CanReachPlayer)
-            {
-                float arrives = rec.Shoots && rec.HasSightOnPlayer ? 0f : rec.TicksToPlayer;
-                Horizon = MathF.Min(Horizon, MathF.Max(0f, arrives - companionReturnTicks));
-            }
         }
 
         PlayerDanger = 1f - playerMiss;
         CompanionDanger = 1f - companionMiss;
+    }
+
+    public void SetInterventionEstimate(float ticks)
+    {
+        InterventionTicks = float.IsFinite(ticks) ? MathF.Max(0f, ticks) : float.PositiveInfinity;
+        ProtectionUrgency = 0f;
+        Horizon = float.MaxValue;
+        foreach (ThreatRecord threat in Threats)
+        {
+            if (threat.Urgency <= 0f) continue;
+            // The weapon estimate names the most urgent target, not every enemy in a crowd.
+            // Other threats have no demonstrated intervention yet and cannot borrow that shot.
+            float intervention = threat == MostUrgent ? InterventionTicks : float.PositiveInfinity;
+            float arrival = threat.Shoots && threat.HasSightOnPlayer ? 0f : threat.EffectiveTicksToPlayer;
+            Horizon = MathF.Min(Horizon, MathF.Max(0f, arrival - intervention));
+            // Lower confidence shortens the effective arrival estimate above, preserving safety
+            // when generic observed continuation has already missed rather than inventing AI.
+            float urgency = float.IsPositiveInfinity(intervention) ? 1f
+                : MathHelper.Clamp((intervention - arrival + Weights.ProtectionLeadTicks) / Weights.ProtectionLeadTicks, 0f, 1f);
+            ProtectionUrgency = MathF.Max(ProtectionUrgency, threat.Urgency * urgency);
+        }
     }
 
     /// <summary>
@@ -195,7 +206,7 @@ public sealed class ThreatSense
     /// </summary>
     private static float UrgencyToCompanion(ThreatRecord t, NPC npc, NPC companion)
     {
-        float damageShare = MathHelper.Clamp(t.Npc.damage / MathF.Max(1f, companion.lifeMax * 0.25f), 0.2f, 1f);
+        float damageShare = MathHelper.Clamp(t.ExpectedDamage / MathF.Max(1f, companion.lifeMax * 0.25f), 0.2f, 1f);
         float weight = t.IsBoss ? 1f : damageShare;
         float closeness = MathHelper.Clamp(1f - t.TicksToCompanion / 360f, 0f, 1f);
         if (closeness <= 0f)
@@ -216,7 +227,7 @@ public sealed class ThreatSense
     /// </summary>
     private static float Urgency(ThreatRecord t, Player player)
     {
-        float damageShare = MathHelper.Clamp(t.Npc.damage / MathF.Max(1f, player.statLifeMax2 * 0.25f), 0.2f, 1f);
+        float damageShare = MathHelper.Clamp(t.ExpectedDamage / MathF.Max(1f, player.statLifeMax2 * 0.25f), 0.2f, 1f);
         float weight = t.IsBoss ? 1f : damageShare;
         float closeness = MathHelper.Clamp(1f - t.TicksToPlayer / 360f, 0f, 1f);
         if (t.Shoots && t.HasSightOnPlayer)
@@ -225,38 +236,4 @@ public sealed class ThreatSense
         return weight * closeness * sight;
     }
 
-    /// <summary>
-    /// A hostile projectile, on the tick it first appears, marks the nearest hostile NPC
-    /// within 48 px as a shooter for a few seconds. Counting only at birth keeps a
-    /// zombie that walks under an arrow's flight from inheriting the label.
-    /// </summary>
-    private void LearnShootersFromProjectiles()
-    {
-        foreach (Projectile p in Main.ActiveProjectiles)
-        {
-            if (!p.hostile || p.friendly)
-                continue;
-            int identity = p.identity;
-            if (projectileIdentity[p.whoAmI] == identity && seenProjectiles.Contains(p.whoAmI))
-                continue;
-            projectileIdentity[p.whoAmI] = identity;
-            seenProjectiles.Add(p.whoAmI);
-
-            NPC? nearest = null;
-            float best = 48f * 48f;
-            foreach (NPC npc in Main.ActiveNPCs)
-            {
-                if (npc.friendly)
-                    continue;
-                float d = Vector2.DistanceSquared(npc.Center, p.Center);
-                if (d < best)
-                {
-                    best = d;
-                    nearest = npc;
-                }
-            }
-            if (nearest != null)
-                (memory[nearest.whoAmI] ??= new Memory()).LastShotSeenAt = tick;
-        }
-    }
 }

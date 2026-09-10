@@ -70,6 +70,12 @@ public sealed class Navigator
     /// </summary>
     public bool PlannedThisTick { get; private set; }
     public int LastExpansions { get; private set; }
+    public long SearchId { get; private set; }
+    public long AttemptId { get; private set; }
+    public int SearchExpansions { get; private set; }
+    public bool SearchPending { get; private set; }
+    public string ProgressReason { get; private set; } = "idle";
+    public int ExperienceRoutesUsed { get; private set; }
 
     /// <summary>The last move ended within the arrival slack of its target.</summary>
     public bool Arrived { get; private set; }
@@ -116,6 +122,11 @@ public sealed class Navigator
     private Vector2 lastPosition;
     private int clock;
     private bool forceReplan;
+    private ContinueRouteSearch? search;
+    private bool searchLava, searchOneWay;
+    private MovementCapabilities searchCapabilities;
+    private readonly SearchControlSequences clearance = new();
+    private Vector2 clearanceTarget;
 
     // The traversals this follower performs steps with, one instance each, because a jump's
     // run-up is state that belongs to the follower and not to the planner's shared set.
@@ -128,6 +139,11 @@ public sealed class Navigator
     private TraversalExecution? execution;
     private int ticksOnStep;
     private bool stepFaulted;
+    private BodyState observed, entryState;
+    private BodyState? expectedBody;
+    private bool attemptContinuous;
+    private Rectangle sweptBody;
+    private int entryRevision;
 
     // The steps the body has been stuck on lately, each as the body rectangle at that tile and the
     // tick it stops mattering; merged into the search's avoid list on every plan, priced and not
@@ -139,6 +155,11 @@ public sealed class Navigator
     public Controls MoveTo(BodyState live, Vector2 targetFeet)
     {
         clock++;
+        if (expectedBody is BodyState expected && !PlanLocalMovement.Matches(expected, live))
+            attemptContinuous = false;
+        expectedBody = null;
+        observed = live;
+        if (onStep != null) sweptBody = Rectangle.Union(sweptBody, BodyBox(live));
         live = live with { Capabilities = Capabilities };
         Status = ExecutionStatus.Unknown;
         PlannedThisTick = false;
@@ -150,7 +171,8 @@ public sealed class Navigator
         // in and jumped again for ever. The ledge-four-up fixture did exactly that, and the follow
         // harness scored it as a walk because it read this same flag (Codex review of 7525a1b, A17,
         // which named the harness; the flag it reads is where the fault starts).
-        if (live.OnGround && Vector2.Distance(live.Feet, targetFeet) <= ArriveDistance)
+        if (live.OnGround && Vector2.Distance(live.Feet, targetFeet) <= ArriveDistance
+            && (onStep == null || execution?.IsDone(live) == true))
         {
             // The step that carried the body onto the goal is reported before the path is dropped,
             // or the census never sees it. Arrival is tested before Follow runs, so a step whose
@@ -168,13 +190,14 @@ public sealed class Navigator
             // this exact split, since a move planned often and completed rarely and a move never
             // planned at all want opposite fixes.
             if (onStep is NavStep landed)
-                Report(landed, ticksOnStep, execution?.IsDone(live) == true ? TraversalFault.None : TraversalFault.Interrupted);
+                Report(landed, ticksOnStep, TraversalFault.None);
             Path = null;
             onStep = null;
             execution = null;
             StuckStrikes = 0;
             Arrived = true;
             Status = ExecutionStatus.Arrived;
+            search?.Dispose(); search = null; SearchPending = false;
             floor.Reset();
             BehaviourCensus.RequestReached();
             return Controls.None;
@@ -202,7 +225,7 @@ public sealed class Navigator
         // ResetStrikes when the brain has acted on it.
         // A failed plan is not retried every tick: at the full budget that is ~3 ms per tick for
         // as long as the goal stays unreachable. It waits FailedPlanRetry ticks unless the goal moves.
-        bool failedRecently = LastPlanFailed && ticksSincePlan < FailedPlanRetry;
+        bool failedRecently = search is { Finished: true } && LastPlanFailed && ticksSincePlan < FailedPlanRetry;
         // A partial path walked to its end is progress and not a failure to wait on: the body is
         // standing somewhere it has never planned from, so a fresh search reaches further, and
         // making it wait the failed-plan retry instead handed it to the straight-walk fallback for
@@ -215,7 +238,9 @@ public sealed class Navigator
         // The cadence waits while the current step is part way through a move a fresh plan would
         // undo (a jump's back-off and run-in); a stuck body and a moved goal do not wait.
         bool midMove = !noPath && !Path!.Finished && (local.Preparing || (execution?.MidMove ?? For(Path.Current.Kind).MidMove));
-        bool stale = forceReplan || (noPath && !failedRecently) || (!noPath && (Path!.Finished || (ticksSincePlan >= ReplanInterval && !midMove) || stuck));
+        bool policyChanged = search != null && (searchLava != AStar.AllowLava || searchOneWay != AStar.AllowOneWayDrops || searchCapabilities != Capabilities);
+        bool stale = forceReplan || policyChanged || search?.Valid == false || (noPath && !failedRecently)
+            || (!noPath && (Path!.Finished || stuck));
         // Plan only from the ground: an airborne body has no standable tile under it, and a
         // plan that failed for that reason blocked replanning for the retry wait, during which
         // straight walking hopped every kerb and put the body back in the air for the next try.
@@ -260,6 +285,12 @@ public sealed class Navigator
         // turned round, and it circled between two jumps with nothing ever faulting. The mid-move
         // guard exists for exactly that and was applied to one of the two ways a plan starts.
         bool replan = goalMoved ? !midMove || stuck : stale;
+        if (search != null && !goalMoved && !forceReplan && !policyChanged && search.Valid
+            && (!search.Finished || search.Stop == AStar.SearchStopReason.Found && (Path == null || Path.Partial)))
+        {
+            AdvanceSearch(live, publish: !midMove);
+            replan = search is { Finished: true } && (Path == null || Path.Finished);
+        }
         if (goal != null && replan && (live.OnGround || live.CannotAct))
         {
             // A cadence replan can replace the edge on the tick it lands. Settle its outcome
@@ -292,8 +323,26 @@ public sealed class Navigator
         // A committed traversal owns its preparation controls; the local search remains the
         // active controller whenever there is no committed edge (including after a repair or
         // interruption), where it starts from the live state rather than a snapped node.
-        Controls controls = Path is { Finished: false } ? preferred : local.Choose(NavGrid.World, live, localTarget, preferred, Capabilities, UnsafeAtTick);
+        Controls controls;
+        if (Path is { Finished: false })
+        {
+            clearance.Clear();
+            controls = preferred;
+        }
+        else
+        {
+            if (Vector2.DistanceSquared(clearanceTarget, targetFeet) > GoalSlackTiles * GoalSlackTiles * 256f)
+            { clearance.Clear(); clearanceTarget = targetFeet; }
+            bool chosen = clearance.TryChoose(NavGrid.World, live,
+                state => state.OnGround && Vector2.DistanceSquared(state.Feet, targetFeet) <= ArriveDistance * ArriveDistance,
+                state => Vector2.Distance(state.Feet, targetFeet) / BodyPhysics.WalkSpeed,
+                Capabilities, PlanBudget / 12, PlanLocalMovement.PreparationMsBudget, out controls, UnsafeAtTick);
+            if (chosen) { Status = ExecutionStatus.Preparing; ProgressReason = "executing-clearance"; }
+            else if (clearance.Pending) { Status = ExecutionStatus.Preparing; ProgressReason = "searching-clearance"; }
+            else controls = local.Choose(NavGrid.World, live, localTarget, preferred, Capabilities, UnsafeAtTick);
+        }
         TrackStuck(live);
+        expectedBody = BodyMotion.Step(NavGrid.World, live, controls, Capabilities);
         return controls;
     }
 
@@ -318,6 +367,7 @@ public sealed class Navigator
         execution = null;
         stepFaulted = false;
         forceReplan = false;
+        clearance.Clear();
         floor.Reset();
     }
 
@@ -331,11 +381,13 @@ public sealed class Navigator
 
     private void Plan(BodyState live, Point goal)
     {
+        SearchId++;
         Point start = live.FeetTile;
         GoalTile = goal;
         ticksSincePlan = 0;
         forceReplan = false;
         PlannedThisTick = true;
+        clearance.Clear();
         // The step in hand keeps its clock across a plan that returns it again, so a step the
         // body cannot take runs out its allowance once and faults. A faulted step is terminal;
         // selecting the same edge again begins a new attempt with its own outcome.
@@ -369,9 +421,15 @@ public sealed class Navigator
         try
         {
             RefreshRejectedEntries(live, clock);
-            Path = AStar.Find(from.Value, goal, PlanBudget, out used, out var stop,
-                step => !EntryRejected(step, live), live.Pose);
-            LastSearchStop = stop;
+            search?.Dispose();
+            searchLava = AStar.AllowLava; searchOneWay = AStar.AllowOneWayDrops;
+            searchCapabilities = Capabilities;
+            search = new ContinueRouteSearch(from.Value, goal, searchLava, searchOneWay,
+                live.Pose, step => !EntryRejected(step, live));
+            search.Advance(PlanBudget, PlanMsBudget);
+            Path = search.Result();
+            used = search.Expansions;
+            LastSearchStop = search.Stop;
         }
         finally
         {
@@ -381,6 +439,11 @@ public sealed class Navigator
         }
         LastPlanMs = watch.Elapsed.TotalMilliseconds;
         LastExpansions = used;
+        SearchExpansions = used;
+        ExperienceRoutesUsed = search?.ExperienceRoutesUsed ?? 0;
+        SearchPending = search is { Finished: false };
+        ProgressReason = SearchPending ? "search-incomplete" : Path != null ? "route-available"
+            : LastSearchStop == AStar.SearchStopReason.Exhausted ? "model-exhausted" : "search-limit";
         if (Path != null)
         {
             // The floor's stall counter is about one attempt at one target, so it starts clean
@@ -411,6 +474,39 @@ public sealed class Navigator
             BehaviourCensus.PlanFailed();
         if (LastPlanFailed)
             PlanFailed?.Invoke(from.Value, goal, Path?.Goal, used, Path == null ? "no path" : "partial path");
+    }
+
+    private void AdvanceSearch(BodyState live, bool publish)
+    {
+        var query = search!;
+        if (searchLava != AStar.AllowLava || searchOneWay != AStar.AllowOneWayDrops)
+        { query.Dispose(); search = null; forceReplan = true; SearchPending = false; return; }
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        int before = query.Expansions;
+        query.Advance(PlanBudget, PlanMsBudget);
+        LastPlanMs = watch.Elapsed.TotalMilliseconds;
+        LastExpansions = query.Expansions - before;
+        SearchExpansions = query.Expansions;
+        ExperienceRoutesUsed = query.ExperienceRoutesUsed;
+        SearchPending = !query.Finished;
+        LastSearchStop = query.Stop;
+        ProgressReason = SearchPending ? "search-incomplete" : query.Stop == AStar.SearchStopReason.Found ? "route-available"
+            : query.Stop == AStar.SearchStopReason.Exhausted ? "model-exhausted" : "search-limit";
+        // A result is attached only where the body actually joins it. A proof rooted at an
+        // earlier pose cannot be installed as if the companion had stayed there while searching.
+        if (!publish || !live.OnGround) return;
+        NavPath? result = query.Result();
+        if (result == null) return;
+        int join = result.Steps.FindIndex(step => step.From == live.FeetTile);
+        if (join < 0) return;
+        if (Path is { Finished: false } old && !old.Partial) return;
+        if (onStep is NavStep active && result.Steps[join] != active)
+        { Report(active, ticksOnStep, TraversalFault.Interrupted); onStep = null; execution = null; }
+        result.Index = join;
+        Path = result;
+        LastPlanFailed = result.Partial;
+        LastPlanEmpty = false;
+        PlannedThisTick = true;
     }
 
     internal void RefreshRejectedEntries(BodyState live, int now)
@@ -470,6 +566,11 @@ public sealed class Navigator
         Traversal traversal = For(step.Kind);
         if (onStep != step)
         {
+            AttemptId++;
+            entryState = live;
+            attemptContinuous = true;
+            entryRevision = NavGrid.World.Revision;
+            sweptBody = BodyBox(live);
             onStep = step;
             edgeReported = false;
             ticksOnStep = 0;
@@ -564,9 +665,17 @@ public sealed class Navigator
         if (edgeReported) return;
         edgeReported = true;
         LastEdge = new EdgeReport(step.Kind, step.From, step.Tile, step.Ticks, ticks, outcome);
+        ProgressReason = outcome == TraversalFault.None ? "traversal-completed" : outcome == TraversalFault.Interrupted ? "traversal-interrupted" : "traversal-failed";
         EdgeCount++;
+        if (outcome == TraversalFault.None && attemptContinuous && entryRevision == NavGrid.World.Revision)
+            RememberExecutedRoutes.World.Record(NavGrid.World, step, entryState, observed, sweptBody);
+        else if (outcome != TraversalFault.Interrupted && outcome != TraversalFault.None)
+            RememberExecutedRoutes.World.Forget(step);
         BehaviourCensus.Finished(step, outcome);
     }
+
+    private static Rectangle BodyBox(BodyState state) => new((int)Math.Floor(state.Left),
+        (int)Math.Floor(state.Bottom - BodyPhysics.Height), (int)BodyPhysics.Width + 1, (int)BodyPhysics.Height + 1);
 
     /// <summary>
     /// The floor: a move from the current state with no plan, which is what every vanilla walker
@@ -597,6 +706,8 @@ public sealed class Navigator
             Report(step, ticksOnStep, TraversalFault.Interrupted);
         Path = null;
         GoalTile = null;
+        clearance.Clear();
+        search?.Dispose(); search = null; SearchPending = false;
         StuckStrikes = 0;
         PlannedThisTick = false;
         onStep = null;

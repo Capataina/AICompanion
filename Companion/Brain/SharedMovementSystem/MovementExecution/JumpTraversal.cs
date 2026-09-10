@@ -26,6 +26,12 @@ public sealed class JumpTraversal : Traversal
 
     public override IEnumerable<NavEdge> Candidates(NavNode node, BodyPhysics.Pose? here, bool lava)
     {
+        foreach (var work in CandidateWork(node, here, lava))
+            if (work is NavEdge edge) yield return edge;
+    }
+
+    public override IEnumerable<NavEdge?> CandidateWork(NavNode node, BodyPhysics.Pose? here, bool lava)
+    {
         Point t = node.Tile;
         // A jump straight up onto the tile above needs a platform to pass through, which Fits
         // allows and a block refuses.
@@ -53,6 +59,7 @@ public sealed class JumpTraversal : Traversal
                 // that does is the edge.
                 foreach ((float scale, float startVx) in JumpProfiles(rise, Math.Sign(dx)))
                 {
+                    yield return null;
                     // A running start exists only where the floor behind the take-off is long
                     // enough to build it: the follow harness (2026-09-08) found sixteen blocks
                     // proving a walk-speed jump off a slope at the bottom of a pool with rock
@@ -64,7 +71,7 @@ public sealed class JumpTraversal : Traversal
                     var landed = new Point((int)Math.Floor(landing.CentreX / 16f), BodyPhysics.FeetRow(landing.Bottom));
                     if (landed != target)
                         continue;
-                    yield return new NavEdge(new NavStep(target, MoveKind.Jump, t, scale, startVx, Ticks: flight), JumpCost(flight), 0, true);
+                    yield return new NavEdge(new NavStep(target, MoveKind.Jump, t, scale, startVx, Ticks: flight), MovementCost(new NavStep(target, MoveKind.Jump, t, Ticks: flight)), 0, true);
                     break;
                 }
             }
@@ -109,7 +116,6 @@ public sealed class JumpTraversal : Traversal
     /// A jump costs its flight time in walked tiles plus one, so a jump is taken only where the
     /// walk of the same width does not exist, and a long arc costs more than a short hop.
     /// </summary>
-    private static float JumpCost(int ticks) => 1f + ticks * BodyPhysics.WalkSpeed / 16f;
 
     // The jump edge the run-up state belongs to, and where the run-up stands: backing away from
     // the take-off, already run once (so a second arrival at the take-off jumps whatever the

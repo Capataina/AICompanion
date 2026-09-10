@@ -21,6 +21,8 @@ Run `dotnet run --project Tools/EngineReplay` from the repository root. That too
 
 ## Traps
 
+`TrackTerrainChanges` also owns the lifecycle of executed-route memory. `OnWorldLoad` clears the static store before `LoadWorldData` restores that world's archive; `SaveWorldData` writes it to the world's tag, and unload clears it again. This callback order is specified by the installed tModLoader ModSystem reference. `ReadGameTerrain` exposes exact liquid kind and amount for compatibility fingerprints, because a liquid change can alter movement without a tile placement event.
+
 - A StepUp call can change position without changing vertical velocity. Recording only the engine’s later displacement misses that write; keep the AI-entry observation separate from the post-helper pose.
 - Sloped platforms have both shape and pass-through semantics. Dropping either property recreates a stair the graph cannot descend.
 - Terraria’s shimmer multiplier is non-zero. Treating shimmer as immobility passed same-simulator replay and failed the independent source review.

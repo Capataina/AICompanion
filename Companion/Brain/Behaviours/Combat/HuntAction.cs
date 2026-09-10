@@ -75,6 +75,7 @@ public sealed class HuntAction : CompanionAction
         float bestScore = 0f;
         foreach (ThreatRecord t in ctx.Senses.Threats.Threats)
         {
+            if (!t.Npc.CanBeChasedBy()) continue;
             if (!t.CanReachEither && !t.Npc.Hitbox.Intersects(screen))
                 continue;
             if (!t.CanReachEither && t.Npc.Hitbox.Intersects(screen) && t.Class != MovementClass.Phaser && !ctx.Companion.Arsenal.CanEngage(ctx, t.Npc))

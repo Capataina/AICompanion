@@ -17,6 +17,8 @@ Tile revision changes invalidate retained execution proofs. Text-world Set incre
 
 ## Traps
 
+Liquid kind and quantity are independent fingerprint inputs for executed-route memory. The live adapter provides the engine's exact values; older text captures can only supply the type and full-cell amount their glyph encodes. That reduced fidelity must not be described as a complete liquid reconstruction.
+
 - Flattening a stair to its slope loses pass-through; flattening it to a platform loses its diagonal contact geometry. Both properties must reach fitting, support and descent queries.
 - A platform’s style can change its frame without changing collision. Read the live adapter’s tile flags, rather than treating every non-zero frame as air.
 - A captured tile records one collision shape and pass-through property. The old glyph format cannot recover an absent property; reshape old captures from a saved world when needed.

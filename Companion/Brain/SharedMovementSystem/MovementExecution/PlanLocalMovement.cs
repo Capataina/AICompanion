@@ -54,8 +54,7 @@ public sealed class PlanLocalMovement
     public bool TryPrepare(ITileWorld world, TraversalExecution execution, BodyState live,
         Func<BodyState, int, bool>? unsafeAtTick, out Controls controls)
     {
-        preparationDeadline = PreparationMsBudget <= 0 ? 0 : System.Diagnostics.Stopwatch.GetTimestamp()
-            + (long)(PreparationMsBudget * System.Diagnostics.Stopwatch.Frequency / 1000d);
+        preparationDeadline = LimitPlanningWork.Deadline(PreparationMsBudget);
         try { return Prepare(world, execution, live, unsafeAtTick, out controls); }
         finally { preparationDeadline = 0; }
     }

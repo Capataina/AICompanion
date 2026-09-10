@@ -12,6 +12,8 @@ These three are what the companion does when nothing else scores, and the torch 
 
 Guard is scaled past the ordinary 0..1 band by `BehaviourWeights.GuardUrgency`, and that is arithmetic rather than tuning: the running behaviour keeps the commitment bonus, so an action topping out at 1 cannot displace a following body already at 1 × that bonus. `BehaviourWeights.cs` owns the ladder and why survive sits above this in turn.
 
+Guard scores the observation layer's protection urgency, which compares enemy arrival with the time until the companion can actually intervene. It is zero for a dead player; personal defence remains independent. Wander resets its stage when it resumes and discards a walking destination outside the player's current calm band, because a goal from before a long interruption is not a current companionship intention.
+
 None of the three fires a weapon and neither does guard, which used to. Shooting is the hands, run every tick from `Brain.Engage` whichever action won the feet, so a companion walking with the player shoots as readily as one guarding him — which is the whole point, because a player does not choose between travelling and attacking. Guarding is therefore a statement about *where to stand*, and the band it asks for is deliberately wide rather than tight: protecting someone means being able to hit what is attacking him, not standing where he stands, and a band that narrowed as danger rose was walking a ranged companion into the melee that was already hitting him.
 
 ## A stranded companion walks its pocket

@@ -14,3 +14,5 @@ What hunting scores on, past the target being worth hitting, is two terms that e
 The weapon itself is picked and the shot solved in `../../../Weapons/Arsenal.cs` through `../../ProjectileAiming/`. The weapons are equipment, not behaviour, which is why they are not in the brain.
 
 Kiting checks whether the hostile can reach the companion, independently of whether it can reach the player. Hunting considers threats to either actor; personal danger still discounts its score, so recognising a nearby hostile is not permission to abandon following.
+
+Kite anchors its retreat on the companion and selects its most urgent personal threat. Hunt additionally requires a currently attackable NPC: an invulnerable hostile is an avoidance problem, not a target worth pursuing. The chooser prices excursions against both regroup time and protection urgency, so a hunt cannot borrow safety from a player the companion would reach too late to help.

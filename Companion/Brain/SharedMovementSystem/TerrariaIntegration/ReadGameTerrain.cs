@@ -31,6 +31,8 @@ public sealed class GameTileWorld : ITileWorld, IBodySimulationWorld
 
     public bool Water(int x, int y) => InWorld(x, y) && Main.tile[x, y].LiquidAmount > 0 && Main.tile[x, y].LiquidType != LiquidID.Lava;
     public bool Lava(int x, int y) => InWorld(x, y) && Main.tile[x, y].LiquidAmount > 0 && Main.tile[x, y].LiquidType == LiquidID.Lava;
+    public int LiquidKind(int x, int y) => InWorld(x, y) ? Main.tile[x, y].LiquidType : 0;
+    public byte LiquidAmount(int x, int y) => InWorld(x, y) ? Main.tile[x, y].LiquidAmount : (byte)0;
     public BodyState Simulate(BodyState state, Controls controls, MovementCapabilities capabilities)
         => SimulateTerrariaBody.Step(state, controls, capabilities);
 }

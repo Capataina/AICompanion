@@ -64,7 +64,10 @@ public sealed class DropTraversal : Traversal
         foreach (float line in lines)
         {
             if (Simulate(pose, line, throughPlatform, lava, t.Y, out Point landing, out int ticks, out int fall) && seen.Add(landing))
-                yield return new NavEdge(new NavStep(landing, kind, t, SteerX: line, Ticks: ticks), 1f + fall * 0.2f, fall, true);
+            {
+                var step = new NavStep(landing, kind, t, SteerX: line, Ticks: ticks);
+                yield return new NavEdge(step, MovementCost(step), fall, true);
+            }
         }
     }
 
