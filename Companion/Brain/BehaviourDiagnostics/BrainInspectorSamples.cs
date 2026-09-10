@@ -20,10 +20,10 @@ public static class BrainInspectorSamples
         if (!BrainOverlay.MayCapture || !BrainOverlay.ShowMovement) return;
         LastReflex = new Reflex(tick, unsafeTick, body);
     }
-    public static void RecordAim(ulong tick, Vector2 muzzle, Vector2 target, string weapon, Vector2? launch, string outcome)
+    public static void RecordAim(Vector2 muzzle, Vector2 target, string weapon, Vector2? launch, string outcome)
     {
         if (!BrainOverlay.MayCapture || !BrainOverlay.ShowAiming) return;
-        LastAim = new Aim(tick, muzzle, target, weapon, launch, outcome);
+        LastAim = new Aim(Terraria.Main.GameUpdateCount, muzzle, target, weapon, launch, outcome);
     }
     public static void RecordMovement(Controls controls, Vector2[] points, float score)
         => Add(MovementTraces, points, score < float.MaxValue, controls + ";score=" + score);

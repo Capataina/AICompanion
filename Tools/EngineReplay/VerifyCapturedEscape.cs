@@ -21,7 +21,64 @@ internal static class VerifyCapturedEscape
         for (int repeat = 0; repeat < 3; repeat++) failed += VerifyCapturedPoolEscape();
         failed += VerifyAwning("captured-right-awning", mirrored: false);
         failed += VerifyAwning("mirrored-left-awning", mirrored: true);
+        failed += VerifyFullBrainAwning(false, 200);
+        failed += VerifyFullBrainAwning(true, 30);
+        failed += VerifyFullBrainCapturedPool();
         return failed;
+    }
+
+    private static int VerifyFullBrainCapturedPool()
+    {
+        BuildCapturedPool();
+        var companion = VerifyCompanionLifecycle.Create();
+        Main.player[0].dead = false;
+        Main.player[0].Bottom = new Vector2(2024, 1376);
+        companion.NPC.position = new Vector2(1356, 2016 - companion.NPC.height);
+        companion.NPC.velocity = Vector2.Zero; companion.NPC.wet = true; companion.NPC.active = true;
+        typeof(live::AICompanion.Companion.CharacterBody.CompanionBreath).GetProperty("Breath")!.SetValue(companion.Breath, 40);
+        int dry = 0;
+        for (int tick = 0; tick < 630; tick++)
+        {
+            VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
+            companion.AI(); VerifyResponsiveFollowing.AdvanceNative(companion);
+            dry = !Collision.DrownCollision(companion.NPC.position, companion.NPC.width, companion.NPC.height, 1f) ? dry + 1 : 0;
+            if (companion.IsDowned || companion.NPC.life <= 0) break;
+            if (dry >= 30)
+            {
+                Console.WriteLine($"PASS full-brain captured pool: sustained air at {tick}, life={companion.NPC.life}, breath={companion.Breath.Breath}");
+                return 0;
+            }
+        }
+        Console.WriteLine($"FAIL full-brain captured pool: feet={companion.NPC.Bottom}, life={companion.NPC.life}, breath={companion.Breath.Breath}, action={companion.Brain.LastAction?.Name}");
+        return 1;
+    }
+
+    private static int VerifyFullBrainAwning(bool mirrored, int breath)
+    {
+        BuildAwning(mirrored);
+        var companion = VerifyCompanionLifecycle.Create();
+        Main.player[0].dead = false;
+        Main.player[0].position = new Vector2((mirrored ? 70 : 30) * 16, 70 * 16 - Main.player[0].height);
+        companion.NPC.position = new Vector2((mirrored ? 45 : 54) * 16, 70 * 16 - companion.NPC.height);
+        companion.NPC.velocity = Vector2.Zero;
+        companion.NPC.wet = true;
+        typeof(live::AICompanion.Companion.CharacterBody.CompanionBreath).GetProperty("Breath")!.SetValue(companion.Breath, breath);
+        int dryTicks = 0;
+        for (int tick = 0; tick < 720; tick++)
+        {
+            VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
+            companion.AI();
+            VerifyResponsiveFollowing.AdvanceNative(companion);
+            dryTicks = !companion.NPC.wet ? dryTicks + 1 : 0;
+            if (dryTicks >= 60)
+            {
+                Console.WriteLine($"PASS full-brain wet awning mirrored={mirrored} breath={breath}: stable dry exit at {tick}, action={companion.Brain.LastAction?.Name}");
+                return 0;
+            }
+            if (companion.IsDowned) break;
+        }
+        Console.WriteLine($"FAIL full-brain wet awning mirrored={mirrored} breath={breath}: {companion.NPC.Bottom}, action={companion.Brain.LastAction?.Name}, goal={companion.Brain.Positioner.Chosen}, status={companion.Brain.Navigator.Status}, controls={companion.Motor.AppliedControls}");
+        return 1;
     }
 
     private static int VerifyCapturedPoolEscape()
@@ -34,9 +91,41 @@ internal static class VerifyCapturedEscape
             Capabilities: MovementCapabilities.Basic);
         var companion = VerifyCompanionLifecycle.Create();
         Main.player[0].dead = false;
+        companion.NPC.active = true;
+        // The captured row has 0.20 of the native 200-unit breath bar remaining.
+        // Surviving the escape is the contract; damage-free escape from a late
+        // rescue is not guaranteed, and a one-cell dry-head test was insufficient.
+        typeof(live::AICompanion.Companion.CharacterBody.CompanionBreath).GetProperty("Breath")!.SetValue(companion.Breath, 40);
         var survival = new live::AICompanion.Companion.Brain.Behaviours.Survival.SurviveAction();
-        typeof(live::AICompanion.Companion.CharacterBody.CompanionBreath).GetProperty("Breath")!.SetValue(companion.Breath, 30);
-        for (int tick = 0; tick < 210; tick++)
+        if (Environment.GetEnvironmentVariable("AIC_TRACE_POOL") == "1")
+        {
+            var search = new SearchControlSequences();
+            BodyState searched = live;
+            for (int t = 0; t < 1400; t++)
+            {
+                bool found = search.TryChoose(NavGrid.World, searched, HeadDry,
+                    s => Vector2.Distance(s.Feet, new Vector2(75 * 16, 109 * 16)), MovementCapabilities.Basic, 120, 0d, out Controls c);
+                BodyState prediction = BodyMotion.Step(NavGrid.World, searched, c);
+                searched = VerifyEngineMotion.RunEngine(searched, c);
+                if (t < 240 && t % 8 == 0) Console.WriteLine($"PROBE tick={t} input={c.MoveX},{c.Jump} feet={searched.Feet} retained={search.RetainedTicks} pending={search.Pending} error={Vector2.Distance(prediction.Feet, searched.Feet)}");
+                if (HeadDry(searched)) { Console.WriteLine($"PROBE search dry tick={t} feet={searched.Feet}"); break; }
+            }
+            Console.WriteLine($"PROBE search no-deadline final={searched.Feet}");
+            foreach (int direction in new[] { -1, 1 })
+            {
+                BodyState probe = live;
+                float highest = live.Bottom;
+                for (int t = 0; t < 600; t++)
+                {
+                    probe = VerifyEngineMotion.RunEngine(probe, new Controls(direction * BodyPhysics.WalkSpeed, Jump: true));
+                    highest = Math.Min(highest, probe.Bottom);
+                    if (HeadDry(probe)) { Console.WriteLine($"PROBE dry direction={direction} tick={t} feet={probe.Feet}"); break; }
+                }
+                Console.WriteLine($"PROBE direction={direction} highest={highest} final={probe.Feet}");
+            }
+        }
+        int maximumTicks = 40 * 7 + companion.NPC.life / 2 * 7;
+        for (int tick = 0; tick < maximumTicks; tick++)
         {
             VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
             companion.NPC.position = new Vector2(live.Left, live.Bottom - BodyPhysics.Height);
@@ -53,13 +142,13 @@ internal static class VerifyCapturedEscape
             if (!chosen && !pending) throw new InvalidOperationException($"production escape has no control or pending work at {tick}");
             var controls = new Controls(input.MoveX, Jump: input.Jump, FallThrough: input.FallThrough, Descend: input.Descend);
             live = VerifyEngineMotion.RunEngine(live, controls);
-            if (HeadDry(live))
+            if (HeadDry(live) && companion.NPC.life > 0)
             {
                 Console.WriteLine($"PASS production captured-pool escape: head dry after {tick + 1} ticks, breath {companion.Breath.Breath}, final {live.Feet}");
                 return 0;
             }
         }
-        Console.WriteLine($"FAIL captured-pool escape: head still submerged when initial breath expires, final {live}; air target {survival.AirTarget}");
+        Console.WriteLine($"FAIL captured-pool escape: no living escape before the native breath/life allowance expired, final {live}; air target {survival.AirTarget}");
         DumpNativeControls(live);
         return 1;
     }
@@ -76,9 +165,8 @@ internal static class VerifyCapturedEscape
 
     private static bool HeadDry(BodyState state)
     {
-        int head = (int)MathF.Floor((state.Bottom - BodyPhysics.Height) / 16f);
-        int x = (int)MathF.Floor(state.CentreX / 16f);
-        return !NavGrid.World.Water(x, head) && !NavGrid.World.Lava(x, head);
+        return !Collision.DrownCollision(new Vector2(state.Left, state.Bottom - BodyPhysics.Height), BodyPhysics.Width, BodyPhysics.Height, 1f)
+            && !Collision.LavaCollision(new Vector2(state.Left, state.Bottom - BodyPhysics.Height), BodyPhysics.Width, BodyPhysics.Height);
     }
 
     private static int VerifyAwning(string name, bool mirrored)

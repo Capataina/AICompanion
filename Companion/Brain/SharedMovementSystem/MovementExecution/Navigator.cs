@@ -52,7 +52,7 @@ public sealed class Navigator
     public Func<BodyState, int, bool>? UnsafeAtTick { get; set; }
     private const int ReplanInterval = 30;
     private const int FailedPlanRetry = 90;
-    private const float ArriveDistance = 12f;
+    public const float ArriveDistance = 12f;
 
     /// <summary>Where a failed plan is reported (the telemetry's tile-window dump in the game; nothing in the replay): start, goal, where a partial path ends, expansions, reason.</summary>
     public static Action<Point, Point, Point?, int, string>? PlanFailed;
@@ -342,9 +342,6 @@ public sealed class Navigator
         // actual pose, velocity, liquid state and remaining mobility. This stays on for fallback
         // movement as well, so an interrupted path does not revert to the old standing-node rule.
         live = live with { Capabilities = Capabilities };
-        Vector2 localTarget = targetFeet;
-        if (Path is { Finished: false } p)
-            localTarget = p.Current.Kind == MoveKind.Jump ? NavGrid.FeetWorld(p.Current.From) : NavGrid.FeetWorld(p.Current.Tile);
         // A committed traversal owns its preparation controls; the local search remains the
         // active controller whenever there is no committed edge (including after a repair or
         // interruption), where it starts from the live state rather than a snapped node.
@@ -361,10 +358,14 @@ public sealed class Navigator
             bool chosen = clearance.TryChoose(NavGrid.World, live,
                 state => state.OnGround && Vector2.DistanceSquared(state.Feet, targetFeet) <= ArriveDistance * ArriveDistance,
                 state => Vector2.Distance(state.Feet, targetFeet) / BodyPhysics.WalkSpeed,
-                Capabilities, PlanBudget / 12, PlanLocalMovement.PreparationMsBudget, out controls, UnsafeAtTick);
+                Capabilities, PlanBudget / 12, PlanLocalMovement.PreparationMsBudget, out controls, UnsafeAtTick,
+                allowPartialProgress: false);
             if (chosen) { Status = ExecutionStatus.Preparing; ProgressReason = "executing-clearance"; }
             else if (clearance.Pending) { Status = ExecutionStatus.Preparing; ProgressReason = "searching-clearance"; }
-            else controls = local.Choose(NavGrid.World, live, localTarget, preferred, Capabilities, UnsafeAtTick);
+            // The route planner already supplies useful partial routes. A local repair must
+            // prove its endpoint before leaving that ground: Euclidean improvement alone can
+            // drop the body into another pocket and undo a detour around the same wall.
+            else { controls = Controls.None; ProgressReason = "no-proven-clearance"; }
         }
         TrackStuck(live);
         expectedBody = BodyMotion.Step(NavGrid.World, live, controls, Capabilities);

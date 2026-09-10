@@ -15,24 +15,12 @@ using AICompanion.Companion.Brain.WorldObservation;
 namespace AICompanion.Companion.Weapons;
 
 /// <summary>
-/// The two equipped weapons and the choice between them, made by one number: how much damage each
-/// would actually land in the next few seconds, fired from where the companion is standing, at the
-/// hostiles that are really there. The weapon with the larger number wins, the shot is solved
-/// through the aimer, aim noise is added, and it fires when the cooldown allows.
-///
-/// The number is deliberately not the game's own DPS readout, which is damage *output* per second
-/// and would make a heavy single-target weapon look enormous against a slime it overkills by a
-/// factor of fifteen. Three things separate the two. Damage is counted over a window rather than
-/// per shot, so a slower weapon that clears a line can outscore a faster one that kills singly.
-/// Every hostile contributes only the life it still has, so surplus damage is not counted twice.
-/// And the bodies a shot hits are the ones its simulated arc actually crosses, capped by what its
-/// projectile can pierce, so a wall, a gap or a bad angle removes them without anyone writing a
-/// rule about walls, gaps or angles.
-///
-/// What that buys is the point of the design: a weapon is a set of numbers, so a roster of ninety
-/// weapons needs no per-weapon behaviour. Whatever pierces, hits hard, fires fast, sprays, crits or
-/// reaches further is compared on the same scale, and a shot with no solution scores zero, which is
-/// why the companion can no longer stand holding a bow it cannot fire while something kills it.
+/// Compares feasible weapon/target pairs by useful damage, timely threat removal and
+/// follow-up attacks. Geometry supplies actual predicted intersections; the outcome
+/// evaluator reserves health so an in-flight shot cannot earn its kill twice. The
+/// bounded candidate set is ordered by danger before distance. Neither a weapon nor
+/// an enemy type owns a special suitability rule. The final, accuracy-adjusted arc is
+/// checked again before firing because the forecast is not permission to hit a wall.
 /// </summary>
 public sealed class Arsenal
 {
@@ -59,6 +47,10 @@ public sealed class Arsenal
     /// </summary>
     public float LastPrimaryExpected { get; private set; }
     public float LastSecondaryExpected { get; private set; }
+    public float LastAttackValue { get; private set; }
+    public float LastPreventedHarm { get; private set; }
+    public int LastExpectedKills { get; private set; }
+    public int CooldownTicks => cooldown;
 
     /// <summary>
     /// Why the last tick did or did not put a projectile in the air, as one word: <c>fired</c>,
@@ -92,7 +84,6 @@ public sealed class Arsenal
 
     private readonly NPC[] pierced = new NPC[MaxPierceCounted];
     private readonly List<NPC> hostiles = new();
-    private readonly Dictionary<int, int> spent = new();
 
     public void Tick()
     {
@@ -100,7 +91,7 @@ public sealed class Arsenal
             cooldown--;
     }
 
-    /// <summary>The weapon that would land the most damage on this target from here, and its profile for the positioner.</summary>
+    /// <summary>The weapon with the highest predicted outcome value against this target from here.</summary>
     public CompanionWeapon Choose(in ActionContext ctx, NPC target)
     {
         int now = ctx.Senses.Tick;
@@ -110,12 +101,17 @@ public sealed class Arsenal
             return chosen;
 
         Collect(ctx);
-        float a = ExpectedDamage(ctx, Primary, target);
-        float b = ExpectedDamage(ctx, Secondary, target);
-
-        chosen = a >= b ? Primary : Secondary;
-        LastPrimaryExpected = a;
-        LastSecondaryExpected = b;
+        var options = new List<EvaluateAttackOutcomes.Attack>();
+        var a = ForecastAttack(ctx, Primary, 0, target, out _);
+        var b = ForecastAttack(ctx, Secondary, 1, target, out _);
+        if (a != null) options.Add(a);
+        if (b != null) options.Add(b);
+        var targets = AttackTargets(ctx);
+        var first = a == null ? default : EvaluateAttackOutcomes.Evaluate(a, options, targets, cooldown, HorizonTicks);
+        var second = b == null ? default : EvaluateAttackOutcomes.Evaluate(b, options, targets, cooldown, HorizonTicks);
+        chosen = first.Value >= second.Value ? Primary : Secondary;
+        LastPrimaryExpected = first.Damage;
+        LastSecondaryExpected = second.Damage;
         chosenFor = slot;
         chosenAt = now;
         chosenState = state;
@@ -132,66 +128,9 @@ public sealed class Arsenal
         => target == null ? null : Choose(ctx, target).Profile;
 
     /// <summary>
-    /// What <paramref name="weapon"/> would take off in the next <see cref="HorizonTicks"/> ticks,
-    /// firing at <paramref name="target"/> from where the companion stands. Zero when no arc lands,
-    /// which is the whole of the rule that stops an unusable weapon being held.
-    /// </summary>
-    public float ExpectedDamage(in ActionContext ctx, CompanionWeapon weapon, NPC target)
-    {
-        if (Vector2.Distance(ctx.Npc.Center, target.Center) > weapon.Reach)
-            return 0f;
-
-        Vector2 muzzle = Muzzle(ctx.Npc);
-        if (TrajectoryAimer.Solve(muzzle, target, weapon.Profile) is not Vector2 launch)
-        {
-            BrainInspectorSamples.RecordAim((ulong)ctx.Senses.Tick, muzzle, target.Center, weapon.Name, null, "no-arc");
-            return 0f;
-        }
-        BrainInspectorSamples.RecordAim((ulong)ctx.Senses.Tick, muzzle, target.Center, weapon.Name, launch, "solved");
-
-        int crossed = TrajectoryAimer.PathHits(muzzle, launch, weapon.Profile, hostiles, pierced);
-        if (crossed == 0)
-            return 0f;
-
-        int bodies = Math.Min(weapon.Pierce, crossed);
-        int shots = Math.Max(1, HorizonTicks / Math.Max(1, weapon.UseTime));
-        int volley = Math.Max(1, weapon.ProjectilesPerShot);
-
-        // Walk the window shot by shot, and inside each shot give every body the arc pierces its
-        // own hit, which is what pierce means. An earlier version handed out shots × bodies hits
-        // to whichever body was still alive, which is the same total while nothing dies and
-        // undercounts a piercing weapon once the front body drops mid-window (69 against 72 on
-        // two 45-life zombies, found by review). Each hostile absorbs only the life it has left,
-        // and that clamp is the whole reason a heavy single-target weapon does not win against a
-        // slime it overkills fifteen times over.
-        spent.Clear();
-        float total = 0f;
-        for (int shot = 0; shot < shots; shot++)
-        {
-            bool any = false;
-            for (int i = 0; i < bodies; i++)
-            {
-                NPC npc = pierced[i];
-                spent.TryGetValue(npc.whoAmI, out int already);
-                int remaining = npc.life - already;
-                if (remaining <= 0)
-                    continue;
-                int dealt = (int)MathF.Min(PerHit(ctx, weapon, npc) * volley, remaining);
-                spent[npc.whoAmI] = already + dealt;
-                total += dealt;
-                any = true;
-            }
-            if (!any)
-                break; // everything on this arc is dead inside the window; more shots buy nothing
-        }
-        return total;
-    }
-
-    /// <summary>
-    /// The hostile worth shooting from where the companion stands: the one whose best weapon lands
-    /// the most damage, weighted by how urgently it is coming for someone. A target nothing can
-    /// solve an arc to scores zero and is therefore never picked, so this returns null exactly when
-    /// there is genuinely nothing to shoot rather than when the companion is in the wrong mode.
+    /// The best legal first attack over a bounded target shortlist, considering effective damage,
+    /// threat removal and follow-up attacks together. A failed arc earns no attack value. A null
+    /// result means no considered option solved a useful shot, not proof that every enemy is unreachable.
     ///
     /// Held while feasible unless a more urgent player threat appears. Only a bounded shortlist,
     /// ordered by urgency then distance, is considered: with thirteen hostiles
@@ -207,7 +146,8 @@ public sealed class Arsenal
         ThreatRecord? urgent = ctx.Senses.Threats.MostUrgent;
         ThreatRecord? heldThreat = held == null ? null : ctx.Senses.Threats.Threats.Find(t => ReferenceEquals(t.Npc, held));
         bool newlyUrgent = urgent != null && urgent.Npc != held && urgent.Urgency > (heldThreat?.Urgency ?? 0f);
-        if (held != null && now - heldAt < TargetHoldTicks && !newlyUrgent && CanEngage(ctx, held))
+        int stamp = CombatStamp(ctx);
+        if (held != null && now - heldAt < TargetHoldTicks && stamp == heldStamp && !newlyUrgent && CanEngage(ctx, held))
             return held;
 
         Collect(ctx);
@@ -226,29 +166,95 @@ public sealed class Arsenal
         int considered = Math.Min(candidates.Count, MaxTargetsConsidered);
         TargetEvidenceTick = now;
         var evidence = new List<string>();
+        var attacks = new List<EvaluateAttackOutcomes.Attack>();
+        var targets = AttackTargets(ctx);
         for (int i = 0; i < considered; i++)
         {
             ThreatRecord t = candidates[i];
-            float damage = MathF.Max(ExpectedDamage(ctx, Primary, t.Npc), ExpectedDamage(ctx, Secondary, t.Npc));
-            evidence.Add(FormattableString.Invariant($"{t.Npc.whoAmI}:{HostileAttackSources.Generation(t.Npc)}:{damage:0.000}:{MathF.Max(t.Urgency, t.UrgencyToCompanion):0.000}"));
-            if (damage <= 0f)
-                continue;
-            // Urgency breaks ties toward whatever is about to reach someone, so a zombie two steps
-            // from the player beats an equally shootable one wandering the far side of the cave.
-            float score = damage * (1f + MathF.Max(t.Urgency, t.UrgencyToCompanion));
+            for (int w = 0; w < 2; w++)
+            {
+                var attack = ForecastAttack(ctx, w == 0 ? Primary : Secondary, w, t.Npc, out string rejection);
+                if (attack != null) attacks.Add(attack);
+                else evidence.Add($"{t.Npc.whoAmI}:{HostileAttackSources.Generation(t.Npc)}:0:0:weapon={w}:{rejection}");
+            }
+        }
+        EvaluateAttackOutcomes.Attack? winner = null;
+        EvaluateAttackOutcomes.Outcome winningOutcome = default;
+        foreach (var attack in attacks)
+        {
+            var outcome = EvaluateAttackOutcomes.Evaluate(attack, attacks, targets, cooldown, HorizonTicks);
+            float score = outcome.Value;
+            evidence.Add(FormattableString.Invariant($"{attack.Target}:{HostileAttackSources.Generation(Main.npc[attack.Target])}:{outcome.Damage:0.000}:weapon={attack.Weapon}:kills={outcome.Kills}:harm={outcome.PreventedHarm:0.000}:value={score:0.000}"));
             if (score > bestScore)
             {
                 bestScore = score;
-                best = t.Npc;
+                best = Main.npc[attack.Target]; winner = attack; winningOutcome = outcome;
             }
         }
 
         held = best;
         heldGeneration = best == null ? 0 : HostileAttackSources.Generation(best);
         heldAt = now;
-        LastTargetExpected = bestScore;
+        heldStamp = stamp;
+        LastTargetExpected = winningOutcome.Damage;
+        LastAttackValue = winningOutcome.Value;
+        LastPreventedHarm = winningOutcome.PreventedHarm;
+        LastExpectedKills = winningOutcome.Kills;
+        if (winner != null && best != null)
+        {
+            chosen = winner.Weapon == 0 ? Primary : Secondary;
+            chosenFor = best.whoAmI; chosenAt = now; chosenState = ShotState.Capture(ctx, best);
+            LastChosen = chosen;
+            LastPrimaryExpected = LastSecondaryExpected = 0f;
+            foreach (var attack in attacks)
+                if (attack.Target == best.whoAmI)
+                {
+                    var outcome = EvaluateAttackOutcomes.Evaluate(attack, attacks, targets, cooldown, HorizonTicks);
+                    if (attack.Weapon == 0) LastPrimaryExpected = outcome.Damage; else LastSecondaryExpected = outcome.Damage;
+                }
+        }
         TargetEvidence = string.Join("|", evidence);
         return best;
+    }
+
+    private EvaluateAttackOutcomes.Attack? ForecastAttack(in ActionContext ctx, CompanionWeapon weapon, int slot, NPC target, out string rejection)
+    {
+        rejection = "outside-reach";
+        Vector2 muzzle = Muzzle(ctx.Npc);
+        if (Vector2.Distance(muzzle, target.Center) > weapon.Reach) return null;
+        rejection = "no-clear-trajectory";
+        if (!TrajectoryAimer.TrySolve(muzzle, target, weapon.Profile, out TrajectorySolution solution))
+        {
+            BrainInspectorSamples.RecordAim(muzzle, target.Center, weapon.Name, null, rejection);
+            return null;
+        }
+        BrainInspectorSamples.RecordAim(muzzle, target.Center, weapon.Name, solution.LaunchVelocity, "solved");
+        int crossed = TrajectoryAimer.PathHits(muzzle, solution.LaunchVelocity, weapon.Profile, hostiles, pierced);
+        var hits = new List<EvaluateAttackOutcomes.Hit>();
+        for (int i = 0; i < Math.Min(crossed, weapon.Pierce); i++)
+            hits.Add(new(pierced[i].whoAmI, PerHit(ctx, weapon, pierced[i])));
+        rejection = hits.Count == 0 ? "no-damageable-intercept" : "accepted";
+        return hits.Count == 0 ? null : new(slot, target.whoAmI, weapon.UseTime, solution.ImpactTick, hits.ToArray());
+    }
+
+    private static List<EvaluateAttackOutcomes.Target> AttackTargets(in ActionContext ctx)
+    {
+        var targets = new List<EvaluateAttackOutcomes.Target>();
+        foreach (ThreatRecord t in ctx.Senses.Threats.Threats)
+            if (t.Npc.CanBeChasedBy()) targets.Add(new(t.Npc.whoAmI, t.Npc.life,
+                MathF.Max(t.Urgency, t.UrgencyToCompanion), Math.Max(t.ExpectedDamage, t.Npc.damage)));
+        return targets;
+    }
+
+    private static int CombatStamp(in ActionContext ctx)
+    {
+        var hash = new HashCode(); hash.Add(Muzzle(ctx.Npc)); hash.Add(TerrainChanges.Revision);
+        foreach (var t in ctx.Senses.Threats.Threats)
+        {
+            hash.Add(t.Npc.whoAmI); hash.Add(HostileAttackSources.Generation(t.Npc)); hash.Add(t.Npc.life);
+            hash.Add(t.Npc.Center); hash.Add(t.Npc.velocity); hash.Add(t.Urgency); hash.Add(t.UrgencyToCompanion);
+        }
+        return hash.ToHashCode();
     }
 
     public int TargetEvidenceTick { get; private set; }
@@ -321,6 +327,7 @@ public sealed class Arsenal
     private NPC? held;
     private int heldGeneration;
     private int heldAt = 0;
+    private int heldStamp;
     private readonly List<ThreatRecord> candidates = new();
 
     /// <summary>The hostiles worth simulating against: the threat sense's own list, alive and hostile.</summary>
@@ -425,8 +432,12 @@ public sealed class Arsenal
         }
 
         int projectileIndex = weapon.Fire(ctx, muzzle, launch);
-        if (projectileIndex >= 0)
-            GodsEyeEvents.RecordShot(ctx.Npc, target, projectileIndex, muzzle, launch, finalShot.ExpectedImpact, weapon.Name, finalShot.ImpactTick);
+        if (projectileIndex < 0 || projectileIndex >= Main.maxProjectiles)
+        {
+            LastFireOutcome = "projectile-capacity";
+            return false;
+        }
+        GodsEyeEvents.RecordShot(ctx.Npc, target, projectileIndex, muzzle, launch, finalShot.ExpectedImpact, weapon.Name, finalShot.ImpactTick, LastAttackValue, LastExpectedKills, LastPreventedHarm);
         cooldown = weapon.UseTime;
         ctx.Companion.StartAnimation(weapon.ItemType, Math.Max(10, weapon.BaseUseTime));
         ctx.Companion.SetAimRotation(launch);

@@ -26,10 +26,22 @@ public sealed class SurviveAction : CompanionAction
     private Point? refuge;
     private Point? airTarget;
     private int airRevision = -1;
+    private bool escapeActive;
+    private bool seekingLanding;
+    private Point? nearbyAir;
+    private Point airSearchOrigin;
+    private int nextAirSearch;
+    private int nearbyAirRevision = -1;
+    private System.Collections.Generic.Dictionary<Point, int> airDistances = new();
+    private static readonly Point[] Neighbours = { new(0, -1), new(-1, 0), new(1, 0), new(0, 1) };
+    public bool EscapeActive => escapeActive;
+    public string EscapeStage => !escapeActive ? "inactive" : seekingLanding ? "dry-landing" : "breathing-air";
     public Point? AirTarget => airTarget;
     public override void Exit(in ActionContext ctx)
     {
         airTarget = null;
+        escapeActive = false;
+        seekingLanding = false;
         ctx.Companion.Brain.Movement.CancelStateSearch();
     }
 
@@ -49,8 +61,14 @@ public sealed class SurviveAction : CompanionAction
     {
         CompanionSense self = ctx.Senses.Self;
         float danger = self.SelfDanger;
+        // Breaking the surface halfway through a jump has not completed the escape.
+        // Keep control until a dry landing, so a one-tick breath cannot cancel the
+        // lateral movement that the body still needs to get onto the bank.
+        if (escapeActive && !self.HeadUnderwater && !ctx.Companion.Motor.State.OnGround)
+            return Weights.SurviveUrgency;
         if (danger <= 0f && !self.HeadUnderwater)
         {
+            escapeActive = false;
             refuge = null;
             return 0f;
         }
@@ -58,7 +76,7 @@ public sealed class SurviveAction : CompanionAction
         if (self.HeadUnderwater)
         {
             Point from = MovementQueries.FeetTile(ctx.Npc.Bottom);
-            Point? dry = FindDryHeadTarget(from);
+            Point? dry = NearbyAir(from, ctx.Senses.Tick);
             // Wet movement is at most half ordinary walking speed.  This deliberately optimistic
             // geometric time is still a lower bound: if even it consumes the remaining breath,
             // the action must win before the old half-breath threshold.
@@ -110,10 +128,19 @@ public sealed class SurviveAction : CompanionAction
     {
         controls = Controls.None;
         pending = false;
-        if (!ctx.Senses.Self.HeadUnderwater)
+        if (!ctx.Senses.Self.HeadUnderwater && (!escapeActive || ctx.Companion.Motor.State.OnGround))
         {
             airTarget = null;
+            escapeActive = false;
             return false;
+        }
+        escapeActive = true;
+        bool landing = !ctx.Senses.Self.HeadUnderwater;
+        if (landing != seekingLanding)
+        {
+            seekingLanding = landing;
+            ctx.Companion.Brain.Movement.CancelStateSearch();
+            airTarget = landing ? FindRefuge(ctx.Companion.Motor.State.FeetTile) : null;
         }
 
         // Breathing needs air, not a standable shore. A geometrically nearby dry floor can
@@ -127,11 +154,11 @@ public sealed class SurviveAction : CompanionAction
             airTarget = null;
             ctx.Companion.Brain.Movement.CancelStateSearch();
         }
-        airTarget ??= FindDryHeadTarget(ctx.Companion.Motor.State.FeetTile);
+        airTarget ??= NearbyAir(ctx.Companion.Motor.State.FeetTile, ctx.Senses.Tick);
         Point? target = airTarget ?? refuge;
         bool chosen = ctx.Companion.Brain.Movement.SeekState(
             ctx.Companion.Motor.State,
-            state => HeadIsDry(state) && state.LiquidKind != 1,
+            state => HeadIsDry(state) && (!seekingLanding || state.OnGround) && state.LiquidKind != 1,
             state => EscapeHeuristic(state, target),
             Weights.EscapeSearchWork,
             out controls,
@@ -142,13 +169,28 @@ public sealed class SurviveAction : CompanionAction
 
     private static bool HeadIsDry(BodyState state)
     {
-        int headRow = (int)System.MathF.Floor((state.Bottom - BodyPhysics.Height) / 16f);
-        return !MovementQueries.World.Water((int)System.MathF.Floor(state.CentreX / 16f), headRow)
-            && !MovementQueries.World.Lava((int)System.MathF.Floor(state.CentreX / 16f), headRow);
+        // Use the same head rectangle and partial-liquid surface as CompanionBreath.
+        // A whole wet tile is not necessarily submerged at this body's head height.
+        return !state.Wet || state.LiquidKind != 0 || !Terraria.Collision.DrownCollision(
+            new Vector2(state.Left, state.Bottom - BodyPhysics.Height), BodyPhysics.Width, BodyPhysics.Height, 1f);
     }
 
-    private static float EscapeHeuristic(BodyState state, Point? refuge)
+    private float EscapeHeuristic(BodyState state, Point? refuge)
     {
+        // Distance through occupiable terrain preserves progress around an awning.
+        // Direct distance to the air rewards a jump into its underside instead.
+        if (!seekingLanding && airDistances.Count > 0)
+        {
+            Point cell = state.FeetTile;
+            if (airDistances.TryGetValue(cell, out int distance)) return distance * 16f;
+            float nearest = float.PositiveInfinity, score = float.PositiveInfinity;
+            foreach (var entry in airDistances)
+            {
+                float gap = Vector2.DistanceSquared(state.Feet, MovementQueries.FeetWorld(entry.Key));
+                if (gap < nearest) { nearest = gap; score = entry.Value * 16f + System.MathF.Sqrt(gap); }
+            }
+            return score;
+        }
         if (refuge is Point spot)
             return Microsoft.Xna.Framework.Vector2.Distance(state.Feet, MovementQueries.FeetWorld(spot));
         // Terraria's world Y grows downward.  In a pocket with no identified shore, an upward
@@ -188,25 +230,57 @@ public sealed class SurviveAction : CompanionAction
         return null;
     }
 
-    private static Point? FindDryHeadTarget(Point from)
+    private Point? NearbyAir(Point from, int tick)
     {
-        for (int radius = 0; radius <= Weights.RefugeSearchRadiusTiles; radius++)
-        for (int dx = -radius; dx <= radius; dx++)
-        for (int dy = -radius; dy <= radius; dy++)
+        if (tick < nextAirSearch && nearbyAirRevision == MovementQueries.World.Revision
+            && System.Math.Abs(from.X - airSearchOrigin.X) + System.Math.Abs(from.Y - airSearchOrigin.Y) < 8)
+            return nearbyAir;
+        nextAirSearch = tick + Weights.RefugeRecheckTicks;
+        nearbyAirRevision = MovementQueries.World.Revision;
+        airSearchOrigin = from;
+        nearbyAir = null;
+        airDistances = new();
+        // This flood only supplies search guidance. It excludes air behind solid rock;
+        // the body-state search still has to prove every control through the passage.
+        var open = new System.Collections.Generic.Queue<Point>();
+        var visited = new System.Collections.Generic.HashSet<Point>();
+        open.Enqueue(from);
+        visited.Add(from);
+        var passable = new System.Collections.Generic.HashSet<Point> { from };
+        while (open.TryDequeue(out Point candidate))
         {
-            if (System.Math.Max(System.Math.Abs(dx), System.Math.Abs(dy)) != radius)
-                continue;
-            Point candidate = new(from.X + dx, from.Y + dy);
-            if (IsDryHeadTarget(candidate))
-                return candidate;
+            if (nearbyAir == null && IsDryHeadTarget(candidate)) nearbyAir = candidate;
+            foreach (Point offset in Neighbours)
+            {
+                Point next = candidate + offset;
+                if (System.Math.Max(System.Math.Abs(next.X - from.X), System.Math.Abs(next.Y - from.Y)) > Weights.RefugeSearchRadiusTiles
+                    || !MovementQueries.World.InWorld(next.X, next.Y) || !visited.Add(next)) continue;
+                Vector2 feet = MovementQueries.FeetWorld(next);
+                if (BodyPhysics.Fits(MovementQueries.World, feet.X - BodyPhysics.Width / 2f, feet.Y))
+                { open.Enqueue(next); passable.Add(next); }
+            }
         }
-        return null;
+        if (nearbyAir is Point goal)
+        {
+            open.Enqueue(goal); airDistances[goal] = 0;
+            while (open.TryDequeue(out Point cell))
+                foreach (Point offset in Neighbours)
+                {
+                    Point next = cell + offset;
+                    if (passable.Contains(next) && !airDistances.ContainsKey(next))
+                    { airDistances[next] = airDistances[cell] + 1; open.Enqueue(next); }
+                }
+        }
+        return nearbyAir;
     }
 
     private static bool IsDryHeadTarget(Point candidate)
     {
-        int head = candidate.Y - NavGrid.BodyHeightTiles + 1;
-        return !MovementQueries.IsLiquid(candidate.X, head) && !MovementQueries.IsLava(candidate.X, head)
-            && !MovementQueries.IsBlock(candidate.X, head);
+        Vector2 feet = MovementQueries.FeetWorld(candidate);
+        Vector2 position = feet - new Vector2(BodyPhysics.Width / 2f, BodyPhysics.Height);
+        return MovementQueries.World.InWorld(candidate.X, candidate.Y)
+            && BodyPhysics.Fits(MovementQueries.World, position.X, feet.Y)
+            && !Terraria.Collision.LavaCollision(position, BodyPhysics.Width, BodyPhysics.Height)
+            && !Terraria.Collision.DrownCollision(position, BodyPhysics.Width, BodyPhysics.Height, 1f);
     }
 }

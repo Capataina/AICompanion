@@ -16,6 +16,12 @@ public static class Weights
     public const double PositionAimingMilliseconds = 2d;
     public const double EscapeSearchMilliseconds = 2d;
     public const int EscapeSearchWork = 120;
+    public const int HuntRetryTicks = 180;
+    // Useful damage remains valuable across the forecast window. Timely threat
+    // removal earns extra value without letting kill count dominate healthy targets.
+    public const float AttackDelayedDamageFraction = .4f;
+    public const float AttackPreventedHarmWeight = 2f;
+    public const float AttackFinishingValue = 4f;
     public const double TotalPlanningMilliseconds = 12d;
     public const float ProtectionLeadTicks = 60f;
     public const float GuardReleasePressure = 0.08f;

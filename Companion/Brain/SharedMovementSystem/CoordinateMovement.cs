@@ -14,13 +14,21 @@ public sealed class CoordinateMovement
 {
     public Navigator Navigator { get; } = new();
     private readonly SearchControlSequences stateSearch = new();
+    private Vector2? unresolvedGoal;
+    private bool seekingDestination;
     public bool StateSearchPending => stateSearch.Pending;
     public int StateSearchRetainedTicks => stateSearch.RetainedTicks;
-    public void CancelStateSearch() => stateSearch.Clear();
+    public void CancelStateSearch()
+    {
+        stateSearch.Clear();
+        unresolvedGoal = null;
+        seekingDestination = false;
+    }
 
     public bool SeekState(BodyState live, Func<BodyState, bool> goal, Func<BodyState, float> heuristic,
         int workBudget, out Controls controls, out bool pending)
     {
+        if (seekingDestination) CancelStateSearch();
         Navigator.Interrupt(live);
         bool chosen = stateSearch.TryChoose(NavGrid.World, live, goal, heuristic, Navigator.Capabilities,
             workBudget, BehaviourSelection.Weights.EscapeSearchMilliseconds, out controls);
@@ -30,17 +38,36 @@ public sealed class CoordinateMovement
 
     public Controls MoveTo(BodyState live, Vector2 goal, float requestedJump = 0f)
     {
-        stateSearch.Clear();
+        CancelStateSearch();
         return AddRequestedJump(Navigator.MoveTo(live, goal), requestedJump);
     }
 
     public Controls Hold(BodyState live, float requestedJump = 0f)
     {
-        stateSearch.Clear();
+        CancelStateSearch();
         // Releasing the movement request interrupts the retained route explicitly, including
         // its census outcome. Survival can request a ground jump through the same body rules.
         Navigator.Interrupt(live);
         return AddRequestedJump(Controls.None, requestedJump);
+    }
+
+    /// <summary>A missing stand does not cancel a travel intention. Search legal body states
+    /// while position selection continues, retaining only physically validated prefixes.</summary>
+    public Controls SeekDestination(BodyState live, Vector2 anchor, Func<BodyState, bool> arrived)
+    {
+        if (!seekingDestination || unresolvedGoal is not Vector2 held || Vector2.DistanceSquared(held, anchor) > 32f * 32f)
+        {
+            stateSearch.Clear();
+            unresolvedGoal = anchor;
+        }
+        seekingDestination = true;
+        Vector2 target = unresolvedGoal.Value;
+        Navigator.Interrupt(live);
+        stateSearch.TryChoose(NavGrid.World, live, arrived,
+            state => Vector2.Distance(state.Feet, target), Navigator.Capabilities,
+            BehaviourSelection.Weights.EscapeSearchWork, BehaviourSelection.Weights.EscapeSearchMilliseconds,
+            out Controls controls, Navigator.UnsafeAtTick);
+        return controls;
     }
 
     public Controls AvoidThreats(BodyState live, Func<BodyState, int, bool> unsafeAtTick, Vector2 goal)

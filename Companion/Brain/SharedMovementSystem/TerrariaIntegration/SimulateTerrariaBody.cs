@@ -15,6 +15,13 @@ public static class SimulateTerrariaBody
 {
     public static BodyState Step(BodyState state, Controls controls, MovementCapabilities capabilities)
     {
+        // StepUp reads neighbouring tiles without clamping. A hypothetical fall may leave
+        // the world even though the live NPC never did; reject that search state before
+        // handing it to native helpers rather than crashing the entire brain tick.
+        if (!float.IsFinite(state.Left) || !float.IsFinite(state.Bottom)
+            || state.Left < 32f || state.Left + BodyPhysics.Width >= (Main.maxTilesX - 2) * 16f
+            || state.Bottom - BodyPhysics.Height < 32f || state.Bottom >= (Main.maxTilesY - 2) * 16f)
+            return state with { Stuck = true };
         bool oldUp = Collision.up, oldDown = Collision.down, oldStair = Collision.stair,
             oldFall = Collision.stairFall, oldHoney = Collision.honey, oldShimmer = Collision.shimmer,
             oldSloping = Collision.sloping;

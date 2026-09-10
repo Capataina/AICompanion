@@ -42,7 +42,7 @@ public sealed class BrainTelemetry : ModSystem
     private static string? eventsPath;
     private static readonly Stopwatch sessionClock = new();
     private static DateTime sessionStartedUtc;
-    private const string Schema = "0.9.0";
+    private const string Schema = "0.10.0";
     private static string? pendingPlayerHit;
     private static string? pendingCompanionHit;
     private static string? lastDecision;
@@ -399,16 +399,22 @@ public sealed class BrainTelemetry : ModSystem
         string controls = DescribeControls(companion.Motor.AppliedControls);
         var guard = default(Behaviours.Companionship.GuardAction);
         var mine = default(Behaviours.Work.MineAction);
+        var survival = default(Behaviours.Survival.SurviveAction);
+        var hunt = default(Behaviours.Combat.HuntAction);
         foreach (var candidate in brain.Chooser.Actions)
         {
             if (candidate is Behaviours.Companionship.GuardAction guardAction) guard = guardAction;
             if (candidate is Behaviours.Work.MineAction mineAction) mine = mineAction;
+            if (candidate is Behaviours.Survival.SurviveAction surviveAction) survival = surviveAction;
+            if (candidate is Behaviours.Combat.HuntAction huntAction) hunt = huntAction;
         }
         if (decision != lastDecision || Main.GameUpdateCount % 60 == 0)
         {
             var board = new StringBuilder();
             foreach (var score in brain.Chooser.LastScores) { if (board.Length > 0) board.Append(','); board.Append(score.Action.Name).Append('=').Append(score.Raw.ToString("0.000", CultureInfo.InvariantCulture)).Append("->").Append(score.Final.ToString("0.000", CultureInfo.InvariantCulture)); }
             board.Append(CultureInfo.InvariantCulture, $";regroup={brain.Chooser.RegroupUrgency:0.000};return-ticks={brain.Chooser.EstimatedReturnTicks:0.0}");
+            foreach (var score in brain.Chooser.LastScores)
+                board.Append(CultureInfo.InvariantCulture, $";factors:{score.Action.Name}=protection:{score.Protection:0.000},commitment:{score.Commitment:0.000},horizon:{score.Horizon:0.000},useful-work:{score.UsefulWork:0.000}");
             var preferences = PlayerIntegration.CompanionPreferences.Current;
             board.Append(CultureInfo.InvariantCulture, $";movement-stalled={brain.MovementStalled};activity-status={brain.ActivityStatus};activity-target={brain.LastAction?.ActivityTarget};activity-radius={preferences.NewActivityRadius};continuation-radius={preferences.ActiveActivityRadius};recovery-radius={preferences.RecoveryRadius}");
             GodsEyeEvents.RecordDecision(npc, decision, board.ToString(), brain.LastRequest.Kind.ToString(), controls + $";freshness={(brainExecuted ? "fresh" : "stale-or-not-executed")}");
@@ -430,6 +436,7 @@ public sealed class BrainTelemetry : ModSystem
 
         if (!headerWritten)
         {
+            writer.WriteLine("# text_columns=state,action,reflex,top_threat,target,request,anchor,spot,next_kind,npc_tile,npc_px,npc_vel,held,weapon,fire,engage,torch,player_tile,edge_kind,edge_from,edge_to,edge_outcome,spot_home,diverge_invalid_reason,sample_phase,player_px,player_vel,player_liquid,player_hit,npc_hit,player_state,player_activity,player_support,npc_support,control,control_source,observed_vel,observed_mobility,predicted_vel,predicted_mobility,follow_reason,recovery_reason,guard_reason,mine_policy,mine_status,mine_target,target_evidence,nav_status,position_reason,escape_stage,escape_target,hunt_reason");
             var h = new StringBuilder();
             // A start timestamp is file metadata. Stopwatch is the observed wall duration of
             // every row; deriving wall time from game ticks would conceal pauses and lag.
@@ -450,6 +457,7 @@ public sealed class BrainTelemetry : ModSystem
             h.Append("\tguard_threat\tguard_pressure\tguard_reason\tmine_job\tmine_policy\tmine_status\tmine_remaining\tmine_target\ttarget_evidence_tick\ttarget_evidence_age\ttarget_evidence");
             h.Append("\twall_elapsed_ms\tsample_phase\tplayer_px\tplayer_vel\tplayer_ground\tplayer_liquid\tplayer_life\tplayer_hit\tnpc_hit\tplayer_state\tplayer_activity\tplayer_support\tnpc_support\tcontrol\tcontrol_source\tbrain_fresh");
             h.Append("\tobserved_left\tobserved_bottom\tobserved_vel\tobserved_ground\tobserved_wet\tobserved_mobility\tpredicted_left\tpredicted_bottom\tpredicted_vel\tpredicted_ground\tpredicted_wet\tpredicted_mobility\tnpc_width\tnpc_height");
+            h.Append("\tnav_status\tposition_reason\tmovement_stalled\tescape_active\tescape_stage\tescape_target\tstate_search_pending\tstate_search_retained\thead_submerged\tbreath_ticks\tattack_value\tattack_kills\tattack_harm\tweapon_cooldown\thunt_idle_ticks\thunt_reason");
             writer.WriteLine(h.ToString());
             headerWritten = true;
         }
@@ -658,6 +666,14 @@ public sealed class BrainTelemetry : ModSystem
         AppendState(sb, observed);
         AppendState(sb, companion.Motor.PredictedState);
         sb.Append('\t').Append(npc.width).Append('\t').Append(npc.height);
+        sb.Append('\t').Append(brain.Navigator.Status).Append('\t').Append(brain.Positioner.ChoiceReason);
+        sb.Append('\t').Append(brain.MovementStalled ? 1 : 0).Append('\t').Append(survival?.EscapeActive == true ? 1 : 0);
+        sb.Append('\t').Append(survival?.EscapeStage ?? "inactive").Append('\t').Append(survival?.AirTarget?.ToString() ?? "-");
+        sb.Append('\t').Append(brain.Movement.StateSearchPending ? 1 : 0).Append('\t').Append(brain.Movement.StateSearchRetainedTicks);
+        sb.Append('\t').Append(senses.Self.HeadUnderwater ? 1 : 0).Append('\t').Append(companion.Breath.TicksLeft);
+        sb.Append('\t').Append(companion.Arsenal.LastAttackValue.ToString("0.000", CultureInfo.InvariantCulture));
+        sb.Append('\t').Append(companion.Arsenal.LastExpectedKills).Append('\t').Append(companion.Arsenal.LastPreventedHarm.ToString("0.000", CultureInfo.InvariantCulture));
+        sb.Append('\t').Append(companion.Arsenal.CooldownTicks).Append('\t').Append(hunt?.NoProgressTicks ?? 0).Append('\t').Append(hunt?.LastRejection ?? "unavailable");
 
         // A write that fails (disk full, a stream the OS closed) must not escape the NPC's AI
         // and take the companion with it; the record stops and the game goes on.

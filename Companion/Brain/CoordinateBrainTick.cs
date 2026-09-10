@@ -153,6 +153,7 @@ public sealed class Brain
             companion.Motor.Apply(escape, "survival-escape");
             NavigateMs = Lap();
             Engage(companion, ctx, action);
+            WatchProgress(companion);
             return;
         }
 
@@ -188,6 +189,7 @@ public sealed class Brain
         Engage(companion, ctx, action);
         CountStranded();
         WatchProgress(companion);
+        if (action is Behaviours.Combat.HuntAction hunt) hunt.ObserveOutcome(ctx);
     }
 
     private bool TryFollowRecovery(CompanionNPC companion, Terraria.Player player, bool mayStart)
@@ -260,11 +262,12 @@ public sealed class Brain
             progressPath = Navigator.Path;
             progressStep = progressPath?.Index ?? 0;
         }
-        bool wantsTravel = LastRequest.Kind == RequestKind.WithPlayer
+        bool wantsTravel = LastAction is Behaviours.Survival.SurviveAction { EscapeActive: true }
+            || (LastRequest.Kind == RequestKind.WithPlayer
             ? !new FollowPlayerObjective(Senses.Player.Bottom, Senses.Player.Bottom).IsSatisfied(companion.NPC.Bottom,
                 WorldObservation.LineOfSight.Between(companion.NPC, Senses.PlayerEntity))
             : LastRequest.Kind != RequestKind.Hold && (Positioner.Chosen is not Vector2 spot
-                || Vector2.DistanceSquared(spot, companion.NPC.Bottom) > 16f * 16f);
+                || Vector2.DistanceSquared(spot, companion.NPC.Bottom) > 16f * 16f));
         if (!wantsTravel)
         {
             progressOrigin = companion.NPC.Bottom; progressTicks = 0; MovementStalled = false;
@@ -303,6 +306,17 @@ public sealed class Brain
                 Positioner.Ban(MovementQueries.FeetTile(feet), Weights.StuckSpotBanTicks);
                 Navigator.ResetStrikes();
             }
+        }
+        else if (LastRequest.Kind == RequestKind.WithPlayer && !Positioner.FollowObjectiveSatisfied)
+        {
+            var objective = new FollowPlayerObjective(Senses.Player.Bottom, LastRequest.Anchor);
+            BehaviourCensus.RequestBegan(LastRequest.Kind.ToString());
+            companion.Motor.Apply(Movement.SeekDestination(companion.Motor.State, LastRequest.Anchor,
+                state => state.OnGround && objective.IsSatisfied(state.Feet,
+                    Terraria.Collision.CanHitLine(new Vector2(state.Left, state.Bottom - BodyPhysics.Height),
+                        BodyPhysics.Width, BodyPhysics.Height, Senses.PlayerEntity.position,
+                        Senses.PlayerEntity.width, Senses.PlayerEntity.height))),
+                "seeking-destination");
         }
         else
         {

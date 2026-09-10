@@ -66,6 +66,10 @@ Four hypotheses are dead and are written as the property that failed, because ea
 
 ## Adding a mobility
 
+Short grounded branches alone can exhaust a bounded search before any jump reaches its landing. A grounded jump therefore also offers its complete simulated flight, alongside the short intermediate branch. Search continues across a budget slice without committing a stationary or worse prefix merely because the slice ended. Landing, liquid-boundary crossing and actual goal satisfaction are meaningful prefix outcomes; height at a jump apex is not completion.
+
+A local route repair requires endpoint satisfaction before executing its retained controls. The route planner owns strategic partial progress; accepting a second, Euclidean partial-progress policy after that route ends can undo a valid detour or drop into a neighbouring pocket. `allowPartialProgress` lets a state objective such as escape retain intermediate safe-state progress, while `Navigator` requires a complete local repair and otherwise leaves the body available for replanning or a different objective. A missing clearance proof is not a claim that the world is unreachable.
+
 `SearchControlSequences` is the bounded local alternative when a route has no usable committed
 edge: it searches the actual `BodyState` with the same `BodyMotion` backend, keeps a certified
 prefix only while its predicted state, terrain revision and one-tick threat check still hold, and

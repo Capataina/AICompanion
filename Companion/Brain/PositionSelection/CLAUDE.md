@@ -18,6 +18,8 @@ One-way drops are refused by default. The exception is for following the player 
 
 ## Traps
 
+Destination acceptance must include the navigator's stopping slack. A candidate on the comfort boundary can be valid while the body stops just outside it, leaving an Arrived navigator and an unsatisfied follow objective forever. Follow candidates leave that slack on both axes and sample each tile so a narrow valid landing is not skipped by a coarse lattice. If no candidate exists, the unresolved follow intent reaches the shared state search rather than becoming a Hold request.
+
 The returnable and unrestricted regions retain frontier work across rescores. A moved start reuses them only after generated connections establish travel in both directions to the previous root; a short drop cannot inherit the upper ledge's reachable region merely because it is close. World revision and lava-policy changes invalidate both. The incumbent's exact tile is reconsidered alongside newly sampled candidates, so shifting a sampling lattice does not silently remove a still-useful follow destination. Candidate counts and known travel ticks feed diagnostics and the chooser's excursion cost.
 
 - Candidate danger and approach clearance test hostile geometry directly. An enemy unable to reach either actor's current position can still occupy the place the companion is considering entering.

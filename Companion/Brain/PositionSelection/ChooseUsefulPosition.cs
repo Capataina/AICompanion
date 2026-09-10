@@ -24,7 +24,9 @@ public sealed class Positioner
 {
     private const int RescoreInterval = 12;
     private const int SampleRadiusTiles = 14;
-    private const int SampleStride = 2;
+    // A standable row can be only one tile high. Skipping alternate rows makes the same
+    // floor disappear whenever the moving anchor changes parity, especially at pool rims.
+    private const int SampleStride = 1;
     private const int MaxSolvesPerRescore = 8;
 
     public Vector2? Chosen { get; private set; }

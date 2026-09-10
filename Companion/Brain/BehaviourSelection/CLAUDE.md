@@ -13,6 +13,8 @@ BehaviourSelection/
 
 ## The urgency ladder, and why an action topping out at one can never interrupt anything
 
+Each retained score carries the actual protection, incumbent commitment, horizon and useful-work multipliers applied by this stage. Sparse decision events expose those factors beside raw and final utility; recording must consume the evaluated factors rather than rerun behaviours, which can acquire or release jobs while scoring.
+
 Regrouping raises following's existing utility rather than introducing a behaviour. It uses the selected distance mode's comfort region, and drops to zero when both axes and local sight satisfy arrival. A viable targeted excursion discounts ordinary following inside its permitted activity envelope; protection and survival are unaffected. `IsExcursion` defaults on, with survival, protection, kiting and following opting out. `RegroupUrgency` and `EstimatedReturnTicks` remain available to diagnostics.
 
 The selected job earns continuation by identity on every winning tick, including consecutive targets inside one behaviour. A moving enemy or drop keeps its identity as its position changes; a different entity must pass acquisition again. Mining retains a vein id, chopping a trunk tile, and small world interactions a target tile. Successful work also records a short-lived collection site so the resulting drops can be gathered under the same ongoing allowance. The shared bounds check both the companion and its target against the player.

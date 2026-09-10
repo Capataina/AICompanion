@@ -27,9 +27,13 @@ public readonly record struct FollowPlayerObjective(Vector2 PlayerFeet, Vector2 
     /// </summary>
     public bool AcceptsDestination(Vector2 feet, bool locallyConnected)
     {
-        bool nearPrediction = MathF.Abs(feet.X - PredictedFeet.X) <= HorizontalComfort
-            && MathF.Abs(feet.Y - PredictedFeet.Y) <= VerticalComfort;
-        bool nearPlayer = HorizontalGap(feet) <= HorizontalComfort && VerticalGap(feet) <= VerticalComfort;
+        // Navigator accepts any grounded pose in its arrival radius. Reserve that radius here
+        // so reaching a legal destination cannot leave the original follow request unsatisfied.
+        float horizontal = MathF.Max(0f, HorizontalComfort - SharedMovementSystem.Navigator.ArriveDistance);
+        float vertical = MathF.Max(0f, VerticalComfort - SharedMovementSystem.Navigator.ArriveDistance);
+        bool nearPrediction = MathF.Abs(feet.X - PredictedFeet.X) <= horizontal
+            && MathF.Abs(feet.Y - PredictedFeet.Y) <= vertical;
+        bool nearPlayer = HorizontalGap(feet) <= horizontal && VerticalGap(feet) <= vertical;
         return locallyConnected && (nearPrediction || nearPlayer);
     }
 

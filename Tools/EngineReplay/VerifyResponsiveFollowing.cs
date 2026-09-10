@@ -18,6 +18,7 @@ internal static class VerifyResponsiveFollowing
     public static int Run()
     {
         VerifyTwoAxisObjective();
+        VerifyArrivalSlackCannotStrandFollowing();
         VerifyVerticalPlayerMotionReachesTheProductionFollowAction();
         VerifyOccludedPlayerStillProvidesADestination();
         VerifyCturnCompletesThroughTheProductionBrain();
@@ -36,6 +37,33 @@ internal static class VerifyResponsiveFollowing
             "a nearby standable point in the predicted player region remains a valid following destination");
         Require(!objective.IsSatisfied(new Vector2(480, 800), locallyConnected: false),
             "a nearby but sealed floor must not satisfy following without a local connection");
+    }
+
+    private static void VerifyArrivalSlackCannotStrandFollowing()
+    {
+        // Captured run: the destination was 190 pixels from the owner, but stopping twelve
+        // pixels short left the body outside the 192-pixel follow region indefinitely.
+        var objective = new FollowPlayerObjective(new Vector2(500, 1280), new Vector2(500, 1280));
+        Require(!objective.AcceptsDestination(new Vector2(690, 1280), true),
+            "follow destination must reserve the navigator's stopping radius");
+        BuildFloor();
+        var companion = VerifyCompanionLifecycle.Create();
+        Player player = Main.player[0];
+        player.dead = false;
+        player.position = new Vector2(500 - player.width / 2f, 1280 - player.height);
+        player.velocity = Vector2.Zero;
+        companion.NPC.position = new Vector2(698.56f - companion.NPC.width / 2f, 1280 - companion.NPC.height);
+        companion.NPC.velocity = Vector2.Zero;
+        bool arrived = false;
+        for (int tick = 0; tick < 240; tick++)
+        {
+            VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
+            companion.AI();
+            AdvanceNative(companion);
+            arrived = objective.IsSatisfied(companion.NPC.Bottom, true);
+            if (arrived) break;
+        }
+        Require(arrived, $"the recorded boundary stall must finish following through the production brain: feet={companion.NPC.Bottom}; action={companion.Brain.LastAction?.Name}; goal={companion.Brain.Positioner.Chosen}; status={companion.Brain.Navigator.Status}; control={companion.Motor.AppliedControls}");
     }
 
     private static void VerifyVerticalPlayerMotionReachesTheProductionFollowAction()
@@ -164,12 +192,15 @@ internal static class VerifyResponsiveFollowing
         live::AICompanion.Companion.Brain.SharedMovementSystem.NavGrid.World = new live::AICompanion.Companion.Brain.SharedMovementSystem.GameTileWorld();
     }
 
-    private static void AdvanceNative(live::AICompanion.Companion.CharacterBody.CompanionNPC companion)
+    internal static void AdvanceNative(live::AICompanion.Companion.CharacterBody.CompanionNPC companion)
     {
         // The production motor has already applied MovementAbilities and StepUp/StepDown. Calling
         // VerifyEngineMotion.RunEngine here would apply the same controls a second time, so finish
         // this tick with Terraria's own gravity and collision phases only.
         NPC npc = companion.NPC;
+        // Suppress the splash visual, whose dust/audio services do not exist headless.
+        // Native wet detection, velocity changes and collision still run.
+        npc.wetCount = 2;
         Invoke(npc, "UpdateNPC_UpdateGravity");
         npc.velocity.Y = MathF.Min(npc.velocity.Y + npc.gravity, npc.maxFallSpeed);
         Invoke(npc, "UpdateCollision");

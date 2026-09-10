@@ -28,6 +28,7 @@ internal static class VerifyObservationLifecycle
             VerifyRecordingSwitch();
             VerifyInspectorGeometry();
             VerifyNotchOpeningConsumesThePress();
+            VerifyOneCompleteSample();
             Console.WriteLine("observation lifecycle: reserved retry names, zero-tick metadata and callback-scoped lifecycle evidence passed");
             return 0;
         }
@@ -42,6 +43,24 @@ internal static class VerifyObservationLifecycle
             savePath.SetValue(null, priorSavePath);
             if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
         }
+    }
+
+    private static void VerifyOneCompleteSample()
+    {
+        var recorder = new BrainTelemetry(); Attach(recorder);
+        var companion = VerifyCompanionLifecycle.Create();
+        recorder.OnWorldLoad();
+        string path = Directory.GetFiles(BrainTelemetry.Folder, "*.tsv").OrderByDescending(File.GetLastWriteTimeUtc).First();
+        VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
+        companion.AI(); BrainTelemetry.Record(companion); recorder.OnWorldUnload();
+        string[] lines = File.ReadAllLines(path);
+        int header = Array.FindIndex(lines, l => l.StartsWith("tick\t"));
+        Require(header >= 0 && header + 1 < lines.Length, "real sample writer emitted no table row");
+        string[] names = lines[header].Split('\t'), values = lines[header + 1].Split('\t');
+        Require(names.Length == values.Length, $"sample/header widths disagree: {names.Length}/{values.Length}");
+        foreach (string name in new[] { "escape_stage", "state_search_pending", "head_submerged", "attack_value", "hunt_reason", "nav_status" })
+            Require(Array.IndexOf(names, name) >= 0, "causal sample field missing: " + name);
+        Require(lines.Any(l => l.StartsWith("# text_columns=")), "writer must declare its textual columns");
     }
 
     private static void VerifySameStemGainsAnAttemptSuffix()

@@ -11,6 +11,9 @@ internal static class VerifyCompanionLifecycle
     public static CompanionNPC Create()
     {
         Main.rand = new Terraria.Utilities.UnifiedRandom(1);
+        // Occupy cosmetic slots: StrikeNPC still applies real damage without attempting
+        // to measure a damage popup using fonts that a headless simulation never loads.
+        for (int i = 0; i < Main.combatText.Length; i++) Main.combatText[i] = new CombatText { active = true };
         foreach (int item in new[] { Terraria.ID.ItemID.WoodenBow, Terraria.ID.ItemID.WoodenArrow, Terraria.ID.ItemID.ThrowingKnife,
             Terraria.ID.ItemID.CopperPickaxe, Terraria.ID.ItemID.CopperAxe })
         {

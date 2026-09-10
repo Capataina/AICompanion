@@ -25,6 +25,33 @@ public sealed class HuntAction : CompanionAction
     public ThreatRecord? Target { get; private set; }
     public override Vector2? ActivityTarget => Target?.Npc.Bottom;
     public override object? ActivityIdentity => Target?.Npc;
+    public int NoProgressTicks { get; private set; }
+    public string LastRejection { get; private set; } = "none";
+    private Vector2 engagementOrigin;
+    private int observedTarget = -1, observedGeneration, observedLife;
+    private readonly System.Collections.Generic.Dictionary<(int slot, int generation), (int until, Vector2 target, Vector2 body, int terrain)> deferred = new();
+
+    public void ObserveOutcome(in ActionContext ctx)
+    {
+        if (Target == null) { NoProgressTicks = 0; return; }
+        NPC enemy = Target.Npc;
+        int generation = HostileAttackSources.Generation(enemy);
+        bool progress = observedTarget != enemy.whoAmI || observedGeneration != generation || enemy.life < observedLife
+            || ctx.Companion.Arsenal.LastFireOutcome is "fired" or "cooldown"
+            || Vector2.DistanceSquared(engagementOrigin, ctx.Npc.Bottom) >= Weights.ObjectiveProgressPixels * Weights.ObjectiveProgressPixels;
+        if (progress)
+        {
+            NoProgressTicks = 0; engagementOrigin = ctx.Npc.Bottom;
+            observedTarget = enemy.whoAmI; observedGeneration = generation; observedLife = enemy.life;
+        }
+        else if (++NoProgressTicks >= Weights.ObjectiveProgressWindowTicks)
+        {
+            deferred[(enemy.whoAmI, generation)] = (ctx.Senses.Tick + Weights.HuntRetryTicks, enemy.Center, ctx.Npc.Bottom,
+                SharedMovementSystem.TerrainChanges.Revision);
+            LastRejection = "no-movement-or-attack-progress";
+            NoProgressTicks = 0;
+        }
+    }
 
     public override float Score(in ActionContext ctx)
     {
@@ -74,10 +101,24 @@ public sealed class HuntAction : CompanionAction
     /// <summary>Threats endangering the player first, then the nearest reachable one a weapon can reach.</summary>
     private ThreatRecord? PickTarget(in ActionContext ctx, Rectangle screen)
     {
+        LastRejection = "no-eligible-target";
+        var expired = new System.Collections.Generic.List<(int slot, int generation)>();
+        foreach (var entry in deferred)
+            if (ctx.Senses.Tick >= entry.Value.until) expired.Add(entry.Key);
+        foreach (var key in expired) deferred.Remove(key);
         ThreatRecord? best = null;
         float bestScore = 0f;
         foreach (ThreatRecord t in ctx.Senses.Threats.Threats)
         {
+            var key = (t.Npc.whoAmI, HostileAttackSources.Generation(t.Npc));
+            if (deferred.TryGetValue(key, out var failure))
+            {
+                bool unchanged = ctx.Senses.Tick < failure.until && failure.terrain == SharedMovementSystem.TerrainChanges.Revision
+                    && Vector2.DistanceSquared(failure.target, t.Npc.Center) < 32f * 32f
+                    && Vector2.DistanceSquared(failure.body, ctx.Npc.Bottom) < 32f * 32f;
+                if (unchanged) { LastRejection = "engagement-deferred-no-progress"; continue; }
+                deferred.Remove(key);
+            }
             if (!AllowsTarget(ctx, t.Npc.Bottom, t.Npc)) continue;
             if (!t.Npc.CanBeChasedBy()) continue;
             if (!t.CanReachEither && !t.Npc.Hitbox.Intersects(screen))
@@ -95,6 +136,7 @@ public sealed class HuntAction : CompanionAction
                 best = t;
             }
         }
+        if (best != null) LastRejection = "accepted";
         return best;
     }
 }

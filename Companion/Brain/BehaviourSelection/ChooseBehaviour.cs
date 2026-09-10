@@ -18,7 +18,8 @@ namespace AICompanion.Companion.Brain.BehaviourSelection;
 /// </summary>
 public sealed class Chooser
 {
-    public readonly record struct Scored(CompanionAction Action, float Raw, float Final);
+    public readonly record struct Scored(CompanionAction Action, float Raw, float Final,
+        float Protection = 1f, float Commitment = 1f, float Horizon = 1f, float UsefulWork = 1f);
 
     public readonly List<CompanionAction> Actions = new()
     {
@@ -94,23 +95,25 @@ public sealed class Chooser
         {
             float raw = action.Score(ctx);
             float final = raw;
+            float protection = 1f, commitment = 1f, horizonFactor = 1f;
             // Optional jobs validate their target against the activity envelope themselves.
             // The short follow comfort band must not veto an admitted, useful excursion.
-            if (action.IsExcursion && !ctx.Stranded) final *= 1f - ctx.Senses.Threats.ProtectionUrgency;
+            if (action.IsExcursion && !ctx.Stranded) protection = 1f - ctx.Senses.Threats.ProtectionUrgency;
             if (raw > 0f)
             {
                 if (action == Current)
-                    final *= Weights.Commitment;
+                    commitment = Weights.Commitment;
                 // Work is interruptible at the next decision tick. Charging the whole vein
                 // against a momentary safety horizon made safe, resumable work impossible.
                 float forecast = action.IsExcursion ? Math.Min(Weights.InterruptibleActionTicks, action.ForecastTicks(ctx)) : action.ForecastTicks(ctx);
                 if (forecast > horizon)
                 {
                     float overrun = forecast - horizon;
-                    final *= Math.Max(0f, 1f - overrun / Weights.HorizonOverrunToZero);
+                    horizonFactor = Math.Max(0f, 1f - overrun / Weights.HorizonOverrunToZero);
                 }
             }
-            LastScores.Add(new Scored(action, raw, final));
+            final = raw * protection * commitment * horizonFactor;
+            LastScores.Add(new Scored(action, raw, final, protection, commitment, horizonFactor));
         }
 
         bool useful = LastScores.Exists(s => s.Action.IsExcursion && s.Action.ActivityTarget != null && s.Final > .1f);
@@ -119,10 +122,12 @@ public sealed class Chooser
             var scored = LastScores[i];
             float final = scored.Final;
             CompanionAction action = scored.Action;
+            float usefulWork = 1f;
             if (useful && action is WalkWithPlayerAction
                 && ctx.Senses.DistanceToPlayer <= PlayerIntegration.CompanionPreferences.Current.ActiveActivityRadius)
-                final *= Weights.FollowDuringUsefulWork;
-            LastScores[i] = scored with { Final = final };
+                usefulWork = Weights.FollowDuringUsefulWork;
+            final *= usefulWork;
+            LastScores[i] = scored with { Final = final, UsefulWork = usefulWork };
             if (final > bestScore)
             {
                 bestScore = final;

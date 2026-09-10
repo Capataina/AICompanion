@@ -64,6 +64,7 @@ public sealed class RecordTerrainChunks : ModSystem
             int x = key.X * Side, y = key.Y * Side;
             var glyphs = new StringBuilder(Side * Side);
             byte[] liquids = new byte[Side * Side * 2], materials = new byte[Side * Side * 4];
+            byte[] states = new byte[Side * Side], frames = new byte[Side * Side * 4];
             int index = 0, clipped = 0;
             for (int row = 0; row < Side; row++)
             for (int col = 0; col < Side; col++, index++)
@@ -78,8 +79,13 @@ public sealed class RecordTerrainChunks : ModSystem
                 materials[index * 4 + 1] = (byte)(tile.TileType >> 8);
                 materials[index * 4 + 2] = (byte)tile.WallType;
                 materials[index * 4 + 3] = (byte)(tile.WallType >> 8);
+                states[index] = (byte)((tile.HasTile ? 1 : 0) | (tile.IsActuated ? 2 : 0)
+                    | (Main.tileSolid[tile.TileType] ? 4 : 0) | (Main.tileSolidTop[tile.TileType] ? 8 : 0)
+                    | ((int)tile.Slope << 4) | (tile.IsHalfBlock ? 128 : 0));
+                frames[index * 4] = (byte)tile.TileFrameX; frames[index * 4 + 1] = (byte)(tile.TileFrameX >> 8);
+                frames[index * 4 + 2] = (byte)tile.TileFrameY; frames[index * 4 + 3] = (byte)(tile.TileFrameY >> 8);
             }
-            string data = $"width={Side};height={Side};clipped={clipped};tiles={glyphs};liquid-amount-type={Convert.ToBase64String(liquids)};tile-wall-u16le={Convert.ToBase64String(materials)}";
+            string data = $"width={Side};height={Side};clipped={clipped};tiles={glyphs};liquid-amount-type={Convert.ToBase64String(liquids)};tile-wall-u16le={Convert.ToBase64String(materials)};tile-state-u8={Convert.ToBase64String(states)};tile-frame-i16le={Convert.ToBase64String(frames)}";
             if (prior.TryGetValue(key, out string? old) && old == data) continue;
             if (!prior.ContainsKey(key)) age.Enqueue(key);
             prior[key] = data;

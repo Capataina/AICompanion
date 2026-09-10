@@ -71,9 +71,6 @@ public abstract class CompanionWeapon
         }
     }
 
-    /// <summary>Projectiles released by one use; more than one is a spread.</summary>
-    public virtual int ProjectilesPerShot => 1;
-
     /// <summary>
     /// What one hit takes off, with the player's ranged bonuses applied the way they are when the
     /// shot is actually fired. The scorer and the shot read this same method on purpose: a weapon

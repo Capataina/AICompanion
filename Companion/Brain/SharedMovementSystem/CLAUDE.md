@@ -16,13 +16,15 @@ SharedMovementSystem/
 └─ TerrariaIntegration/      native terrain, native body simulation and motor adapter
 ```
 
-`CoordinateMovement` owns retained navigator state, active traversal and local repair. A position request becomes `MoveTo`; an immediate threat becomes `AvoidThreats`; a no-place request becomes `Hold`. An active traversal owns its pre-state, preparation and flight controls. `PlanLocalMovement` validates the full remaining traversal from the actual entry state and retains controls with expected states. A mismatch invalidates that proof; entry preparation and alternative profiles are evaluated before rejecting the route. Uncommitted movement uses the same body rules.
+`CoordinateMovement` owns retained navigator state, active traversal and local repair. A position request becomes `MoveTo`; an immediate threat becomes `AvoidThreats`; a satisfied or deliberately stationary request becomes `Hold`. An unresolved follow objective retains its state search when position selection has no standing destination. An active traversal owns its pre-state, preparation and flight controls. `PlanLocalMovement` validates the full remaining traversal from the actual entry state and retains controls with expected states. A mismatch invalidates that proof; entry preparation and alternative profiles are evaluated before rejecting the route. Uncommitted movement uses the same body rules.
 
 The portable core drives the same abstract body and terrain contract for planner, replay and local controller. Terraria integration adapts live tile shapes, native movement and controls into that contract. EngineReplay compares the live collision adapter with the native NPC wrapper across terrain and liquid transitions. It does not compare the portable approximation with the engine. Ordinary gameplay still requires recorded playtest evidence.
 
 The active capability is the ordinary ground jump. `DescribeMovementCapabilities` carries the representation for future air jumps, dash, swimming and flight, and `ApplyMovementAbilities` applies active capabilities; those future capabilities are planned rather than available.
 
 ## Traps
+
+An unresolved follow objective without a selected standing tile is still a travel request. `SeekDestination` retains that objective through body-state search, invalidating it when the anchor changes materially or the objective is satisfied. Turning a missing destination into Hold strands a companion whose geometric candidate search was incomplete rather than whose intention ended.
 
 `SeekState` accepts a safe-state predicate and a progress estimate for the same body-state controller used by ordinary clearance recovery. Survival supplies the reason to escape; movement owns candidate controls, predicted successors, retained prefixes and their validity. `LimitPlanningWork` bounds combined planning time, with a minimum generator operation per retained query to prevent starvation. It is a soft deadline, not a hard upper bound on the entire AI tick.
 

@@ -244,6 +244,12 @@ internal static class VerifyMovementContracts
         navigator.MoveTo(state, NavGrid.FeetWorld(goal));
         Require(RememberExecutedRoutes.World.Count == 0, "an external displacement onto a landing cannot teach an unexecuted route");
         var controlSearch = new SearchControlSequences();
+        for (int slice = 0; slice < 8; slice++)
+            Require(!controlSearch.TryChoose(world, state, _ => false,
+                body => -body.Left, MovementCapabilities.Basic, 100, 0, out Controls incomplete,
+                allowPartialProgress: false) && incomplete == Controls.None,
+                "endpoint-certified clearance cannot execute a closer prefix without reaching its goal");
+        controlSearch.Clear();
         controlSearch.TryChoose(world, state, body => body.FeetTile == goal,
             body => Vector2.Distance(body.Feet, NavGrid.FeetWorld(goal)), MovementCapabilities.Basic, 1, 0, out _);
         Require(!controlSearch.TryChoose(world, state, body => body.FeetTile == goal,

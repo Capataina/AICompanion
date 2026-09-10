@@ -6,10 +6,13 @@ Weapons/
 ├─ CompanionWeapon.cs        weapon facts and firing contract
 ├─ BowWeapon.cs               player-owned vanilla-arrow weapon
 ├─ ThrowingKnifeWeapon.cs     piercing thrown weapon
-└─ Arsenal.cs                 target, weapon and cooldown selection
+├─ Arsenal.cs                 target, weapon and cooldown selection
+└─ EvaluateAttackOutcomes.cs  bounded joint attack and follow-up valuation
 ```
 
-TargetEvidence records the considered entity generations, expected effective damage and urgency at TargetEvidenceTick. Held-target ticks retain that stamp rather than presenting an old ranking as a new evaluation. The observation recorder consumes it alongside the weapon and position alternatives.
+TargetEvidence records considered entity generations, weapon, health-capped damage, projected kills, prevented harm and combined value at TargetEvidenceTick. Held-target ticks retain that stamp rather than presenting an old ranking as a new evaluation. The recorder consumes it alongside position alternatives and links the selected sequence estimate to the shot's projectile generation.
+
+The joint evaluator compares legal first attacks with a bounded greedy continuation using the same candidate attacks. Damage reserves projected health, so overkill and duplicate pellets cannot repeatedly earn kill credit. Time-discounted effective damage, threat removal and a small finishing value share one policy in BehaviourWeights. This is an estimate over current geometry, not a simulation of future enemy decisions or a globally optimal attack schedule. New weapons supply physical hit predictions; no per-weapon suitability policy belongs here. Synthetic multi-hit tests establish the evaluator contract, not an implemented shotgun weapon.
 
 Weapons are companion equipment, separate from the cargo bag and from brain behaviours. The brain’s hands step asks the arsenal to fire whenever no work tool occupies the arm. The arsenal selects a target and weapon from what a simulated trajectory would land over its evaluation window; each weapon supplies facts, never a private suitability score. Projectile aiming belongs to `../Brain/ProjectileAiming/` and fighting movement belongs to `../Brain/Behaviours/Combat/`.
 

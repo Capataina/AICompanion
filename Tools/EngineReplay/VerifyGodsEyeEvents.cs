@@ -72,6 +72,7 @@ internal static class VerifyGodsEyeEvents
         changed.Slope = Terraria.ID.SlopeType.SlopeDownLeft;
         changed.LiquidAmount = 255;
         changed.LiquidType = 0;
+        changed.TileFrameX = 36; changed.TileFrameY = 54;
         capture.PostUpdateEverything();
         GodsEyeEvents.Close();
 
@@ -110,8 +111,20 @@ internal static class VerifyGodsEyeEvents
             && detail.Contains("width=16;height=16;")
             && detail.Contains("liquid-amount-type=")
             && detail.Contains("tile-wall-u16le=")
+            && detail.Contains("tile-state-u8=")
+            && detail.Contains("tile-frame-i16le=")
             && !detail.Contains("tiles=" + new string('?', 256));
         failures += Require(terrainComplete, "post-update terrain snapshot omitted tile shape, liquid/material state, or local world data");
+        if (changedSnapshot is { } snapshot)
+        {
+            string Field(string name) => snapshot.Detail.Split(';').Single(p => p.StartsWith(name + "="))[(name.Length + 1)..];
+            byte[] state = Convert.FromBase64String(Field("tile-state-u8"));
+            byte[] frame = Convert.FromBase64String(Field("tile-frame-i16le"));
+            int cell = (50 - 48) * 16 + (21 - 16);
+            failures += Require((state[cell] & 1) == 1 && ((state[cell] >> 4) & 7) == (int)changed.Slope
+                && frame[cell * 4] == 36 && frame[cell * 4 + 2] == 54,
+                "terrain state/frame bytes cannot reconstruct the edited slope and native frame");
+        }
 
         Console.WriteLine($"GodsEye events: {(failures == 0 ? "all checks passed" : $"{failures} failures")}; {events.Count} real writer records, native hooks, generation links and terrain timing exercised");
         return failures;

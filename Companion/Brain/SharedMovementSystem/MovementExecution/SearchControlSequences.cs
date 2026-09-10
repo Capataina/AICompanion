@@ -69,7 +69,8 @@ public sealed class SearchControlSequences
     /// </summary>
     public bool TryChoose(ITileWorld world, BodyState live, Func<BodyState, bool> goal,
         Func<BodyState, float> heuristic, MovementCapabilities capabilities, int workBudget,
-        double milliseconds, out Controls controls, Func<BodyState, int, bool>? unsafeAtTick = null)
+        double milliseconds, out Controls controls, Func<BodyState, int, bool>? unsafeAtTick = null,
+        bool allowPartialProgress = true)
     {
         controls = Controls.None;
         Pending = false;
@@ -140,7 +141,12 @@ public sealed class SearchControlSequences
                 BodyState state = node.State;
                 var prefix = new List<Frame>(node.Prefix);
                 bool valid = true;
-                for (int tick = 0; tick < BlockTicks; tick++)
+                // Offer a grounded jump through its landing as well as its first
+                // short block. Branching at every four ticks alone fills the state
+                // cap with nearly identical early-flight poses before any landing
+                // can establish useful progress, especially in slow liquid motion.
+                int blockLength = input.Jump && state.OnGround ? MaxPrefixTicks - prefix.Count : BlockTicks;
+                for (int tick = 0; tick < blockLength; tick++)
                 {
                     BodyState before = state;
                     state = BodyMotion.Step(world, state, input, capabilities);
@@ -152,6 +158,11 @@ public sealed class SearchControlSequences
                         controls = retained.Dequeue().Controls;
                         return true;
                     }
+                    if (tick + 1 == BlockTicks && blockLength > BlockTicks)
+                        Add(new Node { State = state, Prefix = new List<Frame>(prefix) }, heuristic);
+                    if (tick + 1 >= BlockTicks && state.OnGround) break;
+                    if (tick % BlockTicks == BlockTicks - 1 && deadline != 0L
+                        && System.Diagnostics.Stopwatch.GetTimestamp() >= deadline) break;
                 }
                 if (!valid) continue;
                 // A jump apex is not an escape outcome: choosing it repeatedly can return a
@@ -175,7 +186,10 @@ public sealed class SearchControlSequences
                     Add(new Node { State = state, Prefix = prefix }, heuristic);
             }
         }
-        if ((bestPrefix ?? fallbackPrefix) is { Count: > 0 } chosenPrefix)
+        // A time slice ending is not an exhausted search. Returning a stationary or
+        // worse fallback here restarts the next query before it reaches the landing
+        // of a useful jump, so a short per-frame budget can strand a capable body.
+        if (allowPartialProgress && (bestPrefix ?? (frontier.Count == 0 ? fallbackPrefix : null)) is { Count: > 0 } chosenPrefix)
         {
             foreach (Frame frame in chosenPrefix)
                 retained.Enqueue(frame);
