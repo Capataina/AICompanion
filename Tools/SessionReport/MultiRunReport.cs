@@ -11,15 +11,39 @@ namespace AICompanion.Tools.SessionReport;
 public static class MultiRunReport
 {
     public static bool HasDefinitive(IEnumerable<string> paths)
-        => paths.Select(Session.Load).Any(session => Program.Evaluate(session).Findings.Any(f => f.Severity == Severity.Definitive));
+    {
+        foreach (string path in paths)
+        {
+            try
+            {
+                if (Program.Evaluate(Session.Load(path)).Findings.Any(f => f.Severity == Severity.Definitive))
+                    return true;
+            }
+            catch (Exception)
+            {
+                // A selected capture that cannot be parsed is not proof of a gameplay defect,
+                // but it is never a clean multi-run verdict.
+                return true;
+            }
+        }
+        return false;
+    }
 
     public static string Of(IEnumerable<string> paths)
     {
         var text = new StringBuilder("multi-run diagnosis\n"); int count = 0;
         foreach (string path in paths)
         {
-            Session s = Session.Load(path); count++;
             text.Append($"\nrun  {Path.GetFileName(path)}\n");
+            Session s;
+            try { s = Session.Load(path); }
+            catch (Exception error)
+            {
+                count++;
+                text.Append($"  continuous samples=unreadable; coverage unavailable because the selected TSV could not be parsed: {error.Message}\n");
+                continue;
+            }
+            count++;
             text.Append($"  continuous samples={s.Count:n0}");
             if (s.Count > 0) text.Append($" ticks={s.Tick(0):n0}..{s.Tick(s.Count - 1):n0}");
             text.Append('\n');

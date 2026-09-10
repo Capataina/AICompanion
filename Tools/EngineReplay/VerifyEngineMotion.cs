@@ -5,7 +5,7 @@ using Terraria;
 
 internal static class VerifyEngineMotion
 {
-    public static int Run(bool lifecycleOnly = false, bool escapeOnly = false)
+    public static int Run(bool lifecycleOnly = false, bool escapeOnly = false, bool workOnly = false, bool followOnly = false, bool protectionOnly = false)
     {
         typeof(Terraria.Program).GetField("SavePath", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)!.SetValue(null, Path.GetTempPath());
         Main.dedServ = true;
@@ -23,6 +23,9 @@ internal static class VerifyEngineMotion
         Main.tileSolid[19] = Main.tileSolidTop[19] = true;
         if (lifecycleOnly) return VerifyCompanionLifecycle.Run();
         if (escapeOnly) return VerifyCapturedEscape.Run();
+        if (workOnly) return VerifyOreWork.Run();
+        if (followOnly) return VerifyResponsiveFollowing.Run();
+        if (protectionOnly) return VerifyFollowRecoveryAndProtection.Run();
         int checkedCases = 0, failed = 0;
         foreach (int altitude in new[] { 0, 30 })
         foreach (int shape in Enumerable.Range(0, 7))
@@ -88,6 +91,10 @@ internal static class VerifyEngineMotion
         failed += VerifyCompanionLifecycle.Run();
         failed += VerifyThreatAnticipation.Run();
         failed += VerifyCapturedEscape.Run();
+        failed += VerifyResponsiveFollowing.Run();
+        failed += VerifyFollowRecoveryAndProtection.Run();
+        failed += VerifyOreWork.Run();
+        failed += VerifyObservationLifecycle.Run();
         return failed == 0 ? 0 : 1;
     }
 

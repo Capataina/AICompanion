@@ -36,7 +36,10 @@ public static class GodsEyeEvents
     internal static void Open(string path)
     {
         Close();
-        writer = new StreamWriter(path, false);
+        // A telemetry stem is reserved by the TSV writer before its sidecars open. CreateNew is
+        // still intentional here: a sidecar collision must fail loudly rather than turn a later
+        // load retry into an apparently complete earlier session.
+        writer = new StreamWriter(new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.Read));
         npcGenerations.Clear(); projectileGenerations.Clear(); itemGenerations.Clear(); sequence = 0;
         RecordTerrainChunks.Reset();
         lastMovementEdges = -1;
@@ -47,6 +50,13 @@ public static class GodsEyeEvents
         // this session's start tick; occurrence ticks remain useful only relative to one another.
         Write("session", 0, "", "", "", Vector2.Zero, Vector2.Zero, Vector2.Zero, 0, "schema=1;start-tick=unknown;capture=sparse-events;terrain=rolling-local-16x16-chunks;radius=3-chunks;nominal-scan=49-ticks;max-chunks-per-tick=2;unseen=unknown");
     }
+
+    /// <summary>
+    /// Records only the callback this mod observed. A returned ModSystem callback is useful
+    /// lifecycle evidence, but cannot establish that Terraria completed the outer operation.
+    /// </summary>
+    internal static void RecordLifecycle(string phase, string evidence)
+        => Write("lifecycle", 0, "", phase, "", Vector2.Zero, Vector2.Zero, Vector2.Zero, 0, evidence);
 
     internal static void Close()
     {

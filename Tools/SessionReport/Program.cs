@@ -46,6 +46,8 @@ public static class Program
         new EveryMoveOfferedGetsMade(),
         new ProvenMovesTakeTheirProvenTime(),
         new BeingUnableToReachHimGetsNoticed(),
+        new FollowingMakesRouteProgress(),
+        new FollowingRespondsAfterDeparture(),
         new DamageArrivesWhereDangerWasSeen(),
         new TheHandsWorkWhileThreatened(),
         new TheChosenWeaponIsTheBetterOne(),
@@ -64,9 +66,9 @@ public static class Program
         if (args.Length >= 2 && args[0] == "--multirun")
         {
             string[] paths = ResolveAll(args[1..]);
-            if (paths.Length != args.Length - 1)
+            if (paths.Length == 0)
             {
-                Console.Error.WriteLine("--multirun needs one readable session file or Telemetry folder per run");
+                Console.Error.WriteLine("--multirun needs at least one readable session file or Telemetry folder");
                 return 2;
             }
             Console.Write(MultiRunReport.Of(paths));
@@ -76,9 +78,9 @@ public static class Program
         if (args.Length >= 3 && args[0] == "--html")
         {
             string[] paths = ResolveAll(args[2..]);
-            if (paths.Length != args.Length - 2)
+            if (paths.Length == 0)
             {
-                Console.Error.WriteLine("--html needs an output .html path followed by one or more readable sessions");
+                Console.Error.WriteLine("--html needs an output .html path followed by at least one readable session");
                 return 2;
             }
             try
@@ -256,8 +258,19 @@ public static class Program
                         .FirstOrDefault();
     }
 
-    private static string[] ResolveAll(IEnumerable<string> arguments)
-        => arguments.Select(Resolve).Where(path => path != null).Select(path => path!).ToArray();
+    /// <summary>
+    /// Multi-run and HTML input expands every session in each directory. Ordinary reporting still
+    /// calls <see cref="Resolve"/> and therefore keeps its deliberate newest-run convenience.
+    /// A capture directory is evidence, not a request to silently discard every run but one.
+    /// </summary>
+    internal static string[] ResolveAll(IEnumerable<string> arguments)
+        => arguments.SelectMany(argument => File.Exists(argument)
+                ? (IEnumerable<string>)new[] { argument }
+                : Directory.Exists(argument)
+                    ? (IEnumerable<string>)Directory.EnumerateFiles(argument, "*.tsv").OrderBy(File.GetLastWriteTimeUtc).ThenBy(path => path, StringComparer.Ordinal)
+                    : Array.Empty<string>())
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
 
     private static IEnumerable<string> Wrap(string text, int width)
     {

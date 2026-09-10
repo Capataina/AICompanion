@@ -8,6 +8,7 @@ using System.Text;
 using Microsoft.Xna.Framework;
 using Terraria;
 using Terraria.ModLoader;
+using Terraria.ModLoader.IO;
 using AICompanion.Companion.Brain.SharedMovementSystem;
 using AICompanion.Companion.CharacterBody;
 
@@ -44,6 +45,7 @@ public sealed class BrainTelemetry : ModSystem
     private static string? pendingPlayerHit;
     private static string? pendingCompanionHit;
     private static string? lastDecision;
+    private static bool firstUpdateRecorded;
 
     /// <summary>The folder the files land in: the mod's source folder, which is where the repository is.</summary>
     public static string Folder => Path.Combine(Main.SavePath, "ModSources", "AICompanion", "Telemetry");
@@ -55,21 +57,23 @@ public sealed class BrainTelemetry : ModSystem
         try
         {
             Directory.CreateDirectory(Folder);
-            string stamp = $"{DateTime.Now:yyyy-MM-dd_HH-mm-ss}";
-            string path = Path.Combine(Folder, $"{stamp}.tsv");
-            writer = new StreamWriter(path, false, Encoding.UTF8);
-            plansPath = Path.Combine(Folder, $"{stamp}-plans.txt");
-            censusPath = Path.Combine(Folder, $"{stamp}-census.txt");
-            mapPath = Path.Combine(Folder, $"{stamp}-map.txt");
-            eventsPath = Path.Combine(Folder, $"{stamp}-events.jsonl");
+            string stamp = $"{DateTime.UtcNow:yyyy-MM-dd_HH-mm-ss-fff}";
+            string path = ReserveSessionPath(stamp, out string sessionStem);
+            plansPath = Path.Combine(Folder, $"{sessionStem}-plans.txt");
+            censusPath = Path.Combine(Folder, $"{sessionStem}-census.txt");
+            mapPath = Path.Combine(Folder, $"{sessionStem}-map.txt");
+            eventsPath = Path.Combine(Folder, $"{sessionStem}-events.jsonl");
             lastDumpTick = -DumpEveryTicks;
             headerWritten = false;
             sessionStartedUtc = DateTime.UtcNow;
             sessionClock.Restart();
             GodsEyeEvents.Open(eventsPath);
+            WriteMetadata();
+            GodsEyeEvents.RecordLifecycle("world-entry", "observed=ModSystem.OnWorldLoad;tag-load=not-yet-observed;outer-load=unobservable");
             pendingPlayerHit = null;
             pendingCompanionHit = null;
             lastDecision = null;
+            firstUpdateRecorded = false;
             ScenarioCapture.Reset();
             BehaviourCensus.Reset();
             SessionMap.Reset();
@@ -83,6 +87,28 @@ public sealed class BrainTelemetry : ModSystem
     }
 
     public override void OnWorldUnload() => Close();
+
+    public override void LoadWorldData(TagCompound tag)
+    {
+        GodsEyeEvents.RecordLifecycle("tag-load-entered", "observed=BrainTelemetry.LoadWorldData;outer-load=unobservable");
+        // Returning from this callback proves this mod's callback finished. It cannot prove that
+        // another ModSystem callback or Terraria's outer load completed after it.
+        GodsEyeEvents.RecordLifecycle("tag-load-returned", "observed=BrainTelemetry.LoadWorldData-returned;outer-load=unobservable");
+    }
+
+    public override void SaveWorldData(TagCompound tag)
+    {
+        GodsEyeEvents.RecordLifecycle("save-entered", "observed=BrainTelemetry.SaveWorldData;world-persisted=unobservable");
+        GodsEyeEvents.RecordLifecycle("save-returned", "observed=BrainTelemetry.SaveWorldData-returned;world-persisted=unobservable");
+    }
+
+    public override void PostUpdateEverything()
+    {
+        if (writer == null || firstUpdateRecorded)
+            return;
+        firstUpdateRecorded = true;
+        GodsEyeEvents.RecordLifecycle("first-update", "observed=ModSystem.PostUpdateEverything;outer-load=unobservable");
+    }
 
     /// <summary>
     /// Receives Terraria's final hurt calculation from the local player's ModPlayer hook. A life
@@ -142,6 +168,36 @@ public sealed class BrainTelemetry : ModSystem
             mapPath = null;
             eventsPath = null;
         }
+    }
+
+    private static string ReserveSessionPath(string timestamp, out string sessionStem)
+    {
+        Directory.CreateDirectory(Folder);
+        for (int attempt = 0; ; attempt++)
+        {
+            sessionStem = attempt == 0 ? timestamp : $"{timestamp}-{attempt}";
+            string candidate = Path.Combine(Folder, $"{sessionStem}.tsv");
+            try
+            {
+                writer = new StreamWriter(new FileStream(candidate, FileMode.CreateNew, FileAccess.Write, FileShare.Read), Encoding.UTF8);
+                return candidate;
+            }
+            catch (IOException) when (File.Exists(candidate))
+            {
+                // A retry in the same clock instant is a second capture, never permission to
+                // replace the evidence from the first one.
+            }
+        }
+    }
+
+    private static void WriteMetadata()
+    {
+        if (writer == null)
+            return;
+        writer.WriteLine($"# schema={Schema}");
+        writer.WriteLine($"# started_utc={sessionStartedUtc:O}");
+        writer.WriteLine("# lifecycle=world-entry-observed;tag-load-not-yet-observed;first-update-not-yet-observed;outer-load-unobservable;save-not-observed");
+        writer.Flush();
     }
 
     /// <summary>
@@ -314,6 +370,13 @@ public sealed class BrainTelemetry : ModSystem
         string decision = brain.Reflexes.Active ?? brain.LastAction?.Name ?? "-";
         bool brainExecuted = brain.LastTick == Main.GameUpdateCount;
         string controls = DescribeControls(companion.Motor.AppliedControls);
+        var guard = default(Behaviours.Companionship.GuardAction);
+        var mine = default(Behaviours.Work.MineAction);
+        foreach (var candidate in brain.Chooser.Actions)
+        {
+            if (candidate is Behaviours.Companionship.GuardAction guardAction) guard = guardAction;
+            if (candidate is Behaviours.Work.MineAction mineAction) mine = mineAction;
+        }
         if (decision != lastDecision || Main.GameUpdateCount % 60 == 0)
         {
             var board = new StringBuilder();
@@ -329,7 +392,7 @@ public sealed class BrainTelemetry : ModSystem
             brain.Positioner.CandidateCount, brain.Positioner.ReachableCandidateCount, brain.Positioner.RejectedCandidateCount, brain.Positioner.ChoiceReason,
             senses.Threats.InterventionTicks, senses.Threats.ProtectionUrgency,
             senses.Threats.MostUrgent?.PredictionConfidence ?? 0f, senses.Threats.MostUrgent?.PredictionSamples ?? 0,
-            $"control-source={companion.Motor.ControlSource};state-search-pending={brain.Movement.StateSearchPending};retained-control-ticks={brain.Movement.StateSearchRetainedTicks};air-target={(brain.LastAction as Behaviours.Survival.SurviveAction)?.AirTarget};breath-ticks-left={companion.Breath.TicksLeft};position-evidence-tick={brain.Positioner.EvidenceTick};positions-evaluated={brain.Positioner.EvaluatedCandidates};position-alternatives={brain.Positioner.CandidateEvidence};target-evidence-tick={companion.Arsenal.TargetEvidenceTick};target-alternatives={companion.Arsenal.TargetEvidence}");
+            $"route-completed-steps={brain.Navigator.Path?.Index ?? 0};route-remaining-estimated-ticks={brain.Navigator.RemainingEstimatedRouteTicks:0.000};follow-objective-valid={brain.Positioner.FollowObjectiveSatisfied};follow-horizontal-gap={brain.Positioner.FollowHorizontalGap:0.000};follow-vertical-gap={brain.Positioner.FollowVerticalGap:0.000};follow-objective={brain.Positioner.FollowObjectiveReason};recovery-active={brain.FollowRecovery.Active};recovery-reason={brain.FollowRecovery.Reason};recovery-flights={brain.FollowRecovery.Flights};guard-threat={guard?.ProtectedThreatId ?? -1};guard-pressure={(guard?.RetainedPressure ?? 0f).ToString("0.000", CultureInfo.InvariantCulture)};guard-reason={guard?.CommitmentReason ?? "unavailable"};mine-job={mine?.JobId ?? 0};mine-policy={mine?.Policy.ToString() ?? "unavailable"};mine-status={mine?.Status ?? "unavailable"};mine-remaining={mine?.RemainingTiles ?? 0};mine-target={mine?.TargetTile?.ToString() ?? "-"};control-source={companion.Motor.ControlSource};state-search-pending={brain.Movement.StateSearchPending};retained-control-ticks={brain.Movement.StateSearchRetainedTicks};air-target={(brain.LastAction as Behaviours.Survival.SurviveAction)?.AirTarget};breath-ticks-left={companion.Breath.TicksLeft};position-evidence-tick={brain.Positioner.EvidenceTick};positions-evaluated={brain.Positioner.EvaluatedCandidates};position-alternatives={brain.Positioner.CandidateEvidence};target-evidence-tick={companion.Arsenal.TargetEvidenceTick};target-evidence-age={senses.Tick - companion.Arsenal.TargetEvidenceTick};target-alternatives={companion.Arsenal.TargetEvidence}");
         SessionMap.Watch(
             NavGrid.FeetTile(npc.Bottom),
             NavGrid.FeetTile(senses.Player.Bottom),
@@ -341,13 +404,11 @@ public sealed class BrainTelemetry : ModSystem
             var h = new StringBuilder();
             // A start timestamp is file metadata. Stopwatch is the observed wall duration of
             // every row; deriving wall time from game ticks would conceal pauses and lag.
-            writer.WriteLine($"# schema={Schema}");
-            writer.WriteLine($"# started_utc={sessionStartedUtc:O}");
             h.Append("tick\tstate\taction\treflex");
             foreach (var a in brain.Chooser.Actions)
                 h.Append('\t').Append(a.Name).Append("_raw\t").Append(a.Name).Append("_fin");
             h.Append("\tdanger\tself_threat\thorizon\tthreats\treachable\ttop_threat\ttarget\tloot");
-            h.Append("\trequest\tanchor\tspot\tspot_score\tpath_steps\tpath_at\tnext_kind\tplan_failed\texpansions");
+            h.Append("\trequest\tanchor\tspot\tspot_score\tfollow_objective_valid\tfollow_dx\tfollow_dy\tfollow_reason\trecovery_active\trecovery_reason\trecovery_flights\tpath_steps\tpath_at\troute_search_id\troute_attempt_id\troute_remaining_ticks\tnext_kind\tplan_failed\texpansions");
             h.Append("\tnpc_tile\tnpc_px\tnpc_vel\tground\twet\tcollide_x\tcollide_y\tmoved\tvel_cut\tpress\tdescend\tpinned\tdiverge\tdiverge_valid\tdiverge_invalid_reason\tdir\tlife\tbreath\tself_danger\theld\tweapon\tshot\tfire\texp_bow\texp_knife\texp_target\tnear_threat\tweapon_reach\tengage\ttorch\tambient");
             h.Append("\tplayer_tile\tplayer_intent\tplayer_dead\tplayer_attacking\tplayer_chopping\tplayer_mining");
             h.Append("\tplan_ms\tflood_ms\tsenses_ms\treflex_ms\tdecide_ms\tposition_ms\tnavigate_ms\tbrain_ms\tedge_cache\tstranded");
@@ -357,6 +418,7 @@ public sealed class BrainTelemetry : ModSystem
             // them, and whether the refusing flood was discarded because the player was outside it.
             h.Append("\treach_n\treturnable_n\tspot_home\tplayer_one_way");
             h.Append("\tedge_n\tedge_kind\tedge_from\tedge_to\tedge_proven\tedge_took\tedge_outcome");
+            h.Append("\tguard_threat\tguard_pressure\tguard_reason\tmine_job\tmine_policy\tmine_status\tmine_remaining\tmine_target\ttarget_evidence_tick\ttarget_evidence_age\ttarget_evidence");
             h.Append("\twall_elapsed_ms\tsample_phase\tplayer_px\tplayer_vel\tplayer_ground\tplayer_liquid\tplayer_life\tplayer_hit\tnpc_hit\tplayer_state\tplayer_activity\tplayer_support\tnpc_support\tcontrol\tcontrol_source\tbrain_fresh");
             h.Append("\tobserved_left\tobserved_bottom\tobserved_vel\tobserved_ground\tobserved_wet\tobserved_mobility\tpredicted_left\tpredicted_bottom\tpredicted_vel\tpredicted_ground\tpredicted_wet\tpredicted_mobility\tnpc_width\tnpc_height");
             writer.WriteLine(h.ToString());
@@ -399,8 +461,17 @@ public sealed class BrainTelemetry : ModSystem
         sb.Append('\t').Append(Tile(brain.LastRequest.Anchor));
         sb.Append('\t').Append(brain.Positioner.Chosen is Vector2 c ? Tile(c) : "-");
         sb.Append('\t').Append(brain.Positioner.ChosenScore.ToString("0.00"));
+        sb.Append('\t').Append(brain.Positioner.FollowObjectiveSatisfied ? 1 : 0);
+        sb.Append('\t').Append(brain.Positioner.FollowHorizontalGap.ToString("0.00", CultureInfo.InvariantCulture));
+        sb.Append('\t').Append(brain.Positioner.FollowVerticalGap.ToString("0.00", CultureInfo.InvariantCulture));
+        sb.Append('\t').Append(brain.Positioner.FollowObjectiveReason);
+        sb.Append('\t').Append(brain.FollowRecovery.Active ? 1 : 0);
+        sb.Append('\t').Append(brain.FollowRecovery.Reason);
+        sb.Append('\t').Append(brain.FollowRecovery.Flights);
         NavPath? path = brain.Navigator.Path;
         sb.Append('\t').Append(path?.Steps.Count ?? 0).Append('\t').Append(path?.Index ?? 0);
+        sb.Append('\t').Append(brain.Navigator.SearchId).Append('\t').Append(brain.Navigator.AttemptId);
+        sb.Append('\t').Append(brain.Navigator.RemainingEstimatedRouteTicks.ToString("0.00", CultureInfo.InvariantCulture));
         sb.Append('\t').Append(path != null && !path.Finished ? path.Current.Kind.ToString() : "-");
         sb.Append('\t').Append(brain.Navigator.LastPlanFailed ? 1 : 0).Append('\t').Append(brain.Navigator.LastExpansions);
 
@@ -517,6 +588,18 @@ public sealed class BrainTelemetry : ModSystem
               .Append('\t').Append(edge.Expected).Append('\t').Append(edge.Actual).Append('\t').Append(edge.Outcome);
         else
             sb.Append("\t0\t-\t-\t-\t0\t0\t-");
+
+        sb.Append('\t').Append(guard?.ProtectedThreatId ?? -1);
+        sb.Append('\t').Append((guard?.RetainedPressure ?? 0f).ToString("0.000", CultureInfo.InvariantCulture));
+        sb.Append('\t').Append(guard?.CommitmentReason ?? "unavailable");
+        sb.Append('\t').Append(mine?.JobId ?? 0);
+        sb.Append('\t').Append(mine?.Policy.ToString() ?? "unavailable");
+        sb.Append('\t').Append(mine?.Status ?? "unavailable");
+        sb.Append('\t').Append(mine?.RemainingTiles ?? 0);
+        sb.Append('\t').Append(mine?.TargetTile?.ToString() ?? "-");
+        sb.Append('\t').Append(companion.Arsenal.TargetEvidenceTick);
+        sb.Append('\t').Append(senses.Tick - companion.Arsenal.TargetEvidenceTick);
+        sb.Append('\t').Append(companion.Arsenal.TargetEvidence);
 
         Player player = Main.LocalPlayer;
         sb.Append('\t').Append(sessionClock.Elapsed.TotalMilliseconds.ToString("0.000", CultureInfo.InvariantCulture));

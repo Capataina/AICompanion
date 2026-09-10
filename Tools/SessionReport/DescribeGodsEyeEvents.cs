@@ -18,6 +18,7 @@ public static class DescribeGodsEyeEvents
         if (!File.Exists(path)) return "events    unavailable — this session predates the God’s Eye event stream\n";
         int valid = 0, malformed = 0; var kinds = new Dictionary<string, int>(StringComparer.Ordinal);
         var chronology = new List<EventLine>();
+        var lifecycle = new List<EventLine>();
         bool opened = false, closed = false;
         int lastSequence = -1, missingSequences = 0;
         foreach (string line in File.ReadLines(path))
@@ -40,11 +41,17 @@ public static class DescribeGodsEyeEvents
                 if (kind == "session-end") { closed = true; continue; }
                 valid++; kinds[kind] = kinds.TryGetValue(kind, out int count) ? count + 1 : 1;
                 chronology.Add(e);
+                if (kind == "lifecycle") lifecycle.Add(e);
             }
             catch (Exception error) when (error is JsonException or InvalidDataException or NotSupportedException) { malformed++; }
         }
         var text = new StringBuilder($"events    {valid:n0} occurrence record(s)" + (malformed == 0 ? "\n" : $", {malformed:n0} malformed line(s)\n"));
         text.Append($"coverage  start={(opened ? "recorded" : "missing")}; end={(closed ? "normal close" : "missing — active or interrupted capture")}; missing-sequences={missingSequences}; terrain is sampled locally, uncaptured terrain remains unknown\n");
+        if (lifecycle.Count == 0)
+            text.Append("lifecycle unavailable — this session predates lifecycle callback evidence\n");
+        else
+            foreach (EventLine e in lifecycle.OrderBy(e => e.seq))
+                text.Append($"lifecycle {e.label}: {e.detail}\n");
         foreach (var pair in kinds) text.Append($"  {pair.Key} {pair.Value:n0}\n");
         chronology.Sort((a, b) => a.wall_elapsed_ms != b.wall_elapsed_ms ? a.wall_elapsed_ms.CompareTo(b.wall_elapsed_ms) : a.seq.CompareTo(b.seq));
         var launches = new Dictionary<int, EventLine>();

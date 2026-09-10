@@ -2,6 +2,7 @@
 
 using System;
 using System.IO;
+using System.Linq;
 using System.Text;
 
 namespace AICompanion.Tools.SessionReport;
@@ -22,13 +23,16 @@ public static class ChronicleTests
             NonMonotonicWallTimeIsRejected();
             AHoldIsNotCalledHesitationAndProgressSurvivesIt();
             SustainedRequestedMovementWithoutObservedProgressIsReported();
+            FollowingDiagnosisUsesNavigatorProgressRatherThanDistance();
             EmptyHeaderOnlySessionIsReadable();
             RecorderChronologyContractUsesActualLifeColumn();
             RecorderCapturesFreshNavigationEvidence();
+            RecorderLifecycleAndReservationContractsArePresent();
             EventSiblingReportsCountsAndCorruption();
             MultiRunAndHtmlKeepEverySelectedRun();
+            MultiRunFolderKeepsFirstAndLastRuns();
             MultiRunRetainsDefinitiveExit();
-            Console.WriteLine("Chronicle self-tests passed (11 assertion groups).");
+            Console.WriteLine("Chronicle self-tests passed (14 assertion groups).");
             return 0;
         }
         catch (Exception error)
@@ -118,6 +122,64 @@ public static class ChronicleTests
         }
     }
 
+    private static void FollowingDiagnosisUsesNavigatorProgressRatherThanDistance()
+    {
+        string file = Path.GetTempFileName();
+        try
+        {
+            const string header = "tick\trequest\tfollow_objective_valid\tfollow_dx\tfollow_dy\tfollow_reason\troute_search_id\troute_attempt_id\troute_remaining_ticks\tpath_at\taction\trecovery_active\tnpc_px\tplayer_px\tplayer_vel\twall_elapsed_ms\n";
+            var rows = new StringBuilder(header);
+            for (int tick = 0; tick <= 120; tick++)
+            {
+                // The companion first walks away around a C-turn, so the Euclidean gap grows.
+                // Its route identity stays stable while completed steps rise and ETA falls.
+                rows.Append(tick).Append("\tWithPlayer\t0\t").Append(100 + tick).Append("\t0\tC-turn\t7\t11\t")
+                    .Append(240 - tick).Append('\t').Append(tick / 30).Append("\twalk-with\t0\t")
+                    .Append(tick).Append(",0\t0,0\t1,0\t").Append(tick * 16).Append('\n');
+            }
+            File.WriteAllText(file, rows.ToString());
+            Session session = Session.Load(file);
+            Require(!new FollowingMakesRouteProgress().Run(session).Any(), "a progressing C-turn was labelled as an unsatisfied follow failure");
+            File.WriteAllText(file, "tick\tnpc_px\tplayer_px\tplayer_vel\taction\twall_elapsed_ms\n"
+                + "0\t0,0\t900,0\t1,0\twalk-with\t0\n"
+                + "1\t1,0\t901,0\t1,0\twalk-with\t17\n"
+                + "2\t2,0\t902,0\t1,0\twalk-with\t34\n");
+            Require(new FollowingRespondsAfterDeparture().Run(Session.Load(file)).Count() == 1,
+                "one distant following episode must not emit a fresh latency report every frame");
+
+            rows.Clear();
+            rows.Append(header);
+            for (int tick = 0; tick <= 120; tick++)
+                rows.Append(tick).Append("\tWithPlayer\t0\t").Append(100 + tick).Append("\t0\twrong-floor\t7\t11\t240\t0\twalk-with\t0\t")
+                    .Append(tick).Append(",0\t0,0\t1,0\t").Append(tick * 16).Append('\n');
+            File.WriteAllText(file, rows.ToString());
+            string finding = new FollowingMakesRouteProgress().Run(Session.Load(file)).Single().Title;
+            Require(finding.Contains("wrong-direction or wrong-floor", StringComparison.Ordinal), "moving away without route progress did not retain its wrong-floor diagnosis");
+
+            rows.Clear();
+            rows.Append(header);
+            for (int tick = 0; tick <= 240; tick++)
+            {
+                int completed = tick < 10 ? tick : 10;
+                rows.Append(tick).Append("\tWithPlayer\t0\t").Append(100 + tick).Append("\t0\twrong-floor\t7\t11\t")
+                    .Append(240 - Math.Min(tick, 10)).Append('\t').Append(completed).Append("\twalk-with\t0\t")
+                    .Append(tick).Append(",0\t0,0\t1,0\t").Append(tick * 16).Append('\n');
+            }
+            File.WriteAllText(file, rows.ToString());
+            Finding delayed = new FollowingMakesRouteProgress().Run(Session.Load(file)).Single();
+            Require(delayed.FirstTick == 10 && delayed.Rows == 231, "one early completed step hid the later prolonged no-progress follow window");
+
+            rows.Clear();
+            rows.Append(header);
+            for (int tick = 0; tick <= 240; tick++)
+                rows.Append(tick).Append("\tWithPlayer\t0\t100\t0\trecovery\t7\t11\t240\t0\twalk-with\t1\t")
+                    .Append(tick).Append(",0\t0,0\t1,0\t").Append(tick * 16).Append('\n');
+            File.WriteAllText(file, rows.ToString());
+            Require(!new FollowingMakesRouteProgress().Run(Session.Load(file)).Any(), "recovery flight inherited stale WithPlayer/walk-with state as an ordinary follow failure");
+        }
+        finally { File.Delete(file); }
+    }
+
     private static void SustainedRequestedMovementWithoutObservedProgressIsReported()
     {
         string file = Path.GetTempFileName();
@@ -181,6 +243,19 @@ public static class ChronicleTests
             "navigation occurrence omits causal identity, freshness or bounded progress reason");
     }
 
+    private static void RecorderLifecycleAndReservationContractsArePresent()
+    {
+        string telemetry = File.ReadAllText(Path.Combine("Companion", "Brain", "BehaviourDiagnostics", "RecordBrainTelemetry.cs"));
+        string events = File.ReadAllText(Path.Combine("Companion", "Brain", "BehaviourDiagnostics", "RecordGodsEyeEvents.cs"));
+        Require(telemetry.Contains("FileMode.CreateNew", StringComparison.Ordinal) && telemetry.Contains("ReserveSessionPath", StringComparison.Ordinal),
+            "recorder can still overwrite a same-second run instead of reserving an attempt-specific file");
+        Require(telemetry.Contains("WriteMetadata();", StringComparison.Ordinal) && telemetry.Contains("PostUpdateEverything", StringComparison.Ordinal)
+                && telemetry.Contains("LoadWorldData(TagCompound tag)", StringComparison.Ordinal) && telemetry.Contains("SaveWorldData(TagCompound tag)", StringComparison.Ordinal),
+            "zero-tick metadata or lifecycle callback evidence is missing from the recorder contract");
+        Require(telemetry.Contains("RecordLifecycle", StringComparison.Ordinal) && telemetry.Contains("outer-load=unobservable", StringComparison.Ordinal),
+            "lifecycle evidence no longer states the boundary between this callback and Terraria's outer load");
+    }
+
     private static void EventSiblingReportsCountsAndCorruption()
     {
         string file = Path.GetTempFileName();
@@ -193,12 +268,13 @@ public static class ChronicleTests
             Require(report.Contains("1 malformed line"), "event sibling silently accepted corrupt JSONL");
             Require(report.Contains("end=missing"), "an interrupted event stream must not claim normal closure");
             var lines = new System.Collections.Generic.List<string>();
-            void Add(string kind, int subject = 0, string channel = "", double wall = 0, string related = "", string detail = "test")
+            void Add(string kind, int subject = 0, string channel = "", double wall = 0, string related = "", string detail = "test", string label = "knife")
                 => lines.Add(System.Text.Json.JsonSerializer.Serialize(new {
                     v = 1, seq = lines.Count, tick = lines.Count, wall_elapsed_ms = wall, kind, subject, related,
-                    label = "knife", channel, pos_x = 5, pos_y = 6, vel_x = 2, vel_y = -1,
+                    label, channel, pos_x = 5, pos_y = 6, vel_x = 2, vel_y = -1,
                     expected_x = 20, expected_y = 30, amount = 0, detail }));
             Add("session");
+            Add("lifecycle", detail: "observed=ModSystem.OnWorldLoad;outer-load=unobservable", label: "world-entry");
             Add("navigation-state", 1, "WithPlayer", 50, detail: "freshness=stale-or-not-executed;controls=move=3.50;search-id=9;attempt-id=11;search-pending=False;search-expansions=22;progress=idle;experience-routes=0");
             Add("shot", 1, "projectile=1000001", 100, "enemy-1");
             Add("projectile-terrain-hit", 1000001, wall: 200);
@@ -213,6 +289,7 @@ public static class ChronicleTests
             Require(!report.Contains("projectile 1000002 intended target enemy-2"), "a piercing shot hitting terrain after an enemy is not a blocked shot");
             Require(report.Contains("00:14:30"), "default causal summary omitted the end of a long run");
             Require(report.Contains("end=normal close"), "normal recorder closure must be visible");
+            Require(report.Contains("lifecycle world-entry: observed=ModSystem.OnWorldLoad;outer-load=unobservable", StringComparison.Ordinal), "lifecycle callback evidence was not surfaced with its outer-load limit");
             Require(report.Contains("freshness=stale-or-not-executed"), "reader discarded freshness that prevents a stale action becoming a fictional stall");
             string full = DescribeGodsEyeEvents.Of(file, true);
             Require(full.Contains("projectile-enemy-hit subject=1000002"), "full event trace discarded native contact details");
@@ -281,15 +358,41 @@ public static class ChronicleTests
 
     private static void MultiRunRetainsDefinitiveExit()
     {
-        string healthy = Path.GetTempFileName(), faulty = Path.GetTempFileName();
+        string healthy = Path.GetTempFileName(), faulty = Path.GetTempFileName(), empty = Path.GetTempFileName();
         try
         {
             File.WriteAllText(healthy, "tick\n1\n2\n");
             File.WriteAllText(faulty, "tick\n2\n1\n");
             Require(!MultiRunReport.HasDefinitive(new[] { healthy }), "healthy multi-run fixture became definitive");
             Require(MultiRunReport.HasDefinitive(new[] { healthy, faulty }), "multi-run suppressed a definitive ordinary-report fault");
+            File.WriteAllText(empty, "");
+            Require(MultiRunReport.HasDefinitive(new[] { healthy, empty }), "an unreadable selected capture became a clean multi-run verdict");
+            Require(MultiRunReport.Of(new[] { healthy, empty }).Contains("continuous samples=unreadable", StringComparison.Ordinal),
+                "multi-run omitted an unreadable selected capture instead of reporting its coverage gap");
         }
-        finally { File.Delete(healthy); File.Delete(faulty); }
+        finally { File.Delete(healthy); File.Delete(faulty); File.Delete(empty); }
+    }
+
+    private static void MultiRunFolderKeepsFirstAndLastRuns()
+    {
+        string folder = Path.Combine(Path.GetTempPath(), "aic-session-folder-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(folder);
+        try
+        {
+            string first = Path.Combine(folder, "first.tsv");
+            string middle = Path.Combine(folder, "middle.tsv");
+            string last = Path.Combine(folder, "last.tsv");
+            File.WriteAllText(first, "tick\n1\n");
+            File.WriteAllText(middle, "tick\n2\n");
+            File.WriteAllText(last, "tick\n3\n");
+            string[] selected = Program.ResolveAll(new[] { folder });
+            Require(selected.Length == 3 && selected.Contains(first) && selected.Contains(last),
+                "multi-run folder resolution discarded the first or last selected capture");
+            string report = MultiRunReport.Of(selected);
+            Require(report.Contains("first.tsv", StringComparison.Ordinal) && report.Contains("last.tsv", StringComparison.Ordinal),
+                "multi-run report omitted the first or last selected capture after folder expansion");
+        }
+        finally { Directory.Delete(folder, recursive: true); }
     }
 
     private static void Require(bool condition, string message)
