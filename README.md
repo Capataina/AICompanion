@@ -6,8 +6,12 @@ Early development. Today: `/companion` in chat spawns a companion that looks lik
 
 ## Building
 
+Navigation retains unfinished search while executing useful movement, and successful traversals become bounded route memories in the world save. Short movement searches handle local clearance and underwater escape using the same body simulation. Protection considers time until useful intervention; the companion continues thinking when its player dies. These are implemented capabilities with headless regression coverage, while difficult caves and comfortable behaviour still need playtesting.
+
 From this folder, `sh Tools/verify.sh` compiles against the installed tModLoader and checks the movement boundary. With the game closed, `dotnet build` also packages the mod for the next launch. A fresh launch avoids the unresolved in-game reload hang.
 
 The complete feature lives under `Companion/`, grouped into its brain, character body, weapons, inventory, player and enemy integration, map integration and HUD. Movement is shared by travel, work and combat through `Companion/Brain/SharedMovementSystem`. Its Terraria integration predicts using the game's collision helpers; `Tools/EngineReplay` compares those predictions with the engine's own NPC collision routine without opening a window. `Tools/NavReplay` exercises recorded terrain scenarios and the movement controller.
 
 Every companion session writes telemetry automatically, including player and companion movement, decision scores, execution and rejection state, actual pickups, projectile launches and contacts, effective damage, and rolling terrain snapshots around both actors. After leaving the world, `dotnet run --project Tools/SessionReport -- --timeline Telemetry` prints the chronological record followed by diagnostic findings. Narration is optional. The reader reports capture gaps and distinguishes observed events from inferred hesitation or causes; locally sampled terrain and recorded game state are not a video replay.
+
+For several runs, pass their TSV paths to `dotnet run --project Tools/SessionReport -- --multirun`. Add `--html /tmp/companion-playtests.html` in place of `--multirun` for a self-contained inspection page with a run selector, time scrubber, event filters, complete sampled state and causal event details. The page reports its sampling limits; full-source reports retain all recorded rows for diagnosis.
