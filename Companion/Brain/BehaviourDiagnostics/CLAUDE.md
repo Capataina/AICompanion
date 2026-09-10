@@ -42,6 +42,8 @@ The general rule those five follow: **record the rejected option and the reason 
 
 ## Traps
 
+Session reservation owns the TSV handle immediately, before sidecar or capture initialisation can fail. The open-failure path disposes that reserved stream, closes any event capture and clears its paths; dropping the writer reference alone leaks the handle until collection. A recorded initialisation failure describes capture availability, never the surrounding world's load outcome.
+
 Navigation evidence includes shared query and attempt identities, fresh/stale decisions, control source, pending local search, retained controls, breathing target and remaining breath. Position evidence keeps the best evaluated alternatives with final score and shot feasibility; target evidence keeps considered entity generations with expected effective damage and urgency. Each has its own evaluation tick because a held choice may outlive its last rescore. Unexamined candidates remain unexamined; these bounded alternatives do not enumerate the entire search tree. The HTML reader exposes the complete retained payload beside sampled continuous state.
 
 - `ModPlayer.OnHurt` exposes resolved damage before subtracting health. Its event records the current life as the pre-state and labels the computed remaining life as expected; it must not fabricate an observed post-state. `PostHurt` alone omits fatal hits. The next continuous observation establishes actual resulting life.

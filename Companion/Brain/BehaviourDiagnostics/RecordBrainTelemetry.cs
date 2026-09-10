@@ -81,7 +81,18 @@ public sealed class BrainTelemetry : ModSystem
         }
         catch (Exception e)
         {
-            writer = null;
+            // Reservation can succeed before a sidecar or later initialisation fails. Release
+            // that stream here rather than abandoning the handle until garbage collection.
+            GodsEyeEvents.RecordLifecycle("recorder-initialization-failed", "capture=incomplete;outer-load=unobservable");
+            GodsEyeEvents.Close();
+            try { writer?.Dispose(); }
+            catch (Exception closeError) { Mod.Logger.Warn($"BrainTelemetry: cleanup after open failure: {closeError.Message}"); }
+            finally
+            {
+                writer = null;
+                plansPath = censusPath = mapPath = eventsPath = null;
+                sessionClock.Reset();
+            }
             Mod.Logger.Error($"BrainTelemetry: could not open a file under {Folder}: {e.Message}");
         }
     }

@@ -1,5 +1,7 @@
 # SessionReport — the reader for a playtest
 
+Follow decisions require `brain_fresh`: when a downed companion stops executing its brain, the previous action and route fields remain sticky. Those rows end a follow-stall interval and cannot count as a newly selected follow response. Missing freshness is reduced coverage, not evidence of an active decision.
+
 The record was never the problem; the reading was. A session is tens of thousands of rows across eighty-odd columns, every diagnosis this project has made from one was a hand-rolled column sum, and the columns move whenever the brain grows a new fact — which on 2026-09-09 produced a reported mean distance of three and a half thousand tiles from an index that had shifted by two while nobody noticed. This tool turns a session into a verdict: what is definitely wrong, what is probably wrong, and what merely looks odd.
 
 ```

@@ -21,7 +21,7 @@ public sealed class FollowingMakesRouteProgress : ICheck
     public string[] Needs => new[]
     {
         "request", "follow_objective_valid", "follow_dx", "follow_dy", "follow_reason",
-        "route_search_id", "route_attempt_id", "route_remaining_ticks", "path_at", "action", "recovery_active"
+        "route_search_id", "route_attempt_id", "route_remaining_ticks", "path_at", "action", "recovery_active", "brain_fresh"
     };
 
     public IEnumerable<Finding> Run(Session session)
@@ -29,12 +29,12 @@ public sealed class FollowingMakesRouteProgress : ICheck
         Column request = session["request"], satisfied = session["follow_objective_valid"];
         Column dx = session["follow_dx"], dy = session["follow_dy"], reason = session["follow_reason"];
         Column search = session["route_search_id"], attempt = session["route_attempt_id"];
-        Column remaining = session["route_remaining_ticks"], completed = session["path_at"], action = session["action"], recovery = session["recovery_active"];
+        Column remaining = session["route_remaining_ticks"], completed = session["path_at"], action = session["action"], recovery = session["recovery_active"], fresh = session["brain_fresh"];
         int start = -1;
         for (int i = 0; i < session.Count; i++)
         {
             bool active = request.Text[i] == "WithPlayer" && satisfied.Number[i] == 0f
-                && action.Text[i] == "walk-with" && recovery.Number[i] == 0f;
+                && action.Text[i] == "walk-with" && recovery.Number[i] == 0f && fresh.Number[i] == 1f;
             if (!active)
             {
                 if (start >= 0) foreach (Finding finding in ReportWindow(session, start, i - 1, dx, dy, reason, search, attempt, remaining, completed)) yield return finding;
@@ -89,7 +89,7 @@ public sealed class FollowingRespondsAfterDeparture : ICheck
     private const float DeparturePixels = 800f;
 
     public string Name => "how long following took to respond after the player departed";
-    public string[] Needs => new[] { "npc_px", "player_px", "player_vel", "action", "wall_elapsed_ms" };
+    public string[] Needs => new[] { "npc_px", "player_px", "player_vel", "action", "wall_elapsed_ms", "brain_fresh" };
 
     public IEnumerable<Finding> Run(Session session)
     {
@@ -115,7 +115,7 @@ public sealed class FollowingRespondsAfterDeparture : ICheck
             }
             if (start < 0)
                 continue;
-            if (action.Text[i] == "walk-with")
+            if (action.Text[i] == "walk-with" && session["brain_fresh"].Number[i] == 1f)
             {
                 double latency = elapsed.Number[i] - elapsed.Number[start];
                 yield return new Finding(Severity.Oddity, Name,

@@ -127,7 +127,7 @@ public static class ChronicleTests
         string file = Path.GetTempFileName();
         try
         {
-            const string header = "tick\trequest\tfollow_objective_valid\tfollow_dx\tfollow_dy\tfollow_reason\troute_search_id\troute_attempt_id\troute_remaining_ticks\tpath_at\taction\trecovery_active\tnpc_px\tplayer_px\tplayer_vel\twall_elapsed_ms\n";
+            const string header = "tick\trequest\tfollow_objective_valid\tfollow_dx\tfollow_dy\tfollow_reason\troute_search_id\troute_attempt_id\troute_remaining_ticks\tpath_at\taction\trecovery_active\tnpc_px\tplayer_px\tplayer_vel\twall_elapsed_ms\tbrain_fresh\n";
             var rows = new StringBuilder(header);
             for (int tick = 0; tick <= 120; tick++)
             {
@@ -137,13 +137,13 @@ public static class ChronicleTests
                     .Append(240 - tick).Append('\t').Append(tick / 30).Append("\twalk-with\t0\t")
                     .Append(tick).Append(",0\t0,0\t1,0\t").Append(tick * 16).Append('\n');
             }
-            File.WriteAllText(file, rows.ToString());
+            File.WriteAllText(file, WithFreshDecisions(rows));
             Session session = Session.Load(file);
             Require(!new FollowingMakesRouteProgress().Run(session).Any(), "a progressing C-turn was labelled as an unsatisfied follow failure");
-            File.WriteAllText(file, "tick\tnpc_px\tplayer_px\tplayer_vel\taction\twall_elapsed_ms\n"
-                + "0\t0,0\t900,0\t1,0\twalk-with\t0\n"
-                + "1\t1,0\t901,0\t1,0\twalk-with\t17\n"
-                + "2\t2,0\t902,0\t1,0\twalk-with\t34\n");
+            File.WriteAllText(file, "tick\tnpc_px\tplayer_px\tplayer_vel\taction\twall_elapsed_ms\tbrain_fresh\n"
+                + "0\t0,0\t900,0\t1,0\twalk-with\t0\t1\n"
+                + "1\t1,0\t901,0\t1,0\twalk-with\t17\t1\n"
+                + "2\t2,0\t902,0\t1,0\twalk-with\t34\t1\n");
             Require(new FollowingRespondsAfterDeparture().Run(Session.Load(file)).Count() == 1,
                 "one distant following episode must not emit a fresh latency report every frame");
 
@@ -152,7 +152,7 @@ public static class ChronicleTests
             for (int tick = 0; tick <= 120; tick++)
                 rows.Append(tick).Append("\tWithPlayer\t0\t").Append(100 + tick).Append("\t0\twrong-floor\t7\t11\t240\t0\twalk-with\t0\t")
                     .Append(tick).Append(",0\t0,0\t1,0\t").Append(tick * 16).Append('\n');
-            File.WriteAllText(file, rows.ToString());
+            File.WriteAllText(file, WithFreshDecisions(rows));
             string finding = new FollowingMakesRouteProgress().Run(Session.Load(file)).Single().Title;
             Require(finding.Contains("wrong-direction or wrong-floor", StringComparison.Ordinal), "moving away without route progress did not retain its wrong-floor diagnosis");
 
@@ -165,7 +165,7 @@ public static class ChronicleTests
                     .Append(240 - Math.Min(tick, 10)).Append('\t').Append(completed).Append("\twalk-with\t0\t")
                     .Append(tick).Append(",0\t0,0\t1,0\t").Append(tick * 16).Append('\n');
             }
-            File.WriteAllText(file, rows.ToString());
+            File.WriteAllText(file, WithFreshDecisions(rows));
             Finding delayed = new FollowingMakesRouteProgress().Run(Session.Load(file)).Single();
             Require(delayed.FirstTick == 10 && delayed.Rows == 231, "one early completed step hid the later prolonged no-progress follow window");
 
@@ -174,8 +174,25 @@ public static class ChronicleTests
             for (int tick = 0; tick <= 240; tick++)
                 rows.Append(tick).Append("\tWithPlayer\t0\t100\t0\trecovery\t7\t11\t240\t0\twalk-with\t1\t")
                     .Append(tick).Append(",0\t0,0\t1,0\t").Append(tick * 16).Append('\n');
-            File.WriteAllText(file, rows.ToString());
+            File.WriteAllText(file, WithFreshDecisions(rows));
             Require(!new FollowingMakesRouteProgress().Run(Session.Load(file)).Any(), "recovery flight inherited stale WithPlayer/walk-with state as an ordinary follow failure");
+
+            rows.Clear();
+            rows.Append(header);
+            for (int tick = 0; tick <= 240; tick++)
+                rows.Append(tick).Append("\tWithPlayer\t0\t900\t0\twrong-floor\t7\t11\t240\t0\twalk-with\t0\t0,0\t900,0\t1,0\t")
+                    .Append(tick * 16).Append('\n');
+            File.WriteAllText(file, WithFreshDecisions(rows, fresh: false));
+            Require(!new FollowingMakesRouteProgress().Run(Session.Load(file)).Any(),
+                "sticky follow fields during downing must not become a new follow-stall diagnosis");
+            Require(!new FollowingRespondsAfterDeparture().Run(Session.Load(file)).Any(f => f.Title.Contains("was first selected", StringComparison.Ordinal)),
+                "sticky downed action fields must not count as a fresh follow response");
+
+            static string WithFreshDecisions(StringBuilder source, bool fresh = true)
+            {
+                string[] lines = source.ToString().TrimEnd('\n').Split('\n');
+                return lines[0] + "\n" + string.Join("\n", lines.Skip(1).Select(line => line + (fresh ? "\t1" : "\t0"))) + "\n";
+            }
         }
         finally { File.Delete(file); }
     }
