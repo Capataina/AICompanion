@@ -492,26 +492,35 @@ const TIERS = [
     levels:[
       'The blade fires out along a line and snaps back, hitting on the way out and the way back.',
       'It grabs what it hits and drags the body back with the retract.',
-      'It holds extended and grinds until the target dies.'
+      'Whatever it strikes reaches out and hauls up to two enemies beside it into the same body.'
     ],
     demo(ctx,p,A,L){
       A.bg();
-      const cx = 44, cy = A.gy(cx) - 10, far = 206;
-      const out = seg(p, .05, .3), hold = L >= 3 ? seg(p, .3, .74) : 0, back = seg(p, L >= 3 ? .74 : .34, L >= 3 ? .95 : .62);
+      const cx = 44, cy = A.gy(cx) - 10, far = 198, gy = A.gy(120);
+      const out = seg(p, .05, .26), back = seg(p, .5, .76);
       let tip = cx;
       if (out > 0 && out < 1) tip = lerp(cx, far, out);
-      else if (out >= 1 && back <= 0) tip = far;
-      else if (back > 0 && back < 1) tip = lerp(far, cx, back);
-      else tip = cx;
-      const dragged = L >= 2 && back > 0;
-      const dx = dragged ? lerp(far, cx + 26, back) : far;
-      A.dummy(dx, (out > .9 && out < 1) || (back > 0 && back < .3), A.gy(dx));
+      else if (back <= 0) tip = far;
+      else if (back < 1) tip = lerp(far, cx, back);
+      /* Level 3 hauls neighbours into the struck body rather than holding the
+         blade out: the strike is the trigger, so the pull is capped at two and
+         anchored on a body rather than on a point in space. */
+      const haul = L >= 3 ? seg(p, .3, .48) : 0;
+      const near = [[240, gy], [156, gy - 42]];
+      if (L >= 3) near.forEach(n => {
+        const x = haul > 0 ? lerp(n[0], far + 15, haul) : n[0];
+        const y = haul > 0 ? lerp(n[1], gy, haul) : n[1];
+        if (haul > 0 && haul < 1) A.line(far, gy - 10, x, y, A.c, 1.4, .6);
+        A.slime(x, y, haul > .84 && haul < 1);
+      });
+      const dx = (L >= 2 && back > 0) ? lerp(far, cx + 28, back) : far;
+      A.dummy(dx, (out > .88 && out < 1) || (back > 0 && back < .3), A.gy(dx));
       if (tip > cx + 6){
         ctx.strokeStyle = '#7a8a6a'; ctx.lineWidth = 3;
         ctx.beginPath(); ctx.moveTo(cx + 4, cy); ctx.lineTo(tip - 4, cy); ctx.stroke();
         A.blade(tip, cy, 0, 9, A.c);
       }
-      if (L >= 3 && hold > 0 && hold < 1) A.spark(far - 6, cy, 5, p, A.c);
+      if (L >= 3 && haul > .1 && haul < 1) A.num(far, gy - 52, 'hauled in', A.c, .9);
       A.comp(cx);
     }
   },
@@ -520,84 +529,106 @@ const TIERS = [
     body:'The one weapon in the roster with a stated bad matchup: it cannot touch anything airborne, because the shot travels through the floor. A weapon with no bad matchup has no role, and this one buys its single-target damage by giving up the sky.',
     levels:[
       'The shot dives into the ground, tunnels along it, and erupts underneath the target.',
-      'It erupts as three spikes instead of one.',
-      'The tunnel stays open, and the next shot travels it instantly.'
+      'The tunnel stays open, and the next shot travels its whole length instantly.',
+      'It stops needing a target at all: one shot runs the length of the floor and erupts under everything standing on it, in turn.'
     ],
     demo(ctx,p,A,L){
       A.bg(); A.comp(26);
-      const gy = A.gy(120), tx = 200;
-      const dive = seg(p, .04, .16), bore = seg(p, .16, .5), rise = seg(p, .5, .62);
+      const gy = A.gy(120);
+      const targets = L >= 3 ? [122, 174, 226] : [200];
+      const end = targets[targets.length - 1];
+      const dive = seg(p, .04, .14), bore = seg(p, .14, .44);
       if (dive > 0 && dive < 1) A.dot(lerp(34, 62, dive), lerp(gy - 18, gy + 2, dive), 2.6, A.c);
-      if (L >= 3 && p > .5){
-        ctx.setLineDash([3,3]); A.line(62, gy + 6, tx, gy + 6, A.c, 1.4, .5); ctx.setLineDash([]);
+      if (L >= 2 && p > .44){
+        ctx.setLineDash([3,3]); A.line(62, gy + 6, end, gy + 6, A.c, 1.4, .5); ctx.setLineDash([]);
       }
       if (bore > 0 && bore < 1){
-        const bx = lerp(62, tx, bore);
+        const bx = lerp(62, end, bore);
         A.line(62, gy + 6, bx, gy + 6, A.c, 1.4, .35);
         A.dot(bx, gy + 6, 2.6, A.c);
         ctx.fillStyle = PAL.tileTop; ctx.fillRect(bx - 3, gy - 2, 6, 3);
       }
-      /* The spikes are staggered and held up for a third of the loop, because a
-         three-spike upgrade that is on screen for two frames is an upgrade
-         nobody can see. */
-      const spikes = L >= 2 ? [[tx - 18, .06], [tx, 0], [tx + 18, .12]] : [[tx, 0]];
-      let anyUp = false;
-      spikes.forEach(s => {
-        const up = seg(p, .5 + s[1], .6 + s[1]), down = seg(p, .8 + s[1], .92 + s[1]);
-        if (up <= 0) return;
-        const h = 30 * up * (1 - down);
-        if (h > 6) anyUp = true;
-        ctx.fillStyle = A.c;
-        ctx.beginPath(); ctx.moveTo(s[0] - 4, gy); ctx.lineTo(s[0], gy - h); ctx.lineTo(s[0] + 4, gy); ctx.closePath(); ctx.fill();
+      /* Level 3 is a wave down the floor rather than more spikes in one place:
+         each eruption is staggered so the sequence is what you read. */
+      targets.forEach((tx, i) => {
+        const t0 = .44 + i * .11;
+        const up = seg(p, t0, t0 + .08), down = seg(p, t0 + .24, t0 + .34);
+        let anyUp = false;
+        if (up > 0){
+          const h = 30 * up * (1 - down);
+          if (h > 6) anyUp = true;
+          ctx.fillStyle = A.c;
+          ctx.beginPath(); ctx.moveTo(tx - 4, gy); ctx.lineTo(tx, gy - h); ctx.lineTo(tx + 4, gy); ctx.closePath(); ctx.fill();
+        }
+        A.slime(tx, undefined, anyUp);
       });
-      A.slime(tx, undefined, anyUp);
       /* The bat is the point of the arena, not decoration: the shot travels
          under it and never touches it, which is this weapon's stated cost. */
-      A.flyer(146, gy - 58, false, p);
-      A.num(146, gy - 72, 'out of reach', '#a06ac0', .85);
-      if (L >= 3 && p > .74){
-        const k = seg(p, .74, .86);
-        A.dot(lerp(62, tx, k), gy + 6, 3, '#e6ffd0');
-        A.burst(tx, gy - 8, seg(p, .86, 1), A.c);
+      A.flyer(148, gy - 60, false, p);
+      A.num(148, gy - 74, 'out of reach', '#a06ac0', .85);
+      if (L === 2 && p > .68){
+        const k = seg(p, .68, .78);
+        if (k < 1) A.dot(lerp(62, 200, k), gy + 6, 3.4, '#e6ffd0');
+        else {
+          const h = 30 * seg(p, .78, .86) * (1 - seg(p, .94, 1));
+          ctx.fillStyle = '#e6ffd0';
+          ctx.beginPath(); ctx.moveTo(196, gy); ctx.lineTo(200, gy - h); ctx.lineTo(204, gy); ctx.closePath(); ctx.fill();
+        }
+        A.num(120, gy - 26, 'second shot, no travel', '#e6ffd0', .85);
       }
+      if (L >= 3 && p > .44) A.num(174, 22, 'erupts under each in turn', A.c, .85);
     }
   },
   {
     name:'Backbite', role:'either', cost:'moderate', terrain:'flat', period:3400,
-    body:'A thrown blade whose value is entirely on the return trip, so it rewards the companion staying put rather than chasing — which is what it does anyway when its feet are busy following you.',
+    body:'A thrown blade whose value is entirely on the return trip. Both upgrades are about that trip rather than about doing it more times — one changes what the return is worth, the other changes where it goes.',
     levels:[
       'Hits on the way out, and twice as hard coming back.',
-      'It curves on the return so it passes through the target a second time.',
-      'A third pass before it comes home.'
+      'The further it travels before it turns, the harder the return lands — throwing it into open space is the point.',
+      'It comes back to wherever the companion has walked to, so the return path drags across the room behind it.'
     ],
     demo(ctx,p,A,L){
-      A.bg(); A.comp(24);
-      const gy = A.gy(120), y0 = gy - 24, tx = 168, far = 232;
-      const passes = L >= 3 ? 3 : (L >= 2 ? 2 : 1);
-      const legs = [[32, far]];
-      for (let i = 0; i < passes; i++) legs.push(i % 2 ? [32, far] : [far, 32]);
-      const span = .94 / legs.length;
-      let hitNow = false, cur = null;
-      legs.forEach((leg, i) => {
-        const k = seg(p, i * span, (i+1) * span);
-        if (k <= 0 || k >= 1) return;
-        const bow = (i === 0) ? 0 : (i % 2 ? -16 : 16);
-        const x = lerp(leg[0], leg[1], k);
-        const y = y0 + bow * Math.sin(Math.PI * k);
-        cur = [x, y, i];
-        if (Math.abs(x - tx) < 9) hitNow = true;
-      });
-      A.slime(tx, gy - 4, hitNow);
-      if (cur){
-        const heavy = cur[2] > 0;
-        A.glow(cur[0], cur[1], heavy ? 8 : 5, A.c, heavy ? .3 : .15);
-        ctx.save(); ctx.translate(cur[0], cur[1]); ctx.rotate(p * 40);
-        ctx.strokeStyle = heavy ? '#e9ffd0' : A.c; ctx.lineWidth = heavy ? 2.6 : 1.8;
-        ctx.beginPath(); ctx.moveTo(-7, 0); ctx.lineTo(7, 0); ctx.stroke();
-        ctx.beginPath(); ctx.moveTo(0, -7); ctx.lineTo(0, 7); ctx.stroke();
-        ctx.restore();
-        if (heavy) A.num(cur[0], cur[1] - 12, 'x2', '#e9ffd0', 1);
+      A.bg();
+      /* Body height, not above it: the blade has to be inside the things it
+         claims to cut on both legs of the trip. */
+      const gy = A.gy(120), y0 = gy - 9, apex = [236, gy - 54], tx = 148, home = 26;
+      const cxWalk = L >= 3 ? lerp(home, 150, seg(p, .32, .8)) : home;
+      const outK = seg(p, .04, .44), backK = seg(p, .5, .92);
+      const dest = [cxWalk, gy - 10];
+      let bx, by, heavy = false;
+      if (outK > 0 && outK < 1){ bx = lerp(home + 8, apex[0], outK); by = lerp(y0, apex[1], outK); }
+      else if (backK > 0 && backK < 1){ bx = lerp(apex[0], dest[0], backK); by = lerp(apex[1], dest[1], backK); heavy = true; }
+      if (L >= 3 && backK > 0 && backK < 1){
+        ctx.setLineDash([3,4]);
+        A.line(apex[0], apex[1], home, gy - 10, '#6f7a66', 1, .55);
+        ctx.setLineDash([]);
+        A.num(120, 28, 'the return follows the walk', A.c, .8);
       }
+      A.slime(tx, gy - 4, bx !== undefined && Math.abs(bx - tx) < 11 && by > gy - 22);
+      /* The stray sits on the level-3 return line and off the level-1 one, so
+         the upgrade is the only reason it is ever hit. */
+      if (L >= 3){
+        const onLine = heavy && Math.abs(bx - 176) < 13;
+        A.flyer(176, gy - 26, onLine, p);
+      }
+      if (L >= 2 && outK > 0 && outK < 1){
+        const w = 46 * outK;
+        ctx.fillStyle = A.c; ctx.globalAlpha = .5; ctx.fillRect(96, 20, w, 3); ctx.globalAlpha = 1;
+        ctx.strokeStyle = A.c; ctx.lineWidth = 1; ctx.globalAlpha = .5;
+        ctx.strokeRect(96, 20, 46, 3); ctx.globalAlpha = 1;
+        A.num(119, 16, 'winding up', A.c, .8);
+      }
+      if (bx !== undefined){
+        const power = L >= 2 && heavy ? 1.5 : 1;
+        A.glow(bx, by, (heavy ? 8 : 5) * power, A.c, heavy ? .3 : .15);
+        ctx.save(); ctx.translate(bx, by); ctx.rotate(p * 40);
+        ctx.strokeStyle = heavy ? '#e9ffd0' : A.c; ctx.lineWidth = (heavy ? 2.6 : 1.8) * power;
+        ctx.beginPath(); ctx.moveTo(-7 * power, 0); ctx.lineTo(7 * power, 0); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(0, -7 * power); ctx.lineTo(0, 7 * power); ctx.stroke();
+        ctx.restore();
+        if (heavy) A.num(bx, by - 16, L >= 2 ? 'x4 — flew far' : 'x2', '#e9ffd0', 1);
+      }
+      A.comp(cxWalk);
     }
   },
   {
@@ -643,15 +674,26 @@ const TIERS = [
     levels:[
       'A weight orbits the companion constantly, hitting whatever comes close.',
       'Two weights on opposite sides of the circle.',
-      'The orbit widens toward distant enemies and tightens as they close in.'
+      'The spin throws off sparks — tiny, short-range and constant, so the circle grows a fringe that reaches past the chain.'
     ],
     demo(ctx,p,A,L){
       A.bg();
       const cx = 118, cy = A.gy(cx) - 10;
       const approach = seg(p, 0, .7);
       const near = [lerp(238, 150, approach), lerp(16, 84, approach)];
-      const baseR = L >= 3 ? lerp(34, 20, approach) : 26;
+      const baseR = 26;
       const arms = L >= 2 ? [0, Math.PI] : [0];
+      /* Sparks are thrown outward along the tangent, die at about half the
+         orbit radius again, and never home — the fringe is a reach upgrade,
+         not a second projectile weapon bolted on. */
+      if (L >= 3) for (let i = 0; i < 14; i++){
+        const birth = i / 14;
+        const age = ((p * 3) - birth + 3) % 1;
+        if (age > .45) continue;
+        const a0 = (birth * 18.85) % 6.2832;
+        const t = age / .45, d = t * 15;
+        A.dot(cx + Math.cos(a0) * (baseR + d), cy + Math.sin(a0) * (baseR + d) * .62, 1.7 * (1 - t), '#ffe9a8', 1 - t);
+      }
       arms.forEach(off => {
         const a = p * 12 + off;
         const wx = cx + Math.cos(a) * baseR, wy = cy + Math.sin(a) * baseR * .62;
@@ -661,8 +703,8 @@ const TIERS = [
       ctx.globalAlpha = .18; ctx.strokeStyle = A.c; ctx.lineWidth = 1;
       ctx.beginPath(); ctx.ellipse(cx, cy, baseR, baseR * .62, 0, 0, 6.2832); ctx.stroke(); ctx.globalAlpha = 1;
       A.comp(cx);
-      near.forEach((x,i) => A.slime(x, undefined, Math.abs(x - cx) < baseR + 6));
-      if (L >= 3) A.num(cx, cy - 30, approach > .6 ? 'tight' : 'wide', A.c, .8);
+      near.forEach(x => A.slime(x, undefined, Math.abs(x - cx) < baseR + (L >= 3 ? 20 : 6)));
+      if (L >= 3) A.num(cx, cy - 34, 'sparks reach further than the chain', '#ffe9a8', .8);
     }
   },
   {
@@ -670,43 +712,53 @@ const TIERS = [
     body:'The split is earned rather than automatic: it only happens when the arrow punches all the way through a body, so the weapon rewards firing into the front of a pack instead of at whatever is nearest.',
     levels:[
       'It punches through an enemy and comes out the far side as three.',
-      'The fragments split again on kills of their own.',
-      'A lone target with nothing behind it refunds the shot instead of splitting.'
+      'Each fragment splits again when it gets a kill of its own.',
+      'The second round is blown apart instead of split — shards fly out in a circle, fall under their own weight, and vanish the instant they touch the ground.'
     ],
     demo(ctx,p,A,L){
       A.bg(); A.comp(20);
       /* The arrow flies at body height, not above it: a shot that claims to
          punch through a crowd has to be seen inside the bodies it pierces. */
       const gy = A.gy(120), y0 = gy - 9, first = 92;
-      const lone = L >= 3 && p > .56;
-      if (!lone){
-        const k1 = seg(p, .02, .22);
-        if (k1 > 0 && k1 < 1) A.blade(lerp(28, first, k1), y0, 0, 6, '#fff0c0');
-        A.slime(first, gy - 4, p > .17 && p < .3, p > .32);
-        if (p > .17 && p < .3) A.num(first, gy - 26, 'pierced', '#fff0c0', 1);
-        /* Fragments are aimed at named targets rather than at fixed angles, so
-           every one of the three is seen connecting with something. */
-        const fan = [[158, gy - 44], [200, gy - 6], [226, gy - 26]];
-        fan.forEach((t,i) => {
-          const k = seg(p, .24, .6);
-          if (k <= 0) return;
-          const x = lerp(first, t[0], k), y = lerp(y0, t[1], k);
-          A.line(first, y0, x, y, A.c, 1, .22);
-          if (k < 1) A.blade(x, y, Math.atan2(t[1]-y0, t[0]-first), 5, A.c);
-          A.slime(t[0], t[1], k > .88 && p < .68, L >= 2 && p > .68);
-          if (L >= 2 && p > .66){
-            const k2 = seg(p, .66, .94);
-            [-0.55, 0.55].forEach(a2 => {
-              const base = Math.atan2(t[1]-y0, t[0]-first) + a2;
-              A.blade(t[0] + Math.cos(base) * k2 * 46, t[1] + Math.sin(base) * k2 * 46, base, 4, A.c);
-            });
+      const k1 = seg(p, .02, .2);
+      if (k1 > 0 && k1 < 1) A.blade(lerp(28, first, k1), y0, 0, 6, '#fff0c0');
+      A.slime(first, gy - 4, p > .15 && p < .27, p > .3);
+      if (p > .15 && p < .27) A.num(first, gy - 26, 'pierced', '#fff0c0', 1);
+      /* Fragments are aimed at named targets rather than at fixed angles, so
+         every one of the three is seen connecting with something. */
+      const fan = [[158, gy - 44], [200, gy - 6], [226, gy - 26]];
+      const kf = seg(p, .22, .56);
+      fan.forEach(t => {
+        if (kf <= 0) return;
+        const x = lerp(first, t[0], kf), y = lerp(y0, t[1], kf);
+        A.line(first, y0, x, y, A.c, 1, .22);
+        if (kf < 1) A.blade(x, y, Math.atan2(t[1]-y0, t[0]-first), 5, A.c);
+        A.slime(t[0], t[1], kf > .86 && p < .62, L >= 2 && p > .62);
+        if (L === 2 && p > .6){
+          const k2 = seg(p, .6, .94);
+          [-0.55, 0.55].forEach(a2 => {
+            const base = Math.atan2(t[1]-y0, t[0]-first) + a2;
+            A.blade(t[0] + Math.cos(base) * k2 * 46, t[1] + Math.sin(base) * k2 * 46, base, 4, A.c);
+          });
+        }
+      });
+      /* Level 3 replaces the second split with real ballistics: an outward
+         burst, gravity on every shard, and the shard gone the frame it touches
+         the floor rather than lying there as decoration. The low target's
+         shards die almost at once and the high one's arc — same rule, and the
+         difference is what makes the rule visible. */
+      if (L >= 3 && p > .6){
+        const tau = (p - .6) * 96;
+        fan.forEach(t => {
+          A.burst(t[0], t[1], seg(p, .6, .82), A.c);
+          for (let i = 0; i < 9; i++){
+            const a = i * .698;
+            const x = t[0] + Math.cos(a) * 1.8 * tau;
+            const y = t[1] + Math.sin(a) * 1.8 * tau + .055 * tau * tau;
+            if (y >= gy - 1 || x < 2 || x > W - 2) continue;
+            A.dot(x, y, 2, '#fff0c0', 1);
           }
         });
-      } else {
-        const k = seg(p, .56, .78), kb = seg(p, .78, .98);
-        A.slime(170, gy - 4, k > .8 && k < 1);
-        if (k < 1) A.blade(lerp(28, 170, k), y0, 0, 6, '#fff0c0');
-        else if (kb < 1){ A.blade(lerp(170, 34, kb), y0, Math.PI, 6, A.c); A.num(104, y0 - 16, 'nothing behind — refunded', A.c, 1); }
       }
     }
   },
@@ -805,41 +857,46 @@ const TIERS = [
     levels:[
       'The blade detaches and attacks on its own while the companion\'s hands do something else.',
       'It copies the companion\'s swings at range, so a swing here lands over there.',
-      'A second blade.'
+      'It leaves the companion entirely and takes station on you, cutting whatever is on you rather than whatever is on it.'
     ],
     demo(ctx,p,A,L){
       A.bg();
-      const cx = 44, cy = A.gy(cx) - 10;
-      const targets = [[128, A.gy(128)-6],[190, A.gy(190)-28]];
-      const blades = L >= 3 ? [0, .5] : [0];
-      blades.forEach(off => {
-        const t = (p + off) % 1;
-        const i = t < .5 ? 0 : 1, k = t < .5 ? t / .5 : (t - .5) / .5;
-        const home = [86, cy - 16];
-        const tgt = targets[i];
-        const dart = k < .5 ? k * 2 : 1 - (k - .5) * 2;
-        const x = lerp(home[0], tgt[0], dart), y = lerp(home[1], tgt[1], dart);
-        A.glow(x, y, 6, A.c, .2);
-        A.blade(x, y, Math.atan2(tgt[1]-home[1], tgt[0]-home[0]) + (dart > .8 ? 1.2 : 0), 8, A.c);
-      });
-      targets.forEach((t,i) => A.slime(t[0], t[1], ((p % .5) > .38 && (p % .5) < .46) && ((p < .5) === (i === 0))));
+      const cx = 44, cy = A.gy(cx) - 10, px = 196, gy = A.gy(120);
+      /* Level 3 moves the blade's station from the companion to the player, so
+         the arena has to hold both bodies and put the threat on the player. */
+      const guard = L >= 3;
+      const targets = guard ? [[152, gy - 6], [236, gy - 6]] : [[128, gy - 6], [190, gy - 28]];
+      const home = guard ? [px, gy - 26] : [86, cy - 16];
+      const i = p < .5 ? 0 : 1, k = p < .5 ? p / .5 : (p - .5) / .5;
+      const tgt = targets[i];
+      const dart = k < .5 ? k * 2 : 1 - (k - .5) * 2;
+      const bx = lerp(home[0], tgt[0], dart), by = lerp(home[1], tgt[1], dart);
+      A.glow(bx, by, 6, A.c, .2);
+      A.blade(bx, by, Math.atan2(tgt[1]-home[1], tgt[0]-home[0]) + (dart > .8 ? 1.2 : 0), 8, A.c);
+      targets.forEach((t, j) => A.slime(t[0], t[1], dart > .82 && j === i));
       /* The level-2 copy needs a wide enough window and a visible link back to
          the companion, or "the swing happens over there too" reads as a stray
          arc rather than as a copy of the swing that just happened here. */
       const sw = (p * 3) % 1;
-      if (sw < .62){
-        const k = sw / .62;
-        A.swing(cx, cy, k, A.c, 20);
+      if (sw < .62 && !guard){
+        const kk = sw / .62;
+        A.swing(cx, cy, kk, A.c, 20);
         if (L >= 2){
-          const t = targets[p < .5 ? 0 : 1];
-          A.swing(t[0], t[1] - 8, k, '#d6ffff', 22);
+          const tm = targets[p < .5 ? 0 : 1];
+          A.swing(tm[0], tm[1] - 8, kk, '#d6ffff', 22);
           ctx.setLineDash([3,4]);
-          A.line(cx + 8, cy, t[0] - 8, t[1] - 8, '#d6ffff', 1.2, .55 * (1 - k));
+          A.line(cx + 8, cy, tm[0] - 8, tm[1] - 8, '#d6ffff', 1.2, .55 * (1 - kk));
           ctx.setLineDash([]);
-          A.num((cx + t[0]) / 2, cy - 26, 'mirrored', '#d6ffff', .9 * (1 - k));
+          A.num((cx + tm[0]) / 2, cy - 26, 'mirrored', '#d6ffff', .9 * (1 - kk));
         }
       }
       A.comp(cx);
+      if (guard){
+        A.player(px, undefined, true);
+        ctx.globalAlpha = .2; ctx.strokeStyle = A.c; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.arc(px, gy - 12, 26, 0, 6.2832); ctx.stroke(); ctx.globalAlpha = 1;
+        A.num(px, gy - 48, 'stationed on you', A.c, .9);
+      }
     }
   },
   {
@@ -877,17 +934,20 @@ const TIERS = [
     body:'Reworked so the companion never plans anything: it throws at whatever it was already aiming at, and the weapon does its own counting. The volley arrives from wherever the companion happened to be standing, which is the part you cannot get from any other weapon.',
     levels:[
       'Every third throw hangs in the air instead of landing; once three are hanging they all fire at once.',
-      'Five hang instead of three.',
+      'The volley stops firing at one target — each shard picks the enemy nearest to itself, so it splits across the crowd.',
       'Hanging shards also swat enemy projectiles that touch them.'
     ],
     demo(ctx,p,A,L){
       A.bg();
       const gy = A.gy(120), tx = 226, ty = gy - 14;
-      const count = L >= 2 ? 5 : 3;
-      const spots = [[78,64],[104,50],[132,46],[160,52],[186,66]].slice(0, count);
-      const compAt = [30, 44, 58, 72, 86];
+      const count = 4;
+      const spots = [[80,62],[110,48],[142,48],[176,60]];
+      /* Level 2 changes who the volley is for, not how many shards there are:
+         the single dummy is replaced by four targets and each shard takes the
+         nearest one, which is a role change from focus to spread. */
+      const spread = [[96, gy - 42], [140, gy - 6], [196, gy - 34], [240, gy - 6]];
+      const compAt = [30, 46, 62, 78];
       const volley = .72;
-      A.dummy(tx, p > volley + .2);
       spots.forEach((h,i) => {
         const born = .03 + i * (volley - .12) / count;
         if (p < born) return;
@@ -898,12 +958,16 @@ const TIERS = [
           A.blade(x, y, -0.4 + i * .2, 5, A.c);
           if (fly >= 1) A.glow(h[0], h[1], 5, A.c, .15 + .12 * Math.sin(p * 20 + i));
         } else {
+          const dest = L >= 2 ? spread[i] : [tx, ty];
           const k = seg(p, volley, volley + .2);
-          const x = lerp(h[0], tx, k), y = lerp(h[1], ty, k);
+          const x = lerp(h[0], dest[0], k), y = lerp(h[1], dest[1], k);
           A.line(h[0], h[1], x, y, A.c, 1, .28);
-          A.blade(x, y, Math.atan2(ty - h[1], tx - h[0]), 5, '#e6ffff');
+          A.blade(x, y, Math.atan2(dest[1] - h[1], dest[0] - h[0]), 5, '#e6ffff');
         }
       });
+      if (L >= 2) spread.forEach(s => A.slime(s[0], s[1], p > volley + .16));
+      else A.dummy(tx, p > volley + .16);
+      if (L === 2 && p > volley) A.num(150, 22, 'each shard takes its nearest', A.c, .85);
       /* Two incoming streams on offset phases, so the swatting is happening
          somewhere on screen for most of the loop rather than in one frame. */
       if (L >= 3 && p < volley){
@@ -919,8 +983,9 @@ const TIERS = [
         });
         A.num(130, 26, 'shots blocked', '#ff8a6a', .8);
       }
-      A.comp(compAt[Math.min(compAt.length - 1, Math.floor(p / (volley / count)))] || 86);
-      A.burst(tx, ty, seg(p, volley + .2, 1), A.c);
+      A.comp(compAt[Math.min(compAt.length - 1, Math.floor(p / (volley / count)))] || 78);
+      if (L >= 2) spread.forEach(s => A.burst(s[0], s[1], seg(p, volley + .2, 1), A.c));
+      else A.burst(tx, ty, seg(p, volley + .2, 1), A.c);
     }
   },
   {
@@ -929,34 +994,41 @@ const TIERS = [
     levels:[
       'Damage it deals becomes a shield on you.',
       'A shield filled past its cap bursts outward as damage.',
-      'While you are shielded, the staff itself hits harder.'
+      'A shield already at full spills over onto the companion, so the two of you carry one pool between you.'
     ],
     demo(ctx,p,A,L){
       A.bg();
       const gy = A.gy(120), px = 176, cx = 40;
       const shots = [.04,.2,.36,.52];
       const fill = Math.min(1, shots.filter(s => p > s + .14).length / (L >= 2 ? 3 : 4));
-      /* The level-3 empowerment has to be visible on the shot itself, its trail
-         and the hit, or "hits harder while shielded" is a slightly larger dot. */
-      const empowered = L >= 3 && fill > .4;
       shots.forEach(s => {
         const k = seg(p, s, s + .14);
         if (k <= 0 || k >= 1) return;
-        const sx = lerp(cx + 8, 116, k), sy = lerp(gy - 22, gy - 10, k);
-        if (empowered){ A.glow(sx, sy, 9, A.c, .28); A.line(cx + 8, gy - 22, sx, sy, A.c, 2, .3); }
-        A.dot(sx, sy, empowered ? 5 : 2.6, A.c);
+        A.dot(lerp(cx + 8, 116, k), lerp(gy - 22, gy - 10, k), 2.6, A.c);
         const back = seg(p, s + .14, s + .3);
-        if (back > 0 && back < 1) A.dot(lerp(116, px, back), lerp(gy - 10, gy - 12, back) - 16 * Math.sin(Math.PI * back), empowered ? 3 : 2, '#7fe0d8');
+        if (back > 0 && back < 1) A.dot(lerp(116, px, back), lerp(gy - 10, gy - 12, back) - 16 * Math.sin(Math.PI * back), 2, '#7fe0d8');
       });
-      const landing = shots.some(s => p > s + .12 && p < s + .2);
-      A.slime(116, undefined, landing);
-      if (empowered && landing) A.burst(116, gy - 8, ((p * 7) % 1), A.c);
+      A.slime(116, undefined, shots.some(s => p > s + .12 && p < s + .2));
       if (fill > 0){
         ctx.globalAlpha = .35 + .3 * fill; ctx.strokeStyle = '#7fe0d8'; ctx.lineWidth = 1.6 + 1.6 * fill;
         ctx.beginPath(); ctx.arc(px, gy - 8, 13 + 4 * fill, 0, 6.2832); ctx.stroke(); ctx.globalAlpha = 1;
         A.num(px, gy - 28, 'shield ' + Math.round(fill * 100) + '%', '#7fe0d8', 1);
       }
-      if (L >= 2 && fill >= 1) A.burst(px, gy - 8, seg(p, .78, 1), '#7fe0d8');
+      if (L === 2 && fill >= 1) A.burst(px, gy - 8, seg(p, .78, 1), '#7fe0d8');
+      /* Level 3 routes the overflow back the other way, which is the mechanic:
+         the pool is shared rather than the staff being numerically stronger. */
+      const spill = L >= 3 && fill >= 1;
+      if (spill){
+        const k = seg(p, .74, 1);
+        for (let i = 0; i < 3; i++){
+          const t = clamp01(k * 1.6 - i * .18);
+          if (t <= 0 || t >= 1) continue;
+          A.dot(lerp(px, cx, t), (gy - 14) - 18 * Math.sin(Math.PI * t), 2.4, '#7fe0d8');
+        }
+        ctx.globalAlpha = .3 + .5 * k; ctx.strokeStyle = '#7fe0d8'; ctx.lineWidth = 1.6;
+        ctx.beginPath(); ctx.arc(cx, gy - 8, 11 + 4 * k, 0, 6.2832); ctx.stroke(); ctx.globalAlpha = 1;
+        A.num(108, 22, 'one pool between you', '#7fe0d8', .9);
+      }
       A.comp(cx); A.player(px, undefined, true);
     }
   }]
@@ -966,39 +1038,43 @@ const TIERS = [
   weapons:[
   {
     name:'Reckoning', role:'one enemy', cost:'trivial', terrain:'flat', period:4200,
-    body:'Nothing else in the roster produces one enormous number, and a boss-killer that does is the gap the endgame melee slot exists to fill. The companion swings normally throughout; the weapon does the bookkeeping and decides when the pool is full.',
+    body:'A post-Moon-Lord melee weapon that never leaves the hand is the wrong shape for the era — by this point melee throws things. What this one throws is the fight so far: the companion swings normally throughout and the weapon does the bookkeeping, deciding on its own when the pool is worth releasing.',
     levels:[
-      'Every swing banks half its damage, and the finisher dumps the whole pool in one hit.',
-      'The pool survives a swing that misses instead of resetting.',
-      'The dump also lands on everything the pool was gathered from.'
+      'Every swing banks half its damage, and a full pool is thrown as one enormous blade across the room.',
+      'The thrown blade pierces its whole lane at full damage instead of spending the pool on the first body it meets.',
+      'The pool has no cap — every extra swing makes the blade physically bigger, so a long fight ends in one that crosses the entire screen.'
     ],
     demo(ctx,p,A,L){
       A.bg();
-      const cx = 60, cy = A.gy(cx) - 8;
-      const xs = [128, 178, 224];
-      const swings = [.06,.2,.34,.48];
+      const cx = 50, cy = A.gy(cx) - 8, gy = A.gy(120);
+      const xs = [128, 180, 230];
+      const swings = [.03,.14,.25,.36];
       let banked = 0;
-      swings.forEach((s,i) => {
-        const miss = (i === 2);
-        if (p > s + .1 && (!miss || L >= 2)) banked += 40;
-        else if (p > s + .1 && miss) banked = L >= 2 ? banked : 0;
-        const age = p - s; if (age < 0 || age > .12) return;
-        A.swing(cx, cy, age / .12, miss ? '#7c8199' : A.c);
+      swings.forEach(s => {
+        if (p > s + .09) banked += 45;
+        const age = p - s; if (age < 0 || age > .1) return;
+        A.swing(cx, cy, age / .1, A.c);
       });
       A.comp(cx);
-      const dump = p > .68;
-      xs.forEach((x,i) => {
-        A.dummy(x, swings.some(s => p > s + .04 && p < s + .12) && i === 0 || (dump && (L >= 3 || i === 0)));
-        if (dump && (L >= 3 || i === 0)){
-          const k = seg(p, .68, .94);
-          ctx.globalAlpha = 1 - k; ctx.strokeStyle = '#ffe0e0'; ctx.lineWidth = 3.4 - 2.6 * k;
-          ctx.beginPath(); ctx.moveTo(x - 13, A.gy(x) - 36); ctx.lineTo(x + 13, A.gy(x) - 2); ctx.stroke();
-          ctx.globalAlpha = 1;
-          A.burst(x, A.gy(x) - 16, k, A.c);
-        }
+      const thrown = seg(p, .52, .94);
+      const size = L >= 3 ? 9 + banked / 24 : 9;
+      const reach = L >= 2 ? 254 : xs[0] + 8;
+      const bx = (thrown > 0 && thrown < 1) ? lerp(cx + 14, reach, thrown) : null;
+      xs.forEach((x, i) => {
+        const reached = bx !== null && bx >= x - 7 && bx < x + 30;
+        A.dummy(x, reached && (L >= 2 || i === 0));
       });
-      if (!dump) A.num(cx, cy - 26, 'banked ' + banked, A.c, 1);
-      else A.num(xs[0], A.gy(xs[0]) - 44, String(L >= 2 ? 160 : 120), '#ffe0e0', 1 - seg(p, .68, 1));
+      if (bx !== null){
+        A.glow(bx, gy - 16, size + 6, A.c, .22);
+        A.line(cx + 14, gy - 16, bx, gy - 16, A.c, size * .5, .18);
+        ctx.save(); ctx.translate(bx, gy - 16); ctx.rotate(-0.3);
+        ctx.fillStyle = '#ffe0e0';
+        ctx.beginPath(); ctx.moveTo(size, 0); ctx.lineTo(0, -size * .58); ctx.lineTo(-size * .7, 0); ctx.lineTo(0, size * .58);
+        ctx.closePath(); ctx.fill(); ctx.restore();
+      }
+      if (p < .52) A.num(cx, cy - 26, 'banked ' + banked, A.c, 1);
+      else if (L >= 3) A.num(146, 22, 'no cap — it keeps growing', A.c, .9);
+      else if (L >= 2) A.num(146, 22, 'full damage down the lane', A.c, .9);
     }
   },
   {
@@ -1006,103 +1082,132 @@ const TIERS = [
     body:'A gun with no ammunition of its own: it can only fire what has already been fired at you. In Calamity\'s endgame, where every boss fills the screen with projectiles, a weapon that grows stronger the more dangerous the fight is has a role nothing else covers.',
     levels:[
       'It swallows an enemy projectile and fires it straight back.',
-      'It returns the shot doubled.',
-      'It returns it as a spread of five.'
+      'It absorbs enemy fire even when it is not shooting, banking anything that would have hit the companion.',
+      'Swallowing one shot out of a volley sends the whole volley back.'
     ],
     demo(ctx,p,A,L){
       A.bg(); A.comp(40);
       const gy = A.gy(120), ey = gy - 26, cy = gy - 22;
-      A.slime(216, ey + 12, p > .72);
-      const incoming = seg(p, .02, .32);
-      if (incoming > 0 && incoming < 1) A.dot(lerp(210, 48, incoming), lerp(ey, cy, incoming), 3, '#ff8a6a');
-      if (p > .3 && p < .46){ A.glow(46, cy, 6 + 6 * Math.sin(p * 40), A.c, .5); A.num(46, cy - 16, 'caught', A.c, 1); }
-      const back = seg(p, .46, .76);
+      A.slime(216, ey + 12, p > .74);
+      /* Level 2 is a bank that fills from fire the companion was not even
+         answering; level 3 makes one swallowed shot stand for the whole volley.
+         Neither is a bigger number on the same return. */
+      const lanes = L >= 3 ? [-0.26,-0.13,0,0.13,0.26] : (L >= 2 ? [-0.16, 0, 0.16] : [0]);
+      let banked = 0;
+      lanes.forEach((a, i) => {
+        const t0 = .02 + (L >= 2 ? i * .07 : 0);
+        const k = seg(p, t0, t0 + .3);
+        if (k >= 1) banked++;
+        if (k <= 0 || k >= 1) return;
+        const d = (1 - k) * 176;
+        A.dot(48 + Math.cos(a) * d, cy + Math.sin(a) * d, 3, '#ff8a6a');
+      });
+      if (L >= 2 && banked > 0 && p < .5) A.num(48, cy - 26, 'banked ' + banked, A.c, .9);
+      if (p > .36 && p < .5){ A.glow(46, cy, 6 + 6 * Math.sin(p * 40), A.c, .5); A.num(46, cy - 16, L >= 3 ? 'one caught' : 'caught', A.c, 1); }
+      const back = seg(p, .5, .78);
       if (back > 0 && back < 1){
-        /* A doubled shot reads as two shots, not as one slightly fatter one. */
-        const angs = L >= 3 ? [-0.24,-0.12,0,0.12,0.24] : (L >= 2 ? [-0.07, 0.07] : [0]);
-        angs.forEach(a => {
-          const d = back * 180;
+        const outLanes = L >= 3 ? lanes : [0];
+        const size = L === 2 ? 3 + banked : 3;
+        outLanes.forEach(a => {
+          const d = back * 176;
           const x = 48 + Math.cos(a) * d, y = cy + Math.sin(a) * d;
           A.line(48, cy, x, y, A.c, 1, .22);
-          A.dot(x, y, L >= 2 ? 4 : 3, A.c);
+          A.dot(x, y, size, A.c);
         });
-        if (L >= 2 && L < 3) A.num(48 + back * 180, cy - 16, 'x2', A.c, 1);
+        if (L === 2) A.num(48 + back * 176, cy - 18, 'spends the bank', A.c, 1);
+        if (L >= 3) A.num(130, 22, 'the whole volley goes back', A.c, .9);
       }
-      A.burst(216, ey + 8, seg(p, .74, .96), A.c);
+      A.burst(216, ey + 8, seg(p, .76, .98), A.c);
     }
   },
   {
-    name:'Manhandle', role:'crowds', cost:'real work', terrain:'flat', period:4000,
-    body:'It grabs a hostile and throws it at another one. Both take the hit, and the crowd stops being a formation. Nothing else in twenty weapons treats an enemy as ammunition, which is the reason it survived into the final four.',
+    name:'Foregone', role:'crowds', cost:'real work', terrain:'flat', period:3600,
+    body:'Every other weapon in the roster has travel time, and every one of them can therefore be walked away from. This one deletes the distance: the line between the companion and its target is already cut in the instant the blade leaves the hand, so nothing outruns it and nothing dodges it.',
     levels:[
-      'A hook grabs a hostile and throws it into another one.',
-      'The thrown enemy damages everything it passes through on the way.',
-      'It grabs three at once.'
-    ],
-    demo(ctx,p,A,L){
-      A.bg(); A.comp(30);
-      const gy = A.gy(120);
-      const grabbed = L >= 3 ? [[104,gy-6],[128,gy-30],[150,gy-6]] : [[118,gy-6]];
-      const anvil = [222, gy - 6];
-      const hook = seg(p, .04, .24), haul = seg(p, .28, .46), thrown = seg(p, .5, .78);
-      grabbed.forEach((g,i) => {
-        let x = g[0], y = g[1];
-        if (haul > 0) { x = lerp(g[0], 62 + i * 10, haul); y = lerp(g[1], gy - 22, haul); }
-        if (thrown > 0){ x = lerp(62 + i * 10, anvil[0], thrown); y = lerp(gy - 22, anvil[1], thrown) - 22 * Math.sin(Math.PI * thrown); }
-        if (hook > 0 && hook < 1) A.line(36, gy - 20, lerp(36, g[0], hook), lerp(gy - 20, g[1], hook), A.c, 1.6);
-        else if (haul > 0 && haul < 1) A.line(36, gy - 20, x, y, A.c, 1.6);
-        if (L >= 3 && thrown > 0 && thrown < 1) A.line(62 + i * 10, gy - 22, x, y, A.c, 1, .3);
-        A.slime(x, y, thrown > .9 || (L >= 2 && thrown > .3 && thrown < .9));
-      });
-      A.slime(anvil[0], anvil[1], thrown > .9);
-      if (L >= 2 && thrown > .2 && thrown < .95){
-        [172, 196].forEach(x => A.slime(x, gy - 6, thrown * 180 + 62 > x - 12));
-      } else if (L >= 2) { [172, 196].forEach(x => A.slime(x, gy - 6)); }
-      A.burst(anvil[0], anvil[1] - 4, seg(p, .78, 1), A.c);
-    }
-  },
-  {
-    name:'Confluence Staff', role:'either', cost:'real work', terrain:'flat', period:4200,
-    body:'Every friendly projectile in the air folds into one. The harder you are firing, the bigger the companion\'s shot gets, so this is the endgame weapon whose ceiling is set by your build rather than by its own numbers.',
-    levels:[
-      'Every friendly projectile in flight merges into one enormous shot.',
-      'The merged shot bursts back into its parts when it lands.',
-      'It keeps merging as it travels, swallowing anything fired after it.'
+      'No travel time at all — the whole line between the companion and its target is cut the instant it is thrown.',
+      'Every enemy on that line becomes a new origin, so the cut branches at each body it passes through.',
+      'It cuts to every enemy on screen at once, in the same instant, from wherever the companion is standing.'
     ],
     demo(ctx,p,A,L){
       A.bg();
-      const gy = A.gy(120), my = gy - 34;
-      A.comp(28); A.player(66, undefined, true);
-      const mx = 128;
-      const feed = [[36,gy-22],[72,gy-20],[54,gy-40],[90,gy-30],[44,gy-12]];
-      const gather = seg(p, .04, .38);
-      feed.forEach((f,i) => {
-        const k = clamp01(gather * 1.2 - i * .04);
-        if (k >= 1) return;
-        A.dot(lerp(f[0], mx, k), lerp(f[1], my, k), 2.4, i % 2 ? '#9fd0ff' : A.c);
+      const cx = 30, gy = A.gy(120), cy = gy - 14;
+      const foes = [[96, gy-6],[142, gy-34],[188, gy-6],[230, gy-42],[214, gy-6]];
+      /* Two cuts per loop with a wide flash window, because a weapon whose
+         entire identity is "instantaneous" has to be caught by a sampler that
+         only looks twelve times — and because the empty frames between the
+         cuts are what shows there is no projectile in flight. */
+      const beat = (p * 2) % 1;
+      const flash = beat < .35 ? 1 - beat / .35 : 0;
+      const idx = (Math.floor(p * 2) * 2) % foes.length;
+      const branch = (idx + 2) % foes.length;
+      foes.forEach((f, i) => {
+        const lit = flash > .15 && (L >= 3 || i === idx || (L >= 2 && i === branch));
+        A.slime(f[0], f[1], lit);
       });
-      const size = 4 + 11 * gather;
-      const travel = seg(p, .42, .78);
-      const bx = travel > 0 ? lerp(mx, 234, travel) : mx;
-      const grown = L >= 3 ? size + travel * 7 : size;
-      if (p < .78){
-        A.glow(bx, my, grown + 8, A.c, .16);
-        A.dot(bx, my, grown, PAL.dark);
-        ctx.strokeStyle = A.c; ctx.lineWidth = 2.2;
-        ctx.beginPath(); ctx.arc(bx, my, grown, 0, 6.2832); ctx.stroke();
-      }
-      if (L >= 3 && travel > .2 && travel < .9){
-        const k = (p * 5) % 1;
-        A.dot(lerp(200, bx, k), lerp(gy - 8, my, k), 2.2, '#9fd0ff');
-      }
-      A.slime(238, gy - 6, p > .76 && p < .9);
-      if (L >= 2 && p > .78){
-        const k = seg(p, .78, 1);
-        for (let i = 0; i < 8; i++){
-          const a = i * .785;
-          A.dot(234 + Math.cos(a) * k * 50, my + Math.sin(a) * k * 50, 2.4, i % 2 ? '#9fd0ff' : A.c, 1 - k);
+      if (flash > 0){
+        const cut = (a, b, w, al) => A.line(a[0], a[1], b[0], b[1], '#ffdede', w, al);
+        if (L >= 3){
+          foes.forEach(f => cut([cx + 8, cy], f, 2.4 * flash, flash));
+          A.num(140, 22, 'every line, one instant', '#ffdede', flash);
+        } else {
+          const t = foes[idx];
+          cut([cx + 8, cy], t, 2.8 * flash, flash);
+          if (L >= 2){
+            const b = foes[branch];
+            cut(t, b, 2.3 * flash, flash * .95);
+            A.num((t[0] + b[0]) / 2, Math.min(t[1], b[1]) - 20, 'branches here', '#ffdede', flash);
+          }
         }
-      } else A.burst(234, my, seg(p, .78, 1), A.c);
+      } else A.num(cx + 30, cy - 30, 'nothing in flight', A.c, .55);
+      A.comp(cx);
+    }
+  },
+  {
+    name:'Requiem', role:'crowds', cost:'real work', terrain:'flat', period:4600,
+    body:'The fight\'s own dead come back to finish it. It spends nothing of yours and takes nothing away from you — it only needs the fight to have been running a while, which makes it the one endgame weapon that gets stronger the worse things have been going.',
+    levels:[
+      'Everything the companion has killed in this fight briefly returns as an echo and attacks.',
+      'An echo that gets a kill of its own stops being temporary and stays until the fight ends.',
+      'An echo that is destroyed leaves an echo of itself, so the crowd rebuilds faster than it dies.'
+    ],
+    demo(ctx,p,A,L){
+      A.bg();
+      const gy = A.gy(120);
+      const ghost = (x, y, a, solid, small) => {
+        const w = small ? 4 : 6, h = small ? 5 : 7;
+        ctx.globalAlpha = a;
+        ctx.fillStyle = solid ? '#ffb0b0' : '#8f5f6c';
+        ctx.fillRect(x - w, y - h, w * 2, h); ctx.fillRect(x - w + 1, y - h - 2, w * 2 - 2, 2);
+        ctx.fillStyle = PAL.dark; ctx.fillRect(x - 3, y - h + 1, 2, 2); ctx.fillRect(x + 1, y - h + 1, 2, 2);
+        ctx.globalAlpha = 1;
+      };
+      const graves = [70, 106, 142];
+      const foes = [[198, gy - 6], [236, gy - 34]];
+      const cast = seg(p, .04, .18), rise = seg(p, .18, .34), march = seg(p, .34, .62);
+      if (cast > 0 && cast < 1) A.glow(28, gy - 22, 4 + cast * 8, A.c, .5);
+      A.comp(28);
+      foes.forEach((f, i) => A.slime(f[0], f[1], march > .82, L >= 2 && p > .68 && i === 0));
+      graves.forEach((gx, i) => {
+        if (rise <= 0) return;
+        const tgt = foes[i % foes.length];
+        const x = march > 0 ? lerp(gx, tgt[0] - 14, march) : gx;
+        const y = march > 0 ? lerp(gy, tgt[1], march) : lerp(gy + 8, gy, rise);
+        /* Level 2: the echo that landed a kill turns solid and outlives the
+           others, so "stays until the fight ends" is a difference you can see
+           rather than a duration in the description. */
+        const kept = L >= 2 && i === 0;
+        const fade = kept ? 1 : (p > .68 ? 1 - seg(p, .68, .9) : 1);
+        if (fade > 0) ghost(x, y, (kept ? .95 : .6) * fade, kept, false);
+        if (kept && p > .7) A.num(x, y - 20, 'stayed', '#ffb0b0', .9);
+      });
+      /* Level 3: the last echo is destroyed and leaves a smaller one behind. */
+      if (L >= 3 && p > .74){
+        const k = seg(p, .74, .86);
+        A.burst(graves[2] + 40, gy - 8, k, '#ffb0b0');
+        if (p > .84) ghost(graves[2] + 40, gy, .8, false, true);
+        if (p > .84) A.num(graves[2] + 40, gy - 24, 'leaves its own', '#ffb0b0', .9);
+      }
+      if (p < .34) A.num(106, 22, 'the ones it already killed', '#8f5f6c', .85);
     }
   }]
 }];
@@ -1116,9 +1221,9 @@ const PROPS = {
   'Carom Bow':         ['seeks enemies', 'ignores terrain', 'three targets'],
   'Thistle Charges':   ['sticks on hit', 'fused blast', 'stacks on one body'],
   'Rimeglass Wand':    ['straight shot', 'stacking slow', 'no pierce'],
-  'Pistonfang':        ['fixed reach', 'hits out and back', 'no travel time'],
+  'Pistonfang':        ['fixed reach', 'strikes out and retracts', 'never leaves the hand'],
   'Gravedigger':       ['travels underground', 'cannot hit flyers', 'one target'],
-  'Backbite':          ['returns to thrower', 'hits on every pass', 'harder each pass'],
+  'Backbite':          ['returns to the thrower', 'hits out and back', 'the return hits hardest'],
   'Hexbomb Sceptre':   ['arcs', 'bounces off terrain', 'area blast'],
   'Millstone Flail':   ['constant orbit', 'never aimed', 'short range'],
   'Ruptureshot':       ['pierces', 'splits on exit', 'three fragments'],
@@ -1128,10 +1233,10 @@ const PROPS = {
   'Cinchshot':         ['drags bodies', 'almost no damage', 'sets up everything else'],
   'Stasis Shards':     ['hangs in the air', 'fires as one volley', 'several angles'],
   'Tithe Staff':       ['straight shot', 'shields you', 'no crowd value'],
-  'Reckoning':         ['melee swing', 'banks its damage', 'one enormous hit'],
+  'Reckoning':         ['melee swings bank damage', 'throws the banked pool', 'one enormous projectile'],
   'Rebuke':            ['needs enemy fire', 'returns it amplified', 'no ammo of its own'],
-  'Manhandle':         ['grabs a body', 'throws it at another', 'both take the hit'],
-  'Confluence Staff':  ['absorbs friendly shots', 'scales with your fire', 'one huge projectile']
+  'Foregone':          ['no travel time', 'cuts a whole line', 'cannot be dodged'],
+  'Requiem':           ['spends nothing of yours', 'scales with the fight', 'short-lived allies']
 };
 
 /* ------------------------------------------------------------------ *
