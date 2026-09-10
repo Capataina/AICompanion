@@ -1,4 +1,4 @@
 displayName = Multi... Player?
 author = Capataina
-version = 0.13.3
+version = 0.13.4
 buildIgnore = .git\*, .gitignore, *.md, bin\*, obj\*, .vs\*, .DS_Store, .claude\*, Telemetry\*, Tools\*, runs\*, WeaponExperiments\*, InterfaceExperiments\*

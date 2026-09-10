@@ -1,30 +1,31 @@
-# Interface Experiments — in-game UI mocked in HTML before it is drawn in Terraria
+# Interface Experiments — archived visual references for the native companion menus
 
 ```
 InterfaceExperiments/
 ├─ CLAUDE.md              this guide
-└─ companion-card.html    the companion profile card and its sub-views, self-contained
+├─ companion-card.html    the original companion profile card and its sub-views, self-contained
+└─ mastery-map.html       selectable eight-branch mastery design with ranks and nested weapon upgrades
 ```
 
-This folder holds no game code. Nothing here is compiled or loaded by the mod, and `build.txt` excludes it from packaging. It exists because Terraria's UI is drawn in `Terraria.UI` code with hand-placed pixel offsets and no live reload, so trying a layout in the game costs a build, a launch and a world load, while trying it here costs an edit and a refresh. The rule this folder embodies: **the look is agreed in HTML, then built once in the real surface.**
+This folder holds no game code. Nothing here is compiled or loaded by the mod, and `build.txt` excludes it from packaging. These early HTML experiments preserve layout and progression ideas as visual references. New interface work belongs directly in the native Terraria menus, by the user's instruction; extending a web preview does not deliver an in-game feature. The native render harness checks the real panels offscreen without repeatedly launching the game.
 
 ## What the card is and what it replaces
 
-`../Companion/HeadsUpDisplay/` draws a draggable health notch, and clicking it currently opens `../Companion/Inventory/`'s bag panel directly. The card is the notch's new target: the bag becomes one view inside it rather than the whole of what a click reaches. That reframing is the point — the notch is the only always-visible companion surface, so whatever it opens is the entire surface area the player has for controlling the companion, and a bag alone spends it on cargo.
+`../Companion/HeadsUpDisplay/` draws a draggable health notch which opens `../Companion/ProfileCard/`. Its Cargo tab embeds `../Companion/Inventory/`'s native bag slots. The notch therefore reaches behaviour preferences as well as storage; the bag's gameplay data remains independent of whichever interface presents it.
 
-The card holds five views behind one back arrow: the overview, the cargo bag, a per-activity whitelist, the weapon loadout, and the mastery tree. Sub-views are drill-downs inside the same card rather than second floating panels, because a second panel needs its own position, its own drag state and its own close affordance, and the player then has two things to dismiss.
+The native card has Profile, Cargo and Mastery tabs. Profile presents live preferences; Cargo uses the game's item slots; Mastery offers a selectable eight-branch preview without gameplay effects, material payments or saved progression. Whitelists and loadout selection remain mock-only. The HTML layouts supply composition references, while the game owns its typography, panel rendering and interaction conventions.
 
-## Only work is configurable, and that is a structural fact rather than a design choice
+## Mimic policies and voluntary activity toggles are different controls
 
-**A three-state policy can only exist for a behaviour the player themselves performs.** Mimic means "your own action is the trigger", so it is meaningful for chopping, mining and fishing and meaningless for anything else. Fighting, kiting, carrying a torch, opening a door and picking up drops have no player action to mirror — they are behaviours the utility scorer weighs against each other every tick, and offering them as settings would promise control the architecture does not have.
+Mimic means the player's corresponding action triggers work. Mining and chopping therefore have Off/Mimic/Auto choices. Voluntary hunting, pot breaking and supplied torch placement instead have Off/On choices. Disabling hunting does not disable guarding or self-preservation. Carrying a torch remains independent of placing one. Fishing is not implemented.
 
-The code agrees and is the authority: `WorkPolicy` in `../Companion/Brain/Behaviours/Work/WorkPolicies.cs` is exactly `Disabled / Mimic / Opportunistic`, and only Mining and Chopping hold one. The panel uses those three words verbatim so the label and the field cannot drift apart. An earlier draft of this page carried Combat and Support groups with the same three-state control; they were cut for exactly this reason, and re-adding a toggle for a scored behaviour is the mistake to avoid rather than an omission to fix.
+The native preferences in `../Companion/PlayerIntegration/ConfigureCompanionPreferences.cs` own these settings. The original HTML card predates the voluntary toggles and uses longer policy labels; its control inventory is not the current native capability list. A scored behaviour can be disabled by an eligibility policy without replacing utility scoring.
 
-The panel says this out loud in a footnote, because a player hunting for a "should it fight" toggle needs to be told it does not exist, and told where to look instead — the action line under the portrait, which shows what the scorer actually chose.
+The native card explicitly identifies guarding and survival as automatic. The inspector and telemetry switches belong to tModLoader Mod Configuration rather than this card.
 
 ## The other decisions the mockup encodes
 
-**Follow distance is a value, so it does not wear a mode's clothes.** It sits in its own row with named stops — Heel, Close, Loose — rather than a matching three-segment control, because a player scanning the panel reads matching controls as matching kinds of setting. There is no Roam stop: roaming was removed from the design.
+The original mock uses named distance stops. Native controls use Close/Standard/Free profiles, which scale following comfort, activity acquisition and recovery distance together. There is no remote mission mode.
 
 **The current action line carries its reason.** The verb alone ("Mining") is a status; the reason ("copper vein 12 tiles below — opportunistic") is what lets a player tell a working companion from a stuck one, which is the single question this surface exists to answer. It names the policy that produced the choice, so the panel above and the line below read as one system.
 
@@ -37,6 +38,10 @@ Picking a third weapon replaces the one picked longest ago rather than refusing 
 **The whitelist grid hides what has never been mined.** An ore appears once it has been mined at least once and is choosable once a threshold is reached, with the partial count on the tile. The panel beside it previews the ore *as it appears in the wall*, because that is the form the player has to recognise while digging and the item icon never teaches it.
 
 ## Making it read as Terraria
+
+The standalone mastery preview expands the original card's small tree sketch. It has eight connected radial branches: Fieldwork, Ranged, Movement, Magic, Survival, Scavenging, Thrown and Melee. These names and placements are a proposal. Circles carry multiple ranks; diamonds unlock abilities or weapons, and weapon diamonds open nested upgrades. First-rank purchases spend one preview point and make onward connections available; later ranks spend none. Stage selectors illustrate progression gates. Reset discards all preview selections, and nothing persists to game saves or changes stats, equipment, inventory or XP.
+
+The intended progression separates three owners: companion levels award points, graph connections govern which node can be opened, and material/progression requirements govern purchases and upgrades. The balancing target is roughly half the full tree opened by Moon Lord, not a claim supported by this preview's point supply. Companion actions are intended to earn full XP and analogous player actions roughly one-third; sources, attribution, repetition limits, recipes and values remain design work. Shared tool upgrades cover mining, chopping and placement together. Unlocked movement must update both planner capability and real execution. Interface grouping may collect the profile, bag panel and mastery view, while bag storage and item transfer remain gameplay services.
 
 Four things carry nearly all of the resemblance, and a mockup that misses them reads as "a game menu" rather than as Terraria:
 

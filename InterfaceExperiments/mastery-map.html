@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Companion mastery · design preview</title>
+<style>
+:root{color-scheme:dark;font-family:"Trebuchet MS",sans-serif;color:#e3e8ff;background:#15192c;font-weight:600}
+*{box-sizing:border-box}body{margin:0;text-shadow:2px 2px #101124}button,select{font:inherit;color:inherit;background:#303a91;border:1px solid #879ae6;padding:9px 12px;cursor:pointer}button:hover{background:#4358ac}button:disabled{opacity:.4;cursor:default}button:focus-visible,select:focus-visible{outline:3px solid #ffe281}
+header{display:flex;align-items:center;gap:18px;padding:18px 24px;background:#262e79;border-bottom:2px solid #7686cc;flex-wrap:wrap}h1{font-size:22px;color:#ffe281;margin:0}header p{margin:4px 0 0;color:#b8c7f5;font-size:13px}.controls{display:flex;gap:8px;align-items:center;margin-left:auto;flex-wrap:wrap}
+main{display:grid;grid-template-columns:minmax(0,1fr) 320px;height:calc(100dvh - 121px);min-height:450px}.map{position:relative;overflow:hidden;background:radial-gradient(ellipse at center,#283255,#151a30 75%)}svg{width:100%;height:100%;touch-action:none;cursor:grab}svg.drag{cursor:grabbing}.node{cursor:pointer;outline:none}.node:focus .shape{stroke:white;stroke-width:5}.node text{pointer-events:none}.link{stroke:#4a557a;stroke-width:3}.link.active{stroke:#9dd9c1}.cross{stroke-dasharray:7 7;stroke:#837aad}.shape{fill:#283577;stroke:#6474a4;stroke-width:3}.available .shape{stroke:#ffe281}.owned .shape{stroke:#9fe3ad;fill:#355b57}.selected .shape{stroke:white;stroke-width:5}.label{font-size:13px;fill:#dde6ff;paint-order:stroke;stroke:#15192c;stroke-width:3px}.branch{font-size:20px;fill:#afc8ff;letter-spacing:2px}.mapnote{position:absolute;left:16px;top:12px;pointer-events:none;font-size:12px;color:#b0bfde}
+aside{padding:22px;background:#252d78;border-left:2px solid #7686cc;overflow:auto}aside h2{color:#ffe281;margin:8px 0 16px;font-size:22px}aside p{font-weight:400;line-height:1.55;font-size:14px}aside .eyebrow{font-size:12px;letter-spacing:1px;color:#afc8ff}aside button{width:100%;margin-top:10px}.rule{padding:12px;border:1px solid #687ac5;background:#20265c;margin:12px 0}.rule strong{display:block;font-size:12px;color:#baccfa;margin-bottom:6px}.ranks{display:flex;gap:7px;margin:18px 0}.rank{height:9px;flex:1;background:#17204b;border:1px solid #879ae6}.rank.on{background:#9fe3ad}footer{min-height:43px;padding:12px 24px;background:#202650;display:flex;gap:20px;flex-wrap:wrap;font-size:12px;color:#c7d4f5}#back{display:none}.notice{color:#ffdc95}#summary{font-variant-numeric:tabular-nums}
+@media(max-width:850px){main{grid-template-columns:minmax(0,1fr) 270px}header{padding:12px}.controls{margin:0}aside{padding:14px}h1{font-size:18px}}@media(max-width:580px){main{display:flex;flex-direction:column;height:auto}.map{height:65vh;min-height:350px}aside{border-left:0;border-top:2px solid #7686cc}header{gap:8px}.controls{font-size:12px}footer{gap:10px}}
+</style>
+<header><div><h1>Companion mastery</h1><p>Eight connected branches · selectable design preview</p></div><div class="controls"><span id="summary"></span><label>Preview world <select id="stage"><option value="0">Pre-Hardmode</option><option value="1">Hardmode</option><option value="2">Post-Moon Lord</option></select></label><button id="reset">Reset preview</button><button id="fit">Fit tree</button><button id="back">Main tree</button></div></header>
+<main><div class="map"><div class="mapnote">Drag to pan · scroll to zoom · select a node to inspect it</div><svg id="map" role="img" aria-label="Interactive companion mastery graph"><g id="graph"></g></svg></div><aside id="detail" aria-live="polite"></aside></main>
+<footer><span>○ Stat node: up to five ranks</span><span>◇ Ability or weapon unlock</span><span>Dashed lines: cross-branch connections</span><span class="notice">Preview only. No game effects, XP awards or inventory costs.</span></footer>
+<script>
+"use strict";
+const branches = [
+ {name:'FIELDWORK',names:['Tool reach','Tool speed','Torch placement reach','Precision swings','Tool stamina','Fieldworker kit','Tool reach','Tool speed','Work radius','Vein handling','Efficient swings','Advanced fieldwork'],effect:'Shared tool improvements for mining, wood chopping and torch placement. Exact values are undecided.',ability:'Advanced tool kit',cost:'Appropriate-tier tools and materials; exact recipes undecided.'},
+ {name:'RANGED',names:['Ranged damage','Shot cadence','Projectile speed','Shot consistency','Piercing potential','Bow unlock','Ranged damage','Shot cadence','Projectile reach','Cooling rate','Sustained fire','Advanced bow'],effect:'Improve the companion’s closed ranged kit. These labels do not equip player weapons.',ability:'Bow',cost:'Bow crafting materials, gated by weapon progression.',weapon:true},
+ {name:'MOVEMENT',names:['Movement speed','Jump height','Braking control','Air control','Dash','Double jump','Jump height','Dash recovery','Swimming','Triple jump','Wall latch','Flight'],effect:'Movement statistics feed the same capability model used by the controller and its planner.',ability:'Double jump',cost:'A suitable movement accessory; exact item alternatives undecided.'},
+ {name:'MAGIC',names:['Magic damage','Casting cadence','Resource capacity','Resource recovery','Projectile reach','Staff unlock','Magic damage','Casting efficiency','Area coverage','Cooling rate','Resource recovery','Advanced staff'],effect:'Proposed closed-kit magic upgrades. The companion’s magic resource system is not yet designed.',ability:'Staff',cost:'Progression-appropriate gems and magic materials.',weapon:true},
+ {name:'SURVIVAL',names:['Maximum health','Armour','Knockback resistance','Breath capacity','Revival recovery','Protective trait','Maximum health','Armour','Hazard resistance','Recovery rate','Breath capacity','Resilient companion'],effect:'Health, defence and survival upgrades. How bonuses combine with copied player stats remains a design decision.',ability:'Protective trait',cost:'Armour ranks may consume a complete equivalent-tier armour set. Recipes and values are placeholders.'},
+ {name:'SCAVENGING',names:['Pickup reach','Cargo capacity','Collection speed','Pickup reach','Cargo capacity','Gatherer kit','Collection reach','Work endurance','Cargo capacity','Resource handling','Collection speed','Advanced gathering'],effect:'Improve gathering and cargo handling without permitting resource duplication or remote expeditions.',ability:'Gatherer kit',cost:'Storage and gathering materials; exact recipes undecided.'},
+ {name:'THROWN',names:['Thrown damage','Throw cadence','Flight speed','Piercing potential','Projectile reach','Throwing blades unlock','Thrown damage','Throw cadence','Ricochet potential','Cooling rate','Area coverage','Advanced blades'],effect:'Proposed upgrades for the companion’s own thrown weapons.',ability:'Throwing blades',cost:'Blade crafting materials and progression requirements.',weapon:true},
+ {name:'MELEE',names:['Melee damage','Swing cadence','Attack reach','Knockback strength','Swing coverage','Sword unlock','Melee damage','Swing cadence','Attack reach','Cooling rate','Swing coverage','Advanced sword'],effect:'Proposed upgrades for closed-kit melee weapons, independent of the player’s held weapon.',ability:'Sword',cost:'Weapon crafting materials from the corresponding progression tier.',weapon:true}
+];
+const nodes=[{id:'hub',x:0,y:0,name:'Companionship',rank:1,max:1,kind:'hub',stage:0,desc:'Start here. Each skill point opens one new node at rank one; higher ranks use separate upgrade requirements.'}],edges=[],subs={};
+branches.forEach((b,bi)=>{
+ const angle=-Math.PI/2+bi*Math.PI/4, ids=[];
+ b.names.forEach((name,i)=>{
+  const tier=Math.floor(i/2),radius=170+tier*132,spread=(i%2===0?-1:1)*(.14+tier*.015),a=angle+spread;
+  const ability=i===5||i===11||(bi===2&&[4,8,9,10].includes(i));
+  const id='b'+bi+'n'+i;ids.push(id);
+  const n={id,x:Math.cos(a)*radius,y:Math.sin(a)*radius,name,rank:0,max:ability?1:5,kind:ability?'ability':'stat',stage:i<6?0:i<10?1:2,branch:bi,desc:b.effect,cost:b.cost};
+  if(bi===0&&i===2){n.name='Tool reach';n.desc='The same reach upgrade applies to mining, chopping and torch placement; this is another investment along that shared progression.';}
+  if(b.weapon&&ability){n.sub=id;subs[id]={name,b:bi,nodes:[{id:id+'root',x:0,y:0,name,rank:1,max:1,kind:'hub',stage:0,desc:'Nested weapon upgrades. Unlock the parent weapon in the main tree first.'}],edges:[]};
+   ['Damage','Fire rate','Piercing','Distinct mechanic','Damage','Resource efficiency'].forEach((label,j)=>{const sid=id+'s'+j,a=-Math.PI/2+j*Math.PI/3;subs[id].nodes.push({id:sid,x:Math.cos(a)*220,y:Math.sin(a)*220,name:label,rank:0,max:label==='Distinct mechanic'?1:5,kind:label==='Distinct mechanic'?'ability':'stat',stage:n.stage,desc:'Preview of '+label.toLowerCase()+' for '+name+'. No effect is implemented.',cost:b.cost});subs[id].edges.push([id+'root',sid]);});
+  }
+  nodes.push(n);edges.push([i<2?'hub':ids[i-2],id]);
+ });
+});
+for(let b=0;b<8;b++)edges.push(['b'+b+'n6','b'+((b+1)%8)+'n7',true]);
+const svg=document.querySelector('#map'),g=document.querySelector('#graph'),detail=document.querySelector('#detail');
+let current=null,selected='hub',points=60,stage=0,pan={x:0,y:0,k:.4},drag=null;
+const tree=()=>current?subs[current]:{nodes,edges};
+const node=id=>tree().nodes.find(n=>n.id===id);
+function available(n){return n.rank>0||stage>=n.stage&&tree().edges.some(([a,b])=>b===n.id&&node(a)?.rank>0);}
+function elem(tag,attrs){const e=document.createElementNS('http://www.w3.org/2000/svg',tag);for(const[k,v]of Object.entries(attrs))e.setAttribute(k,v);return e;}
+function render(){
+ const t=tree();g.replaceChildren();g.setAttribute('transform',`translate(${pan.x},${pan.y}) scale(${pan.k})`);
+ t.edges.forEach(([a,b,cross])=>{const A=node(a),B=node(b);g.append(elem('line',{x1:A.x,y1:A.y,x2:B.x,y2:B.y,class:'link'+(cross?' cross':'')+(A.rank&&B.rank?' active':'')}));});
+ if(!current)branches.forEach((b,i)=>{const a=-Math.PI/2+i*Math.PI/4,e=elem('text',{x:Math.cos(a)*940,y:Math.sin(a)*940,'text-anchor':'middle',class:'branch'});e.textContent=b.name;g.append(e);});
+ t.nodes.forEach(n=>{const e=elem('g',{'data-node':n.id,class:'node '+(n.rank?'owned':available(n)?'available':'locked')+(n.id===selected?' selected':''),transform:`translate(${n.x},${n.y})`,tabindex:0,role:'button','aria-label':n.name+', rank '+n.rank+' of '+n.max});
+ const r=n.kind==='hub'?30:20;e.append(n.kind==='ability'?elem('rect',{x:-r,y:-r,width:2*r,height:2*r,transform:'rotate(45)',class:'shape'}):elem('circle',{r,class:'shape'}));
+ const rank=elem('text',{'text-anchor':'middle',y:5,fill:'#e7f2ff','font-size':13});rank.textContent=n.kind==='hub'?'✦':n.rank+'/'+n.max;e.append(rank);
+ const label=elem('text',{y:n.kind==='ability'?45:38,'text-anchor':'middle',class:'label'});label.textContent=n.name;e.append(label);
+ e.onclick=ev=>{ev.stopPropagation();selected=n.id;render();inspect();};e.onkeydown=ev=>{if(ev.key==='Enter'||ev.key===' '){ev.preventDefault();selected=n.id;render();inspect();}};g.append(e);});
+ document.querySelector('#summary').textContent=points+' preview points · '+nodes.filter(n=>n.rank&&n.id!=='hub').length+'/'+(nodes.length-1)+' main nodes';
+ document.querySelector('#back').style.display=current?'inline-block':'none';
+}
+function inspect(){const n=node(selected);if(!n)return;detail.innerHTML='';const add=(tag,text,cls)=>{const e=document.createElement(tag);e.textContent=text;if(cls)e.className=cls;detail.append(e);return e;};
+ add('div',current?'WEAPON SUB-TREE':n.kind==='hub'?'TREE RULES':branches[n.branch].name,'eyebrow');add('h2',n.name);add('p',n.desc);
+ const ranks=add('div','','ranks');for(let i=0;i<n.max;i++){const s=document.createElement('span');s.className='rank'+(i<n.rank?' on':'');ranks.append(s);}
+ add('p','Rank '+n.rank+' of '+n.max+'. '+(n.rank?'Further ranks cost no skill points.':'First rank opens onward paths.'),'notice');
+ add('p','Progression gate: '+['Pre-Hardmode','Hardmode','Post-Moon Lord'][n.stage]+'. These gates are illustrative.','rule');
+ add('p',n.cost||'Full XP from eligible companion actions; roughly one-third from player actions. No XP is awarded by this preview.','rule');
+ if(n.kind!=='hub'){const b=add('button',n.rank>=n.max?'Fully previewed':n.rank?'Preview next rank (0 points)':'Unlock preview (1 point)');b.disabled=n.rank>=n.max||!available(n)||(n.rank===0&&points===0);b.onclick=()=>{if(!n.rank)points--;n.rank++;render();inspect();};}
+ if(n.sub){const b=add('button','Open weapon upgrades →');b.disabled=n.rank===0;b.onclick=()=>{current=n.sub;selected=tree().nodes[0].id;fit();inspect();};}
+ add('p','Design target: around half the full tree unlocked by Moon Lord. This sample’s node count, gates and preview-point supply do not establish that balance.','notice');
+ add('p','Material payments, stat values, XP curves and real abilities are deliberately inactive.');
+}
+function fit(){const b=svg.getBoundingClientRect();pan={x:b.width/2,y:b.height/2,k:Math.min(b.width,b.height)/(current?640:2050)};render();}
+svg.onpointerdown=e=>{if(e.target.closest('.node'))return;drag={x:e.clientX,y:e.clientY,px:pan.x,py:pan.y};svg.setPointerCapture(e.pointerId);svg.classList.add('drag');};svg.onpointermove=e=>{if(!drag)return;pan.x=drag.px+e.clientX-drag.x;pan.y=drag.py+e.clientY-drag.y;render();};svg.onpointerup=svg.onpointercancel=()=>{drag=null;svg.classList.remove('drag');};
+svg.addEventListener('wheel',e=>{e.preventDefault();const b=svg.getBoundingClientRect(),x=e.clientX-b.left,y=e.clientY-b.top,k=Math.max(.12,Math.min(2,pan.k*Math.exp(-e.deltaY*.001)));pan.x=x-(x-pan.x)*k/pan.k;pan.y=y-(y-pan.y)*k/pan.k;pan.k=k;render();},{passive:false});
+document.querySelector('#fit').onclick=fit;document.querySelector('#back').onclick=()=>{selected=current;current=null;fit();inspect();};document.querySelector('#stage').onchange=e=>{stage=+e.target.value;render();inspect();};
+document.querySelector('#reset').onclick=()=>{nodes.forEach(n=>n.rank=n.kind==='hub'?1:0);Object.values(subs).forEach(t=>t.nodes.forEach(n=>n.rank=n.kind==='hub'?1:0));points=60;current=null;selected='hub';fit();inspect();};
+addEventListener('resize',fit);fit();inspect();
+// Read-only inspection surface for the offscreen checks; it is never a game-state bridge.
+window.masteryPreview={nodes,edges,subs,branches,get points(){return points;},get selected(){return selected;}};
+</script></html>
