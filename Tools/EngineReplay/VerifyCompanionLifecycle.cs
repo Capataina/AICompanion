@@ -11,7 +11,8 @@ internal static class VerifyCompanionLifecycle
     public static CompanionNPC Create()
     {
         Main.rand = new Terraria.Utilities.UnifiedRandom(1);
-        foreach (int item in new[] { Terraria.ID.ItemID.WoodenBow, Terraria.ID.ItemID.WoodenArrow, Terraria.ID.ItemID.ThrowingKnife })
+        foreach (int item in new[] { Terraria.ID.ItemID.WoodenBow, Terraria.ID.ItemID.WoodenArrow, Terraria.ID.ItemID.ThrowingKnife,
+            Terraria.ID.ItemID.CopperPickaxe, Terraria.ID.ItemID.CopperAxe })
         {
             var sample = new Item();
             sample.SetDefaults(item);
@@ -24,6 +25,9 @@ internal static class VerifyCompanionLifecycle
             Terraria.ID.ContentSamples.ProjectilesByType[type] = sample;
         }
         Lighting.Initialize();
+        Terraria.ID.TorchID.Initialize();
+        Main.Map = new Terraria.Map.WorldMap(Main.maxTilesX, Main.maxTilesY);
+        Terraria.Map.MapHelper.Initialize();
         Main.myPlayer = 0;
         Main.player[0] = new Player { active = true, dead = true, statLifeMax2 = 100,
             position = new Vector2(400, 1400) };
@@ -61,6 +65,7 @@ internal static class VerifyCompanionLifecycle
         Require(companion.IsDowned && companion.Brain.Senses.Tick == tick && !companion.Torch.Shown,
             "the companion's own downed state suspends decisions and hides its torch");
         VerifyWorldMemory();
+        VerifyRoutePersistence.Run();
         Console.WriteLine("companion lifecycle: real NPC AI continues with a dead player and clears stale hand ownership");
         return 0;
     }

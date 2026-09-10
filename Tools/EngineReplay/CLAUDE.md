@@ -16,6 +16,7 @@ EngineReplay/
 ├─ VerifyProjectileMotion.cs native projectile-AI and swept-shot contracts
 ├─ VerifyPersonalDanger.cs   separated chambers verify actor-specific hostile reachability
 ├─ VerifyCompanionLifecycle.cs actual mod NPC attachment, player-death decisions and hand/downed lifecycle
+├─ VerifyRoutePersistence.cs full route-cache TagIO round trips and fail-open load cases
 ├─ VerifyThreatAnticipation.cs harmful unattackable actors, projectile attribution and measured forecast confidence
 ├─ VerifyCapturedEscape.cs   captured pool and mirrored awnings exercised against native collision
 ├─ GodsEyeTestStubs.cs       unrelated mod and TSV seams; the real player hurt observer remains compiled
@@ -36,4 +37,4 @@ The same executable also verifies every projectile in the current companion kit 
 
 These are repeatable collision and route fixtures. They do not establish general world navigation, threat prediction quality or comfortable companionship. The historical text-world corpus and a recorded playtest answer those different questions. Private engine method names are intentional verification dependencies: if a game update removes them, the test must fail visibly rather than silently substitute another simulator.
 
-The project references the actual mod under the `live` assembly alias for lifecycle and behaviour checks. Those tests attach a real CompanionNPC through ModNPC.Entity, disable rendering/first-tick logging that require unavailable graphics/loader services, and keep the production brain, senses and movement components. `--lifecycle` and `--escape` run their focused subsets; the default run includes both. This does not launch a game, run enemy AI or test save-file loading through the full world loader.
+The project references the actual mod under the `live` assembly alias for lifecycle and behaviour checks. Those tests attach a real CompanionNPC through ModNPC.Entity, disable rendering/first-tick logging that require unavailable graphics/loader services, and keep the production brain, senses and movement components. `VerifyRoutePersistence` records a full-capacity production route archive, round-trips it through compressed TagIO, and verifies the byte-array format alongside safe legacy and invalid-cache loading. `--lifecycle` and `--escape` run their focused subsets; the default run includes both. This does not launch a game, run enemy AI or test save-file loading through the full world loader.

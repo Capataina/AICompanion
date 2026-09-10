@@ -21,7 +21,7 @@ Run `dotnet run --project Tools/EngineReplay` from the repository root. That too
 
 ## Traps
 
-`TrackTerrainChanges` also owns the lifecycle of executed-route memory. `OnWorldLoad` clears the static store before `LoadWorldData` restores that world's archive; `SaveWorldData` writes it to the world's tag, and unload clears it again. This callback order is specified by the installed tModLoader ModSystem reference. `ReadGameTerrain` exposes exact liquid kind and amount for compatibility fingerprints, because a liquid change can alter movement without a tile placement event.
+`TrackTerrainChanges` also owns the lifecycle of executed-route memory. `OnWorldLoad` clears the static store before `LoadWorldData` restores that world's archive; `SaveWorldData` writes the UTF-8 JSON as a bounded `byte[]`, because TagIO strings have a signed-short byte length while byte arrays have a signed-Int32 length. The loader accepts a small legacy string only for migration, strictly decodes byte archives, and discards missing, malformed, oversized or unsupported optional route data without blocking the world. Unload clears the store again. This callback order is specified by the installed tModLoader ModSystem reference. `ReadGameTerrain` exposes exact liquid kind and amount for compatibility fingerprints, because a liquid change can alter movement without a tile placement event.
 
 - A StepUp call can change position without changing vertical velocity. Recording only the engine’s later displacement misses that write; keep the AI-entry observation separate from the post-helper pose.
 - Sloped platforms have both shape and pass-through semantics. Dropping either property recreates a stair the graph cannot descend.
