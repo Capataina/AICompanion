@@ -1,0 +1,1029 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Companion profile card — Multi... Player?</title>
+<style>
+/* ------------------------------------------------------------------ *
+ * Terraria's own interface palette, not this project's design-doc one.
+ * The game's panels are a blue-violet at about 78% over the world, with
+ * white body text and gold headings; a mockup of an in-game surface has
+ * to sit inside that language or it tells you nothing about how it will
+ * look in the game.
+ *
+ * No transitions anywhere on purpose. Terraria's UI does not animate,
+ * so hover and selection changes are instant.
+ * ------------------------------------------------------------------ */
+:root{
+  --world:#0d1018;
+  --panel:#242663;
+  --panel-lit:#31347f;
+  --panel-sunk:#1a1c4b;
+  --slot:#191b47;
+  --slot-lit:#262a6b;
+  --edge:#5a5fc0;
+  --edge-soft:#3f43a0;
+  --ink:#ffffff;
+  --ink-dim:#a7abdf;
+  --ink-mute:#7d81b8;
+  --gold:#ffd76b;
+  --green:#7ee081;
+  --red:#ff7a7a;
+  --orange:#ffa54f;
+  --cyan:#6fe0e0;
+  --ui:"Trebuchet MS","Lucida Grande",Verdana,sans-serif;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{
+  background:
+    radial-gradient(120% 90% at 50% 0%, #1b2233 0%, #0d1018 60%, #070910 100%);
+  color:var(--ink);
+  font-family:var(--ui);
+  font-size:14px;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:14px;padding:22px;
+}
+
+/* ---- the card ---------------------------------------------------- */
+.card{
+  /* Height is set by the behaviour panel, which must show every row without a
+     scroll — the whole point of the panel is that the companion's settings are
+     legible at one glance. Measured: ten toggle rows, the distance stepper and
+     the weapon picker want ~390px of pane. */
+  width:880px;height:700px;
+  background:var(--panel);
+  border:2px solid var(--edge);
+  box-shadow:0 0 0 2px #14163a, 0 18px 40px rgba(0,0,0,.55);
+  display:flex;flex-direction:column;
+  position:relative;
+}
+.titlebar{
+  display:flex;align-items:center;gap:10px;
+  padding:7px 10px;border-bottom:2px solid var(--edge-soft);
+  background:var(--panel-lit);
+}
+.titlebar h1{font-size:16px;margin:0;color:var(--gold);font-weight:bold;letter-spacing:.02em}
+.titlebar .crumb{color:var(--ink-mute);font-size:13px}
+.titlebar .spacer{flex:1}
+.iconbtn{
+  width:26px;height:22px;display:grid;place-items:center;
+  background:var(--panel-sunk);border:1px solid var(--edge-soft);color:var(--ink-dim);
+  font-size:14px;line-height:1;cursor:pointer;font-family:var(--ui);
+}
+.iconbtn:hover{background:var(--slot-lit);border-color:var(--edge);color:var(--ink)}
+.view{display:none;flex:1;min-height:0}
+.view.on{display:flex}
+
+/* ---- overview ---------------------------------------------------- */
+#v-overview{flex-direction:column;padding:10px;gap:10px}
+.top{display:grid;grid-template-columns:238px 1fr;gap:10px;min-height:0;flex:1}
+.bottom{display:grid;grid-template-columns:1fr 1fr;gap:10px;height:132px}
+
+.pane{background:var(--panel-sunk);border:1px solid var(--edge-soft);min-width:0}
+.pane > h2{
+  margin:0;padding:5px 9px;font-size:13px;color:var(--gold);
+  background:var(--panel);border-bottom:1px solid var(--edge-soft);font-weight:bold;
+}
+
+/* portrait */
+.portrait{display:flex;flex-direction:column}
+.portrait .frame{
+  flex:1;display:flex;align-items:center;justify-content:center;
+  background:
+    linear-gradient(180deg,#101433 0%,#181c47 70%,#242663 100%);
+  position:relative;min-height:0;
+}
+/* An integer upscale of the canvas, so every source pixel stays a whole block
+   and the sprite keeps hard edges. */
+.sprite{image-rendering:pixelated;display:block;width:192px;height:256px}
+.portrait .nameplate{padding:6px 9px 2px;text-align:center}
+.portrait .nameplate .nm{font-size:15px;color:var(--ink)}
+.portrait .nameplate .lv{font-size:12px;color:var(--ink-mute)}
+.hpwrap{padding:0 9px 7px}
+.hpbar{height:11px;background:#3a1b1b;border:1px solid #6b2f2f;position:relative}
+.hpbar i{display:block;height:100%;background:linear-gradient(180deg,#ff6b6b,#c02f2f)}
+.hpbar span{
+  position:absolute;inset:0;display:grid;place-items:center;
+  font-size:10px;color:#fff;text-shadow:0 1px 0 #000;
+}
+/* The live action strip. Placed at the foot of the portrait pane because
+   what the companion is doing belongs with the picture of it doing it. */
+.action{
+  border-top:1px solid var(--edge-soft);background:var(--panel);
+  padding:6px 9px;text-align:right;
+}
+.action .k{font-size:11px;color:var(--ink-mute);display:block}
+.action .v{font-size:14px;color:var(--gold)}
+.action .why{font-size:11.5px;color:var(--ink-dim);display:block;line-height:1.35}
+
+/* behaviour settings */
+.behaviour{display:flex;flex-direction:column;min-height:0}
+.behaviour .body{overflow-y:auto;padding:6px 8px 8px;flex:1}
+.presets{
+  display:flex;align-items:center;gap:6px;padding:5px 8px;
+  border-bottom:1px solid var(--edge-soft);background:var(--panel);
+}
+.presets b{font-size:11.5px;color:var(--ink-mute);font-weight:normal;margin-right:2px}
+.pbtn{
+  font-family:var(--ui);font-size:12px;padding:2px 9px;cursor:pointer;
+  background:var(--panel-sunk);border:1px solid var(--edge-soft);color:var(--ink-dim);
+}
+.pbtn:hover{background:var(--slot-lit);color:var(--ink);border-color:var(--edge)}
+.grouphead{
+  font-size:11px;color:var(--ink-mute);letter-spacing:.06em;
+  margin:7px 0 3px;padding-bottom:2px;border-bottom:1px solid var(--edge-soft);
+}
+.grouphead:first-child{margin-top:1px}
+.row{display:grid;grid-template-columns:1fr 186px 20px;align-items:center;gap:7px;padding:1px 0}
+.row .lbl{font-size:13.5px;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* Not scoped to .row: the distance stepper uses .lbl outside a .row, and a
+   scoped selector left its hint at full size and full brightness. */
+.lbl em{font-style:normal;color:var(--ink-mute);font-size:11.5px}
+.seg{display:grid;grid-template-columns:repeat(3,1fr);border:1px solid var(--edge-soft)}
+.seg button{
+  font-family:var(--ui);font-size:11.5px;padding:3px 0;cursor:pointer;
+  background:var(--slot);color:var(--ink-mute);border:0;border-right:1px solid var(--edge-soft);
+}
+.seg button:last-child{border-right:0}
+.seg button:hover{background:var(--slot-lit);color:var(--ink)}
+.seg button[aria-pressed="true"]{background:var(--panel-lit);color:var(--gold)}
+.more{
+  width:20px;height:20px;display:grid;place-items:center;cursor:pointer;
+  background:var(--slot);border:1px solid var(--edge-soft);color:var(--ink-mute);font-size:12px;
+}
+.more:hover{background:var(--slot-lit);color:var(--ink);border-color:var(--edge)}
+.more.ghost{visibility:hidden}
+
+/* the distance control is a value, not a mode, so it must not look like one */
+.dist{display:grid;grid-template-columns:1fr 186px 20px;align-items:center;gap:7px;padding:3px 0}
+.stops{display:flex;border:1px solid var(--edge-soft)}
+.stops button{
+  flex:1;font-family:var(--ui);font-size:11.5px;padding:3px 0;cursor:pointer;
+  background:var(--slot);color:var(--ink-mute);border:0;border-right:1px solid var(--edge-soft);
+}
+.stops button:last-child{border-right:0}
+.stops button:hover{background:var(--slot-lit);color:var(--ink)}
+.stops button[aria-pressed="true"]{background:var(--panel-lit);color:var(--cyan)}
+
+/* weapon picker */
+.weprow{display:flex;gap:5px;padding:3px 0 1px;flex-wrap:wrap}
+.wep{
+  display:flex;align-items:center;gap:6px;padding:3px 8px 3px 4px;cursor:pointer;
+  background:var(--slot);border:1px solid var(--edge-soft);font-size:12.5px;color:var(--ink-dim);
+}
+.wep:hover{background:var(--slot-lit);color:var(--ink);border-color:var(--edge)}
+.wep[aria-pressed="true"]{background:var(--panel-lit);color:var(--gold);border-color:var(--edge)}
+.wep .pip{width:14px;height:14px;border:1px solid #0009}
+
+/* summary tiles */
+.tile{
+  background:var(--panel-sunk);border:1px solid var(--edge-soft);
+  display:flex;flex-direction:column;cursor:pointer;text-align:left;
+  font-family:var(--ui);color:var(--ink);padding:0;
+}
+.tile:hover{border-color:var(--edge);background:var(--slot-lit)}
+.tile h2{
+  margin:0;padding:5px 9px;font-size:13px;color:var(--gold);
+  background:var(--panel);border-bottom:1px solid var(--edge-soft);
+  display:flex;justify-content:space-between;align-items:center;
+}
+.tile h2 .go{color:var(--ink-mute);font-size:11.5px;font-weight:normal}
+.tile .in{padding:7px 9px;display:flex;gap:10px;flex:1;min-height:0}
+.fillbar{height:12px;background:var(--slot);border:1px solid var(--edge-soft);position:relative}
+.fillbar i{display:block;height:100%;background:linear-gradient(180deg,#8f95e8,#4d52b8)}
+.fillbar span{position:absolute;inset:0;display:grid;place-items:center;font-size:10px;text-shadow:0 1px 0 #000}
+.minislots{display:grid;grid-template-columns:repeat(6,20px);gap:3px}
+.branchbar{display:grid;grid-template-columns:74px 1fr 30px;align-items:center;gap:6px;font-size:11.5px;color:var(--ink-dim)}
+.branchbar .track{height:8px;background:var(--slot);border:1px solid var(--edge-soft)}
+.branchbar .track i{display:block;height:100%}
+
+/* ---- item slots (shared) ----------------------------------------- */
+.slot{
+  width:100%;aspect-ratio:1;background:var(--slot);border:1px solid var(--edge-soft);
+  display:grid;place-items:center;position:relative;
+}
+.slot.lit{background:var(--slot-lit);border-color:var(--edge)}
+.slot .qty{position:absolute;right:1px;bottom:0;font-size:10px;color:#fff;text-shadow:0 1px 0 #000}
+.gem{width:60%;height:60%;border:1px solid rgba(0,0,0,.55)}
+
+/* ---- inventory view ---------------------------------------------- */
+#v-inventory{flex-direction:column;padding:10px;gap:8px}
+.invbar{display:flex;align-items:center;gap:6px}
+.invbar .grow{flex:1}
+.invbody{display:flex;gap:10px;flex:1;min-height:0}
+/* Slots are a fixed 48px rather than a tenth of the panel: stretched to fill
+   the width they came out four times Terraria's own slot and stopped reading
+   as an inventory at all. The column count follows from the width. */
+.invgrid{
+  display:grid;grid-template-columns:repeat(10,48px);gap:4px;
+  overflow-y:auto;padding-right:6px;align-content:start;
+}
+.invdetail{
+  flex:1;min-width:0;background:var(--panel-sunk);border:1px solid var(--edge-soft);
+  padding:10px 12px;display:flex;flex-direction:column;gap:8px;
+}
+.invdetail h3{margin:0;font-size:15px;color:var(--gold)}
+.invdetail .cat{font-size:12px;color:var(--ink-mute)}
+.invdetail p{margin:0;font-size:12.5px;color:var(--ink-dim);line-height:1.5}
+.invdetail .big{
+  width:64px;height:64px;border:1px solid var(--edge-soft);background:var(--slot);
+  display:grid;place-items:center;
+}
+.invdetail .big i{display:block;width:40px;height:40px;border:1px solid #0009}
+.invdetail .empty{font-size:12.5px;color:var(--ink-mute)}
+/* Terraria-flavoured scrollbar rather than the OS one */
+.invgrid::-webkit-scrollbar,.orebody::-webkit-scrollbar,.behaviour .body::-webkit-scrollbar{width:10px}
+.invgrid::-webkit-scrollbar-track,.orebody::-webkit-scrollbar-track,.behaviour .body::-webkit-scrollbar-track{background:var(--panel-sunk);border:1px solid var(--edge-soft)}
+.invgrid::-webkit-scrollbar-thumb,.orebody::-webkit-scrollbar-thumb,.behaviour .body::-webkit-scrollbar-thumb{background:var(--panel-lit);border:1px solid var(--edge)}
+
+/* ---- activity detail (whitelist / blacklist) --------------------- */
+#v-activity{flex-direction:column;padding:10px;gap:8px}
+.orehead{display:flex;align-items:center;gap:8px}
+.orehead .grow{flex:1}
+.wlbl{display:flex;border:1px solid var(--edge-soft)}
+.wlbl button{
+  font-family:var(--ui);font-size:12px;padding:3px 12px;cursor:pointer;
+  background:var(--slot);color:var(--ink-mute);border:0;border-right:1px solid var(--edge-soft);
+}
+.wlbl button:last-child{border-right:0}
+.wlbl button:hover{background:var(--slot-lit);color:var(--ink)}
+.wlbl button[aria-pressed="true"]{background:var(--panel-lit);color:var(--gold)}
+.orehint{font-size:12px;color:var(--ink-dim);padding:5px 8px;background:var(--panel-sunk);border:1px solid var(--edge-soft)}
+.orewrap{display:flex;gap:10px;flex:1;min-height:0}
+.orebody{overflow-y:auto;background:var(--panel-sunk);border:1px solid var(--edge-soft);padding:8px}
+.oregrid{display:grid;grid-template-columns:repeat(8,48px);gap:5px;align-content:start}
+.ore{cursor:pointer}
+.ore.picked{outline:2px solid var(--gold);outline-offset:-2px}
+.ore.partial{opacity:.55;cursor:default}
+.ore .lockbadge{position:absolute;left:1px;top:0;font-size:9px;color:var(--orange);text-shadow:0 1px 0 #000}
+
+/* tooltip: Terraria style, follows the cursor, no fade */
+#tip{
+  position:fixed;z-index:50;display:none;pointer-events:none;
+  background:rgba(20,22,58,.96);border:1px solid var(--edge);padding:6px 8px;max-width:230px;
+}
+#tip .nm{font-size:13.5px;color:var(--ink)}
+#tip .sub{font-size:11.5px;color:var(--ink-dim);margin-top:2px}
+#tip .need{font-size:11.5px;color:var(--orange);margin-top:2px}
+.placed{margin-top:6px;display:grid;gap:1px}
+.placedlbl{font-size:10.5px;color:var(--ink-mute);margin-top:4px}
+
+/* ---- mastery view ------------------------------------------------ */
+#v-mastery{flex-direction:column;padding:0}
+.treewrap{flex:1;position:relative;overflow:hidden;background:#12143a;cursor:grab}
+.treewrap.drag{cursor:grabbing}
+.treewrap svg{position:absolute;inset:0;width:100%;height:100%;display:block}
+.node-c{cursor:pointer}
+/* Chrome sits outside the pannable surface. Floated over it, the legend landed
+   on a node label the moment the graph was laid out to use its corners. */
+.treefoot{
+  display:flex;align-items:center;gap:16px;padding:6px 10px;
+  background:var(--panel);border-top:1px solid var(--edge-soft);
+  font-size:11.5px;color:var(--ink-dim);
+}
+.treefoot .sp{flex:1}
+.legend{display:flex;align-items:center;gap:6px}
+.legend b{width:10px;height:10px;display:block;border:1px solid #0009}
+.zoomhint{color:var(--ink-mute)}
+.nodeinfo{
+  position:absolute;right:8px;top:8px;width:212px;
+  background:rgba(20,22,58,.95);border:1px solid var(--edge);padding:8px 9px;
+}
+.nodeinfo h3{margin:0 0 3px;font-size:13.5px;color:var(--gold)}
+.nodeinfo p{margin:0;font-size:12px;color:var(--ink-dim);line-height:1.45}
+.nodeinfo .st{font-size:11.5px;margin-top:5px}
+.nodeinfo button{
+  font-family:var(--ui);font-size:12px;margin-top:7px;width:100%;padding:3px 0;cursor:pointer;
+  background:var(--panel-lit);border:1px solid var(--edge);color:var(--gold);
+}
+.nodeinfo button:hover{background:var(--edge-soft)}
+
+/* ---- demo strip (not part of the game UI) ------------------------ */
+.demo{
+  width:880px;background:#15151b;border:1px solid #2c2c36;padding:8px 10px;
+  display:flex;align-items:center;gap:8px;flex-wrap:wrap;
+  font-size:12.5px;color:#8a8a96;
+}
+.demo b{color:#c9c9d4;font-weight:normal}
+.demo button{
+  font-family:var(--ui);font-size:12px;padding:2px 9px;cursor:pointer;
+  background:#1f1f28;border:1px solid #34343f;color:#c9c9d4;
+}
+.demo button:hover{background:#2a2a35;color:#fff}
+.demo input[type=range]{width:110px;accent-color:#5a5fc0}
+</style>
+</head>
+<body>
+
+<div class="card">
+  <div class="titlebar">
+    <button class="iconbtn" id="back" title="Back" style="display:none">&#8592;</button>
+    <h1 id="cardtitle">Companion</h1>
+    <span class="crumb" id="crumb"></span>
+    <span class="spacer"></span>
+    <button class="iconbtn" title="Close">&#10005;</button>
+  </div>
+
+  <!-- OVERVIEW ---------------------------------------------------- -->
+  <div class="view on" id="v-overview">
+    <div class="top">
+
+      <div class="pane portrait">
+        <h2>Companion</h2>
+        <div class="frame"><canvas class="sprite" id="sprite" width="96" height="128"></canvas></div>
+        <div class="nameplate">
+          <div class="nm" id="cname">Companion</div>
+          <div class="lv" id="clevel">Mastery level 14 &middot; 3 points unspent</div>
+        </div>
+        <div class="hpwrap">
+          <div class="hpbar"><i id="hpfill"></i><span id="hptext"></span></div>
+        </div>
+        <div class="action">
+          <span class="k">Right now</span>
+          <span class="v" id="actname">Mining</span>
+          <span class="why" id="actwhy">Copper vein, 12 tiles below &mdash; opportunistic</span>
+        </div>
+      </div>
+
+      <div class="pane behaviour">
+        <h2>Behaviour</h2>
+        <div class="presets">
+          <b>Presets</b>
+          <button class="pbtn" data-preset="off">Stay put</button>
+          <button class="pbtn" data-preset="follow">Follow my lead</button>
+          <button class="pbtn" data-preset="free">Free rein</button>
+        </div>
+        <div class="body" id="behaviourbody"></div>
+      </div>
+
+    </div>
+    <div class="bottom">
+
+      <button class="tile" id="tile-inv">
+        <h2>Cargo bag <span class="go">Open &#8594;</span></h2>
+        <div class="in">
+          <div style="flex:1;display:flex;flex-direction:column;gap:6px;justify-content:center">
+            <div class="fillbar"><i id="invfill"></i><span id="invtext"></span></div>
+            <div style="font-size:11.5px;color:var(--ink-dim)" id="invnote"></div>
+          </div>
+          <div>
+            <div style="font-size:11px;color:var(--ink-mute);margin-bottom:3px">Latest pickups</div>
+            <div class="minislots" id="minislots"></div>
+          </div>
+        </div>
+      </button>
+
+      <button class="tile" id="tile-mastery">
+        <h2>Mastery <span class="go">Open &#8594;</span></h2>
+        <div class="in" style="flex-direction:column;gap:5px;justify-content:center" id="branchbars"></div>
+      </button>
+
+    </div>
+  </div>
+
+  <!-- INVENTORY --------------------------------------------------- -->
+  <div class="view" id="v-inventory">
+    <div class="invbar">
+      <div class="wlbl" id="invfilter">
+        <button aria-pressed="true" data-f="all">All</button>
+        <button aria-pressed="false" data-f="ore">Ore</button>
+        <button aria-pressed="false" data-f="wood">Wood</button>
+        <button aria-pressed="false" data-f="loot">Loot</button>
+      </div>
+      <span class="grow"></span>
+      <span style="font-size:12px;color:var(--ink-dim)" id="invcount"></span>
+      <button class="pbtn" id="dumpbtn">Hand everything over</button>
+    </div>
+    <div class="invbody">
+      <div class="invgrid" id="invgrid"></div>
+      <div class="invdetail" id="invdetail"></div>
+    </div>
+  </div>
+
+  <!-- ACTIVITY DETAIL --------------------------------------------- -->
+  <div class="view" id="v-activity">
+    <div class="orehead">
+      <span style="font-size:13px;color:var(--gold)" id="actTitle">Mining</span>
+      <span class="grow"></span>
+      <div class="wlbl" id="wlblToggle">
+        <button aria-pressed="true" data-m="wl">Whitelist</button>
+        <button aria-pressed="false" data-m="bl">Blacklist</button>
+      </div>
+    </div>
+    <div class="orehint" id="orehint"></div>
+    <div class="orewrap">
+      <div class="orebody"><div class="oregrid" id="oregrid"></div></div>
+      <div class="invdetail" id="oredetail"></div>
+    </div>
+  </div>
+
+  <!-- MASTERY ----------------------------------------------------- -->
+  <div class="view" id="v-mastery">
+    <div class="treewrap" id="treewrap">
+      <svg id="tree"><g id="treeg"></g></svg>
+      <div class="nodeinfo" id="nodeinfo" style="display:none"></div>
+    </div>
+    <div class="treefoot">
+      <span class="legend"><b style="background:#7ee081"></b> taken</span>
+      <span class="legend"><b style="background:#ffd76b"></b> available</span>
+      <span class="legend"><b style="background:#4a4e8f"></b> locked</span>
+      <span class="legend"><b style="background:#6fe0e0;transform:rotate(45deg)"></b> opens its own tree</span>
+      <span class="sp"></span>
+      <span class="zoomhint">Drag to pan &middot; scroll to zoom</span>
+    </div>
+  </div>
+
+</div>
+
+<div class="demo">
+  <b>Demo controls</b> &mdash; not part of the game UI
+  <button id="d-action">Change current action</button>
+  <label>Bag <input type="range" id="d-bag" min="0" max="40" value="26"></label>
+  <label>Health <input type="range" id="d-hp" min="1" max="400" value="340"></label>
+  <button id="d-points">Spend a mastery point</button>
+</div>
+
+<div id="tip"></div>
+
+<script>
+"use strict";
+
+/* ------------------------------------------------------------------ *
+ * Mock state. Everything here stands in for something the mod already
+ * has or plans: the bag is Companion/Inventory, the action line is what
+ * Companion/Brain/BehaviourSelection picked this tick, and the mastery
+ * points are the unbuilt tree named in the repository guide.
+ * ------------------------------------------------------------------ */
+const S = {
+  name: 'Companion',
+  level: 14,
+  points: 3,
+  hp: 340, hpMax: 400,
+  action: 0,
+  bag: 26, bagMax: 40,
+  distance: 1,
+  wlMode: 'wl',
+  activity: 'Mining'
+};
+
+/* The three modes are not a scale of intensity, they are three different
+   sources of instruction: nobody, you, or the companion itself. */
+const MODES = [
+  { id:'none', label:'Never',  hint:'the companion never does this' },
+  { id:'mimic', label:'Mimic', hint:'only while you are doing it' },
+  { id:'opp',  label:'Free',   hint:'whenever it judges it worthwhile' }
+];
+
+const GROUPS = [
+  { name:'Work', rows:[
+    { id:'wood', label:'Woodcutting', mode:1, detail:true },
+    { id:'mine', label:'Mining',      mode:2, detail:true },
+    { id:'fish', label:'Fishing',     mode:0, detail:true }
+  ]},
+  { name:'Combat', rows:[
+    { id:'hunt', label:'Hunt threats', sub:'leaves your side to close in', mode:2 },
+    { id:'kite', label:'Kite and dodge', sub:'keeps its distance while shooting', mode:2 },
+    { id:'prot', label:'Body-block for you', sub:'steps into what is aimed at you', mode:1 }
+  ]},
+  { name:'Support', rows:[
+    { id:'loot', label:'Collect drops', mode:2 },
+    { id:'torch', label:'Carry a light', mode:2 },
+    { id:'door', label:'Open doors on route', mode:2 },
+    { id:'heal', label:'Bring you what it finds', sub:'hands over potions on pickup', mode:1 }
+  ]}
+];
+
+const WEAPONS = [
+  { id:'ragged', name:'Ragged Edge', col:'#8fa0ff' },
+  { id:'carom',  name:'Carom Bow',   col:'#9ceb45' },
+  { id:'hexbomb',name:'Hexbomb Sceptre', col:'#ffd84a' },
+  { id:'auto',   name:'Let it choose', col:'#6fe0e0' }
+];
+let weapon = 'auto';
+
+const DISTANCES = [
+  { label:'Heel',  hint:'stays inside melee range of you' },
+  { label:'Close', hint:'a screen-third away at most' },
+  { label:'Loose', hint:'wanders to the edge of the screen' },
+  { label:'Roam',  hint:'goes wherever the work is' }
+];
+
+const ACTIONS = [
+  ['Mining', 'Copper vein, 12 tiles below — opportunistic'],
+  ['Following you', 'Nothing worth doing within reach'],
+  ['Hunting', 'Zombie, 9 tiles right — shooting while it closes'],
+  ['Kiting', 'Demon Eye above — backing off to keep the shot'],
+  ['Chopping', 'Oak trunk, 6 tiles left — mimicking you'],
+  ['Collecting', 'Fallen star, 20 tiles — bag has room'],
+  ['Sheltering', 'Took a hit, waiting out the slime pack'],
+  ['Idle', 'Bag full, nothing it can pick up']
+];
+
+/* Ore list. Anything with mined === 0 never renders, per the spec that the
+   menu must not spoil ores you have not met yet. */
+const ORES = [
+  { name:'Copper',    col:'#c87f4a', mined:180, need:20 },
+  { name:'Tin',       col:'#c2a06a', mined:140, need:20 },
+  { name:'Iron',      col:'#b4b0a6', mined:96,  need:25 },
+  { name:'Lead',      col:'#8f92a8', mined:74,  need:25 },
+  { name:'Silver',    col:'#dcdfe8', mined:52,  need:30 },
+  { name:'Tungsten',  col:'#c8d2c0', mined:41,  need:30 },
+  { name:'Gold',      col:'#ffd05a', mined:33,  need:35 },
+  { name:'Platinum',  col:'#e6ecf5', mined:12,  need:35 },
+  { name:'Demonite',  col:'#8d6fbf', mined:9,   need:40 },
+  { name:'Crimtane',  col:'#c04a5a', mined:6,   need:40 },
+  { name:'Meteorite', col:'#a06a6a', mined:3,   need:30 },
+  { name:'Obsidian',  col:'#4a3f6b', mined:44,  need:20 },
+  { name:'Hellstone', col:'#e05a2a', mined:1,   need:45 },
+  { name:'Cobalt',    col:'#3f8fd0', mined:0,   need:50 },
+  { name:'Mythril',   col:'#4fbfa0', mined:0,   need:50 },
+  { name:'Adamantite',col:'#d04f8f', mined:0,   need:60 },
+  { name:'Chlorophyte',col:'#7fd04f',mined:0,   need:70 },
+  { name:'Aerialite', col:'#8fd8e8', mined:2,   need:35 },
+  { name:'Cryonic',   col:'#7fb8e8', mined:0,   need:60 },
+  { name:'Perennial', col:'#5fd07f', mined:0,   need:70 }
+];
+const orePicked = new Set(['Copper','Iron','Gold','Demonite']);
+
+const ITEMS = [
+  ['Copper Ore','#c87f4a','ore',97],['Iron Ore','#b4b0a6','ore',64],['Gold Ore','#ffd05a','ore',22],
+  ['Oak Wood','#9a6b3f','wood',240],['Ebonwood','#6b5a8f','wood',88],['Boreal Wood','#c4b49a','wood',53],
+  ['Stone Block','#8a8a94','loot',420],['Gel','#5fbf6a','loot',66],['Fallen Star','#ffe98a','loot',7],
+  ['Life Crystal','#e8506a','loot',2],['Torch','#ffb347','loot',94],['Rope','#b4926a','loot',110],
+  ['Silver Ore','#dcdfe8','ore',30],['Lead Ore','#8f92a8','ore',48],['Mushroom','#e8d0c0','loot',14],
+  ['Acorn','#8f6b3f','wood',19],['Cobweb','#d8d8e0','loot',75],['Obsidian','#4a3f6b','ore',12],
+  ['Amethyst','#a06ad0','loot',5],['Topaz','#e8b04a','loot',3],['Sapphire','#4a8fd0','loot',2],
+  ['Emerald','#4ad07f','loot',1],['Bomb','#6a6a74','loot',8],['Healing Potion','#e8506a','loot',6],
+  ['Chain','#9a9aa4','loot',31],['Glowstick','#7fe0a0','loot',17]
+];
+
+/* Mastery tree. Positions are laid out by hand around a hub so the four
+   branches read as four directions rather than as a list. Diamond nodes
+   own a sub-tree; circles are plain stat nodes. */
+const TREE_MAIN = {
+  title:'Mastery',
+  nodes:[
+    { id:'hub', x:0, y:0, r:26, shape:'c', state:'taken', name:'Awakening', desc:'The companion learns. Everything hangs off this.' },
+
+    { id:'c1', x:-150, y:-84, shape:'c', state:'taken', name:'Steadier hands', desc:'Less spread on every shot the arsenal takes.' },
+    { id:'c2', x:-268, y:-140, shape:'c', state:'taken', name:'Faster reload', desc:'Cuts the gap between shots.' },
+    { id:'c3', x:-268, y:-26, shape:'c', state:'avail', name:'Deeper reach', desc:'Longer range before a shot stops being worth attempting.' },
+    { id:'c4', x:-386, y:-140, shape:'d', state:'avail', name:'Weapon mastery', desc:'Opens its own tree, one branch per weapon you have unlocked.', sub:'weapons' },
+
+    { id:'g1', x:150, y:-84, shape:'c', state:'taken', name:'Wider pickup', desc:'Collects drops from further away.' },
+    { id:'g2', x:268, y:-140, shape:'c', state:'avail', name:'Longer mining reach', desc:'Breaks tiles from further off.' },
+    { id:'g3', x:268, y:-26, shape:'c', state:'lock', name:'Bigger bag', desc:'Eight more cargo slots.' },
+    { id:'g4', x:386, y:-140, shape:'c', state:'lock', name:'Faster swing', desc:'Tools cycle quicker on wood and stone.' },
+
+    { id:'m1', x:-150, y:84, shape:'c', state:'taken', name:'Surer footing', desc:'Fewer failed jumps on broken ground.' },
+    { id:'m2', x:-268, y:140, shape:'d', state:'avail', name:'Movement arts', desc:'Opens its own tree: air jump, dash, swimming, and eventually flight.', sub:'movement' },
+    { id:'m3', x:-268, y:26, shape:'c', state:'lock', name:'Quicker on the turn', desc:'Less time lost changing direction.' },
+
+    { id:'s1', x:150, y:84, shape:'c', state:'avail', name:'Tougher', desc:'More health, and it gets back up sooner.' },
+    { id:'s2', x:268, y:140, shape:'c', state:'lock', name:'Reads danger earlier', desc:'Starts avoiding a threat sooner.' },
+    { id:'s3', x:268, y:26, shape:'d', state:'lock', name:'Standing effects', desc:'Opens its own tree: permanent light, breath, immunity to a hazard.', sub:'aura' },
+    { id:'s4', x:386, y:140, shape:'c', state:'lock', name:'Shrugs it off', desc:'Takes less from a single big hit.' }
+  ],
+  edges:[['hub','c1'],['c1','c2'],['c1','c3'],['c2','c4'],
+         ['hub','g1'],['g1','g2'],['g1','g3'],['g2','g4'],
+         ['hub','m1'],['m1','m2'],['m1','m3'],
+         ['hub','s1'],['s1','s2'],['s1','s3'],['s2','s4']]
+};
+
+const SUBTREES = {
+  weapons:{ title:'Weapon mastery', nodes:[
+    { id:'w0', x:0, y:0, r:22, shape:'c', state:'taken', name:'Weapon mastery', desc:'One branch for each weapon the tree has unlocked.' },
+    { id:'w1', x:-140, y:-70, shape:'c', state:'avail', name:'Ragged Edge II', desc:'Bleed stacks stop expiring in combat.' },
+    { id:'w2', x:-240, y:-120, shape:'c', state:'lock', name:'Ragged Edge III', desc:'A kill sprays the remaining bleed onto whatever is near.' },
+    { id:'w3', x:140, y:-70, shape:'c', state:'avail', name:'Carom Bow II', desc:'Two extra leaps between enemies.' },
+    { id:'w4', x:240, y:-120, shape:'c', state:'lock', name:'Carom Bow III', desc:'The last leap returns to the first target and detonates.' },
+    { id:'w5', x:0, y:120, shape:'c', state:'lock', name:'Hexbomb II', desc:'The burst scatters mines across the ground.' }
+  ], edges:[['w0','w1'],['w1','w2'],['w0','w3'],['w3','w4'],['w0','w5']] },
+  movement:{ title:'Movement arts', nodes:[
+    { id:'v0', x:0, y:0, r:22, shape:'c', state:'taken', name:'Movement arts', desc:'Everything the body can newly do.' },
+    { id:'v1', x:-130, y:-80, shape:'c', state:'avail', name:'Air jump', desc:'One jump with nothing underneath.' },
+    { id:'v2', x:-130, y:80, shape:'c', state:'lock', name:'Dash', desc:'A short burst along the ground.' },
+    { id:'v3', x:130, y:-80, shape:'c', state:'lock', name:'Swimming', desc:'Moves through water without drowning its route.' },
+    { id:'v4', x:130, y:80, shape:'c', state:'lock', name:'Flight', desc:'Sustained lift. The route planner gains a whole edge type.' }
+  ], edges:[['v0','v1'],['v0','v2'],['v0','v3'],['v2','v4']] },
+  aura:{ title:'Standing effects', nodes:[
+    { id:'a0', x:0, y:0, r:22, shape:'c', state:'taken', name:'Standing effects', desc:'Things that are simply always true.' },
+    { id:'a1', x:-120, y:-70, shape:'c', state:'lock', name:'Permanent light', desc:'No torch needed and the hand stays free.' },
+    { id:'a2', x:120, y:-70, shape:'c', state:'lock', name:'Long breath', desc:'Underwater work stops being a countdown.' },
+    { id:'a3', x:0, y:110, shape:'c', state:'lock', name:'Hazard immunity', desc:'Pick one: lava, thorns, or cold.' }
+  ], edges:[['a0','a1'],['a0','a2'],['a0','a3']] }
+};
+
+const $ = s => document.querySelector(s);
+const el = (t, c) => { const e = document.createElement(t); if (c) e.className = c; return e; };
+
+/* ---- companion sprite ------------------------------------------- */
+function drawSprite(){
+  const c = $('#sprite'), x = c.getContext('2d');
+  x.imageSmoothingEnabled = false;
+  x.clearRect(0,0,96,128);
+  const px = (cx, cy, w, h, col) => { x.fillStyle = col; x.fillRect(cx*6, cy*6, w*6, h*6); };
+  // 16x21 body at 6x, roughly the proportions of a Terraria character
+  px(5,2,6,5,'#e8c9a0');           // head
+  px(5,1,6,1,'#7a4a2a');           // hair
+  px(4,2,1,3,'#7a4a2a'); px(11,2,1,3,'#7a4a2a');
+  px(6,4,1,1,'#1b1d2a'); px(9,4,1,1,'#1b1d2a');   // eyes
+  px(5,7,6,6,'#8a7f66');           // torso
+  px(4,7,1,5,'#e8c9a0'); px(11,7,1,5,'#e8c9a0'); // arms
+  px(5,13,2,5,'#3f4a7a'); px(9,13,2,5,'#3f4a7a'); // legs
+  px(5,18,2,1,'#4a3a2a'); px(9,18,2,1,'#4a3a2a'); // boots
+  px(12,6,1,7,'#c9b98f');          // the shortsword it starts with
+  px(12,5,1,1,'#9a8a6a');
+}
+
+/* ---- overview --------------------------------------------------- */
+function renderBehaviour(){
+  const b = $('#behaviourbody');
+  b.innerHTML = '';
+  GROUPS.forEach(g => {
+    const h = el('div','grouphead'); h.textContent = g.name; b.appendChild(h);
+    g.rows.forEach(r => {
+      const row = el('div','row');
+      const lbl = el('div','lbl');
+      lbl.innerHTML = r.label + (r.sub ? ' <em>&mdash; ' + r.sub + '</em>' : '');
+      row.appendChild(lbl);
+      const seg = el('div','seg');
+      MODES.forEach((m,i) => {
+        const btn = el('button');
+        btn.textContent = m.label;
+        btn.setAttribute('aria-pressed', String(r.mode === i));
+        btn.title = r.label + ': ' + m.hint;
+        btn.onclick = () => { r.mode = i; renderBehaviour(); };
+        seg.appendChild(btn);
+      });
+      row.appendChild(seg);
+      const more = el('button', 'more' + (r.detail ? '' : ' ghost'));
+      more.textContent = '…';
+      more.title = 'Choose what it may ' + r.label.toLowerCase();
+      if (r.detail) more.onclick = () => openActivity(r.label);
+      row.appendChild(more);
+      b.appendChild(row);
+    });
+  });
+
+  const h2 = el('div','grouphead'); h2.textContent = 'Positioning'; b.appendChild(h2);
+  const d = el('div','dist');
+  const dl = el('div','lbl'); dl.innerHTML = 'Follow distance <em>&mdash; ' + DISTANCES[S.distance].hint + '</em>';
+  d.appendChild(dl);
+  const stops = el('div','stops');
+  DISTANCES.forEach((x,i) => {
+    const btn = el('button');
+    btn.textContent = x.label;
+    btn.setAttribute('aria-pressed', String(S.distance === i));
+    btn.onclick = () => { S.distance = i; renderBehaviour(); };
+    stops.appendChild(btn);
+  });
+  d.appendChild(stops); d.appendChild(el('div','more ghost'));
+  b.appendChild(d);
+
+  const h3 = el('div','grouphead'); h3.textContent = 'Weapon'; b.appendChild(h3);
+  const wr = el('div','weprow');
+  WEAPONS.forEach(w => {
+    const btn = el('button','wep');
+    const pip = el('span','pip'); pip.style.background = w.col;
+    btn.appendChild(pip);
+    btn.appendChild(document.createTextNode(w.name));
+    btn.setAttribute('aria-pressed', String(weapon === w.id));
+    btn.onclick = () => { weapon = w.id; renderBehaviour(); };
+    wr.appendChild(btn);
+  });
+  b.appendChild(wr);
+}
+
+function renderTiles(){
+  $('#invfill').style.width = (S.bag / S.bagMax * 100) + '%';
+  $('#invtext').textContent = S.bag + ' of ' + S.bagMax + ' slots';
+  $('#invnote').textContent = S.bag >= S.bagMax
+    ? 'Full — it has stopped picking things up.'
+    : (S.bagMax - S.bag) + ' free. Gathering stays on.';
+  const mini = $('#minislots'); mini.innerHTML = '';
+  ITEMS.slice(0, 6).forEach(it => {
+    const s = el('div','slot');
+    const g = el('div','gem'); g.style.background = it[1];
+    s.appendChild(g); mini.appendChild(s);
+  });
+
+  const bars = [
+    ['Combat',   0.62, '#ff8f6b'],
+    ['Gathering',0.41, '#9ceb45'],
+    ['Movement', 0.18, '#6fe0e0'],
+    ['Standing', 0.05, '#ffd84a']
+  ];
+  const bb = $('#branchbars'); bb.innerHTML = '';
+  bars.forEach(([n,v,c]) => {
+    const r = el('div','branchbar');
+    const a = el('span'); a.textContent = n;
+    const t = el('div','track'); const i = el('i');
+    i.style.width = (v*100) + '%'; i.style.background = c; t.appendChild(i);
+    const p = el('span'); p.textContent = Math.round(v*100) + '%'; p.style.textAlign = 'right';
+    r.appendChild(a); r.appendChild(t); r.appendChild(p);
+    bb.appendChild(r);
+  });
+}
+
+function renderHeader(){
+  $('#cname').textContent = S.name;
+  $('#clevel').textContent = 'Mastery level ' + S.level + ' · ' + S.points + ' point' + (S.points === 1 ? '' : 's') + ' unspent';
+  $('#hpfill').style.width = (S.hp / S.hpMax * 100) + '%';
+  $('#hptext').textContent = S.hp + ' / ' + S.hpMax;
+  $('#actname').textContent = ACTIONS[S.action][0];
+  $('#actwhy').textContent = ACTIONS[S.action][1];
+}
+
+/* ---- inventory --------------------------------------------------- */
+let invFilter = 'all';
+let invPicked = null;
+const CATNAME = { ore:'Ore', wood:'Wood', loot:'Material' };
+
+/* What the companion will do with a stack, which is the reason this panel is
+   worth its half of the view: the bag is the companion's, so the player's
+   question about any stack is "will it keep collecting this". */
+function itemNote(it){
+  if (S.bag >= S.bagMax) return 'The bag is full, so nothing more of this is being picked up.';
+  if (it[2] === 'ore') return 'Mined by the companion and kept. Handed over when you ask, or at your next base visit.';
+  if (it[2] === 'wood') return 'Chopped by the companion and kept. Stacks of this are what a chopping run produces.';
+  return 'Picked up off the ground while gathering is on.';
+}
+
+function renderDetail(){
+  const d = $('#invdetail');
+  if (!invPicked){
+    d.innerHTML = '<div class="empty">Hover a stack to read it.<br><br>'
+      + 'The bag holds what the companion collected. Its weapons and tools are equipment '
+      + 'and never take a slot here.</div>';
+    return;
+  }
+  const it = invPicked;
+  d.innerHTML = '<div class="big"><i style="background:' + it[1] + '"></i></div>'
+    + '<div><h3>' + it[0] + '</h3><div class="cat">' + CATNAME[it[2]] + ' · ' + it[3] + ' held</div></div>'
+    + '<p>' + itemNote(it) + '</p>';
+}
+
+function renderInventory(){
+  const g = $('#invgrid'); g.innerHTML = '';
+  const shown = ITEMS.filter(i => invFilter === 'all' || i[2] === invFilter).slice(0, S.bag);
+  shown.forEach(it => {
+    const s = el('div','slot');
+    const gem = el('div','gem'); gem.style.background = it[1];
+    s.appendChild(gem);
+    const q = el('span','qty'); q.textContent = it[3]; s.appendChild(q);
+    /* No wall preview here: a bag stack is an item, and "how it looks in the
+       wall" is only meaningful in the mining whitelist, where recognising the
+       ore while digging is the actual task. */
+    s.onmouseenter = e => { invPicked = it; renderDetail(); showTip(e, it[0], CATNAME[it[2]] + ' · ' + it[3]); };
+    s.onmousemove = moveTip; s.onmouseleave = hideTip;
+    g.appendChild(s);
+  });
+  for (let i = shown.length; i < S.bagMax; i++) g.appendChild(el('div','slot'));
+  $('#invcount').textContent = shown.length + ' stacks shown · ' + (S.bagMax - S.bag) + ' slots free';
+  renderDetail();
+}
+
+/* ---- activity detail --------------------------------------------- */
+let orePicked_hover = null;
+
+/* The wall preview, built once here and reused by the detail panel and the
+   tooltip. It is the form the player has to spot while digging; the item icon
+   never teaches that, which is why it appears wherever an ore is described. */
+function wallSwatch(col, cell){
+  let h = '<div class="placed" style="grid-template-columns:repeat(4,' + cell + 'px)">';
+  for (let i = 0; i < 16; i++){
+    const isOre = [1,2,5,6,9,10,13].includes(i);
+    h += '<i style="width:' + cell + 'px;height:' + cell + 'px;background:'
+       + (isOre ? col : '#4a4238') + '"></i>';
+  }
+  return h + '</div>';
+}
+
+function renderOreDetail(){
+  const d = $('#oredetail');
+  if (!orePicked_hover){
+    d.innerHTML = '<div class="empty">Hover an ore to read it. Click an unlocked one to '
+      + (S.wlMode === 'wl' ? 'add it to the whitelist.' : 'add it to the blacklist.')
+      + '<br><br>An ore only appears here once the companion has mined it at least once, '
+      + 'so this grid grows as you explore rather than listing the whole game up front.</div>';
+    return;
+  }
+  const o = orePicked_hover, done = o.mined >= o.need;
+  const chosen = orePicked.has(o.name);
+  let state;
+  if (!done) state = '<span style="color:var(--orange)">Mine ' + (o.need - o.mined) + ' more to choose this</span>';
+  else if (S.wlMode === 'wl') state = chosen
+    ? '<span style="color:var(--green)">On the whitelist — the companion mines this</span>'
+    : '<span style="color:var(--ink-mute)">Not on the whitelist — left in the wall</span>';
+  else state = chosen
+    ? '<span style="color:var(--red)">On the blacklist — left in the wall</span>'
+    : '<span style="color:var(--green)">Not blacklisted — the companion mines this</span>';
+  d.innerHTML = '<div><h3>' + o.name + '</h3><div class="cat">' + o.mined + ' mined so far</div></div>'
+    + '<p>' + state + '</p>'
+    + wallSwatch(o.col, 18) + '<div class="placedlbl">how it looks in the wall</div>';
+}
+
+function renderOres(){
+  const g = $('#oregrid'); g.innerHTML = '';
+  $('#actTitle').textContent = S.activity;
+  $('#orehint').textContent = S.wlMode === 'wl'
+    ? 'Whitelist — it mines only what is selected here. Nothing selected means it mines nothing on its own.'
+    : 'Blacklist — it mines anything except what is selected here. Nothing selected means it mines everything.';
+  ORES.filter(o => o.mined > 0).forEach(o => {
+    const done = o.mined >= o.need;
+    const s = el('div','slot ore' + (done ? '' : ' partial') + (done && orePicked.has(o.name) ? ' picked' : ''));
+    const gem = el('div','gem'); gem.style.background = o.col;
+    gem.style.clipPath = 'polygon(50% 0,100% 34%,82% 100%,18% 100%,0 34%)';
+    s.appendChild(gem);
+    if (!done){ const b = el('span','lockbadge'); b.textContent = o.mined + '/' + o.need; s.appendChild(b); }
+    s.onmouseenter = e => {
+      orePicked_hover = o; renderOreDetail();
+      /* No wall preview in the tooltip: the panel beside the grid is already
+         showing it, and two copies of one swatch under the cursor is noise. */
+      showTip(e, o.name, done ? 'Unlocked' : null,
+        done ? null : 'Mine ' + (o.need - o.mined) + ' more to choose this');
+    };
+    s.onmousemove = moveTip; s.onmouseleave = hideTip;
+    if (done) s.onclick = () => {
+      orePicked.has(o.name) ? orePicked.delete(o.name) : orePicked.add(o.name);
+      renderOres();
+    };
+    g.appendChild(s);
+  });
+  renderOreDetail();
+}
+
+/* ---- tooltip ----------------------------------------------------- */
+function showTip(e, name, sub, need){
+  const t = $('#tip');
+  let h = '<div class="nm">' + name + '</div>';
+  if (sub) h += '<div class="sub">' + sub + '</div>';
+  if (need) h += '<div class="need">' + need + '</div>';
+  t.innerHTML = h; t.style.display = 'block'; moveTip(e);
+}
+function moveTip(e){
+  const t = $('#tip');
+  let x = e.clientX + 14, y = e.clientY + 14;
+  if (x + t.offsetWidth > innerWidth - 8) x = e.clientX - t.offsetWidth - 12;
+  if (y + t.offsetHeight > innerHeight - 8) y = e.clientY - t.offsetHeight - 12;
+  t.style.left = x + 'px'; t.style.top = y + 'px';
+}
+function hideTip(){ $('#tip').style.display = 'none'; }
+
+/* ---- mastery tree ------------------------------------------------ */
+const view = { x:0, y:0, k:1, tree:'main', stack:[] };
+const COL = { taken:'#7ee081', avail:'#ffd76b', lock:'#4a4e8f' };
+
+function currentTree(){ return view.tree === 'main' ? TREE_MAIN : SUBTREES[view.tree]; }
+
+function renderTree(){
+  const t = currentTree();
+  const g = $('#treeg');
+  g.innerHTML = '';
+  const box = $('#treewrap').getBoundingClientRect();
+  g.setAttribute('transform', 'translate(' + (box.width/2 + view.x) + ',' + (box.height/2 + view.y) + ') scale(' + view.k + ')');
+  const byId = {}; t.nodes.forEach(n => byId[n.id] = n);
+
+  t.edges.forEach(([a,b]) => {
+    const A = byId[a], B = byId[b];
+    const line = document.createElementNS('http://www.w3.org/2000/svg','line');
+    line.setAttribute('x1',A.x); line.setAttribute('y1',A.y);
+    line.setAttribute('x2',B.x); line.setAttribute('y2',B.y);
+    line.setAttribute('stroke', B.state === 'lock' ? '#2d3068' : (B.state === 'taken' ? '#4a7f52' : '#7a6b3a'));
+    line.setAttribute('stroke-width', 3);
+    g.appendChild(line);
+  });
+
+  t.nodes.forEach(n => {
+    const r = n.r || 17;
+    let shape;
+    if (n.shape === 'd'){
+      shape = document.createElementNS('http://www.w3.org/2000/svg','rect');
+      shape.setAttribute('x', -r); shape.setAttribute('y', -r);
+      shape.setAttribute('width', r*2); shape.setAttribute('height', r*2);
+      shape.setAttribute('transform', 'translate(' + n.x + ',' + n.y + ') rotate(45)');
+    } else {
+      shape = document.createElementNS('http://www.w3.org/2000/svg','circle');
+      shape.setAttribute('cx', n.x); shape.setAttribute('cy', n.y); shape.setAttribute('r', r);
+    }
+    shape.setAttribute('fill', n.state === 'lock' ? '#1e2050' : '#232663');
+    shape.setAttribute('stroke', n.shape === 'd' && n.state !== 'lock' ? '#6fe0e0' : COL[n.state]);
+    shape.setAttribute('stroke-width', n.shape === 'd' ? 3.5 : 3);
+    shape.setAttribute('class','node-c');
+    shape.onclick = ev => { ev.stopPropagation(); pickNode(n); };
+    g.appendChild(shape);
+
+    const label = document.createElementNS('http://www.w3.org/2000/svg','text');
+    label.setAttribute('x', n.x); label.setAttribute('y', n.y + r + 15);
+    label.setAttribute('text-anchor','middle');
+    label.setAttribute('fill', n.state === 'lock' ? '#5b5f9a' : '#c9cdf0');
+    label.setAttribute('font-size','12'); label.setAttribute('font-family','Trebuchet MS, sans-serif');
+    label.textContent = n.name;
+    g.appendChild(label);
+  });
+}
+
+let picked = null;
+function pickNode(n){
+  picked = n;
+  const box = $('#nodeinfo');
+  const st = n.state === 'taken' ? '<span style="color:#7ee081">Taken</span>'
+    : n.state === 'avail' ? '<span style="color:#ffd76b">Available — costs 1 point</span>'
+    : '<span style="color:#7d81b8">Locked — take the node before it first</span>';
+  let h = '<h3>' + n.name + '</h3><p>' + n.desc + '</p><div class="st">' + st + '</div>';
+  /* A diamond can be both unspent and enterable, so it gets both buttons —
+     showing only the drill-down left the card claiming a cost with nothing
+     to pay it with. */
+  if (n.state === 'avail' && S.points > 0) h += '<button data-take="' + n.id + '">Spend a point</button>';
+  if (n.sub && n.state !== 'lock') h += '<button data-sub="' + n.sub + '">Open its tree →</button>';
+  box.innerHTML = h; box.style.display = 'block';
+  const sub = box.querySelector('[data-sub]');
+  if (sub) sub.onclick = () => { view.stack.push(view.tree); view.tree = sub.dataset.sub; view.x = 0; view.y = 0; view.k = 1; box.style.display='none'; setTitle(); renderTree(); };
+  const take = box.querySelector('[data-take]');
+  if (take) take.onclick = () => {
+    n.state = 'taken'; S.points--;
+    currentTree().edges.filter(e => e[0] === n.id).forEach(e => {
+      const nx = currentTree().nodes.find(m => m.id === e[1]);
+      if (nx && nx.state === 'lock') nx.state = 'avail';
+    });
+    renderHeader(); renderTree(); pickNode(n);
+  };
+}
+
+(function treeControls(){
+  const w = $('#treewrap');
+  let drag = false, sx = 0, sy = 0;
+  w.addEventListener('mousedown', e => { drag = true; sx = e.clientX - view.x; sy = e.clientY - view.y; w.classList.add('drag'); });
+  addEventListener('mouseup', () => { drag = false; w.classList.remove('drag'); });
+  addEventListener('mousemove', e => { if (!drag) return; view.x = e.clientX - sx; view.y = e.clientY - sy; renderTree(); });
+  w.addEventListener('wheel', e => {
+    e.preventDefault();
+    const k = Math.max(.4, Math.min(2.4, view.k * (e.deltaY < 0 ? 1.12 : 1/1.12)));
+    view.k = k; renderTree();
+  }, { passive:false });
+  w.addEventListener('click', () => { $('#nodeinfo').style.display = 'none'; });
+})();
+
+/* ---- view switching ---------------------------------------------- */
+let current = 'overview';
+function setTitle(){
+  const map = { overview:['Companion',''], inventory:['Companion','› Cargo bag'],
+                activity:['Companion','› ' + S.activity], mastery:['Companion','› ' + currentTree().title] };
+  $('#cardtitle').textContent = map[current][0];
+  $('#crumb').textContent = map[current][1];
+  $('#back').style.display = current === 'overview' ? 'none' : 'grid';
+}
+function show(v){
+  document.querySelectorAll('.view').forEach(x => x.classList.remove('on'));
+  $('#v-' + v).classList.add('on');
+  current = v; setTitle();
+  if (v === 'mastery') renderTree();
+  if (v === 'inventory') renderInventory();
+  if (v === 'activity') renderOres();
+}
+function openActivity(name){ S.activity = name; show('activity'); }
+
+$('#back').onclick = () => {
+  if (current === 'mastery' && view.stack.length){
+    view.tree = view.stack.pop(); view.x = 0; view.y = 0; view.k = 1;
+    $('#nodeinfo').style.display = 'none'; setTitle(); renderTree(); return;
+  }
+  show('overview');
+};
+$('#tile-inv').onclick = () => show('inventory');
+$('#tile-mastery').onclick = () => { view.tree = 'main'; view.stack = []; view.x = 0; view.y = 0; view.k = 1; show('mastery'); };
+$('#invfilter').onclick = e => {
+  const b = e.target.closest('button'); if (!b) return;
+  invFilter = b.dataset.f;
+  [...e.currentTarget.children].forEach(c => c.setAttribute('aria-pressed', String(c === b)));
+  renderInventory();
+};
+$('#wlblToggle').onclick = e => {
+  const b = e.target.closest('button'); if (!b) return;
+  S.wlMode = b.dataset.m;
+  [...e.currentTarget.children].forEach(c => c.setAttribute('aria-pressed', String(c === b)));
+  renderOres();
+};
+$('#dumpbtn').onclick = () => { S.bag = 0; renderInventory(); renderTiles(); $('#d-bag').value = 0; };
+
+document.querySelectorAll('[data-preset]').forEach(b => b.onclick = () => {
+  const mode = b.dataset.preset === 'off' ? 0 : b.dataset.preset === 'follow' ? 1 : 2;
+  GROUPS.forEach(g => g.rows.forEach(r => r.mode = mode));
+  S.distance = mode === 0 ? 0 : mode === 1 ? 1 : 3;
+  renderBehaviour();
+});
+
+/* ---- demo strip --------------------------------------------------- */
+$('#d-action').onclick = () => { S.action = (S.action + 1) % ACTIONS.length; renderHeader(); };
+$('#d-bag').oninput = e => { S.bag = +e.target.value; renderTiles(); if (current === 'inventory') renderInventory(); };
+$('#d-hp').oninput = e => { S.hp = +e.target.value; renderHeader(); };
+$('#d-points').onclick = () => { S.points++; renderHeader(); };
+
+drawSprite(); renderHeader(); renderBehaviour(); renderTiles(); setTitle();
+addEventListener('resize', () => { if (current === 'mastery') renderTree(); });
+</script>
+</body>
+</html>
