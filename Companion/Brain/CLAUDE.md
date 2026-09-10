@@ -36,6 +36,8 @@ hands: arsenal fires after movement whenever no work tool owns the arm
 
 The hands are independent of the feet. The arsenal may fire while following, guarding, looting, wandering or avoiding a hit; hunting only asks the feet to approach a firing position. Chopping and mining are the exception because a swing and projectile cannot use the same arm. The torch fills a free hand in darkness, so it disappears during a tool swing and returns when the arm clears.
 
+Distant-follow recovery is an explicit coordinator branch outside the route graph. It starts only when ordinary following wins, interrupts the current route, and asks the motor for continuous flight until a clear arrival near the live owner. Recovery owns the feet while independent weapon targeting continues; it cannot teach the archive a route. Ordinary following uses separate horizontal and vertical comfort limits; navigation reaching a waypoint alone does not establish that companionship has arrived.
+
 ## Choice is utility, not a priority chain
 
 Each behaviour returns a score whose considerations multiply, so any zero vetoes it. The incumbent receives a commitment bonus and long trips are discounted by the observed threat horizon. The urgency values for guard and survival form an ordered ladder because either must clear a committed lower rung; they live in `BehaviourWeights.cs`, which is the source for player-feel tuning. Behaviours are opportunistic: the companion follows loosely and helps with nearby activities the player is already doing. Player-directed missions were abandoned. The unbuilt mastery tree may later give the movement system capabilities such as air jumps, dash, swimming and flight.

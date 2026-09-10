@@ -82,6 +82,7 @@ public sealed class Arsenal
     // weapon cooldown. Keeping those states separate means a door opening or either body moving can
     // create a shot immediately, while a sealed cave does not spend two full solves every tick.
     private int failedTarget = -1;
+    private int failedGeneration;
     private Vector2 failedMuzzle;
     private Vector2 failedTargetCenter;
     private Vector2 failedTargetVelocity;
@@ -104,7 +105,8 @@ public sealed class Arsenal
     {
         int now = ctx.Senses.Tick;
         int slot = target.whoAmI;
-        if (chosenFor == slot && now - chosenAt < ChoiceCacheTicks && chosen != null)
+        ShotState state = ShotState.Capture(ctx, target);
+        if (chosenFor == slot && now - chosenAt < ChoiceCacheTicks && chosen != null && state == chosenState)
             return chosen;
 
         Collect(ctx);
@@ -116,6 +118,7 @@ public sealed class Arsenal
         LastSecondaryExpected = b;
         chosenFor = slot;
         chosenAt = now;
+        chosenState = state;
         LastChosen = chosen;
         return chosen;
     }
@@ -123,6 +126,7 @@ public sealed class Arsenal
     private CompanionWeapon? chosen;
     private int chosenFor = -1;
     private int chosenAt = int.MinValue;
+    private ShotState chosenState;
 
     public WeaponProfile? ProfileFor(in ActionContext ctx, NPC? target)
         => target == null ? null : Choose(ctx, target).Profile;
@@ -185,17 +189,21 @@ public sealed class Arsenal
     /// solve an arc to scores zero and is therefore never picked, so this returns null exactly when
     /// there is genuinely nothing to shoot rather than when the companion is in the wrong mode.
     ///
-    /// Held for a while, because a cold evaluation simulates arcs for every candidate and this runs
-    /// every tick. Only the nearest few are considered for the same reason: with thirteen hostiles
+    /// Held while feasible unless a more urgent player threat appears. Only a bounded shortlist,
+    /// ordered by urgency then distance, is considered: with thirteen hostiles
     /// on screen, scoring all of them costs an order of magnitude more flight simulation than the
     /// whole rest of the brain tick.
     /// </summary>
     public NPC? BestTarget(in ActionContext ctx)
     {
         int now = ctx.Senses.Tick;
-        if (held != null && (!held.active || held.life <= 0 || !held.CanBeChasedBy()))
+        if (held != null && (!held.active || held.life <= 0 || !held.CanBeChasedBy()
+            || HostileAttackSources.Generation(held) != heldGeneration))
             held = null;
-        if (held != null && now - heldAt < TargetHoldTicks)
+        ThreatRecord? urgent = ctx.Senses.Threats.MostUrgent;
+        ThreatRecord? heldThreat = held == null ? null : ctx.Senses.Threats.Threats.Find(t => ReferenceEquals(t.Npc, held));
+        bool newlyUrgent = urgent != null && urgent.Npc != held && urgent.Urgency > (heldThreat?.Urgency ?? 0f);
+        if (held != null && now - heldAt < TargetHoldTicks && !newlyUrgent && CanEngage(ctx, held))
             return held;
 
         Collect(ctx);
@@ -203,7 +211,11 @@ public sealed class Arsenal
         foreach (ThreatRecord t in ctx.Senses.Threats.Threats)
             if (t.Npc != null && t.Npc.active && t.Npc.life > 0 && t.Npc.CanBeChasedBy() && t.DistanceToCompanion <= MathF.Max(Primary.Reach, Secondary.Reach))
                 candidates.Add(t);
-        candidates.Sort((x, y) => x.DistanceToCompanion.CompareTo(y.DistanceToCompanion));
+        candidates.Sort((x, y) =>
+        {
+            int urgency = MathF.Max(y.Urgency, y.UrgencyToCompanion).CompareTo(MathF.Max(x.Urgency, x.UrgencyToCompanion));
+            return urgency != 0 ? urgency : x.DistanceToCompanion.CompareTo(y.DistanceToCompanion);
+        });
 
         NPC? best = null;
         float bestScore = 0f;
@@ -228,6 +240,7 @@ public sealed class Arsenal
         }
 
         held = best;
+        heldGeneration = best == null ? 0 : HostileAttackSources.Generation(best);
         heldAt = now;
         LastTargetExpected = bestScore;
         TargetEvidence = string.Join("|", evidence);
@@ -256,7 +269,7 @@ public sealed class Arsenal
     /// <summary>How long a target is kept before the candidates are scored again.</summary>
     private const int TargetHoldTicks = 15;
 
-    /// <summary>How many of the nearest candidates get their arcs simulated.</summary>
+    /// <summary>How many candidates, ordered by urgency then distance, get their arcs simulated.</summary>
     private const int MaxTargetsConsidered = 4;
 
     /// <summary>The score the held target won with, for the overlay and the telemetry.</summary>
@@ -264,28 +277,45 @@ public sealed class Arsenal
 
     private int interventionCheckedAt = int.MinValue;
     private float interventionTicks = float.PositiveInfinity;
+    private int interventionCooldown;
     private NPC? interventionTarget;
     private int interventionGeneration;
+    private ShotState interventionState;
 
-    /// <summary>Bounded estimate to the next useful shot, including a real reload but never calling a reload failure a defect.</summary>
+    private readonly record struct ShotState(Vector2 Muzzle, Vector2 Target, Vector2 Velocity, int Life, int Generation, int Terrain)
+    {
+        public static ShotState Capture(in ActionContext ctx, NPC target) => new(Arsenal.Muzzle(ctx.Npc),
+            target.Center, target.velocity, target.life, HostileAttackSources.Generation(target), TerrainChanges.Revision);
+    }
+
+    /// <summary>Optimistic time to remove the current threat, including flight, reload and repeat hits.</summary>
     public float EstimateInterventionTicks(in ActionContext ctx)
     {
         NPC? target = ctx.Senses.Threats.MostUrgent?.Npc;
         if (target == null || !target.CanBeChasedBy()) return interventionTicks = float.PositiveInfinity;
         int generation = global::AICompanion.Companion.Brain.WorldObservation.HostileAttackSources.Generation(target);
+        ShotState state = ShotState.Capture(ctx, target);
         if (target == interventionTarget && generation == interventionGeneration && interventionCheckedAt != int.MinValue
+            && state == interventionState
             && unchecked(ctx.Senses.Tick - interventionCheckedAt) < ChoiceCacheTicks)
-            return interventionTicks;
+            return Math.Max(0f, interventionTicks - interventionCooldown + cooldown);
         interventionCheckedAt = ctx.Senses.Tick;
         interventionTarget = target;
         interventionGeneration = generation;
+        interventionState = state;
+        interventionCooldown = cooldown;
         CompanionWeapon weapon = Choose(ctx, target);
         if (!TrajectoryAimer.TrySolve(Muzzle(ctx.Npc), target, weapon.Profile, out TrajectorySolution solution))
             return interventionTicks = float.PositiveInfinity;
-        return interventionTicks = Math.Max(0, cooldown) + solution.ImpactTick;
+        // Protection needs the threat removed, not merely the first projectile arriving.
+        // This remains an optimistic estimate: misses and target motion can only delay it.
+        int hits = (int)MathF.Ceiling(target.life / PerHit(ctx, weapon, target));
+        return interventionTicks = Math.Max(0, cooldown) + solution.ImpactTick
+            + Math.Max(0, hits - 1) * Math.Max(1, weapon.UseTime);
     }
 
     private NPC? held;
+    private int heldGeneration;
     private int heldAt = 0;
     private readonly List<ThreatRecord> candidates = new();
 
@@ -300,23 +330,27 @@ public sealed class Arsenal
 
     private readonly int[] engageCheckedAt = new int[Main.maxNPCs];
     private readonly bool[] engageResult = new bool[Main.maxNPCs];
+    private readonly ShotState[] engageState = new ShotState[Main.maxNPCs];
     private const int EngageCacheTicks = 20;
 
     /// <summary>
     /// Whether any equipped weapon has a solvable shot at the target from where the companion
-    /// stands now. Two aimer solves are dear, so the answer is cached per NPC for a third of a second.
+    /// stands now. An unchanged muzzle, target and terrain share a bounded cache; motion expires
+    /// it immediately so a brief firing window is not hidden by a stale negative answer.
     /// </summary>
     public bool CanEngage(in ActionContext ctx, NPC target)
     {
         if (!target.active || target.life <= 0 || !target.CanBeChasedBy()) return false;
         int now = ctx.Senses.Tick;
         int slot = target.whoAmI;
-        if (now - engageCheckedAt[slot] < EngageCacheTicks && engageCheckedAt[slot] != 0)
+        ShotState state = ShotState.Capture(ctx, target);
+        if (now - engageCheckedAt[slot] < EngageCacheTicks && engageCheckedAt[slot] != 0 && engageState[slot] == state)
             return engageResult[slot];
         Vector2 muzzle = Muzzle(ctx.Npc);
         bool can = TrajectoryAimer.Solve(muzzle, target, Primary.Profile) != null
             || TrajectoryAimer.Solve(muzzle, target, Secondary.Profile) != null;
         engageCheckedAt[slot] = now;
+        engageState[slot] = state;
         engageResult[slot] = can;
         return can;
     }
@@ -399,6 +433,7 @@ public sealed class Arsenal
     private bool FailedTraceStillApplies(in ActionContext ctx, NPC target, Vector2 muzzle)
         => ctx.Senses.Tick < failedUntilTick
             && target.whoAmI == failedTarget
+            && HostileAttackSources.Generation(target) == failedGeneration
             && TerrainChanges.Revision == failedTerrainRevision
             && muzzle == failedMuzzle
             && target.Center == failedTargetCenter
@@ -407,6 +442,7 @@ public sealed class Arsenal
     private void RememberFailedTrace(in ActionContext ctx, NPC target, Vector2 muzzle)
     {
         failedTarget = target.whoAmI;
+        failedGeneration = HostileAttackSources.Generation(target);
         failedMuzzle = muzzle;
         failedTargetCenter = target.Center;
         failedTargetVelocity = target.velocity;

@@ -57,7 +57,16 @@ public sealed class Chooser
         float movingAway = delta.LengthSquared() > 1f ? Microsoft.Xna.Framework.Vector2.Dot(ctx.Senses.Player.Velocity, Microsoft.Xna.Framework.Vector2.Normalize(delta)) : 0f;
         RegroupUrgency = ctx.Senses.Player.IsDead ? 0f : WorldObservation.CalculateRegroupUrgency.Evaluate(
             ctx.Senses.DistanceToPlayer, EstimatedReturnTicks, movingAway, navigator.StuckTicks,
-            Weights.CalmBandFar, Weights.RegroupFullDistance, Weights.RegroupFreeReturnTicks, Weights.RegroupFullReturnTicks);
+            Weights.FollowHorizontalComfort, Weights.RegroupFullDistance, Weights.RegroupFreeReturnTicks, Weights.RegroupFullReturnTicks);
+        var follow = new PositionSelection.FollowPlayerObjective(ctx.Senses.Player.Bottom, ctx.Senses.Player.Bottom);
+        if (!ctx.Senses.Player.IsDead && !follow.IsSatisfied(ctx.Npc.Bottom, WorldObservation.LineOfSight.Between(ctx.Npc, ctx.Player)))
+        {
+            // A nearby player behind a floor can have a long route. Geometric closeness must
+            // not suppress measured return pressure when companionship is still unsatisfied.
+            float travelPressure = Math.Clamp((EstimatedReturnTicks + navigator.StuckTicks - Weights.RegroupFreeReturnTicks)
+                / Math.Max(1f, Weights.RegroupFullReturnTicks - Weights.RegroupFreeReturnTicks), 0f, 1f);
+            RegroupUrgency = Math.Max(RegroupUrgency, travelPressure);
+        }
         float horizon = ctx.Senses.Threats.Horizon;
         // An all-zero board (the player is dead, nothing to do) falls to the last action, wander,
         // which holds still in that case; starting below zero would hand the tick to whichever

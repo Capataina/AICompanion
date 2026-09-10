@@ -20,7 +20,7 @@ WorldObservation/
 └─ LineOfSight.cs            the named game line-of-sight query
 ```
 
-`Senses.Update` runs player, threats, projectiles, loot, light and self observation before selection reads any value. Separate player and self danger are intentional: leaving a threatened player and walking into danger are different risks. Threats also derive a safety horizon, which selection uses to discount a behaviour that would keep the companion away too long.
+`Senses.Update` runs player, threats, projectiles, loot, light and self observation before selection reads any value. Player travel intent smooths the full two-axis velocity, so descent and climbing are observable travel rather than a stationary horizontal direction. Separate player and self danger are intentional: leaving a threatened player and walking into danger are different risks. Threats also derive a safety horizon, which selection uses to discount a behaviour that would keep the companion away too long.
 
 Player tool hits are evidence, not animation guessed as intent. `ObservePlayerWork` records real axe and pick hits for work behaviours and tells shared movement whenever a relevant tile changes, invalidating cached movement facts. Doors report their own changes because the game’s door helper bypasses those tile hooks.
 

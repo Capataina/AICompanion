@@ -77,6 +77,28 @@ public sealed class Navigator
     public string ProgressReason { get; private set; } = "idle";
     public int ExperienceRoutesUsed { get; private set; }
 
+    /// <summary>Unfinished route waypoints, separate from whether the current follow objective is satisfied.</summary>
+    public int RemainingRouteSteps => Path is { } path ? Math.Max(0, path.Steps.Count - path.Index) : 0;
+
+    /// <summary>
+    /// The remaining planned traversal time from the live waypoint. The active traversal's elapsed
+    /// ticks are subtracted so telemetry can distinguish a route that is being consumed from one
+    /// that is merely retained; a partial route remains an estimate rather than an arrival claim.
+    /// </summary>
+    public float RemainingEstimatedRouteTicks
+    {
+        get
+        {
+            if (Path is not { } path) return 0f;
+            float remaining = 0f;
+            for (int i = path.Index; i < path.Steps.Count; i++)
+                remaining += Math.Max(1, path.Steps[i].Ticks);
+            if (onStep != null && path.Index < path.Steps.Count)
+                remaining -= Math.Min(ticksOnStep, Math.Max(1, path.Steps[path.Index].Ticks));
+            return Math.Max(0f, remaining);
+        }
+    }
+
     /// <summary>The last move ended within the arrival slack of its target.</summary>
     public bool Arrived { get; private set; }
 
@@ -225,7 +247,10 @@ public sealed class Navigator
         // ResetStrikes when the brain has acted on it.
         // A failed plan is not retried every tick: at the full budget that is ~3 ms per tick for
         // as long as the goal stays unreachable. It waits FailedPlanRetry ticks unless the goal moves.
-        bool failedRecently = search is { Finished: true } && LastPlanFailed && ticksSincePlan < FailedPlanRetry;
+        // A finished incomplete search still honours retry cadence. Its usable prefix does
+        // not become a failure merely to prevent replanning every tick at the prefix's end.
+        bool failedRecently = search is { Finished: true, Stop: not AStar.SearchStopReason.Found }
+            && ticksSincePlan < FailedPlanRetry;
         // A partial path walked to its end is progress and not a failure to wait on: the body is
         // standing somewhere it has never planned from, so a fresh search reaches further, and
         // making it wait the failed-plan retry instead handed it to the straight-walk fallback for
@@ -466,11 +491,11 @@ public sealed class Navigator
         Point end = Path is { Steps.Count: > 0 } p ? p.Steps[^1].Tile : from.Value;
         if (Path != null && Path.Partial && end == from.Value)
             Path = null;
-        // A partial path is followed, and still counted as a failure: the goal was not reached
-        // by the plan, and the record needs to say so even while the body walks toward it.
-        LastPlanFailed = Path == null || Path.Partial;
+        // An executable prefix is incomplete, not failed. Path.Partial and SearchPending carry
+        // that distinction while step outcomes establish whether the body makes real progress.
+        LastPlanFailed = Path == null && !SearchPending;
         LastPlanEmpty = Path == null;
-        if (Path == null)
+        if (LastPlanFailed)
             BehaviourCensus.PlanFailed();
         if (LastPlanFailed)
             PlanFailed?.Invoke(from.Value, goal, Path?.Goal, used, Path == null ? "no path" : "partial path");
@@ -489,6 +514,8 @@ public sealed class Navigator
         SearchExpansions = query.Expansions;
         ExperienceRoutesUsed = query.ExperienceRoutesUsed;
         SearchPending = !query.Finished;
+        if (Path == null)
+            LastPlanFailed = !SearchPending && query.Stop != AStar.SearchStopReason.Found;
         LastSearchStop = query.Stop;
         ProgressReason = SearchPending ? "search-incomplete" : query.Stop == AStar.SearchStopReason.Found ? "route-available"
             : query.Stop == AStar.SearchStopReason.Exhausted ? "model-exhausted" : "search-limit";
@@ -504,7 +531,7 @@ public sealed class Navigator
         { Report(active, ticksOnStep, TraversalFault.Interrupted); onStep = null; execution = null; }
         result.Index = join;
         Path = result;
-        LastPlanFailed = result.Partial;
+        LastPlanFailed = false;
         LastPlanEmpty = false;
         PlannedThisTick = true;
     }

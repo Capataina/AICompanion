@@ -23,6 +23,7 @@ public sealed class Brain
     public readonly CoordinateMovement Movement = new();
     public Navigator Navigator => Movement.Navigator;
     public readonly CombatReflexes.Reflexes Reflexes = new();
+    public readonly Behaviours.Companionship.RecoverDistantFollowing FollowRecovery = new();
 
     // The navigator names nothing of the game, so the failed-plan dump reaches the telemetry
     // through this seam; the replay tool leaves it unset.
@@ -109,6 +110,8 @@ public sealed class Brain
         var ctx = new ActionContext(companion, Senses, Roaming);
         Senses.SetInterventionEstimate(companion.Arsenal.EstimateInterventionTicks(ctx));
 
+        if (FollowRecovery.Active && TryFollowRecovery(companion, player, false)) return;
+
         Navigator.Capabilities = companion.Motor.Capabilities;
         bool taken = Reflexes.TryAssess(companion.NPC, Senses, companion.Motor.State, out var unsafeAtTick);
         Navigator.UnsafeAtTick = Senses.Threats.Threats.Count == 0 && Senses.Projectiles.Threats.Count == 0 ? null : unsafeAtTick;
@@ -128,6 +131,7 @@ public sealed class Brain
         }
 
         CompanionAction action = Chooser.Choose(ctx);
+        if (TryFollowRecovery(companion, player, action is Behaviours.Companionship.WalkWithPlayerAction)) return;
         LastRequest = action.Execute(ctx);
         DecideMs = Lap();
 
@@ -170,6 +174,23 @@ public sealed class Brain
         }
         Engage(companion, ctx, action);
         CountStranded();
+    }
+
+    private bool TryFollowRecovery(CompanionNPC companion, Terraria.Player player, bool mayStart)
+    {
+        if (!FollowRecovery.Update(mayStart, companion.IsDowned, !player.dead && player.active,
+            companion.NPC.Bottom, player.Bottom, companion.Motor.ClearOfTerrain
+                && player.velocity.Y == 0f && companion.NPC.Bottom.Y <= player.Bottom.Y)) return false;
+        LastRequest = new PositionRequest(RequestKind.WithPlayer, player.Bottom);
+        Movement.Hold(companion.Motor.State);
+        companion.Motor.ApplyRecoveryFlight(FollowRecovery.Steer(companion.NPC.Bottom,
+            companion.NPC.velocity, player.Bottom, player.velocity));
+        // Recovery owns the feet until terrain clearance permits landing; the arms retain
+        // ordinary follow combat so an enemy arriving mid-flight is still answered.
+        var ctx = new ActionContext(companion, Senses, Roaming);
+        Engage(companion, ctx, null);
+        NavigateMs = Lap();
+        return true;
     }
 
     /// <summary>

@@ -18,6 +18,13 @@ public static class Weights
     public const int EscapeSearchWork = 120;
     public const double TotalPlanningMilliseconds = 12d;
     public const float ProtectionLeadTicks = 60f;
+    public const float GuardReleasePressure = 0.08f;
+    public const int GuardClearTicks = 90;
+    // Recovery is a following fallback, not a traversal available to route search or mastery.
+    public const float FollowRecoveryDistance = CalmBandFar * 2f;
+    public const float FollowRecoveryArrival = 80f;
+    public const float FollowRecoverySpeed = 12f;
+    public const float FollowRecoveryAcceleration = 0.45f;
     /// <summary>Bonus multiplier the running action keeps, so scores do not flicker.</summary>
     public const float Commitment = 1.15f;
 
@@ -46,6 +53,14 @@ public static class Weights
     /// <summary>Distance band to the player when calm, in px: closer than Near or further than Far scores worse.</summary>
     public const float CalmBandNear = 96f;
     public const float CalmBandFar = 560f;
+
+    /// <summary>
+    /// Following ends in this close two-axis region. CalmBandFar remains the wider boundary for
+    /// wandering and excursions; using it as ordinary follow comfort kept the companion a screen
+    /// away even on an unobstructed floor.
+    /// </summary>
+    public const float FollowHorizontalComfort = 192f;
+    public const float FollowVerticalComfort = 64f;
 
     /// <summary>
     /// The band when the player is in danger. It is wider than the calm band's near edge rather

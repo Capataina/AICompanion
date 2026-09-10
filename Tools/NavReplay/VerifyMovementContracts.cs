@@ -142,6 +142,19 @@ internal static class VerifyMovementContracts
         whole.Advance(100000);
         Require(whole.Stop == sliced.Stop && whole.Result()!.Goal == sliced.Result()!.Goal,
             "search outcome must not depend on its time-slice size");
+        NavGrid.World = new EnclosedFloorWorld();
+        AStar.InvalidateEdges();
+        using (var exhausted = new ContinueRouteSearch(start, new Point(start.X, -100), false, true))
+        {
+            for (int slice = 0; slice < 100000 && !exhausted.Finished; slice++)
+            {
+                exhausted.Advance(1);
+            }
+            Require(exhausted.Finished && exhausted.Stop == AStar.SearchStopReason.Exhausted && exhausted.Result() == null,
+                $"an exhausted search with no closer tile must not keep offering its first away-going detour (finished={exhausted.Finished}, stop={exhausted.Stop}, end={exhausted.Result()?.Goal}, nodes={exhausted.Expansions})");
+        }
+        NavGrid.World = world;
+        AStar.InvalidateEdges();
         var deferred = new Navigator();
         var initial = BodyState.Standing(NavGrid.StandAt(start.X, start.Y, false)!.Value);
         deferred.MoveTo(initial, NavGrid.FeetWorld(goal));
@@ -284,6 +297,15 @@ internal static class VerifyMovementContracts
     {
         public bool InWorld(int x, int y) => x >= 0 && x < 100 && y >= 0 && y < 100;
         public TileShape Shape(int x, int y) => y >= 10 ? TileShape.Solid : TileShape.Air;
+        public bool PassThrough(int x, int y) => false;
+        public bool Water(int x, int y) => false;
+        public bool Lava(int x, int y) => false;
+    }
+
+    private sealed class EnclosedFloorWorld : ITileWorld
+    {
+        public bool InWorld(int x, int y) => x >= 0 && x < 20 && y >= 0 && y < 20;
+        public TileShape Shape(int x, int y) => x <= 0 || x >= 19 || y <= 0 || y >= 10 ? TileShape.Solid : TileShape.Air;
         public bool PassThrough(int x, int y) => false;
         public bool Water(int x, int y) => false;
         public bool Lava(int x, int y) => false;

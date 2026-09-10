@@ -91,6 +91,36 @@ internal static class VerifyThreatAnticipation
         float estimate = companion.Arsenal.EstimateInterventionTicks(context);
         Require(float.IsFinite(estimate) && estimate > 0f,
             "first intervention estimate must include flight time rather than overflow its uninitialised cache");
+        target.life = 1;
+        float singleHit = companion.Arsenal.EstimateInterventionTicks(context);
+        Require(singleHit < estimate, "protection must budget repeat hits to remove a healthy threat, not only first impact");
+        companion.Arsenal.NoteHandsBusy();
+        typeof(live::AICompanion.Companion.Brain.WorldObservation.Senses).GetProperty("Tick")!.SetValue(
+            companion.Brain.Senses, companion.Brain.Senses.Tick + 5);
+        Require(companion.Arsenal.EstimateInterventionTicks(context) == singleHit,
+            "time holding a tool must not count down a projectile that was never fired");
+        target.life = 100;
+        Vector2 openPosition = target.position;
+        for (int x = 39; x <= 43; x++)
+        for (int y = 46; y <= 54; y++)
+        {
+            Tile tile = Main.tile[x, y];
+            tile.HasTile = true;
+            tile.TileType = 1;
+        }
+        live::AICompanion.Companion.Brain.SharedMovementSystem.TerrainChanges.Changed(40, 50);
+        target.position = new Vector2(40 * 16, 50 * 16);
+        Require(!companion.Arsenal.CanEngage(context, target), "target inside solid terrain must invalidate a cached clear shot");
+        target.position = openPosition;
+        Require(companion.Arsenal.CanEngage(context, target),
+            "an opening firing window must invalidate a negative answer immediately without waiting for cache age");
+        Require(companion.Arsenal.BestTarget(context) == target, "single attackable target must initially win retention");
+        typeof(live::AICompanion.Companion.Brain.WorldObservation.Senses).GetProperty("Tick")!.SetValue(
+            companion.Brain.Senses, companion.Brain.Senses.Tick + 1);
+        live::AICompanion.Companion.Brain.WorldObservation.HostileAttackSources.Spawn(target);
+        companion.Arsenal.BestTarget(context);
+        Require(companion.Arsenal.TargetEvidenceTick == companion.Brain.Senses.Tick,
+            "a reused hostile slot must be reranked instead of inheriting prior target retention");
         target.dontTakeDamage = true;
         Require(!companion.Arsenal.CanEngage(context, target) && !companion.Arsenal.TryFire(context, target)
             && float.IsPositiveInfinity(companion.Arsenal.EstimateInterventionTicks(context)),

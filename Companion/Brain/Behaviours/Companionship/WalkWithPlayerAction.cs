@@ -32,13 +32,22 @@ public sealed class WalkWithPlayerAction : CompanionAction
         // this while the brain says so and this wins back for the retry window between roams.
         float stranded = ctx.Stranded ? Weights.StrandedFollowDiscount : 1f;
         float regroup = ctx.Companion.Brain.Chooser.RegroupUrgency;
+        var objective = new FollowPlayerObjective(p.Bottom, ahead);
+        float horizontalRatio = objective.HorizontalGap(ctx.Npc.Bottom) / objective.HorizontalComfort;
+        float verticalRatio = objective.VerticalGap(ctx.Npc.Bottom) / objective.VerticalComfort;
+        float objectiveRatio = MathF.Max(horizontalRatio, verticalRatio);
+        float objectiveMiss = objectiveRatio > 1f
+            ? Consideration.AtLeast(Consideration.Rising(objectiveRatio - 1f, 3f), 0.3f)
+            : 0f;
+        if (!global::AICompanion.Companion.Brain.WorldObservation.LineOfSight.Between(ctx.Npc, ctx.Player))
+            objectiveMiss = MathF.Max(objectiveMiss, 0.3f);
         if (p.IsTravelling)
-            return MathF.Max(regroup, MathF.Max(Consideration.AtLeast(Consideration.Rising(gap, Weights.FollowIntentDistance * 2f), 0.3f), hardLeash)) * stranded;
+            return MathF.Max(objectiveMiss, MathF.Max(regroup, MathF.Max(Consideration.AtLeast(Consideration.Rising(gap, Weights.FollowIntentDistance * 2f), 0.3f), hardLeash))) * stranded;
 
         // Standing player: only worth acting on when the companion has drifted well out of the
-        // calm band. Inside it this scores zero so wander can win.
+        // comfort region. Local occlusion still requires following even inside its axis limits.
         float drifted = Consideration.Rising(ctx.Senses.DistanceToPlayer - Weights.CalmBandFar, 400f) * 0.6f;
-        return MathF.Max(regroup, MathF.Max(drifted, hardLeash)) * stranded;
+        return MathF.Max(objectiveMiss, MathF.Max(regroup, MathF.Max(drifted, hardLeash))) * stranded;
     }
 
     public override PositionRequest Execute(in ActionContext ctx)

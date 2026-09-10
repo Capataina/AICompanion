@@ -42,6 +42,11 @@ public sealed class Positioner
     public int ReachableCandidateCount { get; private set; }
     public int RejectedCandidateCount { get; private set; }
     public string ChoiceReason { get; private set; } = "none";
+    /// <summary>Following is complete only inside its two-axis player region, separate from route waypoint arrival.</summary>
+    public bool FollowObjectiveSatisfied { get; private set; }
+    public float FollowHorizontalGap { get; private set; }
+    public float FollowVerticalGap { get; private set; }
+    public string FollowObjectiveReason { get; private set; } = "not-following";
     private int sinceFlood = RescoreInterval;
 
     /// <summary>Whether the flood from the companion's feet ran out of region before its budget, so a tile outside it is truly unreachable.</summary>
@@ -72,6 +77,7 @@ public sealed class Positioner
         // rescore it multiplied the two cadences and refloods came every 144 ticks.
         sinceFlood++;
         clock++;
+        UpdateFollowObjective(request, senses);
         switch (request.Kind)
         {
             case RequestKind.Hold:
@@ -120,6 +126,30 @@ public sealed class Positioner
     }
 
     private bool InReach(Point tile) => reach != null && reach.Contains(tile);
+
+    /// <summary>
+    /// A missing tile in an unfinished flood is unknown, not unreachable. The following tier may
+    /// therefore begin toward a useful lower floor while the bounded flood is still expanding;
+    /// only an exhausted region can reject it as physically absent.
+    /// </summary>
+    private bool ProvenUnreachable(Point tile) => ReachComplete && !InReach(tile);
+
+    private void UpdateFollowObjective(in PositionRequest request, Senses.Senses senses)
+    {
+        if (request.Kind != RequestKind.WithPlayer)
+        {
+            FollowObjectiveSatisfied = false;
+            FollowHorizontalGap = FollowVerticalGap = 0f;
+            FollowObjectiveReason = "not-following";
+            return;
+        }
+        var objective = new FollowPlayerObjective(senses.Player.Bottom, request.Anchor);
+        bool connected = CanSeePlayer(senses.Companion.Bottom + new Vector2(0f, -30f), senses);
+        FollowObjectiveSatisfied = objective.IsSatisfied(senses.Companion.Bottom, connected);
+        FollowHorizontalGap = objective.HorizontalGap(senses.Companion.Bottom);
+        FollowVerticalGap = objective.VerticalGap(senses.Companion.Bottom);
+        FollowObjectiveReason = objective.Reason(senses.Companion.Bottom, connected);
+    }
 
     /// <summary>The last flood from the companion's feet holds this tile: the brain reads the player's feet against it to end a stranded count.</summary>
     public bool Reaches(Point tile) => InReach(tile);
@@ -261,6 +291,8 @@ public sealed class Positioner
         // of each other, the tile it named wandered continuously under a request that had not
         // changed — which the navigator then read as a new goal and replanned for.
         Vector2? held = Chosen;
+        FollowPlayerObjective? followObjective = request.Kind == RequestKind.WithPlayer
+            ? new FollowPlayerObjective(senses.Player.Bottom, request.Anchor) : null;
         Point centre = MovementQueries.FeetTile(request.Anchor);
         Vector2 playerBottom = senses.Player.Bottom;
         bool threatened = !senses.Threats.PlayerIsSafe;
@@ -286,9 +318,10 @@ public sealed class Positioner
             && MovementQueries.IsStandable(MovementQueries.FeetTile(incumbent).X, MovementQueries.FeetTile(incumbent).Y))
         {
             Vector2 eye = incumbent + new Vector2(0, -30);
+            Point tile = MovementQueries.FeetTile(incumbent);
             float score = ScoreSpot(request, incumbent, eye, playerBottom, senses, bandNear, bandFar, 1f, reach) * Weights.IncumbentSpotBonus;
-            if (score > 0)
-            { candidates.Add((incumbent, eye, score)); anyReachable = InReach(MovementQueries.FeetTile(incumbent)); }
+            if ((followObjective?.AcceptsDestination(incumbent, CanSeePlayer(eye, senses)) ?? true) && !ProvenUnreachable(tile) && score > 0)
+            { candidates.Add((incumbent, eye, score)); anyReachable = InReach(tile); }
         }
         for (int dx = -SampleRadiusTiles; dx <= SampleRadiusTiles; dx += SampleStride)
         {
@@ -303,9 +336,13 @@ public sealed class Positioner
                 }
                 bool reachable = InReach(new Point(x, y));
                 if (reachable) ReachableCandidateCount++;
-                if (!reachable && anyReachable)
+                if (ProvenUnreachable(new Point(x, y)))
                     continue;
                 Vector2 feet = MovementQueries.FeetWorld(new Point(x, y));
+                if (followObjective is FollowPlayerObjective objective && !objective.AcceptsDestination(feet, CanSeePlayer(feet + new Vector2(0f, -30f), senses)))
+                    continue;
+                if (!reachable && anyReachable)
+                    continue;
                 Vector2 eye = feet + new Vector2(0f, -30f);
                 float score = ScoreSpot(request, feet, eye, playerBottom, senses, bandNear, bandFar, fire: 1f, reach) * Incumbency(feet, held);
                 if (score <= 0f)
@@ -386,7 +423,7 @@ public sealed class Positioner
         float toAnchor = Vector2.Distance(feet, request.Anchor);
         float toPlayer = Vector2.Distance(feet, playerBottom);
         float band = Consideration.Band(toAnchor, bandNear, bandFar, 400f) * (0.6f + 0.4f * Consideration.Inverse(toAnchor, bandFar + 200f));
-        bool seesPlayer = Collision.CanHitLine(eye, 1, 1, senses.PlayerEntity.position, senses.PlayerEntity.width, senses.PlayerEntity.height);
+        bool seesPlayer = CanSeePlayer(eye, senses);
         float sight = seesPlayer ? 1f : 0.35f;
         float danger = DangerAt(feet, senses);
         float open = Openness(feet);
@@ -411,6 +448,9 @@ public sealed class Positioner
             _ => 0f,
         };
     }
+
+    private static bool CanSeePlayer(Vector2 eye, Senses.Senses senses)
+        => Collision.CanHitLine(eye, 1, 1, senses.PlayerEntity.position, senses.PlayerEntity.width, senses.PlayerEntity.height);
 
     /// <summary>0..1: how much of the next second's predicted threat paths pass through this spot.</summary>
     private static float DangerAt(Vector2 feet, Senses.Senses senses)

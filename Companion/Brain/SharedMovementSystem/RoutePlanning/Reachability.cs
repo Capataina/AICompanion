@@ -14,7 +14,7 @@ namespace AICompanion.Companion.Brain.SharedMovementSystem;
 /// standable tile near it, are not evidence of a route and not evidence against one — they
 /// are the search declining to answer. Collapsing that into a bool forces one conservatism
 /// on every caller, and the callers want opposite ones: a threat wrongly ignored costs a
-/// hit the player takes, so the threat sense reads unknown as reachable, while a refuge
+    /// hit the player takes, so the threat sense reads unknown as reachable, while a refuge
 /// wrongly believed reachable costs the companion its life, so self-rescue reads unknown
 /// as no. Both readings are correct and neither is the default; <see cref="WalkerReach"/>
 /// reports what the search actually established and the caller decides what to do with it.
@@ -69,9 +69,8 @@ public static class Reachability
 
     /// <summary>
     /// The threat sense's reading: unknown counts as reachable, because a threat wrongly ignored
-    /// costs the player a hit and one wrongly feared costs a little caution. Also the ore finder's,
-    /// where an unknown that turns out unreachable is a wasted walk the mine action recovers from
-    /// by dropping the tile and taking the next of the patch.
+    /// costs the player a hit and one wrongly feared costs a little caution. Work selection reads
+    /// the three-valued result directly: an unfinished approach yields without discarding its job.
     /// </summary>
     public static bool WalkerCanReach(Point fromFeet, Point toFeet) => WalkerReach(fromFeet, toFeet) != Reach.No;
 

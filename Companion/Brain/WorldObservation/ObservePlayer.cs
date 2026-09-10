@@ -25,7 +25,7 @@ public sealed class PlayerSense
 
     /// <summary>Smoothed travel direction and pace in px/tick; near zero when the player is not going anywhere.</summary>
     public Vector2 Intent { get; private set; }
-    public bool IsTravelling => MathF.Abs(Intent.X) > 1.2f;
+    public bool IsTravelling => Intent.LengthSquared() > 1.2f * 1.2f;
     public int TravelDirection => MathF.Sign(Intent.X);
 
     public float HealthFraction { get; private set; } = 1f;
@@ -68,8 +68,8 @@ public sealed class PlayerSense
         HealthFraction = player.statLifeMax2 > 0 ? player.statLife / (float)player.statLifeMax2 : 1f;
         IsAttacking = player.itemAnimation > 0 && player.HeldItem.damage > 0;
 
-        Vector2 moving = new(player.velocity.X, 0f);
-        if (MathF.Abs(player.velocity.X) > 0.5f)
+        Vector2 moving = player.velocity;
+        if (moving.LengthSquared() > 0.5f * 0.5f)
             Intent = Vector2.Lerp(Intent, moving, IntentSmoothing * 3f);
         else
             Intent *= IntentDecayWhenStill;

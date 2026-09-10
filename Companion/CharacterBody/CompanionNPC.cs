@@ -23,7 +23,8 @@ namespace AICompanion.Companion.CharacterBody;
 /// animation, the motor, the weapons, the chopper, the bag, and drawing through the
 /// game's own player renderer with the Guide sheet as the fallback.
 ///
-/// It never dies. At zero life it is downed: it lies still and takes no damage until
+/// It never dies. At zero life it is downed: after clearing any interrupted recovery flight
+/// from solid terrain, it lies still and takes no damage until
 /// the player has stood within reach for <see cref="ReviveTicks"/> ticks.
 /// </summary>
 public class CompanionNPC : ModNPC
@@ -234,6 +235,7 @@ public class CompanionNPC : ModNPC
         NPC.life = 1;
         NPC.dontTakeDamage = true;
         Motor.EnterDowned();
+        Brain.FollowRecovery.Update(false, true, false, NPC.Bottom, NPC.Bottom, false);
         reviveProgress = 0;
         heldItemType = ItemID.None;
         itemAnimation = 0;

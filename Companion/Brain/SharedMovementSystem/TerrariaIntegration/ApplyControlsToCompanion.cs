@@ -23,6 +23,7 @@ public sealed class CompanionMotor
     private MobilityState mobility;
     private bool externalChange;
     private int predictedLife;
+    private Vector2? recoveryLastClearPosition;
 
     public CompanionMotor(NPC npc) => this.npc = npc;
     public MovementCapabilities Capabilities { get; set; } = MovementCapabilities.Basic;
@@ -37,6 +38,8 @@ public sealed class CompanionMotor
     public BodyState ObservedState { get; private set; }
     public BodyState? PredictedState => expected;
     public string ControlSource { get; private set; } = "uninitialised";
+    public bool RecoveryFlight { get; private set; }
+    public bool ClearOfTerrain => !Collision.SolidCollision(npc.position, npc.width, npc.height);
     public BodyState State => new(npc.position.X, npc.Bottom.Y, npc.velocity.X,
         npc.velocity.Y, OnGround, npc.collideX, Mobility: mobility,
         Pinned: PinnedTicks >= 15, Wet: npc.wet, Capabilities: Capabilities,
@@ -44,6 +47,25 @@ public sealed class CompanionMotor
 
     public void Apply(Controls controls, string source = "navigation")
     {
+        if (RecoveryFlight)
+        {
+            if (!ClearOfTerrain)
+            {
+                // Cancellation inside a wall finishes clearance back towards the last observed
+                // clear body. This is continuous ejection, never travel towards the owner or a
+                // learned traversal; stopping here would leave a downed body unrevivable.
+                Vector2 delta = recoveryLastClearPosition is Vector2 clear
+                    && !Collision.SolidCollision(clear, npc.width, npc.height) ? clear - npc.position : new Vector2(0, -16);
+                if (delta.LengthSquared() < 1f) delta = new Vector2(0, -16);
+                npc.velocity = Vector2.Normalize(delta) * System.MathF.Min(WalkSpeed, delta.Length());
+                AppliedControls = Controls.None;
+                ControlSource = source + "-recovery-clearance";
+                expected = null;
+                return;
+            }
+            RecoveryFlight = false;
+            npc.noGravity = npc.noTileCollide = false;
+        }
         BodyState before = State;
         AppliedControls = controls;
         ControlSource = source;
@@ -83,10 +105,25 @@ public sealed class CompanionMotor
     }
 
     public void Stop() => Apply(Controls.None, "idle");
+    public void ApplyRecoveryFlight(Vector2 velocity)
+    {
+        if (ClearOfTerrain) recoveryLastClearPosition = npc.position;
+        RecoveryFlight = true;
+        npc.noGravity = npc.noTileCollide = true;
+        npc.velocity = velocity;
+        if (velocity.X != 0f) Face(npc.Center.X + velocity.X);
+        WantsFallThrough = Descending = false;
+        AppliedControls = Controls.None;
+        ControlSource = "follow-recovery-flight";
+        // The ordinary collision prediction does not describe terrain-phasing recovery.
+        expected = null;
+        externalChange = true;
+    }
     public void NotifyExternalHit() => externalChange = true;
     public void EnterDowned()
     {
-        npc.velocity.X = 0f;
+        if (RecoveryFlight) npc.velocity = Vector2.Zero;
+        else npc.velocity.X = 0f;
         externalChange = true;
         ControlSource = "downed";
     }
