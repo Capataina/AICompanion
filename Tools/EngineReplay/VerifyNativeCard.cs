@@ -72,6 +72,15 @@ internal static class VerifyNativeCard
             Require(list.OverflowHidden && list.GetDimensions().ToRectangle().Bottom + 8 <= note.GetDimensions().Y,
                 "Scrolling behaviour rows touch the fixed explanatory note");
             Console.WriteLine("PASS behaviour list: clipped rows leave a clear gap before the fixed note");
+            // A distance is a value and a work policy is a mode, so they must not wear the same
+            // control (449a79b). Nothing about a screenshot says which row is which kind, which is
+            // how three identical segments reached the rendered card in the first place.
+            var stops = new[] { "Close", "Standard", "Free" };
+            var segments = Descendants(list).OfType<UITextPanel<string>>().Where(b => stops.Contains(b.Text)).ToArray();
+            Require(segments.Length == 0, "The distance stops render as mode segments instead of a stepper");
+            var arrows = Descendants(list).OfType<UITextPanel<string>>().Where(b => b.Text is "<" or ">").ToArray();
+            Require(arrows.Length == 2, "The distance row lost its stepper arrows");
+            Console.WriteLine("PASS behaviour controls: the distance value steps, and only the mode rows use segments");
         }
         if (page == "ShowInventory")
         {

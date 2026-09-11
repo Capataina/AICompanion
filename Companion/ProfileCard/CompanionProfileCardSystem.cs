@@ -239,8 +239,8 @@ public sealed class CompanionProfileCardSystem : ModSystem
             AddToggle(list, "Hunting", "Seek enemies when protection and useful work leave time.", p => p.Hunting, (p, v) => p.Hunting = v);
             AddToggle(list, "Break pots", "Break nearby reachable pots and collect their drops.", p => p.PotBreaking, (p, v) => p.PotBreaking = v);
             AddToggle(list, "Place torches", "Uses the companion's torches first, then yours. Protects homes.", p => p.TorchPlacement, (p, v) => p.TorchPlacement = v);
-            AddOptions(list, "Distance", "Useful jobs can travel farther than ordinary following.",
-                new[] { "Close", "Standard", "Free" }, i => (int)CompanionPreferences.Current.DistanceMode == i,
+            AddStepper(list, "Distance", "Useful jobs can travel farther than ordinary following.",
+                new[] { "Close", "Standard", "Free" }, () => (int)CompanionPreferences.Current.DistanceMode,
                 i => CompanionPreferences.Current.DistanceMode = (CompanionDistanceMode)i);
             var note = new CardLabel("Fighting, dodging and pickups are automatic. The action above explains the choice.", .66f);
             note.Width.Set(0, 1); note.Height.Set(27, 0); note.Top.Set(-27, 1); content.Append(note);
@@ -303,6 +303,40 @@ public sealed class CompanionProfileCardSystem : ModSystem
             }
             hints.Add((row, hint));
             list.Add(row);
+        }
+
+        /// <summary>A row for a setting that is a value with named stops rather than a choice of mode.</summary>
+        private void AddStepper(UIList list, string label, string hint, string[] stops, Func<int> get, Action<int> set)
+        {
+            var row = new UIElement();
+            row.Width.Set(0f, 1f); row.Height.Set(34f, 0f);
+            var caption = new CardLabel(label, .8f);
+            caption.Top.Set(5, 0); caption.Width.Set(130, 0); caption.Height.Set(25, 0); row.Append(caption);
+            var controls = new UIElement(); controls.Left.Set(136, 0); controls.Width.Set(-136, 1); controls.Height.Set(30, 0); row.Append(controls);
+            // Arrows around a readout, never the segments the rows above use: a distance is a
+            // value and a policy is a mode, and a player scanning the panel reads matching
+            // controls as matching kinds of setting (449a79b). It occupies the same two columns
+            // the two-state rows do, so the rows still line up down the panel.
+            var less = Button("<", 30f, () => set((get() + stops.Length - 1) % stops.Length));
+            less.Left.Set(0f, 0f); controls.Append(less);
+            var more = Button(">", 30f, () => set((get() + 1) % stops.Length));
+            more.Left.Set(-30f, 2f / 3f); controls.Append(more);
+            var readout = new StepperValue(() => stops[get()]);
+            readout.Left.Set(34f, 0f); readout.Width.Set(-68f, 2f / 3f); readout.Height.Set(30f, 0f);
+            controls.Append(readout);
+            hints.Add((row, hint));
+            list.Add(row);
+        }
+
+        private sealed class StepperValue(Func<string> stop) : UIElement
+        {
+            protected override void DrawSelf(SpriteBatch sb)
+            {
+                Rectangle r = GetDimensions().ToRectangle();
+                string text = stop();
+                Vector2 size = FontAssets.MouseText.Value.MeasureString(text) * .8f;
+                DrawCardPrimitives.Text(sb, text, new Vector2(r.Center.X - size.X / 2, r.Center.Y - size.Y / 2), Color.Gold, .8f);
+            }
         }
 
         private sealed class TitleBar(CompanionProfileCard card) : UIElement
