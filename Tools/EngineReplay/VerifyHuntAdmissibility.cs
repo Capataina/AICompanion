@@ -26,8 +26,63 @@ internal static class VerifyHuntAdmissibility
     {
         VerifyWalkableFiringPositionKeepsTheTarget();
         VerifySealedTargetIsRefused();
-        Console.WriteLine("hunt admissibility: a repositionable target is kept and a target with no reachable firing spot is refused");
+        VerifyTheCheckIsAffordableOnAHopelessCrowd();
+        Console.WriteLine("hunt admissibility: a repositionable target is kept, an unshootable target is refused, and the check stays affordable");
         return 0;
+    }
+
+    /// <summary>
+    /// Establishing a firing opportunity samples terrain, and it runs inside the per-tick score of
+    /// every hunt, so it is exactly the kind of addition that has made this brain unplayable before.
+    /// The worst case is a crowd where nothing is shootable and the companion is walking: every
+    /// target is refused, the retry limit is reached each tick, and a body in motion keeps moving
+    /// out from under the verdict cache.
+    ///
+    /// The bound is loose on purpose. It is here to catch an order-of-magnitude regression — a cache
+    /// key that stops holding, a sample stride that collapses to one — rather than to police a few
+    /// microseconds, because a tight timing assertion on a shared machine fails for reasons that
+    /// have nothing to do with this code.
+    /// </summary>
+    private static void VerifyTheCheckIsAffordableOnAHopelessCrowd()
+    {
+        BuildFloor();
+        for (int x = 5; x < 115; x++)
+            for (int y = FloorY; y <= FloorY + 30; y++)
+                Solid(x, y);
+        for (int x = 59; x <= 61; x++)
+            for (int y = FloorY + 11; y <= FloorY + 12; y++)
+                Open(x, y);
+        Rebuild();
+
+        var companion = Place(companionTileX: 58, enemyTileX: 60, enemyTileY: FloorY + 13, out NPC first, out C ctx);
+        var threats = companion.Brain.Senses.Threats.Threats;
+        for (int slot = 26; slot < 34; slot++)
+        {
+            var extra = new NPC();
+            extra.SetDefaults(Terraria.ID.NPCID.Zombie);
+            extra.whoAmI = slot;
+            extra.active = true;
+            extra.velocity = Vector2.Zero;
+            extra.Bottom = first.Bottom + new Vector2((slot - 30) * 8f, 0f);
+            Main.npc[slot] = extra;
+            threats.Add(new T { Npc = extra, DistanceToCompanion = 210, DistanceToPlayer = 210 });
+        }
+        SettleReach(companion, first);
+
+        var hunt = new H();
+        hunt.Score(ctx); // first call warms the terrain caches this is not trying to measure
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        const int Ticks = 240;
+        for (int tick = 0; tick < Ticks; tick++)
+        {
+            // Walking, so the verdict cache cannot simply hold a single answer for the whole run.
+            companion.NPC.position.X += 2f;
+            hunt.Score(ctx);
+        }
+        double perTick = clock.Elapsed.TotalMilliseconds / Ticks;
+        Console.WriteLine($"hunt admissibility cost: {perTick:0.000} ms per score over {Ticks} ticks with {threats.Count} unshootable targets");
+        Require(perTick < 2.0d,
+            $"establishing firing opportunity costs {perTick:0.000} ms per tick on a hopeless crowd, which is a whole frame budget spent deciding not to fight");
     }
 
     private const int FloorY = 80;

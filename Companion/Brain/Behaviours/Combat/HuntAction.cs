@@ -157,7 +157,13 @@ public sealed class HuntAction : CompanionAction
     private Firing FiringOpportunity(in ActionContext ctx, NPC enemy)
     {
         var key = (enemy.whoAmI, HostileAttackSources.Generation(enemy));
-        Point origin = SharedMovementSystem.MovementQueries.FeetTile(ctx.Npc.Bottom);
+        // Coarse, because the exact feet tile changes on almost every tick the companion is walking
+        // and an exact key would therefore miss continuously — re-sampling hundreds of tiles every
+        // tick of every approach, which is how a previous addition on this path made a session
+        // unplayable. Whether some reachable position can shoot an enemy does not change from one
+        // tile of travel, so the key moves in strides and the tick window bounds the staleness.
+        Point feet = SharedMovementSystem.MovementQueries.FeetTile(ctx.Npc.Bottom);
+        var origin = new Point(feet.X >> 2, feet.Y >> 2);
         int terrain = SharedMovementSystem.TerrainChanges.Revision;
         if (firing.TryGetValue(key, out var cached) && cached.origin == origin && cached.terrain == terrain
             && unchecked(ctx.Senses.Tick - cached.at) < FiringCacheTicks)
@@ -231,10 +237,12 @@ public sealed class HuntAction : CompanionAction
     /// something useful instead, which is the outcome a hopeless crowd should produce anyway.
     /// </summary>
     private const int MaxFiringChecksPerTick = 3;
+    private readonly System.Collections.Generic.HashSet<int> unshootable = new();
 
     private ThreatRecord? PickTarget(in ActionContext ctx, Rectangle screen)
     {
-        var unshootable = new System.Collections.Generic.HashSet<int>();
+        // Reused rather than allocated, because this runs on every tick of every hunt.
+        unshootable.Clear();
         bool refusedForFiring = false;
         for (int attempt = 0; attempt < MaxFiringChecksPerTick; attempt++)
         {
