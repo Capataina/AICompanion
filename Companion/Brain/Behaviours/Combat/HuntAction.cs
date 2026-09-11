@@ -98,7 +98,109 @@ public sealed class HuntAction : CompanionAction
         // is what lets disengaging outscore pressing on.
         float leash = AllowsTarget(ctx, Target.Npc.Bottom) ? 1f : 0f;
         float ownSkin = Consideration.AtLeast(1f - ctx.Senses.Threats.CompanionDanger, 0.05f);
-        return safe * near * worth * leash * ownSkin;
+        // Whether a shot is possible at all was absent from this product, so hunting something
+        // unhittable scored exactly as well as hunting something killable and the companion spent
+        // its day walking at enemies it could not harm. It is graded rather than binary: a target
+        // it can already hit is worth more than one it must walk to, and one it must walk to is
+        // worth more than one nothing has established yet. Only a proven absence vetoes, and that
+        // veto is what stops the hunt being started at all.
+        float shot = verdict switch
+        {
+            Firing.FromHere => 1f,
+            Firing.AfterMoving => Weights.HuntRepositionShot,
+            Firing.Unknown => Weights.HuntUnprovenShot,
+            _ => 0f,
+        };
+        return safe * near * worth * leash * ownSkin * shot;
+    }
+
+    /// <summary>
+    /// What the companion would have to do to land a shot on an enemy. Three-and-a-bit valued for
+    /// the same reason <see cref="SharedMovementSystem.Reachability.Reach"/> is: a bounded flood
+    /// that has not yet grown as far as the target says nothing about whether a firing spot exists
+    /// there, and collapsing that into "no" refuses targets for being newly noticed.
+    /// </summary>
+    private enum Firing
+    {
+        /// <summary>A weapon already solves a shot from where the companion stands.</summary>
+        FromHere,
+        /// <summary>Somewhere the walker can reach has a line to the enemy; the hunt is the walk to it.</summary>
+        AfterMoving,
+        /// <summary>Sighted standing spots exist but the reachable region has not settled, so nothing is established.</summary>
+        Unknown,
+        /// <summary>No standing position with a line to the enemy exists within weapon reach at all.</summary>
+        None,
+    }
+
+    private Firing verdict = Firing.Unknown;
+    private readonly System.Collections.Generic.Dictionary<(int slot, int generation), (int at, Point origin, int terrain, Firing verdict)> firing = new();
+    private const int FiringCacheTicks = 20;
+    private const int FiringSampleRadiusTiles = 14;
+    // Every other tile. A standable row is one tile high, so a stride this coarse can miss a narrow
+    // ledge; that costs an Unknown or a missed opportunity, never a wrong refusal, because a missed
+    // sighted tile can only make the answer more cautious.
+    private const int FiringSampleStride = 2;
+
+    /// <summary>
+    /// Whether a standing position exists that the walker can reach and from which a weapon has a
+    /// line to this enemy — the owner's rule, in his words: can I hit it, if not can I move to hit
+    /// it, and if neither then it is not worth hunting.
+    ///
+    /// The sight test is the same straight ray the positioner ranks candidates with, not a full
+    /// trajectory solve, because this runs per target and a solve costs up to 48 arcs. It is a
+    /// lower bound on an arcing shot, so it under-reports opportunities and never invents one;
+    /// the real solve still happens in position selection, on the spot this admits.
+    ///
+    /// Applying the from-here test alone would have been the obvious change and the wrong one: it
+    /// rejects every enemy the companion would simply have had to walk toward, which is most of them.
+    /// </summary>
+    private Firing FiringOpportunity(in ActionContext ctx, NPC enemy)
+    {
+        var key = (enemy.whoAmI, HostileAttackSources.Generation(enemy));
+        Point origin = SharedMovementSystem.MovementQueries.FeetTile(ctx.Npc.Bottom);
+        int terrain = SharedMovementSystem.TerrainChanges.Revision;
+        if (firing.TryGetValue(key, out var cached) && cached.origin == origin && cached.terrain == terrain
+            && unchecked(ctx.Senses.Tick - cached.at) < FiringCacheTicks)
+            return cached.verdict;
+
+        Firing answer = Resolve(ctx, enemy);
+        firing[key] = (ctx.Senses.Tick, origin, terrain, answer);
+        return answer;
+    }
+
+    private static Firing Resolve(in ActionContext ctx, NPC enemy)
+    {
+        if (ctx.Companion.Arsenal.CanEngage(ctx, enemy))
+            return Firing.FromHere;
+        var positioner = ctx.Companion.Brain.Positioner;
+        float reach = MathF.Max(ctx.Companion.Arsenal.Primary.Profile.Reach, ctx.Companion.Arsenal.Secondary.Profile.Reach);
+        // Never wider than the box position selection itself samples: a spot it cannot propose is
+        // not a spot the hunt can be walked to, so admitting a target on one would promise a
+        // position that never arrives.
+        int radius = Math.Min(FiringSampleRadiusTiles, (int)(reach / 16f));
+        Point centre = SharedMovementSystem.MovementQueries.FeetTile(enemy.Bottom);
+        bool sightedButUnsettled = false;
+        for (int dx = -radius; dx <= radius; dx += FiringSampleStride)
+        {
+            for (int dy = -radius; dy <= radius; dy += FiringSampleStride)
+            {
+                var tile = new Point(centre.X + dx, centre.Y + dy);
+                if (!SharedMovementSystem.MovementQueries.IsStandable(tile.X, tile.Y))
+                    continue;
+                Vector2 eye = SharedMovementSystem.MovementQueries.FeetWorld(tile) + new Vector2(0f, -30f);
+                if (Vector2.Distance(eye, enemy.Center) > reach)
+                    continue;
+                if (!Terraria.Collision.CanHitLine(eye, 1, 1, enemy.position, enemy.width, enemy.height))
+                    continue;
+                if (positioner.Reaches(tile))
+                    return Firing.AfterMoving;
+                // Sighted, and the flood has not proved it either way. Only an exhausted region
+                // turns that into an absence; until then it is the search declining to answer.
+                if (!positioner.ReachComplete)
+                    sightedButUnsettled = true;
+            }
+        }
+        return sightedButUnsettled ? Firing.Unknown : Firing.None;
     }
 
     private static Rectangle ScreenWithMargin()
@@ -117,8 +219,49 @@ public sealed class HuntAction : CompanionAction
         return new PositionRequest(RequestKind.LineOfFire, Target.Npc.Center, Target.Npc);
     }
 
-    /// <summary>Threats endangering the player first, then the nearest reachable one a weapon can reach.</summary>
+    /// <summary>
+    /// Threats endangering the player first, then the nearest one a weapon can reach — and then,
+    /// among those, the best one an actual standing position can shoot. A target with no reachable
+    /// firing position is passed over rather than selected and stood at, which is the difference
+    /// between choosing a fight and discovering one cannot be had.
+    ///
+    /// Bounded on purpose. Each pass over the threat list is cheap, but establishing a firing
+    /// opportunity samples terrain, so a crowd where nothing is engageable must not turn one tick
+    /// into a search: after a few refusals the action yields the tick and the chooser picks
+    /// something useful instead, which is the outcome a hopeless crowd should produce anyway.
+    /// </summary>
+    private const int MaxFiringChecksPerTick = 3;
+
     private ThreatRecord? PickTarget(in ActionContext ctx, Rectangle screen)
+    {
+        var unshootable = new System.Collections.Generic.HashSet<int>();
+        bool refusedForFiring = false;
+        for (int attempt = 0; attempt < MaxFiringChecksPerTick; attempt++)
+        {
+            ThreatRecord? candidate = BestCandidate(ctx, screen, unshootable);
+            if (candidate == null)
+                break;
+            Firing opportunity = FiringOpportunity(ctx, candidate.Npc);
+            if (opportunity != Firing.None)
+            {
+                verdict = opportunity;
+                LastRejection = "accepted";
+                return candidate;
+            }
+            unshootable.Add(candidate.Npc.whoAmI);
+            refusedForFiring = true;
+        }
+        // The reason is set after the loop rather than inside it, because each pass over the threat
+        // list resets it, so a reason written during one pass is erased by the next and every
+        // refusal would report the generic "nothing eligible" instead of the one a session is read
+        // for. Whether the companion had nowhere to shoot from is exactly what needs to survive.
+        if (refusedForFiring)
+            LastRejection = "no-reachable-firing-position";
+        verdict = Firing.None;
+        return null;
+    }
+
+    private ThreatRecord? BestCandidate(in ActionContext ctx, Rectangle screen, System.Collections.Generic.HashSet<int> unshootable)
     {
         LastRejection = "no-eligible-target";
         var expired = new System.Collections.Generic.List<(int slot, int generation)>();
@@ -129,6 +272,7 @@ public sealed class HuntAction : CompanionAction
         float bestScore = 0f;
         foreach (ThreatRecord t in ctx.Senses.Threats.Threats)
         {
+            if (unshootable.Contains(t.Npc.whoAmI)) continue;
             var key = (t.Npc.whoAmI, HostileAttackSources.Generation(t.Npc));
             if (deferred.TryGetValue(key, out var failure))
             {
@@ -142,8 +286,11 @@ public sealed class HuntAction : CompanionAction
             if (!t.Npc.CanBeChasedBy()) continue;
             if (!t.CanReachEither && !t.Npc.Hitbox.Intersects(screen))
                 continue;
-            if (!t.CanReachEither && t.Npc.Hitbox.Intersects(screen) && t.Class != MovementClass.Phaser && !ctx.Companion.Arsenal.CanEngage(ctx, t.Npc))
-                continue; // sealed off and no shot: not worth a thought
+            // A sealed-off enemy used to be dropped here unless a weapon solved a shot from where
+            // the companion happened to be standing. That test is now both redundant and wrong:
+            // redundant because every surviving candidate has its firing opportunity established
+            // before selection, and wrong because a from-here test refuses an enemy that a spot
+            // three tiles away has a clear line to — which is the case repositioning exists for.
             float score = 0.4f * t.Urgency + 0.6f * Consideration.Inverse(t.DistanceToCompanion, Weights.HuntReach);
             if (t.IsBoss) score += 0.3f;
             // An on-screen enemy is always a candidate: beyond HuntReach the distance term is zero
@@ -155,7 +302,6 @@ public sealed class HuntAction : CompanionAction
                 best = t;
             }
         }
-        if (best != null) LastRejection = "accepted";
         return best;
     }
 }

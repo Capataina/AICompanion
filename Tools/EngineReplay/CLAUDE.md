@@ -16,6 +16,7 @@ EngineReplay/
 ├─ VerifyAttackOutcomes.cs   threat removal, overkill, multi-hit and follow-up attack valuation
 ├─ VerifyHuntProgress.cs     ineffective engagements defer without cancelling productive travel, and an alternating pick still defers
 ├─ VerifyFiringPosition.cs   the solve shortlist carries line of sight, so the chosen spot has an arc
+├─ VerifyHuntAdmissibility.cs a repositionable target is kept; one no reachable spot can shoot is refused
 ├─ VerifyEngineMotion.cs     terrain/liquid matrix, scratch-state assertions and native route checks
 ├─ VerifyObservedMotion.cs   native-terrain hostile forecast and pure regroup-urgency contracts
 ├─ VerifyProjectileMotion.cs native projectile-AI and swept-shot contracts

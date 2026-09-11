@@ -192,4 +192,20 @@ public static class Weights
     /// the 0.15 a *solved* failure scores and below the 1 a clear ray scores.
     /// </summary>
     public const float BlockedSightRank = .35f;
+
+    /// <summary>
+    /// Hunt: what a target is worth when no weapon can hit it from here but a reachable standing
+    /// position has a line to it, so the hunt is the walk to that position. Below 1 because a fight
+    /// that has to be walked to is worth less than one already in hand, which is also what lets
+    /// ordinary work outscore a hunt that would first have to cross the room.
+    /// </summary>
+    public const float HuntRepositionShot = .7f;
+
+    /// <summary>
+    /// Hunt: what a target is worth while nothing has established whether a firing position exists —
+    /// sighted standing spots near it, and a reachable region that has not finished expanding. It is
+    /// deliberately not a veto: refusing a target because the flood is young would refuse every
+    /// enemy at the moment it is first noticed, which is when hunting it is most useful.
+    /// </summary>
+    public const float HuntUnprovenShot = .45f;
 }
