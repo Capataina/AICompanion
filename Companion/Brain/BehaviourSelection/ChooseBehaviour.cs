@@ -102,10 +102,15 @@ public sealed class Chooser
             if (raw > 0f)
             {
                 if (action == Current)
-                    // Earned, not granted. A task whose body has stopped covering ground toward
-                    // what it asked for is not owed the benefit of already having started; that is
-                    // how one unreachable pot outscored reachable ore for fifty unbroken seconds.
-                    commitment = ctx.Companion.Brain.MovementStalled ? Weights.CommitmentWhileStalled : Weights.Commitment;
+                    // Flat, and deliberately not conditioned on the body making progress. Scaling
+                    // it by the stall flag was tried on 2026-09-11 and tripled the churn it was
+                    // meant to cure: the flag is a property of the body, not of the task, and it
+                    // is not cleared when the behaviour changes, so the newcomer inherits the
+                    // incumbent's penalty before it has moved a pixel and loses on the next tick
+                    // to whoever it just displaced. 1,197 of that session's 1,727 behaviour
+                    // changes fired on a stalled tick, out of 4.5% of ticks reading stalled.
+                    // Whatever replaces this has to be the task's own report that it is failing.
+                    commitment = Weights.Commitment;
                 // Work is interruptible at the next decision tick. Charging the whole vein
                 // against a momentary safety horizon made safe, resumable work impossible.
                 float forecast = action.IsExcursion ? Math.Min(Weights.InterruptibleActionTicks, action.ForecastTicks(ctx)) : action.ForecastTicks(ctx);

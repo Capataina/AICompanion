@@ -42,19 +42,6 @@ public static class Weights
     public const float Commitment = 1.15f;
 
     /// <summary>
-    /// What the running action's bonus becomes once the body has stopped making ground toward what
-    /// that action asked for. A flat incumbency bonus is a claim that continuing is worth more than
-    /// starting over, and that claim is false for a task whose approach has failed — it inverts
-    /// into the thing that keeps the failure selected. On 2026-09-11 the companion spent ticks
-    /// 18,501 to 21,531 unbroken on one pot it never reached, holding 0.62 x 1.15 = 0.713 against
-    /// mining's 0.70, while its own mining system reported ore in actual swing reach on 979 of
-    /// those ticks. Below one, so a stalled task is easier to displace than a fresh one rather
-    /// than harder: 0.62 x 0.6 = 0.372 loses to that ore, which is the outcome the player watched
-    /// not happen. Progress restores the ordinary bonus within one window.
-    /// </summary>
-    public const float CommitmentWhileStalled = .6f;
-
-    /// <summary>
     /// The urgency ladder, and the reason it is a ladder rather than three independent numbers.
     /// An ordinary action scores in 0..1, so a running one carries up to <see cref="Commitment"/>
     /// and anything that must be able to *interrupt* it has to clear that product, not merely
