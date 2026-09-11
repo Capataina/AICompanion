@@ -30,26 +30,45 @@ public sealed class HuntAction : CompanionAction
     private Vector2 engagementOrigin;
     private int observedTarget = -1, observedGeneration, observedLife;
     private readonly System.Collections.Generic.Dictionary<(int slot, int generation), (int until, Vector2 target, Vector2 body, int terrain)> deferred = new();
+    /// <summary>Every enemy this stalled stretch has aimed at, so the deferral covers the set that produced the stall.</summary>
+    private readonly System.Collections.Generic.Dictionary<(int slot, int generation), Vector2> stalled = new();
 
     public void ObserveOutcome(in ActionContext ctx)
     {
-        if (Target == null) { NoProgressTicks = 0; return; }
+        if (Target == null) { NoProgressTicks = 0; stalled.Clear(); return; }
         NPC enemy = Target.Npc;
         int generation = HostileAttackSources.Generation(enemy);
-        bool progress = observedTarget != enemy.whoAmI || observedGeneration != generation || enemy.life < observedLife
+        // Changing target is not progress, and treating it as progress is what made this whole
+        // guard inert. With a crowd on screen the pick alternates between two enemies whose
+        // scores sit within noise of each other (observed 2026-09-11: Red Slime, Blue Jellyfish,
+        // Red Slime), so the old identity clause reset the counter on nearly every tick and the
+        // window never closed — 329 consecutive stationary ticks inside a guard built to stop it
+        // after a fraction of that. Only damage to the enemy we were already on, a shot, or the
+        // body actually covering ground is progress; a life comparison across two different
+        // enemies compares nothing, so it is read only while the identity holds.
+        bool sameTarget = observedTarget == enemy.whoAmI && observedGeneration == generation;
+        bool progress = (sameTarget && enemy.life < observedLife)
             || ctx.Companion.Arsenal.LastFireOutcome is "fired" or "cooldown"
             || Vector2.DistanceSquared(engagementOrigin, ctx.Npc.Bottom) >= Weights.ObjectiveProgressPixels * Weights.ObjectiveProgressPixels;
+        // Every enemy aimed at during the stalled stretch, so the deferral covers the set rather
+        // than whichever one happened to be selected on the tick the window closed. Deferring only
+        // that one hands each member of an alternating pair a fresh window, which is the same
+        // defect one step further out: two targets would buy twice the window and nothing else.
+        stalled[(enemy.whoAmI, generation)] = enemy.Center;
+        observedTarget = enemy.whoAmI; observedGeneration = generation; observedLife = enemy.life;
         if (progress)
         {
             NoProgressTicks = 0; engagementOrigin = ctx.Npc.Bottom;
-            observedTarget = enemy.whoAmI; observedGeneration = generation; observedLife = enemy.life;
+            stalled.Clear();
         }
         else if (++NoProgressTicks >= Weights.ObjectiveProgressWindowTicks)
         {
-            deferred[(enemy.whoAmI, generation)] = (ctx.Senses.Tick + Weights.HuntRetryTicks, enemy.Center, ctx.Npc.Bottom,
-                SharedMovementSystem.TerrainChanges.Revision);
+            foreach (var (key, centre) in stalled)
+                deferred[key] = (ctx.Senses.Tick + Weights.HuntRetryTicks, centre, ctx.Npc.Bottom,
+                    SharedMovementSystem.TerrainChanges.Revision);
             LastRejection = "no-movement-or-attack-progress";
             NoProgressTicks = 0;
+            stalled.Clear();
         }
     }
 
