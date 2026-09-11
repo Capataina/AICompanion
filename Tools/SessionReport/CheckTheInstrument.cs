@@ -128,8 +128,17 @@ public sealed class TheTwoBodiesAgree : ICheck
 /// was already in the record, and no check asked the question, so the session read clean — the
 /// defect surfaced only because Caner mentioned in passing that he had watched it jump. A detector
 /// fires on a threshold someone chose and can therefore only find a failure someone imagined; this
-/// one asks a question with no threshold in it at all, which is why it can catch a behaviour nobody
+/// one asks a question with almost no threshold in it, which is why it can catch a behaviour nobody
 /// predicted: a kind that was offered and never once completed is wrong whatever the reason.
+///
+/// It did once have a threshold, at zero, and that is how it missed the next instance of its own
+/// defect. On 2026-09-11 the follower began 281 jumps and completed 30, faulting Misland on 246 —
+/// and because thirty is not none, the check passed the session in silence while Walk, Drop and
+/// FallThrough faulted zero times between them. Failing nine times in ten and failing every time
+/// are the same defect, so the question is now the completion rate rather than its presence, and
+/// the zero case keeps its own wording and its Definitive grade. The general form, which is worth
+/// carrying to every other check here: a detector written from one observed failure inherits that
+/// failure's extremity, and the partial case is the one that then walks past it.
 ///
 /// The mod also writes a fuller version of this beside the session as a census file, which the
 /// report prints above the findings. This exists as well as that because a check can make the run
@@ -138,6 +147,18 @@ public sealed class TheTwoBodiesAgree : ICheck
 /// </summary>
 public sealed class EveryMoveOfferedGetsMade : ICheck
 {
+    /// <summary>
+    /// A kind that fails more often than it succeeds is not a move the planner should be offering,
+    /// whatever the reason. The floor is a half rather than a tuned number because the claim is
+    /// exactly that simple, and because every kind in every session read so far sits near one or
+    /// near zero with nothing in between — a number picked to sit in the gap would be fitting the
+    /// one session that prompted it.
+    /// </summary>
+    private const float CompletionFloor = 0.5f;
+
+    /// <summary>Enough endings for a rate to be a rate: one success in three attempts is noise.</summary>
+    private const int MinEnded = 20;
+
     public string Name => "was every kind of move the plan offered ever actually made";
     public string[] Needs => new[] { "edge_n", "edge_kind", "edge_outcome", "next_kind" };
 
@@ -151,6 +172,11 @@ public sealed class EveryMoveOfferedGetsMade : ICheck
         // it two identical consecutive completions of one edge de-duplicate into one.
         var made = new Dictionary<string, int>(StringComparer.Ordinal);
         var failed = new Dictionary<string, int>(StringComparer.Ordinal);
+        // An interruption is a third outcome, not a fault: something else claimed the body mid-move,
+        // which says nothing about whether this kind of move can be performed. Counting it as a
+        // failure understates a healthy kind — Walk is interrupted constantly and faults never — so
+        // it is tallied apart and left out of the rate, matching how the census reports it.
+        var stopped = new Dictionary<string, int>(StringComparer.Ordinal);
         float previous = float.NaN;
         for (int i = 0; i < session.Count; i++)
         {
@@ -161,8 +187,12 @@ public sealed class EveryMoveOfferedGetsMade : ICheck
             string k = kind.Text[i];
             if (k.Length == 0 || k == "-")
                 continue;
-            bool ok = outcome.Text[i] is "None" or "-" or "";
-            var into = ok ? made : failed;
+            var into = outcome.Text[i] switch
+            {
+                "None" or "-" or "" => made,
+                "Interrupted" => stopped,
+                _ => failed,
+            };
             into[k] = into.TryGetValue(k, out int had) ? had + 1 : 1;
         }
 
@@ -181,17 +211,27 @@ public sealed class EveryMoveOfferedGetsMade : ICheck
         {
             made.TryGetValue(pair.Key, out int done);
             failed.TryGetValue(pair.Key, out int lost);
-            if (done > 0)
+            stopped.TryGetValue(pair.Key, out int cut);
+            int ended = done + lost;
+            bool never = done == 0;
+            bool poor = !never && ended >= MinEnded && done / (float)ended < CompletionFloor;
+            if (!never && !poor)
                 continue;
             yield return new Finding(
-                lost > 0 ? Severity.Definitive : Severity.Potential,
+                never && lost > 0 ? Severity.Definitive : Severity.Potential,
                 Name,
-                $"{pair.Key} steps were offered but never once completed",
+                never
+                    ? $"{pair.Key} steps were offered but never once completed"
+                    : $"{pair.Key} steps completed {done:n0} of the {ended:n0} that ended on their own terms",
                 $"The step in hand was {pair.Key} on {pair.Value:n0} ticks, and the edge log holds {done:n0} completions "
-                    + $"against {lost:n0} faults for it. A move the planner keeps putting in front of the body and the body "
-                    + "never makes is either an edge the grid should not be offering or a performance the traversal cannot "
+                    + $"against {lost:n0} faults and {cut:n0} interruptions for it"
+                    + (never ? ". " : $", a completion rate of {done / (float)ended:P0} against a floor of {CompletionFloor:P0}. ")
+                    + "A move the planner keeps putting in front of the body and the body "
+                    + "cannot make is either an edge the grid should not be offering or a performance the traversal cannot "
                     + "deliver, and the fault reasons say which: none at all means the step never even ended, so look at "
-                    + "the timeout allowance and whether the body reached the take-off.",
+                    + "the timeout allowance and whether the body reached the take-off. Compare the rate against the other "
+                    + "kinds in the census before reading it as a movement-wide fault — one kind failing while the rest "
+                    + "complete is the traversal, not the body.",
                 session.Tick(0), session.Tick(session.Count - 1), pair.Value);
         }
     }

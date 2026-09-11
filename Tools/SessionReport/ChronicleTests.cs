@@ -33,7 +33,8 @@ public static class ChronicleTests
             MultiRunFolderKeepsFirstAndLastRuns();
             MultiRunRetainsDefinitiveExit();
             DecisionContractsDistinguishStallsFromProgress();
-            Console.WriteLine("Chronicle self-tests passed (15 assertion groups).");
+            AMoveKindThatMostlyFailsIsReportedNotOnlyOneThatAlwaysDoes();
+            Console.WriteLine("Chronicle self-tests passed (16 assertion groups).");
             return 0;
         }
         catch (Exception error)
@@ -41,6 +42,54 @@ public static class ChronicleTests
             Console.Error.WriteLine($"Chronicle self-test failed: {error.Message}");
             return 1;
         }
+    }
+
+    /// <summary>
+    /// The check that asks whether an offered move is ever made used to fire only at zero, and a
+    /// session where 30 of 281 jumps completed therefore read clean. These cases pin the four
+    /// corners of the replacement: a mostly-failing kind is reported, a healthy kind is not, an
+    /// interrupted kind is not (an interruption is somebody else taking the body, not the move
+    /// failing), and a handful of attempts is too few to call a rate.
+    /// </summary>
+    private static void AMoveKindThatMostlyFailsIsReportedNotOnlyOneThatAlwaysDoes()
+    {
+        string file = Path.GetTempFileName();
+        try
+        {
+            Session Write(params (string Kind, string Outcome, int Count)[] moves)
+            {
+                var text = new StringBuilder("# text_columns=edge_kind,edge_outcome,next_kind\n");
+                text.AppendLine("tick\twall_elapsed_ms\tedge_n\tedge_kind\tedge_outcome\tnext_kind");
+                int tick = 0, edge = 0;
+                foreach (var move in moves)
+                    for (int i = 0; i < move.Count; i++, tick++)
+                        text.AppendLine($"{tick}\t{tick * 16}\t{++edge}\t{move.Kind}\t{move.Outcome}\t{move.Kind}");
+                File.WriteAllText(file, text.ToString());
+                return Session.Load(file);
+            }
+
+            bool Fires(Session s, string kind) =>
+                new EveryMoveOfferedGetsMade().Run(s).Any(f => f.Title.StartsWith(kind, StringComparison.Ordinal));
+
+            // 3 completed against 27 faulted: never zero, and still a broken move.
+            Require(Fires(Write(("Jump", "None", 3), ("Jump", "Misland", 27)), "Jump"),
+                "a move kind completing 3 of 30 was passed because it completed more than none");
+
+            // The shape that used to be the only one caught, and it keeps its Definitive grade.
+            Require(new EveryMoveOfferedGetsMade().Run(Write(("Jump", "Misland", 27)))
+                    .Any(f => f.Severity == Severity.Definitive),
+                "a move kind that never completed lost its definitive grade");
+
+            // Walk is interrupted constantly and faults never; counting interruptions as failures
+            // would report the healthiest move in the session.
+            Require(!Fires(Write(("Walk", "None", 25), ("Walk", "Interrupted", 60)), "Walk"),
+                "interruptions were counted as faults and reported a healthy move kind");
+
+            // Too few endings for a rate to mean anything.
+            Require(!Fires(Write(("Drop", "None", 1), ("Drop", "Misland", 3)), "Drop"),
+                "four attempts were treated as a measurable completion rate");
+        }
+        finally { File.Delete(file); }
     }
 
     private static void DecisionContractsDistinguishStallsFromProgress()
