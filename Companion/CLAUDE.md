@@ -11,7 +11,7 @@ Companion/
 ├─ Weapons/                  companion equipment and outcome-based arsenal selection
 ├─ Inventory/                bag storage and its UI
 ├─ PlayerIntegration/        persistence, input, player events and /companion
-├─ ProfileCard/              native per-character behaviour controls and cargo access
+├─ ProfileCard/              native per-character behaviour controls and inventory access
 ├─ DiagnosticsConfiguration/ native mod settings for inspector and local recording
 ├─ MapIntegration/           map head and torch-driven reveal
 └─ HeadsUpDisplay/           the player-facing health notch

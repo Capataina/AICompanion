@@ -64,7 +64,7 @@ AICompanion/
 │  ├─ Weapons/               companion equipment and arsenal choice
 │  ├─ Inventory/             persistent cargo bag and panel
 │  ├─ PlayerIntegration/     persistence, input, player events and /companion
-│  ├─ ProfileCard/           native behaviour controls and cargo entry
+│  ├─ ProfileCard/           native behaviour controls, inventory and mastery pages
 │  ├─ DiagnosticsConfiguration/ native inspector and recording switches
 │  ├─ MapIntegration/        map head and torch-limited reveal
 │  └─ HeadsUpDisplay/        player-facing health notch
@@ -131,4 +131,4 @@ Optional observation combines continuous body/player samples with timestamped de
 
 Verification on 2026-09-10 matched all 2,032 native collision comparisons. Full-brain survival checks require sustained native head clearance while preserving life, including the captured pool and both awning orientations. They can incur drowning damage before escape and therefore do not establish breath-feasible routing. Older isolated escape timings did not cover the full brain's control handoffs or continued safe landing. Native following checks cover vertical-only travel intent, stopping tolerance at the follow comfort boundary, a closed-door player-side destination and a C-turn whose first movement goes away from the player. Recovery checks cover continuous flight, independent targeting during flight, downing inside a thick wall and no route-memory learning. The portable historical corpus remains non-green, with partial routes, skipped inputs and model-closed regions that do not prove physical impossibility. These checks establish the recorded fixtures, not reliable movement through every live cave or compatibility with every mod.
 
-The actual native Profile, Cargo, Mastery and Inspector pages are rendered offscreen at several viewport sizes by `Tools/EngineReplay --render-ui`, with real policy-button events and a pixel-level debug-line check. Cargo uses native item slots inside the profile; mastery remains a selectable preview without stat effects or costs. Live portrait animation, item transfers and the feel of exploration still need a recorded playtest. Symptom narration is welcome, and the remaining navigation cases stay open on the roadmap.
+The actual native Profile, Inventory, Mastery and Inspector pages are rendered offscreen at several viewport sizes by `Tools/EngineReplay --render-ui`, with real policy-button events and a pixel-level debug-line check. The card is one draggable panel whose body swaps in place, reached from two permanent status tiles rather than a tab row; inventory uses native item slots inside it, and mastery is an authored graph that remains a selectable preview without stat effects or costs. Live portrait animation, item transfers and the feel of exploration still need a recorded playtest. Symptom narration is welcome, and the remaining navigation cases stay open on the roadmap.

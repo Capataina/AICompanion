@@ -11,9 +11,9 @@ This folder holds no game code. Nothing here is compiled or loaded by the mod, a
 
 ## What the card is and what it replaces
 
-`../Companion/HeadsUpDisplay/` draws a draggable health notch which opens `../Companion/ProfileCard/`. Its Cargo tab embeds `../Companion/Inventory/`'s native bag slots. The notch therefore reaches behaviour preferences as well as storage; the bag's gameplay data remains independent of whichever interface presents it.
+`../Companion/HeadsUpDisplay/` draws a draggable health notch which opens `../Companion/ProfileCard/`. Its Inventory page embeds `../Companion/Inventory/`'s native bag slots. The notch therefore reaches behaviour preferences as well as storage; the bag's gameplay data remains independent of whichever interface presents it.
 
-The native card has Profile, Cargo and Mastery tabs. Profile presents live preferences; Cargo uses the game's item slots; Mastery offers a selectable eight-branch preview without gameplay effects, material payments or saved progression. Whitelists and loadout selection remain mock-only. The HTML layouts supply composition references, while the game owns its typography, panel rendering and interaction conventions.
+The native card is one panel whose body swaps between the profile overview, Inventory and Mastery; the two bottom status tiles are the way in, and there is no tab row. The overview presents live preferences; Inventory uses the game's item slots; Mastery offers a selectable eight-branch preview without gameplay effects, material payments or saved progression. Whitelists and loadout selection remain mock-only. The HTML layouts supply composition references, while the game owns its typography, panel rendering and interaction conventions.
 
 ## Mimic policies and voluntary activity toggles are different controls
 
