@@ -183,4 +183,13 @@ public static class Weights
     /// there, short enough that a spot blocked by an enemy that has since moved comes back.
     /// </summary>
     public const int StuckSpotBanTicks = 600;
+
+    /// <summary>
+    /// Positioner: how much a candidate keeps in the cheap ranking pass when the straight line from
+    /// its eye to the target is blocked. It ranks, it never vetoes: a straight ray is a lower bound
+    /// on an arcing projectile, which clears a lip the ray hits, so a blocked candidate must still
+    /// be able to reach the shortlist and pay for a real trajectory solve. It therefore sits above
+    /// the 0.15 a *solved* failure scores and below the 1 a clear ray scores.
+    /// </summary>
+    public const float BlockedSightRank = .35f;
 }

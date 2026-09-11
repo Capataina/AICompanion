@@ -321,7 +321,7 @@ public sealed class Positioner
         {
             Vector2 eye = incumbent + new Vector2(0, -30);
             Point tile = MovementQueries.FeetTile(incumbent);
-            float score = ScoreSpot(request, incumbent, eye, playerBottom, senses, bandNear, bandFar, 1f, reach) * Weights.IncumbentSpotBonus;
+            float score = ScoreSpot(request, incumbent, eye, playerBottom, senses, bandNear, bandFar, SightToTarget(eye, request.Target), reach) * Weights.IncumbentSpotBonus;
             if ((followObjective?.AcceptsDestination(incumbent, CanSeePlayer(eye, senses)) ?? true) && !ProvenUnreachable(tile) && score > 0)
             { candidates.Add((incumbent, eye, score)); anyReachable = InReach(tile); }
         }
@@ -346,7 +346,7 @@ public sealed class Positioner
                 if (!reachable && anyReachable)
                     continue;
                 Vector2 eye = feet + new Vector2(0f, -30f);
-                float score = ScoreSpot(request, feet, eye, playerBottom, senses, bandNear, bandFar, fire: 1f, reach) * Incumbency(feet, held);
+                float score = ScoreSpot(request, feet, eye, playerBottom, senses, bandNear, bandFar, SightToTarget(eye, request.Target), reach) * Incumbency(feet, held);
                 if (score <= 0f)
                     continue;
                 // The tier opens only on a reachable candidate the action accepts: a reachable
@@ -444,15 +444,34 @@ public sealed class Positioner
             // clear-way test, so the only thing pulling the body anywhere was a band measured to
             // the player and the threats are on the player: every guard spot worth having was
             // inside the melee. It now scores the same two factors the line-of-fire request does.
-            RequestKind.Guard => Consideration.Band(toPlayer, Weights.GuardBandNear, Weights.GuardBandFar, 260f) * sight * fire * (1f - 0.7f * danger) * open * StandoffFromTarget(feet, request.Target, reach) * ClearWayTo(feet, senses),
-            RequestKind.LineOfFire => fire * Consideration.AtLeast(band, 0.3f) * (1f - 0.7f * danger) * open * StandoffFromTarget(feet, request.Target, reach) * ClearWayTo(feet, senses),
-            RequestKind.Retreat => (1f - danger) * Consideration.AtLeast(band, 0.3f) * fire * open * ClearWayTo(feet, senses),
+            RequestKind.Guard => Consideration.Band(toPlayer, Weights.GuardBandNear, Weights.GuardBandFar, 260f) * sight * fire * (1f - 0.7f * danger) * open * StandoffFromTarget(feet, request.Target, reach) * ClearWayTo(feet, senses, request.Target),
+            RequestKind.LineOfFire => fire * Consideration.AtLeast(band, 0.3f) * (1f - 0.7f * danger) * open * StandoffFromTarget(feet, request.Target, reach) * ClearWayTo(feet, senses, request.Target),
+            RequestKind.Retreat => (1f - danger) * Consideration.AtLeast(band, 0.3f) * fire * open * ClearWayTo(feet, senses, request.Target),
             _ => 0f,
         };
     }
 
     private static bool CanSeePlayer(Vector2 eye, Senses.Senses senses)
         => Collision.CanHitLine(eye, 1, 1, senses.PlayerEntity.position, senses.PlayerEntity.width, senses.PlayerEntity.height);
+
+    /// <summary>
+    /// A cheap stand-in for "could this spot shoot the target", used to decide which candidates are
+    /// worth an aimer solve. The cheap pass used to pass a literal 1 for every candidate, which made
+    /// the ranking that selects the shortlist contain no line-of-fire information at all: the eight
+    /// candidates that then paid for a real solve were the eight that happened to win on band,
+    /// danger and openness, and nothing connected them to whether a shot existed. On 810 hunt ticks
+    /// of the 2026-09-11 session the companion stood on a spot it had itself scored as having no arc.
+    ///
+    /// It ranks and never vetoes. Terraria's decompiled <c>Collision.CanHitLine</c> walks the tile
+    /// line between the centres of the two boxes and fails on any active, non-actuated tile that is
+    /// <c>tileSolid</c> and not <c>tileSolidTop</c>, so platforms do not block it and the test is a
+    /// straight line. A projectile arcs, so a blocked ray is a lower bound rather than a refusal:
+    /// such a candidate keeps a reduced rank and can still reach the shortlist and be solved properly.
+    /// </summary>
+    private static float SightToTarget(Vector2 eye, NPC? target)
+        => target == null || Collision.CanHitLine(eye, 1, 1, target.position, target.width, target.height)
+            ? 1f
+            : Weights.BlockedSightRank;
 
     /// <summary>0..1: how much of the next second's predicted threat paths pass through this spot.</summary>
     private static float DangerAt(Vector2 feet, Senses.Senses senses)
@@ -525,8 +544,16 @@ public sealed class Positioner
     /// Near 1 when the straight line from where the companion stands to this spot passes no
     /// enemy closely, low when it runs through one, because a firing spot on the
     /// far side of a zombie is reached by walking into the zombie.
+    ///
+    /// The thing being shot at is excluded, because it is already priced twice over — by
+    /// <see cref="DangerAt"/> at the destination and by <see cref="StandoffFromTarget"/>, which is
+    /// the factor that owns how close to the target the companion should stand. Counting it here as
+    /// well made a hunt self-defeating: the target is a member of the threat list, so every spot on
+    /// its far side was cut to a sixth of its score and demoted out of the shortlist before anyone
+    /// asked whether it could shoot from there, leaving only near-side spots to choose between.
+    /// Every other enemy on the way is still charged, which is the hazard this factor exists for.
     /// </summary>
-    private static float ClearWayTo(Vector2 feet, Senses.Senses senses)
+    private static float ClearWayTo(Vector2 feet, Senses.Senses senses, NPC? target = null)
     {
         const float Clearance = 40f;
         Vector2 from = senses.Companion.Bottom;
@@ -536,6 +563,8 @@ public sealed class Positioner
             return 1f;
         foreach (ThreatRecord t in senses.Threats.Threats)
         {
+            if (target != null && ReferenceEquals(t.Npc, target))
+                continue;
             float along = MathHelper.Clamp(Vector2.Dot(t.Npc.Center - from, way) / (length * length), 0f, 1f);
             Vector2 closest = from + way * along;
             if (Vector2.Distance(closest, t.Npc.Center) < Clearance)

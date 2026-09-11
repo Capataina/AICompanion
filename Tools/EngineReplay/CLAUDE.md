@@ -14,7 +14,8 @@ EngineReplay/
 ├─ RenderNativeInterface.cs  hidden native graphics render, production controls and debug-line pixel regression
 ├─ ReplayRecordedWater.cs    event-terrain reconstruction with native full-brain water replay and coverage limits
 ├─ VerifyAttackOutcomes.cs   threat removal, overkill, multi-hit and follow-up attack valuation
-├─ VerifyHuntProgress.cs     ineffective engagements defer without cancelling productive travel
+├─ VerifyHuntProgress.cs     ineffective engagements defer without cancelling productive travel, and an alternating pick still defers
+├─ VerifyFiringPosition.cs   the solve shortlist carries line of sight, so the chosen spot has an arc
 ├─ VerifyEngineMotion.cs     terrain/liquid matrix, scratch-state assertions and native route checks
 ├─ VerifyObservedMotion.cs   native-terrain hostile forecast and pure regroup-urgency contracts
 ├─ VerifyProjectileMotion.cs native projectile-AI and swept-shot contracts
@@ -54,6 +55,8 @@ The same executable also verifies every projectile in the current companion kit 
 These are repeatable collision and route fixtures. They do not establish general world navigation, threat prediction quality or comfortable companionship. The historical text-world corpus and a recorded playtest answer those different questions. Private engine method names are intentional verification dependencies: if a game update removes them, the test must fail visibly rather than silently substitute another simulator.
 
 Loader templates must be registered once per content type. Registering a fresh template for every fixture makes `ContentInstance<T>.Instance` null when more than one instance exists, so isolated tests pass while the combined process fails. Attach each fresh ModPlayer through its inherited `Entity` property and preserve the one template registration. Native tile placement also expects every player slot to contain an object, including inactive slots; a null slot is a fixture defect before it is evidence about placement.
+
+The firing-position fixture resolves the positioner repeatedly rather than once, because its reachable region is flooded incrementally across rescores and a single call sees a region a few tiles wide — a one-call check measures flood budget rather than candidate scoring. Its shaft geometry is asserted to be discriminating before the result is read: the near floor must be blind and the lip sighted, or a green result would mean nothing. Terraria's `CanHitLine` tests three tile rows at each step, so an opening exactly as wide as the shaft leaves every solid-floored lip blocked and the fixture would be asserting an impossible shot.
 
 Arrival assertions measure the actual body against the follow objective and local sight. The positioner's follow-status flag belongs to its current request and is cleared when selection yields to idle; using that flag alone can label a completed route failed precisely because following ended correctly.
 
