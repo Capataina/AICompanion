@@ -37,6 +37,10 @@ public sealed class JumpTraversal : Traversal
         // allows and a block refuses.
         if (here is not BodyPhysics.Pose fromPose || NavGrid.IsBlock(t.X, t.Y - NavGrid.BodyHeightTiles))
             yield break;
+        // The take-off each running profile actually reaches out of this node, found once per
+        // direction and speed rather than per landing tile, because the run-up branch of Steer
+        // reads the take-off tile, the profile speed and the body, and never the landing.
+        var takeOffs = new Dictionary<(int Direction, float StartVx), BodyState?>();
         for (int dx = -NavGrid.JumpGapTiles; dx <= NavGrid.JumpGapTiles; dx++)
         {
             // A jump that lands level or lower is only worth flying from an edge: with the next
@@ -60,13 +64,26 @@ public sealed class JumpTraversal : Traversal
                 foreach ((float scale, float startVx) in JumpProfiles(rise, Math.Sign(dx)))
                 {
                     yield return null;
-                    // A running start exists only where the floor behind the take-off is long
-                    // enough to build it: the follow harness (2026-09-08) found sixteen blocks
-                    // proving a walk-speed jump off a slope at the bottom of a pool with rock
-                    // behind it, which the body could only make moving the wrong way.
-                    if (startVx != 0f && RunwayPixels(t, -Math.Sign(dx)) < RunwayNeeded(MathF.Abs(startVx) - SpeedSlack))
-                        continue;
-                    if (BodyPhysics.SimulateJump(NavGrid.World, fromPose, scale, startVx, nx, ny, MaxJumpTicks, out int flight) is not BodyPhysics.Pose landing)
+                    // The arc is proven from the take-off the performer actually reaches, not from
+                    // the node's resting pose at the profile's nominal speed. A running profile is
+                    // entered by backing away to a mark and running in, and how fast that run-up
+                    // leaves the take-off is a fact about the floor behind it; simulating the arc
+                    // at a speed the floor cannot deliver proves a jump the body never makes.
+                    BodyPhysics.Pose launch = fromPose;
+                    float launchVx = startVx;
+                    if (startVx != 0f)
+                    {
+                        var key = (Math.Sign(dx), startVx);
+                        if (!takeOffs.TryGetValue(key, out BodyState? reached))
+                            takeOffs[key] = reached = TakeOff(NavGrid.World, t, fromPose, new Point(nx, ny), scale, startVx);
+                        // No take-off at all: the run-up never settles on its mark or never
+                        // crosses back over the tile, so this profile does not exist from here.
+                        if (reached is not BodyState entry)
+                            continue;
+                        launch = entry.Pose;
+                        launchVx = entry.Vx;
+                    }
+                    if (BodyPhysics.SimulateJump(NavGrid.World, launch, scale, launchVx, nx, ny, MaxJumpTicks, out int flight) is not BodyPhysics.Pose landing)
                         continue;
                     var landed = new Point((int)Math.Floor(landing.CentreX / 16f), BodyPhysics.FeetRow(landing.Bottom));
                     if (landed != target)
@@ -77,6 +94,50 @@ public sealed class JumpTraversal : Traversal
             }
         }
     }
+
+    /// <summary>
+    /// The state the performer is in on the tick it asks for the jump, found by driving this
+    /// traversal's own <see cref="Steer"/> from rest at the node's pose through the body's tick
+    /// rule until it returns a jump. Null when no take-off is reached inside
+    /// <see cref="RunUpTicks"/>, or when the run-up leaves the ground or wedges in a shape.
+    ///
+    /// This is the proof's answer to a question the profile table cannot answer: a running
+    /// profile names a speed, and whether the body ever carries that speed over the take-off
+    /// depends on how much floor sits behind it and where the wall behind that floor stops a
+    /// twenty-pixel-wide body. Running the performer is the only way to know, because a formula
+    /// over the runway length is a second rule and the two would drift, which is the defect this
+    /// whole class exists to prevent.
+    ///
+    /// The run-up branch of <see cref="Steer"/> reads the take-off tile, the profile speed and
+    /// the body alone, never the landing, which is what lets one result serve every landing tile
+    /// in a direction; <c>VerifyMovementContracts</c> asserts that independence so the caching
+    /// cannot quietly become a lie.
+    /// </summary>
+    internal static BodyState? TakeOff(ITileWorld world, Point from, BodyPhysics.Pose pose, Point toward, float scale, float startVx)
+    {
+        var performer = new JumpTraversal();
+        var step = new NavStep(toward, MoveKind.Jump, from, scale, startVx);
+        performer.Begin(step);
+        BodyState state = BodyState.Standing(pose);
+        for (int tick = 1; tick <= RunUpTicks; tick++)
+        {
+            Controls controls = performer.Steer(state, step, null);
+            if (controls.Jump)
+                return state;
+            state = BodyMotion.Step(world, state, controls);
+            if (state.Stuck || !state.OnGround)
+                return null;
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// How long a run-up may take before the profile counts as unreachable. Backing away along a
+    /// runway and running back in is the longest preparation the follower performs, and the
+    /// allowance below prices it the same way: the speed divided by the acceleration, once each
+    /// way, plus slack for the coast onto the mark.
+    /// </summary>
+    private const int RunUpTicks = 180;
 
     /// <summary>
     /// The jumps the body can start with for a rise of so many tiles, in the order the planner
@@ -129,6 +190,15 @@ public sealed class JumpTraversal : Traversal
 
     /// <summary>Backing away to the runway mark, or running in from it and not yet in the air.</summary>
     public override bool MidMove => backingOff || (ranUp && !jumped);
+
+    /// <summary>
+    /// A jump entered is a jump judged: <see cref="Steer"/>, <see cref="Done"/> and
+    /// <see cref="Check"/> all ignore the step that follows, so nothing after this move can turn
+    /// an entry the macro proof refused into one it accepts, and the search may exclude the edge.
+    /// The base class is conservative by default because a walk arrives at the speed its successor
+    /// asks for; a jump takes off at a speed the floor behind it decides.
+    /// </summary>
+    public override bool EntryDependsOnNext => false;
 
     public override void Begin(NavStep step)
     {

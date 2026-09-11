@@ -13,6 +13,7 @@ Scenarios/
 ├─ captured-pool-23-50-24-14964.txt full underwater-awning window used by native survival verification
 ├─ gap-three-wide-two-up-from-run-4-case-9.txt gap traversal isolated from a captured failure
 ├─ half-block-floor-landed-through-a-platform.txt platform descent onto half-height support
+├─ jump-from-a-one-tile-runway-under-a-ceiling.txt the raw 2026-09-11 window where a jump proven at a speed its one-tile runway could not build was refused before every attempt
 ├─ ledge-four-up-lowest-arc-lands-run-5.txt jump-profile landing height
 ├─ ledge-two-tiles-needs-one-jump.txt ordinary ledge climb
 ├─ ledge-under-overhang-to-corridor-run-5.txt clearance under a ceiling

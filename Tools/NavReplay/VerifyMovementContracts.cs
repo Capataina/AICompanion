@@ -110,16 +110,126 @@ internal static class VerifyMovementContracts
         VerifyCapturedEntry();
         VerifyOffsetDescent();
         VerifyRetainedSearchAndExperience();
+        VerifyProvenJumpsAreFlyable();
+        VerifyEntryRejectionIsLearned();
         Require(new WalkTraversal().EntryDependsOnNext && !new DropTraversal().EntryDependsOnNext,
             "successor-sensitive walks cannot be excluded before their successor is known");
+        Require(!new JumpTraversal().EntryDependsOnNext,
+            "a jump's steering, arrival and fault tests never read the next step, so its entry failure can exclude the edge");
 
-        Console.WriteLine("movement contracts: unsafe controls, retained threats, capability chains, liquid exit, macro isolation, walk stalls, search limits and interruption outcomes passed");
+        Console.WriteLine("movement contracts: unsafe controls, retained threats, capability chains, liquid exit, macro isolation, walk stalls, search limits, interruption outcomes, flyable jump proofs and learned entry rejections passed");
         return 0;
     }
 
     private static void Require(bool value, string message)
     {
         if (!value) throw new InvalidOperationException(message);
+    }
+
+    /// <summary>
+    /// Every jump edge the planner proves out of the captured window must be a jump the performer
+    /// actually flies from the same resting pose. The two halves are one class precisely so this
+    /// holds, and it did not: a running profile was admitted whenever the floor behind the take-off
+    /// could reach its speed <em>minus the slack the performer accepts</em>, and then the arc was
+    /// proven at the full speed, so a one-tile runway against a wall proved a jump entered at 1.75
+    /// that the body entered at 1.49 and mislanded. That is what the 2026-09-11 session recorded
+    /// 246 times without the body ever leaving the ground.
+    /// </summary>
+    private static void VerifyProvenJumpsAreFlyable()
+    {
+        string path = System.IO.Path.Combine("Tools", "Scenarios", "jump-from-a-one-tile-runway-under-a-ceiling.txt");
+        var world = TextTileWorld.Parse(new List<string>(System.IO.File.ReadAllLines(path)), out _, out _);
+        NavGrid.World = world;
+        AStar.InvalidateEdges();
+        AStar.AllowLava = false;
+
+        var takeOff = new Point(3494, 605);
+        BodyPhysics.Pose pose = NavGrid.StandAt(takeOff.X, takeOff.Y, false)
+            ?? throw new InvalidOperationException("the recorded take-off tile must still be a node in the captured window");
+        Require(CompareJumpPaths.ProvenEdge(pose, takeOff, new Point(3496, 600)) == null,
+            "the jump out of a one-tile runway under a ceiling must not be offered: its run-up cannot reach the speed its arc was proven at");
+
+        // The run-up is cached per direction and speed, which is only sound while it is a function
+        // of the take-off, the profile and the body. Two different landings, one answer.
+        BodyState? toNear = JumpTraversal.TakeOff(world, takeOff, pose, new Point(3496, 600), 1f, BodyPhysics.WalkSpeed * .5f);
+        BodyState? toFar = JumpTraversal.TakeOff(world, takeOff, pose, new Point(3497, 599), 1f, BodyPhysics.WalkSpeed * .5f);
+        Require(toNear is BodyState near && toFar is BodyState far && near == far,
+            "a running profile's take-off must not depend on the tile it lands on, because the proof caches it per direction");
+
+        // Every jump the window proves, run through the performer. A landing the shared arrival
+        // slack closes on a neighbouring tile is counted apart from a misland on purpose: it is a
+        // property of Traversal.Done rather than of the arc, and folding the two together would
+        // let a real misland hide inside the tally.
+        var unflyable = new List<string>();
+        CompareJumpPaths.Audit audit = CompareJumpPaths.AuditWindow(world, 3486, 594, 21, 19, unflyable.Add);
+        // Zero findings and zero coverage look identical in a count, so the coverage is asserted too.
+        Require(audit.Flown >= 10, $"the captured window must still prove jumps the body flies for this to measure anything; {audit}");
+        Require(audit.Unflyable == 0, $"every proven jump must be flown by the performer or closed by the shared arrival test; {audit.Unflyable} of {audit.Proven} were neither: {string.Join(" | ", unflyable)}");
+    }
+
+    /// <summary>
+    /// A step the macro proof rejects before its first tick has failed as completely as one that
+    /// failed in flight, so it must price its tile and be remembered. Neither happened: the strike
+    /// was gated on the attempt having ticked and the memory on the traversal declaring its entry
+    /// independent of its successor, so a jump refused at entry was re-offered by every later plan.
+    /// The world here changes without announcing a revision, which is how a held step becomes
+    /// unflyable between the plan and the tick that performs it.
+    /// </summary>
+    private static void VerifyEntryRejectionIsLearned()
+    {
+        var world = new RaisableLedgeWorld();
+        NavGrid.World = world;
+        AStar.InvalidateEdges();
+        AStar.AllowLava = false;
+        AStar.Avoid.Clear();
+
+        var navigator = new Navigator();
+        BodyPhysics.Pose start = NavGrid.StandAt(8, 9, false)!.Value;
+        BodyPhysics.Pose goal = NavGrid.StandAt(16, 7, false)!.Value;
+        var live = BodyState.Standing(start);
+        var destination = new Vector2(goal.CentreX, goal.Bottom);
+        bool raised = false;
+        NavStep lastStep = default;
+        for (int tick = 0; tick < 400 && navigator.FaultCount == 0; tick++)
+        {
+            Controls input = navigator.MoveTo(live, destination);
+            live = BodyMotion.Step(world, live, input);
+            // The moment the body stands on the lip with the jump as its next move, close the
+            // landing. The held step still names a tile that is now inside rock.
+            if (!raised && live.OnGround && live.FeetTile.Y == 9 && live.FeetTile.X >= 10)
+            {
+                world.Raised = true;
+                raised = true;
+            }
+            if (navigator.Path is { } held && !held.Finished)
+                lastStep = held.Current;
+        }
+        Console.WriteLine($"   ledge fixture: raised={raised} step={lastStep.Kind} {lastStep.From.X},{lastStep.From.Y}->{lastStep.Tile.X},{lastStep.Tile.Y} faults={navigator.FaultCount} last={navigator.LastFault} strikes={navigator.StuckStrikes}");
+        Require(raised, "the fixture must get the body to the lip, or it measures nothing");
+        Require(navigator.FaultCount > 0 && navigator.LastFault == TraversalFault.Misland,
+            $"closing the landing must produce a misland, not {navigator.LastFault}");
+        Require(navigator.StuckStrikes > 0,
+            "a step the macro proof rejects before its first tick must price its tile, or the planner re-offers it for ever");
+    }
+
+    /// <summary>
+    /// A floor with a two-row lip the body jumps onto, whose landing row can be filled after a
+    /// route is planned. The revision never moves, which is the unannounced change the rejection
+    /// memory is written to survive.
+    /// </summary>
+    private sealed class RaisableLedgeWorld : ITileWorld
+    {
+        public bool Raised;
+        public bool InWorld(int x, int y) => x >= 0 && x < 40 && y >= 0 && y < 30;
+        public TileShape Shape(int x, int y)
+        {
+            if (x >= 14 && y >= 8) return TileShape.Solid;       // the lip the body climbs onto
+            if (x >= 14 && y == 7 && Raised) return TileShape.Solid;  // the landing, closed later
+            return y >= 10 ? TileShape.Solid : TileShape.Air;    // the floor it walks along
+        }
+        public bool PassThrough(int x, int y) => false;
+        public bool Water(int x, int y) => false;
+        public bool Lava(int x, int y) => false;
     }
 
     private static void VerifyRetainedSearchAndExperience()
