@@ -19,6 +19,10 @@ public abstract class PerformNearbyWorldWork : CompanionAction
     private ulong nextSearch, retryAfter;
     private bool needsJump, jumped;
     private ulong jumpStarted;
+    // Tiles whose approach was tried and did not arrive, with the tick they may be offered again.
+    private readonly System.Collections.Generic.Dictionary<Point, ulong> deferred = new();
+    private Vector2 approachOrigin;
+    private int approachTicks;
     public override Vector2? ActivityTarget => target?.ToWorldCoordinates();
     public override object? ActivityIdentity => target;
     protected abstract bool Enabled(in ActionContext ctx);
@@ -26,6 +30,10 @@ public abstract class PerformNearbyWorldWork : CompanionAction
     protected abstract bool Perform(in ActionContext ctx, Point tile);
     protected abstract float Utility { get; }
     protected virtual bool AllowJump => false;
+    /// <summary>How long a tile whose approach never arrived stays out of the candidate set. Long
+    /// enough that the companion leaves the area and does something else, short enough that a tile
+    /// made reachable by the player digging through becomes available again in the same visit.</summary>
+    private const int DeferFailedApproachTicks = 1800;
     protected virtual float CandidateCost(Vector2 feet, Point tile) => Vector2.DistanceSquared(feet, tile.ToWorldCoordinates());
 
     public override float Score(in ActionContext ctx)
@@ -44,6 +52,7 @@ public abstract class PerformNearbyWorldWork : CompanionAction
                     Point p = new(x, y);
                     float distance = CandidateCost(ctx.Npc.Bottom, p);
                     if (distance >= best) continue;
+                    if (deferred.TryGetValue(p, out ulong until) && Main.GameUpdateCount < until) continue;
                     if (!AllowsTarget(ctx, p.ToWorldCoordinates(), p) || !Candidate(ctx, p)) continue;
                     Vector2 candidateStand;
                     bool jump = false;
@@ -52,7 +61,14 @@ public abstract class PerformNearbyWorldWork : CompanionAction
                     { candidateStand = ctx.Npc.Bottom; jump = true; }
                     else if (OreFinder.Approach(p, ctx.Npc.Bottom, out candidateStand) != Reachability.Reach.Yes) continue;
                     target = p; best = distance; stand = candidateStand; needsJump = jump; jumped = false;
+                    approachOrigin = ctx.Npc.Bottom; approachTicks = 0;
                 }
+        }
+        if (deferred.Count > 0)
+        {
+            ulong now = Main.GameUpdateCount;
+            foreach (Point expired in new System.Collections.Generic.List<Point>(deferred.Keys))
+                if (now >= deferred[expired]) deferred.Remove(expired);
         }
         return target == null ? 0f : Utility * Math.Max(.05f, 1f - ctx.Senses.Threats.PlayerDanger);
     }
@@ -62,7 +78,28 @@ public abstract class PerformNearbyWorldWork : CompanionAction
         if (target is not Point tile) return PositionRequest.Hold;
         if (!OreFinder.InReach(ctx.Npc.Bottom, tile))
         {
-            if (!needsJump) return PositionRequest.ExactAt(stand);
+            if (!needsJump)
+            {
+                // The approach can fail, and until this existed nothing said so. Score() only ever
+                // dropped a target that vanished or left the activity envelope, so a cached stand
+                // the body could not walk to was held for ever: on 2026-09-11 that was ticks 18,501
+                // to 21,531 on one pot, 3,031 unbroken ticks with the movement system reporting
+                // itself stalled on 1,826 of them, which was 97% of every stalled tick in the run.
+                // An intent that cannot fail is an intent that cannot be given up, so covering no
+                // ground for a full progress window defers this tile and hands the tick back.
+                if (Vector2.DistanceSquared(approachOrigin, ctx.Npc.Bottom)
+                    >= BehaviourSelection.Weights.ObjectiveProgressPixels * BehaviourSelection.Weights.ObjectiveProgressPixels)
+                { approachOrigin = ctx.Npc.Bottom; approachTicks = 0; }
+                else if (++approachTicks >= BehaviourSelection.Weights.ObjectiveProgressWindowTicks)
+                {
+                    deferred[tile] = Main.GameUpdateCount + DeferFailedApproachTicks;
+                    BehaviourDiagnostics.GodsEyeEvents.RecordWorldInteraction(ctx.Npc, tile, "approach-abandoned",
+                        $"no ground covered in {BehaviourSelection.Weights.ObjectiveProgressWindowTicks} ticks");
+                    target = null; ReleaseActivity(); nextSearch = Main.GameUpdateCount + 60;
+                    return PositionRequest.Hold;
+                }
+                return PositionRequest.ExactAt(stand);
+            }
             if (!jumped)
             {
                 // Validate against the live pose again: another behaviour may have moved us

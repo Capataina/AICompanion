@@ -35,19 +35,28 @@ public static class Reachability
         Unknown,
     }
 
-    /// <summary>What the walker search established between two feet tiles, unrounded.</summary>
-    public static Reach WalkerReach(Point fromFeet, Point toFeet)
+    /// <summary>
+    /// What the walker search established between two feet tiles, unrounded.
+    /// <paramref name="asAnyCreature"/> asks the enemy question — can a body that takes any drop
+    /// get from here to there — and the default asks the companion's own question under whatever
+    /// one-way rule its planner is currently working to. The distinction is the whole point of the
+    /// parameter: this search forced one-way drops on for every caller because it was written for
+    /// threat observation, so mining and chopping certified approaches that require a drop the
+    /// route planner then refuses to plan, and the job waited for a route that could not exist.
+    /// A certificate issued under different rules from the execution is not a certificate.
+    /// </summary>
+    public static Reach WalkerReach(Point fromFeet, Point toFeet, bool asAnyCreature = false)
     {
         Point? start = NavGrid.NearestStandable(fromFeet, 2);
         Point? goal = NavGrid.NearestStandable(toFeet, 2);
         if (start == null || goal == null)
             return Reach.Unknown;
-        // An enemy takes any drop. The brain sets the one-way rule for the companion's own plans
-        // at the end of its tick and it is still set when the senses run at the start of the
-        // next, so it is forced on around this search and put back after; left alone, a hunt
-        // read a zombie that reaches the player by dropping into a cave as unreachable.
+        // The brain sets the one-way rule for the companion's own plans at the end of its tick and
+        // it is still set when the senses run at the start of the next, so the enemy question
+        // forces it on around this search and puts it back after; left alone, a hunt read a zombie
+        // that reaches the player by dropping into a cave as unreachable.
         bool oneWay = AStar.AllowOneWayDrops;
-        AStar.AllowOneWayDrops = true;
+        if (asAnyCreature) AStar.AllowOneWayDrops = true;
         NavPath? path;
         int used;
         AStar.SearchStopReason stop;
@@ -72,7 +81,7 @@ public static class Reachability
     /// costs the player a hit and one wrongly feared costs a little caution. Work selection reads
     /// the three-valued result directly: an unfinished approach yields without discarding its job.
     /// </summary>
-    public static bool WalkerCanReach(Point fromFeet, Point toFeet) => WalkerReach(fromFeet, toFeet) != Reach.No;
+    public static bool WalkerCanReach(Point fromFeet, Point toFeet) => WalkerReach(fromFeet, toFeet, asAnyCreature: true) != Reach.No;
 
     /// <summary>
     /// Self-rescue's reading: only a route the search actually found counts. A drowning companion

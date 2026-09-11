@@ -51,6 +51,16 @@ public abstract class CompanionAction
     /// <summary>Optional excursions yield to regrouping; protection and survival opt out.</summary>
     public virtual bool IsExcursion => true;
 
+    /// <summary>
+    /// Whether a tool is in the arm the throw needs, right now. This is a phase of an action and
+    /// never a property of which action is running: mining and chopping deliberately keep the hand
+    /// empty for the whole walk to the vein, so gating the hands on the action's name switched
+    /// shooting off for the approach as well as the swing. Across the two 2026-09-11 sessions that
+    /// was 4,801 ticks reading hands-busy, every one of them during mine or chop, and 3,930 of them
+    /// with a torch in the hand — a free arm reported as occupied.
+    /// </summary>
+    public virtual bool HandsBusy => false;
+
     /// <summary>0..1. Zero means "not now"; the product-of-considerations shape lives in each override.</summary>
     public abstract float Score(in ActionContext ctx);
 

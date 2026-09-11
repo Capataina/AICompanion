@@ -37,7 +37,11 @@ public sealed class MineAction : CompanionAction
     private int approachRevision;
     private int approachPickPower;
 
+    private bool swinging;
+
     public int JobId => jobId;
+    /// <summary>True only while the pickaxe is actually out; the whole walk to the vein is empty-handed.</summary>
+    public override bool HandsBusy => swinging;
     public override object? ActivityIdentity => jobId > 0 ? jobId : null;
     public WorkPolicy Policy => WorkPolicies.Mining;
     public string Status => status;
@@ -75,10 +79,24 @@ public sealed class MineAction : CompanionAction
         Point origin = MovementQueries.FeetTile(ctx.Npc.Bottom);
         if (origin != approachOrigin || TerrainChanges.Revision != approachRevision || pick != approachPickPower)
         {
-            // Scoring continues during a guard interruption. An early guard tick may propose
-            // an approach, but moving again invalidates it before it can win on resumption.
-            target = null;
-            if (patch.Count > 0) sinceSearch = SearchEveryTicks;
+            // A route computed from the old feet tile is stale the moment the feet move, so the
+            // stand has to be re-derived. The ore does not go stale, and discarding it here was
+            // the defect: walking is what invalidated the target, and walking is the only thing a
+            // mining job ever does before it swings, so a vein more than one tile away could never
+            // be reached. The 2026-09-11 session sat in "approach unknown" for 9,123 of 26,716
+            // ticks against 267 ticks of actual mining, and ore stayed in the ground beside the
+            // player. The tile is kept and only its approach is recomputed; when the recomputation
+            // declines to answer, the tile becomes the walk-at-it target rather than nothing.
+            if (target is OreFinder.OreTarget held)
+            {
+                if (OreFinder.InReach(ctx.Npc.Bottom, held.Tile))
+                    target = held with { StandPosition = ctx.Npc.Bottom };
+                else if (OreFinder.Approach(held.Tile, ctx.Npc.Bottom, out Vector2 restand) == Reachability.Reach.Yes)
+                    target = held with { StandPosition = restand };
+                else
+                    target = null; // the walk-at-unproven-ore path below re-finds it
+            }
+            if (patch.Count > 0 && target == null) sinceSearch = SearchEveryTicks;
             approachOrigin = origin;
             approachRevision = TerrainChanges.Revision;
             approachPickPower = pick;
@@ -236,8 +254,9 @@ public sealed class MineAction : CompanionAction
     {
         Item pickaxe = TileMiner.PickaxeFor(ctx.Player);
         // The pickaxe comes out only in position; on the walk there the hand stays empty, so
-        // the torch can hold it in the dark.
+        // the torch can hold it in the dark and the other arm can still throw.
         ctx.Companion.HoldItem(ItemID.None);
+        swinging = false;
         if (target == null && unproven is Point approach)
         {
             // No proven stand exists yet, so walk at the ore itself. Exact resolves to the nearest
@@ -256,6 +275,7 @@ public sealed class MineAction : CompanionAction
             return PositionRequest.ExactAt(t.StandPosition);
         }
         ctx.Companion.HoldItem(pickaxe.type);
+        swinging = true;
         ctx.Companion.Motor.Face(t.Tile.X * 16f + 8f);
         if (ctx.Companion.Miner.Swing(t.Tile, pickaxe))
         {

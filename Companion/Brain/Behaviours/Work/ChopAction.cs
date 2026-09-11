@@ -20,6 +20,9 @@ public sealed class ChopAction : CompanionAction
     public override string Name => "chop";
     public override Vector2? ActivityTarget => tree?.Bottom.ToWorldCoordinates();
     public override object? ActivityIdentity => tree?.Bottom;
+    /// <summary>True only while the axe is actually out; the whole walk to the tree is empty-handed.</summary>
+    public override bool HandsBusy => swinging;
+    private bool swinging;
     public override void Exit(in ActionContext ctx) { } // The same tree survives a protective interruption.
     private readonly System.Collections.Generic.Dictionary<Point, ulong> deferred = new();
 
@@ -131,12 +134,14 @@ public sealed class ChopAction : CompanionAction
         // The axe comes out only in position; on the walk there the hand stays empty, so the
         // torch can hold it in the dark.
         ctx.Companion.HoldItem(ItemID.None);
+        swinging = false;
         if (tree is not TreeFinder.ChoppableTree t)
             return PositionRequest.Hold;
 
         if (Vector2.Distance(ctx.Npc.Bottom, t.StandPosition) <= 20f)
         {
             ctx.Companion.HoldItem(axe.type);
+            swinging = true;
             ctx.Companion.Motor.Face(t.Bottom.X * 16f + 8f);
             if (ctx.Companion.Chopper.Swing(t.Bottom, axe))
             {

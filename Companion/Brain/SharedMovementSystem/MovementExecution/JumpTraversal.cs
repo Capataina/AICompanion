@@ -302,13 +302,23 @@ public sealed class JumpTraversal : Traversal
     }
 
     /// <summary>
-    /// Landed: standing within the slack of the landing's feet point, or covering the landing
-    /// tile, because a jump is one flight and a body that has come down with the tile under it
-    /// is where the flight ends; the next step's steering absorbs the rest. A body judged
-    /// neither landed nor mislanded walked back to its take-off and flew again for ever.
+    /// Landed and still there: on the ground, and either within the slack of the landing's feet
+    /// point or covering the landing tile, because a jump is one flight and a body that has come
+    /// down with the tile under it is where the flight ends; the next step's steering absorbs the
+    /// rest. A body judged neither landed nor mislanded walked back to its take-off and flew again
+    /// for ever, which is why covering the tile stays a way to finish.
+    ///
+    /// The ground test is what the covering branch was missing. Touching the landing tile while
+    /// still airborne is arrival at a place the body is passing through, not arrival at a place it
+    /// has reached, so the step completed and the route advanced while the companion was on its
+    /// way past the ledge. Of the 37 jumps the 2026-09-11 census recorded as completed, eight had
+    /// the body below its landing tile half a second later with the plan walking on regardless,
+    /// and five of those were still in the air when sampled. That is the jump the player watched
+    /// succeed and then slide off, and it is invisible to a completion count that never asks
+    /// whether the body stayed.
     /// </summary>
     public override bool Done(BodyState live, NavStep step, NavStep? next)
-        => base.Done(live, step, next) || ((jumped || fell) && live.Covers(step.Tile));
+        => base.Done(live, step, next) || ((jumped || fell) && live.OnGround && live.Covers(step.Tile));
 
     public override TraversalFault Check(BodyState live, NavStep step, int ticksOnStep)
     {

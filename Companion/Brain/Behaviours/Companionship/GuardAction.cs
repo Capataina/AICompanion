@@ -2,6 +2,7 @@
 
 using Terraria.ID;
 using System;
+using Microsoft.Xna.Framework;
 using AICompanion.Companion.Brain.WorldObservation;
 using AICompanion.Companion.Brain.BehaviourSelection;
 using AICompanion.Companion.Brain.PositionSelection;
@@ -99,8 +100,25 @@ public sealed class GuardAction : CompanionAction
 
     public override PositionRequest Execute(in ActionContext ctx)
     {
-        // Standing between him and them is all this does now; the shooting happens in Brain.Engage.
+        // Guarding is hunting the threat on a leash, not standing beside the player. Anchoring the
+        // position search on the player made the companion hold station next to him and wait: on
+        // 2026-09-11 guard took 10,019 ticks, chose no target on 7,690 of them with thirteen to
+        // seventeen hostiles reachable, and held its existing spot on 12,592 ticks across the run.
+        // Because guard's own release condition is that the threat has stopped being relevant, and
+        // nothing was ever shot, it could not end — the player watched it sit beside him through
+        // enemies on the platform below. The anchor now walks toward the threat and the leash is
+        // what keeps protection local, so "come closer when he is in danger" stays true without
+        // meaning "stop looking for what is endangering him".
         var target = ctx.Senses.Threats.MostUrgent?.Npc ?? protectedThreat;
-        return new PositionRequest(RequestKind.Guard, ctx.Senses.Player.Bottom, target);
+        Vector2 anchor = ctx.Senses.Player.Bottom;
+        if (target != null)
+        {
+            Vector2 toThreat = target.Bottom - ctx.Senses.Player.Bottom;
+            float leash = PlayerIntegration.CompanionPreferences.Current.NewActivityRadius;
+            anchor = toThreat.LengthSquared() <= leash * leash
+                ? target.Bottom
+                : ctx.Senses.Player.Bottom + Vector2.Normalize(toThreat) * leash;
+        }
+        return new PositionRequest(RequestKind.Guard, anchor, target);
     }
 }

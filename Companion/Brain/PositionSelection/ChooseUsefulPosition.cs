@@ -384,9 +384,19 @@ public sealed class Positioner
                 if (i > 0 && solveClock.Elapsed.TotalMilliseconds >= Weights.PositionAimingMilliseconds) break;
                 if (i >= solves)
                     break; // unsolved candidates cannot beat a solved one above them
-                float fire = TrajectoryAimer.Solve(eye, request.Target!, fireProfile!.Value) != null ? 1f : 0.15f;
-                shot = fire == 1f ? "clear-arc" : "no-arc";
-                score = ScoreSpot(request, feet, eye, playerBottom, senses, bandNear, bandFar, fire, reach) * Incumbency(feet, held);
+                // A spot with no solution cannot do the job the request exists for, so it is a last
+                // resort rather than a slightly worse option. At 0.15 it was a *sixth* of a firing
+                // spot and the incumbency bonus on top made a held one defend itself, which is how
+                // guard arrived somewhere it could not shoot from and then stayed: ticks 14,159 to
+                // 16,161 of 2026-09-11, 2,003 unbroken ticks with every recorded alternative
+                // reading no-arc and estimated time to intervene reading infinity. Kept just above
+                // zero so a request still resolves to somewhere when nothing can shoot at all, and
+                // denied the incumbency bonus so it cannot hold the spot against a solved one.
+                bool solved = TrajectoryAimer.Solve(eye, request.Target!, fireProfile!.Value) != null;
+                float fire = solved ? 1f : 0.02f;
+                shot = solved ? "clear-arc" : "no-arc";
+                score = ScoreSpot(request, feet, eye, playerBottom, senses, bandNear, bandFar, fire, reach)
+                    * (solved ? Incumbency(feet, held) : 1f);
             }
             EvaluatedCandidates++;
             evidence.Add((MovementQueries.FeetTile(feet), score, shot));

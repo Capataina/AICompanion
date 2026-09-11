@@ -225,11 +225,14 @@ public sealed class Brain
     /// </summary>
     private void Engage(CompanionNPC companion, in ActionContext ctx, CompanionAction? action)
     {
-        // An axe or a pickaxe occupies the arm the throw needs, so working is the one thing that
+        // An axe or a pickaxe occupies the arm the throw needs, so a swing is the one thing that
         // stops the hands. Everything else — following, guarding, kiting, looting, wandering,
-        // saving itself from drowning — shoots. A null action is a reflex tick: nothing was
-        // chosen, so nothing can be holding a tool, and the hands are free by construction.
-        if (action?.Name is "chop" or "mine")
+        // walking to a vein, saving itself from drowning — shoots. A null action is a reflex tick:
+        // nothing was chosen, so nothing can be holding a tool, and the hands are free by
+        // construction. This asks the action whether a tool is actually out rather than asking its
+        // name, because mining and chopping hold nothing for the whole approach and a name test
+        // therefore blinded the companion for the entire walk as well as the swing.
+        if (action?.HandsBusy == true)
         {
             EngageTarget = null;
             companion.Arsenal.NoteHandsBusy();

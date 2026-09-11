@@ -102,7 +102,10 @@ public sealed class Chooser
             if (raw > 0f)
             {
                 if (action == Current)
-                    commitment = Weights.Commitment;
+                    // Earned, not granted. A task whose body has stopped covering ground toward
+                    // what it asked for is not owed the benefit of already having started; that is
+                    // how one unreachable pot outscored reachable ore for fifty unbroken seconds.
+                    commitment = ctx.Companion.Brain.MovementStalled ? Weights.CommitmentWhileStalled : Weights.Commitment;
                 // Work is interruptible at the next decision tick. Charging the whole vein
                 // against a momentary safety horizon made safe, resumable work impossible.
                 float forecast = action.IsExcursion ? Math.Min(Weights.InterruptibleActionTicks, action.ForecastTicks(ctx)) : action.ForecastTicks(ctx);
