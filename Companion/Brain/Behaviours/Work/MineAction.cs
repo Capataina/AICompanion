@@ -97,13 +97,94 @@ public sealed class MineAction : CompanionAction
         {
             Search(ctx, p.MinedOre);
         }
-        if (patch.Count == 0)
-            return 0f;
-        if (target == null && status == "approach unknown")
-            return 0f;
-
         float safe = Consideration.AtLeast(1f - ctx.Senses.Threats.PlayerDanger, 0.1f);
+        if (patch.Count == 0 || (target == null && status == "approach unknown"))
+            return UnprovenApproach(ctx, safe);
+        unproven = null;
         return 0.7f * safe;
+    }
+
+    private Point? unproven;
+    private Vector2 unprovenOrigin;
+    private int unprovenTicks;
+
+    /// <summary>
+    /// What mining is worth while the approach search has declined to answer. It used to be worth
+    /// nothing, and that zero was self-fulfilling: the reachability question is a bounded search run
+    /// fresh from the companion's feet each time, so for a body that does not move it returns the
+    /// same "could not tell" for ever, and the only thing that would shorten the search — walking
+    /// closer — is the thing a zero score prevents. A quarter of the 2026-09-11 session sat in that
+    /// state: 3,444 ticks where mining had found ore, wanted it, and contributed nothing.
+    ///
+    /// So the companion walks at the ore instead, and the approach is re-asked from each new
+    /// position until it resolves one way or the other. The score is discounted well below a proven
+    /// job, so a vein it can actually reach always wins, and it is renewed only while the body is
+    /// covering ground: standing still stops earning it, which preserves the property the original
+    /// zero was protecting — that the chooser is never held by mining that is not going anywhere.
+    /// </summary>
+    private float UnprovenApproach(in ActionContext ctx, float safe)
+    {
+        // Both spellings are the same state: the second is what the walk toward an unproven ore
+        // reports so a session can be read for it, and it must not read as a different state here
+        // or the attempt would end on the tick after it started.
+        if (status is not ("approach unknown" or "approaching unproven ore"))
+        {
+            unproven = null;
+            return 0f;
+        }
+        if (unproven is not Point held || !OreFinder.IsOre(held.X, held.Y) || sinceSearch >= SearchEveryTicks)
+        {
+            unproven = NearestUnprovenOre(ctx);
+            unprovenOrigin = ctx.Npc.Bottom;
+            unprovenTicks = 0;
+        }
+        if (unproven == null)
+            return 0f;
+        if (Vector2.DistanceSquared(unprovenOrigin, ctx.Npc.Bottom) >= Weights.ObjectiveProgressPixels * Weights.ObjectiveProgressPixels)
+        {
+            unprovenOrigin = ctx.Npc.Bottom;
+            unprovenTicks = 0;
+        }
+        else if (++unprovenTicks >= Weights.ObjectiveProgressWindowTicks)
+        {
+            // Walking has stopped resolving it. Give the tick back rather than lean on the ore.
+            unproven = null;
+            return 0f;
+        }
+        return 0.7f * safe * Weights.MineUnprovenApproach;
+    }
+
+    /// <summary>
+    /// The nearest ore this pickaxe may break that the activity envelope and home protection allow,
+    /// asked without any reachability question at all. The ordinary search discards exactly these
+    /// candidates, so when it reports that some approach was unknown it has already thrown away the
+    /// tile that would say where to walk.
+    /// </summary>
+    private Point? NearestUnprovenOre(in ActionContext ctx)
+    {
+        int pick = TileMiner.PickaxeFor(ctx.Player).pick;
+        var miner = ctx.Companion.Miner;
+        Point from = MovementQueries.FeetTile(ctx.Npc.Bottom);
+        Point? best = null;
+        float bestDistance = float.MaxValue;
+        for (int x = from.X - SearchRadiusTiles; x <= from.X + SearchRadiusTiles; x++)
+        {
+            for (int y = from.Y - SearchRadiusTiles; y <= from.Y + SearchRadiusTiles; y++)
+            {
+                if (!OreFinder.IsOre(x, y))
+                    continue;
+                var tile = new Point(x, y);
+                if (!miner.CanMine(tile, pick) || !AllowsTarget(ctx, tile.ToWorldCoordinates())
+                    || WorldInteractions.WorldProtection.ProtectCompanionHomes.IsProtected(tile))
+                    continue;
+                float d = Vector2.DistanceSquared(ctx.Npc.Bottom, tile.ToWorldCoordinates());
+                if (d >= bestDistance)
+                    continue;
+                bestDistance = d;
+                best = tile;
+            }
+        }
+        return best;
     }
 
     private void Search(in ActionContext ctx, (Point Tile, int Type)? playerHit)
@@ -157,6 +238,14 @@ public sealed class MineAction : CompanionAction
         // The pickaxe comes out only in position; on the walk there the hand stays empty, so
         // the torch can hold it in the dark.
         ctx.Companion.HoldItem(ItemID.None);
+        if (target == null && unproven is Point approach)
+        {
+            // No proven stand exists yet, so walk at the ore itself. Exact resolves to the nearest
+            // standable tile it can actually reach, and the partial route walks as close as it can —
+            // which is what re-asks the approach question from somewhere new.
+            status = "approaching unproven ore";
+            return PositionRequest.ExactAt(approach.ToWorldCoordinates());
+        }
         if (target is not OreFinder.OreTarget t)
             return PositionRequest.Hold;
 

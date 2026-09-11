@@ -208,4 +208,12 @@ public static class Weights
     /// enemy at the moment it is first noticed, which is when hunting it is most useful.
     /// </summary>
     public const float HuntUnprovenShot = .45f;
+
+    /// <summary>
+    /// Mining: what an ore job is worth while its approach search has declined to answer and the
+    /// companion is walking closer to make it answerable. Well under a proven job, so ore it can
+    /// actually reach always wins, and under a hunt it can already shoot, so walking at a maybe
+    /// never outranks doing something certain.
+    /// </summary>
+    public const float MineUnprovenApproach = .55f;
 }
