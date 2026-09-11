@@ -412,280 +412,34 @@ Mining calls the game's own `Player.PickTile` on the companion's drawing-only pl
 
 # Behaviour By Behaviour
 
-The three sections above are written to be read whole. This one breaks the same ground into named responsibilities so that a single question — how far off are we, and on what — can be answered at a glance and then in detail.
-
-Each entry carries five things. **Expected** is what the companion should do, written the same way the Expected Behaviour section is written: as a responsibility, with no reference to how it might be achieved, so that the entry stays true whatever we end up building. **Current** is what it actually does, also with no reference to how, so the two can be compared without one contaminating the other. **System** is the machinery that exists today to close that gap. **Aligned** is a rough percentage where 100% means the current behaviour and the expected behaviour are indistinguishable in play. **Cause confidence** is a separate judgement, and the reason it is separate is that a behaviour can be failing while the system responsible for it is fine — kiting could be implemented perfectly and still look broken because the route planning underneath it is not — so this column says how sure we are that the system named is where the problem actually lives.
-
-**The percentages are judgements, not measurements.** They are informed by the recordings, but only one of them — decision commitment — has a before-and-after measurement behind it. Read them as a way of ordering the work, not as data.
-
-| Behaviour | Aligned | Cause confidence |
-|---|---|---|
-| Getting up after being downed | 90% | high |
-| Respecting the player's base | 70% | low |
-| Recovering when it cannot follow | 70% | medium |
-| Weapon selection | 70% | low |
-| Looting | 65% | medium |
-| Staying with the player | 55% | low |
-| Reporting what it is doing | 40% | medium |
-| Opportunistic mining | 35% | high |
-| Dodging and kiting | 35% | low |
-| Breaking containers | 30% | medium |
-| Protecting the player | 30% | medium |
-| Traversing terrain | 30% | high |
-| Deciding what counts as a threat | 25% | high |
-| Opportunistic chopping | — | unmeasured |
-| Lighting the area | 20% | high |
-| Self-preservation | 20% | high |
-| Firing position | 20% | medium |
-| Committing to a decision | 20% | high |
-| Knowing what it cannot do | 20% | high |
-| Chaining several jobs into one trip | 15% | medium |
-| Enemy selection | 15% | medium |
-| Reading where the player is going | 10% | high |
-| Getting out of the player's way | 0% | high |
-| Boss and event behaviour | 0% | high |
-
----
-
-### Getting up after being downed — 90%, high confidence
-
-**Expected.** Being downed costs the companion its participation for a short while and then stops costing anything. The player helping speeds it up and is never required.
-
-**Current.** It gets up on its own after ten seconds, or in three if the player stands over it.
-
-**System.** A downed timer and a separate assistance timer in the companion's body, the second decaying at twice its gain rate so passing by does not bank credit.
-
-**Cause confidence.** High, in the sense that this is simply done. What is not done is preventing the down in the first place, which belongs to self-preservation below.
-
-### Respecting the player's base — 70%, low confidence
-
-**Expected.** The companion never alters anything the player built or lives in. It can light and mine freely in the wild and not at home.
-
-**Current.** It does not appear to damage bases, but no session has stress-tested this.
-
-**System.** Bed-anchored room protection vetoes autonomous edits inside a detected room, with a conservative radius fallback for open or oversized structures. The veto is rechecked at the moment of the edit rather than at discovery.
-
-**Cause confidence.** Low, because it has barely been exercised. No recorded session took place in a base.
-
-### Recovering when it cannot follow — 70%, medium confidence
-
-**Expected.** When the player goes somewhere unreachable, the companion works where it is until there is nothing left, and then rejoins by whatever means it has.
-
-**Current.** The rejoining half works. The working-where-it-is half is untested in play.
-
-**System.** A distant-follow recovery flight that starts only when ordinary following has won and the player is beyond the recovery distance, interrupts the active route and flies continuously to a clear arrival. Combat and work cannot start it and it never becomes learned route memory. Separately, a stranded companion is meant to roam its pocket looking for a way out.
-
-**Cause confidence.** Medium. The flight has headless coverage and is convincing. The roam behaviour has never been observed in a recorded session.
-
-### Weapon selection — 70%, low confidence
-
-**Expected.** The companion uses whichever of the weapons it holds is best for what is in front of it right now — something that punches through a line against a line, something that hits hard against one large target — and it reaches that answer for a weapon it has never seen before.
-
-**Current.** Hard to judge. It fires so rarely that there is very little evidence of it choosing between weapons at all.
-
-**System.** The arsenal compares every legal weapon-and-target pairing by simulating what the shot would actually land: time-discounted effective damage, projected kills with health reserved so overkill cannot earn credit twice, harm prevented, and a small finishing bonus, over a bounded follow-up window. Piercing value comes from flying the arc and seeing what it crosses, not from counting enemies near the target. Weapons supply physical facts and never a suitability score of their own.
-
-**Cause confidence.** Low, and deliberately so. This is the right shape by construction and it is almost certainly not where the problem is; the problem is that nothing reaches it. Fixing enemy selection would tell us far more about this than any change here.
-
-### Looting — 65%, medium confidence
-
-**Expected.** It picks up everything it can reach, with no judgement about what an item is worth, because in a modded playthrough that judgement cannot be made reliably.
-
-**Current.** It loots, and reasonably often — 149 pickups in one ten-minute session, with looting selected 4% to 12% of the time. It also abandons pickups mid-approach frequently, which is the general churn rather than anything about looting.
-
-**System.** The nearest drop that fits somewhere — the player's stack or the companion's bag — and has a standable tile beside it, with contact pickup happening regardless of what the companion is doing.
-
-**Cause confidence.** Medium. Looting itself looks sound; what it suffers from is being interrupted, which is a commitment problem.
-
-### Staying with the player — 55%, low confidence
-
-**Expected.** It keeps pace, picks its own line, and is at the player's side without being underfoot.
-
-**Current.** It broadly keeps up, and periodically stops keeping up for several seconds at a time. Recorded stretches of 194 to 325 ticks show it wanting to follow and making no route progress at all, usually with a vertical gap between the two bodies. Of 180 requests to be with the player, 7 were reached.
-
-**System.** A follow objective with separate horizontal and vertical comfort limits plus a local sight test, so a tile that is close in a straight line but on a different floor does not count as arrival. Following is the only thing permitted to take a one-way drop, and only when the reachable region actually contains the player.
-
-**Cause confidence.** Low. The failures are vertical and look like terrain traversal rather than the follow logic. The same stretches show the body not completing route steps.
-
-### Reporting what it is doing — 40%, medium confidence
-
-**Expected.** A glance at the companion tells you what it is up to, truthfully, in plain words.
-
-**Current.** It does report, and the most frequent thing it reports is being stuck — which is honest and useless, because it is usually stuck in a situation where something useful was within ten tiles.
-
-**System.** A status string derived from the current behaviour and the body's progress flag.
-
-**Cause confidence.** Medium. The reporting is accurate about the thing it is reporting; the problem is that the underlying state is "stuck" far too often. Fixing the report is not the work.
-
-### Opportunistic mining — 35%, high confidence
-
-**Expected.** When the companion judges there is time, it goes to nearby ore and mines it — actively seeking it out rather than waiting for ore to appear next to it — and finishes the vein.
-
-**Current.** Sometimes it goes to ore and mines the whole vein. Sometimes it goes toward ore and never arrives. Sometimes it arrives and does not swing. Sometimes it stands near obvious ore and does nothing at all. Of 8,944 ticks spent mining in the most recent session, 6,242 were spent walking toward ore it had not established it could reach and 1,794 were spent actually swinging.
-
-**System.** A retained vein job, triggered by the mining policy and held across interruptions, that revalidates tile type, tool damage, sight and approach on every resume. Its approach question returns three answers — reachable, not reachable, or undecided — and the behaviour deliberately walks at undecided ore, on the reasoning that the search only becomes decidable by getting closer and scoring it zero would prevent the approach that resolves it.
-
-**Cause confidence.** High. The `approaching unproven ore` status is 70% of mining time and is the system doing exactly what it was written to do; the question is whether walking at an undecided target is the right answer at all.
-
-### Dodging and kiting — 35%, low confidence
-
-**Expected.** While fighting, it avoids taking damage — moving away, jumping over, dropping below, breaking line of sight behind terrain, using whatever movement it has — rather than trading hits.
-
-**Current.** It does move away from things and it does get hit anyway, including walking into enemies while travelling. It was recorded dying in a pool at 0.96 danger having attempted the same escape jump three times.
-
-**System.** Two separate things. A reflex, run before any behaviour is chosen, predicts where hostiles and hostile projectiles will be and marks future body states unsafe; the movement system then picks avoidance controls, and the reflex owns the feet for that tick. Separately, a kiting behaviour backs away from a walker inside melee reach.
-
-**Cause confidence.** Low, and this is the clearest case of the column being worth having. The recorded death shows a jump beginning and being cut short three times with the reflex engaged throughout, which points at the reflex pre-empting a multi-tick move rather than at the avoidance logic being wrong. Kiting itself is selected on well under 1% of ticks, so there is almost no evidence about it either way.
-
-### Breaking containers — 30%, medium confidence
-
-**Expected.** Pots are things it hits with whatever it is holding, on the way past, and the contents are just loot.
-
-**Current.** It breaks pots, and it does so by travelling to them, and it can spend a very long time on one — fifty unbroken seconds on a single pot in one session, moving two tiles sideways and eleven up in that time, while thirteen reachable enemies were present and the player was fighting.
-
-**System.** A shared executor for pots and permanent torches that discovers candidates within an envelope, caches an approach position, and now abandons the target after three seconds of covering no ground, deferring that tile for thirty.
-
-**Cause confidence.** Medium. The abandonment path was added after the session that produced the fifty-second figure and has not been observed in play. What remains wrong regardless is that a pot is treated as a destination rather than as something to hit from where you are.
-
-### Protecting the player — 30%, medium confidence
-
-**Expected.** When something is coming for the player, the companion goes and deals with it, judging whether the player needs help at all rather than reacting to every enemy.
-
-**Current.** Guarding is one of the most-selected behaviours — 9% to 38% across sessions — and during it the companion frequently does nothing observable. One stretch has it guarding for 1,717 ticks, nineteen tiles from a player who was fighting ten enemies, firing nothing.
-
-**System.** Guard scores the observed protection urgency, which compares when the enemy will arrive against when the companion could intervene, and asks for a position within a wide band of the player with a standoff from the threat. Its anchor now walks toward the threat, clamped to a leash around the player, rather than sitting on the player's own position.
-
-**Cause confidence.** Medium. The scoring and the anchor look right. The visible failure is that it stands in the right area and does not shoot, which is enemy selection rather than guarding.
-
-### Traversing terrain — 30%, high confidence
-
-**Expected.** It gets where it decided to go. Jumps land and hold, drops land where intended, and it knows in advance which of those it can do.
-
-**Current.** Fifty-three of 323 jumps completed. Thirty-two of 213 drops. One thousand three hundred and five of 7,372 walks.
-
-**System.** One class per kind of move, each containing both the proof and the performance so the two cannot drift apart, over a tile graph searched by A*. Every move is re-proven from the body state the engine actually left before it is executed. A running jump's arc is proven from the take-off the run-up actually reaches rather than the profile's nominal speed.
-
-**Cause confidence.** High, in the sense that this is where the failures land. It is also the most heavily worked part of the codebase and carries the most recorded dead ends, so "the system is wrong" is a weaker claim here than the numbers suggest — many of those interruptions are ordinary replanning rather than physical failure.
-
-### Deciding what counts as a threat — 25%, high confidence
-
-**Expected.** Something that cannot reach the player or the companion is not a threat, whatever it is doing on screen.
-
-**Current.** Almost everything counts. Across 37,584 ticks with hostiles present, there was not one tick where the companion judged zero of them reachable.
-
-**System.** A bounded search of at most 400 steps returns one of three answers — a route exists, no route exists, or nothing was established — and the threat sense rounds "nothing established" to reachable. The stated reasoning is that a threat wrongly ignored costs the player a hit while one wrongly feared costs a little caution.
-
-**Cause confidence.** High. The reasoning is correct for deciding what is dangerous and is the exact opposite of correct for deciding what is worth going after, and the same answer is used for both.
-
-### Opportunistic chopping — unmeasured
-
-**Expected.** The same as mining, for trees.
-
-**Current.** Unknown. Chopping was selected for 0% of all four recorded sessions — but every one of those sessions was underground, where there are no trees, so this is an absence of evidence rather than evidence of failure.
-
-**System.** The same policy structure as mining, through a tree finder and an axe, with the trunk bottom classified for radius and home protection while the standing spot stays a separate movement question.
-
-**Cause confidence.** Not assessable. A surface session would settle it in ten minutes.
-
-### Lighting the area — 20%, high confidence
-
-**Expected.** The companion keeps the place lit, travelling to dark regions for that purpose and prioritising the player's own surroundings when the player is the dark part.
-
-**Current.** It places torches occasionally and only where it already is. It cannot travel toward darkness because it has no idea where darkness is. Torch placement fell from 19% of one session to 4–7% of the three since.
-
-**System.** A single brightness reading at the companion's own position, excluding its own glow, with hysteresis and a minimum hold. Placement uses the game's own Smart Cursor torch rules including spacing, prefers elevated sites and consumes an item only after a tile actually appears.
-
-**Cause confidence.** High, and this is a missing component rather than a wrong one. Nothing in the repository records brightness anywhere except where the companion is standing, so travelling toward dark is not something the current system does badly — it is something it cannot express.
-
-### Self-preservation — 20%, high confidence
-
-**Expected.** It is very hard to kill. It outranges nearly everything before hardmode and can always break off, so dying should require something unusual.
-
-**Current.** It died once in ten minutes, in a pool, at 0.96 of its own danger reading, while guarding, having never once chosen to save itself — the behaviour that exists to do that scored 0.000 on every tick of its death.
-
-**System.** A survival behaviour scoring observed personal danger against the geometric time to reach air relative to remaining breath, scaled by an urgency constant sized to outrank a committed guard.
-
-**Cause confidence.** High. A behaviour that scores zero throughout the death it exists to prevent is either not being asked the right question or is asking one too narrow — its score is built mainly around drowning, and the recorded death was drowning-adjacent but fundamentally about being hit.
-
-### Firing position — 20%, medium confidence
-
-**Expected.** When it wants to shoot something it cannot currently hit, it goes somewhere it can.
-
-**Current.** It asked for a position with a line of fire 594 times and reached one 45 times.
-
-**System.** Candidate tiles around the anchor are scored cheaply on band, danger, openness, travel bias and a straight-ray sight test, and then a small fixed budget of the best few are given to the real trajectory solver. A spot with no firing solution scores almost zero and gets no incumbency preference.
-
-**Cause confidence.** Medium. The shortlisting carries sight information deliberately, which is the right fix for the obvious failure mode, so the low arrival rate is as likely to be travel failing as selection failing.
-
-### Committing to a decision — 20%, high confidence
-
-**Expected.** Having chosen something, it sticks with it unless something genuinely better turns up. It looks decisive.
-
-**Current.** It re-chooses every 22 ticks, and 86% of its choices last less than half a second. Churn has worsened at every version measured.
-
-**System.** A flat multiplier of 1.15 applied to whatever is already running, so that a near-tie does not oscillate.
-
-**Cause confidence.** High, and this is the only entry in the table with a measured before-and-after: making that multiplier conditional on the body's progress took churn from 481 switches to 1,727 in a comparable session, with 69% of the new switches firing on a tick flagged as stalled. It has been reverted. The remaining 55-ticks-per-decision baseline is still far short of what the expected behaviour needs.
-
-### Knowing what it cannot do — 20%, high confidence
-
-**Expected.** It commits only to things it has established it can do, so it is rarely in the position of failing at something.
-
-**Current.** It routinely commits to things it cannot do — walking at ore whose reachability is undecided, hunting enemies no position can shoot — and the visible result is a companion pressing at walls.
-
-**System.** Reachability is genuinely three-valued and every call site names its own rounding, which is the right structure. The roundings chosen are the problem: the threat sense treats undecided as reachable, and mining deliberately walks at undecided ore on the reasoning that only getting closer can resolve the question.
-
-**Cause confidence.** High. Both of those are conscious decisions with written reasoning behind them, and both produce the behaviour the player complains about most.
-
-### Chaining several jobs into one trip — 15%, medium confidence
-
-**Expected.** Things on the way get done on the way. A pot, a torch site and a vein in a line are one journey.
-
-**Current.** They are separate competitions, won and lost independently, so the companion crosses the same ground repeatedly or abandons the journey partway.
-
-**System.** None, and that is the finding. Every behaviour is scored as though the body were already where the work is; how far away it is affects the score only through the leash and the return-time discount, not as a cost of the job itself.
-
-**Cause confidence.** Medium. This is an absence rather than a defect, and whether it is the right absence to fill depends on decisions not yet made.
-
-### Enemy selection — 15%, medium confidence
-
-**Expected.** Of the things it could shoot, it shoots the one worth shooting: what is attacking the player, what is about to reach it, what it can finish.
-
-**Current.** It has no target selected on 60% to 71% of every session, at every version measured, regardless of how many enemies are present. Fired shots account for 0% to 1% of ticks.
-
-**System.** The arsenal picks the target and weapon together, by expected landed outcome, and re-validates Terraria's own chase predicate at retention, evaluation and firing so an invulnerable hostile cannot attract a shot. A failed trajectory trace is cached only against an unchanged muzzle, target pose and terrain revision.
-
-**Cause confidence.** Medium. That the number is identical across four versions and two major reworks says the cause is upstream of the arsenal's own choosing — most likely in what reaches it as a candidate, or in the trajectory solve refusing arcs it should accept. This is the single highest-value thing in the table to investigate, because it gates weapon selection, firing position, protection and hunting all at once.
-
-### Reading where the player is going — 10%, high confidence
-
-**Expected.** It moves with the player's heading rather than toward the player's feet, which lets it take a different route to the same place and sometimes arrive first.
-
-**Current.** It follows the player's position. The only sense in which heading enters is a predicted lead used to smooth sustained travel.
-
-**System.** A follow objective built around the player's current feet, with a predicted location used for lead and dropped whenever a climb, fall or collision makes the prediction unusable.
-
-**Cause confidence.** High. This is close to unbuilt rather than built badly.
-
-### Getting out of the player's way — 0%, high confidence
-
-**Expected.** It never occupies the tile the player is about to place a block in, or the gap the player is walking through.
-
-**Current.** Nothing of this exists.
-
-**System.** None.
-
-**Cause confidence.** High, trivially.
-
-### Boss and event behaviour — 0%, high confidence
-
-**Expected.** During a boss or a world event the companion drops everything, stops trying to protect the player, ranges far wider, and optimises its own survival first and damage second.
-
-**Current.** Nothing distinguishes a boss fight from ordinary play. No session has recorded one.
-
-**System.** None. There is no notion of a boss, an event, or a wider leash anywhere.
-
-**Cause confidence.** High, trivially. Worth noting that much of what this needs — survival outranking damage, weapons chosen by property, positions chosen for a line of fire — exists already and is not boss-specific, so the gap may be smaller than 0% suggests.
+This table is the source of truth for what the companion is for, and it is maintained rather than written once: a new responsibility we discover mid-development becomes a row here first, stripped of any language about how it might be built, and the Expected Behaviour section above narrates it afterwards. Rows are ordered worst-aligned first, so the top of the table is the work queue.
+
+| Behaviour — one thing the companion is responsible for, named so the row survives any change to how it is built | Expected — what it should do in play, written with no reference to how it is achieved, so the row stays true whatever we end up building | Current — what it actually does in play today, also with no reference to how, so the two columns can be compared without either contaminating the other | System in place — the machinery that exists today to close the gap between those two columns | Aligned — a judgement rather than a measurement, where 100% means current and expected are indistinguishable in play; only decision commitment has a before-and-after behind it | Cause — how confident we are that the system named is where the fault actually lives, kept separate because a behaviour can fail while its own system is perfectly good |
+|---|---|---|---|---|---|
+| **Getting out of the player's way** — not occupying space the player is trying to use | It is never standing in the tile the player is about to place a block in, and never in the gap the player is walking through. It gets out before the click rather than after, and it only cares while the player holds something placeable; holding a sword or a torch it stands wherever it likes. The cost of being in the way is small rather than absolute, so it never skitters away from a good position because the player glanced in that direction. | Nothing of this happens. It stands wherever it stands and the player works around it. | None. | 0% | High, trivially. |
+| **Boss and event behaviour** — how it plays when the world is about one thing | During a boss or a world event it drops everything else, stops trying to protect the player because that judgement is meaningless against a boss, ranges several times further than usual with a soft pull back rather than a hard leash, and optimises its own survival first and damage second. It still shoots things that are specifically on the player. It keeps fighting if the player dies. The same applies to a Blood Moon or an invasion from a mod nobody has written anything for, because what triggers it is the state of the world rather than the identity of the monster. | Nothing distinguishes a boss fight from ordinary play. No recorded session contains one. | None. There is no notion of a boss, an event, or a variable leash anywhere. | 0% | High, trivially — though much of what this needs (survival outranking damage, weapons chosen by property, positions chosen for a line of fire) exists already and is not boss-specific, so the real gap is smaller than 0% suggests. |
+| **Reading where the player is going** — moving with a heading rather than toward a position | It moves the way the player is moving rather than toward the player's feet, which lets it take a different route to the same place and sometimes arrive first. It is distance-aware about this: already being on the side the player briefly turned toward means it does not race there, and a moment's turn is not a change of plan. It hurries only when it is genuinely far from where the player is heading. | It follows the player's position. A brief turn pulls it, and a divergent route it could have taken in parallel is not taken. | A follow objective built around the player's current feet, with a predicted location used only to smooth sustained travel and dropped whenever a climb, fall or collision makes the prediction unusable. | 10% | High. This is close to unbuilt rather than built badly. |
+| **Enemy selection** — which of the things it could shoot it actually shoots | Of everything it could hit, it picks what is worth hitting: what is attacking the player, what is about to reach it, what it can finish. Something it cannot hit from anywhere it can reach is not a candidate at all. | It has no target selected on 60% to 71% of every tick of every session, at every version measured, regardless of how many enemies are present. Shots fired account for 0% to 1% of ticks. | The arsenal picks target and weapon together by expected landed outcome, and revalidates Terraria's own chase predicate at retention, evaluation and firing so an invulnerable hostile cannot attract a shot. A failed trajectory trace is cached only against an unchanged muzzle, target pose and terrain revision. | 15% | Medium, and this is the highest-value row in the table. That the figure is unmoved across four versions and two reworks of the combat lane says the cause is upstream of the arsenal's own choosing — in what reaches it as a candidate, or in the solve refusing arcs it should take. It gates weapon selection, firing position, protection and hunting simultaneously, and each of those reads as a separate defect from the outside. |
+| **Chaining several jobs into one trip** — doing what is on the way, on the way | A pot, an unlit corner and a vein in a line are one journey, not three. Things adjacent to a route it is already walking get done for almost nothing; the same things twenty tiles off the route get skipped. Nothing is sequenced in advance and no list is held. | Each is a separate competition won and lost independently, so it crosses the same ground repeatedly or abandons the journey partway. | None, and that is the finding. Every behaviour is scored as though the body were already where the work is; distance enters only through the leash and the return-time discount, never as a cost of the job itself. | 15% | Medium. This is an absence rather than a defect, and whether it is the right absence to fill depends on decisions not yet made. |
+| **Knowing what it cannot do** — the difference between "no" and "not sure yet" | It commits only to what it has established it can do, so failing at something is rare. A thing it cannot reach is never chosen, which means there is nothing to abandon and nothing to be stuck on. "I could not work it out" is treated as no rather than as yes, and where getting closer would settle the question it gets closer as part of something it was doing anyway. | It routinely commits to things it cannot do — walking at ore whose reachability is undecided, going after enemies no position can shoot — and the visible result is a companion pressing at walls. | Reachability is genuinely three-valued and every call site names its own rounding, which is the right structure. The roundings are the problem: the threat sense reads undecided as reachable, and mining deliberately walks at undecided ore on the reasoning that only getting closer can resolve the search. | 20% | High. Both roundings are conscious decisions with written reasoning behind them, and both produce the behaviour the player complains about most. |
+| **Committing to a decision** — sticking with a choice unless something genuinely better appears | Having chosen something it stays with it, and changing its mind costs something rather than being free. It looks decisive from the outside. Interruptions it does accept are resumed seamlessly rather than triggering a fresh decision from scratch. | It re-chooses every 22 ticks. 86% of its choices last under half a second and 83% of the changes go straight back to what was just abandoned. Churn has worsened at every version measured: 89.9, then 63.4, then 55.5, then 22.3 ticks held per decision. | A flat multiplier of 1.15 applied to whatever is already running, so a near-tie does not oscillate. | 20% | High, and the only row with a measured before-and-after: making that multiplier conditional on the body's progress took a comparable session from 481 switches to 1,727, with 69% of the new ones firing on a tick flagged as stalled. Reverted. The 55-ticks baseline underneath it is still far short of what is wanted. |
+| **Firing position** — going somewhere it can shoot from | When it wants to hit something it cannot currently hit, it moves to a place that has the shot, and it picks that place for the shot rather than for anything else. | It asked for a position with a line of fire 594 times in one session and reached one 45 times. | Candidate tiles around the anchor are scored cheaply on band, danger, openness, travel bias and a straight-ray sight test, then a small fixed budget of the best few are given to the real trajectory solver. A spot with no firing solution scores almost zero and gets no incumbency preference. | 20% | Medium. The cheap pass deliberately carries sight information, which is the right fix for the obvious failure, so the low arrival rate is as likely to be travel failing as selection failing. |
+| **Self-preservation** — staying alive | It is very hard to kill. It outranges nearly everything before hardmode and can always break off, so dying should take something unusual. Getting hit costs more the less life it has, so it is visibly more careful at low health without any threshold being crossed. Safety wins ties against damage, always. | It died once in ten minutes, in a pool, at 0.96 of its own danger reading, while guarding, having never once chosen to save itself. | A survival behaviour scoring observed personal danger against the geometric time to reach air relative to remaining breath, scaled by an urgency constant sized to outrank a committed guard. | 20% | High. A behaviour scoring 0.000 on every tick of the death it exists to prevent is asking too narrow a question: its score is built mainly around drowning, and that death was drowning-adjacent but fundamentally about being hit. |
+| **Lighting the area** — keeping the place lit | It keeps the cave lit as a standing responsibility, travelling to unlit regions for that purpose and entering side passages to light them when it has established it can get back out. When the player is the dark part it lights around the player first; when the player is carrying light it goes further afield. It never needs the player to place a torch first. | It places torches occasionally and only where it already is. Torch placement fell from 19% of one session to 4–7% of the three since. | A single brightness reading at the companion's own position, excluding its own glow, with hysteresis and a minimum hold. Placement uses the game's own Smart Cursor torch rules including spacing, prefers elevated sites, and consumes an item only after a tile actually appears. | 20% | High, and this is a missing component rather than a wrong one. Nothing anywhere records brightness except where the companion stands, so travelling toward dark is not done badly — it cannot be expressed. |
+| **Deciding what counts as a threat** — what it treats as dangerous | Something that cannot reach the player or the companion is not a threat, whatever it is doing on screen. A thing behind a wall is ignored completely until the wall comes down. Something walking away is worth less than something walking closer. | Almost everything counts. Across 37,584 ticks with hostiles present, there was not one tick where it judged zero of them reachable. | A bounded search of at most 400 steps returning one of three answers — a route exists, none exists, or nothing was established — with the threat sense rounding "nothing established" to reachable, on the reasoning that a threat wrongly ignored costs the player a hit and one wrongly feared costs a little caution. | 25% | High. That reasoning is correct for deciding what is dangerous and exactly backwards for deciding what is worth going after, and the same answer serves both. |
+| **Traversing terrain** — getting where it decided to go | It arrives. Jumps land and hold rather than touching and sliding off, drops end where intended, and it knows in advance which of those it can do — including with movement abilities it has not been given yet, so a shaft that is out of bounds today is routine once it can double-jump. | 53 of 323 jumps completed. 32 of 213 drops. 1,305 of 7,372 walks. | One class per kind of move, each holding both the proof and the performance so the two cannot drift apart, over a tile graph searched by A*. Every move is re-proven from the body state the engine actually left before it executes, and a running jump's arc is proven from the take-off the run-up actually reaches rather than the profile's nominal speed. | 30% | High in the sense that this is where failures land, but weaker than the numbers suggest: many of those interruptions are ordinary replanning rather than physical failure, and this is the most heavily worked part of the codebase. |
+| **Protecting the player** — dealing with what is coming for the player | When something is coming for the player it goes and deals with it rather than standing nearby waiting, leashed so it does not chase across the map. It judges whether the player needs help at all — one zombie is the player's problem, three is not — and it can finish what it is doing first if the threat is not yet real. | Guarding is one of the most-selected behaviours, 9% to 38% across sessions, and during it the companion frequently does nothing observable. One stretch has it guarding for 1,717 ticks, nineteen tiles from a player fighting ten enemies, firing nothing. | Guard scores observed protection urgency, comparing when the enemy will arrive against when the companion could intervene, and asks for a position within a wide band of the player with a standoff from the threat. Its anchor now walks toward the threat rather than sitting on the player. | 30% | Medium. The scoring and the anchor look right; the visible failure is standing in the right area and not shooting, which belongs to enemy selection. |
+| **Breaking containers** — pots and the things in them | A pot is something it hits with whatever is in its hand, from where it happens to be, on the way past. What falls out is just loot. It is never a destination worth travelling to on its own. | It breaks pots by travelling to them, and can spend a very long time on one — fifty unbroken seconds on a single pot in one session, moving two tiles sideways and eleven up in that time, with thirteen reachable enemies present and the player fighting. | A shared executor for pots and permanent torches that discovers candidates in an envelope, caches an approach position, and abandons the target after three seconds of covering no ground, deferring that tile for thirty. | 30% | Medium. The abandonment path landed after the session that produced the fifty-second figure and has not been seen in play. What stays wrong regardless is treating a pot as a destination. |
+| **Dodging and kiting** — not taking damage while fighting | While fighting it avoids being hit rather than trading: moving away, jumping over, dropping below, breaking line of sight behind terrain, and using whatever movement it has including abilities added later. It keeps shooting while it retreats. | It does move away from things and gets hit anyway, including walking into enemies while travelling. It was recorded dying in a pool at 0.96 danger having attempted the same escape jump three times. | Two separate things: a reflex running before any behaviour is chosen, which predicts where hostiles and hostile projectiles will be and marks future body states unsafe so the movement system picks avoidance controls and owns the feet for that tick; and a kiting behaviour that backs away from a walker inside melee reach. | 35% | Low, and this is the clearest case for keeping this column. The recorded death shows a jump begun and cut short three times with the reflex engaged throughout, which points at the reflex pre-empting a multi-tick move rather than at the avoidance logic. Kiting itself is selected on well under 1% of ticks, so there is almost no evidence either way. |
+| **Opportunistic mining** — going and getting ore | When it judges there is time, it seeks out nearby ore rather than waiting for ore to appear beside it, establishes it can reach it before setting off, gets there, and finishes the vein — jumping to swing at ore above its head. An unreachable vein is never chosen, and a vein that becomes reachable because the player broke a wall is picked up within a second. | Sometimes it goes and mines a whole vein. Sometimes it walks toward ore and never arrives. Sometimes it arrives and does not swing. Sometimes it stands next to obvious ore and does nothing. Of 8,944 ticks spent mining, 6,242 were walking toward ore it had not established it could reach and 1,794 were actually swinging. | A retained vein job held across interruptions, revalidating tile type, tool damage, sight and approach on every resume. Its approach question returns reachable, unreachable or undecided, and the behaviour deliberately walks at undecided ore because the search only becomes decidable by getting closer. | 35% | High. The undecided-approach status is 70% of mining time and is the system doing exactly what it was written to do; the open question is whether walking at an undecided target is the right answer at all. |
+| **Reporting what it is doing** — the companion's own account of itself | A glance tells the player what it is up to, truthfully, in plain words — what it is going for, and when it genuinely cannot do something. "Stuck" is the last thing it says, after asking what it can do from where it is. | It reports accurately, and the most frequent thing it reports is being stuck — usually while something useful was within ten tiles. | A status string derived from the current behaviour and the body's progress flag. | 40% | Medium. The reporting is honest about the state it is reporting; the state itself is wrong too often, so fixing the report is not the work. |
+| **Staying with the player** — keeping pace without being underfoot | It keeps pace, picks its own line over the terrain, and is at the player's side rather than trailing. It is regularly level with the player or slightly ahead, and behind only because it stopped to do something. | It broadly keeps up and periodically stops keeping up for several seconds. Recorded stretches of 194 to 325 ticks show it wanting to follow and making no route progress, usually with a vertical gap between the bodies. Of 180 requests to be with the player, 7 were reached. | A follow objective with separate horizontal and vertical comfort limits plus a local sight test, so a tile close in a straight line but on a different floor does not count as arrival. Following is the only thing permitted a one-way drop, and only when the reachable region actually contains the player. | 55% | Low. The failures are vertical and look like terrain traversal rather than follow logic; the same stretches show the body not completing route steps. |
+| **Looting** — picking things up | It takes everything it can reach with no judgement about worth, because in a modded playthrough that judgement cannot be made reliably. A single dirt block is worth two steps. It collects after a fight rather than during one. | It loots, and reasonably often — 149 pickups in one ten-minute session, selected 4% to 12% of the time. It also abandons pickups mid-approach frequently. | The nearest drop that fits somewhere (the player's stack or the companion's bag) and has a standable tile beside it, with contact pickup happening regardless of what the companion is doing. | 65% | Medium. Looting itself looks sound; what it suffers from is being interrupted, which is a commitment problem. |
+| **Weapon selection** — which weapon for which situation | It uses whichever of the weapons it holds is best for what is in front of it right now — something that punches through a line against a line of targets, something that hits hard against one large one — and reaches that answer for a weapon nobody has ever described to it. It never holds a note saying which weapon is the boss weapon. | Hard to judge. It fires so rarely that there is very little evidence of it choosing between weapons at all. | The arsenal compares every legal weapon-and-target pairing by simulating what the shot would land: time-discounted effective damage, projected kills with health reserved so overkill cannot earn credit twice, harm prevented, and a small finishing bonus, over a bounded follow-up window. Piercing value comes from flying the arc and seeing what it crosses. Weapons supply physical facts and never a suitability score of their own. | 70% | Low, deliberately. This is the right shape by construction and almost certainly not where the problem is. Fixing enemy selection would tell us more about this than any change here. |
+| **Recovering when it cannot follow** — what it does when the player is unreachable | When the player goes somewhere it cannot, it gets on with whatever is where it is — trees, enemies, drops, dark corners — for as long as anything is worth doing, and rejoins only when nothing is left or the distance becomes the biggest thing on the table. It never waits, and there is no waiting state to fall into. | The rejoining half works. The working-where-it-is half has never been observed in a recorded session. | A distant-follow recovery flight that starts only when ordinary following has won and the player is past the recovery distance, interrupts the active route, and flies continuously to a clear arrival; combat and work cannot start it and it never becomes learned route memory. Separately, a stranded companion is meant to roam its pocket looking for a way out. | 70% | Medium. The flight has headless coverage and is convincing; the roam has never been seen in play. |
+| **Respecting the player's base** — not remodelling the player's things | It never alters anything the player built or lives in, and it lights and mines freely everywhere else. | No damage to bases observed, but no session has gone near one. | Bed-anchored room protection vetoing autonomous edits inside a detected room, with a conservative radius fallback for open or oversized structures, rechecked at the moment of the edit rather than at discovery. | 70% | Low, because it has barely been exercised. No recorded session took place in a base. |
+| **Getting up after being downed** — how long a down costs | Being downed takes the companion out for a short while and then stops costing anything. The player helping speeds it up and is never required. | It gets up on its own after ten seconds, or in three if the player stands over it. | A downed timer and a separate assistance timer, the second decaying at twice its gain rate so walking past does not bank credit. | 90% | High, in the sense that this is simply done. Preventing the down belongs to self-preservation. |
+| **Opportunistic chopping** — going and getting wood | The same as mining, for trees: seeking them out when there is time, establishing it can reach one before setting off, felling it and taking the drops, and weighing a stand of several against a single trunk without any fixed count deciding it. | Unknown. Chopping was selected for 0% of all four recorded sessions — and all four were underground, where there are no trees, so this is an absence of evidence rather than evidence of failure. | The same policy structure as mining, through a tree finder and an axe, with the trunk bottom classified for radius and home protection while the standing spot stays a separate movement question. | not measured | Not assessable. A ten-minute surface session would settle it. |
 
 ---
 
