@@ -27,7 +27,8 @@ internal static class VerifyOreWork
             AWeakPickDoesNotMaskFartherOre();
             AnUnmineableVeinDoesNotBecomeWork();
             ASealedTreeYieldsToReachableOre();
-            Console.WriteLine("ore work: disabled/mimic/opportunistic policy, retained vein, relocation, ore-only and tool gates pass");
+            AnUnprovenApproachWalksInsteadOfScoringZero();
+            Console.WriteLine("ore work: disabled/mimic/opportunistic policy, retained vein, relocation, ore-only, tool gates and unproven approach pass");
             return 0;
         }
         finally
@@ -131,6 +132,45 @@ internal static class VerifyOreWork
 
     internal static (MineAction Action, ActionContext Context) SetUp(WorkPolicy policy, ushort tileType, params Point[] ore)
         => SetUp(policy, tileType, ore, null);
+
+    /// <summary>
+    /// An approach the bounded search cannot decide used to score zero, and that zero was
+    /// self-fulfilling: the reachability question is re-asked fresh from the companion's feet each
+    /// time, so a body that never moves gets the same "could not tell" for ever, and walking closer
+    /// — the one thing that shortens the search — is exactly what a zero score prevents. A quarter
+    /// of the 2026-09-11 session sat there: 3,444 ticks with ore found, wanted, and contributing
+    /// nothing to the decision.
+    ///
+    /// The search is starved of its time budget here rather than buried under distance, because the
+    /// mechanism under test is a bounded search declining to answer, and that is precisely what a
+    /// spent budget produces.
+    /// </summary>
+    private static void AnUnprovenApproachWalksInsteadOfScoringZero()
+    {
+        // Far enough along the floor that the approach search has real work to do. Ore beside the
+        // companion resolves through the start-equals-goal shortcut before any budget is consulted,
+        // so a near fixture cannot reach the undecided state at all.
+        var (action, ctx) = SetUp(WorkPolicy.Opportunistic, TileID.Copper, new Point(50, 59));
+        double budget = AStar.MsBudget;
+        try
+        {
+            AStar.MsBudget = 0.0001d;
+            float score = action.Score(ctx);
+            Require(action.Status == "approach unknown",
+                $"the fixture must actually reach an undecided approach, or it tests nothing; status={action.Status}");
+            Require(score > 0f,
+                $"ore whose approach the search could not decide scored zero, so the companion stands still and the search is asked the same unanswerable question for ever; status={action.Status}");
+            var request = action.Execute(ctx);
+            Require(request.Kind == live::AICompanion.Companion.Brain.PositionSelection.RequestKind.Exact,
+                $"an undecided approach must produce a walk toward the ore, since moving is what makes the approach decidable; got {request.Kind}");
+            Require(action.Score(ctx) < 0.7f,
+                "an unproven approach must score below a proven ore job, so reachable ore always wins");
+        }
+        finally
+        {
+            AStar.MsBudget = budget;
+        }
+    }
 
     private static (MineAction Action, ActionContext Context) SetUp(WorkPolicy policy, ushort tileType, Point ore, Point? playerHit)
         => SetUp(policy, tileType, new[] { ore }, playerHit);

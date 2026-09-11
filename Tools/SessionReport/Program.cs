@@ -49,6 +49,7 @@ public static class Program
         new FollowingMakesRouteProgress(),
         new ArrivalDoesNotStrandFollowing(),
         new HuntingProducesAnOutcome(),
+        new HuntingHadAWeaponThatCouldReach(),
         new SubmergedMotionGetsExplained(),
         new FollowingRespondsAfterDeparture(),
         new DamageArrivesWhereDangerWasSeen(),

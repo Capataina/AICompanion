@@ -1,5 +1,7 @@
 # SessionReport — the reader for a playtest
 
+**A stationary test cannot see a hunt that walks.** The long-standing hunting check requires the body to stand still, so a companion that keeps walking at an enemy it will never be able to shoot passes it; on 2026-09-11 that was most of the session, with 3,831 of 4,460 hunting ticks carrying arsenal evidence of every weapon-target pair being outside reach, against 25 ticks that fired. The reach check is its complement: it ignores movement entirely and asks whether the approach ever arrived. Both are kept, because one catches a hunt that does nothing and the other a hunt that does something useless.
+
 Follow decisions require `brain_fresh`: when a downed companion stops executing its brain, the previous action and route fields remain sticky. Those rows end a follow-stall interval and cannot count as a newly selected follow response. Missing freshness is reduced coverage, not evidence of an active decision.
 
 The record was never the problem; the reading was. A session is tens of thousands of rows across eighty-odd columns, every diagnosis this project has made from one was a hand-rolled column sum, and the columns move whenever the brain grows a new fact — which on 2026-09-09 produced a reported mean distance of three and a half thousand tiles from an index that had shifted by two while nobody noticed. This tool turns a session into a verdict: what is definitely wrong, what is probably wrong, and what merely looks odd.

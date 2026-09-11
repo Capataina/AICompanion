@@ -183,4 +183,37 @@ public static class Weights
     /// there, short enough that a spot blocked by an enemy that has since moved comes back.
     /// </summary>
     public const int StuckSpotBanTicks = 600;
+
+    /// <summary>
+    /// Positioner: how much a candidate keeps in the cheap ranking pass when the straight line from
+    /// its eye to the target is blocked. It ranks, it never vetoes: a straight ray is a lower bound
+    /// on an arcing projectile, which clears a lip the ray hits, so a blocked candidate must still
+    /// be able to reach the shortlist and pay for a real trajectory solve. It therefore sits above
+    /// the 0.15 a *solved* failure scores and below the 1 a clear ray scores.
+    /// </summary>
+    public const float BlockedSightRank = .35f;
+
+    /// <summary>
+    /// Hunt: what a target is worth when no weapon can hit it from here but a reachable standing
+    /// position has a line to it, so the hunt is the walk to that position. Below 1 because a fight
+    /// that has to be walked to is worth less than one already in hand, which is also what lets
+    /// ordinary work outscore a hunt that would first have to cross the room.
+    /// </summary>
+    public const float HuntRepositionShot = .7f;
+
+    /// <summary>
+    /// Hunt: what a target is worth while nothing has established whether a firing position exists —
+    /// sighted standing spots near it, and a reachable region that has not finished expanding. It is
+    /// deliberately not a veto: refusing a target because the flood is young would refuse every
+    /// enemy at the moment it is first noticed, which is when hunting it is most useful.
+    /// </summary>
+    public const float HuntUnprovenShot = .45f;
+
+    /// <summary>
+    /// Mining: what an ore job is worth while its approach search has declined to answer and the
+    /// companion is walking closer to make it answerable. Well under a proven job, so ore it can
+    /// actually reach always wins, and under a hunt it can already shoot, so walking at a maybe
+    /// never outranks doing something certain.
+    /// </summary>
+    public const float MineUnprovenApproach = .55f;
 }

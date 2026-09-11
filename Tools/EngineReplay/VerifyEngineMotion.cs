@@ -98,6 +98,8 @@ internal static class VerifyEngineMotion
         failed += VerifyCompanionActivities.Run();
         failed += VerifyObservationLifecycle.Run();
         failed += VerifyHuntProgress.Run();
+        failed += VerifyFiringPosition.Run();
+        failed += VerifyHuntAdmissibility.Run();
         failed += VerifyAttackOutcomes.Run();
         return failed == 0 ? 0 : 1;
     }
