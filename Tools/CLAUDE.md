@@ -18,7 +18,7 @@ Tools/
 
 `check-navigation-boundary.sh` is the architecture check: it ensures the portable core does not name Terraria outside the dedicated adapter. A green boundary check establishes a source boundary only; it does not establish that portable movement matches a live NPC.
 
-Run `dotnet run --project Tools/SessionReport -- Telemetry` after a playtest. It reads the newest session, says which checks its schema supports, and exits non-zero for definitive faults. `NavReplay/CLAUDE.md` owns planner replay flags and verdict meanings; `WorldWindow/CLAUDE.md` owns saved-world reshaping; `EngineReplay/CLAUDE.md` owns native collision verification. `sh Tools/verify.sh` runs the build, boundary check, movement contracts, chronology tests and native engine cases.
+Run `dotnet run --project Tools/SessionReport -- Telemetry` after a playtest. It reads the newest session, says which checks its schema supports, and exits non-zero for definitive faults. `NavReplay/CLAUDE.md` owns planner replay flags and verdict meanings; `WorldWindow/CLAUDE.md` owns saved-world reshaping; `EngineReplay/CLAUDE.md` owns native collision verification. `sh Tools/verify.sh` runs the build, boundary check, movement contracts, chronology tests and native engine cases. It exits 2 when a check could not be asked at all rather than failing: today that is the boundary check on a machine without ripgrep, and the run continues through everything else so one absent tool cannot suppress four checks that still work. Exit 1 remains a real failure and exit 0 requires every check to have run and passed.
 
 ## Traps
 

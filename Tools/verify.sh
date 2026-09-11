@@ -46,6 +46,18 @@ fi
 boundary_log=$(mktemp)
 sh Tools/check-navigation-boundary.sh >"$boundary_log" 2>&1
 boundary_status=$?
+# Exit 2 from the boundary check means the question was not asked — its search tool is absent —
+# which is neither a pass nor a violation. Naming it "broken" would send a reader hunting for
+# movement code that names Terraria types when nothing searched for any, and stopping here
+# would let one missing tool suppress the four checks that can still run, so it is recorded and
+# carried to the end instead.
+boundary_unchecked=0
+if [ $boundary_status -eq 2 ]; then
+  echo "verify: navigation boundary could not be checked"
+  cat "$boundary_log"
+  boundary_status=0
+  boundary_unchecked=1
+fi
 if [ $boundary_status -ne 0 ]; then
   echo "verify: navigation boundary broken"
   cat "$boundary_log"
@@ -72,5 +84,9 @@ if ! dotnet run --project Tools/EngineReplay >"$engine_log" 2>&1; then
 fi
 cat "$engine_log"
 rm -f "$engine_log"
+if [ $boundary_unchecked -eq 1 ]; then
+  echo "verify: build fresh, movement and chronology contracts pass, native engine checks pass — but the navigation boundary was NOT checked (install ripgrep: brew install ripgrep)"
+  exit 2
+fi
 echo "verify: build fresh, boundary holds, movement and chronology contracts pass, native engine checks pass"
 exit 0
