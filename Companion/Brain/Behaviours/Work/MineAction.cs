@@ -38,6 +38,10 @@ public sealed class MineAction : CompanionAction
     private int approachPickPower;
 
     private bool swinging;
+    // The vein tile that is only reachable by hopping, and the tick the hop was asked for, so a
+    // jump that does not deliver the swing releases instead of being re-asked on every tick.
+    private Point? jumpTile;
+    private ulong jumpAsked;
 
     public int JobId => jobId;
     /// <summary>True only while the pickaxe is actually out; the whole walk to the vein is empty-handed.</summary>
@@ -89,7 +93,11 @@ public sealed class MineAction : CompanionAction
             // declines to answer, the tile becomes the walk-at-it target rather than nothing.
             if (target is OreFinder.OreTarget held)
             {
-                if (OreFinder.InReach(ctx.Npc.Bottom, held.Tile))
+                // A hop to a ceiling tile moves the feet by design, so the move that the target
+                // exists for must not be the move that cancels it. The hop's own re-proof against
+                // the live pose in Execute is what ends it when the take-off is genuinely lost.
+                if (jumpTile == held.Tile) { /* retained: the jump owns this target until it lands */ }
+                else if (OreFinder.InReach(ctx.Npc.Bottom, held.Tile))
                     target = held with { StandPosition = ctx.Npc.Bottom };
                 else if (OreFinder.Approach(held.Tile, ctx.Npc.Bottom, out Vector2 restand) == Reachability.Reach.Yes)
                     target = held with { StandPosition = restand };
@@ -270,6 +278,15 @@ public sealed class MineAction : CompanionAction
 
         if (!OreFinder.InReach(ctx.Npc.Bottom, t.Tile))
         {
+            if (jumpTile == t.Tile)
+            {
+                // Re-proved against the live pose: another behaviour may have moved the body since
+                // the vein chose this tile, and a hop proved from somewhere else is not a hop.
+                if (!ProveInteractionJump.CanReach(NavGrid.World, ctx.Companion.Motor.State, body => OreFinder.InReach(body.Feet, t.Tile)))
+                { jumpTile = null; target = null; status = "jump lost its take-off"; return PositionRequest.Hold; }
+                if (Main.GameUpdateCount - jumpAsked > 90) { jumpAsked = Main.GameUpdateCount; return PositionRequest.Hold with { JumpScale = 1f }; }
+                return PositionRequest.Hold;
+            }
             // A waypoint tolerance is not tool reach. Keep approaching the proven stand until
             // the actual body can swing; returning Hold here made approximate arrival permanent.
             return PositionRequest.ExactAt(t.StandPosition);
@@ -314,6 +331,23 @@ public sealed class MineAction : CompanionAction
             status = "mining";
             return current with { Tile = r, StandPosition = ctx.Npc.Bottom };
         }
+        // A vein that runs up into the ceiling has tiles no standable position can swing at, so the
+        // approach search rejects them and the top of the vein stays in the rock for ever. The body
+        // can reach them the way a player does, by jumping from where it already is, and the torch
+        // work has proved that shape since it started placing lights on ledges. Tried before the
+        // relocation loop because hopping beats walking away, and proved against the live pose
+        // rather than assumed, so a tile that is only reachable from somewhere else falls through
+        // to the ordinary approach below.
+        foreach (Point p in patch)
+        {
+            if (OreFinder.InReach(ctx.Npc.Bottom, p)) continue;
+            if (!ProveInteractionJump.CanReach(NavGrid.World, ctx.Companion.Motor.State, body => OreFinder.InReach(body.Feet, p)))
+                continue;
+            status = "jumping to ore";
+            jumpTile = p;
+            return current with { Tile = p, StandPosition = ctx.Npc.Bottom };
+        }
+        jumpTile = null;
         bool unknown = false;
         foreach (Point p in patch)
         {
@@ -346,6 +380,7 @@ public sealed class MineAction : CompanionAction
     private void ClearJob(string reason)
     {
         target = null;
+        jumpTile = null;
         patch.Clear();
         jobId = 0;
         status = reason;
