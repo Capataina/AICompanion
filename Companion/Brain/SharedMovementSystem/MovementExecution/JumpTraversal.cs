@@ -37,6 +37,10 @@ public sealed class JumpTraversal : Traversal
         // allows and a block refuses.
         if (here is not BodyPhysics.Pose fromPose || NavGrid.IsBlock(t.X, t.Y - NavGrid.BodyHeightTiles))
             yield break;
+        // The take-off each running profile actually reaches out of this node, found once per
+        // direction and speed rather than per landing tile, because the run-up branch of Steer
+        // reads the take-off tile, the profile speed and the body, and never the landing.
+        var takeOffs = new Dictionary<(int Direction, float StartVx), BodyState?>();
         for (int dx = -NavGrid.JumpGapTiles; dx <= NavGrid.JumpGapTiles; dx++)
         {
             // A jump that lands level or lower is only worth flying from an edge: with the next
@@ -60,13 +64,26 @@ public sealed class JumpTraversal : Traversal
                 foreach ((float scale, float startVx) in JumpProfiles(rise, Math.Sign(dx)))
                 {
                     yield return null;
-                    // A running start exists only where the floor behind the take-off is long
-                    // enough to build it: the follow harness (2026-09-08) found sixteen blocks
-                    // proving a walk-speed jump off a slope at the bottom of a pool with rock
-                    // behind it, which the body could only make moving the wrong way.
-                    if (startVx != 0f && RunwayPixels(t, -Math.Sign(dx)) < RunwayNeeded(MathF.Abs(startVx) - SpeedSlack))
-                        continue;
-                    if (BodyPhysics.SimulateJump(NavGrid.World, fromPose, scale, startVx, nx, ny, MaxJumpTicks, out int flight) is not BodyPhysics.Pose landing)
+                    // The arc is proven from the take-off the performer actually reaches, not from
+                    // the node's resting pose at the profile's nominal speed. A running profile is
+                    // entered by backing away to a mark and running in, and how fast that run-up
+                    // leaves the take-off is a fact about the floor behind it; simulating the arc
+                    // at a speed the floor cannot deliver proves a jump the body never makes.
+                    BodyPhysics.Pose launch = fromPose;
+                    float launchVx = startVx;
+                    if (startVx != 0f)
+                    {
+                        var key = (Math.Sign(dx), startVx);
+                        if (!takeOffs.TryGetValue(key, out BodyState? reached))
+                            takeOffs[key] = reached = TakeOff(NavGrid.World, t, fromPose, new Point(nx, ny), scale, startVx);
+                        // No take-off at all: the run-up never settles on its mark or never
+                        // crosses back over the tile, so this profile does not exist from here.
+                        if (reached is not BodyState entry)
+                            continue;
+                        launch = entry.Pose;
+                        launchVx = entry.Vx;
+                    }
+                    if (BodyPhysics.SimulateJump(NavGrid.World, launch, scale, launchVx, nx, ny, MaxJumpTicks, out int flight) is not BodyPhysics.Pose landing)
                         continue;
                     var landed = new Point((int)Math.Floor(landing.CentreX / 16f), BodyPhysics.FeetRow(landing.Bottom));
                     if (landed != target)
@@ -77,6 +94,50 @@ public sealed class JumpTraversal : Traversal
             }
         }
     }
+
+    /// <summary>
+    /// The state the performer is in on the tick it asks for the jump, found by driving this
+    /// traversal's own <see cref="Steer"/> from rest at the node's pose through the body's tick
+    /// rule until it returns a jump. Null when no take-off is reached inside
+    /// <see cref="RunUpTicks"/>, or when the run-up leaves the ground or wedges in a shape.
+    ///
+    /// This is the proof's answer to a question the profile table cannot answer: a running
+    /// profile names a speed, and whether the body ever carries that speed over the take-off
+    /// depends on how much floor sits behind it and where the wall behind that floor stops a
+    /// twenty-pixel-wide body. Running the performer is the only way to know, because a formula
+    /// over the runway length is a second rule and the two would drift, which is the defect this
+    /// whole class exists to prevent.
+    ///
+    /// The run-up branch of <see cref="Steer"/> reads the take-off tile, the profile speed and
+    /// the body alone, never the landing, which is what lets one result serve every landing tile
+    /// in a direction; <c>VerifyMovementContracts</c> asserts that independence so the caching
+    /// cannot quietly become a lie.
+    /// </summary>
+    internal static BodyState? TakeOff(ITileWorld world, Point from, BodyPhysics.Pose pose, Point toward, float scale, float startVx)
+    {
+        var performer = new JumpTraversal();
+        var step = new NavStep(toward, MoveKind.Jump, from, scale, startVx);
+        performer.Begin(step);
+        BodyState state = BodyState.Standing(pose);
+        for (int tick = 1; tick <= RunUpTicks; tick++)
+        {
+            Controls controls = performer.Steer(state, step, null);
+            if (controls.Jump)
+                return state;
+            state = BodyMotion.Step(world, state, controls);
+            if (state.Stuck || !state.OnGround)
+                return null;
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// How long a run-up may take before the profile counts as unreachable. Backing away along a
+    /// runway and running back in is the longest preparation the follower performs, and the
+    /// allowance below prices it the same way: the speed divided by the acceleration, once each
+    /// way, plus slack for the coast onto the mark.
+    /// </summary>
+    private const int RunUpTicks = 180;
 
     /// <summary>
     /// The jumps the body can start with for a rise of so many tiles, in the order the planner
@@ -129,6 +190,15 @@ public sealed class JumpTraversal : Traversal
 
     /// <summary>Backing away to the runway mark, or running in from it and not yet in the air.</summary>
     public override bool MidMove => backingOff || (ranUp && !jumped);
+
+    /// <summary>
+    /// A jump entered is a jump judged: <see cref="Steer"/>, <see cref="Done"/> and
+    /// <see cref="Check"/> all ignore the step that follows, so nothing after this move can turn
+    /// an entry the macro proof refused into one it accepts, and the search may exclude the edge.
+    /// The base class is conservative by default because a walk arrives at the speed its successor
+    /// asks for; a jump takes off at a speed the floor behind it decides.
+    /// </summary>
+    public override bool EntryDependsOnNext => false;
 
     public override void Begin(NavStep step)
     {
@@ -266,18 +336,25 @@ public sealed class JumpTraversal : Traversal
     private static float Runway(NavStep step, int direction)
         => MathF.Min(RunwayNeeded(MathF.Abs(step.StartVx)) + 16f, RunwayPixels(step.From, -direction));
 
-    /// <summary>How far under the profile's speed a body may cross the take-off and still make the jump; the planner proves the runway with the same slack the performer accepts.</summary>
+    /// <summary>
+    /// How far under the profile's speed a body may cross the take-off and still commit to the
+    /// jump. This is the performer's tolerance and only the performer's: the planner no longer
+    /// approximates it, because it proves the arc from the take-off <see cref="TakeOff"/>
+    /// reaches by running this same steering, so whatever slack is accepted here is inherited
+    /// rather than restated.
+    /// </summary>
     private const float SpeedSlack = 0.4f;
 
     /// <summary>
     /// The distance the motor needs to reach a speed from rest, from its own acceleration: v²
     /// over twice the gain per tick. The parameter is a speed <em>magnitude</em> and never a
-    /// signed velocity, which is why it is named one: the clamp is there because a caller
-    /// subtracts <see cref="SpeedSlack"/> first and that can go below zero, and a signed
-    /// velocity handed in instead reads every leftward jump as needing no runway at all
-    /// (a −3.5 profile asked for 16 px where its mirror asked for 81.6, Codex review of 7525a1b).
+    /// signed velocity, which is why it is named one: a leftward profile handed in signed must
+    /// ask for the same runway as its mirror, and once asked for 16 px where the mirror asked
+    /// for 81.6 (Codex review of 7525a1b). A clamp to zero used to sit here for a caller that
+    /// subtracted <see cref="SpeedSlack"/> before asking; that caller is gone, and the clamp
+    /// went with it because it was the thing turning a signed speed into "no runway needed".
     /// </summary>
-    private static float RunwayNeeded(float magnitude) => MathF.Max(0f, magnitude) * MathF.Max(0f, magnitude) / (2f * BodyPhysics.Acceleration);
+    private static float RunwayNeeded(float magnitude) => magnitude * magnitude / (2f * BodyPhysics.Acceleration);
 
     /// <summary>The standable floor behind a take-off along its row, in pixels, up to a few tiles; <paramref name="behind"/> is the direction away from the jump.</summary>
     private static float RunwayPixels(Point takeoff, int behind)

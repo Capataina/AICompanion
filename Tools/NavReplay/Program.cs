@@ -26,6 +26,17 @@ int failed = 0, passed = 0, sealedCount = 0, skipped = 0, missing = 0;
 int churnTiles = 0, churnWrong = 0;
 int followPassed = 0, followPartial = 0, followFailed = 0;
 bool traceJump = false, churn = false, follow = false;
+// --compare-jump FROMX,FROMY,TOX,TOY: the take-off tile and the landing tile of one jump edge,
+// and --compare-ticks prints every tick of every run rather than the summary alone.
+(Point from, Point to)? compareJump = null;
+bool compareVerbose = false;
+// --audit-jumps: every jump the planner proves in every block, run through the performer. The
+// share that survives is the offline twin of the game census's jump completion rate.
+bool auditJumps = false;
+var auditTotal = new CompareJumpPaths.Audit();
+// The sideways speed the body carried into the recorded entry; a plan dump's npcbox records the
+// rectangle and not the velocity, so it is supplied rather than guessed at.
+float entryVx = 0f;
 Point? edgesFrom = null, traceWalkFrom = null;
 int traceWalkDir = 1;
 // The ticks of a follow run whose state is printed as it happens (--follow-ticks A,B); none by default.
@@ -45,6 +56,21 @@ for (int i = 0; i < args.Length; i++)
     else if (arg == "--edges" && i + 1 < args.Length && args[i + 1].Split(',') is [var ex, var ey] && int.TryParse(ex, out int exi) && int.TryParse(ey, out int eyi))
     {
         edgesFrom = new Point(exi, eyi);
+        i++;
+    }
+    else if (arg == "--compare-jump" && i + 1 < args.Length && args[i + 1].Split(',') is [var cax, var cay, var cbx, var cby]
+        && int.TryParse(cax, out int caxi) && int.TryParse(cay, out int cayi) && int.TryParse(cbx, out int cbxi) && int.TryParse(cby, out int cbyi))
+    {
+        compareJump = (new Point(caxi, cayi), new Point(cbxi, cbyi));
+        i++;
+    }
+    else if (arg == "--compare-ticks")
+        compareVerbose = true;
+    else if (arg == "--audit-jumps")
+        auditJumps = true;
+    else if (arg == "--entry-vx" && i + 1 < args.Length && float.TryParse(args[i + 1], NumberStyles.Float, CultureInfo.InvariantCulture, out float evx))
+    {
+        entryVx = evx;
         i++;
     }
     else if (arg == "--no-cache")
@@ -128,6 +154,36 @@ foreach (string file in files)
                 foreach (NavEdge edge in traversal.Candidates(NavNode.At(node), here, false))
                     Console.WriteLine($"   {edge.Step.Kind,-11} -> {Fmt(edge.Step.Tile)}  cost {edge.Move:F2} fall {edge.Fall} ticks {edge.Step.Ticks} scale {edge.Step.JumpScale:F2} startVx {edge.Step.StartVx:F2} steerX {edge.Step.SteerX:F1}");
             skipped++;
+            continue;
+        }
+
+        if (auditJumps)
+        {
+            var offenders = new List<string>();
+            CompareJumpPaths.Audit audit = CompareJumpPaths.AuditWindow(world, world.OriginX, world.OriginY, world.Width, world.Height, offenders.Add);
+            auditTotal += audit;
+            Console.WriteLine($"audit {name}: {audit.Proven} jumps proven, {audit.Flown} flown to their tile, {audit.SatisfiedAtEntry} satisfied at entry, {audit.CompletedBySlack} closed by the arrival slack elsewhere, {audit.Unflyable} unflyable ({audit.FlownShare * 100:F1}% flown)");
+            foreach (string line in offenders)
+                Console.WriteLine($"   unflyable {line}");
+            skipped++;
+            continue;
+        }
+
+        // --compare-jump A,B,C,D: the proof path and the execution path over the one jump edge
+        // between those tiles, aligned on their take-off ticks. A proven edge the execution path
+        // cannot fly is the defect this reads; the block's npcbox supplies the live entry when the
+        // dump carries one, so a recorded failure is replayed from the body the game actually had.
+        if (compareJump is (Point cfrom, Point cto))
+        {
+            BodyState? liveEntry = HeaderPose(header) is BodyPhysics.Pose lp
+                ? new BodyState(lp.Left, lp.Bottom, entryVx, 0f, true, Capabilities: MovementCapabilities.Basic)
+                : null;
+            switch (CompareJumpPaths.Compare(world, name, cfrom, cto, liveEntry, compareVerbose))
+            {
+                case true: passed++; break;
+                case false: failed++; break;
+                case null: skipped++; break;
+            }
             continue;
         }
 
@@ -317,7 +373,8 @@ foreach (string file in files)
 }
 Console.WriteLine($"{passed}/{passed + failed} passed, {sealedCount} model-closed (not proof of physical impossibility), {skipped} skipped, {missing} missing inputs, planner {Timing.PlannerMs:F0} ms in total"
     + (churn ? $"; churn: {churnTiles} tiles broken, {churnWrong} stale plans" : "")
-    + (follow ? $"; follow: {followPassed} walked, {followPartial} to a partial plan's end, {followFailed} not" : ""));
+    + (follow ? $"; follow: {followPassed} walked, {followPartial} to a partial plan's end, {followFailed} not" : "")
+    + (auditJumps ? $"; jump proofs: {auditTotal.Proven} proven, {auditTotal.Flown} flown to their tile, {auditTotal.SatisfiedAtEntry} satisfied at entry, {auditTotal.CompletedBySlack} closed by the arrival slack elsewhere, {auditTotal.Unflyable} unflyable ({auditTotal.FlownShare * 100:F1}% flown)" : ""));
 return failed == 0 && skipped == 0 && missing == 0 && passed > 0 && churnWrong == 0 && followFailed == 0 ? 0 : 1;
 
 // The navigator run over the simulated body from a standing start at `from` toward the goal's

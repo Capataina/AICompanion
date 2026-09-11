@@ -451,7 +451,7 @@ public sealed class Navigator
             searchLava = AStar.AllowLava; searchOneWay = AStar.AllowOneWayDrops;
             searchCapabilities = Capabilities;
             search = new ContinueRouteSearch(from.Value, goal, searchLava, searchOneWay,
-                live.Pose, step => !EntryRejected(step, live));
+                live.Pose, step => !EntryExcludedFromSearch(step, live));
             search.Advance(PlanBudget, PlanMsBudget);
             Path = search.Result();
             used = search.Expansions;
@@ -559,6 +559,17 @@ public sealed class Navigator
 
     internal bool EntryRejected(NavStep step, BodyState live) => failedEntries.Exists(entry => entry.step == step && PlanLocalMovement.Matches(entry.entry, live));
 
+    /// <summary>
+    /// The search may skip a rejected first edge only where nothing after it could change the
+    /// outcome: a walk arrives at the speed its successor asks for, so a walk refused beside one
+    /// successor is not refused beside another. That test belongs here, where the rejection is
+    /// consumed, and not where it is recorded — a rejection is a fact about the body and the
+    /// terrain, and a guard that refuses to write the fact down because one consumer cannot use
+    /// it leaves every other consumer with nothing.
+    /// </summary>
+    internal bool EntryExcludedFromSearch(NavStep step, BodyState live)
+        => EntryRejected(step, live) && !For(step.Kind).EntryDependsOnNext;
+
     internal void RememberRejectedEntry(NavStep step, BodyState live)
     {
         if (!EntryRejected(step, live)) failedEntries.Add((step, live, NavGrid.World, NavGrid.World.Revision, clock));
@@ -628,17 +639,25 @@ public sealed class Navigator
                 Status = ExecutionStatus.Preparing;
                 return controls;
             }
-            if (fault != TraversalFault.None && execution!.Ticks == 0 && !traversal.EntryDependsOnNext)
-            {
+            // A physical fault from the macro proof is the fact both guards below exist to answer:
+            // this step, from this body, is not a move the body can make. Neither guard may ask a
+            // proxy question instead, because a fallback's trigger condition has to be the fact it
+            // answers rather than the absence of the ordinary path's own precondition.
+            bool physicallyImpossible = fault != TraversalFault.None;
+            if (physicallyImpossible && execution!.Ticks == 0)
                 RememberRejectedEntry(step, live);
-            }
             if (fault == TraversalFault.None)
                 fault = TraversalFault.Interrupted;
             stepFaulted = true;
             LastFault = fault;
             FaultCount++;
             Report(step, ticksOnStep, fault);
-            if (execution!.Ticks > 0) Strike(step.Tile);
+            // A step refused before its first tick has failed as completely as one that failed in
+            // flight, and more cheaply: the proof ran the whole move and it did not work. Pricing
+            // only the in-flight failure left an entry the proof rejects being re-offered by every
+            // later plan for ever, which is the 246 mislanded jumps of the 2026-09-11 session, none
+            // of which the body ever flew.
+            if (physicallyImpossible) Strike(step.Tile);
             forceReplan = true;
             Status = ExecutionStatus.Rejected;
             return Controls.None;

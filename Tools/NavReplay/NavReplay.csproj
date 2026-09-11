@@ -17,6 +17,7 @@
   <ItemGroup>
     <Compile Include="Program.cs" />
     <Compile Include="VerifyMovementContracts.cs" />
+    <Compile Include="CompareJumpPaths.cs" />
     <!--
       The whole navigation tree, by pattern rather than file by file, with the one file that
       names the game excluded. Listing them by hand meant a new file in the core compiled into

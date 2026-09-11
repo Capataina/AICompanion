@@ -11,6 +11,7 @@ NavReplay/
 ├─ CLAUDE.md          this operating contract
 ├─ NavReplay.csproj   compiles every shared-movement source except TerrariaIntegration
 ├─ VerifyMovementContracts.cs  state, safety, retention and policy-isolation tests
+├─ CompareJumpPaths.cs  one jump edge through both of the paths that claim to perform it
 └─ Program.cs          parses blocks, runs planning/replay modes and renders the result
 ```
 
@@ -30,6 +31,8 @@ dotnet run --project Tools/NavReplay -- --edges X,Y <scenario.txt>
 dotnet run --project Tools/NavReplay -- --trace-jump <scenario.txt>
 dotnet run --project Tools/NavReplay -- --trace-walk X,Y,DIR <scenario.txt>
 dotnet run --project Tools/NavReplay -- --follow-ticks A,B <scenario.txt>
+dotnet run --project Tools/NavReplay -- --compare-jump FROMX,FROMY,TOX,TOY [--compare-ticks] [--entry-vx V] <scenario.txt>
+dotnet run --project Tools/NavReplay -- --audit-jumps <scenario.txt | folder>
 ```
 
 The plain run establishes a route verdict. `--follow` establishes whether the same navigator
@@ -37,6 +40,14 @@ can execute that route under the body simulation. `--no-cache` must agree with t
 and `--churn` must report no stale plans after it breaks each route tile. `--edges` and the two
 trace modes are focused instruments: use them before changing a traversal whose failure is in
 one section of a scenario.
+
+## Reading a jump that the planner proves and the body cannot make
+
+A jump has two code paths that each claim to perform it, and they are both portable, so a disagreement between them is entirely ours and has nothing to do with the native body — `--compare-jump` is not a parity check and a reader who treats it as one will look for the defect in the wrong half. The proof path is `BodyPhysics.SimulateJump`, which is what `Candidates` calls to decide the edge exists. The execution path is `TraversalExecution` driving `JumpTraversal.Steer` into `BodyMotion.Step`, which is what `PlanLocalMovement.TryExecute` replays from the live body before the navigator will commit to the step, and it owns the run-up as well as the arc.
+
+`--compare-jump` runs one edge through both and prints them **aligned on their take-off ticks rather than on tick 1**, because the execution path spends ticks backing away and running in, and a raw tick alignment reports that preparation as the divergence and buries the real one. What the alignment exposes is the state each arc starts from: a proof flown at a speed the runway cannot deliver is a proof of a jump the body never makes, and the take-off row says so in one line. The nominal-speed proof is printed beside the achieved-take-off proof on purpose, so the gap that defect class produces stays recognisable after it has been fixed once. `--compare-ticks` adds every tick of every run; `--entry-vx` supplies the sideways speed a plan dump's `npcbox` does not record. A recorded entry is used only where the body stands on the edge's own take-off tile, and ignored with a printed reason otherwise, because the dump's box is whatever the body was doing at the tick the window was written.
+
+`--audit-jumps` is the same comparison over every node in every block, and it is the offline twin of the game's behaviour census: the census counts jumps begun against jumps completed and cannot say whether the ones that failed were ever possible, while this counts the proofs that do not survive their own execution path and needs no playtest to do it. Its four outcomes are deliberately not one number. *Flown to its tile* is the good case. *Satisfied at entry* is a step the shared arrival test closes before the body jumps at all, which happens on a one-row jump whose landing feet point sits inside `Traversal.ArriveSlack` of the pose it starts from. *Closed by the arrival slack elsewhere* is a body that flew and came to rest within that slack but on a neighbouring tile. Both of those are properties of `Traversal.Done` rather than of the arc, and they are counted apart from *unflyable* so that a real misland cannot hide inside the tally. Folding them together is how a regression check turns into a rubber stamp.
 
 The edge trace includes route replacements and combat interruptions. Those end an attempt
 without counting as a traversal fault. Only actual failure outcomes contribute to the replay's
@@ -49,7 +60,7 @@ backend keeps the corpus deterministic.
 
 ## Traps
 
-The self-test includes captured sub-tile cave entries, rejects a stationary preparation allowance, checks rejection reuse across new execution objects, and verifies that an aged physical failure stays excluded until a fresh simulation succeeds after an unannounced world change. Deadline fixtures distinguish incomplete search from exhausted terrain. `--follow` prints the first rejected macro's entry and predicted failure state, so a route proposal and its execution can be diagnosed separately.
+The self-test includes captured sub-tile cave entries, rejects a stationary preparation allowance, checks rejection reuse across new execution objects, verifies that an aged physical failure stays excluded until a fresh simulation succeeds after an unannounced world change, audits every jump the captured one-tile-runway window proves against the performer that has to fly it, and drives a navigator into a landing closed after its route was planned to check that a step refused before its first tick still prices its tile. Both of the last two were written against the old behaviour first and observed to fail; a check of this shape that has never been seen red is a check nobody can price. Deadline fixtures distinguish incomplete search from exhausted terrain. `--follow` prints the first rejected macro's entry and predicted failure state, so a route proposal and its execution can be diagnosed separately.
 
 - A new movement-core source normally enters the project through the shared glob. Confirm it
   builds with this project after moving a file; a mod build alone does not exercise the replay.
