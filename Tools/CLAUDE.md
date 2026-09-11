@@ -20,6 +20,7 @@ Tools/
 
 Run `dotnet run --project Tools/SessionReport -- Telemetry` after a playtest. It reads the newest session, says which checks its schema supports, and exits non-zero for definitive faults. `NavReplay/CLAUDE.md` owns planner replay flags and verdict meanings; `WorldWindow/CLAUDE.md` owns saved-world reshaping; `EngineReplay/CLAUDE.md` owns native collision verification. `sh Tools/verify.sh` runs the build, boundary check, movement contracts, chronology tests and native engine cases.
 
-## Trap
+## Traps
 
 - Replay success is evidence about the portable movement core. It never substitutes for a playtest or the native collision comparison.
+- **A check whose search tool is missing prints exactly what a held boundary prints.** `check-navigation-boundary.sh` pipes ripgrep into two greps and reports the boundary green when the pipeline is empty, so on a machine without `rg` it printed "movement boundary holds" while having searched nothing (2026-09-11). It now refuses with exit 2 when `rg` is absent. Any check built here states what it could not run rather than letting an absent tool read as a pass.
