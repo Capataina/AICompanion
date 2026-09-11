@@ -27,6 +27,29 @@ public sealed class BrainOverlay : ModSystem
     public static bool Enabled, ShowWorld = true;
     public static bool ShowThreats, ShowPredictions, ShowRoutes = true, ShowCandidates;
     public static bool ShowProjectiles, ShowAiming, ShowMovement, ShowAttention;
+
+    /// <summary>
+    /// The nine layer switches as one integer, so the character save can carry which drawings the
+    /// player had turned on. Which layers someone watches is a standing choice about how they work
+    /// rather than a per-session decision, and re-picking them on every launch is the tax this
+    /// removes. The chooser panel's own open/closed state is deliberately not in here: it covers
+    /// the drawings it describes, so a session that reopened it every launch would start obscured.
+    /// The bit order is the menu order and must not be reshuffled, because an older save's integer
+    /// is read against it; appending a tenth layer at bit 9 is safe, reordering the nine is not.
+    /// </summary>
+    public static int Layers
+    {
+        get => (ShowWorld ? 1 : 0) | (ShowThreats ? 2 : 0) | (ShowPredictions ? 4 : 0)
+            | (ShowProjectiles ? 8 : 0) | (ShowRoutes ? 16 : 0) | (ShowCandidates ? 32 : 0)
+            | (ShowAiming ? 64 : 0) | (ShowMovement ? 128 : 0) | (ShowAttention ? 256 : 0);
+        set
+        {
+            ShowWorld = (value & 1) != 0; ShowThreats = (value & 2) != 0; ShowPredictions = (value & 4) != 0;
+            ShowProjectiles = (value & 8) != 0; ShowRoutes = (value & 16) != 0; ShowCandidates = (value & 32) != 0;
+            ShowAiming = (value & 64) != 0; ShowMovement = (value & 128) != 0; ShowAttention = (value & 256) != 0;
+        }
+    }
+
     private static int scroll;
     private static bool decisionsPage;
     private static ulong inputTick = ulong.MaxValue;
