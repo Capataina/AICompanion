@@ -22,6 +22,8 @@ public sealed class CompanionInventory
     private const int PlayerMainSlots = 50;
 
     public readonly Item[] Items = new Item[Slots];
+    /// <summary>Transient pickup summary for the card; it is deliberately not save data.</summary>
+    public string? LastPickup { get; private set; }
 
     /// <summary>Occupied slots, for the log line on world enter.</summary>
     public int Count
@@ -49,6 +51,7 @@ public sealed class CompanionInventory
     public bool Collect(Item item, Player player)
     {
         int before = item.stack;
+        string pickupName = item.Name;
         // A coin is the player's, and it takes the player's own pickup path: the game fills the
         // purse first and then any slot, rolls a hundred into the next coin as it goes, plays the
         // sound and shows the popup, and hands back what did not fit. The bag's own merge did the
@@ -103,6 +106,7 @@ public sealed class CompanionInventory
         bool took = item.stack < before;
         if (took)
         {
+            LastPickup = $"Last: {pickupName} x{before - item.stack}";
             SoundEngine.PlaySound(SoundID.Grab);
             Sort();
         }
@@ -260,6 +264,7 @@ public sealed class CompanionInventory
 
     public void Load(TagCompound tag)
     {
+        LastPickup = null;
         for (int i = 0; i < Slots; i++)
             Items[i] = new Item();
         foreach (TagCompound entry in tag.GetList<TagCompound>("items"))

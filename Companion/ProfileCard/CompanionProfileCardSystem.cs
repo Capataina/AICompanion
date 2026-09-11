@@ -3,9 +3,11 @@
 using System;
 using System.Collections.Generic;
 using Microsoft.Xna.Framework;
+using Microsoft.Xna.Framework.Graphics;
 using Terraria;
 using Terraria.GameContent;
 using Terraria.GameContent.UI.Elements;
+using Terraria.GameInput;
 using Terraria.ID;
 using Terraria.ModLoader;
 using Terraria.UI;
@@ -17,7 +19,7 @@ using AICompanion.Companion.Brain.Behaviours.Work;
 namespace AICompanion.Companion.ProfileCard;
 
 /// <summary>
-/// Owns the native profile, cargo and mastery pages. Cargo keeps Terraria's bank-slot
+/// Owns the native profile, inventory and mastery pages. Inventory keeps Terraria's bank-slot
 /// interaction semantics inside the same card rather than opening a competing window.
 /// </summary>
 public sealed class CompanionProfileCardSystem : ModSystem
@@ -25,25 +27,26 @@ public sealed class CompanionProfileCardSystem : ModSystem
     private UserInterface? ui;
     private CompanionProfileCard? state;
     private GameTime? lastTime;
+    private Vector2? position;
+    private bool openedPlayerInventory;
 
     public static bool IsOpen { get; private set; }
-    public static bool CargoOpen => IsOpen && ModContent.GetInstance<CompanionProfileCardSystem>().state?.CargoVisible == true;
-    public static void OpenCargo()
+    public static bool InventoryOpen => IsOpen && ModContent.GetInstance<CompanionProfileCardSystem>().state?.InventoryVisible == true;
+    public static void OpenInventory()
     {
         var system = ModContent.GetInstance<CompanionProfileCardSystem>();
         if (!IsOpen) system.Open();
-        system.state?.ShowCargo();
+        system.state?.ShowInventory();
     }
 
     public override void Load() => ui = new UserInterface();
 
     public override void Unload()
     {
-        ui?.SetState(null);
+        Close();
         ui = null;
-        state = null;
+        position = null;
         lastTime = null;
-        IsOpen = false;
     }
 
     public override void OnWorldUnload() => Close();
@@ -69,6 +72,8 @@ public sealed class CompanionProfileCardSystem : ModSystem
 
     private void Close()
     {
+        if (openedPlayerInventory) Main.playerInventory = false;
+        openedPlayerInventory = false;
         ui?.SetState(null);
         state = null;
         IsOpen = false;
@@ -88,6 +93,9 @@ public sealed class CompanionProfileCardSystem : ModSystem
 
     public override void ModifyInterfaceLayers(List<GameInterfaceLayer> layers)
     {
+        int inventory = layers.FindIndex(layer => layer.Name == "Vanilla: Inventory");
+        if (inventory >= 0 && IsOpen)
+            layers[inventory] = new BlockCoveredInventoryInput(layers[inventory], () => state?.CoversPointer == true);
         int index = layers.FindIndex(layer => layer.Name == "Vanilla: Mouse Text");
         if (index < 0) index = layers.Count;
         layers.Insert(index, new LegacyGameInterfaceLayer("AICompanion: Companion Profile", () =>
@@ -101,155 +109,172 @@ public sealed class CompanionProfileCardSystem : ModSystem
     private sealed class CompanionProfileCard : UIState
     {
         private readonly CompanionProfileCardSystem owner;
-        private UIText action = null!;
-        private UIText health = null!;
         private readonly List<(UITextPanel<string> button, Func<bool> selected)> options = new();
         private readonly List<(UIElement element, string text)> hints = new();
         private UIElement content = null!;
         private UIPanel frame = null!;
+        private UIElement titleBar = null!, identity = null!, footer = null!;
+        private UITextPanel<string> back = null!;
         private readonly PreviewMasteryTree mastery = new();
-        public bool CargoVisible { get; private set; }
+        private string page = "Companion";
+        private bool dragging, minimised;
+        private Vector2 dragOffset;
+        private Point screenSize;
+        public bool InventoryVisible { get; private set; }
+        public bool CoversPointer => frame.ContainsPoint(Main.MouseScreen);
 
         public CompanionProfileCard(CompanionProfileCardSystem owner) => this.owner = owner;
 
         public override void OnInitialize()
         {
-            frame = new UIPanel();
-            frame.Width.Set(-32f, 1f);
-            frame.MaxWidth.Set(760f, 0f);
-            frame.Height.Set(-48f, 1f);
-            frame.MaxHeight.Set(570f, 0f);
-            frame.HAlign = .5f;
-            frame.VAlign = .5f;
-            frame.SetPadding(12f);
-            frame.BackgroundColor = new Color(33, 43, 79) * .97f;
-            frame.BorderColor = new Color(104, 130, 187);
+            frame = new UIPanel { BackgroundColor = DrawCardPrimitives.Panel, BorderColor = DrawCardPrimitives.Edge };
+            frame.SetPadding(10f);
             Append(frame);
-
-            var close = Button("X", 34f, () => owner.Close());
-            close.HAlign = 1f;
-            close.Left.Set(-4f, 0f);
-            close.Top.Set(4f, 0f);
-            frame.Append(close);
-
-            var title = new UIText("Companion", .72f, true) { TextColor = Color.Gold };
-            title.Left.Set(8f, 0f); title.Top.Set(4f, 0f); frame.Append(title);
-            var back = Button("Profile", 82f, ShowOverview);
-            back.Left.Set(0f, 0f); back.Top.Set(42f, 0f); frame.Append(back);
-            var cargo = Button("Cargo", 82f, ShowCargo);
-            cargo.Left.Set(88f, 0f); cargo.Top.Set(42f, 0f); frame.Append(cargo);
-            var tree = Button("Mastery", 90f, ShowMastery);
-            tree.Left.Set(176f, 0f); tree.Top.Set(42f, 0f); frame.Append(tree);
+            titleBar = new TitleBar(this);
+            titleBar.Width.Set(0, 1); titleBar.Height.Set(34, 0); frame.Append(titleBar);
+            titleBar.OnLeftMouseDown += (evt, _) =>
+            {
+                if (evt.Target is UITextPanel<string> && !(page == "Companion" && evt.Target == back)) return;
+                dragging = true; dragOffset = Mouse - frame.GetDimensions().Position();
+            };
+            titleBar.OnLeftMouseUp += (_, _) => dragging = false;
+            back = Button("+", 30, () => { if (page != "Companion") ShowOverview(); });
+            titleBar.Append(back);
+            var minimise = Button("_", 30, () => { minimised = !minimised; Layout(); });
+            minimise.HAlign = 1; minimise.Left.Set(-36, 0); titleBar.Append(minimise);
+            var close = Button("X", 30, owner.Close);
+            close.HAlign = 1; titleBar.Append(close);
+            identity = new DrawCompanionStatus();
+            identity.Width.Set(0, 1); identity.Top.Set(38, 0); frame.Append(identity);
             content = new UIElement();
-            content.Top.Set(84f, 0f); content.Width.Set(0f, 1f); content.Height.Set(-84f, 1f);
+            content.Width.Set(0, 1);
             frame.Append(content);
+            footer = new UIElement(); footer.Width.Set(0, 1); frame.Append(footer);
+            var inventoryTile = new StatusTile(this, false);
+            inventoryTile.Width.Set(-5, .5f); inventoryTile.Height.Set(0, 1);
+            inventoryTile.OnLeftClick += (_, _) => ShowInventory(); footer.Append(inventoryTile);
+            var masteryTile = new StatusTile(this, true);
+            masteryTile.Left.Set(5, .5f); masteryTile.Width.Set(-5, .5f); masteryTile.Height.Set(0, 1);
+            masteryTile.OnLeftClick += (_, _) => ShowMastery(); footer.Append(masteryTile);
             ShowOverview();
+        }
+
+        // UpdateUI and UI-scaled interface layers already receive SetZoom_UI input.
+        private static Vector2 Mouse => Main.MouseScreen;
+        private static Vector2 ViewportSize => PlayerInput.OriginalScreenSize / Main.UIScale;
+
+        private void Layout()
+        {
+            float w = Math.Min(780, ViewportSize.X - 24);
+            float h = Math.Min(650, ViewportSize.Y - 24);
+            frame.Width.Set(w, 0); frame.Height.Set(minimised ? 54 : h, 0);
+            Vector2 p = owner.position ?? new Vector2((ViewportSize.X - w) / 2, (ViewportSize.Y - h) / 2);
+            p.X = Math.Clamp(p.X, 0, Math.Max(0, ViewportSize.X - w));
+            p.Y = Math.Clamp(p.Y, 0, Math.Max(0, ViewportSize.Y - (minimised ? 54 : h)));
+            frame.Left.Set(p.X, 0); frame.Top.Set(p.Y, 0);
+            float identityHeight = h < 550 ? 92 : 112;
+            float footerHeight = page == "Companion" ? (h < 550 ? 78 : 100) : 56;
+            identity.Height.Set(identityHeight, 0);
+            content.Top.Set(44 + identityHeight, 0);
+            content.Height.Set(h - 20 - 44 - identityHeight - footerHeight - 8, 0);
+            footer.Top.Set(h - 20 - footerHeight, 0); footer.Height.Set(footerHeight, 0);
+            foreach (UIElement child in new[] { identity, content, footer })
+            {
+                if (minimised) child.Remove();
+                else if (child.Parent == null) frame.Append(child);
+            }
+            if (page == "Companion")
+            {
+                float available = content.Height.Pixels - 66;
+                float rowHeight = Math.Min(46, Math.Max(30, (available - 20) / 6));
+                foreach (var hint in hints)
+                {
+                    hint.element.Height.Set(rowHeight, 0);
+                    foreach (UIElement cell in hint.element.Children) cell.Top.Set((rowHeight - 30) / 2, 0);
+                }
+            }
+            Recalculate();
         }
 
         private void ClearPage()
         {
-            content.RemoveAllChildren(); options.Clear(); hints.Clear(); CargoVisible = false;
-            frame.HAlign = .5f; frame.VAlign = .5f;
-            frame.MaxHeight.Set(570f, 0f);
+            content.RemoveAllChildren(); options.Clear(); hints.Clear(); InventoryVisible = false;
         }
 
-        public void ShowCargo()
+        public void ShowInventory()
         {
-            ClearPage(); CargoVisible = true;
-            frame.MaxHeight.Set(350f, 0f); frame.VAlign = 1f;
+            ClearPage(); InventoryVisible = true;
+            page = "Inventory"; back.SetText("<");
             // Native cursor stacks require item-management mode, even inside this card.
+            if (!Main.playerInventory) owner.openedPlayerInventory = true;
             Main.playerInventory = true;
-            var bag = new CompanionBagUI(embedded: true);
+            var bag = new CompanionBagUI();
             bag.Width.Set(0f, 1f); bag.Height.Set(0f, 1f); bag.Activate(); content.Append(bag);
+            Layout();
         }
 
         private void ShowMastery()
         {
             ClearPage();
+            page = "Mastery"; back.SetText("<");
             mastery.Width.Set(0f, 1f); mastery.Height.Set(0f, 1f);
             content.Append(mastery);
+            Layout();
         }
 
         private void ShowOverview()
         {
             ClearPage();
-            var identity = new UIPanel { BackgroundColor = new Color(39, 51, 92), BorderColor = new Color(77, 99, 154) };
-            identity.Width.Set(162f, 0f); identity.Height.Set(-78f, 1f); identity.SetPadding(10f); content.Append(identity);
-            var portrait = new CompanionPortrait();
-            portrait.HAlign = .5f; portrait.Top.Set(10f, 0f);
-            portrait.Width.Set(100f, 0f); portrait.Height.Set(90f, 0f); identity.Append(portrait);
-
-            health = new UIText("", .7f) { TextColor = Color.LightGreen };
-            health.HAlign = .5f; health.Top.Set(104f, 0f); identity.Append(health);
-            action = new UIText("", .65f);
-            var now = new UIText("Right now", .75f) { TextColor = Color.Gold };
-            now.Top.Set(142f, 0f); identity.Append(now);
-            action.Top.Set(169f, 0f);
-            action.Width.Set(0f, 1f);
-            action.IsWrapped = true;
-            identity.Append(action);
-
-            var bag = Button("Cargo bag", 180f, ShowCargo);
-            bag.Left.Set(0f, 0f);
-            bag.Top.Set(-66f, 1f); content.Append(bag);
-            var tree = Button("Mastery tree", 180f, ShowMastery);
-            tree.Left.Set(190f, 0f); tree.Top.Set(-66f, 1f); content.Append(tree);
-            var note = new UIText("Protection and survival are always active.", .65f) { TextColor = Color.LightSteelBlue };
-            note.Top.Set(-22f, 1f); content.Append(note);
-
-            var list = new UIList { ListPadding = 6f };
-            list.Left.Set(172f, 0f);
-            list.Width.Set(-196f, 1f);
-            list.Height.Set(-78f, 1f);
+            page = "Companion"; back.SetText("+");
+            var heading = new CardLabel("Behaviour", .85f);
+            heading.Width.Set(0, 1); heading.Height.Set(26, 0); content.Append(heading);
+            var list = new UIList { ListPadding = 4f };
+            list.Top.Set(28, 0); list.Width.Set(-24f, 1f); list.Height.Set(-66f, 1f);
             content.Append(list);
             var scrollbar = new UIScrollbar();
-            scrollbar.HAlign = 1f; scrollbar.Height.Set(-78f, 1f);
+            scrollbar.Top.Set(28, 0); scrollbar.HAlign = 1f; scrollbar.Height.Set(-66f, 1f);
             content.Append(scrollbar); list.SetScrollbar(scrollbar);
-
-            AddOptions(list, "Following distance", "Useful jobs can travel farther than ordinary following.",
-                new[] { "Close", "Standard", "Free" }, i => (int)CompanionPreferences.Current.DistanceMode == i,
-                i => CompanionPreferences.Current.DistanceMode = (CompanionDistanceMode)i);
             AddPolicy(list, "Mining", p => p.Mining, (p, v) => p.Mining = v);
-            AddPolicy(list, "Wood chopping", p => p.Chopping, (p, v) => p.Chopping = v);
+            AddPolicy(list, "Chopping", p => p.Chopping, (p, v) => p.Chopping = v);
             AddToggle(list, "Hunting", "Seek enemies when protection and useful work leave time.", p => p.Hunting, (p, v) => p.Hunting = v);
             AddToggle(list, "Break pots", "Break nearby reachable pots and collect their drops.", p => p.PotBreaking, (p, v) => p.PotBreaking = v);
             AddToggle(list, "Place torches", "Uses the companion's torches first, then yours. Protects homes.", p => p.TorchPlacement, (p, v) => p.TorchPlacement = v);
+            AddOptions(list, "Distance", "Useful jobs can travel farther than ordinary following.",
+                new[] { "Close", "Standard", "Free" }, i => (int)CompanionPreferences.Current.DistanceMode == i,
+                i => CompanionPreferences.Current.DistanceMode = (CompanionDistanceMode)i);
+            var note = new CardLabel("Fighting, dodging and pickups are automatic. The action above explains the choice.", .66f);
+            note.Width.Set(0, 1); note.Height.Set(27, 0); note.Top.Set(-27, 1); content.Append(note);
+            Layout();
         }
 
         public override void Update(GameTime gameTime)
         {
             base.Update(gameTime);
-            if (frame.ContainsPoint(Main.MouseScreen / Main.UIScale)) Main.LocalPlayer.mouseInterface = true;
-            if (CargoVisible) Main.playerInventory = true;
+            Point size = ViewportSize.ToPoint();
+            if (size != screenSize) { screenSize = size; Layout(); }
+            if (dragging)
+            {
+                Main.LocalPlayer.mouseInterface = true;
+                if (Main.mouseLeft) { owner.position = Mouse - dragOffset; Layout(); }
+                else dragging = false;
+            }
+            if (frame.ContainsPoint(Mouse)) Main.LocalPlayer.mouseInterface = true;
+            if (InventoryVisible) Main.playerInventory = true;
             CompanionNPC? companion = CompanionNPC.Find()?.ModNPC as CompanionNPC;
             if (companion == null) { owner.Close(); return; }
-            string current = companion.IsDowned ? "Downed: stay nearby to revive" : companion.Brain.Reflexes.Active ?? companion.Brain.ActivityStatus;
-            action.SetText(current);
-            health.SetText($"Life {companion.NPC.life} / {companion.NPC.lifeMax}");
             foreach (var option in options)
             {
                 bool selected = option.selected();
-                option.button.TextColor = selected ? Color.Gold : Color.LightSteelBlue;
-                option.button.BackgroundColor = selected ? new Color(66, 88, 151) : new Color(43, 59, 105);
-                option.button.BorderColor = selected || option.button.IsMouseHovering ? Color.Gold : new Color(104, 130, 187);
+                option.button.TextColor = selected ? Color.Gold : Color.White;
+                option.button.BackgroundColor = selected ? DrawCardPrimitives.Selected : DrawCardPrimitives.Panel;
+                option.button.BorderColor = selected || option.button.IsMouseHovering ? Color.Gold : DrawCardPrimitives.Edge;
             }
             foreach (var hint in hints)
-                if (hint.element.IsMouseHovering) Main.instance.MouseText(hint.text);
+                if (hint.element.IsMouseHovering) Main.instance?.MouseText(hint.text);
         }
 
         private static UITextPanel<string> Button(string text, float width, Action onClick)
-        {
-            var button = new UITextPanel<string>(text, .8f, false);
-            button.Width.Set(width, 0f);
-            button.Height.Set(30f, 0f);
-            button.SetPadding(4f);
-            button.BackgroundColor = new Color(63, 82, 151) * .95f;
-            button.BorderColor = new Color(104, 130, 187);
-            button.OnMouseOver += (_, _) => button.BorderColor = Color.Gold;
-            button.OnMouseOut += (_, _) => button.BorderColor = new Color(104, 130, 187);
-            button.OnLeftClick += (_, _) => onClick();
-            return button;
-        }
+            => DrawCardPrimitives.Button(text, width, onClick);
 
         private void AddPolicy(UIList list, string label, Func<CompanionPreferences, WorkPolicy> get, Action<CompanionPreferences, WorkPolicy> set)
         {
@@ -258,40 +283,68 @@ public sealed class CompanionProfileCardSystem : ModSystem
         }
         private void AddToggle(UIList list, string label, string hint, Func<CompanionPreferences, bool> get, Action<CompanionPreferences, bool> set)
         {
-            AddOptions(list, label, hint, new[] { "Off", "On" }, i => get(CompanionPreferences.Current) == (i == 1),
-                i => set(CompanionPreferences.Current, i == 1));
+            AddOptions(list, label, hint, new[] { "On", "Off" }, i => get(CompanionPreferences.Current) == (i == 0),
+                i => set(CompanionPreferences.Current, i == 0));
         }
         private void AddOptions(UIList list, string label, string hint, string[] values, Func<int, bool> selected, Action<int> select)
         {
-            var row = new UIPanel { BackgroundColor = new Color(39, 51, 92), BorderColor = new Color(77, 99, 154) };
-            row.Width.Set(0f, 1f); row.Height.Set(92f, 0f); row.SetPadding(8f);
-            row.Append(new UIText(label, .8f) { TextColor = Color.White });
+            var row = new UIElement();
+            row.Width.Set(0f, 1f); row.Height.Set(34f, 0f);
+            var caption = new CardLabel(label, .8f);
+            caption.Top.Set(5, 0); caption.Width.Set(130, 0); caption.Height.Set(25, 0); row.Append(caption);
+            var controls = new UIElement(); controls.Left.Set(136, 0); controls.Width.Set(-136, 1); controls.Height.Set(30, 0); row.Append(controls);
             for (int i = 0; i < values.Length; i++)
             {
                 int index = i;
                 var button = Button(values[i], 0f, () => select(index));
-                button.Width.Set(-4f, 1f / values.Length);
-                button.Left.Set(0f, i * 1f / values.Length);
-                button.Top.Set(24f, 0f);
-                row.Append(button); options.Add((button, () => selected(index)));
+                button.Width.Set(-4f, 1f / 3);
+                button.Left.Set(0f, i / 3f);
+                controls.Append(button); options.Add((button, () => selected(index)));
             }
             hints.Add((row, hint));
-            var help = new UIText(label == "Following distance" ? "How freely your companion travels" : values.Length == 3 ? "Mimic follows your work. Auto finds its own." : "Optional companion activity", .6f) { TextColor = Color.LightSteelBlue };
-            help.Top.Set(60f, 0f); row.Append(help);
             list.Add(row);
+        }
+
+        private sealed class TitleBar(CompanionProfileCard card) : UIElement
+        {
+            protected override void DrawSelf(SpriteBatch sb)
+            {
+                var r = GetDimensions().ToRectangle();
+                DrawCardPrimitives.Text(sb, card.page, new Vector2(r.X + 42, r.Y + 3), Color.White, 1f);
+                DrawCardPrimitives.Fill(sb, new Rectangle(r.X, r.Bottom, r.Width, 1), DrawCardPrimitives.Edge);
+            }
+        }
+
+        private sealed class StatusTile(CompanionProfileCard card, bool isMastery) : UIPanel
+        {
+            protected override void DrawSelf(SpriteBatch sb)
+            {
+                BackgroundColor = DrawCardPrimitives.Panel;
+                bool active = isMastery ? card.page == "Mastery" : card.InventoryVisible;
+                BorderColor = active || IsMouseHovering ? Color.Gold : DrawCardPrimitives.Edge;
+                base.DrawSelf(sb);
+                Rectangle r = GetDimensions().ToRectangle();
+                var bag = Main.LocalPlayer.GetModPlayer<CompanionPlayer>().Bag;
+                int value = isMastery ? card.mastery.OpenedCount : bag.Count;
+                int total = isMastery ? PreviewMasteryTree.Nodes.Length : CompanionInventory.Slots;
+                var bar = new Rectangle(r.X + 10, r.Y + 10, r.Width - 80, 6);
+                DrawCardPrimitives.Fill(sb, bar, new Color(20, 24, 75));
+                bar.Width = bar.Width * value / total;
+                DrawCardPrimitives.Fill(sb, bar, isMastery ? Color.Gold : Color.LightGreen);
+                DrawCardPrimitives.Text(sb, $"{value}/{total}", new Vector2(r.Right - 63, r.Y + 4), DrawCardPrimitives.Muted, .65f);
+                DrawCardPrimitives.Text(sb, (active ? "> " : "") + (isMastery ? "Mastery" : "Inventory"), new Vector2(r.X + 10, r.Y + 23), Color.White, .85f);
+                if (r.Height < 70) return;
+                string detail = isMastery ? "Explore the preview" : $"{value} of {total} slots occupied";
+                DrawCardPrimitives.Text(sb, detail, new Vector2(r.X + 10, r.Y + 47), DrawCardPrimitives.Muted, .68f);
+                if (r.Height >= 90)
+                    DrawCardPrimitives.Text(sb, isMastery ? "No points or materials spent" : bag.LastPickup ?? "No recent pickup", new Vector2(r.X + 10, r.Y + 69), DrawCardPrimitives.Muted, .64f);
+            }
         }
     }
 
-    private sealed class CompanionPortrait : UIElement
+    private sealed class CardLabel(string text, float scale) : UIElement
     {
-        protected override void DrawSelf(Microsoft.Xna.Framework.Graphics.SpriteBatch spriteBatch)
-        {
-            if (CompanionNPC.Instance is not { } companion) return;
-            var bounds = GetDimensions();
-            // The map renderer already draws this stand-in player's appearance without changing
-            // the NPC's world pose; the card must not borrow the Guide's entire sprite sheet.
-            Main.MapPlayerRenderer.DrawPlayerHead(Main.Camera, companion.Body.Player,
-                bounds.Position() + new Vector2(bounds.Width / 2, bounds.Height / 2), 1f, 1.6f, Color.White);
-        }
+        protected override void DrawSelf(SpriteBatch sb)
+            => DrawCardPrimitives.WrappedText(sb, text, GetDimensions().ToRectangle(), DrawCardPrimitives.Muted, scale);
     }
 }

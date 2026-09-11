@@ -7,15 +7,15 @@ using AICompanion.Companion.ProfileCard;
 
 namespace AICompanion.Companion.Inventory;
 
-/// <summary>Right-click entry into the profile's cargo page; the profile owns its lifetime.</summary>
+/// <summary>Right-click entry into the profile's inventory page; the profile owns its lifetime.</summary>
 public sealed class CompanionBagSystem : ModSystem
 {
     private const float OpenReach = 160f;
-    public static bool IsOpen => CompanionProfileCardSystem.CargoOpen;
+    public static bool IsOpen => CompanionProfileCardSystem.InventoryOpen;
     public static void Toggle()
     {
         if (IsOpen) CompanionProfileCardSystem.CloseOpenCard();
-        else CompanionProfileCardSystem.OpenCargo();
+        else CompanionProfileCardSystem.OpenInventory();
     }
 
     public static bool MouseIsOnCompanionInReach(Player player)

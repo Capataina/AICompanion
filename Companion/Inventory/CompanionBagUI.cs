@@ -1,129 +1,81 @@
 #nullable enable
-
+using System;
+using System.Collections.Generic;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Terraria;
+using Terraria.GameContent;
 using Terraria.GameContent.UI.Elements;
 using Terraria.GameInput;
+using Terraria.ID;
 using Terraria.UI;
+using AICompanion.Companion.ProfileCard;
 
 namespace AICompanion.Companion.Inventory;
 
-/// <summary>
-/// The cargo page fits a scrollable grid to the available width. Slots use native handling
-/// in the bank context so drag, shift-click and stack splitting behave like a piggy bank,
-/// through the single-item overloads: the array overload maps a bank slot to gamepad point
-/// 400 + index, and the navigator's table stops at 40, so slots past it threw every frame
-/// and never drew. Explicit sorting preserves the arrangement during manual transfers.
-/// </summary>
+/// <summary>Fixed-size native bank slots, filtered without rearranging the backing inventory.</summary>
 public sealed class CompanionBagUI : UIState
 {
-    private readonly bool embedded;
-    public CompanionBagUI(bool embedded = false) => this.embedded = embedded;
-    private const int Columns = 10;
-    private const int VisibleRows = 5;
-    private const float SlotScale = 0.85f;
-    private const float SlotSize = 52f * SlotScale;
-    private const float Border = 4f;
-    private const float Pad = 10f;
-    private const float TitleHeight = 28f;
-    private const float ScrollbarWidth = 20f;
-
+    // The native texture is 52 pixels. Scale its complete slot to the agreed 48 pixels;
+    // the pitch includes a gap and never stretches to consume spare panel width.
+    public const float SlotSize = 48;
+    private const float Pitch = 52;
     private UIScrollbar scrollbar = null!;
-    private UIElement grid = null!;
-    private UIText count = null!;
+    private UIElement viewport = null!, grid = null!, details = null!;
     private CompanionInventory bag = null!;
-    private UIElement viewport = null!;
-    private readonly System.Collections.Generic.List<BagSlot> slots = new();
+    private readonly List<BagSlot> slots = new();
+    private readonly List<UITextPanel<string>> filters = new();
+    private int filter, inspected = -1, signature;
+    private string transferMessage = "";
 
     public override void OnInitialize()
     {
         bag = Main.LocalPlayer.GetModPlayer<PlayerIntegration.CompanionPlayer>().Bag;
-        int rows = CompanionInventory.Slots / Columns;
-
-        float gridWidth = Columns * SlotSize;
-        float viewHeight = VisibleRows * SlotSize;
-        float innerWidth = Pad + gridWidth + Pad + ScrollbarWidth + Pad;
-        float innerHeight = Pad + TitleHeight + viewHeight + Pad;
-
-        // Two panels make the thick border: the outer one is the frame colour, the inner one the
-        // usual inventory blue inset by the border width.
-        var frame = new UIPanel();
-        frame.Width.Set(embedded ? 0f : innerWidth + 2f * Border, embedded ? 1f : 0f);
-        frame.Height.Set(embedded ? 0f : innerHeight + 2f * Border, embedded ? 1f : 0f);
-        frame.HAlign = 0.8f;
-        frame.VAlign = 0.45f;
-        frame.SetPadding(0f);
-        frame.BackgroundColor = new Color(24, 30, 66);
-        frame.BorderColor = new Color(10, 12, 30);
-        Append(frame);
-
-        var panel = new UIPanel();
-        panel.Left.Set(Border, 0f);
-        panel.Top.Set(Border, 0f);
-        panel.Width.Set(-2f * Border, 1f);
-        panel.Height.Set(-2f * Border, 1f);
-        panel.SetPadding(Pad);
-        panel.BackgroundColor = new Color(63, 82, 151) * 0.9f;
-        panel.BorderColor = new Color(24, 30, 66);
-        frame.Append(panel);
-
-        var title = new UIText("Cargo", .85f);
-        title.Top.Set(2f, 0f);
-        panel.Append(title);
-
-        count = new UIText("", 0.8f);
-        count.Top.Set(6f, 0f);
-        count.HAlign = 1f;
-        panel.Append(count);
-        var sort = new UITextPanel<string>("Sort", .75f, false);
-        sort.Left.Set(86f, 0f); sort.Top.Set(-3f, 0f);
-        sort.Width.Set(70f, 0f); sort.Height.Set(26f, 0f); sort.SetPadding(3f);
-        sort.OnLeftClick += (_, _) => bag.Sort(); panel.Append(sort);
-
-        viewport = new UIElement();
-        viewport.Top.Set(TitleHeight, 0f);
-        viewport.Width.Set(-24f, 1f);
-        viewport.Height.Set(-TitleHeight, 1f);
-        viewport.OverflowHidden = true;
-        panel.Append(viewport);
-
-        grid = new UIElement();
-        grid.Width.Set(gridWidth, 0f);
-        grid.Height.Set(rows * SlotSize, 0f);
-        viewport.Append(grid);
-
-        for (int i = 0; i < CompanionInventory.Slots; i++)
+        string[] names = { "All", "Ore", "Wood", "Loot" };
+        for (int i = 0; i < names.Length; i++)
         {
-            var slot = new BagSlot(this, i);
-            slot.Left.Set((i % Columns) * SlotSize, 0f);
-            slot.Top.Set((i / Columns) * SlotSize, 0f);
-            grid.Append(slot);
-            slots.Add(slot);
+            int index = i;
+            var button = DrawCardPrimitives.Button(names[i], 58, () => { filter = index; scrollbar.ViewPosition = 0; Recalculate(); });
+            button.Left.Set(i * 62, 0); Append(button); filters.Add(button);
         }
-
-        scrollbar = new UIScrollbar();
-        scrollbar.Top.Set(TitleHeight, 0f);
-        scrollbar.HAlign = 1f;
-        scrollbar.Height.Set(-TitleHeight, 1f);
-        scrollbar.SetView(viewHeight, rows * SlotSize);
-        panel.Append(scrollbar);
+        viewport = new UIElement { OverflowHidden = true };
+        viewport.Top.Set(38, 0); Append(viewport);
+        grid = new UIElement(); viewport.Append(grid);
+        for (int i = 0; i < CompanionInventory.Slots; i++) slots.Add(new BagSlot(this, i));
+        scrollbar = new UIScrollbar(); scrollbar.Top.Set(38, 0); Append(scrollbar);
+        details = new ItemDetails(this); details.HAlign = 1; details.Top.Set(38, 0); Append(details);
+        var handOver = DrawCardPrimitives.Button("Hand everything over", 220, HandEverythingOver);
+        handOver.HAlign = .5f; handOver.Top.Set(-32, 1); Append(handOver);
     }
+
+    private static bool IsOre(Item item) => item.createTile > -1 && item.createTile < TileID.Sets.Ore.Length && TileID.Sets.Ore[item.createTile];
+    private static bool IsWood(Item item) => RecipeGroup.recipeGroups.TryGetValue(RecipeGroupID.Wood, out var wood) && wood.ValidItems.Contains(item.type);
+    private bool Matches(Item item) => filter == 0 || !item.IsAir && (filter == 1 ? IsOre(item) : filter == 2 ? IsWood(item) : !IsOre(item) && !IsWood(item));
 
     public override void Recalculate()
     {
         base.Recalculate();
-        if (viewport == null || scrollbar == null) return;
-        int columns = System.Math.Clamp((int)(viewport.GetInnerDimensions().Width / SlotSize), 1, Columns);
-        float height = ((CompanionInventory.Slots + columns - 1) / columns) * SlotSize;
-        grid.Width.Set(columns * SlotSize, 0f); grid.Height.Set(height, 0f);
-        for (int i = 0; i < slots.Count; i++)
+        if (viewport == null) return;
+        float width = GetInnerDimensions().Width;
+        float detailWidth = width >= 560 ? 180 : 142;
+        float gridWidth = Math.Max(SlotSize, width - detailWidth - 30);
+        float gridHeight = Math.Max(SlotSize, MathF.Floor((GetInnerDimensions().Height - 76) / Pitch) * Pitch - 4);
+        viewport.Width.Set(gridWidth, 0); viewport.Height.Set(gridHeight, 0);
+        scrollbar.Left.Set(gridWidth + 4, 0); scrollbar.Height.Set(gridHeight, 0);
+        details.Width.Set(detailWidth, 0); details.Height.Set(gridHeight, 0);
+        int columns = Math.Max(1, (int)((gridWidth + Pitch - SlotSize) / Pitch));
+        grid.RemoveAllChildren();
+        int visible = 0;
+        foreach (var slot in slots)
         {
-            slots[i].Left.Set((i % columns) * SlotSize, 0f);
-            slots[i].Top.Set((i / columns) * SlotSize, 0f);
+            if (!Matches(bag.Items[slot.Index])) continue;
+            slot.Left.Set(visible % columns * Pitch, 0); slot.Top.Set(visible / columns * Pitch, 0);
+            grid.Append(slot); visible++;
         }
-        scrollbar.SetView(viewport.GetInnerDimensions().Height, height);
-        grid.Recalculate();
+        float height = Math.Max(gridHeight, (int)Math.Ceiling(visible / (float)columns) * Pitch);
+        grid.Width.Set(gridWidth, 0); grid.Height.Set(height, 0);
+        scrollbar.SetView(gridHeight, height);
+        viewport.Recalculate(); scrollbar.Recalculate(); details.Recalculate();
     }
 
     public override void ScrollWheel(UIScrollWheelEvent evt)
@@ -135,43 +87,113 @@ public sealed class CompanionBagUI : UIState
     public override void Update(GameTime gameTime)
     {
         base.Update(gameTime);
-        if (IsMouseHovering)
-            PlayerInput.LockVanillaMouseScroll("AICompanion/Bag");
-        grid.Top.Set(-scrollbar.GetValue(), 0f);
-        grid.Recalculate();
-        count.SetText($"{bag.Count} / {CompanionInventory.Slots}");
+        if (IsMouseHovering) PlayerInput.LockVanillaMouseScroll("AICompanion/Bag");
+        int next = 17;
+        foreach (Item item in bag.Items) next = unchecked(next * 31 + item.type);
+        if (next != signature) { signature = next; Recalculate(); }
+        grid.Top.Set(-scrollbar.GetValue(), 0); grid.Recalculate();
+        for (int i = 0; i < filters.Count; i++)
+        {
+            filters[i].TextColor = i == filter ? Color.Gold : Color.White;
+            filters[i].BackgroundColor = i == filter ? DrawCardPrimitives.Selected : DrawCardPrimitives.Panel;
+        }
+    }
+
+    private void HandEverythingOver()
+    {
+        if (!Main.mouseItem.IsAir) { transferMessage = "Put down the cursor item first."; return; }
+        Player player = Main.LocalPlayer;
+        for (int i = 0; i < bag.Items.Length; i++)
+        {
+            if (bag.Items[i].IsAir) continue;
+            // Native insertion returns what did not fit. Keep that remainder in
+            // its original bag slot; a full player inventory never deletes an item.
+            bag.Items[i] = player.GetItem(player.whoAmI, bag.Items[i], GetItemSettings.InventoryEntityToPlayerInventorySettings);
+        }
+        transferMessage = bag.Count == 0 ? "Everything handed over." : "The rest stays here until you have room.";
+        Recalculate();
+    }
+
+    protected override void DrawSelf(SpriteBatch sb)
+    {
+        Rectangle r = GetDimensions().ToRectangle();
+        DrawCardPrimitives.Text(sb, $"{bag.Count} / {CompanionInventory.Slots}", new Vector2(r.Right - 84, r.Y + 6), DrawCardPrimitives.Muted, .75f);
+        if (filter != 0 && !slots.Exists(slot => Matches(bag.Items[slot.Index])))
+            DrawCardPrimitives.WrappedText(sb, "No items in this category.", viewport.GetDimensions().ToRectangle(), DrawCardPrimitives.Muted);
     }
 
     private sealed class BagSlot : UIElement
     {
         private readonly CompanionBagUI owner;
-        private readonly int index;
-
+        public int Index { get; }
         public BagSlot(CompanionBagUI owner, int index)
         {
-            this.owner = owner;
-            this.index = index;
-            Width.Set(SlotSize, 0f);
-            Height.Set(SlotSize, 0f);
+            this.owner = owner; Index = index;
+            Width.Set(SlotSize, 0); Height.Set(SlotSize, 0);
         }
-
-        protected override void DrawSelf(SpriteBatch spriteBatch)
+        protected override void DrawSelf(SpriteBatch sb)
         {
             Item[] items = owner.bag.Items;
             float previous = Main.inventoryScale;
             try
             {
-                Main.inventoryScale = SlotScale;
+                Main.inventoryScale = SlotSize / TextureAssets.InventoryBack.Value.Width;
                 Rectangle area = GetDimensions().ToRectangle();
-                Vector2 mouse = Main.MouseScreen / Main.UIScale;
+                Vector2 mouse = Main.MouseScreen;
                 if (ContainsPoint(mouse) && owner.viewport.ContainsPoint(mouse) && !PlayerInput.IgnoreMouseInterface)
                 {
                     Main.LocalPlayer.mouseInterface = true;
-                    ItemSlot.Handle(ref items[index], ItemSlot.Context.BankItem);
+                    if (!items[Index].IsAir) owner.inspected = Index;
+                    ItemSlot.Handle(ref items[Index], ItemSlot.Context.BankItem);
                 }
-                ItemSlot.Draw(spriteBatch, ref items[index], ItemSlot.Context.BankItem, area.TopLeft());
+                // Bank Draw selects brown art. Inventory Draw assumes a player hotbar
+                // index and stamps a shortcut on single-item slots. Use the game's
+                // blue texture and icon path directly, retaining native item hooks.
+                Texture2D background = items[Index].favorited ? TextureAssets.InventoryBack10.Value : TextureAssets.InventoryBack.Value;
+                sb.Draw(background, area, Color.White);
+                if (!items[Index].IsAir)
+                {
+                    ItemSlot.DrawItemIcon(items[Index], ItemSlot.Context.BankItem, sb, area.Center.ToVector2(), Main.inventoryScale, 32f, Color.White);
+                    if (items[Index].stack > 1)
+                        DrawCardPrimitives.Text(sb, items[Index].stack.ToString(), area.TopLeft() + new Vector2(10, 26) * Main.inventoryScale, Color.White, Main.inventoryScale, FontAssets.ItemStack.Value);
+                }
+                Color edge = owner.inspected == Index ? Color.Gold : DrawCardPrimitives.Edge * .75f;
+                DrawCardPrimitives.Fill(sb, new Rectangle(area.X + 5, area.Y, area.Width - 10, 1), edge);
+                DrawCardPrimitives.Fill(sb, new Rectangle(area.X + 5, area.Bottom - 1, area.Width - 10, 1), edge);
+                DrawCardPrimitives.Fill(sb, new Rectangle(area.X, area.Y + 5, 1, area.Height - 10), edge);
+                DrawCardPrimitives.Fill(sb, new Rectangle(area.Right - 1, area.Y + 5, 1, area.Height - 10), edge);
             }
             finally { Main.inventoryScale = previous; }
+        }
+    }
+
+    private sealed class ItemDetails(CompanionBagUI owner) : UIPanel
+    {
+        protected override void DrawSelf(SpriteBatch sb)
+        {
+            BackgroundColor = DrawCardPrimitives.Panel; BorderColor = DrawCardPrimitives.Edge;
+            base.DrawSelf(sb);
+            Rectangle r = GetInnerDimensions().ToRectangle();
+            Item? item = owner.inspected >= 0 ? owner.bag.Items[owner.inspected] : null;
+            if (item == null || item.IsAir)
+                DrawCardPrimitives.WrappedText(sb, "Point to an item to inspect it.\n\nUse the slots to move or split stacks.", r, DrawCardPrimitives.Muted, .72f);
+            else
+            {
+                Color rarity = Terraria.GameContent.UI.ItemRarity.GetColor(item.rare);
+                DrawCardPrimitives.WrappedText(sb, item.Name, new Rectangle(r.X, r.Y, r.Width, 40), rarity, .85f);
+                DrawCardPrimitives.Text(sb, $"x{item.stack}", new Vector2(r.X, r.Y + 44), Color.White, .8f);
+                if (IsOre(item) && r.Height >= 120 && owner.transferMessage.Length == 0)
+                {
+                    int labelY = r.Height > 140 ? 80 : 64;
+                    DrawCardPrimitives.Text(sb, "In the wall", new Vector2(r.X, r.Y + labelY), DrawCardPrimitives.Muted, .7f);
+                    Main.instance?.LoadTiles(item.createTile);
+                    var tile = TextureAssets.Tile[item.createTile];
+                    if (tile?.IsLoaded == true)
+                        sb.Draw(tile.Value, new Rectangle(r.X, r.Y + labelY + 24, 32, 32), new Rectangle(18, 18, 16, 16), Color.White);
+                }
+            }
+            if (owner.transferMessage.Length > 0 && r.Height >= 116)
+                DrawCardPrimitives.WrappedText(sb, owner.transferMessage, new Rectangle(r.X, r.Bottom - 50, r.Width, 50), Color.LightGreen, .65f);
         }
     }
 }
