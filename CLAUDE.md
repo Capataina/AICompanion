@@ -2,6 +2,8 @@
 
 This singleplayer tModLoader mod makes an NPC companion that behaves as a second presence in Terraria: it keeps roughly with the player, fights, collects nearby drops, helps with work already underway, and lights dark places. It is deliberately neither a second player nor a pet. The companion’s abilities are a closed set rather than calls into real item use, so each ability is reliable and must be written explicitly.
 
+**What the companion is supposed to do lives in `README.md`, and reading it is the first move on any behaviour work.** That file carries four things in the order they have to be read: Expected Behaviour, a half-hour of play written as a story with no reference to any system; Current Behaviour, what it actually does, sourced only from named telemetry sessions; The System In Place, the machinery read from source; and a table of twenty-five named responsibilities carrying all three per row. Each section opens with its own rules for maintaining it. This guide describes how the code is arranged; that file describes what it is for, and the two disagree only when one of them is stale.
+
 ## The companion is an opportunistic companion, not an orders system
 
 Behaviours compete by score each tick: loose companionship, combat, gathering, survival and nearby work. Shooting is independent hands work, so it runs while the feet follow or dodge; the torch fills an otherwise free hand. Missions and player-directed sending were abandoned. The unbuilt mastery progression may later unlock movement abilities including air jumps, dash, swimming and flight; a selectable interface preview is not a gameplay ability.
@@ -25,7 +27,7 @@ Terraria world ─► Brain/WorldObservation
 - This is singleplayer only: use `Main.LocalPlayer`; do not add netcode, server branches, `netUpdate`, or player iteration.
 - The companion is an NPC. Its temporary stand-in player exists only while hostile AI runs so enemies can target it; life, death and movement belong to the NPC.
 - It never teleports. Ordinary following can start continuous recovery flight when far from the live player; combat, work and downing cannot start it. A nearby sealed companion still uses ordinary movement and sealed-pocket handling. Recovery is outside route memory and separate from mastery flight.
-- Decisions use multiplicative utility scoring, never priority branches or scenario-specific rules.
+- Decisions use multiplicative utility scoring, never priority branches or scenario-specific rules. This ruling describes what is built and is deliberately open for re-argument as of 2026-09-11: whether utility scoring is the right brain at all, and whether A* over a tile graph is the right route search, are both questions the owner has opened rather than settled ones. Treat it as the current design to work against, not as a boundary on what may be proposed.
 - Reuse a decompiled Terraria path when it is not gated on the local player. The mod reads game item numbers but never runs companion abilities through `Player.ItemCheck`.
 
 ## Map
