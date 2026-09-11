@@ -13,11 +13,18 @@ using AICompanion.Companion.DiagnosticsConfiguration;
 
 namespace AICompanion.Companion.Brain.BehaviourDiagnostics;
 
-/// <summary>Selectable evidence from the real brain. Closing hides all layers and retains preferences.</summary>
+/// <summary>
+/// Selectable evidence from the real brain. The menu and the drawings are two separate things:
+/// <see cref="Enabled"/> is whether the chooser panel is on screen, <see cref="ShowWorld"/> is
+/// whether the selected layers draw over the world. Closing the menu leaves the layers drawing,
+/// because the menu exists to pick what to watch and watching it is the whole point — a panel
+/// that has to stay open covers the thing it is describing. "Show world drawings" is the master
+/// off switch, and the diagnostics config can force both off.
+/// </summary>
 public sealed class BrainOverlay : ModSystem
 {
     public static ModKeybind? ToggleKey;
-    public static bool Enabled, ShowWorld;
+    public static bool Enabled, ShowWorld = true;
     public static bool ShowThreats, ShowPredictions, ShowRoutes = true, ShowCandidates;
     public static bool ShowProjectiles, ShowAiming, ShowMovement, ShowAttention;
     private static int scroll;
@@ -25,7 +32,10 @@ public sealed class BrainOverlay : ModSystem
     private static ulong inputTick = ulong.MaxValue;
     private static readonly Color Panel = new(33, 43, 79), Edge = new(104, 130, 187);
     private static readonly Color Row = new(39, 51, 92), Highlight = new(66, 88, 151);
-    public static bool MayCapture => CompanionDiagnosticsConfig.Current.EnableBrainInspector && Enabled && ShowWorld;
+    // Capture follows the drawings, never the menu. Gating this on the menu being open meant a
+    // layer stopped recording the moment the panel closed, so reopening it showed an empty layer
+    // and the evidence for the ticks in between was never taken.
+    public static bool MayCapture => CompanionDiagnosticsConfig.Current.EnableBrainInspector && ShowWorld;
     public override void Load()
     {
         ToggleKey = KeybindLoader.RegisterKeybind(Mod, "BrainOverlay", "OemOpenBrackets");
@@ -42,12 +52,9 @@ public sealed class BrainOverlay : ModSystem
         BrainInspectorSamples.Reset();
     }
     public override void OnWorldUnload() { Close(); BrainInspectorSamples.Reset(); }
-    public static void Close() { Enabled = ShowWorld = false; }
-    public static void ToggleMenu()
-    {
-        Enabled = !Enabled;
-        ShowWorld = Enabled;
-    }
+    /// <summary>Dismiss the chooser panel. The selected layers keep drawing.</summary>
+    public static void Close() { Enabled = false; }
+    public static void ToggleMenu() { Enabled = !Enabled; }
     public static Rectangle PanelBounds(int width, int height)
         => new(12, 12, Math.Max(200, Math.Min(440, width - 24)), Math.Max(180, Math.Min(540, height - 24)));
     private static Rectangle Bounds => PanelBounds((int)(Main.screenWidth / Main.UIScale), (int)(Main.screenHeight / Main.UIScale));
@@ -94,7 +101,7 @@ public sealed class BrainOverlay : ModSystem
     {
         if (!CompanionDiagnosticsConfig.Current.EnableBrainInspector || Main.gameMenu) return;
         var companion = CompanionNPC.Instance;
-        if (Enabled && ShowWorld && companion != null && !companion.IsDowned) DrawWorld(sb, companion);
+        if (ShowWorld && companion != null && !companion.IsDowned) DrawWorld(sb, companion);
         if (Enabled) DrawMenu(sb, companion);
     }
     private static void DrawMenu(SpriteBatch sb, CompanionNPC? companion)
@@ -104,7 +111,7 @@ public sealed class BrainOverlay : ModSystem
         Text(sb, "Companion's eye", panel.X + 14, panel.Y + 13, Color.Gold, 1f);
         Text(sb, "X", panel.Right - 28, panel.Y + 12, Color.White, .7f);
         Text(sb, companion?.Brain.ActivityStatus ?? "Waiting for a companion", panel.X + 14, panel.Y + 42, Color.White, .75f);
-        Text(sb, "Choose layers. Close or press the key to hide all.", panel.X + 14, panel.Y + 64, Color.LightSteelBlue, .52f);
+        Text(sb, "Choose layers. They keep drawing after you close this.", panel.X + 14, panel.Y + 64, Color.LightSteelBlue, .52f);
         Text(sb, "Observed: red   Predicted: yellow   Chosen: white", panel.X + 14, panel.Y + 83, Color.LightGray, .48f);
         Fill(sb, new(panel.X + 12, panel.Y + 102, (panel.Width - 24) / 2, 24), decisionsPage ? Row : Highlight);
         Fill(sb, new(panel.Center.X, panel.Y + 102, (panel.Width - 24) / 2, 24), decisionsPage ? Highlight : Row);
