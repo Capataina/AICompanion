@@ -283,6 +283,44 @@ public sealed class TheChosenWeaponIsTheBetterOne : ICheck
 /// than rows in it: 613 rows reading downed is one down lasting ten seconds, and reporting it as
 /// 613 downs is a mistake this reader is written not to repeat.
 /// </summary>
+/// <summary>
+/// Whether a committed hunt ever had a weapon that could reach what it was hunting. Hunting is the
+/// decision to close on something and kill it, so being out of reach at the start of one is the
+/// normal case and says nothing; what says something is a long stretch of it where no weapon-target
+/// pair was ever within reach and no shot was ever taken, because that is a decision that did not
+/// accomplish its purpose and could not have.
+///
+/// The existing stationary check cannot see this. It requires the body to stand still, so a
+/// companion that walks at an enemy it will never be able to shoot passes it. On 2026-09-11 that
+/// was most of the session: of 4,460 hunting ticks, 3,831 carried arsenal evidence reading
+/// outside-reach and 3,212 had no weapon target at all, while 25 ticks fired.
+/// </summary>
+public sealed class HuntingHadAWeaponThatCouldReach : ICheck
+{
+    /// <summary>Five seconds of committed hunting. Long enough that an ordinary approach has had its chance.</summary>
+    private const int Sustained = 300;
+
+    public string Name => "could it reach what it was hunting";
+    public string[] Needs => new[] { "action", "brain_fresh", "fire", "target_evidence" };
+
+    public IEnumerable<Finding> Run(Session s)
+    {
+        foreach (var span in FindStretches.Where(s.Count, i => s["action"].Text[i] == "hunt"
+            && s["brain_fresh"].Number[i] == 1
+            && s["fire"].Text[i] is not ("fired" or "cooldown")
+            && s["target_evidence"].Text[i].Contains("outside-reach"), Sustained))
+            yield return new Finding(Severity.Definitive, Name,
+                "hunting held for a long stretch with no weapon able to reach the target",
+                $"{span.Length} consecutive samples hunting while the arsenal's own evidence reported every "
+                + $"weapon-target pair outside reach, with no shot taken. Fire outcomes {FindStretches.Summarise(s["fire"], span)}. "
+                + "A hunt begins out of reach by definition, so a short stretch is an approach; a stretch this long is "
+                + "an approach that is not arriving. The two things that make it possible are a target admitted without "
+                + "asking whether any reachable standing position can shoot it, and a firing spot chosen without "
+                + "line-of-fire information — so read the hunt rejection reason and the position evidence together.",
+                s.Tick(span.Start), s.Tick(span.End), span.Length);
+    }
+}
+
 public sealed class TheCompanionStaysUp : ICheck
 {
     public string Name => "did it go down, and what happened in the minute before";
