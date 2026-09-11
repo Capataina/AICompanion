@@ -336,18 +336,25 @@ public sealed class JumpTraversal : Traversal
     private static float Runway(NavStep step, int direction)
         => MathF.Min(RunwayNeeded(MathF.Abs(step.StartVx)) + 16f, RunwayPixels(step.From, -direction));
 
-    /// <summary>How far under the profile's speed a body may cross the take-off and still make the jump; the planner proves the runway with the same slack the performer accepts.</summary>
+    /// <summary>
+    /// How far under the profile's speed a body may cross the take-off and still commit to the
+    /// jump. This is the performer's tolerance and only the performer's: the planner no longer
+    /// approximates it, because it proves the arc from the take-off <see cref="TakeOff"/>
+    /// reaches by running this same steering, so whatever slack is accepted here is inherited
+    /// rather than restated.
+    /// </summary>
     private const float SpeedSlack = 0.4f;
 
     /// <summary>
     /// The distance the motor needs to reach a speed from rest, from its own acceleration: v²
     /// over twice the gain per tick. The parameter is a speed <em>magnitude</em> and never a
-    /// signed velocity, which is why it is named one: the clamp is there because a caller
-    /// subtracts <see cref="SpeedSlack"/> first and that can go below zero, and a signed
-    /// velocity handed in instead reads every leftward jump as needing no runway at all
-    /// (a −3.5 profile asked for 16 px where its mirror asked for 81.6, Codex review of 7525a1b).
+    /// signed velocity, which is why it is named one: a leftward profile handed in signed must
+    /// ask for the same runway as its mirror, and once asked for 16 px where the mirror asked
+    /// for 81.6 (Codex review of 7525a1b). A clamp to zero used to sit here for a caller that
+    /// subtracted <see cref="SpeedSlack"/> before asking; that caller is gone, and the clamp
+    /// went with it because it was the thing turning a signed speed into "no runway needed".
     /// </summary>
-    private static float RunwayNeeded(float magnitude) => MathF.Max(0f, magnitude) * MathF.Max(0f, magnitude) / (2f * BodyPhysics.Acceleration);
+    private static float RunwayNeeded(float magnitude) => magnitude * magnitude / (2f * BodyPhysics.Acceleration);
 
     /// <summary>The standable floor behind a take-off along its row, in pixels, up to a few tiles; <paramref name="behind"/> is the direction away from the jump.</summary>
     private static float RunwayPixels(Point takeoff, int behind)
