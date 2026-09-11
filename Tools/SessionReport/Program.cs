@@ -57,6 +57,10 @@ public static class Program
         new TheChosenWeaponIsTheBetterOne(),
         new TheCompanionStaysUp(),
         new HuntingStaysOnHisScreen(),
+        // How long a decision lasts, which sits beside the other choice checks because every one
+        // of them reads a behaviour's outcome and none of them could see a behaviour that never
+        // got one: an abandoned approach looks identical to an approach that was never worth much.
+        new DecisionsSurviveLongEnoughToPayOff(),
         new TheActionBoardGetsUsed(),
         new TheTorchGivesUpTheHand(),
         new TheBrainFitsInAFrame(),
