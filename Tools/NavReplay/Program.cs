@@ -375,6 +375,13 @@ Console.WriteLine($"{passed}/{passed + failed} passed, {sealedCount} model-close
     + (churn ? $"; churn: {churnTiles} tiles broken, {churnWrong} stale plans" : "")
     + (follow ? $"; follow: {followPassed} walked, {followPartial} to a partial plan's end, {followFailed} not" : "")
     + (auditJumps ? $"; jump proofs: {auditTotal.Proven} proven, {auditTotal.Flown} flown to their tile, {auditTotal.SatisfiedAtEntry} satisfied at entry, {auditTotal.CompletedBySlack} closed by the arrival slack elsewhere, {auditTotal.Unflyable} unflyable ({auditTotal.FlownShare * 100:F1}% flown)" : ""));
+// The audit carries its own verdict, because it runs no plan cases at all: every scenario is
+// skipped and the pass count is zero by construction, so the ordinary condition below reports a
+// failure for doing exactly what the mode is for. What the audit can genuinely fail is its one
+// property — a jump the planner proved and the performer refuses — which is the quantity it
+// exists to count, and it is red today with 152 of those outstanding across the corpus.
+if (auditJumps)
+    return auditTotal.Unflyable == 0 && missing == 0 ? 0 : 1;
 return failed == 0 && skipped == 0 && missing == 0 && passed > 0 && churnWrong == 0 && followFailed == 0 ? 0 : 1;
 
 // The navigator run over the simulated body from a standing start at `from` toward the goal's
