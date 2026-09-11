@@ -31,6 +31,15 @@ public class CompanionNPC : ModNPC
 {
     private const float ReviveDistance = 48f;
     private const int ReviveTicks = 180;
+
+    /// <summary>
+    /// How long the companion lies there before getting up on its own. The player standing over it
+    /// is the fast route and stays worth taking at three seconds; this is the floor that stops a
+    /// down from ending the companion's participation in the session. A player who dies respawns
+    /// without anyone's help, and on 2026-09-11 one down cost 6,100 ticks on the floor — a hundred
+    /// seconds of a ten-minute session — because the player had walked on before it happened.
+    /// </summary>
+    private const int SelfReviveTicks = 600;
     private const float PickupReach = 28f;
 
     public Brain.Brain Brain { get; private set; } = new();
@@ -57,6 +66,7 @@ public class CompanionNPC : ModNPC
     public int RevivePercent => reviveProgress * 100 / ReviveTicks;
 
     private int reviveProgress;
+    private int downedTicks;
     private bool loggedFirstTick;
     private int heldItemType;
     private int itemAnimation;
@@ -237,6 +247,7 @@ public class CompanionNPC : ModNPC
         Motor.EnterDowned();
         Brain.FollowRecovery.Update(false, true, false, NPC.Bottom, NPC.Bottom, false);
         reviveProgress = 0;
+        downedTicks = 0;
         heldItemType = ItemID.None;
         itemAnimation = 0;
         Brain.Movement.Hold(Motor.State);
@@ -247,13 +258,14 @@ public class CompanionNPC : ModNPC
         Motor.Apply(global::AICompanion.Companion.Brain.SharedMovementSystem.Controls.None, "downed");
         bool playerBeside = !player.dead && Vector2.Distance(player.Center, NPC.Center) <= ReviveDistance;
         reviveProgress = playerBeside ? reviveProgress + 1 : Math.Max(0, reviveProgress - 2);
-        if (reviveProgress < ReviveTicks)
+        if (reviveProgress < ReviveTicks && ++downedTicks < SelfReviveTicks)
             return;
         IsDowned = false;
         NPC.life = NPC.lifeMax;
         NPC.dontTakeDamage = false;
         Breath.Reset();
         reviveProgress = 0;
+        downedTicks = 0;
     }
 
     // ---- loot on contact ----
