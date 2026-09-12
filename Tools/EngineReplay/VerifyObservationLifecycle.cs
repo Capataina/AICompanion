@@ -76,7 +76,7 @@ internal static class VerifyObservationLifecycle
         string[] names = lines[header].Split('\t'), values = lines[header + 1].Split('\t');
         Require(names.Length == values.Length, $"sample/header widths disagree: {names.Length}/{values.Length}");
         foreach (string name in new[] { "escape_stage", "state_search_pending", "head_submerged", "attack_value", "hunt_reason", "nav_status",
-            "player_intent_y", "player_intent_confidence", "player_intent_samples", "player_local_work_fraction" })
+            "player_intent_y", "player_intent_confidence", "player_intent_samples", "player_local_work_fraction", "collection_method" })
             Require(Array.IndexOf(names, name) >= 0, "causal sample field missing: " + name);
         float Number(string name) => float.Parse(values[Array.IndexOf(names, name)], System.Globalization.CultureInfo.InvariantCulture);
         Require(Number("player_intent_y") < -.8f && Number("player_intent_confidence") > .9f

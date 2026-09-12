@@ -44,10 +44,9 @@ AICompanion/
 │  │  ├─ Behaviours/            choices grouped by purpose
 │  │  │  ├─ Companionship/      guard and distant-reunion recovery
 │  │  │  ├─ Combat/             hunt and kite
-│  │  │  ├─ Gathering/          collect nearby drops
 │  │  │  └─ Work/               help with trees and ore
 │  │  ├─ PurposeFamilies/      consolidated ordinary activities
-│  │  │  └─ NearbyAssistance/  keeping company through reunion and local movement
+│  │  │  └─ NearbyAssistance/  keeping company and collecting drops or pot contents
 │  │  ├─ PositionSelection/     position requests and candidate scoring
 │  │  ├─ CombatReflexes/        immediate threat assessment
 │  │  ├─ SharedSafety/          independent environmental escape and collision response ownership

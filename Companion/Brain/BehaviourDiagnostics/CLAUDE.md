@@ -88,3 +88,5 @@ Continuous rows declare their text columns and include navigator status, positio
 The HUD and inspector read the coordinator's movement-progress state independently of whether a torch fills the hand. A continuously unsatisfied travel request with little net displacement and no retained-route advancement is labelled "not making progress"; it is not automatically diagnosed as a missing route. Behaviour churn cannot reset that observation, and movement away from the player can still advance a valid detour.
 
 Follow-gap and one-way-held-out captures read the actual reunion/protection request kind. Keeping company can also rest or stroll, so its activity label alone cannot establish an outstanding reunion request. Recording retains the activity and requested method separately.
+
+The continuous collection_method field distinguishes a known-drop offer from potential pot contents under the same collecting activity. It is retained activity evidence, read with choice freshness and suspension state; it does not report that a pot was broken or its contents picked up. Native world-interaction and pickup events establish those separate outcomes.

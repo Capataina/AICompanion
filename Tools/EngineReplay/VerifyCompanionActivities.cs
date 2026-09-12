@@ -22,6 +22,7 @@ internal static class VerifyCompanionActivities
             Protection.Reset();
             WorkWinsOutsideFollowComfort();
             ContinuingTargetsKeepTheirIdentity();
+            CollectionComparesKnownDropsAndPotentialContents();
             ConsecutiveJobsEarnTheirOwnAllowance();
             ActivityOwnershipSurvivesInterruption();
             InvalidCandidatesCannotBecomeTheFallback();
@@ -183,7 +184,7 @@ internal static class VerifyCompanionActivities
         ctx.Player.Bottom = new Vector2(80, 960);
         activity.Target = ctx.Player.Bottom + new Vector2(Preferences.Current.NewActivityRadius + 100, 0);
         ctx.Companion.Brain.Chooser.RecordWork(activity.Target);
-        var loot = new live::AICompanion.Companion.Brain.Behaviours.Gathering.LootAction();
+        var loot = new live::AICompanion.Companion.Brain.PurposeFamilies.NearbyAssistance.CollectNearbyItems();
         var item = new Item(); item.SetDefaults(ItemID.CopperOre); item.active = true; item.Bottom = activity.Target;
         ctx.Senses.Loot.Pickups.Clear();
         ctx.Senses.Loot.Pickups.Add(new(item, .3f, Vector2.Distance(ctx.Npc.Bottom, item.Bottom)));
@@ -204,6 +205,58 @@ internal static class VerifyCompanionActivities
         VerifyObservedMotion.SetTick(Main.GameUpdateCount + 601);
         loot.Prepare(ctx);
         Require(loot.Score() == 0, "expired work must not grant a new loot target an indefinite allowance");
+    }
+
+    private static void CollectionComparesKnownDropsAndPotentialContents()
+    {
+        bool oldPolicy = Preferences.Current.PotBreaking;
+        try
+        {
+            var (_, ctx) = VerifyOreWork.SetUp(Policy.Disabled, TileID.Copper, new Point(25, 59));
+            Main.tile[25, 59].ClearEverything();
+            Main.tileSolid[TileID.Pots] = false;
+            for (int x = 0; x < 2; x++) for (int y = 0; y < 2; y++)
+            {
+                Tile tile = Main.tile[22 + x, 58 + y];
+                tile.ClearEverything(); tile.HasTile = true; tile.TileType = TileID.Pots;
+                tile.TileFrameX = (short)(x * 18); tile.TileFrameY = (short)(y * 18);
+            }
+            Preferences.Current.PotBreaking = true;
+            ctx.Senses.Loot.Pickups.Clear();
+            var collect = new live::AICompanion.Companion.Brain.PurposeFamilies.NearbyAssistance.CollectNearbyItems();
+            collect.Prepare(ctx);
+            Require(collect.Score() > 0 && collect.Method == "potential-pot-contents" && collect.ForecastTicks() > 0,
+                "an accessible pot must be a costed uncertain collection opportunity");
+            var pot = (Point)collect.ActivityIdentity!;
+            float value = collect.Score(), time = collect.ForecastTicks();
+            var item = new Item(); item.SetDefaults(ItemID.CopperOre); item.active = true; item.Bottom = ctx.Npc.Bottom;
+            ctx.Senses.Loot.Pickups.Add(new(item, 1f, 0f));
+            Require(collect.Score() == value && collect.ForecastTicks() == time && collect.Method == "potential-pot-contents",
+                "comparison must not rediscover a newly appeared drop");
+            collect.Prepare(ctx);
+            Require(collect.Method == "known-drop" && ReferenceEquals(collect.ActivityIdentity, item),
+                "a valuable drop at the feet must compete within the same collecting activity");
+            collect.AdmitActivity();
+            Preferences.Current.PotBreaking = false;
+            collect.Prepare(ctx);
+            Require(collect.HasActivityAllowance && collect.Method == "known-drop",
+                "disabled pot discovery must not release a known-drop activity's admission");
+            Preferences.Current.PotBreaking = true;
+            ctx.Senses.Loot.Pickups.Clear();
+            collect.Prepare(ctx);
+            Require(collect.Method == "potential-pot-contents", "collection must reconsider surviving pots after known drops disappear");
+            Preferences.Current.PotBreaking = false;
+            collect.Execute(ctx);
+            Require(Main.tile[pot.X, pot.Y].HasTile, "changing pot permission after preparation must prevent the native edit");
+            Preferences.Current.PotBreaking = true;
+            foreach (Item slot in ctx.Companion.Bag.Items) { slot.SetDefaults(ItemID.StoneBlock); slot.stack = slot.maxStack; }
+            collect.Prepare(ctx);
+            Require(collect.Score() == 0, "unknown contents cannot promise collection capacity from a full bag");
+            Require(ctx.Companion.Brain.Chooser.Actions.Count(a => a.Name == "collect") == 1
+                && !ctx.Companion.Brain.Chooser.Actions.Any(a => a.Name is "loot" or "break-pots"),
+                "collection must have one registered behaviour for drops and pots");
+        }
+        finally { Preferences.Current.PotBreaking = oldPolicy; }
     }
 
     private static void ComfortableFollowingHasNoRegroupPressure()

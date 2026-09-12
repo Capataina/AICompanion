@@ -39,9 +39,8 @@ public sealed class DrawCompanionStatus : UIElement
             "hunt" => "voluntary hunting is on",
             "kite" => "making room to fight",
             "survive" => "escaping danger",
-            "loot" => "nearby drops to collect",
+            "collect" => "nearby drops or worthwhile pot contents",
             "place-torches" => "lighting a dark route with supplied torches",
-            "break-pots" => "nearby pot within reach",
             "keep-company" => "accompanying you and moving nearby when there is time",
             _ => "no activity currently selected"
         };

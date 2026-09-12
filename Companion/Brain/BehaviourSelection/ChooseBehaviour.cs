@@ -5,7 +5,6 @@ using System.Collections.Generic;
 using AICompanion.Companion.Brain.Behaviours;
 using AICompanion.Companion.Brain.Behaviours.Combat;
 using AICompanion.Companion.Brain.Behaviours.Companionship;
-using AICompanion.Companion.Brain.Behaviours.Gathering;
 using AICompanion.Companion.Brain.Behaviours.Work;
 using AICompanion.Companion.Brain.PurposeFamilies.NearbyAssistance;
 
@@ -26,10 +25,9 @@ public sealed class Chooser
         new GuardAction(),
         new KiteAction(),
         new HuntAction(),
-        new LootAction(),
+        new CollectNearbyItems(),
         new ChopAction(),
         new MineAction(),
-        new BreakNearbyPots(),
         new PlaceNearbyTorches(),
         new KeepCompany(),
     };
@@ -97,7 +95,6 @@ public sealed class Chooser
                 / Math.Max(1f, Weights.RegroupFullReturnTicks - Weights.RegroupFreeReturnTicks), 0f, 1f);
             RegroupUrgency = Math.Max(RegroupUrgency, travelPressure);
         }
-        float horizon = ctx.Senses.Threats.Horizon;
         // Discovery runs once per adapter. Score and forecast read the captured candidate;
         // neither receives live context or advances the job during comparison.
         var prepared = new PreparedActivity[Actions.Count];
@@ -111,10 +108,7 @@ public sealed class Chooser
                 action.IsExcursion, action.ActivityTarget != null, action is KeepCompany, action == Current);
             bindings[i] = ValidatePreparedActivity.Capture(action);
         }
-        var comparison = new ActivityComparisonContext(ctx.Senses.Threats.ProtectionUrgency, ctx.Stranded,
-            horizon, Weights.InterruptibleActionTicks, Weights.HorizonOverrunToZero, Weights.Commitment,
-            ctx.Senses.DistanceToPlayer <= PlayerIntegration.CompanionPreferences.Current.ActiveActivityRadius,
-            Weights.FollowDuringUsefulWork, Reunion.DelayCostPerTick);
+        var comparison = ComparisonContext(ctx);
         var available = (PreparedActivity[])prepared.Clone();
         var rejections = new string?[prepared.Length];
         CompanionAction? best = null;
@@ -147,4 +141,10 @@ public sealed class Chooser
         EvaluationTick = Terraria.Main.GameUpdateCount;
         return best;
     }
+
+    public ActivityComparisonContext ComparisonContext(in ActionContext ctx)
+        => new(ctx.Senses.Threats.ProtectionUrgency, ctx.Stranded,
+            ctx.Senses.Threats.Horizon, Weights.InterruptibleActionTicks, Weights.HorizonOverrunToZero, Weights.Commitment,
+            ctx.Senses.DistanceToPlayer <= PlayerIntegration.CompanionPreferences.Current.ActiveActivityRadius,
+            Weights.FollowDuringUsefulWork, Reunion.DelayCostPerTick);
 }

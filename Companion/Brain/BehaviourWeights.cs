@@ -160,6 +160,10 @@ public static class Weights
     /// <summary>Loot: value of the nearest pickup fades with distance over this many px.</summary>
     public const float LootReach = 900f;
     public const int LootTripTicksPerPx = 1; // approximates 1 px per tick allowing for jumps
+    /// <summary>Prior value for unknown pot contents; actual drops are reconsidered independently.</summary>
+    public const float PotContentsValue = .62f;
+    /// <summary>Provisional handling allowance for exposing and inspecting unknown contents, excluding approach.</summary>
+    public const float PotContentsHandlingTicks = 30f;
 
     /// <summary>Hunt: how far beyond the screen a target is still worth chasing.</summary>
     public const float HuntReach = 1100f;

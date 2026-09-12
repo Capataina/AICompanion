@@ -38,7 +38,7 @@ public abstract class CompanionAction
     {
         var preferences = PlayerIntegration.CompanionPreferences.Current;
         bool sameJob = admittedIdentity != null && Equals(admittedIdentity, identity ?? ActivityIdentity);
-        bool collectingWork = Name == "loot" && ctx.Companion.Brain.Chooser.IsCollectingWork(target);
+        bool collectingWork = Name == "collect" && identity is Terraria.Item && ctx.Companion.Brain.Chooser.IsCollectingWork(target);
         float radius = sameJob || collectingWork ? preferences.ActiveActivityRadius : preferences.NewActivityRadius;
         bool allowed = Microsoft.Xna.Framework.Vector2.DistanceSquared(target, ctx.Player.Bottom) <= radius * radius
             && Microsoft.Xna.Framework.Vector2.DistanceSquared(ctx.Npc.Bottom, ctx.Player.Bottom) <= radius * radius;

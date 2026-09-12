@@ -42,7 +42,7 @@ public sealed class BrainTelemetry : ModSystem
     private static string? eventsPath;
     private static readonly Stopwatch sessionClock = new();
     private static DateTime sessionStartedUtc;
-    private const string Schema = "0.16.0";
+    private const string Schema = "0.17.0";
     private static string? pendingPlayerHit;
     private static string? pendingCompanionHit;
     private static string? lastDecision;
@@ -451,7 +451,7 @@ public sealed class BrainTelemetry : ModSystem
 
         if (!headerWritten)
         {
-            writer.WriteLine("# text_columns=state,action,reflex,top_threat,target,request,anchor,spot,next_kind,npc_tile,npc_px,npc_vel,held,weapon,fire,engage,torch,player_tile,edge_kind,edge_from,edge_to,edge_outcome,spot_home,diverge_invalid_reason,sample_phase,player_px,player_vel,player_liquid,player_hit,npc_hit,player_state,player_activity,player_support,npc_support,control,control_source,observed_vel,observed_mobility,predicted_vel,predicted_mobility,follow_reason,recovery_reason,guard_reason,mine_policy,mine_status,mine_target,target_evidence,nav_status,position_reason,escape_stage,escape_target,hunt_reason,hand_grant,control_request_owner,safety_kind,safety_reason,safety_last_end");
+            writer.WriteLine("# text_columns=state,action,reflex,top_threat,target,request,anchor,spot,next_kind,npc_tile,npc_px,npc_vel,held,weapon,fire,engage,torch,player_tile,edge_kind,edge_from,edge_to,edge_outcome,spot_home,diverge_invalid_reason,sample_phase,player_px,player_vel,player_liquid,player_hit,npc_hit,player_state,player_activity,player_support,npc_support,control,control_source,observed_vel,observed_mobility,predicted_vel,predicted_mobility,follow_reason,recovery_reason,guard_reason,mine_policy,mine_status,mine_target,target_evidence,nav_status,position_reason,escape_stage,escape_target,hunt_reason,hand_grant,control_request_owner,safety_kind,safety_reason,safety_last_end,collection_method");
             var h = new StringBuilder();
             // A start timestamp is file metadata. Stopwatch is the observed wall duration of
             // every row; deriving wall time from game ticks would conceal pauses and lag.
@@ -479,6 +479,7 @@ public sealed class BrainTelemetry : ModSystem
             h.Append("\tplayer_intent_y\tplayer_intent_confidence\tplayer_intent_samples\tplayer_local_work_fraction");
             h.Append("\tmine_remaining_work_ticks\tmine_remaining_hits\tchop_remaining_work_ticks\tchop_remaining_hits");
             h.Append("\treunion_apart_ticks\treunion_departure\treunion_delay_cost_per_tick");
+            h.Append("\tcollection_method");
             writer.WriteLine(h.ToString());
             headerWritten = true;
         }
@@ -716,6 +717,8 @@ public sealed class BrainTelemetry : ModSystem
         sb.Append('\t').Append(brain.Chooser.Reunion.ApartTicks)
             .Append('\t').Append(brain.Chooser.Reunion.Departure.ToString("0.000", CultureInfo.InvariantCulture))
             .Append('\t').Append(brain.Chooser.Reunion.DelayCostPerTick.ToString("0.000000", CultureInfo.InvariantCulture));
+        sb.Append('\t').Append(brain.LastAction is PurposeFamilies.NearbyAssistance.CollectNearbyItems collection
+            ? collection.Method : "none");
 
         // A write that fails (disk full, a stream the OS closed) must not escape the NPC's AI
         // and take the companion with it; the record stops and the game goes on.

@@ -18,6 +18,7 @@ public abstract class PerformNearbyWorldWork : CompanionAction
     protected Point? target;
     private Vector2 stand;
     private ulong nextSearch, retryAfter;
+    private bool eligibleLastPreparation;
     private bool needsJump, jumped;
     private ulong jumpStarted;
     // Tiles whose approach was tried and did not arrive, with the tick they may be offered again.
@@ -49,9 +50,18 @@ public abstract class PerformNearbyWorldWork : CompanionAction
 
     private float DiscoverValue(in ActionContext ctx)
     {
-        if (!Enabled(ctx) || ctx.Player.dead) { target = null; ReleaseActivity(); return 0f; }
+        if (!Enabled(ctx) || ctx.Player.dead)
+        {
+            target = null;
+            eligibleLastPreparation = false;
+            return 0f;
+        }
+        // Changed policy or supplies invalidate a previously unavailable discovery result.
+        // An unchanged eligible method still observes the normal bounded search cadence.
+        if (!eligibleLastPreparation) nextSearch = 0;
+        eligibleLastPreparation = true;
         if (target is Point old && (!Candidate(ctx, old) || !AllowsTarget(ctx, old.ToWorldCoordinates())))
-        { target = null; ReleaseActivity(); }
+        { target = null; }
         if (target == null && Main.GameUpdateCount >= nextSearch)
         {
             nextSearch = Main.GameUpdateCount + 90;
@@ -87,6 +97,7 @@ public abstract class PerformNearbyWorldWork : CompanionAction
     {
         ctx.Companion.HoldItem(ItemID.None);
         if (target is not Point tile) return PositionRequest.Hold;
+        if (!Enabled(ctx) || !Candidate(ctx, tile)) { target = null; return PositionRequest.Hold; }
         if (!OreFinder.InReach(ctx.Npc.Bottom, tile))
         {
             if (!needsJump)
@@ -106,7 +117,7 @@ public abstract class PerformNearbyWorldWork : CompanionAction
                     deferred[tile] = Main.GameUpdateCount + DeferFailedApproachTicks;
                     BehaviourDiagnostics.GodsEyeEvents.RecordWorldInteraction(ctx.Npc, tile, "approach-abandoned",
                         $"no ground covered in {BehaviourSelection.Weights.ObjectiveProgressWindowTicks} ticks");
-                    target = null; ReleaseActivity(); nextSearch = Main.GameUpdateCount + 60;
+                    target = null; nextSearch = Main.GameUpdateCount + 60;
                     return PositionRequest.Hold;
                 }
                 return PositionRequest.ExactAt(stand);
@@ -116,18 +127,18 @@ public abstract class PerformNearbyWorldWork : CompanionAction
                 // Validate against the live pose again: another behaviour may have moved us
                 // after candidate discovery. The shared movement controller owns the impulse.
                 if (!ProveInteractionJump.CanReach(NavGrid.World, ctx.Companion.Motor.State, body => OreFinder.InReach(body.Feet, tile)))
-                { target = null; ReleaseActivity(); return PositionRequest.Hold; }
+                { target = null; return PositionRequest.Hold; }
                 jumped = true; jumpStarted = Main.GameUpdateCount;
                 return PositionRequest.Hold with { JumpScale = 1f };
             }
-            if (Main.GameUpdateCount - jumpStarted > 90) { target = null; ReleaseActivity(); }
+            if (Main.GameUpdateCount - jumpStarted > 90) { target = null; }
             return PositionRequest.Hold;
         }
         if (Main.GameUpdateCount >= retryAfter)
         {
             retryAfter = Main.GameUpdateCount + 30;
             if (Perform(ctx, tile)) ctx.Companion.Brain.Chooser.RecordWork(tile.ToWorldCoordinates());
-            target = null; ReleaseActivity(); nextSearch = Main.GameUpdateCount + 60;
+            target = null; nextSearch = Main.GameUpdateCount + 60;
         }
         return PositionRequest.Hold;
     }
@@ -135,32 +146,7 @@ public abstract class PerformNearbyWorldWork : CompanionAction
     public override void Exit(in ActionContext ctx)
     {
         // A reflex or protective action can change a take-off pose; never resume its old jump.
-        if (needsJump) { target = null; ReleaseActivity(); }
-    }
-}
-
-public sealed class BreakNearbyPots : PerformNearbyWorldWork
-{
-    public override string Name => "break-pots";
-    protected override float Utility => .62f;
-    protected override bool Enabled(in ActionContext ctx) => PlayerIntegration.CompanionPreferences.Current.PotBreaking;
-    protected override bool Candidate(in ActionContext ctx, Point tile)
-    {
-        if (!WorldGen.InWorld(tile.X, tile.Y, 6) || ProtectCompanionHomes.IsProtected(tile)) return false;
-        Tile t = Main.tile[tile.X, tile.Y];
-        if (!t.HasTile || t.TileType != TileID.Pots) return false;
-        Point origin = new(tile.X - t.TileFrameX / 18 % 2, tile.Y - t.TileFrameY / 18 % 2);
-        for (int x = 0; x < 2; x++) for (int y = 0; y < 2; y++)
-            if (ProtectCompanionHomes.IsProtected(origin + new Point(x, y))) return false;
-        return true;
-    }
-    protected override bool Perform(in ActionContext ctx, Point tile)
-    {
-        if (!Candidate(ctx, tile) || !WorldGen.CanKillTile(tile.X, tile.Y)) return false;
-        WorldGen.KillTile(tile.X, tile.Y);
-        bool broken = !Main.tile[tile.X, tile.Y].HasTile;
-        if (broken) BehaviourDiagnostics.GodsEyeEvents.RecordWorldInteraction(ctx.Npc, tile, "break-pot", "native pot drops");
-        return broken;
+        if (needsJump) { target = null; }
     }
 }
 

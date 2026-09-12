@@ -8,7 +8,6 @@ Behaviours/
 ├─ CompanionAction.cs   the base and ActionContext (the companion, observations, player, and stranded fact)
 ├─ Companionship/       player protection and distant-reunion recovery
 ├─ Combat/              going after or backing off from enemies: hunt, kite
-├─ Gathering/           picking things up: loot
 └─ Work/                doing what the player is doing: chop, mine
 ```
 
