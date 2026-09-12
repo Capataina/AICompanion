@@ -30,6 +30,7 @@ internal static class VerifyOreWork
             AnUnprovenApproachWalksInsteadOfScoringZero();
             AReachableOreProducesANativeBreak();
             AUsefulCurrentPoseNeedsNoApproach();
+            RaisedLipsAtOrdinaryGravityProduceWork();
             NativeToolOutcomesDistinguishAttemptsFromProgress();
             Console.WriteLine("ore work: policy, retained vein, tool gates, unproven approach and native productive break pass");
             return 0;
@@ -113,23 +114,32 @@ internal static class VerifyOreWork
 
     private enum BaselineMode { FullBrain, HeldActivity, FixedWorkingPose }
 
+    private static void RaisedLipsAtOrdinaryGravityProduceWork()
+    {
+        foreach (bool mirrored in new[] { false, true })
+            foreach (BaselineMode mode in new[] { BaselineMode.FullBrain, BaselineMode.HeldActivity })
+                Require(MeasureRaisedLipWork(mirrored, mode, 90),
+                    $"ordinary-gravity raised lip must produce a native ore break: mirrored={mirrored}, mode={mode}");
+    }
+
     internal static int RunRaisedLipBaseline()
     {
         bool all = true;
-        foreach (bool mirrored in new[] { false, true })
-            foreach (BaselineMode mode in Enum.GetValues<BaselineMode>())
-                all &= MeasureRaisedLipWork(mirrored, mode);
+        foreach (int floor in new[] { 60, 90 })
+            foreach (bool mirrored in new[] { false, true })
+                foreach (BaselineMode mode in Enum.GetValues<BaselineMode>())
+                    all &= MeasureRaisedLipWork(mirrored, mode, floor, diagnostics: true);
         Console.WriteLine(all ? "mining baseline: every method produced a native break"
             : "mining baseline: at least one method failed; this is a recorded implementation gap, not a passing acceptance result");
         return all ? 0 : 1;
     }
 
-    private static bool MeasureRaisedLipWork(bool mirrored, BaselineMode mode)
+    private static bool MeasureRaisedLipWork(bool mirrored, BaselineMode mode, int floor, bool diagnostics = false)
     {
-        Point ore = new(25, 59);
+        Point ore = new(25, floor - 1);
         var (_, ctx) = SetUp(WorkPolicy.Opportunistic, TileID.Copper, ore);
         int lipX = mirrored ? 26 : 24;
-        for (int y = 58; y <= 59; y++)
+        for (int y = floor - 2; y < floor; y++)
         {
             Tile lip = Main.tile[lipX, y];
             lip.HasTile = true;
@@ -137,8 +147,8 @@ internal static class VerifyOreWork
         }
         if (mirrored)
         {
-            ctx.Npc.position = new Vector2(30 * 16, 60 * 16 - ctx.Npc.height);
-            ctx.Player.position = new Vector2(30 * 16, 60 * 16 - ctx.Player.height);
+            ctx.Npc.position = new Vector2(30 * 16, floor * 16 - ctx.Npc.height);
+            ctx.Player.position = new Vector2(30 * 16, floor * 16 - ctx.Player.height);
         }
         live::AICompanion.Companion.Brain.SharedMovementSystem.TerrainChanges.Reset();
         var mine = ctx.Companion.Brain.Chooser.Actions.OfType<MineAction>().Single();
@@ -153,12 +163,18 @@ internal static class VerifyOreWork
         {
             // Set the experimental initial pose; production code never teleports. This perch
             // overlaps the lip in either orientation and reaches the ore's exposed upper face.
-            ctx.Npc.Bottom = new Vector2(408, 928);
+            ctx.Npc.Bottom = new Vector2(408, (floor - 2) * 16);
             Require(!Collision.SolidCollision(ctx.Npc.position, ctx.Npc.width, ctx.Npc.height)
                 && live::AICompanion.Companion.Brain.WorldInteractions.Mining.OreFinder.InReach(ctx.Npc.Bottom, ore),
                 "the fixed-pose control must be native-clear and within tool reach");
         }
         var initialBody = ctx.Companion.Motor.State;
+        if (diagnostics) Console.WriteLine($"lip environment floor={floor} worldSurface={Main.worldSurface} initial={initialBody}");
+        if (diagnostics && mode == BaselineMode.HeldActivity)
+        {
+            DescribeRaisedLipRoutes(ctx, ore);
+            live::AICompanion.Companion.Brain.SharedMovementSystem.TerrainChanges.Reset();
+        }
         int miningTicks = 0;
         for (int tick = 0; tick < 600 && Main.tile[ore.X, ore.Y].HasTile; tick++)
         {
@@ -172,7 +188,7 @@ internal static class VerifyOreWork
             else ctx.Companion.AI();
             if (ctx.Companion.Brain.LastAction?.Name == "mine") miningTicks++;
             VerifyResponsiveFollowing.AdvanceNative(ctx.Companion);
-            if (tick % 60 == 0)
+            if (diagnostics && tick % 60 == 0)
                 Console.WriteLine($"lip mirror={mirrored} mode={mode} tick={tick} feet={ctx.Npc.Bottom} "
                     + $"mine={mine.Status} target={mine.TargetTile} stand={mine.TargetStandPosition} "
                     + $"action={ctx.Companion.Brain.LastAction?.Name} request={ctx.Companion.Brain.LastRequest} nav={ctx.Companion.Brain.Navigator.Status}");
@@ -188,7 +204,7 @@ internal static class VerifyOreWork
             var approach = live::AICompanion.Companion.Brain.WorldInteractions.Mining.OreFinder.Approach(ore, ctx.Npc.Bottom, out Vector2 stand);
             Console.WriteLine($"lip approach without wall-time limit={approach} stand={stand}; expansion bound remains {Reachability.WalkerBudget}");
             for (int x = 22; x <= 28; x++)
-                for (int y = 56; y <= 59; y++)
+                for (int y = floor - 4; y < floor; y++)
                 {
                     if (!live::AICompanion.Companion.Brain.SharedMovementSystem.NavGrid.IsStandable(x, y)) continue;
                     Vector2 feet = live::AICompanion.Companion.Brain.SharedMovementSystem.NavGrid.FeetWorld(new Point(x, y));
@@ -196,12 +212,38 @@ internal static class VerifyOreWork
                     if (useful) Console.WriteLine($"lip usable={feet} route={Reachability.WalkerReach(live::AICompanion.Companion.Brain.SharedMovementSystem.NavGrid.FeetTile(ctx.Npc.Bottom), new Point(x, y))}");
                 }
         }
-        Console.WriteLine($"raised-lip native mining broken={broken} (mirrored={mirrored}, mode={mode}, miningTicks={miningTicks}, "
+        Console.WriteLine($"raised-lip native mining broken={broken} (floor={floor}, mirrored={mirrored}, mode={mode}, miningTicks={miningTicks}, "
             + $"feet={ctx.Npc.Bottom}, action={ctx.Companion.Brain.LastAction?.Name}, "
             + $"request={ctx.Companion.Brain.LastRequest}, navigator={ctx.Companion.Brain.Navigator.Status})");
-        Require(Main.tile[lipX, 58].HasTile && Main.tile[lipX, 59].HasTile,
+        Require(Main.tile[lipX, floor - 2].HasTile && Main.tile[lipX, floor - 1].HasTile,
             "mining must overcome the lip through useful positioning, without excavating ordinary terrain");
         return broken;
+    }
+
+    private static void DescribeRaisedLipRoutes(in ActionContext ctx, Point ore)
+    {
+        var start = live::AICompanion.Companion.Brain.SharedMovementSystem.NavGrid.FeetTile(ctx.Npc.Bottom);
+        for (int x = ore.X - 3; x <= ore.X + 3; x++)
+            for (int y = ore.Y - 3; y <= ore.Y; y++)
+            {
+                var pose = live::AICompanion.Companion.Brain.SharedMovementSystem.NavGrid.StandAt(x, y, false);
+                if (pose == null) continue;
+                var tile = new Point(x, y);
+                Vector2 feet = live::AICompanion.Companion.Brain.SharedMovementSystem.NavGrid.FeetWorld(tile);
+                if (!live::AICompanion.Companion.Brain.WorldInteractions.Mining.OreFinder.InReach(feet, ore)) continue;
+                var route = AStar.Find(start, tile, Reachability.WalkerBudget, out int used, out var stop);
+                Console.WriteLine($"lip initial useful pose={feet} route={stop} used={used} partial={route?.Partial} "
+                    + $"steps={string.Join(';', route?.Steps.Select(step => $"{step.Kind}:{step.From}->{step.Tile}") ?? Array.Empty<string>())}");
+            }
+        for (int x = ore.X - 3; x <= ore.X + 3; x++)
+        {
+            var tile = new Point(x, ore.Y);
+            var pose = live::AICompanion.Companion.Brain.SharedMovementSystem.NavGrid.StandAt(tile.X, tile.Y, false);
+            if (pose == null) continue;
+            var jumps = new live::AICompanion.Companion.Brain.SharedMovementSystem.JumpTraversal().Candidates(
+                live::AICompanion.Companion.Brain.SharedMovementSystem.NavNode.At(tile), pose, false);
+            Console.WriteLine($"lip jump proposals from={tile}: {string.Join(';', jumps.Select(edge => edge.Step.Tile))}");
+        }
     }
 
     private static void MimicStartsFromThePlayersVein()
@@ -375,13 +417,14 @@ internal static class VerifyOreWork
         Player player = Main.player[0];
         player.dead = false;
         player.statLife = player.statLifeMax2;
-        player.position = new Vector2(20 * 16, 60 * 16 - player.height);
-        companion.NPC.position = new Vector2(20 * 16, 60 * 16 - companion.NPC.height);
+        int floorRow = ore.Min(tile => tile.Y) + 1;
+        player.position = new Vector2(20 * 16, floorRow * 16 - player.height);
+        companion.NPC.position = new Vector2(20 * 16, floorRow * 16 - companion.NPC.height);
         Player.tileRangeX = Player.tileRangeY = 5;
         Main.tileSolid[TileID.Dirt] = true;
         for (int x = 5; x < 95; x++)
         {
-            Tile floor = Main.tile[x, 60];
+            Tile floor = Main.tile[x, floorRow];
             floor.ClearEverything();
             floor.HasTile = true;
             floor.TileType = TileID.Dirt;
