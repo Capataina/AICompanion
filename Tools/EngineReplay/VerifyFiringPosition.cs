@@ -25,9 +25,43 @@ internal static class VerifyFiringPosition
 {
     public static int Run()
     {
-        VerifyShortlistPrefersSpotsThatCanActuallyShoot();
-        Console.WriteLine("firing position: the solve shortlist carries line of sight and the chosen spot has an arc");
-        return 0;
+        string path = Path.Combine(Path.GetTempPath(), "aic-method-assessment-" + Guid.NewGuid().ToString("N") + ".jsonl");
+        Type events = typeof(live::AICompanion.Companion.Brain.BehaviourDiagnostics.GodsEyeEvents);
+        var close = events.GetMethod("Close", BindingFlags.Static | BindingFlags.NonPublic)!;
+        try
+        {
+            events.GetMethod("Open", BindingFlags.Static | BindingFlags.NonPublic)!.Invoke(null, new object[] { path });
+            int comparisons = VerifyShortlistPrefersSpotsThatCanActuallyShoot();
+            close.Invoke(null, null);
+            var records = File.ReadLines(path).Select(line =>
+                {
+                    using var document = System.Text.Json.JsonDocument.Parse(line);
+                    return document.RootElement.Clone();
+                })
+                .Where(row => row.GetProperty("kind").GetString() == "method-assessment"
+                    && row.GetProperty("label").GetString() == "guard").ToArray();
+            Require(records.Length == comparisons, "every queried guard method must produce exactly one occurrence record");
+            Require(records.Count(row => row.GetProperty("channel").GetString() == "not-established") >= 3,
+                "unchanged unavailable guarding must be recorded across comparisons, not only on an activity-label transition");
+            Require(records.Last().GetProperty("channel").GetString() == "admitted", "opening must record admission separately from rejection");
+            for (int i = 0; i < records.Length; i++)
+            {
+                string detail = records[i].GetProperty("detail").GetString()!;
+                Require(detail.Contains($"choice-id={i + 1};") && detail.Contains("choice-phase=pre-activation;")
+                    && detail.Contains("target-slot=30;") && detail.Contains("native-effect=unobserved"),
+                    "method occurrences need comparison/target identity and explicit execution limits");
+                bool rejected = records[i].GetProperty("channel").GetString() == "not-established";
+                Require(!rejected || detail.Contains("selectable=0;") && detail.Contains("no-arc"),
+                    "a rejection must preserve the tested failure rather than claim low desirability or native success");
+            }
+            Console.WriteLine("firing position: usable method admission, terrain invalidation and every-query occurrence evidence pass");
+            return 0;
+        }
+        finally
+        {
+            close.Invoke(null, null);
+            if (File.Exists(path)) File.Delete(path);
+        }
     }
 
     private const int FloorY = 80;
@@ -43,7 +77,7 @@ internal static class VerifyFiringPosition
     private const int ShaftLeft = 49, ShaftRight = 53, ShaftFloorY = 86;
     private const int EnemyTileX = 51;
 
-    private static void VerifyShortlistPrefersSpotsThatCanActuallyShoot()
+    private static int VerifyShortlistPrefersSpotsThatCanActuallyShoot()
     {
         BuildPitWorld();
         var companion = VerifyCompanionLifecycle.Create();
@@ -174,13 +208,18 @@ internal static class VerifyFiringPosition
         Require(chosen != null && companion.Brain.Positioner.CandidateEvidence.Contains(":clear-arc"),
             "opening the shot must restore a useful firing destination");
         bool protectionRestored = false;
+        int comparisons = 3;
         for (int tick = 0; tick < 80 && !protectionRestored; tick++)
+        {
             protectionRestored = ReferenceEquals(companion.Brain.Chooser.Choose(ctx), guard);
+            comparisons++;
+        }
         Require(protectionRestored, "opening the shot must allow the still-useful guard offer to win again");
         Require(companion.Brain.Chooser.LastScores.Single(s => ReferenceEquals(s.Action, guard))
             .MethodEvidence.Contains("clear-arc"), "accepted protection must retain the method that admitted it");
         Require(companion.Brain.Positioner.Resolve(request, companion.Brain.Senses, null) == null,
             "removing the weapon profile must invalidate a retained firing position immediately");
+        return comparisons;
     }
 
     /// <summary>

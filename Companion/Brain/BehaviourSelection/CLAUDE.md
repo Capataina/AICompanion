@@ -50,6 +50,8 @@ Reflex, recovery and downing explicitly suspend through this owner. Suspension i
 
 Completed comparisons carry an increasing evaluation identity and their engine tick. The coordinator separately records whether selection ran in its current invocation: an early recovery or reflex return can update the brain without refreshing the choice. Retained scores keep their original identity and source time. These comparison identities describe decisions, not ongoing job identity or route attempts.
 
+An attack-method query records an occurrence against the upcoming comparison identity before activation. This preserves rejected alternatives even when the chosen activity stays unchanged between periodic decision snapshots. Its pre-activation phase must not be interpreted as proof that the comparison completed or the activity executed.
+
 Each retained score carries the actual protection, incumbent commitment, horizon and useful-work multipliers applied by this stage. Sparse decision events expose those factors beside raw and final utility; recording consumes the evaluated factors rather than preparing another board, which could acquire or release jobs.
 
 Regrouping raises keeping company's reunion utility rather than introducing a behaviour. It uses the selected distance mode's comfort region, and drops to zero when both axes and local sight satisfy arrival. A viable targeted excursion discounts ordinary companionship inside its permitted activity envelope; protection is unaffected. `IsExcursion` defaults on, with protection and keeping company opting out. Shared safety does not depend on these factors. `RegroupUrgency` and `EstimatedReturnTicks` remain available to diagnostics.

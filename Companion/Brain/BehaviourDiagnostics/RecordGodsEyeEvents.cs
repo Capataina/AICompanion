@@ -167,6 +167,20 @@ public static class GodsEyeEvents
     public static void RecordDecision(NPC companion, string winner, string board, string request, string controls)
         => Write("decision", Stable(npcGenerations, companion.whoAmI), "", winner, request, companion.Center, companion.velocity, Vector2.Zero, 0, $"scores={board};controls={controls}");
 
+    public static void RecordMethodAssessment(NPC companion, NPC? target, int targetGeneration,
+        long comparison, string activity, string family, string request, int evidenceTick,
+        float raw, float compared, Vector2? destination, string reason, string candidates)
+    {
+        if (!Active) return;
+        // This occurrence precedes activation and comparison completion. A missing later
+        // decision remains missing; an admitted method is not a completed activity.
+        Write("method-assessment", Stable(npcGenerations, companion.whoAmI),
+            target == null ? "" : Stable(npcGenerations, target.whoAmI).ToString(CultureInfo.InvariantCulture),
+            activity, destination == null ? "not-established" : "admitted", companion.Bottom,
+            Vector2.Zero, destination ?? Vector2.Zero, 0,
+            FormattableString.Invariant($"choice-id={comparison};choice-phase=pre-activation;family={family};request={request};target-slot={target?.whoAmI ?? -1};target-observer-generation={targetGeneration};position-evidence-tick={evidenceTick};raw={raw:R};compared={compared:R};selectable={(destination == null ? 0f : compared):R};destination-present={destination != null};reason={reason};candidates={candidates};scope=bounded-position-query;travel=unobserved;native-effect=unobserved"));
+    }
+
     public static void RecordMovementState(NPC companion, Navigator navigator)
     {
         if (navigator.Status == lastMovementStatus && navigator.EdgeCount == lastMovementEdges

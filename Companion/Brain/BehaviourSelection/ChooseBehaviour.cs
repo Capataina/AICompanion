@@ -137,6 +137,10 @@ public sealed class Chooser
             {
                 var method = ctx.Companion.Brain.Positioner.PrepareOffer(request, ctx.Senses,
                     ctx.Companion.Arsenal.ProfileFor(ctx, request.Target));
+                BehaviourDiagnostics.GodsEyeEvents.RecordMethodAssessment(ctx.Npc, request.Target,
+                    bindings[winner.Index].Generation, EvaluationId + 1, Actions[winner.Index].Name,
+                    Actions[winner.Index].Family.ToString(), request.Kind.ToString(), method.SourceTick,
+                    prepared[winner.Index].RawValue, winner.Final, method.Destination, method.Reason, method.Candidates);
                 methods[winner.Index] = FormattableString.Invariant(
                     $"tick:{method.SourceTick},kind:{request.Kind},destination:{method.Destination},reason:{method.Reason},candidates:{method.Candidates}");
                 int row = LastScores.FindIndex(s => ReferenceEquals(s.Action, Actions[winner.Index]));
