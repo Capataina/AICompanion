@@ -33,6 +33,8 @@ internal static class VerifyOreWork
             ChoppingUsesActualReachRatherThanStandDistance();
             LosingWorkEligibilityDoesNotClaimCompletion();
             OreDisappearanceAndAttributedRemovalRemainSeparate();
+            PreparedToolsRejectReplacementMaterial();
+            AxeEligibilityAloneDoesNotMakeATree();
             AnUnprovenApproachWalksInsteadOfScoringZero();
             AnUnknownApproachKeepsItsOwnOreIdentity();
             AReachableOreProducesANativeBreak();
@@ -669,6 +671,63 @@ internal static class VerifyOreWork
             VerifyPreparedActivities.PrepareAndScore(mine, ctx);
             Require(mine.LastConclusion == retained, "ending an empty job again must not overwrite its original evidence");
         }
+    }
+
+    private static void PreparedToolsRejectReplacementMaterial()
+    {
+        WorkPolicy original = WorkPolicies.Chopping;
+        try
+        {
+            foreach (bool chopping in new[] { false, true })
+            {
+                Point point = new(25, 89);
+                var (mine, ctx) = SetUp(WorkPolicy.Opportunistic, TileID.Copper, point);
+                WorkPolicies.Chopping = WorkPolicy.Opportunistic;
+                live::AICompanion.Companion.Brain.Behaviours.CompanionAction action = mine;
+                Tile tile = Main.tile[point.X, point.Y];
+                if (chopping)
+                {
+                    tile.TileType = TileID.Trees;
+                    Main.tileAxe[TileID.Trees] = true;
+                    Main.tileSolid[TileID.Trees] = false;
+                    TileID.Sets.IsATreeTrunk[TileID.Trees] = true;
+                    action = new live::AICompanion.Companion.Brain.Behaviours.Work.ChopAction();
+                }
+                Require(VerifyPreparedActivities.PrepareAndScore(action, ctx) > 0,
+                    "replacement fixture needs a real prepared tool target");
+                object? originalIdentity = action.ActivityIdentity;
+                tile.TileType = chopping ? TileID.Cactus : TileID.Tin;
+                Main.tileAxe[TileID.Cactus] = true;
+                Main.tileSolid[TileID.Tin] = true;
+                var request = action.Execute(ctx);
+                Require(request == live::AICompanion.Companion.Brain.PositionSelection.PositionRequest.Hold
+                    && !action.HandsBusy && ctx.Companion.Miner.LastOutcome == null && ctx.Companion.Chopper.LastOutcome == null,
+                    $"a prepared tool must not act on replacement material: chopping={chopping}; hand={action.HandsBusy}");
+                float renewedValue = VerifyPreparedActivities.PrepareAndScore(action, ctx);
+                Require(renewedValue > 0 && action.PreparedTargetRejection.Length == 0
+                    && !Equals(originalIdentity, action.ActivityIdentity),
+                    $"eligible replacement material needs fresh work: chopping={chopping}; value={renewedValue}; rejection={action.PreparedTargetRejection}; old={originalIdentity}; current={action.ActivityIdentity}; mine-status={mine.Status}; remaining={mine.RemainingTiles}");
+            }
+        }
+        finally { WorkPolicies.Chopping = original; }
+    }
+
+    private static void AxeEligibilityAloneDoesNotMakeATree()
+    {
+        Point point = new(25, 89);
+        var (_, ctx) = SetUp(WorkPolicy.Opportunistic, TileID.Copper, point);
+        Tile tile = Main.tile[point.X, point.Y];
+        tile.TileType = TileID.WoodBlock;
+        bool original = Main.tileAxe[TileID.WoodBlock];
+        try
+        {
+            // A mod can make a material axe-eligible without classifying it as a tree.
+            Main.tileAxe[TileID.WoodBlock] = true;
+            Item axe = live::AICompanion.Companion.Brain.WorldInteractions.Chopping.TileChopper.AxeFor(ctx.Player);
+            Require(!ctx.Companion.Chopper.Swing(point, axe) && ctx.Companion.Chopper.LastOutcome == null,
+                "native axe work must reject an axe-eligible material outside the discovery tree category");
+        }
+        finally { Main.tileAxe[TileID.WoodBlock] = original; }
     }
 
     internal static (MineAction Action, ActionContext Context) SetUp(WorkPolicy policy, ushort tileType, params Point[] ore)

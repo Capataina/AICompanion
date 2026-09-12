@@ -30,6 +30,7 @@ internal static class VerifyCompanionActivities
             ActivityOwnershipSurvivesInterruption();
             InvalidCandidatesCannotBecomeTheFallback();
             InvalidatedCandidatesAreReconsideredWithoutDiscovery();
+            ReplacedMiningMaterialYieldsToAPreparedSibling();
             StallsSurviveBehaviourChanges();
             ComfortableFollowingHasNoRegroupPressure();
             RemoteJobReleasesAndDiscoversNearbyOre();
@@ -174,6 +175,25 @@ internal static class VerifyCompanionActivities
                 "replacement must name its availability failure rather than devalue the activity's usefulness");
             Main.item[5] = previous;
         }
+    }
+
+    private static void ReplacedMiningMaterialYieldsToAPreparedSibling()
+    {
+        Point point = new(25, 89);
+        var (mine, ctx) = VerifyOreWork.SetUp(Policy.Opportunistic, TileID.Copper, point);
+        var sibling = new ActivityProbe { Target = ctx.Player.Bottom, Value = .01f };
+        sibling.DuringPreparation = () =>
+        {
+            Tile tile = Main.tile[point.X, point.Y];
+            tile.TileType = TileID.Tin;
+        };
+        var chooser = ctx.Companion.Brain.Chooser;
+        chooser.Actions.Clear(); chooser.Actions.Add(mine); chooser.Actions.Add(sibling);
+        Require(ReferenceEquals(chooser.Choose(ctx), sibling) && sibling.Preparations == 1 && sibling.Entries == 1,
+            "changed mining material must yield to an already prepared sibling without another discovery pass");
+        Require(chooser.LastScores[0].Raw > 0 && chooser.LastScores[0].Final == 0
+            && chooser.LastScores[0].Error == "prepared-tile-material-changed",
+            "the invalid mining offer must retain its usefulness and name material replacement as the rejection");
     }
 
     private static void ContinuingTargetsKeepTheirIdentity()

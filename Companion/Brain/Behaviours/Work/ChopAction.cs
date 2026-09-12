@@ -21,7 +21,9 @@ public sealed class ChopAction : CompanionAction
     public override string Name => "chop";
     public override PurposeFamily Family => PurposeFamily.Gathering;
     public override Vector2? ActivityTarget => prepared?.Target;
-    public override object? ActivityIdentity => tree?.Bottom;
+    public override object? ActivityIdentity => prepared?.Binding;
+    public override string PreparedTargetRejection => prepared is { } candidate
+        ? tree?.Bottom != candidate.Binding.Tile ? "prepared-target-changed" : candidate.Binding.Rejection : "";
     /// <summary>True only while the axe is actually out; the whole walk to the tree is empty-handed.</summary>
     public override bool HandsBusy => swinging;
     private bool swinging;
@@ -39,7 +41,7 @@ public sealed class ChopAction : CompanionAction
     private (Point from, Point goal, int revision, int reachX, int reachY)? reachKey;
     private Reachability.Reach approachReach;
     private int sinceReach = SearchEveryTicks;
-    private readonly record struct Candidate(Vector2 Target, float Value, float TripTicks);
+    private readonly record struct Candidate(Vector2 Target, float Value, float TripTicks, BindTileTarget Binding);
     private Candidate? prepared;
     public WorldInteractions.RemainingToolWork? RemainingWork { get; private set; }
 
@@ -49,8 +51,9 @@ public sealed class ChopAction : CompanionAction
         RemainingWork = value > 0 && tree is { } workTarget
             ? ctx.Companion.Chopper.EstimateRemaining(workTarget.Bottom, TileChopper.AxeFor(ctx.Player)) : null;
         prepared = value > 0 && RemainingWork is { } remaining && tree is { } found
+            && BindTileTarget.Capture(found.Bottom) is { } binding
             ? new(found.Bottom.ToWorldCoordinates(), value,
-                Vector2.Distance(ctx.Npc.Bottom, found.StandPosition) / Companion.CompanionMotor.WalkSpeed + remaining.Ticks)
+                Vector2.Distance(ctx.Npc.Bottom, found.StandPosition) / Companion.CompanionMotor.WalkSpeed + remaining.Ticks, binding)
             : null;
     }
 
@@ -67,7 +70,7 @@ public sealed class ChopAction : CompanionAction
             || WorldInteractions.WorldProtection.ProtectCompanionHomes.IsProtected(retained.Bottom)))
         { tree = null; ReleaseActivity(); sinceSearch = SearchEveryTicks; }
         var context = ctx;
-        bool Accept(Point bottom) => AllowsTarget(context, bottom.ToWorldCoordinates(), bottom)
+        bool Accept(Point bottom) => AllowsTarget(context, bottom.ToWorldCoordinates(), BindTileTarget.Capture(bottom))
             && !WorldInteractions.WorldProtection.ProtectCompanionHomes.IsProtected(bottom)
             && (!deferred.TryGetValue(bottom, out ulong until) || Main.GameUpdateCount >= until);
 
@@ -182,6 +185,13 @@ public sealed class ChopAction : CompanionAction
         }
         if (prepared == null || tree is not TreeFinder.ChoppableTree t)
             return PositionRequest.Hold;
+        if (PreparedTargetRejection.Length > 0)
+        {
+            tree = null;
+            sinceSearch = SearchEveryTicks;
+            ReleaseActivity();
+            return PositionRequest.Hold;
+        }
 
         if (FindToolAccess.InReach(ctx.Npc.Bottom, t.Bottom))
         {

@@ -63,7 +63,7 @@ public sealed class TileChopper
     {
         if (!WorldGen.InWorld(trunkBottom.X, trunkBottom.Y, 5)) return false;
         Tile tile = Main.tile[trunkBottom.X, trunkBottom.Y];
-        return tile.HasTile && tile.TileType < Main.tileAxe.Length && Main.tileAxe[tile.TileType];
+        return tile.HasTile && tile.TileType < Main.tileAxe.Length && TreeFinder.IsTreeType(tile.TileType);
     }
 
     private void Hit(int x, int y, int axePower)

@@ -31,6 +31,8 @@ public abstract class CompanionAction
     private object? admittedIdentity;
     public virtual Microsoft.Xna.Framework.Vector2? ActivityTarget => null;
     public virtual object? ActivityIdentity => null;
+    /// <summary>Validate captured non-entity facts without discovering or mutating a candidate.</summary>
+    public virtual string PreparedTargetRejection => "";
     public bool HasActivityAllowance => admittedIdentity != null;
 
     /// <summary>Only an entered job earns the continuation radius; discovering a target does not.</summary>

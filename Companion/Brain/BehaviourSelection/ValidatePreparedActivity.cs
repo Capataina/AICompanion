@@ -19,6 +19,8 @@ public readonly record struct ValidatePreparedActivity(object? Identity, int Gen
 
     public string Rejection(CompanionAction action)
     {
+        string rejection = action.PreparedTargetRejection;
+        if (rejection.Length > 0) return rejection;
         if (!Equals(Identity, action.ActivityIdentity)) return "prepared-target-changed";
         if (Identity is NPC npc)
         {

@@ -26,6 +26,9 @@ public sealed class MineAction : CompanionAction
     public override Vector2? ActivityTarget => preparedTarget;
     private Vector2? preparedTarget;
     private float preparedValue, preparedTrip;
+    private WorldInteractions.BindTileTarget? preparedTile;
+    public override string PreparedTargetRejection => preparedTile is { } bound
+        ? (target?.Tile ?? unproven) != bound.Tile ? "prepared-target-changed" : bound.Rejection : "";
 
     private const int KeepJobTicks = 600;
     private const int SearchRadiusTiles = 45;
@@ -72,6 +75,9 @@ public sealed class MineAction : CompanionAction
         preparedTrip = target is { } found
             ? Vector2.Distance(ctx.Npc.Bottom, found.StandPosition) / Companion.CompanionMotor.WalkSpeed + (RemainingWork?.Ticks ?? 0f)
             : unproven is Point pending ? Vector2.Distance(ctx.Npc.Bottom, pending.ToWorldCoordinates()) / Companion.CompanionMotor.WalkSpeed + 180f : 0f;
+        preparedTile = preparedValue <= 0 ? null
+            : target is { } boundTarget ? new WorldInteractions.BindTileTarget(boundTarget.Tile, boundTarget.Type)
+            : unproven is Point point ? WorldInteractions.BindTileTarget.Capture(point) : null;
     }
 
     public override float Score() => preparedValue;
@@ -140,7 +146,9 @@ public sealed class MineAction : CompanionAction
         else if (target == null && patch.Count > 0 && (status != "approach unknown" || sinceSearch >= SearchEveryTicks))
         {
             target = NextInPatch(ctx, pick);
-            sinceSearch = 0;
+            // Retrying a retained approach consumes its cadence. Ending that job must
+            // preserve a requested fresh discovery for the replacement world material.
+            if (patch.Count > 0) sinceSearch = 0;
         }
         if (patch.Count == 0 && sinceSearch >= SearchEveryTicks)
         {
@@ -272,6 +280,14 @@ public sealed class MineAction : CompanionAction
         {
             ClearJob("disabled before execution");
             sinceSearch = SearchEveryTicks;
+            return PositionRequest.Hold;
+        }
+        if (preparedTile == null || PreparedTargetRejection.Length > 0)
+        {
+            target = null;
+            jumpTile = unproven = null;
+            sinceSearch = SearchEveryTicks;
+            status = "prepared tile invalidated";
             return PositionRequest.Hold;
         }
         if (target == null && unproven is Point approach)
