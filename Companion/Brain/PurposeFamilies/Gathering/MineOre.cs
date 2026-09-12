@@ -73,7 +73,11 @@ public sealed class MineOre : CompanionAction
         preparedTarget = (target?.Tile ?? unproven)?.ToWorldCoordinates();
         RemainingWork = target is { } workTarget
             ? ctx.Companion.Miner.EstimateRemaining(workTarget.Tile, TileMiner.PickaxeFor(ctx.Player)) : null;
-        if (target != null && RemainingWork == null) preparedValue = 0;
+        if (target != null && RemainingWork == null)
+        {
+            preparedValue = 0;
+            Classify(OfferEligibility.KnownUnusable, "tool-cannot-damage-target");
+        }
         preparedTrip = target is { } found
             ? Vector2.Distance(ctx.Npc.Bottom, found.StandPosition) / Companion.CompanionMotor.WalkSpeed + (RemainingWork?.Ticks ?? 0f)
             : unproven is Point pending ? Vector2.Distance(ctx.Npc.Bottom, pending.ToWorldCoordinates()) / Companion.CompanionMotor.WalkSpeed + 180f : 0f;
@@ -84,22 +88,55 @@ public sealed class MineOre : CompanionAction
 
     public override float Score() => preparedValue;
 
+    /// <summary>
+    /// A cleared tracked vein completes the attempt only when this attempt itself produced an
+    /// observed effect: the same empty coordinates reached through the player's pickaxe change the
+    /// remaining work and earn the companion nothing. A job ended by lost permission or changed
+    /// material is invalid rather than failed, because the method never got to prove itself.
+    /// </summary>
+    public override AttemptConclusion ConcludeAttempt(ulong startedAt, int productiveEffects)
+    {
+        if (LastConclusion is { } end && end.Tick >= startedAt)
+        {
+            if (end.ObservedClear)
+                return productiveEffects > 0
+                    ? new(AttemptStatus.Complete, "tracked-vein-observed-clear-after-companion-effects")
+                    : new(AttemptStatus.Invalid, "tracked-vein-cleared-without-companion-effect");
+            if (productiveEffects > 0) return new(AttemptStatus.Partial, end.Reason);
+            return new(end.Reason == "remaining ore has no proven working pose" ? AttemptStatus.Failed : AttemptStatus.Invalid, end.Reason);
+        }
+        if (approachAbandonedAt is ulong abandoned && abandoned >= startedAt)
+            return new(AttemptStatus.Failed, "unproven-ore-approach-made-no-progress");
+        if (status == "jump lost its take-off")
+            return new(productiveEffects > 0 ? AttemptStatus.Partial : AttemptStatus.Failed, status);
+        if (status == "prepared tile invalidated")
+            return new(productiveEffects > 0 ? AttemptStatus.Partial : AttemptStatus.Invalid, status);
+        return productiveEffects > 0
+            ? new(AttemptStatus.Partial, "replaced-with-vein-remaining")
+            : new(AttemptStatus.Attempted, "replaced-before-productive-effect");
+    }
+
     private float DiscoverValue(in ActionContext ctx)
     {
         var p = ctx.Senses.Player;
         if (p.IsDead)
+        {
+            Classify(OfferEligibility.NoOpportunity, "player-dead");
             return 0f;
+        }
         sinceSearch++;
 
         if (WorkPolicies.Mining == WorkPolicy.Disabled)
         {
             ClearJob("disabled");
+            Classify(OfferEligibility.PolicyForbidden, "mining-disabled");
             return 0f;
         }
         bool playerMining = p.MinedOre != null || TileDamageWatcher.TicksSinceOreHit <= KeepJobTicks;
         if (WorkPolicies.Mining == WorkPolicy.Mimic && !playerMining)
         {
             ClearJob("mimic trigger expired");
+            Classify(OfferEligibility.PolicyForbidden, "mimic-awaiting-player-ore-contact");
             return 0f;
         }
         int pick = TileMiner.PickaxeFor(ctx.Player).pick;
@@ -158,15 +195,36 @@ public sealed class MineOre : CompanionAction
         }
         float safe = Consideration.AtLeast(1f - ctx.Senses.Threats.PlayerDanger, 0.1f);
         if (patch.Count == 0 || (target == null && status == "approach unknown"))
-            return UnprovenApproach(ctx, safe);
+        {
+            float investigation = UnprovenApproach(ctx, safe);
+            ClassifyWithoutProvenTarget(investigation);
+            return investigation;
+        }
         unproven = null;
+        Classify(OfferEligibility.Usable, "vein-target-established");
         return 0.7f * safe;
+    }
+
+    /// <summary>Without a proven working pose the offer is either an undecided approach, a vein this
+    /// tool or search has ruled out, or nothing found. The status string is the discovery's own
+    /// account, so the classification reads it rather than re-deriving the search.</summary>
+    private void ClassifyWithoutProvenTarget(float value)
+    {
+        if (value > 0) { Classify(OfferEligibility.Unresolved, "ore-approach-undecided"); return; }
+        OfferEligibility eligibility = status switch
+        {
+            "approach unknown" or "approaching unproven ore" or "no eligible approach" => OfferEligibility.Unresolved,
+            "no mineable ore" or "remaining ore has no proven working pose" or "jump lost its take-off" => OfferEligibility.KnownUnusable,
+            _ => OfferEligibility.NoOpportunity,
+        };
+        Classify(eligibility, approachAbandonedAt == Main.GameUpdateCount ? "unproven-ore-approach-made-no-progress" : status.Replace(' ', '-'));
     }
 
     private Point? unproven;
     private Point? unresolvedCandidate;
     private Vector2 unprovenOrigin;
     private int unprovenTicks;
+    private ulong? approachAbandonedAt;
 
     /// <summary>
     /// What mining is worth while the approach search has declined to answer. It used to be worth
@@ -217,6 +275,7 @@ public sealed class MineOre : CompanionAction
         {
             // Walking has stopped resolving it. Give the tick back rather than lean on the ore.
             unproven = null;
+            approachAbandonedAt = Main.GameUpdateCount;
             return 0f;
         }
         return 0.7f * safe * Weights.MineUnprovenApproach;

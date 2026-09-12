@@ -162,6 +162,9 @@ internal static class VerifyHuntAdmissibility
             $"a sealed enemy no reachable position can shoot was still hunted: score={score}; target={hunt.Target?.Npc.whoAmI}; rejection={hunt.LastRejection}");
         Require(hunt.LastRejection == "no-reachable-firing-position",
             $"the refusal must name its reason so a session can be read for it; got {hunt.LastRejection}");
+        Require(hunt.Eligibility == live::AICompanion.Companion.Brain.Behaviours.OfferEligibility.KnownUnusable
+            && hunt.EligibilityReason == "no-reachable-firing-position",
+            $"a proven absence of firing positions is a known-unusable method, not an absent enemy; got {hunt.Eligibility}/{hunt.EligibilityReason}");
     }
 
     /// <summary>

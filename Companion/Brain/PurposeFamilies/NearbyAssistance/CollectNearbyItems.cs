@@ -52,11 +52,23 @@ public sealed class CollectNearbyItems : PerformNearbyWorldWork
         collectDrop = values[0].Final > 0 && values[0].Final >= values[1].Final;
         preparedValue = collectDrop ? dropValue : potValue;
         preparedTrip = collectDrop ? candidate!.Value.TripTicks : potTrip;
+        // The two methods share one purpose, so the published classification describes the method
+        // whose raw value is published. Pot contents stay unknown; the pot itself is a usable target.
+        if (collectDrop) Classify(OfferEligibility.Usable, "known-drop-fits-cargo");
+        else if (potValue > 0) Classify(OfferEligibility.Usable, "reachable-pot-contents-uncertain");
+        else if (ctx.Senses.Player.IsDead) Classify(OfferEligibility.NoOpportunity, "player-dead");
+        else if (candidate != null) Classify(OfferEligibility.Usable, "known-drop-valued-zero-under-shared-costs");
+        else if (capacityRefused) Classify(OfferEligibility.KnownUnusable, "nearby-drops-exceed-cargo-capacity");
+        else Classify(OfferEligibility.NoOpportunity, PlayerIntegration.CompanionPreferences.Current.PotBreaking
+            ? "no-fitting-drop-or-reachable-pot" : "no-fitting-drop-and-pot-breaking-disabled");
     }
+
+    private bool capacityRefused;
 
     private void PrepareDrop(in ActionContext ctx)
     {
         candidate = null;
+        capacityRefused = false;
         if (ctx.Senses.Player.IsDead || ctx.Senses.Loot.Pickups.Count == 0)
             return;
         // The nearest pickup that fits somewhere and has a standable tile beside it; one item
@@ -66,7 +78,10 @@ public sealed class CollectNearbyItems : PerformNearbyWorldWork
         {
             if (!LootSense.IsWorldDrop(pickup.Item) || !AllowsTarget(ctx, pickup.Item.Bottom, pickup.Item)) continue;
             if (!ctx.Companion.Bag.CanAccept(pickup.Item, ctx.Player))
+            {
+                capacityRefused = true;
                 continue;
+            }
             if (MovementQueries.NearestStandable(MovementQueries.FeetTile(pickup.Item.Bottom), 3) == null)
                 continue;
             chosen = pickup;
@@ -93,12 +108,32 @@ public sealed class CollectNearbyItems : PerformNearbyWorldWork
         if (candidate is not { } prepared || !LootSense.IsWorldDrop(prepared.Item)
             || prepared.Item.type != prepared.Type || !ctx.Companion.Bag.CanAccept(prepared.Item, ctx.Player))
             return PositionRequest.Hold;
+        dropAttempt = (prepared.Item, prepared.Type, Main.GameUpdateCount);
         return PositionRequest.ExactAt(prepared.Position);
     }
 
+    private (Item Item, int Type, ulong At)? dropAttempt;
+
+    /// <summary>A drop this attempt walked toward that has left the world completes collection;
+    /// contact pickup is independent of the activity, so the collector is named as unattributed.
+    /// Pot attempts use the shared interaction conclusion.</summary>
+    public override AttemptConclusion ConcludeAttempt(ulong startedAt, int productiveEffects)
+    {
+        if (dropAttempt is { } drop && drop.At >= startedAt)
+            return !LootSense.IsWorldDrop(drop.Item) || drop.Item.type != drop.Type
+                ? new(AttemptStatus.Complete, "drop-left-world-collector-unattributed")
+                : new(AttemptStatus.Attempted, "replaced-with-drop-still-in-world");
+        return base.ConcludeAttempt(startedAt, productiveEffects);
+    }
+
+    protected override string CompletedEffect => "pot-broken-contents-unobserved";
     protected override float Utility => Weights.PotContentsValue;
     protected override bool Enabled(in ActionContext ctx)
         => PlayerIntegration.CompanionPreferences.Current.PotBreaking && ctx.Companion.Bag.Count < Inventory.CompanionInventory.Slots;
+    protected override (OfferEligibility Eligibility, string Reason) DisabledOffer(in ActionContext ctx)
+        => ctx.Player.dead ? (OfferEligibility.NoOpportunity, "player-dead")
+            : !PlayerIntegration.CompanionPreferences.Current.PotBreaking ? (OfferEligibility.PolicyForbidden, "pot-breaking-disabled")
+            : (OfferEligibility.KnownUnusable, "cargo-full-for-unknown-contents");
 
     protected override bool Candidate(in ActionContext ctx, Point tile)
     {

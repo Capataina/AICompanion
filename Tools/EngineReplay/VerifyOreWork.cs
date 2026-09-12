@@ -58,6 +58,12 @@ internal static class VerifyOreWork
     {
         var (action, ctx) = SetUp(WorkPolicy.Disabled, TileID.Copper, new Point(25, 59));
         Require(VerifyPreparedActivities.PrepareAndScore(action, ctx) == 0f && action.RemainingTiles == 0 && action.Status == "disabled", "disabled mining must not retain ore work");
+        Require(action.Eligibility == live::AICompanion.Companion.Brain.Behaviours.OfferEligibility.PolicyForbidden && action.EligibilityReason == "mining-disabled",
+            $"a disabled policy must be classified as a policy prohibition, not as absent ore; got {action.Eligibility}/{action.EligibilityReason}");
+        WorkPolicies.Mining = WorkPolicy.Opportunistic;
+        Require(VerifyPreparedActivities.PrepareAndScore(action, ctx) > 0f
+            && action.Eligibility == live::AICompanion.Companion.Brain.Behaviours.OfferEligibility.Usable,
+            $"the same exposed ore with mining enabled must be a usable offer; got {action.Eligibility}/{action.EligibilityReason}");
     }
 
     private static void DepartingPlayerChangesWhetherWorkIsWorthFinishing()
@@ -229,6 +235,9 @@ internal static class VerifyOreWork
             && ctx.Companion.Brain.Chooser.Activity.Phase == live::AICompanion.Companion.Brain.BehaviourSelection.ActivityPhase.Suspended
             && !mine.HandsBusy && ctx.Companion.Miner.LastOutcome == effect,
             $"a projectile without an enemy must suspend native work and grant avoidance with a free hand; enemies={ctx.Companion.Brain.Senses.Threats.Threats.Count}; projectiles={ctx.Companion.Brain.Senses.Projectiles.Threats.Count}; reflex={ctx.Companion.Brain.Reflexes.Active}; grant={ctx.Companion.Brain.ControlGrants.Last}; phase={ctx.Companion.Brain.Chooser.Activity.Phase}; busy={mine.HandsBusy}; same-effect={ctx.Companion.Miner.LastOutcome == effect}");
+        Require(ctx.Companion.Brain.Chooser.Activity.LastAttempt is { Status: live::AICompanion.Companion.Brain.Behaviours.AttemptStatus.Interrupted, Activity: "mine", ProductiveEffects: >= 1 }
+            && !ctx.Companion.Brain.Chooser.Activity.AttemptOpen,
+            $"interrupted productive mining must close as an interruption carrying its credited effect, never a failure; attempt={ctx.Companion.Brain.Chooser.Activity.LastAttempt}");
         Main.projectile[0].active = false;
     }
 
@@ -642,6 +651,8 @@ internal static class VerifyOreWork
             $"a transformed unmineable deposit must not be reported as completed work: {mine.Status}");
         Require(mine.LastConclusion is { Tracked: 1, Changed: 1, Missing: 0, ObservedClear: false, CompanionRemovals: 0 },
             "the ended job must retain the changed material instead of losing it during eligibility pruning");
+        Require(mine.ConcludeAttempt(0, 0).Status == live::AICompanion.Companion.Brain.Behaviours.AttemptStatus.Invalid,
+            $"material that stopped qualifying makes the attempt invalid rather than completed or failed; got {mine.ConcludeAttempt(0, 0)}");
     }
 
     private static void OreDisappearanceAndAttributedRemovalRemainSeparate()
@@ -673,6 +684,14 @@ internal static class VerifyOreWork
             var retained = mine.LastConclusion;
             VerifyPreparedActivities.PrepareAndScore(mine, ctx);
             Require(mine.LastConclusion == retained, "ending an empty job again must not overwrite its original evidence");
+            // Direct Execute calls here bypass the activity owner, so the credited effect count is
+            // supplied: the question is whether the same cleared vein reads differently with and
+            // without the attempt's own productive effects.
+            var attempt = mine.ConcludeAttempt(0, ownRemoval ? 3 : 0);
+            Require(attempt.Status == (ownRemoval
+                    ? live::AICompanion.Companion.Brain.Behaviours.AttemptStatus.Complete
+                    : live::AICompanion.Companion.Brain.Behaviours.AttemptStatus.Invalid),
+                $"external ore removal must change remaining work without earning a completed attempt: own={ownRemoval}; attempt={attempt}");
         }
     }
 

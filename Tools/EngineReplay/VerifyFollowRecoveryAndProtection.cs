@@ -75,7 +75,8 @@ internal static class VerifyFollowRecoveryAndProtection
         public override live::AICompanion.Companion.Brain.BehaviourSelection.PurposeFamily Family
             => live::AICompanion.Companion.Brain.BehaviourSelection.PurposeFamily.NearbyAssistance;
         public override bool IsExcursion => false;
-        public override void Prepare(in Context ctx) { }
+        // A positive score needs a classified offer, exactly as for a production activity.
+        public override void Prepare(in Context ctx) => Classify(live::AICompanion.Companion.Brain.Behaviours.OfferEligibility.Usable, "probe");
         public override float Score() => 1f;
         public override live::AICompanion.Companion.Brain.PositionSelection.PositionRequest Execute(in Context ctx)
             => new(kind, ctx.Player.Bottom);

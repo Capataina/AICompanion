@@ -18,7 +18,7 @@ public sealed class Chooser
 {
     public readonly record struct Scored(CompanionAction Action, float Raw, float Final,
         float Protection = 1f, float Commitment = 1f, float Horizon = 1f, float UsefulWork = 1f, string Error = "", float Reunion = 1f,
-        string MethodEvidence = "");
+        string MethodEvidence = "", OfferEligibility Eligibility = OfferEligibility.Usable, string EligibilityReason = "");
 
     public readonly List<CompanionAction> Actions = new()
     {
@@ -58,6 +58,9 @@ public sealed class Chooser
     {
         workSite = site;
         workSiteTick = Terraria.Main.GameUpdateCount;
+        // Callers record work only for an observed productive native effect, so this is the one
+        // place an attempt's effect count grows; an effect outside an executing attempt is uncredited.
+        Activity.RecordProductiveEffect();
     }
 
     public CompanionAction? Choose(in ActionContext ctx)
@@ -98,13 +101,15 @@ public sealed class Chooser
         // neither receives live context or advances the job during comparison.
         var prepared = new PreparedActivity[Actions.Count];
         var bindings = new ValidatePreparedActivity[Actions.Count];
+        var offers = new (OfferEligibility Eligibility, string Reason)[Actions.Count];
         for (int i = 0; i < Actions.Count; i++)
         {
             CompanionAction action = Actions[i];
             action.Prepare(ctx);
             float raw = action.Score();
+            offers[i] = (action.Eligibility, action.EligibilityReason);
             prepared[i] = new(i, action.Name, raw, raw > 0 ? action.ForecastTicks() : 0,
-                action.IsExcursion, action.ActivityTarget != null, action is KeepCompany, action == Current);
+                action.IsExcursion, action.ActivityTarget != null, action is KeepCompany, action == Current, action.Eligibility);
             bindings[i] = ValidatePreparedActivity.Capture(action);
         }
         var comparison = ComparisonContext(ctx);
@@ -127,7 +132,7 @@ public sealed class Chooser
                     : evaluatedScore;
                 CompanionAction action = Actions[score.Index];
                 LastScores.Add(new(action, score.Raw, score.Final, score.Protection, score.Commitment, score.Horizon, score.UsefulWork, score.Error, score.Reunion,
-                    methods[score.Index] ?? ""));
+                    methods[score.Index] ?? "", offers[score.Index].Eligibility, offers[score.Index].Reason));
                 candidates[score.Index] = new(action.Family, score);
             }
             LastNominations = NominateFamilyActivities.Nominate(candidates);
@@ -143,8 +148,14 @@ public sealed class Chooser
                     prepared[winner.Index].RawValue, winner.Final, method.Destination, method.Reason, method.Candidates);
                 methods[winner.Index] = FormattableString.Invariant(
                     $"tick:{method.SourceTick},kind:{request.Kind},destination:{method.Destination},reason:{method.Reason},candidates:{method.Candidates}");
+                // The query answers what preparation left unresolved: a destination makes the offer
+                // usable for this comparison, none makes it known-unusable here without blacklisting it.
+                offers[winner.Index] = method.Destination == null
+                    ? (OfferEligibility.KnownUnusable, "method-" + method.Reason)
+                    : (OfferEligibility.Usable, "method-admitted-" + method.Reason);
                 int row = LastScores.FindIndex(s => ReferenceEquals(s.Action, Actions[winner.Index]));
-                if (row >= 0) LastScores[row] = LastScores[row] with { MethodEvidence = methods[winner.Index] };
+                if (row >= 0) LastScores[row] = LastScores[row] with { MethodEvidence = methods[winner.Index],
+                    Eligibility = offers[winner.Index].Eligibility, EligibilityReason = offers[winner.Index].Reason };
                 if (method.Destination == null) reason = "method-" + method.Reason;
             }
             if (reason.Length == 0) { best = Actions[winner.Index]; break; }

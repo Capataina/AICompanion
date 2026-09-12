@@ -175,6 +175,12 @@ internal static class VerifyObservationLifecycle
             && activities[4].Contains("phase=Suspended;reason=downed"),
             "the real recorder must distinguish execution, recovery suspension, no offer, resumed activity and downing; actual records: "
                 + string.Join("\n", activities));
+        string[] attempts = File.ReadLines(events).Where(line => line.Contains("\"kind\":\"attempt-outcome\"", StringComparison.Ordinal)).ToArray();
+        Require(attempts.Length == 2
+            && attempts[0].Contains("status=Interrupted;cause=follow-recovery-flight")
+            && attempts[1].Contains("status=Interrupted;cause=downed"),
+            "recovery and downing must each close their own attempt as an interruption, and the empty board between them must not invent one; actual records: "
+                + string.Join("\n", attempts));
         string recoveryEvent = File.ReadLines(events).Single(line => line.Contains("\"kind\":\"decision\"", StringComparison.Ordinal)
             && line.Contains("control-source=follow-recovery-flight", StringComparison.Ordinal));
         using var recorded = System.Text.Json.JsonDocument.Parse(recoveryEvent);

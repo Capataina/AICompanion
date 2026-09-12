@@ -51,6 +51,7 @@ public sealed class ProtectPlayer : CompanionAction
         if (ctx.Senses.Player.IsDead || !protectedThreat.active || protectedThreat.life <= 0
             || generation != HostileAttackSources.Generation(protectedThreat))
         {
+            clearedWithPlayerDead = ctx.Senses.Player.IsDead;
             Clear("threat-or-player-unavailable");
             return null;
         }
@@ -77,10 +78,29 @@ public sealed class ProtectPlayer : CompanionAction
 
     private void Clear(string reason)
     {
+        if (protectedThreat != null) clearedAt = Terraria.Main.GameUpdateCount;
         protectedThreat = null;
         committedPressure = 0f;
         safeSince = -1;
         CommitmentReason = reason;
+    }
+
+    private ulong? clearedAt;
+    private bool clearedWithPlayerDead;
+
+    /// <summary>Protection ends complete when the committed threat stopped mattering, either by a
+    /// full clearance window or by being gone while the player lives. Who removed it is not observed
+    /// here, and the cause says so; a dead player leaves nothing to protect and the attempt invalid.</summary>
+    public override AttemptConclusion ConcludeAttempt(ulong startedAt, int productiveEffects)
+    {
+        if (clearedAt is ulong at && at >= startedAt)
+        {
+            if (CommitmentReason == "sustained-clearance") return new(AttemptStatus.Complete, "threat-irrelevant-for-clearance-window");
+            return clearedWithPlayerDead
+                ? new(AttemptStatus.Invalid, "player-unavailable")
+                : new(AttemptStatus.Complete, "protected-threat-gone-actor-unattributed");
+        }
+        return new(AttemptStatus.Attempted, "replaced-before-threat-cleared");
     }
 
     private float preparedValue;
@@ -92,11 +112,22 @@ public sealed class ProtectPlayer : CompanionAction
         if (target == null || !target.active || target.life <= 0) target = protectedThreat;
         prepared = null;
         preparedValue = 0;
-        if (ctx.Senses.Player.IsDead || target == null || !target.active || target.life <= 0) return;
+        if (ctx.Senses.Player.IsDead || target == null || !target.active || target.life <= 0)
+        {
+            Classify(OfferEligibility.NoOpportunity, ctx.Senses.Player.IsDead ? "player-dead" : "no-threat");
+            return;
+        }
         float currentPressure = ReferenceEquals(target, t.MostUrgent?.Npc) ? t.MostUrgent.Urgency : 0f;
         float retainedPressure = ReferenceEquals(target, protectedThreat) ? committedPressure : 0f;
         float danger = Math.Max(t.ProtectionUrgency, Math.Max(currentPressure, retainedPressure));
-        if (danger <= 0) return;
+        if (danger <= 0)
+        {
+            Classify(OfferEligibility.NoOpportunity, "no-protection-pressure");
+            return;
+        }
+        // Whether a useful intervention position exists is decided by method admission at
+        // nomination, so the prepared offer is honestly unresolved until that query answers.
+        Classify(OfferEligibility.Unresolved, "intervention-destination-requires-admission");
         Vector2 toThreat = target.Bottom - ctx.Senses.Player.Bottom;
         float leash = PlayerIntegration.CompanionPreferences.Current.NewActivityRadius;
         Vector2 anchor = toThreat.LengthSquared() <= leash * leash

@@ -177,6 +177,7 @@ public sealed class BrainOverlay : ModSystem
             Fill(sb, new Rectangle(start, bottom + 4, (int)(Math.Clamp(score.Final / 1.5f, 0, 1) * width), 6), ReferenceEquals(score.Action, companion.Brain.LastAction) ? Color.Gold : Color.CornflowerBlue);
             Text(sb, score.Final.ToString("0.00"), panel.Right - 37, bottom, Color.White, .48f);
             if (row.Contains(Mouse)) Main.instance.MouseText($"{score.Action.Name}: {score.Raw:0.000} × protection {score.Protection:0.00} × commitment {score.Commitment:0.00} × safety horizon {score.Horizon:0.00} × useful work {score.UsefulWork:0.00} × reunion {score.Reunion:0.00} = {score.Final:0.000}"
+                + $"\nOffer: {score.Eligibility} ({score.EligibilityReason})"
                 + (score.Error.Length > 0 ? $"\nUnavailable: {score.Error}" : "")
                 + (score.MethodEvidence.Length > 0 ? $"\nMethod: {score.MethodEvidence}" : ""));
         }

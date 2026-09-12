@@ -27,6 +27,10 @@ public abstract class PerformNearbyWorldWork : CompanionAction
     private int approachTicks;
     private Vector2? preparedTarget;
     private float preparedValue;
+    private bool enabledAtPreparation;
+    // The last way this method gave up on a target, with its tick, so an attempt can be concluded
+    // from what actually happened to it rather than from the absence of a target afterwards.
+    private (ulong At, string Reason)? release;
     public override Vector2? ActivityTarget => preparedTarget;
     public override object? ActivityIdentity => target;
     protected abstract bool Enabled(in ActionContext ctx);
@@ -34,6 +38,12 @@ public abstract class PerformNearbyWorldWork : CompanionAction
     protected abstract bool Perform(in ActionContext ctx, Point tile);
     protected abstract float Utility { get; }
     protected virtual bool AllowJump => false;
+    /// <summary>The classification for a method its enabling conditions currently refuse; the
+    /// subclass knows whether that refusal is a player setting, missing supplies or the world.</summary>
+    protected virtual (OfferEligibility Eligibility, string Reason) DisabledOffer(in ActionContext ctx)
+        => ctx.Player.dead ? (OfferEligibility.NoOpportunity, "player-dead") : (OfferEligibility.PolicyForbidden, "interaction-disabled");
+    /// <summary>What one observed productive interaction means for this purpose.</summary>
+    protected virtual string CompletedEffect => "interaction-effect-observed";
     /// <summary>How long a tile whose approach never arrived stays out of the candidate set. Long
     /// enough that the companion leaves the area and does something else, short enough that a tile
     /// made reachable by the player digging through becomes available again in the same visit.</summary>
@@ -44,9 +54,24 @@ public abstract class PerformNearbyWorldWork : CompanionAction
     {
         preparedValue = DiscoverValue(ctx);
         preparedTarget = target?.ToWorldCoordinates();
+        if (!enabledAtPreparation) { var (eligibility, reason) = DisabledOffer(ctx); Classify(eligibility, reason); }
+        else if (target == null) Classify(OfferEligibility.NoOpportunity, "no-candidate-in-search-window");
+        else Classify(OfferEligibility.Usable, "reachable-interaction");
     }
 
     public override float Score() => preparedValue;
+
+    /// <summary>One interaction is this purpose's whole job, so an observed productive effect
+    /// completes it; a named give-up is a failed method unless the target itself stopped qualifying.</summary>
+    public override AttemptConclusion ConcludeAttempt(ulong startedAt, int productiveEffects)
+    {
+        if (productiveEffects > 0) return new(AttemptStatus.Complete, CompletedEffect);
+        if (release is { } given && given.At >= startedAt)
+            return new(given.Reason == "target-no-longer-candidate" ? AttemptStatus.Invalid : AttemptStatus.Failed, given.Reason);
+        return new(AttemptStatus.Attempted, "replaced-before-interaction");
+    }
+
+    private void Release(string reason) => release = (Main.GameUpdateCount, reason);
 
     private bool RefreshEligibility(in ActionContext ctx)
     {
@@ -65,7 +90,8 @@ public abstract class PerformNearbyWorldWork : CompanionAction
 
     private float DiscoverValue(in ActionContext ctx)
     {
-        if (!RefreshEligibility(ctx)) return 0f;
+        enabledAtPreparation = RefreshEligibility(ctx);
+        if (!enabledAtPreparation) return 0f;
         if (target is Point old && (!Candidate(ctx, old) || !AllowsTarget(ctx, old.ToWorldCoordinates())))
         { target = null; }
         if (target == null && Main.GameUpdateCount >= nextSearch)
@@ -104,7 +130,7 @@ public abstract class PerformNearbyWorldWork : CompanionAction
         ctx.Companion.HoldItem(ItemID.None);
         if (!RefreshEligibility(ctx)) return PositionRequest.Hold;
         if (target is not Point tile) return PositionRequest.Hold;
-        if (!Candidate(ctx, tile)) { target = null; return PositionRequest.Hold; }
+        if (!Candidate(ctx, tile)) { target = null; Release("target-no-longer-candidate"); return PositionRequest.Hold; }
         if (!FindToolAccess.InReach(ctx.Npc.Bottom, tile))
         {
             if (!needsJump)
@@ -125,6 +151,7 @@ public abstract class PerformNearbyWorldWork : CompanionAction
                     BehaviourDiagnostics.GodsEyeEvents.RecordWorldInteraction(ctx.Npc, tile, "approach-abandoned",
                         $"no ground covered in {BehaviourSelection.Weights.ObjectiveProgressWindowTicks} ticks");
                     target = null; nextSearch = Main.GameUpdateCount + 60;
+                    Release("approach-made-no-progress");
                     return PositionRequest.Hold;
                 }
                 return PositionRequest.ExactAt(stand);
@@ -134,17 +161,18 @@ public abstract class PerformNearbyWorldWork : CompanionAction
                 // Validate against the live pose again: another behaviour may have moved us
                 // after candidate discovery. The shared movement controller owns the impulse.
                 if (!ProveInteractionJump.CanReach(NavGrid.World, ctx.Companion.Motor.State, body => FindToolAccess.InReach(body.Feet, tile)))
-                { target = null; return PositionRequest.Hold; }
+                { target = null; Release("interaction-jump-lost-take-off"); return PositionRequest.Hold; }
                 jumped = true; jumpStarted = Main.GameUpdateCount;
                 return PositionRequest.Hold with { JumpScale = 1f };
             }
-            if (Main.GameUpdateCount - jumpStarted > 90) { target = null; }
+            if (Main.GameUpdateCount - jumpStarted > 90) { target = null; Release("interaction-jump-did-not-deliver"); }
             return PositionRequest.Hold;
         }
         if (Main.GameUpdateCount >= retryAfter)
         {
             retryAfter = Main.GameUpdateCount + 30;
             if (Perform(ctx, tile)) ctx.Companion.Brain.Chooser.RecordWork(tile.ToWorldCoordinates());
+            else Release("native-interaction-refused");
             target = null; nextSearch = Main.GameUpdateCount + 60;
         }
         return PositionRequest.Hold;

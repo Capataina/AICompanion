@@ -79,7 +79,10 @@ internal static class VerifyCompanionActivities
         {
             Preparations++;
             DuringPreparation?.Invoke();
-            preparedValue = Allows(ctx) ? Value : 0f;
+            bool allowed = Allows(ctx);
+            preparedValue = allowed ? Value : 0f;
+            Classify(allowed ? live::AICompanion.Companion.Brain.Behaviours.OfferEligibility.Usable
+                : live::AICompanion.Companion.Brain.Behaviours.OfferEligibility.PolicyForbidden, allowed ? "probe" : "outside-activity-allowance");
         }
         public override float Score() => preparedValue;
         public override void Enter(in live::AICompanion.Companion.Brain.Behaviours.ActionContext ctx) => Entries++;

@@ -35,8 +35,15 @@ public sealed class KeepCompany : CompanionAction
         float localValue = ctx.Senses.Player.IsDead ? 0f : ctx.Stranded ? Weights.StrandedWander : Weights.WanderFloor;
         reunite = reunionValue > localValue;
         preparedValue = MathF.Max(reunionValue, localValue);
+        if (ctx.Senses.Player.IsDead) Classify(OfferEligibility.NoOpportunity, "player-dead");
+        else Classify(OfferEligibility.Usable, reunite ? "reunion-method" : ctx.Stranded ? "sealed-pocket-local-method" : "local-company-method");
     }
     public override float Score() => preparedValue;
+
+    /// <summary>Company is a way of being with the player rather than a job with a finish line, so
+    /// its attempts claim execution and never completion.</summary>
+    public override AttemptConclusion ConcludeAttempt(ulong startedAt, int productiveEffects)
+        => new(AttemptStatus.Executed, reunite ? "reunion-method-executed" : "local-company-method-executed");
 
     private float CalculateReunionValue(in ActionContext ctx)
     {

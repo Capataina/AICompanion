@@ -6,6 +6,8 @@ using Evaluator = live::AICompanion.Companion.Brain.BehaviourSelection.EvaluateP
 using Families = live::AICompanion.Companion.Brain.BehaviourSelection.NominateFamilyActivities;
 using Family = live::AICompanion.Companion.Brain.BehaviourSelection.PurposeFamily;
 using Candidate = live::AICompanion.Companion.Brain.BehaviourSelection.FamilyCandidate;
+using Offer = live::AICompanion.Companion.Brain.Behaviours.OfferEligibility;
+using AttemptStatus = live::AICompanion.Companion.Brain.Behaviours.AttemptStatus;
 
 internal static class VerifyPreparedActivities
 {
@@ -40,6 +42,16 @@ internal static class VerifyPreparedActivities
         }
         Require(Evaluator.Evaluate(board, context with { ThreatHorizonTicks = float.PositiveInfinity })[0].Horizon == 1,
             "no observed threat deadline must not become an evaluation error");
+        foreach (var absent in new[] { Offer.NoOpportunity, Offer.PolicyForbidden, Offer.KnownUnusable })
+        {
+            Require(Evaluator.Evaluate(new[] { board[0] with { Eligibility = absent } }, context).Single() is { Final: 0, Error: "value-without-eligible-offer" },
+                $"a positive value beside a {absent} offer must be rejected rather than allowed to win");
+            Require(Evaluator.Evaluate(new[] { board[0] with { RawValue = 0, Eligibility = absent } }, context).Single().Error.Length == 0,
+                $"a zero-valued {absent} offer is a truthful absence, not an evaluation error");
+        }
+        Require(Evaluator.Evaluate(new[] { board[0] with { Eligibility = Offer.Unresolved } }, context).Single() is { Error: "", Final: > 0 },
+            "an unresolved investigation may carry bounded positive value");
+        VerifyAttemptOwnership();
         Require(Evaluator.Evaluate(new[] { board[0] with { RawValue = float.MaxValue } }, context with { Commitment = float.MaxValue })[0].Error == "non-finite-product",
             "finite inputs that overflow must not manufacture an infinite winner");
 
@@ -120,6 +132,67 @@ internal static class VerifyPreparedActivities
         Require(history.DelayCostPerTick == 0, "a dead player creates no reunion obligation");
         history.Evaluate(4, 100, false, true);
         Require(history.DelayCostPerTick == 0, "a sealed companion must retain local usefulness");
+    }
+
+    /// <summary>A minimal real activity whose only behaviour is naming its own conclusion, so the
+    /// owner's attempt accounting is exercised without discovery, terrain or native tools.</summary>
+    private sealed class ProbeActivity : live::AICompanion.Companion.Brain.Behaviours.CompanionAction
+    {
+        private readonly string name;
+        public int Conclusions;
+        public ProbeActivity(string name) => this.name = name;
+        public override string Name => name;
+        public override Family Family => Family.Gathering;
+        public override object ActivityIdentity => name;
+        public override void Prepare(in live::AICompanion.Companion.Brain.Behaviours.ActionContext ctx) { }
+        public override float Score() => 1;
+        public override live::AICompanion.Companion.Brain.PositionSelection.PositionRequest Execute(in live::AICompanion.Companion.Brain.Behaviours.ActionContext ctx)
+            => live::AICompanion.Companion.Brain.PositionSelection.PositionRequest.Hold;
+        public override live::AICompanion.Companion.Brain.Behaviours.AttemptConclusion ConcludeAttempt(ulong startedAt, int productiveEffects)
+        {
+            Conclusions++;
+            return new(AttemptStatus.Failed, $"probe-{name}-{productiveEffects}");
+        }
+    }
+
+    private static void VerifyAttemptOwnership()
+    {
+        var owner = new live::AICompanion.Companion.Brain.BehaviourSelection.OwnCurrentActivity();
+        var context = default(live::AICompanion.Companion.Brain.Behaviours.ActionContext);
+        var mine = new ProbeActivity("mine");
+        var chop = new ProbeActivity("chop");
+        owner.Select(mine, context);
+        owner.RecordProductiveEffect();
+        Require(!owner.AttemptOpen && owner.RecentAttempts.Count == 0,
+            "selection alone must open no attempt and credit no effect");
+        owner.BeginExecution();
+        long first = owner.AttemptId, activity = owner.Id;
+        owner.RecordProductiveEffect();
+        owner.RecordProductiveEffect();
+        owner.Select(mine, context);
+        owner.BeginExecution();
+        Require(owner.AttemptOpen && owner.AttemptId == first && owner.RecentAttempts.Count == 0 && mine.Conclusions == 0,
+            "reselecting the executing purpose must keep its attempt open without concluding it");
+        owner.Suspend(context, "projectile");
+        Require(owner.LastAttempt is { Status: AttemptStatus.Interrupted, Cause: "projectile", ProductiveEffects: 2 } interrupted
+            && interrupted.AttemptId == first && interrupted.ActivityId == activity && mine.Conclusions == 0,
+            "suspension must record an interruption carrying its effects and never ask the activity to reinterpret it");
+        owner.Suspend(context, "projectile");
+        Require(owner.RecentAttempts.Count == 1, "a repeated suspension must not invent a second interrupted attempt");
+        owner.Select(mine, context);
+        owner.BeginExecution();
+        Require(owner.Id == activity && owner.AttemptId != first && owner.AttemptEffects == 0,
+            "resuming must keep the purpose identity and open a fresh attempt with no inherited effects");
+        owner.Select(chop, context);
+        Require(owner.LastAttempt is { Status: AttemptStatus.Failed, Cause: "probe-mine-0", Activity: "mine" } replaced
+            && replaced.ActivityId == activity && mine.Conclusions == 1 && !owner.AttemptOpen,
+            "replacement must close the open attempt with the replaced activity's own conclusion and identity");
+        owner.BeginExecution();
+        owner.Select(null, context);
+        Require(owner.LastAttempt is { Activity: "chop", Status: AttemptStatus.Failed } && chop.Conclusions == 1 && !owner.AttemptOpen,
+            "an empty selection must close the open attempt");
+        Require(owner.RecentAttempts.Select(a => a.AttemptId).Distinct().Count() == 3,
+            "every concluded attempt must keep a distinct identity");
     }
 
     private static void Require(bool condition, string message)

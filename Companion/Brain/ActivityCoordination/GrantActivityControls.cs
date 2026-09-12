@@ -16,7 +16,8 @@ public readonly record struct ActivityControlRequest(Controls Movement, string O
 /// Available grants permission for compatible shooting/light; it does not claim either occurred.</summary>
 public readonly record struct ActivityControlGrant(long Id, ulong Tick, long ActivityId, ActivityPhase ActivityPhase,
     string RequestedOwner, string AppliedOwner, Controls RequestedMovement, Controls AppliedMovement,
-    HandGrant Hand, Vector2? RequestedRecoveryVelocity, Vector2 AppliedVelocity, long MotorApplications);
+    HandGrant Hand, Vector2? RequestedRecoveryVelocity, Vector2 AppliedVelocity, long MotorApplications,
+    long AttemptId = 0);
 
 public sealed class GrantActivityControls
 {
@@ -32,7 +33,8 @@ public sealed class GrantActivityControls
             companion.Motor.Apply(request.Movement, request.Owner);
         var granted = new ActivityControlGrant(++nextId, Terraria.Main.GameUpdateCount, activity.Id, activity.Phase,
             request.Owner, companion.Motor.ControlSource, request.Movement, companion.Motor.AppliedControls,
-            request.Hand, request.RecoveryVelocity, companion.NPC.velocity, companion.Motor.ControlApplications - before);
+            request.Hand, request.RecoveryVelocity, companion.NPC.velocity, companion.Motor.ControlApplications - before,
+            activity.AttemptOpen ? activity.AttemptId : 0);
         Last = granted;
         return granted;
     }

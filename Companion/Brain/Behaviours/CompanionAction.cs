@@ -53,6 +53,25 @@ public abstract class CompanionAction
     public void AdmitActivity() => admittedIdentity = ActivityIdentity;
     protected void ReleaseActivity() => admittedIdentity = null;
     internal void ReleaseAdmission() => admittedIdentity = null;
+
+    /// <summary>What the latest preparation established about this offer. Written only by Prepare,
+    /// so repeated comparison reads the same classification it reads the same value from.</summary>
+    public OfferEligibility Eligibility { get; private set; }
+    public string EligibilityReason { get; private set; } = "not-prepared";
+    protected void Classify(OfferEligibility eligibility, string reason)
+    {
+        Eligibility = eligibility;
+        EligibilityReason = reason;
+    }
+
+    /// <summary>Called by the activity owner when selection replaces an executing attempt, before
+    /// Exit clears any method state. Interruption is concluded by the owner and never reaches here.
+    /// The default claims no completion: only an activity with its own success evidence may.</summary>
+    public virtual AttemptConclusion ConcludeAttempt(ulong startedAt, int productiveEffects)
+        => productiveEffects > 0
+            ? new(AttemptStatus.Partial, "replaced-after-productive-effect")
+            : new(AttemptStatus.Attempted, "replaced-before-productive-effect");
+
     public abstract string Name { get; }
     public abstract PurposeFamily Family { get; }
     /// <summary>Optional excursions yield to regrouping; protection and survival opt out.</summary>

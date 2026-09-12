@@ -42,7 +42,7 @@ public sealed class BrainTelemetry : ModSystem
     private static string? eventsPath;
     private static readonly Stopwatch sessionClock = new();
     private static DateTime sessionStartedUtc;
-    private const string Schema = "0.19.0";
+    private const string Schema = "0.20.0";
     private static string? pendingPlayerHit;
     private static string? pendingCompanionHit;
     private static string? lastDecision;
@@ -400,12 +400,16 @@ public sealed class BrainTelemetry : ModSystem
         var activity = brain.Chooser.Activity;
         GodsEyeEvents.RecordActivity(npc, activity.Id, activity.Current?.Name ?? "none", activity.Phase.ToString(), activity.Reason,
             activity.LastEndedId, activity.LastEndReason, activity.ChangedAt);
+        foreach (var outcome in activity.RecentAttempts)
+            GodsEyeEvents.RecordAttemptOutcome(npc, outcome.AttemptId, outcome.ActivityId, outcome.Activity, outcome.Family.ToString(),
+                outcome.StartTick, outcome.EndTick, outcome.Status.ToString(), outcome.Cause, outcome.ProductiveEffects);
         var controlGrant = brain.ControlGrants.Last;
         bool controlFresh = controlGrant?.Tick == Main.GameUpdateCount;
         if (controlFresh && controlGrant is { } freshGrant)
             GodsEyeEvents.RecordControlGrant(npc, freshGrant.Id, freshGrant.Tick, freshGrant.ActivityId, freshGrant.ActivityPhase.ToString(),
                 freshGrant.RequestedOwner, freshGrant.AppliedOwner, DescribeControls(freshGrant.RequestedMovement),
-                DescribeControls(freshGrant.AppliedMovement), freshGrant.Hand.ToString(), freshGrant.AppliedVelocity, freshGrant.MotorApplications);
+                DescribeControls(freshGrant.AppliedMovement), freshGrant.Hand.ToString(), freshGrant.AppliedVelocity, freshGrant.MotorApplications,
+                freshGrant.AttemptId);
         string controls = DescribeControls(companion.Motor.AppliedControls);
         string activityControls = controls + $";activity-id={activity.Id};activity-phase={activity.Phase};activity-reason={activity.Reason}"
             + FormattableString.Invariant($";gravity-observation-tick={companion.Motor.GravityObservationTick};engine-gravity={companion.Motor.ObservedEngineGravity:R};model-gravity={companion.Motor.ObservedModelGravity:R};gravity-enabled={companion.Motor.ObservedGravityEnabled}");
@@ -428,7 +432,7 @@ public sealed class BrainTelemetry : ModSystem
             foreach (var score in brain.Chooser.LastScores) { if (board.Length > 0) board.Append(','); board.Append(score.Action.Name).Append('=').Append(score.Raw.ToString("0.000", CultureInfo.InvariantCulture)).Append("->").Append(score.Final.ToString("0.000", CultureInfo.InvariantCulture)); }
             board.Append(CultureInfo.InvariantCulture, $";regroup={brain.Chooser.RegroupUrgency:0.000};return-ticks={brain.Chooser.EstimatedReturnTicks:0.0}");
             foreach (var score in brain.Chooser.LastScores)
-                board.Append(CultureInfo.InvariantCulture, $";factors:{score.Action.Name}=protection:{score.Protection:0.000},commitment:{score.Commitment:0.000},horizon:{score.Horizon:0.000},useful-work:{score.UsefulWork:0.000},reunion:{score.Reunion:0.000},error:{score.Error},method:{score.MethodEvidence}");
+                board.Append(CultureInfo.InvariantCulture, $";factors:{score.Action.Name}=protection:{score.Protection:0.000},commitment:{score.Commitment:0.000},horizon:{score.Horizon:0.000},useful-work:{score.UsefulWork:0.000},reunion:{score.Reunion:0.000},error:{score.Error},offer:{score.Eligibility}/{score.EligibilityReason},method:{score.MethodEvidence}");
             foreach (var nomination in brain.Chooser.LastNominations)
                 board.Append(CultureInfo.InvariantCulture, $";family:{nomination.Family}=child:{nomination.Activity?.Name ?? "none"},value:{nomination.Activity?.Final ?? 0:0.000}");
             var preferences = PlayerIntegration.CompanionPreferences.Current;
@@ -453,7 +457,11 @@ public sealed class BrainTelemetry : ModSystem
 
         if (!headerWritten)
         {
-            writer.WriteLine("# text_columns=state,action,reflex,top_threat,target,request,anchor,spot,next_kind,npc_tile,npc_px,npc_vel,held,weapon,fire,engage,torch,player_tile,edge_kind,edge_from,edge_to,edge_outcome,spot_home,diverge_invalid_reason,sample_phase,player_px,player_vel,player_liquid,player_hit,npc_hit,player_state,player_activity,player_support,npc_support,control,control_source,observed_vel,observed_mobility,predicted_vel,predicted_mobility,follow_reason,recovery_reason,guard_reason,mine_policy,mine_status,mine_target,target_evidence,nav_status,position_reason,escape_stage,escape_target,hunt_reason,hand_grant,control_request_owner,safety_kind,safety_reason,safety_last_end,collection_method,mine_end_reason");
+            var textColumns = new StringBuilder("# text_columns=state,action,reflex,top_threat,target,request,anchor,spot,next_kind,npc_tile,npc_px,npc_vel,held,weapon,fire,engage,torch,player_tile,edge_kind,edge_from,edge_to,edge_outcome,spot_home,diverge_invalid_reason,sample_phase,player_px,player_vel,player_liquid,player_hit,npc_hit,player_state,player_activity,player_support,npc_support,control,control_source,observed_vel,observed_mobility,predicted_vel,predicted_mobility,follow_reason,recovery_reason,guard_reason,mine_policy,mine_status,mine_target,target_evidence,nav_status,position_reason,escape_stage,escape_target,hunt_reason,hand_grant,control_request_owner,safety_kind,safety_reason,safety_last_end,collection_method,mine_end_reason,attempt_end_activity,attempt_end_family,attempt_end_status,attempt_end_cause");
+            // Offer columns are named from the registered activities, like the raw/final pairs, so
+            // the declaration and the header cannot disagree about which activities exist.
+            foreach (var a in brain.Chooser.Actions) textColumns.Append(',').Append(a.Name).Append("_offer");
+            writer.WriteLine(textColumns.ToString());
             var h = new StringBuilder();
             // A start timestamp is file metadata. Stopwatch is the observed wall duration of
             // every row; deriving wall time from game ticks would conceal pauses and lag.
@@ -483,6 +491,9 @@ public sealed class BrainTelemetry : ModSystem
             h.Append("\treunion_apart_ticks\treunion_departure\treunion_delay_cost_per_tick");
             h.Append("\tcollection_method");
             h.Append("\tmine_end_job\tmine_end_tick\tmine_end_reason\tmine_end_tracked\tmine_end_present\tmine_end_changed\tmine_end_missing\tmine_end_unobserved\tmine_end_companion_removed_sites\tmine_end_observed_clear");
+            h.Append("\tactivity_attempt_id\tattempt_end_id\tattempt_end_activity_id\tattempt_end_activity\tattempt_end_family\tattempt_end_status\tattempt_end_cause\tattempt_end_effects\tattempt_end_start_tick\tattempt_end_tick");
+            foreach (var a in brain.Chooser.Actions)
+                h.Append('\t').Append(a.Name).Append("_offer");
             writer.WriteLine(h.ToString());
             headerWritten = true;
         }
@@ -735,6 +746,27 @@ public sealed class BrainTelemetry : ModSystem
             .Append('\t').Append(end?.Unobserved ?? -1)
             .Append('\t').Append(end?.CompanionRemovals ?? -1)
             .Append('\t').Append(end?.ObservedClear == true ? 1 : 0);
+        var owner = brain.Chooser.Activity;
+        var attempt = owner.LastAttempt;
+        sb.Append('\t').Append(owner.AttemptOpen ? owner.AttemptId : 0)
+            .Append('\t').Append(attempt?.AttemptId ?? 0)
+            .Append('\t').Append(attempt?.ActivityId ?? 0)
+            .Append('\t').Append(attempt?.Activity ?? "none")
+            .Append('\t').Append(attempt?.Family.ToString() ?? "none")
+            .Append('\t').Append(attempt?.Status.ToString() ?? "none")
+            .Append('\t').Append(attempt?.Cause ?? "none")
+            .Append('\t').Append(attempt?.ProductiveEffects ?? -1)
+            .Append('\t').Append(attempt?.StartTick.ToString(CultureInfo.InvariantCulture) ?? "-1")
+            .Append('\t').Append(attempt?.EndTick.ToString(CultureInfo.InvariantCulture) ?? "-1");
+        // The retained board's classification, keyed like the raw/final pairs; an activity absent
+        // from the latest comparison says so rather than borrowing an eligibility it never received.
+        foreach (var a in brain.Chooser.Actions)
+        {
+            string offer = "not-compared";
+            foreach (var s in brain.Chooser.LastScores)
+                if (ReferenceEquals(s.Action, a)) { offer = s.Eligibility + ":" + s.EligibilityReason; break; }
+            sb.Append('\t').Append(offer);
+        }
 
         // A write that fails (disk full, a stream the OS closed) must not escape the NPC's AI
         // and take the companion with it; the record stops and the game goes on.

@@ -14,6 +14,8 @@ public sealed class LightUsefulArea : PerformNearbyWorldWork
     public override string Name => "place-torches";
     protected override float Utility => .60f;
     protected override bool AllowJump => true;
+    // A placed torch is observed; whether it lit anything useful is not measured by this method.
+    protected override string CompletedEffect => "torch-placed-coverage-unmeasured";
     // Elevated lights clear floor clutter and reach across nearby ledges. Candidate validation
     // still requires native attachment, useful spacing, interaction reach and a safe landing.
     protected override float CandidateCost(Vector2 feet, Point tile)
@@ -23,8 +25,13 @@ public sealed class LightUsefulArea : PerformNearbyWorldWork
             Vector2.DistanceSquared(above - new Vector2(64, 0), tile.ToWorldCoordinates()));
     }
     protected override bool Enabled(in ActionContext ctx) => PlayerIntegration.CompanionPreferences.Current.TorchPlacement
-        && (ctx.Npc.Center.Y / 16f > Main.worldSurface || !Main.dayTime)
-        && PlaceSuppliedTorches.Supply(ctx.Companion.Bag.Items, ctx.Player.inventory) != null;
+        && DarkContext(ctx) && PlaceSuppliedTorches.Supply(ctx.Companion.Bag.Items, ctx.Player.inventory) != null;
+    private static bool DarkContext(in ActionContext ctx) => ctx.Npc.Center.Y / 16f > Main.worldSurface || !Main.dayTime;
+    protected override (OfferEligibility Eligibility, string Reason) DisabledOffer(in ActionContext ctx)
+        => ctx.Player.dead ? (OfferEligibility.NoOpportunity, "player-dead")
+            : !PlayerIntegration.CompanionPreferences.Current.TorchPlacement ? (OfferEligibility.PolicyForbidden, "torch-placement-disabled")
+            : !DarkContext(ctx) ? (OfferEligibility.NoOpportunity, "surface-in-daylight")
+            : (OfferEligibility.KnownUnusable, "no-torch-supply");
     protected override bool Candidate(in ActionContext ctx, Point tile)
     {
         if (!PlaceSuppliedTorches.Candidate(tile)) return false;

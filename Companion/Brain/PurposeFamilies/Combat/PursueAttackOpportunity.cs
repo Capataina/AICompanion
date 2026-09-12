@@ -57,6 +57,8 @@ public sealed class PursueAttackOpportunity : CompanionAction
         // defect one step further out: two targets would buy twice the window and nothing else.
         stalled[(enemy.whoAmI, generation)] = enemy.Center;
         observedTarget = enemy.whoAmI; observedGeneration = generation; observedLife = enemy.life;
+        pursued = (enemy, generation, Main.GameUpdateCount);
+        if (pursuitShot) lastPursuitShotAt = Main.GameUpdateCount;
         if (progress)
         {
             NoProgressTicks = 0; engagementOrigin = ctx.Npc.Bottom;
@@ -68,9 +70,32 @@ public sealed class PursueAttackOpportunity : CompanionAction
                 deferred[key] = (ctx.Senses.Tick + Weights.HuntRetryTicks, centre, ctx.Npc.Bottom,
                     SharedMovementSystem.TerrainChanges.Revision);
             LastRejection = "no-movement-or-attack-progress";
+            failedAt = Main.GameUpdateCount;
             NoProgressTicks = 0;
             stalled.Clear();
         }
+    }
+
+    private (NPC Enemy, int Generation, ulong At)? pursued;
+    private ulong? lastPursuitShotAt, failedAt;
+
+    /// <summary>The pursued generation disappearing after this attempt fired at it completes the hunt,
+    /// with the killer unattributed because the native death hook does not name one; disappearing
+    /// before any pursuit shot leaves the attempt invalid. An expired progress window is failure.
+    /// Incidental shots at other enemies are not pursuit evidence here, as in progress accounting.</summary>
+    public override AttemptConclusion ConcludeAttempt(ulong startedAt, int productiveEffects)
+    {
+        bool attacked = lastPursuitShotAt is ulong shot && shot >= startedAt;
+        if (pursued is { } target && target.At >= startedAt
+            && (!target.Enemy.active || target.Enemy.life <= 0 || HostileAttackSources.Generation(target.Enemy) != target.Generation))
+            return attacked
+                ? new(AttemptStatus.Complete, "pursued-target-gone-after-attack-actor-unattributed")
+                : new(AttemptStatus.Invalid, "pursued-target-gone-before-attack");
+        if (failedAt is ulong failed && failed >= startedAt)
+            return new(AttemptStatus.Failed, "no-movement-or-attack-progress");
+        return attacked
+            ? new(AttemptStatus.Partial, "attacked-pursued-target-still-present")
+            : new(AttemptStatus.Attempted, "replaced-before-attacking-pursued-target");
     }
 
     private readonly record struct Candidate(NPC Enemy, int Generation, Vector2 Bottom, Vector2 Centre, float Value, float TripTicks);
@@ -89,11 +114,26 @@ public sealed class PursueAttackOpportunity : CompanionAction
 
     private float DiscoverValue(in ActionContext ctx)
     {
-        if (!PlayerIntegration.CompanionPreferences.Current.Hunting) { Target = null; return 0f; }
+        if (!PlayerIntegration.CompanionPreferences.Current.Hunting)
+        {
+            Target = null;
+            Classify(OfferEligibility.PolicyForbidden, "hunting-disabled");
+            return 0f;
+        }
         Rectangle screen = ScreenWithMargin();
         Target = PickTarget(ctx, screen);
-        if (Target == null || ctx.Senses.Player.IsDead)
+        if (Target == null)
+        {
+            // A refusal with a named cause is a known-unusable method; no candidate at all is absence.
+            Classify(LastRejection is "no-reachable-firing-position" or "engagement-deferred-no-progress"
+                ? OfferEligibility.KnownUnusable : OfferEligibility.NoOpportunity, LastRejection);
             return 0f;
+        }
+        if (ctx.Senses.Player.IsDead)
+        {
+            Classify(OfferEligibility.NoOpportunity, "player-dead");
+            return 0f;
+        }
         float safe = Consideration.AtLeast(1f - ctx.Senses.Threats.PlayerDanger, 0.1f);
         float near = Target.Npc.Hitbox.Intersects(screen)
             ? 1f
@@ -126,6 +166,13 @@ public sealed class PursueAttackOpportunity : CompanionAction
             Firing.Unknown => Weights.HuntUnprovenShot,
             _ => 0f,
         };
+        if (leash == 0f) Classify(OfferEligibility.PolicyForbidden, "outside-activity-allowance");
+        else Classify(verdict == Firing.Unknown ? OfferEligibility.Unresolved : OfferEligibility.Usable, verdict switch
+        {
+            Firing.FromHere => "shot-from-current-position",
+            Firing.AfterMoving => "reachable-firing-position",
+            _ => "firing-position-undecided",
+        });
         return safe * near * worth * leash * ownSkin * shot;
     }
 

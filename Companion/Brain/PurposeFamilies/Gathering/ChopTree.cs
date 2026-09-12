@@ -57,20 +57,46 @@ public sealed class ChopTree : CompanionAction
             ? new(found.Bottom.ToWorldCoordinates(), value,
                 Vector2.Distance(ctx.Npc.Bottom, found.StandPosition) / Companion.CompanionMotor.WalkSpeed + remaining.Ticks, binding)
             : null;
+        if (value > 0 && prepared == null)
+            Classify(OfferEligibility.KnownUnusable, RemainingWork == null ? "axe-cannot-damage-trunk" : "trunk-binding-unavailable");
     }
 
     public override float Score() => prepared?.Value ?? 0f;
+
+    private (Point Trunk, ulong At)? attemptTrunk;
+    private (ulong At, string Reason)? release;
+    private void Release(string reason) => release = (Main.GameUpdateCount, reason);
+
+    /// <summary>A trunk that stopped standing after this attempt's own productive strikes completes
+    /// it; the same disappearance without them is someone else's work. A named release is a failed
+    /// method only when the approach itself could not be established.</summary>
+    public override AttemptConclusion ConcludeAttempt(ulong startedAt, int productiveEffects)
+    {
+        if (attemptTrunk is { } worked && worked.At >= startedAt && !TileChopper.TreeStands(worked.Trunk))
+            return productiveEffects > 0
+                ? new(AttemptStatus.Complete, "trunk-no-longer-stands-after-companion-strikes")
+                : new(AttemptStatus.Invalid, "trunk-gone-without-companion-effect");
+        if (release is { } given && given.At >= startedAt)
+            return new(productiveEffects > 0 ? AttemptStatus.Partial
+                : given.Reason == "approach-not-established" ? AttemptStatus.Failed : AttemptStatus.Invalid, given.Reason);
+        return productiveEffects > 0
+            ? new(AttemptStatus.Partial, "replaced-with-trunk-standing")
+            : new(AttemptStatus.Attempted, "replaced-before-productive-effect");
+    }
 
     private float DiscoverValue(in ActionContext ctx)
     {
         var p = ctx.Senses.Player;
         if (p.IsDead)
+        {
+            Classify(OfferEligibility.NoOpportunity, "player-dead");
             return 0f;
+        }
         sinceSearch++;
         sinceReach++;
         if (tree is { } retained && (!AllowsTarget(ctx, retained.Bottom.ToWorldCoordinates())
             || WorldInteractions.WorldProtection.ProtectCompanionHomes.IsProtected(retained.Bottom)))
-        { tree = null; ReleaseActivity(); sinceSearch = SearchEveryTicks; }
+        { tree = null; ReleaseActivity(); sinceSearch = SearchEveryTicks; Release("outside-allowance-or-protected-home"); }
         var context = ctx;
         bool Accept(Point bottom) => AllowsTarget(context, bottom.ToWorldCoordinates(), BindTileTarget.Capture(bottom))
             && !WorldInteractions.WorldProtection.ProtectCompanionHomes.IsProtected(bottom)
@@ -78,9 +104,11 @@ public sealed class ChopTree : CompanionAction
 
         if (WorkPolicies.Chopping == WorkPolicy.Disabled)
         {
+            if (tree != null) Release("work-disabled");
             tree = null;
             lastSearchedFor = null;
             ReleaseActivity();
+            Classify(OfferEligibility.PolicyForbidden, "chopping-disabled");
             return 0f;
         }
         if (WorkPolicies.Chopping == WorkPolicy.Mimic)
@@ -136,7 +164,14 @@ public sealed class ChopTree : CompanionAction
             }
         }
 
-        if (tree == null) { ReleaseActivity(); return 0f; }
+        if (tree == null)
+        {
+            ReleaseActivity();
+            bool awaitingPlayer = WorkPolicies.Chopping == WorkPolicy.Mimic && !p.IsChoppingTree && sincePlayerHit > KeepJobTicks;
+            Classify(awaitingPlayer ? OfferEligibility.PolicyForbidden : OfferEligibility.NoOpportunity,
+                awaitingPlayer ? "mimic-awaiting-player-tree-contact" : "no-admissible-tree");
+            return 0f;
+        }
         // Retained work must still have a useful position after the body, terrain or
         // effective reach changes. Actual current access needs no representative node.
         var key = (MovementQueries.FeetTile(ctx.Npc.Bottom),
@@ -161,9 +196,14 @@ public sealed class ChopTree : CompanionAction
             deferred[tree.Value.Bottom] = Main.GameUpdateCount + 300;
             tree = null;
             ReleaseActivity();
+            Release("approach-not-established");
+            bool undecided = approachReach == Reachability.Reach.Unknown;
+            Classify(undecided ? OfferEligibility.Unresolved : OfferEligibility.KnownUnusable,
+                undecided ? "trunk-approach-undecided" : "trunk-has-no-approach");
             return 0f;
         }
         float safe = Consideration.AtLeast(1f - ctx.Senses.Threats.PlayerDanger, 0.1f);
+        Classify(OfferEligibility.Usable, "reachable-trunk");
         return 0.7f * safe;
     }
 
@@ -189,11 +229,13 @@ public sealed class ChopTree : CompanionAction
             return PositionRequest.Hold;
         if (PreparedTargetRejection.Length > 0)
         {
+            Release(PreparedTargetRejection);
             tree = null;
             sinceSearch = SearchEveryTicks;
             ReleaseActivity();
             return PositionRequest.Hold;
         }
+        attemptTrunk = (t.Bottom, Main.GameUpdateCount);
 
         if (FindToolAccess.InReach(ctx.Npc.Bottom, t.Bottom))
         {

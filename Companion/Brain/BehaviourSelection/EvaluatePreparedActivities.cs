@@ -8,7 +8,8 @@ namespace AICompanion.Companion.Brain.BehaviourSelection;
 /// <summary>Values captured after opportunity discovery. No live entity or activity reference
 /// enters evaluation, so comparing a prepared board cannot acquire, prune or advance a job.</summary>
 public readonly record struct PreparedActivity(int Index, string Name, float RawValue, float ForecastTicks,
-    bool IsExcursion, bool HasTarget, bool IsFollowing, bool IsIncumbent);
+    bool IsExcursion, bool HasTarget, bool IsFollowing, bool IsIncumbent,
+    Behaviours.OfferEligibility Eligibility = Behaviours.OfferEligibility.Usable);
 
 public readonly record struct ActivityComparisonContext(float ProtectionUrgency, bool Stranded,
     float ThreatHorizonTicks, float InterruptibleTicks, float HorizonOverrunTicks, float Commitment,
@@ -63,6 +64,11 @@ public static class EvaluatePreparedActivities
     private static string Validate(in PreparedActivity candidate, in ActivityComparisonContext context)
     {
         if (!float.IsFinite(candidate.RawValue) || candidate.RawValue < 0) return "invalid-raw-value";
+        // Value is the answer to "how much is this worth", eligibility to "is there an offer at all".
+        // A positive value beside an absent, forbidden or unusable offer is an adapter defect, and
+        // rejecting it here is what keeps an absent offer from ever winning.
+        if (candidate.RawValue > 0 && candidate.Eligibility is not (Behaviours.OfferEligibility.Usable or Behaviours.OfferEligibility.Unresolved))
+            return "value-without-eligible-offer";
         if (!float.IsFinite(candidate.ForecastTicks) || candidate.ForecastTicks < 0) return "invalid-forecast";
         if (!float.IsFinite(context.ReunionDelayCostPerTick) || context.ReunionDelayCostPerTick < 0) return "invalid-reunion-cost";
         if (!float.IsFinite(context.ProtectionUrgency) || context.ProtectionUrgency < 0 || context.ProtectionUrgency > 1) return "invalid-protection";

@@ -30,6 +30,7 @@ public static class GodsEyeEvents
     private static string? lastNavigationEvidence;
     private static string? lastActivityEvidence;
     private static string? lastControlEvidence;
+    private static long lastAttemptRecorded;
     private static int cosmeticContacts;
     private static Vector2 cosmeticFirst, cosmeticLast;
     private static long cosmeticFirstTick;
@@ -61,16 +62,29 @@ public static class GodsEyeEvents
 
     public static void RecordControlGrant(NPC companion, long id, ulong tick, long activityId, string activityPhase,
         string requestedOwner, string appliedOwner, string requestedControls, string appliedControls,
-        string hand, Vector2 appliedVelocity, long motorApplications)
+        string hand, Vector2 appliedVelocity, long motorApplications, long attemptId = 0)
     {
         if (!Active) return;
         int actor = Stable(npcGenerations, companion.whoAmI);
         // IDs advance every tick. Emit ownership transitions here; the TSV retains every grant.
-        string key = $"{actor}:{activityId}:{activityPhase}:{requestedOwner}:{appliedOwner}:{hand}:{motorApplications}";
+        string key = $"{actor}:{activityId}:{attemptId}:{activityPhase}:{requestedOwner}:{appliedOwner}:{hand}:{motorApplications}";
         if (key == lastControlEvidence) return;
         lastControlEvidence = key;
         Write("control-grant", actor, "", appliedOwner, hand, companion.Bottom, appliedVelocity, Vector2.Zero, 0,
-            $"grant-id={id};grant-tick={tick};activity-id={activityId};activity-phase={activityPhase};requested-owner={requestedOwner};applied-owner={appliedOwner};requested-controls={requestedControls};applied-controls={appliedControls};hand={hand};motor-applications={motorApplications};scope=ai-phase-before-engine;hand-effect=unobserved");
+            $"grant-id={id};grant-tick={tick};activity-id={activityId};attempt-id={attemptId};activity-phase={activityPhase};requested-owner={requestedOwner};applied-owner={appliedOwner};requested-controls={requestedControls};applied-controls={appliedControls};hand={hand};motor-applications={motorApplications};scope=ai-phase-before-engine;hand-effect=unobserved");
+    }
+
+    /// <summary>One concluded attempt, written once. The caller offers every retained outcome and
+    /// the cursor skips those already written, so two conclusions inside one tick both reach the
+    /// record. Plain fields keep this writer compilable beside the replay stubs without the brain.</summary>
+    public static void RecordAttemptOutcome(NPC companion, long attemptId, long activityId, string activity, string family,
+        ulong startTick, ulong endTick, string status, string cause, int productiveEffects)
+    {
+        if (!Active || attemptId <= lastAttemptRecorded) return;
+        lastAttemptRecorded = attemptId;
+        Write("attempt-outcome", Stable(npcGenerations, companion.whoAmI), "", activity, status,
+            companion.Bottom, Vector2.Zero, Vector2.Zero, productiveEffects,
+            $"attempt-id={attemptId};activity-id={activityId};family={family};start-tick={startTick};end-tick={endTick};status={status};cause={cause};productive-effects={productiveEffects};effect-scope=companion-credited-tool-or-interaction-effects;interruption-is-not-failure=true");
     }
 
     internal static void Open(string path)
@@ -87,6 +101,7 @@ public static class GodsEyeEvents
         lastNavigationEvidence = null;
         lastActivityEvidence = null;
         lastControlEvidence = null;
+        lastAttemptRecorded = 0;
         cosmeticContacts = 0;
         // Main.GameUpdateCount can survive a prior world in a host process. It is never claimed as
         // this session's start tick; occurrence ticks remain useful only relative to one another.

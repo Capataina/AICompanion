@@ -10,6 +10,8 @@ ActivityCoordination/
 └─ RecoverDistantCompanion.cs continuous distant reunion admission, steering and release
 ```
 
+Each grant also names the activity attempt open when it was issued, or zero when none is executing. A safety or recovery grant issued while the ordinary attempt is suspended therefore carries zero, which is what stops a reader charging that movement to the interrupted work.
+
 Available hands permit the independent arsenal and later held light; they do not prove a shot or torch use. WorkTool reserves the hand throughout the activity's coherent tool phase, including strike cooldowns. Unavailable is the downed lifecycle grant. Native interaction effects and the subsequently integrated body remain separate observations. Diagnostics consume the retained grant rather than making another decision or applying controls themselves.
 
 The brain publishes ActivitySnapshot after its final control, hand and progress handling, including safety, recovery and downed paths. Family, activity, activity identity, phase and shared-controller flags therefore refer to one completed coordination step. The HUD consumes that record without invoking a chooser or inspecting an independent set of mutable controllers. The snapshot's tick denotes publication, not a fresh utility comparison or a successful interaction.
