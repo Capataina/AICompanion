@@ -102,8 +102,6 @@ internal static class VerifyFollowRecoveryAndProtection
         threat.EffectiveTicksToPlayer = 150;
         senses.SetInterventionEstimate(1);
         Require(VerifyPreparedActivities.PrepareAndScore(guard, context) >= entry, "small retreat retains protection of the same relevant threat");
-        Require(VerifyPreparedActivities.PrepareAndScore(guard, context) * Weights.Commitment < Weights.SurviveUrgency,
-            "maximum survival can interrupt committed protection");
         threat.CanReachPlayer = false;
         threat.Urgency = 0;
         senses.SetInterventionEstimate(float.PositiveInfinity);

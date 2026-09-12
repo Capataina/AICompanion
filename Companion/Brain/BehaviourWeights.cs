@@ -42,21 +42,11 @@ public static class Weights
     public const float Commitment = 1.15f;
 
     /// <summary>
-    /// The urgency ladder, and the reason it is a ladder rather than three independent numbers.
-    /// An ordinary action scores in 0..1, so a running one carries up to <see cref="Commitment"/>
-    /// and anything that must be able to *interrupt* it has to clear that product, not merely
-    /// reach 1. Guard could not: it topped out at 1 against a following body already at 1 × 1.15,
-    /// so on every high-danger tick of the 2026-09-09 underground session where following was
-    /// running, guarding lost by construction and no amount of danger could change it. The
-    /// companion stood holding a torch with the player's danger reading full.
-    ///
-    /// So each tier is scaled to clear the tier below it *including* the bonus that tier carries
-    /// as the incumbent. Guard beats a committed ordinary action; survive beats a committed
-    /// guard, because nothing the companion could do for the player is worth drowning for. Change
-    /// one of these and the ones above it move with it, or the ladder silently loses a rung.
+    /// Guard must be able to interrupt an ordinary action at its maximum committed value.
+    /// A ceiling of one cannot displace that incumbent, regardless of observed player danger.
+    /// Shared safety can suspend either activity independently of this utility comparison.
     /// </summary>
     public const float GuardUrgency = 1.25f;   // > 1.00 × Commitment
-    public const float SurviveUrgency = 1.5f;  // > GuardUrgency × Commitment
     public const int RefugeSearchRadiusTiles = 24;
     public const int RefugeRecheckTicks = 30;
 

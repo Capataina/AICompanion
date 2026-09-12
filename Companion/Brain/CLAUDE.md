@@ -15,9 +15,10 @@ Brain/
 ├─ BehaviourWeights.cs          player-visible behaviour tuning in one authority
 ├─ WorldObservation/            facts derived once from Terraria
 ├─ CombatReflexes/              imminent-collision assessment, before selection
+├─ SharedSafety/                independent environmental escape and retained collision responses
 ├─ BehaviourSelection/          utility choice among the behaviour families
 ├─ ActivityCoordination/        one final movement application and compatible hand grant
-├─ Behaviours/                  follow, combat, gathering, survival and work behaviour
+├─ Behaviours/                  follow, combat, gathering and work behaviour
 ├─ PositionSelection/           turn a position request into a useful feet tile
 ├─ SharedMovementSystem/        core simulation, route planning, execution and Terraria adapter
 ├─ ProjectileAiming/            trajectory solve shared by weapons and position selection
@@ -39,9 +40,9 @@ WorldObservation ──► CombatReflexes ──► SharedMovementSystem ──�
 hands: arsenal fires after movement whenever no work tool owns the arm
 ```
 
-`WorldObservation.Senses` is rebuilt first. A combat reflex may then pre-empt selection: it supplies predicted unsafe body states, and shared movement picks avoidance controls. Otherwise selection scores every behaviour from the same facts; the winner acts and returns a kind of place, position selection chooses a tile, and movement plans or holds. The motor is the only writer to the live NPC body. Movement outcomes return to the next tick only as observed facts such as a stranded body, never as a lower stage changing a higher stage’s decision.
+`WorldObservation.Senses` is rebuilt first. Combat reflex assessment supplies predicted unsafe body states. SharedSafety may then suspend ordinary selection for environmental escape or collision avoidance, using shared movement to prepare the controls and retaining its response through the relevant aftermath. Otherwise selection scores every behaviour from the same facts; the winner acts and returns a kind of place, position selection chooses a tile, and movement plans or holds. The motor is the only writer to the live NPC body. Movement outcomes return to the next tick only as observed facts such as a stranded body, never as a lower stage changing a higher stage’s decision.
 
-Ordinary selection prepares candidates before comparison. The common evaluator supplies their values, each purpose family nominates its best positive-value child, and the parent chooses among those three nominations. An empty family nominates nothing; an entirely empty board has no ordinary activity. The retained adapters still include follow/wander and kite/survival until their responsibilities migrate to the final companionship and shared-safety structure.
+Ordinary selection prepares candidates before comparison. The common evaluator supplies their values, each purpose family nominates its best positive-value child, and the parent chooses among those three nominations. An empty family nominates nothing; an entirely empty board has no ordinary activity. Environmental escape runs independently through SharedSafety even with no ordinary offers. The retained adapters still include follow/wander and kite until their remaining responsibilities migrate to the final companionship and shared-safety structure.
 
 Every branch returns a movement request and hand permission to the common finaliser. Ordinary travel, reflex avoidance, survival escape and recovery flight therefore share one motor application and a retained grant describing its actual AI-phase output. The downed lifecycle enters that finaliser without running ordinary selection. The grant does not certify the subsequently integrated motion or a productive native effect.
 
@@ -51,7 +52,7 @@ Distant-follow recovery is an explicit coordinator branch outside the route grap
 
 ## Choice is utility, not a priority chain
 
-Each behaviour returns a score whose considerations multiply, so any zero vetoes it. The incumbent receives a commitment bonus and long trips are discounted by the observed threat horizon. The urgency values for guard and survival form an ordered ladder because either must clear a committed lower rung; they live in `BehaviourWeights.cs`, which is the source for player-feel tuning. Behaviours are opportunistic: the companion follows loosely and helps with nearby activities the player is already doing. Player-directed missions were abandoned. The unbuilt mastery tree may later give the movement system capabilities such as air jumps, dash, swimming and flight.
+Each behaviour returns a score whose considerations multiply, so any zero vetoes it. The incumbent receives a commitment bonus and long trips are discounted by the observed threat horizon. Guard urgency can exceed a committed ordinary action; it lives in `BehaviourWeights.cs`, which is the source for player-feel tuning. Shared environmental escape does not need to win that comparison. Behaviours are opportunistic: the companion follows loosely and helps with nearby activities the player is already doing. Player-directed missions were abandoned. The unbuilt mastery tree may later give the movement system capabilities such as air jumps, dash, swimming and flight.
 
 ## Movement is one shared system with an engine adapter
 

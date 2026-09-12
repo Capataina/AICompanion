@@ -14,6 +14,10 @@ Recovery admission is exercised with one alternate executor issuing reunion, exa
 
 VerifyCompanionLifecycle.Create starts with a dead player to exercise autonomous lifecycle handling. A fixture requiring ordinary companionship must explicitly make that player alive before its first brain update. A last-registered zero-score fallback used to hide this precondition; an empty activity owner cannot be suspended merely because the fixture labels the next step recovery.
 
+Native companion attachment is bidirectional: ModNPC.Entity points at the body and NPC.ModNPC points back at the behaviour. Assigning only Entity lets direct AI calls pass while native lethal damage bypasses the companion's CheckDead and enters vanilla NPC loot/death handling. A drowning-to-downing test must preserve both links rather than suppressing lethal strikes.
+
+The empty-offer safety fixture removes every ordinary candidate, then exercises environmental exposure through the real brain and recorder. It requires an independent safety identity and fresh control grant without a fabricated ordinary comparison; downing must cancel that response and revoke the hand. The observation suite restores the mining policy it changed, so a later fixture does not inherit disabled work. Captured pool checks repeat with and without ordinary offers. Mirrored awning checks require sustained dry clearance and release of safety ownership, and reject a landing response reverting to an air-seeking phase under the same response identity.
+
 The personal-danger fixture runs the real threat observer against sealed native-tile chambers. It checks both player/companion arrangements for a walker, a tile-colliding flyer, a wall-crossing phaser, and entry into an enemy's chamber before a cached reachability refresh. These isolate destination coupling; they do not measure live combat judgement or a modded hostile's own pathfinding skill.
 
 ```

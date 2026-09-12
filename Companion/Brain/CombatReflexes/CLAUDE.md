@@ -8,7 +8,7 @@ CombatReflexes/
 └─ AssessImmediateThreats.cs   predicts hostile and projectile occupied space and supplies the predicate
 ```
 
-The passive body is stepped first, because existing momentum and gravity can produce a hit even when no new input is given. When it would collide during the lookahead, shared movement evaluates alternatives with its own ability and body rules. A reflex owns the feet for that tick, while the hands still fire if no work tool occupies the arm.
+The passive body is stepped first, because existing momentum and gravity can produce a hit even when no new input is given. When it would collide during the lookahead, shared movement evaluates alternatives with its own ability and body rules. SharedSafety retains collision-response ownership through an airborne aftermath and releases it after a grounded observation without imminent collision. ActivityCoordination grants the resulting movement and available hand together; reflex assessment itself never owns the motor.
 
 ## Trap
 

@@ -26,6 +26,7 @@ public sealed class Brain
     public Navigator Navigator => Movement.Navigator;
     public readonly CombatReflexes.Reflexes Reflexes = new();
     public readonly GrantActivityControls ControlGrants = new();
+    public readonly SharedSafety.ChooseSafetyResponse Safety = new();
     public readonly Behaviours.Companionship.RecoverDistantFollowing FollowRecovery = new();
 
     // The navigator names nothing of the game, so the failed-plan dump reaches the telemetry
@@ -42,10 +43,10 @@ public sealed class Brain
     public ulong LastTick { get; private set; } = ulong.MaxValue;
     public bool ChoiceEvaluated { get; private set; }
     public bool MovementStalled { get; private set; }
-    public string ActivityStatus => FollowRecovery.Active ? "Catching up" : MovementStalled ? "Stuck: not making progress" : LastAction?.Name switch
+    public string ActivityStatus => FollowRecovery.Active ? "Catching up" : Safety.Active ? "Getting to safety" : MovementStalled ? "Stuck: not making progress" : LastAction?.Name switch
     {
         "walk-with" => "Following you", "guard" => "Guarding you", "hunt" => "Hunting", "kite" => "Keeping distance",
-        "mine" => "Mining ore", "chop" => "Chopping a tree", "loot" => "Collecting drops", "survive" => "Getting to safety",
+        "mine" => "Mining ore", "chop" => "Chopping a tree", "loot" => "Collecting drops",
         "place-torches" => "Lighting the way", "break-pots" => "Breaking pots", "wander" => "Looking around", _ => "Resting"
     };
     private Vector2 progressOrigin;
@@ -114,6 +115,7 @@ public sealed class Brain
 
     public void ApplyDownedControls(CompanionNPC companion)
     {
+        Safety.Cancel(new ActionContext(companion, Senses, Roaming), "downed");
         SuspendActivity(companion, "downed");
         LastRequest = PositionRequest.Hold;
         FinaliseControls(companion, new ActivityControlRequest(Movement.Hold(companion.Motor.State), "downed", HandGrant.Unavailable));
@@ -159,10 +161,11 @@ public sealed class Brain
         bool taken = Reflexes.TryAssess(companion.NPC, Senses, companion.Motor.State, out var unsafeAtTick);
         Navigator.UnsafeAtTick = Senses.Threats.Threats.Count == 0 && Senses.Projectiles.Threats.Count == 0 ? null : unsafeAtTick;
         ReflexMs = Lap();
-        if (taken)
+        if (Safety.TryChoose(ctx, taken, out var safetyRequest))
         {
-            Chooser.Activity.Suspend(ctx, "combat-reflex");
-            return new ActivityControlRequest(Movement.AvoidThreats(companion.Motor.State, unsafeAtTick, Senses.Player.Bottom), "combat-reflex");
+            LastRequest = PositionRequest.Hold;
+            ReflexMs += Lap();
+            return safetyRequest;
         }
 
         CompanionAction? action = Chooser.Choose(ctx);
@@ -175,12 +178,6 @@ public sealed class Brain
         bool reunionRequested = LastRequest.Kind == RequestKind.WithPlayer && action?.HandsBusy != true;
         if (TryFollowRecovery(companion, player, reunionRequested, out var selectedRecovery)) return selectedRecovery;
 
-        if (action is Behaviours.Survival.SurviveAction survival && (survival.TryEscape(ctx, out Controls escape, out bool escapePending) || escapePending))
-        {
-            NavigateMs = Lap();
-            return new ActivityControlRequest(escape, "survival-escape", ObserveProgress: true);
-        }
-
         var profile = companion.Arsenal.ProfileFor(ctx, LastRequest.Target);
         // Lava is a crossable cost only while there is life to pay it with.
         // A drop with no way back is taken only after the player, or to save the body: a hunt
@@ -189,7 +186,7 @@ public sealed class Brain
         // the same question for itself and against the player's tile rather than the request kind.
         Movement.Configure(Terraria.Main.GameUpdateCount,
             Senses.Self.LifeFraction > 0.6f && !Senses.Self.InLava,
-            LastRequest.Kind is RequestKind.WithPlayer or RequestKind.Guard || action is Behaviours.Survival.SurviveAction);
+            LastRequest.Kind is RequestKind.WithPlayer or RequestKind.Guard);
         Vector2? spot = Positioner.Resolve(LastRequest, Senses, profile);
         PositionMs = Lap();
         // Enemy bodies are hazards wherever the route passes them, even when neither actor
@@ -224,6 +221,7 @@ public sealed class Brain
             companion.NPC.Bottom, player.Bottom, companion.Motor.ClearOfTerrain
                 && player.velocity.Y == 0f && companion.NPC.Bottom.Y <= player.Bottom.Y)) return false;
         LastRequest = new PositionRequest(RequestKind.WithPlayer, player.Bottom);
+        Safety.Cancel(new ActionContext(companion, Senses, Roaming), "follow-recovery-flight");
         Chooser.Activity.Suspend(new ActionContext(companion, Senses, Roaming), "follow-recovery-flight");
         Movement.Hold(companion.Motor.State);
         request = new ActivityControlRequest(Controls.None, "follow-recovery-flight", RecoveryVelocity:
@@ -283,7 +281,7 @@ public sealed class Brain
             progressPath = Navigator.Path;
             progressStep = progressPath?.Index ?? 0;
         }
-        bool wantsTravel = LastAction is Behaviours.Survival.SurviveAction { EscapeActive: true }
+        bool wantsTravel = Safety.Active
             || (LastRequest.Kind == RequestKind.WithPlayer
             ? !new FollowPlayerObjective(Senses.Player.Bottom, Senses.Player.Bottom).IsSatisfied(companion.NPC.Bottom,
                 WorldObservation.LineOfSight.Between(companion.NPC, Senses.PlayerEntity))

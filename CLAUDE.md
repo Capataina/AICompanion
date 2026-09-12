@@ -6,7 +6,7 @@ This singleplayer tModLoader mod makes an NPC companion that behaves as a second
 
 ## The companion is an opportunistic companion, not an orders system
 
-Behaviours compete by score each tick: loose companionship, combat, gathering, survival and nearby work. Shooting is independent hands work, so it runs while the feet follow or dodge; the torch fills an otherwise free hand. Missions and player-directed sending were abandoned. The unbuilt mastery progression may later unlock movement abilities including air jumps, dash, swimming and flight; a selectable interface preview is not a gameplay ability.
+Behaviours compete by score each tick for companionship, combat, gathering and nearby work. Shared safety can suspend ordinary activity to escape environmental exposure or avoid a collision. Shooting is independent hands work, so it runs while the feet follow or dodge; the torch fills an otherwise free hand. Missions and player-directed sending were abandoned. The unbuilt mastery progression may later unlock movement abilities including air jumps, dash, swimming and flight; a selectable interface preview is not a gameplay ability.
 
 ## The architecture has one movement boundary
 
@@ -45,10 +45,10 @@ AICompanion/
 │  │  │  ├─ Companionship/      follow, guard and wander
 │  │  │  ├─ Combat/             hunt and kite
 │  │  │  ├─ Gathering/          collect nearby drops
-│  │  │  ├─ Survival/           seek safety for the companion
 │  │  │  └─ Work/               help with trees and ore
 │  │  ├─ PositionSelection/     position requests and candidate scoring
 │  │  ├─ CombatReflexes/        immediate threat assessment
+│  │  ├─ SharedSafety/          independent environmental escape and collision response ownership
 │  │  ├─ SharedMovementSystem/  shared travel, avoidance and control contracts
 │  │  │  ├─ TerrainModel/       tile geometry and pass-through properties
 │  │  │  ├─ BodySimulation/     body state and portable motion

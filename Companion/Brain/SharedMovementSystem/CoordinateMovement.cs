@@ -31,7 +31,7 @@ public sealed class CoordinateMovement
         if (seekingDestination) CancelStateSearch();
         Navigator.Interrupt(live);
         bool chosen = stateSearch.TryChoose(NavGrid.World, live, goal, heuristic, Navigator.Capabilities,
-            workBudget, BehaviourSelection.Weights.EscapeSearchMilliseconds, out controls);
+            workBudget, BehaviourSelection.Weights.EscapeSearchMilliseconds, out controls, Navigator.UnsafeAtTick);
         pending = stateSearch.Pending;
         return chosen;
     }

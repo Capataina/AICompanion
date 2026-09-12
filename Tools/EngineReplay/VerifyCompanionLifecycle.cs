@@ -50,6 +50,9 @@ internal static class VerifyCompanionLifecycle
         live::AICompanion.Companion.Brain.SharedMovementSystem.NavGrid.World = new live::AICompanion.Companion.Brain.SharedMovementSystem.GameTileWorld();
         var npc = new NPC();
         typeof(ModNPC).GetProperty("Entity", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)!.SetValue(companion, npc);
+        // Native damage calls NPCLoader through the NPC's reverse attachment. Entity alone
+        // runs direct AI correctly but bypasses the companion's CheckDead at lethal damage.
+        typeof(NPC).GetProperty("ModNPC", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)!.SetValue(npc, companion);
         companion.SetDefaults();
         npc.position = new Vector2(400, 1398);
         // Rendering and first-tick logging require the loader/graphics services; the real AI,

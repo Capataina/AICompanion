@@ -10,8 +10,8 @@ namespace AICompanion.Companion.Brain.WorldObservation;
 /// <summary>
 /// What is happening to the companion's own body: how much breath it has and whether its
 /// head is under water, whether it stands in lava or burns, how much life it has and how
-/// much it lost just now. From those, <see cref="SelfDanger"/>, 0..1, the one number the
-/// survive action scores on and the grid reads when it prices lava: drowning counts from
+/// much it lost just now. From those, <see cref="SelfDanger"/>, 0..1, supplies personal
+/// exposure to shared safety and terrain risk: drowning counts from
 /// half breath and is total near none, lava and fire count while they last, and a burst
 /// of recent damage counts by its share of max life. The threat sense measures danger
 /// to the player; this measures danger to the companion, and the two are kept apart so

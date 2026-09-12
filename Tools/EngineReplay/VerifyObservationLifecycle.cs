@@ -19,6 +19,7 @@ internal static class VerifyObservationLifecycle
         FieldInfo savePath = typeof(Terraria.Program).GetField("SavePath", BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic)
             ?? throw new InvalidOperationException("Terraria save-path backing field is unavailable");
         object? priorSavePath = savePath.GetValue(null);
+        var priorMiningPolicy = live::AICompanion.Companion.Brain.Behaviours.Work.WorkPolicies.Mining;
         string root = Path.Combine(Path.GetTempPath(), "aic-observation-lifecycle-" + Guid.NewGuid().ToString("N"));
         savePath.SetValue(null, root);
         try
@@ -30,6 +31,7 @@ internal static class VerifyObservationLifecycle
             VerifyNotchOpeningConsumesThePress();
             VerifyOneCompleteSample();
             VerifyRecoveryDoesNotRefreshTheChoice();
+            VerifySafetyWithNoOrdinaryOffer();
             Console.WriteLine("observation lifecycle: reserved retry names, zero-tick metadata and callback-scoped lifecycle evidence passed");
             return 0;
         }
@@ -41,6 +43,7 @@ internal static class VerifyObservationLifecycle
         finally
         {
             Close();
+            live::AICompanion.Companion.Brain.Behaviours.Work.WorkPolicies.Mining = priorMiningPolicy;
             savePath.SetValue(null, priorSavePath);
             if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
         }
@@ -158,6 +161,46 @@ internal static class VerifyObservationLifecycle
         string[] grants = File.ReadLines(events).Where(line => line.Contains("\"kind\":\"control-grant\"", StringComparison.Ordinal)).ToArray();
         Require(grants.Length == 5 && grants[1].Contains("follow-recovery-flight") && grants[4].Contains("Unavailable"),
             "sparse grant evidence must preserve all five ownership transitions");
+    }
+
+    private static void VerifySafetyWithNoOrdinaryOffer()
+    {
+        var (_, context) = VerifyOreWork.SetUp(live::AICompanion.Companion.Brain.Behaviours.Work.WorkPolicy.Disabled,
+            TileID.Copper, new Microsoft.Xna.Framework.Point(25, 89));
+        var companion = context.Companion;
+        companion.Brain.Chooser.Actions.Clear();
+        var recorder = new BrainTelemetry(); Attach(recorder);
+        recorder.OnWorldLoad();
+        string path = Directory.GetFiles(BrainTelemetry.Folder, "*.tsv").OrderByDescending(File.GetLastWriteTimeUtc).First();
+        VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
+        VerifyCompanionLifecycle.TickWithOneControlGrant(companion);
+        for (int x = 18; x <= 22; x++)
+        for (int y = 84; y <= 89; y++) Main.tile[x, y].LiquidAmount = byte.MaxValue;
+        companion.NPC.wet = true;
+        typeof(live::AICompanion.Companion.CharacterBody.CompanionBreath).GetProperty("Breath")!.SetValue(companion.Breath, 20);
+        live::AICompanion.Companion.Brain.SharedMovementSystem.TerrainChanges.Reset();
+        VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
+        VerifyCompanionLifecycle.TickWithOneControlGrant(companion);
+        Require(companion.Brain.Safety.Active && companion.Brain.Chooser.Current == null,
+            "native environmental danger must create safety ownership with no ordinary activity");
+        companion.CheckDead();
+        VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
+        VerifyCompanionLifecycle.TickWithOneControlGrant(companion);
+        recorder.OnWorldUnload();
+        string[] lines = File.ReadAllLines(path);
+        int header = Array.FindIndex(lines, line => line.StartsWith("tick\t"));
+        string[] names = lines[header].Split('\t');
+        string[][] rows = lines.Skip(header + 1).Where(line => !line.StartsWith('#')).Select(line => line.Split('\t')).ToArray();
+        Require(rows.Length == 3 && rows.All(row => row.Length == names.Length), "safety fixture must write all three complete samples");
+        string Value(int row, string name) => rows[row][Array.IndexOf(names, name)];
+        Require(Value(0, "safety_active") == "0" && Value(1, "safety_active") == "1"
+            && Value(1, "safety_kind") == "environmental-escape" && long.Parse(Value(1, "safety_response_id")) > 0,
+            "the actual recorder must expose a separate environmental response identity");
+        Require(Value(1, "choice_fresh") == "0" && Value(1, "control_grant_fresh") == "1"
+            && Value(1, "choice_id") == Value(0, "choice_id"),
+            "shared safety must not fabricate an ordinary choice comparison");
+        Require(Value(2, "safety_active") == "0" && Value(2, "safety_last_end") == "downed"
+            && Value(2, "hand_grant") == "Unavailable", "downing must explicitly cancel shared safety and hand ownership");
     }
 
     private static void VerifySameStemGainsAnAttemptSuffix()
