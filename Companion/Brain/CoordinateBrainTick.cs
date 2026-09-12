@@ -154,6 +154,7 @@ public sealed class Brain
 
         var ctx = new ActionContext(companion, Senses, Roaming);
         Senses.SetInterventionEstimate(companion.Arsenal.EstimateInterventionTicks(ctx));
+        Chooser.ObserveCompanionship(ctx);
 
         if (FollowRecovery.Active && TryFollowRecovery(companion, player, false, out var initialRecovery)) return initialRecovery;
 

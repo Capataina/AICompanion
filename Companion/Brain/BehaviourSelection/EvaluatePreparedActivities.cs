@@ -12,10 +12,10 @@ public readonly record struct PreparedActivity(int Index, string Name, float Raw
 
 public readonly record struct ActivityComparisonContext(float ProtectionUrgency, bool Stranded,
     float ThreatHorizonTicks, float InterruptibleTicks, float HorizonOverrunTicks, float Commitment,
-    bool WithinActivityAllowance, float FollowDuringUsefulWork);
+    bool WithinActivityAllowance, float FollowDuringUsefulWork, float ReunionDelayCostPerTick = 0);
 
 public readonly record struct EvaluatedActivity(int Index, string Name, float Raw, float Final,
-    float Protection, float Commitment, float Horizon, float UsefulWork, string Error);
+    float Protection, float Commitment, float Horizon, float UsefulWork, string Error, float Reunion = 1);
 
 /// <summary>Shared utility arithmetic over a captured board. Discovery and activation belong
 /// to their callers; repeated evaluation of the same values has no side effects.</summary>
@@ -43,13 +43,14 @@ public static class EvaluatePreparedActivities
                 if (forecast > context.ThreatHorizonTicks)
                     horizon = Math.Max(0, 1 - (forecast - context.ThreatHorizonTicks) / context.HorizonOverrunTicks);
             }
-            float final = candidate.RawValue * protection * commitment * horizon;
+            float reunion = candidate.IsExcursion ? 1 / (1 + context.ReunionDelayCostPerTick * candidate.ForecastTicks) : 1;
+            float final = candidate.RawValue * protection * commitment * horizon * reunion;
             if (!float.IsFinite(final))
             {
                 results[i] = new(candidate.Index, candidate.Name, candidate.RawValue, 0, protection, commitment, horizon, 1, "non-finite-product");
                 continue;
             }
-            results[i] = new(candidate.Index, candidate.Name, candidate.RawValue, final, protection, commitment, horizon, 1, "");
+            results[i] = new(candidate.Index, candidate.Name, candidate.RawValue, final, protection, commitment, horizon, 1, "", reunion);
             useful |= candidate.IsExcursion && candidate.HasTarget && final > .1f;
         }
         if (useful && context.WithinActivityAllowance)
@@ -63,6 +64,7 @@ public static class EvaluatePreparedActivities
     {
         if (!float.IsFinite(candidate.RawValue) || candidate.RawValue < 0) return "invalid-raw-value";
         if (!float.IsFinite(candidate.ForecastTicks) || candidate.ForecastTicks < 0) return "invalid-forecast";
+        if (!float.IsFinite(context.ReunionDelayCostPerTick) || context.ReunionDelayCostPerTick < 0) return "invalid-reunion-cost";
         if (!float.IsFinite(context.ProtectionUrgency) || context.ProtectionUrgency < 0 || context.ProtectionUrgency > 1) return "invalid-protection";
         // Positive infinity means no observed threat deadline; every other timing value is finite.
         if (float.IsNaN(context.ThreatHorizonTicks) || context.ThreatHorizonTicks < 0) return "invalid-threat-horizon";

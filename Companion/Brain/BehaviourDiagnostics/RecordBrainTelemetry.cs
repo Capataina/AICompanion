@@ -42,7 +42,7 @@ public sealed class BrainTelemetry : ModSystem
     private static string? eventsPath;
     private static readonly Stopwatch sessionClock = new();
     private static DateTime sessionStartedUtc;
-    private const string Schema = "0.15.0";
+    private const string Schema = "0.16.0";
     private static string? pendingPlayerHit;
     private static string? pendingCompanionHit;
     private static string? lastDecision;
@@ -426,7 +426,7 @@ public sealed class BrainTelemetry : ModSystem
             foreach (var score in brain.Chooser.LastScores) { if (board.Length > 0) board.Append(','); board.Append(score.Action.Name).Append('=').Append(score.Raw.ToString("0.000", CultureInfo.InvariantCulture)).Append("->").Append(score.Final.ToString("0.000", CultureInfo.InvariantCulture)); }
             board.Append(CultureInfo.InvariantCulture, $";regroup={brain.Chooser.RegroupUrgency:0.000};return-ticks={brain.Chooser.EstimatedReturnTicks:0.0}");
             foreach (var score in brain.Chooser.LastScores)
-                board.Append(CultureInfo.InvariantCulture, $";factors:{score.Action.Name}=protection:{score.Protection:0.000},commitment:{score.Commitment:0.000},horizon:{score.Horizon:0.000},useful-work:{score.UsefulWork:0.000},error:{score.Error}");
+                board.Append(CultureInfo.InvariantCulture, $";factors:{score.Action.Name}=protection:{score.Protection:0.000},commitment:{score.Commitment:0.000},horizon:{score.Horizon:0.000},useful-work:{score.UsefulWork:0.000},reunion:{score.Reunion:0.000},error:{score.Error}");
             foreach (var nomination in brain.Chooser.LastNominations)
                 board.Append(CultureInfo.InvariantCulture, $";family:{nomination.Family}=child:{nomination.Activity?.Name ?? "none"},value:{nomination.Activity?.Final ?? 0:0.000}");
             var preferences = PlayerIntegration.CompanionPreferences.Current;
@@ -478,6 +478,7 @@ public sealed class BrainTelemetry : ModSystem
             h.Append("\tsafety_response_id\tsafety_active\tsafety_kind\tsafety_reason\tsafety_last_end");
             h.Append("\tplayer_intent_y\tplayer_intent_confidence\tplayer_intent_samples\tplayer_local_work_fraction");
             h.Append("\tmine_remaining_work_ticks\tmine_remaining_hits\tchop_remaining_work_ticks\tchop_remaining_hits");
+            h.Append("\treunion_apart_ticks\treunion_departure\treunion_delay_cost_per_tick");
             writer.WriteLine(h.ToString());
             headerWritten = true;
         }
@@ -712,6 +713,9 @@ public sealed class BrainTelemetry : ModSystem
             .Append('\t').Append(mine?.RemainingWork?.Hits ?? -1)
             .Append('\t').Append((chop?.RemainingWork?.Ticks ?? -1f).ToString("0.000", CultureInfo.InvariantCulture))
             .Append('\t').Append(chop?.RemainingWork?.Hits ?? -1);
+        sb.Append('\t').Append(brain.Chooser.Reunion.ApartTicks)
+            .Append('\t').Append(brain.Chooser.Reunion.Departure.ToString("0.000", CultureInfo.InvariantCulture))
+            .Append('\t').Append(brain.Chooser.Reunion.DelayCostPerTick.ToString("0.000000", CultureInfo.InvariantCulture));
 
         // A write that fails (disk full, a stream the OS closed) must not escape the NPC's AI
         // and take the companion with it; the record stops and the game goes on.

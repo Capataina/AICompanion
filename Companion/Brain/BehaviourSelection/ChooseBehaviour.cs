@@ -18,7 +18,7 @@ namespace AICompanion.Companion.Brain.BehaviourSelection;
 public sealed class Chooser
 {
     public readonly record struct Scored(CompanionAction Action, float Raw, float Final,
-        float Protection = 1f, float Commitment = 1f, float Horizon = 1f, float UsefulWork = 1f, string Error = "");
+        float Protection = 1f, float Commitment = 1f, float Horizon = 1f, float UsefulWork = 1f, string Error = "", float Reunion = 1f);
 
     public readonly List<CompanionAction> Actions = new()
     {
@@ -43,6 +43,14 @@ public sealed class Chooser
     public ulong? EvaluationTick { get; private set; }
     public float RegroupUrgency { get; private set; }
     public float EstimatedReturnTicks { get; private set; }
+    public AssessReunionCost Reunion { get; } = new();
+
+    public void ObserveCompanionship(in ActionContext ctx)
+    {
+        var objective = new PositionSelection.FollowPlayerObjective(ctx.Senses.Player.Bottom, ctx.Senses.Player.Bottom);
+        Reunion.Observe(Terraria.Main.GameUpdateCount,
+            objective.IsSatisfied(ctx.Npc.Bottom, ctx.Senses.Player.CompanionCanSeePlayer), ctx.Senses.Player.IsDead);
+    }
     private Microsoft.Xna.Framework.Vector2? workSite;
     private ulong workSiteTick;
     public bool IsCollectingWork(Microsoft.Xna.Framework.Vector2 target)
@@ -57,6 +65,7 @@ public sealed class Chooser
 
     public CompanionAction? Choose(in ActionContext ctx)
     {
+        ObserveCompanionship(ctx);
         LastScores.Clear();
         var delta = ctx.Senses.Player.Bottom - ctx.Npc.Bottom;
         EstimatedReturnTicks = (MathF.Abs(delta.X) + MathF.Abs(delta.Y)) / SharedMovementSystem.BodyPhysics.WalkSpeed;
@@ -72,6 +81,7 @@ public sealed class Chooser
             EstimatedReturnTicks = MathF.Max(EstimatedReturnTicks, routeTicks);
         }
         float movingAway = delta.LengthSquared() > 1f ? Microsoft.Xna.Framework.Vector2.Dot(ctx.Senses.Player.Intent, Microsoft.Xna.Framework.Vector2.Normalize(delta)) : 0f;
+        Reunion.Evaluate(movingAway, EstimatedReturnTicks, ctx.Senses.Player.IsDead, ctx.Stranded);
         RegroupUrgency = ctx.Senses.Player.IsDead ? 0f : WorldObservation.CalculateRegroupUrgency.Evaluate(
             ctx.Senses.DistanceToPlayer, EstimatedReturnTicks, movingAway, navigator.StuckTicks,
             Weights.FollowHorizontalComfort * PlayerIntegration.CompanionPreferences.Current.FollowComfortScale,
@@ -104,7 +114,7 @@ public sealed class Chooser
         var comparison = new ActivityComparisonContext(ctx.Senses.Threats.ProtectionUrgency, ctx.Stranded,
             horizon, Weights.InterruptibleActionTicks, Weights.HorizonOverrunToZero, Weights.Commitment,
             ctx.Senses.DistanceToPlayer <= PlayerIntegration.CompanionPreferences.Current.ActiveActivityRadius,
-            Weights.FollowDuringUsefulWork);
+            Weights.FollowDuringUsefulWork, Reunion.DelayCostPerTick);
         var available = (PreparedActivity[])prepared.Clone();
         var rejections = new string?[prepared.Length];
         CompanionAction? best = null;
@@ -122,7 +132,7 @@ public sealed class Chooser
                     ? evaluatedScore with { Raw = prepared[evaluatedScore.Index].RawValue, Error = rejection }
                     : evaluatedScore;
                 CompanionAction action = Actions[score.Index];
-                LastScores.Add(new(action, score.Raw, score.Final, score.Protection, score.Commitment, score.Horizon, score.UsefulWork, score.Error));
+                LastScores.Add(new(action, score.Raw, score.Final, score.Protection, score.Commitment, score.Horizon, score.UsefulWork, score.Error, score.Reunion));
                 candidates[score.Index] = new(action.Family, score);
             }
             LastNominations = NominateFamilyActivities.Nominate(candidates);

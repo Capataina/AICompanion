@@ -13,6 +13,7 @@ BehaviourSelection/
 ├─ CLAUDE.md
 ├─ ChooseBehaviour.cs          the scorer and the sole list of behaviour instances
 ├─ EvaluatePreparedActivities.cs captured candidate values and side-effect-free shared utility comparison
+├─ AssessReunionCost.cs        separation history and the marginal cost of delaying reunion
 ├─ NominateFamilyActivities.cs family child nominations and parent comparison on identical values
 ├─ ValidatePreparedActivity.cs captured target binding and activation-time availability checks
 ├─ OwnCurrentActivity.cs one primary activity's identity, entry, suspension and replacement
@@ -48,6 +49,12 @@ Each retained score carries the actual protection, incumbent commitment, horizon
 Regrouping raises following's existing utility rather than introducing a behaviour. It uses the selected distance mode's comfort region, and drops to zero when both axes and local sight satisfy arrival. A viable targeted excursion discounts ordinary following inside its permitted activity envelope; protection is unaffected. `IsExcursion` defaults on, with protection, kiting and following opting out. Shared safety does not depend on these factors. `RegroupUrgency` and `EstimatedReturnTicks` remain available to diagnostics.
 
 The moving-away component consumes the observation layer's confidence-weighted travel estimate rather than instantaneous velocity. Repeated local motion therefore cannot imply a sustained departing journey solely because its current leg points away. This does not yet replace every activity's distance envelope or establish a useful future meeting region.
+
+Optional activities pay a shared reunion factor based on the additional time their prepared forecast would keep the companion occupied. The cost rate combines observed departure, estimated current return duration and accumulated observed separation. A longer return amplifies the consequence of a departing player; accumulated separation discourages a succession of small detours from becoming permanent absence. Self-danger is not an input, and protection is not an optional excursion. Dead-player and known stranded contexts remove this reunion charge. Existing protection and interruption-horizon factors remain distinct.
+
+The factor is reciprocal in added delay: zero cost preserves the candidate's value, longer work reduces it continuously, and a quick completion can still beat companionship. Only work that remains useful after this charge can discount following. The rate and separation timescale live in BehaviourWeights; matched native work/departure tests calibrate their initial relationship rather than asserting an unconditional gather-versus-follow order.
+
+Separation observation runs after senses even when recovery or shared safety skips ordinary comparison. The chooser's direct entry also observes idempotently for callers outside the coordinator. It counts consecutive observed engine ticks, resets at actual local reunion or player death, and retains accumulated evidence without charging missing intervals. Activity replacement cannot reset that history. Delay rate belongs to the last ordinary comparison and must be read with its freshness. Return duration still combines available route evidence with geometric estimates; this is not proof of a future return route or the final meeting-region contract.
 
 The selected job earns continuation by identity on every winning tick, including consecutive targets inside one behaviour. A moving enemy or drop keeps its identity as its position changes; a different entity must pass acquisition again. Mining retains a vein id, chopping a trunk tile, and small world interactions a target tile. Successful work also records a short-lived collection site so the resulting drops can be gathered under the same ongoing allowance. The shared bounds check both the companion and its target against the player.
 

@@ -36,6 +36,7 @@ internal static class VerifyOreWork
             NativeToolOutcomesDistinguishAttemptsFromProgress();
             PreparedWorkForecastRespondsToNativeProgress();
             RemainingToolWorkMatchesNativeCompletion();
+            DepartingPlayerChangesWhetherWorkIsWorthFinishing();
             Console.WriteLine("ore work: policy, retained vein, tool gates, unproven approach and native productive break pass");
             return 0;
         }
@@ -49,6 +50,39 @@ internal static class VerifyOreWork
     {
         var (action, ctx) = SetUp(WorkPolicy.Disabled, TileID.Copper, new Point(25, 59));
         Require(VerifyPreparedActivities.PrepareAndScore(action, ctx) == 0f && action.RemainingTiles == 0 && action.Status == "disabled", "disabled mining must not retain ore work");
+    }
+
+    private static void DepartingPlayerChangesWhetherWorkIsWorthFinishing()
+    {
+        foreach (int separation in new[] { 480, 576, 640 })
+        foreach (bool nearlyDone in new[] { false, true })
+        {
+            Point ore = new(25, 89);
+            var (_, ctx) = SetUp(WorkPolicy.Opportunistic, TileID.Copper, ore);
+            var brain = ctx.Companion.Brain;
+            var workClock = new live::AICompanion.Companion.Brain.WorldObservation.TileDamageClock();
+            workClock.OnWorldLoad();
+            brain.Chooser.Actions.RemoveAll(action => action.Name is not ("mine" or "walk-with"));
+            ctx.Player.Bottom = ctx.Npc.Bottom + new Vector2(separation - 120 * 4, 0);
+            for (int tick = 0; tick < 120; tick++)
+            {
+                ctx.Player.velocity = new Vector2(4, 0);
+                ctx.Player.position += ctx.Player.velocity;
+                VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
+                brain.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Breath);
+                workClock.PostUpdateEverything();
+            }
+            Item pick = live::AICompanion.Companion.Brain.WorldInteractions.Mining.TileMiner.PickaxeFor(ctx.Player);
+            if (nearlyDone)
+                while (ctx.Companion.Miner.EstimateRemaining(ore, pick) is { Hits: > 1 })
+                {
+                    Require(ctx.Companion.Miner.Swing(ore, pick), "paired completion fixture needs a native hit");
+                    for (int tick = 0; tick < pick.useTime; tick++) ctx.Companion.Miner.Tick();
+                }
+            var selected = brain.Chooser.Choose(ctx);
+            Require(selected?.Name == (nearlyDone ? "mine" : "walk-with"),
+                $"departure should distinguish fresh work from a one-hit finish: separation={separation}; nearlyDone={nearlyDone}; selected={selected?.Name}; scores={string.Join(",", brain.Chooser.LastScores.Select(s => s.Action.Name + "=" + s.Final))}");
+        }
     }
 
     private static void PreparedWorkForecastRespondsToNativeProgress()

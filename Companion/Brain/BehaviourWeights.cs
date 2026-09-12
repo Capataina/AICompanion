@@ -112,6 +112,8 @@ public static class Weights
     public const float FollowIntentDistance = 140f;
     public const float RegroupFullDistance = 640f;
     public const float RegroupFreeReturnTicks = 60f;
+    public const float ReunionDelayToleranceTicks = 30f;
+    public const float ReunionAbsenceScaleTicks = 1800f;
     public const float RegroupFullReturnTicks = 240f;
 
     /// <summary>

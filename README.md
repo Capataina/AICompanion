@@ -368,7 +368,7 @@ A coordinator decides what gets to act. Usually it lets utility compare useful b
 
 On an ordinary update, each behaviour prepares a candidate and its value. Gathering, combat and nearby assistance each nominate their best eligible activity. The chooser compares those three concrete offers without adding the same preference again. The winning behaviour performs any immediate interaction it can and asks for a useful place to stand. A family with no valuable candidate nominates nothing.
 
-For an established mining or chopping target, preparation estimates the hits and tool time remaining until the next block or trunk breaks, using native damage and the companion's existing progress. It keeps approach time separate from tool time. That estimate does not include clearing the rest of a vein or collecting the drops, and it is not a guarantee that the world will remain unchanged. The full comparison between a quick finish and practical reunion is still being implemented.
+For an established mining or chopping target, preparation estimates the hits and tool time remaining until the next block or trunk breaks, using native damage and the companion's existing progress. It keeps approach time separate from tool time. That estimate does not include clearing the rest of a vein or collecting the drops, and it is not a guarantee that the world will remain unchanged. Optional work loses value as its extra time delays a costly reunion, so a quick finish can remain worthwhile when starting fresh work would not. This comparison uses observed departure, available return-time estimates and accumulated separation; useful future meeting regions and stronger return-route evidence remain under implementation.
 
 | Current choice | What it tries to accomplish |
 |---|---|

@@ -18,6 +18,7 @@ internal static class VerifyPreparedActivities
 
     public static int Run()
     {
+        VerifyReunionCostsAndHistory();
         var context = new Context(.2f, false, 10, 20, 100, 1.25f, true, .5f);
         Prepared[] board =
         {
@@ -83,6 +84,42 @@ internal static class VerifyPreparedActivities
             "equal-valued children must use the same stable candidate order across families");
         Console.WriteLine("prepared activities: repeated/reordered comparison, invalid values and legacy arithmetic reference pass");
         return 0;
+    }
+
+    private static void VerifyReunionCostsAndHistory()
+    {
+        var context = new Context(0, false, float.PositiveInfinity, 12, 240, 1.15f, true, .2f, .12f);
+        Prepared[] board = { new(0, "work", .7f, 31, true, true, false, false), new(1, "company", 1, 0, false, false, true, false) };
+        var longWork = Evaluator.Evaluate(board, context);
+        var shortWork = Evaluator.Evaluate(new[] { board[0] with { ForecastTicks = 1 }, board[1] }, context);
+        Require(longWork[0].Final < longWork[1].Final && shortWork[0].Final > shortWork[1].Final,
+            "the same departure context must distinguish long work from a quick finish");
+        var calm = Evaluator.Evaluate(board, context with { ReunionDelayCostPerTick = 0 });
+        Require(calm[0].Final > calm[1].Final && calm[0].Reunion == 1,
+            "without reunion delay cost, useful work retains its ordinary opportunity");
+        Require(Evaluator.Evaluate(board, context with { ReunionDelayCostPerTick = .24f })[0].Final < longWork[0].Final,
+            "a more costly return must reduce optional work value on the same board");
+        Require(Evaluator.Evaluate(new[] { board[0] with { IsExcursion = false } }, context)[0].Reunion == 1,
+            "player protection must not inherit the optional-excursion cost");
+        var history = new live::AICompanion.Companion.Brain.BehaviourSelection.AssessReunionCost();
+        history.Observe(1, false, false);
+        history.Observe(2, false, false);
+        history.Observe(2, false, false);
+        history.Observe(3, false, false);
+        Require(history.ApartTicks == 2, "duplicate comparisons cannot charge separation twice");
+        history.Observe(100, false, false);
+        Require(history.ApartTicks == 2, "unobserved time cannot be charged as known separation");
+        history.Evaluate(0, 100, false, false);
+        float accumulated = history.DelayCostPerTick;
+        history.Observe(101, false, false);
+        history.Evaluate(0, 100, false, false);
+        Require(history.DelayCostPerTick > accumulated, "repeated detours share accumulated separation rather than resetting by label");
+        history.Observe(102, true, false);
+        Require(history.ApartTicks == 0, "observed reunion clears accumulated separation");
+        history.Evaluate(4, 100, true, false);
+        Require(history.DelayCostPerTick == 0, "a dead player creates no reunion obligation");
+        history.Evaluate(4, 100, false, true);
+        Require(history.DelayCostPerTick == 0, "a sealed companion must retain local usefulness");
     }
 
     private static void Require(bool condition, string message)
