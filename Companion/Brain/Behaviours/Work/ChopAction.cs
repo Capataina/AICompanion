@@ -18,7 +18,7 @@ namespace AICompanion.Companion.Brain.Behaviours.Work;
 public sealed class ChopAction : CompanionAction
 {
     public override string Name => "chop";
-    public override Vector2? ActivityTarget => tree?.Bottom.ToWorldCoordinates();
+    public override Vector2? ActivityTarget => prepared?.Target;
     public override object? ActivityIdentity => tree?.Bottom;
     /// <summary>True only while the axe is actually out; the whole walk to the tree is empty-handed.</summary>
     public override bool HandsBusy => swinging;
@@ -37,8 +37,21 @@ public sealed class ChopAction : CompanionAction
     private (Point from, Point goal, int revision)? reachKey;
     private Reachability.Reach approachReach;
     private int sinceReach = SearchEveryTicks;
+    private readonly record struct Candidate(Vector2 Target, float Value, float TripTicks);
+    private Candidate? prepared;
 
-    public override float Score(in ActionContext ctx)
+    public override void Prepare(in ActionContext ctx)
+    {
+        float value = DiscoverValue(ctx);
+        prepared = value > 0 && tree is { } found
+            ? new(found.Bottom.ToWorldCoordinates(), value,
+                Vector2.Distance(ctx.Npc.Bottom, found.StandPosition) / Companion.CompanionMotor.WalkSpeed + 120f)
+            : null;
+    }
+
+    public override float Score(in ActionContext ctx) => prepared?.Value ?? 0f;
+
+    private float DiscoverValue(in ActionContext ctx)
     {
         var p = ctx.Senses.Player;
         if (p.IsDead)
@@ -126,7 +139,7 @@ public sealed class ChopAction : CompanionAction
     }
 
     public override float ForecastTicks(in ActionContext ctx)
-        => tree == null ? 0f : Vector2.Distance(ctx.Npc.Bottom, tree.Value.StandPosition) / Companion.CompanionMotor.WalkSpeed + 120f;
+        => prepared?.TripTicks ?? 0f;
 
     public override PositionRequest Execute(in ActionContext ctx)
     {
@@ -135,7 +148,7 @@ public sealed class ChopAction : CompanionAction
         // torch can hold it in the dark.
         ctx.Companion.HoldItem(ItemID.None);
         swinging = false;
-        if (tree is not TreeFinder.ChoppableTree t)
+        if (prepared == null || tree is not TreeFinder.ChoppableTree t)
             return PositionRequest.Hold;
 
         if (Vector2.Distance(ctx.Npc.Bottom, t.StandPosition) <= 20f)

@@ -15,7 +15,7 @@ Behaviours/
 
 ## Adding an action, or a family
 
-The chooser invokes `Prepare` before evaluating an adapter. Migrated adapters capture candidate facts there and keep `Score` and `ForecastTicks` free of discovery or live-target reads. Loot implements this separation; the remaining legacy adapters still prepare inside Score until migrated. Execution must revalidate native availability before acting on a captured candidate.
+The chooser invokes `Prepare` before evaluating an adapter. Migrated adapters capture candidate facts there and keep `Score` and `ForecastTicks` free of discovery or live-target reads. Loot, chopping and hunting implement this separation; the remaining legacy adapters still prepare inside Score until migrated. Execution must revalidate native availability before acting on a captured candidate.
 
 The shared activity owner invokes Enter/Exit and Suspend. Default suspension releases the physical method through Exit and then preserves any surviving purpose identity for continuation. A resumed adapter is prepared and entered again; it must not assume the old working pose or jump remains valid. Switching to a different executor releases the old admission independently of whether its Exit implementation retains discovery caches.
 

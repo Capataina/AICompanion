@@ -23,7 +23,7 @@ public sealed class HuntAction : CompanionAction
     public override string Name => "hunt";
 
     public ThreatRecord? Target { get; private set; }
-    public override Vector2? ActivityTarget => Target?.Npc.Bottom;
+    public override Vector2? ActivityTarget => prepared?.Bottom;
     public override object? ActivityIdentity => Target?.Npc;
     public int NoProgressTicks { get; private set; }
     public string LastRejection { get; private set; } = "none";
@@ -72,7 +72,21 @@ public sealed class HuntAction : CompanionAction
         }
     }
 
-    public override float Score(in ActionContext ctx)
+    private readonly record struct Candidate(NPC Enemy, int Generation, Vector2 Bottom, Vector2 Centre, float Value, float TripTicks);
+    private Candidate? prepared;
+
+    public override void Prepare(in ActionContext ctx)
+    {
+        float value = DiscoverValue(ctx);
+        prepared = value > 0 && Target is { } found
+            ? new(found.Npc, HostileAttackSources.Generation(found.Npc), found.Npc.Bottom, found.Npc.Center, value,
+                MathF.Max(0f, found.DistanceToCompanion - 200f) / Companion.CompanionMotor.WalkSpeed + 60f)
+            : null;
+    }
+
+    public override float Score(in ActionContext ctx) => prepared?.Value ?? 0f;
+
+    private float DiscoverValue(in ActionContext ctx)
     {
         if (!PlayerIntegration.CompanionPreferences.Current.Hunting) { Target = null; return 0f; }
         Rectangle screen = ScreenWithMargin();
@@ -213,16 +227,17 @@ public sealed class HuntAction : CompanionAction
         => new((int)Main.screenPosition.X - 200, (int)Main.screenPosition.Y - 200, Main.screenWidth + 400, Main.screenHeight + 400);
 
     public override float ForecastTicks(in ActionContext ctx)
-        => Target == null ? 0f : MathF.Max(0f, Target.DistanceToCompanion - 200f) / Companion.CompanionMotor.WalkSpeed + 60f;
+        => prepared?.TripTicks ?? 0f;
 
     public override PositionRequest Execute(in ActionContext ctx)
     {
-        if (Target == null)
+        if (prepared is not { } offer || !offer.Enemy.CanBeChasedBy()
+            || HostileAttackSources.Generation(offer.Enemy) != offer.Generation)
             return PositionRequest.Hold;
         // No firing here. Shooting is not something a mode does, it is what the hands do every
         // tick whatever the feet were told, so it lives in the brain's own tick; hunting is now
         // only the decision to walk toward something. See Brain.Engage.
-        return new PositionRequest(RequestKind.LineOfFire, Target.Npc.Center, Target.Npc);
+        return new PositionRequest(RequestKind.LineOfFire, offer.Centre, offer.Enemy);
     }
 
     /// <summary>

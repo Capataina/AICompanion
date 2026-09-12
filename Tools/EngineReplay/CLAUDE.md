@@ -43,6 +43,8 @@ EngineReplay/
 
 The native activity fixture also prepares an actual loot candidate, changes the live pickup list and item position, and verifies that repeated scoring retains the captured value, trip duration and target. A disappeared item must then be refused at execution. A fresh preparation after the completed-work allowance expires must remove that opportunity. These checks exercise the real adapter rather than only the shared scalar evaluator.
 
+Hunt admissibility fixtures prepare before comparing, then clear the live threat list and move the selected NPC to check that comparison retains its captured target, value and duration. A despawn must be refused at execution. The sealed-tree fixture repeatedly scores without preparation and requires the approach-cache timer to remain unchanged, then prepares successive observations to exercise its normal retry cadence. Preparation cost remains included in the hunt admissibility measurement.
+
 Activity-owner probes check one release per interruption, retained purpose identity on reselection, a new identity for consecutive targets under one executor, and abandonment without a duplicate release. Fixtures that need an active executor use the real owner rather than setting the chooser's former backing property. The rendering fixture follows the same entry contract.
 
 From the repository root run `dotnet run --project Tools/EngineReplay`. Exit zero requires every matrix entry to match and all native route fixtures to arrive. `sh Tools/verify.sh` includes this command. The game location can be supplied as the executable’s first argument; MSBuild’s TModLoaderRoot controls the reference location when compiling on another installation.

@@ -6,6 +6,13 @@ using Evaluator = live::AICompanion.Companion.Brain.BehaviourSelection.EvaluateP
 
 internal static class VerifyPreparedActivities
 {
+    internal static float PrepareAndScore(live::AICompanion.Companion.Brain.Behaviours.CompanionAction action,
+        in live::AICompanion.Companion.Brain.Behaviours.ActionContext context)
+    {
+        action.Prepare(context);
+        return action.Score(context);
+    }
+
     public static int Run()
     {
         var context = new Context(.2f, false, 10, 20, 100, 1.25f, true, .5f);

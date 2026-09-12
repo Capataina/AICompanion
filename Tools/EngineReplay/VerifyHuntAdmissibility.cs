@@ -70,14 +70,14 @@ internal static class VerifyHuntAdmissibility
         SettleReach(companion, first);
 
         var hunt = new H();
-        hunt.Score(ctx); // first call warms the terrain caches this is not trying to measure
+        VerifyPreparedActivities.PrepareAndScore(hunt, ctx); // first call warms the terrain caches this is not trying to measure
         var clock = System.Diagnostics.Stopwatch.StartNew();
         const int Ticks = 240;
         for (int tick = 0; tick < Ticks; tick++)
         {
             // Walking, so the verdict cache cannot simply hold a single answer for the whole run.
             companion.NPC.position.X += 2f;
-            hunt.Score(ctx);
+            VerifyPreparedActivities.PrepareAndScore(hunt, ctx);
         }
         double perTick = clock.Elapsed.TotalMilliseconds / Ticks;
         Console.WriteLine($"hunt admissibility cost: {perTick:0.000} ms per score over {Ticks} ticks with {threats.Count} unshootable targets");
@@ -109,12 +109,21 @@ internal static class VerifyHuntAdmissibility
             "the trap case needs the pillar to actually block the shot from where the companion stands");
 
         var hunt = new H();
-        float score = hunt.Score(ctx);
+        float score = VerifyPreparedActivities.PrepareAndScore(hunt, ctx);
         Require(score > 0f,
             "an enemy with no shot from here but a reachable sighted floor beyond a pillar was refused: " +
             $"applying the from-here test to every target rejects exactly the enemies hunting exists to walk toward. rejection={hunt.LastRejection}");
         Require(hunt.Target != null && hunt.Target.Npc == enemy,
             $"the repositionable enemy was not the selected target; rejection={hunt.LastRejection}");
+        var capturedTarget = hunt.ActivityTarget;
+        float capturedTrip = hunt.ForecastTicks(ctx);
+        ctx.Senses.Threats.Threats.Clear();
+        enemy.position.X += 48;
+        Require(hunt.Score(ctx) == score && hunt.ForecastTicks(ctx) == capturedTrip && hunt.ActivityTarget == capturedTarget,
+            "hunt comparison must retain its prepared values when live observation changes");
+        enemy.active = false;
+        Require(hunt.Execute(ctx).Kind == live::AICompanion.Companion.Brain.PositionSelection.RequestKind.Hold,
+            "a disappeared prepared enemy must not receive a pursuit request");
     }
 
     /// <summary>
@@ -141,7 +150,7 @@ internal static class VerifyHuntAdmissibility
         SettleReach(companion, enemy);
 
         var hunt = new H();
-        float score = hunt.Score(ctx);
+        float score = VerifyPreparedActivities.PrepareAndScore(hunt, ctx);
         // The refusal must be earned against a settled region, not against a flood that never grew:
         // an unfinished region is deliberately Unknown rather than a refusal, so a green result
         // here with an unsettled region would be measuring nothing.

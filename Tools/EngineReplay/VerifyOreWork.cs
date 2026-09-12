@@ -270,9 +270,16 @@ internal static class VerifyOreWork
             new Point(40, 59), new Vector2(38 * 16 + 8, 60 * 16), 1);
         typeof(live::AICompanion.Companion.Brain.Behaviours.Work.ChopAction)
             .GetField("tree", BindingFlags.NonPublic | BindingFlags.Instance)!.SetValue(chop, tree);
-        Require(chop.Score(ctx) == 0f && mine.Score(ctx) > 0f,
+        Require(VerifyPreparedActivities.PrepareAndScore(chop, ctx) == 0f && mine.Score(ctx) > 0f,
             "a retained tree across a sealed wall must yield to reachable ore beside the companion");
-        for (int tick = 0; tick < 20; tick++) chop.Score(ctx);
+        var sinceReachField = typeof(live::AICompanion.Companion.Brain.Behaviours.Work.ChopAction)
+            .GetField("sinceReach", BindingFlags.NonPublic | BindingFlags.Instance)!;
+        int preparedAge = (int)sinceReachField.GetValue(chop)!;
+        for (int comparison = 0; comparison < 20; comparison++)
+            Require(chop.Score(ctx) == 0f, "repeated comparison must preserve an unavailable tree's value");
+        Require((int)sinceReachField.GetValue(chop)! == preparedAge,
+            "chopping comparison must not advance its discovery timer or repeat its reach search");
+        for (int tick = 0; tick < 20; tick++) VerifyPreparedActivities.PrepareAndScore(chop, ctx);
         Require((int)typeof(live::AICompanion.Companion.Brain.Behaviours.Work.ChopAction)
             .GetField("sinceReach", BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(chop)! == 20,
             "unchanged retained work must reuse its reach verdict rather than search every scoring tick");

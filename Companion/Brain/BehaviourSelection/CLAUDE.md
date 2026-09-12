@@ -23,7 +23,7 @@ Candidate preparation and shared comparison are separate calls. The current acti
 
 Incumbent commitment is deliberately independent of the shared body-stall flag. A replacement activity would otherwise inherit its predecessor's physical failure before attempting any movement. Activity-owned remaining effort and outcomes must replace that coarse commitment; body-level stalling alone cannot decide that a job was a bad choice.
 
-The explicit `Prepare` hook precedes Score for each adapter. Loot captures its candidate there, so its score and forecast can be repeated after observation changes without changing the selected item or trip estimate. Other adapters retain their legacy preparation until their own migration; the empty default hook performs no additional scan.
+The explicit `Prepare` hook precedes Score for each adapter. Loot, chopping and hunting capture candidates there, so their scores and forecasts can be repeated after observation changes without changing the selected target or trip estimate. Other adapters retain their legacy preparation until their own migration; the empty default hook performs no additional scan.
 
 An invalid evaluated candidate cannot be activated through the zero-score fallback. With no valid candidate, selection returns no activity and releases the former one; the coordinator holds ordinary movement while independent hands and earlier safety/recovery paths retain their existing contracts. The legacy last-valid zero-score fallback remains during this adapter stage, so this does not yet implement the final offer eligibility model.
 

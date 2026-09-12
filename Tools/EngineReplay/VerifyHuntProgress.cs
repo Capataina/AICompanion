@@ -20,17 +20,17 @@ internal static class VerifyHuntProgress
         companion.Brain.Senses.Threats.Threats.Add(new T { Npc = target, DistanceToCompanion = 160, DistanceToPlayer = 160 });
         var context = new C(companion, companion.Brain.Senses);
         var hunt = new H();
-        if (hunt.Score(context) <= 0) throw new InvalidOperationException("Hunt progress fixture must offer a live target");
+        if (VerifyPreparedActivities.PrepareAndScore(hunt, context) <= 0) throw new InvalidOperationException("Hunt progress fixture must offer a live target");
         for (int i = 0; i < 182; i++) hunt.ObserveOutcome(context);
-        if (hunt.Score(context) != 0) throw new InvalidOperationException("Stationary hunt without attacks retained its ineffective target");
+        if (VerifyPreparedActivities.PrepareAndScore(hunt, context) != 0) throw new InvalidOperationException("Stationary hunt without attacks retained its ineffective target");
         target.position.X += 64;
-        if (hunt.Score(context) <= 0) throw new InvalidOperationException("Moved target did not reopen a deferred engagement");
+        if (VerifyPreparedActivities.PrepareAndScore(hunt, context) <= 0) throw new InvalidOperationException("Moved target did not reopen a deferred engagement");
         for (int i = 0; i < 182; i++)
         {
             companion.NPC.position.X += 1;
             hunt.ObserveOutcome(context);
         }
-        if (hunt.Score(context) <= 0) throw new InvalidOperationException("Travelling hunt was deferred despite progress");
+        if (VerifyPreparedActivities.PrepareAndScore(hunt, context) <= 0) throw new InvalidOperationException("Travelling hunt was deferred despite progress");
         VerifyChurnDoesNotDefeatTheGuard(companion);
         Console.WriteLine("PASS hunt progress: ineffective target deferred, moving target reconsidered, travelling hunt retained, alternating targets still defer");
         return 0;
@@ -63,7 +63,7 @@ internal static class VerifyHuntProgress
         }
         var context = new C(companion, companion.Brain.Senses);
         var hunt = new H();
-        if (hunt.Score(context) <= 0) throw new InvalidOperationException("Churn fixture must offer a live target");
+        if (VerifyPreparedActivities.PrepareAndScore(hunt, context) <= 0) throw new InvalidOperationException("Churn fixture must offer a live target");
 
         // Comfortably past one progress window, with the selection forced to alternate and the body
         // and the weapon both idle. Scoring each tick is what re-picks the target, exactly as the
@@ -73,10 +73,10 @@ internal static class VerifyHuntProgress
         for (int i = 0; i < 300; i++)
         {
             threats.Reverse();
-            hunt.Score(context);
+            VerifyPreparedActivities.PrepareAndScore(hunt, context);
             hunt.ObserveOutcome(context);
         }
-        if (hunt.Score(context) != 0)
+        if (VerifyPreparedActivities.PrepareAndScore(hunt, context) != 0)
             throw new InvalidOperationException(
                 "Alternating targets defeated the no-progress deferral: a stationary, non-firing hunt retained a target across a full window");
     }
