@@ -33,6 +33,11 @@ public sealed class LightSense
     /// <summary>Mean brightness around the companion, away from its own glow, 0..1.</summary>
     public float Ambient { get; private set; } = 1f;
 
+    /// <summary>In-world brightness reads in the clipped window, not proof of native buffer coverage.</summary>
+    public int AmbientSamples { get; private set; }
+    /// <summary>Tick of the retained reads; not the lighting engine's calculation time.</summary>
+    public ulong? AmbientReadTick { get; private set; }
+
     /// <summary>Brightness at the player's tile, 0..1.</summary>
     public float AtPlayer { get; private set; } = 1f;
 
@@ -71,7 +76,7 @@ public sealed class LightSense
             for (int y = top; y <= bottom; y += SampleStrideTiles)
             {
                 int dx = x - c.X, dy = y - c.Y;
-                if (dx * dx + dy * dy < excluded2)
+                if (dx * dx + dy * dy < excluded2 || !WorldGen.InWorld(x, y, 1))
                     continue;
                 sum += Brightness(x, y);
                 n++;
@@ -80,6 +85,8 @@ public sealed class LightSense
         // No sample inside the screen means the companion is off screen, where the engine
         // reads 0 anyway; the window that remains is its own dark or lit neighbourhood.
         Ambient = n > 0 ? sum / n : 0f;
+        AmbientSamples = n;
+        AmbientReadTick = Main.GameUpdateCount;
     }
 
     private static float Brightness(int x, int y)

@@ -39,6 +39,7 @@ internal static class VerifyCompanionActivities
             BedsProtectTheRoomAndItsBoundary();
             DoorsKeepTheWholeBedroomProtected();
             TorchSupplyIsDebitedOnlyAfterPlacement();
+            AmbientFallbackDoesNotInventSamples();
             TorchRecommendationsPreserveThePlayersCursor();
             InteractionJumpsRequireClearanceAndSafeLanding();
             Console.WriteLine("companion activities: resource/follow competition, remote job release, actual swing reach, bed protection and native torch inventory contracts pass");
@@ -522,6 +523,29 @@ internal static class VerifyCompanionActivities
         var pick = new Item(); pick.SetDefaults(ItemID.CopperPickaxe);
         Require(!ctx.Companion.Miner.Swing(new Point(35, 52), pick), "the final pick mutation gate must protect the home");
         Protection.Reset();
+    }
+
+    private static void AmbientFallbackDoesNotInventSamples()
+    {
+        var (_, ctx) = VerifyOreWork.SetUp(Policy.Disabled, TileID.Copper, new Point(25, 59));
+        Vector2 position = Main.screenPosition;
+        int width = Main.screenWidth, height = Main.screenHeight;
+        try
+        {
+            var light = new live::AICompanion.Companion.Brain.WorldObservation.LightSense();
+            Require(light.AmbientReadTick == null && light.AmbientSamples == 0,
+                "an uninitialised light observer must carry no invented reading time or samples");
+            Main.screenPosition = new Vector2(100000, 100000);
+            Main.screenWidth = 800; Main.screenHeight = 600;
+            light.Update(ctx.Npc, ctx.Player);
+            Require(light.Ambient == 0 && light.AmbientSamples == 0 && light.AmbientReadTick == Main.GameUpdateCount,
+                "off-screen held-light fallback must remain distinguishable from sampled darkness");
+            Main.screenPosition = ctx.Npc.Center - new Vector2(400, 300);
+            for (int i = 0; i < 20; i++) light.Update(ctx.Npc, ctx.Player);
+            Require(light.AmbientSamples > 0,
+                "an in-world clipped window must retain its actual brightness read count");
+        }
+        finally { Main.screenPosition = position; Main.screenWidth = width; Main.screenHeight = height; }
     }
 
     private static void TorchSupplyIsDebitedOnlyAfterPlacement()

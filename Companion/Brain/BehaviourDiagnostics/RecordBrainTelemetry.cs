@@ -42,7 +42,7 @@ public sealed class BrainTelemetry : ModSystem
     private static string? eventsPath;
     private static readonly Stopwatch sessionClock = new();
     private static DateTime sessionStartedUtc;
-    private const string Schema = "0.18.0";
+    private const string Schema = "0.19.0";
     private static string? pendingPlayerHit;
     private static string? pendingCompanionHit;
     private static string? lastDecision;
@@ -462,7 +462,7 @@ public sealed class BrainTelemetry : ModSystem
                 h.Append('\t').Append(a.Name).Append("_raw\t").Append(a.Name).Append("_fin");
             h.Append("\tdanger\tself_threat\thorizon\tthreats\treachable\ttop_threat\ttarget\tloot");
             h.Append("\trequest\tanchor\tspot\tspot_score\tfollow_objective_valid\tfollow_dx\tfollow_dy\tfollow_reason\trecovery_active\trecovery_reason\trecovery_flights\tpath_steps\tpath_at\troute_search_id\troute_attempt_id\troute_remaining_ticks\tnext_kind\tplan_failed\texpansions");
-            h.Append("\tnpc_tile\tnpc_px\tnpc_vel\tground\twet\tcollide_x\tcollide_y\tmoved\tvel_cut\tpress\tdescend\tpinned\tdiverge\tdiverge_valid\tdiverge_invalid_reason\tdir\tlife\tbreath\tself_danger\theld\tweapon\tshot\tfire\texp_bow\texp_knife\texp_target\tnear_threat\tweapon_reach\tengage\ttorch\tambient");
+            h.Append("\tnpc_tile\tnpc_px\tnpc_vel\tground\twet\tcollide_x\tcollide_y\tmoved\tvel_cut\tpress\tdescend\tpinned\tdiverge\tdiverge_valid\tdiverge_invalid_reason\tdir\tlife\tbreath\tself_danger\theld\tweapon\tshot\tfire\texp_bow\texp_knife\texp_target\tnear_threat\tweapon_reach\tengage\ttorch\tambient\tambient_samples\tambient_read_tick");
             h.Append("\tplayer_tile\tplayer_intent\tplayer_dead\tplayer_attacking\tplayer_chopping\tplayer_mining");
             h.Append("\tplan_ms\tflood_ms\tsenses_ms\treflex_ms\tdecide_ms\tposition_ms\tnavigate_ms\tbrain_ms\tedge_cache\tstranded");
             // The reachability tier, which is where the companion decides whether to enter somewhere
@@ -618,6 +618,8 @@ public sealed class BrainTelemetry : ModSystem
         sb.Append('\t').Append(brain.EngageTarget is NPC eng && eng.active ? eng.TypeName : "-");
         sb.Append('\t').Append(companion.Torch.Shown ? "shown" : companion.Torch.Lit ? "lit-busy" : "out");
         sb.Append('\t').Append(senses.Light.Ambient.ToString("0.00"));
+        sb.Append('\t').Append(senses.Light.AmbientSamples);
+        sb.Append('\t').Append(senses.Light.AmbientReadTick?.ToString(CultureInfo.InvariantCulture) ?? "-");
 
         sb.Append('\t').Append(Tile(senses.Player.Bottom));
         sb.Append('\t').Append(senses.Player.Intent.X.ToString("0.0"));
