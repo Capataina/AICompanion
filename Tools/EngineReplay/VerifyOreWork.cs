@@ -27,6 +27,7 @@ internal static class VerifyOreWork
             AWeakPickDoesNotMaskFartherOre();
             AnUnmineableVeinDoesNotBecomeWork();
             ASealedTreeYieldsToReachableOre();
+            ChoppingPrefersASeparateActiveTrunk();
             AnUnprovenApproachWalksInsteadOfScoringZero();
             AnUnknownApproachKeepsItsOwnOreIdentity();
             AReachableOreProducesANativeBreak();
@@ -490,6 +491,51 @@ internal static class VerifyOreWork
         Require((int)typeof(live::AICompanion.Companion.Brain.Behaviours.Work.ChopAction)
             .GetField("sinceReach", BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(chop)! == 20,
             "unchanged retained work must reuse its reach verdict rather than search every scoring tick");
+    }
+
+    private static void ChoppingPrefersASeparateActiveTrunk()
+    {
+        WorkPolicy original = WorkPolicies.Chopping;
+        var clock = new live::AICompanion.Companion.Brain.WorldObservation.TileDamageClock();
+        try
+        {
+            Point first = new(25, 89), second = new(32, 89);
+            var (_, ctx) = SetUp(WorkPolicy.Opportunistic, TileID.Copper, first);
+            clock.OnWorldLoad();
+            Main.tileAxe[TileID.Trees] = true;
+            Main.tileSolid[TileID.Trees] = false;
+            TileID.Sets.IsATreeTrunk[TileID.Trees] = true;
+            foreach (Point point in new[] { first, second })
+            {
+                Tile trunk = Main.tile[point.X, point.Y];
+                trunk.HasTile = true;
+                trunk.TileType = TileID.Trees;
+            }
+            void PlayerHits(Point point)
+            {
+                bool fail = true, effectOnly = false, noItem = false;
+                new live::AICompanion.Companion.Brain.WorldObservation.TileDamageWatcher()
+                    .KillTile(point.X, point.Y, TileID.Trees, ref fail, ref effectOnly, ref noItem);
+                ctx.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Breath);
+                Require(ctx.Senses.Player.ChoppedTree == point, "cooperation fixture must observe the actual active trunk");
+            }
+            WorkPolicies.Chopping = WorkPolicy.Opportunistic;
+            PlayerHits(first);
+            var chop = new live::AICompanion.Companion.Brain.Behaviours.Work.ChopAction();
+            Require(VerifyPreparedActivities.PrepareAndScore(chop, ctx) > 0 && chop.ActivityTarget == second.ToWorldCoordinates(),
+                "automatic chopping must prefer a separate usable tree over the nearer player trunk");
+            PlayerHits(second);
+            Require(VerifyPreparedActivities.PrepareAndScore(chop, ctx) > 0 && chop.ActivityTarget == first.ToWorldCoordinates(),
+                "a new player trunk must refresh cooperation before the ordinary discovery deadline");
+            Tile removed = Main.tile[first.X, first.Y];
+            removed.HasTile = false;
+            Require(VerifyPreparedActivities.PrepareAndScore(new live::AICompanion.Companion.Brain.Behaviours.Work.ChopAction(), ctx) > 0,
+                "automatic cooperation is a preference and must permit the sole remaining player tree");
+            WorkPolicies.Chopping = WorkPolicy.Mimic;
+            Require(VerifyPreparedActivities.PrepareAndScore(new live::AICompanion.Companion.Brain.Behaviours.Work.ChopAction(), ctx) == 0,
+                "Mimic must retain its explicit exclusion of the active player trunk");
+        }
+        finally { WorkPolicies.Chopping = original; clock.OnWorldUnload(); }
     }
 
     internal static (MineAction Action, ActionContext Context) SetUp(WorkPolicy policy, ushort tileType, params Point[] ore)

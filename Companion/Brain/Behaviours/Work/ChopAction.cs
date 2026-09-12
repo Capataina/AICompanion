@@ -110,11 +110,22 @@ public sealed class ChopAction : CompanionAction
         {
             if (tree is TreeFinder.ChoppableTree t && !TileChopper.TreeStands(t.Bottom))
                 tree = null;
+            // A changed player worksite can overlap our retained trunk before the next
+            // periodic discovery. Prefer a separate job, but Auto may share the only tree.
+            if (lastSearchedFor != p.ChoppedTree)
+            {
+                if (tree?.Bottom == p.ChoppedTree) tree = null;
+                lastSearchedFor = p.ChoppedTree;
+                sinceSearch = SearchEveryTicks;
+            }
             if (tree == null && sinceSearch >= SearchEveryTicks)
             {
-                TreeFinder.ChoppableTree? nearCompanion = TreeFinder.FindNearest(ctx.Npc.Center, SearchRadiusTiles, null, Accept);
-                TreeFinder.ChoppableTree? nearPlayer = TreeFinder.FindNearest(ctx.Player.Center, SearchRadiusTiles, null, Accept);
-                tree = Nearest(ctx.Npc.Center, nearCompanion, nearPlayer);
+                TreeFinder.ChoppableTree? Find(Point? exclude)
+                    => Nearest(context.Npc.Center,
+                        TreeFinder.FindNearest(context.Npc.Center, SearchRadiusTiles, exclude, Accept),
+                        TreeFinder.FindNearest(context.Player.Center, SearchRadiusTiles, exclude, Accept));
+                tree = Find(p.ChoppedTree);
+                if (tree == null && p.ChoppedTree != null) tree = Find(null);
                 sinceSearch = 0;
             }
         }
