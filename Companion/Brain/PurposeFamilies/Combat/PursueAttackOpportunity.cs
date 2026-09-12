@@ -27,6 +27,8 @@ public sealed class PursueAttackOpportunity : CompanionAction
     public ThreatRecord? Target { get; private set; }
     public override Vector2? ActivityTarget => prepared?.Bottom;
     public override object? ActivityIdentity => Target?.Npc;
+    public override PositionRequest? PreparedPositionRequest => prepared is { } candidate
+        ? new PositionRequest(RequestKind.LineOfFire, candidate.Centre, candidate.Enemy) : null;
     public int NoProgressTicks { get; private set; }
     public string LastRejection { get; private set; } = "none";
     private Vector2 engagementOrigin;

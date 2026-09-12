@@ -33,6 +33,9 @@ public abstract class CompanionAction
     public virtual object? ActivityIdentity => null;
     /// <summary>Validate captured non-entity facts without discovering or mutating a candidate.</summary>
     public virtual string PreparedTargetRejection => "";
+    /// <summary>A captured positioning method that must be admitted before activation.
+    /// Reading it cannot execute the activity or rediscover its target.</summary>
+    public virtual PositionRequest? PreparedPositionRequest => null;
     public bool HasActivityAllowance => admittedIdentity != null;
 
     /// <summary>Only an entered job earns the continuation radius; discovering a target does not.</summary>

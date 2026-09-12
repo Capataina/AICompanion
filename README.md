@@ -443,6 +443,8 @@ Candidate discovery and retained discovery caches update in `Prepare`; `Score` a
 
 Guarding binds its offer to a specific enemy generation and captures the destination anchor with its score. A later change in which enemy looks most urgent cannot silently change that prepared request. An unavailable enemy is refused before execution; a fresh comparison can choose another protection task. That identifies what guarding is trying to accomplish without claiming that the requested position or an eventual shot will succeed.
 
+Before activating a nominated hunt or guard, the chooser asks the existing position solver for a useful firing destination. If none is established, the offer keeps its raw value but loses selectable value with a recorded method rejection; the families compare the remaining prepared candidates. This lets protection remain important without repeatedly selecting a method that cannot currently intervene. A later opening can restore that opportunity. The admitted destination still needs actual travel and a successful attack; its existence is not proof that the enemy was harmed.
+
 `PurposeFamilies/Combat/ProtectPlayer.cs` owns guarding and `PursueAttackOpportunity.cs` owns hunting. Both prepare positioning purposes for the shared chooser; neither implements weapon selection or a private movement system. Their runtime labels remain guard and hunt for the HUD and recorded activity history.
 
 ## Choosing where to stand

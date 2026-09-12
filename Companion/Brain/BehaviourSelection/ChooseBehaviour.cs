@@ -17,7 +17,8 @@ namespace AICompanion.Companion.Brain.BehaviourSelection;
 public sealed class Chooser
 {
     public readonly record struct Scored(CompanionAction Action, float Raw, float Final,
-        float Protection = 1f, float Commitment = 1f, float Horizon = 1f, float UsefulWork = 1f, string Error = "", float Reunion = 1f);
+        float Protection = 1f, float Commitment = 1f, float Horizon = 1f, float UsefulWork = 1f, string Error = "", float Reunion = 1f,
+        string MethodEvidence = "");
 
     public readonly List<CompanionAction> Actions = new()
     {
@@ -109,6 +110,7 @@ public sealed class Chooser
         var comparison = ComparisonContext(ctx);
         var available = (PreparedActivity[])prepared.Clone();
         var rejections = new string?[prepared.Length];
+        var methods = new string[prepared.Length];
         CompanionAction? best = null;
         // Every rejection removes one prepared candidate. Reconsideration is bounded by the
         // board size and never reruns discovery. Recompute shared opportunity costs because an
@@ -124,12 +126,23 @@ public sealed class Chooser
                     ? evaluatedScore with { Raw = prepared[evaluatedScore.Index].RawValue, Error = rejection }
                     : evaluatedScore;
                 CompanionAction action = Actions[score.Index];
-                LastScores.Add(new(action, score.Raw, score.Final, score.Protection, score.Commitment, score.Horizon, score.UsefulWork, score.Error, score.Reunion));
+                LastScores.Add(new(action, score.Raw, score.Final, score.Protection, score.Commitment, score.Horizon, score.UsefulWork, score.Error, score.Reunion,
+                    methods[score.Index] ?? ""));
                 candidates[score.Index] = new(action.Family, score);
             }
             LastNominations = NominateFamilyActivities.Nominate(candidates);
             if (NominateFamilyActivities.Select(LastNominations) is not { } winner) break;
             string reason = bindings[winner.Index].Rejection(Actions[winner.Index]);
+            if (reason.Length == 0 && Actions[winner.Index].PreparedPositionRequest is { } request)
+            {
+                var method = ctx.Companion.Brain.Positioner.PrepareOffer(request, ctx.Senses,
+                    ctx.Companion.Arsenal.ProfileFor(ctx, request.Target));
+                methods[winner.Index] = FormattableString.Invariant(
+                    $"tick:{method.SourceTick},kind:{request.Kind},destination:{method.Destination},reason:{method.Reason},candidates:{method.Candidates}");
+                int row = LastScores.FindIndex(s => ReferenceEquals(s.Action, Actions[winner.Index]));
+                if (row >= 0) LastScores[row] = LastScores[row] with { MethodEvidence = methods[winner.Index] };
+                if (method.Destination == null) reason = "method-" + method.Reason;
+            }
             if (reason.Length == 0) { best = Actions[winner.Index]; break; }
             rejections[winner.Index] = reason;
             available[winner.Index] = available[winner.Index] with { RawValue = 0 };

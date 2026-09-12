@@ -20,6 +20,8 @@ public sealed class ProtectPlayer : CompanionAction
     public override bool IsExcursion => false;
     public override object? ActivityIdentity => prepared?.Enemy;
     public override Vector2? ActivityTarget => prepared?.Bottom;
+    public override PositionRequest? PreparedPositionRequest => prepared is { } candidate
+        ? new PositionRequest(RequestKind.Guard, candidate.Anchor, candidate.Enemy) : null;
 
     private readonly record struct Candidate(Terraria.NPC Enemy, int Generation, Vector2 Bottom,
         Vector2 Anchor, float Pressure);

@@ -6,13 +6,16 @@
 PositionSelection/
 ├─ CLAUDE.md                 this guide
 ├─ PositionRequest.cs        request kinds and their anchor, target and jump intent
+├─ DescribePositionOffer.cs  bounded destination evidence for activity admission
 ├─ FollowPlayerObjective.cs  generic follow destination region, predicted lead and arrival proof
 └─ ChooseUsefulPosition.cs   candidate flood, scoring, incumbent hold and temporary bans
 ```
 
 The resolver samples standable tiles around the request anchor, prefers the shared movement region when one reaches the request, scores cheap factors first, and asks projectile aiming only about its strongest firing candidates.
 
-Hunting and guarding require an active target and a weapon profile. Their chosen destination must have a solved trajectory; a refused solve remains recorded with zero value and cannot win as a low-scoring fallback. When the bounded shortlist establishes no usable destination, the request remains unresolved. That result does not prove that no shot exists elsewhere. A later opening can restore a candidate. Losing the target or weapon invalidates the held destination immediately; a changed weapon profile forces reconsideration rather than borrowing the old profile's proof. Ordinary target motion and terrain still follow the resolver's rescore cadence, so a solved candidate is evidence at evaluation time, not a guarantee of a shot after travel.
+Attack activities expose their captured position request before activation. PrepareOffer refines a nominated method through this same resolver. A usable destination retains the resolved state for ordinary execution; a rejected method restores the previous activity's held destination and its explanation. Shared reach-search work survives rejection, so yielding an unavailable attack cannot prevent the query from making progress. Candidate queries do not advance the temporary-ban clock as extra executed ticks. The returned evidence describes the source tick, destination, reason and bounded tested alternatives, not native attack damage or guaranteed arrival-time access.
+
+Hunting and guarding require an active target and a weapon profile. Their chosen destination must have a solved trajectory; a refused solve remains recorded with zero value and cannot win as a low-scoring fallback. When the bounded shortlist establishes no usable destination, the request remains unresolved. That result does not prove that no shot exists elsewhere. A later opening can restore a candidate. Losing the target or weapon invalidates the held destination immediately; a changed weapon profile forces reconsideration rather than borrowing the old profile's proof. A terrain revision discards held position evidence and refreshes the shared reachable region before reuse. Ordinary target motion still follows the rescore cadence, so a solved candidate is evidence at evaluation time, not a guarantee of a shot after travel.
 
 PredictedExposureAt supplies the geometric enemy-exposure query used both by destination scoring and shared combat-spacing search. It measures proximity and forecast overlap, not calibrated health loss. SharedSafety searches actual body states independently of attack destinations; no retreat request competes inside this resolver. The movement controller remains responsible for actual travel and collision validation.
 

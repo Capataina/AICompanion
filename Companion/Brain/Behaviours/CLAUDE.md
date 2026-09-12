@@ -15,6 +15,8 @@ The chooser invokes `Prepare` before evaluating each adapter. Preparation observ
 
 `PreparedTargetRejection` lets an activity validate captured non-entity facts before activation without discovering a replacement. Mining and chopping use it for bound tile coordinates and materials; their execution methods enforce the same binding. A rejection names invalidated availability rather than changing the original utility estimate.
 
+PreparedPositionRequest exposes an attack activity's captured positioning method without executing it. The chooser asks the shared positioner to admit that method before activation. Method availability is separate from raw utility: a threat can justify protection while no usable intervention destination has been established. Other activities retain their native access contracts rather than fabricating an attack-position request.
+
 The shared activity owner invokes Enter/Exit and Suspend. Default suspension releases the physical method through Exit and then preserves any surviving purpose identity for continuation. A resumed adapter is prepared and entered again; it must not assume the old working pose or jump remains valid. Switching to a different executor releases the old admission independently of whether its Exit implementation retains discovery caches.
 
 The owner invokes ObserveOutcome after control and hand resolution only for an executing ordinary activity. A suspended activity receives no such progress callback while safety or recovery acts. This separates an interrupted job's failure accounting from the shared body's continuing movement observations.

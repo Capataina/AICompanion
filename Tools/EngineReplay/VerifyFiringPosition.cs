@@ -120,6 +120,8 @@ internal static class VerifyFiringPosition
         // but arriving anywhere on it cannot fulfil an attack request.
         for (int x = ShaftLeft; x <= ShaftRight; x++) Solid(x, FloorY);
         live::AICompanion.Companion.Brain.SharedMovementSystem.TerrainChanges.Reset();
+        Require(companion.Brain.Positioner.PrepareOffer(request, companion.Brain.Senses, profile).Destination == null,
+            "changed terrain must invalidate a cached attack method before its rescore interval expires");
         foreach (RequestKind kind in new[] { RequestKind.LineOfFire, RequestKind.Guard })
         {
             var blocked = new PositionRequest(kind, enemy.Center, enemy);
@@ -134,6 +136,36 @@ internal static class VerifyFiringPosition
                 "bounded failure to establish a shot must not report a retained destination or proven impossibility");
         }
 
+        // A wall-crossing threat may endanger the player while the companion's weapons
+        // cannot shoot through the covering rock. Urgency and an available intervention
+        // are separate facts; no enemy AI is simulated by this selection fixture.
+        enemy.noTileCollide = true;
+        var urgent = threats[0];
+        urgent.CanReachPlayer = true;
+        urgent.Urgency = 1f;
+        urgent.EffectiveTicksToPlayer = 0f;
+        typeof(live::AICompanion.Companion.Brain.WorldObservation.ThreatSense)
+            .GetProperty("MostUrgent")!.SetValue(companion.Brain.Senses.Threats, urgent);
+        companion.Brain.Senses.SetInterventionEstimate(float.PositiveInfinity);
+        var guard = companion.Brain.Chooser.Actions.OfType<live::AICompanion.Companion.Brain.PurposeFamilies.Combat.ProtectPlayer>().Single();
+        Vector2? heldDestination = companion.Brain.Positioner.Resolve(PositionRequest.ExactAt(companion.NPC.Bottom),
+            companion.Brain.Senses, profile);
+        Require(heldDestination != null, "the admission fixture needs an existing ordinary destination to preserve");
+        string heldExplanation = companion.Brain.Positioner.CandidateEvidence;
+        for (int tick = 0; tick < 3; tick++)
+        {
+            var selected = companion.Brain.Chooser.Choose(ctx);
+            var guardScore = companion.Brain.Chooser.LastScores.Single(s => ReferenceEquals(s.Action, guard));
+            Require(guardScore.Raw > 0f, "the sealed threat must remain worth protecting against");
+            Require(!ReferenceEquals(selected, guard) && guardScore.Final == 0f && guardScore.Error.Length > 0,
+                $"unestablished protective access must reject the method without erasing urgency: selected={selected?.Name}, raw={guardScore.Raw}, final={guardScore.Final}, reason={guardScore.Error}");
+            Require(guardScore.MethodEvidence.Contains("no-arc") && guardScore.Error.StartsWith("method-"),
+                "the rejected offer must retain actual tested method evidence separately from its raw value");
+            Require(companion.Brain.Positioner.Chosen == heldDestination
+                && companion.Brain.Positioner.CandidateEvidence == heldExplanation,
+                "a rejected nomination must preserve the previous ordinary destination and explanation");
+        }
+
         // Reopening is fresh evidence, not a permanent unreachable verdict on the enemy.
         for (int x = ShaftLeft; x <= ShaftRight; x++) Open(x, FloorY);
         live::AICompanion.Companion.Brain.SharedMovementSystem.TerrainChanges.Reset();
@@ -141,6 +173,12 @@ internal static class VerifyFiringPosition
             chosen = companion.Brain.Positioner.Resolve(request, companion.Brain.Senses, profile);
         Require(chosen != null && companion.Brain.Positioner.CandidateEvidence.Contains(":clear-arc"),
             "opening the shot must restore a useful firing destination");
+        bool protectionRestored = false;
+        for (int tick = 0; tick < 80 && !protectionRestored; tick++)
+            protectionRestored = ReferenceEquals(companion.Brain.Chooser.Choose(ctx), guard);
+        Require(protectionRestored, "opening the shot must allow the still-useful guard offer to win again");
+        Require(companion.Brain.Chooser.LastScores.Single(s => ReferenceEquals(s.Action, guard))
+            .MethodEvidence.Contains("clear-arc"), "accepted protection must retain the method that admitted it");
         Require(companion.Brain.Positioner.Resolve(request, companion.Brain.Senses, null) == null,
             "removing the weapon profile must invalidate a retained firing position immediately");
     }

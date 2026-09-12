@@ -428,7 +428,7 @@ public sealed class BrainTelemetry : ModSystem
             foreach (var score in brain.Chooser.LastScores) { if (board.Length > 0) board.Append(','); board.Append(score.Action.Name).Append('=').Append(score.Raw.ToString("0.000", CultureInfo.InvariantCulture)).Append("->").Append(score.Final.ToString("0.000", CultureInfo.InvariantCulture)); }
             board.Append(CultureInfo.InvariantCulture, $";regroup={brain.Chooser.RegroupUrgency:0.000};return-ticks={brain.Chooser.EstimatedReturnTicks:0.0}");
             foreach (var score in brain.Chooser.LastScores)
-                board.Append(CultureInfo.InvariantCulture, $";factors:{score.Action.Name}=protection:{score.Protection:0.000},commitment:{score.Commitment:0.000},horizon:{score.Horizon:0.000},useful-work:{score.UsefulWork:0.000},reunion:{score.Reunion:0.000},error:{score.Error}");
+                board.Append(CultureInfo.InvariantCulture, $";factors:{score.Action.Name}=protection:{score.Protection:0.000},commitment:{score.Commitment:0.000},horizon:{score.Horizon:0.000},useful-work:{score.UsefulWork:0.000},reunion:{score.Reunion:0.000},error:{score.Error},method:{score.MethodEvidence}");
             foreach (var nomination in brain.Chooser.LastNominations)
                 board.Append(CultureInfo.InvariantCulture, $";family:{nomination.Family}=child:{nomination.Activity?.Name ?? "none"},value:{nomination.Activity?.Final ?? 0:0.000}");
             var preferences = PlayerIntegration.CompanionPreferences.Current;

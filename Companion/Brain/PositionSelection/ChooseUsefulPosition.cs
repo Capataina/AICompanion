@@ -33,6 +33,7 @@ public sealed class Positioner
     public float ChosenScore { get; private set; }
     private PositionRequest lastRequest;
     private WeaponProfile? lastFireProfile;
+    private int lastTerrainRevision = -1;
     private int sinceScore = RescoreInterval;
 
     // The feet tiles a walker can reach from where the companion stands, flooded once per
@@ -74,8 +75,48 @@ public sealed class Positioner
 
     private bool Allowed(Point tile) => !banned.TryGetValue(tile, out int until) || until < clock;
 
+    /// <summary>Refine a nominated attack method through the ordinary resolver. A rejected
+    /// nomination must not erase another activity's held destination or its explanation.
+    /// Reach-search work survives rejection so yielding cannot starve refinement.</summary>
+    public PositionOffer PrepareOffer(in PositionRequest request, Senses.Senses senses, WeaponProfile? profile)
+    {
+        if (request.Kind is not (RequestKind.Guard or RequestKind.LineOfFire))
+            throw new ArgumentException("Only attack-position requests require this admission query.", nameof(request));
+        var held = (Chosen, ChosenScore, lastRequest, lastFireProfile, lastTerrainRevision, sinceScore,
+            ChoiceReason, FollowObjectiveSatisfied, FollowHorizontalGap, FollowVerticalGap,
+            FollowObjectiveReason, CandidateCount, ReachableCandidateCount, RejectedCandidateCount,
+            EvidenceTick, EvaluatedCandidates, CandidateEvidence);
+        int previousClock = clock;
+        bool admitted = false;
+        try
+        {
+            if (request.Target is not { } enemy || !enemy.CanBeChasedBy())
+                return new(null, "attack-target-not-attackable", "", senses.Tick);
+            Vector2? destination = Resolve(request, senses, profile);
+            admitted = destination != null;
+            return new(destination, ChoiceReason, CandidateEvidence, EvidenceTick);
+        }
+        finally
+        {
+            // Querying candidates must not age temporary bans as extra executed ticks.
+            clock = previousClock;
+            if (!admitted)
+                (Chosen, ChosenScore, lastRequest, lastFireProfile, lastTerrainRevision, sinceScore,
+                    ChoiceReason, FollowObjectiveSatisfied, FollowHorizontalGap, FollowVerticalGap,
+                    FollowObjectiveReason, CandidateCount, ReachableCandidateCount, RejectedCandidateCount,
+                    EvidenceTick, EvaluatedCandidates, CandidateEvidence) = held;
+        }
+    }
+
     public Vector2? Resolve(in PositionRequest request, Senses.Senses senses, WeaponProfile? fireProfile)
     {
+        if (lastTerrainRevision != TerrainChanges.Revision)
+        {
+            // Cadence may retain unchanged observations, never evidence from an edited world.
+            Chosen = null;
+            sinceFlood = RescoreInterval;
+            lastTerrainRevision = TerrainChanges.Revision;
+        }
         // The region ages in ticks, whatever the request does this tick: counted inside the
         // rescore it multiplied the two cadences and refloods came every 144 ticks.
         sinceFlood++;
