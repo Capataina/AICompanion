@@ -1,6 +1,5 @@
 #nullable enable
 
-using Terraria.ID;
 using System;
 using Microsoft.Xna.Framework;
 using AICompanion.Companion.Brain.WorldObservation;
@@ -10,15 +9,20 @@ using AICompanion.Companion.Brain.PositionSelection;
 namespace AICompanion.Companion.Brain.Behaviours.Companionship;
 
 /// <summary>
-/// The player is in danger: be next to them with a sight line, and shoot the most
-/// urgent threat from there. Outscores everything as danger rises, which is what
-/// pulls the companion off a hunt or a loot run when a shooter gets a line on the player.
+/// Offer positioning against a particular threat to the player. Preparation binds the
+/// threat and anchor; the positioner establishes attack access and the independent hands fire.
 /// </summary>
 public sealed class GuardAction : CompanionAction
 {
     public override string Name => "guard";
     public override PurposeFamily Family => PurposeFamily.Combat;
     public override bool IsExcursion => false;
+    public override object? ActivityIdentity => prepared?.Enemy;
+    public override Vector2? ActivityTarget => prepared?.Bottom;
+
+    private readonly record struct Candidate(Terraria.NPC Enemy, int Generation, Vector2 Bottom,
+        Vector2 Anchor, float Pressure);
+    private Candidate? prepared;
 
     private Terraria.NPC? protectedThreat;
     private int generation;
@@ -30,12 +34,10 @@ public sealed class GuardAction : CompanionAction
 
     public override void Enter(in ActionContext ctx)
     {
-        var threat = ctx.Senses.Threats.MostUrgent;
-        if (threat == null || !threat.Npc.active || threat.Npc.life <= 0
-            || Math.Max(ctx.Senses.Threats.ProtectionUrgency, threat.Urgency) <= 0f) return;
-        protectedThreat = threat.Npc;
-        generation = HostileAttackSources.Generation(threat.Npc);
-        committedPressure = Math.Max(ctx.Senses.Threats.ProtectionUrgency, threat.Urgency);
+        if (prepared is not { } candidate || !IsAvailable(candidate) || ctx.Senses.Player.IsDead) return;
+        protectedThreat = candidate.Enemy;
+        generation = candidate.Generation;
+        committedPressure = candidate.Pressure;
         safeSince = -1;
         CommitmentReason = "protecting-relevant-threat";
     }
@@ -79,29 +81,43 @@ public sealed class GuardAction : CompanionAction
     }
 
     private float preparedValue;
-    public override void Prepare(in ActionContext ctx) => preparedValue = CalculateValue(ctx);
-    public override float Score() => preparedValue;
-
-    private float CalculateValue(in ActionContext ctx)
+    public override void Prepare(in ActionContext ctx)
     {
         var t = ctx.Senses.Threats;
         ContinueProtection(ctx);
-        if (protectedThreat == null && ReferenceEquals(ctx.Companion.Brain.Chooser.Current, this))
-            Enter(ctx);
-        if (ctx.Senses.Player.IsDead)
-            return 0f;
-        float danger = Math.Max(t.ProtectionUrgency, committedPressure);
+        var target = t.MostUrgent?.Npc;
+        if (target == null || !target.active || target.life <= 0) target = protectedThreat;
+        prepared = null;
+        preparedValue = 0;
+        if (ctx.Senses.Player.IsDead || target == null || !target.active || target.life <= 0) return;
+        float currentPressure = ReferenceEquals(target, t.MostUrgent?.Npc) ? t.MostUrgent.Urgency : 0f;
+        float retainedPressure = ReferenceEquals(target, protectedThreat) ? committedPressure : 0f;
+        float danger = Math.Max(t.ProtectionUrgency, Math.Max(currentPressure, retainedPressure));
+        if (danger <= 0) return;
+        Vector2 toThreat = target.Bottom - ctx.Senses.Player.Bottom;
+        float leash = PlayerIntegration.CompanionPreferences.Current.NewActivityRadius;
+        Vector2 anchor = toThreat.LengthSquared() <= leash * leash
+            ? target.Bottom
+            : ctx.Senses.Player.Bottom + Vector2.Normalize(toThreat) * leash;
+        prepared = new(target, HostileAttackSources.Generation(target), target.Bottom, anchor, danger);
+        if (protectedThreat == null && ReferenceEquals(ctx.Companion.Brain.Chooser.Current, this)) Enter(ctx);
         // Scaled past the ordinary 0..1 band because guarding has to be able to interrupt, and an
         // action that tops out at 1 cannot interrupt anything: the running action carries
         // Weights.Commitment, so a following body already at 1 sits at 1.15 and no danger reading
         // could ever displace it. That is not a tuning miss, it is arithmetic, and it is what left
         // the companion holding a torch with the player's danger reading full and slimes on him
         // through the 2026-09-09 underground session. Weights.GuardUrgency owns the ladder and
-        // why survive sits above this in turn.
+        // its interruption scale. Shared safety owns personal escape independently.
         // Protection is the ability to intervene, not the distance between the allies. Charging
         // closeness again suppressed protection precisely when an enemy reached the player.
-        return danger * Weights.GuardUrgency;
+        preparedValue = danger * Weights.GuardUrgency;
     }
+
+    public override float Score() => preparedValue;
+
+    private static bool IsAvailable(Candidate candidate)
+        => candidate.Enemy.active && candidate.Enemy.life > 0
+            && HostileAttackSources.Generation(candidate.Enemy) == candidate.Generation;
 
     public override PositionRequest Execute(in ActionContext ctx)
     {
@@ -114,16 +130,10 @@ public sealed class GuardAction : CompanionAction
         // enemies on the platform below. The anchor now walks toward the threat and the leash is
         // what keeps protection local, so "come closer when he is in danger" stays true without
         // meaning "stop looking for what is endangering him".
-        var target = ctx.Senses.Threats.MostUrgent?.Npc ?? protectedThreat;
-        Vector2 anchor = ctx.Senses.Player.Bottom;
-        if (target != null)
-        {
-            Vector2 toThreat = target.Bottom - ctx.Senses.Player.Bottom;
-            float leash = PlayerIntegration.CompanionPreferences.Current.NewActivityRadius;
-            anchor = toThreat.LengthSquared() <= leash * leash
-                ? target.Bottom
-                : ctx.Senses.Player.Bottom + Vector2.Normalize(toThreat) * leash;
-        }
-        return new PositionRequest(RequestKind.Guard, anchor, target);
+        if (prepared is not { } candidate || !IsAvailable(candidate) || ctx.Senses.Player.IsDead)
+            return PositionRequest.Hold;
+        if (!ReferenceEquals(protectedThreat, candidate.Enemy) || generation != candidate.Generation)
+            Enter(ctx);
+        return new PositionRequest(RequestKind.Guard, candidate.Anchor, candidate.Enemy);
     }
 }

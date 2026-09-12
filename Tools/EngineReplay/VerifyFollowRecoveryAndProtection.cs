@@ -97,7 +97,18 @@ internal static class VerifyFollowRecoveryAndProtection
         var guard = new Guard();
         float entry = VerifyPreparedActivities.PrepareAndScore(guard, context);
         Require(entry > Weights.Commitment, "immediate danger can interrupt committed following even nearby");
+        Require(ReferenceEquals(guard.ActivityIdentity, npc), "guard must bind its prepared offer to the protected enemy");
+        var preparedRequest = guard.Execute(context);
+        var unrelated = new Threat { Npc = new NPC { whoAmI = 6, active = true, life = 100,
+            position = new Vector2(800, 900) }, CanReachPlayer = true, Urgency = 1f };
+        typeof(live::AICompanion.Companion.Brain.WorldObservation.ThreatSense).GetProperty("MostUrgent")!.SetValue(senses.Threats, unrelated);
+        Require(guard.Score() == entry && guard.Execute(context) == preparedRequest,
+            "guard execution must retain the scored target and anchor until preparation refreshes them");
         guard.Enter(context);
+        Require(guard.ProtectedThreatId == npc.whoAmI, "guard entry must commit the prepared enemy, not the later urgent enemy");
+        companion.Brain.Chooser.Activity.Select(guard, context);
+        long firstProtection = companion.Brain.Chooser.Activity.Id;
+        typeof(live::AICompanion.Companion.Brain.WorldObservation.ThreatSense).GetProperty("MostUrgent")!.SetValue(senses.Threats, threat);
         threat.Urgency = .15f;
         threat.EffectiveTicksToPlayer = 150;
         senses.SetInterventionEstimate(1);
@@ -113,8 +124,11 @@ internal static class VerifyFollowRecoveryAndProtection
             "sustained irrelevance releases a living threat");
         threat.CanReachPlayer = true;
         threat.Urgency = 1;
+        VerifyPreparedActivities.PrepareAndScore(guard, context);
         guard.Enter(context);
         npc.active = false;
+        Require(guard.Execute(context) == live::AICompanion.Companion.Brain.PositionSelection.PositionRequest.Hold,
+            "an unavailable prepared guard target must be refused at execution");
         senses.Threats.Threats.Clear();
         senses.SetInterventionEstimate(float.PositiveInfinity);
         Require(VerifyPreparedActivities.PrepareAndScore(guard, context) == 0 && guard.ProtectedThreatId == -1, "disappeared threat releases commitment");
@@ -124,6 +138,9 @@ internal static class VerifyFollowRecoveryAndProtection
         senses.Threats.Threats.Add(second);
         typeof(live::AICompanion.Companion.Brain.WorldObservation.ThreatSense).GetProperty("MostUrgent")!.SetValue(senses.Threats, second);
         float renewed = VerifyPreparedActivities.PrepareAndScore(guard, context);
+        companion.Brain.Chooser.Activity.Select(guard, context);
+        Require(companion.Brain.Chooser.Activity.Id != firstProtection,
+            "guarding a different enemy must start a distinct protection activity in the shared owner");
         second.Urgency = .15f;
         Require(VerifyPreparedActivities.PrepareAndScore(guard, context) >= renewed && guard.ProtectedThreatId == 5,
             "a second threat must inherit commitment while guarding stays selected");

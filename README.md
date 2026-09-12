@@ -439,6 +439,8 @@ The incumbent activity receives a continuation preference. A prior body-stall-de
 
 Candidate discovery and retained discovery caches update in `Prepare`; `Score` and `ForecastTicks` read the captured result without live world context. Activation rechecks the prepared binding and can reconsider another prepared offer when a target changed. This separates comparison from discovery, while useful physical-method admission and complete native eligibility remain separate contracts.
 
+Guarding binds its offer to a specific enemy generation and captures the destination anchor with its score. A later change in which enemy looks most urgent cannot silently change that prepared request. An unavailable enemy is refused before execution; a fresh comparison can choose another protection task. That identifies what guarding is trying to accomplish without claiming that the requested position or an eventual shot will succeed.
+
 ## Choosing where to stand
 
 A selected purpose returns a `PositionRequest` such as exact, with-player, line-of-fire, guard or roam. `PositionSelection/ChooseUsefulPosition.cs` resolves it to a feet destination. Attack positioning uses cheap geometry/preferences to select a bounded shortlist for actual trajectory checks. Hunting and guarding admit only a candidate with a solved shot; no established shot leaves the request unresolved rather than selecting a blind fallback. Shared safety independently searches body states for retreat and escape, without requiring a shot. These checks concern the candidate at evaluation time, before actual travel and any later target movement.

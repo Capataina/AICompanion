@@ -8,7 +8,7 @@ Companionship/
 
 This folder retains player protection during the purpose-family migration. Ordinary reunion, rest and local movement belong to `../../PurposeFamilies/NearbyAssistance/KeepCompany.cs`; distant recovery belongs to `../../ActivityCoordination/`. The torch takes an otherwise free hand independently of those movement purposes.
 
-Guard preparation refreshes commitment and clearance evidence, then captures its utility. Score receives no world context and returns that value without changing commitment or observing the player again. Entry and execution retain their separate lifecycle responsibilities.
+Guard preparation refreshes commitment and clearance evidence, then captures its utility, enemy generation, target position and destination anchor together. Score receives no world context and returns that value without changing commitment or observing the player again. Entry commits the prepared enemy; execution refuses a dead, missing or replaced generation instead of substituting a newly urgent enemy. The next preparation can offer a different threat, which receives a distinct activity identity through the shared owner. This binding establishes which protection task was chosen, not whether a useful firing position or intervention exists.
 
 Guard is scaled past the ordinary 0..1 band by `BehaviourWeights.GuardUrgency`: the running behaviour keeps the commitment bonus, so an action topping out at 1 cannot displace a following body already at 1 × that bonus. SharedSafety can suspend protection independently of this comparison when the companion needs an environmental escape or collision response.
 

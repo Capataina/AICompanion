@@ -12,6 +12,8 @@ The native mining interruption fixture requires a productive pick strike, retain
 
 Recovery admission is exercised with one alternate executor issuing reunion, exact-work, guard and hold requests at the same distant player position. Only reunion can start flight. This catches a concrete follow-class dependency and a coordinate-only shortcut independently of the native recovery flight/clearance checks.
 
+Guard preparation tests replace the observation's most urgent enemy after scoring. The prepared identity, score and requested anchor must remain bound to the original enemy, including at entry. Removing that enemy must produce Hold at execution. These checks expose a score-to-execution substitution; they do not establish arrival at a useful firing pose or a native protective hit.
+
 VerifyCompanionLifecycle.Create starts with a dead player to exercise autonomous lifecycle handling. A fixture requiring ordinary companionship must explicitly make that player alive before its first brain update. A last-registered zero-score fallback used to hide this precondition; an empty activity owner cannot be suspended merely because the fixture labels the next step recovery.
 
 Native companion attachment is bidirectional: ModNPC.Entity points at the body and NPC.ModNPC points back at the behaviour. Assigning only Entity lets direct AI calls pass while native lethal damage bypasses the companion's CheckDead and enters vanilla NPC loot/death handling. A drowning-to-downing test must preserve both links rather than suppressing lethal strikes.
