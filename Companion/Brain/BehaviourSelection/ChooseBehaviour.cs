@@ -38,6 +38,9 @@ public sealed class Chooser
 
     public readonly List<Scored> LastScores = new();
     public CompanionAction? Current { get; private set; }
+    /// <summary>Identity and source tick of a completed comparison, not of the latest brain update.</summary>
+    public long EvaluationId { get; private set; }
+    public ulong? EvaluationTick { get; private set; }
     public float RegroupUrgency { get; private set; }
     public float EstimatedReturnTicks { get; private set; }
     private Microsoft.Xna.Framework.Vector2? workSite;
@@ -152,6 +155,8 @@ public sealed class Chooser
         // A behaviour can finish one target and select another without losing the tick.
         // Score validates acquisition first; only the selected identity earns continuation.
         best.AdmitActivity();
+        EvaluationId++;
+        EvaluationTick = Terraria.Main.GameUpdateCount;
         return best;
     }
 }

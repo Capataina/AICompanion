@@ -4,6 +4,8 @@ This console tool loads the installed tModLoader assembly without opening a game
 
 The occurrence fixture also instantiates the real player observer through ModPlayer.NewInstance and invokes OnHurt with surviving and fatal damage. It asserts the callback's pre-subtraction life and explicitly expected successor health. Player is a read-only view of the attached entity; assigning that property through reflection is not the native attachment lifecycle.
 
+The real recorder fixture follows ordinary selection, an already active recovery, resumed selection and downing. It requires distinct brain/chooser freshness and stable comparison identity during skipped selection. CompanionNPC.AI writes its own telemetry row; calling Record again duplicates that tick and can hide the cardinality of actual decisions. Fixture assertions address columns by name and require one complete row per invoked AI update.
+
 The personal-danger fixture runs the real threat observer against sealed native-tile chambers. It checks both player/companion arrangements for a walker, a tile-colliding flyer, a wall-crossing phaser, and entry into an enemy's chamber before a cached reachability refresh. These isolate destination coupling; they do not measure live combat judgement or a modded hostile's own pathfinding skill.
 
 ```

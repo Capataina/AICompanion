@@ -42,7 +42,7 @@ public sealed class BrainTelemetry : ModSystem
     private static string? eventsPath;
     private static readonly Stopwatch sessionClock = new();
     private static DateTime sessionStartedUtc;
-    private const string Schema = "0.10.0";
+    private const string Schema = "0.11.0";
     private static string? pendingPlayerHit;
     private static string? pendingCompanionHit;
     private static string? lastDecision;
@@ -396,6 +396,7 @@ public sealed class BrainTelemetry : ModSystem
         RecordTerrainChunks.ObserveActors(npc, Main.LocalPlayer);
         string decision = brain.Reflexes.Active ?? brain.LastAction?.Name ?? "-";
         bool brainExecuted = brain.LastTick == Main.GameUpdateCount;
+        bool choiceEvaluated = brainExecuted && brain.ChoiceEvaluated;
         string controls = DescribeControls(companion.Motor.AppliedControls);
         var guard = default(Behaviours.Companionship.GuardAction);
         var mine = default(Behaviours.Work.MineAction);
@@ -417,7 +418,8 @@ public sealed class BrainTelemetry : ModSystem
                 board.Append(CultureInfo.InvariantCulture, $";factors:{score.Action.Name}=protection:{score.Protection:0.000},commitment:{score.Commitment:0.000},horizon:{score.Horizon:0.000},useful-work:{score.UsefulWork:0.000}");
             var preferences = PlayerIntegration.CompanionPreferences.Current;
             board.Append(CultureInfo.InvariantCulture, $";movement-stalled={brain.MovementStalled};activity-status={brain.ActivityStatus};activity-target={brain.LastAction?.ActivityTarget};activity-radius={preferences.NewActivityRadius};continuation-radius={preferences.ActiveActivityRadius};recovery-radius={preferences.RecoveryRadius}");
-            GodsEyeEvents.RecordDecision(npc, decision, board.ToString(), brain.LastRequest.Kind.ToString(), controls + $";freshness={(brainExecuted ? "fresh" : "stale-or-not-executed")}");
+            GodsEyeEvents.RecordDecision(npc, brain.LastAction?.Name ?? "-", board.ToString(), brain.LastRequest.Kind.ToString(),
+                controls + $";freshness={(choiceEvaluated ? "fresh" : "stale-or-not-executed")};brain-fresh={brainExecuted};choice-id={brain.Chooser.EvaluationId};choice-tick={brain.Chooser.EvaluationTick?.ToString(CultureInfo.InvariantCulture) ?? "unavailable"};execution={decision};control-source={companion.Motor.ControlSource}");
             lastDecision = decision;
         }
         GodsEyeEvents.RecordMovementState(npc, brain.Navigator);
@@ -458,6 +460,7 @@ public sealed class BrainTelemetry : ModSystem
             h.Append("\twall_elapsed_ms\tsample_phase\tplayer_px\tplayer_vel\tplayer_ground\tplayer_liquid\tplayer_life\tplayer_hit\tnpc_hit\tplayer_state\tplayer_activity\tplayer_support\tnpc_support\tcontrol\tcontrol_source\tbrain_fresh");
             h.Append("\tobserved_left\tobserved_bottom\tobserved_vel\tobserved_ground\tobserved_wet\tobserved_mobility\tpredicted_left\tpredicted_bottom\tpredicted_vel\tpredicted_ground\tpredicted_wet\tpredicted_mobility\tnpc_width\tnpc_height");
             h.Append("\tnav_status\tposition_reason\tmovement_stalled\tescape_active\tescape_stage\tescape_target\tstate_search_pending\tstate_search_retained\thead_submerged\tbreath_ticks\tattack_value\tattack_kills\tattack_harm\tweapon_cooldown\thunt_idle_ticks\thunt_reason");
+            h.Append("\tchoice_fresh\tchoice_id\tchoice_tick");
             writer.WriteLine(h.ToString());
             headerWritten = true;
         }
@@ -674,6 +677,8 @@ public sealed class BrainTelemetry : ModSystem
         sb.Append('\t').Append(companion.Arsenal.LastAttackValue.ToString("0.000", CultureInfo.InvariantCulture));
         sb.Append('\t').Append(companion.Arsenal.LastExpectedKills).Append('\t').Append(companion.Arsenal.LastPreventedHarm.ToString("0.000", CultureInfo.InvariantCulture));
         sb.Append('\t').Append(companion.Arsenal.CooldownTicks).Append('\t').Append(hunt?.NoProgressTicks ?? 0).Append('\t').Append(hunt?.LastRejection ?? "unavailable");
+        sb.Append('\t').Append(choiceEvaluated ? 1 : 0).Append('\t').Append(brain.Chooser.EvaluationId)
+            .Append('\t').Append(brain.Chooser.EvaluationTick?.ToString(CultureInfo.InvariantCulture) ?? "-1");
 
         // A write that fails (disk full, a stream the OS closed) must not escape the NPC's AI
         // and take the companion with it; the record stops and the game goes on.

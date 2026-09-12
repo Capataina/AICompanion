@@ -36,11 +36,11 @@ public static class GodsEyeEvents
         => Write("world-interaction", companion.whoAmI, "", operation, "", companion.Bottom, Vector2.Zero,
             tile.ToWorldCoordinates(), 0, detail);
 
-    public static void RecordToolEffect(NPC companion, string tool, in WorldInteractions.TileToolObservation outcome)
+    public static void RecordToolEffect(NPC companion, string tool, in WorldInteractions.TileToolObservation outcome, long choiceId)
     {
         if (!Active) return;
         Write("tool-effect", Stable(npcGenerations, companion.whoAmI), "", tool,
-            $"attempt={outcome.Attempt}", companion.Bottom, Vector2.Zero, outcome.Target.ToWorldCoordinates(),
+            $"attempt={outcome.Attempt};choice-id={choiceId}", companion.Bottom, Vector2.Zero, outcome.Target.ToWorldCoordinates(),
             outcome.Effect == WorldInteractions.TileToolEffect.Damaged ? outcome.After.Damage - outcome.Before.Damage : 0,
             FormattableString.Invariant($"observation-tick={outcome.Tick};tool-item={outcome.ToolItem};effect={outcome.Effect};before-present={outcome.Before.Present};before-type={outcome.Before.Type};before-frame={outcome.Before.FrameX},{outcome.Before.FrameY};before-damage={outcome.Before.Damage};after-present={outcome.After.Present};after-type={outcome.After.Type};after-frame={outcome.After.FrameX},{outcome.After.FrameY};after-damage={outcome.After.Damage};damage-scope=tool-owned-hit-table;yield=unobserved"));
     }

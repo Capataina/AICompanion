@@ -17,6 +17,8 @@ BehaviourSelection/
 
 ## The urgency ladder, and why an action topping out at one can never interrupt anything
 
+Completed comparisons carry an increasing evaluation identity and their engine tick. The coordinator separately records whether selection ran in its current invocation: an early recovery or reflex return can update the brain without refreshing the choice. Retained scores keep their original identity and source time. These comparison identities describe decisions, not ongoing job identity or route attempts.
+
 Each retained score carries the actual protection, incumbent commitment, horizon and useful-work multipliers applied by this stage. Sparse decision events expose those factors beside raw and final utility; recording must consume the evaluated factors rather than rerun behaviours, which can acquire or release jobs while scoring.
 
 Regrouping raises following's existing utility rather than introducing a behaviour. It uses the selected distance mode's comfort region, and drops to zero when both axes and local sight satisfy arrival. A viable targeted excursion discounts ordinary following inside its permitted activity envelope; protection and survival are unaffected. `IsExcursion` defaults on, with survival, protection, kiting and following opting out. `RegroupUrgency` and `EstimatedReturnTicks` remain available to diagnostics.

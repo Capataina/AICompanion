@@ -38,6 +38,7 @@ public sealed class Brain
     public PositionRequest LastRequest { get; private set; }
     public CompanionAction? LastAction => Chooser.Current;
     public ulong LastTick { get; private set; } = ulong.MaxValue;
+    public bool ChoiceEvaluated { get; private set; }
     public bool MovementStalled { get; private set; }
     public string ActivityStatus => FollowRecovery.Active ? "Catching up" : MovementStalled ? "Stuck: not making progress" : LastAction?.Name switch
     {
@@ -89,6 +90,7 @@ public sealed class Brain
     public void Tick(CompanionNPC companion, Terraria.Player player)
     {
         LastTick = Terraria.Main.GameUpdateCount;
+        ChoiceEvaluated = false;
         whole.Restart();
         LimitPlanningWork.Begin(Weights.TotalPlanningMilliseconds);
         ReflexMs = DecideMs = PositionMs = NavigateMs = 0;
@@ -144,6 +146,7 @@ public sealed class Brain
         }
 
         CompanionAction action = Chooser.Choose(ctx);
+        ChoiceEvaluated = true;
         if (TryFollowRecovery(companion, player, action is Behaviours.Companionship.WalkWithPlayerAction)) return;
         LastRequest = action.Execute(ctx);
         DecideMs = Lap();

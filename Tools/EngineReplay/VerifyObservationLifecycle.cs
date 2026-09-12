@@ -29,6 +29,7 @@ internal static class VerifyObservationLifecycle
             VerifyInspectorGeometry();
             VerifyNotchOpeningConsumesThePress();
             VerifyOneCompleteSample();
+            VerifyRecoveryDoesNotRefreshTheChoice();
             Console.WriteLine("observation lifecycle: reserved retry names, zero-tick metadata and callback-scoped lifecycle evidence passed");
             return 0;
         }
@@ -52,7 +53,7 @@ internal static class VerifyObservationLifecycle
         recorder.OnWorldLoad();
         string path = Directory.GetFiles(BrainTelemetry.Folder, "*.tsv").OrderByDescending(File.GetLastWriteTimeUtc).First();
         VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
-        companion.AI(); BrainTelemetry.Record(companion); recorder.OnWorldUnload();
+        companion.AI(); recorder.OnWorldUnload();
         string[] lines = File.ReadAllLines(path);
         int header = Array.FindIndex(lines, l => l.StartsWith("tick\t"));
         Require(header >= 0 && header + 1 < lines.Length, "real sample writer emitted no table row");
@@ -61,6 +62,58 @@ internal static class VerifyObservationLifecycle
         foreach (string name in new[] { "escape_stage", "state_search_pending", "head_submerged", "attack_value", "hunt_reason", "nav_status" })
             Require(Array.IndexOf(names, name) >= 0, "causal sample field missing: " + name);
         Require(lines.Any(l => l.StartsWith("# text_columns=")), "writer must declare its textual columns");
+    }
+
+    private static void VerifyRecoveryDoesNotRefreshTheChoice()
+    {
+        var recorder = new BrainTelemetry(); Attach(recorder);
+        var companion = VerifyCompanionLifecycle.Create();
+        recorder.OnWorldLoad();
+        string path = Directory.GetFiles(BrainTelemetry.Folder, "*.tsv").OrderByDescending(File.GetLastWriteTimeUtc).First();
+        VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
+        companion.AI();
+        // Start from an already active recovery so the actual coordinator takes its early
+        // return before choosing. The owner stays inside the native fixture's world.
+        Main.LocalPlayer.dead = false;
+        Main.LocalPlayer.position = new Microsoft.Xna.Framework.Vector2(1100, 1398);
+        typeof(live::AICompanion.Companion.Brain.Behaviours.Companionship.RecoverDistantFollowing)
+            .GetField("<Active>k__BackingField", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(companion.Brain.FollowRecovery, true);
+        VerifyObservedMotion.SetTick((Main.GameUpdateCount / 60 + 1) * 60);
+        companion.AI();
+        Require(companion.Motor.ControlSource == "follow-recovery-flight", "fixture did not enter the actual recovery control path");
+        Main.LocalPlayer.dead = true;
+        VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
+        companion.AI();
+        companion.CheckDead();
+        VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
+        companion.AI();
+        recorder.OnWorldUnload();
+        string events = Path.ChangeExtension(path, null) + "-events.jsonl";
+        string recoveryEvent = File.ReadLines(events).Single(line => line.Contains("\"kind\":\"decision\"", StringComparison.Ordinal)
+            && line.Contains("control-source=follow-recovery-flight", StringComparison.Ordinal));
+        using var recorded = System.Text.Json.JsonDocument.Parse(recoveryEvent);
+        string detail = recorded.RootElement.GetProperty("detail").GetString()!;
+        Require(!detail.Contains("freshness=fresh", StringComparison.Ordinal) && detail.Contains("brain-fresh=True"),
+            "recovery skipped selection but the real recorder labelled its retained score board fresh");
+        string[] lines = File.ReadAllLines(path);
+        int header = Array.FindIndex(lines, line => line.StartsWith("tick\t"));
+        string[] names = lines[header].Split('\t');
+        string[][] rows = lines.Skip(header + 1).Where(line => !line.StartsWith('#')).Select(line => line.Split('\t')).ToArray();
+        Require(rows.Length == 4 && rows.All(row => row.Length == names.Length), "freshness fixture must preserve all four complete samples");
+        string Value(int row, string name)
+        {
+            int column = Array.IndexOf(names, name);
+            Require(column >= 0, "missing decision evidence column: " + name);
+            return rows[row][column];
+        }
+        Require(Value(0, "choice_fresh") == "1" && Value(1, "choice_fresh") == "0" && Value(1, "brain_fresh") == "1",
+            "selection and brain execution must be separate observations");
+        Require(Value(0, "choice_id") == Value(1, "choice_id") && Value(0, "choice_tick") == Value(1, "choice_tick"),
+            "recovery must preserve the identity and source time of the earlier comparison");
+        Require(Value(2, "choice_fresh") == "1" && long.Parse(Value(2, "choice_id")) == long.Parse(Value(0, "choice_id")) + 1,
+            "resumed selection must publish a new comparison even when its winner is unchanged");
+        Require(Value(3, "choice_fresh") == "0" && Value(3, "brain_fresh") == "0" && Value(3, "choice_id") == Value(2, "choice_id"),
+            "downing must not refresh a retained comparison");
     }
 
     private static void VerifySameStemGainsAnAttemptSuffix()

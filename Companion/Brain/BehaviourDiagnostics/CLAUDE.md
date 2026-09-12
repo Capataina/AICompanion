@@ -43,6 +43,8 @@ The general rule those five follow: **record the rejected option and the reason 
 
 ## Traps
 
+`brain_fresh` records that the coordinator ran; `choice_fresh` records that its chooser completed a comparison. Recovery and reflex paths may make the first true and the second false. `choice_id` and `choice_tick` retain the last comparison's identity and source time, with zero identity and minus-one tick before any comparison. Sparse decision freshness uses the chooser, while navigation freshness still describes brain execution. Tool effects carry the comparison identity that selected the executing action. Recording an unchanged winner does not establish a newly evaluated choice, and a comparison ID is not an activity or physical attempt ID.
+
 `tool-effect` records preserve actor spawn generation, tool-local attempt identity, source tick, target coordinate and native before/after tile and hit-table snapshots. Their amount is the observed positive damage increment only for a damage outcome; removal clears native damage bookkeeping and must not become negative damage. Material/frame changes remain distinct from productive damage or removal. Item yield remains explicitly unobserved by this event; pickups are separate evidence. Recording consumes these snapshots and never performs another tool query or mutation.
 
 Session reservation owns the TSV handle immediately, before sidecar or capture initialisation can fail. The open-failure path disposes that reserved stream, closes any event capture and clears its paths; dropping the writer reference alone leaks the handle until collection. A recorded initialisation failure describes capture availability, never the surrounding world's load outcome.
