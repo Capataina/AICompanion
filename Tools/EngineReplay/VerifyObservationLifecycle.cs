@@ -402,7 +402,7 @@ internal static class VerifyObservationLifecycle
         }
     }
 
-    private static void Attach(BrainTelemetry recorder)
+    internal static void Attach(BrainTelemetry recorder)
     {
         var mod = ModContent.GetInstance<live::AICompanion.AICompanion>() ?? new live::AICompanion.AICompanion();
         typeof(Mod).GetProperty("Logger")!.SetValue(mod, log4net.LogManager.GetLogger(typeof(VerifyObservationLifecycle)));

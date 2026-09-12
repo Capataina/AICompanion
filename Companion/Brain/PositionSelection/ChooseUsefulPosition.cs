@@ -439,7 +439,7 @@ public sealed class Positioner
             string shot = "not-required";
             if (needsFire)
             {
-                if (i > 0 && solveClock.Elapsed.TotalMilliseconds >= Weights.PositionAimingMilliseconds) break;
+                if (i > 0 && SharedMovementSystem.LimitPlanningWork.Spent(solveClock, Weights.PositionAimingMilliseconds)) break;
                 if (i >= solves)
                     break; // unsolved candidates cannot beat a solved one above them
                 bool solved = TrajectoryAimer.Solve(eye, request.Target!, fireProfile!.Value) != null;
