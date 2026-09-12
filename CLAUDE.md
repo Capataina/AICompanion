@@ -41,11 +41,10 @@ AICompanion/
 │  │  ├─ WorldObservation/      player, terrain, threat and activity facts
 │  │  ├─ BehaviourSelection/    utility scoring and considerations
 │  │  ├─ ActivityCoordination/  final movement application, hand grants and distant recovery
-│  │  ├─ Behaviours/            choices grouped by purpose
-│  │  │  ├─ Companionship/      guard
-│  │  │  ├─ Combat/             hunt
+│  │  ├─ Behaviours/            shared activity contract and work adapters
 │  │  │  └─ Work/               help with trees and ore
 │  │  ├─ PurposeFamilies/      consolidated ordinary activities
+│  │  │  ├─ Combat/            guarding and hunting
 │  │  │  └─ NearbyAssistance/  keeping company and collecting drops or pot contents
 │  │  ├─ PositionSelection/     position requests and candidate scoring
 │  │  ├─ CombatReflexes/        immediate threat assessment

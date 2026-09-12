@@ -3,11 +3,12 @@
 using System;
 using Microsoft.Xna.Framework;
 using Terraria;
+using AICompanion.Companion.Brain.Behaviours;
 using AICompanion.Companion.Brain.BehaviourSelection;
 using AICompanion.Companion.Brain.PositionSelection;
 using AICompanion.Companion.Brain.WorldObservation;
 
-namespace AICompanion.Companion.Brain.Behaviours.Combat;
+namespace AICompanion.Companion.Brain.PurposeFamilies.Combat;
 
 /// <summary>
 /// Go and kill a reachable hostile. Scores by having a target the weapons can engage
@@ -18,7 +19,7 @@ namespace AICompanion.Companion.Brain.Behaviours.Combat;
 /// it, and only a target beyond the screen loses value with range. A second enemy
 /// appearing does not end a hunt; only the danger and horizon it changes can.
 /// </summary>
-public sealed class HuntAction : CompanionAction
+public sealed class PursueAttackOpportunity : CompanionAction
 {
     public override string Name => "hunt";
     public override PurposeFamily Family => PurposeFamily.Combat;

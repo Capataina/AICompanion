@@ -18,8 +18,8 @@ Brain/
 ├─ SharedSafety/                independent environmental escape and retained collision responses
 ├─ BehaviourSelection/          utility choice among the behaviour families
 ├─ ActivityCoordination/        final movement application, hand grants and distant recovery
-├─ Behaviours/                  follow, combat, gathering and work behaviour
-├─ PurposeFamilies/             consolidated company and collection activities
+├─ Behaviours/                  shared activity contract and work adapters
+├─ PurposeFamilies/             combat, company and collection activities
 ├─ PositionSelection/           turn a position request into a useful feet tile
 ├─ SharedMovementSystem/        core simulation, route planning, execution and Terraria adapter
 ├─ ProjectileAiming/            trajectory solve shared by weapons and position selection

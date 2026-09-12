@@ -442,7 +442,7 @@ internal static class VerifyCompanionActivities
         for (int i = 0; i < window; i++)
         {
             brain.Chooser.Activity.Select(i % 2 == 0
-                ? new live::AICompanion.Companion.Brain.Behaviours.Combat.HuntAction()
+                ? new live::AICompanion.Companion.Brain.PurposeFamilies.Combat.PursueAttackOpportunity()
                 : new live::AICompanion.Companion.Brain.PurposeFamilies.NearbyAssistance.KeepCompany(), ctx);
             Tick(i % 2 == 0 ? RequestKind.WithPlayer : RequestKind.Guard, i % 8 - 4);
         }

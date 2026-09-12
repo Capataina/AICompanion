@@ -1,18 +1,19 @@
 #nullable enable
 
 using System;
+using AICompanion.Companion.Brain.Behaviours;
 using Microsoft.Xna.Framework;
 using AICompanion.Companion.Brain.WorldObservation;
 using AICompanion.Companion.Brain.BehaviourSelection;
 using AICompanion.Companion.Brain.PositionSelection;
 
-namespace AICompanion.Companion.Brain.Behaviours.Companionship;
+namespace AICompanion.Companion.Brain.PurposeFamilies.Combat;
 
 /// <summary>
 /// Offer positioning against a particular threat to the player. Preparation binds the
 /// threat and anchor; the positioner establishes attack access and the independent hands fire.
 /// </summary>
-public sealed class GuardAction : CompanionAction
+public sealed class ProtectPlayer : CompanionAction
 {
     public override string Name => "guard";
     public override PurposeFamily Family => PurposeFamily.Combat;

@@ -1,9 +1,10 @@
-# Combat actions — pursuing a useful attack opportunity
+# Combat activities — protect the player or pursue an attack opportunity
 
 ```
 Combat/
 ├─ CLAUDE.md
-└─ HuntAction.cs   an attack opportunity worth approaching, with target identity and progress evidence
+├─ ProtectPlayer.cs             positioning against a particular threat to the player
+└─ PursueAttackOpportunity.cs    an attack opportunity worth approaching, with target identity and progress evidence
 ```
 
 Hunting requests a useful attack position; it does not fire a weapon. `Brain.Engage` resolves an independent target through the arsenal after movement, whenever the hand grant permits it. Keeping shooting inside selected combat activities would make it unavailable during travel or assistance. SharedSafety owns retreat and collision avoidance across activities; those responses do not require a hunting or guarding offer.
@@ -18,9 +19,9 @@ Hunting remains opportunistic through the shared activity envelope and independe
 
 Hunt discovery and its firing/deferred-target caches update in `Prepare`. The candidate captures its NPC generation, position, utility and forecast before comparison. Repeated Score, ForecastTicks and ActivityTarget reads therefore cannot retarget or observe a different enemy position. Execution rechecks attackability and generation before requesting the captured firing approach; a disappeared or replaced hostile cannot use the old offer. This preserves the existing admissibility model and does not turn coarse sight evidence into a guaranteed projectile hit.
 
-The weapon itself is picked and the shot solved in `../../../Weapons/Arsenal.cs` through `../../ProjectileAiming/`. The weapons are equipment, not behaviour, which is why they are not in the brain.
+The weapon itself is picked and the shot solved in `../../../Weapons/Arsenal.cs` through `../../ProjectileAiming/`. The weapons are equipment, not behaviour, which is why they are not in the brain. Both combat activities declare PurposeFamily.Combat and are registered once in `../../BehaviourSelection/ChooseBehaviour.cs`. Their shared comparison and lifecycle contracts come from `../../Behaviours/CompanionAction.cs`; this folder owns neither a second chooser nor a movement controller.
 
-**A hunt still refuses every one-way drop, and that stays true until the player's route is remembered rather than guessed.** The planner's one-way permission is granted for following, guarding and self-rescue and withheld from a hunt, after a hunt dropped into a sealed pocket on 2026-09-08. The project's rule is that a one-way edge is taken only after the player has taken it, and nothing in the repository records where the player has been — there is no trail, no breadcrumb and no visited set, and the live geometric test that names a player standing beyond a one-way boundary feeds telemetry only. So the permission cannot be granted to a hunt on the terms the rule states; granting it on any other terms is the 2026-09-08 pocket again. The symptom that made this look urgent — standing at an enemy on a floor below — is answered instead by refusing a target no reachable position can shoot, which is the owner's own third sentence: if it cannot reposition to hit it, it should not be hunting it.
+**Hunting withholds one-way permission without evidence of an acceptable reunion.** The movement policy grants that permission for reunion, guarding and self-rescue, but not a hunt. A short observed player trail does not establish that the player crossed a particular directed boundary or that the companion can return. The live geometric one-way check feeds telemetry rather than granting a hunt permission. A hostile below the companion therefore needs a reachable firing opportunity; its presence alone cannot justify entering a sealed pocket.
 
 Hunting considers threats to either actor; personal danger still discounts its score, so recognising a nearby hostile is not permission to abandon companionship. SharedSafety separately assesses the companion's need for space, without changing player-protection urgency.
 
@@ -29,3 +30,13 @@ Hunting observes engagement progress after the hands step. Damage to the same pu
 **Changing target is not progress, and a progress test that says otherwise cannot fire at all.** Enemies in a crowd score within noise of each other, so the selected target alternates every few ticks; a stall counter that resets on a new identity therefore resets continuously and its window never closes. The deferral must also cover the whole set aimed at during the stall rather than the one selected when the window happened to close, because deferring a single member of an alternating pair buys one more window and nothing else. A life comparison is only meaningful while the identity holds; across two different enemies it compares unrelated numbers.
 
 Hunt requires a currently attackable NPC: an invulnerable hostile is an avoidance problem, not a target worth pursuing. The chooser prices excursions against both regroup time and protection urgency, so a hunt cannot borrow safety from a player the companion would reach too late to help.
+
+## Protection retains the threat that earned its offer
+
+Guard preparation refreshes commitment and clearance evidence, then captures its utility, enemy generation, target position and destination anchor together. Score receives no world context and returns that value without changing commitment or observing the player again. Entry commits the prepared enemy; execution refuses a dead, missing or replaced generation instead of substituting a newly urgent enemy. The next preparation can offer a different threat, which receives a distinct activity identity through the shared owner. This binding establishes which protection task was chosen, not whether a useful firing position or intervention exists.
+
+Guard is scaled past the ordinary utility band by `BehaviourWeights.GuardUrgency`: an incumbent retains its commitment bonus, so an action with a lower ceiling cannot displace it even at maximum raw urgency. SharedSafety can suspend protection independently of this comparison when the companion needs environmental escape or collision avoidance.
+
+Guard scores the observation layer's protection urgency, which compares enemy arrival with the time until the companion can intervene. Entry retains the relevant NPC's spawn identity and pressure; a small retreat does not erase an unfinished protection task. Death, disappearance, slot reuse or sustained loss of relevance releases that commitment. Personal survival can interrupt it. Guard is zero for a dead player; personal defence remains independent.
+
+Guard does not fire a weapon. Independent hands resolve compatible attacks after movement, so a companion walking with the player can shoot as readily as one guarding. Guard asks where to stand within a deliberately wide band: protecting someone means being able to hit what is attacking them. Narrowing that band as danger rose walked a ranged companion into the melee it was trying to address. A prepared protection offer can still fail to obtain a usable intervention position; its positive value alone must not be read as successful protection.

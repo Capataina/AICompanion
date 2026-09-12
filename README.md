@@ -443,6 +443,8 @@ Candidate discovery and retained discovery caches update in `Prepare`; `Score` a
 
 Guarding binds its offer to a specific enemy generation and captures the destination anchor with its score. A later change in which enemy looks most urgent cannot silently change that prepared request. An unavailable enemy is refused before execution; a fresh comparison can choose another protection task. That identifies what guarding is trying to accomplish without claiming that the requested position or an eventual shot will succeed.
 
+`PurposeFamilies/Combat/ProtectPlayer.cs` owns guarding and `PursueAttackOpportunity.cs` owns hunting. Both prepare positioning purposes for the shared chooser; neither implements weapon selection or a private movement system. Their runtime labels remain guard and hunt for the HUD and recorded activity history.
+
 ## Choosing where to stand
 
 A selected purpose returns a `PositionRequest` such as exact, with-player, line-of-fire, guard or roam. `PositionSelection/ChooseUsefulPosition.cs` resolves it to a feet destination. Attack positioning uses cheap geometry/preferences to select a bounded shortlist for actual trajectory checks. Hunting and guarding admit only a candidate with a solved shot; no established shot leaves the request unresolved rather than selecting a blind fallback. Shared safety independently searches body states for retreat and escape, without requiring a shot. These checks concern the candidate at evaluation time, before actual travel and any later target movement.

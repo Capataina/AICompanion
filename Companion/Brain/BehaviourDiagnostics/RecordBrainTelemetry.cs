@@ -409,17 +409,17 @@ public sealed class BrainTelemetry : ModSystem
         string controls = DescribeControls(companion.Motor.AppliedControls);
         string activityControls = controls + $";activity-id={activity.Id};activity-phase={activity.Phase};activity-reason={activity.Reason}"
             + FormattableString.Invariant($";gravity-observation-tick={companion.Motor.GravityObservationTick};engine-gravity={companion.Motor.ObservedEngineGravity:R};model-gravity={companion.Motor.ObservedModelGravity:R};gravity-enabled={companion.Motor.ObservedGravityEnabled}");
-        var guard = default(Behaviours.Companionship.GuardAction);
+        var guard = default(PurposeFamilies.Combat.ProtectPlayer);
         var mine = default(Behaviours.Work.MineAction);
         var chop = default(Behaviours.Work.ChopAction);
         var survival = brain.Safety.Escape;
-        var hunt = default(Behaviours.Combat.HuntAction);
+        var hunt = default(PurposeFamilies.Combat.PursueAttackOpportunity);
         foreach (var candidate in brain.Chooser.Actions)
         {
-            if (candidate is Behaviours.Companionship.GuardAction guardAction) guard = guardAction;
+            if (candidate is PurposeFamilies.Combat.ProtectPlayer guardAction) guard = guardAction;
             if (candidate is Behaviours.Work.MineAction mineAction) mine = mineAction;
             if (candidate is Behaviours.Work.ChopAction chopAction) chop = chopAction;
-            if (candidate is Behaviours.Combat.HuntAction huntAction) hunt = huntAction;
+            if (candidate is PurposeFamilies.Combat.PursueAttackOpportunity huntAction) hunt = huntAction;
         }
         activityControls += $";mine-last-conclusion={mine?.LastConclusion?.ToString() ?? "none"}";
         if (decision != lastDecision || Main.GameUpdateCount % 60 == 0)
