@@ -34,7 +34,9 @@ public static class ChronicleTests
             MultiRunRetainsDefinitiveExit();
             DecisionContractsDistinguishStallsFromProgress();
             AMoveKindThatMostlyFailsIsReportedNotOnlyOneThatAlwaysDoes();
-            Console.WriteLine("Chronicle self-tests passed (16 assertion groups).");
+            HuntRangeEvidenceDoesNotInventUniversalFailure();
+            DowningDoesNotProveAvoidability();
+            Console.WriteLine("Chronicle self-tests passed (18 assertion groups).");
             return 0;
         }
         catch (Exception error)
@@ -310,11 +312,67 @@ public static class ChronicleTests
             Require(report.Contains("inferred lack of progress", StringComparison.Ordinal), "sustained movement request without entry-state movement was not reported");
             Require(report.Contains("ticks 0..120", StringComparison.Ordinal), "lack-of-progress evidence did not preserve its tick interval");
             Require(!report.Contains("net progress toward its recorded spot", StringComparison.Ordinal), "after-helper npc_px was used as actual motion");
+            foreach (string owner in new[] { "combat-reflex", "reflex", "survival-escape", "follow-recovery-flight", "travel-recovery-clearance", "unrecognised-owner" })
+            {
+                File.WriteAllText(file, trace.ToString().Replace("\tnavigation\t", $"\t{owner}\t", StringComparison.Ordinal));
+                Require(!Chronicle.Of(Session.Load(file), full: true).Contains("inferred lack of progress", StringComparison.Ordinal),
+                    $"{owner} movement was charged to the retained ordinary activity");
+            }
         }
         finally
         {
             File.Delete(file);
         }
+    }
+
+    private static void DowningDoesNotProveAvoidability()
+    {
+        string file = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllText(file, "tick\tstate\n0\tup\n120\tdowned\n240\tdowned\n");
+            Finding[] findings = new TheCompanionStaysUp().Run(Session.Load(file)).ToArray();
+            Require(findings.Length == 2 && findings.All(f => f.Severity != Severity.Definitive),
+                "a downing observation was promoted to proof of avoidable failure");
+            Require(findings.Any(f => f.Severity == Severity.Potential && f.FirstTick == 120),
+                "the downing transition must remain visible for investigation");
+            Require(findings.All(f => !f.Detail.Contains("half-minute", StringComparison.Ordinal)),
+                "sparse samples were presented as thirty seconds of observed context");
+        }
+        finally { File.Delete(file); }
+    }
+
+    private static void HuntRangeEvidenceDoesNotInventUniversalFailure()
+    {
+        string file = Path.GetTempFileName();
+        try
+        {
+            Finding[] Read(string evidence, int age = 0, string fire = "no-target")
+            {
+                var trace = new StringBuilder("tick\taction\tbrain_fresh\tfire\ttarget_evidence_age\ttarget_evidence\n");
+                for (int tick = 0; tick < 301; tick++)
+                    trace.AppendLine($"{tick}\thunt\t1\t{fire}\t{age}\t{evidence}");
+                File.WriteAllText(file, trace.ToString());
+                return new HuntingHadAWeaponThatCouldReach().Run(Session.Load(file)).ToArray();
+            }
+
+            const string distant = "7:12:0:0:weapon=1:outside-reach";
+            Require(Read("7:12:0:0:weapon=0:no-clear-trajectory|" + distant).Length == 0,
+                "one weapon outside reach turned a mixed rejection set into a universal range failure");
+            Require(Read("7:12:10:weapon=0:kills=0:harm=0:value=10|" + distant).Length == 0,
+                "an accepted attack pair was ignored beside a range rejection");
+            foreach (string malformed in new[] { "", "-", "outside-reach", distant + "|", distant + "|truncated", "x:12:0:0:weapon=1:outside-reach" })
+                Require(Read(malformed).Length == 0, "missing or malformed evidence became an all-pairs claim");
+            Require(Read(distant, age: 100).Length == 0, "retained old evidence became a fresh range observation");
+            Require(Read(distant, fire: "fired").Length == 0 && Read(distant, fire: "cooldown").Length == 0,
+                "successful shooting or cooldown became failed pursuit");
+            Finding[] findings = Read("7:12:0:0:weapon=0:outside-reach|" + distant);
+            Require(findings.Length == 1 && findings[0].Severity == Severity.Potential,
+                "a bounded range-only interval must remain a potential issue, not proof of impossible pursuit");
+            Require(findings[0].Detail.Contains("recorded", StringComparison.Ordinal),
+                "range diagnosis lost its bounded evidence qualification");
+        }
+        finally { File.Delete(file); }
     }
 
     private static void EmptyHeaderOnlySessionIsReadable()

@@ -206,7 +206,11 @@ public static class Chronicle
     }
 
     private static bool StallCandidate(Session s, int row)
-        => s["state"].Text[row] == "up" && s["spot"].Text[row] != "-" && s["control_source"].Text[row] != "reflex" && IsActiveControl(s["control"].Text[row]);
+        => s["state"].Text[row] == "up" && s["spot"].Text[row] != "-"
+            // Admit known ordinary movement owners; an unfamiliar owner is missing attribution,
+            // not permission to charge its motion to the retained activity. "navigation" is legacy.
+            && s["control_source"].Text[row] is ("travel" or "navigation" or "seeking-destination")
+            && IsActiveControl(s["control"].Text[row]);
 
     private static bool IsActiveControl(string control)
         => !control.Contains("move=0.00", StringComparison.Ordinal) || control.Contains("jump=1", StringComparison.Ordinal) || control.Contains("fall=1", StringComparison.Ordinal);

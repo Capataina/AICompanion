@@ -276,51 +276,59 @@ public sealed class TheChosenWeaponIsTheBetterOne : ICheck
 }
 
 /// <summary>
-/// Whether the companion went down. Pre-boss enemies against a companion with the player's ranged
-/// stats should be kiteable indefinitely, so a down is a design failure and not bad luck; the
-/// finding carries the run of damage that led to it, because the interesting part is the thirty
-/// seconds before, never the tick itself. It also counts *transitions* into the downed state rather
-/// than rows in it: 613 rows reading downed is one down lasting ten seconds, and reporting it as
-/// 613 downs is a mistake this reader is written not to repeat.
-/// </summary>
-/// <summary>
-/// Whether a committed hunt ever had a weapon that could reach what it was hunting. Hunting is the
-/// decision to close on something and kill it, so being out of reach at the start of one is the
-/// normal case and says nothing; what says something is a long stretch of it where no weapon-target
-/// pair was ever within reach and no shot was ever taken, because that is a decision that did not
-/// accomplish its purpose and could not have.
-///
-/// The existing stationary check cannot see this. It requires the body to stand still, so a
-/// companion that walks at an enemy it will never be able to shoot passes it. On 2026-09-11 that
-/// was most of the session: of 4,460 hunting ticks, 3,831 carried arsenal evidence reading
-/// outside-reach and 3,212 had no weapon target at all, while 25 ticks fired.
+/// Finds sustained fresh range-only rejections even while the body moves. Arsenal.BestTarget
+/// records a bounded shortlist, independent of the pursuit target; this evidence can suggest an
+/// unproductive approach but cannot establish that all possible attacks or destinations failed.
 /// </summary>
 public sealed class HuntingHadAWeaponThatCouldReach : ICheck
 {
-    /// <summary>Five seconds of committed hunting. Long enough that an ordinary approach has had its chance.</summary>
+    /// <summary>300 consecutive samples warrant inspection; they do not certify physical impossibility.</summary>
     private const int Sustained = 300;
 
     public string Name => "could it reach what it was hunting";
-    public string[] Needs => new[] { "action", "brain_fresh", "fire", "target_evidence" };
+    public string[] Needs => new[] { "action", "brain_fresh", "fire", "target_evidence", "target_evidence_age" };
 
     public IEnumerable<Finding> Run(Session s)
     {
         foreach (var span in FindStretches.Where(s.Count, i => s["action"].Text[i] == "hunt"
             && s["brain_fresh"].Number[i] == 1
             && s["fire"].Text[i] is not ("fired" or "cooldown")
-            && s["target_evidence"].Text[i].Contains("outside-reach"), Sustained))
-            yield return new Finding(Severity.Definitive, Name,
-                "hunting held for a long stretch with no weapon able to reach the target",
-                $"{span.Length} consecutive samples hunting while the arsenal's own evidence reported every "
-                + $"weapon-target pair outside reach, with no shot taken. Fire outcomes {FindStretches.Summarise(s["fire"], span)}. "
-                + "A hunt begins out of reach by definition, so a short stretch is an approach; a stretch this long is "
-                + "an approach that is not arriving. The two things that make it possible are a target admitted without "
-                + "asking whether any reachable standing position can shoot it, and a firing spot chosen without "
-                + "line-of-fire information — so read the hunt rejection reason and the position evidence together.",
+            && s["target_evidence_age"].Number[i] == 0
+            && RecordedPairsAreOutsideReach(s["target_evidence"].Text[i]), Sustained))
+            yield return new Finding(Severity.Potential, Name,
+                "hunting persisted while every freshly recorded attack pair was outside reach",
+                $"{span.Length} consecutive samples (inspection threshold {Sustained}) contain only outside-reach "
+                + $"rejections in the recorded shortlist, with no shot taken. Fire outcomes {FindStretches.Summarise(s["fire"], span)}. "
+                + "The shortlist is bounded and the arsenal's targets need not be the pursuit target. This does not "
+                + "establish that every weapon-target pair was considered or that a useful firing position was impossible. "
+                + "Compare pursuit identity, destination validity, route progress and granted controls to distinguish "
+                + "a legitimate long approach from invalid positioning, interruption or failed execution.",
                 s.Tick(span.Start), s.Tick(span.End), span.Length);
+    }
+
+    private static bool RecordedPairsAreOutsideReach(string evidence)
+    {
+        if (string.IsNullOrWhiteSpace(evidence)) return false;
+        foreach (string pair in evidence.Split('|'))
+        {
+            // Rejection wire format from Arsenal.BestTarget. Accepted outcomes have a different
+            // shape. Reject incomplete/unknown formats rather than extract a matching substring.
+            string[] fields = pair.Split(':');
+            if (fields.Length != 6 || !int.TryParse(fields[0], out int target) || target < 0
+                || !long.TryParse(fields[1], out long generation) || generation < 0
+                || fields[2] != "0" || fields[3] != "0"
+                || !fields[4].StartsWith("weapon=", StringComparison.Ordinal)
+                || !int.TryParse(fields[4].AsSpan(7), out int weapon) || weapon < 0
+                || fields[5] != "outside-reach") return false;
+        }
+        return true;
     }
 }
 
+/// <summary>
+/// Counts transitions into downing rather than samples spent downed. A recorded down is an
+/// outcome to investigate; this observation alone cannot identify its cause or avoidability.
+/// </summary>
 public sealed class TheCompanionStaysUp : ICheck
 {
     public string Name => "did it go down, and what happened in the minute before";
@@ -345,7 +353,7 @@ public sealed class TheCompanionStaysUp : ICheck
                 yield return new Finding(
                     Severity.Oddity,
                     Name,
-                    $"the session opens with the companion already downed for {rowsDown} ticks",
+                    $"the session opens with the companion already downed for {rowsDown} samples",
                     "No transition into the downed state was recorded, so the down happened before this file opened.",
                     session.Tick(0), session.Tick(0), rowsDown);
             yield break;
@@ -353,7 +361,9 @@ public sealed class TheCompanionStaysUp : ICheck
 
         foreach (int row in downs)
         {
-            int from = Math.Max(0, row - 1800); // the half-minute before, at sixty a second
+            // Bound the inspected history by samples. Sparse captures do not justify turning
+            // this count into seconds, or treating an unsampled interval as fully observed.
+            int from = Math.Max(0, row - 1800);
             var before = new Stretch(from, row - 1);
             string acting = session.Has("action") ? FindStretches.Summarise(session["action"], before, 3) : "unrecorded";
             string far = session.Has("npc_tile", "player_tile")
@@ -365,14 +375,15 @@ public sealed class TheCompanionStaysUp : ICheck
                 : "no danger column";
 
             yield return new Finding(
-                Severity.Definitive,
+                Severity.Potential,
                 Name,
-                "the companion went down, which pre-boss enemies should never manage against a kiting body",
-                $"For the half-minute before it went down it was doing {acting}, {far}, and {danger}. "
-                    + "A companion that can shoot, retreat and outrange everything before a boss has no mechanism by "
-                    + "which it should die, so the question is which of those three it was not doing: the action tally "
-                    + "says whether it was fighting or fleeing, the distance says whether help was anywhere near, and "
-                    + "the danger reading says whether it knew.",
+                "the companion went down; whether it could have avoided this needs investigation",
+                $"In the preceding {row - from} recorded samples (ticks {session.Tick(from)}..{session.Tick(row - 1)}) "
+                    + $"it was doing {acting}, {far}, and {danger}. "
+                    + "Downing is observed, but these fields do not establish enemy progression, safe escape access, "
+                    + "available attacks or whether the damage was avoidable. Compare victim-specific threat forecasts, "
+                    + "actual damage, granted safety controls and native movement outcomes before attributing the result "
+                    + "to perception, selection or execution. Missing evidence remains an investigation limit.",
                 session.Tick(row), session.Tick(row), 1);
         }
 
@@ -380,8 +391,8 @@ public sealed class TheCompanionStaysUp : ICheck
             yield return new Finding(
                 Severity.Oddity,
                 Name,
-                $"{downs.Count} down(s) across {rowsDown} ticks spent downed",
-                "The tick count is time spent on the floor, not a count of deaths.",
+                $"{downs.Count} down(s) across {rowsDown} samples recorded downed",
+                "Downs count observed transitions; repeated downed samples are not additional deaths or a wall-time measurement.",
                 session.Tick(downs[0]), session.Tick(downs[^1]), downs.Count);
     }
 

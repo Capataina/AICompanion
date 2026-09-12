@@ -342,7 +342,7 @@ The decision interval includes candidate discovery, feasibility work and action 
 
 This section enumerates what is actually built, read from the source. Each part names what it is meant to contribute and, where the recordings show a mismatch, what comes out instead. It is a description of the machinery, not a defence of it.
 
-Source assessment: **12 September 2026**, research baseline `d60b92b10008d478073f10f2c545d332b4819dde`; gameplay and tool source are unchanged from `4296f851b13e49ccd557d7255ec24bc223a29929` (`0.15.1`). The recordings above describe earlier captured builds. This source assessment does not establish a later live-play result.
+Source assessment: **12 September 2026**. The gameplay description below remains anchored to `4296f851b13e49ccd557d7255ec24bc223a29929`; Proposal 1 implementation has begun with report interpretation corrections. The recordings above describe earlier captured builds. Source changes and reader corrections do not establish a later live-play result.
 
 ## Maintaining this section
 
@@ -545,7 +545,7 @@ The recordings establish what happened in particular captured builds; current so
 
 - **The version comparison is observational.** The commitment change coincides with shorter recorded action runs, and its shared-stall mechanism explains a plausible feedback loop. The sessions differ in duration and circumstances; reverting the formula is not a measured post-revert recovery. A matched comparison is still needed.
 - **Detailed episode analysis covers four cave sessions.** The wider local inventory contains thirty TSV files, including two empty captures, but inventory coverage is not equivalent to analysing every run. These episodes do not establish behaviour across biomes, progression stages, weapon kits or mod combinations.
-- **The reader can misclassify its own evidence.** `CheckTheFight` turns one weapon's range rejection into a claim about every pair. `Chronicle` checks for the control label `reflex` although the producer emits `combat-reflex`, so its ordinary-stall filter can admit reflex-owned intervals. Both defects are documented in research; the analyser code has not been changed.
+- **Reader findings have bounded evidence.** The hunt-range check requires fresh, well-formed range rejections for every recorded pair and reports a potential issue; that bounded shortlist cannot prove an impossible pursuit. Ordinary-stall inference admits known ordinary movement owners, excluding safety and recovery ownership. Downing remains a potential issue without assuming that a safe escape or attack was available. These predicates have parser regression tests, but do not identify the cause of every unproductive episode.
 - **Terrain capture is local and asynchronous.** Newer terrain events include material and tile state as well as shape and liquid. They still do not provide a simultaneous, complete world snapshot or reconstruct uncaptured terrain and enemy scripts.
 - **Old captures do not identify every input needed for exact replay.** Version metadata is useful but lacks a complete source, package, configuration and capability identity. The input hashes in research identify the recordings that were read; they do not manufacture the missing state.
 - **The cost of observing remains unmeasured.** Brain phase timers omit some recording and integration work, and some phases include candidate discovery and movement queries. Recorded expensive ticks do not establish that utility arithmetic, path search or telemetry alone caused the visible stutter.

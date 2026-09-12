@@ -1,6 +1,10 @@
 # SessionReport — the reader for a playtest
 
-**A stationary test cannot see a hunt that walks.** The long-standing hunting check requires the body to stand still, so a companion that keeps walking at an enemy it will never be able to shoot passes it; on 2026-09-11 that was most of the session, with 3,831 of 4,460 hunting ticks carrying arsenal evidence of every weapon-target pair being outside reach, against 25 ticks that fired. The reach check is its complement: it ignores movement entirely and asks whether the approach ever arrived. Both are kept, because one catches a hunt that does nothing and the other a hunt that does something useless.
+**A stationary test cannot see a hunt that walks, and one range rejection cannot describe every attack.** The range check complements the stationary-hunt check by finding sustained fresh samples whose recorded shortlist contains only range rejections. It validates each pair's wire format from `Arsenal.BestTarget`; mixed trajectory/range failures, accepted attacks, malformed entries and stale evidence cannot satisfy that predicate. Its result is potential: the bounded arsenal shortlist may omit the pursuit target or a later usable firing position. It does not prove an approach impossible or attribute failed movement to a poor choice. Older records without evidence age disclose missing coverage through the check's required columns.
+
+Ordinary lack-of-progress inference accepts only recorded ordinary movement owners (`travel`, `seeking-destination` and the legacy `navigation`). Safety, recovery, clearance and unknown owners remain visible in the chronology but cannot be charged to a retained ordinary activity. New owner names need an explicit attribution decision before joining this check.
+
+A downing transition warrants investigation but does not prove avoidability. The reader preserves the observed transition and bounded preceding sample context as a potential issue, without assuming pre-boss enemies or available escape routes. Sample counts are not elapsed seconds in sparse recordings.
 
 Follow decisions require `brain_fresh`: when a downed companion stops executing its brain, the previous action and route fields remain sticky. Those rows end a follow-stall interval and cannot count as a newly selected follow response. Missing freshness is reduced coverage, not evidence of an active decision.
 
