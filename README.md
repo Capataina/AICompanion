@@ -358,7 +358,7 @@ Source assessment: **12 September 2026**, including the ongoing Proposal 1 imple
 
 ## The current system in plain language
 
-This walkthrough describes the implemented system during the Proposal 1 migration. Three purpose families already nominate concrete activities. Ten ordinary adapters remain while the final seven-activity structure is completed; environmental safety is shared rather than one of those choices.
+This walkthrough describes the implemented system during the Proposal 1 migration. Three purpose families nominate concrete activities. Eight ordinary activities remain while the final seven-activity structure is completed; environmental safety is shared rather than one of those choices.
 
 The companion first notices what is around it: your position and recent movement, enemies and projectiles, nearby work and drops, light, its health and breath, and terrain relevant to a movement question. It estimates danger from what it can observe. It does not know every enemy's future attack or your future destination, and not every observation refreshes at the same moment.
 
@@ -370,18 +370,16 @@ On an ordinary update, each behaviour prepares a candidate and its value. Gather
 
 For an established mining or chopping target, preparation estimates the hits and tool time remaining until the next block or trunk breaks, using native damage and the companion's existing progress. It keeps approach time separate from tool time. That estimate does not include clearing the rest of a vein or collecting the drops, and it is not a guarantee that the world will remain unchanged. Optional work loses value as its extra time delays a costly reunion, so a quick finish can remain worthwhile when starting fresh work would not. This comparison uses observed departure, available return-time estimates and accumulated separation; useful future meeting regions and stronger return-route evidence remain under implementation.
 
-| Current choice | What it tries to accomplish |
-|---|---|
-| Walk with the player | Move into a suitable region near you. |
-| Wander | Move loosely nearby when another purpose does not win. |
-| Guard | Position to help against a threat relevant to you. |
-| Hunt | Move to create a worthwhile attack opportunity. |
-| Kite | Create distance during combat. |
-| Loot | Approach a nearby item it can accept. Contact pickup also works during other activities. |
-| Mine | Find eligible ore, retain a vein, approach a working position and use a pickaxe in reach. |
-| Chop | Find a tree, approach it and use an axe. |
-| Break pots | Select and approach a pot, which currently evaluates pots separately from collection opportunities. |
-| Place torches | Attempt useful placement with supplied torches and native placement assistance. Holding light in an otherwise free hand is separate. |
+| Family | Current activity | What it tries to accomplish |
+|---|---|---|
+| Gathering | Mining | Find eligible ore, retain a vein, approach a working position and use a pickaxe in reach. |
+| Gathering | Chopping | Find a tree, approach it and use an axe. |
+| Combat | Guarding | Position to help against a threat relevant to you. |
+| Combat | Hunting | Move to create a worthwhile attack opportunity. |
+| Combat | Kiting, pending transfer to shared safety | Create distance during combat. |
+| Nearby assistance | Lighting | Attempt useful placement with supplied torches and native placement assistance. Holding light in an otherwise free hand is separate. |
+| Nearby assistance | Collecting | Compare a nearby item it can accept with a pot's possible contents, then approach the selected opportunity. Contact pickup also works during other activities. |
+| Nearby assistance | Keeping company | Choose between rejoining you, resting and moving loosely nearby within one activity. It can be worthwhile even when other opportunities exist. |
 
 Positioning then chooses a destination intended to serve the request. Navigation searches for a route, and movement execution tries to perform the required controls through the motor. Unfinished search can continue across updates while a usable part of the route is executed. Terraria's actual body and collision ultimately determine where the companion goes.
 
@@ -563,9 +561,9 @@ Keep each limitation tied to the evidence it restricts. Remove or narrow it only
 
 # Potential Improvements
 
-The [research library](research/CLAUDE.md) compares the expected behaviour with historical attempts, current source, recordings and external work. Its [three ranked proposals](research/proposal/CLAUDE.md) are conditional roadmaps, not accepted implementation decisions.
+The [research library](research/CLAUDE.md) compares the expected behaviour with historical attempts, current source, recordings and external work. Of its [three ranked proposals](research/proposal/CLAUDE.md), Proposal 1 is the selected implementation plan and is in progress. The other two remain conditional alternatives; none is a claim that its full acceptance requirements have passed.
 
-The selected research direction combines three purpose families with the first path's repairs to candidate validity, activity progress, control ownership and purpose-specific destinations. Gathering considers mining and chopping; Combat considers protection and worthwhile pursuit; Nearby assistance considers lighting, collection and keeping company, including relaxed safe local movement. Each family uses shared utility machinery to offer its best eligible activity before the parent chooses. Kiting, reflex avoidance and sustained escape share safety ownership outside the family chooser, pots can be incidental work or part of a worthwhile collection trip, and situation-dependent companionship influences every activity while keep-company still provides actual movement when optional work is not worthwhile. These are proposed changes, not the current implementation.
+Proposal 1 combines three purpose families with repairs to candidate validity, activity progress, control ownership and purpose-specific destinations. Its target membership is gathering with mining and chopping, combat with protection and worthwhile pursuit, and nearby assistance with lighting, collection and keeping company. Family nominations, a common control finaliser, independent environmental escape, keeping company and collection have implementations described above. Completing shared kiting, useful incidental work, contextual companionship, physical-method contracts and the remaining acceptance cases is still part of the plan. The target design must not be read as a claim that all of those behaviours already work.
 
 The second path asks whether a stronger shared execution framework is needed beneath those families. The third adds bounded planning where an immediate decision demonstrably misses consequential future work. The arsenal's weapon and immediate-target algorithms remain in place for this restructuring. All three retain navigation as a separate investigation: transition representation, search strategy, return evidence and physical execution can need different changes. The [discussion record](<research/Decision Architecture/Purpose Families and Shared Companionship.md>) preserves why this direction was selected, what alternatives remain, and why a chosen family must carry a real activity rather than discover after winning that it has nothing useful to do.
 
