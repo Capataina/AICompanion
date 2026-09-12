@@ -297,7 +297,11 @@ public sealed class MineAction : CompanionAction
         if (ctx.Companion.Miner.Swing(t.Tile, pickaxe))
         {
             ctx.Companion.StartAnimation(pickaxe.type, pickaxe.useAnimation);
-            ctx.Companion.Brain.Chooser.RecordWork(t.Tile.ToWorldCoordinates());
+            if (ctx.Companion.Miner.LastOutcome is { } outcome)
+            {
+                BehaviourDiagnostics.GodsEyeEvents.RecordToolEffect(ctx.Npc, "pickaxe", outcome);
+                if (outcome.Productive) ctx.Companion.Brain.Chooser.RecordWork(t.Tile.ToWorldCoordinates());
+            }
         }
         return PositionRequest.Hold;
     }

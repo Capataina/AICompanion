@@ -23,6 +23,8 @@ public sealed class TileChopper
     public HitTile HitTile { get; } = new();
 
     private int swingCooldown;
+    private long nextAttempt;
+    public TileToolObservation? LastOutcome { get; private set; }
 
     /// <summary>The axe the companion swings: the player's, or a copper axe if the player holds none.</summary>
     public static Item AxeFor(Player player)
@@ -39,17 +41,22 @@ public sealed class TileChopper
     /// <summary>Hit the trunk bottom once with the given axe. Returns true if a swing happened.</summary>
     public bool Swing(Microsoft.Xna.Framework.Point trunkBottom, Item axe)
     {
-        if (!Ready || WorldProtection.ProtectCompanionHomes.IsProtected(trunkBottom))
+        if (!Ready || !WorldGen.InWorld(trunkBottom.X, trunkBottom.Y, 5)
+            || !TreeStands(trunkBottom) || WorldProtection.ProtectCompanionHomes.IsProtected(trunkBottom))
             return false;
         swingCooldown = axe.useTime;
+        TileToolState before = TileToolState.Capture(trunkBottom, HitTile);
         Hit(trunkBottom.X, trunkBottom.Y, axe.axe);
+        LastOutcome = new TileToolObservation(Main.GameUpdateCount, ++nextAttempt, trunkBottom, axe.type,
+            before, TileToolState.Capture(trunkBottom, HitTile));
         return true;
     }
 
     public static bool TreeStands(Microsoft.Xna.Framework.Point trunkBottom)
     {
+        if (!WorldGen.InWorld(trunkBottom.X, trunkBottom.Y, 5)) return false;
         Tile tile = Main.tile[trunkBottom.X, trunkBottom.Y];
-        return tile.HasTile && Main.tileAxe[tile.TileType];
+        return tile.HasTile && tile.TileType < Main.tileAxe.Length && Main.tileAxe[tile.TileType];
     }
 
     private void Hit(int x, int y, int axePower)
@@ -63,6 +70,7 @@ public sealed class TileChopper
         if (!WorldGen.CanKillTile(x, y))
             damage = 0;
 
+        bool previousHitter = TileDamageWatcher.CompanionIsHitting;
         TileDamageWatcher.CompanionIsHitting = true;
         try
         {
@@ -78,7 +86,7 @@ public sealed class TileChopper
         }
         finally
         {
-            TileDamageWatcher.CompanionIsHitting = false;
+            TileDamageWatcher.CompanionIsHitting = previousHitter;
         }
         if (damage != 0)
             HitTile.Prune();

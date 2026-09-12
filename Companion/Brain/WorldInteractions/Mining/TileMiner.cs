@@ -28,6 +28,8 @@ public sealed class TileMiner
     private readonly Player body;
     private readonly PickaxeDamage damageOf;
     private int swingCooldown;
+    private long nextAttempt;
+    public TileToolObservation? LastOutcome { get; private set; }
 
     /// <summary>The crack table the game's PickTile fills; the cracks renderer draws it.</summary>
     public HitTile HitTile => body.hitTile;
@@ -58,6 +60,8 @@ public sealed class TileMiner
         if (!Ready || WorldProtection.ProtectCompanionHomes.IsProtected(tile) || !WorldGen.InWorld(tile.X, tile.Y, 5) || !Main.tile[tile.X, tile.Y].HasTile)
             return false;
         swingCooldown = pickaxe.useTime;
+        TileToolState before = TileToolState.Capture(tile, HitTile);
+        bool previousHitter = TileDamageWatcher.CompanionIsHitting;
         TileDamageWatcher.CompanionIsHitting = true;
         try
         {
@@ -65,8 +69,10 @@ public sealed class TileMiner
         }
         finally
         {
-            TileDamageWatcher.CompanionIsHitting = false;
+            TileDamageWatcher.CompanionIsHitting = previousHitter;
         }
+        LastOutcome = new TileToolObservation(Main.GameUpdateCount, ++nextAttempt, tile, pickaxe.type,
+            before, TileToolState.Capture(tile, HitTile));
         return true;
     }
 

@@ -146,7 +146,11 @@ public sealed class ChopAction : CompanionAction
             if (ctx.Companion.Chopper.Swing(t.Bottom, axe))
             {
                 ctx.Companion.StartAnimation(axe.type, axe.useAnimation);
-                ctx.Companion.Brain.Chooser.RecordWork(t.Bottom.ToWorldCoordinates());
+                if (ctx.Companion.Chopper.LastOutcome is { } outcome)
+                {
+                    BehaviourDiagnostics.GodsEyeEvents.RecordToolEffect(ctx.Npc, "axe", outcome);
+                    if (outcome.Productive) ctx.Companion.Brain.Chooser.RecordWork(t.Bottom.ToWorldCoordinates());
+                }
             }
             return PositionRequest.Hold;
         }

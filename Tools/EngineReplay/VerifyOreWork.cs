@@ -29,6 +29,7 @@ internal static class VerifyOreWork
             ASealedTreeYieldsToReachableOre();
             AnUnprovenApproachWalksInsteadOfScoringZero();
             AReachableOreProducesANativeBreak();
+            NativeToolOutcomesDistinguishAttemptsFromProgress();
             Console.WriteLine("ore work: policy, retained vein, tool gates, unproven approach and native productive break pass");
             return 0;
         }
@@ -59,6 +60,42 @@ internal static class VerifyOreWork
         }
         Require(!Main.tile[ore.X, ore.Y].HasTile,
             $"a usable fixed pose must produce a real native tile break, not merely report {swings} swings");
+        Require(ctx.Companion.Miner.LastOutcome is { Effect: live::AICompanion.Companion.Brain.WorldInteractions.TileToolEffect.Removed, Productive: true },
+            "native tile removal must remain distinguishable from a requested swing or partial damage");
+    }
+
+    private static void NativeToolOutcomesDistinguishAttemptsFromProgress()
+    {
+        Point ore = new(25, 59);
+        var (_, ctx) = SetUp(WorkPolicy.Opportunistic, TileID.Copper, ore);
+        Item pick = live::AICompanion.Companion.Brain.WorldInteractions.Mining.TileMiner.PickaxeFor(ctx.Player);
+        Require(ctx.Companion.Miner.Swing(ore, pick), "the native partial-damage fixture must actually swing");
+        var partial = ctx.Companion.Miner.LastOutcome;
+        Require(partial is { Effect: live::AICompanion.Companion.Brain.WorldInteractions.TileToolEffect.Damaged, Productive: true }
+            && partial.Value.After.Damage > partial.Value.Before.Damage && Main.tile[ore.X, ore.Y].HasTile,
+            "partial native damage must be observed without claiming that ore was removed");
+        Require(!ctx.Companion.Miner.Swing(ore, pick) && ctx.Companion.Miner.LastOutcome == partial,
+            "cooldown must not fabricate a new native attempt");
+
+        var (_, weak) = SetUp(WorkPolicy.Opportunistic, TileID.Chlorophyte, ore);
+        Require(weak.Companion.Miner.Swing(ore, pick)
+            && weak.Companion.Miner.LastOutcome is { Effect: live::AICompanion.Companion.Brain.WorldInteractions.TileToolEffect.NoObservedChange, Productive: false }
+            && Main.tile[ore.X, ore.Y].HasTile,
+            "a native weak-pick call must remain an attempt without productive damage");
+
+        var (_, tree) = SetUp(WorkPolicy.Opportunistic, TileID.Copper, ore);
+        Tile trunk = Main.tile[ore.X, ore.Y];
+        trunk.TileType = TileID.Trees;
+        Main.tileAxe[TileID.Trees] = true;
+        Main.tileSolid[TileID.Trees] = false;
+        Item axe = live::AICompanion.Companion.Brain.WorldInteractions.Chopping.TileChopper.AxeFor(tree.Player);
+        Require(tree.Companion.Chopper.Swing(ore, axe)
+            && tree.Companion.Chopper.LastOutcome is { Effect: live::AICompanion.Companion.Brain.WorldInteractions.TileToolEffect.Damaged, Productive: true },
+            "axe progress must use its own native hit table");
+        trunk.ClearEverything();
+        var idleAxe = new live::AICompanion.Companion.Brain.WorldInteractions.Chopping.TileChopper();
+        Require(!idleAxe.Swing(ore, axe) && idleAxe.LastOutcome == null,
+            "a vanished trunk must not become a successful axe attempt");
     }
 
     private enum BaselineMode { FullBrain, HeldActivity, FixedWorkingPose }

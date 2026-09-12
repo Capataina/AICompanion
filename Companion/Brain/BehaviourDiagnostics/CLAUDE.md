@@ -43,6 +43,8 @@ The general rule those five follow: **record the rejected option and the reason 
 
 ## Traps
 
+`tool-effect` records preserve actor spawn generation, tool-local attempt identity, source tick, target coordinate and native before/after tile and hit-table snapshots. Their amount is the observed positive damage increment only for a damage outcome; removal clears native damage bookkeeping and must not become negative damage. Material/frame changes remain distinct from productive damage or removal. Item yield remains explicitly unobserved by this event; pickups are separate evidence. Recording consumes these snapshots and never performs another tool query or mutation.
+
 Session reservation owns the TSV handle immediately, before sidecar or capture initialisation can fail. The open-failure path disposes that reserved stream, closes any event capture and clears its paths; dropping the writer reference alone leaks the handle until collection. A recorded initialisation failure describes capture availability, never the surrounding world's load outcome.
 
 Navigation evidence includes shared query and attempt identities, fresh/stale decisions, control source, pending local search, retained controls, breathing target and remaining breath. Position evidence keeps the best evaluated alternatives with final score and shot feasibility; target evidence keeps considered entity generations with expected effective damage and urgency. Each has its own evaluation tick because a held choice may outlive its last rescore. Unexamined candidates remain unexamined; these bounded alternatives do not enumerate the entire search tree. The HTML reader exposes the complete retained payload beside sampled continuous state.

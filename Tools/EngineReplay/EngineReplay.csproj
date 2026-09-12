@@ -17,6 +17,7 @@
     <Compile Include="../../Companion/Brain/WorldObservation/LineOfSight.cs" />
     <Compile Include="../../Companion/Brain/WorldObservation/CalculateRegroupUrgency.cs" />
     <Compile Include="../../Companion/Brain/BehaviourDiagnostics/RecordGodsEyeEvents.cs" />
+    <Compile Include="../../Companion/Brain/WorldInteractions/ObserveTileToolEffect.cs" />
     <Compile Include="../../Companion/Brain/BehaviourDiagnostics/ObserveNativeCombatEvents.cs" />
     <Compile Include="../../Companion/Brain/BehaviourDiagnostics/ObserveTerrainChanges.cs" />
     <Compile Include="../../Companion/Brain/BehaviourWeights.cs" />

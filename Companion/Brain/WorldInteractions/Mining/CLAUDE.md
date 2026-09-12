@@ -9,6 +9,8 @@ Mining/
 
 ## Traps
 
+`TileMiner.Swing` reports whether a native call occurred. Its stamped `LastOutcome` separately reports partial damage, removal, material/frame change or no observed change. A native power or permission refusal can therefore accept the call while producing no work. Damage comes from this miner's HitTile table, not a shared tile-health value; removal does not prove which items were produced or collected.
+
 - **Arrival tolerance is not tool reach.** The work action enters its swing only when the real `InReach` check succeeds; a navigator being near its destination does not prove a tile is mineable. Approach candidates reserve a small horizontal margin under that same reach predicate.
 
 - **`OreFinder.Approach` and `InReach` share one reach test** (the player's reach box from an eye above the feet, plus a sight line), so a target found is a target the swing reaches; changing one without the other makes the miner walk to a spot it cannot mine from. `Approach` additionally reports the bounded walker query's yes/no/unknown result: only yes is selected, no can finish a reachable portion, and unknown must be retried.

@@ -42,6 +42,15 @@ internal static class VerifyGodsEyeEvents
         npcHooks.OnKill(shooter);
         NPC reusedNpc = Npc(21, new Vector2(720f, 800f), Vector2.Zero);
         npcHooks.OnSpawn(reusedNpc, source);
+        var toolBefore = new AICompanion.Companion.Brain.WorldInteractions.TileToolState(true, 7, 18, 36, 30);
+        var toolAfter = toolBefore with { Damage = 65 };
+        var toolOutcome = new AICompanion.Companion.Brain.WorldInteractions.TileToolObservation(
+            Main.GameUpdateCount, 3, new Point(25, 59), Terraria.ID.ItemID.CopperPickaxe, toolBefore, toolAfter);
+        GodsEyeEvents.RecordToolEffect(reusedNpc, "pickaxe", toolOutcome);
+        GodsEyeEvents.RecordToolEffect(reusedNpc, "pickaxe", toolOutcome with
+        {
+            Attempt = 4, Before = toolAfter, After = toolAfter,
+        });
 
         Projectile first = Projectile(9, new Vector2(320f, 800f), new Vector2(10f, 0f));
         projectileHooks.OnSpawn(first, source);
@@ -78,6 +87,13 @@ internal static class VerifyGodsEyeEvents
 
         List<Event> events = Read(path);
         int failures = 0;
+        Event[] toolEvents = events.Where(record => record.Kind == "tool-effect").ToArray();
+        failures += Require(toolEvents.Length == 2 && toolEvents[0].Subject == 21_000_002
+            && toolEvents[0].Channel == "attempt=3" && toolEvents[1].Channel == "attempt=4"
+            && toolEvents[0].Detail.Contains("effect=Damaged;before-present=True;before-type=7;before-frame=18,36;before-damage=30")
+            && toolEvents[0].Detail.Contains("after-damage=65;damage-scope=tool-owned-hit-table;yield=unobserved")
+            && toolEvents[1].Detail.Contains("effect=NoObservedChange"),
+            "tool events must retain actor generation, attempt identity, native snapshots and limits on yield attribution");
         Event[] playerHits = events.Where(record => record.Kind == "player-damage").ToArray();
         failures += Require(playerHits.Length == 2
             && playerHits[0].Channel == "before-health-subtraction"

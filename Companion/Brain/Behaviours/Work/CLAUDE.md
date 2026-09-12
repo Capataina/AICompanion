@@ -1,5 +1,7 @@
 # Work actions — nearby jobs selected by policy
 
+Mining and chopping animate accepted native swings, but credit their retained worksite only when the observed tool outcome shows increased damage or removal. They publish that same immutable outcome to the recorder. A cooldown, refused effect or changed tile frame cannot manufacture productive work credit; the native interaction owns the observation and the behaviour consumes it.
+
 ```
 Work/
 ├─ CLAUDE.md
