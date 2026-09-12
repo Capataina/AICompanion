@@ -32,6 +32,10 @@ public sealed class Chooser
     };
 
     public readonly List<Scored> LastScores = new();
+    /// <summary>Which activities prepared in the last comparison and what each family spent.</summary>
+    public readonly ScheduleOpportunityQueries Queries = new();
+    /// <summary>Per-family preparation share; a fixture sets zero to force exactly one optional child per family.</summary>
+    public double FamilyPreparationMilliseconds { get; set; } = Weights.FamilyPreparationMilliseconds;
     public FamilyNomination[] LastNominations { get; private set; } = Array.Empty<FamilyNomination>();
     public readonly OwnCurrentActivity Activity = new();
     public CompanionAction? Current => Activity.Current;
@@ -102,15 +106,24 @@ public sealed class Chooser
         var prepared = new PreparedActivity[Actions.Count];
         var bindings = new ValidatePreparedActivity[Actions.Count];
         var offers = new (OfferEligibility Eligibility, string Reason)[Actions.Count];
-        for (int i = 0; i < Actions.Count; i++)
+        var context = ctx;
+        bool[] ran = Queries.Prepare(Actions, Current, FamilyPreparationMilliseconds, i =>
         {
             CompanionAction action = Actions[i];
-            action.Prepare(ctx);
+            action.Prepare(context);
             float raw = action.Score();
             offers[i] = (action.Eligibility, action.EligibilityReason);
             prepared[i] = new(i, action.Name, raw, raw > 0 ? action.ForecastTicks() : 0,
                 action.IsExcursion, action.ActivityTarget != null, action is KeepCompany, action == Current, action.Eligibility);
             bindings[i] = ValidatePreparedActivity.Capture(action);
+        });
+        for (int i = 0; i < Actions.Count; i++)
+        {
+            if (ran[i]) continue;
+            // Not prepared: its retained discovery is neither compared nor allowed to carry value,
+            // and the row says why rather than reading as an absent opportunity.
+            offers[i] = (OfferEligibility.Deferred, "family-preparation-allowance-spent");
+            prepared[i] = new(i, Actions[i].Name, 0, 0, Actions[i].IsExcursion, false, false, false, OfferEligibility.Deferred);
         }
         var comparison = ComparisonContext(ctx);
         var available = (PreparedActivity[])prepared.Clone();

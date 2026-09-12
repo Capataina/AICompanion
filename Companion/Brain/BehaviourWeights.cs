@@ -23,6 +23,13 @@ public static class Weights
     public const float AttackPreventedHarmWeight = 2f;
     public const float AttackFinishingValue = 4f;
     public const double TotalPlanningMilliseconds = 12d;
+    // Each purpose family's share of that total for preparing its optional children. Three
+    // families at a third each would leave nothing for position and navigation on a worst tick, so
+    // the share is smaller. It bounds optional siblings only: the incumbent, non-excursion children
+    // and one optional child always prepare, and the incumbent keeps the whole total because its
+    // approach searches retain no progress. The 2026-09-13 brain-cost scene measured an incumbent
+    // mining approach recomputation consuming the full 12 ms, which this share does not address.
+    public const double FamilyPreparationMilliseconds = 3d;
     public const float ProtectionLeadTicks = 60f;
     public const float GuardReleasePressure = 0.08f;
     public const int GuardClearTicks = 90;

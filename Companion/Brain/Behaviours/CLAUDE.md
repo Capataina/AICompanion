@@ -14,6 +14,8 @@ Behaviours/
 
 Every `Prepare` classifies its offer as usable, unresolved, known-unusable, forbidden by policy, or no opportunity, with a short reason, beside the value it captures. The two questions are separate on purpose: a hunt can be worth a lot and have no reachable firing position, and a mine can be worth nothing this tick while its ore is perfectly usable. Only usable and unresolved offers may carry positive value, and the evaluator rejects any other combination as an evaluation error, so an adapter that forgets to classify reads as no opportunity and cannot win on a stale number. That strictness is deliberate and has already caught two test probes that scored without saying what they offered. Unresolved means a bounded investigation — an ore approach the search has not decided, a firing position whose reachable region has not settled, a guard destination that method admission has not yet queried — and never proven work.
 
+A sixth state, deferred, is written only by the chooser's query scheduler for an activity it did not prepare because its family's preparation share was spent. An activity never classifies itself as deferred, and a deferred row says nothing about the world.
+
 The reason strings are the activity's own account of why, not a second decision: mining reads its discovery status, hunting its last rejection, lighting whether the setting, the daylight or the torch supply is what refuses it. A policy prohibition is a player setting; a known-unusable method is the world or the kit refusing (no firing position, no torch supply, a pick too weak); no opportunity is simply nothing found.
 
 ## An attempt ends with the activity's own conclusion

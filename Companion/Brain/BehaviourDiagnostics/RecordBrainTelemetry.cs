@@ -42,7 +42,7 @@ public sealed class BrainTelemetry : ModSystem
     private static string? eventsPath;
     private static readonly Stopwatch sessionClock = new();
     private static DateTime sessionStartedUtc;
-    private const string Schema = "0.20.0";
+    private const string Schema = "0.21.0";
     private static string? pendingPlayerHit;
     private static string? pendingCompanionHit;
     private static string? lastDecision;
@@ -435,6 +435,8 @@ public sealed class BrainTelemetry : ModSystem
                 board.Append(CultureInfo.InvariantCulture, $";factors:{score.Action.Name}=protection:{score.Protection:0.000},commitment:{score.Commitment:0.000},horizon:{score.Horizon:0.000},useful-work:{score.UsefulWork:0.000},reunion:{score.Reunion:0.000},error:{score.Error},offer:{score.Eligibility}/{score.EligibilityReason},method:{score.MethodEvidence}");
             foreach (var nomination in brain.Chooser.LastNominations)
                 board.Append(CultureInfo.InvariantCulture, $";family:{nomination.Family}=child:{nomination.Activity?.Name ?? "none"},value:{nomination.Activity?.Final ?? 0:0.000}");
+            foreach (var family in brain.Chooser.Queries.LastFamilies)
+                board.Append(CultureInfo.InvariantCulture, $";queries:{family.Family}=prepared:{family.Prepared},deferred:{family.Deferred},ms:{family.Milliseconds:0.000}");
             var preferences = PlayerIntegration.CompanionPreferences.Current;
             board.Append(CultureInfo.InvariantCulture, $";movement-stalled={brain.MovementStalled};activity-status={brain.ActivityStatus};activity-target={brain.LastAction?.ActivityTarget};activity-radius={preferences.NewActivityRadius};continuation-radius={preferences.ActiveActivityRadius};recovery-radius={preferences.RecoveryRadius}");
             GodsEyeEvents.RecordDecision(npc, brain.LastAction?.Name ?? "-", board.ToString(), brain.LastRequest.Kind.ToString(),
@@ -494,6 +496,11 @@ public sealed class BrainTelemetry : ModSystem
             h.Append("\tactivity_attempt_id\tattempt_end_id\tattempt_end_activity_id\tattempt_end_activity\tattempt_end_family\tattempt_end_status\tattempt_end_cause\tattempt_end_effects\tattempt_end_start_tick\tattempt_end_tick");
             foreach (var a in brain.Chooser.Actions)
                 h.Append('\t').Append(a.Name).Append("_offer");
+            foreach (var family in Enum.GetValues<BehaviourSelection.PurposeFamily>())
+            {
+                string name = family.ToString().ToLowerInvariant();
+                h.Append('\t').Append(name).Append("_prepared\t").Append(name).Append("_deferred\t").Append(name).Append("_prepare_ms");
+            }
             writer.WriteLine(h.ToString());
             headerWritten = true;
         }
@@ -766,6 +773,15 @@ public sealed class BrainTelemetry : ModSystem
             foreach (var s in brain.Chooser.LastScores)
                 if (ReferenceEquals(s.Action, a)) { offer = s.Eligibility + ":" + s.EligibilityReason; break; }
             sb.Append('\t').Append(offer);
+        }
+        // Retained from the last completed comparison, like the score board; -1 before any.
+        foreach (var family in Enum.GetValues<BehaviourSelection.PurposeFamily>())
+        {
+            int index = Array.FindIndex(brain.Chooser.Queries.LastFamilies, f => f.Family == family);
+            if (index < 0) { sb.Append("\t-1\t-1\t-1"); continue; }
+            var queries = brain.Chooser.Queries.LastFamilies[index];
+            sb.Append('\t').Append(queries.Prepared).Append('\t').Append(queries.Deferred)
+                .Append('\t').Append(queries.Milliseconds.ToString("0.000", CultureInfo.InvariantCulture));
         }
 
         // A write that fails (disk full, a stream the OS closed) must not escape the NPC's AI

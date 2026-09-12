@@ -132,6 +132,12 @@ internal static class MeasureBrainCost
             Sample("finalise", brain.FinaliseMs);
             Sample("brain total", brain.TotalMs);
             Sample("AI outside brain (incl. recording)", Math.Max(0, ai - brain.TotalMs));
+            if (brain.ChoiceEvaluated)
+                foreach (var family in brain.Chooser.Queries.LastFamilies)
+                {
+                    Sample($"prepare {family.Family}", family.Milliseconds);
+                    Sample($"deferred {family.Family} (count)", family.Deferred);
+                }
             Sample("AI total", ai);
         }
         if (recording) recorder.OnWorldUnload();

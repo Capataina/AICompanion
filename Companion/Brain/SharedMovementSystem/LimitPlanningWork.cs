@@ -15,6 +15,27 @@ public static class LimitPlanningWork
     public static void Begin(double milliseconds) => deadline = Unbounded ? 0 : Stopwatch.GetTimestamp()
         + (long)(milliseconds * Stopwatch.Frequency / 1000d);
     public static void End() => deadline = 0;
+
+    /// <summary>Tighten the shared deadline for one bounded piece of work, restoring the wider one
+    /// when disposed, so every nested query inside (route, reach, approach) stops at the narrower
+    /// share. A non-positive share leaves the outer deadline as the only bound.</summary>
+    public static Scope Narrow(double milliseconds)
+    {
+        long prior = deadline;
+        if (!Unbounded && milliseconds > 0)
+        {
+            long own = Stopwatch.GetTimestamp() + (long)(milliseconds * Stopwatch.Frequency / 1000d);
+            deadline = deadline == 0 ? own : Math.Min(deadline, own);
+        }
+        return new Scope(prior);
+    }
+
+    public readonly struct Scope : IDisposable
+    {
+        private readonly long prior;
+        internal Scope(long prior) => this.prior = prior;
+        public void Dispose() => deadline = prior;
+    }
     public static long Deadline(double milliseconds)
     {
         if (Unbounded) return 0;

@@ -5,8 +5,10 @@ namespace AICompanion.Companion.Brain.Behaviours;
 /// <summary>What preparation established about an opportunity, independent of how much it is worth.
 /// Only Usable and Unresolved offers may carry positive value, and an unresolved offer is a bounded
 /// investigation rather than proven work. The chooser treats a positive value on any other state as
-/// an evaluation error, so an absent or forbidden offer cannot win by carrying a stale number.</summary>
-public enum OfferEligibility { NoOpportunity, PolicyForbidden, KnownUnusable, Unresolved, Usable }
+/// an evaluation error, so an absent or forbidden offer cannot win by carrying a stale number.
+/// Deferred is written by the query scheduler, never by an activity: the activity was not prepared
+/// this comparison because its family's allowance was spent, which says nothing about the world.</summary>
+public enum OfferEligibility { NoOpportunity, PolicyForbidden, KnownUnusable, Unresolved, Usable, Deferred }
 
 /// <summary>How one physical attempt at a purpose ended. Attempted means execution began without an
 /// observed productive effect; Executed means a method with no productive-effect claim ran (keeping

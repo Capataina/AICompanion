@@ -40,6 +40,7 @@ internal static class VerifyCompanionActivities
             DoorsKeepTheWholeBedroomProtected();
             TorchSupplyIsDebitedOnlyAfterPlacement();
             AmbientFallbackDoesNotInventSamples();
+            AFamilyAllowanceDefersSiblingsFairly();
             TorchRecommendationsPreserveThePlayersCursor();
             InteractionJumpsRequireClearanceAndSafeLanding();
             Console.WriteLine("companion activities: resource/follow competition, remote job release, actual swing reach, bed protection and native torch inventory contracts pass");
@@ -68,7 +69,9 @@ internal static class VerifyCompanionActivities
         public Action? DuringPreparation;
         public live::AICompanion.Companion.Brain.BehaviourSelection.PurposeFamily Purpose
             = live::AICompanion.Companion.Brain.BehaviourSelection.PurposeFamily.NearbyAssistance;
+        public bool Excursion = true;
         public override string Name => "probe";
+        public override bool IsExcursion => Excursion;
         public override live::AICompanion.Companion.Brain.BehaviourSelection.PurposeFamily Family
             => Purpose;
         public override Vector2? ActivityTarget => Target;
@@ -89,6 +92,62 @@ internal static class VerifyCompanionActivities
         public override void Exit(in live::AICompanion.Companion.Brain.Behaviours.ActionContext ctx) { Exits++; base.Exit(ctx); }
         public override live::AICompanion.Companion.Brain.PositionSelection.PositionRequest Execute(in live::AICompanion.Companion.Brain.Behaviours.ActionContext ctx)
             => live::AICompanion.Companion.Brain.PositionSelection.PositionRequest.Hold;
+    }
+
+    /// <summary>
+    /// With a zero family share each family prepares exactly one optional child per comparison, so
+    /// the rotation, the deferred classification and the never-starved children are deterministic.
+    /// The combat probe wins the first two comparisons so the incumbent is outside the gathering
+    /// family whose rotation is under test.
+    /// </summary>
+    private static void AFamilyAllowanceDefersSiblingsFairly()
+    {
+        var (_, ctx) = VerifyOreWork.SetUp(Policy.Disabled, TileID.Copper, new Point(25, 59));
+        var chooser = ctx.Companion.Brain.Chooser;
+        var gathering = live::AICompanion.Companion.Brain.BehaviourSelection.PurposeFamily.Gathering;
+        var deferredOffer = live::AICompanion.Companion.Brain.Behaviours.OfferEligibility.Deferred;
+        var first = new ActivityProbe { Target = ctx.Player.Bottom, Value = .4f, Purpose = gathering };
+        var second = new ActivityProbe { Target = ctx.Player.Bottom, Value = .9f, Purpose = gathering };
+        var combat = new ActivityProbe { Target = ctx.Player.Bottom, Value = .95f, Purpose = live::AICompanion.Companion.Brain.BehaviourSelection.PurposeFamily.Combat };
+        var company = new ActivityProbe { Target = ctx.Player.Bottom, Value = .1f, Excursion = false };
+        chooser.Actions.Clear();
+        chooser.Actions.AddRange(new live::AICompanion.Companion.Brain.Behaviours.CompanionAction[] { first, second, combat, company });
+        chooser.FamilyPreparationMilliseconds = 0;
+
+        var chosen = chooser.Choose(ctx);
+        Require(first.Preparations == 1 && second.Preparations == 0 && combat.Preparations == 1 && company.Preparations == 1,
+            $"a spent share must defer the second optional sibling only; first={first.Preparations} second={second.Preparations} combat={combat.Preparations} company={company.Preparations}");
+        Require(chooser.LastScores.Single(s => ReferenceEquals(s.Action, second)) is { Final: 0, Raw: 0 } row && row.Eligibility == deferredOffer,
+            "a deferred child must be reported as deferred with no value, not as an absent opportunity");
+        Require(chooser.Queries.LastFamilies.Single(f => f.Family == gathering) is { Prepared: 1, Deferred: 1 },
+            "the family summary must count what was prepared and what was deferred");
+        Require(ReferenceEquals(chosen, combat), "the fixture's incumbent must sit outside the rotating family");
+
+        chooser.Choose(ctx);
+        Require(first.Preparations == 1 && second.Preparations == 1 && company.Preparations == 2 && combat.Preparations == 2,
+            $"the next comparison must start from the deferred sibling while non-excursion and incumbent children still prepare; first={first.Preparations} second={second.Preparations}");
+
+        combat.Value = 0;
+        chosen = chooser.Choose(ctx);
+        Require(first.Preparations == 2 && second.Preparations == 1 && ReferenceEquals(chosen, first),
+            $"a deferred sibling's retained higher value must not win; chosen={chosen?.Name} first={first.Preparations} second={second.Preparations}");
+
+        // Two fresh optional siblings with no incumbent among them: a zero share defers one, and
+        // lifting wall-clock allowances must prepare both, so offline determinism never starves a family.
+        var left = new ActivityProbe { Target = ctx.Player.Bottom, Value = .3f, Purpose = gathering };
+        var right = new ActivityProbe { Target = ctx.Player.Bottom, Value = .2f, Purpose = gathering };
+        chooser.Actions.Clear();
+        chooser.Actions.AddRange(new live::AICompanion.Companion.Brain.Behaviours.CompanionAction[] { left, right, company });
+        chooser.Choose(ctx);
+        Require(left.Preparations + right.Preparations == 1, "the counter-case must defer one sibling under a zero share");
+        live::AICompanion.Companion.Brain.SharedMovementSystem.LimitPlanningWork.Unbounded = true;
+        try
+        {
+            chooser.Choose(ctx);
+            Require(left.Preparations + right.Preparations == 3 && chooser.Queries.LastFamilies.All(f => f.Deferred == 0),
+                "with wall-clock allowances lifted no sibling may be deferred");
+        }
+        finally { live::AICompanion.Companion.Brain.SharedMovementSystem.LimitPlanningWork.Unbounded = false; }
     }
 
     private static void ActivityOwnershipSurvivesInterruption()
@@ -148,7 +207,10 @@ internal static class VerifyCompanionActivities
             if (invalidation is "item" or "item-type" or "item-slot")
                 first.Identity = Main.item[5] = new Item { active = true, stack = 1, type = ItemID.CopperOre, whoAmI = 5 };
             var second = new ActivityProbe { Target = ctx.Player.Bottom, Value = 1 };
-            if (invalidation != "identity") second.Purpose = live::AICompanion.Companion.Brain.BehaviourSelection.PurposeFamily.Combat;
+            // Families prepare in enum order, so the invalidated candidate sits in the family that
+            // prepares first and the invalidating sibling in a later one; within one family the
+            // registration order is the rotation's starting order.
+            if (invalidation != "identity") first.Purpose = live::AICompanion.Companion.Brain.BehaviourSelection.PurposeFamily.Combat;
             if (invalidation == "all") second.Identity = new Item { active = false, stack = 0 };
             second.DuringPreparation = () =>
             {
