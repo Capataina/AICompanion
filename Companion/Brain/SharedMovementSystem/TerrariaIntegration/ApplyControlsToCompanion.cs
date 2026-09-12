@@ -38,6 +38,7 @@ public sealed class CompanionMotor
     public BodyState ObservedState { get; private set; }
     public BodyState? PredictedState => expected;
     public string ControlSource { get; private set; } = "uninitialised";
+    public long ControlApplications { get; private set; }
     public bool RecoveryFlight { get; private set; }
     public bool ClearOfTerrain => !Collision.SolidCollision(npc.position, npc.width, npc.height);
     public BodyState State => new(npc.position.X, npc.Bottom.Y, npc.velocity.X,
@@ -47,6 +48,7 @@ public sealed class CompanionMotor
 
     public void Apply(Controls controls, string source = "navigation")
     {
+        ControlApplications++;
         if (RecoveryFlight)
         {
             if (!ClearOfTerrain)
@@ -107,6 +109,7 @@ public sealed class CompanionMotor
     public void Stop() => Apply(Controls.None, "idle");
     public void ApplyRecoveryFlight(Vector2 velocity)
     {
+        ControlApplications++;
         if (ClearOfTerrain) recoveryLastClearPosition = npc.position;
         RecoveryFlight = true;
         npc.noGravity = npc.noTileCollide = true;

@@ -42,7 +42,7 @@ public sealed class BrainTelemetry : ModSystem
     private static string? eventsPath;
     private static readonly Stopwatch sessionClock = new();
     private static DateTime sessionStartedUtc;
-    private const string Schema = "0.11.0";
+    private const string Schema = "0.12.0";
     private static string? pendingPlayerHit;
     private static string? pendingCompanionHit;
     private static string? lastDecision;
@@ -400,6 +400,12 @@ public sealed class BrainTelemetry : ModSystem
         var activity = brain.Chooser.Activity;
         GodsEyeEvents.RecordActivity(npc, activity.Id, activity.Current?.Name ?? "none", activity.Phase.ToString(), activity.Reason,
             activity.LastEndedId, activity.LastEndReason, activity.ChangedAt);
+        var controlGrant = brain.ControlGrants.Last;
+        bool controlFresh = controlGrant?.Tick == Main.GameUpdateCount;
+        if (controlFresh && controlGrant is { } freshGrant)
+            GodsEyeEvents.RecordControlGrant(npc, freshGrant.Id, freshGrant.Tick, freshGrant.ActivityId, freshGrant.ActivityPhase.ToString(),
+                freshGrant.RequestedOwner, freshGrant.AppliedOwner, DescribeControls(freshGrant.RequestedMovement),
+                DescribeControls(freshGrant.AppliedMovement), freshGrant.Hand.ToString(), freshGrant.AppliedVelocity, freshGrant.MotorApplications);
         string controls = DescribeControls(companion.Motor.AppliedControls);
         string activityControls = controls + $";activity-id={activity.Id};activity-phase={activity.Phase};activity-reason={activity.Reason}";
         var guard = default(Behaviours.Companionship.GuardAction);
@@ -444,7 +450,7 @@ public sealed class BrainTelemetry : ModSystem
 
         if (!headerWritten)
         {
-            writer.WriteLine("# text_columns=state,action,reflex,top_threat,target,request,anchor,spot,next_kind,npc_tile,npc_px,npc_vel,held,weapon,fire,engage,torch,player_tile,edge_kind,edge_from,edge_to,edge_outcome,spot_home,diverge_invalid_reason,sample_phase,player_px,player_vel,player_liquid,player_hit,npc_hit,player_state,player_activity,player_support,npc_support,control,control_source,observed_vel,observed_mobility,predicted_vel,predicted_mobility,follow_reason,recovery_reason,guard_reason,mine_policy,mine_status,mine_target,target_evidence,nav_status,position_reason,escape_stage,escape_target,hunt_reason");
+            writer.WriteLine("# text_columns=state,action,reflex,top_threat,target,request,anchor,spot,next_kind,npc_tile,npc_px,npc_vel,held,weapon,fire,engage,torch,player_tile,edge_kind,edge_from,edge_to,edge_outcome,spot_home,diverge_invalid_reason,sample_phase,player_px,player_vel,player_liquid,player_hit,npc_hit,player_state,player_activity,player_support,npc_support,control,control_source,observed_vel,observed_mobility,predicted_vel,predicted_mobility,follow_reason,recovery_reason,guard_reason,mine_policy,mine_status,mine_target,target_evidence,nav_status,position_reason,escape_stage,escape_target,hunt_reason,hand_grant,control_request_owner");
             var h = new StringBuilder();
             // A start timestamp is file metadata. Stopwatch is the observed wall duration of
             // every row; deriving wall time from game ticks would conceal pauses and lag.
@@ -467,6 +473,7 @@ public sealed class BrainTelemetry : ModSystem
             h.Append("\tobserved_left\tobserved_bottom\tobserved_vel\tobserved_ground\tobserved_wet\tobserved_mobility\tpredicted_left\tpredicted_bottom\tpredicted_vel\tpredicted_ground\tpredicted_wet\tpredicted_mobility\tnpc_width\tnpc_height");
             h.Append("\tnav_status\tposition_reason\tmovement_stalled\tescape_active\tescape_stage\tescape_target\tstate_search_pending\tstate_search_retained\thead_submerged\tbreath_ticks\tattack_value\tattack_kills\tattack_harm\tweapon_cooldown\thunt_idle_ticks\thunt_reason");
             h.Append("\tchoice_fresh\tchoice_id\tchoice_tick");
+            h.Append("\tcontrol_grant_fresh\tcontrol_grant_id\tcontrol_grant_tick\thand_grant\tcontrol_request_owner\tcontrol_motor_applications\tfinalise_ms");
             writer.WriteLine(h.ToString());
             headerWritten = true;
         }
@@ -685,6 +692,12 @@ public sealed class BrainTelemetry : ModSystem
         sb.Append('\t').Append(companion.Arsenal.CooldownTicks).Append('\t').Append(hunt?.NoProgressTicks ?? 0).Append('\t').Append(hunt?.LastRejection ?? "unavailable");
         sb.Append('\t').Append(choiceEvaluated ? 1 : 0).Append('\t').Append(brain.Chooser.EvaluationId)
             .Append('\t').Append(brain.Chooser.EvaluationTick?.ToString(CultureInfo.InvariantCulture) ?? "-1");
+        sb.Append('\t').Append(controlFresh ? 1 : 0).Append('\t').Append(controlGrant?.Id ?? 0)
+            .Append('\t').Append(controlGrant?.Tick.ToString(CultureInfo.InvariantCulture) ?? "-1")
+            .Append('\t').Append(controlGrant?.Hand.ToString() ?? "unavailable")
+            .Append('\t').Append(controlGrant?.RequestedOwner ?? "unavailable")
+            .Append('\t').Append(controlGrant?.MotorApplications ?? 0)
+            .Append('\t').Append(controlFresh ? brain.FinaliseMs.ToString("0.00", CultureInfo.InvariantCulture) : "0.00");
 
         // A write that fails (disk full, a stream the OS closed) must not escape the NPC's AI
         // and take the companion with it; the record stops and the game goes on.

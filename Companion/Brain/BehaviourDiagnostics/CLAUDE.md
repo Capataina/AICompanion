@@ -43,6 +43,8 @@ The general rule those five follow: **record the rejected option and the reason 
 
 ## Traps
 
+`control-grant` records ownership transitions from the coordinator's completed grant. The TSV preserves every grant's identity, source tick, freshness, hand permission, requested owner and motor application count; the existing control source is the applied owner. Downed and recovery ticks can have fresh grants alongside stale ordinary choices. Available hands permit use but do not establish that a weapon fired. Requested and applied movement describe the AI phase before engine integration. `finalise_ms` measures motor application, hand resolution and outcome observation separately from navigation preparation, so a timing comparison must account for that boundary.
+
 `activity-state` snapshots the primary owner's activity ID, phase, interruption reason and last termination. The recorder consumes the owner and never performs entry, exit or suspension. Tool effects join their native attempt to both comparison and activity IDs. Decision and navigation snapshots also carry the primary activity identity and phase, so recovery movement beside a suspended mining purpose cannot be read as ordinary mining execution. Actor/session identity remains necessary for these joins. Executing describes the adapter's current phase, not proof that a route succeeded or a useful native effect occurred.
 
 Each recorded factor ledger includes the evaluator's error. Invalid candidate values or overflowing products produce zero selectable value with a named reason; the retained raw value remains evidence of the bad input. A zero from invalid evaluation must not be interpreted as a deliberate low preference.

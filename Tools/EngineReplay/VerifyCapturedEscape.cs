@@ -40,7 +40,7 @@ internal static class VerifyCapturedEscape
         for (int tick = 0; tick < 630; tick++)
         {
             VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
-            companion.AI(); VerifyResponsiveFollowing.AdvanceNative(companion);
+            VerifyCompanionLifecycle.TickWithOneControlGrant(companion); VerifyResponsiveFollowing.AdvanceNative(companion);
             dry = !Collision.DrownCollision(companion.NPC.position, companion.NPC.width, companion.NPC.height, 1f) ? dry + 1 : 0;
             if (companion.IsDowned || companion.NPC.life <= 0) break;
             if (dry >= 30)
@@ -67,7 +67,7 @@ internal static class VerifyCapturedEscape
         for (int tick = 0; tick < 720; tick++)
         {
             VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
-            companion.AI();
+            VerifyCompanionLifecycle.TickWithOneControlGrant(companion);
             VerifyResponsiveFollowing.AdvanceNative(companion);
             dryTicks = !companion.NPC.wet ? dryTicks + 1 : 0;
             if (dryTicks >= 60)

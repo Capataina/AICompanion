@@ -24,7 +24,7 @@ public sealed class ChopAction : CompanionAction
     /// <summary>True only while the axe is actually out; the whole walk to the tree is empty-handed.</summary>
     public override bool HandsBusy => swinging;
     private bool swinging;
-    public override void Exit(in ActionContext ctx) { } // The same tree survives a protective interruption.
+    public override void Exit(in ActionContext ctx) => swinging = false; // Retain the tree, release its tool phase.
     private readonly System.Collections.Generic.Dictionary<Point, ulong> deferred = new();
 
     private const int KeepJobTicks = 120;

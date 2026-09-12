@@ -40,6 +40,7 @@ AICompanion/
 │  ├─ Brain/                 observation, behaviour, movement and interactions
 │  │  ├─ WorldObservation/      player, terrain, threat and activity facts
 │  │  ├─ BehaviourSelection/    utility scoring and considerations
+│  │  ├─ ActivityCoordination/  final movement application and compatible hand grants
 │  │  ├─ Behaviours/            choices grouped by purpose
 │  │  │  ├─ Companionship/      follow, guard and wander
 │  │  │  ├─ Combat/             hunt and kite

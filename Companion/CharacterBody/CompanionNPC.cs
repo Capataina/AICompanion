@@ -206,7 +206,6 @@ public class CompanionNPC : ModNPC
             }
         }
 
-        if (IsDowned) Brain.SuspendActivity(this, "downed");
         body.Sync(NPC, player, heldItemType, itemAnimation, itemAnimationMax, itemRotation, IsDowned);
         global::AICompanion.Companion.Brain.BehaviourDiagnostics.BrainTelemetry.Record(this);
     }
@@ -256,7 +255,7 @@ public class CompanionNPC : ModNPC
 
     private void UpdateDowned(Player player)
     {
-        Motor.Apply(global::AICompanion.Companion.Brain.SharedMovementSystem.Controls.None, "downed");
+        Brain.ApplyDownedControls(this);
         bool playerBeside = !player.dead && Vector2.Distance(player.Center, NPC.Center) <= ReviveDistance;
         reviveProgress = playerBeside ? reviveProgress + 1 : Math.Max(0, reviveProgress - 2);
         if (reviveProgress < ReviveTicks && ++downedTicks < SelfReviveTicks)

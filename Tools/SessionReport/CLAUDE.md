@@ -62,6 +62,8 @@ New records begin with a schema and UTC start metadata, then carry `wall_elapsed
 
 ## Severity is decided by evidence, not by how bad it feels
 
+Control-grant occurrences join activity, decision and navigation evidence in each default time window. They describe changes of movement ownership and hand permission at AI finalisation. Their identity is independent of the choice identity: recovery and downing can apply fresh controls without evaluating a new ordinary choice. Continuous grant columns retain unchanged ownership between occurrences; neither surface proves later physical movement or a native hand effect.
+
 The event reader consumes the sibling `-events.jsonl` automatically. It validates required schema fields, monotonic sequence numbers and explicit session start/end markers. Missing, malformed or interrupted capture is printed as reduced coverage. Default output groups meaningful events across the entire run; `--timeline` preserves each occurrence beside the TSV's continuous movement chronology. Projectile identity includes its spawn generation, so a reused slot cannot connect one shot to another shot's impact. Terrain contact before any recorded enemy contact is reported as an observed obstruction with launch intent and actual impact coordinates; a piercing projectile hitting terrain after an enemy is not labelled as that failure. The reader does not infer the cause from contact alone. Terrain is locally sampled, and unknown regions or sampling delays remain limits on reconstruction.
 
 The categories are the whole point. A report that says "take a look around tick 3000" hands the reading back to whoever asked for it, so every finding lands in one of three places and the boundary between them is what would settle the question.

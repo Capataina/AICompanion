@@ -392,6 +392,7 @@ public sealed class MineAction : CompanionAction
     public override void Exit(in ActionContext ctx)
     {
         // The vein survives interruption, but a route from the old body position does not.
+        swinging = false;
         target = null;
         status = "resume requires approach";
         sinceSearch = SearchEveryTicks;

@@ -63,7 +63,7 @@ internal static class VerifyCompanionLifecycle
     {
         var companion = Create();
         companion.HoldItem(Terraria.ID.ItemID.Torch);
-        companion.AI();
+        TickWithOneControlGrant(companion);
         Require(companion.Brain.Senses.Tick == 1, "player death must not suspend the companion brain");
         Require(companion.HeldItemType == Terraria.ID.ItemID.None,
             "an unclaimed previous-tick torch must not survive hand resolution");
@@ -73,7 +73,7 @@ internal static class VerifyCompanionLifecycle
         Require(!companion.Torch.Shown, "ordinary torches must not remain visible underwater");
         companion.CheckDead();
         int tick = companion.Brain.Senses.Tick;
-        companion.AI();
+        TickWithOneControlGrant(companion);
         Require(companion.IsDowned && companion.Brain.Senses.Tick == tick && !companion.Torch.Shown,
             "the companion's own downed state suspends decisions and hides its torch");
         VerifyWorldMemory();
@@ -106,6 +106,23 @@ internal static class VerifyCompanionLifecycle
         owner.LoadWorldData(firstWorld);
         Require(memory.Count == 1, "world-owned route memory must survive clear-then-load lifecycle");
         owner.OnWorldUnload();
+    }
+
+    internal static void TickWithOneControlGrant(CompanionNPC companion)
+    {
+        long before = companion.Motor.ControlApplications;
+        long priorGrant = companion.Brain.ControlGrants.Last?.Id ?? 0;
+        companion.AI();
+        var grant = companion.Brain.ControlGrants.Last;
+        Require(companion.Motor.ControlApplications == before + 1,
+            $"one AI invocation must apply exactly one movement packet; applied={companion.Motor.ControlApplications - before}");
+        Require(grant is { } result && result.Id == priorGrant + 1 && result.Tick == Main.GameUpdateCount
+            && result.MotorApplications == 1 && result.AppliedOwner == companion.Motor.ControlSource
+            && result.AppliedMovement == companion.Motor.AppliedControls,
+            "the completed grant must describe the current motor application, including early returns");
+        if (companion.IsDowned)
+            Require(grant!.Value.Hand == live::AICompanion.Companion.Brain.ActivityCoordination.HandGrant.Unavailable,
+                "downed controls must revoke the hand grant");
     }
 
     private static void Set(object target, string name, object value)

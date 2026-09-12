@@ -31,6 +31,7 @@ internal static class VerifyOreWork
             AnUnknownApproachKeepsItsOwnOreIdentity();
             AReachableOreProducesANativeBreak();
             AUsefulCurrentPoseNeedsNoApproach();
+            AProjectileInterruptsCoherentToolOwnership();
             RaisedLipsAtOrdinaryGravityProduceWork();
             NativeToolOutcomesDistinguishAttemptsFromProgress();
             Console.WriteLine("ore work: policy, retained vein, tool gates, unproven approach and native productive break pass");
@@ -77,6 +78,37 @@ internal static class VerifyOreWork
         var reach = live::AICompanion.Companion.Brain.WorldInteractions.Mining.OreFinder.Approach(ore, feet, out Vector2 stand);
         Require(reach == Reachability.Reach.Yes && stand == feet,
             $"a usable current pose needs no approach; got {reach} at {stand} instead of {feet}");
+    }
+
+    private static void AProjectileInterruptsCoherentToolOwnership()
+    {
+        var (_, ctx) = SetUp(WorkPolicy.Opportunistic, TileID.Copper, new Point(25, 59));
+        var mine = ctx.Companion.Brain.Chooser.Actions.OfType<MineAction>().Single();
+        ctx.Companion.Brain.Chooser.Actions.Clear();
+        ctx.Companion.Brain.Chooser.Actions.Add(mine);
+        VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
+        VerifyCompanionLifecycle.TickWithOneControlGrant(ctx.Companion);
+        var effect = ctx.Companion.Miner.LastOutcome;
+        Require(effect is { Productive: true } && mine.HandsBusy
+            && ctx.Companion.Brain.ControlGrants.Last?.Hand == live::AICompanion.Companion.Brain.ActivityCoordination.HandGrant.WorkTool,
+            "actual native mining must reserve the tool hand");
+        VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
+        VerifyCompanionLifecycle.TickWithOneControlGrant(ctx.Companion);
+        Require(ctx.Companion.Miner.LastOutcome == effect && mine.HandsBusy
+            && ctx.Companion.Brain.ControlGrants.Last?.Hand == live::AICompanion.Companion.Brain.ActivityCoordination.HandGrant.WorkTool,
+            "a cooldown gap must retain tool ownership without fabricating another swing");
+
+        Main.projectile[0] = new Projectile { whoAmI = 0, active = true, hostile = true, damage = 10,
+            width = 8, height = 8, position = ctx.Npc.Center + new Vector2(28, -4), velocity = new Vector2(-8, 0), timeLeft = 100 };
+        VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
+        VerifyCompanionLifecycle.TickWithOneControlGrant(ctx.Companion);
+        Require(ctx.Companion.Brain.Senses.Threats.Threats.Count == 0
+            && ctx.Companion.Brain.Reflexes.Active == "avoid-collision"
+            && ctx.Companion.Brain.ControlGrants.Last is { AppliedOwner: "combat-reflex", Hand: live::AICompanion.Companion.Brain.ActivityCoordination.HandGrant.Available }
+            && ctx.Companion.Brain.Chooser.Activity.Phase == live::AICompanion.Companion.Brain.BehaviourSelection.ActivityPhase.Suspended
+            && !mine.HandsBusy && ctx.Companion.Miner.LastOutcome == effect,
+            $"a projectile without an enemy must suspend native work and grant avoidance with a free hand; enemies={ctx.Companion.Brain.Senses.Threats.Threats.Count}; projectiles={ctx.Companion.Brain.Senses.Projectiles.Threats.Count}; reflex={ctx.Companion.Brain.Reflexes.Active}; grant={ctx.Companion.Brain.ControlGrants.Last}; phase={ctx.Companion.Brain.Chooser.Activity.Phase}; busy={mine.HandsBusy}; same-effect={ctx.Companion.Miner.LastOutcome == effect}");
+        Main.projectile[0].active = false;
     }
 
     private static void NativeToolOutcomesDistinguishAttemptsFromProgress()
@@ -186,7 +218,7 @@ internal static class VerifyOreWork
                 ctx.Companion.Miner.Swing(ore,
                     live::AICompanion.Companion.Brain.WorldInteractions.Mining.TileMiner.PickaxeFor(ctx.Player));
             }
-            else ctx.Companion.AI();
+            else VerifyCompanionLifecycle.TickWithOneControlGrant(ctx.Companion);
             if (ctx.Companion.Brain.LastAction?.Name == "mine") miningTicks++;
             VerifyResponsiveFollowing.AdvanceNative(ctx.Companion);
             if (diagnostics && tick % 60 == 0)

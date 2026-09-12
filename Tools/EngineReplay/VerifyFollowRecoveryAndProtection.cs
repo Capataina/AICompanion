@@ -116,7 +116,7 @@ internal static class VerifyFollowRecoveryAndProtection
                     damage = 20, width = 30, height = 40, noGravity = true,
                     position = companion.NPC.position + new Vector2(120, 0) };
             VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
-            companion.AI();
+            VerifyCompanionLifecycle.TickWithOneControlGrant(companion);
             if (tick == 15)
             {
                 answeredThreat = companion.Brain.EngageTarget == Main.npc[1];

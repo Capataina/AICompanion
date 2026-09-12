@@ -53,7 +53,7 @@ internal static class VerifyObservationLifecycle
         recorder.OnWorldLoad();
         string path = Directory.GetFiles(BrainTelemetry.Folder, "*.tsv").OrderByDescending(File.GetLastWriteTimeUtc).First();
         VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
-        companion.AI(); recorder.OnWorldUnload();
+        VerifyCompanionLifecycle.TickWithOneControlGrant(companion); recorder.OnWorldUnload();
         string[] lines = File.ReadAllLines(path);
         int header = Array.FindIndex(lines, l => l.StartsWith("tick\t"));
         Require(header >= 0 && header + 1 < lines.Length, "real sample writer emitted no table row");
@@ -77,7 +77,7 @@ internal static class VerifyObservationLifecycle
         recorder.OnWorldLoad();
         string path = Directory.GetFiles(BrainTelemetry.Folder, "*.tsv").OrderByDescending(File.GetLastWriteTimeUtc).First();
         VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
-        companion.AI();
+        VerifyCompanionLifecycle.TickWithOneControlGrant(companion);
         // Start from an already active recovery so the actual coordinator takes its early
         // return before choosing. The owner stays inside the native fixture's world.
         Main.LocalPlayer.dead = false;
@@ -85,19 +85,19 @@ internal static class VerifyObservationLifecycle
         typeof(live::AICompanion.Companion.Brain.Behaviours.Companionship.RecoverDistantFollowing)
             .GetField("<Active>k__BackingField", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(companion.Brain.FollowRecovery, true);
         VerifyObservedMotion.SetTick((Main.GameUpdateCount / 60 + 1) * 60);
-        companion.AI();
+        VerifyCompanionLifecycle.TickWithOneControlGrant(companion);
         Require(companion.Motor.ControlSource == "follow-recovery-flight", "fixture did not enter the actual recovery control path");
         Main.LocalPlayer.dead = true;
         VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
-        companion.AI();
+        VerifyCompanionLifecycle.TickWithOneControlGrant(companion);
         Require(companion.Brain.Chooser.Current == null, "the empty post-recovery board must have no ordinary activity");
         Main.LocalPlayer.dead = false;
         Main.LocalPlayer.Bottom = companion.NPC.Bottom;
         VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
-        companion.AI();
+        VerifyCompanionLifecycle.TickWithOneControlGrant(companion);
         companion.CheckDead();
         VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
-        companion.AI();
+        VerifyCompanionLifecycle.TickWithOneControlGrant(companion);
         recorder.OnWorldUnload();
         string events = Path.ChangeExtension(path, null) + "-events.jsonl";
         string[] activities = File.ReadLines(events).Where(line => line.Contains("\"kind\":\"activity-state\"", StringComparison.Ordinal)).ToArray();
@@ -143,6 +143,21 @@ internal static class VerifyObservationLifecycle
             "a newly useful companionship activity must come from a fresh comparison");
         Require(Value(4, "choice_fresh") == "0" && Value(4, "brain_fresh") == "0" && Value(4, "choice_id") == Value(3, "choice_id"),
             "downing must not refresh a retained comparison");
+        for (int row = 0; row < rows.Length; row++)
+        {
+            Require(Value(row, "control_grant_fresh") == "1" && Value(row, "control_motor_applications") == "1",
+                "every ordinary, recovery and downed tick must record one fresh motor grant");
+            Require(Value(row, "control_grant_tick") == Value(row, "tick"), "grant tick must describe this sample");
+            if (row > 0) Require(long.Parse(Value(row, "control_grant_id")) == long.Parse(Value(row - 1, "control_grant_id")) + 1,
+                "control grant identity must advance even while the retained choice does not");
+        }
+        Require(Value(1, "control_request_owner") == "follow-recovery-flight" && Value(1, "hand_grant") == "Available",
+            "recovery must preserve the independently available hand");
+        Require(Value(4, "control_request_owner") == "downed" && Value(4, "hand_grant") == "Unavailable",
+            "downed movement must not permit weapon use");
+        string[] grants = File.ReadLines(events).Where(line => line.Contains("\"kind\":\"control-grant\"", StringComparison.Ordinal)).ToArray();
+        Require(grants.Length == 5 && grants[1].Contains("follow-recovery-flight") && grants[4].Contains("Unavailable"),
+            "sparse grant evidence must preserve all five ownership transitions");
     }
 
     private static void VerifySameStemGainsAnAttemptSuffix()

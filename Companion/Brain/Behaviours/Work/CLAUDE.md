@@ -2,6 +2,8 @@
 
 Mining and chopping animate accepted native swings, but credit their retained worksite only when the observed tool outcome shows increased damage or removal. They publish that same immutable outcome to the recorder. A cooldown, refused effect or changed tile frame cannot manufacture productive work credit; the native interaction owns the observation and the behaviour consumes it.
 
+Tool ownership spans cooldowns only while that work is executing. Exit and suspension clear the swinging phase independently of retaining a vein or tree; otherwise an interrupted job reports an occupied hand after safety has already taken control. The current activity grant determines whether the arsenal may use the released hand.
+
 ```
 Work/
 ├─ CLAUDE.md

@@ -6,6 +6,7 @@ using AICompanion.Companion.Brain.BehaviourSelection;
 using AICompanion.Companion.Brain.SharedMovementSystem;
 using AICompanion.Companion.Brain.PositionSelection;
 using AICompanion.Companion.CharacterBody;
+using AICompanion.Companion.Brain.ActivityCoordination;
 
 namespace AICompanion.Companion.Brain;
 
@@ -24,6 +25,7 @@ public sealed class Brain
     public readonly CoordinateMovement Movement = new();
     public Navigator Navigator => Movement.Navigator;
     public readonly CombatReflexes.Reflexes Reflexes = new();
+    public readonly GrantActivityControls ControlGrants = new();
     public readonly Behaviours.Companionship.RecoverDistantFollowing FollowRecovery = new();
 
     // The navigator names nothing of the game, so the failed-plan dump reaches the telemetry
@@ -57,7 +59,7 @@ public sealed class Brain
     /// already timed said forty percent of every second, which left the other sixty to guess.
     /// A phase that did not run this tick reads zero.
     /// </summary>
-    public double SensesMs, ReflexMs, DecideMs, PositionMs, NavigateMs, TotalMs;
+    public double SensesMs, ReflexMs, DecideMs, PositionMs, NavigateMs, FinaliseMs, TotalMs;
     private readonly System.Diagnostics.Stopwatch phase = new(), whole = new();
 
     /// <summary>
@@ -93,11 +95,12 @@ public sealed class Brain
         ChoiceEvaluated = false;
         whole.Restart();
         LimitPlanningWork.Begin(Weights.TotalPlanningMilliseconds);
-        ReflexMs = DecideMs = PositionMs = NavigateMs = 0;
+        ReflexMs = DecideMs = PositionMs = NavigateMs = FinaliseMs = 0;
         Movement.Configure(Terraria.Main.GameUpdateCount, Senses.Self.LifeFraction > 0.6f, false);
         try
         {
-            TickPhases(companion, player);
+            ActivityControlRequest request = TickPhases(companion, player);
+            FinaliseControls(companion, request);
         }
         finally
         {
@@ -109,6 +112,28 @@ public sealed class Brain
     public void SuspendActivity(CompanionNPC companion, string reason)
         => Chooser.Activity.Suspend(new ActionContext(companion, Senses, Roaming), reason);
 
+    public void ApplyDownedControls(CompanionNPC companion)
+    {
+        SuspendActivity(companion, "downed");
+        LastRequest = PositionRequest.Hold;
+        FinaliseControls(companion, new ActivityControlRequest(Movement.Hold(companion.Motor.State), "downed", HandGrant.Unavailable));
+    }
+
+    private void FinaliseControls(CompanionNPC companion, ActivityControlRequest request)
+    {
+        long started = System.Diagnostics.Stopwatch.GetTimestamp();
+        ActivityControlGrant grant = ControlGrants.Apply(companion, request, Chooser.Activity);
+        var ctx = new ActionContext(companion, Senses, Roaming);
+        Engage(companion, ctx, grant.Hand);
+        if (request.CountReunion) CountStranded();
+        if (request.ObserveProgress)
+        {
+            WatchProgress(companion);
+            if (LastAction is Behaviours.Combat.HuntAction hunt) hunt.ObserveOutcome(ctx);
+        }
+        FinaliseMs = System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+    }
+
     private double Lap()
     {
         double ms = phase.Elapsed.TotalMilliseconds;
@@ -116,7 +141,7 @@ public sealed class Brain
         return ms;
     }
 
-    private void TickPhases(CompanionNPC companion, Terraria.Player player)
+    private ActivityControlRequest TickPhases(CompanionNPC companion, Terraria.Player player)
     {
         phase.Restart();
         Senses.Update(companion.NPC, player, companion.Breath);
@@ -128,7 +153,7 @@ public sealed class Brain
         var ctx = new ActionContext(companion, Senses, Roaming);
         Senses.SetInterventionEstimate(companion.Arsenal.EstimateInterventionTicks(ctx));
 
-        if (FollowRecovery.Active && TryFollowRecovery(companion, player, false)) return;
+        if (FollowRecovery.Active && TryFollowRecovery(companion, player, false, out var initialRecovery)) return initialRecovery;
 
         Navigator.Capabilities = companion.Motor.Capabilities;
         bool taken = Reflexes.TryAssess(companion.NPC, Senses, companion.Motor.State, out var unsafeAtTick);
@@ -137,32 +162,20 @@ public sealed class Brain
         if (taken)
         {
             Chooser.Activity.Suspend(ctx, "combat-reflex");
-            companion.Motor.Apply(Movement.AvoidThreats(companion.Motor.State, unsafeAtTick, Senses.Player.Bottom), "combat-reflex");
-            // A reflex takes the *feet*, and this used to return before the hands ran, which
-            // quietly contradicted the contract Engage is written under: the weapon fires every
-            // tick whatever the feet were told. A dodge is exactly when there is most worth
-            // shooting at, and the dodge itself is a jump or a step — it wants the legs, never the
-            // arm — so the hands have no reason to stop. The 2026-09-09 combat session spent 153
-            // ticks inside reflexes with the fire column frozen on whatever it last read, which is
-            // both a lost shot and a lying column.
-            Engage(companion, ctx, null);
-            return;
+            return new ActivityControlRequest(Movement.AvoidThreats(companion.Motor.State, unsafeAtTick, Senses.Player.Bottom), "combat-reflex");
         }
 
         CompanionAction? action = Chooser.Choose(ctx);
         ChoiceEvaluated = true;
-        if (TryFollowRecovery(companion, player, action is Behaviours.Companionship.WalkWithPlayerAction)) return;
+        if (TryFollowRecovery(companion, player, action is Behaviours.Companionship.WalkWithPlayerAction, out var selectedRecovery)) return selectedRecovery;
         Chooser.Activity.BeginExecution();
         LastRequest = action?.Execute(ctx) ?? PositionRequest.Hold;
         DecideMs = Lap();
 
         if (action is Behaviours.Survival.SurviveAction survival && (survival.TryEscape(ctx, out Controls escape, out bool escapePending) || escapePending))
         {
-            companion.Motor.Apply(escape, "survival-escape");
             NavigateMs = Lap();
-            Engage(companion, ctx, action);
-            WatchProgress(companion);
-            return;
+            return new ActivityControlRequest(escape, "survival-escape", ObserveProgress: true);
         }
 
         var profile = companion.Arsenal.ProfileFor(ctx, LastRequest.Target);
@@ -186,34 +199,32 @@ public sealed class Brain
             obstacles.Add(box);
         }
         Movement.SetObstacles(obstacles);
+        Controls movement;
+        string movementOwner;
         try
         {
-            Navigate(companion, spot);
+            movement = Navigate(companion, spot, out movementOwner);
         }
         finally
         {
             NavigateMs = Lap();
         }
-        Engage(companion, ctx, action);
-        CountStranded();
-        WatchProgress(companion);
-        if (action is Behaviours.Combat.HuntAction hunt) hunt.ObserveOutcome(ctx);
+        return new ActivityControlRequest(movement, movementOwner,
+            action?.HandsBusy == true ? HandGrant.WorkTool : HandGrant.Available,
+            ObserveProgress: true, CountReunion: true);
     }
 
-    private bool TryFollowRecovery(CompanionNPC companion, Terraria.Player player, bool mayStart)
+    private bool TryFollowRecovery(CompanionNPC companion, Terraria.Player player, bool mayStart, out ActivityControlRequest request)
     {
+        request = default;
         if (!FollowRecovery.Update(mayStart, companion.IsDowned, !player.dead && player.active,
             companion.NPC.Bottom, player.Bottom, companion.Motor.ClearOfTerrain
                 && player.velocity.Y == 0f && companion.NPC.Bottom.Y <= player.Bottom.Y)) return false;
         LastRequest = new PositionRequest(RequestKind.WithPlayer, player.Bottom);
         Chooser.Activity.Suspend(new ActionContext(companion, Senses, Roaming), "follow-recovery-flight");
         Movement.Hold(companion.Motor.State);
-        companion.Motor.ApplyRecoveryFlight(FollowRecovery.Steer(companion.NPC.Bottom,
-            companion.NPC.velocity, player.Bottom, player.velocity));
-        // Recovery owns the feet until terrain clearance permits landing; the arms retain
-        // ordinary follow combat so an enemy arriving mid-flight is still answered.
-        var ctx = new ActionContext(companion, Senses, Roaming);
-        Engage(companion, ctx, null);
+        request = new ActivityControlRequest(Controls.None, "follow-recovery-flight", RecoveryVelocity:
+            FollowRecovery.Steer(companion.NPC.Bottom, companion.NPC.velocity, player.Bottom, player.velocity));
         NavigateMs = Lap();
         return true;
     }
@@ -232,16 +243,11 @@ public sealed class Brain
     /// which is what a player looks like. The hands stay out of it while they are driving a tool,
     /// because a swing and a throw cannot share the same arm.
     /// </summary>
-    private void Engage(CompanionNPC companion, in ActionContext ctx, CompanionAction? action)
+    private void Engage(CompanionNPC companion, in ActionContext ctx, HandGrant hand)
     {
-        // An axe or a pickaxe occupies the arm the throw needs, so a swing is the one thing that
-        // stops the hands. Everything else — following, guarding, kiting, looting, wandering,
-        // walking to a vein, saving itself from drowning — shoots. A null action is a reflex tick:
-        // nothing was chosen, so nothing can be holding a tool, and the hands are free by
-        // construction. This asks the action whether a tool is actually out rather than asking its
-        // name, because mining and chopping hold nothing for the whole approach and a name test
-        // therefore blinded the companion for the entire walk as well as the swing.
-        if (action?.HandsBusy == true)
+        // The final grant owns compatibility, including early safety and downed paths. Tool
+        // phases reserve the hand across cooldown gaps; travelling to that work leaves it free.
+        if (hand != HandGrant.Available)
         {
             EngageTarget = null;
             companion.Arsenal.NoteHandsBusy();
@@ -299,7 +305,7 @@ public sealed class Brain
         }
     }
 
-    private void Navigate(CompanionNPC companion, Vector2? spot)
+    private Controls Navigate(CompanionNPC companion, Vector2? spot, out string owner)
     {
         if (spot is Vector2 feet)
         {
@@ -308,7 +314,8 @@ public sealed class Brain
             // 3,600 requests. The kind is the episode's identity because the exact tile moves
             // under a request that has not changed.
             BehaviourCensus.RequestBegan(LastRequest.Kind.ToString());
-            companion.Motor.Apply(Movement.MoveTo(companion.Motor.State, feet, LastRequest.JumpScale), "travel");
+            owner = "travel";
+            Controls controls = Movement.MoveTo(companion.Motor.State, feet, LastRequest.JumpScale);
             // Stuck twice on the way to one spot: the first strike priced the step and the replan
             // found nothing better, so the spot itself is the problem. Refuse it for a while and
             // let the positioner answer with another, which is Caner's "choose a different
@@ -318,25 +325,28 @@ public sealed class Brain
                 Positioner.Ban(MovementQueries.FeetTile(feet), Weights.StuckSpotBanTicks);
                 Navigator.ResetStrikes();
             }
+            return controls;
         }
         else if (LastRequest.Kind == RequestKind.WithPlayer && !Positioner.FollowObjectiveSatisfied)
         {
             var objective = new FollowPlayerObjective(Senses.Player.Bottom, LastRequest.Anchor);
             BehaviourCensus.RequestBegan(LastRequest.Kind.ToString());
-            companion.Motor.Apply(Movement.SeekDestination(companion.Motor.State, LastRequest.Anchor,
+            owner = "seeking-destination";
+            return Movement.SeekDestination(companion.Motor.State, LastRequest.Anchor,
                 state => state.OnGround && objective.IsSatisfied(state.Feet,
                     Terraria.Collision.CanHitLine(new Vector2(state.Left, state.Bottom - BodyPhysics.Height),
                         BodyPhysics.Width, BodyPhysics.Height, Senses.PlayerEntity.position,
-                        Senses.PlayerEntity.width, Senses.PlayerEntity.height))),
-                "seeking-destination");
+                        Senses.PlayerEntity.width, Senses.PlayerEntity.height)));
         }
         else
         {
-            companion.Motor.Apply(Movement.Hold(companion.Motor.State, LastRequest.JumpScale), "hold");
+            owner = "hold";
+            Controls controls = Movement.Hold(companion.Motor.State, LastRequest.JumpScale);
             // Nothing is being asked for, so whatever was being asked for is over: reached if the
             // navigator got there, abandoned otherwise. A Hold request is the ordinary way an
             // episode ends, which is why this is not treated as a failure.
             BehaviourCensus.RequestEnded();
+            return controls;
         }
     }
 }

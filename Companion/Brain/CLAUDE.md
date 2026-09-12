@@ -16,6 +16,7 @@ Brain/
 ├─ WorldObservation/            facts derived once from Terraria
 ├─ CombatReflexes/              imminent-collision assessment, before selection
 ├─ BehaviourSelection/          utility choice among the behaviour families
+├─ ActivityCoordination/        one final movement application and compatible hand grant
 ├─ Behaviours/                  follow, combat, gathering, survival and work behaviour
 ├─ PositionSelection/           turn a position request into a useful feet tile
 ├─ SharedMovementSystem/        core simulation, route planning, execution and Terraria adapter
@@ -42,7 +43,9 @@ hands: arsenal fires after movement whenever no work tool owns the arm
 
 Ordinary selection prepares candidates before comparison. The common evaluator supplies their values, each purpose family nominates its best positive-value child, and the parent chooses among those three nominations. An empty family nominates nothing; an entirely empty board has no ordinary activity. The retained adapters still include follow/wander and kite/survival until their responsibilities migrate to the final companionship and shared-safety structure.
 
-The hands are independent of the feet. The arsenal may fire while following, guarding, looting, wandering or avoiding a hit; hunting only asks the feet to approach a firing position. Chopping and mining are the exception because a swing and projectile cannot use the same arm. The torch fills a free hand in darkness, so it disappears during a tool swing and returns when the arm clears.
+Every branch returns a movement request and hand permission to the common finaliser. Ordinary travel, reflex avoidance, survival escape and recovery flight therefore share one motor application and a retained grant describing its actual AI-phase output. The downed lifecycle enters that finaliser without running ordinary selection. The grant does not certify the subsequently integrated motion or a productive native effect.
+
+The hands are independent of the feet. The arsenal may fire while following, guarding, looting, wandering or avoiding a hit; hunting only asks the feet to approach a firing position. Chopping and mining reserve the hand through coherent work phases, including cooldown gaps, while approaching work leaves it available. The torch fills a free hand in darkness. Downed grants revoke weapon permission. Navigation timing measures control preparation; finalisation timing separately includes motor application, compatible arsenal use and outcome observation.
 
 Distant-follow recovery is an explicit coordinator branch outside the route graph. It starts only when ordinary following wins, interrupts the current route, and asks the motor for continuous flight until a clear arrival near the live owner. Recovery owns the feet while independent weapon targeting continues; it cannot teach the archive a route. Ordinary following uses separate horizontal and vertical comfort limits; navigation reaching a waypoint alone does not establish that companionship has arrived.
 
