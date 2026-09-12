@@ -23,6 +23,7 @@ internal static class VerifyCompanionActivities
             WorkWinsOutsideFollowComfort();
             ContinuingTargetsKeepTheirIdentity();
             ConsecutiveJobsEarnTheirOwnAllowance();
+            ActivityOwnershipSurvivesInterruption();
             InvalidCandidatesCannotBecomeTheFallback();
             StallsSurviveBehaviourChanges();
             ComfortableFollowingHasNoRegroupPressure();
@@ -55,14 +56,45 @@ internal static class VerifyCompanionActivities
         public Vector2 Target;
         public float Value = 1;
         public int Entries;
+        public int Exits;
         public override string Name => "probe";
         public override Vector2? ActivityTarget => Target;
         public override object ActivityIdentity => Identity;
         public bool Allows(live::AICompanion.Companion.Brain.Behaviours.ActionContext ctx) => AllowsTarget(ctx, Target, Identity);
         public override float Score(in live::AICompanion.Companion.Brain.Behaviours.ActionContext ctx) => Allows(ctx) ? Value : 0f;
         public override void Enter(in live::AICompanion.Companion.Brain.Behaviours.ActionContext ctx) => Entries++;
+        public override void Exit(in live::AICompanion.Companion.Brain.Behaviours.ActionContext ctx) { Exits++; base.Exit(ctx); }
         public override live::AICompanion.Companion.Brain.PositionSelection.PositionRequest Execute(in live::AICompanion.Companion.Brain.Behaviours.ActionContext ctx)
             => live::AICompanion.Companion.Brain.PositionSelection.PositionRequest.Hold;
+    }
+
+    private static void ActivityOwnershipSurvivesInterruption()
+    {
+        var (_, ctx) = VerifyOreWork.SetUp(Policy.Disabled, TileID.Copper, new Point(25, 59));
+        var owner = ctx.Companion.Brain.Chooser.Activity;
+        var activity = new ActivityProbe { Target = ctx.Player.Bottom };
+        owner.Select(activity, ctx);
+        long first = owner.Id;
+        owner.BeginExecution();
+        ulong changed = owner.ChangedAt;
+        VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
+        owner.Select(activity, ctx); owner.BeginExecution();
+        Require(owner.ChangedAt == changed, "an unchanged executing purpose must not publish a fictional lifecycle transition each tick");
+        owner.Suspend(ctx, "projectile"); owner.Suspend(ctx, "projectile");
+        Require(owner.Id == first && activity.Exits == 1 && activity.HasActivityAllowance,
+            "one interruption must release its method once without losing its purpose or continuation allowance");
+        owner.Select(activity, ctx);
+        Require(owner.Id == first && activity.Entries == 2 && owner.LastEndedId == 0,
+            "reselection after interruption must resume the same purpose rather than manufacture a failed job");
+        activity.Identity = new object();
+        owner.Select(activity, ctx);
+        Require(owner.Id > first && owner.LastEndedId == first && activity.Entries == 2,
+            "a new target under the same executor needs a new activity identity without resetting its prepared method");
+        owner.Suspend(ctx, "recovery");
+        int releases = activity.Exits;
+        owner.Select(null, ctx);
+        Require(owner.Id == 0 && owner.Current == null && activity.Exits == releases && !activity.HasActivityAllowance,
+            "abandoning a suspended activity must clear ownership without releasing its method twice");
     }
 
     private static void InvalidCandidatesCannotBecomeTheFallback()
@@ -141,7 +173,6 @@ internal static class VerifyCompanionActivities
         var brain = ctx.Companion.Brain;
         var request = brain.GetType().GetProperty("LastRequest")!;
         var watch = brain.GetType().GetMethod("WatchProgress", BindingFlags.Instance | BindingFlags.NonPublic)!;
-        var current = brain.Chooser.GetType().GetProperty("Current")!;
         int window = live::AICompanion.Companion.Brain.BehaviourSelection.Weights.ObjectiveProgressWindowTicks;
         Vector2 origin = ctx.Npc.Bottom;
         ctx.Player.Bottom = origin + new Vector2(500, 0);
@@ -158,9 +189,9 @@ internal static class VerifyCompanionActivities
         Require(!brain.MovementStalled, "an intentional settled hold must not be labelled stuck");
         for (int i = 0; i < window; i++)
         {
-            current.SetValue(brain.Chooser, i % 2 == 0
+            brain.Chooser.Activity.Select(i % 2 == 0
                 ? new live::AICompanion.Companion.Brain.Behaviours.Combat.HuntAction()
-                : new live::AICompanion.Companion.Brain.Behaviours.Companionship.WalkWithPlayerAction());
+                : new live::AICompanion.Companion.Brain.Behaviours.Companionship.WalkWithPlayerAction(), ctx);
             Tick(i % 2 == 0 ? RequestKind.WithPlayer : RequestKind.Guard, i % 8 - 4);
         }
         Require(brain.MovementStalled, "local oscillation and behaviour churn must not reset continuing non-progress");

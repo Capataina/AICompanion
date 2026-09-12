@@ -14,6 +14,8 @@ Player death does not suspend this lifecycle: the companion keeps observing, def
 
 Downing cancels ordinary thought and asks the motor to cancel recovery flight. A clear flying body stops at once; a body made solid by interrupted flight stays in the motor's bounded clearance mode until it reaches the last clear position, then returns to normal collision while downed. The body layer never turns this into a rescue route or revives a body by moving it toward the owner.
 
+The downed path also suspends the brain's current activity before recording the tick. This is a lifecycle call, not recorder-driven gameplay: turning recording off cannot leave the old activity executing. Repeated downed ticks do not repeatedly release the interrupted physical method.
+
 The renderer borrows Terraria’s player drawing path, so it needs the selected-item visual state synchronised and a closed sprite batch around player drawing. Breath is NPC life-state logic, not player state: it drives NPC damage and downed behaviour while world observation reads the resulting facts.
 
 Pickup observation snapshots the touched item before inventory transfer, then records only the quantity actually removed from its world stack. A successful loot intent is not pickup evidence, and reading the item after TurnToAir loses its type and identity. The diagnostic event names the combined player-stack/companion-bag destination because the collector may divide one transfer between them.

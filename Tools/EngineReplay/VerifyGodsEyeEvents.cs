@@ -46,11 +46,11 @@ internal static class VerifyGodsEyeEvents
         var toolAfter = toolBefore with { Damage = 65 };
         var toolOutcome = new AICompanion.Companion.Brain.WorldInteractions.TileToolObservation(
             Main.GameUpdateCount, 3, new Point(25, 59), Terraria.ID.ItemID.CopperPickaxe, toolBefore, toolAfter);
-        GodsEyeEvents.RecordToolEffect(reusedNpc, "pickaxe", toolOutcome, 12);
+        GodsEyeEvents.RecordToolEffect(reusedNpc, "pickaxe", toolOutcome, 12, 34);
         GodsEyeEvents.RecordToolEffect(reusedNpc, "pickaxe", toolOutcome with
         {
             Attempt = 4, Before = toolAfter, After = toolAfter,
-        }, 12);
+        }, 12, 34);
 
         Projectile first = Projectile(9, new Vector2(320f, 800f), new Vector2(10f, 0f));
         projectileHooks.OnSpawn(first, source);
@@ -89,7 +89,7 @@ internal static class VerifyGodsEyeEvents
         int failures = 0;
         Event[] toolEvents = events.Where(record => record.Kind == "tool-effect").ToArray();
         failures += Require(toolEvents.Length == 2 && toolEvents[0].Subject == 21_000_002
-            && toolEvents[0].Channel == "attempt=3;choice-id=12" && toolEvents[1].Channel == "attempt=4;choice-id=12"
+            && toolEvents[0].Channel == "attempt=3;choice-id=12;activity-id=34" && toolEvents[1].Channel == "attempt=4;choice-id=12;activity-id=34"
             && toolEvents[0].Detail.Contains("effect=Damaged;before-present=True;before-type=7;before-frame=18,36;before-damage=30")
             && toolEvents[0].Detail.Contains("after-damage=65;damage-scope=tool-owned-hit-table;yield=unobserved")
             && toolEvents[1].Detail.Contains("effect=NoObservedChange"),

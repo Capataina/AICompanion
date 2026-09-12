@@ -4,6 +4,8 @@ The coordinator records brain execution separately from completed choice evaluat
 
 No valid evaluated candidate produces an explicit absent activity and an ordinary Hold request. It does not select a numerically invalid last entry. Independent hand resolution and the existing early safety/recovery paths still run; the absence is not a fourth behaviour.
 
+The chooser delegates current-activity ownership to `BehaviourSelection/OwnCurrentActivity.cs`. Ordinary execution marks that owner executing; reflex and follow recovery suspend it before taking movement, and the NPC downed path suspends it even when the brain does not run. A later comparison decides whether that purpose remains useful. Suspension records interruption rather than failed work, and it does not itself certify the safety response's outcome.
+
 The brain turns one shared world observation into a body intent each tick. It does not move the NPC: `CoordinateBrainTick.cs` asks `SharedMovementSystem/CoordinateMovement.cs` for controls and the motor in `SharedMovementSystem/TerrariaIntegration/` applies those controls. The separation gives every body-changing decision one route through the same movement interface, while behaviours remain independent of route planning and engine movement details.
 
 ```

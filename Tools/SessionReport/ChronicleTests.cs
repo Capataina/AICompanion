@@ -451,6 +451,7 @@ public static class ChronicleTests
             Add("projectile-enemy-hit", 1000002, wall: 400, related: "enemy-2");
             Add("projectile-terrain-hit", 1000002, wall: 500);
             Add("tool-effect", 1, "attempt=4", 550, detail: "effect=NoObservedChange;before-damage=0;after-damage=0;yield=unobserved", label: "pickaxe");
+            Add("activity-state", 1, "Suspended", 560, detail: "activity-id=2;phase=Suspended;reason=projectile", label: "mine");
             for (int i = 0; i < 30; i++) Add("decision", 1, "WithPlayer", 1000 + i * 30000);
             Add("session-end", wall: 902000);
             File.WriteAllLines(events, lines);
@@ -461,6 +462,8 @@ public static class ChronicleTests
             Require(report.Contains("end=normal close"), "normal recorder closure must be visible");
             Require(report.Contains("tool pickaxe, attempt=4; effect=NoObservedChange") && report.Contains("yield=unobserved"),
                 "the ordinary report must expose a tool attempt without inventing progress or yield");
+            Require(report.Contains("activity mine; activity-id=2;phase=Suspended;reason=projectile"),
+                "ordinary report output must expose suspension separately from tool results");
             Require(report.Contains("lifecycle world-entry: observed=ModSystem.OnWorldLoad;outer-load=unobservable", StringComparison.Ordinal), "lifecycle callback evidence was not surfaced with its outer-load limit");
             Require(report.Contains("freshness=stale-or-not-executed"), "reader discarded freshness that prevents a stale action becoming a fictional stall");
             string full = DescribeGodsEyeEvents.Of(file, true);

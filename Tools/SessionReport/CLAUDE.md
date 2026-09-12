@@ -37,6 +37,8 @@ SessionReport/
 
 The default occurrence summary exposes the latest `tool-effect` in each displayed interval, including attempt identity and observed outcome. Full timeline output retains every captured effect. A successful call with no change remains visible without being labelled productive; tile removal does not imply collected yield. Older recordings with no such events cannot establish these tool outcomes.
 
+Activity-state occurrences retain current purpose identity, phase, interruption reason and last termination. The default summary shows their latest state per interval, while the full timeline keeps each recorded transition. Suspension is distinct from unsuccessful tool execution and never automatically becomes a physical failure.
+
 The writer declares text columns explicitly. Numeric validation consumes that declaration, with a named legacy set for older recordings; adding a reason string must not fabricate a malformed numeric-record finding. Outcome-aware attack recordings are not judged by the old maximum-damage-only weapon check, because sacrificing damage to remove an urgent threat is intentional. Their sequence estimates and alternatives remain inspectable evidence, not proof that the forecast was correct.
 
 The multi-run reader prints the same full-source findings and coverage gaps as the single-run reader, separately for each session. An arrived navigator with an unsatisfied follow objective and no controls is a contract contradiction. A stationary submerged body or an ineffective hunt is a potential issue whose report carries control source and rejection/escape evidence when available; neither observation alone proves physical reachability.

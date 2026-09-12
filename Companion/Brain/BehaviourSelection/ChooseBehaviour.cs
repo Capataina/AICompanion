@@ -37,7 +37,8 @@ public sealed class Chooser
     };
 
     public readonly List<Scored> LastScores = new();
-    public CompanionAction? Current { get; private set; }
+    public readonly OwnCurrentActivity Activity = new();
+    public CompanionAction? Current => Activity.Current;
     /// <summary>Identity and source tick of a completed comparison, not of the latest brain update.</summary>
     public long EvaluationId { get; private set; }
     public ulong? EvaluationTick { get; private set; }
@@ -122,15 +123,7 @@ public sealed class Chooser
         }
 
         best ??= fallback;
-        if (best != Current)
-        {
-            Current?.Exit(ctx);
-            best?.Enter(ctx);
-            Current = best;
-        }
-        // A behaviour can finish one target and select another without losing the tick.
-        // Score validates acquisition first; only the selected identity earns continuation.
-        best?.AdmitActivity();
+        Activity.Select(best, ctx);
         EvaluationId++;
         EvaluationTick = Terraria.Main.GameUpdateCount;
         return best;

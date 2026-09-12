@@ -397,7 +397,11 @@ public sealed class BrainTelemetry : ModSystem
         string decision = brain.Reflexes.Active ?? brain.LastAction?.Name ?? "-";
         bool brainExecuted = brain.LastTick == Main.GameUpdateCount;
         bool choiceEvaluated = brainExecuted && brain.ChoiceEvaluated;
+        var activity = brain.Chooser.Activity;
+        GodsEyeEvents.RecordActivity(npc, activity.Id, activity.Current?.Name ?? "none", activity.Phase.ToString(), activity.Reason,
+            activity.LastEndedId, activity.LastEndReason, activity.ChangedAt);
         string controls = DescribeControls(companion.Motor.AppliedControls);
+        string activityControls = controls + $";activity-id={activity.Id};activity-phase={activity.Phase};activity-reason={activity.Reason}";
         var guard = default(Behaviours.Companionship.GuardAction);
         var mine = default(Behaviours.Work.MineAction);
         var survival = default(Behaviours.Survival.SurviveAction);
@@ -419,11 +423,11 @@ public sealed class BrainTelemetry : ModSystem
             var preferences = PlayerIntegration.CompanionPreferences.Current;
             board.Append(CultureInfo.InvariantCulture, $";movement-stalled={brain.MovementStalled};activity-status={brain.ActivityStatus};activity-target={brain.LastAction?.ActivityTarget};activity-radius={preferences.NewActivityRadius};continuation-radius={preferences.ActiveActivityRadius};recovery-radius={preferences.RecoveryRadius}");
             GodsEyeEvents.RecordDecision(npc, brain.LastAction?.Name ?? "-", board.ToString(), brain.LastRequest.Kind.ToString(),
-                controls + $";freshness={(choiceEvaluated ? "fresh" : "stale-or-not-executed")};brain-fresh={brainExecuted};choice-id={brain.Chooser.EvaluationId};choice-tick={brain.Chooser.EvaluationTick?.ToString(CultureInfo.InvariantCulture) ?? "unavailable"};execution={decision};control-source={companion.Motor.ControlSource}");
+                activityControls + $";freshness={(choiceEvaluated ? "fresh" : "stale-or-not-executed")};brain-fresh={brainExecuted};choice-id={brain.Chooser.EvaluationId};choice-tick={brain.Chooser.EvaluationTick?.ToString(CultureInfo.InvariantCulture) ?? "unavailable"};execution={decision};control-source={companion.Motor.ControlSource}");
             lastDecision = decision;
         }
         GodsEyeEvents.RecordMovementState(npc, brain.Navigator);
-        GodsEyeEvents.RecordNavigationEvidence(npc, brainExecuted, decision, brain.LastRequest.Kind.ToString(), controls,
+        GodsEyeEvents.RecordNavigationEvidence(npc, brainExecuted, decision, brain.LastRequest.Kind.ToString(), activityControls,
             brain.Navigator.SearchId, brain.Navigator.AttemptId, brain.Navigator.SearchExpansions, brain.Navigator.SearchPending,
             brain.Navigator.ProgressReason, brain.Navigator.ExperienceRoutesUsed,
             brain.Positioner.CandidateCount, brain.Positioner.ReachableCandidateCount, brain.Positioner.RejectedCandidateCount, brain.Positioner.ChoiceReason,

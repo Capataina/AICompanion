@@ -106,6 +106,9 @@ public sealed class Brain
         }
     }
 
+    public void SuspendActivity(CompanionNPC companion, string reason)
+        => Chooser.Activity.Suspend(new ActionContext(companion, Senses, Roaming), reason);
+
     private double Lap()
     {
         double ms = phase.Elapsed.TotalMilliseconds;
@@ -133,6 +136,7 @@ public sealed class Brain
         ReflexMs = Lap();
         if (taken)
         {
+            Chooser.Activity.Suspend(ctx, "combat-reflex");
             companion.Motor.Apply(Movement.AvoidThreats(companion.Motor.State, unsafeAtTick, Senses.Player.Bottom), "combat-reflex");
             // A reflex takes the *feet*, and this used to return before the hands ran, which
             // quietly contradicted the contract Engage is written under: the weapon fires every
@@ -148,6 +152,7 @@ public sealed class Brain
         CompanionAction? action = Chooser.Choose(ctx);
         ChoiceEvaluated = true;
         if (TryFollowRecovery(companion, player, action is Behaviours.Companionship.WalkWithPlayerAction)) return;
+        Chooser.Activity.BeginExecution();
         LastRequest = action?.Execute(ctx) ?? PositionRequest.Hold;
         DecideMs = Lap();
 
@@ -201,6 +206,7 @@ public sealed class Brain
             companion.NPC.Bottom, player.Bottom, companion.Motor.ClearOfTerrain
                 && player.velocity.Y == 0f && companion.NPC.Bottom.Y <= player.Bottom.Y)) return false;
         LastRequest = new PositionRequest(RequestKind.WithPlayer, player.Bottom);
+        Chooser.Activity.Suspend(new ActionContext(companion, Senses, Roaming), "follow-recovery-flight");
         Movement.Hold(companion.Motor.State);
         companion.Motor.ApplyRecoveryFlight(FollowRecovery.Steer(companion.NPC.Bottom,
             companion.NPC.velocity, player.Bottom, player.velocity));

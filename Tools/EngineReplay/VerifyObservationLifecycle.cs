@@ -89,12 +89,26 @@ internal static class VerifyObservationLifecycle
         companion.AI();
         recorder.OnWorldUnload();
         string events = Path.ChangeExtension(path, null) + "-events.jsonl";
+        string[] activities = File.ReadLines(events).Where(line => line.Contains("\"kind\":\"activity-state\"", StringComparison.Ordinal)).ToArray();
+        Require(activities.Length == 4 && activities[0].Contains("phase=Executing")
+            && activities[1].Contains("phase=Suspended;reason=follow-recovery-flight")
+            && activities[2].Contains("phase=Executing") && activities[3].Contains("phase=Suspended;reason=downed"),
+            "the real recorder must distinguish executing, recovery-suspended, resumed and downed activity states");
         string recoveryEvent = File.ReadLines(events).Single(line => line.Contains("\"kind\":\"decision\"", StringComparison.Ordinal)
             && line.Contains("control-source=follow-recovery-flight", StringComparison.Ordinal));
         using var recorded = System.Text.Json.JsonDocument.Parse(recoveryEvent);
         string detail = recorded.RootElement.GetProperty("detail").GetString()!;
         Require(!detail.Contains("freshness=fresh", StringComparison.Ordinal) && detail.Contains("brain-fresh=True"),
             "recovery skipped selection but the real recorder labelled its retained score board fresh");
+        Require(detail.Contains("activity-phase=Suspended;activity-reason=follow-recovery-flight"),
+            "a retained decision must expose that recovery suspended its activity");
+        string recoveryNavigation = File.ReadLines(events).Single(line => line.Contains("\"kind\":\"navigation-state\"", StringComparison.Ordinal)
+            && line.Contains("control-source=follow-recovery-flight", StringComparison.Ordinal));
+        using var navigation = System.Text.Json.JsonDocument.Parse(recoveryNavigation);
+        string navigationDetail = navigation.RootElement.GetProperty("detail").GetString()!;
+        Require(navigationDetail.Contains("activity-phase=Suspended;activity-reason=follow-recovery-flight")
+            && navigationDetail.Contains("activity-id="),
+            "movement evidence must retain the primary activity identity without attributing recovery to ordinary execution");
         string[] lines = File.ReadAllLines(path);
         int header = Array.FindIndex(lines, line => line.StartsWith("tick\t"));
         string[] names = lines[header].Split('\t');

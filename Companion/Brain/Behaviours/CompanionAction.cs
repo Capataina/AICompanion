@@ -47,6 +47,7 @@ public abstract class CompanionAction
 
     public void AdmitActivity() => admittedIdentity = ActivityIdentity;
     protected void ReleaseActivity() => admittedIdentity = null;
+    internal void ReleaseAdmission() => admittedIdentity = null;
     public abstract string Name { get; }
     /// <summary>Optional excursions yield to regrouping; protection and survival opt out.</summary>
     public virtual bool IsExcursion => true;
@@ -72,6 +73,14 @@ public abstract class CompanionAction
 
     /// <summary>Called on the tick another action takes over.</summary>
     public virtual void Exit(in ActionContext ctx) => ReleaseActivity();
+
+    /// <summary>Release the interrupted physical method while retaining the current purpose's
+    /// continuation allowance. Resumption still prepares candidates and enters again.</summary>
+    public virtual void Suspend(in ActionContext ctx)
+    {
+        Exit(ctx);
+        AdmitActivity();
+    }
 
     /// <summary>Run one tick and say where to stand.</summary>
     public abstract PositionRequest Execute(in ActionContext ctx);

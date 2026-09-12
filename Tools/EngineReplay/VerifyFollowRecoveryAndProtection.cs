@@ -85,7 +85,7 @@ internal static class VerifyFollowRecoveryAndProtection
         senses.Threats.Threats.Clear();
         senses.SetInterventionEstimate(float.PositiveInfinity);
         Require(guard.Score(context) == 0 && guard.ProtectedThreatId == -1, "disappeared threat releases commitment");
-        typeof(live::AICompanion.Companion.Brain.BehaviourSelection.Chooser).GetProperty("Current")!.SetValue(companion.Brain.Chooser, guard);
+        companion.Brain.Chooser.Activity.Select(guard, context);
         var replacement = new NPC { whoAmI = 5, active = true, life = 100, damage = 20 };
         var second = new Threat { Npc = replacement, CanReachPlayer = true, Urgency = 1f, EffectiveTicksToPlayer = 0 };
         senses.Threats.Threats.Add(second);

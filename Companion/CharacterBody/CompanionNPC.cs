@@ -206,6 +206,7 @@ public class CompanionNPC : ModNPC
             }
         }
 
+        if (IsDowned) Brain.SuspendActivity(this, "downed");
         body.Sync(NPC, player, heldItemType, itemAnimation, itemAnimationMax, itemRotation, IsDowned);
         global::AICompanion.Companion.Brain.BehaviourDiagnostics.BrainTelemetry.Record(this);
     }

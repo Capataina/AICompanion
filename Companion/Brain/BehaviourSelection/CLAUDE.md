@@ -13,16 +13,23 @@ BehaviourSelection/
 ├─ CLAUDE.md
 ├─ ChooseBehaviour.cs          the scorer and the sole list of behaviour instances
 ├─ EvaluatePreparedActivities.cs captured candidate values and side-effect-free shared utility comparison
+├─ OwnCurrentActivity.cs one primary activity's identity, entry, suspension and replacement
 └─ EvaluateConsiderations.cs   named scoring curves
 ```
 
 ## The urgency ladder, and why an action topping out at one can never interrupt anything
 
-Candidate preparation and shared comparison are separate calls. The current activity adapters still discover and maintain targets inside their legacy `Score` methods; the chooser calls those only while preparing a board, then captures raw value, forecast and activity classification. `EvaluatePreparedActivities` accepts only immutable scalar records, reads no live activity or world object and never invokes discovery. It returns all factors and an explicit error for invalid or non-finite values. Positive-infinite threat horizon means no observed deadline. Repeated or reordered evaluation preserves each candidate's value. This boundary does not yet make the legacy discovery adapters pure or supply the new activity owner.
+Candidate preparation and shared comparison are separate calls. The current activity adapters still discover and maintain targets inside their legacy `Score` methods; the chooser calls those only while preparing a board, then captures raw value, forecast and activity classification. `EvaluatePreparedActivities` accepts only immutable scalar records, reads no live activity or world object and never invokes discovery. It returns all factors and an explicit error for invalid or non-finite values. Positive-infinite threat horizon means no observed deadline. Repeated or reordered evaluation preserves each candidate's value. This boundary does not yet make the legacy discovery adapters pure; execution ownership is handled separately below.
 
 Incumbent commitment is deliberately independent of the shared body-stall flag. A replacement activity would otherwise inherit its predecessor's physical failure before attempting any movement. Activity-owned remaining effort and outcomes must replace that coarse commitment; body-level stalling alone cannot decide that a job was a bad choice.
 
 An invalid evaluated candidate cannot be activated through the zero-score fallback. With no valid candidate, selection returns no activity and releases the former one; the coordinator holds ordinary movement while independent hands and earlier safety/recovery paths retain their existing contracts. The legacy last-valid zero-score fallback remains during this adapter stage, so this does not yet implement the final offer eligibility model.
+
+`OwnCurrentActivity` is the sole holder of the current executor. The chooser delegates activation to it rather than maintaining another current-action field. The owner identifies consecutive purposes using the adapter's activity identity and the NPC spawn generation where that identity is an NPC. Other adapter identities retain their existing value/reference semantics; this does not certify item-slot generation or full offer revalidation. Selecting a different purpose changes the activity ID even when the executor is unchanged. A suspended purpose keeps its ID if freshly selected again; replacement ends it without calling its physical release twice. The owner retains only the current purpose and the last termination summary, not a stack of intentions.
+
+Repeated selection of the same executing purpose does not create a lifecycle transition. The transient selection stage inside a tick must not refresh its changed-at timestamp or flood the sparse recorder with fictional transitions. Comparison freshness remains separately measurable.
+
+Reflex, recovery and downing explicitly suspend through this owner. Suspension invokes the adapter's release hook once and preserves the remaining purpose's admission identity; reselection prepares opportunities again and re-enters before execution. Moving to another executor releases the previous admission. The legacy discovery caches still have their own retained target data and are not an independent execution owner. A suspension reason is not a failed route or proof that choosing the work was wrong.
 
 Completed comparisons carry an increasing evaluation identity and their engine tick. The coordinator separately records whether selection ran in its current invocation: an early recovery or reflex return can update the brain without refreshing the choice. Retained scores keep their original identity and source time. These comparison identities describe decisions, not ongoing job identity or route attempts.
 

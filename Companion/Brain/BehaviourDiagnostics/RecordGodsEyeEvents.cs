@@ -28,6 +28,7 @@ public static class GodsEyeEvents
     private static Navigator.ExecutionStatus lastMovementStatus;
     private static PlanLocalMovement.Rejection? lastMovementRejection;
     private static string? lastNavigationEvidence;
+    private static string? lastActivityEvidence;
     private static int cosmeticContacts;
     private static Vector2 cosmeticFirst, cosmeticLast;
     private static long cosmeticFirstTick;
@@ -36,13 +37,25 @@ public static class GodsEyeEvents
         => Write("world-interaction", companion.whoAmI, "", operation, "", companion.Bottom, Vector2.Zero,
             tile.ToWorldCoordinates(), 0, detail);
 
-    public static void RecordToolEffect(NPC companion, string tool, in WorldInteractions.TileToolObservation outcome, long choiceId)
+    public static void RecordToolEffect(NPC companion, string tool, in WorldInteractions.TileToolObservation outcome, long choiceId, long activityId)
     {
         if (!Active) return;
         Write("tool-effect", Stable(npcGenerations, companion.whoAmI), "", tool,
-            $"attempt={outcome.Attempt};choice-id={choiceId}", companion.Bottom, Vector2.Zero, outcome.Target.ToWorldCoordinates(),
+            $"attempt={outcome.Attempt};choice-id={choiceId};activity-id={activityId}", companion.Bottom, Vector2.Zero, outcome.Target.ToWorldCoordinates(),
             outcome.Effect == WorldInteractions.TileToolEffect.Damaged ? outcome.After.Damage - outcome.Before.Damage : 0,
             FormattableString.Invariant($"observation-tick={outcome.Tick};tool-item={outcome.ToolItem};effect={outcome.Effect};before-present={outcome.Before.Present};before-type={outcome.Before.Type};before-frame={outcome.Before.FrameX},{outcome.Before.FrameY};before-damage={outcome.Before.Damage};after-present={outcome.After.Present};after-type={outcome.After.Type};after-frame={outcome.After.FrameX},{outcome.After.FrameY};after-damage={outcome.After.Damage};damage-scope=tool-owned-hit-table;yield=unobserved"));
+    }
+
+    public static void RecordActivity(NPC companion, long id, string name, string phase, string reason,
+        long endedId, string endReason, ulong changedAt)
+    {
+        if (!Active) return;
+        int actor = Stable(npcGenerations, companion.whoAmI);
+        string detail = $"activity-id={id};phase={phase};reason={reason};last-ended-id={endedId};last-end-reason={endReason};changed-at={changedAt}";
+        string key = $"{actor}:{name}:{detail}";
+        if (key == lastActivityEvidence) return;
+        lastActivityEvidence = key;
+        Write("activity-state", actor, "", name, phase, companion.Bottom, Vector2.Zero, Vector2.Zero, 0, detail);
     }
 
     internal static void Open(string path)
@@ -57,6 +70,7 @@ public static class GodsEyeEvents
         lastMovementEdges = -1;
         lastMovementRejection = null;
         lastNavigationEvidence = null;
+        lastActivityEvidence = null;
         cosmeticContacts = 0;
         // Main.GameUpdateCount can survive a prior world in a host process. It is never claimed as
         // this session's start tick; occurrence ticks remain useful only relative to one another.

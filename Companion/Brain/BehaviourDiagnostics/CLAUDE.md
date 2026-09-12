@@ -43,6 +43,8 @@ The general rule those five follow: **record the rejected option and the reason 
 
 ## Traps
 
+`activity-state` snapshots the primary owner's activity ID, phase, interruption reason and last termination. The recorder consumes the owner and never performs entry, exit or suspension. Tool effects join their native attempt to both comparison and activity IDs. Decision and navigation snapshots also carry the primary activity identity and phase, so recovery movement beside a suspended mining purpose cannot be read as ordinary mining execution. Actor/session identity remains necessary for these joins. Executing describes the adapter's current phase, not proof that a route succeeded or a useful native effect occurred.
+
 Each recorded factor ledger includes the evaluator's error. Invalid candidate values or overflowing products produce zero selectable value with a named reason; the retained raw value remains evidence of the bad input. A zero from invalid evaluation must not be interpreted as a deliberate low preference.
 
 `brain_fresh` records that the coordinator ran; `choice_fresh` records that its chooser completed a comparison. Recovery and reflex paths may make the first true and the second false. `choice_id` and `choice_tick` retain the last comparison's identity and source time, with zero identity and minus-one tick before any comparison. Sparse decision freshness uses the chooser, while navigation freshness still describes brain execution. Tool effects carry the comparison identity that selected the executing action. Recording an unchanged winner does not establish a newly evaluated choice, and a comparison ID is not an activity or physical attempt ID.

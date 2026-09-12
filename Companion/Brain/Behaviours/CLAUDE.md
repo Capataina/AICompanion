@@ -15,6 +15,8 @@ Behaviours/
 
 ## Adding an action, or a family
 
+The shared activity owner invokes Enter/Exit and Suspend. Default suspension releases the physical method through Exit and then preserves any surviving purpose identity for continuation. A resumed adapter is prepared and entered again; it must not assume the old working pose or jump remains valid. Switching to a different executor releases the old admission independently of whether its Exit implementation retains discovery caches.
+
 `IsExcursion` declares whether an action is optional time away from the player. It defaults to true, so newly added opportunistic actions automatically yield to regroup pressure. Following, protection, kiting and self-rescue opt out because they maintain companionship or immediate safety. Independent weapon firing remains outside the movement competition; a follow request can still shoot while travelling.
 
 A behaviour joins the family it belongs to and is listed once in `../BehaviourSelection/ChooseBehaviour.cs`; list order is only the overlay's order, ties are decided by score. Behaviours are deliberately opportunistic: they follow the player loosely and act on what is already happening nearby. Player-directed missions were abandoned; mastery may later unlock movement abilities such as air jumps, dash, swimming and flight, but none is built. The tool a work behaviour drives lives in `../WorldInteractions/`, never inside the behaviour.

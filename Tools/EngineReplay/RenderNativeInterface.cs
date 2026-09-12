@@ -159,7 +159,8 @@ internal static class RenderNativeInterface
         Tile oreTile = Main.tile[20, 33]; oreTile.HasTile = true; oreTile.TileType = Terraria.ID.TileID.Copper;
         var ore = new live::AICompanion.Companion.Brain.WorldInteractions.Mining.OreFinder.OreTarget(target, Terraria.ID.TileID.Copper, new Vector2(320, 320));
         mine.GetType().GetField("target", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(mine, ore);
-        companion.Brain.Chooser.GetType().GetProperty("Current")!.SetValue(companion.Brain.Chooser, mine);
+        companion.Brain.Chooser.Activity.Select(mine,
+            new live::AICompanion.Companion.Brain.Behaviours.ActionContext(companion, companion.Brain.Senses));
         foreach (var entry in new[] { (Terraria.ID.ItemID.CopperOre, "Copper Ore"), (Terraria.ID.ItemID.Wood, "Wood"), (Terraria.ID.ItemID.Gel, "Gel") })
         {
             TextureAssets.Item[entry.Item1] = assets.Request<Texture2D>("Images/Item_" + entry.Item1, AssetRequestMode.ImmediateLoad);

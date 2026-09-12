@@ -73,7 +73,7 @@ public static class DescribeGodsEyeEvents
         {
             foreach (var episode in chronology.GroupBy(e => (long)(e.wall_elapsed_ms / 30000d)))
             {
-                var meaningful = episode.Where(e => e.kind is "decision" or "navigation-state" or "pickup" or "npc-death" or "player-damage" or "npc-damage" or "movement-state" or "shot" or "tool-effect").ToList();
+                var meaningful = episode.Where(e => e.kind is "decision" or "navigation-state" or "pickup" or "npc-death" or "player-damage" or "npc-damage" or "movement-state" or "shot" or "tool-effect" or "activity-state").ToList();
                 if (meaningful.Count == 0) continue;
                 var last = meaningful[^1];
                 text.Append($"  {TimeSpan.FromSeconds(episode.Key * 30):hh\\:mm\\:ss}–{TimeSpan.FromSeconds((episode.Key + 1) * 30):hh\\:mm\\:ss}: "
@@ -87,6 +87,8 @@ public static class DescribeGodsEyeEvents
                 if (navigation != null) text.Append($"    decision/search {navigation.label}, request {navigation.channel}; {Abbreviate(navigation.detail, 700)}\n");
                 var tool = meaningful.LastOrDefault(e => e.kind == "tool-effect");
                 if (tool != null) text.Append($"    tool {tool.label}, {tool.channel}; {Abbreviate(tool.detail, 700)}\n");
+                var activity = meaningful.LastOrDefault(e => e.kind == "activity-state");
+                if (activity != null) text.Append($"    activity {activity.label}; {Abbreviate(activity.detail, 700)}\n");
             }
             return text.Append("  Use --timeline for every occurrence record; TSV chronology below supplies continuous player and companion motion.\n").ToString();
         }
