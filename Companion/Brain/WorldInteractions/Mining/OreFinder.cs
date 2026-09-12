@@ -159,7 +159,8 @@ public static class OreFinder
 
     private static bool HasLineToExposedFace(Vector2 eye, Point ore)
     {
-        // PickTile itself checks only range. The companion adds occlusion so its closed-set
+        // PickTile applies damage and native kill permission without enforcing tool reach here.
+        // The companion supplies both range and occlusion so its closed-set
         // ability does not mine through a wall. CanHitLine includes a solid destination tile,
         // therefore the actual target is an adjacent open tile on an exposed ore face.
         foreach (Point side in new[] { new Point(-1, 0), new Point(1, 0), new Point(0, -1), new Point(0, 1) })

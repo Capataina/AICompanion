@@ -227,13 +227,6 @@ internal static class VerifyCompanionActivities
     private static void TorchSupplyIsDebitedOnlyAfterPlacement()
     {
         var (_, ctx) = VerifyOreWork.SetUp(Policy.Opportunistic, TileID.Copper, new Point(25, 59));
-        // Native TileLoader delegates are created by loading mods; seed empty arrays for this
-        // no-mod fixture instead of substituting a fake placement operation.
-        foreach (FieldInfo field in typeof(TileLoader).GetFields(BindingFlags.Static | BindingFlags.NonPublic))
-            if (field.Name.StartsWith("Hook") && field.FieldType.IsArray && field.GetValue(null) == null)
-                field.SetValue(null, Array.CreateInstance(field.FieldType.GetElementType()!, 0));
-        // Collision.EmptyTile checks every actor slot, including inactive players.
-        for (int i = 0; i < Main.player.Length; i++) Main.player[i] ??= new Player();
         Item bagTorch = new(); bagTorch.SetDefaults(ItemID.Torch); bagTorch.stack = 2;
         Item playerTorch = new(); playerTorch.SetDefaults(ItemID.Torch); playerTorch.stack = 3;
         Item[] bag = { bagTorch };

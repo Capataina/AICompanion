@@ -28,7 +28,7 @@ EngineReplay/
 ├─ VerifyCapturedEscape.cs   captured pool and mirrored awnings exercised against native collision
 ├─ VerifyResponsiveFollowing.cs generic follow arrival, vertical separation and C-turn route progress
 ├─ VerifyFollowRecoveryAndProtection.cs visible recovery flight, cancellation clearance and retained guard protection
-├─ VerifyOreWork.cs           ore-only retained mining jobs and the Disabled/Mimic/Opportunistic work policies
+├─ VerifyOreWork.cs           ore-job policy, native tool effects and the raised-lip diagnostic baseline
 ├─ VerifyCompanionPreferences.cs per-character defaults, malformed payloads and compressed native save round trips
 ├─ VerifyCompanionActivities.cs activity identities, range boundaries, progress windows, protected rooms and native torch placement
 ├─ VerifyObservationLifecycle.cs real recorder reservation, zero-tick metadata and callback-scoped lifecycle evidence
@@ -37,6 +37,10 @@ EngineReplay/
 ```
 
 From the repository root run `dotnet run --project Tools/EngineReplay`. Exit zero requires every matrix entry to match and all native route fixtures to arrive. `sh Tools/verify.sh` includes this command. The game location can be supplied as the executable’s first argument; MSBuild’s TModLoaderRoot controls the reference location when compiling on another installation.
+
+`dotnet run --project Tools/EngineReplay -- --mining-baseline` runs the same two-block lip in both orientations with normal decisions, mining as the only offered activity, and an initially native-clear working pose. Every case measures the actual ore tile disappearing and preserves the dirt obstruction. Exit 1 means at least one case failed; this diagnostic is not included in the existing green regression suite while its implementation gap is open. Normal decisions can occasionally succeed through incidental movement, so a single success does not establish reliable discovery. The held-activity case changes only available activities, not the mining code; the fixed-pose case isolates native tool execution and does not prove a route to that pose. The fixture is constructed from the reported geometry, not an exact replay of the original cave, and runtime planning deadlines remain timing-sensitive.
+
+The ore suite includes a fixed-position native break check. Native mining needs tile destruction hooks, cosmetic dust objects and populated inactive player slots even headlessly. The shared work fixture initialises those engine containers, with no third-party hooks, rather than replacing `PickTile` or `KillTile` with mocks. A swing return alone cannot pass the productive-break assertion.
 
 `--render-ui` uses a hidden SDL surface to render the actual profile, inventory, mastery and inspector pages with installed game assets. PNGs go under the process temporary directory's `aic-native-ui` folder. On macOS, provide `DYLD_LIBRARY_PATH` pointing to the installed loader's `Libraries/Native/OSX`. From the repository root, build with `env DOTNET_CLI_HOME=/tmp/aic-dotnet dotnet build Tools/EngineReplay -nologo -v q`, then run `env DOTNET_CLI_HOME=/tmp/aic-dotnet DYLD_LIBRARY_PATH="$HOME/Library/Application Support/Steam/steamapps/common/tModLoader/Libraries/Native/OSX" dotnet run --no-build --project Tools/EngineReplay -- --render-ui`. It creates no visible game window. A macOS sandbox may refuse SDL video initialisation before any drawing; the hidden renderer needs graphics access even though it never shows its surface.
 

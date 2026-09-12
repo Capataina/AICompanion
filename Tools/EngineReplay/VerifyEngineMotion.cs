@@ -5,7 +5,7 @@ using Terraria;
 
 internal static class VerifyEngineMotion
 {
-    public static int Run(bool lifecycleOnly = false, bool escapeOnly = false, bool workOnly = false, bool followOnly = false, bool protectionOnly = false)
+    public static int Run(bool lifecycleOnly = false, bool escapeOnly = false, bool workOnly = false, bool followOnly = false, bool protectionOnly = false, bool miningBaselineOnly = false)
     {
         typeof(Terraria.Program).GetField("SavePath", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)!.SetValue(null, Path.GetTempPath());
         Main.dedServ = true;
@@ -24,6 +24,7 @@ internal static class VerifyEngineMotion
         if (lifecycleOnly) return VerifyCompanionLifecycle.Run();
         if (escapeOnly) return VerifyCapturedEscape.Run();
         if (workOnly) return VerifyOreWork.Run() + VerifyCompanionPreferences.Run() + VerifyCompanionActivities.Run();
+        if (miningBaselineOnly) return VerifyOreWork.RunRaisedLipBaseline();
         if (followOnly) return VerifyResponsiveFollowing.Run();
         if (protectionOnly) return VerifyFollowRecoveryAndProtection.Run();
         int checkedCases = 0, failed = 0;
