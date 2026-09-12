@@ -115,6 +115,40 @@ internal static class VerifyFiringPosition
         bool anyClear = evidence.Contains(":clear-arc");
         Require(anyClear,
             $"no evaluated candidate could shoot the target, so the solve budget was spent entirely on blind spots: {evidence}");
+
+        // Seal the same target beneath continuous rock. Reachable floor remains available,
+        // but arriving anywhere on it cannot fulfil an attack request.
+        for (int x = ShaftLeft; x <= ShaftRight; x++) Solid(x, FloorY);
+        live::AICompanion.Companion.Brain.SharedMovementSystem.TerrainChanges.Reset();
+        foreach (RequestKind kind in new[] { RequestKind.LineOfFire, RequestKind.Guard })
+        {
+            var blocked = new PositionRequest(kind, enemy.Center, enemy);
+            for (int tick = 0; tick < 400; tick++)
+                chosen = companion.Brain.Positioner.Resolve(blocked, companion.Brain.Senses, profile);
+            Require(companion.Brain.Positioner.EvaluatedCandidates > 0
+                && companion.Brain.Positioner.CandidateEvidence.Contains(":no-arc"),
+                "the sealed fixture must actually evaluate blocked attack candidates");
+            Require(chosen == null,
+                $"{kind} must remain unresolved when every tested destination lacks a shot; got {chosen}, evidence={companion.Brain.Positioner.CandidateEvidence}");
+            Require(companion.Brain.Positioner.ChoiceReason == "no-usable-destination-established",
+                "bounded failure to establish a shot must not report a retained destination or proven impossibility");
+        }
+
+        var retreat = new PositionRequest(RequestKind.Retreat, companion.NPC.Bottom, enemy);
+        for (int tick = 0; tick < 40; tick++)
+            chosen = companion.Brain.Positioner.Resolve(retreat, companion.Brain.Senses, profile);
+        Require(chosen != null && companion.Brain.Positioner.CandidateEvidence.Contains(":not-required"),
+            "a safety destination must remain available without a shot at the sealed enemy");
+
+        // Reopening is fresh evidence, not a permanent unreachable verdict on the enemy.
+        for (int x = ShaftLeft; x <= ShaftRight; x++) Open(x, FloorY);
+        live::AICompanion.Companion.Brain.SharedMovementSystem.TerrainChanges.Reset();
+        for (int tick = 0; tick < 400; tick++)
+            chosen = companion.Brain.Positioner.Resolve(request, companion.Brain.Senses, profile);
+        Require(chosen != null && companion.Brain.Positioner.CandidateEvidence.Contains(":clear-arc"),
+            "opening the shot must restore a useful firing destination");
+        Require(companion.Brain.Positioner.Resolve(request, companion.Brain.Senses, null) == null,
+            "removing the weapon profile must invalidate a retained firing position immediately");
     }
 
     /// <summary>

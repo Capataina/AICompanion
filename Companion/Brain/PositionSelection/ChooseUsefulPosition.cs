@@ -32,6 +32,7 @@ public sealed class Positioner
     public Vector2? Chosen { get; private set; }
     public float ChosenScore { get; private set; }
     private PositionRequest lastRequest;
+    private WeaponProfile? lastFireProfile;
     private int sinceScore = RescoreInterval;
 
     // The feet tiles a walker can reach from where the companion stands, flooded once per
@@ -80,6 +81,18 @@ public sealed class Positioner
         sinceFlood++;
         clock++;
         UpdateFollowObjective(request, senses);
+        bool attackPosition = request.Kind is RequestKind.LineOfFire or RequestKind.Guard;
+        if (attackPosition && (fireProfile == null || request.Target is not { active: true, life: > 0 }))
+        {
+            lastRequest = request;
+            Chosen = null;
+            ChosenScore = 0f;
+            ChoiceReason = "attack-input-unavailable";
+            CandidateEvidence = "";
+            EvaluatedCandidates = CandidateCount = ReachableCandidateCount = RejectedCandidateCount = 0;
+            EvidenceTick = senses.Tick;
+            return null;
+        }
         switch (request.Kind)
         {
             case RequestKind.Hold:
@@ -116,11 +129,13 @@ public sealed class Positioner
         }
 
         sinceScore++;
-        bool kindChanged = request.Kind != lastRequest.Kind || request.Target != lastRequest.Target;
+        bool kindChanged = request.Kind != lastRequest.Kind || request.Target != lastRequest.Target
+            || fireProfile != lastFireProfile;
         if (Chosen != null && !kindChanged && sinceScore < RescoreInterval)
             return Chosen;
 
         lastRequest = request;
+        lastFireProfile = fireProfile;
         sinceScore = 0;
         RefreshReach(senses);
         Chosen = Best(request, senses, fireProfile);
@@ -367,7 +382,9 @@ public sealed class Positioner
             return null;
         }
 
-        bool needsFire = request.Target is NPC && fireProfile != null;
+        // A retreat serves safety even when no shot exists. Attack destinations, however,
+        // cannot be admitted on a reduced score after the trajectory solver refuses them.
+        bool needsFire = request.Kind is RequestKind.LineOfFire or RequestKind.Guard;
         candidates.Sort((a, b) => b.baseScore.CompareTo(a.baseScore));
         int solves = needsFire ? Math.Min(MaxSolvesPerRescore, candidates.Count) : 0;
 
@@ -384,16 +401,8 @@ public sealed class Positioner
                 if (i > 0 && solveClock.Elapsed.TotalMilliseconds >= Weights.PositionAimingMilliseconds) break;
                 if (i >= solves)
                     break; // unsolved candidates cannot beat a solved one above them
-                // A spot with no solution cannot do the job the request exists for, so it is a last
-                // resort rather than a slightly worse option. At 0.15 it was a *sixth* of a firing
-                // spot and the incumbency bonus on top made a held one defend itself, which is how
-                // guard arrived somewhere it could not shoot from and then stayed: ticks 14,159 to
-                // 16,161 of 2026-09-11, 2,003 unbroken ticks with every recorded alternative
-                // reading no-arc and estimated time to intervene reading infinity. Kept just above
-                // zero so a request still resolves to somewhere when nothing can shoot at all, and
-                // denied the incumbency bonus so it cannot hold the spot against a solved one.
                 bool solved = TrajectoryAimer.Solve(eye, request.Target!, fireProfile!.Value) != null;
-                float fire = solved ? 1f : 0.02f;
+                float fire = solved ? 1f : 0f;
                 shot = solved ? "clear-arc" : "no-arc";
                 score = ScoreSpot(request, feet, eye, playerBottom, senses, bandNear, bandFar, fire, reach)
                     * (solved ? Incumbency(feet, held) : 1f);
@@ -402,7 +411,7 @@ public sealed class Positioner
             evidence.Add((MovementQueries.FeetTile(feet), score, shot));
             evidence.Sort((a, b) => b.score.CompareTo(a.score));
             if (evidence.Count > 4) evidence.RemoveAt(4);
-            if (score > bestScore)
+            if (score > 0f && score > bestScore)
             {
                 bestScore = score;
                 best = feet;
@@ -410,7 +419,8 @@ public sealed class Positioner
         }
         ChosenScore = bestScore;
         CandidateEvidence = string.Join("|", evidence.ConvertAll(e => FormattableString.Invariant($"{e.tile.X},{e.tile.Y}:{e.score:0.000}:{e.shot}")));
-        ChoiceReason = best == held ? "retained-position" : anyReachable ? "reachable-candidate" : "reachability-unknown";
+        ChoiceReason = best == null ? "no-usable-destination-established"
+            : best == held ? "retained-position" : anyReachable ? "reachable-candidate" : "reachability-unknown";
         return best;
     }
 
@@ -537,12 +547,8 @@ public sealed class Positioner
     {
         if (target == null)
             return 1f;
-        // The far edge is whatever the weapon in hand can actually reach, never a fixed distance.
-        // The band's own 520 px outran the knife's 380 px reach, so the outward lean could walk the
-        // body to about 500 px from the target and hold it there — where its shot does not arrive
-        // and the line-of-fire factor, which scores a failed solve at 0.15 rather than 0, was too
-        // weak to veto it. Found by review before it reached a playtest. A little inside the reach,
-        // because the target moves and a spot exactly at the limit stops working when it steps back.
+        // Standoff is bounded by the available weapon's reach. Keeping a little inside it
+        // leaves room for target movement; the trajectory solve separately admits the shot.
         float far = MathF.Min(Weights.StandoffFar, reach * 0.85f);
         float near = MathF.Min(Weights.StandoffNear, far * 0.5f);
         float d = Vector2.Distance(feet, target.Center);
