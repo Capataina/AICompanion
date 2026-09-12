@@ -24,7 +24,7 @@ public sealed class ChopTree : CompanionAction
     public override PurposeFamily Family => PurposeFamily.Gathering;
     public override Vector2? ActivityTarget => prepared?.Target;
     public override object? ActivityIdentity => prepared?.Binding;
-    public override string PreparedTargetRejection => prepared is { } candidate
+    public override string PreparedTargetRejection => WorkPolicies.Chopping == WorkPolicy.Disabled ? "work-disabled" : prepared is { } candidate
         ? tree?.Bottom != candidate.Binding.Tile ? "prepared-target-changed" : candidate.Binding.Rejection : "";
     /// <summary>True only while the axe is actually out; the whole walk to the tree is empty-handed.</summary>
     public override bool HandsBusy => swinging;

@@ -6,6 +6,8 @@ Tool ownership spans cooldowns only while that work is executing. Exit and suspe
 
 Execution rechecks the work policy before requesting travel or taking the tool. Turning mining or chopping off revokes a previously prepared candidate, clears its retained job and releases its admission. Native tool permission remains a separate mutation check; an earlier positive utility value is never permission to keep acting after the user disables the work.
 
+Prepared-target validation also reports `work-disabled` before activation when that policy is off. The chooser can remove the offer's selectable value and nominate another prepared activity while preserving its original desirability. The execution check still owns retained-job cleanup and protects calls made after activation; admission and execution observe the same policy at their respective boundaries.
+
 ```
 Gathering/
 ├─ CLAUDE.md              job ownership, preparation and native evidence limits
@@ -39,4 +41,3 @@ For an established target, the trip duration combines approach distance with the
 Mining uses actual tool reach to decide whether to swing. A navigator's approximate arrival tolerance can leave the body outside that reach; returning Hold from that pose would prevent the movement needed to make mining possible. Retained vein pruning uses the same actor-and-target distance contract as discovery, and a removed target cannot survive merely because other vein tiles remain.
 
 Chopping uses that same shared tool-access query for discovery, retained approaches and actual strikes. Current usable reach replaces the cached stand with the actual feet; otherwise the prepared trip includes a reachable working pose. Execution cannot infer axe access from distance to that pose. Terrain or reach changes may invalidate the access independently of whether the tree still exists.
-

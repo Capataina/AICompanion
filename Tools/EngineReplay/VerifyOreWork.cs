@@ -570,8 +570,11 @@ internal static class VerifyOreWork
                 else ctx.Npc.Bottom = new Vector2(15 * 16 + 8, 90 * 16);
                 Require(VerifyPreparedActivities.PrepareAndScore(action, ctx) > 0,
                     $"permission fixture needs prepared work: chopping={chopping}; inPosition={inPosition}");
+                var admission = live::AICompanion.Companion.Brain.BehaviourSelection.ValidatePreparedActivity.Capture(action);
                 if (chopping) WorkPolicies.Chopping = WorkPolicy.Disabled;
                 else WorkPolicies.Mining = WorkPolicy.Disabled;
+                Require(admission.Rejection(action) == "work-disabled",
+                    $"revoked work must fail activation admission: chopping={chopping}; inPosition={inPosition}; rejection={admission.Rejection(action)}");
                 var request = action.Execute(ctx);
                 Require(request == live::AICompanion.Companion.Brain.PositionSelection.PositionRequest.Hold
                     && !action.HandsBusy && ctx.Companion.Miner.LastOutcome == null && ctx.Companion.Chopper.LastOutcome == null,

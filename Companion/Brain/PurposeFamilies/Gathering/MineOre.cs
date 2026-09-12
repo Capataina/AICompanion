@@ -29,7 +29,7 @@ public sealed class MineOre : CompanionAction
     private Vector2? preparedTarget;
     private float preparedValue, preparedTrip;
     private WorldInteractions.BindTileTarget? preparedTile;
-    public override string PreparedTargetRejection => preparedTile is { } bound
+    public override string PreparedTargetRejection => WorkPolicies.Mining == WorkPolicy.Disabled ? "work-disabled" : preparedTile is { } bound
         ? (target?.Tile ?? unproven) != bound.Tile ? "prepared-target-changed" : bound.Rejection : "";
 
     private const int KeepJobTicks = 600;
