@@ -249,6 +249,9 @@ internal static class VerifyCompanionActivities
             collect.Execute(ctx);
             Require(Main.tile[pot.X, pot.Y].HasTile, "changing pot permission after preparation must prevent the native edit");
             Preferences.Current.PotBreaking = true;
+            collect.Prepare(ctx);
+            Require(collect.Score() > 0 && collect.Method == "potential-pot-contents",
+                "permission restored after an execution-time refusal must refresh discovery without waiting for the old search deadline");
             foreach (Item slot in ctx.Companion.Bag.Items) { slot.SetDefaults(ItemID.StoneBlock); slot.stack = slot.maxStack; }
             collect.Prepare(ctx);
             Require(collect.Score() == 0, "unknown contents cannot promise collection capacity from a full bag");

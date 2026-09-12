@@ -18,7 +18,7 @@ public abstract class PerformNearbyWorldWork : CompanionAction
     protected Point? target;
     private Vector2 stand;
     private ulong nextSearch, retryAfter;
-    private bool eligibleLastPreparation;
+    private bool eligibleLastObservation;
     private bool needsJump, jumped;
     private ulong jumpStarted;
     // Tiles whose approach was tried and did not arrive, with the tick they may be offered again.
@@ -48,18 +48,24 @@ public abstract class PerformNearbyWorldWork : CompanionAction
 
     public override float Score() => preparedValue;
 
-    private float DiscoverValue(in ActionContext ctx)
+    private bool RefreshEligibility(in ActionContext ctx)
     {
         if (!Enabled(ctx) || ctx.Player.dead)
         {
             target = null;
-            eligibleLastPreparation = false;
-            return 0f;
+            eligibleLastObservation = false;
+            return false;
         }
         // Changed policy or supplies invalidate a previously unavailable discovery result.
         // An unchanged eligible method still observes the normal bounded search cadence.
-        if (!eligibleLastPreparation) nextSearch = 0;
-        eligibleLastPreparation = true;
+        if (!eligibleLastObservation) nextSearch = 0;
+        eligibleLastObservation = true;
+        return true;
+    }
+
+    private float DiscoverValue(in ActionContext ctx)
+    {
+        if (!RefreshEligibility(ctx)) return 0f;
         if (target is Point old && (!Candidate(ctx, old) || !AllowsTarget(ctx, old.ToWorldCoordinates())))
         { target = null; }
         if (target == null && Main.GameUpdateCount >= nextSearch)
@@ -96,8 +102,9 @@ public abstract class PerformNearbyWorldWork : CompanionAction
     public override PositionRequest Execute(in ActionContext ctx)
     {
         ctx.Companion.HoldItem(ItemID.None);
+        if (!RefreshEligibility(ctx)) return PositionRequest.Hold;
         if (target is not Point tile) return PositionRequest.Hold;
-        if (!Enabled(ctx) || !Candidate(ctx, tile)) { target = null; return PositionRequest.Hold; }
+        if (!Candidate(ctx, tile)) { target = null; return PositionRequest.Hold; }
         if (!OreFinder.InReach(ctx.Npc.Bottom, tile))
         {
             if (!needsJump)
