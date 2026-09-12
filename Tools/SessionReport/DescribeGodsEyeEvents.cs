@@ -73,7 +73,7 @@ public static class DescribeGodsEyeEvents
         {
             foreach (var episode in chronology.GroupBy(e => (long)(e.wall_elapsed_ms / 30000d)))
             {
-                var meaningful = episode.Where(e => e.kind is "decision" or "navigation-state" or "pickup" or "npc-death" or "player-damage" or "npc-damage" or "movement-state" or "shot" or "tool-effect" or "activity-state" or "control-grant").ToList();
+                var meaningful = episode.Where(e => e.kind is "decision" or "navigation-state" or "pickup" or "npc-death" or "player-damage" or "npc-damage" or "movement-state" or "shot" or "tool-effect" or "activity-state" or "control-grant" or "method-assessment").ToList();
                 if (meaningful.Count == 0) continue;
                 var last = meaningful[^1];
                 text.Append($"  {TimeSpan.FromSeconds(episode.Key * 30):hh\\:mm\\:ss}–{TimeSpan.FromSeconds((episode.Key + 1) * 30):hh\\:mm\\:ss}: "
@@ -81,6 +81,14 @@ public static class DescribeGodsEyeEvents
                     + $"; latest position {last.pos_x:0.0},{last.pos_y:0.0}\n");
                 var decision = meaningful.LastOrDefault(e => e.kind == "decision");
                 if (decision != null) text.Append($"    intention {decision.label}, request {decision.channel}; {Abbreviate(decision.detail, 700)}\n");
+                // Keep both rejection and admission when the method changes inside one window.
+                // These are recorded assessments, not a verdict about execution or usefulness.
+                foreach (var methods in meaningful.Where(e => e.kind == "method-assessment")
+                    .GroupBy(e => (e.subject, e.label, e.channel)))
+                {
+                    var method = methods.Last();
+                    text.Append($"    method {method.label}, {method.channel}: {methods.Count()} assessment(s); latest subject={method.subject} related={method.related}; {Abbreviate(method.detail, 700)}\n");
+                }
                 var movement = meaningful.LastOrDefault(e => e.kind == "movement-state");
                 if (movement != null) text.Append($"    movement {MovementSummary(movement.detail)}\n");
                 var navigation = meaningful.LastOrDefault(e => e.kind == "navigation-state");

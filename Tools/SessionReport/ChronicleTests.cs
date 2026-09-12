@@ -461,6 +461,9 @@ public static class ChronicleTests
             Add("projectile-terrain-hit", 1000002, wall: 500);
             Add("tool-effect", 1, "attempt=4", 550, detail: "effect=NoObservedChange;before-damage=0;after-damage=0;yield=unobserved", label: "pickaxe");
             Add("activity-state", 1, "Suspended", 560, detail: "activity-id=2;phase=Suspended;reason=projectile", label: "mine");
+            Add("method-assessment", 1, "not-established", 570, detail: "choice-id=1;choice-phase=pre-activation;reason=no-arc;native-effect=unobserved", label: "guard");
+            Add("method-assessment", 1, "not-established", 580, detail: "choice-id=2;choice-phase=pre-activation;reason=no-arc;native-effect=unobserved", label: "guard");
+            Add("method-assessment", 1, "admitted", 590, detail: "choice-id=3;choice-phase=pre-activation;reason=clear-arc;native-effect=unobserved", label: "guard");
             for (int i = 0; i < 30; i++) Add("decision", 1, "WithPlayer", 1000 + i * 30000);
             Add("session-end", wall: 902000);
             File.WriteAllLines(events, lines);
@@ -473,10 +476,16 @@ public static class ChronicleTests
                 "the ordinary report must expose a tool attempt without inventing progress or yield");
             Require(report.Contains("activity mine; activity-id=2;phase=Suspended;reason=projectile"),
                 "ordinary report output must expose suspension separately from tool results");
+            Require(report.Contains("method guard, not-established: 2 assessment(s)")
+                && report.Contains("method guard, admitted: 1 assessment(s)")
+                && report.Contains("choice-id=2;choice-phase=pre-activation;reason=no-arc;native-effect=unobserved"),
+                "a later admitted method must not erase earlier rejection evidence in the same summary window");
             Require(report.Contains("lifecycle world-entry: observed=ModSystem.OnWorldLoad;outer-load=unobservable", StringComparison.Ordinal), "lifecycle callback evidence was not surfaced with its outer-load limit");
             Require(report.Contains("freshness=stale-or-not-executed"), "reader discarded freshness that prevents a stale action becoming a fictional stall");
             string full = DescribeGodsEyeEvents.Of(file, true);
             Require(full.Contains("projectile-enemy-hit subject=1000002"), "full event trace discarded native contact details");
+            Require(full.Contains("choice-id=1;choice-phase=pre-activation;reason=no-arc"),
+                "full event output must preserve assessments omitted from the latest-per-result summary");
             Require(full.Contains("velocity=2.0,-1.0") && full.Contains("channel=projectile=1000001"), "full event trace must retain launch controls and the projectile link");
             File.AppendAllText(events, "{\"v\":1,\"kind\":\"shot\"}\n");
             Require(DescribeGodsEyeEvents.Of(file).Contains("1 malformed line"), "missing occurrence fields must not default to valid zero values");
