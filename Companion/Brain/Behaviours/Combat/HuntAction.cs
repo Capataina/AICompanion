@@ -39,17 +39,14 @@ public sealed class HuntAction : CompanionAction
         if (Target == null) { NoProgressTicks = 0; stalled.Clear(); return; }
         NPC enemy = Target.Npc;
         int generation = HostileAttackSources.Generation(enemy);
-        // Changing target is not progress, and treating it as progress is what made this whole
-        // guard inert. With a crowd on screen the pick alternates between two enemies whose
-        // scores sit within noise of each other (observed 2026-09-11: Red Slime, Blue Jellyfish,
-        // Red Slime), so the old identity clause reset the counter on nearly every tick and the
-        // window never closed — 329 consecutive stationary ticks inside a guard built to stop it
-        // after a fraction of that. Only damage to the enemy we were already on, a shot, or the
-        // body actually covering ground is progress; a life comparison across two different
-        // enemies compares nothing, so it is read only while the identity holds.
+        // Hands choose independently of pursuit. An incidental shot cannot establish access
+        // to this enemy, and cooldown describes waiting rather than a new attack. Damage is
+        // compared only within one generation; changing targets cannot reset a stalled hunt.
         bool sameTarget = observedTarget == enemy.whoAmI && observedGeneration == generation;
+        bool pursuitShot = ReferenceEquals(ctx.Companion.Brain.EngageTarget, enemy)
+            && ctx.Companion.Arsenal.LastFireOutcome == "fired";
         bool progress = (sameTarget && enemy.life < observedLife)
-            || ctx.Companion.Arsenal.LastFireOutcome is "fired" or "cooldown"
+            || pursuitShot
             || Vector2.DistanceSquared(engagementOrigin, ctx.Npc.Bottom) >= Weights.ObjectiveProgressPixels * Weights.ObjectiveProgressPixels;
         // Every enemy aimed at during the stalled stretch, so the deferral covers the set rather
         // than whichever one happened to be selected on the tick the window closed. Deferring only

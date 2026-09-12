@@ -32,8 +32,43 @@ internal static class VerifyHuntProgress
         }
         if (VerifyPreparedActivities.PrepareAndScore(hunt, context) <= 0) throw new InvalidOperationException("Travelling hunt was deferred despite progress");
         VerifyChurnDoesNotDefeatTheGuard(companion);
+        VerifyIndependentHandsDoNotRenewPursuit();
         Console.WriteLine("PASS hunt progress: ineffective target deferred, moving target reconsidered, travelling hunt retained, alternating targets still defer");
         return 0;
+    }
+
+    private static void VerifyIndependentHandsDoNotRenewPursuit()
+    {
+        foreach (var (outcome, sameEnemy, retained) in new[]
+                 { ("fired", false, false), ("cooldown", true, false), ("fired", true, true) })
+        {
+            var companion = VerifyCompanionLifecycle.Create();
+            Main.LocalPlayer.dead = false;
+            Main.LocalPlayer.Bottom = companion.NPC.Bottom;
+            companion.Brain.Senses.Update(companion.NPC, Main.LocalPlayer, companion.Breath);
+            var target = new NPC(); target.SetDefaults(Terraria.ID.NPCID.Zombie);
+            target.whoAmI = 12; target.active = true;
+            target.Bottom = companion.NPC.Bottom + new Vector2(160, 0);
+            Main.npc[12] = target;
+            var other = new NPC(); other.SetDefaults(Terraria.ID.NPCID.Zombie);
+            other.whoAmI = 13; other.active = true;
+            Main.npc[13] = other;
+            var threats = companion.Brain.Senses.Threats.Threats;
+            threats.Clear();
+            threats.Add(new T { Npc = target, DistanceToCompanion = 160, DistanceToPlayer = 160 });
+            var context = new C(companion, companion.Brain.Senses);
+            var hunt = new H();
+            if (VerifyPreparedActivities.PrepareAndScore(hunt, context) <= 0)
+                throw new InvalidOperationException("Independent-hands fixture must offer a pursuit");
+            // Supply the hands boundary's outcome without creating projectiles. This tests
+            // attribution, not native firing or whether a projectile subsequently hits.
+            companion.Brain.GetType().GetProperty("EngageTarget")!.SetValue(companion.Brain, sameEnemy ? target : other);
+            companion.Arsenal.GetType().GetProperty("LastFireOutcome")!.SetValue(companion.Arsenal, outcome);
+            for (int i = 0; i < 182; i++) hunt.ObserveOutcome(context);
+            bool stillOffered = VerifyPreparedActivities.PrepareAndScore(hunt, context) > 0;
+            if (stillOffered != retained)
+                throw new InvalidOperationException($"Pursuit attribution: outcome={outcome}, sameEnemy={sameEnemy}, retained={stillOffered}, expected={retained}");
+        }
     }
 
     /// <summary>
