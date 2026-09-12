@@ -28,6 +28,7 @@ internal static class VerifyOreWork
             AnUnmineableVeinDoesNotBecomeWork();
             ASealedTreeYieldsToReachableOre();
             AnUnprovenApproachWalksInsteadOfScoringZero();
+            AnUnknownApproachKeepsItsOwnOreIdentity();
             AReachableOreProducesANativeBreak();
             AUsefulCurrentPoseNeedsNoApproach();
             RaisedLipsAtOrdinaryGravityProduceWork();
@@ -385,6 +386,35 @@ internal static class VerifyOreWork
         {
             AStar.MsBudget = budget;
         }
+    }
+
+    private static void AnUnknownApproachKeepsItsOwnOreIdentity()
+    {
+        Point sealedOre = new(25, 59), unresolvedOre = new(50, 59);
+        var (action, ctx) = SetUp(WorkPolicy.Opportunistic, TileID.Copper, sealedOre, unresolvedOre);
+        foreach (Point side in new[] { new Point(-1, 0), new Point(1, 0), new Point(0, -1), new Point(0, 1) })
+        {
+            Tile wall = Main.tile[sealedOre.X + side.X, sealedOre.Y + side.Y];
+            wall.HasTile = true;
+            wall.TileType = TileID.Dirt;
+        }
+        live::AICompanion.Companion.Brain.SharedMovementSystem.TerrainChanges.Reset();
+        double budget = AStar.MsBudget;
+        try
+        {
+            AStar.MsBudget = 0.0001d;
+            Require(live::AICompanion.Companion.Brain.WorldInteractions.Mining.OreFinder.Approach(sealedOre, ctx.Npc.Bottom, out _) == Reachability.Reach.No,
+                "the nearby ore must have no exposed working face, independently of the search deadline");
+            Require(VerifyPreparedActivities.PrepareAndScore(action, ctx) > 0,
+                "the farther unresolved ore must remain an approach opportunity");
+            Require(action.TargetTile == unresolvedOre && action.ActivityTarget == unresolvedOre.ToWorldCoordinates()
+                && action.ActivityIdentity != null && action.ForecastTicks() > 0,
+                "the prepared offer must expose the same unresolved target and a nonzero travel estimate");
+            var request = action.Execute(ctx);
+            Require(request.Anchor == unresolvedOre.ToWorldCoordinates(),
+                $"unresolved approach must retain the ore its evidence describes; expected {unresolvedOre}, got {request.Anchor}");
+        }
+        finally { AStar.MsBudget = budget; }
     }
 
     private static (MineAction Action, ActionContext Context) SetUp(WorkPolicy policy, ushort tileType, Point ore, Point? playerHit)

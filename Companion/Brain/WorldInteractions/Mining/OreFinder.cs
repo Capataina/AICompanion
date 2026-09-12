@@ -24,7 +24,10 @@ public static class OreFinder
     private static int ReachY => Player.tileRangeY;
 
     public readonly record struct OreTarget(Point Tile, int Type, Vector2 StandPosition);
-    public readonly record struct SearchResult(OreTarget? Target, bool ApproachUnknown);
+    public readonly record struct SearchResult(OreTarget? Target, Point? UnresolvedTile)
+    {
+        public bool ApproachUnknown => UnresolvedTile != null;
+    }
 
     public static bool IsOre(int x, int y)
     {
@@ -71,7 +74,7 @@ public static class OreFinder
     public static SearchResult FindNearest(Vector2 fromFeet, Vector2 near, int radiusTiles, int preferredType = -1,
         System.Func<Point, bool>? accept = null)
     {
-        bool unknown = false;
+        Point? unknown = null;
         OreTarget? preferred = Nearest(fromFeet, near, radiusTiles, preferredType, accept, ref unknown);
         if (preferred != null || preferredType < 0)
             return new SearchResult(preferred, unknown);
@@ -80,7 +83,7 @@ public static class OreFinder
     }
 
     private static OreTarget? Nearest(Vector2 fromFeet, Vector2 near, int radiusTiles, int type, System.Func<Point, bool>? accept,
-        ref bool approachUnknown)
+        ref Point? unresolvedTile)
     {
         int cx = (int)(near.X / 16f), cy = (int)(near.Y / 16f);
         OreTarget? best = null;
@@ -98,8 +101,9 @@ public static class OreFinder
                 if (d >= bestDist)
                     continue;
                 Reachability.Reach approach = Approach(tile, fromFeet, out Vector2 stand);
-                if (approach == Reachability.Reach.Unknown)
-                    approachUnknown = true;
+                if (approach == Reachability.Reach.Unknown && (unresolvedTile is not Point previous
+                    || d < Vector2.DistanceSquared(fromFeet, previous.ToWorldCoordinates())))
+                    unresolvedTile = tile;
                 if (approach != Reachability.Reach.Yes)
                     continue;
                 bestDist = d;

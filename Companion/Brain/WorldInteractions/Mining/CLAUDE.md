@@ -3,11 +3,13 @@
 ```
 Mining/
 ├─ CLAUDE.md
-├─ OreFinder.cs   which tiles are ore (TileID.Sets.Ore), a bounded 8-connected vein, and ore discovery near a source body with an approach proved from the companion's actual feet; its result retains a bounded-approach unknown separately from no ore
+├─ OreFinder.cs   which tiles are ore (TileID.Sets.Ore), a bounded 8-connected vein, and ore discovery near a source body with an approach proved from the companion's actual feet; its result retains the exact nearest unresolved tile separately from a proven target
 └─ TileMiner.cs   runs the game's own Player.PickTile on the companion's drawing-only player, so the damage formula, the power gates, a modded tile's power check, the crack table and the break are the game's; CanMine asks the game's private damage formula through a delegate bound to that player
 ```
 
 ## Traps
+
+An unresolved approach belongs to a particular accepted tile. A nearby enclosed ore must not borrow the unknown status of a farther exposed ore, and a tool-ineligible diagnostic search cannot supply a playable unresolved candidate. SearchResult preserves the target of that evidence; callers do not rediscover it with different filters.
 
 `TileMiner.Swing` reports whether a native call occurred. Its stamped `LastOutcome` separately reports partial damage, removal, material/frame change or no observed change. A native power or permission refusal can therefore accept the call while producing no work. Damage comes from this miner's HitTile table, not a shared tile-health value; removal does not prove which items were produced or collected.
 

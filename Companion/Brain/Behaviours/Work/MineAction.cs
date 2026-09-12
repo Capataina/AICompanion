@@ -49,19 +49,20 @@ public sealed class MineAction : CompanionAction
     public int JobId => jobId;
     /// <summary>True only while the pickaxe is actually out; the whole walk to the vein is empty-handed.</summary>
     public override bool HandsBusy => swinging;
-    public override object? ActivityIdentity => jobId > 0 ? jobId : null;
+    public override object? ActivityIdentity => jobId > 0 ? jobId : (object?)unproven;
     public WorkPolicy Policy => WorkPolicies.Mining;
     public string Status => status;
     public int RemainingTiles => patch.Count;
-    public Point? TargetTile => target?.Tile;
+    public Point? TargetTile => target?.Tile ?? unproven;
     public Vector2? TargetStandPosition => target?.StandPosition;
 
     public override void Prepare(in ActionContext ctx)
     {
         preparedValue = DiscoverValue(ctx);
-        preparedTarget = target?.Tile.ToWorldCoordinates();
+        preparedTarget = (target?.Tile ?? unproven)?.ToWorldCoordinates();
         preparedTrip = target is { } found
-            ? Vector2.Distance(ctx.Npc.Bottom, found.StandPosition) / Companion.CompanionMotor.WalkSpeed + 180f : 0f;
+            ? Vector2.Distance(ctx.Npc.Bottom, found.StandPosition) / Companion.CompanionMotor.WalkSpeed + 180f
+            : unproven is Point pending ? Vector2.Distance(ctx.Npc.Bottom, pending.ToWorldCoordinates()) / Companion.CompanionMotor.WalkSpeed + 180f : 0f;
     }
 
     public override float Score() => preparedValue;
@@ -144,6 +145,7 @@ public sealed class MineAction : CompanionAction
     }
 
     private Point? unproven;
+    private Point? unresolvedCandidate;
     private Vector2 unprovenOrigin;
     private int unprovenTicks;
 
@@ -171,9 +173,17 @@ public sealed class MineAction : CompanionAction
             unproven = null;
             return 0f;
         }
-        if (unproven is not Point held || !OreFinder.IsOre(held.X, held.Y) || sinceSearch >= SearchEveryTicks)
+        if (unresolvedCandidate is not Point pending || !OreFinder.IsOre(pending.X, pending.Y)
+            || !ctx.Companion.Miner.CanMine(pending, TileMiner.PickaxeFor(ctx.Player).pick)
+            || !AllowsTarget(ctx, pending.ToWorldCoordinates())
+            || WorldInteractions.WorldProtection.ProtectCompanionHomes.IsProtected(pending))
         {
-            unproven = NearestUnprovenOre(ctx);
+            unproven = null;
+            return 0f;
+        }
+        if (unproven != pending)
+        {
+            unproven = pending;
             unprovenOrigin = ctx.Npc.Bottom;
             unprovenTicks = 0;
         }
@@ -191,39 +201,6 @@ public sealed class MineAction : CompanionAction
             return 0f;
         }
         return 0.7f * safe * Weights.MineUnprovenApproach;
-    }
-
-    /// <summary>
-    /// The nearest ore this pickaxe may break that the activity envelope and home protection allow,
-    /// asked without any reachability question at all. The ordinary search discards exactly these
-    /// candidates, so when it reports that some approach was unknown it has already thrown away the
-    /// tile that would say where to walk.
-    /// </summary>
-    private Point? NearestUnprovenOre(in ActionContext ctx)
-    {
-        int pick = TileMiner.PickaxeFor(ctx.Player).pick;
-        var miner = ctx.Companion.Miner;
-        Point from = MovementQueries.FeetTile(ctx.Npc.Bottom);
-        Point? best = null;
-        float bestDistance = float.MaxValue;
-        for (int x = from.X - SearchRadiusTiles; x <= from.X + SearchRadiusTiles; x++)
-        {
-            for (int y = from.Y - SearchRadiusTiles; y <= from.Y + SearchRadiusTiles; y++)
-            {
-                if (!OreFinder.IsOre(x, y))
-                    continue;
-                var tile = new Point(x, y);
-                if (!miner.CanMine(tile, pick) || !AllowsTarget(ctx, tile.ToWorldCoordinates())
-                    || WorldInteractions.WorldProtection.ProtectCompanionHomes.IsProtected(tile))
-                    continue;
-                float d = Vector2.DistanceSquared(ctx.Npc.Bottom, tile.ToWorldCoordinates());
-                if (d >= bestDistance)
-                    continue;
-                bestDistance = d;
-                best = tile;
-            }
-        }
-        return best;
     }
 
     private void Search(in ActionContext ctx, (Point Tile, int Type)? playerHit)
@@ -245,8 +222,9 @@ public sealed class MineAction : CompanionAction
             OreFinder.SearchResult byPlayer = OreFinder.FindNearest(ctx.Npc.Bottom, ctx.Player.Bottom, SearchRadiusTiles, accept: Mineable);
             OreFinder.SearchResult byCompanion = OreFinder.FindNearest(ctx.Npc.Bottom, ctx.Npc.Bottom, SearchRadiusTiles, accept: Mineable);
             result = new OreFinder.SearchResult(Nearest(ctx.Npc.Bottom, byPlayer.Target, byCompanion.Target),
-                byPlayer.ApproachUnknown || byCompanion.ApproachUnknown);
+                NearestTile(ctx.Npc.Bottom, byPlayer.UnresolvedTile, byCompanion.UnresolvedTile));
         }
+        unresolvedCandidate = result.UnresolvedTile;
         OreFinder.OreTarget? found = result.Target;
         if (found is OreFinder.OreTarget f)
         {
@@ -264,7 +242,7 @@ public sealed class MineAction : CompanionAction
             OreFinder.SearchResult anyOre = WorkPolicies.Mining == WorkPolicy.Mimic && playerHit is (Point _, int anyType)
                 ? OreFinder.FindNearest(ctx.Npc.Bottom, ctx.Player.Bottom, SearchRadiusTiles, anyType)
                 : OreFinder.FindNearest(ctx.Npc.Bottom, ctx.Npc.Bottom, SearchRadiusTiles);
-            status = anyOre.Target != null ? "no mineable ore" : anyOre.ApproachUnknown ? "approach unknown" : "no reachable ore";
+            status = anyOre.Target != null ? "no mineable ore" : anyOre.ApproachUnknown ? "no eligible approach" : "no reachable ore";
         }
     }
 
@@ -366,6 +344,7 @@ public sealed class MineAction : CompanionAction
         }
         jumpTile = null;
         bool unknown = false;
+        unresolvedCandidate = null;
         foreach (Point p in patch)
         {
             var approach = OreFinder.Approach(p, ctx.Npc.Bottom, out Vector2 stand);
@@ -375,6 +354,8 @@ public sealed class MineAction : CompanionAction
                 return new OreFinder.OreTarget(p, current.Type, stand);
             }
             unknown |= approach == Reachability.Reach.Unknown;
+            if (approach == Reachability.Reach.Unknown)
+                unresolvedCandidate = NearestTile(ctx.Npc.Bottom, unresolvedCandidate, p);
         }
         if (unknown)
         {
@@ -394,10 +375,15 @@ public sealed class MineAction : CompanionAction
         => a == null ? b : b == null ? a
             : Vector2.DistanceSquared(from, a.Value.Tile.ToWorldCoordinates()) <= Vector2.DistanceSquared(from, b.Value.Tile.ToWorldCoordinates()) ? a : b;
 
+    private static Point? NearestTile(Vector2 from, Point? a, Point? b)
+        => a == null ? b : b == null ? a
+            : Vector2.DistanceSquared(from, a.Value.ToWorldCoordinates()) <= Vector2.DistanceSquared(from, b.Value.ToWorldCoordinates()) ? a : b;
+
     private void ClearJob(string reason)
     {
         target = null;
         jumpTile = null;
+        unresolvedCandidate = unproven = null;
         patch.Clear();
         jobId = 0;
         status = reason;
