@@ -2,11 +2,11 @@
 
 This is a prospective failure analysis dated 12 September 2026, following the owner's elevation-and-ore drawing and two-enemy example. It adds acceptance cases to [Proposal 1](<../proposal/01 Preserve Utility and Repair Activity Contracts.md>); it does not implement them or claim that every listed failure has been observed. The inspected source baseline is `3049a89`, with the same gameplay source as the prior research baseline. The owner's drawing is a reported symptom, not a captured Terraria geometry or a proven reproduction.
 
-There are 64 cases: ten for top-level family selection, three for each of three families, and five for each of nine proposed activities. The owner mentioned both three and five per activity; the larger count is used. This is a structured first coverage set, not an exhaustive list of every possible Terraria failure. Each row names a plausible first owner, a general mechanism and the evidence that could distinguish it. Ownership is a hypothesis to test; a visual symptom alone cannot identify its cause.
+There are 64 retained cases: ten for top-level family selection, three for each of three families, five for each of seven activities, and ten shared safety/local-movement cases. The S and X identifiers survive the removal of separate Survival and Exploration behaviours. Sixteen further interaction cases J01–J16 are owned by [the discussion record](<../Decision Architecture/Purpose Families and Shared Companionship.md#interaction-cases-test-shared-mechanisms-rather-than-separate-patches>). The owner mentioned both three and five per activity; the larger count is used. This is a structured first coverage set, not an exhaustive list of every possible Terraria failure. Each row names a plausible first owner, a general mechanism and the evidence that could distinguish it. Ownership is a hypothesis to test; a visual symptom alone cannot identify its cause.
 
 ## The health bar shows the family and the actual activity
 
-Accepted display requirement: the current family icon appears to the left, health remains in the middle, and the current activity icon appears to the right. The top HUD has no weapon, ore-type or method/detail field. Examples of the represented pairs are Gathering / Mining, Gathering / Chopping, Combat / Hunting, Combat / Guarding and Combat / Surviving. The assistance family includes lighting, collection, keeping company and local exploration. “Wandering” was the owner's example name for that family; this document retains Nearby assistance as its architectural name. Display naming does not create another family.
+Accepted display requirement: the current family icon appears to the left, health remains in the middle, and the current activity icon appears to the right. The top HUD has no weapon, ore-type or method/detail field. Examples of the represented pairs are Gathering / Mining, Gathering / Chopping, Combat / Hunting, Combat / Guarding and Gathering / Mining with shared safety temporarily owning movement. The assistance family includes lighting, collection and keeping company; local movement belongs to those purposes. “Wandering” was the owner's example name for that family; this document retains Nearby assistance as its architectural name. Display naming does not create another family.
 
 Both icons must come from one coherent activity snapshot. Selected activity, execution phase and temporary control owner are distinct: a suspended mining activity must not masquerade as active mining during an escape or downed state. Execution phases such as approaching or blocked belong in the inspector rather than another top-HUD text field. Lifecycle overrides such as downing or recovery need an explicit icon/display rule, not a fictitious fourth utility family. The exact visual treatment is an implementation/design checkpoint. Raw scores, reason codes and query budgets also belong in the inspector.
 
@@ -58,7 +58,7 @@ The future reproduction needs paired native scenes: raised lip and lip removed, 
 
 ## Two enemies require separate movement and firing decisions
 
-For a hidden enemy at 5% health and a visible enemy at 100%, immediate firing and movement answer different questions. The arsenal evaluates the shots available from the current muzzle. Hunting, guarding and survival evaluate whether a different position would be useful and safe. A lack of a current shot at the nearly defeated enemy does not prohibit worthwhile repositioning; its low health does not require chasing it.
+For a hidden enemy at 5% health and a visible enemy at 100%, immediate firing and movement answer different questions. The arsenal evaluates the shots available from the current muzzle. Hunting and guarding propose useful positions; shared safety evaluates their risks and can generate an escape independently. A lack of a current shot at the nearly defeated enemy does not prohibit worthwhile repositioning; its low health does not require chasing it.
 
 If a short safe move creates a finishing shot, pursuit may offer it while the arsenal shoots the visible enemy during travel. If the other enemy threatens either actor, protection or safety may determine movement while firing addresses the best currently legal opportunity. If the hidden enemy requires an expensive, unsafe or unreturnable excursion, leave it. Killing the healthy enemy first is a possible outcome, never a mandatory sequence. Reconsider as either enemy moves or dies.
 
@@ -110,7 +110,7 @@ For every row, the prospective test is to create the stated condition, verify th
 | Case | Failure or misleading success | First owner to investigate | General remedy proposed for Path 1 | Evidence that separates it |
 |---|---|---|---|---|
 | C01 | Guarding sends it through a zombie to reach the player. | Intervention positioning | Value an achievable intervention and the safety of its approach, rather than proximity to the player alone. | Approach harm, time to help and alternative firing positions. |
-| C02 | Kiting away from an enemy prevents surfacing. | Safety assessment and control | Compare combined hazards through a viable terminal state; seek safety owns the escape purpose. | Breath forecast, controls and sustained head clearance. |
+| C02 | Kiting away from an enemy prevents surfacing. | Safety assessment and control | Compare combined hazards through a viable terminal state; shared safety owns the escape response. | Breath forecast, controls and sustained head clearance. |
 | C03 | A 5%-health hidden enemy monopolises pursuit while another is dangerous. | Pursuit valuation | Compare cost to create a shot and harm removed; immediate arsenal may shoot a different legal target. | Movement-purpose target, shot target and relevance of each outcome. |
 
 ### Nearby assistance family selection
@@ -161,7 +161,7 @@ For every row, the prospective test is to create the stated condition, verify th
 | P04 | Guarding persists after the player has removed the threat. | Freshness | Retain identity through noise but withdraw when the purpose has gone; reconsider other work. | Threat-generation termination and next offered activities. |
 | P05 | No damage occurred, so it claims protection without evidence it caused that. | Outcome interpretation | Separate predicted harm avoided from measured damage and observable intervention; do not assert the counterfactual. | Threat movement, actions, actual harm and labelled estimates. |
 
-### Survival activity
+### Shared safety responses
 
 | Case | Failure or misleading success | First owner to investigate | General remedy proposed for Path 1 | Evidence that separates it |
 |---|---|---|---|---|
@@ -201,15 +201,15 @@ For every row, the prospective test is to create the stated condition, verify th
 | K04 | Removing follow also removes the trigger for last-resort return. | Lifecycle admission | Connect permitted recovery to explicit reunion need; work cannot invoke flight to its resource. | Reunion purpose, recovery reason and no route-memory learning. |
 | K05 | Already separated, it starts fresh jobs repeatedly and never catches up. | Shared companionship | Carry cumulative time apart through all activity changes and compare remaining work against reunion. | Separation history and rejected/accepted detour values. |
 
-### Local exploration activity
+### Shared local observation and company movement
 
 | Case | Failure or misleading success | First owner to investigate | General remedy proposed for Path 1 | Evidence that separates it |
 |---|---|---|---|---|
-| X01 | It loops over the same familiar patch and calls that exploration. | Observation and progress | Represent coverage gained separately from walking and directed route experience. | Newly observed region versus repeated traversal. |
+| X01 | It loops over the same familiar patch and calls that productive work. | Observation and progress | KeepCompany may move locally or rest; observation coverage supports useful tasks without rewarding novelty or perpetual movement. | Newly observed region versus repeated traversal. |
 | X02 | It enters an unreturnable area because outward movement is possible. | Return feasibility | Require safe useful prefixes with current exit/continuation evidence. | Outward and return statuses, body resources and uncertainty. |
 | X03 | A changing world invalidates the remembered visited area or route. | Memory dependencies | Separate seen-before from currently traversable; invalidate changed geometry without erasing all history. | Observation age, terrain fingerprint and current route proof. |
 | X04 | Wandering wins while useful work was never examined. | Candidate scheduling | Report unexamined opportunities and refine promising candidates within shared budgets. | Candidate coverage and age, not only evaluated winners. |
-| X05 | It keeps exploring after the player begins sustained travel. | Shared companionship | Re-evaluate exploration gain against updated reunion cost, retaining accumulated separation. | Player context, exploration gain and selected return movement. |
+| X05 | It keeps making idle local excursions after the player begins sustained travel. | Shared companionship | Re-evaluate local movement against updated reunion need, retaining accumulated separation. | Player context, local movement purpose and selected return movement. |
 
 ## The recorder distinguishes prediction, execution and effect
 

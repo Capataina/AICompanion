@@ -23,7 +23,7 @@ World, player context and capability evidence
                 │
                 ▼
 Purpose families expose eligible activity offers
-  Gathering     Combat and safety     Nearby assistance
+  Gathering     Combat     Nearby assistance
                 │
         utility compares declared offers
                 │
@@ -40,7 +40,7 @@ One output arbiter and shared native movement/tool interfaces
                 └─ native outcomes return to their owning activity
 ```
 
-Use Path 1's three-family membership. Mining and chopping share discovery/approach/use contracts while preserving native differences. Pots remain incidental actions. Pursuit and protection retain different purposes while sharing attack-position mechanics; kiting is a seek-safety method. Light can accompany another purpose or create a useful destination. Family ownership never makes contact pickup, held light or compatible travel-time firing exclusive to one family.
+Use Path 1's three-family membership. Mining and chopping share discovery/approach/use contracts while preserving native differences. Pots can be incidental actions or part of worthwhile collection trips. Pursuit and protection retain different purposes while sharing attack-position mechanics; kiting is a seek-safety method. Light can accompany another purpose or create a useful destination. Family ownership never makes contact pickup, held light or compatible travel-time firing exclusive to one family.
 
 | Structural choice | First candidate | Alternative worth testing | Separator |
 |---|---|---|---|
@@ -66,13 +66,13 @@ Extract or expose activity lifecycle facts without changing selection. Replay th
 
 ## Pilot the stronger executor within one existing family
 
-Work is the best first comparison because mining and chopping expose approach, active tool use, completion and incidental drops, while the user's examples clearly distinguish those phases. Treat pot breaking as a counterexample: it is expected to be incidental and should not automatically inherit mining's willingness to travel.
+Work is the best first comparison because mining and chopping expose approach, active tool use, completion and incidental drops, while the user's examples clearly distinguish those phases. Treat pot breaking as a counterexample: an incidental hit should not inherit mining's willingness to travel; a separate collection trip must justify its own access, uncertain reward and return cost.
 
 The first work activity should enter approach without claiming the tool hand, switch to coherent tool use only when the native predicate holds, and leave use on completion, invalidation or a justified interruption. It should preserve enough target/progress evidence for later comparison without creating a mandatory resume stack. Re-evaluate collection as a separate opportunity.
 
 E03/E05 require that travel may shoot, active pick/axe use cannot weave with weapon cooldown, torch holding may yield and a genuine danger may cancel use. They also require an almost-complete job to be abandoned when its current cost becomes unacceptable. A hierarchy that passes only the “finish work” half is incomplete.
 
-If the pilot reduces ownership errors and explains the accepted cases, extend the common executor to Combat and safety and Nearby assistance. If it only adds transitions around already-correct code, retain Path 1's lighter implementation. If different interactions force unrelated rules into a common executor, share only the applicable physical actions and preserve their purpose-specific logic.
+If the pilot reduces ownership errors and explains the accepted cases, extend the common executor to Combat and Nearby assistance. If it only adds transitions around already-correct code, retain Path 1's lighter implementation. If different interactions force unrelated rules into a common executor, share only the applicable physical actions and preserve their purpose-specific logic.
 
 ## Compare family-level utility without hiding the best opportunity
 
@@ -109,7 +109,7 @@ E06/E10 decide whether the harm forecast and terminal state are adequate. Fewer 
 | Following and local autonomy | A companionship purpose observes player motion/local activity while work offers include time apart and return cost. | E14: if it stops at every ore during rapid travel, improve context/value; if it cannot execute a valid follow route, fix movement. |
 | Independent lighting | A light opportunity has a spatial benefit, available supply, permission and return assumptions; placement is a bounded action. | If its family suppresses useful lighting, repair offer preparation/aggregation; compare the flat reference if the grouping itself remains the cause. |
 | Incidental pot/loot work | An opportunity can briefly replace or coexist with a compatible phase when its marginal cost is low. | E13: if local re-evaluation yields the expected trip, avoid a task queue; if future prerequisites matter, compare Path 3. |
-| Pursuit, protection and seek safety | Purposes share attack-position and evasion options; kiting is a safety method and aim/fire retains its immediate target decision. | If grouping makes voluntary hunting as urgent as player protection, separate purpose values; if the spot is useless, repair E07. |
+| Pursuit, protection and shared safety | Combat purposes query shared attack-position and safety methods; independent safety responses own sustained escape and aim/fire retains its immediate target decision. | If grouping makes voluntary hunting as urgent as player protection, separate purpose values; if the spot is useless, repair E07. |
 | Boss/event context | Encounter facts alter the relevant purpose offers and movement envelope without rewriting each weapon. | If event recognition fails for an unfamiliar mod, improve supported observation/fallback; do not add one boss-name branch per case. |
 | New movement abilities | A capability revision enables local options and changes route/return preconditions. | E15: if an old phase assumes a consumed jump remains, repair resource transitions; if choosing among methods needs future value, E13. |
 | Courtesy | A position preference recognises real placement/passage interference while the activity retains its purpose. | If it abandons a good combat pose unnecessarily, reduce the courtesy trade-off or improve interference prediction. |

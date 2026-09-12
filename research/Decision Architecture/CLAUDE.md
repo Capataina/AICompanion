@@ -1,6 +1,6 @@
 # Decision-architecture research distinguishes choice, commitment and control ownership
 
-This folder extends the repository's first utility comparison with evidence about decision mechanisms that can be combined rather than substituted wholesale. Purpose Families and Shared Companionship records the owner's selected research direction and follow-up discussion; implementation and acceptance remain unperformed.
+This folder extends the repository's first utility comparison with evidence about decision mechanisms that can be combined rather than substituted wholesale. Purpose Families and Shared Companionship records the owner's selected research direction and follow-up discussion; implementation and acceptance remain unperformed. The selected seven activities omit independent exploration and survival: local movement serves assistance, and one shared safety response owns avoidance and sustained escape. The discussion's J01–J16 cases own cross-system expectations and package links.
 
 ```text
 Decision Architecture/

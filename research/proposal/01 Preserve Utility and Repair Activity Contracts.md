@@ -20,12 +20,11 @@ A blue level/experience bar, experience-award rules and wider profile-card redes
 
 The proposed main activities are grouped as follows. This is the target implementation, not the current production chooser.
 
-| Gathering | Combat and safety | Nearby assistance |
+| Gathering | Combat | Nearby assistance |
 |---|---|---|
 | Mining ore | Hunting a worthwhile target | Lighting useful areas |
 | Chopping trees | Guarding the player | Collecting nearby items |
-| | Survival | Keeping company |
-| | | Exploring locally |
+| | | Keeping company |
 
 Shared danger assessment and reflexes remain active across all three families. An observed dangerous projectile can warrant avoidance while mining even when no enemy is visible; the response uses an available safe movement rather than an unconditional jump. Shared companionship weighs the benefit of work away from the player against time apart and practical reunion, so optional excursions remain possible. Movement, capability limits, native permissions, hand admission, independent arsenal selection, progress attribution and lifecycle handling are shared rather than copied inside the family folders.
 
@@ -44,11 +43,37 @@ Shared danger assessment and reflexes remain active across all three families. A
 | Resolve feet and hand ownership | ActivityCoordination at the existing tick boundary | Requests, grants, denial/pre-emption reasons and coherent tool ownership | Early-return paths bypassing the same resource rules |
 | Explain the result | BehaviourDiagnostics, SessionReport, HeadsUpDisplay | One read-only activity snapshot and bounded evidence stream | UI rerunning decision or movement queries; logging becoming gameplay state |
 
-Risk assessment is shared even while Gathering or Nearby assistance is active. “Seek safety” is a main activity when its value warrants it; kiting, surfacing, cover and jumping are methods, not rival top-level policies. Keep-company remains a real child that can request reunion movement. Shared reunion cost influences all excursions, not just that child.
+Shared safety assesses and can control movement during every family. Kiting, surfacing, cover and jumping are methods; sustained escape has its own response identity and exit condition outside the family chooser. It can run with no ordinary activity. Keep-company supplies reunion or relaxed nearby movement. Shared reunion assessment scales with credible danger, expected need for help, player travel, useful alternatives and actual return cost; calm does not mean unlimited remote work.
+
+## Shared-system interactions are implementation requirements
+
+The [sixteen interaction cases J01–J16](<../Decision Architecture/Purpose Families and Shared Companionship.md#interaction-cases-test-shared-mechanisms-rather-than-separate-patches>) are additional acceptance requirements for P02–P14, with per-case package ownership in that table. They supersede the earlier separate Survival and local-exploration children. Preserve the original S01–S05 and X01–X05 failure IDs as shared-system tests; removing a behaviour label must not remove safety or movement coverage.
+
+**P05** must compare the consequence of separation, using likely need for help, intervention delay, credible containment, effective harm, player intent, useful nearby alternatives, uncertainty and return cost. Apply each consequence once. Neither raw enemy count nor distance alone establishes the right working envelope. Pair calm and dangerous scenes before tuning.
+
+**P06/P08** must migrate old survival/kite/reflex responsibilities into one shared safety response lifecycle: evaluate proposed ordinary motion, adjust it where sufficient, independently generate and retain escape when needed, admit controls through the one motor boundary, and release them only after a viable resulting state or explicit replacement/failure. Threat-free drowning and an empty ordinary offer set must both work. Small tolerable harm must not become universal refusal. P03 can temporarily adapt the old selector; remove its Survival child only when this shared responsibility is present. There is no new fourth family or hidden competing combat chooser.
+
+**P09/P10** must permit bounded pot-content collection candidates alongside known drops, using uncertain reward, native permissions, attack access, capacity and likely collection/return cost. Re-evaluate after contents appear. KeepCompany owns safe varied local motion and resting; lighting/collection own useful investigations. Do not create ExploreLocally.cs or a novelty reward. P11 invalidates these estimates when abilities or the world change.
+
+**P12** records shared-safety owner, response goal and lifetime, interrupted activity, reason for takeover/release, expected versus actual harm, control grants and productive outcomes. Add the excursion factor provenance from J01–J16 to the common snapshot and bounded alternatives. God's Eye must distinguish useful gathering interrupted by safety from failed gathering, and successful dodging from an episode that produces no useful work.
+
+**P13** retains family icon / health / activity icon. Subdue the suspended activity icon while shared safety owns execution; when no ordinary activity exists use a neutral icon. Detailed escape reasons stay in the inspector. **P14** includes all J01–J16 in matched and held-out acceptance; none is passed by writing this plan.
+
+## Keep the implementation smaller than the responsibility diagram
+
+Retain both decision levels: each family's local utility compares its own activities, then top-level utility compares the three winning offers. Share the scoring implementation and common factors between these decision-makers; do not write four duplicate evaluation libraries. Shared code does not flatten selection or remove family-specific considerations. The parent compares the submitted values without applying the same costs again. KeepCompany is an ordinary eligible offer and may beat available but low-value work, not merely a fallback after every other candidate vanishes. The matched flat result remains a test reference, not the selected production architecture.
+
+Family grouping alone does not prevent switching: maximum-of-family-maxima selects the same winner as a flat maximum on identical candidates and factors. Stability comes from current activity continuity, remaining useful effort, real interruption/switching cost and appropriately stable observations. Include these once in the child offer so the parent sees the value of continuing. Do not add a second blanket family lock that forces poor work or delays an urgent response. If matched play still shows unjustified cross-family churn, distinguish noisy observations, candidate disappearance and mispriced switching before testing any additional family-level commitment. No such lock or removal of per-family selection is authorised by this simplification.
+
+Use one safety-response owner. Move reusable imminent-threat query code from CombatReflexes into that boundary as implementation permits; do not leave two controllers that can each take over the body. Reuse SharedMovementSystem for response planning and execution. The response needs only current goal, interrupted activity, progress and termination evidence; it does not justify a generic scheduler or unbounded plan stack.
+
+One active activity, one granted movement response and one coherent hand owner are sufficient starting contracts. Candidate evaluation must not mutate them. Distinguish observation, proposal, physical attempt and actual effect as data, without automatically creating four managers. Incidental interactions are proposals handled at the existing grant boundary, not another independent planner. Keep one event producer/schema feeding recorder, inspector and God's Eye. Add modules only for current responsibilities that existing cohesive code cannot own; the folder tree is a guide, not a scaffolding quota.
+
+Retain separate native permissions, route feasibility, useful-position validation and actual effects because each can disagree in a real case. Retain ordinary continuous recovery restrictions separately from tactical escape: proximity flight permission must not leak into mining or combat. Consolidate code where appropriate without erasing those distinctions. These are scope limits for implementation, not evidence of reduced runtime cost before measurement.
 
 ## Target folders make purpose families visible without duplicating execution
 
-This is a target map, not a statement that these files exist. New files are created when their owning package needs them; do not create empty skeleton folders. Paths named in the migration table are the current counterparts. Proposed filenames describe responsibilities and may be consolidated where the final code is small, provided the ownership below remains explicit. Every created folder receives its applicable CLAUDE.md in the implementation change; this planning task edits no source-folder documentation.
+This is a target map, not a statement that these files exist. New files are created when their owning package needs them; do not create empty skeleton folders. Paths named in the migration table are the current counterparts. These are responsibility names, not a requirement for one class per record or one service per concern. Use existing cohesive modules where they can carry the responsibility clearly. Proposed filenames describe responsibilities and may be consolidated where the final code is small, provided the ownership below remains explicit. Every created folder receives its applicable CLAUDE.md in the implementation change; this planning task edits no source-folder documentation.
 
 ```text
 Companion/
@@ -57,7 +82,7 @@ Companion/
 │  ├─ BehaviourWeights.cs
 │  ├─ WorldObservation/
 │  │  ├─ ObservePlayerActivityContext.cs       sustained travel versus local activity
-│  │  ├─ ObserveLocalOpportunityCoverage.cs    known light/exploration coverage
+│  │  ├─ ObserveLocalOpportunityCoverage.cs    known lighting and collection coverage
 │  │  └─ ReadCurrentCapabilities.cs            immutable view of actual body/tool abilities
 │  ├─ BehaviourSelection/
 │  │  ├─ DescribeActivityOffer.cs              candidate identity, evidence and value
@@ -69,17 +94,15 @@ Companion/
 │  │  │  ├─ OfferGatheringActivity.cs
 │  │  │  ├─ MineOre.cs
 │  │  │  └─ ChopTree.cs
-│  │  ├─ CombatAndSafety/
-│  │  │  ├─ OfferCombatOrSafetyActivity.cs
-│  │  │  ├─ SeekSafety.cs
+│  │  ├─ Combat/
+│  │  │  ├─ OfferCombatActivity.cs
 │  │  │  ├─ ProtectPlayer.cs
 │  │  │  └─ PursueAttackOpportunity.cs
 │  │  └─ NearbyAssistance/
 │  │     ├─ OfferNearbyAssistance.cs
 │  │     ├─ LightUsefulArea.cs
 │  │     ├─ CollectNearbyItems.cs
-│  │     ├─ KeepCompany.cs
-│  │     └─ ExploreLocally.cs
+│  │     └─ KeepCompany.cs                    reunion and relaxed safe local movement
 │  ├─ ActivityCoordination/
 │  │  ├─ TrackActiveActivity.cs                active work, suspension and attempt lineage
 │  │  ├─ DescribeActivityOutcome.cs            attempted, partial, complete, interrupted, invalid
@@ -88,7 +111,11 @@ Companion/
 │  │  ├─ GrantActivityControls.cs              one feet/hand admission boundary
 │  │  ├─ ConsiderIncidentalInteractions.cs     marginal opportunities, no second movement writer
 │  │  └─ RecoverDistantCompanion.cs            permitted continuous last-resort reunion
-│  ├─ CombatReflexes/                          reuse shared motion and consequence evidence
+│  ├─ SharedSafety/
+│  │  ├─ EvaluateSafeActivityMethods.cs        assess ordinary motion and alternatives
+│  │  ├─ ChooseSafetyResponse.cs               adjustment or independently generated escape
+│  │  ├─ TrackSafetyResponse.cs                sustained goal, progress and release condition
+│  │  └─ ImminentThreatResponses/             migrated reusable CombatReflexes queries, no second controller
 │  ├─ PositionSelection/
 │  │  ├─ DescribeUsefulDestination.cs          success region or interaction window
 │  │  ├─ ChooseUsefulPosition.cs               compare feasible target/pose methods
@@ -162,10 +189,10 @@ Tools/
 | Behaviours/Work/MineAction.cs and ChopAction.cs | Gathering/MineOre.cs and ChopTree.cs; preserve native tools, separate discovery from pure evaluation | Chooser registration, policy access, active-type checks, diagnostics and fixtures |
 | Behaviours/Work/WorkPolicies.cs | Keep policy authority with existing per-character preferences; move its thin brain reader to the new grouping only if it remains needed | ProfileCard controls, PlayerIntegration persistence and both gathering children |
 | Behaviours/Work/PerformNearbyWorldWork.cs | Split lighting intent from incidental pot decisions; keep reusable native placement/jump mechanics under existing appropriate interaction/movement owners | Torch/pot toggles, hand admission, target evidence and native interaction fixtures |
-| Behaviours/Combat/HuntAction.cs | CombatAndSafety/PursueAttackOpportunity.cs | All hunt target/progress readers and inspector labels |
-| Behaviours/Combat/KiteAction.cs and Survival/SurviveAction.cs | One SeekSafety activity with shared method selection; preserve native escape assets | Coordinator special paths, safety tests and movement requests |
-| Behaviours/Companionship/GuardAction.cs | CombatAndSafety/ProtectPlayer.cs | Intervention estimates, guard retention and relevant target generation |
-| Behaviours/Companionship/WalkWithPlayerAction.cs and WanderAction.cs | NearbyAssistance/KeepCompany.cs and ExploreLocally.cs plus shared reunion considerations | Follow-specific type checks, progress watchers, recovery admission and preference labels |
+| Behaviours/Combat/HuntAction.cs | Combat/PursueAttackOpportunity.cs | All hunt target/progress readers and inspector labels |
+| Behaviours/Combat/KiteAction.cs and Survival/SurviveAction.cs | SharedSafety response ownership and shared methods; preserve native escape assets | Coordinator special paths, safety tests and movement requests |
+| Behaviours/Companionship/GuardAction.cs | Combat/ProtectPlayer.cs | Intervention estimates, guard retention and relevant target generation |
+| Behaviours/Companionship/WalkWithPlayerAction.cs and WanderAction.cs | NearbyAssistance/KeepCompany.cs plus shared reunion considerations | Follow-specific type checks, progress watchers, recovery admission and preference labels |
 | Behaviours/Companionship/RecoverDistantFollowing.cs | ActivityCoordination/RecoverDistantCompanion.cs | Lifecycle cancellation, motor flight, diagnostics and no-learning tests |
 | Behaviours/Gathering/LootAction.cs | NearbyAssistance/CollectNearbyItems.cs | Capacity, retained worksite collection and independent contact pickup |
 | Behaviours/CompanionAction.cs and BehaviourSelection/ChooseBehaviour.cs | Replace coupled score/execute base as required with offers, activity ownership and shared selection | Every implementation/reference, test links, coordinator API and serialized labels |
@@ -184,6 +211,7 @@ The names here are proposed domain records, not a mandate for one file per recor
 | ActivityOffer | Stable candidate key; family/activity kind; target identity; intended outcome; eligibility; value factors; remaining effort estimate/basis; outward/return/method status; evidence revision | Refresh on relevant dependencies; selection ID is distinct from continuing activity ID |
 | UsefulDestination | Purpose/target identity, allowed body-state region or timed interaction window, permission/ability requirements, outward and return evidence | Revalidate actual arrival and before interaction; approximate waypoint completion cannot satisfy it |
 | ActiveActivity | Activity ID, target, current phase, retained work, current attempt ID, observed progress, suspension/end reason and last relevant revision | One active primary activity; bounded useful retained candidate context, no nested unlimited intentions |
+| SafetyResponse | Response ID, hazard evidence, goal/terminal predicate, interrupted activity if any, current attempt, progress and release/replacement reason | One retained response under the common control boundary; works with no ordinary offer, ends on viable safety or explicit replacement/failure |
 | AttemptOutcome | Attempt identity, actual start/end state, attempted/executed/partial/complete/invalid/interrupted/failed status, evidence and cause boundary | Historical immutable fact; interruption is never rewritten as physical failure |
 | ControlGrant | Requested owner and granted owner for movement, tool/attack hand and light; denial/pre-emption reason | Per tick; coherent work ownership extends across its cooldown, with explicit interruption |
 | ActivitySnapshot | Family/activity icons, phase, lifecycle/control status and IDs pointing to retained evidence | Publish coherently after resolution; consumers read without recomputation |
@@ -195,12 +223,12 @@ Use multiplicative considerations initially where their existing semantics apply
 ## One tick resolves one coherent activity and control outcome
 
 1. Observe the post-engine body and resolve outcomes of preceding attempts before evaluating new work. External changes and uncaptured attribution remain explicit.
-2. Refresh shared world/player/capability facts. Invalidate only dependent candidates/methods, preserving useful target knowledge and query frontiers.
+2. Refresh shared world/player/capability facts and assess ongoing danger/safety-response progress independently of family offers. Invalidate only dependent candidates/methods, preserving useful target knowledge and query frontiers.
 3. Handle downed/lifecycle state and ongoing permitted recovery through the same grant/snapshot publication path. These do not submit a fourth family.
 4. Refine eligible opportunities under the shared query budget; families score the same context and submit their concrete best children.
 5. Choose the best eligible offer. Revalidate dependencies before committing it; if invalid, allow a bounded fresh selection, then a feasible keep-company/hold/safety outcome rather than an infinite retry loop.
 6. Continue, suspend, abandon or begin the active activity explicitly. Reusing the same purpose keeps its identity; a different attempt at the same purpose receives a new attempt ID.
-7. Request the useful destination/method. Assess imminent avoidance against the proposed motion and alternatives, including the aftermath of avoidance; grant exactly one movement controller.
+7. Request the ordinary useful destination/method if one exists. Shared safety assesses that motion and alternatives, continues or independently generates sustained escape when required, and can suspend ordinary work. This runs even with no family offer. Grant exactly one movement controller and retain a safety response only for its current purpose and termination conditions.
 8. Resolve coherent tool use, independent arsenal firing and compatible light/incidental actions. Only permitted native interactions mutate the world. A tool interruption is explicit, never inferred from an empty cooldown slot.
 9. Apply the single motor packet, publish a coherent snapshot and record requested/granted controls. The next engine observation establishes physical results; same-tick native effects may be recorded immediately where genuinely observed.
 
@@ -226,8 +254,8 @@ flowchart TD
     P04 --> P09[Complete gathering cooperation]
     P05 --> P09
     P06 --> P09
-    P03 --> P10[Useful assistance and exploration]
-    P05 --> P10[Useful assistance and exploration]
+    P03 --> P10[Useful assistance and local company]
+    P05 --> P10[Useful assistance and local company]
     P06 --> P10
     P07 --> P10
     P08 --> P11[Capability and integration coverage]
@@ -361,9 +389,9 @@ Classify a failed physical method into absent transition, unfinished search, inv
 
 **Prerequisites:** P03/P05/P06; use P07 methods as required.
 
-Merge kite into SeekSafety method selection, integrating breath, damage, resource and aftermath costs. ProtectPlayer evaluates useful intervention rather than player proximity. PursueAttackOpportunity uses actual reachable attack evidence and retains target-generation identity. Share arsenal feasibility through the existing boundary without changing its ranking algorithms. Record pursuit target, aiming target and actual hit target independently.
+Move kite, survival and reflex response ownership into shared safety, integrating breath, damage, resource and aftermath costs. ProtectPlayer evaluates useful intervention rather than player proximity. PursueAttackOpportunity uses actual reachable attack evidence and retains target-generation identity. Share arsenal feasibility through the existing boundary without changing its ranking algorithms. Record pursuit target, aiming target and actual hit target independently.
 
-**Owned implementation surface:** CombatAndSafety, CombatReflexes, consequence estimates, position queries, existing Arsenal query boundary and combat/escape tests.
+**Owned implementation surface:** Combat, SharedSafety, CombatReflexes, consequence estimates, position queries, existing Arsenal query boundary and combat/escape tests.
 
 **Acceptance and instrumentation:** Pair hidden5%-health and visible100%-health enemies with cheap versus costly reposition, urgent versus irrelevant threat and changing visibility. Test guarding past an intervening hostile, surfacing under projectile pressure and attacks while retreating. Incidental shots cannot perpetually renew a failed pursuit; successful safety requires a usable aftermath.
 
@@ -389,11 +417,11 @@ Apply native usable-position and outcome contracts to chopping; prefer separate 
 
 **Prerequisites:** P03/P05/P06 and required P07 movement guarantees.
 
-Implement spatial lighting opportunities with measured/unknown coverage; separate held light from persistent placement. Implement collection from actual quantities/capacity. Keep-company provides ordinary local movement; exploration tracks newly observed useful area separately from directed route memory. Incidental pots/contact pickup/light use marginal added cost, deduplicate benefits and never write competing movement. A detour needing a new destination is a proposed method/activity change through the same grants.
+Implement spatial lighting opportunities with measured/unknown coverage; separate held light from persistent placement. Implement collection from actual quantities/capacity. Keep-company provides relaxed safe local movement or rest; observation coverage supports lighting and collecting without an independent exploration activity. Pot-content collection trips and incidental pots/contact pickup/light use marginal added cost, deduplicate benefits and never write competing movement. A detour needing a new destination is a proposed method/activity change through the same grants.
 
 **Owned implementation surface:** NearbyAssistance, local opportunity observation, ConsiderIncidentalInteractions, native Torch, Inventory, MapIntegration evidence and activity/follow tests.
 
-**Acceptance and instrumentation:** Test last torch exhausted, player-held light, overlap between placements, moved drops, partial stack capacity, shared contact pickup, darkness below an unreturnable ledge, empty world reunion and repetitive exploration. Verify unknown lighting coverage is not treated as measured darkness.
+**Acceptance and instrumentation:** Test last torch exhausted, player-held light, overlap between placements, moved drops, partial stack capacity, shared contact pickup, darkness below an unreturnable ledge, empty world reunion and purposeless repetitive movement. Verify unknown lighting coverage is not treated as measured darkness.
 
 **Branch on the result:** If opportunities are missing, improve coverage. If captured opportunities lose incorrectly, inspect values. If repeated cheap detours dominate, fix cumulative journey cost. If accurate local choices miss useful sequences, E13 tests bounded planning before introducing a general task chain.
 
@@ -596,15 +624,15 @@ The main counterargument is that grouping can hide useful children or duplicate 
 
 ## Three families use local utility before the parent selects an offer
 
-The [discussion record](<../Decision Architecture/Purpose Families and Shared Companionship.md>) supplies the reasoning, sources and rejected alternatives. Gathering contains mining and chopping. Combat and safety contains seek safety, player protection and worthwhile pursuit. Nearby assistance contains lighting, collection and keep-company/local exploration. Kiting becomes a method of seeking safety; pot breaking becomes incidental work rather than a destination-seeking sibling. Keep-company supplies movement when no optional work is worthwhile, while reunion cost influences every activity.
+The [discussion record](<../Decision Architecture/Purpose Families and Shared Companionship.md>) supplies the reasoning, sources and rejected alternatives. Gathering contains mining and chopping. Combat contains player protection and worthwhile pursuit. Nearby assistance contains lighting, collection and keeping company. Shared safety owns kiting, avoidance and sustained escape across every family. Pots can be incidental interactions or worthwhile collection destinations, without a separate behaviour. Keep-company supplies movement when no optional work is worthwhile, while reunion cost influences every activity.
 
 Each family uses shared utility machinery on eligible concrete activities. Its initial offer is its highest-valued child, carrying the child's target, purpose, capability/terrain evidence, uncertainty and value explanation. The parent selects among those three offers, not independent broad scores such as enemy count. There is no fixed internal order or unconditional Gathering > Combat > Assistance ladder. Useful gathering should beat unnecessary pursuit in the relevant paired scenes; urgent effective protection or cheap useful lighting can overturn that preference.
 
-Shared risk assessment applies during every family. Seek safety becomes a main activity when warranted, with retreat, cover, high ground, jumping and surfacing as physical alternatives. Companionship compares time apart and practical reunion, not just distance. Avoid duplicate parent/child penalties or commitment. Preserve the existing weapon/target/trajectory algorithms; feasibility queries and coherent hand admission connect them to behaviour and movement. This scope decision does not certify universal arsenal correctness.
+Shared risk assessment applies during every family. Shared safety can adjust any activity or suspend it for sustained escape, with retreat, cover, high ground, jumping and surfacing as physical alternatives. Companionship compares time apart and practical reunion, not just distance. Avoid duplicate parent/child penalties or commitment. Preserve the existing weapon/target/trajectory algorithms; feasibility queries and coherent hand admission connect them to behaviour and movement. This scope decision does not certify universal arsenal correctness.
 
 ## A chosen family must have a concrete activity to deliver
 
-An empty family submits no selectable offer. Unresolved candidates report unknown coverage rather than an inflated family score. A safe bounded investigation may itself be offered, with an explicit purpose and terminal conditions. A threat can remain important when no shot exists: seek safety and protection must consider non-attacking responses too.
+An empty family submits no selectable offer. Unresolved candidates report unknown coverage rather than an inflated family score. A safe bounded investigation may be offered as a method of lighting or collecting, with an explicit useful purpose and terminal conditions. A threat can remain important when no shot exists: shared safety and protection must consider non-attacking responses too.
 
 Bind parent selection to the offered child identity and evidence revision. Revalidate relevant dependencies before execution. A changed target, terrain or capability withdraws the stale offer and triggers bounded reconsideration; it does not force a worthless combat action or an unbounded retry loop. Keep-company, holding safely and urgent safety remain explicit outcomes when no optional work is worthwhile, under normal lifecycle rules. If none is feasible, expose that limitation rather than fabricate progress.
 
@@ -623,7 +651,7 @@ This extends E01/E02/E04 to all families. An empty combat interval alone does no
 
 Verify observer semantics and reproduce the original signature with E01/E02. Make candidate maintenance and activity-owned progress explicit before changing preferences. Then compare flat and three-family selection on identical offers, eligibility, factors and tie-breaking. Maximum-child aggregation should preserve the winner in that controlled comparison; a difference reveals hidden state or aggregation effects, not evidence that three labels are inherently smarter than eleven.
 
-Consolidate kite into seek safety and follow into keep-company/shared reunion considerations with E05/E06/E14. Test drowning during gathering, guarding past an obstructing enemy, an empty world with a moving player, quick work during travel and cumulative cheap detours. Preserve compatible shooting and incidental actions. Repair native destination and actual-entry movement contracts at whichever E02/E07–E11 branch fails; do not postpone those defects merely because grouping is easier to edit.
+Consolidate kite and survival into shared safety, and follow into keep-company/shared reunion considerations with E05/E06/E14. Test drowning during gathering, guarding past an obstructing enemy, an empty world with a moving player, quick work during travel and cumulative cheap detours. Preserve compatible shooting and incidental actions. Repair native destination and actual-entry movement contracts at whichever E02/E07–E11 branch fails; do not postpone those defects merely because grouping is easier to edit.
 
 If grouping preserves decisions but provides no useful organisation or scheduling benefit, compare the simpler runtime selector. If it introduces a rigid priority ladder, remove that policy. If common phase/abort logic remains duplicated, compare Path 2. If accurate current-value choices miss enabling consequences, compare Path 3. Extend through the full acceptance matrix without predicting percentage gains before measurement.
 
@@ -718,7 +746,7 @@ The boss/event expectation is an authored product policy, not an inferred genera
 
 ## Observability added along this route
 
-The [prospective failure analysis](<../Evaluation and Observability/Proposal 1 Failure Cases and Diagnostic Contracts.md>) extends this route with 64 cases: ten top-level selection cases, three within each family and five within each of nine activities. It includes the owner's raised-lip mining symptom, nearest usable ore and full effective tool reach, separate pursuit/firing targets, current-versus-proposed plain-language flows, and an E01–E16 integration matrix. These are potential failures with discriminating checks, not 64 observed defects or bespoke patch instructions.
+The [prospective failure analysis](<../Evaluation and Observability/Proposal 1 Failure Cases and Diagnostic Contracts.md>) extends this route with 64 cases: ten top-level selection cases, three within each family, five within each of seven activities and ten shared safety/local-movement cases. It includes the owner's raised-lip mining symptom, nearest usable ore and full effective tool reach, separate pursuit/firing targets, current-versus-proposed plain-language flows, and an E01–E16 integration matrix. These are potential failures with discriminating checks, not 64 observed defects or bespoke patch instructions.
 
 Mining must compare usable ore-tile/body-position pairs, including valid interaction windows, rather than treating proximity or arrival as a successful approach. Current code already has reach and nearby-tile checks; the proposed repair must identify where their contract fails before replacing them. A failed approach revises that approach's feasibility, without automatically reducing the underlying value of mining. Pursuit similarly distinguishes its intended enemy from the arsenal's immediate target so useful incidental shooting cannot conceal an unproductive chase.
 
