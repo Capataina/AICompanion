@@ -131,7 +131,7 @@ public sealed class Brain
         if (request.ObserveProgress)
         {
             WatchProgress(companion);
-            if (LastAction is Behaviours.Combat.HuntAction hunt) hunt.ObserveOutcome(ctx);
+            Chooser.Activity.ObserveOutcome(ctx);
         }
         FinaliseMs = System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds;
     }

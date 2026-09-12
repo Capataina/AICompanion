@@ -34,7 +34,7 @@ public sealed class HuntAction : CompanionAction
     /// <summary>Every enemy this stalled stretch has aimed at, so the deferral covers the set that produced the stall.</summary>
     private readonly System.Collections.Generic.Dictionary<(int slot, int generation), Vector2> stalled = new();
 
-    public void ObserveOutcome(in ActionContext ctx)
+    public override void ObserveOutcome(in ActionContext ctx)
     {
         if (Target == null) { NoProgressTicks = 0; stalled.Clear(); return; }
         NPC enemy = Target.Npc;

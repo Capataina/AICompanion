@@ -64,6 +64,13 @@ public sealed class OwnCurrentActivity
         if (Current != null) SetPhase(ActivityPhase.Executing, "ordinary-execution");
     }
 
+    public void ObserveOutcome(in ActionContext context)
+    {
+        // A safety controller may still request body-progress observation. Its movement
+        // must not consume the interrupted ordinary activity's failure budget.
+        if (Phase == ActivityPhase.Executing) Current?.ObserveOutcome(context);
+    }
+
     public void Suspend(in ActionContext context, string reason)
     {
         if (Current == null) return;

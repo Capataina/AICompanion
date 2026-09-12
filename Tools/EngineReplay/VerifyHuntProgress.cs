@@ -33,6 +33,7 @@ internal static class VerifyHuntProgress
         if (VerifyPreparedActivities.PrepareAndScore(hunt, context) <= 0) throw new InvalidOperationException("Travelling hunt was deferred despite progress");
         VerifyChurnDoesNotDefeatTheGuard(companion);
         VerifyIndependentHandsDoNotRenewPursuit();
+        VerifySuspensionDoesNotConsumePursuitBudget();
         Console.WriteLine("PASS hunt progress: ineffective target deferred, moving target reconsidered, travelling hunt retained, alternating targets still defer");
         return 0;
     }
@@ -69,6 +70,40 @@ internal static class VerifyHuntProgress
             if (stillOffered != retained)
                 throw new InvalidOperationException($"Pursuit attribution: outcome={outcome}, sameEnemy={sameEnemy}, retained={stillOffered}, expected={retained}");
         }
+    }
+
+    private static void VerifySuspensionDoesNotConsumePursuitBudget()
+    {
+        var companion = VerifyCompanionLifecycle.Create();
+        Main.LocalPlayer.dead = false;
+        Main.LocalPlayer.Bottom = companion.NPC.Bottom;
+        companion.Brain.Senses.Update(companion.NPC, Main.LocalPlayer, companion.Breath);
+        var target = new NPC(); target.SetDefaults(Terraria.ID.NPCID.Zombie);
+        target.whoAmI = 12; target.active = true;
+        target.Bottom = companion.NPC.Bottom + new Vector2(160, 0);
+        Main.npc[12] = target;
+        var threats = companion.Brain.Senses.Threats.Threats;
+        threats.Clear();
+        threats.Add(new T { Npc = target, DistanceToCompanion = 160, DistanceToPlayer = 160 });
+        var context = new C(companion, companion.Brain.Senses);
+        var hunt = new H();
+        if (VerifyPreparedActivities.PrepareAndScore(hunt, context) <= 0)
+            throw new InvalidOperationException("Suspension fixture must offer a pursuit");
+        var owner = companion.Brain.Chooser.Activity;
+        owner.Select(hunt, context);
+        owner.BeginExecution();
+        owner.ObserveOutcome(context);
+        owner.ObserveOutcome(context);
+        int before = hunt.NoProgressTicks;
+        owner.Suspend(context, "environmental-escape");
+        for (int i = 0; i < 182; i++) owner.ObserveOutcome(context);
+        if (hunt.NoProgressTicks != before || VerifyPreparedActivities.PrepareAndScore(hunt, context) <= 0)
+            throw new InvalidOperationException($"Suspended pursuit consumed failure budget: before={before}, after={hunt.NoProgressTicks}, rejection={hunt.LastRejection}");
+        owner.Select(hunt, context);
+        owner.BeginExecution();
+        for (int i = 0; i < 182; i++) owner.ObserveOutcome(context);
+        if (VerifyPreparedActivities.PrepareAndScore(hunt, context) != 0)
+            throw new InvalidOperationException("Resumed stationary pursuit no longer expires");
     }
 
     /// <summary>

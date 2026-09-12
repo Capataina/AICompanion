@@ -72,6 +72,10 @@ public abstract class CompanionAction
     /// <summary>How many ticks this would keep the companion away from the player, 0 when it does not.</summary>
     public virtual float ForecastTicks() => 0f;
 
+    /// <summary>Observe an executing activity after its controls and hands resolve. The
+    /// activity owner withholds this callback during suspension.</summary>
+    public virtual void ObserveOutcome(in ActionContext ctx) { }
+
     /// <summary>Called on the tick this action takes over.</summary>
     public virtual void Enter(in ActionContext ctx) { }
 

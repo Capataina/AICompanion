@@ -40,6 +40,8 @@ The grouping is active while responsibility migration continues. Mine/chop belon
 
 Repeated selection of the same executing purpose does not create a lifecycle transition. The transient selection stage inside a tick must not refresh its changed-at timestamp or flood the sparse recorder with fictional transitions. Comparison freshness remains separately measurable.
 
+The activity owner also delivers post-control outcome observations only while the ordinary activity is executing. Shared safety can keep observing body progress while that activity is suspended; the resulting elapsed ticks must not consume its failure budget. Resumption restores ordinary observation, so an interrupted unproductive pursuit can still expire after it actually gets control back.
+
 Reflex, recovery and downing explicitly suspend through this owner. Suspension invokes the adapter's release hook once and preserves the remaining purpose's admission identity; reselection prepares opportunities again and re-enters before execution. Moving to another executor releases the previous admission. The legacy discovery caches still have their own retained target data and are not an independent execution owner. A suspension reason is not a failed route or proof that choosing the work was wrong.
 
 Completed comparisons carry an increasing evaluation identity and their engine tick. The coordinator separately records whether selection ran in its current invocation: an early recovery or reflex return can update the brain without refreshing the choice. Retained scores keep their original identity and source time. These comparison identities describe decisions, not ongoing job identity or route attempts.
