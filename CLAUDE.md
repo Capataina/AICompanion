@@ -43,7 +43,7 @@ AICompanion/
 │  │  ├─ ActivityCoordination/  final movement application and compatible hand grants
 │  │  ├─ Behaviours/            choices grouped by purpose
 │  │  │  ├─ Companionship/      guard and distant-reunion recovery
-│  │  │  ├─ Combat/             hunt and kite
+│  │  │  ├─ Combat/             hunt
 │  │  │  └─ Work/               help with trees and ore
 │  │  ├─ PurposeFamilies/      consolidated ordinary activities
 │  │  │  └─ NearbyAssistance/  keeping company and collecting drops or pot contents

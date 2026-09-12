@@ -45,7 +45,7 @@ public sealed class Brain
     public bool MovementStalled { get; private set; }
     public string ActivityStatus => FollowRecovery.Active ? "Catching up" : Safety.Active ? "Getting to safety" : MovementStalled ? "Stuck: not making progress" : LastAction?.Name switch
     {
-        "keep-company" => "Keeping company", "guard" => "Guarding you", "hunt" => "Hunting", "kite" => "Keeping distance",
+        "keep-company" => "Keeping company", "guard" => "Guarding you", "hunt" => "Hunting",
         "mine" => "Mining ore", "chop" => "Chopping a tree", "collect" => "Collecting",
         "place-torches" => "Lighting the way", _ => "Resting"
     };

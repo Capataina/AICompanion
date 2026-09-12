@@ -134,12 +134,6 @@ internal static class VerifyFiringPosition
                 "bounded failure to establish a shot must not report a retained destination or proven impossibility");
         }
 
-        var retreat = new PositionRequest(RequestKind.Retreat, companion.NPC.Bottom, enemy);
-        for (int tick = 0; tick < 40; tick++)
-            chosen = companion.Brain.Positioner.Resolve(retreat, companion.Brain.Senses, profile);
-        Require(chosen != null && companion.Brain.Positioner.CandidateEvidence.Contains(":not-required"),
-            "a safety destination must remain available without a shot at the sealed enemy");
-
         // Reopening is fresh evidence, not a permanent unreachable verdict on the enemy.
         for (int x = ShaftLeft; x <= ShaftRight; x++) Open(x, FloorY);
         live::AICompanion.Companion.Brain.SharedMovementSystem.TerrainChanges.Reset();

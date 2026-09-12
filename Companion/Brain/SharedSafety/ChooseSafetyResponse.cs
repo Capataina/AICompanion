@@ -11,6 +11,7 @@ namespace AICompanion.Companion.Brain.SharedSafety;
 public sealed class ChooseSafetyResponse
 {
     public readonly ReachEnvironmentalSafety Escape = new();
+    public readonly CreateCombatSpace CombatSpace = new();
     public long Id { get; private set; }
     public bool Active { get; private set; }
     public string Kind { get; private set; } = "none";
@@ -23,7 +24,7 @@ public sealed class ChooseSafetyResponse
         Escape.Refresh(ctx);
         if (Escape.NeedsResponse)
         {
-            Begin("environmental-escape");
+            Begin(ctx, "environmental-escape");
             ctx.Companion.Brain.Chooser.Activity.Suspend(ctx, Kind);
             bool chosen = Escape.TryEscape(ctx, out Controls controls, out bool pending);
             Reason = chosen ? Escape.EscapeStage : pending ? "search-pending" : "no-safe-prefix";
@@ -34,7 +35,7 @@ public sealed class ChooseSafetyResponse
         }
         if (imminentCollision || Active && Kind == "collision-avoidance" && !ctx.Companion.Motor.State.OnGround)
         {
-            Begin("collision-avoidance");
+            Begin(ctx, "collision-avoidance");
             ctx.Companion.Brain.Chooser.Activity.Suspend(ctx, "combat-reflex");
             Reason = imminentCollision ? "predicted-collision" : "awaiting-landing";
             var movement = ctx.Companion.Brain.Movement;
@@ -43,14 +44,32 @@ public sealed class ChooseSafetyResponse
             request = new ActivityControlRequest(controls, "combat-reflex");
             return true;
         }
+        bool retainSpacing = Active && Kind == "combat-spacing" && !CombatSpace.IsSatisfied(ctx);
+        if (retainSpacing || CombatSpace.NeedsResponse(ctx))
+        {
+            Begin(ctx, "combat-spacing");
+            bool chosen = CombatSpace.TryMove(ctx, out Controls controls);
+            if (chosen || CombatSpace.Pending)
+            {
+                ctx.Companion.Brain.Chooser.Activity.Suspend(ctx, Kind);
+                Reason = chosen ? "reducing-enemy-exposure" : "search-pending";
+                request = new ActivityControlRequest(controls, Kind, ObserveProgress: true);
+                return true;
+            }
+            Cancel(ctx, "combat-spacing-no-safe-prefix");
+            return false;
+        }
         if (Active) Cancel(ctx, "safe-state-observed");
         return false;
     }
 
-    private void Begin(string kind)
+    private void Begin(in ActionContext ctx, string kind)
     {
         if (Active && Kind == kind) return;
         if (Active) LastEndReason = "replaced-by-" + kind;
+        // Retained controls belong to the response that proved their ending. A replacement
+        // must not inherit a search frontier whose goal was a different kind of safety.
+        ctx.Companion.Brain.Movement.CancelStateSearch();
         Id++;
         Active = true;
         Kind = kind;

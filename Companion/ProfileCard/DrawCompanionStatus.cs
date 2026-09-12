@@ -37,7 +37,6 @@ public sealed class DrawCompanionStatus : UIElement
             "chop" => WorkPolicies.Chopping == WorkPolicy.Mimic ? "mimicking your chopping" : "opportunistic",
             "guard" => "protecting you from a nearby threat",
             "hunt" => "voluntary hunting is on",
-            "kite" => "making room to fight",
             "survive" => "escaping danger",
             "collect" => "nearby drops or worthwhile pot contents",
             "place-torches" => "lighting a dark route with supplied torches",

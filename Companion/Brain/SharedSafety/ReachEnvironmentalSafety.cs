@@ -123,7 +123,7 @@ public sealed class ReachEnvironmentalSafety
         return chosen;
     }
 
-    private static bool HeadIsDry(BodyState state)
+    internal static bool HeadIsDry(BodyState state)
     {
         // Use the same head rectangle and partial-liquid surface as CompanionBreath.
         // A whole wet tile is not necessarily submerged at this body's head height.

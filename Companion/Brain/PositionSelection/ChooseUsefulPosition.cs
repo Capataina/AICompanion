@@ -365,7 +365,7 @@ public sealed class Positioner
                 if (score <= 0f)
                     continue;
                 // The tier opens only on a reachable candidate the action accepts: a reachable
-                // tile the score vetoes (a retreat spot under an enemy) must not empty the list and
+                // tile the score vetoes must not empty the list and
                 // turn a movement request into a hold.
                 if (reachable && !anyReachable)
                 {
@@ -382,8 +382,8 @@ public sealed class Positioner
             return null;
         }
 
-        // A retreat serves safety even when no shot exists. Attack destinations, however,
-        // cannot be admitted on a reduced score after the trajectory solver refuses them.
+        // Attack destinations cannot be admitted on a reduced score after the trajectory
+        // solver refuses them. Shared safety searches body states independently of a shot.
         bool needsFire = request.Kind is RequestKind.LineOfFire or RequestKind.Guard;
         candidates.Sort((a, b) => b.baseScore.CompareTo(a.baseScore));
         int solves = needsFire ? Math.Min(MaxSolvesPerRescore, candidates.Count) : 0;
@@ -447,7 +447,7 @@ public sealed class Positioner
         float band = Consideration.Band(toAnchor, bandNear, bandFar, 400f) * (0.6f + 0.4f * Consideration.Inverse(toAnchor, bandFar + 200f));
         bool seesPlayer = CanSeePlayer(eye, senses);
         float sight = seesPlayer ? 1f : 0.35f;
-        float danger = DangerAt(feet, senses);
+        float danger = PredictedExposureAt(feet, senses);
         float open = Openness(feet);
         float travel = TravelBias(feet, senses);
 
@@ -466,7 +466,6 @@ public sealed class Positioner
             // inside the melee. It now scores the same two factors the line-of-fire request does.
             RequestKind.Guard => Consideration.Band(toPlayer, Weights.GuardBandNear, Weights.GuardBandFar, 260f) * sight * fire * (1f - 0.7f * danger) * open * StandoffFromTarget(feet, request.Target, reach) * ClearWayTo(feet, senses, request.Target),
             RequestKind.LineOfFire => fire * Consideration.AtLeast(band, 0.3f) * (1f - 0.7f * danger) * open * StandoffFromTarget(feet, request.Target, reach) * ClearWayTo(feet, senses, request.Target),
-            RequestKind.Retreat => (1f - danger) * Consideration.AtLeast(band, 0.3f) * fire * open * ClearWayTo(feet, senses, request.Target),
             _ => 0f,
         };
     }
@@ -494,7 +493,7 @@ public sealed class Positioner
             : Weights.BlockedSightRank;
 
     /// <summary>0..1: how much of the next second's predicted threat paths pass through this spot.</summary>
-    private static float DangerAt(Vector2 feet, Senses.Senses senses)
+    public static float PredictedExposureAt(Vector2 feet, Senses.Senses senses)
     {
         float worst = 0f;
         Rectangle body = new((int)feet.X - 10, (int)feet.Y - 42, 20, 42);
@@ -562,7 +561,7 @@ public sealed class Positioner
     /// far side of a zombie is reached by walking into the zombie.
     ///
     /// The thing being shot at is excluded, because it is already priced twice over — by
-    /// <see cref="DangerAt"/> at the destination and by <see cref="StandoffFromTarget"/>, which is
+    /// <see cref="PredictedExposureAt"/> at the destination and by <see cref="StandoffFromTarget"/>, which is
     /// the factor that owns how close to the target the companion should stand. Counting it here as
     /// well made a hunt self-defeating: the target is a member of the threat list, so every spot on
     /// its far side was cut to a sixth of its score and demoted out of the shortlist before anyone

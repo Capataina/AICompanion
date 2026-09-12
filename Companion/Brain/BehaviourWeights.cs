@@ -168,8 +168,12 @@ public static class Weights
     /// <summary>Hunt: how far beyond the screen a target is still worth chasing.</summary>
     public const float HuntReach = 1100f;
 
-    /// <summary>Kite: a walker inside this many px is "on top of me".</summary>
-    public const float KiteTrigger = 64f;
+    /// <summary>Residual geometric enemy exposure accepted at a stable retreat landing.</summary>
+    public const float CombatSpaceExposure = .1f;
+    /// <summary>Converts geometric exposure into distance-like body-search guidance.</summary>
+    public const float CombatSpaceHeuristicPixels = 320f;
+    /// <summary>A completed unsuccessful spacing search yields ordinary work before retrying.</summary>
+    public const uint CombatSpaceRetryTicks = 30;
 
     /// <summary>Reflex: a threat whose predicted hitbox meets the companion inside this many ticks triggers a dodge.</summary>
     public const int DodgeLookaheadTicks = 20;

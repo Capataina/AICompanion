@@ -210,7 +210,6 @@ public class CompanionHealthBar : ModSystem
         {
             "survive" => (ItemID.BreathingReed, "saving itself"),
             "guard" => (ItemID.CobaltShield, "guarding you"),
-            "kite" => (ItemID.HermesBoots, "kiting"),
             "hunt" => (companion.Arsenal.LastChosen?.ItemType ?? companion.Arsenal.Primary.ItemType, "hunting"),
             "collect" => (ItemID.GoldCoin, "collecting"),
             "chop" => (TileChopper.AxeFor(player).type, "chopping"),

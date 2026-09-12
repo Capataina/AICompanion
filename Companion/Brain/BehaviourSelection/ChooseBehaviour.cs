@@ -23,7 +23,6 @@ public sealed class Chooser
     public readonly List<CompanionAction> Actions = new()
     {
         new GuardAction(),
-        new KiteAction(),
         new HuntAction(),
         new CollectNearbyItems(),
         new ChopAction(),

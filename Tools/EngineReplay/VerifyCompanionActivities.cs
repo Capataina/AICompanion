@@ -23,6 +23,7 @@ internal static class VerifyCompanionActivities
             WorkWinsOutsideFollowComfort();
             ContinuingTargetsKeepTheirIdentity();
             CollectionComparesKnownDropsAndPotentialContents();
+            SharedCombatSpacingDoesNotNeedAnOrdinaryOffer();
             ConsecutiveJobsEarnTheirOwnAllowance();
             ActivityOwnershipSurvivesInterruption();
             InvalidCandidatesCannotBecomeTheFallback();
@@ -260,6 +261,66 @@ internal static class VerifyCompanionActivities
                 "collection must have one registered behaviour for drops and pots");
         }
         finally { Preferences.Current.PotBreaking = oldPolicy; }
+    }
+
+    private static void SharedCombatSpacingDoesNotNeedAnOrdinaryOffer()
+    {
+        foreach (bool emptyOffers in new[] { false, true })
+        {
+            var (_, ctx) = VerifyOreWork.SetUp(Policy.Disabled, TileID.Copper, new Point(25, 89));
+            Main.tile[25, 89].ClearEverything();
+            ctx.Player.Bottom = new Vector2(80 * 16, 90 * 16);
+            var enemy = Main.npc[30];
+            enemy.SetDefaults(NPCID.Zombie);
+            enemy.active = true; enemy.damage = 100; enemy.dontTakeDamage = true;
+            enemy.Bottom = ctx.Npc.Bottom + new Vector2(64, 0);
+            enemy.velocity = Vector2.Zero;
+            VerifyResponsiveFollowing.AdvanceNative(ctx.Companion);
+            var activity = new ActivityProbe { Target = ctx.Npc.Bottom };
+            var chooser = ctx.Companion.Brain.Chooser;
+            chooser.Actions.Clear();
+            if (!emptyOffers) { chooser.Actions.Add(activity); chooser.Activity.Select(activity, ctx); chooser.Activity.BeginExecution(); }
+            bool observedSpacing = false, observedRelease = false;
+            float initialGap = Vector2.Distance(ctx.Npc.Bottom, enemy.Bottom);
+            for (int tick = 0; tick < 300; tick++)
+            {
+                VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
+                VerifyCompanionLifecycle.TickWithOneControlGrant(ctx.Companion);
+                var safety = ctx.Companion.Brain.Safety;
+                if (safety.Active && safety.Kind == "combat-spacing")
+                {
+                    observedSpacing = true;
+                    Require(ctx.Companion.Brain.ControlGrants.Last!.Value.Hand
+                        == live::AICompanion.Companion.Brain.ActivityCoordination.HandGrant.Available,
+                        "shared spacing must leave compatible shooting available");
+                    Require(emptyOffers ? chooser.Current == null
+                        : chooser.Activity.Phase == live::AICompanion.Companion.Brain.BehaviourSelection.ActivityPhase.Suspended,
+                        "spacing must operate without an offer or suspend the ordinary activity");
+                }
+                VerifyResponsiveFollowing.AdvanceNative(ctx.Companion);
+                if (observedSpacing && !safety.Active && ctx.Companion.Motor.State.OnGround)
+                { observedRelease = true; break; }
+            }
+            Require(observedSpacing && observedRelease
+                && Vector2.Distance(ctx.Npc.Bottom, enemy.Bottom) > initialGap
+                && ctx.Companion.Brain.Safety.LastEndReason == "safe-state-observed"
+                && ctx.Companion.Brain.Safety.CombatSpace.IsSatisfied(ctx),
+                $"shared spacing must produce and release a stable retreat, emptyOffers={emptyOffers}, started={observedSpacing}, released={observedRelease}, gap={Vector2.Distance(ctx.Npc.Bottom, enemy.Bottom)}, reason={ctx.Companion.Brain.Safety.Reason}");
+            Require(!new live::AICompanion.Companion.Brain.BehaviourSelection.Chooser().Actions.Any(a => a.Name == "kite"),
+                "kiting must not remain an ordinary family candidate");
+        }
+
+        var (_, playerOnly) = VerifyOreWork.SetUp(Policy.Disabled, TileID.Copper, new Point(25, 89));
+        playerOnly.Player.Bottom = new Vector2(80 * 16, 90 * 16);
+        var playerThreat = Main.npc[30];
+        playerThreat.SetDefaults(NPCID.Zombie);
+        playerThreat.active = true; playerThreat.damage = 100; playerThreat.dontTakeDamage = true;
+        playerThreat.Bottom = playerOnly.Player.Bottom - new Vector2(64, 0);
+        playerOnly.Companion.Brain.Chooser.Actions.Clear();
+        VerifyCompanionLifecycle.TickWithOneControlGrant(playerOnly.Companion);
+        Require(playerOnly.Senses.Threats.PlayerDanger > 0 && playerOnly.Senses.Threats.CompanionDanger == 0
+            && !playerOnly.Companion.Brain.Safety.Active,
+            "player-only danger must not become the companion's own spacing response");
     }
 
     private static void ComfortableFollowingHasNoRegroupPressure()

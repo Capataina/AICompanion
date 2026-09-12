@@ -15,8 +15,6 @@ public enum RequestKind
     LineOfFire,
     /// <summary>Exactly this point (an item, a trunk), no scoring.</summary>
     Exact,
-    /// <summary>Away from close threats while keeping the player near.</summary>
-    Retreat,
     /// <summary>Stand still.</summary>
     Hold,
     /// <summary>Somewhere else the walker can reach from where it stands, the further the better: a stranded companion walking its pocket.</summary>
