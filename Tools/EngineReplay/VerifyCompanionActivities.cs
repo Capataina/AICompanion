@@ -23,6 +23,7 @@ internal static class VerifyCompanionActivities
             WorkWinsOutsideFollowComfort();
             ContinuingTargetsKeepTheirIdentity();
             CollectionComparesKnownDropsAndPotentialContents();
+            CollectionRejectsReplacedWorldSlots();
             SharedCombatSpacingDoesNotNeedAnOrdinaryOffer();
             ConsecutiveJobsEarnTheirOwnAllowance();
             ActivityOwnershipSurvivesInterruption();
@@ -132,12 +133,14 @@ internal static class VerifyCompanionActivities
 
     private static void InvalidatedCandidatesAreReconsideredWithoutDiscovery()
     {
-        foreach (string invalidation in new[] { "identity", "enemy", "generation", "item", "item-type", "all" })
+        foreach (string invalidation in new[] { "identity", "enemy", "generation", "item", "item-type", "item-slot", "all" })
         {
             var (_, ctx) = VerifyOreWork.SetUp(Policy.Disabled, TileID.Copper, new Point(25, 59));
             var first = new ActivityProbe { Target = ctx.Player.Bottom, Value = 2 };
             if (invalidation is "enemy" or "generation") first.Identity = new NPC { active = true, life = 10, whoAmI = 12 };
-            if (invalidation is "item" or "item-type") first.Identity = new Item { active = true, stack = 1, type = ItemID.CopperOre };
+            Item previous = Main.item[5];
+            if (invalidation is "item" or "item-type" or "item-slot")
+                first.Identity = Main.item[5] = new Item { active = true, stack = 1, type = ItemID.CopperOre, whoAmI = 5 };
             var second = new ActivityProbe { Target = ctx.Player.Bottom, Value = 1 };
             if (invalidation != "identity") second.Purpose = live::AICompanion.Companion.Brain.BehaviourSelection.PurposeFamily.Combat;
             if (invalidation == "all") second.Identity = new Item { active = false, stack = 0 };
@@ -150,7 +153,8 @@ internal static class VerifyCompanionActivities
                 }
                 else if (first.Identity is Item item)
                 {
-                    if (invalidation == "item-type") item.type = ItemID.IronOre;
+                    if (invalidation == "item-slot") Main.item[5] = new Item { active = true, stack = 1, type = item.type, whoAmI = 5 };
+                    else if (invalidation == "item-type") item.type = ItemID.IronOre;
                     else item.stack = 0;
                 }
                 else first.Identity = new object();
@@ -165,6 +169,9 @@ internal static class VerifyCompanionActivities
             Require(chooser.LastScores[0].Raw == 2 && chooser.LastScores[0].Final == 0
                 && chooser.LastScores[0].Error.StartsWith("prepared-"),
                 "the rejected nomination must retain its original value and explicit cause: " + invalidation);
+            if (invalidation == "item-slot") Require(chooser.LastScores[0].Error == "prepared-item-slot-replaced",
+                "replacement must name its availability failure rather than devalue the activity's usefulness");
+            Main.item[5] = previous;
         }
     }
 
@@ -187,6 +194,8 @@ internal static class VerifyCompanionActivities
         ctx.Companion.Brain.Chooser.RecordWork(activity.Target);
         var loot = new live::AICompanion.Companion.Brain.PurposeFamilies.NearbyAssistance.CollectNearbyItems();
         var item = new Item(); item.SetDefaults(ItemID.CopperOre); item.active = true; item.Bottom = activity.Target;
+        Item previous = Main.item[5];
+        item.whoAmI = 5; Main.item[5] = item;
         ctx.Senses.Loot.Pickups.Clear();
         ctx.Senses.Loot.Pickups.Add(new(item, .3f, Vector2.Distance(ctx.Npc.Bottom, item.Bottom)));
         loot.Prepare(ctx);
@@ -206,11 +215,13 @@ internal static class VerifyCompanionActivities
         VerifyObservedMotion.SetTick(Main.GameUpdateCount + 601);
         loot.Prepare(ctx);
         Require(loot.Score() == 0, "expired work must not grant a new loot target an indefinite allowance");
+        Main.item[5] = previous;
     }
 
     private static void CollectionComparesKnownDropsAndPotentialContents()
     {
         bool oldPolicy = Preferences.Current.PotBreaking;
+        Item previous = Main.item[5];
         try
         {
             var (_, ctx) = VerifyOreWork.SetUp(Policy.Disabled, TileID.Copper, new Point(25, 59));
@@ -231,6 +242,7 @@ internal static class VerifyCompanionActivities
             var pot = (Point)collect.ActivityIdentity!;
             float value = collect.Score(), time = collect.ForecastTicks();
             var item = new Item(); item.SetDefaults(ItemID.CopperOre); item.active = true; item.Bottom = ctx.Npc.Bottom;
+            item.whoAmI = 5; Main.item[5] = item;
             ctx.Senses.Loot.Pickups.Add(new(item, 1f, 0f));
             Require(collect.Score() == value && collect.ForecastTicks() == time && collect.Method == "potential-pot-contents",
                 "comparison must not rediscover a newly appeared drop");
@@ -260,7 +272,39 @@ internal static class VerifyCompanionActivities
                 && !ctx.Companion.Brain.Chooser.Actions.Any(a => a.Name is "loot" or "break-pots"),
                 "collection must have one registered behaviour for drops and pots");
         }
-        finally { Preferences.Current.PotBreaking = oldPolicy; }
+        finally { Preferences.Current.PotBreaking = oldPolicy; Main.item[5] = previous; }
+    }
+
+    private static void CollectionRejectsReplacedWorldSlots()
+    {
+        var (_, ctx) = VerifyOreWork.SetUp(Policy.Disabled, TileID.Copper, new Point(25, 59));
+        var item = new Item(); item.SetDefaults(ItemID.CopperOre);
+        item.active = true; item.whoAmI = 5; item.Bottom = ctx.Npc.Bottom;
+        Item previous = Main.item[5];
+        try
+        {
+            Main.item[5] = item;
+            ctx.Senses.Loot.Pickups.Clear();
+            ctx.Senses.Loot.Pickups.Add(new(item, 1f, 0f));
+            var collect = new live::AICompanion.Companion.Brain.PurposeFamilies.NearbyAssistance.CollectNearbyItems();
+            collect.Prepare(ctx);
+            Require(collect.Method == "known-drop" && collect.Execute(ctx).Kind != RequestKind.Hold,
+                "the captured live world drop must be usable before slot replacement");
+            var replacement = new Item(); replacement.SetDefaults(ItemID.CopperOre);
+            replacement.active = true; replacement.whoAmI = 5; replacement.Bottom = item.Bottom;
+            Main.item[5] = replacement;
+            Require(collect.Execute(ctx).Kind == RequestKind.Hold,
+                "an active detached item must not remain executable after its world slot is replaced by the same type");
+            collect.Prepare(ctx);
+            Require(collect.Score() == 0,
+                "stale sensed drops must not produce offers after their world slot is replaced");
+            ctx.Senses.Loot.Pickups.Clear();
+            ctx.Senses.Loot.Pickups.Add(new(replacement, 1f, 0f));
+            collect.Prepare(ctx);
+            Require(collect.Method == "known-drop" && ReferenceEquals(collect.ActivityIdentity, replacement),
+                "a newly observed replacement must receive its own collection identity");
+        }
+        finally { Main.item[5] = previous; }
     }
 
     private static void SharedCombatSpacingDoesNotNeedAnOrdinaryOffer()

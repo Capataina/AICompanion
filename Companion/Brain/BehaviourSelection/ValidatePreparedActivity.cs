@@ -27,6 +27,8 @@ public readonly record struct ValidatePreparedActivity(object? Identity, int Gen
         }
         if (Identity is Item item)
         {
+            if (!LootSense.OccupiesWorldSlot(item))
+                return "prepared-item-slot-replaced";
             if (!item.active || item.stack <= 0) return "prepared-item-unavailable";
             if (item.type != ItemType) return "prepared-item-type-changed";
         }

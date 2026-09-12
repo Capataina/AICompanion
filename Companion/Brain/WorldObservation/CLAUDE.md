@@ -31,6 +31,8 @@ Player tool hits are evidence, not animation guessed as intent. `ObservePlayerWo
 
 `Ambient` is the torch’s authority because its sampling excludes the companion’s glow. The held torch, its light and map reveal follow the interaction layer’s `Shown` answer; observation does not decide whether the hand is free.
 
+LootSense owns the world-slot membership predicate used by prepared-item activation and collection. An object reference identifies the selected drop, but its active flag can remain true after the world table replaces it. Availability therefore checks the actual table entry as well as quantity and activity. This consumes current identity evidence without rediscovering a different target or rescoring its reward.
+
 ## Traps
 
 - A harmful hostile and an attackable target are different observations. Threat collection keeps harmful NPCs even when Terraria declines `CanBeChasedBy`; the arsenal applies that targetability filter when it considers a shot. Player death clears player protection pressure, but does not erase danger to the companion or its retreat anchor.

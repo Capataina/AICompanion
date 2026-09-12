@@ -16,6 +16,15 @@ public sealed class LootSense
 
     public readonly List<Pickup> Pickups = new();
 
+    /// <summary>A retained object can outlive its world slot. Its active flag alone
+    /// does not establish that the drop still exists in the world's item table.</summary>
+    public static bool OccupiesWorldSlot(Item item)
+        => item.whoAmI >= 0 && item.whoAmI < Main.maxItems
+            && ReferenceEquals(Main.item[item.whoAmI], item);
+
+    public static bool IsWorldDrop(Item item)
+        => OccupiesWorldSlot(item) && item.active && !item.IsAir;
+
     public void Update(NPC companion, Player player)
     {
         Pickups.Clear();

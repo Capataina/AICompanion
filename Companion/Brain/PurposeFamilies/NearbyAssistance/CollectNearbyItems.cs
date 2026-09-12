@@ -65,7 +65,7 @@ public sealed class CollectNearbyItems : PerformNearbyWorldWork
         LootSense.Pickup? chosen = null;
         foreach (var pickup in ctx.Senses.Loot.Pickups)
         {
-            if (!pickup.Item.active || pickup.Item.stack <= 0 || !AllowsTarget(ctx, pickup.Item.Bottom, pickup.Item)) continue;
+            if (!LootSense.IsWorldDrop(pickup.Item) || !AllowsTarget(ctx, pickup.Item.Bottom, pickup.Item)) continue;
             if (!ctx.Companion.Bag.CanAccept(pickup.Item, ctx.Player))
                 continue;
             if (MovementQueries.NearestStandable(MovementQueries.FeetTile(pickup.Item.Bottom), 3) == null)
@@ -91,7 +91,7 @@ public sealed class CollectNearbyItems : PerformNearbyWorldWork
     {
         if (!collectDrop) return base.Execute(ctx);
         ctx.Companion.HoldItem(ItemID.None);
-        if (candidate is not { } prepared || !prepared.Item.active || prepared.Item.stack <= 0
+        if (candidate is not { } prepared || !LootSense.IsWorldDrop(prepared.Item)
             || prepared.Item.type != prepared.Type || !ctx.Companion.Bag.CanAccept(prepared.Item, ctx.Player))
             return PositionRequest.Hold;
         return PositionRequest.ExactAt(prepared.Position);
