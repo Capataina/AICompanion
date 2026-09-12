@@ -14,6 +14,7 @@ namespace AICompanion.Companion.Brain.Behaviours.Work;
 /// <summary>One bounded interaction search shared by pot breaking and permanent lighting.</summary>
 public abstract class PerformNearbyWorldWork : CompanionAction
 {
+    public override BehaviourSelection.PurposeFamily Family => BehaviourSelection.PurposeFamily.NearbyAssistance;
     protected Point? target;
     private Vector2 stand;
     private ulong nextSearch, retryAfter;

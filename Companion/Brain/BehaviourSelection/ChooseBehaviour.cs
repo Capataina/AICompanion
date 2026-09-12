@@ -37,6 +37,7 @@ public sealed class Chooser
     };
 
     public readonly List<Scored> LastScores = new();
+    public FamilyNomination[] LastNominations { get; private set; } = Array.Empty<FamilyNomination>();
     public readonly OwnCurrentActivity Activity = new();
     public CompanionAction? Current => Activity.Current;
     /// <summary>Identity and source tick of a completed comparison, not of the latest brain update.</summary>
@@ -89,12 +90,6 @@ public sealed class Chooser
             RegroupUrgency = Math.Max(RegroupUrgency, travelPressure);
         }
         float horizon = ctx.Senses.Threats.Horizon;
-        // An all-zero board (the player is dead, nothing to do) falls to the last action, wander,
-        // which holds still in that case; starting below zero would hand the tick to whichever
-        // action happens to be listed first.
-        CompanionAction? best = null, fallback = null;
-        float bestScore = 0f;
-
         // Discovery runs once per adapter. Score and forecast read the captured candidate;
         // neither receives live context or advances the job during comparison.
         var prepared = new PreparedActivity[Actions.Count];
@@ -110,20 +105,18 @@ public sealed class Chooser
             horizon, Weights.InterruptibleActionTicks, Weights.HorizonOverrunToZero, Weights.Commitment,
             ctx.Senses.DistanceToPlayer <= PlayerIntegration.CompanionPreferences.Current.ActiveActivityRadius,
             Weights.FollowDuringUsefulWork);
-        foreach (EvaluatedActivity score in EvaluatePreparedActivities.Evaluate(prepared, comparison))
+        var evaluated = EvaluatePreparedActivities.Evaluate(prepared, comparison);
+        var candidates = new FamilyCandidate[evaluated.Length];
+        foreach (EvaluatedActivity score in evaluated)
         {
             CompanionAction action = Actions[score.Index];
             LastScores.Add(new(action, score.Raw, score.Final, score.Protection, score.Commitment, score.Horizon, score.UsefulWork, score.Error));
-            if (score.Error.Length != 0) continue;
-            fallback = action;
-            if (score.Final > bestScore)
-            {
-                bestScore = score.Final;
-                best = action;
-            }
+            candidates[score.Index] = new(action.Family, score);
         }
 
-        best ??= fallback;
+        LastNominations = NominateFamilyActivities.Nominate(candidates);
+        var selected = NominateFamilyActivities.Select(LastNominations);
+        CompanionAction? best = selected is { } winner ? Actions[winner.Index] : null;
         Activity.Select(best, ctx);
         EvaluationId++;
         EvaluationTick = Terraria.Main.GameUpdateCount;

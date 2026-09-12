@@ -21,6 +21,7 @@ namespace AICompanion.Companion.Brain.Behaviours.Survival;
 public sealed class SurviveAction : CompanionAction
 {
     public override string Name => "survive";
+    public override PurposeFamily Family => PurposeFamily.Combat;
     public override bool IsExcursion => false;
 
     private Point? refuge;

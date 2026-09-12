@@ -20,6 +20,7 @@ namespace AICompanion.Companion.Brain.Behaviours.Gathering;
 public sealed class LootAction : CompanionAction
 {
     public override string Name => "loot";
+    public override PurposeFamily Family => PurposeFamily.NearbyAssistance;
 
     private readonly record struct Candidate(Item Item, int Type, Vector2 Position, float Near, float Value, float Safety, float TripTicks);
     private Candidate? candidate;

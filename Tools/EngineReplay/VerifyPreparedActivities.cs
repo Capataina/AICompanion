@@ -3,6 +3,9 @@ extern alias live;
 using Prepared = live::AICompanion.Companion.Brain.BehaviourSelection.PreparedActivity;
 using Context = live::AICompanion.Companion.Brain.BehaviourSelection.ActivityComparisonContext;
 using Evaluator = live::AICompanion.Companion.Brain.BehaviourSelection.EvaluatePreparedActivities;
+using Families = live::AICompanion.Companion.Brain.BehaviourSelection.NominateFamilyActivities;
+using Family = live::AICompanion.Companion.Brain.BehaviourSelection.PurposeFamily;
+using Candidate = live::AICompanion.Companion.Brain.BehaviourSelection.FamilyCandidate;
 
 internal static class VerifyPreparedActivities
 {
@@ -60,7 +63,24 @@ internal static class VerifyPreparedActivities
             if (useful && varied.WithinActivityAllowance) expected[10] *= varied.FollowDuringUsefulWork;
             var actual = Evaluator.Evaluate(candidates, varied);
             Require(actual.All(c => c.Error.Length == 0 && c.Final == expected[c.Index]), "prepared comparison diverged from the valid-domain reference");
+            var grouped = actual.Select(c => new Candidate((Family)(c.Index % 3), c)).ToArray();
+            var flatWinner = actual.Where(c => c.Error.Length == 0 && c.Final > 0)
+                .OrderByDescending(c => c.Final).ThenBy(c => c.Index).Select(c => (int?)c.Index).FirstOrDefault();
+            Require(Families.Select(Families.Nominate(grouped))?.Index == flatWinner,
+                "family nominations must match the independent flat reference on identical evaluated candidates");
+            Require(Families.Select(Families.Nominate(grouped.Reverse().Concat(grouped).ToArray()))?.Index == flatWinner,
+                "reordering or duplicating prepared candidates must not change the winner");
         }
+        Require(Families.Nominate(Array.Empty<Candidate>()).Length == 3
+            && Families.Select(Families.Nominate(Array.Empty<Candidate>())) == null,
+            "three empty families must expose no nomination and select no activity");
+        var zero = first[0] with { Final = 0 };
+        var invalidCandidate = first[1] with { Final = float.PositiveInfinity, Error = "invalid" };
+        Require(Families.Select(Families.Nominate(new[] { new Candidate(Family.Combat, zero), new Candidate(Family.Gathering, invalidCandidate) })) == null,
+            "zero or invalid children must not manufacture a valuable family");
+        var tie = first[1] with { Final = first[0].Final };
+        Require(Families.Select(Families.Nominate(new[] { new Candidate(Family.Combat, tie), new Candidate(Family.NearbyAssistance, first[0]) }))?.Index == first[0].Index,
+            "equal-valued children must use the same stable candidate order across families");
         Console.WriteLine("prepared activities: repeated/reordered comparison, invalid values and legacy arithmetic reference pass");
         return 0;
     }

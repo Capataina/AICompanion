@@ -49,6 +49,7 @@ public abstract class CompanionAction
     protected void ReleaseActivity() => admittedIdentity = null;
     internal void ReleaseAdmission() => admittedIdentity = null;
     public abstract string Name { get; }
+    public abstract PurposeFamily Family { get; }
     /// <summary>Optional excursions yield to regrouping; protection and survival opt out.</summary>
     public virtual bool IsExcursion => true;
 

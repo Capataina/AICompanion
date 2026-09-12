@@ -21,6 +21,7 @@ namespace AICompanion.Companion.Brain.Behaviours.Combat;
 public sealed class HuntAction : CompanionAction
 {
     public override string Name => "hunt";
+    public override PurposeFamily Family => PurposeFamily.Combat;
 
     public ThreatRecord? Target { get; private set; }
     public override Vector2? ActivityTarget => prepared?.Bottom;

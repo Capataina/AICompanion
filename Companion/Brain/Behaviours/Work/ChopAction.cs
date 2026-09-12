@@ -18,6 +18,7 @@ namespace AICompanion.Companion.Brain.Behaviours.Work;
 public sealed class ChopAction : CompanionAction
 {
     public override string Name => "chop";
+    public override PurposeFamily Family => PurposeFamily.Gathering;
     public override Vector2? ActivityTarget => prepared?.Target;
     public override object? ActivityIdentity => tree?.Bottom;
     /// <summary>True only while the axe is actually out; the whole walk to the tree is empty-handed.</summary>

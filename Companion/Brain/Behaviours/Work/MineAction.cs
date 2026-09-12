@@ -21,6 +21,7 @@ namespace AICompanion.Companion.Brain.Behaviours.Work;
 public sealed class MineAction : CompanionAction
 {
     public override string Name => "mine";
+    public override PurposeFamily Family => PurposeFamily.Gathering;
     public override Vector2? ActivityTarget => preparedTarget;
     private Vector2? preparedTarget;
     private float preparedValue, preparedTrip;

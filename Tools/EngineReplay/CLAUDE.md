@@ -4,7 +4,9 @@ This console tool loads the installed tModLoader assembly without opening a game
 
 The occurrence fixture also instantiates the real player observer through ModPlayer.NewInstance and invokes OnHurt with surviving and fatal damage. It asserts the callback's pre-subtraction life and explicitly expected successor health. Player is a read-only view of the attached entity; assigning that property through reflection is not the native attachment lifecycle.
 
-The real recorder fixture follows ordinary selection, an already active recovery, resumed selection and downing. It requires distinct brain/chooser freshness and stable comparison identity during skipped selection. CompanionNPC.AI writes its own telemetry row; calling Record again duplicates that tick and can hide the cardinality of actual decisions. Fixture assertions address columns by name and require one complete row per invoked AI update.
+The real recorder fixture follows ordinary selection, an already active recovery, an empty post-recovery board, a fresh companionship activity and downing. It requires distinct brain/chooser freshness and stable comparison identity during skipped selection. An empty comparison ends ordinary ownership rather than inventing execution of a zero-value fallback. CompanionNPC.AI writes its own telemetry row; calling Record again duplicates that tick and can hide the cardinality of actual decisions. Fixture assertions address columns by name and require one complete row per invoked AI update.
+
+VerifyCompanionLifecycle.Create starts with a dead player to exercise autonomous lifecycle handling. A fixture requiring ordinary companionship must explicitly make that player alive before its first brain update. A last-registered zero-score fallback used to hide this precondition; an empty activity owner cannot be suspended merely because the fixture labels the next step recovery.
 
 The personal-danger fixture runs the real threat observer against sealed native-tile chambers. It checks both player/companion arrangements for a walker, a tile-colliding flyer, a wall-crossing phaser, and entry into an enemy's chamber before a cached reachability refresh. These isolate destination coupling; they do not measure live combat judgement or a modded hostile's own pathfinding skill.
 
@@ -40,6 +42,8 @@ EngineReplay/
 ```
 
 `VerifyPreparedActivities.cs` exercises the production shared comparison on repeated and reordered immutable inputs, invalid numeric values, overflow, an unlimited threat horizon and a seeded valid-domain reference of the preceding chooser arithmetic. It proves numeric preservation for those prepared boards, not correct opportunity discovery or improved behaviour.
+
+The same fixture compares production family nominations with an independent flat maximum using identical candidate values and tie keys. It reverses and duplicates candidates, exercises tied values across families, and requires empty/zero/invalid families to produce no winner. The actual chooser rejects an all-zero board without entering its final registered adapter. The recorder fixture checks that all three family nominations are serialised.
 
 The native activity fixture also prepares an actual loot candidate, changes the live pickup list and item position, and verifies that repeated scoring retains the captured value, trip duration and target. A disappeared item must then be refused at execution. A fresh preparation after the completed-work allowance expires must remove that opportunity. These checks exercise the real adapter rather than only the shared scalar evaluator.
 

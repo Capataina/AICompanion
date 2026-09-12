@@ -58,6 +58,8 @@ internal static class VerifyCompanionActivities
         public int Entries;
         public int Exits;
         public override string Name => "probe";
+        public override live::AICompanion.Companion.Brain.BehaviourSelection.PurposeFamily Family
+            => live::AICompanion.Companion.Brain.BehaviourSelection.PurposeFamily.NearbyAssistance;
         public override Vector2? ActivityTarget => Target;
         public override object ActivityIdentity => Identity;
         public bool Allows(live::AICompanion.Companion.Brain.Behaviours.ActionContext ctx) => AllowsTarget(ctx, Target, Identity);
@@ -108,6 +110,10 @@ internal static class VerifyCompanionActivities
         Require(chooser.Choose(ctx) == null && invalid.Entries == 0,
             "an invalid last candidate must not be activated through the all-zero fallback");
         Require(chooser.LastScores.Single().Error == "invalid-raw-value", "the rejected input must retain its diagnostic reason");
+        invalid.Value = 0;
+        Require(chooser.Choose(ctx) == null && invalid.Entries == 0
+            && chooser.LastNominations.All(n => n.Activity == null),
+            "zero-value children must leave all families empty rather than activate the last registered behaviour");
         chooser.Actions.Clear();
         Require(chooser.Choose(ctx) == null, "an empty board must produce no activity rather than indexing a missing fallback");
     }

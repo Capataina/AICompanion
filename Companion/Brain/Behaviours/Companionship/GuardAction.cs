@@ -17,6 +17,7 @@ namespace AICompanion.Companion.Brain.Behaviours.Companionship;
 public sealed class GuardAction : CompanionAction
 {
     public override string Name => "guard";
+    public override PurposeFamily Family => PurposeFamily.Combat;
     public override bool IsExcursion => false;
 
     private Terraria.NPC? protectedThreat;

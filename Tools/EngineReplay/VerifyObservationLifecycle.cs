@@ -62,12 +62,18 @@ internal static class VerifyObservationLifecycle
         foreach (string name in new[] { "escape_stage", "state_search_pending", "head_submerged", "attack_value", "hunt_reason", "nav_status" })
             Require(Array.IndexOf(names, name) >= 0, "causal sample field missing: " + name);
         Require(lines.Any(l => l.StartsWith("# text_columns=")), "writer must declare its textual columns");
+        string events = File.ReadAllText(Path.ChangeExtension(path, null) + "-events.jsonl");
+        foreach (string family in new[] { "Gathering", "Combat", "NearbyAssistance" })
+            Require(events.Contains("family:" + family + "=child:"), "decision writer omitted a family nomination: " + family);
     }
 
     private static void VerifyRecoveryDoesNotRefreshTheChoice()
     {
         var recorder = new BrainTelemetry(); Attach(recorder);
         var companion = VerifyCompanionLifecycle.Create();
+        // The lifecycle helper starts with a dead player. This scenario needs useful ordinary
+        // work before recovery; otherwise there is no activity for recovery to suspend.
+        Main.LocalPlayer.dead = false;
         recorder.OnWorldLoad();
         string path = Directory.GetFiles(BrainTelemetry.Folder, "*.tsv").OrderByDescending(File.GetLastWriteTimeUtc).First();
         VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
@@ -84,16 +90,23 @@ internal static class VerifyObservationLifecycle
         Main.LocalPlayer.dead = true;
         VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
         companion.AI();
+        Require(companion.Brain.Chooser.Current == null, "the empty post-recovery board must have no ordinary activity");
+        Main.LocalPlayer.dead = false;
+        Main.LocalPlayer.Bottom = companion.NPC.Bottom;
+        VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
+        companion.AI();
         companion.CheckDead();
         VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
         companion.AI();
         recorder.OnWorldUnload();
         string events = Path.ChangeExtension(path, null) + "-events.jsonl";
         string[] activities = File.ReadLines(events).Where(line => line.Contains("\"kind\":\"activity-state\"", StringComparison.Ordinal)).ToArray();
-        Require(activities.Length == 4 && activities[0].Contains("phase=Executing")
+        Require(activities.Length == 5 && activities[0].Contains("phase=Executing")
             && activities[1].Contains("phase=Suspended;reason=follow-recovery-flight")
-            && activities[2].Contains("phase=Executing") && activities[3].Contains("phase=Suspended;reason=downed"),
-            "the real recorder must distinguish executing, recovery-suspended, resumed and downed activity states");
+            && activities[2].Contains("phase=None") && activities[3].Contains("phase=Executing")
+            && activities[4].Contains("phase=Suspended;reason=downed"),
+            "the real recorder must distinguish execution, recovery suspension, no offer, resumed activity and downing; actual records: "
+                + string.Join("\n", activities));
         string recoveryEvent = File.ReadLines(events).Single(line => line.Contains("\"kind\":\"decision\"", StringComparison.Ordinal)
             && line.Contains("control-source=follow-recovery-flight", StringComparison.Ordinal));
         using var recorded = System.Text.Json.JsonDocument.Parse(recoveryEvent);
@@ -113,7 +126,7 @@ internal static class VerifyObservationLifecycle
         int header = Array.FindIndex(lines, line => line.StartsWith("tick\t"));
         string[] names = lines[header].Split('\t');
         string[][] rows = lines.Skip(header + 1).Where(line => !line.StartsWith('#')).Select(line => line.Split('\t')).ToArray();
-        Require(rows.Length == 4 && rows.All(row => row.Length == names.Length), "freshness fixture must preserve all four complete samples");
+        Require(rows.Length == 5 && rows.All(row => row.Length == names.Length), "freshness fixture must preserve all five complete samples");
         string Value(int row, string name)
         {
             int column = Array.IndexOf(names, name);
@@ -125,8 +138,10 @@ internal static class VerifyObservationLifecycle
         Require(Value(0, "choice_id") == Value(1, "choice_id") && Value(0, "choice_tick") == Value(1, "choice_tick"),
             "recovery must preserve the identity and source time of the earlier comparison");
         Require(Value(2, "choice_fresh") == "1" && long.Parse(Value(2, "choice_id")) == long.Parse(Value(0, "choice_id")) + 1,
-            "resumed selection must publish a new comparison even when its winner is unchanged");
-        Require(Value(3, "choice_fresh") == "0" && Value(3, "brain_fresh") == "0" && Value(3, "choice_id") == Value(2, "choice_id"),
+            "resumed selection must publish a new comparison even when no activity is worthwhile");
+        Require(Value(3, "choice_fresh") == "1" && long.Parse(Value(3, "choice_id")) == long.Parse(Value(2, "choice_id")) + 1,
+            "a newly useful companionship activity must come from a fresh comparison");
+        Require(Value(4, "choice_fresh") == "0" && Value(4, "brain_fresh") == "0" && Value(4, "choice_id") == Value(3, "choice_id"),
             "downing must not refresh a retained comparison");
     }
 

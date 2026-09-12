@@ -17,6 +17,7 @@ namespace AICompanion.Companion.Brain.Behaviours.Companionship;
 public sealed class WalkWithPlayerAction : CompanionAction
 {
     public override string Name => "walk-with";
+    public override PurposeFamily Family => PurposeFamily.NearbyAssistance;
     public override bool IsExcursion => false;
 
     private float preparedValue;

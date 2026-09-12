@@ -17,6 +17,7 @@ namespace AICompanion.Companion.Brain.Behaviours.Companionship;
 public sealed class WanderAction : CompanionAction
 {
     public override string Name => "wander";
+    public override PurposeFamily Family => PurposeFamily.NearbyAssistance;
 
     private enum Mode { Standing, Walking }
     private Mode mode = Mode.Standing;
