@@ -29,6 +29,7 @@ internal static class VerifyOreWork
             ASealedTreeYieldsToReachableOre();
             AnUnprovenApproachWalksInsteadOfScoringZero();
             AReachableOreProducesANativeBreak();
+            AUsefulCurrentPoseNeedsNoApproach();
             NativeToolOutcomesDistinguishAttemptsFromProgress();
             Console.WriteLine("ore work: policy, retained vein, tool gates, unproven approach and native productive break pass");
             return 0;
@@ -62,6 +63,18 @@ internal static class VerifyOreWork
             $"a usable fixed pose must produce a real native tile break, not merely report {swings} swings");
         Require(ctx.Companion.Miner.LastOutcome is { Effect: live::AICompanion.Companion.Brain.WorldInteractions.TileToolEffect.Removed, Productive: true },
             "native tile removal must remain distinguishable from a requested swing or partial damage");
+    }
+
+    private static void AUsefulCurrentPoseNeedsNoApproach()
+    {
+        Point ore = new(25, 59);
+        var (_, ctx) = SetUp(WorkPolicy.Opportunistic, TileID.Copper, ore);
+        Vector2 feet = ctx.Npc.Bottom;
+        Require(live::AICompanion.Companion.Brain.WorldInteractions.Mining.OreFinder.InReach(feet, ore),
+            "the current-pose fixture must already satisfy actual tool range and exposed access");
+        var reach = live::AICompanion.Companion.Brain.WorldInteractions.Mining.OreFinder.Approach(ore, feet, out Vector2 stand);
+        Require(reach == Reachability.Reach.Yes && stand == feet,
+            $"a usable current pose needs no approach; got {reach} at {stand} instead of {feet}");
     }
 
     private static void NativeToolOutcomesDistinguishAttemptsFromProgress()

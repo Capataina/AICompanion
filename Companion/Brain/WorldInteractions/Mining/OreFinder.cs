@@ -115,6 +115,13 @@ public static class OreFinder
     /// </summary>
     public static Reachability.Reach Approach(Point ore, Vector2 fromFeet, out Vector2 stand)
     {
+        // Tool access at the actual pose needs no route to a representative standing node.
+        // Requiring that route can reject usable reach or move the body out of a working pose.
+        if (InReach(fromFeet, ore))
+        {
+            stand = fromFeet;
+            return Reachability.Reach.Yes;
+        }
         Vector2 oreCentre = ore.ToWorldCoordinates(8f, 8f);
         Point from = MovementQueries.FeetTile(fromFeet);
         Vector2? best = null;

@@ -53,6 +53,8 @@ Hunt admissibility fixtures prepare before comparing, then clear the live threat
 
 The two-tile ore fixture removes a real tile and moves the body after preparing a candidate. Context-free scoring and forecasting must retain the old candidate and leave the vein untouched; the next preparation must incorporate the removal and relocate to the remaining tile. Direct scenario calls use PrepareAndScore when they intend a new observation; purity assertions deliberately omit preparation.
 
+The current-pose regression starts inside actual tool reach and requires Approach to return that exact pose rather than a nearer-to-ore representative node. The raised-lip baseline remains a separate delivery test: passing current access does not establish that the brain can climb the lip and create that access.
+
 Activity-owner probes check one release per interruption, retained purpose identity on reselection, a new identity for consecutive targets under one executor, and abandonment without a duplicate release. Fixtures that need an active executor use the real owner rather than setting the chooser's former backing property. The rendering fixture follows the same entry contract.
 
 From the repository root run `dotnet run --project Tools/EngineReplay`. Exit zero requires every matrix entry to match and all native route fixtures to arrive. `sh Tools/verify.sh` includes this command. The game location can be supplied as the executable’s first argument; MSBuild’s TModLoaderRoot controls the reference location when compiling on another installation.
