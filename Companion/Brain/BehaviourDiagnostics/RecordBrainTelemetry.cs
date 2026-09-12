@@ -415,7 +415,7 @@ public sealed class BrainTelemetry : ModSystem
             foreach (var score in brain.Chooser.LastScores) { if (board.Length > 0) board.Append(','); board.Append(score.Action.Name).Append('=').Append(score.Raw.ToString("0.000", CultureInfo.InvariantCulture)).Append("->").Append(score.Final.ToString("0.000", CultureInfo.InvariantCulture)); }
             board.Append(CultureInfo.InvariantCulture, $";regroup={brain.Chooser.RegroupUrgency:0.000};return-ticks={brain.Chooser.EstimatedReturnTicks:0.0}");
             foreach (var score in brain.Chooser.LastScores)
-                board.Append(CultureInfo.InvariantCulture, $";factors:{score.Action.Name}=protection:{score.Protection:0.000},commitment:{score.Commitment:0.000},horizon:{score.Horizon:0.000},useful-work:{score.UsefulWork:0.000}");
+                board.Append(CultureInfo.InvariantCulture, $";factors:{score.Action.Name}=protection:{score.Protection:0.000},commitment:{score.Commitment:0.000},horizon:{score.Horizon:0.000},useful-work:{score.UsefulWork:0.000},error:{score.Error}");
             var preferences = PlayerIntegration.CompanionPreferences.Current;
             board.Append(CultureInfo.InvariantCulture, $";movement-stalled={brain.MovementStalled};activity-status={brain.ActivityStatus};activity-target={brain.LastAction?.ActivityTarget};activity-radius={preferences.NewActivityRadius};continuation-radius={preferences.ActiveActivityRadius};recovery-radius={preferences.RecoveryRadius}");
             GodsEyeEvents.RecordDecision(npc, brain.LastAction?.Name ?? "-", board.ToString(), brain.LastRequest.Kind.ToString(),

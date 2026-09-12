@@ -23,6 +23,7 @@ internal static class VerifyCompanionActivities
             WorkWinsOutsideFollowComfort();
             ContinuingTargetsKeepTheirIdentity();
             ConsecutiveJobsEarnTheirOwnAllowance();
+            InvalidCandidatesCannotBecomeTheFallback();
             StallsSurviveBehaviourChanges();
             ComfortableFollowingHasNoRegroupPressure();
             RemoteJobReleasesAndDiscoversNearbyOre();
@@ -45,20 +46,36 @@ internal static class VerifyCompanionActivities
         ctx.Player.Bottom = new Vector2(50 * 16, 60 * 16);
         ctx.Companion.Brain.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Breath);
         var chosen = ctx.Companion.Brain.Chooser.Choose(ctx);
-        Require(chosen.Name == "mine", $"reachable ore at 480px separation must beat ordinary following; got {chosen.Name}");
+        Require(chosen?.Name == "mine", $"reachable ore at 480px separation must beat ordinary following; got {chosen?.Name ?? "none"}");
     }
 
     private sealed class ActivityProbe : live::AICompanion.Companion.Brain.Behaviours.CompanionAction
     {
         public object Identity = new();
         public Vector2 Target;
+        public float Value = 1;
+        public int Entries;
         public override string Name => "probe";
         public override Vector2? ActivityTarget => Target;
         public override object ActivityIdentity => Identity;
         public bool Allows(live::AICompanion.Companion.Brain.Behaviours.ActionContext ctx) => AllowsTarget(ctx, Target, Identity);
-        public override float Score(in live::AICompanion.Companion.Brain.Behaviours.ActionContext ctx) => Allows(ctx) ? 1f : 0f;
+        public override float Score(in live::AICompanion.Companion.Brain.Behaviours.ActionContext ctx) => Allows(ctx) ? Value : 0f;
+        public override void Enter(in live::AICompanion.Companion.Brain.Behaviours.ActionContext ctx) => Entries++;
         public override live::AICompanion.Companion.Brain.PositionSelection.PositionRequest Execute(in live::AICompanion.Companion.Brain.Behaviours.ActionContext ctx)
             => live::AICompanion.Companion.Brain.PositionSelection.PositionRequest.Hold;
+    }
+
+    private static void InvalidCandidatesCannotBecomeTheFallback()
+    {
+        var (_, ctx) = VerifyOreWork.SetUp(Policy.Opportunistic, TileID.Copper, new Point(25, 59));
+        var chooser = ctx.Companion.Brain.Chooser;
+        var invalid = new ActivityProbe { Target = ctx.Player.Bottom, Value = float.NaN };
+        chooser.Actions.Clear(); chooser.Actions.Add(invalid);
+        Require(chooser.Choose(ctx) == null && invalid.Entries == 0,
+            "an invalid last candidate must not be activated through the all-zero fallback");
+        Require(chooser.LastScores.Single().Error == "invalid-raw-value", "the rejected input must retain its diagnostic reason");
+        chooser.Actions.Clear();
+        Require(chooser.Choose(ctx) == null, "an empty board must produce no activity rather than indexing a missing fallback");
     }
 
     private static void ContinuingTargetsKeepTheirIdentity()

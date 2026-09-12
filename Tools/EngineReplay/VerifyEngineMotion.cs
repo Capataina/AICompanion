@@ -86,6 +86,7 @@ internal static class VerifyEngineMotion
         Console.WriteLine($"engine motion: {checkedCases - failed}/{checkedCases} matched native NPC collision; {failed} mismatches; Collision scratch preserved");
         failed += VerifyObservedMotion.Run();
         failed += VerifyGodsEyeEvents.Run();
+        failed += VerifyPreparedActivities.Run();
         failed += VerifyRoutes();
         failed += VerifyProjectileMotion.Run();
         failed += VerifyPersonalDanger.Run();

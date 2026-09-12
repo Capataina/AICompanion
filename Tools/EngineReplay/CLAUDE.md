@@ -35,8 +35,11 @@ EngineReplay/
 ├─ VerifyCompanionActivities.cs activity identities, range boundaries, progress windows, protected rooms and native torch placement
 ├─ VerifyObservationLifecycle.cs real recorder reservation, zero-tick metadata and callback-scoped lifecycle evidence
 ├─ GodsEyeTestStubs.cs       unrelated mod and TSV seams; the real player hurt observer remains compiled
+├─ VerifyPreparedActivities.cs pure comparison, invalid-value rejection and preceding arithmetic reference
 └─ VerifyGodsEyeEvents.cs    real sparse-event writer, native-hook, generation and terrain-capture contracts
 ```
+
+`VerifyPreparedActivities.cs` exercises the production shared comparison on repeated and reordered immutable inputs, invalid numeric values, overflow, an unlimited threat horizon and a seeded valid-domain reference of the preceding chooser arithmetic. It proves numeric preservation for those prepared boards, not correct opportunity discovery or improved behaviour.
 
 From the repository root run `dotnet run --project Tools/EngineReplay`. Exit zero requires every matrix entry to match and all native route fixtures to arrive. `sh Tools/verify.sh` includes this command. The game location can be supplied as the executable’s first argument; MSBuild’s TModLoaderRoot controls the reference location when compiling on another installation.
 

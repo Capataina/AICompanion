@@ -12,10 +12,17 @@ Regroup time uses available route-step durations and the positioner's observed t
 BehaviourSelection/
 ├─ CLAUDE.md
 ├─ ChooseBehaviour.cs          the scorer and the sole list of behaviour instances
+├─ EvaluatePreparedActivities.cs captured candidate values and side-effect-free shared utility comparison
 └─ EvaluateConsiderations.cs   named scoring curves
 ```
 
 ## The urgency ladder, and why an action topping out at one can never interrupt anything
+
+Candidate preparation and shared comparison are separate calls. The current activity adapters still discover and maintain targets inside their legacy `Score` methods; the chooser calls those only while preparing a board, then captures raw value, forecast and activity classification. `EvaluatePreparedActivities` accepts only immutable scalar records, reads no live activity or world object and never invokes discovery. It returns all factors and an explicit error for invalid or non-finite values. Positive-infinite threat horizon means no observed deadline. Repeated or reordered evaluation preserves each candidate's value. This boundary does not yet make the legacy discovery adapters pure or supply the new activity owner.
+
+Incumbent commitment is deliberately independent of the shared body-stall flag. A replacement activity would otherwise inherit its predecessor's physical failure before attempting any movement. Activity-owned remaining effort and outcomes must replace that coarse commitment; body-level stalling alone cannot decide that a job was a bad choice.
+
+An invalid evaluated candidate cannot be activated through the zero-score fallback. With no valid candidate, selection returns no activity and releases the former one; the coordinator holds ordinary movement while independent hands and earlier safety/recovery paths retain their existing contracts. The legacy last-valid zero-score fallback remains during this adapter stage, so this does not yet implement the final offer eligibility model.
 
 Completed comparisons carry an increasing evaluation identity and their engine tick. The coordinator separately records whether selection ran in its current invocation: an early recovery or reflex return can update the brain without refreshing the choice. Retained scores keep their original identity and source time. These comparison identities describe decisions, not ongoing job identity or route attempts.
 

@@ -2,6 +2,8 @@
 
 The coordinator records brain execution separately from completed choice evaluation. Early recovery and reflex paths can own a fresh control response while retaining an older ordinary action and score board. Every completed chooser comparison receives an identity and source tick; diagnostics must keep those meanings separate when attributing tool effects or skipped selection.
 
+No valid evaluated candidate produces an explicit absent activity and an ordinary Hold request. It does not select a numerically invalid last entry. Independent hand resolution and the existing early safety/recovery paths still run; the absence is not a fourth behaviour.
+
 The brain turns one shared world observation into a body intent each tick. It does not move the NPC: `CoordinateBrainTick.cs` asks `SharedMovementSystem/CoordinateMovement.cs` for controls and the motor in `SharedMovementSystem/TerrariaIntegration/` applies those controls. The separation gives every body-changing decision one route through the same movement interface, while behaviours remain independent of route planning and engine movement details.
 
 ```

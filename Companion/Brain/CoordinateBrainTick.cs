@@ -145,10 +145,10 @@ public sealed class Brain
             return;
         }
 
-        CompanionAction action = Chooser.Choose(ctx);
+        CompanionAction? action = Chooser.Choose(ctx);
         ChoiceEvaluated = true;
         if (TryFollowRecovery(companion, player, action is Behaviours.Companionship.WalkWithPlayerAction)) return;
-        LastRequest = action.Execute(ctx);
+        LastRequest = action?.Execute(ctx) ?? PositionRequest.Hold;
         DecideMs = Lap();
 
         if (action is Behaviours.Survival.SurviveAction survival && (survival.TryEscape(ctx, out Controls escape, out bool escapePending) || escapePending))

@@ -19,7 +19,7 @@ namespace AICompanion.Companion.Brain.BehaviourSelection;
 public sealed class Chooser
 {
     public readonly record struct Scored(CompanionAction Action, float Raw, float Final,
-        float Protection = 1f, float Commitment = 1f, float Horizon = 1f, float UsefulWork = 1f);
+        float Protection = 1f, float Commitment = 1f, float Horizon = 1f, float UsefulWork = 1f, string Error = "");
 
     public readonly List<CompanionAction> Actions = new()
     {
@@ -55,7 +55,7 @@ public sealed class Chooser
         workSiteTick = Terraria.Main.GameUpdateCount;
     }
 
-    public CompanionAction Choose(in ActionContext ctx)
+    public CompanionAction? Choose(in ActionContext ctx)
     {
         LastScores.Clear();
         var delta = ctx.Senses.Player.Bottom - ctx.Npc.Bottom;
@@ -91,70 +91,46 @@ public sealed class Chooser
         // An all-zero board (the player is dead, nothing to do) falls to the last action, wander,
         // which holds still in that case; starting below zero would hand the tick to whichever
         // action happens to be listed first.
-        CompanionAction? best = Actions[^1];
+        CompanionAction? best = null, fallback = null;
         float bestScore = 0f;
 
-        foreach (CompanionAction action in Actions)
+        // Legacy activities still maintain candidates in Score. Keep that adapter in this
+        // preparation phase; the shared comparison below receives only captured values.
+        var prepared = new PreparedActivity[Actions.Count];
+        for (int i = 0; i < Actions.Count; i++)
         {
+            CompanionAction action = Actions[i];
             float raw = action.Score(ctx);
-            float final = raw;
-            float protection = 1f, commitment = 1f, horizonFactor = 1f;
-            // Optional jobs validate their target against the activity envelope themselves.
-            // The short follow comfort band must not veto an admitted, useful excursion.
-            if (action.IsExcursion && !ctx.Stranded) protection = 1f - ctx.Senses.Threats.ProtectionUrgency;
-            if (raw > 0f)
-            {
-                if (action == Current)
-                    // Flat, and deliberately not conditioned on the body making progress. Scaling
-                    // it by the stall flag was tried on 2026-09-11 and tripled the churn it was
-                    // meant to cure: the flag is a property of the body, not of the task, and it
-                    // is not cleared when the behaviour changes, so the newcomer inherits the
-                    // incumbent's penalty before it has moved a pixel and loses on the next tick
-                    // to whoever it just displaced. 1,197 of that session's 1,727 behaviour
-                    // changes fired on a stalled tick, out of 4.5% of ticks reading stalled.
-                    // Whatever replaces this has to be the task's own report that it is failing.
-                    commitment = Weights.Commitment;
-                // Work is interruptible at the next decision tick. Charging the whole vein
-                // against a momentary safety horizon made safe, resumable work impossible.
-                float forecast = action.IsExcursion ? Math.Min(Weights.InterruptibleActionTicks, action.ForecastTicks(ctx)) : action.ForecastTicks(ctx);
-                if (forecast > horizon)
-                {
-                    float overrun = forecast - horizon;
-                    horizonFactor = Math.Max(0f, 1f - overrun / Weights.HorizonOverrunToZero);
-                }
-            }
-            final = raw * protection * commitment * horizonFactor;
-            LastScores.Add(new Scored(action, raw, final, protection, commitment, horizonFactor));
+            prepared[i] = new(i, action.Name, raw, raw > 0 ? action.ForecastTicks(ctx) : 0,
+                action.IsExcursion, action.ActivityTarget != null, action is WalkWithPlayerAction, action == Current);
         }
-
-        bool useful = LastScores.Exists(s => s.Action.IsExcursion && s.Action.ActivityTarget != null && s.Final > .1f);
-        for (int i = 0; i < LastScores.Count; i++)
+        var comparison = new ActivityComparisonContext(ctx.Senses.Threats.ProtectionUrgency, ctx.Stranded,
+            horizon, Weights.InterruptibleActionTicks, Weights.HorizonOverrunToZero, Weights.Commitment,
+            ctx.Senses.DistanceToPlayer <= PlayerIntegration.CompanionPreferences.Current.ActiveActivityRadius,
+            Weights.FollowDuringUsefulWork);
+        foreach (EvaluatedActivity score in EvaluatePreparedActivities.Evaluate(prepared, comparison))
         {
-            var scored = LastScores[i];
-            float final = scored.Final;
-            CompanionAction action = scored.Action;
-            float usefulWork = 1f;
-            if (useful && action is WalkWithPlayerAction
-                && ctx.Senses.DistanceToPlayer <= PlayerIntegration.CompanionPreferences.Current.ActiveActivityRadius)
-                usefulWork = Weights.FollowDuringUsefulWork;
-            final *= usefulWork;
-            LastScores[i] = scored with { Final = final, UsefulWork = usefulWork };
-            if (final > bestScore)
+            CompanionAction action = Actions[score.Index];
+            LastScores.Add(new(action, score.Raw, score.Final, score.Protection, score.Commitment, score.Horizon, score.UsefulWork, score.Error));
+            if (score.Error.Length != 0) continue;
+            fallback = action;
+            if (score.Final > bestScore)
             {
-                bestScore = final;
+                bestScore = score.Final;
                 best = action;
             }
         }
 
+        best ??= fallback;
         if (best != Current)
         {
             Current?.Exit(ctx);
-            best.Enter(ctx);
+            best?.Enter(ctx);
             Current = best;
         }
         // A behaviour can finish one target and select another without losing the tick.
         // Score validates acquisition first; only the selected identity earns continuation.
-        best.AdmitActivity();
+        best?.AdmitActivity();
         EvaluationId++;
         EvaluationTick = Terraria.Main.GameUpdateCount;
         return best;
