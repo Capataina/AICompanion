@@ -1,5 +1,7 @@
 # The history contains several different kinds of failure
 
+This initial synthesis is complemented by the [complete commit coverage ledger and recovered conversation episodes](<Historical Evidence/CLAUDE.md>). Historical preferences describe what was accepted at that time; the later requirement allows useful progress through safe intermediate checkpoints and contextual reconsideration of unfinished work.
+
 Investigation date: 12 September 2026. Baseline: `4296f851b13e49ccd557d7255ec24bc223a29929`. This report covers the 176 reachable commits from 7–11 September, including subjects and bodies back to the first companion. The history reader covered the chronological full-body stream; the main investigation separately inspected the decisive chooser changes and the current implementations. This is a synthesis of the whole progression, not a fresh rerun of every historical test.
 
 **The record supports questioning the architecture, but it does not support counting every regression as a failure of utility AI.** It contains genuine scoring defects, mistaken action boundaries, incomplete opportunity models, invalid movement assumptions and misleading diagnostics. A different selector would inherit several of these unchanged.

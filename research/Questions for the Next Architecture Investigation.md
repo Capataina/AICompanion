@@ -1,8 +1,8 @@
 # Questions for the Next Architecture Investigation
 
-Prepared from the owner's discussion following the first research pass. Repository baseline: `d6b353d`. Status: proposed research scope only; these questions have not been investigated by this agenda-writing pass. The initial reports remain dated evidence and provisional analysis, not settled architecture.
+Prepared from the owner's discussion following the first research pass and expanded during the authorised investigation on 12 September 2026. The initial agenda baseline was `d6b353d`; the expanded investigation uses `d60b92b`, whose gameplay source is unchanged from `4296f85`. Answers, evidence limits and separating experiments are indexed in [Question Answers and Remaining Evidence](<Evaluation and Observability/Question Answers and Remaining Evidence.md>). Recommendations remain provisional rather than accepted implementation decisions.
 
-There are **100 questions in twelve workstreams**. They can be investigated without further behavioural clarification from the owner, although some depend on findings from other workstreams. They are a question inventory, not one hundred independent agent dispatches or a commitment to implement one hundred changes.
+There are **140 questions in sixteen workstreams**. They can be investigated without another general requirements interview, although some depend on findings from other workstreams or on future experiments. They are an evidence inventory, not 140 independent dispatches or proposed changes. An explicit answer that current evidence cannot settle a question must identify what would settle it.
 
 The objective is to determine whether the project is making durable progress within suitable abstractions, repeatedly compensating for unsuitable ones, or doing both in different subsystems. Possible outcomes include retaining a working component, adjusting a policy, repairing an interface, changing a representation, or replacing a bounded subsystem. Neither preserving utility/A* nor replacing them is the assumed answer.
 
@@ -189,6 +189,58 @@ Expected result: An evaluation strategy and decision criteria for retaining, tun
 99. What criteria would justify keeping a system, changing its tuning, repairing its contracts, changing its representation or replacing it entirely?
 100. How should conclusions preserve supporting evidence, counterevidence, uncertainty and reversal conditions so that later work does not repeat a rejected idea under a new name?
 
+## Verify the observer and the provenance of its claims
+
+101. Which clocks identify a world tick, a brain update, an event order and elapsed wall time, and where does downing or pausing break a naive join?
+102. Does each reported decision identify a fresh chooser execution, or only a retained label or changed serialised snapshot?
+103. Which work statuses describe candidate evaluation rather than selected execution or productive native effects?
+104. Which movement counts describe planned edges, begun attempts, sampled retained outcomes and stable arrivals?
+105. Can mixed or incomplete weapon-pair evidence produce a false universal conclusion in the analyser?
+106. Which source revision, package, configuration, capability profile and loaded mods are recoverable from each old capture?
+107. Which terrain fields are captured, when are chunks sampled, and what world state remains unknowable at an earlier tick?
+108. How much do the recorder, inspector and retrospective analysis cost, independently of ordinary AI computation?
+109. How should the God’s-eye view separate information the agent actually had from later reference or counterfactual evidence?
+110. What known-positive, known-negative, missing-data and malformed-event cases would make the observer itself falsifiable?
+
+## Test the hidden contracts between information and action
+
+111. Does a reverse-search timeout permit a voluntary one-way edge, and how does that differ from directed-region reuse?
+112. Does a sampled search for firing positions mistake an omitted candidate for proof that no position exists?
+113. Can the navigator's arrival tolerance stop a body outside the actual work predicate's tolerance?
+114. Does a successful tool invocation prove damage or completion, and where should productive progress be measured?
+115. Can independent firing or unrelated displacement renew a pursuit that has made no progress on its own target?
+116. Do target-motion and capability changes invalidate every cache whose answer depends on them?
+117. Which current A* heuristic/cost combinations invalidate shortest-path assumptions, and which claims remain valid without optimality?
+118. Can a retained frontier make progress on an away-first detour while its selected partial endpoint fails to advance?
+119. Does family gating alter discovery/state maintenance because current score functions have side effects?
+120. Can an early-return reflex or recovery path bypass the coherent hand-use rules applied on ordinary ticks?
+
+## Compare planning depth, computation policy and changing capabilities
+
+121. When can a cheap upper/lower bound decide whether more candidate evidence could change the chosen action?
+122. How should urgent physical checks avoid starvation without evaluating every possible work candidate each tick?
+123. When does a persistent goal and sparse edge-change stream justify incremental graph repair over retained ordinary search?
+124. When does local entry-state refinement suffice, and when does irreducible state aliasing require a richer global representation?
+125. Which finite-horizon choices look beneficial only because their bad return or resource consequence lies beyond the horizon?
+126. What measurable success event could train a bounded value or transition estimator without learning hard permissions?
+127. How should saved route experience, remembered opportunities and transient activity state survive reload or capability changes?
+128. Which metamorphic relationships should hold when irrelevant candidates are added, tasks are regrouped or remaining work comes from another actor?
+129. How should ability/resource use account for both the outward journey and the return without treating recovery flight as unlimited ordinary mobility?
+130. What evidence distinguishes uncertain player-intent inference from a feature that silently assumes the player has issued an order?
+
+## Keep the proposals useful after the code changes
+
+131. What source-quality and version checks prevent a similarly named mod or old fork from becoming evidence about the wrong implementation?
+132. Where do mod maintainer reports corroborate, contradict or add to the technical account, and which reports lack prevalence or causal evidence?
+133. Which findings are immutable dated observations, which are durable principles and which must be re-evaluated after a particular change?
+134. What is the smallest common preparatory work that remains useful whichever of the three architectures wins?
+135. What evidence promotes the second or third proposal above the first, rather than merely adding another mechanism to it?
+136. Where should a branch stop or roll back because it increases complexity without improving an accepted behaviour?
+137. How does each roadmap reach the full behavioural contract beyond fixing the immediate ore and hunting complaints?
+138. What independent checks distinguish complete research coverage from a confident answer to a subset of questions?
+139. What remains impossible to settle through desk research, existing recordings and current source alone?
+140. What concrete implementation experiment should start the next session, with its expected outcome and alternatives declared before it runs?
+
 ## The investigations have dependencies, but they do not require another requirements interview
 
 The behavioural contract, historical reconstruction and external case studies can begin as separate reading lanes. Detailed source tracing supplies the failure attribution. Architectural comparisons then use those findings to avoid comparing solutions to an incorrectly diagnosed problem.
@@ -211,7 +263,7 @@ External game and mod case studies ───────────────
 
 Some reading can run alongside other reading; conclusions about replacements depend on the diagnosis. Granular questions sharing the same sources should be handled together. Discovering a missing prerequisite changes the order, not the behavioural goal.
 
-The first return should identify the strongest demonstrated causes of the ore-positioning and unsuitable-pursuit complaints, then compare those causes with what earlier conversations and commits believed. The broader case studies should help explain and challenge that diagnosis. Proposed implementation experiments remain separate from conducting this research; writing this agenda does not start them.
+The research identifies the strongest source defects and observed episodes separately from unisolated causes of ore-positioning and pursuit complaints. It compares those findings with earlier conversations and commits, and uses the broader case studies to challenge the diagnosis. The proposed implementation experiments have not been conducted by writing this research.
 
 ## Existing reports are the baseline to extend
 
@@ -220,4 +272,4 @@ The first return should identify the strongest demonstrated causes of the ore-po
 - [Utility AI and Its Alternatives](<Utility AI and Its Alternatives.md>) holds the first external comparison.
 - [Evidence and Open Questions](<Evidence and Open Questions.md>) holds reproducible capture observations and documentation discrepancies.
 
-The README corrections already authorised by the owner belong to the research follow-through. Reconcile the known factual errors and the new behavioural clarifications while keeping product expectations, historical observations and proposed mechanisms distinct. This agenda-writing pass changes neither the README nor gameplay.
+The authorised follow-through corrects README evidence and adds the owner's behavioural clarifications without changing gameplay. The ranked branching roadmaps are in [proposal/CLAUDE.md](proposal/CLAUDE.md).

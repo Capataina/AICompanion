@@ -1,5 +1,7 @@
 # Several architectural conclusions need a stronger reading of the evidence
 
+This initial evidence audit records the README discrepancies found before correction. The expanded [recording inventory, episode analysis and observer tests](<Evaluation and Observability/CLAUDE.md>) carry the deeper investigation, including the separate control-label defect. References below to what the README said are historical; the accompanying README edit corrects those claims.
+
 Investigation date: 12 September 2026. Source baseline: `4296f851b13e49ccd557d7255ec24bc223a29929`, version `0.15.1`. The observations below were recomputed or inspected during this investigation. No gameplay was run, and no historical replay or collision suite was rerun.
 
 The README's Expected Behaviour remains the starting product description. Its Current Behaviour and explanatory columns are claims to check. Four substantial September 11 recordings underpin much of that description; a fifth 439-row capture also exists. Those historical captures precede the latest baseline changes. Their behaviour must not be reported as a measured result for the current checkout.

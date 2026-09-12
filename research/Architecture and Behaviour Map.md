@@ -1,5 +1,7 @@
 # The companion is a feedback system with several decision owners
 
+This initial survey is retained as the responsibility map. The expanded [behaviour and comparison criteria](<Decision Architecture/Behaviour, Opportunities and Comparison Criteria.md>), [source investigation](<Implementation Evidence/CLAUDE.md>) and [ranked roadmaps](proposal/CLAUDE.md) incorporate the later owner clarifications and deeper evidence. Architecture-specific claims below belong to the dated baseline.
+
 Investigation date: 12 September 2026, Europe/London. Source baseline: `4296f851b13e49ccd557d7255ec24bc223a29929`, version `0.15.1`. Status: research for discussion; no replacement architecture has been accepted.
 
 The question is whether the project is improving a suitable architecture or repeatedly compensating for unsuitable abstractions. The standard is the companion in the [README](../README.md): a nearby, useful second presence that notices opportunities, protects itself and the player, completes worthwhile work, and moves through Terraria without becoming an orders system. The owner judges the resulting play. There is no deadline or mandate to pick a replacement in this investigation.

@@ -1,0 +1,52 @@
+# What this research establishes and how to check it again
+
+**Assessment date: 12 September 2026. Source baseline: `d60b92b`; gameplay and tool baseline: `4296f85`, version `0.15.1`.** The owner's deliverable is a comprehensive, reproducible research library and three ranked, branching proposals, with edits confined to `research/` and `README.md`. The intended result is a better-grounded direction towards the expected companion. No gameplay change, new recorder, architecture experiment or live acceptance is delivered by these documents.
+
+## The evidence covers several origins without counting copies as corroboration
+
+| Obligation | Evidence actually examined | What it establishes | Limit |
+|---|---|---|---|
+| Trace the pre-utility history through the present design | Full subjects and bodies of 176 reachable gameplay commits through `4296f85`, plus the two preceding research commits; all are indexed in [Commit Chronology and Coverage Ledger](<../Historical Evidence/Commit Chronology and Coverage Ledger.md>). | Chronology, claimed results, rejected approaches and evolving contracts. | Commit claims are not rerun test results; simultaneous changes prevent clean causal attribution. |
+| Recover the discussion behind pivotal changes | Seven decision episodes from local Claude/Codex conversations, including surrounding messages, plus read-only Identity, Architecture, Design, State, Record and roadmap material in Slate. Retrieval and distinctions are in [Pivotal Decisions and Conversation Evidence](<../Historical Evidence/Pivotal Decisions and Conversation Evidence.md>). | The owner's requests, assistant interpretations, explicit authorisation, rejected diagnoses and why instrumentation was introduced. | This is targeted episode recovery, not a claim to have read every message in every archive. Private conversation identifiers and full transcripts remain outside the repository. |
+| Compare code, documentation and game integration | Root and relevant descendant `CLAUDE.md` files, tick/control/decision/work/weapon/movement producers and consumers, installed tModLoader XML and package identity. | Dated implementation contracts, discrepancies and source-level counterexamples. | Source inspection does not establish reliable live execution or every native engine detail. |
+| Read the actual recorded behaviour | Every immediate `Telemetry/*.tsv` file inventoried and hashed; four major September 11 sessions analysed with selected raw sample/event/census windows. | Reproducible counts and scoped episode observations. | Thirty-file inventory coverage is not thirty complete behavioural investigations. Ignored local input files are required for reproduction. |
+| Compare alternatives beyond this codebase | Primary utility, BDI, options, BT/HFSM, GOAP/HTN, learning, metareasoning and navigation literature; source-level game/mod cases and explicitly bounded maintainer/user reports. | Mechanisms, assumptions, costs, counterexamples and candidate experiments. | No controlled same-game comparison settles the companion architecture. Sparse practitioner reports do not establish prevalence or consensus. |
+| Answer the expanded question set | [Question Answers and Remaining Evidence](<Question Answers and Remaining Evidence.md>) has one disposition for each question 1–140. | Each question has evidence, an inference or an explicit unresolved discriminator. | “Unresolved” is retained where implementation, controlled experiments or unavailable evidence are necessary. |
+| Carry all three paths towards the expected behaviour | Four files in [proposal](../proposal/CLAUDE.md), E01–E16, and [all twenty-seven behavioural acceptance cases](<Behavioural Acceptance Matrix.md>). | Ranked hypotheses, conditional next steps, promotion/rollback conditions and observation requirements. | The roadmaps are recommendations. Their future experiments have not passed merely because the acceptance cases are written. |
+| Reconcile README without implementing a route | Expected story and table incorporate the accepted clarifications; Current Behaviour is tied to captured runs; System In Place identifies the source date/revision. | A clearer product contract and a more accurate account of observations and machinery. | Source-folder knowledge outside the allowed edit surface can still carry stale claims; those discrepancies are recorded here instead of silently expanding scope. |
+
+## Reproduction starts from identity, then checks meaning
+
+Use the [recording inventory and read-only recipes](<Recording Inventory and Reproduction.md>) from the repository root. All three embedded recipes were executed against the local inputs at exit 0. The inventory produced thirty records. The episode recipe reproduced 342 rows with `action=hunt`, `control_source=travel`, `nav_status=Arrived` and `fire=no-target`. The detailed independent check recomputed all thirty inventory rows, including hashes, bytes, width and sample count, with no mismatch.
+
+The schema is part of the evidence. The investigation corrected its own initial use of `fire_outcome` to the actual `fire` field, and `reflex` to the producer's `combat-reflex` value. That second mismatch also exists in the current analyser and is documented as a source defect. The research does not claim a specific old interval produced the erroneous narration unless every classifier condition and output is demonstrated. E01 proposes the exact-token positive/negative trace that would test it.
+
+For current-source claims, first determine whether the cited surface changed:
+
+```sh
+git diff 4296f85 -- Companion Tools build.txt
+git show d60b92b:Companion/Brain/CoordinateBrainTick.cs
+git show --format=fuller 9b402cb
+```
+
+During this research the first command returned no diff. The second exposes the baseline implementation rather than whichever implementation a future reader has checked out. The third recovers an attempt's rationale; its reported verification remains historical. An implementation change requires re-reading the affected claim and its callers, not discarding every behavioural requirement or paper.
+
+External implementation links pin revisions where source was retrieved. For example, the current TerraGuardians report distinguishes the 1.3 historical repository from the pinned 1.4.4.9 generation and follows the apparent pull fallback into the callee that can teleport. An API name or comment is not enough to establish a mechanism. The source appendices identify the paper or code that must be revisited when an argument is challenged.
+
+## Independent review changed the research rather than merely approving it
+
+The external-source review checked central citations and mechanism claims against original papers and pinned repositories. It found incorrect author/venue attribution for the platformer paper and incorrect authors for the viability paper; both were corrected. It also found that Common Sense's queue/player-forced guards apply only to its cleaning branch, not the earlier hauling branch. The report now carries that exception. The viability source has verified metadata but an explicit full-text access limitation, so its algorithm is not represented as freshly reproduced or as a necessary basis for the preferred route.
+
+The internal-evidence review independently recomputed the recording inventory and episode windows, checked actual producer tokens and inspected candidate, returnability, heuristic and movement boundaries. It confirmed the bounded mining-arrival mismatch, sampling false-negative risk, return-query distinction and heuristic counterexample at source level, without promoting them into proven causes of every old playtest. Its first pass rejected the schema vocabulary drift; the corrected recipes and E01 cases passed the narrow closure check.
+
+The separate proposal/README review checked that each route can be defeated by evidence, changed conditions can cancel work, and all responsibilities have a path to acceptance. It found that older trapped-work scenes still imposed mandatory collection and that the System section lacked a source date. Both were corrected in the story/table or source heading. The final independent verdict passed all nine criteria and all six attack angles on the reviewed snapshot; it expressly accepted the research artefacts, not the future runtime architectures. The acceptance matrix was also checked for exactly one A01–A27 case.
+
+The final mechanical sweep checks local links and heading anchors, footnote definitions, table widths, the exact 1–140 question/answer sequence, the A01–A27 case set, the four-file proposal directory, scope and whitespace. It also compares the individual commit index directly against Git. That comparison corrected the initial range-index offsets and a mistyped short hash; the reproducible history command now uses a single full revision rather than an ambiguous trailing ellipsis. These corrections matter because research provenance is itself part of the claim under review.
+
+## The remaining unknowns are precise
+
+There is no fresh controlled comparison showing which architectural route produces the best live companion. The old captures do not identify every source/configuration/capability input, and they cannot reveal uncaptured terrain, hidden enemy scripts or the player's unspoken intention. They contain expensive decision-phase work, but do not isolate recorder overhead or prove that utility arithmetic is the hotspot.
+
+Vanilla RimWorld and Starsector internal schedulers were not available as authoritative full source in this investigation. Some workshop fork/version evidence is incomplete. Current Terraria/tModLoader API documentation was verified locally, but unprovenanced decompiled scratch files were excluded as evidence for the installed binary. These gaps restrict the claims that can be made; they do not imply that the implementations have no AI or that all alternatives are equivalent.
+
+E01 and E02 are the common next experiment because they separate an incorrect observation from an incorrect choice, an unusable destination and failed native execution. Further branches compare remaining-work valuation, grouping, physical representation, search repair, computation allocation and bounded planning only when the preceding evidence exposes their distinct failure class. This preserves the findings when the implementation evolves and prevents another architecture from inheriting the same untested assumptions.
