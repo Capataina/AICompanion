@@ -26,6 +26,13 @@ public static class Weights
     public const float ProtectionLeadTicks = 60f;
     public const float GuardReleasePressure = 0.08f;
     public const int GuardClearTicks = 90;
+    // History spans local back-and-forth motion; evidence support delays confidence in
+    // a new journey without discarding its vertical component.
+    public const int PlayerIntentHistoryTicks = 120;
+    public const int PlayerIntentEvidenceTicks = 24;
+    public const float PlayerIntentCorrectionSlack = 32f;
+    public const float PlayerIntentWorkDiscount = .75f;
+    public const float PlayerIntentTravelSpeed = 1.2f;
     // Recovery is a following fallback, not a traversal available to route search or mastery.
     public const float FollowRecoveryDistance = CalmBandFar * 2f;
     public const float FollowRecoveryArrival = 80f;

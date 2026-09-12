@@ -4,28 +4,28 @@ using System;
 using System.Collections.Generic;
 using Microsoft.Xna.Framework;
 using Terraria;
+using Terraria.ID;
 using AICompanion.Companion.Brain.SharedMovementSystem;
+using AICompanion.Companion.Brain.BehaviourSelection;
 
 namespace AICompanion.Companion.Brain.WorldObservation;
 
 /// <summary>
 /// What the companion knows about the player: where they are and are going, whether
-/// they are fighting, and whether they are really chopping. Travel intent is velocity
-/// smoothed over about three seconds that decays over about two after a stop, so a
-/// pause in exploration does not read as a change of mind.
+/// they are fighting, and whether they are really chopping. Travel intent is inferred
+/// from bounded displacement history and local work, with explicit confidence.
 /// </summary>
 public sealed class PlayerSense
 {
-    private const float IntentSmoothing = 0.02f;   // ~3 s to converge at 60 Hz
-    private const float IntentDecayWhenStill = 0.985f; // ~2 s to fade
+    public InferPlayerActivity Activity { get; } = new();
 
     public Vector2 Position { get; private set; }
     public Vector2 Bottom { get; private set; }
     public Vector2 Velocity { get; private set; }
 
-    /// <summary>Smoothed travel direction and pace in px/tick; near zero when the player is not going anywhere.</summary>
-    public Vector2 Intent { get; private set; }
-    public bool IsTravelling => Intent.LengthSquared() > 1.2f * 1.2f;
+    /// <summary>Confidence-weighted travel direction and pace in px/tick from recent displacement.</summary>
+    public Vector2 Intent => Activity.Travel;
+    public bool IsTravelling => Intent.LengthSquared() > Weights.PlayerIntentTravelSpeed * Weights.PlayerIntentTravelSpeed;
     public int TravelDirection => MathF.Sign(Intent.X);
 
     public float HealthFraction { get; private set; } = 1f;
@@ -38,8 +38,8 @@ public sealed class PlayerSense
     public (Point Tile, int Type)? MinedOre { get; private set; }
     public bool CompanionCanSeePlayer { get; private set; }
 
-    /// <summary>Where the player will be if they keep their intent for <paramref name="ticks"/>.</summary>
-    public Vector2 Predict(int ticks) => Bottom + Intent * ticks;
+    /// <summary>A bounded, confidence-weighted continuation, not a known destination.</summary>
+    public Vector2 Predict(int ticks) => Bottom + Intent * Math.Clamp(ticks, 0, Weights.PlayerIntentHistoryTicks);
 
     /// <summary>
     /// The player's feet tiles, oldest first, one entry per change of tile, up to TrailLength: the
@@ -68,15 +68,12 @@ public sealed class PlayerSense
         HealthFraction = player.statLifeMax2 > 0 ? player.statLife / (float)player.statLifeMax2 : 1f;
         IsAttacking = player.itemAnimation > 0 && player.HeldItem.damage > 0;
 
-        Vector2 moving = player.velocity;
-        if (moving.LengthSquared() > 0.5f * 0.5f)
-            Intent = Vector2.Lerp(Intent, moving, IntentSmoothing * 3f);
-        else
-            Intent *= IntentDecayWhenStill;
-
         ChoppedTree = TileDamageWatcher.TreeHitByPlayerRecently();
         IsChoppingTree = ChoppedTree != null;
         MinedOre = TileDamageWatcher.OreHitByPlayerRecently();
+        // These fields use negative values for no placement; valid IDs start at zero.
+        bool placing = player.itemAnimation > 0 && (player.HeldItem.createTile >= TileID.Dirt || player.HeldItem.createWall >= WallID.None);
+        Activity.Observe(Bottom, Velocity, IsChoppingTree || MinedOre != null || placing, IsDead, Main.GameUpdateCount);
         CompanionCanSeePlayer = LineOfSight.Between(companion, player);
     }
 }

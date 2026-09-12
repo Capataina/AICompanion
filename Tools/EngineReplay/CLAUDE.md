@@ -20,6 +20,8 @@ The empty-offer safety fixture removes every ordinary candidate, then exercises 
 
 The personal-danger fixture runs the real threat observer against sealed native-tile chambers. It checks both player/companion arrangements for a walker, a tile-colliding flyer, a wall-crossing phaser, and entry into an enemy's chamber before a cached reachability refresh. These isolate destination coupling; they do not measure live combat judgement or a modded hostile's own pathfinding skill.
 
+Responsive-following checks drive PlayerSense around a repeated local path and require it not to report travel. The production intent estimator also receives matched movement with and without local-work evidence, brief reversal, sustained backtracking, pause and vertical movement. Duplicate timestamps cannot manufacture samples; observation gaps and position corrections clear the history. These checks establish those observation sequences, not knowledge of the player's future destination. Existing native full-brain following fixtures remain the separate integration check.
+
 ```
 EngineReplay/
 ├─ CLAUDE.md                 setup, scope and evidence limits

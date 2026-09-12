@@ -362,6 +362,8 @@ This walkthrough describes the implemented system during the Proposal 1 migratio
 
 The companion first notices what is around it: your position and recent movement, enemies and projectiles, nearby work and drops, light, its health and breath, and terrain relevant to a movement question. It estimates danger from what it can observe. It does not know every enemy's future attack or your future destination, and not every observation refreshes at the same moment.
 
+Your recent movement is kept as a short history. Travelling steadily in one direction builds confidence that you are going somewhere; repeatedly crossing the same small area and using tools make that less certain. A brief reversal weakens the old direction, sustained backtracking replaces it, and stopping lets it fade. Following and return pressure use this estimate, while immediate physical questions can still use your current velocity. The estimate does not prove where you intend to finish or which route the companion can use.
+
 A coordinator decides what gets to act. Usually it lets utility compare useful behaviours. Recovery flight or an immediate avoidance response can take control before that comparison runs. Being downed is handled by the companion's lifecycle outside ordinary decisions. Utility is therefore the ordinary chooser, not the only authority over the body.
 
 On an ordinary update, each behaviour prepares a candidate and its value. Gathering, combat and nearby assistance each nominate their best eligible activity. The chooser compares those three concrete offers without adding the same preference again. The winning behaviour performs any immediate interaction it can and asks for a useful place to stand. A family with no valuable candidate nominates nothing.

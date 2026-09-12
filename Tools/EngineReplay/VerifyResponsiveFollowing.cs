@@ -17,6 +17,8 @@ internal static class VerifyResponsiveFollowing
 {
     public static int Run()
     {
+        VerifyLocalMotionDoesNotBecomeTravel();
+        VerifyIntentEvidenceAndRevision();
         VerifyTwoAxisObjective();
         VerifyArrivalSlackCannotStrandFollowing();
         VerifyVerticalPlayerMotionReachesTheProductionFollowAction();
@@ -24,6 +26,66 @@ internal static class VerifyResponsiveFollowing
         VerifyCturnCompletesThroughTheProductionBrain();
         Console.WriteLine("responsive following: vertical intent, two-axis arrival and live brain follow selection passed");
         return 0;
+    }
+
+    private static void VerifyLocalMotionDoesNotBecomeTravel()
+    {
+        BuildFloor();
+        var companion = VerifyCompanionLifecycle.Create();
+        Player player = Main.player[0];
+        player.dead = false;
+        player.position = new Vector2(400, 1000);
+        var sense = companion.Brain.Senses.Player;
+        for (int tick = 0; tick < 240; tick++)
+        {
+            player.velocity = new Vector2(tick % 60 < 30 ? 4 : -4, 0);
+            player.position += player.velocity;
+            VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
+            sense.Update(player, companion.NPC);
+        }
+        Require(!sense.IsTravelling,
+            $"repeated motion inside one local area must not become confident travel: intent={sense.Intent}");
+    }
+
+    private static void VerifyIntentEvidenceAndRevision()
+    {
+        var travel = new live::AICompanion.Companion.Brain.WorldObservation.InferPlayerActivity();
+        var working = new live::AICompanion.Companion.Brain.WorldObservation.InferPlayerActivity();
+        Vector2 position = Vector2.Zero;
+        ulong tick = 0;
+        travel.Observe(position, Vector2.Zero, false, false, tick);
+        working.Observe(position, Vector2.Zero, true, false, tick);
+        void Move(Vector2 velocity, int ticks)
+        {
+            for (int i = 0; i < ticks; i++)
+            {
+                position += velocity;
+                tick++;
+                travel.Observe(position, velocity, false, false, tick);
+                working.Observe(position, velocity, true, false, tick);
+            }
+        }
+        Move(new Vector2(4, 0), 120);
+        Require(travel.Interpretation == "travelling" && travel.Confidence > .9f && travel.Travel.X > 3,
+            "sustained displacement must establish travel with supported confidence");
+        Require(working.Confidence < travel.Confidence && working.Travel.X > 0,
+            "local work must reduce travel certainty without vetoing all movement");
+        Vector2 before = travel.Travel;
+        int samples = travel.Samples;
+        travel.Observe(position + new Vector2(999, 0), new Vector2(-20, 0), false, false, tick);
+        Require(travel.Travel == before && travel.Samples == samples, "duplicate observation cannot advance evidence");
+        Move(new Vector2(-4, 0), 6);
+        Require(travel.Travel.X > 0, "a brief reversal must not invent a new journey immediately");
+        Move(new Vector2(-4, 0), 120);
+        Require(travel.Travel.X < -3 && travel.Confidence > .9f, "sustained backtracking must replace old intent");
+        Move(Vector2.Zero, 120);
+        Require(travel.Travel == Vector2.Zero && travel.Interpretation == "paused", "a sustained pause must clear travel");
+        Move(new Vector2(0, -4), 120);
+        Require(travel.Travel.Y < -3, "vertical travel must use the same evidence as horizontal travel");
+        travel.Observe(position + new Vector2(1000, 0), Vector2.Zero, false, false, ++tick);
+        Require(travel.Samples == 0 && travel.Confidence == 0, "position correction is not travel evidence");
+        travel.Observe(position, Vector2.Zero, false, false, tick + 50);
+        Require(travel.Samples == 0, "an unobserved interval cannot become a traversed path");
     }
 
     private static void VerifyTwoAxisObjective()

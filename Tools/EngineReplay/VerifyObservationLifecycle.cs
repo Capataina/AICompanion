@@ -53,6 +53,14 @@ internal static class VerifyObservationLifecycle
     {
         var recorder = new BrainTelemetry(); Attach(recorder);
         var companion = VerifyCompanionLifecycle.Create();
+        Main.LocalPlayer.dead = false;
+        Main.LocalPlayer.velocity = new Microsoft.Xna.Framework.Vector2(0, -1);
+        for (int tick = 0; tick < 120; tick++)
+        {
+            Main.LocalPlayer.position += Main.LocalPlayer.velocity;
+            VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
+            companion.Brain.Senses.Player.Update(Main.LocalPlayer, companion.NPC);
+        }
         recorder.OnWorldLoad();
         string path = Directory.GetFiles(BrainTelemetry.Folder, "*.tsv").OrderByDescending(File.GetLastWriteTimeUtc).First();
         VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
@@ -62,8 +70,13 @@ internal static class VerifyObservationLifecycle
         Require(header >= 0 && header + 1 < lines.Length, "real sample writer emitted no table row");
         string[] names = lines[header].Split('\t'), values = lines[header + 1].Split('\t');
         Require(names.Length == values.Length, $"sample/header widths disagree: {names.Length}/{values.Length}");
-        foreach (string name in new[] { "escape_stage", "state_search_pending", "head_submerged", "attack_value", "hunt_reason", "nav_status" })
+        foreach (string name in new[] { "escape_stage", "state_search_pending", "head_submerged", "attack_value", "hunt_reason", "nav_status",
+            "player_intent_y", "player_intent_confidence", "player_intent_samples", "player_local_work_fraction" })
             Require(Array.IndexOf(names, name) >= 0, "causal sample field missing: " + name);
+        float Number(string name) => float.Parse(values[Array.IndexOf(names, name)], System.Globalization.CultureInfo.InvariantCulture);
+        Require(Number("player_intent_y") < -.8f && Number("player_intent_confidence") > .9f
+            && Number("player_intent_samples") > 100,
+            "the actual recorder must preserve supported vertical intent, not empty placeholders");
         Require(lines.Any(l => l.StartsWith("# text_columns=")), "writer must declare its textual columns");
         string events = File.ReadAllText(Path.ChangeExtension(path, null) + "-events.jsonl");
         foreach (string family in new[] { "Gathering", "Combat", "NearbyAssistance" })

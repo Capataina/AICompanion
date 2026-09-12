@@ -8,6 +8,7 @@ WorldObservation/
 ├─ Senses.cs                 aggregate and update order
 ├─ ObserveCompanion.cs       breath, liquid, fire, life and recent damage; derives self danger
 ├─ ObservePlayer.cs          position, travel intent, fighting and sight
+├─ InferPlayerActivity.cs    bounded displacement/work evidence and travel confidence
 ├─ ObservePlayerWork.cs      player tool hits and terrain-change notification
 ├─ ObserveThreats.cs         hostile records, reachability, danger and safety horizon
 ├─ ObserveHostileAttackSources.cs native hostile projectile ownership and generation reset
@@ -20,7 +21,11 @@ WorldObservation/
 └─ LineOfSight.cs            the named game line-of-sight query
 ```
 
-`Senses.Update` runs player, threats, projectiles, loot, light and self observation before selection reads any value. Player travel intent smooths the full two-axis velocity, so descent and climbing are observable travel rather than a stationary horizontal direction. Separate player and self danger are intentional: leaving a threatened player and walking into danger are different risks. Threats also derive a safety horizon, which selection uses to discount a behaviour that would keep the companion away too long.
+`Senses.Update` runs player, threats, projectiles, loot, light and self observation before selection reads any value. Player travel inference retains bounded two-axis displacement and local-work evidence. Net displacement relative to distance travelled distinguishes a journey from repeated local movement; sample support and recent work temper confidence. Both climbing and descent remain visible. Separate player and self danger are intentional: leaving a threatened player and walking into danger are different risks. Threats also derive a safety horizon, which selection uses to discount a behaviour that would keep the companion away too long.
+
+The intent history advances once per observed engine tick. Missing intervals, death and large position corrections clear its evidence rather than inventing a traversed path. Recent pick/axe contacts and active tile/wall placement are local-work evidence, not a command to remain still or proof that placement succeeded. A short reversal weakens an existing journey before sustained backtracking replaces it; a pause ages motion out. The confidence-weighted vector feeds following, position preference and return pressure, while raw velocity remains available for immediate physical questions. Prediction is bounded to the observation horizon and is not a known destination or a route the companion can perform. Tunables live in BehaviourWeights.
+
+A recent-velocity smoother can report confident travel after the player repeatedly crosses the same small area. The local-motion regression exercises that ambiguity through PlayerSense itself; pure sequence tests additionally cover work, reversal, pause, vertical travel, duplicate ticks and observation gaps. These do not establish recognition of every player intention or an alternate meeting route.
 
 Player tool hits are evidence, not animation guessed as intent. `ObservePlayerWork` records real axe and pick hits for work behaviours and tells shared movement whenever a relevant tile changes, invalidating cached movement facts. Doors report their own changes because the game’s door helper bypasses those tile hooks.
 
