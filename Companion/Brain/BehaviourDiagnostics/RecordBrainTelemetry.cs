@@ -42,7 +42,7 @@ public sealed class BrainTelemetry : ModSystem
     private static string? eventsPath;
     private static readonly Stopwatch sessionClock = new();
     private static DateTime sessionStartedUtc;
-    private const string Schema = "0.14.0";
+    private const string Schema = "0.15.0";
     private static string? pendingPlayerHit;
     private static string? pendingCompanionHit;
     private static string? lastDecision;
@@ -410,12 +410,14 @@ public sealed class BrainTelemetry : ModSystem
         string activityControls = controls + $";activity-id={activity.Id};activity-phase={activity.Phase};activity-reason={activity.Reason}";
         var guard = default(Behaviours.Companionship.GuardAction);
         var mine = default(Behaviours.Work.MineAction);
+        var chop = default(Behaviours.Work.ChopAction);
         var survival = brain.Safety.Escape;
         var hunt = default(Behaviours.Combat.HuntAction);
         foreach (var candidate in brain.Chooser.Actions)
         {
             if (candidate is Behaviours.Companionship.GuardAction guardAction) guard = guardAction;
             if (candidate is Behaviours.Work.MineAction mineAction) mine = mineAction;
+            if (candidate is Behaviours.Work.ChopAction chopAction) chop = chopAction;
             if (candidate is Behaviours.Combat.HuntAction huntAction) hunt = huntAction;
         }
         if (decision != lastDecision || Main.GameUpdateCount % 60 == 0)
@@ -475,6 +477,7 @@ public sealed class BrainTelemetry : ModSystem
             h.Append("\tcontrol_grant_fresh\tcontrol_grant_id\tcontrol_grant_tick\thand_grant\tcontrol_request_owner\tcontrol_motor_applications\tfinalise_ms");
             h.Append("\tsafety_response_id\tsafety_active\tsafety_kind\tsafety_reason\tsafety_last_end");
             h.Append("\tplayer_intent_y\tplayer_intent_confidence\tplayer_intent_samples\tplayer_local_work_fraction");
+            h.Append("\tmine_remaining_work_ticks\tmine_remaining_hits\tchop_remaining_work_ticks\tchop_remaining_hits");
             writer.WriteLine(h.ToString());
             headerWritten = true;
         }
@@ -705,6 +708,10 @@ public sealed class BrainTelemetry : ModSystem
             .Append('\t').Append(senses.Player.Activity.Confidence.ToString("0.000", CultureInfo.InvariantCulture))
             .Append('\t').Append(senses.Player.Activity.Samples)
             .Append('\t').Append(senses.Player.Activity.LocalWorkFraction.ToString("0.000", CultureInfo.InvariantCulture));
+        sb.Append('\t').Append((mine?.RemainingWork?.Ticks ?? -1f).ToString("0.000", CultureInfo.InvariantCulture))
+            .Append('\t').Append(mine?.RemainingWork?.Hits ?? -1)
+            .Append('\t').Append((chop?.RemainingWork?.Ticks ?? -1f).ToString("0.000", CultureInfo.InvariantCulture))
+            .Append('\t').Append(chop?.RemainingWork?.Hits ?? -1);
 
         // A write that fails (disk full, a stream the OS closed) must not escape the NPC's AI
         // and take the companion with it; the record stops and the game goes on.

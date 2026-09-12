@@ -40,13 +40,16 @@ public sealed class ChopAction : CompanionAction
     private int sinceReach = SearchEveryTicks;
     private readonly record struct Candidate(Vector2 Target, float Value, float TripTicks);
     private Candidate? prepared;
+    public WorldInteractions.RemainingToolWork? RemainingWork { get; private set; }
 
     public override void Prepare(in ActionContext ctx)
     {
         float value = DiscoverValue(ctx);
-        prepared = value > 0 && tree is { } found
+        RemainingWork = value > 0 && tree is { } workTarget
+            ? ctx.Companion.Chopper.EstimateRemaining(workTarget.Bottom, TileChopper.AxeFor(ctx.Player)) : null;
+        prepared = value > 0 && RemainingWork is { } remaining && tree is { } found
             ? new(found.Bottom.ToWorldCoordinates(), value,
-                Vector2.Distance(ctx.Npc.Bottom, found.StandPosition) / Companion.CompanionMotor.WalkSpeed + 120f)
+                Vector2.Distance(ctx.Npc.Bottom, found.StandPosition) / Companion.CompanionMotor.WalkSpeed + remaining.Ticks)
             : null;
     }
 

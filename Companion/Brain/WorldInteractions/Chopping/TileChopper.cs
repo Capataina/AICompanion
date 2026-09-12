@@ -32,6 +32,13 @@ public sealed class TileChopper
 
     public bool Ready => swingCooldown <= 0;
 
+    public RemainingToolWork? EstimateRemaining(Microsoft.Xna.Framework.Point tile, Item axe)
+    {
+        if (!TreeStands(tile) || WorldProtection.ProtectCompanionHomes.IsProtected(tile)) return null;
+        return RemainingToolWork.Estimate(TileToolState.Capture(tile, HitTile).Damage,
+            DamageAt(tile.X, tile.Y, axe.axe), swingCooldown, axe.useTime, "closed-axe-damage;own-hit-table");
+    }
+
     public void Tick()
     {
         if (swingCooldown > 0)
@@ -66,9 +73,7 @@ public sealed class TileChopper
             return;
 
         int id = HitTile.HitObject(x, y, 1);
-        int damage = (int)(axePower * (tile.TileType == TileID.Cactus ? 3 : 1) * 1.2f);
-        if (!WorldGen.CanKillTile(x, y))
-            damage = 0;
+        int damage = DamageAt(x, y, axePower);
 
         bool previousHitter = TileDamageWatcher.CompanionIsHitting;
         TileDamageWatcher.CompanionIsHitting = true;
@@ -91,4 +96,8 @@ public sealed class TileChopper
         if (damage != 0)
             HitTile.Prune();
     }
+
+    private static int DamageAt(int x, int y, int axePower)
+        => WorldGen.CanKillTile(x, y)
+            ? (int)(axePower * (Main.tile[x, y].TileType == TileID.Cactus ? 3 : 1) * 1.2f) : 0;
 }

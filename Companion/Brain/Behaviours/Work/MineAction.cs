@@ -55,13 +55,17 @@ public sealed class MineAction : CompanionAction
     public int RemainingTiles => patch.Count;
     public Point? TargetTile => target?.Tile ?? unproven;
     public Vector2? TargetStandPosition => target?.StandPosition;
+    public WorldInteractions.RemainingToolWork? RemainingWork { get; private set; }
 
     public override void Prepare(in ActionContext ctx)
     {
         preparedValue = DiscoverValue(ctx);
         preparedTarget = (target?.Tile ?? unproven)?.ToWorldCoordinates();
+        RemainingWork = target is { } workTarget
+            ? ctx.Companion.Miner.EstimateRemaining(workTarget.Tile, TileMiner.PickaxeFor(ctx.Player)) : null;
+        if (target != null && RemainingWork == null) preparedValue = 0;
         preparedTrip = target is { } found
-            ? Vector2.Distance(ctx.Npc.Bottom, found.StandPosition) / Companion.CompanionMotor.WalkSpeed + 180f
+            ? Vector2.Distance(ctx.Npc.Bottom, found.StandPosition) / Companion.CompanionMotor.WalkSpeed + (RemainingWork?.Ticks ?? 0f)
             : unproven is Point pending ? Vector2.Distance(ctx.Npc.Bottom, pending.ToWorldCoordinates()) / Companion.CompanionMotor.WalkSpeed + 180f : 0f;
     }
 

@@ -48,6 +48,17 @@ public sealed class TileMiner
 
     public bool Ready => swingCooldown <= 0;
 
+    public RemainingToolWork? EstimateRemaining(Point tile, Item pickaxe)
+    {
+        if (!WorldGen.InWorld(tile.X, tile.Y, 5) || !OreFinder.IsOre(tile.X, tile.Y)
+            || WorldProtection.ProtectCompanionHomes.IsProtected(tile) || !WorldGen.CanKillTile(tile.X, tile.Y)) return null;
+        int damage = damageOf(tile.X, tile.Y, pickaxe.pick, 0, Main.tile[tile.X, tile.Y]);
+        // PickTile applies this world modifier after GetPickaxeDamage, not inside it.
+        if (Main.getGoodWorld) damage *= 2;
+        return RemainingToolWork.Estimate(TileToolState.Capture(tile, HitTile).Damage,
+            damage, swingCooldown, pickaxe.useTime, "native-pick-damage;own-hit-table");
+    }
+
     public void Tick()
     {
         if (swingCooldown > 0)

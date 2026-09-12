@@ -9,6 +9,8 @@ Mining/
 
 ## Traps
 
+Remaining-work estimation uses the same private damage delegate as the native eligibility query, then includes the world modifier applied by PickTile after that formula. It reads the miner's existing hit table without allocating or damaging an entry. The estimate describes an ore completion while native gates and damage remain unchanged; modded transformations and later permission changes still require outcome revalidation. A removed, protected or undamageable ore has no completion estimate.
+
 An unresolved approach belongs to a particular accepted tile. A nearby enclosed ore must not borrow the unknown status of a farther exposed ore, and a tool-ineligible diagnostic search cannot supply a playable unresolved candidate. SearchResult preserves the target of that evidence; callers do not rediscover it with different filters.
 
 `TileMiner.Swing` reports whether a native call occurred. Its stamped `LastOutcome` separately reports partial damage, removal, material/frame change or no observed change. A native power or permission refusal can therefore accept the call while producing no work. Damage comes from this miner's HitTile table, not a shared tile-health value; removal does not prove which items were produced or collected.

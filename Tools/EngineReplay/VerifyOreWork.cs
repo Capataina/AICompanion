@@ -34,6 +34,8 @@ internal static class VerifyOreWork
             AProjectileInterruptsCoherentToolOwnership();
             RaisedLipsAtOrdinaryGravityProduceWork();
             NativeToolOutcomesDistinguishAttemptsFromProgress();
+            PreparedWorkForecastRespondsToNativeProgress();
+            RemainingToolWorkMatchesNativeCompletion();
             Console.WriteLine("ore work: policy, retained vein, tool gates, unproven approach and native productive break pass");
             return 0;
         }
@@ -47,6 +49,83 @@ internal static class VerifyOreWork
     {
         var (action, ctx) = SetUp(WorkPolicy.Disabled, TileID.Copper, new Point(25, 59));
         Require(VerifyPreparedActivities.PrepareAndScore(action, ctx) == 0f && action.RemainingTiles == 0 && action.Status == "disabled", "disabled mining must not retain ore work");
+    }
+
+    private static void PreparedWorkForecastRespondsToNativeProgress()
+    {
+        Point ore = new(25, 89);
+        var (mine, ctx) = SetUp(WorkPolicy.Opportunistic, TileID.Copper, ore);
+        VerifyPreparedActivities.PrepareAndScore(mine, ctx);
+        float untouched = mine.ForecastTicks();
+        Item pick = live::AICompanion.Companion.Brain.WorldInteractions.Mining.TileMiner.PickaxeFor(ctx.Player);
+        Require(ctx.Companion.Miner.Swing(ore, pick) && Main.tile[ore.X, ore.Y].HasTile,
+            "remaining-work fixture needs actual partial native damage");
+        for (int tick = 0; tick < pick.useTime; tick++) ctx.Companion.Miner.Tick();
+        Require(mine.ForecastTicks() == untouched, "comparison must retain its prepared estimate until refreshed");
+        VerifyPreparedActivities.PrepareAndScore(mine, ctx);
+        Require(mine.ForecastTicks() < untouched,
+            $"remaining work must shrink after native progress with the same pose and target: before={untouched}; after={mine.ForecastTicks()}");
+    }
+
+    private static void RemainingToolWorkMatchesNativeCompletion()
+    {
+        Require(live::AICompanion.Companion.Brain.WorldInteractions.RemainingToolWork.Estimate(100, 35, 0, 10, "fixture")
+            is { Hits: 1, Ticks: > 0 }, "an existing tile with a saturated buffer must still require an operation");
+        bool priorWorld = Main.getGoodWorld;
+        try
+        {
+            foreach (bool worldModifier in new[] { false, true })
+            {
+                Point ore = new(25, 89);
+                var (_, ctx) = SetUp(WorkPolicy.Opportunistic, TileID.Copper, ore);
+                Main.getGoodWorld = worldModifier;
+                var miner = ctx.Companion.Miner;
+                Item pick = live::AICompanion.Companion.Brain.WorldInteractions.Mining.TileMiner.PickaxeFor(ctx.Player);
+                var initial = miner.EstimateRemaining(ore, pick);
+                Require(initial is { Hits: > 0 } && miner.LastOutcome == null && miner.Ready,
+                    "estimating native work must not swing or change cooldown");
+                int actualHits = 0;
+                while (Main.tile[ore.X, ore.Y].HasTile && actualHits <= initial.Value.Hits)
+                {
+                    Require(miner.Swing(ore, pick), "predicted native mining strike must be admitted");
+                    actualHits++;
+                    var cooling = miner.EstimateRemaining(ore, pick);
+                    for (int tick = 0; tick < pick.useTime; tick++) miner.Tick();
+                    var ready = miner.EstimateRemaining(ore, pick);
+                    if (Main.tile[ore.X, ore.Y].HasTile)
+                    {
+                        Require(ready?.Hits == initial.Value.Hits - actualHits,
+                            "native progress must reduce the predicted number of remaining hits");
+                        Require(cooling?.Ticks - ready?.Ticks == pick.useTime,
+                            "remaining work must include current tool cooldown exactly once");
+                    }
+                }
+                Require(!Main.tile[ore.X, ore.Y].HasTile && actualHits == initial.Value.Hits,
+                    $"native completion must match modelled hit count with world modifier={worldModifier}");
+                Require(miner.EstimateRemaining(ore, pick) == null, "a removed tile has no pending tool completion");
+            }
+            Point hardOre = new(25, 89);
+            var (_, weak) = SetUp(WorkPolicy.Opportunistic, TileID.Chlorophyte, hardOre);
+            Require(weak.Companion.Miner.EstimateRemaining(hardOre,
+                live::AICompanion.Companion.Brain.WorldInteractions.Mining.TileMiner.PickaxeFor(weak.Player)) == null,
+                "an incapable pick must not claim a finite completion estimate");
+            var (_, tree) = SetUp(WorkPolicy.Opportunistic, TileID.Copper, hardOre);
+            Main.tile[hardOre.X, hardOre.Y].TileType = TileID.Trees;
+            Main.tileAxe[TileID.Trees] = true;
+            Main.tileSolid[TileID.Trees] = false;
+            var chopper = tree.Companion.Chopper;
+            Item axe = live::AICompanion.Companion.Brain.WorldInteractions.Chopping.TileChopper.AxeFor(tree.Player);
+            var before = chopper.EstimateRemaining(hardOre, axe);
+            Require(before is { Hits: > 1 } && chopper.LastOutcome == null,
+                "axe estimate must describe unfinished work without producing an effect");
+            Require(chopper.Swing(hardOre, axe) && chopper.LastOutcome is { Productive: true },
+                "axe estimate fixture must observe productive native damage");
+            for (int tick = 0; tick < axe.useTime; tick++) chopper.Tick();
+            var after = chopper.EstimateRemaining(hardOre, axe);
+            Require(after?.Hits == before.Value.Hits - 1 && after?.Ticks < before.Value.Ticks,
+                "a productive axe hit must reduce the next completion estimate");
+        }
+        finally { Main.getGoodWorld = priorWorld; }
     }
 
     private static void AReachableOreProducesANativeBreak()

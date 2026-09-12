@@ -9,6 +9,8 @@ Chopping/
 
 The axe owns a separate HitTile from `../Mining/TileMiner.cs`; one cracks renderer draws both tables. Each accepted swing snapshots that table and the trunk before and after native damage. A vanished trunk is rejected before mutation, and an accepted call with no observed damage or removal is not productive work.
 
+The next-trunk completion estimate and the actual hit share one axe-damage function, including cactus scaling and native kill permission. Estimation reads existing damage and cooldown without performing a swing. The duration excludes approaching the trunk and retrieving its drops, and cannot promise removal if permission or material changes later.
+
 Discovery accepts the work action's target-admission predicate. Radius and home protection classify the trunk bottom, while the standing spot remains a movement destination: choosing the other side of a trunk must not change whether the tree is allowed. Final swings recheck home protection before damaging any tile.
 
 TreeFinder supplies geometric standing candidates, not proof that the companion can reach them. The work action validates that approach with shared movement reachability before competing, reusing the verdict while its origin, goal and terrain revision agree and refreshing on its bounded cadence. Unknown or sealed approaches yield to other work. Arriving means matching both coordinates of the standing point, so sharing a trunk's horizontal coordinate on another floor cannot start chopping.

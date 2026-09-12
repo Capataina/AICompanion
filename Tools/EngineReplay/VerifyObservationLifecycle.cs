@@ -53,6 +53,10 @@ internal static class VerifyObservationLifecycle
     {
         var recorder = new BrainTelemetry(); Attach(recorder);
         var companion = VerifyCompanionLifecycle.Create();
+        // This is a new observation scenario. Native world callbacks reset and age
+        // tool contacts; otherwise a prior fixture's ore hit lasts forever here.
+        var workClock = new live::AICompanion.Companion.Brain.WorldObservation.TileDamageClock();
+        workClock.OnWorldLoad();
         Main.LocalPlayer.dead = false;
         Main.LocalPlayer.velocity = new Microsoft.Xna.Framework.Vector2(0, -1);
         for (int tick = 0; tick < 120; tick++)
@@ -60,6 +64,7 @@ internal static class VerifyObservationLifecycle
             Main.LocalPlayer.position += Main.LocalPlayer.velocity;
             VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
             companion.Brain.Senses.Player.Update(Main.LocalPlayer, companion.NPC);
+            workClock.PostUpdateEverything();
         }
         recorder.OnWorldLoad();
         string path = Directory.GetFiles(BrainTelemetry.Folder, "*.tsv").OrderByDescending(File.GetLastWriteTimeUtc).First();
@@ -76,7 +81,7 @@ internal static class VerifyObservationLifecycle
         float Number(string name) => float.Parse(values[Array.IndexOf(names, name)], System.Globalization.CultureInfo.InvariantCulture);
         Require(Number("player_intent_y") < -.8f && Number("player_intent_confidence") > .9f
             && Number("player_intent_samples") > 100,
-            "the actual recorder must preserve supported vertical intent, not empty placeholders");
+            $"the actual recorder must preserve supported vertical intent, not empty placeholders: y={Number("player_intent_y")}; confidence={Number("player_intent_confidence")}; samples={Number("player_intent_samples")}; local-work={Number("player_local_work_fraction")}; ore={companion.Brain.Senses.Player.MinedOre}; tree={companion.Brain.Senses.Player.ChoppedTree}");
         Require(lines.Any(l => l.StartsWith("# text_columns=")), "writer must declare its textual columns");
         string events = File.ReadAllText(Path.ChangeExtension(path, null) + "-events.jsonl");
         foreach (string family in new[] { "Gathering", "Combat", "NearbyAssistance" })
