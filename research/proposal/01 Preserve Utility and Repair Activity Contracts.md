@@ -1,6 +1,6 @@
-# Path 1 — preserve utility while repairing what its choices mean
+# Path 1 — organise utility into three purpose families and repair what their choices mean
 
-**Rank: first. Confidence: highest of the three as the next course of work; conditional about its eventual sufficiency.** The evidence currently points to multiple candidate, destination, progress and control contracts that can fail independently of the chooser family. Repairing those contracts gives the smallest informative path and produces reusable evidence if a hierarchy or planner later proves necessary.
+**Rank: first. Owner-selected direction, 12 September 2026; confidence remains conditional about eventual sufficiency.** Combine three purpose families with the candidate, destination, progress and control repairs identified by the research. Grouping is selected for clearer responsibility and extensibility; it is not a measured cure for the recorded failures. Keep the flat comparison as an experimental reference while introducing grouping separately from changed preferences and movement repairs.
 
 The intended endpoint is the README companion: autonomous local help, coherent tool work, useful protection, safe ordinary travel, adaptable capabilities and readable behaviour. Retaining utility is a starting hypothesis. Retaining every existing factor, candidate representation or navigation abstraction is not a condition of this path.
 
@@ -10,11 +10,44 @@ The strongest internal evidence is not a general demonstration that utility cann
 
 Utility research supports graded opportunity comparison, while BDI/options/BT research shows that continuation and resource ownership can be explicit underneath it. RimWorld and Starsector provide concrete examples of preference selection coexisting with target/job execution and separate outputs. They do not prove that this path will feel right in Terraria; they make its decomposition credible and testable.[^external]
 
-The main counterargument is that a flat set of opportunities can become too large and difficult to author. Repeated cross-purpose edits after the contracts are explicit would support Path 2. Demonstrated failures requiring an enabling step with delayed benefit would support Path 3. This path therefore creates measurements that can defeat its own recommendation.
+The main counterargument is that grouping can hide useful children or duplicate preferences without improving behaviour. A matched flat comparison can refute runtime grouping while preserving shared contracts. Repeated cross-purpose execution edits would support Path 2's stronger activity framework. Demonstrated failures requiring an enabling step with delayed benefit would support Path 3. This path therefore creates measurements that can defeat its own recommendation.
+
+## Three families use local utility before the parent selects an offer
+
+The [discussion record](<../Decision Architecture/Purpose Families and Shared Companionship.md>) supplies the reasoning, sources and rejected alternatives. Gathering contains mining and chopping. Combat and safety contains seek safety, player protection and worthwhile pursuit. Nearby assistance contains lighting, collection and keep-company/local exploration. Kiting becomes a method of seeking safety; pot breaking becomes incidental work rather than a destination-seeking sibling. Keep-company supplies movement when no optional work is worthwhile, while reunion cost influences every activity.
+
+Each family uses shared utility machinery on eligible concrete activities. Its initial offer is its highest-valued child, carrying the child's target, purpose, capability/terrain evidence, uncertainty and value explanation. The parent selects among those three offers, not independent broad scores such as enemy count. There is no fixed internal order or unconditional Gathering > Combat > Assistance ladder. Useful gathering should beat unnecessary pursuit in the relevant paired scenes; urgent effective protection or cheap useful lighting can overturn that preference.
+
+Shared risk assessment applies during every family. Seek safety becomes a main activity when warranted, with retreat, cover, high ground, jumping and surfacing as physical alternatives. Companionship compares time apart and practical reunion, not just distance. Avoid duplicate parent/child penalties or commitment. Preserve the existing weapon/target/trajectory algorithms; feasibility queries and coherent hand admission connect them to behaviour and movement. This scope decision does not certify universal arsenal correctness.
+
+## A chosen family must have a concrete activity to deliver
+
+An empty family submits no selectable offer. Unresolved candidates report unknown coverage rather than an inflated family score. A safe bounded investigation may itself be offered, with an explicit purpose and terminal conditions. A threat can remain important when no shot exists: seek safety and protection must consider non-attacking responses too.
+
+Bind parent selection to the offered child identity and evidence revision. Revalidate relevant dependencies before execution. A changed target, terrain or capability withdraws the stale offer and triggers bounded reconsideration; it does not force a worthless combat action or an unbounded retry loop. Keep-company, holding safely and urgent safety remain explicit outcomes when no optional work is worthwhile, under normal lifecycle rules. If none is feasible, expose that limitation rather than fabricate progress.
+
+| Recorded disagreement | First suspect and discriminating check |
+|---|---|
+| No child was eligible, but the parent chose combat. | Parent selection or aggregation violated admission; compare submitted offers with the selected ID in the same decision. |
+| A useful child existed but was never offered. | Family discovery, eligibility, scoring or query starvation; inspect rejected/deferred candidates before changing a parent weight. |
+| The offered child became invalid after its target died or the world changed. | Normal invalidation if handled promptly, otherwise stale dependencies; compare evidence revisions and change events. |
+| Nothing relevant changed, but execution refuses the exact offered child. | Evaluation/execution disagreement or scoring side effects; replay both stages with the same input. |
+| The child wants to act but its destination cannot enable the purpose. | Positioning or purpose validation; compare with a native-valid held destination. |
+| The destination is valid but movement fails or is repeatedly interrupted. | Physical proof or control ownership; compare actual entry, granted controls and terminal outcome. |
+
+This extends E01/E02/E04 to all families. An empty combat interval alone does not identify which utility level failed.
+
+## Introduce the combined design through separable comparisons
+
+Verify observer semantics and reproduce the original signature with E01/E02. Make candidate maintenance and activity-owned progress explicit before changing preferences. Then compare flat and three-family selection on identical offers, eligibility, factors and tie-breaking. Maximum-child aggregation should preserve the winner in that controlled comparison; a difference reveals hidden state or aggregation effects, not evidence that three labels are inherently smarter than eleven.
+
+Consolidate kite into seek safety and follow into keep-company/shared reunion considerations with E05/E06/E14. Test drowning during gathering, guarding past an obstructing enemy, an empty world with a moving player, quick work during travel and cumulative cheap detours. Preserve compatible shooting and incidental actions. Repair native destination and actual-entry movement contracts at whichever E02/E07–E11 branch fails; do not postpone those defects merely because grouping is easier to edit.
+
+If grouping preserves decisions but provides no useful organisation or scheduling benefit, compare the simpler runtime selector. If it introduces a rigid priority ladder, remove that policy. If common phase/abort logic remains duplicated, compare Path 2. If accurate current-value choices miss enabling consequences, compare Path 3. Extend through the full acceptance matrix without predicting percentage gains before measurement.
 
 ## Proposed responsibility changes
 
-Preserve the ordinary utility comparison and the single native movement boundary. Make a concrete opportunity carry target generation, intended outcome, remaining work, relevant player context and feasibility evidence. Keep discovery/observation separate from score evaluation so evaluating a candidate does not secretly advance its job or change which alternatives later evaluations see.
+Preserve utility comparison and the single native movement boundary while organising offers through the three families. Make a concrete opportunity carry target generation, intended outcome, remaining work, relevant player context and feasibility evidence. Keep discovery/observation separate from score evaluation so evaluating a candidate does not secretly advance its job or change which alternatives later evaluations see.
 
 Give continuing activity state one owner. Its lifecycle should distinguish selected, approaching, using a tool, temporarily pre-empted, completed, invalidated and abandoned, without requiring a new global behaviour framework. Local state can remain in existing actions where the contract is already clear. Record why continuation occurs and measure progress in the activity's own terms.
 
@@ -47,7 +80,7 @@ Then compare candidate scoring with the eligible set held fixed. If mining never
 | A candidate was generated but not refined. | Preserve its unknown result and schedule further computation; report starvation separately from rejection. |
 | A cached result survives a relevant capability/target change. | Fix dependency identity and invalidation; compare reuse cost against a fresh query. |
 | All evaluated positions are invalid but one remains the best score. | Require minimum purpose validity or an explicitly labelled investigation purpose; stop calling it a firing/work position. |
-| Valid candidates compete correctly in isolated tests but poorly in a long run. | Inspect activity identity, retained assumptions and coupled score factors before adding a new family layer. |
+| Valid candidates compete correctly in isolated tests but poorly in a long run. | Inspect activity identity, retained assumptions, family offer freshness and coupled factors before adding a stronger execution framework. |
 
 ## Continue by remaining work, with a real reason to abandon
 
@@ -103,6 +136,8 @@ The boss/event expectation is an authored product policy, not an inferred genera
 
 ## Observability added along this route
 
+Family selection records family and offered-child IDs, input/evidence revision, raw and final values, where shared factors were applied, eligibility and unexamined coverage, selected child identity and invalidation reason. Distinguish empty offers, unknown candidates and valid offers whose execution failed. The God’s-eye view must trace an empty-combat report from submitted child to selection, revalidation and actual result; the family label alone is insufficient.
+
 Use the existing recorder as the single evidence source. E01 adds capture provenance, clock identity, fresh chooser events and correct rejection coverage. Opportunity work adds target generation, admission state, native success predicate and productive progress. Coordination work adds requested/granted feet/tool/aim/light ownership and cancellation. Navigation work adds query stop causes, separate return status, actual entry and stable terminal outcomes. Player/autonomy work adds the observation that supports the inferred local context and the cost of the chosen excursion.
 
 The God’s-eye timeline should let a reviewer select an unproductive interval and walk from observed world facts to the rejected alternatives, winning purpose, chosen point, route/control handoff and native outcome. It must mark retrospective validations as counterfactual. A newer validator must not rewrite what the old actor actually knew.
@@ -111,7 +146,7 @@ The God’s-eye timeline should let a reviewer select an unproductive interval a
 
 Stop adding architectural layers when the held-out acceptance set satisfies the owner's behavioural obligations within documented physical and observation limits. Continue adding scenario coverage and native validation as new abilities appear; do not declare universal correctness.
 
-Promote **Path 2** when E04/E05 show that the main remaining cost is lifecycle/family coordination: repeated cross-activity edits, ambiguous abort propagation or duplicated phase/resource logic despite sound candidate facts. Promote **Path 3** when E13 isolates a valuable enabling sequence that a reactive/current-activity comparison misses under the same observations and physical oracle.
+Promote **Path 2** when E04/E05 show that the main remaining cost is execution lifecycle coordination: repeated cross-activity edits, ambiguous abort propagation or duplicated phase/resource logic despite sound candidate facts and three-family offers already in place. Promote **Path 3** when E13 isolates a valuable enabling sequence that a reactive/current-activity comparison misses under the same observations and physical oracle.
 
 Rollback a proposed factor, cache or state refinement when it reduces one visible symptom by hiding opportunities, increasing unplanned irreversible entries or making long-run behaviour less comprehensible. Keep the reproducer and the reason the attempt failed. After two genuine failed attempts at the same mechanism, revisit the first incorrect contract instead of tuning its downstream weight again.
 

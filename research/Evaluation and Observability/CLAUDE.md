@@ -16,3 +16,5 @@ Evaluation and Observability/
 A sampled activity name is not a fresh decision, a route status is not a physical outcome, a tool call is not productive work, and a retained failure is not a new failure on every row. Count events by identity and state changes by transition. Interpret each timestamp against its producer's clock. Experiments must fix these meanings before they compare architectures, because a wrong measuring rule can make a working mechanism look broken and a broken one look successful.
 
 Implementation changes described here remain proposals. No runtime recorder, report generator or fixture was changed or executed for this research.
+
+The purpose-family follow-up extends E04 with parent/child offer consistency and a separate shared-executor comparison, and E14 with explicit reunion and accumulated-detour cases. The question ledger preserves its earlier evidence dispositions with a supersession link to the current proposal direction; a changed architectural preference does not rewrite old recordings.

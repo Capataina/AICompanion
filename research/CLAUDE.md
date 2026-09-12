@@ -31,7 +31,9 @@ Claims belong to their derivation: historical progression in Historical Evidence
 
 ## The three roadmaps are alternatives that can earn promotion
 
-The highest-confidence starting route retains utility selection while separating candidate evaluation, chosen activity, control grants and productive outcomes. The second route introduces continuing activities and tests hierarchical grouping without accidentally changing the choice through group size. The third adds bounded planning only where delayed consequences defeat a well-instrumented reactive comparison. These are ranked next investments, not measured probabilities of final success.
+The owner-selected starting direction combines three purpose families with Path 1's separation of candidate evaluation, chosen activity, control grants and productive outcomes. Each family uses shared utility machinery to expose its best eligible concrete activity before the parent chooses. The [follow-up discussion](<Decision Architecture/Purpose Families and Shared Companionship.md>) owns the grouping, shared safety/companionship, alternatives and corrections. Path 2 now considers a stronger shared execution framework beyond Path 1's lightweight activity ownership. Path 3 adds bounded planning only where delayed consequences defeat an accurate immediate comparison. These are ranked next investments, not measured probabilities of final success.
+
+The original surveys, 140-question ledger and dated evidence reports preserve the research as assessed before this follow-up. Where they describe family grouping as belonging only to Path 2, use the current proposal synthesis and discussion record for the selected direction. Their historical observations and sources are not retroactively changed by this architectural preference.
 
 All routes share observer verification, physical feasibility, explicit uncertainty, changing capabilities and the same behavioural acceptance cases. Evidence can move the preferred route to another. No route promises that a short sequence of changes finishes a general companion, and no name such as utility, behaviour tree or A* is itself a diagnosis.
 

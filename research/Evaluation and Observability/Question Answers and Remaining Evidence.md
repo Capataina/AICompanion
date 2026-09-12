@@ -4,6 +4,8 @@
 
 The ledger answers all 140 questions once. “Unresolved” is still an answer: it says what cannot be inferred from desk research, old recordings, or source shape, and prevents an attractive proposal from receiving borrowed certainty. No listed experiment has been implemented or run.
 
+The later 12 September [purpose-family discussion](<../Decision Architecture/Purpose Families and Shared Companionship.md>) selects three families within Path 1 and narrows Path 2 to stronger shared execution. This ledger preserves the initial research dispositions; references below that locate grouping only in Path 2 are superseded for proposal direction by that discussion and the current [proposal synthesis](../proposal/CLAUDE.md). Source findings and historical measurements retain their original scope. E04 and E14 now include explicit offer-validity and shared-companionship comparisons.
+
 ## 1–8: establish the behavioural contract
 
 | Q | Disposition and answer | Evidence / next discriminator |

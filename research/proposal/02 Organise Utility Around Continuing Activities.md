@@ -1,8 +1,10 @@
-# Path 2 — organise utility around continuing activities with explicit execution
+# Path 2 — strengthen execution ownership beneath the three purpose families
 
-**Rank: second. Confidence: medium, conditional on coordination and authoring problems surviving the contract repairs.** This route retains utility for choosing worthwhile help, but changes its unit of organisation. Families of purpose expose concrete activities; an activity owns its target, progress, action phase and cancellation; small explicit executors carry out coherent movement/tool work through the shared native boundary.
+**Rank: second. Confidence: medium, conditional on execution coordination problems surviving Path 1.** The three purpose families and lightweight activity-owned progress now belong to the owner-selected Path 1 direction. This route adds a stronger common execution framework: reusable local actions with uniform initiation, running, interruption and termination semantics across activities. It is not the first introduction of hierarchy or activity identity.
 
 The attraction is not a tidier diagram. It is the possibility that a continuing activity becomes the one place where the system can explain what it is trying to achieve, what has actually advanced, which resources it needs and why it stopped. If the present actions can expose those facts clearly with smaller changes, Path 1 remains preferable.
+
+The [follow-up discussion](<../Decision Architecture/Purpose Families and Shared Companionship.md>) owns the changed ranking and family membership. In simple language, Path 1 makes each job's facts and promises consistent; Path 2 gives jobs a common way to perform and interrupt their smaller steps. The following lifecycle and hierarchy experiments remain relevant as controls, but the decision for this path is whether stronger shared execution earns its additional structure.
 
 ## Evidence that makes this a serious alternative
 
@@ -10,7 +12,7 @@ The project already has partial continuity: retained ore jobs, guard identity, m
 
 The external evidence gives several compatible forms rather than one prescription. BDI distinguishes selected intentions from beliefs and desires; options define initiation, internal policy and termination; behaviour trees and state machines make execution/abort policy visible. Halo's production hierarchy uses more than a rigid priority list. RimWorld jobs and Starsector firing sequences demonstrate useful retained state, while their compatibility problems show why independent schedulers still need one output owner.[^external]
 
-The strongest counterargument is that grouping adds another selector and another place to retain commitment. Parent and child preferences can combine into stubbornness, group-size effects or starvation of a useful leaf. E04 therefore tests grouping separately from the activity lifecycle. A lifecycle can be retained even if family-level selection is rejected.
+The strongest counterargument is that a common executor adds lifecycle structure without removing any defect the lighter Path 1 ownership could not handle. Parent, activity and local-action retention can also combine into stubbornness. E04's grouping checks remain a prerequisite inherited from Path 1; compare this path with family offers held constant to isolate the additional execution framework.
 
 ## Proposed structure and alternatives within it
 
@@ -21,7 +23,7 @@ World, player context and capability evidence
                 │
                 ▼
 Purpose families expose eligible activity offers
-  companionship     protection/combat     work/collection/light
+  Gathering     Combat and safety     Nearby assistance
                 │
         utility compares declared offers
                 │
@@ -38,7 +40,7 @@ One output arbiter and shared native movement/tool interfaces
                 └─ native outcomes return to their owning activity
 ```
 
-The initial family names are hypotheses, not an implementation mandate. Harvesting can share discovery/approach/use contracts while preserving ore, tree and pot differences. Hunt and guard share attack mechanics but must retain voluntary versus protective purpose. Light can support companionship while also creating an independent spatial destination. An activity can use shared physical options without being forced into the same high-level family.
+Use Path 1's three-family membership. Mining and chopping share discovery/approach/use contracts while preserving native differences. Pots remain incidental actions. Pursuit and protection retain different purposes while sharing attack-position mechanics; kiting is a seek-safety method. Light can accompany another purpose or create a useful destination. Family ownership never makes contact pickup, held light or compatible travel-time firing exclusive to one family.
 
 | Structural choice | First candidate | Alternative worth testing | Separator |
 |---|---|---|---|
@@ -57,12 +59,12 @@ Extract or expose activity lifecycle facts without changing selection. Replay th
 
 | Baseline finding | Next move | Expected observation | Failure branch |
 |---|---|---|---|
-| Existing actions already have consistent identity/progress/cancellation. | Keep them and compare family scheduling only. | No behavioural change from adding a common observation surface. | If the new surface changes outcomes, candidate evaluation contains side effects; separate them before comparing. |
+| Existing actions already have consistent identity/progress/cancellation. | Keep them unless shared execution removes a demonstrated duplication or maintenance cost. | Equivalent outcomes with fewer repeated phase/abort responsibilities. | If it only adds structure, stop at Path 1; if observation changes choices, isolate candidate side effects. |
 | Progress or failure attaches to the wrong activity. | Move that fact to the activity identity that produced it. | No inherited stall penalty or unrelated-shot progress. | If attribution remains ambiguous, refine event ownership rather than add longer holds. |
 | A local action restarts on every selection tick. | Give that coherent action an explicit running phase and stop condition. | It completes across harmless re-evaluations while urgent interruption remains possible. | If it becomes uninterruptible, the stop condition is wrong; do not blame utility. |
 | The fixed purpose still cannot execute. | Return to physical candidate/entry validation. | The same native-valid option is executable by both architectures. | Do not compare hierarchies using different movement models. |
 
-## Introduce one activity family before grouping the whole brain
+## Pilot the stronger executor within one existing family
 
 Work is the best first comparison because mining and chopping expose approach, active tool use, completion and incidental drops, while the user's examples clearly distinguish those phases. Treat pot breaking as a counterexample: it is expected to be incidental and should not automatically inherit mining's willingness to travel.
 
@@ -70,7 +72,7 @@ The first work activity should enter approach without claiming the tool hand, sw
 
 E03/E05 require that travel may shoot, active pick/axe use cannot weave with weapon cooldown, torch holding may yield and a genuine danger may cancel use. They also require an almost-complete job to be abandoned when its current cost becomes unacceptable. A hierarchy that passes only the “finish work” half is incomplete.
 
-If this family reduces ownership errors and explains the accepted cases, extend the lifecycle contract to combat/protection and companionship. If it only adds transitions around already-correct code, stop there and keep the smaller Path 1 form. If pot/tree/ore differences force unrelated rules into a common parent, share physical options while splitting their purpose policy.
+If the pilot reduces ownership errors and explains the accepted cases, extend the common executor to Combat and safety and Nearby assistance. If it only adds transitions around already-correct code, retain Path 1's lighter implementation. If different interactions force unrelated rules into a common executor, share only the applicable physical actions and preserve their purpose-specific logic.
 
 ## Compare family-level utility without hiding the best opportunity
 
@@ -105,9 +107,9 @@ E06/E10 decide whether the harm forecast and terminal state are adequate. Fewer 
 | Product surface | Activity-level expression | Discriminator and branch |
 |---|---|---|
 | Following and local autonomy | A companionship purpose observes player motion/local activity while work offers include time apart and return cost. | E14: if it stops at every ore during rapid travel, improve context/value; if it cannot execute a valid follow route, fix movement. |
-| Independent lighting | A light opportunity has a spatial benefit, available supply, permission and return assumptions; placement is a bounded action. | If the same family suppresses useful lighting while the player remains dark, expose the independent child or keep lighting at top-level competition. |
+| Independent lighting | A light opportunity has a spatial benefit, available supply, permission and return assumptions; placement is a bounded action. | If its family suppresses useful lighting, repair offer preparation/aggregation; compare the flat reference if the grouping itself remains the cause. |
 | Incidental pot/loot work | An opportunity can briefly replace or coexist with a compatible phase when its marginal cost is low. | E13: if local re-evaluation yields the expected trip, avoid a task queue; if future prerequisites matter, compare Path 3. |
-| Hunt, guard and kite | Distinct purposes share attack-position and evasion options; aim/fire retains its immediate target decision. | If grouping makes voluntary hunting as urgent as player protection, separate purpose values; if the spot is useless, repair E07. |
+| Pursuit, protection and seek safety | Purposes share attack-position and evasion options; kiting is a safety method and aim/fire retains its immediate target decision. | If grouping makes voluntary hunting as urgent as player protection, separate purpose values; if the spot is useless, repair E07. |
 | Boss/event context | Encounter facts alter the relevant purpose offers and movement envelope without rewriting each weapon. | If event recognition fails for an unfamiliar mod, improve supported observation/fallback; do not add one boss-name branch per case. |
 | New movement abilities | A capability revision enables local options and changes route/return preconditions. | E15: if an old phase assumes a consumed jump remains, repair resource transitions; if choosing among methods needs future value, E13. |
 | Courtesy | A position preference recognises real placement/passage interference while the activity retains its purpose. | If it abandons a good combat pose unnecessarily, reduce the courtesy trade-off or improve interference prediction. |
@@ -124,7 +126,7 @@ A hierarchy may help retain a stable goal while search continues, which could im
 
 ## Recorder and God’s-eye changes specific to this path
 
-In addition to E01's shared evidence, record family offers and suppressed children, raw child value, parent adjustment, where continuation was applied, the active phase/option, its initiation and termination predicates, and abort propagation. Every outcome should retain activity, target, option, route and attempt identities.
+In addition to Path 1's family-offer and E01 evidence, record the shared executor's active phase/local option, its initiation and termination predicates, and abort propagation. Continue recording where continuation was applied so parent, activity and option retention cannot silently multiply. Every outcome should retain activity, target, option, route and attempt identities.
 
 The inspector should show one selected activity with its actual resource grants and the family/child alternatives considered at that decision. A suspended work activity should remain visible as suspended, not falsely displayed as controlling the NPC. A graph of states is useful only if its highlighted node comes from the executed trace; drawing the intended phase is not evidence.
 
@@ -132,7 +134,7 @@ Control overhead is part of acceptance. Compare update count, allocations, phase
 
 ## Conditions for selecting, stopping or abandoning this route
 
-Promote this path above Path 1 when the same clear lifecycle contract repeatedly removes cross-purpose bugs and family organisation improves authoring or computation without changing semantic invariants accidentally. The deciding evidence is matched improvement across multiple purposes, not one tidy mining implementation.
+Promote this path above Path 1 when a common executor repeatedly removes cross-purpose phase, resource and cancellation defects that lightweight activity ownership cannot economically prevent. Hold the three-family offers and movement model constant to isolate that benefit. The deciding evidence is matched improvement across multiple purposes, not one tidy mining implementation.
 
 Keep the lifecycle but flatten family selection when grouping hides candidates, introduces double commitment or yields no benefit. Replace an overcomplicated BT with simple local phases if abort semantics are harder to explain than the action itself. Replace a sprawling local FSM with an execution tree only when actual repeated structure and tests justify it.
 
@@ -142,7 +144,7 @@ Finish at E16 with the full README responsibility matrix, held-out terrain/capab
 
 ## Appendix: why this is second rather than a weaker version of first
 
-This route makes a larger structural bet: that continuing activities and their shared local options are the right organising unit for the whole brain. It can make capability growth and coherent interruption easier to author even where flat scoring remains mathematically adequate. Its cost is another abstraction whose semantics must be verified. Path 1 presently has stronger direct evidence because several known defects are local to contracts; Path 2 earns first place if the contract repairs repeatedly expose a common lifecycle boundary that the existing organisation cannot maintain cleanly.
+This route makes a larger structural bet on reusable execution machinery beneath the already-grouped utility decisions. It can make capability growth and coherent interruption easier to author, but its cost is another abstraction whose semantics must be verified. Path 1 includes lightweight activity identity, phases and grants already; Path 2 earns its place only when centralising reusable execution removes recurring defects or authoring costs beyond those repairs.
 
 [^internal]: [Decision/control implementation evidence](<../Implementation Evidence/Decisions, Activities and Shared Controls.md>), [recorded episodes](<../Evaluation and Observability/Recorded Episodes and Measurement Limits.md>) and [commit/conversation history](<../Historical Evidence/Pivotal Decisions and Conversation Evidence.md>).
 [^external]: [Decision, Commitment and Computation](<../Decision Architecture/Decision, Commitment and Computation.md>) includes primary BDI/options/BT/Halo sources; [RimWorld](<../Game and Mod Case Studies/RimWorld Work Scheduling.md>) and [Starsector](<../Game and Mod Case Studies/Starsector Ship and Weapon AI.md>) provide pinned implementation cases and their limitations.

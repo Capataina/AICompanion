@@ -1,14 +1,14 @@
 # Three conditional routes from recorded behaviour to the intended companion
 
-**Recommendation, 12 September 2026: start with Path 1, preserve utility selection while making opportunity validity, activity progress and control ownership explicit.** Path 2 is the strongest alternative if cross-purpose coordination remains difficult after those contracts are sound. Path 3 becomes preferable when matched scenarios demonstrate consequential choices that local opportunity evaluation consistently misses. All three retain the closed authored ability kit, NPC body, native integration boundaries and player-relative product role unless an experiment identifies a specific defect there.
+**Owner-selected direction, 12 September 2026: Path 1 combines three purpose families with explicit opportunity validity, activity progress and control ownership.** Each family uses shared utility machinery to offer its best eligible concrete activity before the top level chooses. Path 2 is the strongest extension if a common execution framework is needed beyond Path 1's lightweight ownership. Path 3 becomes preferable when matched scenarios demonstrate consequential choices that immediate activity evaluation misses. All three retain the closed authored kit, NPC body, native integration boundaries and independent arsenal algorithms for this restructuring.
 
-This folder contains exactly the requested four files. The proposals are research recommendations, not accepted architecture or implementation authorisation. They describe conditional routes towards the full Expected Behaviour; no finite desk study can establish that any route will achieve it perfectly in all future Terraria/mod combinations.
+This folder contains exactly the requested four files. The three-family direction is accepted for proposal development; gameplay implementation is not authorised by the documentation task. The [discussion record](<../Decision Architecture/Purpose Families and Shared Companionship.md>) distinguishes accepted requirements, proposed mechanics, corrections and alternatives. These are conditional routes towards the full Expected Behaviour, with no guarantee of perfect results in future Terraria/mod combinations.
 
 ```text
 proposal/
 ├─ CLAUDE.md                                               aggregated results, ranking and reading order
 ├─ 01 Preserve Utility and Repair Activity Contracts.md    highest confidence next course
-├─ 02 Organise Utility Around Continuing Activities.md     hierarchy and explicit activity execution
+├─ 02 Organise Utility Around Continuing Activities.md     stronger shared execution beneath existing families
 └─ 03 Add Bounded Planning for Consequential Choices.md     short consequence-aware plans under utility goals
 ```
 
@@ -16,16 +16,16 @@ proposal/
 
 The comparison axes come from the owner's accepted examples and concern about repeated churn: expressive fit, truthful feasibility, coherent simultaneous actions, runtime cost, compatibility, diagnosis, reversibility and capability growth. Their derivation is in [Behaviour, Opportunities and Comparison Criteria](<../Decision Architecture/Behaviour, Opportunities and Comparison Criteria.md>). The ranking is an engineering judgement from current evidence, not a numerical prediction of eventual success.
 
-| Axis | Path 1: explicit contracts within utility | Path 2: grouped continuing activities | Path 3: bounded consequential planning |
+| Axis | Path 1: three families and explicit contracts | Path 2: stronger shared activity execution | Path 3: bounded consequential planning |
 |---|---|---|---|
-| Desired contextual choices | Directly represents concrete opportunities and remaining work. | Adds family-level policy and visible activity phases. | Adds comparison of future effects and alternative methods. |
+| Desired contextual choices | Three families compare concrete opportunities and remaining work with shared companionship and safety. | Adds reusable execution and uniform interruption semantics beneath those same offers. | Adds comparison of future effects and alternative methods. |
 | Immediate recorded defects | Reaches candidate omissions, misleading progress, invalid destinations and handoffs directly. | Reaches lifecycle/ownership failures, after the same evidence repairs. | Inherits evidence repairs; planning alone does not fix the recorded failures. |
 | Concurrency | Explicit grants preserve travel/aiming and coherent tools. | Activity phases make grants/abort boundaries visible. | Plans must declare shared resources and still use the same grants. |
 | Physical reliability | Refines current directed graph, local proof and native execution as evidence requires. | Uses the same physical oracle beneath activity execution. | Uses the same oracle for plan preconditions/effects; uncertainty becomes more consequential. |
 | Capability growth | Shared capability authority changes eligibility/cost/proofs. | New child activities or local options can isolate ability-specific execution. | Alternative ability methods can be selected by their consequences. |
-| New complexity | Smallest initial change, but candidate/state cleanup can expose deeper coupling. | Additional parent/child arbitration and abort semantics. | Largest modelling, search, invalidation and debugging burden. |
+| New complexity | Family offer preparation plus targeted candidate/state repair, with a flat comparison reference. | A shared executor and reusable local-action lifecycle beyond the lightweight Path 1 contracts. | Largest modelling, search, invalidation and debugging burden. |
 | Evidence supporting adoption now | Multiple source defects and recorded handoff/destination mismatches; no selector-family impossibility demonstrated. | Production/research support for explicit execution state and separate outputs; no matched project win yet. | Planning research supports real enabling choices; project benefit remains unmeasured. |
-| Main reason it could lose | Flat competition cannot remain legible or affordable as meaningful activities grow. | Hierarchy hides good children, duplicates commitment or merely renames current coupling. | Short plans rely on inaccurate futures or add cost to decisions reactive selection already gets right. |
+| Main reason it could lose | Families hide opportunities or duplicate preferences, or lightweight execution ownership remains insufficient. | A common executor adds complexity without removing defects beyond the grouped Path 1 baseline. | Short plans rely on inaccurate futures or add cost to decisions reactive selection already gets right. |
 
 Path 1 has the highest confidence **as the next investigative course**, not as a guarantee that the current selector and graph should survive unchanged forever. Path 2 has medium conditional confidence where lifecycle complexity proves dominant. Path 3 has medium conditional confidence for consequential subproblems and lower confidence as a whole-brain replacement. There is insufficient evidence to express these judgements as percentages.
 
@@ -44,16 +44,16 @@ flowchart TD
     A[Reproduce and instrument the observed failure] --> B{First broken contract}
     B -->|Observation or attribution| O[Correct the observer and recapture]
     O --> A
-    B -->|Candidate, purpose, destination or control| P1[Path 1: repair shared contracts]
+    B -->|Candidate, purpose, destination or control| P1[Path 1: three families and repaired shared contracts]
     B -->|Physical transition or search| N[Compare representation, search and native execution]
     N --> P1
     P1 --> C{Remaining behaviour gap}
     C -->|No material gap in held-out acceptance| V[Validate and stop adding architecture]
-    C -->|Lifecycle and family coordination| P2[Path 2: continuing activities and grouped policy]
+    C -->|Repeated execution lifecycle defects| P2[Path 2: stronger shared activity execution]
     C -->|Missed enabling consequences| P3[Path 3: bounded plans under selected goals]
     P2 --> D{Measured improvement}
     D -->|Yes| V
-    D -->|No, grouping distorts choices| P1
+    D -->|No additional execution benefit| P1
     D -->|Only future consequences remain| P3
     P3 --> E{Predictions and outcomes agree}
     E -->|Yes within scope| V

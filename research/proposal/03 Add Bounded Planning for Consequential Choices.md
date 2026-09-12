@@ -4,6 +4,10 @@
 
 This is not the proposal to script mine → collect → guard → resume. The owner's examples explicitly reject unconditional sequences. A plan is a contingent hypothesis about useful future actions, revised or abandoned when its assumptions or value change. It may choose not to collect newly mined ore, not to finish an old intention, or not to make a return trip that current abilities cannot support.
 
+The starting structure is Path 1's Gathering, Combat and safety, and Nearby assistance families, each offering a concrete locally evaluated activity before parent selection. Path 2's stronger execution framework is optional. This route adds short method/sequence comparison only where it earns a benefit; it does not add a fourth family, restore an isolated top-level follow competitor, or change the arsenal's weapon and immediate-target algorithms. Shared companionship, risk assessment, coherent hand use and offer validity remain authoritative. [Discussion and selected structure](<../Decision Architecture/Purpose Families and Shared Companionship.md>).
+
+In plain language: the three families still ask what useful help is available, but a consequential opportunity can compare a few ways of doing it before making its offer. The expected benefit and uncertainty of that bounded plan must be visible to the parent; winning a family does not licence an expensive or invalid sequence concealed from the comparison. A changed next step revalidates both the plan and its current value.
+
 ## Why planning remains in the top three
 
 Some desired behaviours depend on consequences beyond the next attractive action: preserving a jump for the way back, choosing a short detour that enables several useful opportunities, or deciding between movement methods with different resource/risk effects. A purely local value model may need increasingly indirect features to represent these. A bounded planner can expose those dependencies directly.[^decision]
