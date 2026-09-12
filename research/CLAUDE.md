@@ -5,6 +5,7 @@ This is the owner's requested home for architectural research, alternatives, tra
 ```
 research/
 ├─ CLAUDE.md                            scope, reading order and evidence conventions
+├─ Questions for the Next Architecture Investigation.md  proposed questions and clarified behaviour
 ├─ Architecture and Behaviour Map.md    responsibilities, boundaries and the first assessment of each layer
 ├─ History of Decisions and Failures.md how the FSM became the current system and what the attempts established
 ├─ Utility AI and Its Alternatives.md   comparison of decision families against this companion's requirements
