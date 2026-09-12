@@ -6,7 +6,7 @@ using Terraria;
 using Terraria.ID;
 using Terraria.ModLoader;
 using System.Reflection;
-using MineAction = live::AICompanion.Companion.Brain.Behaviours.Work.MineAction;
+using MineOre = live::AICompanion.Companion.Brain.PurposeFamilies.Gathering.MineOre;
 using WorkPolicies = live::AICompanion.Companion.Brain.Behaviours.Work.WorkPolicies;
 using WorkPolicy = live::AICompanion.Companion.Brain.Behaviours.Work.WorkPolicy;
 using ActionContext = live::AICompanion.Companion.Brain.Behaviours.ActionContext;
@@ -204,7 +204,7 @@ internal static class VerifyOreWork
     private static void AProjectileInterruptsCoherentToolOwnership()
     {
         var (_, ctx) = SetUp(WorkPolicy.Opportunistic, TileID.Copper, new Point(25, 59));
-        var mine = ctx.Companion.Brain.Chooser.Actions.OfType<MineAction>().Single();
+        var mine = ctx.Companion.Brain.Chooser.Actions.OfType<MineOre>().Single();
         ctx.Companion.Brain.Chooser.Actions.Clear();
         ctx.Companion.Brain.Chooser.Actions.Add(mine);
         VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
@@ -306,7 +306,7 @@ internal static class VerifyOreWork
             ctx.Player.position = new Vector2(30 * 16, floor * 16 - ctx.Player.height);
         }
         live::AICompanion.Companion.Brain.SharedMovementSystem.TerrainChanges.Reset();
-        var mine = ctx.Companion.Brain.Chooser.Actions.OfType<MineAction>().Single();
+        var mine = ctx.Companion.Brain.Chooser.Actions.OfType<MineOre>().Single();
         if (mode == BaselineMode.HeldActivity)
         {
             ctx.Companion.Brain.Chooser.Actions.Clear();
@@ -480,14 +480,14 @@ internal static class VerifyOreWork
         trunk.TileType = TileID.Trees;
         Main.tileAxe[TileID.Trees] = true;
         live::AICompanion.Companion.Brain.SharedMovementSystem.TerrainChanges.Reset();
-        var chop = new live::AICompanion.Companion.Brain.Behaviours.Work.ChopAction();
+        var chop = new live::AICompanion.Companion.Brain.PurposeFamilies.Gathering.ChopTree();
         var tree = new live::AICompanion.Companion.Brain.WorldInteractions.Chopping.TreeFinder.ChoppableTree(
             new Point(40, 59), new Vector2(38 * 16 + 8, 60 * 16), 1);
-        typeof(live::AICompanion.Companion.Brain.Behaviours.Work.ChopAction)
+        typeof(live::AICompanion.Companion.Brain.PurposeFamilies.Gathering.ChopTree)
             .GetField("tree", BindingFlags.NonPublic | BindingFlags.Instance)!.SetValue(chop, tree);
         Require(VerifyPreparedActivities.PrepareAndScore(chop, ctx) == 0f && VerifyPreparedActivities.PrepareAndScore(mine, ctx) > 0f,
             "a retained tree across a sealed wall must yield to reachable ore beside the companion");
-        var sinceReachField = typeof(live::AICompanion.Companion.Brain.Behaviours.Work.ChopAction)
+        var sinceReachField = typeof(live::AICompanion.Companion.Brain.PurposeFamilies.Gathering.ChopTree)
             .GetField("sinceReach", BindingFlags.NonPublic | BindingFlags.Instance)!;
         int preparedAge = (int)sinceReachField.GetValue(chop)!;
         for (int comparison = 0; comparison < 20; comparison++)
@@ -495,7 +495,7 @@ internal static class VerifyOreWork
         Require((int)sinceReachField.GetValue(chop)! == preparedAge,
             "chopping comparison must not advance its discovery timer or repeat its reach search");
         for (int tick = 0; tick < 20; tick++) VerifyPreparedActivities.PrepareAndScore(chop, ctx);
-        Require((int)typeof(live::AICompanion.Companion.Brain.Behaviours.Work.ChopAction)
+        Require((int)typeof(live::AICompanion.Companion.Brain.PurposeFamilies.Gathering.ChopTree)
             .GetField("sinceReach", BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(chop)! == 20,
             "unchanged retained work must reuse its reach verdict rather than search every scoring tick");
     }
@@ -528,7 +528,7 @@ internal static class VerifyOreWork
             }
             WorkPolicies.Chopping = WorkPolicy.Opportunistic;
             PlayerHits(first);
-            var chop = new live::AICompanion.Companion.Brain.Behaviours.Work.ChopAction();
+            var chop = new live::AICompanion.Companion.Brain.PurposeFamilies.Gathering.ChopTree();
             Require(VerifyPreparedActivities.PrepareAndScore(chop, ctx) > 0 && chop.ActivityTarget == second.ToWorldCoordinates(),
                 "automatic chopping must prefer a separate usable tree over the nearer player trunk");
             PlayerHits(second);
@@ -536,10 +536,10 @@ internal static class VerifyOreWork
                 "a new player trunk must refresh cooperation before the ordinary discovery deadline");
             Tile removed = Main.tile[first.X, first.Y];
             removed.HasTile = false;
-            Require(VerifyPreparedActivities.PrepareAndScore(new live::AICompanion.Companion.Brain.Behaviours.Work.ChopAction(), ctx) > 0,
+            Require(VerifyPreparedActivities.PrepareAndScore(new live::AICompanion.Companion.Brain.PurposeFamilies.Gathering.ChopTree(), ctx) > 0,
                 "automatic cooperation is a preference and must permit the sole remaining player tree");
             WorkPolicies.Chopping = WorkPolicy.Mimic;
-            Require(VerifyPreparedActivities.PrepareAndScore(new live::AICompanion.Companion.Brain.Behaviours.Work.ChopAction(), ctx) == 0,
+            Require(VerifyPreparedActivities.PrepareAndScore(new live::AICompanion.Companion.Brain.PurposeFamilies.Gathering.ChopTree(), ctx) == 0,
                 "Mimic must retain its explicit exclusion of the active player trunk");
         }
         finally { WorkPolicies.Chopping = original; clock.OnWorldUnload(); }
@@ -564,7 +564,7 @@ internal static class VerifyOreWork
                     Main.tileAxe[TileID.Trees] = true;
                     Main.tileSolid[TileID.Trees] = false;
                     TileID.Sets.IsATreeTrunk[TileID.Trees] = true;
-                    action = new live::AICompanion.Companion.Brain.Behaviours.Work.ChopAction();
+                    action = new live::AICompanion.Companion.Brain.PurposeFamilies.Gathering.ChopTree();
                 }
                 if (inPosition) ctx.Npc.Bottom = new Vector2(23 * 16 + 8, 90 * 16);
                 else ctx.Npc.Bottom = new Vector2(15 * 16 + 8, 90 * 16);
@@ -597,7 +597,7 @@ internal static class VerifyOreWork
                 TileID.Sets.IsATreeTrunk[TileID.Trees] = true;
                 WorkPolicies.Chopping = WorkPolicy.Opportunistic;
                 ctx.Npc.Bottom = new Vector2((mirrored ? 30 : 20) * 16 + 8, 90 * 16);
-                var chop = new live::AICompanion.Companion.Brain.Behaviours.Work.ChopAction();
+                var chop = new live::AICompanion.Companion.Brain.PurposeFamilies.Gathering.ChopTree();
                 Require(VerifyPreparedActivities.PrepareAndScore(chop, ctx) > 0,
                     "a tree inside actual reach must prepare useful work");
                 var request = chop.Execute(ctx);
@@ -691,7 +691,7 @@ internal static class VerifyOreWork
                     Main.tileAxe[TileID.Trees] = true;
                     Main.tileSolid[TileID.Trees] = false;
                     TileID.Sets.IsATreeTrunk[TileID.Trees] = true;
-                    action = new live::AICompanion.Companion.Brain.Behaviours.Work.ChopAction();
+                    action = new live::AICompanion.Companion.Brain.PurposeFamilies.Gathering.ChopTree();
                 }
                 Require(VerifyPreparedActivities.PrepareAndScore(action, ctx) > 0,
                     "replacement fixture needs a real prepared tool target");
@@ -730,7 +730,7 @@ internal static class VerifyOreWork
         finally { Main.tileAxe[TileID.WoodBlock] = original; }
     }
 
-    internal static (MineAction Action, ActionContext Context) SetUp(WorkPolicy policy, ushort tileType, params Point[] ore)
+    internal static (MineOre Action, ActionContext Context) SetUp(WorkPolicy policy, ushort tileType, params Point[] ore)
         => SetUp(policy, tileType, ore, null);
 
     /// <summary>
@@ -801,10 +801,10 @@ internal static class VerifyOreWork
         finally { AStar.MsBudget = budget; }
     }
 
-    private static (MineAction Action, ActionContext Context) SetUp(WorkPolicy policy, ushort tileType, Point ore, Point? playerHit)
+    private static (MineOre Action, ActionContext Context) SetUp(WorkPolicy policy, ushort tileType, Point ore, Point? playerHit)
         => SetUp(policy, tileType, new[] { ore }, playerHit);
 
-    private static (MineAction Action, ActionContext Context) SetUp(WorkPolicy policy, ushort tileType, Point[] ore, Point? playerHit)
+    private static (MineOre Action, ActionContext Context) SetUp(WorkPolicy policy, ushort tileType, Point[] ore, Point? playerHit)
     {
         Main.maxTilesX = Main.maxTilesY = 100;
         Main.tile = (Tilemap)Activator.CreateInstance(typeof(Tilemap), BindingFlags.Instance
@@ -858,7 +858,7 @@ internal static class VerifyOreWork
                 .KillTile(hit.X, hit.Y, tileType, ref fail, ref effectOnly, ref noItem);
         }
         companion.Brain.Senses.Update(companion.NPC, player, companion.Breath);
-        return (new MineAction(), new ActionContext(companion, companion.Brain.Senses));
+        return (new MineOre(), new ActionContext(companion, companion.Brain.Senses));
     }
 
     private static void ProbeOreLineTarget(Vector2 feet, Point ore)

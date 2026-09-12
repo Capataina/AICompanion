@@ -3,20 +3,22 @@
 using Microsoft.Xna.Framework;
 using Terraria;
 using Terraria.ID;
+using AICompanion.Companion.Brain.Behaviours;
+using AICompanion.Companion.Brain.Behaviours.Work;
 using AICompanion.Companion.Brain.BehaviourSelection;
 using AICompanion.Companion.Brain.PositionSelection;
 using AICompanion.Companion.Brain.SharedMovementSystem;
 using AICompanion.Companion.Brain.WorldInteractions.Chopping;
 using AICompanion.Companion.Brain.WorldInteractions;
 
-namespace AICompanion.Companion.Brain.Behaviours.Work;
+namespace AICompanion.Companion.Brain.PurposeFamilies.Gathering;
 
 /// <summary>
 /// Retains one tree job. Mimic mode keeps the player-hit trigger and excludes that tree;
 /// opportunistic mode uses the existing nearby-tree finder without inventing a second
 /// chopping mechanism.
 /// </summary>
-public sealed class ChopAction : CompanionAction
+public sealed class ChopTree : CompanionAction
 {
     public override string Name => "chop";
     public override PurposeFamily Family => PurposeFamily.Gathering;

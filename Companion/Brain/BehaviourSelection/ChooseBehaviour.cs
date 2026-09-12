@@ -4,6 +4,7 @@ using System;
 using System.Collections.Generic;
 using AICompanion.Companion.Brain.Behaviours;
 using AICompanion.Companion.Brain.PurposeFamilies.Combat;
+using AICompanion.Companion.Brain.PurposeFamilies.Gathering;
 using AICompanion.Companion.Brain.Behaviours.Work;
 using AICompanion.Companion.Brain.PurposeFamilies.NearbyAssistance;
 
@@ -24,8 +25,8 @@ public sealed class Chooser
         new ProtectPlayer(),
         new PursueAttackOpportunity(),
         new CollectNearbyItems(),
-        new ChopAction(),
-        new MineAction(),
+        new ChopTree(),
+        new MineOre(),
         new PlaceNearbyTorches(),
         new KeepCompany(),
     };

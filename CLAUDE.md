@@ -42,9 +42,10 @@ AICompanion/
 │  │  ├─ BehaviourSelection/    utility scoring and considerations
 │  │  ├─ ActivityCoordination/  final movement application, hand grants and distant recovery
 │  │  ├─ Behaviours/            shared activity contract and work adapters
-│  │  │  └─ Work/               help with trees and ore
+│  │  │  └─ Work/               nearby interaction methods and work-policy readers
 │  │  ├─ PurposeFamilies/      consolidated ordinary activities
 │  │  │  ├─ Combat/            guarding and hunting
+│  │  │  ├─ Gathering/         mining and chopping
 │  │  │  └─ NearbyAssistance/  keeping company and collecting drops or pot contents
 │  │  ├─ PositionSelection/     position requests and candidate scoring
 │  │  ├─ CombatReflexes/        immediate threat assessment

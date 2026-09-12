@@ -155,7 +155,7 @@ internal static class RenderNativeInterface
         typeof(NPC).GetProperty("ModNPC")!.SetValue(npc, companion);
         typeof(live::AICompanion.Companion.CharacterBody.CompanionBody).GetField("rendererFailed", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(companion.Body, true);
         Main.npc[0] = npc;
-        var mine = new live::AICompanion.Companion.Brain.Behaviours.Work.MineAction();
+        var mine = new live::AICompanion.Companion.Brain.PurposeFamilies.Gathering.MineOre();
         var target = new Point(20, 33);
         Tile oreTile = Main.tile[20, 33]; oreTile.HasTile = true; oreTile.TileType = Terraria.ID.TileID.Copper;
         var ore = new live::AICompanion.Companion.Brain.WorldInteractions.Mining.OreFinder.OreTarget(target, Terraria.ID.TileID.Copper, new Vector2(320, 320));

@@ -8,6 +8,7 @@ using Terraria.ID;
 using Terraria.Map;
 using Terraria.UI;
 using AICompanion.Companion.CharacterBody;
+using AICompanion.Companion.Brain.PurposeFamilies.Gathering;
 using AICompanion.Companion.Brain.Behaviours.Work;
 using AICompanion.Companion.PlayerIntegration;
 
@@ -44,7 +45,7 @@ public sealed class DrawCompanionStatus : UIElement
             _ => "no activity currently selected"
         };
         string activity = brain.ActivityStatus;
-        if (action is MineAction mine && mine.TargetTile is Point tile && WorldGen.InWorld(tile.X, tile.Y))
+        if (action is MineOre mine && mine.TargetTile is Point tile && WorldGen.InWorld(tile.X, tile.Y))
         {
             string ore = Lang.GetMapObjectName(MapHelper.TileToLookup(Main.tile[tile.X, tile.Y].TileType, 0));
             activity = "Mining · " + (string.IsNullOrWhiteSpace(ore) ? "ore vein" : ore + " vein");

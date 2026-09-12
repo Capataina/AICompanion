@@ -483,7 +483,7 @@ internal static class VerifyCompanionActivities
         Vector2 stand = new(ore.X * 16 + 8 - (Player.tileRangeX * 16 + 8) + 1, 60 * 16);
         ctx.Npc.Bottom = stand - new Vector2(19, 0);
         Require(!FindToolAccess.InReach(ctx.Npc.Bottom, ore) && FindToolAccess.InReach(stand, ore), "fixture must straddle the actual mining reach boundary");
-        typeof(live::AICompanion.Companion.Brain.Behaviours.Work.MineAction).GetField("target", BindingFlags.Instance | BindingFlags.NonPublic)!
+        typeof(live::AICompanion.Companion.Brain.PurposeFamilies.Gathering.MineOre).GetField("target", BindingFlags.Instance | BindingFlags.NonPublic)!
             .SetValue(mine, new OreFinder.OreTarget(ore, TileID.Copper, stand));
         Require(mine.Execute(ctx).Kind == RequestKind.Exact, "a non-swingable approximate arrival must keep approaching instead of holding");
     }

@@ -2,6 +2,8 @@
 
 using FindToolAccess = AICompanion.Companion.Brain.WorldInteractions.FindToolAccess;
 using System.Collections.Generic;
+using AICompanion.Companion.Brain.Behaviours;
+using AICompanion.Companion.Brain.Behaviours.Work;
 using Microsoft.Xna.Framework;
 using Terraria;
 using Terraria.ID;
@@ -11,7 +13,7 @@ using AICompanion.Companion.Brain.SharedMovementSystem;
 using AICompanion.Companion.Brain.WorldObservation;
 using AICompanion.Companion.Brain.WorldInteractions.Mining;
 
-namespace AICompanion.Companion.Brain.Behaviours.Work;
+namespace AICompanion.Companion.Brain.PurposeFamilies.Gathering;
 
 /// <summary>
 /// Retains one ore-only job. Opportunistic mode can start from a vein near either body;
@@ -19,7 +21,7 @@ namespace AICompanion.Companion.Brain.Behaviours.Work;
 /// reachable tile of the selected vein, including the player's vein, and never excavate
 /// terrain merely to make an approach.
 /// </summary>
-public sealed class MineAction : CompanionAction
+public sealed class MineOre : CompanionAction
 {
     public override string Name => "mine";
     public override PurposeFamily Family => PurposeFamily.Gathering;

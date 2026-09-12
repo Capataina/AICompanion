@@ -2,7 +2,7 @@ using System.Collections.Generic;
 using Microsoft.Xna.Framework;
 using Terraria;
 
-namespace AICompanion.Companion.Brain.Behaviours.Work;
+namespace AICompanion.Companion.Brain.PurposeFamilies.Gathering;
 
 /// <summary>The bounded discovered vein when its job ends. World disappearance and
 /// attributed native removals are separate; neither establishes item yield or pickup.</summary>

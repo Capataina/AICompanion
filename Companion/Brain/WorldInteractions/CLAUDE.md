@@ -1,6 +1,6 @@
 # World interactions — game abilities chosen elsewhere
 
-This folder performs reliable closed-set abilities using Terraria’s own mechanics where possible. It never selects a behaviour, chooses a place, plans movement or writes the NPC body; `Behaviours/Work` decides when it is useful and the brain gives it a chosen position.
+This folder performs reliable closed-set abilities using Terraria’s own mechanics where possible. It never selects a behaviour, chooses a place, plans movement or writes the NPC body. Gathering activities in `../PurposeFamilies/Gathering/` and nearby interaction methods decide when to request these abilities; the brain supplies the position and hand permission.
 
 ```
 WorldInteractions/
