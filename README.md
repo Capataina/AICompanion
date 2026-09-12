@@ -399,6 +399,8 @@ Shared safety can also create space before an immediate collision. If its own da
 
 The system already has approach checks, retained jobs and movement-progress checks. What is incomplete is a consistent account of whether the selected job is achieving its purpose. Finding a route, reaching a requested point, being able to interact from there, and actually producing a result are different facts. An ore can be nearby while outside tool reach; a reached hunting position can still lack a shot; movement can occur without helping the selected job. A recorded mining label or requested tool swing does not prove that a block took damage.
 
+The health notch shows the family icon on the left and the activity icon on the right. Both read one state published after coordination. During safety or recovery, the paused activity stays visible but dimmed; downing or no selected activity shows neutral marks. Hovering names each icon. The symbols identify purposes rather than the current weapon, ore type or movement method. Clicking either icon or health opens the profile card, dragging moves the whole display, and right-clicking docks it again.
+
 The detailed sections below explain those boundaries. Current Behaviour above records actual episodes; source-level risks do not establish the cause of every episode. The proposals repair the connections between these stages while keeping their outcomes distinguishable.
 
 ## The shape of one tick

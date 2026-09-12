@@ -117,6 +117,14 @@ internal static class VerifyCompanionLifecycle
         long priorGrant = companion.Brain.ControlGrants.Last?.Id ?? 0;
         companion.AI();
         var grant = companion.Brain.ControlGrants.Last;
+        var presentation = companion.Brain.Presentation;
+        Require(presentation.Tick == Main.GameUpdateCount && presentation.ActivityId == companion.Brain.Chooser.Activity.Id
+            && presentation.Family == companion.Brain.Chooser.Current?.Family
+            && presentation.Activity == companion.Brain.Chooser.Current?.Name
+            && presentation.Phase == companion.Brain.Chooser.Activity.Phase
+            && presentation.Downed == companion.IsDowned && presentation.Recovering == companion.Brain.FollowRecovery.Active
+            && presentation.SafetyActive == companion.Brain.Safety.Active,
+            "presentation must publish one completed activity/control state, including early returns");
         Require(companion.Motor.ControlApplications == before + 1,
             $"one AI invocation must apply exactly one movement packet; applied={companion.Motor.ControlApplications - before}");
         Require(grant is { } result && result.Id == priorGrant + 1 && result.Tick == Main.GameUpdateCount

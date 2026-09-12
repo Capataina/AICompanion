@@ -131,6 +131,7 @@ internal static class RenderNativeInterface
                 batch.End(); graphics.SetRenderTarget(null);
                 using (var stream = File.Create(Path.Combine(output, $"Inspector-{suffix}.png")))
                     target.SaveAsPng(stream, size.X, size.Y);
+                VerifyCompanionHud.Render(graphics, batch, size, scale, output, suffix);
             }
             return 0;
         }
@@ -159,6 +160,9 @@ internal static class RenderNativeInterface
         Tile oreTile = Main.tile[20, 33]; oreTile.HasTile = true; oreTile.TileType = Terraria.ID.TileID.Copper;
         var ore = new live::AICompanion.Companion.Brain.WorldInteractions.Mining.OreFinder.OreTarget(target, Terraria.ID.TileID.Copper, new Vector2(320, 320));
         mine.GetType().GetField("target", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(mine, ore);
+        // This is a retained-state rendering fixture, not a discovery run. The public
+        // activity target comes from preparation, separately from the native ore target.
+        mine.GetType().GetField("preparedTarget", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(mine, target.ToWorldCoordinates());
         companion.Brain.Chooser.Activity.Select(mine,
             new live::AICompanion.Companion.Brain.Behaviours.ActionContext(companion, companion.Brain.Senses));
         foreach (var entry in new[] { (Terraria.ID.ItemID.CopperOre, "Copper Ore"), (Terraria.ID.ItemID.Wood, "Wood"), (Terraria.ID.ItemID.Gel, "Gel") })

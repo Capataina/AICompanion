@@ -6,11 +6,8 @@ using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Terraria;
 using Terraria.GameContent;
-using Terraria.ID;
 using Terraria.ModLoader;
 using Terraria.UI;
-using AICompanion.Companion.Brain.WorldInteractions.Chopping;
-using AICompanion.Companion.Brain.WorldInteractions.Mining;
 using AICompanion.Companion.CharacterBody;
 using AICompanion.Companion.PlayerIntegration;
 using AICompanion.Companion.ProfileCard;
@@ -32,9 +29,12 @@ namespace AICompanion.Companion.HeadsUpDisplay;
 public class CompanionHealthBar : ModSystem
 {
     private const int BaseWidth = 232;
-    private const int BaseHeight = 30;
+    private const int BaseHeight = 34;
     private const int BaseRadius = 12;
     private const int BaseFillet = 10;
+    private const int IconSide = 22;
+    private const int IconGap = 8;
+    private const int IconPadding = 8;
 
     private static readonly Color Body = new(18, 18, 21);
     private static readonly Color Border = new(112, 112, 122);
@@ -55,9 +55,26 @@ public class CompanionHealthBar : ModSystem
 
     public static Rectangle Bounds(CompanionPlayer save)
     {
+        Rectangle box = HealthBounds(save);
+        box.Inflate((int)((IconSide + IconGap + IconPadding) * Main.UIScale), 0);
+        return box;
+    }
+
+    public static Rectangle HealthBounds(CompanionPlayer save)
+    {
         int width = (int)(BaseWidth * Main.UIScale), height = (int)(BaseHeight * Main.UIScale);
         Vector2 pos = save.HealthBarPosition ?? new Vector2((Main.screenWidth - width) / 2f, 0f);
+        float margin = (IconSide + IconGap + IconPadding) * Main.UIScale;
+        pos.X = MathHelper.Clamp(pos.X, margin, Math.Max(margin, Main.screenWidth - width - margin));
+        pos.Y = MathHelper.Clamp(pos.Y, 0, Math.Max(0, Main.screenHeight - height));
         return new Rectangle((int)pos.X, (int)pos.Y, width, height);
+    }
+
+    public static Rectangle IconBounds(Rectangle health, bool family, float scale)
+    {
+        int side = (int)(IconSide * scale), gap = (int)(IconGap * scale);
+        return new Rectangle(family ? health.X - gap - side : health.Right + gap,
+            health.Center.Y - side / 2, side, side);
     }
 
     /// <summary>Consume the opening press before item use, including a cursor entering this tick.</summary>
@@ -104,11 +121,11 @@ public class CompanionHealthBar : ModSystem
         float scale = Main.UIScale;
         int width = (int)(BaseWidth * scale), height = (int)(BaseHeight * scale);
         Vector2 defaultPos = new((Main.screenWidth - width) / 2f, 0f);
-        Vector2 pos = save.HealthBarPosition ?? defaultPos;
-        Rectangle box = Bounds(save);
+        Rectangle box = HealthBounds(save);
+        Vector2 pos = box.Location.ToVector2();
 
         Vector2 mouse = new(Main.mouseX, Main.mouseY);
-        bool hovering = box.Contains(mouse.ToPoint());
+        bool hovering = Bounds(save).Contains(mouse.ToPoint());
         if (hovering || pressed)
             Main.LocalPlayer.mouseInterface = true;
 
@@ -123,7 +140,8 @@ public class CompanionHealthBar : ModSystem
                 if (dragging)
                 {
                     pos = mouse - dragOffset;
-                    pos.X = MathHelper.Clamp(pos.X, 0f, Main.screenWidth - width);
+                    float margin = (IconSide + IconGap + IconPadding) * scale;
+                    pos.X = MathHelper.Clamp(pos.X, margin, Math.Max(margin, Main.screenWidth - width - margin));
                     pos.Y = MathHelper.Clamp(pos.Y, 0f, Main.screenHeight - height);
                     save.HealthBarPosition = pos;
                     box.Location = pos.ToPoint();
@@ -154,70 +172,27 @@ public class CompanionHealthBar : ModSystem
 
         bool docked = save.HealthBarPosition == null;
         DrawNotch(box, docked, npc, companion, scale);
-        DrawModeIcon(box, npc, companion, scale, hovering);
+        DrawActivityIcons(box, companion, scale);
         return true;
     }
 
-    /// <summary>
-    /// What the companion is doing, as one of the game's own item sprites to the left of the
-    /// notch, so the mode is readable without the debug overlay: the tool for a job, the
-    /// weapon for a fight, a shield for guarding, boots for kiting, a coin for looting, a
-    /// compass for following, a sunflower for wandering, a torch when it is holding one up,
-    /// a tombstone when it is down. Hover names the action.
-    /// </summary>
-    private static void DrawModeIcon(Rectangle box, NPC npc, CompanionNPC companion, float scale, bool hoveringNotch)
+    private static void DrawActivityIcons(Rectangle box, CompanionNPC companion, float scale)
     {
-        if (companion.Brain.MovementStalled && !companion.IsDowned && !companion.Brain.FollowRecovery.Active)
+        var state = companion.Brain.Presentation;
+        DrawIcon(IconBounds(box, true, scale), DescribeCompanionHud.Family(state), scale);
+        DrawIcon(IconBounds(box, false, scale), DescribeCompanionHud.Activity(state), scale);
+        if (state.MovementStalled && !state.Suspended)
         {
-            int warningSide = (int)(24 * scale);
-            Rectangle warning = new(box.X - (int)(8 * scale) - warningSide, box.Center.Y - warningSide / 2, warningSide, warningSide);
-            Utils.DrawBorderStringFourWay(Main.spriteBatch, FontAssets.MouseText.Value, "!", warning.Center.X, warning.Y,
-                Color.Gold, Color.Black, new Vector2(FontAssets.MouseText.Value.MeasureString("!").X / 2f, 0f), 1.25f * scale);
             Utils.DrawBorderStringFourWay(Main.spriteBatch, FontAssets.MouseText.Value, "Stuck", box.Center.X, box.Bottom + 3 * scale,
                 Color.Gold, Color.Black, new Vector2(FontAssets.MouseText.Value.MeasureString("Stuck").X / 2f, 0f), .65f * scale);
-            if (warning.Contains(Main.mouseX, Main.mouseY) && !hoveringNotch)
-                Main.instance.MouseText("Unable to make progress. Looking for another route.");
-            return;
         }
-        (int itemType, string name) = ModeOf(npc, companion);
-        if (itemType <= 0)
-            return;
-        Main.instance.LoadItem(itemType);
-        Texture2D tex = TextureAssets.Item[itemType].Value;
-        Rectangle frame = Main.itemAnimations[itemType]?.GetFrame(tex) ?? tex.Bounds;
-        int side = (int)(22 * scale);
-        float fit = Math.Min(side / (float)frame.Width, side / (float)frame.Height);
-        int gap = (int)(8 * scale);
-        Rectangle slot = new(box.X - gap - side, box.Y + (box.Height - side) / 2, side, side);
-        Vector2 centre = slot.Center.ToVector2();
-        Main.spriteBatch.Draw(tex, centre, frame, Color.White, 0f, frame.Size() / 2f, fit, SpriteEffects.None, 0f);
-
-        if (slot.Contains(Main.mouseX, Main.mouseY) && !hoveringNotch)
-            Main.instance.MouseText(name);
     }
 
-    private static (int, string) ModeOf(NPC npc, CompanionNPC companion)
+    private static void DrawIcon(Rectangle slot, HudIcon icon, float scale)
     {
-        if (companion.IsDowned)
-            return (ItemID.Tombstone, "downed");
-        if (companion.Brain.Reflexes.Active is string reflex)
-            return (ItemID.Feather, reflex);
-        if (companion.Brain.FollowRecovery.Active)
-            return (ItemID.Feather, "catching up");
-        string action = companion.Brain.LastAction?.Name ?? "";
-        Player player = Main.LocalPlayer;
-        return action switch
-        {
-            "survive" => (ItemID.BreathingReed, "saving itself"),
-            "guard" => (ItemID.CobaltShield, "guarding you"),
-            "hunt" => (companion.Arsenal.LastChosen?.ItemType ?? companion.Arsenal.Primary.ItemType, "hunting"),
-            "collect" => (ItemID.GoldCoin, "collecting"),
-            "chop" => (TileChopper.AxeFor(player).type, "chopping"),
-            "mine" => (TileMiner.PickaxeFor(player).type, "mining"),
-            "place-torches" => (ItemID.Torch, "placing torches"),
-            "keep-company" => (ItemID.Compass, "keeping company"),
-            _ => (0, action),
-        };
+        DrawPurposeSymbol.Draw(Main.spriteBatch, slot, icon.Symbol,
+            icon.Symbol == HudSymbol.None ? Downed : icon.Subdued ? Color.White * .4f : Color.White);
+        if (slot.Contains(Main.mouseX, Main.mouseY)) Main.instance.MouseText(icon.Name);
     }
 
     private static void DrawNotch(Rectangle box, bool docked, NPC npc, CompanionNPC companion, float scale)
@@ -226,6 +201,8 @@ public class CompanionHealthBar : ModSystem
         int radius = Math.Max(4, (int)(BaseRadius * scale));
         int fillet = Math.Max(4, (int)(BaseFillet * scale));
         int border = Math.Max(1, (int)MathF.Round(scale));
+        Rectangle health = box;
+        box.Inflate((int)((IconSide + IconGap + IconPadding) * scale), 0);
 
         if (docked)
         {
@@ -252,7 +229,8 @@ public class CompanionHealthBar : ModSystem
             sb.Draw(RoundedMask(inner.Width, inner.Height, Math.Max(2, radius - border), corners: 0b1111), inner, Body);
         }
 
-        // The pill: a track and a fill, both fully rounded, inset from the body.
+        box = health;
+        // The pill occupies the centre; the two icon wings share the enclosing body.
         int pad = (int)(8 * scale);
         int pillH = Math.Max(4, (int)(8 * scale));
         Rectangle track = new(box.X + pad, box.Bottom - pad - pillH, box.Width - 2 * pad, pillH);
@@ -299,7 +277,7 @@ public class CompanionHealthBar : ModSystem
                 data[y * w + x] = Color.White * a;
             }
         }
-        var tex = new Texture2D(Main.instance.GraphicsDevice, w, h);
+        var tex = new Texture2D(Main.spriteBatch.GraphicsDevice, w, h);
         tex.SetData(data);
         masks[key] = tex;
         return tex;
@@ -328,7 +306,7 @@ public class CompanionHealthBar : ModSystem
                 data[y * s + x] = Color.White * a;
             }
         }
-        var tex = new Texture2D(Main.instance.GraphicsDevice, s, s);
+        var tex = new Texture2D(Main.spriteBatch.GraphicsDevice, s, s);
         tex.SetData(data);
         masks[key] = tex;
         return tex;

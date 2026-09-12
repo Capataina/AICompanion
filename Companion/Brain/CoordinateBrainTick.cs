@@ -28,6 +28,7 @@ public sealed class Brain
     public readonly GrantActivityControls ControlGrants = new();
     public readonly SharedSafety.ChooseSafetyResponse Safety = new();
     public readonly RecoverDistantCompanion FollowRecovery = new();
+    public ActivitySnapshot Presentation { get; private set; }
 
     // The navigator names nothing of the game, so the failed-plan dump reaches the telemetry
     // through this seam; the replay tool leaves it unset.
@@ -133,6 +134,9 @@ public sealed class Brain
             WatchProgress(companion);
             Chooser.Activity.ObserveOutcome(ctx);
         }
+        Presentation = new ActivitySnapshot(Terraria.Main.GameUpdateCount, Chooser.Activity.Id,
+            Chooser.Current?.Family, Chooser.Current?.Name, Chooser.Activity.Phase,
+            companion.IsDowned, FollowRecovery.Active, Safety.Active, MovementStalled);
         FinaliseMs = System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds;
     }
 
