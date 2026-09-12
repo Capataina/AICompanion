@@ -7,6 +7,7 @@ using AICompanion.Companion.Brain.BehaviourSelection;
 using AICompanion.Companion.Brain.PositionSelection;
 using AICompanion.Companion.Brain.SharedMovementSystem;
 using AICompanion.Companion.Brain.WorldInteractions.Chopping;
+using AICompanion.Companion.Brain.WorldInteractions;
 
 namespace AICompanion.Companion.Brain.Behaviours.Work;
 
@@ -35,7 +36,7 @@ public sealed class ChopAction : CompanionAction
     private Point? lastSearchedFor;
     private int sincePlayerHit;
     private int sinceSearch = SearchEveryTicks;
-    private (Point from, Point goal, int revision)? reachKey;
+    private (Point from, Point goal, int revision, int reachX, int reachY)? reachKey;
     private Reachability.Reach approachReach;
     private int sinceReach = SearchEveryTicks;
     private readonly record struct Candidate(Vector2 Target, float Value, float TripTicks);
@@ -66,9 +67,9 @@ public sealed class ChopAction : CompanionAction
             || WorldInteractions.WorldProtection.ProtectCompanionHomes.IsProtected(retained.Bottom)))
         { tree = null; ReleaseActivity(); sinceSearch = SearchEveryTicks; }
         var context = ctx;
-        bool Accept(TreeFinder.ChoppableTree t) => AllowsTarget(context, t.Bottom.ToWorldCoordinates(), t.Bottom)
-            && !WorldInteractions.WorldProtection.ProtectCompanionHomes.IsProtected(t.Bottom)
-            && (!deferred.TryGetValue(t.Bottom, out ulong until) || Main.GameUpdateCount >= until);
+        bool Accept(Point bottom) => AllowsTarget(context, bottom.ToWorldCoordinates(), bottom)
+            && !WorldInteractions.WorldProtection.ProtectCompanionHomes.IsProtected(bottom)
+            && (!deferred.TryGetValue(bottom, out ulong until) || Main.GameUpdateCount >= until);
 
         if (WorkPolicies.Chopping == WorkPolicy.Disabled)
         {
@@ -87,7 +88,7 @@ public sealed class ChopAction : CompanionAction
                 bool newTree = lastSearchedFor != p.ChoppedTree;
                 if (tree == null && (newTree || sinceSearch >= SearchEveryTicks))
                 {
-                    tree = TreeFinder.FindNearest(ctx.Npc.Center, SearchRadiusTiles, p.ChoppedTree, Accept);
+                    tree = TreeFinder.FindNearest(ctx.Npc.Center, ctx.Npc.Bottom, SearchRadiusTiles, p.ChoppedTree, Accept);
                     lastSearchedFor = p.ChoppedTree;
                     sinceSearch = 0;
                 }
@@ -122,8 +123,8 @@ public sealed class ChopAction : CompanionAction
             {
                 TreeFinder.ChoppableTree? Find(Point? exclude)
                     => Nearest(context.Npc.Center,
-                        TreeFinder.FindNearest(context.Npc.Center, SearchRadiusTiles, exclude, Accept),
-                        TreeFinder.FindNearest(context.Player.Center, SearchRadiusTiles, exclude, Accept));
+                        TreeFinder.FindNearest(context.Npc.Center, context.Npc.Bottom, SearchRadiusTiles, exclude, Accept),
+                        TreeFinder.FindNearest(context.Player.Center, context.Npc.Bottom, SearchRadiusTiles, exclude, Accept));
                 tree = Find(p.ChoppedTree);
                 if (tree == null && p.ChoppedTree != null) tree = Find(null);
                 sinceSearch = 0;
@@ -131,13 +132,21 @@ public sealed class ChopAction : CompanionAction
         }
 
         if (tree == null) { ReleaseActivity(); return 0f; }
-        // A clear standing tile beside a trunk is only a geometric candidate. A sealed or
-        // unfinished approach must yield to other jobs rather than winning forever.
+        // Retained work must still have a useful position after the body, terrain or
+        // effective reach changes. Actual current access needs no representative node.
         var key = (MovementQueries.FeetTile(ctx.Npc.Bottom),
-            MovementQueries.FeetTile(tree.Value.StandPosition), TerrainChanges.Revision);
-        if (reachKey != key || sinceReach >= SearchEveryTicks)
+            tree.Value.Bottom, TerrainChanges.Revision, Player.tileRangeX, Player.tileRangeY);
+        if (FindToolAccess.InReach(ctx.Npc.Bottom, tree.Value.Bottom))
         {
-            approachReach = MovementQueries.WalkerReach(key.Item1, key.Item2);
+            tree = tree.Value with { StandPosition = ctx.Npc.Bottom };
+            approachReach = Reachability.Reach.Yes;
+            reachKey = null;
+        }
+        else if (reachKey != key || sinceReach >= SearchEveryTicks)
+        {
+            approachReach = FindToolAccess.Approach(tree.Value.Bottom, ctx.Npc.Bottom, out Vector2 stand);
+            if (approachReach == Reachability.Reach.Yes)
+                tree = tree.Value with { StandPosition = stand };
             reachKey = key;
             sinceReach = 0;
         }
@@ -174,7 +183,7 @@ public sealed class ChopAction : CompanionAction
         if (prepared == null || tree is not TreeFinder.ChoppableTree t)
             return PositionRequest.Hold;
 
-        if (Vector2.Distance(ctx.Npc.Bottom, t.StandPosition) <= 20f)
+        if (FindToolAccess.InReach(ctx.Npc.Bottom, t.Bottom))
         {
             ctx.Companion.HoldItem(axe.type);
             swinging = true;

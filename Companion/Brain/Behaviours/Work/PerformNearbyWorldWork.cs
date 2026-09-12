@@ -1,11 +1,11 @@
 #nullable enable
+using FindToolAccess = AICompanion.Companion.Brain.WorldInteractions.FindToolAccess;
 using System;
 using Microsoft.Xna.Framework;
 using Terraria;
 using Terraria.ID;
 using AICompanion.Companion.Brain.PositionSelection;
 using AICompanion.Companion.Brain.SharedMovementSystem;
-using AICompanion.Companion.Brain.WorldInteractions.Mining;
 using AICompanion.Companion.Brain.WorldInteractions.Torch;
 using AICompanion.Companion.Brain.WorldInteractions.WorldProtection;
 
@@ -83,10 +83,10 @@ public abstract class PerformNearbyWorldWork : CompanionAction
                     if (!AllowsTarget(ctx, p.ToWorldCoordinates(), p) || !Candidate(ctx, p)) continue;
                     Vector2 candidateStand;
                     bool jump = false;
-                    if (OreFinder.InReach(ctx.Npc.Bottom, p)) candidateStand = ctx.Npc.Bottom;
-                    else if (AllowJump && ProveInteractionJump.CanReach(NavGrid.World, ctx.Companion.Motor.State, body => OreFinder.InReach(body.Feet, p)))
+                    if (FindToolAccess.InReach(ctx.Npc.Bottom, p)) candidateStand = ctx.Npc.Bottom;
+                    else if (AllowJump && ProveInteractionJump.CanReach(NavGrid.World, ctx.Companion.Motor.State, body => FindToolAccess.InReach(body.Feet, p)))
                     { candidateStand = ctx.Npc.Bottom; jump = true; }
-                    else if (OreFinder.Approach(p, ctx.Npc.Bottom, out candidateStand) != Reachability.Reach.Yes) continue;
+                    else if (FindToolAccess.Approach(p, ctx.Npc.Bottom, out candidateStand) != Reachability.Reach.Yes) continue;
                     target = p; best = distance; stand = candidateStand; needsJump = jump; jumped = false;
                     approachOrigin = ctx.Npc.Bottom; approachTicks = 0;
                 }
@@ -105,7 +105,7 @@ public abstract class PerformNearbyWorldWork : CompanionAction
         if (!RefreshEligibility(ctx)) return PositionRequest.Hold;
         if (target is not Point tile) return PositionRequest.Hold;
         if (!Candidate(ctx, tile)) { target = null; return PositionRequest.Hold; }
-        if (!OreFinder.InReach(ctx.Npc.Bottom, tile))
+        if (!FindToolAccess.InReach(ctx.Npc.Bottom, tile))
         {
             if (!needsJump)
             {
@@ -133,7 +133,7 @@ public abstract class PerformNearbyWorldWork : CompanionAction
             {
                 // Validate against the live pose again: another behaviour may have moved us
                 // after candidate discovery. The shared movement controller owns the impulse.
-                if (!ProveInteractionJump.CanReach(NavGrid.World, ctx.Companion.Motor.State, body => OreFinder.InReach(body.Feet, tile)))
+                if (!ProveInteractionJump.CanReach(NavGrid.World, ctx.Companion.Motor.State, body => FindToolAccess.InReach(body.Feet, tile)))
                 { target = null; return PositionRequest.Hold; }
                 jumped = true; jumpStarted = Main.GameUpdateCount;
                 return PositionRequest.Hold with { JumpScale = 1f };

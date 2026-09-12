@@ -1,5 +1,6 @@
 #nullable enable
 
+using FindToolAccess = AICompanion.Companion.Brain.WorldInteractions.FindToolAccess;
 using System.Collections.Generic;
 using Microsoft.Xna.Framework;
 using Terraria;
@@ -115,9 +116,9 @@ public sealed class MineAction : CompanionAction
                 // exists for must not be the move that cancels it. The hop's own re-proof against
                 // the live pose in Execute is what ends it when the take-off is genuinely lost.
                 if (jumpTile == held.Tile) { /* retained: the jump owns this target until it lands */ }
-                else if (OreFinder.InReach(ctx.Npc.Bottom, held.Tile))
+                else if (FindToolAccess.InReach(ctx.Npc.Bottom, held.Tile))
                     target = held with { StandPosition = ctx.Npc.Bottom };
-                else if (OreFinder.Approach(held.Tile, ctx.Npc.Bottom, out Vector2 restand) == Reachability.Reach.Yes)
+                else if (FindToolAccess.Approach(held.Tile, ctx.Npc.Bottom, out Vector2 restand) == Reachability.Reach.Yes)
                     target = held with { StandPosition = restand };
                 else
                     target = null; // the walk-at-unproven-ore path below re-finds it
@@ -277,13 +278,13 @@ public sealed class MineAction : CompanionAction
         if (target is not OreFinder.OreTarget t)
             return PositionRequest.Hold;
 
-        if (!OreFinder.InReach(ctx.Npc.Bottom, t.Tile))
+        if (!FindToolAccess.InReach(ctx.Npc.Bottom, t.Tile))
         {
             if (jumpTile == t.Tile)
             {
                 // Re-proved against the live pose: another behaviour may have moved the body since
                 // the vein chose this tile, and a hop proved from somewhere else is not a hop.
-                if (!ProveInteractionJump.CanReach(NavGrid.World, ctx.Companion.Motor.State, body => OreFinder.InReach(body.Feet, t.Tile)))
+                if (!ProveInteractionJump.CanReach(NavGrid.World, ctx.Companion.Motor.State, body => FindToolAccess.InReach(body.Feet, t.Tile)))
                 { jumpTile = null; target = null; status = "jump lost its take-off"; return PositionRequest.Hold; }
                 if (Main.GameUpdateCount - jumpAsked > 90) { jumpAsked = Main.GameUpdateCount; return PositionRequest.Hold with { JumpScale = 1f }; }
                 return PositionRequest.Hold;
@@ -325,7 +326,7 @@ public sealed class MineAction : CompanionAction
         foreach (Point p in patch)
         {
             float d = Vector2.DistanceSquared(p.ToWorldCoordinates(), ctx.Npc.Center);
-            if (d < best && OreFinder.InReach(ctx.Npc.Bottom, p))
+            if (d < best && FindToolAccess.InReach(ctx.Npc.Bottom, p))
             {
                 best = d;
                 inReach = p;
@@ -345,8 +346,8 @@ public sealed class MineAction : CompanionAction
         // to the ordinary approach below.
         foreach (Point p in patch)
         {
-            if (OreFinder.InReach(ctx.Npc.Bottom, p)) continue;
-            if (!ProveInteractionJump.CanReach(NavGrid.World, ctx.Companion.Motor.State, body => OreFinder.InReach(body.Feet, p)))
+            if (FindToolAccess.InReach(ctx.Npc.Bottom, p)) continue;
+            if (!ProveInteractionJump.CanReach(NavGrid.World, ctx.Companion.Motor.State, body => FindToolAccess.InReach(body.Feet, p)))
                 continue;
             status = "jumping to ore";
             jumpTile = p;
@@ -357,7 +358,7 @@ public sealed class MineAction : CompanionAction
         unresolvedCandidate = null;
         foreach (Point p in patch)
         {
-            var approach = OreFinder.Approach(p, ctx.Npc.Bottom, out Vector2 stand);
+            var approach = FindToolAccess.Approach(p, ctx.Npc.Bottom, out Vector2 stand);
             if (approach == Reachability.Reach.Yes)
             {
                 status = "relocating";

@@ -31,6 +31,8 @@ For an established target, the trip duration combines approach distance with the
 
 Mining uses actual tool reach to decide whether to swing. A navigator's approximate arrival tolerance can leave the body outside that reach; returning Hold from that pose would prevent the movement needed to make mining possible. Retained vein pruning uses the same actor-and-target distance contract as discovery, and a removed target cannot survive merely because other vein tiles remain.
 
+Chopping uses that same shared tool-access query for discovery, retained approaches and actual strikes. Current usable reach replaces the cached stand with the actual feet; otherwise the prepared trip includes a reachable working pose. Execution cannot infer axe access from distance to that pose. Terrain or reach changes may invalidate the access independently of whether the tree still exists.
+
 Collection's pot method and permanent torches share one bounded candidate/approach executor. Collection owns pot discovery and uncertain contents under PurposeFamilies/NearbyAssistance. Torch candidates use the game's torch Smart Cursor rules through `WorldInteractions/Torch/`, rank elevated left/right sites, and may use a ground jump proven to reach the interaction and land safely. An interruption invalidates a prepared interaction jump. Both recheck home protection at the actual mutation, so discovery permission is never treated as permission to edit a changed world.
 
 Their candidate search and deferred-approach cleanup run during Prepare. Comparison reads the captured value and target without invoking native torch rules or repeating a jump proof. Execution retains its own validation and progress accounting; a comparison never counts as another attempted interaction.

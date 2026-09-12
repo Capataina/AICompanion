@@ -1,4 +1,5 @@
 extern alias live;
+using FindToolAccess = live::AICompanion.Companion.Brain.WorldInteractions.FindToolAccess;
 using System.Reflection;
 using Microsoft.Xna.Framework;
 using Terraria;
@@ -461,7 +462,7 @@ internal static class VerifyCompanionActivities
         // Supply a legitimate in-reach stand and an actual pose 19px short of the reach boundary.
         Vector2 stand = new(ore.X * 16 + 8 - (Player.tileRangeX * 16 + 8) + 1, 60 * 16);
         ctx.Npc.Bottom = stand - new Vector2(19, 0);
-        Require(!OreFinder.InReach(ctx.Npc.Bottom, ore) && OreFinder.InReach(stand, ore), "fixture must straddle the actual mining reach boundary");
+        Require(!FindToolAccess.InReach(ctx.Npc.Bottom, ore) && FindToolAccess.InReach(stand, ore), "fixture must straddle the actual mining reach boundary");
         typeof(live::AICompanion.Companion.Brain.Behaviours.Work.MineAction).GetField("target", BindingFlags.Instance | BindingFlags.NonPublic)!
             .SetValue(mine, new OreFinder.OreTarget(ore, TileID.Copper, stand));
         Require(mine.Execute(ctx).Kind == RequestKind.Exact, "a non-swingable approximate arrival must keep approaching instead of holding");

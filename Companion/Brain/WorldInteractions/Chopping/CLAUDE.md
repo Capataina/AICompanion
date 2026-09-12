@@ -3,7 +3,7 @@
 ```
 Chopping/
 ├─ CLAUDE.md
-├─ TreeFinder.cs   which tile types are trees (IsATreeTrunk plus palm and cactus, like the vanilla axe code), the trunk bottom (GetTreeBottom returns the ground tile; TrunkBottom takes the row above), and the nearest tree with a standing spot
+├─ TreeFinder.cs   native tree classification and trunk identity, with admitted trees ranked by distance and shared tool access from the actual companion
 └─ TileChopper.cs  the companion's own HitTile and the vanilla axe formula (axe power × 1.2, × 3 on cactus); raises TileDamageWatcher.CompanionIsHitting around its KillTile so its own hits never read as the player's
 ```
 
@@ -13,4 +13,6 @@ The next-trunk completion estimate and the actual hit share one axe-damage funct
 
 Discovery accepts the work action's target-admission predicate. Radius and home protection classify the trunk bottom, while the standing spot remains a movement destination: choosing the other side of a trunk must not change whether the tree is allowed. Final swings recheck home protection before damaging any tile.
 
-TreeFinder supplies geometric standing candidates, not proof that the companion can reach them. The work action validates that approach with shared movement reachability before competing, reusing the verdict while its origin, goal and terrain revision agree and refreshing on its bounded cadence. Unknown or sealed approaches yield to other work. Arriving means matching both coordinates of the standing point, so sharing a trunk's horizontal coordinate on another floor cannot start chopping.
+TreeFinder separates the search origin from the companion's actual feet. It deduplicates trunk bottoms and applies resource admission before asking the shared tool query for actual access or a reachable working pose. Searching near the player cannot assume the companion starts there. Unknown or sealed approaches yield to other candidates; distance ranks the resource rather than a preferred side of its trunk.
+
+The work action refreshes retained access after changes to origin, target, terrain or effective reach, and checks actual access again before swinging. A usable current pose needs no approach to a representative node. The execution check uses the full shared tool reach and exposed-face rule, so a wall inserted after preparation or reduced reach cannot be bypassed by proximity to an old standing point. Route arrival alone is never axe permission.

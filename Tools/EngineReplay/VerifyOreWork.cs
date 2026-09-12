@@ -1,5 +1,6 @@
 extern alias live;
 
+using FindToolAccess = live::AICompanion.Companion.Brain.WorldInteractions.FindToolAccess;
 using Microsoft.Xna.Framework;
 using Terraria;
 using Terraria.ID;
@@ -29,6 +30,7 @@ internal static class VerifyOreWork
             ASealedTreeYieldsToReachableOre();
             ChoppingPrefersASeparateActiveTrunk();
             RevokedWorkCannotExecuteAPreparedCandidate();
+            ChoppingUsesActualReachRatherThanStandDistance();
             AnUnprovenApproachWalksInsteadOfScoringZero();
             AnUnknownApproachKeepsItsOwnOreIdentity();
             AReachableOreProducesANativeBreak();
@@ -168,7 +170,7 @@ internal static class VerifyOreWork
     {
         Point ore = new(25, 59);
         var (_, ctx) = SetUp(WorkPolicy.Opportunistic, TileID.Copper, ore);
-        Require(live::AICompanion.Companion.Brain.WorldInteractions.Mining.OreFinder.InReach(ctx.Npc.Bottom, ore),
+        Require(FindToolAccess.InReach(ctx.Npc.Bottom, ore),
             "the productive-work control must begin within actual tool reach");
         Item pick = live::AICompanion.Companion.Brain.WorldInteractions.Mining.TileMiner.PickaxeFor(ctx.Player);
         int swings = 0;
@@ -188,9 +190,9 @@ internal static class VerifyOreWork
         Point ore = new(25, 59);
         var (_, ctx) = SetUp(WorkPolicy.Opportunistic, TileID.Copper, ore);
         Vector2 feet = ctx.Npc.Bottom;
-        Require(live::AICompanion.Companion.Brain.WorldInteractions.Mining.OreFinder.InReach(feet, ore),
+        Require(FindToolAccess.InReach(feet, ore),
             "the current-pose fixture must already satisfy actual tool range and exposed access");
-        var reach = live::AICompanion.Companion.Brain.WorldInteractions.Mining.OreFinder.Approach(ore, feet, out Vector2 stand);
+        var reach = FindToolAccess.Approach(ore, feet, out Vector2 stand);
         Require(reach == Reachability.Reach.Yes && stand == feet,
             $"a usable current pose needs no approach; got {reach} at {stand} instead of {feet}");
     }
@@ -306,7 +308,7 @@ internal static class VerifyOreWork
             ctx.Companion.Brain.Chooser.Actions.Clear();
             ctx.Companion.Brain.Chooser.Actions.Add(mine);
         }
-        Require(!live::AICompanion.Companion.Brain.WorldInteractions.Mining.OreFinder.InReach(ctx.Npc.Bottom, ore),
+        Require(!FindToolAccess.InReach(ctx.Npc.Bottom, ore),
             "the raised-lip fixture must obstruct the initial tool line, not test an already usable pose");
         if (mode == BaselineMode.FixedWorkingPose)
         {
@@ -314,7 +316,7 @@ internal static class VerifyOreWork
             // overlaps the lip in either orientation and reaches the ore's exposed upper face.
             ctx.Npc.Bottom = new Vector2(408, (floor - 2) * 16);
             Require(!Collision.SolidCollision(ctx.Npc.position, ctx.Npc.width, ctx.Npc.height)
-                && live::AICompanion.Companion.Brain.WorldInteractions.Mining.OreFinder.InReach(ctx.Npc.Bottom, ore),
+                && FindToolAccess.InReach(ctx.Npc.Bottom, ore),
                 "the fixed-pose control must be native-clear and within tool reach");
         }
         var initialBody = ctx.Companion.Motor.State;
@@ -347,17 +349,17 @@ internal static class VerifyOreWork
         {
             bool jumpProven = live::AICompanion.Companion.Brain.SharedMovementSystem.ProveInteractionJump.CanReach(
                 live::AICompanion.Companion.Brain.SharedMovementSystem.NavGrid.World, initialBody,
-                body => live::AICompanion.Companion.Brain.WorldInteractions.Mining.OreFinder.InReach(body.Feet, ore));
+                body => FindToolAccess.InReach(body.Feet, ore));
             Console.WriteLine($"lip initial-pose ground-jump proof={jumpProven}");
             AStar.MsBudget = 0;
-            var approach = live::AICompanion.Companion.Brain.WorldInteractions.Mining.OreFinder.Approach(ore, ctx.Npc.Bottom, out Vector2 stand);
+            var approach = FindToolAccess.Approach(ore, ctx.Npc.Bottom, out Vector2 stand);
             Console.WriteLine($"lip approach without wall-time limit={approach} stand={stand}; expansion bound remains {Reachability.WalkerBudget}");
             for (int x = 22; x <= 28; x++)
                 for (int y = floor - 4; y < floor; y++)
                 {
                     if (!live::AICompanion.Companion.Brain.SharedMovementSystem.NavGrid.IsStandable(x, y)) continue;
                     Vector2 feet = live::AICompanion.Companion.Brain.SharedMovementSystem.NavGrid.FeetWorld(new Point(x, y));
-                    bool useful = live::AICompanion.Companion.Brain.WorldInteractions.Mining.OreFinder.InReach(feet, ore);
+                    bool useful = FindToolAccess.InReach(feet, ore);
                     if (useful) Console.WriteLine($"lip usable={feet} route={Reachability.WalkerReach(live::AICompanion.Companion.Brain.SharedMovementSystem.NavGrid.FeetTile(ctx.Npc.Bottom), new Point(x, y))}");
                 }
         }
@@ -379,7 +381,7 @@ internal static class VerifyOreWork
                 if (pose == null) continue;
                 var tile = new Point(x, y);
                 Vector2 feet = live::AICompanion.Companion.Brain.SharedMovementSystem.NavGrid.FeetWorld(tile);
-                if (!live::AICompanion.Companion.Brain.WorldInteractions.Mining.OreFinder.InReach(feet, ore)) continue;
+                if (!FindToolAccess.InReach(feet, ore)) continue;
                 var route = AStar.Find(start, tile, Reachability.WalkerBudget, out int used, out var stop);
                 Console.WriteLine($"lip initial useful pose={feet} route={stop} used={used} partial={route?.Partial} "
                     + $"steps={string.Join(';', route?.Steps.Select(step => $"{step.Kind}:{step.From}->{step.Tile}") ?? Array.Empty<string>())}");
@@ -575,6 +577,51 @@ internal static class VerifyOreWork
         finally { WorkPolicies.Chopping = original; WorkPolicies.Mining = WorkPolicy.Opportunistic; }
     }
 
+    private static void ChoppingUsesActualReachRatherThanStandDistance()
+    {
+        WorkPolicy original = WorkPolicies.Chopping;
+        try
+        {
+            foreach (bool mirrored in new[] { false, true })
+            {
+                Point bottom = new(25, 89);
+                var (_, ctx) = SetUp(WorkPolicy.Opportunistic, TileID.Copper, bottom);
+                Tile trunk = Main.tile[bottom.X, bottom.Y];
+                trunk.TileType = TileID.Trees;
+                Main.tileAxe[TileID.Trees] = true;
+                Main.tileSolid[TileID.Trees] = false;
+                TileID.Sets.IsATreeTrunk[TileID.Trees] = true;
+                WorkPolicies.Chopping = WorkPolicy.Opportunistic;
+                ctx.Npc.Bottom = new Vector2((mirrored ? 30 : 20) * 16 + 8, 90 * 16);
+                var chop = new live::AICompanion.Companion.Brain.Behaviours.Work.ChopAction();
+                Require(VerifyPreparedActivities.PrepareAndScore(chop, ctx) > 0,
+                    "a tree inside actual reach must prepare useful work");
+                var request = chop.Execute(ctx);
+                Require(request == live::AICompanion.Companion.Brain.PositionSelection.PositionRequest.Hold
+                    && chop.HandsBusy && ctx.Companion.Chopper.LastOutcome is { Productive: true },
+                    $"actual axe access must produce native work without walking to a preferred stand: mirrored={mirrored}; request={request}");
+                var firstEffect = ctx.Companion.Chopper.LastOutcome;
+                for (int tick = 0; tick < 120; tick++) ctx.Companion.Chopper.Tick();
+                Player.tileRangeX = 1;
+                chop.Execute(ctx);
+                Require(!chop.HandsBusy && ctx.Companion.Chopper.LastOutcome == firstEffect,
+                    "a prepared working pose must not bypass a later reduction in tool reach");
+                Player.tileRangeX = 5;
+                for (int y = 80; y < 90; y++)
+                {
+                    Tile wall = Main.tile[mirrored ? 26 : 24, y];
+                    wall.HasTile = true;
+                    wall.TileType = TileID.Dirt;
+                }
+                Require(!FindToolAccess.InReach(ctx.Npc.Bottom, bottom), "native wall must occlude the retained axe target");
+                chop.Execute(ctx);
+                Require(!chop.HandsBusy && ctx.Companion.Chopper.LastOutcome == firstEffect,
+                    "a wall added after preparation must prevent another native axe effect");
+            }
+        }
+        finally { WorkPolicies.Chopping = original; }
+    }
+
     internal static (MineAction Action, ActionContext Context) SetUp(WorkPolicy policy, ushort tileType, params Point[] ore)
         => SetUp(policy, tileType, ore, null);
 
@@ -632,7 +679,7 @@ internal static class VerifyOreWork
         try
         {
             AStar.MsBudget = 0.0001d;
-            Require(live::AICompanion.Companion.Brain.WorldInteractions.Mining.OreFinder.Approach(sealedOre, ctx.Npc.Bottom, out _) == Reachability.Reach.No,
+            Require(FindToolAccess.Approach(sealedOre, ctx.Npc.Bottom, out _) == Reachability.Reach.No,
                 "the nearby ore must have no exposed working face, independently of the search deadline");
             Require(VerifyPreparedActivities.PrepareAndScore(action, ctx) > 0,
                 "the farther unresolved ore must remain an approach opportunity");
