@@ -116,10 +116,10 @@ internal static class VerifyHuntAdmissibility
         Require(hunt.Target != null && hunt.Target.Npc == enemy,
             $"the repositionable enemy was not the selected target; rejection={hunt.LastRejection}");
         var capturedTarget = hunt.ActivityTarget;
-        float capturedTrip = hunt.ForecastTicks(ctx);
+        float capturedTrip = hunt.ForecastTicks();
         ctx.Senses.Threats.Threats.Clear();
         enemy.position.X += 48;
-        Require(hunt.Score(ctx) == score && hunt.ForecastTicks(ctx) == capturedTrip && hunt.ActivityTarget == capturedTarget,
+        Require(hunt.Score() == score && hunt.ForecastTicks() == capturedTrip && hunt.ActivityTarget == capturedTarget,
             "hunt comparison must retain its prepared values when live observation changes");
         enemy.active = false;
         Require(hunt.Execute(ctx).Kind == live::AICompanion.Companion.Brain.PositionSelection.RequestKind.Hold,

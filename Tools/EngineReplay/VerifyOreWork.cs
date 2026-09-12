@@ -42,7 +42,7 @@ internal static class VerifyOreWork
     private static void DisabledDoesNotStartAJob()
     {
         var (action, ctx) = SetUp(WorkPolicy.Disabled, TileID.Copper, new Point(25, 59));
-        Require(action.Score(ctx) == 0f && action.RemainingTiles == 0 && action.Status == "disabled", "disabled mining must not retain ore work");
+        Require(VerifyPreparedActivities.PrepareAndScore(action, ctx) == 0f && action.RemainingTiles == 0 && action.Status == "disabled", "disabled mining must not retain ore work");
     }
 
     private static void AReachableOreProducesANativeBreak()
@@ -196,7 +196,7 @@ internal static class VerifyOreWork
         Point ore = new(25, 59);
         var (action, ctx) = SetUp(WorkPolicy.Mimic, TileID.Copper, ore, playerHit: ore);
         Reachability.Reach directReach = Reachability.WalkerReach(new Point(20, 59), new Point(24, 59));
-        float score = action.Score(ctx);
+        float score = VerifyPreparedActivities.PrepareAndScore(action, ctx);
         Require(score > 0f && action.TargetTile == ore,
             $"mimic mining must select the ore vein the player hit (score={score}, target={action.TargetTile}, status={action.Status}, observed={ctx.Senses.Player.MinedOre}, direct={directReach})");
     }
@@ -204,30 +204,35 @@ internal static class VerifyOreWork
     private static void OpportunisticKeepsOneVeinAcrossAnInterruption()
     {
         var (action, ctx) = SetUp(WorkPolicy.Opportunistic, TileID.Copper, new Point(25, 59));
-        Require(action.Score(ctx) > 0f, "nearby ore must start opportunistic mining without a player hit");
+        Require(VerifyPreparedActivities.PrepareAndScore(action, ctx) > 0f, "nearby ore must start opportunistic mining without a player hit");
         int id = action.JobId;
         action.Exit(ctx); // Guard/self-defence switching actions must not discard retained work.
-        Require(action.Score(ctx) > 0f && action.JobId == id, "an interrupted vein must resume with the same job identity");
+        Require(VerifyPreparedActivities.PrepareAndScore(action, ctx) > 0f && action.JobId == id, "an interrupted vein must resume with the same job identity");
         ctx.Companion.NPC.Bottom += new Vector2(64, 0);
-        Require(action.Score(ctx) > 0f && action.JobId == id && action.TargetStandPosition == ctx.Npc.Bottom,
+        Require(VerifyPreparedActivities.PrepareAndScore(action, ctx) > 0f && action.JobId == id && action.TargetStandPosition == ctx.Npc.Bottom,
             "scoring early during guard must not retain an old approach after guard moves the body again");
     }
 
     private static void DirtIsNeverAWorkTarget()
     {
         var (action, ctx) = SetUp(WorkPolicy.Opportunistic, TileID.Dirt, new Point(25, 59));
-        Require(action.Score(ctx) == 0f && action.TargetTile == null, "ordinary terrain must not be selected for mining");
+        Require(VerifyPreparedActivities.PrepareAndScore(action, ctx) == 0f && action.TargetTile == null, "ordinary terrain must not be selected for mining");
     }
 
     private static void ADepletedTileRelocatesWithinTheVein()
     {
         Point first = new(25, 59), second = new(26, 59);
         var (action, ctx) = SetUp(WorkPolicy.Opportunistic, TileID.Copper, first, second);
-        Require(action.Score(ctx) > 0f && action.RemainingTiles == 2, "the fixture must start as a two-tile vein");
+        Require(VerifyPreparedActivities.PrepareAndScore(action, ctx) > 0f && action.RemainingTiles == 2, "the fixture must start as a two-tile vein");
+        float capturedValue = action.Score(), capturedTrip = action.ForecastTicks();
+        var capturedTarget = action.ActivityTarget;
         Tile removed = Main.tile[first.X, first.Y];
         removed.ClearEverything();
         ctx.Companion.NPC.position = new Vector2(26 * 16, 60 * 16 - ctx.Companion.NPC.height);
-        Require(action.Score(ctx) > 0f && action.TargetTile == second && action.RemainingTiles == 1,
+        Require(action.Score() == capturedValue && action.ForecastTicks() == capturedTrip
+            && action.ActivityTarget == capturedTarget && action.RemainingTiles == 2,
+            "comparison must not prune externally removed ore or recompute the prepared trip");
+        Require(VerifyPreparedActivities.PrepareAndScore(action, ctx) > 0f && action.TargetTile == second && action.RemainingTiles == 1,
             "after one tile disappears, the retained job must relocate to the remaining ore");
         Require(action.TargetStandPosition == ctx.Companion.NPC.Bottom,
             "an in-reach resumed tile must use the body’s current stand instead of walking back to an old one");
@@ -240,14 +245,14 @@ internal static class VerifyOreWork
         Tile tile = Main.tile[usable.X, usable.Y];
         tile.TileType = TileID.Copper;
         Main.tileSolid[TileID.Copper] = true;
-        Require(action.Score(ctx) > 0f && action.TargetTile == usable,
+        Require(VerifyPreparedActivities.PrepareAndScore(action, ctx) > 0f && action.TargetTile == usable,
             "a nearby unmineable ore must not mask a farther ore the current pick can mine");
     }
 
     private static void AnUnmineableVeinDoesNotBecomeWork()
     {
         var (action, ctx) = SetUp(WorkPolicy.Opportunistic, TileID.Chlorophyte, new Point(25, 59));
-        Require(action.Score(ctx) == 0f && action.RemainingTiles == 0 && action.Status == "no mineable ore",
+        Require(VerifyPreparedActivities.PrepareAndScore(action, ctx) == 0f && action.RemainingTiles == 0 && action.Status == "no mineable ore",
             "a pickaxe that cannot damage ore must not create a retained mining job");
     }
 
@@ -270,13 +275,13 @@ internal static class VerifyOreWork
             new Point(40, 59), new Vector2(38 * 16 + 8, 60 * 16), 1);
         typeof(live::AICompanion.Companion.Brain.Behaviours.Work.ChopAction)
             .GetField("tree", BindingFlags.NonPublic | BindingFlags.Instance)!.SetValue(chop, tree);
-        Require(VerifyPreparedActivities.PrepareAndScore(chop, ctx) == 0f && mine.Score(ctx) > 0f,
+        Require(VerifyPreparedActivities.PrepareAndScore(chop, ctx) == 0f && VerifyPreparedActivities.PrepareAndScore(mine, ctx) > 0f,
             "a retained tree across a sealed wall must yield to reachable ore beside the companion");
         var sinceReachField = typeof(live::AICompanion.Companion.Brain.Behaviours.Work.ChopAction)
             .GetField("sinceReach", BindingFlags.NonPublic | BindingFlags.Instance)!;
         int preparedAge = (int)sinceReachField.GetValue(chop)!;
         for (int comparison = 0; comparison < 20; comparison++)
-            Require(chop.Score(ctx) == 0f, "repeated comparison must preserve an unavailable tree's value");
+            Require(chop.Score() == 0f, "repeated comparison must preserve an unavailable tree's value");
         Require((int)sinceReachField.GetValue(chop)! == preparedAge,
             "chopping comparison must not advance its discovery timer or repeat its reach search");
         for (int tick = 0; tick < 20; tick++) VerifyPreparedActivities.PrepareAndScore(chop, ctx);
@@ -310,7 +315,7 @@ internal static class VerifyOreWork
         try
         {
             AStar.MsBudget = 0.0001d;
-            float score = action.Score(ctx);
+            float score = VerifyPreparedActivities.PrepareAndScore(action, ctx);
             Require(action.Status == "approach unknown",
                 $"the fixture must actually reach an undecided approach, or it tests nothing; status={action.Status}");
             Require(score > 0f,
@@ -318,7 +323,7 @@ internal static class VerifyOreWork
             var request = action.Execute(ctx);
             Require(request.Kind == live::AICompanion.Companion.Brain.PositionSelection.RequestKind.Exact,
                 $"an undecided approach must produce a walk toward the ore, since moving is what makes the approach decidable; got {request.Kind}");
-            Require(action.Score(ctx) < 0.7f,
+            Require(VerifyPreparedActivities.PrepareAndScore(action, ctx) < 0.7f,
                 "an unproven approach must score below a proven ore job, so reachable ore always wins");
         }
         finally

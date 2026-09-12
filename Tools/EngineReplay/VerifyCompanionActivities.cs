@@ -61,7 +61,9 @@ internal static class VerifyCompanionActivities
         public override Vector2? ActivityTarget => Target;
         public override object ActivityIdentity => Identity;
         public bool Allows(live::AICompanion.Companion.Brain.Behaviours.ActionContext ctx) => AllowsTarget(ctx, Target, Identity);
-        public override float Score(in live::AICompanion.Companion.Brain.Behaviours.ActionContext ctx) => Allows(ctx) ? Value : 0f;
+        private float preparedValue;
+        public override void Prepare(in live::AICompanion.Companion.Brain.Behaviours.ActionContext ctx) => preparedValue = Allows(ctx) ? Value : 0f;
+        public override float Score() => preparedValue;
         public override void Enter(in live::AICompanion.Companion.Brain.Behaviours.ActionContext ctx) => Entries++;
         public override void Exit(in live::AICompanion.Companion.Brain.Behaviours.ActionContext ctx) { Exits++; base.Exit(ctx); }
         public override live::AICompanion.Companion.Brain.PositionSelection.PositionRequest Execute(in live::AICompanion.Companion.Brain.Behaviours.ActionContext ctx)
@@ -132,12 +134,12 @@ internal static class VerifyCompanionActivities
         ctx.Senses.Loot.Pickups.Clear();
         ctx.Senses.Loot.Pickups.Add(new(item, .3f, Vector2.Distance(ctx.Npc.Bottom, item.Bottom)));
         loot.Prepare(ctx);
-        Require(loot.Score(ctx) > 0, "actual looting must inherit the completed work site's continuation allowance");
-        float capturedValue = loot.Score(ctx), capturedTrip = loot.ForecastTicks(ctx);
+        Require(loot.Score() > 0, "actual looting must inherit the completed work site's continuation allowance");
+        float capturedValue = loot.Score(), capturedTrip = loot.ForecastTicks();
         Vector2? capturedTarget = loot.ActivityTarget;
         ctx.Senses.Loot.Pickups.Clear();
         item.Bottom += new Vector2(32, 0);
-        Require(loot.Score(ctx) == capturedValue && loot.ForecastTicks(ctx) == capturedTrip && loot.ActivityTarget == capturedTarget,
+        Require(loot.Score() == capturedValue && loot.ForecastTicks() == capturedTrip && loot.ActivityTarget == capturedTarget,
             "evaluating prepared loot must neither discover again nor change with a live item's movement");
         item.active = false;
         Require(loot.Execute(ctx).Kind == RequestKind.Hold,
@@ -147,7 +149,7 @@ internal static class VerifyCompanionActivities
         ctx.Senses.Loot.Pickups.Add(new(item, .3f, Vector2.Distance(ctx.Npc.Bottom, item.Bottom)));
         VerifyObservedMotion.SetTick(Main.GameUpdateCount + 601);
         loot.Prepare(ctx);
-        Require(loot.Score(ctx) == 0, "expired work must not grant a new loot target an indefinite allowance");
+        Require(loot.Score() == 0, "expired work must not grant a new loot target an indefinite allowance");
     }
 
     private static void ComfortableFollowingHasNoRegroupPressure()
@@ -223,7 +225,7 @@ internal static class VerifyCompanionActivities
     private static void RemoteJobReleasesAndDiscoversNearbyOre()
     {
         var (mine, ctx) = VerifyOreWork.SetUp(Policy.Opportunistic, TileID.Copper, new Point(25, 59));
-        Require(mine.Score(ctx) > 0, "initial vein not found");
+        Require(VerifyPreparedActivities.PrepareAndScore(mine, ctx) > 0, "initial vein not found");
         mine.AdmitActivity();
         int oldJob = mine.JobId;
         ctx.Npc.Bottom = new Vector2(88 * 16, 60 * 16);
@@ -231,7 +233,7 @@ internal static class VerifyCompanionActivities
         ctx.Player.Bottom = new Vector2(2000, 60 * 16);
         Tile ore = Main.tile[84, 59]; ore.HasTile = true; ore.TileType = TileID.Copper;
         ctx.Companion.Brain.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Breath);
-        for (int i = 0; i < 61; i++) mine.Score(ctx);
+        for (int i = 0; i < 61; i++) VerifyPreparedActivities.PrepareAndScore(mine, ctx);
         Require(mine.JobId != oldJob && mine.TargetTile == new Point(84, 59), "an obsolete retained vein must not prevent discovering reachable local ore");
     }
 
@@ -239,7 +241,7 @@ internal static class VerifyCompanionActivities
     {
         Point ore = new(25, 59);
         var (mine, ctx) = VerifyOreWork.SetUp(Policy.Opportunistic, TileID.Copper, ore);
-        Require(mine.Score(ctx) > 0, "initial vein not found");
+        Require(VerifyPreparedActivities.PrepareAndScore(mine, ctx) > 0, "initial vein not found");
         // The recorded symptom was Mine.Execute returning Hold while its own reach test failed.
         // Supply a legitimate in-reach stand and an actual pose 19px short of the reach boundary.
         Vector2 stand = new(ore.X * 16 + 8 - (Player.tileRangeX * 16 + 8) + 1, 60 * 16);
@@ -253,11 +255,11 @@ internal static class VerifyCompanionActivities
     private static void RetainedMiningRespectsTheCompanionsRange()
     {
         var (mine, ctx) = VerifyOreWork.SetUp(Policy.Opportunistic, TileID.Copper, new Point(25, 59));
-        Require(mine.Score(ctx) > 0, "fixture must discover a mining job");
+        Require(VerifyPreparedActivities.PrepareAndScore(mine, ctx) > 0, "fixture must discover a mining job");
         mine.AdmitActivity();
         ctx.Npc.Bottom = ctx.Player.Bottom + new Vector2(Preferences.Current.ActiveActivityRadius + 1, 0);
         ctx.Companion.Brain.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Breath);
-        Require(mine.Score(ctx) == 0 && mine.RemainingTiles == 0,
+        Require(VerifyPreparedActivities.PrepareAndScore(mine, ctx) == 0 && mine.RemainingTiles == 0,
             "retained ore near the player must not keep a companion outside the active range in mining mode");
     }
 

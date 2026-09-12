@@ -23,7 +23,9 @@ public abstract class PerformNearbyWorldWork : CompanionAction
     private readonly System.Collections.Generic.Dictionary<Point, ulong> deferred = new();
     private Vector2 approachOrigin;
     private int approachTicks;
-    public override Vector2? ActivityTarget => target?.ToWorldCoordinates();
+    private Vector2? preparedTarget;
+    private float preparedValue;
+    public override Vector2? ActivityTarget => preparedTarget;
     public override object? ActivityIdentity => target;
     protected abstract bool Enabled(in ActionContext ctx);
     protected abstract bool Candidate(in ActionContext ctx, Point tile);
@@ -36,7 +38,15 @@ public abstract class PerformNearbyWorldWork : CompanionAction
     private const int DeferFailedApproachTicks = 1800;
     protected virtual float CandidateCost(Vector2 feet, Point tile) => Vector2.DistanceSquared(feet, tile.ToWorldCoordinates());
 
-    public override float Score(in ActionContext ctx)
+    public override void Prepare(in ActionContext ctx)
+    {
+        preparedValue = DiscoverValue(ctx);
+        preparedTarget = target?.ToWorldCoordinates();
+    }
+
+    public override float Score() => preparedValue;
+
+    private float DiscoverValue(in ActionContext ctx)
     {
         if (!Enabled(ctx) || ctx.Player.dead) { target = null; ReleaseActivity(); return 0f; }
         if (target is Point old && (!Candidate(ctx, old) || !AllowsTarget(ctx, old.ToWorldCoordinates())))

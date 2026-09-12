@@ -33,7 +33,11 @@ public sealed class WanderAction : CompanionAction
         hop = false;
     }
 
-    public override float Score(in ActionContext ctx)
+    private float preparedValue;
+    public override void Prepare(in ActionContext ctx) => preparedValue = CalculateValue(ctx);
+    public override float Score() => preparedValue;
+
+    private float CalculateValue(in ActionContext ctx)
         => ctx.Senses.Player.IsDead ? 0f : ctx.Stranded ? Weights.StrandedWander : Weights.WanderFloor;
 
     public override PositionRequest Execute(in ActionContext ctx)

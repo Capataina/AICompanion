@@ -57,7 +57,11 @@ public sealed class SurviveAction : CompanionAction
     private int sinceRecheck;
     private int searchCooldown;
 
-    public override float Score(in ActionContext ctx)
+    private float preparedValue;
+    public override void Prepare(in ActionContext ctx) => preparedValue = CalculateValue(ctx);
+    public override float Score() => preparedValue;
+
+    private float CalculateValue(in ActionContext ctx)
     {
         CompanionSense self = ctx.Senses.Self;
         float danger = self.SelfDanger;

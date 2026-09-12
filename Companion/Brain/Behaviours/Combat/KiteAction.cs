@@ -15,7 +15,11 @@ public sealed class KiteAction : CompanionAction
     public override string Name => "kite";
     public override bool IsExcursion => false;
 
-    public override float Score(in ActionContext ctx)
+    private float preparedValue;
+    public override void Prepare(in ActionContext ctx) => preparedValue = CalculateValue(ctx);
+    public override float Score() => preparedValue;
+
+    private float CalculateValue(in ActionContext ctx)
     {
         float closest = float.MaxValue;
         foreach (ThreatRecord t in ctx.Senses.Threats.Threats)

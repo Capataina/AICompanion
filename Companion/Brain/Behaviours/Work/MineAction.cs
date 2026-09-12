@@ -21,7 +21,9 @@ namespace AICompanion.Companion.Brain.Behaviours.Work;
 public sealed class MineAction : CompanionAction
 {
     public override string Name => "mine";
-    public override Vector2? ActivityTarget => target?.Tile.ToWorldCoordinates();
+    public override Vector2? ActivityTarget => preparedTarget;
+    private Vector2? preparedTarget;
+    private float preparedValue, preparedTrip;
 
     private const int KeepJobTicks = 600;
     private const int SearchRadiusTiles = 45;
@@ -53,7 +55,17 @@ public sealed class MineAction : CompanionAction
     public Point? TargetTile => target?.Tile;
     public Vector2? TargetStandPosition => target?.StandPosition;
 
-    public override float Score(in ActionContext ctx)
+    public override void Prepare(in ActionContext ctx)
+    {
+        preparedValue = DiscoverValue(ctx);
+        preparedTarget = target?.Tile.ToWorldCoordinates();
+        preparedTrip = target is { } found
+            ? Vector2.Distance(ctx.Npc.Bottom, found.StandPosition) / Companion.CompanionMotor.WalkSpeed + 180f : 0f;
+    }
+
+    public override float Score() => preparedValue;
+
+    private float DiscoverValue(in ActionContext ctx)
     {
         var p = ctx.Senses.Player;
         if (p.IsDead)
@@ -255,8 +267,8 @@ public sealed class MineAction : CompanionAction
         }
     }
 
-    public override float ForecastTicks(in ActionContext ctx)
-        => target == null ? 0f : Vector2.Distance(ctx.Npc.Bottom, target.Value.StandPosition) / Companion.CompanionMotor.WalkSpeed + 180f;
+    public override float ForecastTicks()
+        => preparedTrip;
 
     public override PositionRequest Execute(in ActionContext ctx)
     {

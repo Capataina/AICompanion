@@ -60,23 +60,23 @@ internal static class VerifyFollowRecoveryAndProtection
         senses.SetInterventionEstimate(float.PositiveInfinity);
         var context = new Context(companion, senses);
         var guard = new Guard();
-        float entry = guard.Score(context);
+        float entry = VerifyPreparedActivities.PrepareAndScore(guard, context);
         Require(entry > Weights.Commitment, "immediate danger can interrupt committed following even nearby");
         guard.Enter(context);
         threat.Urgency = .15f;
         threat.EffectiveTicksToPlayer = 150;
         senses.SetInterventionEstimate(1);
-        Require(guard.Score(context) >= entry, "small retreat retains protection of the same relevant threat");
-        Require(guard.Score(context) * Weights.Commitment < Weights.SurviveUrgency,
+        Require(VerifyPreparedActivities.PrepareAndScore(guard, context) >= entry, "small retreat retains protection of the same relevant threat");
+        Require(VerifyPreparedActivities.PrepareAndScore(guard, context) * Weights.Commitment < Weights.SurviveUrgency,
             "maximum survival can interrupt committed protection");
         threat.CanReachPlayer = false;
         threat.Urgency = 0;
         senses.SetInterventionEstimate(float.PositiveInfinity);
         int firstClear = senses.Tick;
-        Require(guard.Score(context) > 0, "one safe frame must not abandon protection");
+        Require(VerifyPreparedActivities.PrepareAndScore(guard, context) > 0, "one safe frame must not abandon protection");
         typeof(live::AICompanion.Companion.Brain.WorldObservation.Senses).GetProperty("Tick")!.SetValue(senses,
             firstClear + Weights.GuardClearTicks);
-        Require(guard.Score(context) == 0 && guard.ProtectedThreatId == -1,
+        Require(VerifyPreparedActivities.PrepareAndScore(guard, context) == 0 && guard.ProtectedThreatId == -1,
             "sustained irrelevance releases a living threat");
         threat.CanReachPlayer = true;
         threat.Urgency = 1;
@@ -84,15 +84,15 @@ internal static class VerifyFollowRecoveryAndProtection
         npc.active = false;
         senses.Threats.Threats.Clear();
         senses.SetInterventionEstimate(float.PositiveInfinity);
-        Require(guard.Score(context) == 0 && guard.ProtectedThreatId == -1, "disappeared threat releases commitment");
+        Require(VerifyPreparedActivities.PrepareAndScore(guard, context) == 0 && guard.ProtectedThreatId == -1, "disappeared threat releases commitment");
         companion.Brain.Chooser.Activity.Select(guard, context);
         var replacement = new NPC { whoAmI = 5, active = true, life = 100, damage = 20 };
         var second = new Threat { Npc = replacement, CanReachPlayer = true, Urgency = 1f, EffectiveTicksToPlayer = 0 };
         senses.Threats.Threats.Add(second);
         typeof(live::AICompanion.Companion.Brain.WorldObservation.ThreatSense).GetProperty("MostUrgent")!.SetValue(senses.Threats, second);
-        float renewed = guard.Score(context);
+        float renewed = VerifyPreparedActivities.PrepareAndScore(guard, context);
         second.Urgency = .15f;
-        Require(guard.Score(context) >= renewed && guard.ProtectedThreatId == 5,
+        Require(VerifyPreparedActivities.PrepareAndScore(guard, context) >= renewed && guard.ProtectedThreatId == 5,
             "a second threat must inherit commitment while guarding stays selected");
     }
 

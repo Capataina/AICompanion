@@ -53,10 +53,10 @@ public sealed class LootAction : CompanionAction
         candidate = new(pick.Item, pick.Item.type, pick.Item.Bottom, Consideration.AtLeast(near, 0.2f), pick.Value, safe, trip);
     }
 
-    public override float Score(in ActionContext ctx)
+    public override float Score()
         => candidate is { } prepared ? prepared.Near * prepared.Value * prepared.Safety : 0f;
 
-    public override float ForecastTicks(in ActionContext ctx)
+    public override float ForecastTicks()
         => candidate?.TripTicks ?? 0f;
 
     public override PositionRequest Execute(in ActionContext ctx)

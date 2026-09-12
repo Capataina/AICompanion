@@ -84,7 +84,7 @@ public sealed class HuntAction : CompanionAction
             : null;
     }
 
-    public override float Score(in ActionContext ctx) => prepared?.Value ?? 0f;
+    public override float Score() => prepared?.Value ?? 0f;
 
     private float DiscoverValue(in ActionContext ctx)
     {
@@ -226,7 +226,7 @@ public sealed class HuntAction : CompanionAction
     private static Rectangle ScreenWithMargin()
         => new((int)Main.screenPosition.X - 200, (int)Main.screenPosition.Y - 200, Main.screenWidth + 400, Main.screenHeight + 400);
 
-    public override float ForecastTicks(in ActionContext ctx)
+    public override float ForecastTicks()
         => prepared?.TripTicks ?? 0f;
 
     public override PositionRequest Execute(in ActionContext ctx)

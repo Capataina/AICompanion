@@ -2,6 +2,8 @@
 
 This action supplies the reason to escape; the shared movement system owns how to execute the escape. Its score combines observed personal danger with the geometric time to air relative to remaining breath, scaled by the survival urgency in BehaviourWeights. It can begin before the old low-breath threshold when even an optimistic escape would consume the remaining allowance. Crossing water normally remains ordinary travel.
 
+Prepare updates the contextual urgency and any air-search guidance needed to establish it. Score reads the captured urgency without another flood or escape-state update. Actual escape execution and its retained landing state remain distinct from this comparison value.
+
 ```
 Survival/
 ├─ CLAUDE.md           this contract and the failure properties it must preserve

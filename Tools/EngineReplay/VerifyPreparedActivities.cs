@@ -10,7 +10,7 @@ internal static class VerifyPreparedActivities
         in live::AICompanion.Companion.Brain.Behaviours.ActionContext context)
     {
         action.Prepare(context);
-        return action.Score(context);
+        return action.Score();
     }
 
     public static int Run()

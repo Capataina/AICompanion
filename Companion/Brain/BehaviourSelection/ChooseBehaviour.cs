@@ -95,15 +95,15 @@ public sealed class Chooser
         CompanionAction? best = null, fallback = null;
         float bestScore = 0f;
 
-        // Legacy activities still maintain candidates in Score. Keep that adapter in this
-        // preparation phase; the shared comparison below receives only captured values.
+        // Discovery runs once per adapter. Score and forecast read the captured candidate;
+        // neither receives live context or advances the job during comparison.
         var prepared = new PreparedActivity[Actions.Count];
         for (int i = 0; i < Actions.Count; i++)
         {
             CompanionAction action = Actions[i];
             action.Prepare(ctx);
-            float raw = action.Score(ctx);
-            prepared[i] = new(i, action.Name, raw, raw > 0 ? action.ForecastTicks(ctx) : 0,
+            float raw = action.Score();
+            prepared[i] = new(i, action.Name, raw, raw > 0 ? action.ForecastTicks() : 0,
                 action.IsExcursion, action.ActivityTarget != null, action is WalkWithPlayerAction, action == Current);
         }
         var comparison = new ActivityComparisonContext(ctx.Senses.Threats.ProtectionUrgency, ctx.Stranded,

@@ -62,15 +62,14 @@ public abstract class CompanionAction
     /// </summary>
     public virtual bool HandsBusy => false;
 
-    /// <summary>Refresh discovery and capture candidate facts before utility comparison.
-    /// Legacy adapters still do this inside Score until their migration is complete.</summary>
-    public virtual void Prepare(in ActionContext ctx) { }
+    /// <summary>Refresh discovery and capture candidate facts before utility comparison.</summary>
+    public abstract void Prepare(in ActionContext ctx);
 
     /// <summary>0..1. Zero means "not now"; the product-of-considerations shape lives in each override.</summary>
-    public abstract float Score(in ActionContext ctx);
+    public abstract float Score();
 
     /// <summary>How many ticks this would keep the companion away from the player, 0 when it does not.</summary>
-    public virtual float ForecastTicks(in ActionContext ctx) => 0f;
+    public virtual float ForecastTicks() => 0f;
 
     /// <summary>Called on the tick this action takes over.</summary>
     public virtual void Enter(in ActionContext ctx) { }
