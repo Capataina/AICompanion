@@ -1,7 +1,7 @@
 extern alias live;
 using Microsoft.Xna.Framework;
 using Terraria;
-using Recovery = live::AICompanion.Companion.Brain.Behaviours.Companionship.RecoverDistantFollowing;
+using Recovery = live::AICompanion.Companion.Brain.ActivityCoordination.RecoverDistantCompanion;
 using Guard = live::AICompanion.Companion.Brain.Behaviours.Companionship.GuardAction;
 using Context = live::AICompanion.Companion.Brain.Behaviours.ActionContext;
 using Threat = live::AICompanion.Companion.Brain.WorldObservation.ThreatRecord;

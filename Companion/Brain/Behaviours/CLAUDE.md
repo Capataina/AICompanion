@@ -6,7 +6,7 @@ One file per action, grouped by the kind of thing it is, so the list never becom
 Behaviours/
 ├─ CLAUDE.md
 ├─ CompanionAction.cs   the base and ActionContext (the companion, observations, player, and stranded fact)
-├─ Companionship/       player protection and distant-reunion recovery
+├─ Companionship/       player protection
 ├─ Combat/              pursuing a useful attack opportunity
 └─ Work/                doing what the player is doing: chop, mine
 ```

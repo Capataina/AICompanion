@@ -2,14 +2,14 @@
 using Microsoft.Xna.Framework;
 using AICompanion.Companion.Brain.BehaviourSelection;
 
-namespace AICompanion.Companion.Brain.Behaviours.Companionship;
+namespace AICompanion.Companion.Brain.ActivityCoordination;
 
 /// <summary>
 /// Visible catch-up outside navigation. Like native pet AI_026, flight ignores terrain until a
 /// clear landing near the owner exists. It supplies velocity to the sole motor, never a route
 /// edge, so waiting or flying cannot enter the executed-route archive. No teleport branch.
 /// </summary>
-public sealed class RecoverDistantFollowing
+public sealed class RecoverDistantCompanion
 {
     public bool Active { get; private set; }
     public string Reason { get; private set; } = "ordinary-travel";

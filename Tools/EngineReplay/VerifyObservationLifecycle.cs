@@ -103,7 +103,7 @@ internal static class VerifyObservationLifecycle
         // return before choosing. The owner stays inside the native fixture's world.
         Main.LocalPlayer.dead = false;
         Main.LocalPlayer.position = new Microsoft.Xna.Framework.Vector2(1100, 1398);
-        typeof(live::AICompanion.Companion.Brain.Behaviours.Companionship.RecoverDistantFollowing)
+        typeof(live::AICompanion.Companion.Brain.ActivityCoordination.RecoverDistantCompanion)
             .GetField("<Active>k__BackingField", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(companion.Brain.FollowRecovery, true);
         VerifyObservedMotion.SetTick((Main.GameUpdateCount / 60 + 1) * 60);
         VerifyCompanionLifecycle.TickWithOneControlGrant(companion);

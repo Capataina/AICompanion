@@ -27,7 +27,7 @@ public sealed class Brain
     public readonly CombatReflexes.Reflexes Reflexes = new();
     public readonly GrantActivityControls ControlGrants = new();
     public readonly SharedSafety.ChooseSafetyResponse Safety = new();
-    public readonly Behaviours.Companionship.RecoverDistantFollowing FollowRecovery = new();
+    public readonly RecoverDistantCompanion FollowRecovery = new();
 
     // The navigator names nothing of the game, so the failed-plan dump reaches the telemetry
     // through this seam; the replay tool leaves it unset.

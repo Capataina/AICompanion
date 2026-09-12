@@ -40,9 +40,9 @@ AICompanion/
 │  ├─ Brain/                 observation, behaviour, movement and interactions
 │  │  ├─ WorldObservation/      player, terrain, threat and activity facts
 │  │  ├─ BehaviourSelection/    utility scoring and considerations
-│  │  ├─ ActivityCoordination/  final movement application and compatible hand grants
+│  │  ├─ ActivityCoordination/  final movement application, hand grants and distant recovery
 │  │  ├─ Behaviours/            choices grouped by purpose
-│  │  │  ├─ Companionship/      guard and distant-reunion recovery
+│  │  │  ├─ Companionship/      guard
 │  │  │  ├─ Combat/             hunt
 │  │  │  └─ Work/               help with trees and ore
 │  │  ├─ PurposeFamilies/      consolidated ordinary activities
