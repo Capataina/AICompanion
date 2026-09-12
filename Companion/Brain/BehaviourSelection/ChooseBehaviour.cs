@@ -93,6 +93,7 @@ public sealed class Chooser
         // Discovery runs once per adapter. Score and forecast read the captured candidate;
         // neither receives live context or advances the job during comparison.
         var prepared = new PreparedActivity[Actions.Count];
+        var bindings = new ValidatePreparedActivity[Actions.Count];
         for (int i = 0; i < Actions.Count; i++)
         {
             CompanionAction action = Actions[i];
@@ -100,23 +101,39 @@ public sealed class Chooser
             float raw = action.Score();
             prepared[i] = new(i, action.Name, raw, raw > 0 ? action.ForecastTicks() : 0,
                 action.IsExcursion, action.ActivityTarget != null, action is WalkWithPlayerAction, action == Current);
+            bindings[i] = ValidatePreparedActivity.Capture(action);
         }
         var comparison = new ActivityComparisonContext(ctx.Senses.Threats.ProtectionUrgency, ctx.Stranded,
             horizon, Weights.InterruptibleActionTicks, Weights.HorizonOverrunToZero, Weights.Commitment,
             ctx.Senses.DistanceToPlayer <= PlayerIntegration.CompanionPreferences.Current.ActiveActivityRadius,
             Weights.FollowDuringUsefulWork);
-        var evaluated = EvaluatePreparedActivities.Evaluate(prepared, comparison);
-        var candidates = new FamilyCandidate[evaluated.Length];
-        foreach (EvaluatedActivity score in evaluated)
+        var available = (PreparedActivity[])prepared.Clone();
+        var rejections = new string?[prepared.Length];
+        CompanionAction? best = null;
+        // Every rejection removes one prepared candidate. Reconsideration is bounded by the
+        // board size and never reruns discovery. Recompute shared opportunity costs because an
+        // invalidated work offer must no longer suppress companionship.
+        for (int attempt = 0; attempt <= prepared.Length; attempt++)
         {
-            CompanionAction action = Actions[score.Index];
-            LastScores.Add(new(action, score.Raw, score.Final, score.Protection, score.Commitment, score.Horizon, score.UsefulWork, score.Error));
-            candidates[score.Index] = new(action.Family, score);
+            var evaluated = EvaluatePreparedActivities.Evaluate(available, comparison);
+            var candidates = new FamilyCandidate[evaluated.Length];
+            LastScores.Clear();
+            foreach (EvaluatedActivity evaluatedScore in evaluated)
+            {
+                var score = rejections[evaluatedScore.Index] is { } rejection
+                    ? evaluatedScore with { Raw = prepared[evaluatedScore.Index].RawValue, Error = rejection }
+                    : evaluatedScore;
+                CompanionAction action = Actions[score.Index];
+                LastScores.Add(new(action, score.Raw, score.Final, score.Protection, score.Commitment, score.Horizon, score.UsefulWork, score.Error));
+                candidates[score.Index] = new(action.Family, score);
+            }
+            LastNominations = NominateFamilyActivities.Nominate(candidates);
+            if (NominateFamilyActivities.Select(LastNominations) is not { } winner) break;
+            string reason = bindings[winner.Index].Rejection(Actions[winner.Index]);
+            if (reason.Length == 0) { best = Actions[winner.Index]; break; }
+            rejections[winner.Index] = reason;
+            available[winner.Index] = available[winner.Index] with { RawValue = 0 };
         }
-
-        LastNominations = NominateFamilyActivities.Nominate(candidates);
-        var selected = NominateFamilyActivities.Select(LastNominations);
-        CompanionAction? best = selected is { } winner ? Actions[winner.Index] : null;
         Activity.Select(best, ctx);
         EvaluationId++;
         EvaluationTick = Terraria.Main.GameUpdateCount;

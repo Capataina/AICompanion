@@ -14,6 +14,7 @@ BehaviourSelection/
 ├─ ChooseBehaviour.cs          the scorer and the sole list of behaviour instances
 ├─ EvaluatePreparedActivities.cs captured candidate values and side-effect-free shared utility comparison
 ├─ NominateFamilyActivities.cs family child nominations and parent comparison on identical values
+├─ ValidatePreparedActivity.cs captured target binding and activation-time availability checks
 ├─ OwnCurrentActivity.cs one primary activity's identity, entry, suspension and replacement
 └─ EvaluateConsiderations.cs   named scoring curves
 ```
@@ -27,6 +28,10 @@ Incumbent commitment is deliberately independent of the shared body-stall flag. 
 Prepare is required for every adapter rather than an optional hook. Score and ForecastTicks receive no world context. All ordinary, combat and environmental candidates obey that boundary, including the transitional follow, wander, kite and survival adapters whose responsibilities will move to the final family/shared-system structure. This preserves their current preferences while making comparison independent of discovery cadence.
 
 Zero and invalid candidates produce no family nomination. If all families are empty, selection returns no activity and releases the former one; the coordinator holds ordinary movement while independent hands and earlier safety/recovery paths retain their existing contracts. Positive candidates use one tie key at both levels: their stable registration index. Group order and duplicated identical candidates cannot change the result. The flat selector exists only as a test reference.
+
+Each prepared candidate also captures its target binding. Before activation, the chooser verifies that the adapter still names that identity, that an NPC remains alive/active in the same spawn generation, or that an item still has quantity and retains its type. A rejected candidate keeps its original raw value and named rejection in the ledger but loses selectable value. Families nominate again from the remaining prepared board without discovery. Shared opportunity costs are recomputed from captured values so a rejected work offer cannot keep suppressing companionship. Each rejection removes one candidate, bounding reconsideration by the board size.
+
+This binding check does not establish native tile permission, a useful arrival pose, or item spawn generation for same-type slot reuse. Those remain the activity-specific offer and native interaction contracts; non-entity identities currently use the adapter's existing equality semantics. It also does not make an unresolved route proven merely because its target still exists.
 
 The grouping is active while responsibility migration continues. Mine/chop belong to Gathering; guard/hunt and the transitional kite/survive adapters belong to Combat; loot, pots, torches and transitional walk-with/wander belong to NearbyAssistance. Survival is not part of the final Combat family: the shared-safety package must assume that duty before those adapters disappear. Current nominations distinguish positive candidates from empty families; richer unresolved-method eligibility and activation-time revalidation remain separate offer-contract work.
 

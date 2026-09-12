@@ -25,6 +25,7 @@ internal static class VerifyCompanionActivities
             ConsecutiveJobsEarnTheirOwnAllowance();
             ActivityOwnershipSurvivesInterruption();
             InvalidCandidatesCannotBecomeTheFallback();
+            InvalidatedCandidatesAreReconsideredWithoutDiscovery();
             StallsSurviveBehaviourChanges();
             ComfortableFollowingHasNoRegroupPressure();
             RemoteJobReleasesAndDiscoversNearbyOre();
@@ -57,14 +58,23 @@ internal static class VerifyCompanionActivities
         public float Value = 1;
         public int Entries;
         public int Exits;
+        public int Preparations;
+        public Action? DuringPreparation;
+        public live::AICompanion.Companion.Brain.BehaviourSelection.PurposeFamily Purpose
+            = live::AICompanion.Companion.Brain.BehaviourSelection.PurposeFamily.NearbyAssistance;
         public override string Name => "probe";
         public override live::AICompanion.Companion.Brain.BehaviourSelection.PurposeFamily Family
-            => live::AICompanion.Companion.Brain.BehaviourSelection.PurposeFamily.NearbyAssistance;
+            => Purpose;
         public override Vector2? ActivityTarget => Target;
         public override object ActivityIdentity => Identity;
         public bool Allows(live::AICompanion.Companion.Brain.Behaviours.ActionContext ctx) => AllowsTarget(ctx, Target, Identity);
         private float preparedValue;
-        public override void Prepare(in live::AICompanion.Companion.Brain.Behaviours.ActionContext ctx) => preparedValue = Allows(ctx) ? Value : 0f;
+        public override void Prepare(in live::AICompanion.Companion.Brain.Behaviours.ActionContext ctx)
+        {
+            Preparations++;
+            DuringPreparation?.Invoke();
+            preparedValue = Allows(ctx) ? Value : 0f;
+        }
         public override float Score() => preparedValue;
         public override void Enter(in live::AICompanion.Companion.Brain.Behaviours.ActionContext ctx) => Entries++;
         public override void Exit(in live::AICompanion.Companion.Brain.Behaviours.ActionContext ctx) { Exits++; base.Exit(ctx); }
@@ -116,6 +126,44 @@ internal static class VerifyCompanionActivities
             "zero-value children must leave all families empty rather than activate the last registered behaviour");
         chooser.Actions.Clear();
         Require(chooser.Choose(ctx) == null, "an empty board must produce no activity rather than indexing a missing fallback");
+    }
+
+    private static void InvalidatedCandidatesAreReconsideredWithoutDiscovery()
+    {
+        foreach (string invalidation in new[] { "identity", "enemy", "generation", "item", "item-type", "all" })
+        {
+            var (_, ctx) = VerifyOreWork.SetUp(Policy.Disabled, TileID.Copper, new Point(25, 59));
+            var first = new ActivityProbe { Target = ctx.Player.Bottom, Value = 2 };
+            if (invalidation is "enemy" or "generation") first.Identity = new NPC { active = true, life = 10, whoAmI = 12 };
+            if (invalidation is "item" or "item-type") first.Identity = new Item { active = true, stack = 1, type = ItemID.CopperOre };
+            var second = new ActivityProbe { Target = ctx.Player.Bottom, Value = 1 };
+            if (invalidation != "identity") second.Purpose = live::AICompanion.Companion.Brain.BehaviourSelection.PurposeFamily.Combat;
+            if (invalidation == "all") second.Identity = new Item { active = false, stack = 0 };
+            second.DuringPreparation = () =>
+            {
+                if (first.Identity is NPC npc)
+                {
+                    if (invalidation == "generation") live::AICompanion.Companion.Brain.WorldObservation.HostileAttackSources.Spawn(npc);
+                    else npc.active = false;
+                }
+                else if (first.Identity is Item item)
+                {
+                    if (invalidation == "item-type") item.type = ItemID.IronOre;
+                    else item.stack = 0;
+                }
+                else first.Identity = new object();
+            };
+            var chooser = ctx.Companion.Brain.Chooser;
+            chooser.Actions.Clear(); chooser.Actions.Add(first); chooser.Actions.Add(second);
+            Require(ReferenceEquals(chooser.Choose(ctx), invalidation == "all" ? null : second)
+                && first.Entries == 0 && second.Entries == (invalidation == "all" ? 0 : 1),
+                "an invalidated nomination must yield to its prepared sibling: " + invalidation);
+            Require(first.Preparations == 1 && second.Preparations == 1,
+                "activation reconsideration must not repeat discovery: " + invalidation);
+            Require(chooser.LastScores[0].Raw == 2 && chooser.LastScores[0].Final == 0
+                && chooser.LastScores[0].Error.StartsWith("prepared-"),
+                "the rejected nomination must retain its original value and explicit cause: " + invalidation);
+        }
     }
 
     private static void ContinuingTargetsKeepTheirIdentity()
