@@ -43,6 +43,8 @@ The general rule those five follow: **record the rejected option and the reason 
 
 ## Traps
 
+Decision and navigation payloads retain engine-gravity, model-gravity, gravity-enabled and gravity-observation-tick from the motor's AI-entry observation. These distinguish a native/model environment mismatch from a different jump impulse. The source tick matters when recording retained state; the enabled flag matters during recovery. The recorder never runs another movement proof to produce these values.
+
 The continuous safety fields carry a response identity, active flag, current kind/reason and last end reason. Navigation snapshots preserve the same owner alongside the shared escape target and phase. A safety response can exist with no ordinary activity and without a new chooser comparison. Its identity denotes one retained response, not a completed escape; release and the observed body state must be checked separately. Downing records explicit cancellation rather than leaving the previous response active.
 
 Player intent records both vector axes, travel confidence, supporting sample count and local-work fraction. These describe the bounded observer's inference; velocity remains a separate physical observation. Confidence without samples is not evidence of a journey, and an inferred direction is not proof that a future meeting position is reachable.

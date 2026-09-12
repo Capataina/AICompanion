@@ -407,7 +407,8 @@ public sealed class BrainTelemetry : ModSystem
                 freshGrant.RequestedOwner, freshGrant.AppliedOwner, DescribeControls(freshGrant.RequestedMovement),
                 DescribeControls(freshGrant.AppliedMovement), freshGrant.Hand.ToString(), freshGrant.AppliedVelocity, freshGrant.MotorApplications);
         string controls = DescribeControls(companion.Motor.AppliedControls);
-        string activityControls = controls + $";activity-id={activity.Id};activity-phase={activity.Phase};activity-reason={activity.Reason}";
+        string activityControls = controls + $";activity-id={activity.Id};activity-phase={activity.Phase};activity-reason={activity.Reason}"
+            + FormattableString.Invariant($";gravity-observation-tick={companion.Motor.GravityObservationTick};engine-gravity={companion.Motor.ObservedEngineGravity:R};model-gravity={companion.Motor.ObservedModelGravity:R};gravity-enabled={companion.Motor.ObservedGravityEnabled}");
         var guard = default(Behaviours.Companionship.GuardAction);
         var mine = default(Behaviours.Work.MineAction);
         var chop = default(Behaviours.Work.ChopAction);

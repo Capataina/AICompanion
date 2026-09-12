@@ -69,6 +69,10 @@ internal static class VerifyObservationLifecycle
         }
         recorder.OnWorldLoad();
         string path = Directory.GetFiles(BrainTelemetry.Folder, "*.tsv").OrderByDescending(File.GetLastWriteTimeUtc).First();
+        // Distinct values catch a recorder that duplicates one side or queries a later pose.
+        typeof(NPC).GetProperty("gravity")!.SetValue(companion.NPC, .1234f);
+        float modelGravity = live::AICompanion.Companion.Brain.SharedMovementSystem.BodyMotion.GravityAt(
+            live::AICompanion.Companion.Brain.SharedMovementSystem.MovementQueries.World, companion.Motor.State);
         VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
         VerifyCompanionLifecycle.TickWithOneControlGrant(companion); recorder.OnWorldUnload();
         string[] lines = File.ReadAllLines(path);
@@ -87,6 +91,12 @@ internal static class VerifyObservationLifecycle
         string events = File.ReadAllText(Path.ChangeExtension(path, null) + "-events.jsonl");
         foreach (string family in new[] { "Gathering", "Combat", "NearbyAssistance" })
             Require(events.Contains("family:" + family + "=child:"), "decision writer omitted a family nomination: " + family);
+        string navigation = File.ReadLines(Path.ChangeExtension(path, null) + "-events.jsonl")
+            .Single(line => line.Contains("\"kind\":\"navigation-state\"", StringComparison.Ordinal));
+        Require(navigation.Contains("engine-gravity=0.1234;")
+            && navigation.Contains(FormattableString.Invariant($"model-gravity={modelGravity:R};"))
+            && navigation.Contains($"gravity-observation-tick={Main.GameUpdateCount};"),
+            "navigation evidence must preserve separately captured engine/model gravity and its source tick");
     }
 
     private static void VerifyRecoveryDoesNotRefreshTheChoice()

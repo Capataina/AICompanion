@@ -459,6 +459,8 @@ The planner generates directed traversal edges and uses A*-based search. Retaine
 
 The live predictor uses a Terraria collision adapter; portable replay uses an approximation. Shared control code does not make the backends identical. Traversal preparation, local control-sequence proof, the actual entry pose and the native update must agree for a planned step to succeed. EngineReplay contains native collision and route fixtures; their passing history establishes those fixtures, not every live cave.
 
+Jump candidates account for the movement backend's current gravity, so a small ledge can receive a smaller hop under reduced gravity. The same simulation still has to prove the resulting landing. Movement recordings preserve engine and model gravity separately, alongside the applied jump scale, to help distinguish a wrong environment model from a wrong control choice.
+
 Successfully executed ordinary traversals become directed world memory with terrain fingerprints and physical-failure invalidation. Archive eligibility is restricted for capability/resource states the format does not support. A previous success is reusable evidence under its recorded conditions, not a permanent assertion that the place is reachable from anywhere.
 
 ## The hands

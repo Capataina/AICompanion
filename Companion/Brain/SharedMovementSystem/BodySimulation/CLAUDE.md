@@ -2,6 +2,8 @@
 
 The body's numbers and shape tests live here and nowhere else: the motor in `../TerrariaIntegration/` forwards to them, the planner simulates with them, the reflexes roll dodges out with them. A constant that existed in two places was the first navigation bug class (a jump the planner found and the body could not fly), and one home is the fix.
 
+BodyMotion also exposes the active backend's current gravity for proposing jump controls. Portable scenarios use their existing vertical rule; the native backend supplies its altitude/liquid rule. This estimate sizes a candidate impulse and never substitutes for simulating the flight, where the environment can change. Reading ordinary gravity unconditionally during candidate generation while simulating with native gravity can remove valid small hops from the graph.
+
 ```
 BodySimulation/
 ├─ CLAUDE.md

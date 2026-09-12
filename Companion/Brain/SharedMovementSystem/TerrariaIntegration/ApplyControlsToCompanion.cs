@@ -36,6 +36,10 @@ public sealed class CompanionMotor
     public string DivergenceInvalidReason { get; private set; } = "no-prediction";
     public Controls AppliedControls { get; private set; }
     public BodyState ObservedState { get; private set; }
+    public float ObservedEngineGravity { get; private set; }
+    public float ObservedModelGravity { get; private set; }
+    public bool ObservedGravityEnabled { get; private set; }
+    public ulong GravityObservationTick { get; private set; }
     public BodyState? PredictedState => expected;
     public string ControlSource { get; private set; } = "uninitialised";
     public long ControlApplications { get; private set; }
@@ -104,6 +108,10 @@ public sealed class CompanionMotor
         if (OnGround)
             mobility = mobility with { AirJumpsLeft = Capabilities.AirJumpCount };
         ObservedState = State;
+        ObservedEngineGravity = npc.gravity;
+        ObservedModelGravity = BodyMotion.GravityAt(MovementQueries.World, ObservedState);
+        ObservedGravityEnabled = !npc.noGravity;
+        GravityObservationTick = Main.GameUpdateCount;
     }
 
     public void Stop() => Apply(Controls.None, "idle");

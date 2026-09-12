@@ -33,7 +33,8 @@ internal static class VerifyEngineMotion
         foreach (int liquid in Enumerable.Range(0, 4))
         foreach (float left in new[] { 390f, 398f, 405f })
         foreach (float bottom in new[] { 951f, 960f, 925f })
-        foreach (Controls controls in new[] { Controls.None, new Controls(4), new Controls(-4, Jump: true), new Controls(2, FallThrough: true, Descend: true) })
+        foreach (Controls controls in new[] { Controls.None, new Controls(4), new Controls(-4, Jump: true),
+            new Controls(-4, Jump: true, JumpScale: BodyPhysics.JumpScaleForTiles(2) * .5f), new Controls(2, FallThrough: true, Descend: true) })
         {
             for (int x = 20; x < 35; x++)
             {

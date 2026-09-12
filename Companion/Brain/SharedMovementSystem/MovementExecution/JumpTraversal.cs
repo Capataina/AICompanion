@@ -41,6 +41,7 @@ public sealed class JumpTraversal : Traversal
         // direction and speed rather than per landing tile, because the run-up branch of Steer
         // reads the take-off tile, the profile speed and the body, and never the landing.
         var takeOffs = new Dictionary<(int Direction, float StartVx), BodyState?>();
+        float gravity = BodyMotion.GravityAt(NavGrid.World, BodyState.Standing(fromPose));
         for (int dx = -NavGrid.JumpGapTiles; dx <= NavGrid.JumpGapTiles; dx++)
         {
             // A jump that lands level or lower is only worth flying from an edge: with the next
@@ -61,7 +62,7 @@ public sealed class JumpTraversal : Traversal
                 int rise = (int)Math.Ceiling((fromPose.Bottom - targetPose.Bottom) / 16f);
                 // Every profile that could land, lowest arc and fastest start first, and the first
                 // that does is the edge.
-                foreach ((float scale, float startVx) in JumpProfiles(rise, Math.Sign(dx)))
+                foreach ((float scale, float startVx) in JumpProfiles(rise, Math.Sign(dx), gravity))
                 {
                     yield return null;
                     // The arc is proven from the take-off the performer actually reaches, not from
@@ -141,20 +142,28 @@ public sealed class JumpTraversal : Traversal
 
     /// <summary>
     /// The jumps the body can start with for a rise of so many tiles, in the order the planner
-    /// tries them: each velocity scale of the fighter AI's table and the full jump whose apex
-    /// clears the rise, lowest first, and for each the start speed at the walk, half of it and
+    /// tries them: the fighter AI's hop heights adjusted to current gravity, plus the full
+    /// jump, whose estimated apex clears the rise, lowest first, and for each the start speed at the walk, half of it and
     /// standing. Lowest first because the shortest flight is the cheapest edge and the arc
     /// least likely to meet a ceiling; the table alone over-jumped a four-tile rise onto a
     /// platform above it, and the walk alone hit a three-tile overhang the half-speed arc
     /// clears. A jump straight up has no run-up, so only the standing start is offered.
     /// </summary>
-    public static IEnumerable<(float scale, float startVx)> JumpProfiles(int rise, int direction)
+    public static IEnumerable<(float scale, float startVx)> JumpProfiles(int rise, int direction, float gravity = BodyPhysics.Gravity)
     {
+        if (!float.IsFinite(gravity) || gravity <= 0f) yield break;
         float need = Math.Max(0, rise) * 16f;
-        foreach (float scale in JumpScales)
+        // Preserve the nominal hop heights under the current environment. The analytical
+        // apex only proposes impulses; native simulation still decides whether they land.
+        float adjustment = MathF.Sqrt(gravity / BodyPhysics.Gravity);
+        float previous = 0f;
+        for (int i = 0; i <= JumpScales.Length; i++)
         {
+            float scale = i == JumpScales.Length ? 1f : MathF.Min(1f, JumpScales[i] * adjustment);
+            if (scale <= previous) continue;
+            previous = scale;
             float apex = BodyPhysics.JumpVelocity * scale;
-            apex = apex * apex / (2f * BodyPhysics.Gravity);
+            apex = apex * apex / (2f * gravity);
             if (apex < need)
                 continue;
             if (direction == 0)

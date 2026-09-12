@@ -66,5 +66,8 @@ public interface ITileWorld
 /// </summary>
 public interface IBodySimulationWorld
 {
+    /// <summary>Current vertical acceleration for proposing controls. A proposal still
+    /// requires complete simulation because the environment can change along its flight.</summary>
+    float GravityAt(BodyState state);
     BodyState Simulate(BodyState state, Controls controls, MovementCapabilities capabilities);
 }

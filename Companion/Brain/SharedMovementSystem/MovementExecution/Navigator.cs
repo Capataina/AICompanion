@@ -685,7 +685,7 @@ public sealed class Navigator
         if (step.Kind == MoveKind.Jump)
         {
             int rise = (int)Math.Ceiling((live.Bottom - NavGrid.FeetWorld(step.Tile).Y) / 16f);
-            foreach (var profile in JumpTraversal.JumpProfiles(rise, Math.Sign(step.Tile.X - live.FeetTile.X)))
+            foreach (var profile in JumpTraversal.JumpProfiles(rise, Math.Sign(step.Tile.X - live.FeetTile.X), BodyMotion.GravityAt(NavGrid.World, live)))
                 candidates.Add(step with { JumpScale = profile.scale, StartVx = profile.startVx });
         }
         else

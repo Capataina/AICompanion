@@ -21,6 +21,8 @@ The prediction backend follows ordinary NPC movement: controls, step helpers, gr
 
 Liquid flags persist until the body is fully dry. Entering water directly from honey retains honey motion; shimmer has priority over honey. A wet state is not inferred solely from the tile under the feet in the native backend.
 
+SimulateTerrariaBody owns the gravity query used by native prediction and jump proposals. It reads altitude, world dimensions and the prior liquid state, matching the engine's pre-AI gravity phase. The motor captures the engine's current gravity separately from the model's value at AI entry, with the source tick and whether gravity was enabled. Diagnostics consume those observations rather than querying a later post-helper pose. A disabled-gravity recovery body is not an ordinary gravity-parity sample.
+
 Run `dotnet run --project Tools/EngineReplay` from the repository root. That tool calls Terraria’s own private NPC collision wrapper as the independent comparison. `Tools/NavReplay` runs a portable approximation and cannot prove native parity. Live telemetry adds the effects and interruptions that a pure collision test deliberately excludes.
 
 ## Traps

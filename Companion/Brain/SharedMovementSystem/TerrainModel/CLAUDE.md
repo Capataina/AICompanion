@@ -11,6 +11,8 @@ TerrainModel/
 
 TerrariaIntegration supplies the live implementation. TextTileWorld supplies deterministic captured geometry. Its alphabet round-trips flat platforms, sloped platforms and pass-through half blocks as distinct glyphs; the recorder calls the same encoder. Marker glyphs represent air and must not replace a terrain feature in a fixture.
 
+The optional body backend supplies both one-tick simulation and current gravity. A consumer can propose an appropriately sized jump without importing game types or duplicating the native altitude formula. Current gravity is an estimate for that proposal, not a promise that acceleration stays constant along the route.
+
 Outside a captured window, sides and ceiling are walls while the bottom is open. AskedOutside records whether an algorithm consulted missing terrain. A closed graph inside that window proves a result about this movement model; it does not prove physical impossibility in Terraria. Missing edges and unsupported abilities can also close a graph.
 
 Tile revision changes invalidate retained execution proofs. Text-world Set increments it; the live adapter receives engine mutation events. Cached route proposals also have bounded expiry for terrain changes the engine does not announce.

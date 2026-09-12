@@ -35,4 +35,5 @@ public sealed class GameTileWorld : ITileWorld, IBodySimulationWorld
     public byte LiquidAmount(int x, int y) => InWorld(x, y) ? Main.tile[x, y].LiquidAmount : (byte)0;
     public BodyState Simulate(BodyState state, Controls controls, MovementCapabilities capabilities)
         => SimulateTerrariaBody.Step(state, controls, capabilities);
+    public float GravityAt(BodyState state) => SimulateTerrariaBody.GravityAt(state);
 }

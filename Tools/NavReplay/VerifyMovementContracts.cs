@@ -454,6 +454,7 @@ internal static class VerifyMovementContracts
         public bool Released;
         public int Simulations { get; private set; }
         public int Revision { get; set; }
+        public float GravityAt(BodyState state) => BodyPhysics.Gravity;
         public BodyState Simulate(BodyState state, Controls controls, MovementCapabilities capabilities)
         {
             Simulations++;

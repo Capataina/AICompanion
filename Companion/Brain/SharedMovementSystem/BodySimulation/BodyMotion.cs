@@ -20,6 +20,10 @@ public static class BodyMotion
     /// <summary>The longest downward move taken in one piece; a platform is one pixel row, so a fall at the cap crosses it inside a step.</summary>
     private const float SubStep = 4f;
 
+    public static float GravityAt(ITileWorld world, BodyState state)
+        => world is IBodySimulationWorld authoritative ? authoritative.GravityAt(state)
+            : BodyPhysics.StepFall(0f, state.Wet, state.LiquidKind);
+
     public static BodyState Step(ITileWorld world, BodyState s, Controls c)
         => Step(world, s, c, s.Capabilities);
 

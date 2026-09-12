@@ -32,7 +32,7 @@ internal static class VerifyOreWork
             AReachableOreProducesANativeBreak();
             AUsefulCurrentPoseNeedsNoApproach();
             AProjectileInterruptsCoherentToolOwnership();
-            RaisedLipsAtOrdinaryGravityProduceWork();
+            RaisedLipsAtBothGravitiesProduceWork();
             NativeToolOutcomesDistinguishAttemptsFromProgress();
             PreparedWorkForecastRespondsToNativeProgress();
             RemainingToolWorkMatchesNativeCompletion();
@@ -260,12 +260,13 @@ internal static class VerifyOreWork
 
     private enum BaselineMode { FullBrain, HeldActivity, FixedWorkingPose }
 
-    private static void RaisedLipsAtOrdinaryGravityProduceWork()
+    private static void RaisedLipsAtBothGravitiesProduceWork()
     {
-        foreach (bool mirrored in new[] { false, true })
-            foreach (BaselineMode mode in new[] { BaselineMode.FullBrain, BaselineMode.HeldActivity })
-                Require(MeasureRaisedLipWork(mirrored, mode, 90),
-                    $"ordinary-gravity raised lip must produce a native ore break: mirrored={mirrored}, mode={mode}");
+        foreach (int floor in new[] { 60, 90 })
+            foreach (bool mirrored in new[] { false, true })
+                foreach (BaselineMode mode in new[] { BaselineMode.FullBrain, BaselineMode.HeldActivity })
+                    Require(MeasureRaisedLipWork(mirrored, mode, floor),
+                        $"raised lip must produce a native ore break: floor={floor}, mirrored={mirrored}, mode={mode}");
     }
 
     internal static int RunRaisedLipBaseline()

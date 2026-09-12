@@ -13,6 +13,16 @@ namespace AICompanion.Companion.Brain.SharedMovementSystem;
 /// </summary>
 public static class SimulateTerrariaBody
 {
+    public static float GravityAt(BodyState state)
+    {
+        // NPC.UpdateNPC_UpdateGravity runs before AI from the previous liquid state.
+        // This is shared by trajectory proposals and native one-tick prediction.
+        if (state.Wet) return state.LiquidKind switch { 2 => 0.1f, 3 => 0.15f, _ => 0.2f };
+        float size = Main.maxTilesX / 4200f;
+        float altitude = (float)((state.Bottom - BodyPhysics.Height) / 16f - (60f + 10f * size * size));
+        return 0.3f * Math.Clamp(altitude / (float)(Main.worldSurface / 6.0), 0.25f, 1f);
+    }
+
     public static BodyState Step(BodyState state, Controls controls, MovementCapabilities capabilities)
     {
         // StepUp reads neighbouring tiles without clamping. A hypothetical fall may leave
@@ -40,17 +50,8 @@ public static class SimulateTerrariaBody
             // NPC.UpdateNPC_UpdateGravity runs before AI using the previous liquid state.
             // Space changes gravity continuously; preserve the engine rule rather than make
             // a surface-derived constant become a promise for sky travel.
-            float gravity = 0.3f, cap = 10f;
-            float size = Main.maxTilesX / 4200f;
-            float altitude = (float)((state.Bottom - height) / 16f - (60f + 10f * size * size));
-            gravity *= Math.Clamp(altitude / (float)(Main.worldSurface / 6.0), 0.25f, 1f);
-            if (state.Wet)
-            {
-                (gravity, cap) = state.LiquidKind switch
-                {
-                    2 => (0.1f, 4f), 3 => (0.15f, 5.5f), _ => (0.2f, 7f)
-                };
-            }
+            float gravity = GravityAt(state);
+            float cap = state.Wet ? state.LiquidKind switch { 2 => 4f, 3 => 5.5f, _ => 7f } : 10f;
             velocity.Y = MathF.Min(velocity.Y + gravity, cap);
             if (MathF.Abs(velocity.X) < 0.005f) velocity.X = 0;
             Vector4 downSlope = Collision.WalkDownSlope(position, velocity, width, height, gravity);
