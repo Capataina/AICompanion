@@ -5,7 +5,6 @@ using System.Collections.Generic;
 using AICompanion.Companion.Brain.Behaviours;
 using AICompanion.Companion.Brain.PurposeFamilies.Combat;
 using AICompanion.Companion.Brain.PurposeFamilies.Gathering;
-using AICompanion.Companion.Brain.Behaviours.Work;
 using AICompanion.Companion.Brain.PurposeFamilies.NearbyAssistance;
 
 namespace AICompanion.Companion.Brain.BehaviourSelection;
@@ -27,7 +26,7 @@ public sealed class Chooser
         new CollectNearbyItems(),
         new ChopTree(),
         new MineOre(),
-        new PlaceNearbyTorches(),
+        new LightUsefulArea(),
         new KeepCompany(),
     };
 

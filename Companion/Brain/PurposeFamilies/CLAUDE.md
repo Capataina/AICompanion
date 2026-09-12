@@ -10,4 +10,4 @@ PurposeFamilies/
 └─ NearbyAssistance/  accompanying the player and useful local assistance
 ```
 
-Guarding, hunting, mining, chopping, keeping company and collection live in this tree. Lighting and reusable pot/torch methods retain an adapter under Behaviours while their responsibilities migrate. Their declared PurposeFamily, rather than their folder, determines nomination. Shared danger, movement, tools, hands and activity lifecycle retain their existing owners.
+All seven ordinary activities live in this tree. Their declared PurposeFamily, rather than their folder, determines nomination. Nearby assistance also contains the reusable pot/torch interaction adapter; it is not another selectable activity. Shared danger, movement, native tools, hands and activity lifecycle retain their existing owners.

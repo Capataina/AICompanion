@@ -6,7 +6,6 @@ using Terraria;
 using Terraria.ID;
 using AICompanion.Companion.Brain.BehaviourSelection;
 using AICompanion.Companion.Brain.Behaviours;
-using AICompanion.Companion.Brain.Behaviours.Work;
 using AICompanion.Companion.Brain.PositionSelection;
 using AICompanion.Companion.Brain.SharedMovementSystem;
 using AICompanion.Companion.Brain.WorldObservation;

@@ -1,12 +1,12 @@
 # Behaviour contract — preparation, execution and retained admission
 
-`CompanionAction.cs` defines the shared contract used by activities in `../PurposeFamilies/` and the remaining nearby-work adapter. Prepare captures an opportunity; Score and ForecastTicks expose its value and time estimate; Enter, Exit and Suspend manage execution transitions. Execute may operate an admitted tool and returns a PositionRequest. It never moves the NPC or owns independent weapon choice. Internal method state stays with the activity that uses it, while the common activity owner controls which executor receives the tick. A zero value means no selectable offer; protection's urgency may exceed the ordinary utility band.
+`CompanionAction.cs` defines the shared contract used by activities in `../PurposeFamilies/`. Prepare captures an opportunity; Score and ForecastTicks expose its value and time estimate; Enter, Exit and Suspend manage execution transitions. Execute may operate an admitted tool and returns a PositionRequest. It never moves the NPC or owns independent weapon choice. Internal method state stays with the activity that uses it, while the common activity owner controls which executor receives the tick. A zero value means no selectable offer; protection's urgency may exceed the ordinary utility band.
 
 ```
 Behaviours/
 ├─ CLAUDE.md
 ├─ CompanionAction.cs   the base and ActionContext (the companion, observations, player, and stranded fact)
-└─ Work/                nearby interaction methods and thin work-policy readers
+└─ Work/                thin per-character work-policy readers
 ```
 
 ## Adding an action, or a family

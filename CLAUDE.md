@@ -41,12 +41,12 @@ AICompanion/
 │  │  ├─ WorldObservation/      player, terrain, threat and activity facts
 │  │  ├─ BehaviourSelection/    utility scoring and considerations
 │  │  ├─ ActivityCoordination/  final movement application, hand grants and distant recovery
-│  │  ├─ Behaviours/            shared activity contract and work adapters
-│  │  │  └─ Work/               nearby interaction methods and work-policy readers
+│  │  ├─ Behaviours/            shared activity contract and work-policy readers
+│  │  │  └─ Work/               thin per-character work-policy access
 │  │  ├─ PurposeFamilies/      consolidated ordinary activities
 │  │  │  ├─ Combat/            guarding and hunting
 │  │  │  ├─ Gathering/         mining and chopping
-│  │  │  └─ NearbyAssistance/  keeping company and collecting drops or pot contents
+│  │  │  └─ NearbyAssistance/  lighting, collection and keeping company
 │  │  ├─ PositionSelection/     position requests and candidate scoring
 │  │  ├─ CombatReflexes/        immediate threat assessment
 │  │  ├─ SharedSafety/          independent environmental escape and collision response ownership
