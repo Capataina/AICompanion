@@ -34,7 +34,7 @@ public sealed class FollowingMakesRouteProgress : ICheck
         for (int i = 0; i < session.Count; i++)
         {
             bool active = request.Text[i] == "WithPlayer" && satisfied.Number[i] == 0f
-                && action.Text[i] == "walk-with" && recovery.Number[i] == 0f && fresh.Number[i] == 1f;
+                && action.Text[i] is "walk-with" or "keep-company" && recovery.Number[i] == 0f && fresh.Number[i] == 1f;
             if (!active)
             {
                 if (start >= 0) foreach (Finding finding in ReportWindow(session, start, i - 1, dx, dy, reason, search, attempt, remaining, completed)) yield return finding;
@@ -67,7 +67,7 @@ public sealed class FollowingMakesRouteProgress : ICheck
                 Severity.Potential,
                 CheckName,
                 $"follow remained unsatisfied for {rows} ticks without completing a route step ({classification})",
-                $"The action remained walk-with and request remained WithPlayer while follow reason was "
+                $"The companionship activity kept requesting WithPlayer while follow reason was "
                     + $"{FindStretches.Summarise(reason, new Stretch(start, end), 3)}. Navigator identity began search {search.Number[start]:0}, "
                     + $"attempt {attempt.Number[start]:0}, completed step {completed.Number[start]:0}, "
                     + $"remaining estimate {remaining.Number[start]:0.0} ticks and ended search {search.Number[end]:0}, "
@@ -115,12 +115,14 @@ public sealed class FollowingRespondsAfterDeparture : ICheck
             }
             if (start < 0)
                 continue;
-            if (action.Text[i] == "walk-with" && session["brain_fresh"].Number[i] == 1f)
+            bool reunion = action.Text[i] == "walk-with"
+                || action.Text[i] == "keep-company" && session.Find("request")?.Text[i] == "WithPlayer";
+            if (reunion && session["brain_fresh"].Number[i] == 1f)
             {
                 double latency = elapsed.Number[i] - elapsed.Number[start];
                 yield return new Finding(Severity.Oddity, Name,
                     $"following was first selected {latency:0.0} ms after an observed distant moving-player state",
-                    $"The observed state began at tick {session.Tick(start)} and walk-with first appeared at tick {session.Tick(i)}. "
+                    $"The observed state began at tick {session.Tick(start)} and a companionship reunion first appeared at tick {session.Tick(i)}. "
                         + "This is observed timing, not frame cost and not proof of an error: guard, work, recovery flight and an existing valid route can all explain a delay.",
                     session.Tick(start), session.Tick(i), i - start + 1);
                 start = -1;
@@ -129,7 +131,7 @@ public sealed class FollowingRespondsAfterDeparture : ICheck
         if (start >= 0)
             yield return new Finding(Severity.Oddity, Name,
                 "the player stayed distant and moving through the recorded end without a follow selection",
-                $"The observed distant moving-player state began at tick {session.Tick(start)}. The capture ended before walk-with appeared, so this names missing response evidence rather than a definitive failure; guard, work, recovery or capture truncation could explain it.",
+                $"The observed distant moving-player state began at tick {session.Tick(start)}. The capture ended before a companionship reunion appeared, so this names missing response evidence rather than a definitive failure; guard, work, recovery or capture truncation could explain it.",
                 session.Tick(start), session.Tick(session.Count - 1), session.Count - start);
     }
 }

@@ -261,7 +261,7 @@ internal static class VerifyCompanionActivities
         {
             brain.Chooser.Activity.Select(i % 2 == 0
                 ? new live::AICompanion.Companion.Brain.Behaviours.Combat.HuntAction()
-                : new live::AICompanion.Companion.Brain.Behaviours.Companionship.WalkWithPlayerAction(), ctx);
+                : new live::AICompanion.Companion.Brain.PurposeFamilies.NearbyAssistance.KeepCompany(), ctx);
             Tick(i % 2 == 0 ? RequestKind.WithPlayer : RequestKind.Guard, i % 8 - 4);
         }
         Require(brain.MovementStalled, "local oscillation and behaviour churn must not reset continuing non-progress");

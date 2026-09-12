@@ -98,7 +98,7 @@ public static class ScenarioCapture
         // Follow failure: walking with the player, far behind, and no nearer than when the
         // count began; a companion closing the gap at the player's own pace is doing its job.
         float distance = Vector2.Distance(npc.Bottom, player.Bottom);
-        bool behind = brain.LastAction?.Name == "walk-with" && distance > FollowGapTiles * 16f;
+        bool behind = brain.LastRequest.Kind == PositionSelection.RequestKind.WithPlayer && distance > FollowGapTiles * 16f;
         if (!behind)
             followBehind = 0;
         else if (followBehind++ == 0)
@@ -232,7 +232,7 @@ public static class ScenarioCapture
         // This should never fire; it is here so that if it ever does, the window is on disk.
         // Both actions the drop gate opens for, not only the follow: guarding him at the bottom of a
         // shaft is the same state and the same defect if the tier keeps the body on the lip.
-        bool heldOut = brain.LastAction?.Name is "walk-with" or "guard" && brain.Positioner.PlayerOnlyOneWay && brain.Positioner.Chosen != null && brain.Positioner.ChosenReturnable;
+        bool heldOut = brain.LastRequest.Kind is PositionSelection.RequestKind.WithPlayer or PositionSelection.RequestKind.Guard && brain.Positioner.PlayerOnlyOneWay && brain.Positioner.Chosen != null && brain.Positioner.ChosenReturnable;
         tierHeldOut = heldOut ? tierHeldOut + 1 : 0;
         if (tierHeldOut >= OneWayHeldTicks && tick >= tierCooldown)
         {

@@ -12,7 +12,7 @@ public sealed class ArrivalDoesNotStrandFollowing : ICheck
     {
         bool Contradiction(int i)
         {
-            if (s["action"].Text[i] != "walk-with" || s["request"].Text[i] != "WithPlayer" || s["brain_fresh"].Number[i] != 1
+            if (s["action"].Text[i] is not ("walk-with" or "keep-company") || s["request"].Text[i] != "WithPlayer" || s["brain_fresh"].Number[i] != 1
                 || s["recovery_active"].Number[i] != 0 || s["follow_objective_valid"].Number[i] != 0
                 || s["path_steps"].Number[i] != 0 || !s["control"].Text[i].Contains("move=0.00;jump=0")
                 || !Session.TryPair(s["spot"].Text[i], out float x, out float y)) return false;

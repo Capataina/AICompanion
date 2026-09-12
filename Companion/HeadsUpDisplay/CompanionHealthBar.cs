@@ -217,8 +217,7 @@ public class CompanionHealthBar : ModSystem
             "mine" => (TileMiner.PickaxeFor(player).type, "mining"),
             "break-pots" => (ItemID.ClayPot, "breaking pots"),
             "place-torches" => (ItemID.Torch, "placing torches"),
-            "walk-with" => (ItemID.Compass, "following you"),
-            "wander" => (ItemID.Sunflower, "wandering"),
+            "keep-company" => (ItemID.Compass, "keeping company"),
             _ => (0, action),
         };
     }

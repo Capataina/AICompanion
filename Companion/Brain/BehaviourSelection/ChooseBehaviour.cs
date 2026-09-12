@@ -7,6 +7,7 @@ using AICompanion.Companion.Brain.Behaviours.Combat;
 using AICompanion.Companion.Brain.Behaviours.Companionship;
 using AICompanion.Companion.Brain.Behaviours.Gathering;
 using AICompanion.Companion.Brain.Behaviours.Work;
+using AICompanion.Companion.Brain.PurposeFamilies.NearbyAssistance;
 
 namespace AICompanion.Companion.Brain.BehaviourSelection;
 
@@ -30,8 +31,7 @@ public sealed class Chooser
         new MineAction(),
         new BreakNearbyPots(),
         new PlaceNearbyTorches(),
-        new WalkWithPlayerAction(),
-        new WanderAction(),
+        new KeepCompany(),
     };
 
     public readonly List<Scored> LastScores = new();
@@ -108,7 +108,7 @@ public sealed class Chooser
             action.Prepare(ctx);
             float raw = action.Score();
             prepared[i] = new(i, action.Name, raw, raw > 0 ? action.ForecastTicks() : 0,
-                action.IsExcursion, action.ActivityTarget != null, action is WalkWithPlayerAction, action == Current);
+                action.IsExcursion, action.ActivityTarget != null, action is KeepCompany, action == Current);
             bindings[i] = ValidatePreparedActivity.Capture(action);
         }
         var comparison = new ActivityComparisonContext(ctx.Senses.Threats.ProtectionUrgency, ctx.Stranded,

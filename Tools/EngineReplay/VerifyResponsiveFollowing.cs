@@ -19,6 +19,7 @@ internal static class VerifyResponsiveFollowing
     {
         VerifyLocalMotionDoesNotBecomeTravel();
         VerifyIntentEvidenceAndRevision();
+        VerifyCompanyMethodsShareOneActivity();
         VerifyTwoAxisObjective();
         VerifyArrivalSlackCannotStrandFollowing();
         VerifyVerticalPlayerMotionReachesTheProductionFollowAction();
@@ -45,6 +46,47 @@ internal static class VerifyResponsiveFollowing
         }
         Require(!sense.IsTravelling,
             $"repeated motion inside one local area must not become confident travel: intent={sense.Intent}");
+    }
+
+    private static void VerifyCompanyMethodsShareOneActivity()
+    {
+        BuildFloor();
+        var companion = VerifyCompanionLifecycle.Create();
+        var brain = companion.Brain;
+        Player player = Main.LocalPlayer;
+        player.dead = false;
+        player.velocity = Vector2.Zero;
+        companion.NPC.Bottom = player.Bottom = new Vector2(400, 1280);
+        var company = brain.Chooser.Actions.OfType<live::AICompanion.Companion.Brain.PurposeFamilies.NearbyAssistance.KeepCompany>().Single();
+        Require(!brain.Chooser.Actions.Any(a => a.Name is "walk-with" or "wander"), "obsolete companionship candidates remain registered");
+        brain.Chooser.Actions.RemoveAll(a => !ReferenceEquals(a, company));
+        var context = new live::AICompanion.Companion.Brain.Behaviours.ActionContext(companion, brain.Senses);
+        brain.Senses.Update(companion.NPC, player, companion.Breath);
+        Require(brain.Chooser.Choose(context) == company && company.Score() > 0, "company must be a positive ordinary offer while nearby");
+        long identity = brain.Chooser.Activity.Id;
+        bool rested = false, strolled = false;
+        var random = Main.rand;
+        Main.rand = new Terraria.Utilities.UnifiedRandom(1729);
+        try
+        {
+            for (int tick = 0; tick < 2400; tick++)
+            {
+                var request = company.Execute(context);
+                rested |= request.Kind == RequestKind.Hold;
+                strolled |= request.Kind == RequestKind.Exact;
+                Require(request.Kind != RequestKind.WithPlayer, "calm co-location should not keep requesting reunion");
+            }
+        }
+        finally { Main.rand = random; }
+        Require(rested && strolled, "company must preserve both resting and nearby movement methods");
+        player.Bottom += new Vector2(480, 0);
+        brain.Senses.Update(companion.NPC, player, companion.Breath);
+        Require(brain.Chooser.Choose(context) == company && company.Execute(context).Kind == RequestKind.WithPlayer,
+            "departure must switch the same company activity to reunion");
+        Require(brain.Chooser.Activity.Id == identity, "a company method change must not create a new purpose");
+        var stranded = context with { Stranded = true };
+        company.Prepare(stranded);
+        Require(company.Execute(stranded).Kind == RequestKind.Roam, "sealed-pocket company must retain its local roaming method");
     }
 
     private static void VerifyIntentEvidenceAndRevision()

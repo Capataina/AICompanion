@@ -42,8 +42,7 @@ public sealed class DrawCompanionStatus : UIElement
             "loot" => "nearby drops to collect",
             "place-torches" => "lighting a dark route with supplied torches",
             "break-pots" => "nearby pot within reach",
-            "walk-with" => "keeping within your chosen distance",
-            "wander" => "staying nearby while there is time",
+            "keep-company" => "accompanying you and moving nearby when there is time",
             _ => "no activity currently selected"
         };
         string activity = brain.ActivityStatus;

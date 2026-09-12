@@ -42,10 +42,12 @@ AICompanion/
 │  │  ├─ BehaviourSelection/    utility scoring and considerations
 │  │  ├─ ActivityCoordination/  final movement application and compatible hand grants
 │  │  ├─ Behaviours/            choices grouped by purpose
-│  │  │  ├─ Companionship/      follow, guard and wander
+│  │  │  ├─ Companionship/      guard and distant-reunion recovery
 │  │  │  ├─ Combat/             hunt and kite
 │  │  │  ├─ Gathering/          collect nearby drops
 │  │  │  └─ Work/               help with trees and ore
+│  │  ├─ PurposeFamilies/      consolidated ordinary activities
+│  │  │  └─ NearbyAssistance/  keeping company through reunion and local movement
 │  │  ├─ PositionSelection/     position requests and candidate scoring
 │  │  ├─ CombatReflexes/        immediate threat assessment
 │  │  ├─ SharedSafety/          independent environmental escape and collision response ownership

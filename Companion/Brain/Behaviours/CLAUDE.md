@@ -6,7 +6,7 @@ One file per action, grouped by the kind of thing it is, so the list never becom
 Behaviours/
 ├─ CLAUDE.md
 ├─ CompanionAction.cs   the base and ActionContext (the companion, observations, player, and stranded fact)
-├─ Companionship/       being with the player: walk-with, guard, wander
+├─ Companionship/       player protection and distant-reunion recovery
 ├─ Combat/              going after or backing off from enemies: hunt, kite
 ├─ Gathering/           picking things up: loot
 └─ Work/                doing what the player is doing: chop, mine
@@ -20,6 +20,6 @@ The shared activity owner invokes Enter/Exit and Suspend. Default suspension rel
 
 The owner invokes ObserveOutcome after control and hand resolution only for an executing ordinary activity. A suspended activity receives no such progress callback while safety or recovery acts. This separates an interrupted job's failure accounting from the shared body's continuing movement observations.
 
-`IsExcursion` declares whether an action is optional time away from the player. It defaults to true, so newly added opportunistic actions automatically yield to regroup pressure. Following, protection and the transitional kiting adapter opt out because they maintain companionship or immediate safety. Environmental escape belongs to SharedSafety outside ordinary activity selection. Independent weapon firing remains outside the movement competition; a follow request can still shoot while travelling.
+`IsExcursion` declares whether an action is optional time away from the player. It defaults to true, so newly added opportunistic actions automatically yield to regroup pressure. Keeping company, protection and the transitional kiting adapter opt out because they maintain companionship or immediate safety. Keeping company lives in PurposeFamilies/NearbyAssistance and owns reunion, rest and nearby movement as one activity. Environmental escape belongs to SharedSafety outside ordinary activity selection. Independent weapon firing remains outside the movement competition; a follow request can still shoot while travelling.
 
 A behaviour declares its purpose family and is listed once in `../BehaviourSelection/ChooseBehaviour.cs`. Each family nominates a concrete positive-value child; the parent compares those nominations. Equal values use the same stable registration index at both levels. Behaviours are deliberately opportunistic: they follow the player loosely and act on what is already happening nearby. Player-directed missions were abandoned; mastery may later unlock movement abilities such as air jumps, dash, swimming and flight, but none is built. The tool a work behaviour drives lives in `../WorldInteractions/`, never inside the behaviour.

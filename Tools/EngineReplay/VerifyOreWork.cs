@@ -62,7 +62,7 @@ internal static class VerifyOreWork
             var brain = ctx.Companion.Brain;
             var workClock = new live::AICompanion.Companion.Brain.WorldObservation.TileDamageClock();
             workClock.OnWorldLoad();
-            brain.Chooser.Actions.RemoveAll(action => action.Name is not ("mine" or "walk-with"));
+            brain.Chooser.Actions.RemoveAll(action => action.Name is not ("mine" or "keep-company"));
             ctx.Player.Bottom = ctx.Npc.Bottom + new Vector2(separation - 120 * 4, 0);
             for (int tick = 0; tick < 120; tick++)
             {
@@ -80,7 +80,7 @@ internal static class VerifyOreWork
                     for (int tick = 0; tick < pick.useTime; tick++) ctx.Companion.Miner.Tick();
                 }
             var selected = brain.Chooser.Choose(ctx);
-            Require(selected?.Name == (nearlyDone ? "mine" : "walk-with"),
+            Require(selected?.Name == (nearlyDone ? "mine" : "keep-company"),
                 $"departure should distinguish fresh work from a one-hit finish: separation={separation}; nearlyDone={nearlyDone}; selected={selected?.Name}; scores={string.Join(",", brain.Chooser.LastScores.Select(s => s.Action.Name + "=" + s.Final))}");
         }
     }

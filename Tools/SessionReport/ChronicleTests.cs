@@ -127,6 +127,11 @@ public static class ChronicleTests
             Require(!new ColumnsHoldWhatTheyClaim().Run(stalled).Any(), "declared text columns were called malformed numbers");
             Require(!new TheChosenWeaponIsTheBetterOne().Run(stalled).Any(), "outcome-aware attack was judged by damage alone");
             Require(MultiRunReport.Of(new[] { file }).Contains("destination while following remained unsatisfied"), "multi-run output omitted its definitive findings");
+            row["action"] = "keep-company";
+            Require(new ArrivalDoesNotStrandFollowing().Run(Write()).Any(), "new companionship reunion lost arrival diagnosis");
+            row["request"] = "Hold";
+            Require(!new ArrivalDoesNotStrandFollowing().Run(Write()).Any(), "resting company was mistaken for failed reunion");
+            row["request"] = "WithPlayer";
             row["recovery_active"] = "1";
             Require(!new ArrivalDoesNotStrandFollowing().Run(Write()).Any(), "flight was called a normal arrival failure");
             row["recovery_active"] = "0"; row["action"] = "hunt";
@@ -251,6 +256,10 @@ public static class ChronicleTests
             File.WriteAllText(file, WithFreshDecisions(rows));
             string finding = new FollowingMakesRouteProgress().Run(Session.Load(file)).Single().Title;
             Require(finding.Contains("wrong-direction or wrong-floor", StringComparison.Ordinal), "moving away without route progress did not retain its wrong-floor diagnosis");
+            File.WriteAllText(file, WithFreshDecisions(rows).Replace("walk-with", "keep-company"));
+            Require(new FollowingMakesRouteProgress().Run(Session.Load(file)).Any(), "new companionship reunion lost route-progress diagnosis");
+            File.WriteAllText(file, WithFreshDecisions(rows).Replace("walk-with", "keep-company").Replace("WithPlayer", "Hold"));
+            Require(!new FollowingMakesRouteProgress().Run(Session.Load(file)).Any(), "resting company was called a stalled follow route");
 
             rows.Clear();
             rows.Append(header);

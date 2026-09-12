@@ -22,6 +22,8 @@ The personal-danger fixture runs the real threat observer against sealed native-
 
 Responsive-following checks drive PlayerSense around a repeated local path and require it not to report travel. The production intent estimator also receives matched movement with and without local-work evidence, brief reversal, sustained backtracking, pause and vertical movement. Duplicate timestamps cannot manufacture samples; observation gaps and position corrections clear the history. These checks establish those observation sequences, not knowledge of the player's future destination. Existing native full-brain following fixtures remain the separate integration check.
 
+Keeping-company checks require one registered candidate instead of separate following and wandering candidates. A seeded local sequence must offer both rest and movement, a departing player must change that same activity to a reunion request without changing its identity, and sealed-pocket context must retain roaming. This exercises method selection without integrating local strolls through terrain; native following and recovery fixtures remain the physical checks.
+
 The recorder's seeded travel scenario resets and advances the native tool-contact world clock. Advancing GameUpdateCount alone does not age TileDamageWatcher, whose owner is TileDamageClock.PostUpdateEverything. Without those callbacks, a previous fixture's ore contact persists through every travel sample and correctly lowers intent confidence; the combined suite then fails while the isolated recorder test passes. Preserve the world lifecycle in the fixture rather than weakening the production interpretation of work.
 
 ```
