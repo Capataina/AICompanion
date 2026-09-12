@@ -62,6 +62,10 @@ public abstract class CompanionAction
     /// </summary>
     public virtual bool HandsBusy => false;
 
+    /// <summary>Refresh discovery and capture candidate facts before utility comparison.
+    /// Legacy adapters still do this inside Score until their migration is complete.</summary>
+    public virtual void Prepare(in ActionContext ctx) { }
+
     /// <summary>0..1. Zero means "not now"; the product-of-considerations shape lives in each override.</summary>
     public abstract float Score(in ActionContext ctx);
 

@@ -101,6 +101,7 @@ public sealed class Chooser
         for (int i = 0; i < Actions.Count; i++)
         {
             CompanionAction action = Actions[i];
+            action.Prepare(ctx);
             float raw = action.Score(ctx);
             prepared[i] = new(i, action.Name, raw, raw > 0 ? action.ForecastTicks(ctx) : 0,
                 action.IsExcursion, action.ActivityTarget != null, action is WalkWithPlayerAction, action == Current);

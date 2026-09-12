@@ -21,44 +21,50 @@ public sealed class LootAction : CompanionAction
 {
     public override string Name => "loot";
 
-    private Item? target;
-    public override Vector2? ActivityTarget => target?.Bottom;
+    private readonly record struct Candidate(Item Item, int Type, Vector2 Position, float Near, float Value, float Safety, float TripTicks);
+    private Candidate? candidate;
+    private Item? target => candidate?.Item;
+    public override Vector2? ActivityTarget => candidate?.Position;
     public override object? ActivityIdentity => target;
 
-    public override float Score(in ActionContext ctx)
+    public override void Prepare(in ActionContext ctx)
     {
-        target = null;
+        candidate = null;
         if (ctx.Senses.Player.IsDead || ctx.Senses.Loot.Pickups.Count == 0)
-            return 0f;
+            return;
         // The nearest pickup that fits somewhere and has a standable tile beside it; one item
         // in lava or on a ledge nobody can reach must not block every other item.
         LootSense.Pickup? chosen = null;
-        foreach (var candidate in ctx.Senses.Loot.Pickups)
+        foreach (var pickup in ctx.Senses.Loot.Pickups)
         {
-            if (!AllowsTarget(ctx, candidate.Item.Bottom, candidate.Item)) continue;
-            if (!ctx.Companion.Bag.CanAccept(candidate.Item, ctx.Player))
+            if (!pickup.Item.active || pickup.Item.stack <= 0 || !AllowsTarget(ctx, pickup.Item.Bottom, pickup.Item)) continue;
+            if (!ctx.Companion.Bag.CanAccept(pickup.Item, ctx.Player))
                 continue;
-            if (MovementQueries.NearestStandable(MovementQueries.FeetTile(candidate.Item.Bottom), 3) == null)
+            if (MovementQueries.NearestStandable(MovementQueries.FeetTile(pickup.Item.Bottom), 3) == null)
                 continue;
-            chosen = candidate;
+            chosen = pickup;
             break;
         }
         if (chosen is not LootSense.Pickup pick)
-            return 0f;
-        target = pick.Item;
+            return;
         float near = Consideration.Inverse(pick.DistanceToCompanion, Weights.LootReach);
         float safe = Consideration.AtLeast(1f - ctx.Senses.Threats.PlayerDanger, 0.05f);
-        return Consideration.AtLeast(near, 0.2f) * pick.Value * safe;
+        float trip = Vector2.Distance(ctx.Npc.Center, pick.Item.Center) * Weights.LootTripTicksPerPx / Companion.CompanionMotor.WalkSpeed * 1.5f;
+        candidate = new(pick.Item, pick.Item.type, pick.Item.Bottom, Consideration.AtLeast(near, 0.2f), pick.Value, safe, trip);
     }
 
+    public override float Score(in ActionContext ctx)
+        => candidate is { } prepared ? prepared.Near * prepared.Value * prepared.Safety : 0f;
+
     public override float ForecastTicks(in ActionContext ctx)
-        => target == null ? 0f : Vector2.Distance(ctx.Npc.Center, target.Center) * Weights.LootTripTicksPerPx / Companion.CompanionMotor.WalkSpeed * 1.5f;
+        => candidate?.TripTicks ?? 0f;
 
     public override PositionRequest Execute(in ActionContext ctx)
     {
         ctx.Companion.HoldItem(ItemID.None);
-        if (target == null || !target.active)
+        if (candidate is not { } prepared || !prepared.Item.active || prepared.Item.stack <= 0
+            || prepared.Item.type != prepared.Type || !ctx.Companion.Bag.CanAccept(prepared.Item, ctx.Player))
             return PositionRequest.Hold;
-        return PositionRequest.ExactAt(target.Bottom);
+        return PositionRequest.ExactAt(prepared.Position);
     }
 }

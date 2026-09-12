@@ -131,8 +131,22 @@ internal static class VerifyCompanionActivities
         var item = new Item(); item.SetDefaults(ItemID.CopperOre); item.active = true; item.Bottom = activity.Target;
         ctx.Senses.Loot.Pickups.Clear();
         ctx.Senses.Loot.Pickups.Add(new(item, .3f, Vector2.Distance(ctx.Npc.Bottom, item.Bottom)));
+        loot.Prepare(ctx);
         Require(loot.Score(ctx) > 0, "actual looting must inherit the completed work site's continuation allowance");
+        float capturedValue = loot.Score(ctx), capturedTrip = loot.ForecastTicks(ctx);
+        Vector2? capturedTarget = loot.ActivityTarget;
+        ctx.Senses.Loot.Pickups.Clear();
+        item.Bottom += new Vector2(32, 0);
+        Require(loot.Score(ctx) == capturedValue && loot.ForecastTicks(ctx) == capturedTrip && loot.ActivityTarget == capturedTarget,
+            "evaluating prepared loot must neither discover again nor change with a live item's movement");
+        item.active = false;
+        Require(loot.Execute(ctx).Kind == RequestKind.Hold,
+            "a disappeared prepared item must be rejected before executing its approach");
+        item.active = true;
+        item.Bottom = capturedTarget!.Value;
+        ctx.Senses.Loot.Pickups.Add(new(item, .3f, Vector2.Distance(ctx.Npc.Bottom, item.Bottom)));
         VerifyObservedMotion.SetTick(Main.GameUpdateCount + 601);
+        loot.Prepare(ctx);
         Require(loot.Score(ctx) == 0, "expired work must not grant a new loot target an indefinite allowance");
     }
 
