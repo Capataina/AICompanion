@@ -15,7 +15,7 @@ public sealed class RecoverDistantFollowing
     public string Reason { get; private set; } = "ordinary-travel";
     public int Flights { get; private set; }
 
-    public bool Update(bool following, bool downed, bool playerAlive, Vector2 feet,
+    public bool Update(bool reunionRequested, bool downed, bool playerAlive, Vector2 feet,
         Vector2 playerFeet, bool clearLanding)
     {
         if (downed || !playerAlive)
@@ -33,7 +33,7 @@ public sealed class RecoverDistantFollowing
                 Reason = "arrived-clear";
             }
         }
-        else if (following && distance > PlayerIntegration.CompanionPreferences.Current.RecoveryRadius)
+        else if (reunionRequested && distance > PlayerIntegration.CompanionPreferences.Current.RecoveryRadius)
         {
             Active = true;
             Flights++;

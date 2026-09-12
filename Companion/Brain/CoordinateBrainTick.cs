@@ -167,10 +167,13 @@ public sealed class Brain
 
         CompanionAction? action = Chooser.Choose(ctx);
         ChoiceEvaluated = true;
-        if (TryFollowRecovery(companion, player, action is Behaviours.Companionship.WalkWithPlayerAction, out var selectedRecovery)) return selectedRecovery;
         Chooser.Activity.BeginExecution();
         LastRequest = action?.Execute(ctx) ?? PositionRequest.Hold;
         DecideMs = Lap();
+        // Recovery serves an explicit reunion objective, never an executor's class or a
+        // coincidentally player-adjacent work destination. An occupied tool cannot start it.
+        bool reunionRequested = LastRequest.Kind == RequestKind.WithPlayer && action?.HandsBusy != true;
+        if (TryFollowRecovery(companion, player, reunionRequested, out var selectedRecovery)) return selectedRecovery;
 
         if (action is Behaviours.Survival.SurviveAction survival && (survival.TryEscape(ctx, out Controls escape, out bool escapePending) || escapePending))
         {

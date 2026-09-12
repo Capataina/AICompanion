@@ -10,6 +10,8 @@ Each of those lifecycle updates also requires one motor application and one adva
 
 The native mining interruption fixture requires a productive pick strike, retained tool ownership during its next cooldown tick, then a projectile-only collision forecast. That forecast must suspend the same mining activity, release its tool phase and produce one avoidance grant without another mining effect. Enemy absence is asserted so ordinary combat selection cannot accidentally satisfy the test.
 
+Recovery admission is exercised with one alternate executor issuing reunion, exact-work, guard and hold requests at the same distant player position. Only reunion can start flight. This catches a concrete follow-class dependency and a coordinate-only shortcut independently of the native recovery flight/clearance checks.
+
 VerifyCompanionLifecycle.Create starts with a dead player to exercise autonomous lifecycle handling. A fixture requiring ordinary companionship must explicitly make that player alive before its first brain update. A last-registered zero-score fallback used to hide this precondition; an empty activity owner cannot be suspended merely because the fixture labels the next step recovery.
 
 The personal-danger fixture runs the real threat observer against sealed native-tile chambers. It checks both player/companion arrangements for a walker, a tile-colliding flyer, a wall-crossing phaser, and entry into an enemy's chamber before a cached reachability refresh. These isolate destination coupling; they do not measure live combat judgement or a modded hostile's own pathfinding skill.

@@ -41,9 +41,44 @@ internal static class VerifyFollowRecoveryAndProtection
         Require(!companion.NPC.noGravity && !companion.NPC.noTileCollide, "clear downed body restores ordinary collision");
         VerifyGuard();
         VerifyRecoveryThroughBrain();
+        VerifyRecoveryAdmissionUsesReunionPurpose();
         VerifyCancelledFlightClearsTerrain();
         Console.WriteLine($"follow recovery and protection: flight arrival in {ticks} ticks; exclusions, collision, downing, threat continuation and expiry pass");
         return 0;
+    }
+
+    private static void VerifyRecoveryAdmissionUsesReunionPurpose()
+    {
+        foreach (var kind in new[] { live::AICompanion.Companion.Brain.PositionSelection.RequestKind.WithPlayer,
+            live::AICompanion.Companion.Brain.PositionSelection.RequestKind.Exact,
+            live::AICompanion.Companion.Brain.PositionSelection.RequestKind.Guard,
+            live::AICompanion.Companion.Brain.PositionSelection.RequestKind.Hold })
+        {
+            var companion = VerifyCompanionLifecycle.Create();
+            Main.LocalPlayer.dead = false;
+            Main.LocalPlayer.Bottom = new Vector2(1400, 1200);
+            companion.NPC.Bottom = new Vector2(100, 1200);
+            companion.Brain.Chooser.Actions.Clear();
+            companion.Brain.Chooser.Actions.Add(new RequestedPurpose(kind));
+            VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
+            VerifyCompanionLifecycle.TickWithOneControlGrant(companion);
+            bool reunion = kind == live::AICompanion.Companion.Brain.PositionSelection.RequestKind.WithPlayer;
+            Require(companion.Brain.FollowRecovery.Active == reunion,
+                $"recovery admission must follow explicit reunion rather than executor class or shared destination; request={kind}, active={companion.Brain.FollowRecovery.Active}");
+        }
+    }
+
+    private sealed class RequestedPurpose(live::AICompanion.Companion.Brain.PositionSelection.RequestKind kind)
+        : live::AICompanion.Companion.Brain.Behaviours.CompanionAction
+    {
+        public override string Name => "recovery-purpose-probe";
+        public override live::AICompanion.Companion.Brain.BehaviourSelection.PurposeFamily Family
+            => live::AICompanion.Companion.Brain.BehaviourSelection.PurposeFamily.NearbyAssistance;
+        public override bool IsExcursion => false;
+        public override void Prepare(in Context ctx) { }
+        public override float Score() => 1f;
+        public override live::AICompanion.Companion.Brain.PositionSelection.PositionRequest Execute(in Context ctx)
+            => new(kind, ctx.Player.Bottom);
     }
 
     private static void VerifyGuard()
