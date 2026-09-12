@@ -7,12 +7,14 @@ This folder contains exactly the requested four files. The three-family directio
 ```text
 proposal/
 ├─ CLAUDE.md                                               aggregated results, ranking and reading order
-├─ 01 Preserve Utility and Repair Activity Contracts.md    highest confidence next course
+├─ 01 Preserve Utility and Repair Activity Contracts.md    implementation contracts, migration and conditional work packages
 ├─ 02 Organise Utility Around Continuing Activities.md     stronger shared execution beneath existing families
 └─ 03 Add Bounded Planning for Consequential Choices.md     short consequence-aware plans under utility goals
 ```
 
 ## The ranking uses product requirements rather than attachment to the code
+
+Proposal 1 is the implementation roadmap: target ownership and folder maps, source-to-target migration, shared data contracts, tick ordering, fifteen dependent work packages P00–P14, recorder/inspector/report schemas, all 64 failure-case owners, verification commands and rollback conditions. Those packages are planned, not executed. The existing research rationale remains in the same file after the implementation sections. The family/activity icon HUD is included; level/XP UI and broader profile refinement remain later work, and unbuilt mastery abilities are explicit dependencies rather than claimed current-kit acceptance.
 
 The comparison axes come from the owner's accepted examples and concern about repeated churn: expressive fit, truthful feasibility, coherent simultaneous actions, runtime cost, compatibility, diagnosis, reversibility and capability growth. Their derivation is in [Behaviour, Opportunities and Comparison Criteria](<../Decision Architecture/Behaviour, Opportunities and Comparison Criteria.md>). The ranking is an engineering judgement from current evidence, not a numerical prediction of eventual success.
 
