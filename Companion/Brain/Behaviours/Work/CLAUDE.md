@@ -4,6 +4,8 @@ Mining and chopping animate accepted native swings, but credit their retained wo
 
 Tool ownership spans cooldowns only while that work is executing. Exit and suspension clear the swinging phase independently of retaining a vein or tree; otherwise an interrupted job reports an occupied hand after safety has already taken control. The current activity grant determines whether the arsenal may use the released hand.
 
+Execution rechecks the work policy before requesting travel or taking the tool. Turning mining or chopping off revokes a previously prepared candidate, clears its retained job and releases its admission. Native tool permission remains a separate mutation check; an earlier positive utility value is never permission to keep acting after the user disables the work.
+
 ```
 Work/
 ├─ CLAUDE.md

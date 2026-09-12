@@ -163,6 +163,14 @@ public sealed class ChopAction : CompanionAction
         // torch can hold it in the dark.
         ctx.Companion.HoldItem(ItemID.None);
         swinging = false;
+        if (WorkPolicies.Chopping == WorkPolicy.Disabled)
+        {
+            tree = null;
+            lastSearchedFor = null;
+            sinceSearch = SearchEveryTicks;
+            ReleaseActivity();
+            return PositionRequest.Hold;
+        }
         if (prepared == null || tree is not TreeFinder.ChoppableTree t)
             return PositionRequest.Hold;
 

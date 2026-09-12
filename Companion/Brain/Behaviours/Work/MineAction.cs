@@ -260,6 +260,12 @@ public sealed class MineAction : CompanionAction
         // the torch can hold it in the dark and the other arm can still throw.
         ctx.Companion.HoldItem(ItemID.None);
         swinging = false;
+        if (WorkPolicies.Mining == WorkPolicy.Disabled)
+        {
+            ClearJob("disabled before execution");
+            sinceSearch = SearchEveryTicks;
+            return PositionRequest.Hold;
+        }
         if (target == null && unproven is Point approach)
         {
             // No proven stand exists yet, so walk at the ore itself. Exact resolves to the nearest

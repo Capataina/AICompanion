@@ -28,6 +28,7 @@ internal static class VerifyOreWork
             AnUnmineableVeinDoesNotBecomeWork();
             ASealedTreeYieldsToReachableOre();
             ChoppingPrefersASeparateActiveTrunk();
+            RevokedWorkCannotExecuteAPreparedCandidate();
             AnUnprovenApproachWalksInsteadOfScoringZero();
             AnUnknownApproachKeepsItsOwnOreIdentity();
             AReachableOreProducesANativeBreak();
@@ -536,6 +537,42 @@ internal static class VerifyOreWork
                 "Mimic must retain its explicit exclusion of the active player trunk");
         }
         finally { WorkPolicies.Chopping = original; clock.OnWorldUnload(); }
+    }
+
+    private static void RevokedWorkCannotExecuteAPreparedCandidate()
+    {
+        WorkPolicy original = WorkPolicies.Chopping;
+        try
+        {
+            foreach (bool chopping in new[] { false, true })
+            foreach (bool inPosition in new[] { false, true })
+            {
+                Point tile = new(25, 89);
+                var (mine, ctx) = SetUp(WorkPolicy.Opportunistic, TileID.Copper, tile);
+                WorkPolicies.Chopping = WorkPolicy.Opportunistic;
+                live::AICompanion.Companion.Brain.Behaviours.CompanionAction action = mine;
+                if (chopping)
+                {
+                    Tile trunk = Main.tile[tile.X, tile.Y];
+                    trunk.TileType = TileID.Trees;
+                    Main.tileAxe[TileID.Trees] = true;
+                    Main.tileSolid[TileID.Trees] = false;
+                    TileID.Sets.IsATreeTrunk[TileID.Trees] = true;
+                    action = new live::AICompanion.Companion.Brain.Behaviours.Work.ChopAction();
+                }
+                if (inPosition) ctx.Npc.Bottom = new Vector2(23 * 16 + 8, 90 * 16);
+                else ctx.Npc.Bottom = new Vector2(15 * 16 + 8, 90 * 16);
+                Require(VerifyPreparedActivities.PrepareAndScore(action, ctx) > 0,
+                    $"permission fixture needs prepared work: chopping={chopping}; inPosition={inPosition}");
+                if (chopping) WorkPolicies.Chopping = WorkPolicy.Disabled;
+                else WorkPolicies.Mining = WorkPolicy.Disabled;
+                var request = action.Execute(ctx);
+                Require(request == live::AICompanion.Companion.Brain.PositionSelection.PositionRequest.Hold
+                    && !action.HandsBusy && ctx.Companion.Miner.LastOutcome == null && ctx.Companion.Chopper.LastOutcome == null,
+                    $"revoked work must neither approach nor swing: chopping={chopping}; inPosition={inPosition}; request={request}; hands={action.HandsBusy}");
+            }
+        }
+        finally { WorkPolicies.Chopping = original; WorkPolicies.Mining = WorkPolicy.Opportunistic; }
     }
 
     internal static (MineAction Action, ActionContext Context) SetUp(WorkPolicy policy, ushort tileType, params Point[] ore)
