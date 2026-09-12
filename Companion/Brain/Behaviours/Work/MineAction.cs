@@ -33,6 +33,9 @@ public sealed class MineAction : CompanionAction
 
     private OreFinder.OreTarget? target;
     private HashSet<Point> patch = new();
+    private HashSet<Point> jobTiles = new();
+    private readonly HashSet<Point> ownRemovals = new();
+    private int jobType;
     private int nextJobId = 1;
     private int jobId;
     private string status = "idle";
@@ -48,6 +51,7 @@ public sealed class MineAction : CompanionAction
     private ulong jumpAsked;
 
     public int JobId => jobId;
+    public DescribeOreJobEnd? LastConclusion { get; private set; }
     /// <summary>True only while the pickaxe is actually out; the whole walk to the vein is empty-handed.</summary>
     public override bool HandsBusy => swinging;
     public override object? ActivityIdentity => jobId > 0 ? jobId : (object?)unproven;
@@ -128,14 +132,14 @@ public sealed class MineAction : CompanionAction
             approachRevision = TerrainChanges.Revision;
             approachPickPower = pick;
         }
-        if (target is OreFinder.OreTarget t && (!OreFinder.IsOre(t.Tile.X, t.Tile.Y) || !ctx.Companion.Miner.CanMine(t.Tile, pick)))
+        if (target is OreFinder.OreTarget t && (!OreFinder.IsOreOfType(t.Tile.X, t.Tile.Y, jobType) || !ctx.Companion.Miner.CanMine(t.Tile, pick)))
         {
             patch.Remove(t.Tile);
-            target = NextInPatch(ctx, t, pick);
+            target = NextInPatch(ctx, pick);
         }
         else if (target == null && patch.Count > 0 && (status != "approach unknown" || sinceSearch >= SearchEveryTicks))
         {
-            target = NextInPatch(ctx, new OreFinder.OreTarget(default, 0, ctx.Npc.Bottom), pick);
+            target = NextInPatch(ctx, pick);
             sinceSearch = 0;
         }
         if (patch.Count == 0 && sinceSearch >= SearchEveryTicks)
@@ -235,6 +239,9 @@ public sealed class MineAction : CompanionAction
         {
             target = f;
             patch = OreFinder.Vein(f.Tile, f.Type);
+            jobTiles = new HashSet<Point>(patch);
+            ownRemovals.Clear();
+            jobType = f.Type;
             jobId = nextJobId++;
             status = "approaching";
         }
@@ -302,6 +309,9 @@ public sealed class MineAction : CompanionAction
             if (ctx.Companion.Miner.LastOutcome is { } outcome)
             {
                 BehaviourDiagnostics.GodsEyeEvents.RecordToolEffect(ctx.Npc, "pickaxe", outcome, ctx.Companion.Brain.Chooser.EvaluationId, ctx.Companion.Brain.Chooser.Activity.Id);
+                if (outcome.Effect == WorldInteractions.TileToolEffect.Removed
+                    && outcome.Before.Type == jobType && jobTiles.Contains(outcome.Target))
+                    ownRemovals.Add(outcome.Target);
                 if (outcome.Productive) ctx.Companion.Brain.Chooser.RecordWork(t.Tile.ToWorldCoordinates());
             }
         }
@@ -309,16 +319,15 @@ public sealed class MineAction : CompanionAction
     }
 
     /// <summary>The next tile of the patch: one still in reach of the current stand, else the nearest with a new stand.</summary>
-    private OreFinder.OreTarget? NextInPatch(in ActionContext ctx, OreFinder.OreTarget current, int pickPower)
+    private OreFinder.OreTarget? NextInPatch(in ActionContext ctx, int pickPower)
     {
         var miner = ctx.Companion.Miner;
-        patch.RemoveWhere(p => !OreFinder.IsOre(p.X, p.Y) || !miner.CanMine(p, pickPower)
+        patch.RemoveWhere(p => !OreFinder.IsOreOfType(p.X, p.Y, jobType) || !miner.CanMine(p, pickPower)
             || WorldInteractions.WorldProtection.ProtectCompanionHomes.IsProtected(p));
         if (patch.Count == 0)
         {
-            jobId = 0;
-            ReleaseActivity();
-            status = "completed reachable ore";
+            ClearJob("no eligible ore remains");
+            if (LastConclusion is { ObservedClear: true }) status = "tracked ore cleared";
             return null;
         }
         Point? inReach = null;
@@ -335,7 +344,7 @@ public sealed class MineAction : CompanionAction
         if (inReach is Point r)
         {
             status = "mining";
-            return current with { Tile = r, StandPosition = ctx.Npc.Bottom };
+            return new OreFinder.OreTarget(r, jobType, ctx.Npc.Bottom);
         }
         // A vein that runs up into the ceiling has tiles no standable position can swing at, so the
         // approach search rejects them and the top of the vein stays in the rock for ever. The body
@@ -351,7 +360,7 @@ public sealed class MineAction : CompanionAction
                 continue;
             status = "jumping to ore";
             jumpTile = p;
-            return current with { Tile = p, StandPosition = ctx.Npc.Bottom };
+            return new OreFinder.OreTarget(p, jobType, ctx.Npc.Bottom);
         }
         jumpTile = null;
         bool unknown = false;
@@ -362,7 +371,7 @@ public sealed class MineAction : CompanionAction
             if (approach == Reachability.Reach.Yes)
             {
                 status = "relocating";
-                return new OreFinder.OreTarget(p, current.Type, stand);
+                return new OreFinder.OreTarget(p, jobType, stand);
             }
             unknown |= approach == Reachability.Reach.Unknown;
             if (approach == Reachability.Reach.Unknown)
@@ -375,10 +384,7 @@ public sealed class MineAction : CompanionAction
         }
         // A complete bounded search established that none of the remaining tiles has a
         // legal approach. End this job's reachable portion; a later discovery starts fresh.
-        patch.Clear();
-        jobId = 0;
-        ReleaseActivity();
-        status = "completed reachable portion";
+        ClearJob("remaining ore has no proven working pose");
         return null;
     }
 
@@ -392,6 +398,10 @@ public sealed class MineAction : CompanionAction
 
     private void ClearJob(string reason)
     {
+        if (jobId > 0)
+            LastConclusion = DescribeOreJobEnd.Capture(jobId, reason, jobTiles, jobType, ownRemovals.Count);
+        jobTiles.Clear();
+        ownRemovals.Clear();
         target = null;
         jumpTile = null;
         unresolvedCandidate = unproven = null;

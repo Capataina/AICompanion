@@ -31,6 +31,7 @@ internal static class VerifyObservationLifecycle
             VerifyNotchOpeningConsumesThePress();
             VerifyCompanionHud.Verify();
             VerifyOneCompleteSample();
+            VerifyEndedOreJobRecording();
             VerifyRecoveryDoesNotRefreshTheChoice();
             VerifySafetyWithNoOrdinaryOffer();
             Console.WriteLine("observation lifecycle: reserved retry names, zero-tick metadata and callback-scoped lifecycle evidence passed");
@@ -97,6 +98,41 @@ internal static class VerifyObservationLifecycle
             && navigation.Contains(FormattableString.Invariant($"model-gravity={modelGravity:R};"))
             && navigation.Contains($"gravity-observation-tick={Main.GameUpdateCount};"),
             "navigation evidence must preserve separately captured engine/model gravity and its source tick");
+    }
+
+    private static void VerifyEndedOreJobRecording()
+    {
+        var (mine, ctx) = VerifyOreWork.SetUp(live::AICompanion.Companion.Brain.Behaviours.Work.WorkPolicy.Opportunistic,
+            TileID.Copper, new Microsoft.Xna.Framework.Point(25, 89));
+        Require(VerifyPreparedActivities.PrepareAndScore(mine, ctx) > 0, "recorded conclusion needs a real admitted vein");
+        int index = ctx.Companion.Brain.Chooser.Actions.FindIndex(action => action.Name == "mine");
+        ctx.Companion.Brain.Chooser.Actions[index] = mine;
+        live::AICompanion.Companion.Brain.Behaviours.Work.WorkPolicies.Mining = live::AICompanion.Companion.Brain.Behaviours.Work.WorkPolicy.Disabled;
+        mine.Execute(ctx);
+        var conclusion = mine.LastConclusion ?? throw new InvalidOperationException("revocation omitted the job conclusion");
+        Require(conclusion is { Present: 1, ObservedClear: false }, "revocation must preserve remaining world work");
+        var recorder = new BrainTelemetry(); Attach(recorder);
+        recorder.OnWorldLoad();
+        string path = Directory.GetFiles(BrainTelemetry.Folder, "*.tsv").OrderByDescending(File.GetLastWriteTimeUtc).First();
+        VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
+        VerifyCompanionLifecycle.TickWithOneControlGrant(ctx.Companion);
+        recorder.OnWorldUnload();
+        string[] lines = File.ReadAllLines(path);
+        int header = Array.FindIndex(lines, line => line.StartsWith("tick\t"));
+        string[] names = lines[header].Split('\t'), values = lines[header + 1].Split('\t');
+        Require(names.Length == values.Length, "job-end columns must preserve the complete sample shape");
+        string Value(string name) => values[Array.IndexOf(names, name)];
+        Require(Value("mine_end_job") == conclusion.JobId.ToString()
+            && Value("mine_end_tick") == conclusion.Tick.ToString()
+            && Value("mine_end_reason") == "disabled before execution"
+            && Value("mine_end_tracked") == "1" && Value("mine_end_present") == "1"
+            && Value("mine_end_missing") == "0" && Value("mine_end_changed") == "0"
+            && Value("mine_end_companion_removed_sites") == "0" && Value("mine_end_observed_clear") == "0",
+            "the actual recorder must preserve a cancelled job with remaining ore, not fabricate cleared work");
+        string events = File.ReadAllText(Path.ChangeExtension(path, null) + "-events.jsonl");
+        Require(events.Contains("mine-last-conclusion=") && events.Contains("disabled before execution"),
+            "God's Eye must receive the same retained job conclusion");
+        live::AICompanion.Companion.Brain.Behaviours.Work.WorkPolicies.Mining = live::AICompanion.Companion.Brain.Behaviours.Work.WorkPolicy.Opportunistic;
     }
 
     private static void VerifyRecoveryDoesNotRefreshTheChoice()

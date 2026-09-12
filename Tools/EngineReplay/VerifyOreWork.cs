@@ -31,6 +31,8 @@ internal static class VerifyOreWork
             ChoppingPrefersASeparateActiveTrunk();
             RevokedWorkCannotExecuteAPreparedCandidate();
             ChoppingUsesActualReachRatherThanStandDistance();
+            LosingWorkEligibilityDoesNotClaimCompletion();
+            OreDisappearanceAndAttributedRemovalRemainSeparate();
             AnUnprovenApproachWalksInsteadOfScoringZero();
             AnUnknownApproachKeepsItsOwnOreIdentity();
             AReachableOreProducesANativeBreak();
@@ -620,6 +622,53 @@ internal static class VerifyOreWork
             }
         }
         finally { WorkPolicies.Chopping = original; }
+    }
+
+    private static void LosingWorkEligibilityDoesNotClaimCompletion()
+    {
+        Point ore = new(25, 89);
+        var (mine, ctx) = SetUp(WorkPolicy.Opportunistic, TileID.Copper, ore);
+        Require(VerifyPreparedActivities.PrepareAndScore(mine, ctx) > 0, "completion fixture needs a retained vein");
+        Tile replacement = Main.tile[ore.X, ore.Y];
+        replacement.TileType = TileID.Chlorophyte;
+        Main.tileSolid[TileID.Chlorophyte] = true;
+        VerifyPreparedActivities.PrepareAndScore(mine, ctx);
+        Require(!mine.Status.StartsWith("completed", StringComparison.Ordinal),
+            $"a transformed unmineable deposit must not be reported as completed work: {mine.Status}");
+        Require(mine.LastConclusion is { Tracked: 1, Changed: 1, Missing: 0, ObservedClear: false, CompanionRemovals: 0 },
+            "the ended job must retain the changed material instead of losing it during eligibility pruning");
+    }
+
+    private static void OreDisappearanceAndAttributedRemovalRemainSeparate()
+    {
+        foreach (bool ownRemoval in new[] { false, true })
+        {
+            Point ore = new(25, 89);
+            var (mine, ctx) = SetUp(WorkPolicy.Opportunistic, TileID.Copper, ore);
+            Require(VerifyPreparedActivities.PrepareAndScore(mine, ctx) > 0, "attribution fixture needs a prepared vein");
+            int id = mine.JobId;
+            if (ownRemoval)
+            {
+                for (int tick = 0; tick < 600 && Main.tile[ore.X, ore.Y].HasTile; tick++)
+                {
+                    mine.Execute(ctx);
+                    ctx.Companion.Miner.Tick();
+                }
+                Require(!Main.tile[ore.X, ore.Y].HasTile, "the companion must cause a real native ore removal");
+            }
+            else
+            {
+                Tile removed = Main.tile[ore.X, ore.Y];
+                removed.HasTile = false;
+            }
+            VerifyPreparedActivities.PrepareAndScore(mine, ctx);
+            Require(mine.LastConclusion is { Tracked: 1, Missing: 1, Present: 0, Changed: 0, ObservedClear: true } end
+                && end.JobId == id && end.CompanionRemovals == (ownRemoval ? 1 : 0),
+                $"a cleared observed vein must retain actual removal attribution: own={ownRemoval}; end={mine.LastConclusion}");
+            var retained = mine.LastConclusion;
+            VerifyPreparedActivities.PrepareAndScore(mine, ctx);
+            Require(mine.LastConclusion == retained, "ending an empty job again must not overwrite its original evidence");
+        }
     }
 
     internal static (MineAction Action, ActionContext Context) SetUp(WorkPolicy policy, ushort tileType, params Point[] ore)

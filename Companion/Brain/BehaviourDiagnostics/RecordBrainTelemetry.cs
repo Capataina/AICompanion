@@ -42,7 +42,7 @@ public sealed class BrainTelemetry : ModSystem
     private static string? eventsPath;
     private static readonly Stopwatch sessionClock = new();
     private static DateTime sessionStartedUtc;
-    private const string Schema = "0.17.0";
+    private const string Schema = "0.18.0";
     private static string? pendingPlayerHit;
     private static string? pendingCompanionHit;
     private static string? lastDecision;
@@ -421,6 +421,7 @@ public sealed class BrainTelemetry : ModSystem
             if (candidate is Behaviours.Work.ChopAction chopAction) chop = chopAction;
             if (candidate is Behaviours.Combat.HuntAction huntAction) hunt = huntAction;
         }
+        activityControls += $";mine-last-conclusion={mine?.LastConclusion?.ToString() ?? "none"}";
         if (decision != lastDecision || Main.GameUpdateCount % 60 == 0)
         {
             var board = new StringBuilder();
@@ -452,7 +453,7 @@ public sealed class BrainTelemetry : ModSystem
 
         if (!headerWritten)
         {
-            writer.WriteLine("# text_columns=state,action,reflex,top_threat,target,request,anchor,spot,next_kind,npc_tile,npc_px,npc_vel,held,weapon,fire,engage,torch,player_tile,edge_kind,edge_from,edge_to,edge_outcome,spot_home,diverge_invalid_reason,sample_phase,player_px,player_vel,player_liquid,player_hit,npc_hit,player_state,player_activity,player_support,npc_support,control,control_source,observed_vel,observed_mobility,predicted_vel,predicted_mobility,follow_reason,recovery_reason,guard_reason,mine_policy,mine_status,mine_target,target_evidence,nav_status,position_reason,escape_stage,escape_target,hunt_reason,hand_grant,control_request_owner,safety_kind,safety_reason,safety_last_end,collection_method");
+            writer.WriteLine("# text_columns=state,action,reflex,top_threat,target,request,anchor,spot,next_kind,npc_tile,npc_px,npc_vel,held,weapon,fire,engage,torch,player_tile,edge_kind,edge_from,edge_to,edge_outcome,spot_home,diverge_invalid_reason,sample_phase,player_px,player_vel,player_liquid,player_hit,npc_hit,player_state,player_activity,player_support,npc_support,control,control_source,observed_vel,observed_mobility,predicted_vel,predicted_mobility,follow_reason,recovery_reason,guard_reason,mine_policy,mine_status,mine_target,target_evidence,nav_status,position_reason,escape_stage,escape_target,hunt_reason,hand_grant,control_request_owner,safety_kind,safety_reason,safety_last_end,collection_method,mine_end_reason");
             var h = new StringBuilder();
             // A start timestamp is file metadata. Stopwatch is the observed wall duration of
             // every row; deriving wall time from game ticks would conceal pauses and lag.
@@ -481,6 +482,7 @@ public sealed class BrainTelemetry : ModSystem
             h.Append("\tmine_remaining_work_ticks\tmine_remaining_hits\tchop_remaining_work_ticks\tchop_remaining_hits");
             h.Append("\treunion_apart_ticks\treunion_departure\treunion_delay_cost_per_tick");
             h.Append("\tcollection_method");
+            h.Append("\tmine_end_job\tmine_end_tick\tmine_end_reason\tmine_end_tracked\tmine_end_present\tmine_end_changed\tmine_end_missing\tmine_end_unobserved\tmine_end_companion_removed_sites\tmine_end_observed_clear");
             writer.WriteLine(h.ToString());
             headerWritten = true;
         }
@@ -720,6 +722,17 @@ public sealed class BrainTelemetry : ModSystem
             .Append('\t').Append(brain.Chooser.Reunion.DelayCostPerTick.ToString("0.000000", CultureInfo.InvariantCulture));
         sb.Append('\t').Append(brain.LastAction is PurposeFamilies.NearbyAssistance.CollectNearbyItems collection
             ? collection.Method : "none");
+        var end = mine?.LastConclusion;
+        sb.Append('\t').Append(end?.JobId ?? 0)
+            .Append('\t').Append(end?.Tick.ToString(CultureInfo.InvariantCulture) ?? "-1")
+            .Append('\t').Append(end?.Reason ?? "none")
+            .Append('\t').Append(end?.Tracked ?? -1)
+            .Append('\t').Append(end?.Present ?? -1)
+            .Append('\t').Append(end?.Changed ?? -1)
+            .Append('\t').Append(end?.Missing ?? -1)
+            .Append('\t').Append(end?.Unobserved ?? -1)
+            .Append('\t').Append(end?.CompanionRemovals ?? -1)
+            .Append('\t').Append(end?.ObservedClear == true ? 1 : 0);
 
         // A write that fails (disk full, a stream the OS closed) must not escape the NPC's AI
         // and take the companion with it; the record stops and the game goes on.
