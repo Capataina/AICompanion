@@ -71,6 +71,8 @@ If holding the purpose resolves the stall, inspect selection/continuation. If on
 
 ## Full behavioural acceptance remains wider than the immediate bug fixes
 
+The [Proposal 1 failure matrix](<../Evaluation and Observability/Proposal 1 Failure Cases and Diagnostic Contracts.md>) adds prospective top-level, family and activity failures to the existing experiments. It makes the raised-lip mining case and the split between pursuit and firing explicit, and records the requested family-left/activity-right health bar. Its remedies are shared contracts with diagnostic evidence; the cases are not evidence that the corresponding bugs all exist.
+
 The roadmaps continue through player-relative autonomy, spatial light opportunities, incidental pots/loot, risk-sensitive work, effective protection, boss/event policy, capability scaling, returnability, courtesy, downing/recovery, inventory/protection and readable diagnostics. The [Behavioural Acceptance Matrix](<../Evaluation and Observability/Behavioural Acceptance Matrix.md>) provides positive cases, changed circumstances and failure branches for all twenty-seven README responsibilities, complementing the eighteen synthesised requirements. A companion that mines reliably but still wanders after unreachable enemies has not completed the work.
 
 Some acceptance criteria require owner judgement after observable evidence is available: how much small damage is acceptable for work, how much independence feels companionable, and how aggressive unfamiliar-threat caution should be. Those are narrower choices than another open-ended requirements interview. Existing research can prepare their comparisons, but cannot honestly claim to have made the owner's future playtest judgement.

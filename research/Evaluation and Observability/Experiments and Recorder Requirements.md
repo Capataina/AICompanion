@@ -6,6 +6,8 @@ The source of the design is the combination of [recorded episodes](<Recorded Epi
 
 ## Compare the outcome the player sees
 
+The [Proposal 1 failure analysis](<Proposal 1 Failure Cases and Diagnostic Contracts.md>) supplies 64 prospective cases and maps them to E01–E16. Use its paired raised-lip mining geometry, separate movement/firing targets, family-offer checks and coherent HUD snapshot requirements as additional acceptance conditions. The matrix does not replace an original-signature reproduction or establish that every listed failure currently occurs.
+
 A companion may execute many commands while achieving little. The primary outcome measures therefore describe assistance, disruption and physical consequences. An aggregate score can help summarise a batch, but the individual dimensions remain visible because a gain in gathered ore cannot buy permission to damage a home or repeatedly abandon the player.
 
 | Outcome | Measurement and desirable direction | What it must not be confused with |
