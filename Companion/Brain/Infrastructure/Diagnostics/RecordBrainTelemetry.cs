@@ -279,7 +279,7 @@ public sealed class BrainTelemetry : ModSystem
         writer.WriteLine("# retention=rows=one-per-companion-ai-tick;events=every-occurrence-offered"
             + $";terrain-snapshots-remembered={RecordTerrainChunks.MaximumRemembered};terrain-captures-per-tick={RecordTerrainChunks.CapturesPerTick}"
             + $";recent-attempt-outcomes={Infrastructure.Selection.OwnCurrentActivity.RecentAttemptCapacity};cargo-transfer-ledger={(global::AICompanion.Companion.Inventory.CompanionInventory.RecentTransferCapacity)}"
-            + $";cosmetic-contacts-per-summary={GodsEyeEvents.CosmeticContactsPerSummary};inspector-traces={BrainInspectorSamples.Capacity};session-map-tiles={SessionMap.MaxTilesRemembered}"
+            + $";cosmetic-contacts-per-summary={GodsEyeEvents.CosmeticContactsPerSummary};inspector-traces={BrainInspectorSamples.Capacity};inspector-cost-ticks={BrainInspectorSamples.CostTicks};session-map-tiles={SessionMap.MaxTilesRemembered}"
             + $";plan-dump-every-ticks={DumpEveryTicks};flush-every-ticks={FlushEveryTicks}");
         writer.WriteLine("# lifecycle=world-entry-observed;tag-load-not-yet-observed;first-update-not-yet-observed;outer-load-unobservable;save-not-observed");
         writer.Flush();

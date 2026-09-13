@@ -34,5 +34,34 @@ public static class BrainInspectorSamples
         if (traces.Count >= Capacity) traces.Dequeue();
         traces.Enqueue(new Trace(Terraria.Main.GameUpdateCount, points, accepted, reason));
     }
-    public static void Reset() { AimTraces.Clear(); MovementTraces.Clear(); LastReflex = null; LastAim = null; }
+    /// <summary>
+    /// Ticks of brain cost kept for the cost strip: one column per tick at sixty a second, so the strip is the last second of
+    /// thinking and nothing older. It is a ring rather than a growing list because the drawing only ever reads the last second,
+    /// and a session-long history of a value nobody plots is memory spent on nothing.
+    /// </summary>
+    internal const int CostTicks = 60;
+    private static readonly float[] cost = new float[CostTicks];
+    private static int costCount, costNext;
+
+    /// <summary>How many of the ring's ticks hold a sample; below <see cref="CostTicks"/> only in the first second after a reset.</summary>
+    public static int CostSamples => costCount;
+
+    /// <summary>The kept ticks oldest first, so index zero is the left-hand column.</summary>
+    public static float CostAt(int index) => cost[(costNext - costCount + index + 2 * CostTicks) % CostTicks];
+
+    public static float LastCost => costCount == 0 ? 0f : CostAt(costCount - 1);
+
+    /// <summary>One tick's decide, position and navigate laps, already measured by the brain. Nothing here times anything.</summary>
+    public static void RecordCost(float milliseconds)
+    {
+        cost[costNext] = milliseconds;
+        costNext = (costNext + 1) % CostTicks;
+        if (costCount < CostTicks) costCount++;
+    }
+
+    public static void Reset()
+    {
+        AimTraces.Clear(); MovementTraces.Clear(); LastReflex = null; LastAim = null;
+        System.Array.Clear(cost); costCount = costNext = 0;
+    }
 }
