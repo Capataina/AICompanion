@@ -55,6 +55,7 @@ internal static class VerifyCollectionContracts
         Each("I05 attribution by transfer", ADropLeavingTheWorldIsAttributedByWhatTheBagReceived);
         Each("I03 one trip unit", ADropsForecastIsTheWalkToAContactPose);
         Each("D1 a reachable drop behind refused drops is offered", AReachableDropBehindRefusedDropsIsOffered);
+        Each("D2 a drop merged into another world drop", ADropMergedIntoAnotherWorldDropIsNotAPurposeThatWentAway);
         // Timings under the production allowances, printed and never asserted: they describe this machine.
         foreach (bool warmUp in new[] { true, false })
             foreach (bool pit in new[] { false, true })
@@ -63,7 +64,7 @@ internal static class VerifyCollectionContracts
                 try { MeasureFallingDropCost(pit, warmUp); }
                 finally { AStar.AllowOneWayDrops = oneWay; Preferences.Current.PotBreaking = potBreaking; Restore(); }
             }
-        if (red == 0) Console.WriteLine("collection contracts: own reach and return, moved drops, partial capacity, transfer attribution, trip unit and refused-drop budget pass");
+        if (red == 0) Console.WriteLine("collection contracts: own reach and return, moved drops, partial capacity, transfer attribution, trip unit, refused-drop budget and merged drops pass");
         return red;
     }
 

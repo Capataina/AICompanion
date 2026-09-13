@@ -236,16 +236,40 @@ public sealed class CollectNearbyItems : PerformNearbyWorldWork
             return PositionRequest.Hold;
         // A drop that rolled or fell after it was proven is not where its reach and return were proven: hold this tick, and the
         // next preparation proves it where it now lies instead of walking to where it was.
+        // Where the walked-to drop last lay while it was still a world drop, so a drop that vanishes can be checked against the
+        // world drops that could have absorbed it.
+        if (dropAttempt is { } walking && ReferenceEquals(walking.Item, prepared.Item))
+            dropAttempt = walking with { LastCentre = prepared.Item.Center };
         if (Vector2.DistanceSquared(prepared.Item.Bottom, prepared.Position) > MovedDropPixels * MovedDropPixels)
             return PositionRequest.Hold;
         if (dropAttempt is not { } open || !ReferenceEquals(open.Item, prepared.Item))
-            dropAttempt = new(prepared.Item, prepared.Type, prepared.Item.stack, ctx.Companion.Bag, ctx.Companion.Bag.TransferSequence);
+            dropAttempt = new(prepared.Item, prepared.Type, prepared.Item.stack, ctx.Companion.Bag, ctx.Companion.Bag.TransferSequence, prepared.Item.Center);
         return PositionRequest.ExactAt(prepared.Pose);
     }
 
-    /// <summary>The drop this attempt walked toward, its stack when the walk began, and the cargo's transfer mark then.</summary>
-    private readonly record struct DropAttempt(Item Item, int Type, int StartStack, Inventory.CompanionInventory Bag, long TransferMark);
+    /// <summary>The drop this attempt walked toward, its stack when the walk began, the cargo's transfer mark then, and the
+    /// drop's centre when it was last seen in the world.</summary>
+    private readonly record struct DropAttempt(Item Item, int Type, int StartStack, Inventory.CompanionInventory Bag, long TransferMark, Vector2 LastCentre);
     private DropAttempt? dropAttempt;
+
+    /// <summary>Terraria's <c>Item.CombineWithNearbyItems</c> merges two drops of one type whose centres are closer than this
+    /// many pixels, summing horizontal and vertical distance: the lower world slot takes the stack, moves to the midpoint and
+    /// the other is cleared and deactivated. The native threshold doubles while many items have spawned recently; this does
+    /// not follow that, so a merge during a flood of drops still reads as the drop leaving the world.</summary>
+    private const float NativeMergePixels = 30f;
+
+    /// <summary>Whether a vanished walked-to drop was absorbed by another world drop of its type: one lies within the native
+    /// merge distance of where it was last seen. The absorber moves to the midpoint of the two, so it is nearer than that.</summary>
+    private static bool AbsorbedIntoWorldDrop(in DropAttempt drop)
+    {
+        foreach (Item other in Main.ActiveItems)
+        {
+            if (ReferenceEquals(other, drop.Item) || other.type != drop.Type || !LootSense.IsWorldDrop(other)) continue;
+            if (MathF.Abs(other.Center.X - drop.LastCentre.X) + MathF.Abs(other.Center.Y - drop.LastCentre.Y) < NativeMergePixels)
+                return true;
+        }
+        return false;
+    }
 
     public override void BeginAttempt()
     {
@@ -257,8 +281,9 @@ public sealed class CollectNearbyItems : PerformNearbyWorldWork
     /// A drop's attempt is concluded from what the cargo actually received from that item object after the walk began, never
     /// from the drop merely leaving the world, which the player's pickup or despawning also does. All of it received and the
     /// drop gone: the companion's own completion. Part received and the rest gone: shared. Gone with nothing received:
-    /// the purpose went away, which is invalid. Part received and the rest still lying there: partial. Pot attempts use the
-    /// shared interaction conclusion.
+    /// the purpose went away, which is invalid. Part received and the rest still lying there: partial. A drop that vanished
+    /// because another world drop of its type absorbed it has not left the world: nothing received is an attempt replaced
+    /// with the items still lying there, part received is partial. Pot attempts use the shared interaction conclusion.
     /// </summary>
     public override AttemptConclusion ConcludeAttempt(int productiveEffects)
     {
@@ -266,6 +291,10 @@ public sealed class CollectNearbyItems : PerformNearbyWorldWork
         {
             int received = drop.Bag.TransferredSince(drop.TransferMark, drop.Item);
             bool gone = !LootSense.IsWorldDrop(drop.Item) || drop.Item.type != drop.Type;
+            if (gone && AbsorbedIntoWorldDrop(drop))
+                return received > 0
+                    ? new(AttemptStatus.Partial, "drop-partly-transferred")
+                    : new(AttemptStatus.Attempted, "drop-merged-into-world-drop");
             if (gone)
                 return received <= 0
                     ? new(AttemptStatus.Invalid, "drop-left-world-without-companion-transfer")
