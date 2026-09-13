@@ -24,6 +24,7 @@ internal static class VerifyCombatPurpose
         TheSameSmallAttackIsIgnoredAtFullHealthAndEscapedAtLowHealth();
         PursuitWeighsARepositionAgainstTheShotsItDelays();
         ProtectionIsWorthTheHarmAnInterventionCanRemove();
+        ProtectionCountsTheTimeToReachAFiringPosition();
         LandedHitsAreRecordedApartFromTheAimedTarget();
         TheRecordCarriesPursuitAimAndHitApart();
         VerifyEncounterContext.Run();
@@ -152,7 +153,8 @@ internal static class VerifyCombatPurpose
             Require(names.Length == values.Length, $"identity row and header widths disagree: {names.Length}/{values.Length}");
             string[] appended = { "pursuit_target", "pursuit_value", "pursuit_access_ticks", "pursuit_evidence", "aim_target",
                 "landed_hit_target", "landed_hit_aimed", "landed_hit_damage", "landed_hit_tick", "landed_hits",
-                "guard_removal_ticks", "guard_usefulness", "top_threat_effective_player", "top_threat_effective_companion" };
+                "guard_removal_ticks", "guard_usefulness", "top_threat_effective_player", "top_threat_effective_companion",
+                "guard_access_ticks" };
             foreach (string name in appended)
                 Require(Array.IndexOf(names, name) >= 0, "identity column missing from the recording: " + name);
             string declaration = lines.First(l => l.StartsWith("# text_columns="));
@@ -250,6 +252,127 @@ internal static class VerifyCombatPurpose
             $"the small eyes on the player must be worth more protection than the boss itself; servant={servant.Guard}, eye={eye.Guard}");
         Require(tank.Hunt > 0f && eye.Hunt > 0f,
             $"a fight too long to protect through must still be a fight hunting offers; tank={tank.Hunt}, eye={eye.Hunt}");
+    }
+
+    private enum ShaftAccess { Sealed, Lip, InSight }
+
+    private readonly record struct ShaftGuard(float Guard, float Usefulness, float Removal, string Access, float AccessTicks,
+        float PlayerUrgency, float ProtectionUrgency, bool ReachComplete, int Target);
+
+    // The guarded zombie's life in the shaft pair, chosen so removal is already past GuardUsefulRemovalTicks on
+    // starting weapons. Below that length every access that leaves the sum inside it is guarded identically,
+    // which is correct and would make "the lip reads below in-sight" unreachable rather than tested.
+    private const int ShaftGuardedLife = 600, ShaftGuardPlayerX = 58;
+
+    /// <summary>
+    /// The shaft geometry with one zombie on its floor that passes through rock and hits hard, so it threatens the
+    /// player beside the shaft in every row, and the companion three tiles away on the open floor. Rows differ
+    /// only in how the companion can shoot it: the mouth capped so no reachable tile has a line (a proven
+    /// absence once the flood is settled), the mouth open so the lip is a short walk, or the rock beside the
+    /// shaft opened so a weapon solves from where the companion stands.
+    /// </summary>
+    private static ShaftGuard GuardShaft(ShaftAccess access)
+    {
+        Main.maxTilesX = Main.maxTilesY = 120;
+        Main.worldSurface = 50;
+        Main.tile = (Tilemap)Activator.CreateInstance(typeof(Tilemap), System.Reflection.BindingFlags.Instance
+            | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public, null, new object[] { (ushort)120, (ushort)120 }, null)!;
+        Main.tileSolid[1] = true;
+        for (int x = 5; x < 115; x++)
+            for (int y = PitFloorY; y <= ShaftFloorY + 2; y++) { Tile rock = Main.tile[x, y]; rock.HasTile = true; rock.TileType = 1; }
+        // The capped shaft keeps its mouth row solid, so the floor is continuous and the cavity below is sealed.
+        for (int x = ShaftLeft; x <= ShaftRight; x++)
+            for (int y = access == ShaftAccess.Sealed ? PitFloorY + 1 : PitFloorY; y < ShaftFloorY; y++) { Tile air = Main.tile[x, y]; air.HasTile = false; }
+        if (access == ShaftAccess.InSight)
+            for (int x = ShaftLeft - 3; x < ShaftLeft; x++)
+                for (int y = PitFloorY; y < ShaftFloorY; y++) { Tile air = Main.tile[x, y]; air.HasTile = false; }
+        live::AICompanion.Companion.Brain.SharedMovementSystem.TerrainChanges.Reset();
+        live::AICompanion.Companion.Brain.SharedMovementSystem.NavGrid.World = new live::AICompanion.Companion.Brain.SharedMovementSystem.GameTileWorld();
+        live::AICompanion.Companion.Brain.SharedMovementSystem.AStar.InvalidateEdges();
+
+        var companion = VerifyCompanionLifecycle.Create();
+        live::AICompanion.Companion.Brain.SharedMovementSystem.AStar.MsBudget = 0;
+        Player player = Main.player[0];
+        player.dead = false;
+        player.statLife = player.statLifeMax2;
+        player.DefenseEffectiveness = MultipliableFloat.One * .5f;
+        player.velocity = Vector2.Zero;
+        // Across the shaft from the companion, not beside it as in the pursuit rows: the in-sight opening is cut on
+        // the companion's side, and cut between the zombie and a player standing there it doubled the zombie's
+        // urgency to the player (0.295 to 0.591 on the first run), which the danger premise below refused.
+        player.position = new Vector2(ShaftGuardPlayerX * 16f, PitFloorY * 16f - player.height);
+        companion.NPC.position = new Vector2(NearStart * 16f, PitFloorY * 16f - companion.NPC.height);
+        companion.NPC.velocity = Vector2.Zero;
+
+        Main.npc[VisibleSlot] = new NPC();
+        NPC hidden = Main.npc[HiddenSlot];
+        hidden.SetDefaults(NPCID.Zombie);
+        hidden.whoAmI = HiddenSlot; hidden.active = true; hidden.velocity = Vector2.Zero;
+        hidden.lifeMax = hidden.life = ShaftGuardedLife;
+        hidden.noTileCollide = true;
+        hidden.damage = 100;
+        hidden.Bottom = new Vector2(HiddenX * 16f + 8f, ShaftFloorY * 16f);
+
+        var brain = companion.Brain;
+        brain.Senses.Update(companion.NPC, player, companion.Breath);
+        var ctx = new live::AICompanion.Companion.Brain.Behaviours.ActionContext(companion, brain.Senses);
+        var threat = brain.Senses.Threats.Threats.Find(t => t.Npc == hidden);
+        Require(threat != null && threat.CanReachPlayer && threat.Urgency > 0f,
+            $"shaft guard {access}: the zombie must threaten the player before protection is read; urgency={threat?.Urgency}");
+        var profile = companion.Arsenal.ProfileFor(ctx, hidden);
+        var request = new live::AICompanion.Companion.Brain.PositionSelection.PositionRequest(
+            live::AICompanion.Companion.Brain.PositionSelection.RequestKind.LineOfFire, hidden.Center, hidden);
+        // Settled, so a proven absence is the flood's finished answer rather than its budget.
+        for (int i = 0; i < 400; i++) brain.Positioner.Resolve(request, brain.Senses, profile);
+        brain.Senses.SetInterventionEstimate(companion.Arsenal.EstimateInterventionTicks(ctx));
+        var guard = brain.Chooser.Actions.OfType<Guard>().Single();
+        float guardValue = VerifyPreparedActivities.PrepareAndScore(guard, ctx);
+        return new(guardValue, guard.InterventionUsefulness, guard.RemovalTicks, guard.Access?.ToString() ?? "unasked", guard.AccessTicks,
+            threat!.Urgency, brain.Senses.Threats.ProtectionUrgency, brain.Positioner.ReachComplete, (guard.ActivityIdentity as NPC)?.whoAmI ?? -1);
+    }
+
+    /// <summary>
+    /// Proposal 1's P03 on protection: an intervention's time includes getting to where it can be made. One threat
+    /// on the player, removal past the useful length, and three ways of shooting it. A shaft capped so nothing the
+    /// companion can reach has a line is access that never arrives, so guarding is worth nothing and yields to
+    /// safety and company; a lip a short walk away is worth protecting, less than a shot from here by exactly the
+    /// walk's part of access plus removal. The danger the guard value multiplies is required identical across the
+    /// open rows, because opening terrain can change what the zombie threatens and that must not pass for access.
+    /// </summary>
+    private static void ProtectionCountsTheTimeToReachAFiringPosition()
+    {
+        live::AICompanion.Companion.Brain.SharedMovementSystem.LimitPlanningWork.Unbounded = true;
+        ShaftGuard sealedShaft, lip, inSight;
+        try
+        {
+            sealedShaft = GuardShaft(ShaftAccess.Sealed);
+            lip = GuardShaft(ShaftAccess.Lip);
+            inSight = GuardShaft(ShaftAccess.InSight);
+        }
+        finally { live::AICompanion.Companion.Brain.SharedMovementSystem.LimitPlanningWork.Unbounded = false; }
+        foreach (var (name, scene) in new[] { ("sealed", sealedShaft), ("lip", lip), ("in-sight", inSight) })
+            Console.WriteLine($"  guard access row {name}: guard={scene.Guard:0.0000} target={scene.Target} access={scene.Access} {scene.AccessTicks:0.0} removal={scene.Removal:0.0} share={scene.Usefulness:0.0000} player-urgency={scene.PlayerUrgency:0.000} protection-urgency={scene.ProtectionUrgency:0.000} reach-complete={scene.ReachComplete}");
+
+        foreach (var (name, scene) in new[] { ("sealed", sealedShaft), ("lip", lip), ("in-sight", inSight) })
+            Require(scene.Target == HiddenSlot && scene.Removal > Weights.GuardUsefulRemovalTicks && MathF.Abs(scene.Removal - lip.Removal) < 0.01f,
+                $"shaft guard {name}: guarding must hold the shaft zombie with an identical removal already past the useful length; target={scene.Target}, removal={scene.Removal}, lip removal={lip.Removal}");
+        Require(sealedShaft.Access == "None" && sealedShaft.ReachComplete,
+            $"shaft guard sealed: the capped shaft must be a proven absence from a settled flood, or a zero proves nothing; access={sealedShaft.Access}, reach-complete={sealedShaft.ReachComplete}");
+        Require(lip.Access == "AfterMoving" && float.IsFinite(lip.AccessTicks) && lip.AccessTicks > 0f,
+            $"shaft guard lip: the open shaft must be a finite walk to its lip; access={lip.Access} {lip.AccessTicks}");
+        Require(inSight.Access == "FromHere" && inSight.AccessTicks == 0f,
+            $"shaft guard in-sight: the opened rock must let a weapon solve from where the companion stands; access={inSight.Access} {inSight.AccessTicks}");
+        float lipDanger = lip.Guard / (lip.Usefulness * Weights.GuardUrgency), inSightDanger = inSight.Guard / (inSight.Usefulness * Weights.GuardUrgency);
+        Require(MathF.Abs(lipDanger - inSightDanger) < 1e-4f,
+            $"shaft guard: the danger guarding multiplies must be identical with the lip and in sight, or the pair measures danger rather than access; lip={lipDanger}, in-sight={inSightDanger}");
+
+        Require(sealedShaft.Guard == 0f && sealedShaft.Usefulness == 0f,
+            $"a threat no reachable position can shoot must be worth no protection; guard={sealedShaft.Guard}, share={sealedShaft.Usefulness}");
+        Require(MathF.Abs(lip.Usefulness - Weights.GuardUsefulRemovalTicks / (lip.Removal + lip.AccessTicks)) < 1e-4f
+            && MathF.Abs(inSight.Usefulness - Weights.GuardUsefulRemovalTicks / inSight.Removal) < 1e-4f,
+            $"the share must be the useful length over access plus removal; lip={lip.Usefulness}, in-sight={inSight.Usefulness}");
+        Require(lip.Guard > 0f && lip.Guard < inSight.Guard,
+            $"a threat the companion must walk to the lip to shoot must be worth protecting, and less than the same threat it can shoot now; lip={lip.Guard}, in-sight={inSight.Guard}");
     }
 
     private const int PitFloorY = 80, ShaftLeft = 49, ShaftRight = 53, ShaftFloorY = 86, HiddenX = 51;

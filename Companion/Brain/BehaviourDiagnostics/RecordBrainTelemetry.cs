@@ -42,7 +42,7 @@ public sealed class BrainTelemetry : ModSystem
     private static string? eventsPath;
     private static readonly Stopwatch sessionClock = new();
     private static DateTime sessionStartedUtc;
-    private const string Schema = "0.25.0";
+    private const string Schema = "0.26.0";
     private static string? pendingPlayerHit;
     private static string? pendingCompanionHit;
     private static string? lastDecision;
@@ -506,7 +506,7 @@ public sealed class BrainTelemetry : ModSystem
             }
             h.Append("\tmeeting_reason\tmeeting_anchor\tmeeting_player_ticks\tmeeting_companion_ticks\tmeeting_candidates\tmeeting_priced\tmeeting_flood");
             h.Append("\tnav_failure\tnav_failure_reason\tnav_failure_search_id\tnav_failure_attempt_id\tnav_attempt_ending\tnav_attempts_completed\tnav_attempts_failed\tnav_attempts_preempted\tnav_attempts_cancelled");
-            h.Append("\tpursuit_target\tpursuit_value\tpursuit_access_ticks\tpursuit_evidence\taim_target\tlanded_hit_target\tlanded_hit_aimed\tlanded_hit_damage\tlanded_hit_tick\tlanded_hits\tguard_removal_ticks\tguard_usefulness\ttop_threat_effective_player\ttop_threat_effective_companion\tencounter_intensity\tencounter_source\tencounter_recognised\tencounter_pressure_ticks");
+            h.Append("\tpursuit_target\tpursuit_value\tpursuit_access_ticks\tpursuit_evidence\taim_target\tlanded_hit_target\tlanded_hit_aimed\tlanded_hit_damage\tlanded_hit_tick\tlanded_hits\tguard_removal_ticks\tguard_usefulness\ttop_threat_effective_player\ttop_threat_effective_companion\tencounter_intensity\tencounter_source\tencounter_recognised\tencounter_pressure_ticks\tguard_access_ticks");
             writer.WriteLine(h.ToString());
             headerWritten = true;
         }
@@ -843,6 +843,10 @@ public sealed class BrainTelemetry : ModSystem
         sb.Append('\t').Append(encounter.Source);
         sb.Append('\t').Append(encounter.Recognised ? 1 : 0);
         sb.Append('\t').Append(encounter.PressureTicks);
+        // The firing access guard's share counted: zero from here, the walk after moving, -1 for an
+        // unsettled region, a proven absence or a threat nothing can damage (read the share beside it).
+        float access = guard?.AccessTicks ?? float.NaN;
+        sb.Append('\t').Append(float.IsFinite(access) ? access.ToString("0.0", CultureInfo.InvariantCulture) : "-1");
 
         // A write that fails (disk full, a stream the OS closed) must not escape the NPC's AI
         // and take the companion with it; the record stops and the game goes on.
