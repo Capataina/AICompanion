@@ -77,13 +77,18 @@ public abstract class PerformNearbyWorldWork : CompanionAction
         if (trip.Outward == Reachability.Reach.Yes && trip.Return == Reachability.Reach.Yes && trip.Breath == Reachability.Reach.Yes)
             return true;
         if (trip.Return == Reachability.Reach.No || trip.Breath == Reachability.Reach.No)
-        {
-            if (noReturn.Count > 64) noReturn.Clear();
-            noReturn[tile] = (TerrainChanges.Revision, Main.GameUpdateCount + (ulong)BehaviourSelection.Weights.NearbyWorkNoReturnRetryTicks);
-            tripRefusal = (OfferEligibility.KnownUnusable, trip.Return == Reachability.Reach.No ? "interaction-site-has-no-return" : "interaction-trip-exceeds-breath");
-        }
+            DeferRefusedTrip(tile, trip.Return == Reachability.Reach.No ? "interaction-site-has-no-return" : "interaction-trip-exceeds-breath");
         else tripRefusal ??= (OfferEligibility.Unresolved, "interaction-trip-undecided");
         return false;
+    }
+
+    /// <summary>Keep a site whose trip was proven impossible (no way back, no breath, or no take-off for the only hop that could
+    /// reach it) out of discovery until the terrain changes or the wait passes. A named reason also becomes the offer's refusal.</summary>
+    private void DeferRefusedTrip(Point tile, string? reason)
+    {
+        if (noReturn.Count > 64) noReturn.Clear();
+        noReturn[tile] = (TerrainChanges.Revision, Main.GameUpdateCount + (ulong)BehaviourSelection.Weights.NearbyWorkNoReturnRetryTicks);
+        if (reason != null) tripRefusal = (OfferEligibility.KnownUnusable, reason);
     }
 
     private bool NoReturnDeferred(Point tile)
@@ -93,6 +98,13 @@ public abstract class PerformNearbyWorldWork : CompanionAction
         noReturn.Remove(tile);
         return false;
     }
+
+    /// <summary>A body counts as at rest on its take-off below this horizontal speed. The engine zeroes smaller speeds and the
+    /// slowdown snaps to exactly zero, so this is a numerical tolerance, not a tunable; it matches MineOre's.</summary>
+    private const float RestSpeed = 0.01f;
+    /// <summary>The longest flight the interaction-jump proof simulates; it mirrors the step limit inside
+    /// ProveInteractionJump.CanReach, and a jump still airborne past it was never going to deliver the interaction.</summary>
+    private const int HopFlightTicks = 90;
 
     public override void Prepare(in ActionContext ctx)
     {
@@ -169,9 +181,23 @@ public abstract class PerformNearbyWorldWork : CompanionAction
                 if (FindToolAccess.InReach(ctx.Npc.Bottom, p)) candidateStand = ctx.Npc.Bottom;
                 else if (AllowJump && ProveInteractionJump.CanReach(NavGrid.World, ctx.Companion.Motor.State, body => FindToolAccess.InReach(body.Feet, p)))
                 { candidateStand = ctx.Npc.Bottom; jump = true; }
-                else if (FindToolAccess.Approach(p, ctx.Npc.Bottom, out candidateStand) != Reachability.Reach.Yes) continue;
-                else if (tripsAsked++ >= BehaviourSelection.Weights.NearbyWorkTripChecks) break;
-                else if (!TripReturns(ctx, p, candidateStand)) continue;
+                else
+                {
+                    var standing = FindToolAccess.Approach(p, ctx.Npc.Bottom, out candidateStand);
+                    if (standing == Reachability.Reach.Unknown) continue;
+                    // Only a site no standing pose reaches is hopped to, from a take-off the walker reaches: the same order and
+                    // the same query mining uses for ceiling ore, so a take-off is admitted here exactly when it would be there.
+                    if (standing == Reachability.Reach.No && !AllowJump) continue;
+                    if (tripsAsked++ >= BehaviourSelection.Weights.NearbyWorkTripChecks) break;
+                    if (standing == Reachability.Reach.No)
+                    {
+                        var hop = FindToolAccess.HopApproach(p, ctx.Npc.Bottom, ctx.Companion.Motor.State, out candidateStand);
+                        if (hop == Reachability.Reach.No) DeferRefusedTrip(p, null);
+                        if (hop != Reachability.Reach.Yes) continue;
+                        jump = true;
+                    }
+                    if (!TripReturns(ctx, p, candidateStand)) continue;
+                }
                 target = p; stand = candidateStand; needsJump = jump; jumped = false;
                 approachOrigin = ctx.Npc.Bottom; approachTicks = 0;
                 break;
@@ -193,40 +219,55 @@ public abstract class PerformNearbyWorldWork : CompanionAction
         if (!Candidate(ctx, tile)) { target = null; Release("target-no-longer-candidate"); return PositionRequest.Hold; }
         if (!FindToolAccess.InReach(ctx.Npc.Bottom, tile))
         {
-            if (!needsJump)
+            BodyState live = ctx.Companion.Motor.State;
+            if (needsJump && jumped)
             {
-                // The approach can fail, and until this existed nothing said so. Score() only ever
-                // dropped a target that vanished or left the activity envelope, so a cached stand
-                // the body could not walk to was held for ever: on 2026-09-11 that was ticks 18,501
-                // to 21,531 on one pot, 3,031 unbroken ticks with the movement system reporting
-                // itself stalled on 1,826 of them, which was 97% of every stalled tick in the run.
-                // An intent that cannot fail is an intent that cannot be given up, so covering no
-                // ground for a full progress window defers this tile and hands the tick back.
-                if (Vector2.DistanceSquared(approachOrigin, ctx.Npc.Bottom)
-                    >= BehaviourSelection.Weights.ObjectiveProgressPixels * BehaviourSelection.Weights.ObjectiveProgressPixels)
-                { approachOrigin = ctx.Npc.Bottom; approachTicks = 0; }
-                else if (++approachTicks >= BehaviourSelection.Weights.ObjectiveProgressWindowTicks)
+                // This method's own flight: the rising body is what reaches, so it is held; past the proof's own flight
+                // length the jump was never going to deliver.
+                if (Main.GameUpdateCount - jumpStarted > HopFlightTicks) { target = null; Release("interaction-jump-did-not-deliver"); }
+                return PositionRequest.Hold;
+            }
+            // On the take-off's own feet tile, the hop is re-proved from the live pose before the jump: another behaviour may have
+            // moved the body since the take-off was chosen. A body still sliding there fails the proof because its jump drifts, not
+            // because the take-off is gone, so it holds until it is at rest. At rest with no proof left, the take-off itself is gone,
+            // and the tile leaves discovery; without that, the next preparation re-proves the same take-off from rest, passes, and
+            // offers it again for ever. The tile, not a body width, is the test: HopApproach proves a pose at its tile's centre, and a
+            // pot take-off proved there failed from one tile short, 16 pixels away, which a body-width tolerance counted as arrived
+            // and so declared lost before the walk ever reached it. Short of the tile the body keeps walking, and the progress window
+            // below still ends a walk that cannot close.
+            if (needsJump && live.OnGround && MovementQueries.FeetTile(ctx.Npc.Bottom) == MovementQueries.FeetTile(stand)
+                && Vector2.DistanceSquared(ctx.Npc.Bottom, stand) <= BodyPhysics.Width * BodyPhysics.Width)
+            {
+                if (MathF.Abs(live.Vx) > RestSpeed) return PositionRequest.Hold;
+                if (!ProveInteractionJump.CanReach(NavGrid.World, live, body => FindToolAccess.InReach(body.Feet, tile)))
                 {
                     deferred[tile] = Main.GameUpdateCount + DeferFailedApproachTicks;
-                    BehaviourDiagnostics.GodsEyeEvents.RecordWorldInteraction(ctx.Npc, tile, "approach-abandoned",
-                        $"no ground covered in {BehaviourSelection.Weights.ObjectiveProgressWindowTicks} ticks");
-                    target = null; nextSearch = Main.GameUpdateCount + 60;
-                    Release("approach-made-no-progress");
-                    return PositionRequest.Hold;
+                    target = null; Release("interaction-jump-lost-take-off"); return PositionRequest.Hold;
                 }
-                return PositionRequest.ExactAt(stand);
-            }
-            if (!jumped)
-            {
-                // Validate against the live pose again: another behaviour may have moved us
-                // after candidate discovery. The shared movement controller owns the impulse.
-                if (!ProveInteractionJump.CanReach(NavGrid.World, ctx.Companion.Motor.State, body => FindToolAccess.InReach(body.Feet, tile)))
-                { target = null; Release("interaction-jump-lost-take-off"); return PositionRequest.Hold; }
                 jumped = true; jumpStarted = Main.GameUpdateCount;
                 return PositionRequest.Hold with { JumpScale = 1f };
             }
-            if (Main.GameUpdateCount - jumpStarted > 90) { target = null; Release("interaction-jump-did-not-deliver"); }
-            return PositionRequest.Hold;
+            // Walking to a standing pose or to a take-off; airborne on the way (crossing a ledge or a gap) is still the walk.
+            // The approach can fail, and until this existed nothing said so. Score() only ever
+            // dropped a target that vanished or left the activity envelope, so a cached stand
+            // the body could not walk to was held for ever: on 2026-09-11 that was ticks 18,501
+            // to 21,531 on one pot, 3,031 unbroken ticks with the movement system reporting
+            // itself stalled on 1,826 of them, which was 97% of every stalled tick in the run.
+            // An intent that cannot fail is an intent that cannot be given up, so covering no
+            // ground for a full progress window defers this tile and hands the tick back.
+            if (Vector2.DistanceSquared(approachOrigin, ctx.Npc.Bottom)
+                >= BehaviourSelection.Weights.ObjectiveProgressPixels * BehaviourSelection.Weights.ObjectiveProgressPixels)
+            { approachOrigin = ctx.Npc.Bottom; approachTicks = 0; }
+            else if (++approachTicks >= BehaviourSelection.Weights.ObjectiveProgressWindowTicks)
+            {
+                deferred[tile] = Main.GameUpdateCount + DeferFailedApproachTicks;
+                BehaviourDiagnostics.GodsEyeEvents.RecordWorldInteraction(ctx.Npc, tile, "approach-abandoned",
+                    $"no ground covered in {BehaviourSelection.Weights.ObjectiveProgressWindowTicks} ticks");
+                target = null; nextSearch = Main.GameUpdateCount + 60;
+                Release("approach-made-no-progress");
+                return PositionRequest.Hold;
+            }
+            return PositionRequest.ExactAt(stand);
         }
         if (Main.GameUpdateCount >= retryAfter)
         {

@@ -261,6 +261,8 @@ public sealed class CollectNearbyItems : PerformNearbyWorldWork
 
     protected override string CompletedEffect => "pot-broken-contents-unobserved";
     protected override float Utility => Weights.PotContentsValue;
+    // A pot on a shelf above standing reach is broken the way a player does it, from a proven hop, like a torch site or ceiling ore.
+    protected override bool AllowJump => true;
     protected override bool Enabled(in ActionContext ctx)
         => PlayerIntegration.CompanionPreferences.Current.PotBreaking && ctx.Companion.Bag.Count < Inventory.CompanionInventory.Slots;
     protected override (OfferEligibility Eligibility, string Reason) DisabledOffer(in ActionContext ctx)
