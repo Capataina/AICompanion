@@ -19,7 +19,7 @@ MovementExecution/
 └─ FallThroughTraversal.cs  a fall through the platform under any part of the body: the drop's descent with the platform columns as the span and the place the body already stands as one more line, the press on the platform once the body is on the line, and the first rest after the press the landing however shallow, because the next tread of a platform staircase is one row down
 ```
 
-## How a step moves through a traversal
+## Step proof, step execution and the diagnostic capture
 
 Diagnostic callbacks can retain the actual sampled local alternatives without running another search. Capture is opt-in at the call site, bounded by the inspector, and absent during ordinary play with the relevant layer disabled. `ProveInteractionJump` similarly uses the shared body model, but answers a work predicate: whether a dry ground jump reaches a supplied interaction and then lands safely nearby. It never writes velocity or grants an air jump.
 
@@ -118,7 +118,7 @@ Every begun attempt ends as exactly one of completed, physical failure, pre-empt
 
 The classification is descriptive. Strikes, rejection memory, spot bans and replanning read the same signals they read before; nothing is decided from the class except which remembered connections an attempt may retire. Goal-level no-progress (the partial-route alternation AIC-177 records) is not derived here yet: completed steps that never approach the goal still read as delivery.
 
-## Adding a mobility
+## Search budgets, partial-progress commitment and retry cadence
 
 Short grounded branches alone can exhaust a bounded search before any jump reaches its landing. A grounded jump therefore also offers its complete simulated flight, alongside the short intermediate branch. Search continues across a budget slice without committing a stationary or worse prefix merely because the slice ended. Landing, liquid-boundary crossing and actual goal satisfaction are meaningful prefix outcomes; height at a jump apex is not completion.
 
