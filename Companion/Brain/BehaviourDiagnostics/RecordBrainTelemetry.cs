@@ -42,7 +42,7 @@ public sealed class BrainTelemetry : ModSystem
     private static string? eventsPath;
     private static readonly Stopwatch sessionClock = new();
     private static DateTime sessionStartedUtc;
-    private const string Schema = "0.26.0";
+    private const string Schema = "0.27.0";
     private static string? pendingPlayerHit;
     private static string? pendingCompanionHit;
     private static string? lastDecision;
@@ -466,6 +466,7 @@ public sealed class BrainTelemetry : ModSystem
             foreach (var a in brain.Chooser.Actions) textColumns.Append(',').Append(a.Name).Append("_offer");
             textColumns.Append(",meeting_reason,meeting_anchor,meeting_flood");
             textColumns.Append(",nav_failure,nav_failure_reason,nav_attempt_ending");
+            textColumns.Append(",region_kind,region_anchor_px,region_player_px,region_comfort,region_work_tile,region_reach,region_arrival");
             writer.WriteLine(textColumns.ToString());
             var h = new StringBuilder();
             // A start timestamp is file metadata. Stopwatch is the observed wall duration of
@@ -506,6 +507,10 @@ public sealed class BrainTelemetry : ModSystem
             }
             h.Append("\tmeeting_reason\tmeeting_anchor\tmeeting_player_ticks\tmeeting_companion_ticks\tmeeting_candidates\tmeeting_priced\tmeeting_flood");
             h.Append("\tnav_failure\tnav_failure_reason\tnav_failure_search_id\tnav_failure_attempt_id\tnav_attempt_ending\tnav_attempts_completed\tnav_attempts_failed\tnav_attempts_preempted\tnav_attempts_cancelled");
+            // The success region the positioner admitted its destination against, and whether a claimed arrival lies
+            // inside it. The region is the positioner's own snapshot from the resolve that admitted it, so the report
+            // judges arrival against what the destination was chosen for, not against the world some ticks later.
+            h.Append("\tregion_kind\tregion_revision\tregion_tick\tregion_terrain\tregion_anchor_px\tregion_player_px\tregion_comfort\tregion_work_tile\tregion_reach\tregion_arrival");
             writer.WriteLine(h.ToString());
             headerWritten = true;
         }
@@ -813,6 +818,23 @@ public sealed class BrainTelemetry : ModSystem
             .Append('\t').Append(brain.Navigator.FailedAttempts)
             .Append('\t').Append(brain.Navigator.PreemptedAttempts)
             .Append('\t').Append(brain.Navigator.CancelledAttempts);
+        var region = brain.Positioner.Region;
+        // A claimed arrival is the navigator reporting Arrived on a tick the ordinary branch asked it to travel;
+        // any other owner leaves the status from an earlier MoveTo, which is not a claim about this tick.
+        // The feet are the entry body the navigator judged, not the after-helper npc_px.
+        bool arrivalClaimed = brain.Navigator.Status == SharedMovementSystem.Navigator.ExecutionStatus.Arrived
+            && controlGrant?.RequestedOwner == "travel";
+        bool? inside = arrivalClaimed ? region.Contains(new Vector2(observed.Left + npc.width / 2f, observed.Bottom)) : null;
+        sb.Append('\t').Append(region.Name)
+            .Append('\t').Append(brain.Positioner.ChosenRevision)
+            .Append('\t').Append(region.AdmittedTick)
+            .Append('\t').Append(region.TerrainRevision)
+            .Append('\t').Append(region.Kind == PositionSelection.SuccessRegionKind.None ? "-" : Pair(region.Anchor))
+            .Append('\t').Append(region.Kind == PositionSelection.SuccessRegionKind.FollowComfort ? Pair(region.PlayerFeet) : "-")
+            .Append('\t').Append(region.Kind == PositionSelection.SuccessRegionKind.FollowComfort ? Pair(region.Comfort) : "-")
+            .Append('\t').Append(region.WorkTile is Point work ? $"{work.X},{work.Y}" : "-")
+            .Append('\t').Append(region.Kind == PositionSelection.SuccessRegionKind.ToolReach ? $"{region.ReachX},{region.ReachY}" : "-")
+            .Append('\t').Append(!arrivalClaimed ? "-" : inside is bool b ? (b ? "inside" : "outside") : "undeclared");
 
         // A write that fails (disk full, a stream the OS closed) must not escape the NPC's AI
         // and take the companion with it; the record stops and the game goes on.

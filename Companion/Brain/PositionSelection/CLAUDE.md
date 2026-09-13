@@ -5,7 +5,8 @@
 ```
 PositionSelection/
 ├─ CLAUDE.md                 this guide
-├─ PositionRequest.cs        request kinds and their anchor, target, jump intent and meeting-place flag
+├─ PositionRequest.cs        request kinds and their anchor, target, jump intent, meeting-place flag and a tool stand's work tile
+├─ DeclareSuccessRegion.cs   the region a held destination was admitted against, as a pure containment test
 ├─ DescribePositionOffer.cs  bounded destination evidence for activity admission
 ├─ ChooseMeetingPlace.cs     reunion's place on the player's apparent journey, priced by the companion's own routes
 ├─ FollowPlayerObjective.cs  generic follow destination region, meeting-place lead and arrival proof
@@ -25,6 +26,16 @@ PredictedExposureAt supplies the geometric enemy-exposure query used both by des
 The thing being shot at is excluded from the approach-clearance factor. It is already priced by the destination's danger and by the standoff factor that owns how close to it the companion should stand; counting it a third time as an obstacle on the way made every spot on its far side lose most of its score, which during a hunt is most of the useful ground. The score combines the request’s band, sight, danger, openness, travel bias and, where relevant, a feasible shot. A place outside an exhausted reachable region is absent rather than merely worse; a missing tile in a still-expanding region is unknown, so a partial route may begin toward a useful goal before the flood proves otherwise.
 
 `FollowPlayerObjective.cs` defines the local destination region for ordinary following. It accepts destinations near the request's anchor — for reunion, the meeting place — or near the player's current body, so a transient climb, fall or collision correction that makes the anchor unusable still leaves the current local region. Completion uses the player’s current feet, separate horizontal and vertical comfort limits, and a local line connection. A point on a nearby but different floor cannot satisfy following merely because its circular distance is small. The incumbent is admitted only when it still belongs to that region, so hysteresis retains a route’s semantic destination rather than an arbitrary old floor.
+
+## A held destination carries the region it was admitted against
+
+The navigator's `Arrived` says the body stands near a point; it cannot say whether the point served the request. So every resolve that sets the destination also publishes `Region`, a `SuccessRegion` snapshot of what that destination was admitted to achieve, and `ChosenRevision`, which advances whenever `Chosen` takes a different value, including clearing it. The snapshot keeps the admission's own references, because judging an arrival against the world some ticks later would blame the destination for the player moving.
+
+- A follow destination from `Best` records the player feet, the anchor and the comfort extents its acceptance used. Every non-null answer from `Best` passed acceptance against those references, the incumbent included, and acceptance reserves the navigator's arrival radius inside the comfort box, so an arrival outside both boxes names a destination that was never admitted.
+- An exact request carrying `WorkTile` records the stand, the tile and the reach, and its region is the tool's native reach box: the arithmetic half of `FindToolAccess.InReach`. The line to an exposed face is not part of the region, because it reads live tiles and is not interval-shaped between the poses a stand was proven at. Only a standing proof sets `WorkTile`; a hop take-off is by construction a pose that does not reach, so declaring its tile would make every ceiling-ore walk an arrival outside its region.
+- An attack destination declares a firing position with no box, since its arc belongs to a moving target. A priced meeting place, a roam and an exact request without a work tile declare no geometry.
+
+The refinement query restores the revision and region with the rest of the held state, after restoring `Chosen`, so a rejected query leaves the held destination's identity exactly as it found it. The recorder writes the snapshot every row, and SessionReport judges claimed arrivals against it.
 
 ## Reunion meets the player on their journey, priced by the companion's own routes
 

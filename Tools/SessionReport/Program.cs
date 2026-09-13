@@ -57,6 +57,7 @@ public static class Program
         new BeingUnableToReachHimGetsNoticed(),
         new FollowingMakesRouteProgress(),
         new ArrivalDoesNotStrandFollowing(),
+        new ClaimedArrivalsStayInsideTheirSuccessRegion(),
         new HuntingProducesAnOutcome(),
         new HuntingHadAWeaponThatCouldReach(),
         new SubmergedMotionGetsExplained(),

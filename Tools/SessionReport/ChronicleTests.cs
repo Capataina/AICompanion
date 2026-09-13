@@ -40,11 +40,12 @@ public static class ChronicleTests
             ASelectionChangesOnlyWithANewComparison();
             AttemptEvidenceJoinsByIdentityAndDisagreementsAreDefinitive();
             ACompletedTransferClaimNeedsItsReceivedQuantity();
+            AClaimedArrivalMustLieInsideItsSuccessRegion();
             ControlGrantRulesJudgeTheRequestedOwner();
             IdentityChecksSkipOldAndPartialCapturesByName();
             MultiRunStatesProvenanceBeforeAnyRun();
             IdentityRulesStillMatchTheProducer();
-            Console.WriteLine("Chronicle self-tests passed (26 assertion groups).");
+            Console.WriteLine("Chronicle self-tests passed (27 assertion groups).");
             return 0;
         }
         catch (Exception error)
@@ -1013,6 +1014,98 @@ public static class ChronicleTests
                 "a capture older than claimed yields was judged, or skipped without naming the schema that introduced them");
             Require(Skip(WriteIdentitySession(files, columns, rows, events: null, schema: "0.26.0")).Contains("-events.jsonl", StringComparison.Ordinal),
                 "a capture with no sidecar was judged, or skipped without naming it");
+        }
+        finally { foreach (string file in files) File.Delete(file); }
+    }
+
+    /// <summary>
+    /// One family at a time, a claimed arrival held against the region its destination was admitted against: a follow
+    /// arrival inside either admission box, a tool stand inside its own reach box and a firing arrival that still solves
+    /// report nothing; the same captures with the body or the stand moved out, or the arc gone, report the contract by name.
+    /// </summary>
+    private static void AClaimedArrivalMustLieInsideItsSuccessRegion()
+    {
+        var files = new System.Collections.Generic.List<string>();
+        try
+        {
+            string[] columns = { "tick", "wall_elapsed_ms", "region_kind", "region_revision", "region_terrain", "region_anchor_px", "region_player_px", "region_comfort",
+                "region_work_tile", "region_reach", "region_arrival", "observed_left", "observed_bottom", "npc_width", "spot", "fire" };
+            System.Collections.Generic.Dictionary<string, string> Row(long t, string kind, string arrival, float feetX, float feetY, string anchor = "-", string player = "-",
+                string comfort = "-", string tile = "-", string reach = "-", string fire = "none")
+                => new()
+                {
+                    ["tick"] = t.ToString(), ["wall_elapsed_ms"] = (t * 16).ToString(), ["region_kind"] = kind, ["region_revision"] = "7", ["region_terrain"] = "3",
+                    ["region_anchor_px"] = anchor, ["region_player_px"] = player, ["region_comfort"] = comfort, ["region_work_tile"] = tile, ["region_reach"] = reach,
+                    ["region_arrival"] = arrival, ["observed_left"] = (feetX - 10).ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    ["observed_bottom"] = feetY.ToString(System.Globalization.CultureInfo.InvariantCulture), ["npc_width"] = "20", ["spot"] = "25,60", ["fire"] = fire,
+                };
+            Finding[] Found(System.Collections.Generic.IEnumerable<System.Collections.Generic.Dictionary<string, string>> rows, string schema = "0.27.0")
+                => new ClaimedArrivalsStayInsideTheirSuccessRegion().Run(Session.Load(WriteIdentitySession(files, columns, rows, events: null, schema))).ToArray();
+            System.Collections.Generic.IEnumerable<System.Collections.Generic.Dictionary<string, string>> Many(int count, Func<long, System.Collections.Generic.Dictionary<string, string>> row)
+                => Enumerable.Range(0, count).Select(i => row(100 + i));
+            string Describe(Finding[] found) => found.Length == 0 ? " (nothing fired)" : " (fired: " + string.Join(" | ", found.Select(f => $"{f.Severity} {f.Title}")) + ")";
+            void Clean(Finding[] found, string failure) => Require(found.Length == 0, failure + Describe(found));
+            void Fires(Finding[] found, Severity severity, string title, string failure)
+                => Require(found.Length == 1 && found[0].Severity == severity && found[0].Title.StartsWith(title, StringComparison.Ordinal), failure + Describe(found));
+
+            // Following: admitted against player feet 400,800 and anchor 400,800 with a 64 by 48 comfort box.
+            const string comfort = "64.00,48.00", here = "400.00,800.00";
+            System.Collections.Generic.Dictionary<string, string> Follow(long t, float x, string arrival = "inside", string player = here, string box = comfort)
+                => Row(t, "follow-comfort", arrival, x, 800, anchor: here, player: player, comfort: box);
+            Clean(Found(Many(5, t => Follow(t, 430))), "a follow arrival thirty pixels from the admission player was reported");
+            Clean(Found(Many(5, t => Follow(t, 430, player: "900.00,800.00"))), "a follow arrival inside the anchor's box was reported because the player's box was elsewhere");
+            Clean(Found(Many(5, t => Follow(t, 480, arrival: "-"))), "a body outside the comfort box with no arrival claimed was judged as an arrival");
+            Fires(Found(new[] { Follow(100, 480, arrival: "outside") }), Severity.Definitive, "claimed purpose arrival outside its declared success region: following",
+                "a follow arrival eighty pixels from both admission references was not Definitive on its first sample");
+            Fires(Found(new[] { Follow(100, 415, arrival: "outside", box: "10.00,10.00") }), Severity.Potential, "claimed purpose arrival outside its declared success region: following",
+                "a follow arrival outside a comfort box narrower than the arrival radius was not downgraded to Potential");
+
+            // Tool reach: tile 25,59 (centre 408,952), reach 5 by 4, a stand at 380,960 whose eye is inside the box.
+            System.Collections.Generic.Dictionary<string, string> Tool(long t, float feetX, string arrival, string stand = "380.00,960.00", string reach = "5,4")
+                => Row(t, "tool-reach", arrival, feetX, 960, anchor: stand, tile: "25,59", reach: reach);
+            Clean(Found(Many(40, t => Tool(t, 200 + t, "-"))), "a walk toward a stand inside its box was reported");
+            Clean(Found(Many(10, t => Tool(t, 380, "inside"))), "a claimed arrival that settled within the half second was reported as a stall");
+            Fires(Found(Many(40, t => Tool(t, 380, "inside"))), Severity.Potential, "claimed arrival inside the tool's reach box while its activity still asked for the stand",
+                "a held arrival inside the box, on rows whose activity still asked for its stand, was not reported as a Potential line-of-reach failure");
+            Fires(Found(Many(40, t => Tool(t, 500, "outside"))), Severity.Potential, "claimed purpose arrival outside its declared success region: the navigator stopped outside the tool's reach box",
+                "a held arrival ninety-two pixels from the tile centre, outside an eighty-eight pixel box, was not reported as the navigator's slack");
+            Fires(Found(new[] { Tool(100, 200, "-", stand: "520.00,960.00") }), Severity.Definitive, "a tool stand declared outside its own working region",
+                "a stand outside its own reach box under one reach was not Definitive");
+            Fires(Found(new[] { Tool(100, 200, "-", stand: "520.00,960.00"), Tool(101, 200, "-", reach: "7,4") }), Severity.Potential, "a tool stand declared outside its own working region",
+                "a stand outside its box in a capture whose reach changed was not downgraded to Potential");
+
+            // Firing: arrival where no arc now solves is Potential only, and a position that still fires is clean.
+            System.Collections.Generic.Dictionary<string, string> Fire(long t, string fire) => Row(t, "firing-position", "undeclared", 300, 800, anchor: "600.00,700.00", fire: fire);
+            Clean(Found(Many(40, t => Fire(t, "fired"))), "an arrival at a firing position that fires was reported");
+            Fires(Found(Many(40, t => Fire(t, "no-arc"))), Severity.Potential, "claimed arrival at an admitted firing position from which no arc solves",
+                "a held arrival at a firing position with no arc was not reported");
+            Clean(Found(Many(40, t => Row(t, "meeting-place", "undeclared", 300, 800, anchor: "600.00,800.00"))), "a meeting place, which declares no region, was judged");
+
+            string old = Path.GetTempFileName(); files.Add(old);
+            File.WriteAllText(old, "# schema=0.26.0\n# text_columns=action\ntick\twall_elapsed_ms\tspot\tfire\n1\t16\t25,60\tnone\n");
+            string missing = Program.Evaluate(Session.Load(old)).Skipped.SingleOrDefault(s => s.Name == new ClaimedArrivalsStayInsideTheirSuccessRegion().Name).Missing ?? "";
+            Require(missing.Contains("region_kind", StringComparison.Ordinal), "a capture older than success regions was judged, or skipped without naming the region columns: '" + missing + "'");
+
+            // The geometry above restates the producer; these are the literals it rests on.
+            string Source(params string[] parts) => File.ReadAllText(Path.Combine(parts));
+            string navigator = Source("Companion", "Brain", "SharedMovementSystem", "MovementExecution", "Navigator.cs");
+            string access = Source("Companion", "Brain", "WorldInteractions", "FindToolAccess.cs");
+            string region = Source("Companion", "Brain", "PositionSelection", "DeclareSuccessRegion.cs");
+            string telemetry = Source("Companion", "Brain", "BehaviourDiagnostics", "RecordBrainTelemetry.cs");
+            Require(navigator.Contains($"ArriveDistance = {ClaimedArrivalsStayInsideTheirSuccessRegion.ArriveDistance:0}f", StringComparison.Ordinal)
+                    && Source("Companion", "Brain", "PositionSelection", "FollowPlayerObjective.cs").Contains("HorizontalComfort - SharedMovementSystem.Navigator.ArriveDistance", StringComparison.Ordinal),
+                "the navigator's arrival radius, or follow acceptance reserving it, no longer matches what the follow rule assumes");
+            Require(access.Contains($"Eye = new(0f, -{ClaimedArrivalsStayInsideTheirSuccessRegion.EyeHeight:0}f)", StringComparison.Ordinal)
+                    && access.Contains("reachX * 16f + 8f", StringComparison.Ordinal) && access.Contains("reachY * 16f + 8f", StringComparison.Ordinal),
+                "the tool reach box no longer has the eye height and extents the tool rule recomputes");
+            Require(Source("Companion", "Brain", "PurposeFamilies", "Gathering", "MineOre.cs").Contains("t.Hop ? PositionRequest.ExactAt(t.StandPosition) : PositionRequest.ExactAt(t.StandPosition, t.Tile)", StringComparison.Ordinal)
+                    && Source("Companion", "Brain", "PurposeFamilies", "Gathering", "ChopTree.cs").Contains("ExactAt(t.StandPosition, t.Bottom)", StringComparison.Ordinal)
+                    && Source("Companion", "Brain", "PurposeFamilies", "NearbyAssistance", "PerformNearbyWorldWork.cs").Contains("ExactAt(stand, tile)", StringComparison.Ordinal),
+                "a tool stand no longer declares its work tile, or a hop take-off now declares one it does not reach from");
+            Require(new[] { "\"follow-comfort\"", "\"tool-reach\"", "\"firing-position\"", "\"meeting-place\"", "\"undeclared\"" }.All(name => region.Contains(name, StringComparison.Ordinal))
+                    && telemetry.Contains("controlGrant?.RequestedOwner == \"travel\"", StringComparison.Ordinal)
+                    && telemetry.Contains("region_kind\\tregion_revision\\tregion_tick\\tregion_terrain\\tregion_anchor_px\\tregion_player_px\\tregion_comfort\\tregion_work_tile\\tregion_reach\\tregion_arrival", StringComparison.Ordinal),
+                "the region names, the arrival-claim gate or the region column order the rule reads has changed");
         }
         finally { foreach (string file in files) File.Delete(file); }
     }

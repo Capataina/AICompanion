@@ -8,7 +8,7 @@ WorldInteractions/
 ├─ RenderTileCracks.cs   companion-owned tile damage presentation
 ├─ ObserveTileToolEffect.cs native tool-call snapshots and observed damage/removal outcomes
 ├─ EstimateRemainingToolWork.cs next tile completion from native damage, owned progress and cooldown
-├─ FindToolAccess.cs     shared tile reach, exposed-face access and reachable working poses
+├─ FindToolAccess.cs     shared tile reach, exposed-face access and reachable working poses; the reach box alone as pure arithmetic for success regions
 ├─ BindTileTarget.cs     captured coordinate/material availability without discovery or mutation
 ├─ Chopping/             tree detection and axe damage
 ├─ Mining/               ore discovery and the game pickaxe path

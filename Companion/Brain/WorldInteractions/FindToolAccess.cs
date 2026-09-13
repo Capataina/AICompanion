@@ -11,8 +11,8 @@ namespace AICompanion.Companion.Brain.WorldInteractions;
 public static class FindToolAccess
 {
     /// <summary>The player's own reach (the game keeps it as a static set from the local player each frame), so accessories that extend it extend the companion's.</summary>
-    private static int ReachX => Player.tileRangeX;
-    private static int ReachY => Player.tileRangeY;
+    public static int ReachX => Player.tileRangeX;
+    public static int ReachY => Player.tileRangeY;
 
     /// <summary>
     /// A standable feet tile within reach of the tile whose eye has a line to it and that the
@@ -186,12 +186,17 @@ public static class FindToolAccess
 
     /// <summary>Whether a swing from <paramref name="feet"/> can reach <paramref name="tile"/>: inside the player's native reach box and with a line to one exposed face.</summary>
     public static bool InReach(Vector2 feet, Point tile)
+        => InReachBox(feet, tile, ReachX, ReachY) && HasLineToExposedFace(feet + Eye, tile);
+
+    /// <summary>The arithmetic half of <see cref="InReach"/>: whether the eye over <paramref name="feet"/> lies inside the
+    /// native reach box of <paramref name="tile"/> for the given reach, with no world query. The success region a tool stand
+    /// declares is this box, and diagnostics judge arrival against it without running the line test, which reads live tiles.</summary>
+    public static bool InReachBox(Vector2 feet, Point tile, int reachX, int reachY)
     {
         Vector2 eye = feet + Eye;
         Vector2 tileCentre = tile.ToWorldCoordinates(8f, 8f);
-        return System.MathF.Abs(eye.X - tileCentre.X) <= ReachX * 16f + 8f
-            && System.MathF.Abs(eye.Y - tileCentre.Y) <= ReachY * 16f + 8f
-            && HasLineToExposedFace(eye, tile);
+        return System.MathF.Abs(eye.X - tileCentre.X) <= reachX * 16f + 8f
+            && System.MathF.Abs(eye.Y - tileCentre.Y) <= reachY * 16f + 8f;
     }
 
     private static bool HasLineToExposedFace(Vector2 eye, Point tile)

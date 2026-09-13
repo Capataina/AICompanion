@@ -54,6 +54,12 @@ internal static class VerifyAttemptEvidenceProducers
             for (int tick = 0; tick < 900 && live::AICompanion.Companion.Brain.WorldObservation.LootSense.IsWorldDrop(drop); tick++)
                 VerifyOreWork.AdvanceBrain(ctx);
             for (int tick = 0; tick < 30; tick++) VerifyOreWork.AdvanceBrain(ctx);
+            // Then the player moves fifteen tiles along the floor, well inside ordinary following, so the whole brain
+            // reunites under a follow destination and writes that destination's admitted region. Reunion normally hands
+            // over to local company movement as the body enters the comfort box, before the navigator reports arrival,
+            // because acceptance reserved the arrival radius inside it; so this reads regions, not arrival claims.
+            ctx.Player.position.X = 45 * 16f;
+            for (int tick = 0; tick < 600; tick++) VerifyOreWork.AdvanceBrain(ctx);
         }
         finally
         {
@@ -82,6 +88,7 @@ internal static class VerifyAttemptEvidenceProducers
             && Capture.Long(Capture.Field(outcome.Detail, "claimed-yield-quantity")) == delivered && delivered == 10,
             $"collection attempt {attempt} must claim exactly the ten its own pickups delivered; outcome={outcome.Detail}; delivered={delivered}");
         Console.WriteLine($"attempt evidence producers: collection attempt {attempt} claimed {delivered} copper ore and its {claimed.Count} pickup(s) delivered exactly that");
+        SuccessRegionsAreWhatTheirRowsClaim(capture, ore: null, followRegions: true);
     }
 
     /// <summary>
@@ -138,6 +145,81 @@ internal static class VerifyAttemptEvidenceProducers
                 $"attempt {attempt}'s outcome and its strike name different activities");
         }
         Console.WriteLine($"attempt evidence producers: {strikes.Count} native strike(s) each name the attempt their row and outcome name");
+        SuccessRegionsAreWhatTheirRowsClaim(capture, ore);
+    }
+
+    /// <summary>
+    /// The region columns of a real capture: every tool-reach row names the scene's ore and a stand inside its own reach
+    /// box, every recorded arrival verdict is what the row's own geometry says, and a changed destination tile always
+    /// arrives with a new destination revision. SessionReport's rule recomputes this geometry; this proves the producer
+    /// writes geometry it can recompute.
+    /// </summary>
+    private static void SuccessRegionsAreWhatTheirRowsClaim(Capture capture, Point? ore, bool followRegions = false)
+    {
+        static (float X, float Y)? PairOf(string cell)
+        {
+            string[] parts = cell.Split(',');
+            return parts.Length == 2 && float.TryParse(parts[0], NumberStyles.Float, CultureInfo.InvariantCulture, out float x)
+                && float.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out float y) ? (x, y) : null;
+        }
+        float Number(int row, string name) => float.Parse(capture.Text(row, name), NumberStyles.Float, CultureInfo.InvariantCulture);
+        int toolRows = 0, toolClaims = 0, followRows = 0, followClaims = 0, revisions = 0;
+        for (int row = 0; row < capture.Rows.Count; row++)
+        {
+            string kind = capture.Text(row, "region_kind");
+            string arrival = capture.Text(row, "region_arrival");
+            Vector2 feet = new(Number(row, "observed_left") + Number(row, "npc_width") / 2f, Number(row, "observed_bottom"));
+            if (row > 0 && capture.Text(row, "spot") != capture.Text(row - 1, "spot"))
+            {
+                Require(capture.Text(row, "region_revision") != capture.Text(row - 1, "region_revision"),
+                    $"the destination changed from {capture.Text(row - 1, "spot")} to {capture.Text(row, "spot")} at tick {capture.Text(row, "tick")} under one revision {capture.Text(row, "region_revision")}");
+                revisions++;
+            }
+            if (kind == "tool-reach")
+            {
+                toolRows++;
+                Point work = ore ?? throw new InvalidOperationException($"a scene with no tool target wrote a tool-reach row at tick {capture.Text(row, "tick")}: {capture.Text(row, "region_work_tile")}");
+                Require(capture.Text(row, "region_work_tile") == $"{work.X},{work.Y}", $"a tool-reach row at tick {capture.Text(row, "tick")} names work tile {capture.Text(row, "region_work_tile")}, not the scene's ore {work}");
+                var stand = PairOf(capture.Text(row, "region_anchor_px"));
+                var reach = PairOf(capture.Text(row, "region_reach"));
+                Require(stand is not null && reach is not null, $"a tool-reach row at tick {capture.Text(row, "tick")} has no stand or reach: {capture.Text(row, "region_anchor_px")} {capture.Text(row, "region_reach")}");
+                Require(live::AICompanion.Companion.Brain.WorldInteractions.FindToolAccess.InReachBox(new Vector2(stand!.Value.X, stand.Value.Y), work, (int)reach!.Value.X, (int)reach.Value.Y),
+                    $"the stand {capture.Text(row, "region_anchor_px")} declared at tick {capture.Text(row, "tick")} lies outside its own reach box around {work}");
+                if (arrival != "-")
+                {
+                    toolClaims++;
+                    bool inside = live::AICompanion.Companion.Brain.WorldInteractions.FindToolAccess.InReachBox(feet, work, (int)reach.Value.X, (int)reach.Value.Y);
+                    Require(arrival == (inside ? "inside" : "outside"), $"the arrival at tick {capture.Text(row, "tick")} is recorded {arrival}, but feet {feet} are {(inside ? "inside" : "outside")} the reach box");
+                }
+            }
+            else if (kind == "follow-comfort")
+            {
+                followRows++;
+                var player = PairOf(capture.Text(row, "region_player_px"));
+                var anchor = PairOf(capture.Text(row, "region_anchor_px"));
+                var comfort = PairOf(capture.Text(row, "region_comfort"));
+                Require(player is not null && anchor is not null && comfort is { X: > 0, Y: > 0 },
+                    $"a follow-comfort row at tick {capture.Text(row, "tick")} lacks well-formed admission references: player {capture.Text(row, "region_player_px")} anchor {capture.Text(row, "region_anchor_px")} comfort {capture.Text(row, "region_comfort")}");
+                if (arrival == "-") continue;
+                followClaims++;
+                bool Near((float X, float Y) centre) => MathF.Abs(feet.X - centre.X) <= comfort!.Value.X + .01f && MathF.Abs(feet.Y - centre.Y) <= comfort.Value.Y + .01f;
+                bool inside = Near(player!.Value) || Near(anchor!.Value);
+                Require(arrival == (inside ? "inside" : "outside"), $"the follow arrival at tick {capture.Text(row, "tick")} is recorded {arrival}, but its geometry says {(inside ? "inside" : "outside")}");
+            }
+        }
+        if (ore is not null) Require(toolRows > 0, "the mining scene walked from outside reach and wrote no tool-reach region");
+        if (followRegions && followRows == 0)
+        {
+            // Name the link that did not happen: no reunion selected, a request other than following, or a player the
+            // harness put back.
+            string states = string.Join("; ", Enumerable.Range(0, capture.Rows.Count)
+                .GroupBy(r => $"{capture.Text(r, "action")}|{capture.Text(r, "request")}|{capture.Text(r, "region_kind")}|{capture.Text(r, "nav_status")}|{capture.Text(r, "control_request_owner")}|follow-valid={capture.Text(r, "follow_objective_valid")}")
+                .Select(g => $"{g.Key}×{g.Count()}"));
+            int last = capture.Rows.Count - 1;
+            throw new InvalidOperationException("the player moved fifteen tiles off and the recorder wrote no follow-comfort region; "
+                + $"rows by action|request|region|nav|owner: {states}; last row tick {capture.Text(last, "tick")} player {capture.Text(last, "player_px")} body {capture.Text(last, "npc_px")} spot {capture.Text(last, "spot")}");
+        }
+        Console.WriteLine($"attempt evidence producers: {toolRows} tool-reach row(s) name the scene's ore and a stand inside its box; {followRows} follow-comfort row(s) carry their admission references; {toolClaims} tool and {followClaims} follow arrival verdict(s) match their geometry; {revisions} destination change(s) each advanced the revision");
     }
 
     private static void Require(bool condition, string message)

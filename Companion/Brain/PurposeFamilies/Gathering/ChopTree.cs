@@ -272,7 +272,7 @@ public sealed class ChopTree : CompanionAction
             }
             return PositionRequest.Hold;
         }
-        return PositionRequest.ExactAt(t.StandPosition);
+        return PositionRequest.ExactAt(t.StandPosition, t.Bottom);
     }
 
     private static TreeFinder.ChoppableTree? Nearest(Vector2 from, TreeFinder.ChoppableTree? a, TreeFinder.ChoppableTree? b)

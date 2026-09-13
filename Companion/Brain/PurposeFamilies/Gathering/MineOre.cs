@@ -477,7 +477,9 @@ public sealed class MineOre : CompanionAction
             }
             // A waypoint tolerance is not tool reach. Keep approaching the proven stand until
             // the actual body can swing; returning Hold here made approximate arrival permanent.
-            return PositionRequest.ExactAt(t.StandPosition);
+            // A hop target reaches this line walking to its take-off, which is a pose that does not
+            // reach standing, so only a standing stand declares the tile as its success region.
+            return t.Hop ? PositionRequest.ExactAt(t.StandPosition) : PositionRequest.ExactAt(t.StandPosition, t.Tile);
         }
         ctx.Companion.HoldItem(pickaxe.type);
         swinging = true;
