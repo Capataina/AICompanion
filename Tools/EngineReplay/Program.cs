@@ -20,4 +20,5 @@ if (args.Contains("--protection-recovery")) return VerifyEngineMotion.Run(protec
 if (args.Contains("--observation")) return VerifyObservationLifecycle.Run();
 if (args.Contains("--brain-cost")) return VerifyEngineMotion.Run(brainCostOnly: true);
 if (args.Contains("--combat-cost")) return VerifyEngineMotion.Run(combatCostOnly: true);
+if (args.Contains("--combat-purpose")) return VerifyEngineMotion.Run(combatPurposeOnly: true);
 return VerifyEngineMotion.Run(args.Contains("--lifecycle"), args.Contains("--escape"));
