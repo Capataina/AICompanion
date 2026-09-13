@@ -9,12 +9,13 @@
  * The companion card as it should be built next, iterated here before
  * it is built in CompanionProfileCardSystem. It started as a one-to-one
  * replica of the native card (Tools/EngineReplay --render-ui, 2026-09-13)
- * and two rounds of the owner's review produced this shape:
+ * and three rounds of the owner's review produced this shape:
  *
- *   - the overview is short: a 720x272 card holding the title bar, the
+ *   - the overview is short: a 720x284 card holding the title bar, the
  *     identity strip and three tiles. The strip carries the portrait,
- *     name, health and the current action on the left and the three
- *     controls that survive on the right — mining and chopping at
+ *     name and level, a health bar and an experience bar each with its
+ *     reading, and the current action on the left; on the right the
+ *     three controls that survive — mining and chopping at
  *     Off/Mimic/Auto, torches at Off/On — each an icon with a joined
  *     segment control beside it. Hunting and pot breaking are not
  *     toggles in the first version and following distance never
@@ -22,7 +23,12 @@
  *   - the three tiles — Inventory, Mastery, Mining list — each take over
  *     the whole card at 720x580 when clicked, with only back and close
  *     in the title bar; the frame keeps its top-left so the title bar
- *     does not jump;
+ *     does not jump. The height change is kept on purpose;
+ *   - one spacing rhythm, 12px, separates every stacked region: the
+ *     title rule from what follows, a button row from the grid under it,
+ *     a grid from the line under it, the strip from the tiles, and the
+ *     last region from the card's edge, so nothing sits closer to the
+ *     rule above it than to the content below it;
  *   - the Mining list is the only allow/deny control in the card. An
  *     ore appears once the player has picked one up (a saved set, so
  *     selling the last copper does not remove it), never before, so the
@@ -31,21 +37,32 @@
  *     whatever the mode, an ore the companion will mine is bright and one
  *     it will leave is dim. The grid scrolls with a bar on its right
  *     like the inventory, and the hovered ore's wall preview sits in a
- *     panel beside the grid rather than under it;
+ *     panel beside the grid;
  *   - the Inventory page is the grid alone with Terraria's own chest
  *     buttons above it — Loot All, Deposit All, Quick Stack, Restock —
  *     and no filters, no detail panel; the bag sorts itself after every
  *     transfer, so there is no Sort button either;
- *   - the Mastery graph is authored round: eight branches radiating from
- *     the centre, each with its own kinks and side-shoots, the shared
- *     junctions between neighbouring branches. The node table below is
- *     the proposal for DefineMasteryGraph.cs;
+ *   - the Mastery graph is authored round and holds twice the notable
+ *     nodes of the native table with no small path ranks: eight spokes
+ *     from the centre, each a trunk that forks into two paths of six
+ *     that each run diamond, circle, circle, diamond, circle, circle,
+ *     meeting at the branch's fifth diamond at the tip — five diamonds a
+ *     branch, one per weapon on the weapon branches — with shared junctions
+ *     between neighbouring spokes. The template's radii and offsets are
+ *     chosen so that no two nodes can come within a node's width of
+ *     each other, and the page computes that nearest distance from the
+ *     node table. A weapon is a diamond with a mark inside;
+ *     selecting one offers to open it, and opening it swaps the wheel
+ *     for that weapon's own small tree — the weapon at the centre, its
+ *     damage, rate, tier and one special line as branches. The node
+ *     table below is the proposal for DefineMasteryGraph.cs; every
+ *     weapon and upgrade name here is a placeholder for the closed kit;
  *   - there is no minimise button.
  *
  * Every size is the logical pixel the C# layout will use:
- *   overview 720x272, full pages 720x580, padding 10, title bar 34,
- *   identity 100, tiles 100 from 158, joined segments 22 tall,
- *   buttons 30 tall, slots 48 with 4 gap.
+ *   overview 720x274, full pages 720x580, padding 10, title bar 34,
+ *   rhythm 12, identity 100, tiles 100, joined segments 22 tall,
+ *   buttons 30 tall, pills 34 tall, slots 48 with 4 gap.
  *
  * Terraria's own interface language, kept from the first mockup because
  * it is what makes this read as the game and not as a web page: every
@@ -70,8 +87,10 @@
   --green:#66dd74;
   --red:#ff6b6b;
   --hp:#8cf08c;
+  --xp:#ffd24a;
   --ui:"Trebuchet MS","Lucida Grande",Verdana,sans-serif;
   --z:1;
+  --gap:12px;
 }
 *{box-sizing:border-box}
 html,body{margin:0;height:100%;background:#0d1524;overflow:hidden}
@@ -87,7 +106,7 @@ body{font-family:var(--ui);color:var(--ink);text-shadow:2px 2px 0 #000;font-weig
 #bench .sp{flex:1}
 
 #stage{position:relative;overflow:hidden}
-#frame{zoom:var(--z);width:720px;height:272px;position:absolute;left:0;top:0;
+#frame{zoom:var(--z);width:720px;height:284px;position:absolute;left:0;top:0;
   background:var(--panel);border:2px solid var(--edge);border-radius:9px;padding:10px}
 #frame.full{height:580px}
 #frame.hidden{display:none}
@@ -112,15 +131,20 @@ body{font-family:var(--ui);color:var(--ink);text-shadow:2px 2px 0 #000;font-weig
 #title .rb{position:absolute;top:0}
 #back{left:0}#close{right:0}
 
-/* ---- identity strip: top 48, 100 tall; the controls sit on its right ---- */
-#identity{position:absolute;left:10px;right:10px;top:48px;height:100px}
+/* ---- identity strip: one rhythm below the title rule, 100 tall; the controls sit on its right ---- */
+#identity{position:absolute;left:10px;right:10px;top:56px;height:100px}
 #portrait{position:absolute;left:2px;top:3px;width:66px;height:92px;background:var(--sunk);display:grid;place-items:center}
 #portrait svg{image-rendering:pixelated;width:44px;height:56px}
-#who{position:absolute;left:80px;top:3px}
-#hp{position:absolute;left:300px;width:100px;text-align:right;top:7px;color:var(--hp)}
-#hpbar{position:absolute;left:80px;width:320px;top:31px;height:8px;background:var(--bar-bg)}
-#hpbar i{display:block;height:100%;background:var(--green);width:100%}
-#action{position:absolute;left:80px;width:340px;top:48px;line-height:1.35}
+#who{position:absolute;left:80px;top:1px}
+#lvl{position:absolute;left:130px;top:5px;color:var(--gold)}
+.meter{position:absolute;left:80px;width:220px;height:8px;background:var(--bar-bg)}
+.meter i{display:block;height:100%}
+#hpbar{top:31px}#hpbar i{background:var(--hp)}
+#xpbar{top:47px}#xpbar i{background:var(--xp)}
+.reading{position:absolute;left:308px;width:112px;text-align:left;line-height:1}
+#hp{top:28px;color:var(--hp)}
+#xp{top:44px;color:var(--xp)}
+#action{position:absolute;left:80px;width:340px;top:62px;line-height:1.35}
 #frame.full #identity,#frame.full #footer{display:none}
 
 /* three controls: a 26px icon and a joined segment control, 26 tall with 8 between */
@@ -136,10 +160,9 @@ body{font-family:var(--ui);color:var(--ink);text-shadow:2px 2px 0 #000;font-weig
 .joined .seg:last-child{border-radius:0 11px 11px 0}
 .joined .seg:hover{border-color:var(--gold);z-index:1}
 .joined .seg.on{border-color:var(--gold);color:var(--gold);background:var(--selected);z-index:1}
-#controls .hint{position:absolute;left:36px;right:0;top:94px;color:var(--muted);white-space:nowrap;overflow:hidden;height:0}
 
-/* ---- tiles: three across, 100 tall from 158 ---- */
-#footer{position:absolute;left:10px;right:10px;top:158px;height:100px;display:flex;gap:10px}
+/* ---- tiles: three across, 100 tall, one rhythm under the strip and one above the card's edge ---- */
+#footer{position:absolute;left:10px;right:10px;top:168px;height:100px;display:flex;gap:10px}
 .tile{flex:1;position:relative;border:2px solid var(--edge);border-radius:9px;background:var(--panel);cursor:pointer}
 .tile:hover{border-color:var(--gold)}
 .tile .bar{position:absolute;left:10px;top:10px;right:64px;height:6px;background:var(--tile-bar-bg)}
@@ -149,8 +172,8 @@ body{font-family:var(--ui);color:var(--ink);text-shadow:2px 2px 0 #000;font-weig
 .tile .d{position:absolute;left:10px;top:47px;color:var(--muted);white-space:nowrap;overflow:hidden;right:6px}
 .tile .d2{position:absolute;left:10px;top:69px;color:var(--muted);white-space:nowrap;overflow:hidden;right:6px}
 
-/* ---- full pages: from 44 to 10 from the bottom ---- */
-#content{position:absolute;left:10px;right:10px;top:44px;bottom:10px;display:none}
+/* ---- full pages: one rhythm below the title rule, one above the card's edge ---- */
+#content{position:absolute;left:10px;right:10px;top:56px;bottom:12px;display:none}
 #frame.full #content{display:block}
 .page{display:none;position:absolute;inset:0}.page.on{display:block}
 
@@ -161,10 +184,10 @@ body{font-family:var(--ui);color:var(--ink);text-shadow:2px 2px 0 #000;font-weig
 .sb i{display:block;background:#d7d9ff;border-radius:6px;position:absolute;left:2px;right:2px;cursor:grab}
 .sb i:hover{background:#ffffff}
 
-/* ---- inventory: chest buttons over a twelve-wide grid, nothing else ---- */
+/* ---- inventory: chest buttons, one rhythm, the grid, one rhythm, the count line ---- */
 #chest{position:absolute;left:23px;width:650px;top:0;height:34px;display:flex;gap:6px}
 #chest .pill{flex:1;padding:0}
-#gridview{left:23px;top:44px;width:620px;bottom:30px}
+#gridview{left:23px;top:46px;width:620px;bottom:36px}
 #grid{display:grid;grid-template-columns:repeat(12,48px);gap:4px}
 .slot{width:48px;height:48px;border:2px solid var(--edge);border-radius:6px;background:var(--panel-solid);position:relative}
 .slot:hover{border-color:var(--gold)}
@@ -174,14 +197,14 @@ body{font-family:var(--ui);color:var(--ink);text-shadow:2px 2px 0 #000;font-weig
 .slot .it.wood{background:#a8703a;box-shadow:0 3px 0 #6b4520 inset}
 .slot .it.gel{background:#4f7fff;border-radius:50%}
 .slot .it.torch{background:#ffb347;box-shadow:0 -4px 0 #7a4a1a inset}
-#invbar{left:653px;top:44px;bottom:30px}
+#invbar{left:653px;top:46px;bottom:36px}
 #invcount{position:absolute;right:23px;bottom:0;height:24px;line-height:24px;color:var(--muted)}
 #invlast{position:absolute;left:23px;bottom:0;height:24px;line-height:24px;color:var(--muted)}
 
 /* ---- mining list: a mode, a scrolling grid of found ores, the hovered ore's wall preview beside it ---- */
 #mode{position:absolute;left:0;top:0;width:280px;height:34px;display:flex;gap:4px}
 #mode .pill{flex:1;padding:0}
-#oreview{left:0;top:44px;width:412px;bottom:30px}
+#oreview{left:0;top:46px;width:412px;bottom:36px}
 #ores{display:grid;grid-template-columns:repeat(8,48px);gap:4px}
 .oretile{width:48px;height:48px;border:2px solid var(--edge);border-radius:6px;background:var(--panel-solid);position:relative;cursor:pointer}
 .oretile:hover{border-color:var(--gold)}
@@ -190,27 +213,27 @@ body{font-family:var(--ui);color:var(--ink);text-shadow:2px 2px 0 #000;font-weig
 .oretile.off .sw{opacity:.35}
 .oretile.off .mk{color:var(--red)}
 .oretile.on .mk{color:var(--gold)}
-#orebar{left:416px;top:44px;bottom:30px}
-#orepanel{position:absolute;left:456px;right:0;top:44px;height:214px;border:2px solid var(--edge);border-radius:9px;padding:12px}
+#orebar{left:416px;top:46px;bottom:36px}
+#orepanel{position:absolute;left:456px;right:0;top:46px;height:214px;border:2px solid var(--edge);border-radius:9px;padding:12px}
 #orepanel .sw{display:block;width:96px;height:96px;border:2px solid var(--edge);border-radius:6px;image-rendering:pixelated;margin-bottom:12px}
 #orepanel .nm{margin-bottom:6px}
 #orepanel .st{margin-bottom:4px}
 #orepanel .how{color:var(--muted)}
-#orepanel .how.leave{color:var(--red)}
-#orenote{position:absolute;left:456px;right:0;top:270px;color:var(--muted);line-height:1.4}
+#orenote{position:absolute;left:456px;right:0;top:272px;color:var(--muted);line-height:1.4}
 #orecount{position:absolute;left:0;bottom:0;height:24px;line-height:24px;color:var(--muted)}
 
-/* ---- mastery: the whole card ---- */
+/* ---- mastery: the whole card; the wheel, or one weapon's own tree ---- */
 #mast .hint{position:absolute;left:0;top:10px;color:var(--muted)}
 #mast .zoom{position:absolute;right:0;top:0;height:34px;display:flex;gap:8px;align-items:flex-start}
-#graph{position:absolute;left:0;right:0;top:44px;bottom:64px;overflow:hidden;cursor:grab}
+#graph{position:absolute;left:0;right:0;top:46px;bottom:70px;overflow:hidden;cursor:grab}
 #graph.dragging{cursor:grabbing}
 #graph svg{width:100%;height:100%;display:block}
 #graph .node{cursor:pointer}
-#graph .node.sel{stroke-width:4.5}
-#mast .legend{position:absolute;left:0;bottom:34px;line-height:1.5}
-#mast .legend2{position:absolute;left:0;bottom:12px;color:var(--muted)}
-#preview{position:absolute;right:0;bottom:0;height:34px;padding:0 30px}
+#graph .node.sel{stroke-width:5}
+#mast .legend{position:absolute;left:0;bottom:36px;line-height:1.5}
+#mast .legend2{position:absolute;left:0;bottom:10px;color:var(--muted);right:180px;white-space:nowrap;overflow:hidden}
+#open{position:absolute;right:0;bottom:0;height:34px;padding:0 24px;display:none}
+#open.show{display:grid}
 </style>
 </head>
 <body>
@@ -245,8 +268,11 @@ body{font-family:var(--ui);color:var(--ink);text-shadow:2px 2px 0 #000;font-weig
       </svg>
     </div>
     <div id="who" class="s100">Aria</div>
-    <div id="hp" class="s75">400 / 400 HP</div>
-    <div id="hpbar"><i></i></div>
+    <div id="lvl" class="s80">Level 12</div>
+    <div id="hpbar" class="meter"><i style="width:100%"></i></div>
+    <div id="hp" class="reading s66">400 / 400 HP</div>
+    <div id="xpbar" class="meter"><i style="width:62%"></i></div>
+    <div id="xp" class="reading s66">1,240 / 2,000 XP</div>
     <div id="action" class="s75">Mining · Copper vein · 12 tiles below · opportunistic</div>
 
     <div id="controls" class="s68">
@@ -285,7 +311,7 @@ body{font-family:var(--ui);color:var(--ink);text-shadow:2px 2px 0 #000;font-weig
     </div>
     <div class="tile" data-page="mast">
       <div class="bar"><i style="width:0;background:var(--gold)"></i></div>
-      <div class="count s65">0/88</div>
+      <div class="count s65" id="masttilecount"></div>
       <div class="t s85">Mastery</div>
       <div class="d s68">Explore the preview</div>
       <div class="d2 s64">No points or materials spent</div>
@@ -331,16 +357,15 @@ body{font-family:var(--ui);color:var(--ink);text-shadow:2px 2px 0 #000;font-weig
 
     <!-- Mastery page -->
     <div id="mast" class="page">
-      <div class="hint s75">Preview · drag to pan · wheel to zoom · nothing is spent</div>
+      <div class="hint s75" id="masthint">Preview · drag to pan · wheel to zoom · nothing is spent</div>
       <div class="zoom s80"><div class="rb" id="zout">-</div><div class="rb" id="zin">+</div><div class="pill" id="zreset">Reset view</div></div>
       <div id="graph">
-        <!-- eight branches radiating from the centre; the node table is generated below and is the
-             proposal for DefineMasteryGraph.cs -->
+        <!-- the wheel, or one weapon's tree; both generated below -->
         <svg id="graphsvg" preserveAspectRatio="none" font-family="inherit" font-weight="bold"></svg>
       </div>
-      <div class="legend s80">Circle: stat &nbsp; Diamond: ability &nbsp; Small: path rank</div>
-      <div class="legend2 s75" id="mastline">Select a node. Shared junctions open from either incoming path.</div>
-      <div id="preview" class="pill s85">Preview rank</div>
+      <div class="legend s80" id="mastlegend">Circle: stat &nbsp; Diamond: ability &nbsp; Marked diamond: weapon &nbsp; Filled circle: shared</div>
+      <div class="legend2 s75" id="mastline">Select a node. A weapon opens into its own upgrades.</div>
+      <div id="open" class="pill s85">Open weapon</div>
     </div>
   </div>
 </div>
@@ -351,7 +376,7 @@ body{font-family:var(--ui);color:var(--ink);text-shadow:2px 2px 0 #000;font-weig
 const $ = s => document.querySelector(s), $$ = s => [...document.querySelectorAll(s)];
 const z = () => Number(getComputedStyle(document.documentElement).getPropertyValue('--z')) || 1;
 const frame = $('#frame'), stage = $('#stage');
-const W = 720, H_OVERVIEW = 272, H_FULL = 580;
+const W = 720, H_OVERVIEW = 284, H_FULL = 580;
 
 // ---------------------------------------------------------------- scale and placement
 // The frame is placed in stage pixels divided by the zoom, the way the game places it in UI
@@ -388,22 +413,28 @@ title.addEventListener('pointerup', () => { drag = null; title.classList.remove(
 
 // ---------------------------------------------------------------- pages
 // The overview is the short card; each tile turns the whole card into its page, with back and
-// close the only buttons left in the title bar.
+// close the only buttons left in the title bar. Inside Mastery, back first leaves an opened
+// weapon, then leaves the page.
 const names = {overview: 'Companion', inv: 'Inventory', mast: 'Mastery', ore: 'Mining list'};
 const back = $('#back'), titleName = $('#title .name');
-function show(page) {
-  $$('.page').forEach(p => p.classList.toggle('on', p.id === page));
-  frame.classList.toggle('full', page !== 'overview');
-  titleName.textContent = names[page];
-  back.textContent = page === 'overview' ? '+' : '<';
-  $$('#bench [data-page]').forEach(b => b.classList.toggle('on', b.dataset.page === page));
+let page = 'overview';
+function show(p) {
+  page = p;
+  $$('.page').forEach(x => x.classList.toggle('on', x.id === p));
+  frame.classList.toggle('full', p !== 'overview');
+  titleName.textContent = names[p];
+  back.textContent = p === 'overview' ? '+' : '<';
+  $$('#bench [data-page]').forEach(b => b.classList.toggle('on', b.dataset.page === p));
   place();
   scrollers.forEach(s => s.layout());
-  if (page === 'mast') fitGraph();
+  if (p === 'mast') fitGraph();
 }
 $$('.tile').forEach(t => t.addEventListener('click', () => show(t.dataset.page)));
 $$('#bench [data-page]').forEach(b => b.addEventListener('click', () => show(b.dataset.page)));
-back.addEventListener('click', () => { if (frame.classList.contains('full')) show('overview'); });
+back.addEventListener('click', () => {
+  if (page === 'mast' && opened) { closeWeapon(); return; }
+  if (frame.classList.contains('full')) show('overview');
+});
 $('#close').addEventListener('click', () => frame.classList.add('hidden'));
 $('#reopen').addEventListener('click', () => { frame.classList.remove('hidden'); place(); });
 
@@ -538,86 +569,150 @@ const ops = {
 $$('#chest .pill').forEach(p => p.addEventListener('click', () => { const msg = ops[p.dataset.op](); sortBag(); drawBag(msg); }));
 sortBag(); drawBag();
 
-// ---------------------------------------------------------------- mastery graph
-// Eight branches around a free centre, one every 45 degrees with Tools at the top and the rest
-// clockwise. Each branch has the same ten roles as DefineMasteryGraph.cs — six notable nodes
-// (stat circles or ability diamonds) then four small path ranks — placed from one polar template
-// of radius and angular offset, with the offsets mirrored on every other branch and the radii
-// wobbled per branch so no two spokes are the same shape. Shared junctions sit between
-// neighbouring branches. Kinds follow the C# rule. The geometry is the proposal for the native
-// node table; the edge table is the existing one.
+// ---------------------------------------------------------------- mastery: the wheel
+// Eight spokes 45 degrees apart with Tools at the top and the rest clockwise. Each spoke has
+// twenty roles: a trunk stat, a fork stat, a stat side of four stats and an ability, a second
+// side of five weapons (on the three weapon branches) or abilities, the branch's mastery cap
+// where the sides meet, and seven small path ranks between them. Every role has one [radius,
+// angular offset] in the template; the offsets are scaled per spoke and the radii wobbled per
+// spoke so no two spokes are the same shape, and the offsets stay under a quarter of the spoke
+// spacing so neighbouring spokes never touch. Shared junctions sit between neighbouring spokes.
+// The geometry is the proposal for the native node table; every name is a placeholder.
 const BRANCHES = ["Tools","Ranged","Movement","Magic","Survival","Support","Gathering","Melee"];
 const COLORS = ['rgb(233,180,103)','rgb(138,205,109)','rgb(104,213,220)','rgb(182,144,240)','rgb(237,132,146)','rgb(231,217,137)','rgb(109,201,178)','rgb(236,151,99)'];
-const NAMES = [["Tool reach","Tool speed","Careful work","Vein reach","Efficient tools","Tool mastery"],
- ["Ranged damage","Ranged speed","Projectile speed","Piercing","Bow mastery","Ranged mastery"],
- ["Movement speed","Jump height","Double jump","Triple jump","Dash","Flight"],
- ["Magic damage","Mana reserve","Mana recovery","Spell reach","Staff mastery","Magic mastery"],
- ["Maximum life","Defence","Recovery","Breath reserve","Swimming","Resilience"],
- ["Protection reach","Threat awareness","Revival speed","Guard endurance","Protective skill","Support mastery"],
- ["Pickup reach","Inventory capacity","Gathering speed","Search reach","Resource skill","Gathering mastery"],
- ["Melee damage","Attack speed","Melee reach","Knockback","Sword mastery","Melee mastery"]];
-const SMALL = ["Tool speed","Ranged damage","Movement speed","Magic damage","Maximum life","Protection reach","Pickup reach","Melee damage"];
-// [radius, angular offset in degrees] for roles 0..9: the trunk, its fork, the outer pair, the tip, and the four path ranks between
-const TEMPLATE = [[72,0],[142,8],[214,-16],[208,26],[280,7],[348,-5],[106,5],[178,-6],[175,18],[247,-3]];
-const LABEL_R = 402, JUNCTION_R = 262;
+const WEAPON_BRANCH = [false, true, false, true, false, false, false, true];
+// Fifteen roles per spoke: the trunk and the fork (both stats), then two paths of six that each
+// run diamond, circle, circle, diamond, circle, circle, meeting at the branch's fifth diamond at
+// the tip. Five diamonds per branch, because each weapon branch carries five weapons and the
+// top one sits at the very end; on the other branches the five diamonds are abilities. There
+// are no small path ranks. Names in role order: [trunk, fork, left x6, right x6, tip].
+const NAMES = [
+  ["Mining speed","Chopping speed","Faster torches","Tool reach","Careful work","Ore sense","Vein reach","Tool durability","Torch supply","Wood sense","Tool speed","Pot sense","Reach further","Steady hands","Tool mastery"],
+  ["Ranged damage","Ranged rate","Short bow","Projectile speed","Ranged reach","Long bow","Projectile resistance","Steady aim","Pistol","Reload speed","Recoil control","Rifle","Sharp eye","Quick draw","Launcher"],
+  ["Movement speed","Jump height","Double jump","Fall control","Sure footing","Dash","Swim speed","Sprint","Triple jump","Climb speed","Air control","Flight","Glide","Hover","Long flight"],
+  ["Magic damage","Mana reserve","Wand","Mana recovery","Cast speed","Tome","Spell reach","Focus","Staff","Regen aura","Mana efficiency","Orb","Arcane guard","Overcharge","Grimoire"],
+  ["Maximum life","Defence","Quick respawn","Life regen","Armour","Second wind","Breath reserve","Fall resistance","Burn resistance","Knockback resistance","Poison resistance","Last stand","Thick skin","Endurance","Resilience"],
+  ["Protection reach","Threat awareness","Cleanse","Revival speed","Vigilance","Warding","Guard endurance","Rally","Shielding","Mending","Steadfast","Bulwark","Cover","Inspire","Sanctuary"],
+  ["Pickup reach","Bag capacity","Torch hat","Gathering speed","Coin sense","Wide beam","Search reach","Keen eye","Brighter hat","Quick hands","Sorting","Night sight","Deep pockets","Magnet","Auto torch"],
+  ["Melee damage","Attack speed","Short sword","Melee reach","Hit resistance","Spear","Knockback","Stamina","Broadsword","Riposte","Guard","Flail","Cleave","Fury","Greatsword"],
+];
+// [radius, angular offset in degrees] per role. Consecutive nodes on a path are 80 apart; the two
+// paths sit at least 2 x 0.7 x 10 degrees apart at radius 260, which is 63 units; neighbouring
+// spokes keep 45 - 2 x 12 = 21 degrees between their facing paths, which is 95 units at the
+// innermost path radius; the tip sits 80 beyond the last rank. Nodes are 32 units across, so
+// no two can touch at any zoom, and the page computes the nearest pair to prove it.
+const TEMPLATE = [[100,0],[180,2],[260,10],[340,12],[420,12],[500,11],[580,10],[660,8],[260,-10],[340,-12],[420,-12],[500,-11],[580,-10],[660,-8],[740,0]];
+const ROLE_KIND = n => n <= 1 ? 'stat' : n === 14 ? 'side' : n <= 7 ? ((n - 2) % 3 === 0 ? 'side' : 'stat') : ((n - 8) % 3 === 0 ? 'side' : 'stat');
+const EDGES_PER_SPOKE = [[-1,0],[0,1],[1,2],[2,3],[3,4],[4,5],[5,6],[6,7],[7,14],[1,8],[8,9],[9,10],[10,11],[11,12],[12,13],[13,14]];
+const LABEL_R = 830, JUNCTION_R = 460, ROLES = TEMPLATE.length, NODE_R = 16;
 const rad = d => d * Math.PI / 180;
 const polar = (r, deg) => ({x: Math.round(r * Math.cos(rad(deg))), y: Math.round(r * Math.sin(rad(deg)))});
-const nodes = [];
+const wheel = {nodes: [], edges: [], labels: []};
 for (let b = 0; b < 8; b++) {
-  const base = b * 45 - 90, mirror = b % 2 ? -1 : 1, wobble = ((b * 37) % 23) - 11;
+  // every role on a spoke shares the spoke's stretch and twist, so the spacing along the spoke is
+  // the template's and only the spoke as a whole differs from its neighbours
+  const base = b * 45 - 90, lean = 0.7 + 0.3 * ((b * 5) % 3) / 2, stretch = 1 + (((b * 37) % 23) - 11) / 120, twist = ((b * 11) % 7) - 3;
   TEMPLATE.forEach(([r, d], n) => {
-    const p = polar(r + wobble * ((n % 3) - 1), base + mirror * d);
-    const ability = n < 6 && (b === 2 ? n >= 2 : b === 4 ? n === 4 : n >= 4);
-    nodes.push({x: p.x, y: p.y, b, kind: n >= 6 ? 'filler' : ability ? 'ability' : 'stat', name: n >= 6 ? SMALL[b] + ' path' : NAMES[b][n]});
+    const p = polar(r * stretch, base + twist + lean * d);
+    const kind = ROLE_KIND(n);
+    wheel.nodes.push({x: p.x, y: p.y, b, kind: kind === 'side' ? (WEAPON_BRANCH[b] ? 'weapon' : 'ability') : kind, name: NAMES[b][n]});
   });
+  EDGES_PER_SPOKE.forEach(([f, t]) => wheel.edges.push([f < 0 ? -1 : b * ROLES + f, b * ROLES + t]));
 }
 for (let i = 0; i < 8; i++) {
-  const p = polar(JUNCTION_R + ((i * 13) % 9), i * 45 - 90 + 22.5 + (i % 2 ? 4 : -4));
-  nodes.push({x: p.x, y: p.y, b: i, kind: 'junction', name: 'Shared ' + SMALL[i].toLowerCase()});
+  // a junction joins spoke i's left path to spoke i+1's right path at their third rank, and opens the fourth rank of each
+  const a = i * ROLES, c = ((i + 1) % 8) * ROLES, j = wheel.nodes.length;
+  const p = polar(JUNCTION_R + ((i * 13) % 9), i * 45 - 90 + 22.5 + (i % 2 ? 2 : -2));
+  wheel.nodes.push({x: p.x, y: p.y, b: i, kind: 'junction', name: 'Shared ' + NAMES[i][0].toLowerCase()});
+  wheel.edges.push([a + 4, j], [c + 10, j], [j, a + 5], [j, c + 11]);
 }
-const LABELS = BRANCHES.map((_, b) => { const p = polar(LABEL_R, b * 45 - 90); return [p.x, p.y + 9]; });
-const edges = [];
-for (let b = 0; b < 8; b++) { const o = b * 10;
-  [[-1,0],[0,6],[6,1],[1,7],[7,2],[1,8],[8,3],[2,9],[9,4],[3,4],[4,5]].forEach(([f,t]) => edges.push([f < 0 ? -1 : o + f, o + t])); }
-for (let i = 0; i < 8; i++) { const a = i * 10, c = ((i + 1) % 8) * 10, j = 80 + i;
-  edges.push([a + 3, j], [c + 2, j], [j, a + 4], [j, c + 4]); }
+BRANCHES.forEach((_, b) => { const p = polar(LABEL_R, b * 45 - 90); wheel.labels.push({x: p.x, y: p.y + 12, text: BRANCHES[b], b}); });
+wheel.extent = 2 * (LABEL_R + 70);
+// the layout's own proof: the nearest two nodes, in graph units, against the node diameter
+wheel.nearest = Math.min(...wheel.nodes.flatMap((a, i) => wheel.nodes.slice(i + 1).map(b => Math.hypot(a.x - b.x, a.y - b.y))));
+$('#masttilecount').textContent = '0/' + wheel.nodes.length;
+
+// ---------------------------------------------------------------- mastery: one weapon's tree
+// Opening a weapon replaces the wheel with the weapon at the centre and four short branches: the
+// damage line, the rate line, the tier line, and one special line that depends on the branch.
+// These are the upgrade families the owner named; the names and counts are placeholders.
+const SPECIAL = {1: ['Pierces one more', 'Pierces two more'], 3: ['Cheaper cast', 'Wider bolt'], 7: ['Wider swing', 'Longer reach']};
+function weaponTree(node) {
+  const t = {nodes: [{x: 0, y: 0, b: node.b, kind: 'weapon', name: node.name}], edges: [], labels: [], extent: 620};
+  const lines = [['Damage', ['Damage I', 'Damage II', 'Damage III'], -90], ['Rate', ['Rate I', 'Rate II', 'Rate III'], 90],
+    ['Tier', ['Tier II', 'Tier III'], 0], ['Special', SPECIAL[node.b] || ['Special I', 'Special II'], 180]];
+  lines.forEach(([label, names, deg], li) => {
+    let prev = 0;
+    names.forEach((name, i) => {
+      const p = polar(90 + i * 70, deg + (i % 2 ? 9 : -9) * (li % 2 ? -1 : 1));
+      t.nodes.push({x: p.x, y: p.y, b: node.b, kind: label === 'Tier' ? 'ability' : 'stat', name});
+      t.edges.push([prev, t.nodes.length - 1]); prev = t.nodes.length - 1;
+    });
+    const p = polar(120 + names.length * 70, deg);
+    t.labels.push({x: p.x, y: p.y + 10, text: label, b: node.b});
+  });
+  return t;
+}
+
+// ---------------------------------------------------------------- mastery: drawing either
 const svg = $('#graphsvg'), NS = 'http://www.w3.org/2000/svg';
 const el = (t, a) => { const e = document.createElementNS(NS, t); for (const k in a) e.setAttribute(k, a[k]); return e; };
-const at = i => i < 0 ? {x: 0, y: 0, b: -1} : nodes[i];
-const defs = el('defs', {}), filter = el('filter', {id: 'hard', x: '-10%', y: '-10%', width: '130%', height: '130%'});
-filter.appendChild(el('feDropShadow', {dx: 3, dy: 3, stdDeviation: 0, 'flood-color': '#000'}));
-defs.appendChild(filter); svg.appendChild(defs);
-edges.forEach(([f, t]) => { const a = at(f), q = at(t);
-  svg.appendChild(el('line', {x1: a.x, y1: a.y, x2: q.x, y2: q.y, stroke: COLORS[q.b], 'stroke-width': 2, opacity: .85})); });
-const nodeEls = nodes.map((n, i) => {
-  const c = COLORS[n.b]; let e;
-  if (n.kind === 'stat') e = el('circle', {cx: n.x, cy: n.y, r: 9, fill: 'none', stroke: c, 'stroke-width': 2.5});
-  else if (n.kind === 'ability') e = el('rect', {x: n.x - 9, y: n.y - 9, width: 18, height: 18, fill: 'none', stroke: c, 'stroke-width': 2.5, transform: `rotate(45 ${n.x} ${n.y})`});
-  else e = el('circle', {cx: n.x, cy: n.y, r: n.kind === 'junction' ? 6 : 4.5, fill: 'none', stroke: c, 'stroke-width': 2});
-  e.classList.add('node'); svg.appendChild(e);
-  e.addEventListener('click', ev => { ev.stopPropagation(); nodeEls.forEach(x => x.classList.remove('sel')); e.classList.add('sel');
-    $('#mastline').textContent = n.name + ' · ' + (n.kind === 'ability' ? 'ability preview' : n.kind === 'stat' ? 'repeatable stat, rank 0 of 5' : 'path rank, rank 0 of 5'); });
-  return e;
-});
-svg.appendChild(el('rect', {x: -11, y: -11, width: 22, height: 22, fill: '#ffe066', stroke: '#ffe066', transform: 'rotate(45 0 0)'}));
-LABELS.forEach((p, i) => { const t = el('text', {x: p[0], y: p[1], fill: COLORS[i], 'text-anchor': 'middle', 'font-size': 27, filter: 'url(#hard)'});
-  t.textContent = BRANCHES[i]; svg.appendChild(t); });
+let current = wheel, opened = null, selectedNode = null;
+function draw(g) {
+  current = g; selectedNode = null; $('#open').classList.remove('show');
+  svg.innerHTML = '';
+  const defs = el('defs', {}), filter = el('filter', {id: 'hard', x: '-10%', y: '-10%', width: '130%', height: '130%'});
+  filter.appendChild(el('feDropShadow', {dx: 3, dy: 3, stdDeviation: 0, 'flood-color': '#000'}));
+  defs.appendChild(filter); svg.appendChild(defs);
+  const at = i => i < 0 ? {x: 0, y: 0, b: -1} : g.nodes[i];
+  g.edges.forEach(([f, t]) => { const a = at(f), q = at(t);
+    svg.appendChild(el('line', {x1: a.x, y1: a.y, x2: q.x, y2: q.y, stroke: COLORS[q.b], 'stroke-width': 2.5, opacity: .85})); });
+  const R = NODE_R;
+  g.nodes.forEach(n => {
+    const c = COLORS[n.b]; let e;
+    if (n.kind === 'ability' || n.kind === 'weapon') e = el('rect', {x: n.x - R, y: n.y - R, width: 2 * R, height: 2 * R, fill: 'none', stroke: c, 'stroke-width': 3.5, transform: `rotate(45 ${n.x} ${n.y})`});
+    else e = el('circle', {cx: n.x, cy: n.y, r: R, fill: n.kind === 'junction' ? 'rgba(255,255,255,.12)' : 'none', stroke: c, 'stroke-width': 3.5});
+    e.classList.add('node'); svg.appendChild(e);
+    if (n.kind === 'weapon') svg.appendChild(el('rect', {x: n.x - 5, y: n.y - 5, width: 10, height: 10, fill: c, transform: `rotate(45 ${n.x} ${n.y})`, 'pointer-events': 'none'}));
+    e.addEventListener('click', ev => { ev.stopPropagation(); svg.querySelectorAll('.node').forEach(x => x.classList.remove('sel')); e.classList.add('sel'); selectedNode = n;
+      $('#mastline').textContent = n.name + ' · ' + (n.kind === 'weapon' ? (opened ? 'this weapon' : 'weapon · open it for its upgrades') : n.kind === 'ability' ? 'ability preview' : n.kind === 'stat' ? 'repeatable stat, rank 0 of 5' : 'shared node, opens from either path');
+      $('#open').classList.toggle('show', n.kind === 'weapon' && !opened); });
+  });
+  if (g === wheel) svg.appendChild(el('rect', {x: -16, y: -16, width: 32, height: 32, fill: '#ffe066', stroke: '#ffe066', transform: 'rotate(45 0 0)'}));
+  g.labels.forEach(l => { const t = el('text', {x: l.x, y: l.y, fill: COLORS[l.b], 'text-anchor': 'middle', 'font-size': g === wheel ? 40 : 24, filter: 'url(#hard)'});
+    t.textContent = l.text; svg.appendChild(t); });
+  fitGraph();
+}
+function openWeapon(n) {
+  opened = n; draw(weaponTree(n));
+  titleName.textContent = 'Mastery · ' + n.name;
+  $('#masthint').textContent = n.name + ' · its own upgrades · back returns to the tree';
+  $('#mastlegend').textContent = 'Circle: upgrade rank   Diamond: tier';
+  $('#mastline').textContent = 'Select an upgrade.';
+}
+function closeWeapon() {
+  opened = null; draw(wheel);
+  titleName.textContent = names.mast;
+  $('#masthint').textContent = 'Preview · drag to pan · wheel to zoom · nothing is spent';
+  $('#mastlegend').innerHTML = 'Circle: stat &nbsp; Diamond: ability &nbsp; Marked diamond: weapon &nbsp; Filled circle: shared';
+  $('#mastline').textContent = 'Select a node. A weapon opens into its own upgrades.';
+}
+$('#open').addEventListener('click', () => { if (selectedNode && selectedNode.kind === 'weapon') openWeapon(selectedNode); });
 
 // pan and zoom as the game does them: wheel 1.12 / 0.89 about the pointer, buttons 1.15 / 0.85
-// about the canvas centre, reset fits the authored extent with room for the outermost labels
-const EXTENT = 2 * (LABEL_R + 60);
-const graph = $('#graph'); let view = {x: -EXTENT / 2, y: -EXTENT / 2, w: EXTENT, h: EXTENT};
+// about the canvas centre, reset fits the current graph's extent
+const graph = $('#graph'); let view = {x: -600, y: -600, w: 1200, h: 1200};
 function applyView() { svg.setAttribute('viewBox', `${view.x} ${view.y} ${view.w} ${view.h}`); }
 function fitGraph() {
   const cw = graph.clientWidth, ch = graph.clientHeight; if (!cw || !ch) return;
-  const s = Math.max(EXTENT / cw, EXTENT / ch); // units per pixel that fits the whole wheel
+  const s = Math.max(current.extent / cw, current.extent / ch);
   view = {w: cw * s, h: ch * s, x: -cw * s / 2, y: -ch * s / 2}; applyView();
 }
 function zoomAt(factor, px, py) {
   const ux = view.x + px / graph.clientWidth * view.w, uy = view.y + py / graph.clientHeight * view.h;
   const nw = view.w / factor;
-  const minS = Math.min(EXTENT / graph.clientWidth, EXTENT / graph.clientHeight) * 0.25, maxS = Math.max(EXTENT / graph.clientWidth, EXTENT / graph.clientHeight) * 3;
-  const s = Math.min(Math.max(nw / graph.clientWidth, minS), maxS);
+  const fit = Math.max(current.extent / graph.clientWidth, current.extent / graph.clientHeight);
+  const s = Math.min(Math.max(nw / graph.clientWidth, fit * 0.2), fit * 2);
   view = {w: graph.clientWidth * s, h: graph.clientHeight * s, x: ux - px * s, y: uy - py * s};
   applyView();
 }
@@ -635,7 +730,7 @@ graph.addEventListener('pointermove', e => {
 graph.addEventListener('pointerup', () => { pan = null; graph.classList.remove('dragging'); });
 
 // ---------------------------------------------------------------- start
-place(); scrollers.forEach(s => s.layout()); fitGraph();
+draw(wheel); place(); scrollers.forEach(s => s.layout());
 </script>
 </body>
 </html>
