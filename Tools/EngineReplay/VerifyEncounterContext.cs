@@ -104,22 +104,27 @@ internal static class VerifyEncounterContext
         for (int i = 0; i < count; i++) Hostile(firstSlot + i, NPCID.Zombie, OnFloor(30 + i));
     }
 
-    private readonly record struct Row(float Intensity, string Source, bool Recognised, float Weight, int Cap, int Records, int Reaching)
+    private readonly record struct Row(float Intensity, string Source, bool Recognised, float Weight, int Cap, int Ceiling, int Records, int Reaching)
     {
-        public override string ToString() => $"({Intensity:0.###}, {Source}, {(Recognised ? "recognised" : "inferred")}, weight {Weight:0.##}/cap {Cap}, records {Records}, reaching {Reaching})";
+        public override string ToString() => $"({Intensity:0.###}, {Source}, {(Recognised ? "recognised" : "inferred")}, weight {Weight:0.##}/cap {Cap}/ceiling {Ceiling}, records {Records}, reaching {Reaching})";
     }
 
+    /// <summary>
+    /// Every observation is its own engine tick, because the admission ceiling is measured from when each
+    /// counted hostile arrived; observations sharing one tick would collapse every arrival into now.
+    /// </summary>
     private static Row Observe(ActionContextLike scene, int ticks = 1, Threats? threats = null, Encounter? sense = null)
     {
         threats ??= new Threats();
         sense ??= new Encounter();
         for (int t = 0; t < ticks; t++)
         {
+            VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
             threats.Update(scene.Player, scene.Companion);
             sense.Update(scene.Player, threats);
         }
         int reaching = threats.Threats.Count(t => t.CanReachEither);
-        return new Row(sense.Intensity, sense.Source, sense.Recognised, sense.SpawnWeight, sense.SpawnCap, threats.Threats.Count, reaching);
+        return new Row(sense.Intensity, sense.Source, sense.Recognised, sense.SpawnWeight, sense.SpawnCap, sense.AdmissionCeiling, threats.Threats.Count, reaching);
     }
 
     private readonly record struct ActionContextLike(Player Player, NPC Companion);
@@ -160,6 +165,14 @@ internal static class VerifyEncounterContext
         Require(armyDown is { Intensity: 1f, Source: "event:old-ones-army", Recognised: true }, $"the Old One's Army is recognised at any depth; got {armyDown}");
         ClearWorldEvents();
 
+        // A lunar pillar's zone is where NPC.SpawnNPC sets its invasion flag (NPC.cs:86447). The pillars carry no boss
+        // flag and deal no damage (their defaults at 10294 and beside it), so no threat record would name them.
+        scene.Player.ZoneTowerSolar = true;
+        Row pillarDown;
+        try { pillarDown = Observe(scene); }
+        finally { scene.Player.ZoneTowerSolar = false; }
+        Require(pillarDown is { Intensity: 1f, Source: "event:lunar-pillar", Recognised: true }, $"a player inside a lunar pillar's zone is in a recognised event at any depth; got {pillarDown}");
+
         Hostile(FirstHostileSlot, NPCID.EyeofCthulhu, OnFloor(40) - new Vector2(0, 160));
         var bossDown = Observe(scene);
         Require(bossDown is { Intensity: 1f, Source: "boss", Recognised: true }, $"an observed boss is a recognised encounter underground as well; got {bossDown}");
@@ -167,7 +180,7 @@ internal static class VerifyEncounterContext
 
         TheInvasionCountsOnlyWhereTheGameSpawnsIt(scene);
         TheFallbackIsWeightAboveTheGamesSpawnCap(scene);
-        Console.WriteLine($"  encounter sense rows: moon surface {moonUp}, moon underground {moonDown}, army {armyDown}, boss {bossDown}");
+        Console.WriteLine($"  encounter sense rows: moon surface {moonUp}, moon underground {moonDown}, army {armyDown}, lunar pillar zone {pillarDown}, boss {bossDown}");
     }
 
     /// <summary>
@@ -303,7 +316,79 @@ internal static class VerifyEncounterContext
         Require(outOfRange.Reaching == CaveCap + 1 && outOfRange.Weight == 0f && outOfRange is { Intensity: 0f, Source: "none" },
             $"hostiles outside the game's active range of the player must not count toward its cap; got {outOfRange}");
 
+        // The cap follows the player's own state while a crowd stays put: a calming potion, a peace candle, a change of
+        // depth or the companion being downed lowers it under enemies the spawner admitted at the old cap. None of that
+        // is an arrival, so the admission ceiling must hold the old cap while those enemies remain. The old rule,
+        // weight above this tick's cap, read the drop as sixteen enemies arriving.
+        const int LoweredCap = 10;
+        var standing = new Encounter();
+        var standingThreats = new Threats();
+        Crowd(CaveCap);
+        var beforeDrop = Observe(scene, ticks: window * 2, threats: standingThreats, sense: standing);
+        MaxSpawns.SetValue(null, LoweredCap);
+        var afterDrop = Observe(scene, ticks: window * 2, threats: standingThreats, sense: standing);
+        Hostile(FirstHostileSlot + CaveCap, NPCID.Zombie, OnFloor(30 + CaveCap));
+        var pastCeiling = Observe(scene, ticks: window * 2, threats: standingThreats, sense: standing);
+        // Once the crowd admitted under the old cap is gone, the lowered cap is the ceiling again and a new crowd over
+        // it is pressure: a ceiling that never came down, or a cap that was not read from the game, misses this row.
+        ClearHostiles();
+        var emptied = Observe(scene, threats: standingThreats, sense: standing);
+        Crowd(LoweredCap + 1);
+        var newCrowd = Observe(scene, ticks: window * 2, threats: standingThreats, sense: standing);
+        ClearHostiles();
+        MaxSpawns.SetValue(null, CaveCap);
+        Require(beforeDrop.Ceiling == CaveCap && MathF.Abs(beforeDrop.Weight - CaveCap) < 1e-5f && beforeDrop is { Intensity: 0f },
+            $"the standing crowd's premise is a cave at its cap; got {beforeDrop}");
+        Require(afterDrop.Cap == LoweredCap && afterDrop.Ceiling == CaveCap && MathF.Abs(afterDrop.Weight - CaveCap) < 1e-5f && afterDrop is { Intensity: 0f, Source: "none" },
+            $"a cap lowered under an unchanged crowd must leave the ceiling at the cap that admitted it and read no encounter; got {afterDrop}");
+        Require(MathF.Abs(pastCeiling.Weight - (CaveCap + 1)) < 1e-5f && pastCeiling is { Intensity: 1f, Source: "observed-pressure" },
+            $"one enemy past the highest cap that admitted the crowd must be sustained pressure whatever the cap now says; got {pastCeiling}");
+        Require(emptied.Ceiling == LoweredCap && emptied is { Intensity: 0f },
+            $"with no counted hostile left the ceiling must fall to the cap in force; got {emptied}");
+        Require(newCrowd.Cap == LoweredCap && newCrowd.Ceiling == LoweredCap && newCrowd is { Intensity: 1f, Source: "observed-pressure" },
+            $"a crowd over the lowered cap that arrived under it must be pressure; got {newCrowd}");
+
+        // Hostiles that can reach only the companion count too: they are in the world the companion is working in. The
+        // player stands sealed in a chamber while the crowd on the open floor can reach the companion and not the player.
+        Vector2 playerBottom = scene.Player.Bottom;
+        for (int x = 70; x <= 78; x++)
+        for (int y = 83; y < FloorRow; y++)
+        {
+            Tile tile = Main.tile[x, y];
+            tile.ClearEverything();
+            tile.HasTile = x == 70 || x == 78 || y == 83;
+            tile.TileType = TileID.Dirt;
+        }
+        live::AICompanion.Companion.Brain.SharedMovementSystem.AStar.InvalidateEdges();
+        live::AICompanion.Companion.Brain.SharedMovementSystem.NavGrid.World = new live::AICompanion.Companion.Brain.SharedMovementSystem.GameTileWorld();
+        scene.Player.Bottom = OnFloor(74);
+        Crowd(CaveCap + 1);
+        var companionOnlyThreats = new Threats();
+        Row companionOnly;
+        int reachPlayer, reachCompanion;
+        try
+        {
+            companionOnly = Observe(scene, ticks: window * 2, threats: companionOnlyThreats);
+            reachPlayer = companionOnlyThreats.Threats.Count(t => t.CanReachPlayer);
+            reachCompanion = companionOnlyThreats.Threats.Count(t => t.CanReachCompanion);
+        }
+        finally
+        {
+            scene.Player.Bottom = playerBottom;
+            ClearHostiles();
+            for (int x = 70; x <= 78; x++)
+            for (int y = 83; y < FloorRow; y++)
+                Main.tile[x, y].ClearEverything();
+            live::AICompanion.Companion.Brain.SharedMovementSystem.AStar.InvalidateEdges();
+            live::AICompanion.Companion.Brain.SharedMovementSystem.NavGrid.World = new live::AICompanion.Companion.Brain.SharedMovementSystem.GameTileWorld();
+        }
+        Require(reachPlayer == 0 && reachCompanion == CaveCap + 1,
+            $"the companion-only premise needs every hostile to reach the companion and none the player; player {reachPlayer}, companion {reachCompanion}, {companionOnly}");
+        Require(companionOnly is { Intensity: 1f, Source: "observed-pressure" },
+            $"hostiles that reach only the companion must count toward the pressure weight; got {companionOnly}");
+
         Console.WriteLine($"  encounter pressure rows (cap {CaveCap}): worm {worm}, at cap {atCap}, half window over {half}, sustained over {sustained}, thinned {thinned}, walled {walled}, heavy {heavy}, out of range {outOfRange}");
+        Console.WriteLine($"  encounter ceiling rows (cap {CaveCap} lowered to {LoweredCap}): before {beforeDrop}, after the drop {afterDrop}, past the ceiling {pastCeiling}, emptied {emptied}, new crowd {newCrowd}, companion only {companionOnly} (reach player {reachPlayer}, companion {reachCompanion})");
     }
 
     private static void TheEvaluatorChargesAnEncounterOnceAndOnlyToOptionalNonCombatWork()

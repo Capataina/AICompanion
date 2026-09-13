@@ -1,6 +1,7 @@
 #nullable enable
 
 using System;
+using System.Collections.Generic;
 using System.Reflection;
 using Microsoft.Xna.Framework;
 using Terraria;
@@ -21,17 +22,22 @@ namespace AICompanion.Companion.Brain.WorldObservation;
 /// boss encounter wherever it is. The Old One's Army counts at any depth. Blood moon, solar eclipse and the
 /// pumpkin and frost moons count only while the player is at or above the surface, which is where the game
 /// runs them. An invasion counts exactly where the game would spawn its enemies for this player (see
-/// <see cref="InvasionSpawnsNear"/>). Slime rain is deliberately not an encounter: it is mild enough that
-/// suppressing all optional work for it would surprise.
+/// <see cref="InvasionSpawnsNear"/>), and so does a lunar pillar's zone, which the spawner treats as an
+/// invasion: the pillars carry no boss flag and deal no damage, so nothing else would name them. Slime rain
+/// is deliberately not an encounter: it is mild enough that suppressing all optional work for it would surprise.
 ///
 /// A modded event that sets none of these flags cannot be recognised, so the fallback is observed pressure,
 /// reported as unrecognised: the hostiles able to reach either actor, weighed the way the game's spawner
-/// weighs nearby NPCs, exceed the spawn cap the game computed for the player this tick. Ordinary spawning
-/// stops adding enemies once that weight reaches the cap, so a busy cave sits at the cap and never above
-/// it, and a worm counts as its head because the game excludes its segments; only enemies arriving from
-/// somewhere other than ordinary spawning push the weight past it. Pressure ramps in over its window and
-/// drops to nothing the tick it lapses, because the return to ordinary is meant to be immediate rather than
-/// wound down. The ramp length lives in BehaviourWeights.
+/// weighs nearby NPCs, exceed the admission ceiling. The spawner admits another enemy only while that weight
+/// is under the cap in force at that moment, so ordinary spawning can never lift the weight above the highest
+/// cap applied since the oldest enemy still counted arrived; a busy cave sits at or under that ceiling, and a
+/// worm counts as its head because the game excludes its segments. The ceiling is measured over time rather
+/// than read from this tick's cap because the cap follows the player's own state while the crowd stays put:
+/// a calming potion, a peace candle, town NPCs, a change of depth, or this mod's doubling lapsing while the
+/// companion is downed all lower it under an unchanged crowd, and none of them is an arrival. The ceiling
+/// can only overstate what spawning admitted, so its error is a missed inference rather than a false one.
+/// Pressure ramps in over its window and drops to nothing the tick it lapses, because the return to ordinary
+/// is meant to be immediate rather than wound down. The ramp length lives in BehaviourWeights.
 /// </summary>
 public sealed class EncounterSense
 {
@@ -56,7 +62,7 @@ public sealed class EncounterSense
     /// <summary>True only for native boss or event facts; observed pressure is always an inference.</summary>
     public bool Recognised { get; private set; }
 
-    /// <summary>Consecutive observations on which the reachable spawn weight exceeded the game's spawn cap.</summary>
+    /// <summary>Consecutive observations on which the reachable spawn weight exceeded the admission ceiling.</summary>
     public int PressureTicks { get; private set; }
 
     /// <summary>The spawn-slot weight of hostiles able to reach either actor, counted as the game counts toward its cap.</summary>
@@ -65,17 +71,37 @@ public sealed class EncounterSense
     /// <summary>The game's spawn cap for the player as last computed by its spawner.</summary>
     public int SpawnCap { get; private set; }
 
+    /// <summary>The highest spawn cap applied since the oldest hostile still counted arrived: the most weight ordinary spawning could have admitted.</summary>
+    public int AdmissionCeiling { get; private set; }
+
+    // When each counted hostile first counted, keyed by NPC slot and checked against its type and spawn generation,
+    // which is how the threat observer recognises a reused slot. An entry outlives a step out of the active range, so
+    // a crowd shuffling across that edge keeps the ceiling it arrived under; it goes when the NPC does.
+    private readonly Dictionary<int, (int Type, int Generation, uint Arrived)> arrivals = new();
+    private readonly List<int> departed = new();
+
+    // The caps the spawner has applied, as a run in which every entry is lower than the ones before it: a later cap at
+    // least as high replaces the earlier ones, because any window reaching them also reaches it. The front is therefore
+    // the highest cap over the window, and the run stays a handful of entries however long a crowd stays.
+    private readonly List<(uint Tick, int Cap)> caps = new();
+
     public void Update(Player player, ThreatSense threats)
     {
         bool boss = false;
         float weight = 0f;
+        uint now = Main.GameUpdateCount, oldestAge = 0;
         int rangeX = (int)ActiveRangeX.GetValue(null)!, rangeY = (int)ActiveRangeY.GetValue(null)!;
         Rectangle playerBox = player.Hitbox;
         foreach (ThreatRecord threat in threats.Threats)
         {
             boss |= threat.IsBoss;
-            if (threat.CanReachEither) weight += SpawnSlots(threat.Npc, playerBox, rangeX, rangeY);
+            if (!threat.CanReachEither) continue;
+            float slots = SpawnSlots(threat.Npc, playerBox, rangeX, rangeY);
+            if (slots <= 0f) continue;
+            weight += slots;
+            oldestAge = Math.Max(oldestAge, unchecked(now - ArrivalOf(threat.Npc, now)));
         }
+        ForgetDeparted();
         bool surface = player.position.Y <= Main.worldSurface * 16.0;
         string? recognised = boss ? "boss"
             : DD2Event.Ongoing ? "event:old-ones-army"
@@ -84,10 +110,12 @@ public sealed class EncounterSense
             : surface && Main.pumpkinMoon ? "event:pumpkin-moon"
             : surface && Main.snowMoon ? "event:frost-moon"
             : InvasionSpawnsNear(player) ? "event:invasion"
+            : player.ZoneTowerSolar || player.ZoneTowerNebula || player.ZoneTowerVortex || player.ZoneTowerStardust ? "event:lunar-pillar"
             : null;
         SpawnWeight = weight;
         SpawnCap = (int)MaxSpawns.GetValue(null)!;
-        PressureTicks = weight > SpawnCap ? PressureTicks + 1 : 0;
+        AdmissionCeiling = CeilingOver(now, oldestAge, SpawnCap);
+        PressureTicks = weight > AdmissionCeiling ? PressureTicks + 1 : 0;
         float observed = Math.Clamp(PressureTicks / MathF.Max(1f, Weights.EncounterPressureTicks), 0f, 1f);
         if (recognised != null)
         {
@@ -149,6 +177,39 @@ public sealed class EncounterSense
             if (npc.townNPC && Math.Abs(player.position.X - npc.Center.X) < band)
                 return true;
         return false;
+    }
+
+    private uint ArrivalOf(NPC npc, uint now)
+    {
+        int generation = HostileAttackSources.Generation(npc);
+        if (!arrivals.TryGetValue(npc.whoAmI, out var seen) || seen.Type != npc.type || seen.Generation != generation)
+            arrivals[npc.whoAmI] = seen = (npc.type, generation, now);
+        return seen.Arrived;
+    }
+
+    private void ForgetDeparted()
+    {
+        departed.Clear();
+        foreach (var (slot, seen) in arrivals)
+        {
+            NPC npc = Main.npc[slot];
+            if (!npc.active || npc.type != seen.Type || HostileAttackSources.Generation(npc) != seen.Generation) departed.Add(slot);
+        }
+        foreach (int slot in departed) arrivals.Remove(slot);
+    }
+
+    /// <summary>
+    /// The highest cap in force at any point in the last <paramref name="age"/> ticks. The front entry is dropped once
+    /// the entry after it was already in force when the window opened, so the cap standing when the oldest counted
+    /// hostile arrived stays in the answer and nothing older does. Ages rather than ticks keep it right across the
+    /// game's tick counter wrapping.
+    /// </summary>
+    private int CeilingOver(uint now, uint age, int cap)
+    {
+        while (caps.Count > 0 && caps[^1].Cap <= cap) caps.RemoveAt(caps.Count - 1);
+        caps.Add((now, cap));
+        while (caps.Count > 1 && unchecked(now - caps[1].Tick) >= age) caps.RemoveAt(0);
+        return caps[0].Cap;
     }
 
     private static FieldInfo Bind(string name)
