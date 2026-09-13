@@ -120,7 +120,7 @@ public sealed class Brain
         Safety.Cancel(new ActionContext(companion, Senses, Roaming), "downed");
         SuspendActivity(companion, "downed");
         LastRequest = PositionRequest.Hold;
-        FinaliseControls(companion, new ActivityControlRequest(Movement.Hold(companion.Motor.State), "downed", HandGrant.Unavailable));
+        FinaliseControls(companion, new ActivityControlRequest(Movement.Hold(companion.Motor.State, preemptedBy: "downed"), "downed", HandGrant.Unavailable));
     }
 
     private void FinaliseControls(CompanionNPC companion, ActivityControlRequest request)
@@ -164,6 +164,7 @@ public sealed class Brain
         if (FollowRecovery.Active && TryFollowRecovery(companion, player, false, out var initialRecovery)) return initialRecovery;
 
         Navigator.Capabilities = companion.Motor.Capabilities;
+        Navigator.DisplacementCause = companion.Motor.DivergenceInvalidReason;
         bool taken = Reflexes.TryAssess(companion.NPC, Senses, companion.Motor.State, out var unsafeAtTick);
         Navigator.UnsafeAtTick = Senses.Threats.Threats.Count == 0 && Senses.Projectiles.Threats.Count == 0 ? null : unsafeAtTick;
         ReflexMs = Lap();
@@ -229,7 +230,7 @@ public sealed class Brain
         LastRequest = new PositionRequest(RequestKind.WithPlayer, player.Bottom);
         Safety.Cancel(new ActionContext(companion, Senses, Roaming), "follow-recovery-flight");
         Chooser.Activity.Suspend(new ActionContext(companion, Senses, Roaming), "follow-recovery-flight");
-        Movement.Hold(companion.Motor.State);
+        Movement.Hold(companion.Motor.State, preemptedBy: "follow-recovery-flight");
         request = new ActivityControlRequest(Controls.None, "follow-recovery-flight", RecoveryVelocity:
             FollowRecovery.Steer(companion.NPC.Bottom, companion.NPC.velocity, player.Bottom, player.velocity));
         NavigateMs = Lap();

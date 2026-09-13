@@ -126,6 +126,32 @@ public sealed class Navigator
     public EdgeReport? LastEdge { get; private set; }
     public int EdgeCount { get; private set; }
 
+    /// <summary>
+    /// Why the held goal is not being delivered, or null while it is. It is derived only from
+    /// signals this navigator already owns — the search's stop, the macro proof's rejection, the
+    /// predicted-versus-observed body and the owner that interrupted — so the class names the first
+    /// contract the evidence shows broken instead of a symptom. Delivery evidence (a completed step,
+    /// arrival), a voluntary release or a changed goal clears it.
+    /// </summary>
+    public MovementFailureReport? LastFailure { get; private set; }
+    public MovementFailure Failure => LastFailure?.Kind ?? MovementFailure.None;
+
+    /// <summary>How the last begun attempt ended, and the running tallies of each ending. Completion
+    /// and voluntary cancellation are counted apart so a replan never reads as a failed move.</summary>
+    public AttemptEnding? LastEnding { get; private set; }
+    public int CompletedAttempts { get; private set; }
+    public int FailedAttempts { get; private set; }
+    public int PreemptedAttempts { get; private set; }
+    public int CancelledAttempts { get; private set; }
+
+    /// <summary>
+    /// The motor's attribution for the difference between the body it predicted and the body the
+    /// engine produced, supplied by the coordinator each tick ("none" when nothing external is
+    /// known). The navigator cannot see hits or terrain callbacks, and without this a knockback
+    /// mid-jump would be scored as a native mismatch and retire a route that works.
+    /// </summary>
+    public string DisplacementCause { get; set; } = "none";
+
     /// <summary>Ticks a stuck step stays priced after the strike that added it.</summary>
     private const int StuckAvoidTicks = 600;
 
@@ -164,6 +190,9 @@ public sealed class Navigator
     private BodyState observed, entryState;
     private BodyState? expectedBody;
     private bool attemptContinuous;
+    // The first cause the motor gave for a divergence during this attempt; "none" while every
+    // observed tick matched its prediction.
+    private string divergence = "none";
     private Rectangle sweptBody;
     private int entryRevision;
 
@@ -178,7 +207,11 @@ public sealed class Navigator
     {
         clock++;
         if (expectedBody is BodyState expected && !PlanLocalMovement.Matches(expected, live))
+        {
             attemptContinuous = false;
+            if (divergence == "none")
+                divergence = DisplacementCause is "none" or "no-prediction" ? "unattributed" : DisplacementCause;
+        }
         expectedBody = null;
         observed = live;
         if (onStep != null) sweptBody = Rectangle.Union(sweptBody, BodyBox(live));
@@ -212,7 +245,8 @@ public sealed class Navigator
             // this exact split, since a move planned often and completed rarely and a move never
             // planned at all want opposite fixes.
             if (onStep is NavStep landed)
-                Report(landed, ticksOnStep, TraversalFault.None);
+                Report(landed, ticksOnStep, TraversalFault.None, AttemptEnding.Completed);
+            LastFailure = null;
             Path = null;
             onStep = null;
             execution = null;
@@ -239,6 +273,8 @@ public sealed class Navigator
         // at the end: the reactive walk covers the last tile or two.
         bool goalMoved = goal is Point want
             && (GoalTile is not Point had || Math.Abs(want.X - had.X) > GoalSlackTiles || Math.Abs(want.Y - had.Y) > GoalSlackTiles);
+        // A failure explains the goal it was found for; a different goal has not failed yet.
+        if (goalMoved) LastFailure = null;
         // The strike count is not reset here. It used to be, and with the goal tile changing every
         // seventeen ticks that zeroed it about three times a second, so the two-strike escalation
         // the brain reads to ask for a different spot was unreachable by construction: the body
@@ -259,6 +295,15 @@ public sealed class Navigator
         // becomes a real dead end only when the search from here returns nothing at all, which is
         // the empty-path case this still waits on.
         bool noPath = Path == null;
+        // A body with no route to walk moves only by an endpoint-proven clearance, so while its
+        // route search is still running, standing still is waiting for computation and not a
+        // stall. Striking it discarded the retained frontier every forty ticks and restarted the
+        // search from nothing, so a search needing more than forty slices never finished (194
+        // restarts in 8,000 ticks on the starved sealed corridor); it also handed the brain a
+        // physical strike, and two of those ban the spot, for what was only a slow answer. The
+        // stall clock starts once the search has answered.
+        if (search is { Finished: false } && (noPath || Path!.Finished))
+            stuckTicks = 0;
         bool stuck = stuckTicks > StuckReplanTicks;
         // The cadence waits while the current step is part way through a move a fresh plan would
         // undo (a jump's back-off and run-in); a stuck body and a moved goal do not wait.
@@ -290,9 +335,12 @@ public sealed class Navigator
             {
                 LastFault = TraversalFault.Stuck;
                 FaultCount++;
-                Report(stalled, ticksOnStep, TraversalFault.Stuck);
+                var (ending, failure, reason) = ClassifyInFlight(TraversalFault.Stuck, reproof: false);
+                Report(stalled, ticksOnStep, TraversalFault.Stuck, ending, failure, reason);
                 stepFaulted = true;
             }
+            else if ((noPath || Path!.Finished) && LastFailure == null)
+                Fail(MovementFailure.UnusableTerminal, "stalled-without-route");
             if (!noPath && !Path!.Finished)
                 Strike(Path.Current.Tile);
             else
@@ -314,7 +362,11 @@ public sealed class Navigator
             && (!search.Finished || search.Stop == AStar.SearchStopReason.Found && (Path == null || Path.Partial)))
         {
             AdvanceSearch(live, publish: !midMove);
-            replan = search is { Finished: true } && (Path == null || Path.Finished);
+            // Only a found route that could not be joined where the body stands is worth searching
+            // again at once. A query that finished without one has answered, and searching again from
+            // the same tile before anything changed replaced that answer with an identical unfinished
+            // query, for ever, whenever the answer took more than one tick to compute.
+            replan = search is { Finished: true, Stop: AStar.SearchStopReason.Found } && (Path == null || Path.Finished);
         }
         if (goal != null && replan && (live.OnGround || live.CannotAct))
         {
@@ -322,14 +374,14 @@ public sealed class Navigator
             // against the old execution before asking the new path where it starts.
             if (onStep is NavStep completed && execution?.IsDone(live) == true)
             {
-                Report(completed, ticksOnStep, TraversalFault.None);
+                Report(completed, ticksOnStep, TraversalFault.None, AttemptEnding.Completed);
                 onStep = null;
                 execution = null;
             }
             Plan(live, goal.Value);
             if (onStep is NavStep replaced && (Path == null || Path.Finished || Path.Current != replaced))
             {
-                Report(replaced, ticksOnStep, TraversalFault.Interrupted);
+                Report(replaced, ticksOnStep, TraversalFault.Interrupted, AttemptEnding.Cancelled, reason: "route-replaced");
                 onStep = null;
                 execution = null;
             }
@@ -378,16 +430,29 @@ public sealed class Navigator
         // A projected hit is an interrupt, not an extra steering opinion beside an active macro.
         // The abandoned edge is reported, then the retained local controller searches safe
         // controls from the live body rather than from the macro's take-off node.
-        Interrupt(live);
+        Interrupt(live, AttemptEnding.Preempted, "threat-avoidance");
         UnsafeAtTick = unsafeAtTick;
-        return MoveTo(live, targetFeet);
+        Controls controls = MoveTo(live, targetFeet);
+        // The avoidance is the owner of this tick's body whatever the ordinary search concluded.
+        Fail(MovementFailure.Preempted, "threat-avoidance");
+        return controls;
     }
 
-    public void Interrupt(BodyState live)
+    /// <summary>
+    /// Ends the retained route. <paramref name="ending"/> says who ended it: a voluntary release or
+    /// method change is <see cref="AttemptEnding.Cancelled"/> and clears the failure verdict, while
+    /// another owner taking the body is <see cref="AttemptEnding.Preempted"/> and is recorded as the
+    /// reason the goal is not being delivered. Neither is a physical failure or retires route memory.
+    /// </summary>
+    public void Interrupt(BodyState live, AttemptEnding ending = AttemptEnding.Cancelled, string cause = "released")
     {
         Status = ExecutionStatus.Idle;
+        bool preempted = ending == AttemptEnding.Preempted;
         if (onStep is NavStep step)
-            Report(step, ticksOnStep, TraversalFault.Interrupted);
+            Report(step, ticksOnStep, TraversalFault.Interrupted, preempted ? AttemptEnding.Preempted : AttemptEnding.Cancelled,
+                preempted ? MovementFailure.Preempted : MovementFailure.None, cause);
+        if (preempted) Fail(MovementFailure.Preempted, cause);
+        else LastFailure = null;
         Path = null;
         onStep = null;
         execution = null;
@@ -431,6 +496,7 @@ public sealed class Navigator
             LastPlanFailed = true;
             LastPlanEmpty = true;
             LastExpansions = 0;
+            Fail(MovementFailure.UnusableTerminal, "no-standable-start");
             BehaviourCensus.PlanFailed();
             PlanFailed?.Invoke(start, goal, from, 0, "no standable tile at the start");
             return;
@@ -496,6 +562,7 @@ public sealed class Navigator
         // that distinction while step outcomes establish whether the body makes real progress.
         LastPlanFailed = Path == null && !SearchPending;
         LastPlanEmpty = Path == null;
+        ClassifySearch();
         if (LastPlanFailed)
             BehaviourCensus.PlanFailed();
         if (LastPlanFailed)
@@ -510,6 +577,11 @@ public sealed class Navigator
         var watch = System.Diagnostics.Stopwatch.StartNew();
         int before = query.Expansions;
         query.Advance(PlanBudget, PlanMsBudget);
+        // The failed-plan retry waits from the answer, not from when the question was asked: a
+        // query that took longer than the wait to finish would otherwise be retried the moment it
+        // answered.
+        if (query.Finished && query.Stop != AStar.SearchStopReason.Found)
+            ticksSincePlan = Math.Min(ticksSincePlan, 0);
         LastPlanMs = watch.Elapsed.TotalMilliseconds;
         LastExpansions = query.Expansions - before;
         SearchExpansions = query.Expansions;
@@ -520,6 +592,7 @@ public sealed class Navigator
         LastSearchStop = query.Stop;
         ProgressReason = SearchPending ? "search-incomplete" : query.Stop == AStar.SearchStopReason.Found ? "route-available"
             : query.Stop == AStar.SearchStopReason.Exhausted ? "model-exhausted" : "search-limit";
+        ClassifySearch();
         // A result is attached only where the body actually joins it. A proof rooted at an
         // earlier pose cannot be installed as if the companion had stayed there while searching.
         if (!publish || !live.OnGround) return;
@@ -529,12 +602,89 @@ public sealed class Navigator
         if (join < 0) return;
         if (Path is { Finished: false } old && !old.Partial) return;
         if (onStep is NavStep active && result.Steps[join] != active)
-        { Report(active, ticksOnStep, TraversalFault.Interrupted); onStep = null; execution = null; }
+        { Report(active, ticksOnStep, TraversalFault.Interrupted, AttemptEnding.Cancelled, reason: "route-replaced"); onStep = null; execution = null; }
         result.Index = join;
         Path = result;
         LastPlanFailed = false;
         LastPlanEmpty = false;
         PlannedThisTick = true;
+        ClassifySearch();
+    }
+
+    /// <summary>
+    /// The search's half of the verdict. A route still being walked is delivery, whatever the
+    /// query behind it is doing. Without one, a query still running or stopped on a limit has
+    /// established nothing (unfinished), a query that ran out of transitions has established that
+    /// the model holds no way there (absent), and a body with no standable node under it cannot be
+    /// planned from at all. Physical verdicts from a step are left alone: a search that found no
+    /// replacement does not explain away the fault that ended the last attempt.
+    /// </summary>
+    private void ClassifySearch()
+    {
+        if (Path is { Finished: false })
+        {
+            if (LastFailure?.Kind is MovementFailure.AbsentTransition or MovementFailure.UnfinishedSearch)
+                LastFailure = null;
+            return;
+        }
+        // The replan after a fault resets the step before searching, and the search it runs may find
+        // nothing precisely because that step's entry is now excluded; the fault is the better
+        // explanation until another attempt begins. A pre-emption is not protected: once its owner
+        // releases the body, the search is what stands between the body and the goal.
+        // A physical verdict is evidence only about the terrain it was found on, so an announced
+        // change hands the explanation back to the search even when no new attempt has begun.
+        if (LastFailure is { Kind: MovementFailure.InvalidActualEntry or MovementFailure.NativeMismatch or MovementFailure.UnusableTerminal } physical
+            && physical.AttemptId == AttemptId && physical.Step != null
+            && failureWorld == NavGrid.World && failureRevision == NavGrid.World.Revision)
+            return;
+        if (SearchPending)
+            Fail(MovementFailure.UnfinishedSearch, "search-incomplete");
+        else if (LastSearchStop == AStar.SearchStopReason.Exhausted)
+            Fail(MovementFailure.AbsentTransition, "model-exhausted");
+        else if (LastSearchStop == AStar.SearchStopReason.InvalidStart)
+            Fail(MovementFailure.UnusableTerminal, "no-standable-start");
+        else if (LastSearchStop == AStar.SearchStopReason.Deadline)
+            Fail(MovementFailure.UnfinishedSearch, "search-deadline");
+        else if (LastSearchStop == AStar.SearchStopReason.ExpansionBudget)
+            Fail(MovementFailure.UnfinishedSearch, "search-work-limit");
+    }
+
+    private void Fail(MovementFailure kind, string reason)
+    {
+        if (LastFailure is { } held && held.Kind == kind && held.Reason == reason && held.SearchId == SearchId && held.AttemptId == AttemptId)
+            return;
+        Record(new MovementFailureReport(kind, reason, SearchId, AttemptId, onStep));
+    }
+
+    private ITileWorld? failureWorld;
+    private int failureRevision;
+
+    private void Record(MovementFailureReport report)
+    {
+        LastFailure = report;
+        failureWorld = NavGrid.World;
+        failureRevision = NavGrid.World.Revision;
+    }
+
+    /// <summary>
+    /// A step that failed after its first tick, or stalled, read against what the attempt observed.
+    /// A divergence the motor attributes to an external hit is somebody else's doing; one it
+    /// attributes to an announced terrain change leaves a proof about a world that no longer exists;
+    /// an unattributed divergence is the one case that points at the adapter or the controls. A
+    /// re-proof that fails while every tick agreed is a refused entry from the state actually reached,
+    /// and a fault on the step's own terms under full agreement is a terminal state that cannot go on.
+    /// </summary>
+    private (AttemptEnding, MovementFailure, string) ClassifyInFlight(TraversalFault fault, bool reproof)
+    {
+        if (divergence == "external-hit-or-life-change")
+            return (AttemptEnding.Preempted, MovementFailure.Preempted, "external-displacement:" + fault);
+        if (divergence == "terrain-changed")
+            return (AttemptEnding.PhysicalFailure, MovementFailure.InvalidActualEntry, "terrain-changed:" + fault);
+        if (!attemptContinuous)
+            return (AttemptEnding.PhysicalFailure, MovementFailure.NativeMismatch, $"prediction-diverged:{divergence}:{fault}");
+        return reproof
+            ? (AttemptEnding.PhysicalFailure, MovementFailure.InvalidActualEntry, $"reproof:{local.LastRejection?.Reason ?? "none"}:{fault}")
+            : (AttemptEnding.PhysicalFailure, MovementFailure.UnusableTerminal, "agreed-then-faulted:" + fault);
     }
 
     internal void RefreshRejectedEntries(BodyState live, int now)
@@ -592,7 +742,7 @@ public sealed class Navigator
         while (!path.Finished && (execution?.IsDone(live) ?? For(path.Current.Kind).Done(live, path.Current, After(path))))
         {
             if (onStep is NavStep done && done == path.Current)
-                Report(done, ticksOnStep, TraversalFault.None);
+                Report(done, ticksOnStep, TraversalFault.None, AttemptEnding.Completed);
             path.Index++;
             execution = null;
         }
@@ -608,6 +758,7 @@ public sealed class Navigator
             AttemptId++;
             entryState = live;
             attemptContinuous = true;
+            divergence = "none";
             entryRevision = NavGrid.World.Revision;
             sweptBody = BodyBox(live);
             onStep = step;
@@ -644,14 +795,25 @@ public sealed class Navigator
             // proxy question instead, because a fallback's trigger condition has to be the fact it
             // answers rather than the absence of the ordinary path's own precondition.
             bool physicallyImpossible = fault != TraversalFault.None;
-            if (physicallyImpossible && execution!.Ticks == 0)
+            bool atEntry = execution!.Ticks == 0;
+            if (physicallyImpossible && atEntry)
                 RememberRejectedEntry(step, live);
+            // Which contract refused the step. A preparation search that ran out of its allowance
+            // has not shown the entry impossible, whatever the direct proof said; a refusal with no
+            // physical fault came from the threat forecast; a physical fault before the first tick is
+            // the refused entry, and after it the attempt's own observations decide.
+            var (ending, failure, reason) = local.PreparationResult == "search-budget-exhausted"
+                ? (AttemptEnding.Cancelled, MovementFailure.UnfinishedSearch, "preparation-budget")
+                : !physicallyImpossible ? (AttemptEnding.Preempted, MovementFailure.Preempted, "unsafe-forecast")
+                : atEntry ? (AttemptEnding.PhysicalFailure, MovementFailure.InvalidActualEntry,
+                    $"entry-proof:{local.LastRejection?.Reason ?? "none"}:{fault}:{local.PreparationResult}")
+                : ClassifyInFlight(fault, reproof: true);
             if (fault == TraversalFault.None)
                 fault = TraversalFault.Interrupted;
             stepFaulted = true;
             LastFault = fault;
             FaultCount++;
-            Report(step, ticksOnStep, fault);
+            Report(step, ticksOnStep, fault, ending, failure, reason);
             // A step refused before its first tick has failed as completely as one that failed in
             // flight, and more cheaply: the proof ran the whole move and it did not work. Pricing
             // only the in-flight failure left an entry the proof rejects being re-offered by every
@@ -667,7 +829,8 @@ public sealed class Navigator
             stepFaulted = true;
             LastFault = fault;
             FaultCount++;
-            Report(step, ticksOnStep, fault);
+            var (ending, failure, reason) = ClassifyInFlight(fault, reproof: false);
+            Report(step, ticksOnStep, fault, ending, failure, reason);
             Strike(step.Tile);
             forceReplan = true;
             return Controls.None;
@@ -705,20 +868,36 @@ public sealed class Navigator
         return false;
     }
 
-    private void Report(NavStep step, int ticks, TraversalFault outcome)
+    private void Report(NavStep step, int ticks, TraversalFault outcome, AttemptEnding ending,
+        MovementFailure failure = MovementFailure.None, string reason = "")
     {
         // A fault terminates an attempt even if its path survives until the next ground tick.
         // Clearing or interrupting that path must not count a second terminal outcome.
         if (edgeReported) return;
         edgeReported = true;
         LastEdge = new EdgeReport(step.Kind, step.From, step.Tile, step.Ticks, ticks, outcome);
+        LastEnding = ending;
+        switch (ending)
+        {
+            case AttemptEnding.Completed: CompletedAttempts++; break;
+            case AttemptEnding.PhysicalFailure: FailedAttempts++; break;
+            case AttemptEnding.Preempted: PreemptedAttempts++; break;
+            default: CancelledAttempts++; break;
+        }
         ProgressReason = outcome == TraversalFault.None ? "traversal-completed" : outcome == TraversalFault.Interrupted ? "traversal-interrupted" : "traversal-failed";
         EdgeCount++;
-        if (outcome == TraversalFault.None && attemptContinuous && entryRevision == NavGrid.World.Revision)
+        // Only a physical failure is evidence against the connection. A knockback, a threat
+        // refusal or a preparation search that ran out of time says nothing about whether the move
+        // works, and retiring a remembered route for one of those poisons an edge that does.
+        if (ending == AttemptEnding.Completed && attemptContinuous && entryRevision == NavGrid.World.Revision)
             RememberExecutedRoutes.World.Record(NavGrid.World, step, entryState, observed, sweptBody);
-        else if (outcome != TraversalFault.Interrupted && outcome != TraversalFault.None)
+        else if (ending == AttemptEnding.PhysicalFailure)
             RememberExecutedRoutes.World.Forget(step);
-        BehaviourCensus.Finished(step, outcome);
+        if (failure != MovementFailure.None)
+            Record(new MovementFailureReport(failure, reason, SearchId, AttemptId, step));
+        else if (ending == AttemptEnding.Completed)
+            LastFailure = null;
+        BehaviourCensus.Finished(step, outcome, ending);
     }
 
     private static Rectangle BodyBox(BodyState state) => new((int)Math.Floor(state.Left),
@@ -750,7 +929,8 @@ public sealed class Navigator
     {
         Status = ExecutionStatus.Idle;
         if (onStep is NavStep step)
-            Report(step, ticksOnStep, TraversalFault.Interrupted);
+            Report(step, ticksOnStep, TraversalFault.Interrupted, AttemptEnding.Cancelled, reason: "cleared");
+        LastFailure = null;
         Path = null;
         GoalTile = null;
         clearance.Clear();

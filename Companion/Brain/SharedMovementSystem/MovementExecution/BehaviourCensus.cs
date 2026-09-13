@@ -40,6 +40,11 @@ public static class BehaviourCensus
     private static readonly int[] faulted = new int[Kinds];
     private static readonly int[] interrupted = new int[Kinds];
 
+    // Every attempt by its ending, which splits the interrupted column by owner: a move another
+    // owner took and a move the brain itself released are different findings, and neither is a
+    // failed move. Physical failures are counted here too, so the four columns sum to the attempts.
+    private static readonly int[,] endings = new int[Kinds, Enum.GetValues<AttemptEnding>().Length];
+
     // Per kind, per fault reason, so "the jumps all timed out" and "the jumps all mislanded" are
     // different findings rather than one number with the cause guessed at afterwards.
     private static readonly int[,] faults = new int[Kinds, Enum.GetValues<TraversalFault>().Length];
@@ -70,6 +75,7 @@ public static class BehaviourCensus
         Array.Clear(completed);
         Array.Clear(faulted);
         Array.Clear(interrupted);
+        Array.Clear(endings);
         Array.Clear(faults);
         Array.Clear(walkPlanned);
         Array.Clear(walkBegun);
@@ -105,10 +111,11 @@ public static class BehaviourCensus
             walkBegun[Vertical(step)]++;
     }
 
-    /// <summary>The step ended, either done (<see cref="TraversalFault.None"/>) or faulted with a reason.</summary>
-    public static void Finished(NavStep step, TraversalFault outcome)
+    /// <summary>The step ended, either done (<see cref="TraversalFault.None"/>) or faulted with a reason, and <paramref name="ending"/> says who ended it.</summary>
+    public static void Finished(NavStep step, TraversalFault outcome, AttemptEnding ending)
     {
         int kind = (int)step.Kind;
+        endings[kind, (int)ending]++;
         if (outcome == TraversalFault.None)
         {
             completed[kind]++;
@@ -183,6 +190,11 @@ public static class BehaviourCensus
                     reasons.Add($"{(TraversalFault)f} {faults[k, f]:n0}");
             sb.AppendLine($"  {((MoveKind)k).ToString(),-14}{planned[k],8:n0} {begun[k],8:n0} {completed[k],8:n0} {faulted[k],8:n0} {interrupted[k],11:n0}   {(reasons.Count == 0 ? "-" : string.Join(", ", reasons))}");
         }
+        sb.AppendLine();
+        sb.AppendLine("  attempts by who ended them, because a move another owner took is not a move that failed");
+        sb.AppendLine("  move           completed physical-failure pre-empted  cancelled");
+        for (int k = 0; k < Kinds; k++)
+            sb.AppendLine($"  {((MoveKind)k).ToString(),-14}{endings[k, (int)AttemptEnding.Completed],10:n0} {endings[k, (int)AttemptEnding.PhysicalFailure],16:n0} {endings[k, (int)AttemptEnding.Preempted],10:n0} {endings[k, (int)AttemptEnding.Cancelled],10:n0}");
         sb.AppendLine();
         sb.AppendLine("  walks by direction, because a descent refused and a descent failed are different defects");
         string[] labels = { "up (a kerb)", "flat", "down (a slope or lip)" };

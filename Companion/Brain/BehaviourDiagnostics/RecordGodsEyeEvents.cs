@@ -27,6 +27,7 @@ public static class GodsEyeEvents
     private static int lastMovementEdges = -1;
     private static Navigator.ExecutionStatus lastMovementStatus;
     private static PlanLocalMovement.Rejection? lastMovementRejection;
+    private static MovementFailureReport? lastMovementFailure;
     private static string? lastNavigationEvidence;
     private static string? lastActivityEvidence;
     private static string? lastControlEvidence;
@@ -202,11 +203,13 @@ public static class GodsEyeEvents
     public static void RecordMovementState(NPC companion, Navigator navigator)
     {
         if (navigator.Status == lastMovementStatus && navigator.EdgeCount == lastMovementEdges
-            && navigator.LastRejection == lastMovementRejection && Main.GameUpdateCount % 60 != 0) return;
+            && navigator.LastRejection == lastMovementRejection && navigator.LastFailure == lastMovementFailure
+            && Main.GameUpdateCount % 60 != 0) return;
         lastMovementStatus = navigator.Status;
         lastMovementEdges = navigator.EdgeCount;
         lastMovementRejection = navigator.LastRejection;
-        string detail = $"status={navigator.Status};search={navigator.LastSearchStop};goal={navigator.GoalTile};partial={navigator.Path?.Partial};edges={navigator.EdgeCount};last-edge={navigator.LastEdge};preparation={navigator.PreparationResult};last-rejection={navigator.LastRejection}";
+        lastMovementFailure = navigator.LastFailure;
+        string detail = $"status={navigator.Status};search={navigator.LastSearchStop};goal={navigator.GoalTile};partial={navigator.Path?.Partial};edges={navigator.EdgeCount};last-edge={navigator.LastEdge};preparation={navigator.PreparationResult};last-rejection={navigator.LastRejection};failure={navigator.Failure};failure-reason={navigator.LastFailure?.Reason ?? "-"};attempt-ending={navigator.LastEnding?.ToString() ?? "-"}";
         RecordMovementOutcome(companion, navigator.Path is { Finished: false } path ? path.Current.ToString() : "none", "state", detail);
     }
 

@@ -250,7 +250,7 @@ public class CompanionNPC : ModNPC
         downedTicks = 0;
         heldItemType = ItemID.None;
         itemAnimation = 0;
-        Brain.Movement.Hold(Motor.State);
+        Brain.Movement.Hold(Motor.State, preemptedBy: "downed");
     }
 
     private void UpdateDowned(Player player)

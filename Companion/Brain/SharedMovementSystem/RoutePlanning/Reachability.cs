@@ -68,12 +68,110 @@ public static class Reachability
         {
             AStar.AllowOneWayDrops = oneWay;
         }
-        // A partial path is the search saying it could get closer, not that it arrived, so only a
-        // whole path is a yes. A budget that ran out is the search declining to answer and is
-        // reported as such rather than folded into either verdict.
-        if (path != null && !path.Partial)
-            return Reach.Yes;
-        return stop is AStar.SearchStopReason.ExpansionBudget or AStar.SearchStopReason.Deadline ? Reach.Unknown : Reach.No;
+        return Verdict(path, stop);
+    }
+
+    /// <summary>
+    /// What one bounded search established. A partial path is the search saying it could get
+    /// closer, not that it arrived, so only a whole path is a yes. A budget or deadline that ran out
+    /// is the search declining to answer and is reported as such rather than folded into either
+    /// verdict; only an exhausted region is a no.
+    /// </summary>
+    private static Reach Verdict(NavPath? path, AStar.SearchStopReason stop)
+        => path is { Partial: false } ? Reach.Yes
+        : stop is AStar.SearchStopReason.ExpansionBudget or AStar.SearchStopReason.Deadline ? Reach.Unknown : Reach.No;
+
+    /// <summary>
+    /// The breath a round trip may spend, in ticks: how long until drowning damage from now, the
+    /// most the bar holds in the same unit, and how many of those ticks one tick with the head clear
+    /// gives back. They are the character's own breathing rule expressed as integers and passed in,
+    /// because the movement core compiles without the game. For the companion that is
+    /// <c>CompanionBreath.TicksLeft</c>, <c>BreathMax × BreathCDMax</c> and
+    /// <c>RecoverPerTick × BreathCDMax</c>; a mismatch between these and that rule makes every
+    /// verdict below wrong in the same direction, so they belong at the call site next to the breath
+    /// they read.
+    /// </summary>
+    public readonly record struct BreathEnvelope(int TicksLeft, int CapacityTicks, int RecoveryPerDryTick);
+
+    /// <summary>
+    /// Going there and coming back, kept as separate answers. <see cref="Breath"/> is unknown
+    /// unless both directions are a whole route, because breath cannot be judged over a trip nobody
+    /// has found. The tick counts are the routes' proven step durations, so they are estimates of
+    /// travel time and not measurements.
+    /// </summary>
+    public readonly record struct RoundTripEvidence(Reach Outward, Reach Return, int OutwardTicks, int ReturnTicks,
+        int OutwardSubmergedTicks, int ReturnSubmergedTicks, int LowestBreathTicks, Reach Breath);
+
+    /// <summary>
+    /// Whether the body can go from <paramref name="fromFeet"/> to <paramref name="toFeet"/> and get
+    /// back, and whether its breath lasts the trip. Reaching a place is not a certificate of leaving
+    /// it: an outward route may take a drop the return cannot climb, so the return is asked of its
+    /// own search, and a return search that runs out of budget is unknown, never a return. Both
+    /// searches take any drop, because it is the return search, not a one-way filter, that judges
+    /// whether a drop was one-way.
+    ///
+    /// Breath is walked step by step over the outward route and then the return: a step whose head
+    /// is under water at either end drains its duration, and any other step restores its duration
+    /// times the recovery rate, capped at capacity. The error has a direction, which is the reason
+    /// for that rule. It over-charges a step that surfaces part way and water that does not drown
+    /// (honey and shimmer read as water here), and it misses an arc that dips under water between
+    /// two dry endpoints. It includes no time spent at the destination, so a caller that means to
+    /// work there adds that work to the outward leg itself.
+    /// </summary>
+    public static RoundTripEvidence RoundTrip(Point fromFeet, Point toFeet, BreathEnvelope breath, int budget = WalkerBudget)
+    {
+        Point? start = NavGrid.NearestStandable(fromFeet, 2);
+        Point? goal = NavGrid.NearestStandable(toFeet, 2);
+        if (start == null || goal == null)
+            return new RoundTripEvidence(Reach.Unknown, Reach.Unknown, 0, 0, 0, 0, breath.TicksLeft, Reach.Unknown);
+        bool oneWay = AStar.AllowOneWayDrops;
+        AStar.AllowOneWayDrops = true;
+        NavPath? outward, back;
+        AStar.SearchStopReason outwardStop, backStop;
+        try
+        {
+            outward = AStar.Find(start.Value, goal.Value, budget, out _, out outwardStop);
+            back = AStar.Find(goal.Value, start.Value, budget, out _, out backStop);
+        }
+        finally
+        {
+            AStar.AllowOneWayDrops = oneWay;
+        }
+        Reach there = Verdict(outward, outwardStop), home = Verdict(back, backStop);
+        int outwardTicks = DurationOf(outward), returnTicks = DurationOf(back);
+        if (there != Reach.Yes || home != Reach.Yes)
+            return new RoundTripEvidence(there, home, outwardTicks, returnTicks, 0, 0, breath.TicksLeft, Reach.Unknown);
+
+        int left = breath.TicksLeft, lowest = left;
+        int SpendOver(NavPath leg)
+        {
+            int submerged = 0;
+            foreach (NavStep step in leg.Steps)
+            {
+                int ticks = System.Math.Max(1, step.Ticks);
+                if (NavGrid.HeadSubmergedAt(step.From.X, step.From.Y) || NavGrid.HeadSubmergedAt(step.Tile.X, step.Tile.Y))
+                {
+                    left -= ticks;
+                    submerged += ticks;
+                    lowest = System.Math.Min(lowest, left);
+                }
+                else
+                    left = System.Math.Min(breath.CapacityTicks, left + ticks * breath.RecoveryPerDryTick);
+            }
+            return submerged;
+        }
+        int outwardSubmerged = SpendOver(outward!);
+        int returnSubmerged = SpendOver(back!);
+        return new RoundTripEvidence(there, home, outwardTicks, returnTicks, outwardSubmerged, returnSubmerged, lowest,
+            lowest >= 0 ? Reach.Yes : Reach.No);
+    }
+
+    private static int DurationOf(NavPath? path)
+    {
+        if (path == null) return 0;
+        int ticks = 0;
+        foreach (NavStep step in path.Steps) ticks += System.Math.Max(1, step.Ticks);
+        return ticks;
     }
 
     /// <summary>

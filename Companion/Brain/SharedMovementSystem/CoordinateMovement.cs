@@ -29,7 +29,8 @@ public sealed class CoordinateMovement
         int workBudget, out Controls controls, out bool pending)
     {
         if (seekingDestination) CancelStateSearch();
-        Navigator.Interrupt(live);
+        // A state objective (escape, combat space) is another owner taking the body from any route.
+        Navigator.Interrupt(live, AttemptEnding.Preempted, "state-search");
         bool chosen = stateSearch.TryChoose(NavGrid.World, live, goal, heuristic, Navigator.Capabilities,
             workBudget, BehaviourSelection.Weights.EscapeSearchMilliseconds, out controls, Navigator.UnsafeAtTick);
         pending = stateSearch.Pending;
@@ -42,12 +43,15 @@ public sealed class CoordinateMovement
         return AddRequestedJump(Navigator.MoveTo(live, goal), requestedJump);
     }
 
-    public Controls Hold(BodyState live, float requestedJump = 0f)
+    /// <param name="preemptedBy">Null when the brain released the request itself; otherwise the owner
+    /// that took the body (downing, recovery flight), so the interrupted attempt is scored as
+    /// pre-empted rather than cancelled.</param>
+    public Controls Hold(BodyState live, float requestedJump = 0f, string? preemptedBy = null)
     {
         CancelStateSearch();
         // Releasing the movement request interrupts the retained route explicitly, including
         // its census outcome. Survival can request a ground jump through the same body rules.
-        Navigator.Interrupt(live);
+        Navigator.Interrupt(live, preemptedBy == null ? AttemptEnding.Cancelled : AttemptEnding.Preempted, preemptedBy ?? "released");
         return AddRequestedJump(Controls.None, requestedJump);
     }
 
@@ -62,7 +66,8 @@ public sealed class CoordinateMovement
         }
         seekingDestination = true;
         Vector2 target = unresolvedGoal.Value;
-        Navigator.Interrupt(live);
+        // The same purpose changing method (route to state search) is a voluntary cancellation.
+        Navigator.Interrupt(live, AttemptEnding.Cancelled, "method-change");
         stateSearch.TryChoose(NavGrid.World, live, arrived,
             state => Vector2.Distance(state.Feet, target), Navigator.Capabilities,
             BehaviourSelection.Weights.EscapeSearchWork, BehaviourSelection.Weights.EscapeSearchMilliseconds,

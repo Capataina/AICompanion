@@ -10,6 +10,8 @@ AssemblyLoadContext.Default.Resolving += (context, name) =>
 };
 if (args.Contains("--route-persistence")) return VerifyRoutePersistence.Run();
 if (args.Contains("--attack-outcomes")) return VerifyAttackOutcomes.Run();
+if (args.Contains("--movement-failures")) return VerifyMovementFailures.Run() == 0 ? 0 : 1;
+if (args.Contains("--round-trip")) return VerifyRoundTripEvidence.Run() == 0 ? 0 : 1;
 if (args.Contains("--render-ui")) return RenderNativeInterface.Run(root);
 if (args.FirstOrDefault(a => a.StartsWith("--replay-water=")) is string capture)
     return ReplayRecordedWater.Run(capture[15..], int.Parse(args.Single(a => a.StartsWith("--tick="))[7..]));

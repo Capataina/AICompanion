@@ -83,7 +83,10 @@ public sealed class PlanLocalMovement
             }
         }
         preparation.Clear();
-        if (!live.OnGround || execution.Ticks != 0) return false;
+        // Every refusal names itself, so a reader of PreparationResult never sees the last attempt's
+        // verdict (a spent budget, say) standing in for a refusal that never searched.
+        if (!live.OnGround) { PreparationResult = "airborne"; return false; }
+        if (execution.Ticks != 0) { PreparationResult = "attempt-already-begun"; return false; }
         // Search control sequences, not a timer spent approaching a representative grid point.
         // Every accepted prefix ends in a complete actual-state proof of the intended edge.
         float entryX = NavGrid.FeetWorld(execution.Step.From).X;
