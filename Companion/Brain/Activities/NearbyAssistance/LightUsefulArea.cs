@@ -90,8 +90,18 @@ public sealed class LightUsefulArea : PerformNearbyWorldWork
         // unreachable pocket hide every reachable one behind it — dark air under a floor is nearer than a
         // shelf across the room and sealed away from both of them — and "nearest dark region" is about where
         // the companion walks, not about which darkness it is allowed to know exists.
+        bool cut = false;
         foreach (LightSense.DarkRegion found in regions)
         {
+            // The scan reads the deadline the same way every route and reach query nested under it does, and
+            // for the same reason: it is not a search that answers in bounded time. A screen dark everywhere
+            // nominates one region holding most of the lattice, and the site test is a neighbourhood of engine
+            // reads per candidate tile, so a whole-dark floor measured 37.6 ms of preparation in one tick
+            // against a twelve-millisecond tick — the family's preparation share cannot hold that, because a
+            // share decides whether the next child starts and cannot interrupt one already running. Cutting
+            // here reports the refusal as Unresolved rather than as no opportunity, which is the difference
+            // between an answer that has not arrived and an answer of "no", and it retries in a rescore.
+            if (LimitPlanningWork.Expired) { cut = true; break; }
             // A region outside the work radius of the player is somebody else's darkness: the companion is
             // not a lamplighter sent out into the world, it lights where the two of them are.
             if (Math.Abs(found.Centre.X - player.X) > work || Math.Abs(found.Centre.Y - player.Y) > work)
@@ -101,6 +111,10 @@ public sealed class LightUsefulArea : PerformNearbyWorldWork
             // at its far end. The span bridges the gaps the lattice leaves between its own samples, so the
             // scan sees whole tiles rather than only the sampled ones.
             foreach (Point member in found.Tiles)
+            {
+                // And inside the region too, because one region can hold most of the lattice and a probe
+                // only between regions would never fire on the scene that costs the most.
+                if (LimitPlanningWork.Expired) { cut = true; break; }
                 for (int x = member.X - span; x <= member.X + span; x++)
                     for (int y = member.Y - span; y <= member.Y + span; y++)
                     {
@@ -114,6 +128,7 @@ public sealed class LightUsefulArea : PerformNearbyWorldWork
                         if (!SiteIsDark(ctx, p)) continue;
                         nearest.Add((CandidateCost(fromFeet, p), nearest.Count, p));
                     }
+            }
             if (region != null) continue;
             // The nearest region that contributed anywhere to put a torch is the one being worked, which is
             // what the value and the telemetry describe.
@@ -131,6 +146,10 @@ public sealed class LightUsefulArea : PerformNearbyWorldWork
         foreach (var candidate in nearest)
             into.Add((candidate.Cost, into.Count, candidate.Tile));
         if (region != null) refusal = "no-tile-the-placer-accepts";
+        // A cut scan that already found sites hands them on: they are real, and the ones it did not reach were
+        // further away in the same cost order. A cut scan that found none has not answered, and saying "no
+        // opportunity" there would be reporting the deadline as a fact about the world.
+        if (cut && nearest.Count == 0) refusal = "dark-region-scan-cut-by-planning-deadline";
     }
 
     /// <summary>
@@ -163,6 +182,7 @@ public sealed class LightUsefulArea : PerformNearbyWorldWork
         {
             "no-light-measured-in-range" => (OfferEligibility.Unresolved, refusal),
             "dark-region-tile-not-yet-known-reachable" => (OfferEligibility.Unresolved, refusal),
+            "dark-region-scan-cut-by-planning-deadline" => (OfferEligibility.Unresolved, refusal),
             // The shared name for this condition, not a lighting-specific one: failing the two-way region
             // is exactly "the body cannot go there and come home", which is what the executor's round-trip
             // proof called by this name before the reach sense answered the same question more cheaply.

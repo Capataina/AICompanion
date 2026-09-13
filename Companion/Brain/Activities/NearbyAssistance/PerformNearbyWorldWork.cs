@@ -232,6 +232,15 @@ public abstract class PerformNearbyWorldWork : CompanionAction
                 { candidateStand = ctx.Npc.Bottom; jump = true; }
                 else
                 {
+                    // The bound sits on the approach query, which is the expensive half and the one both
+                    // proof routes pay. It used to sit on the round trip, and opting lighting into the reach
+                    // sense therefore removed the only thing bounding this loop: a sensed site skipped the
+                    // counter entirely, so a screen dark everywhere put every candidate through a fresh
+                    // bounded A* and one preparation measured 37.6 ms against a twelve-millisecond tick.
+                    // Charging the approach rather than the proof bounds both routes by what they actually
+                    // cost, and it deliberately tightens the round-trip route too: a site whose approach
+                    // cannot be searched was never going to have its trip proven either.
+                    if (tripsAsked++ >= Infrastructure.Selection.Weights.NearbyWorkTripChecks) break;
                     var standing = FindToolAccess.Approach(p, ctx.Npc.Bottom, out candidateStand);
                     if (standing == Reachability.Reach.Unknown) continue;
                     // Only a site no standing pose reaches is hopped to, from a take-off the walker reaches: the same order and
@@ -259,7 +268,6 @@ public abstract class PerformNearbyWorldWork : CompanionAction
                     }
                     else
                     {
-                        if (tripsAsked++ >= Infrastructure.Selection.Weights.NearbyWorkTripChecks) break;
                         if (!TripReturns(ctx, p, candidateStand)) continue;
                     }
                 }
