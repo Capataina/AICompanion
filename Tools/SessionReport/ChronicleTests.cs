@@ -39,11 +39,16 @@ public static class ChronicleTests
             ASelectedActivityMustHaveCarriedAnEligibleOffer();
             ASelectionChangesOnlyWithANewComparison();
             AttemptEvidenceJoinsByIdentityAndDisagreementsAreDefinitive();
+            ACompletedTransferClaimNeedsItsReceivedQuantity();
+            AClaimedArrivalMustLieInsideItsSuccessRegion();
             ControlGrantRulesJudgeTheRequestedOwner();
             IdentityChecksSkipOldAndPartialCapturesByName();
             MultiRunStatesProvenanceBeforeAnyRun();
+            ACaptureStatesItsSourceAndWhetherItClosed();
+            RecordingStatesItsCostWhatItDroppedAndWhatItKeeps();
+            ADamagedCaptureReducesCoverageAndInventsNoContradiction();
             IdentityRulesStillMatchTheProducer();
-            Console.WriteLine("Chronicle self-tests passed (25 assertion groups).");
+            Console.WriteLine("Chronicle self-tests passed (30 assertion groups).");
             return 0;
         }
         catch (Exception error)
@@ -677,10 +682,19 @@ public static class ChronicleTests
             $"attempt-id={attempt};activity-id={activity};family={family};start-tick={start};end-tick={end};status={status};attribution={attribution};cause={cause};productive-effects={effects};effect-scope=companion-credited-tool-or-interaction-effects;interruption-is-not-failure=true");
 
     // The tool-local attempt= is 1 on both strikes on purpose: a join by that number would invent
-    // attempt 1 and leave attempts 5 and 8 with no effects.
-    private static FixtureEvent Strike(long tick, string tool, long toolAttempt, long choice, long activity, string effect)
-        => new(tick, "tool-effect", tool, $"attempt={toolAttempt};choice-id={choice};activity-id={activity}", effect == "Damaged" ? 10 : 0,
+    // attempt 1 and leave attempts 5 and 8 with no effects. A null activityAttempt writes the
+    // pre-0.25.0 channel, which carries no attempt of its own and must join through rows.
+    private static FixtureEvent Strike(long tick, string tool, long toolAttempt, long choice, long activity, string effect, long? activityAttempt = null)
+        => new(tick, "tool-effect", tool, $"attempt={toolAttempt};choice-id={choice};activity-id={activity}" + (activityAttempt is long a ? $";activity-attempt-id={a}" : ""), effect == "Damaged" ? 10 : 0,
             $"observation-tick={tick};tool-item=1;effect={effect};before-present=True;after-present={(effect == "Removed" ? "False" : "True")};damage-scope=tool-owned-hit-table;yield=unobserved");
+
+    /// <summary>The same capture as an older producer wrote it: every strike loses the attempt it named.</summary>
+    private static void AsPre025Strikes(System.Collections.Generic.List<FixtureEvent> events)
+    {
+        for (int i = 0; i < events.Count; i++)
+            if (events[i].Kind == "tool-effect")
+                events[i] = events[i] with { Channel = events[i].Channel.Split(";activity-attempt-id=")[0] };
+    }
 
     /// <summary>
     /// A consistent capture: mining attempt 5 (ticks 10..20) interrupted by escape; mining attempt 6
@@ -710,17 +724,17 @@ public static class ChronicleTests
         var events = new System.Collections.Generic.List<FixtureEvent>
         {
             Grant(10, 1, 2, 5, "Executing", "travel", "WorkTool"),
-            Strike(12, "pickaxe", 1, 3, 2, "Damaged"),
+            Strike(12, "pickaxe", 1, 3, 2, "Damaged", 5),
             Grant(15, 6, 2, 5, "Executing", "hold", "WorkTool"),
             Outcome(20, 5, 2, "mine", "Gathering", 10, 20, "Interrupted", "NotApplicable", "survival-escape", 1),
             Grant(20, 11, 2, 0, "Suspended", "survival-escape", "Available"),
             Grant(25, 16, 2, 6, "Executing", "travel", "WorkTool"),
-            Strike(27, "pickaxe", 2, 13, 2, "Removed"),
+            Strike(27, "pickaxe", 2, 13, 2, "Removed", 6),
             Outcome(30, 6, 2, "mine", "Gathering", 25, 30, "Complete", "Companion", "tracked-vein-observed-clear", 1),
             Grant(30, 21, 3, 7, "Executing", "travel", "Available"),
             Outcome(31, 7, 3, "chop", "Gathering", 30, 31, "Interrupted", "NotApplicable", "combat-reflex", 0),
             Grant(31, 22, 3, 0, "Suspended", "combat-reflex", "Available"),
-            Strike(32, "axe", 1, 18, 3, "Damaged"),
+            Strike(32, "axe", 1, 18, 3, "Damaged", 8),
             Outcome(32, 8, 3, "chop", "Gathering", 32, 32, "Interrupted", "NotApplicable", "follow-recovery-flight", 1),
             Grant(32, 23, 3, 0, "Suspended", "follow-recovery-flight", "Available"),
             Grant(40, 31, 3, 0, "Suspended", "downed", "Unavailable", applied: "travel-recovery-clearance"),
@@ -731,10 +745,11 @@ public static class ChronicleTests
 
     /// <summary>Writes a TSV and, unless <paramref name="events"/> is null, its sidecar, to a fresh temporary stem so the sidecar cache can never serve an earlier fixture.</summary>
     private static string WriteIdentitySession(System.Collections.Generic.List<string> files, string[] columns,
-        System.Collections.Generic.IEnumerable<System.Collections.Generic.IReadOnlyDictionary<string, string>> rows, System.Collections.Generic.IEnumerable<FixtureEvent>? events)
+        System.Collections.Generic.IEnumerable<System.Collections.Generic.IReadOnlyDictionary<string, string>> rows, System.Collections.Generic.IEnumerable<FixtureEvent>? events,
+        string schema = "0.21.0", bool closed = true)
     {
         string tsv = Path.GetTempFileName(); files.Add(tsv);
-        var text = new StringBuilder("# schema=0.21.0\n# text_columns=")
+        var text = new StringBuilder($"# schema={schema}\n# text_columns=")
             .Append(string.Join(',', columns.Where(c => c is "action" or "attempt_end_activity" || c.EndsWith("_offer", StringComparison.Ordinal)))).Append('\n')
             .Append(string.Join('\t', columns)).Append('\n');
         foreach (var row in rows) text.Append(string.Join('\t', columns.Select(c => row[c]))).Append('\n');
@@ -747,7 +762,7 @@ public static class ChronicleTests
         var ordered = events.OrderBy(e => e.Tick).ToList();
         var lines = new System.Collections.Generic.List<string> { Json(0, 0, "session", "", "", 0, "schema=1") };
         foreach (FixtureEvent e in ordered) lines.Add(Json(lines.Count, e.Tick, e.Kind, e.Label, e.Channel, e.Amount, e.Detail));
-        lines.Add(Json(lines.Count, ordered.Count == 0 ? 0 : ordered[^1].Tick, "session-end", "", "", ordered.Count, "normal-close"));
+        if (closed) lines.Add(Json(lines.Count, ordered.Count == 0 ? 0 : ordered[^1].Tick, "session-end", "", "", ordered.Count, "normal-close"));
         File.WriteAllLines(sidecar, lines);
         return tsv;
     }
@@ -798,7 +813,8 @@ public static class ChronicleTests
             // With every outcome present the interval fallback reaches the same attempts, so the
             // row routes are only proven when an outcome occurrence is lost: both strikes must still
             // join through the row at their tick, the open one and the one closed on that tick.
-            string lost = Write((_, e) => e.RemoveAll(x => x.Kind == "attempt-outcome" && (x.Detail.StartsWith("attempt-id=5;") || x.Detail.StartsWith("attempt-id=8;"))));
+            // These are pre-0.25.0 strikes, because a strike naming its attempt never consults a row.
+            string lost = Write((_, e) => { AsPre025Strikes(e); e.RemoveAll(x => x.Kind == "attempt-outcome" && (x.Detail.StartsWith("attempt-id=5;") || x.Detail.StartsWith("attempt-id=8;"))); });
             string[] lostView = JoinAttemptEvidence.Describe(lost, Session.Load(lost), full: true).Split('\n');
             string LostLine(long attempt) => lostView.SingleOrDefault(l => l.StartsWith($"  attempt {attempt}  ", StringComparison.Ordinal)) ?? "";
             Require(LostLine(5).Contains("outcome unrecorded", StringComparison.Ordinal) && LostLine(5).Contains("tool effects 1", StringComparison.Ordinal),
@@ -808,11 +824,32 @@ public static class ChronicleTests
 
             // And the fallback alone: with the strike's row missing, only attempt 5's recorded
             // interval under activity 2 contains tick 12.
-            string rowless = Write((r, _) => r.RemoveAll(x => x["tick"] == "12"));
+            string rowless = Write((r, e) => { AsPre025Strikes(e); r.RemoveAll(x => x["tick"] == "12"); });
             string[] rowlessView = JoinAttemptEvidence.Describe(rowless, Session.Load(rowless), full: true).Split('\n');
-            Require(rowlessView.Any(l => l.StartsWith("  attempt 5  ", StringComparison.Ordinal) && l.Contains("tool effects 1 (Damaged 1)", StringComparison.Ordinal))
+            Require(rowlessView.Any(l => l.StartsWith("  attempt 5  ", StringComparison.Ordinal) && l.Contains("tool effects 1 (Damaged 1) joined by outcome interval×1", StringComparison.Ordinal))
                 && rowlessView.Any(l => l.Contains("0 tool effect(s) no attempt contains", StringComparison.Ordinal)),
                 "a strike with no row at its tick was not joined to the single outcome interval of its activity that contains it");
+
+            // A strike that names its attempt needs neither the row nor the outcome. Losing both
+            // leaves an older strike with nothing to join through, and must not cost this one.
+            void LoseRowAndOutcome(System.Collections.Generic.List<System.Collections.Generic.Dictionary<string, string>> r, System.Collections.Generic.List<FixtureEvent> e)
+            {
+                r.RemoveAll(x => x["tick"] == "12");
+                e.RemoveAll(x => x.Kind == "attempt-outcome" && x.Detail.StartsWith("attempt-id=5;"));
+            }
+            string bare = Write(LoseRowAndOutcome);
+            string[] bareView = JoinAttemptEvidence.Describe(bare, Session.Load(bare), full: true).Split('\n');
+            Require(bareView.Any(l => l.StartsWith("  attempt 5  ", StringComparison.Ordinal) && l.Contains("tool effects 1 (Damaged 1) joined by its own attempt id×1", StringComparison.Ordinal))
+                && bareView.Any(l => l.Contains("0 tool effect(s) no attempt contains", StringComparison.Ordinal)),
+                "a strike naming its own attempt was not joined once its row and its attempt's outcome were both lost");
+            string bareOld = Write((r, e) => { AsPre025Strikes(e); LoseRowAndOutcome(r, e); });
+            Require(JoinAttemptEvidence.Describe(bareOld, Session.Load(bareOld), full: true).Contains("1 tool effect(s) no attempt contains", StringComparison.Ordinal),
+                "an older strike with no row and no containing outcome was joined anyway, so the case above does not prove the producer route");
+            Require(Line(6).Contains("joined by its own attempt id×1", StringComparison.Ordinal) && Line(8).Contains("joined by its own attempt id×1", StringComparison.Ordinal),
+                "a strike carrying its attempt joined through a row or an interval instead of by the identity it names");
+            string old = Write((_, e) => AsPre025Strikes(e));
+            Require(Contradictions(old).Length == 0 && JoinAttemptEvidence.Describe(old, Session.Load(old), full: true).Contains("0 tool effect(s) no attempt contains", StringComparison.Ordinal),
+                "the same consistent capture written by an older producer, whose strikes name no attempt, was reported or lost its joins");
 
             WritePlaytestHtml.Write(html, new[] { consistent });
             string data = File.ReadAllText(html).Split("<script id=\"data\" type=\"application/json\">")[1].Split("</script>")[0];
@@ -840,8 +877,19 @@ public static class ChronicleTests
                 "a grant under attempt 6 issued before it began was not reported");
             Fires("rows inside attempt 5 name a different open attempt", (r, _) => r.Single(x => x["tick"] == "15")["activity_attempt_id"] = "7",
                 "a row inside attempt 5 naming another open attempt was not reported");
-            Fires("comparison their own tick's row does not", (_, e) => e[1] = Strike(12, "pickaxe", 1, 9, 2, "Damaged"),
+            Fires("comparison their own tick's row does not", (_, e) => e[1] = Strike(12, "pickaxe", 1, 9, 2, "Damaged", 5),
                 "a strike naming a comparison its tick's row does not was not reported");
+            Fires("struck with no attempt open", (_, e) => e[1] = Strike(12, "pickaxe", 1, 3, 2, "Damaged", 0),
+                "a strike naming attempt zero was not reported");
+            // Attempt 42 has no outcome and no grant, so only the row can contradict it.
+            Fires("an attempt their own tick's row does not", (_, e) => e[1] = Strike(12, "pickaxe", 1, 3, 2, "Damaged", 42),
+                "a strike naming an attempt its tick's row neither holds open nor closed on that tick was not reported");
+            Fires("naming attempt 5 lies outside its recorded ticks 10..20", (_, e) => e.Add(Strike(21, "pickaxe", 3, 10, 2, "Damaged", 5)),
+                "a strike naming attempt 5 after that attempt ended was not reported");
+            Fires("attempt 7 is named under two activities", (_, e) => e[1] = Strike(12, "pickaxe", 1, 3, 2, "Damaged", 7),
+                "a strike naming chopping's attempt under the mining activity was not reported");
+            Require(!Contradictions(Write((_, e) => e[1] = Strike(12, "pickaxe", 1, 3, 2, "Damaged", 0))).Any(f => f.Title.Contains("an attempt their own tick's row does not", StringComparison.Ordinal)),
+                "a strike naming no attempt was also judged against its row, counting one contradiction twice");
         }
         finally
         {
@@ -890,6 +938,177 @@ public static class ChronicleTests
             Finding[] unknown = Read(e => e.Add(Grant(26, 18, 2, 0, "Executing", "future-owner", "Available")));
             Require(unknown.Length == 1 && unknown[0].Severity == Severity.Oddity && unknown[0].Detail.Contains("future-owner", StringComparison.Ordinal),
                 "an owner the reader has no rule for was judged or hidden instead of named as an oddity");
+        }
+        finally { foreach (string file in files) File.Delete(file); }
+    }
+
+    /// <summary>
+    /// Collection attempt 3 (ticks 10..16) claims ten of item 699 and its drop arrives as two pickups naming it, six and four,
+    /// beside an incidental pickup of five of the same item during other work. The incidental pickup is the trap: a join by
+    /// item type alone would cover a lost pickup with it, so every case that loses a pickup keeps it in.
+    /// </summary>
+    private static void ACompletedTransferClaimNeedsItsReceivedQuantity()
+    {
+        var files = new System.Collections.Generic.List<string>();
+        try
+        {
+            string[] columns = { "tick", "wall_elapsed_ms", "action", "choice_id", "choice_fresh", "control_grant_id",
+                "activity_attempt_id", "attempt_end_id", "attempt_end_activity_id", "attempt_end_activity", "attempt_end_tick" };
+            var rows = new System.Collections.Generic.List<System.Collections.Generic.Dictionary<string, string>>();
+            for (long t = 10; t <= 16; t++)
+                rows.Add(new()
+                {
+                    ["tick"] = t.ToString(), ["wall_elapsed_ms"] = (t * 16).ToString(), ["action"] = t < 16 ? "collect" : "keep-company",
+                    ["choice_id"] = t < 16 ? "1" : "2", ["choice_fresh"] = t is 10 or 16 ? "1" : "0", ["control_grant_id"] = t.ToString(),
+                    ["activity_attempt_id"] = t < 16 ? "3" : "0", ["attempt_end_id"] = t < 16 ? "0" : "3", ["attempt_end_activity_id"] = t < 16 ? "0" : "1",
+                    ["attempt_end_activity"] = t < 16 ? "none" : "collect", ["attempt_end_tick"] = t < 16 ? "-1" : "16",
+                });
+            FixtureEvent Pickup(long tick, int type, int amount, long attempt)
+                => new(tick, "pickup", type.ToString(), "player-stacks-or-companion-bag", amount, $"stack={amount};collection-attempt-id={attempt}");
+            FixtureEvent Claim(string status, string attribution, int type, int quantity)
+                => new(16, "attempt-outcome", "collect", attribution == "NotApplicable" ? status : status + ":" + attribution, 0,
+                    $"attempt-id=3;activity-id=1;family=NearbyAssistance;start-tick=10;end-tick=16;status={status};attribution={attribution};cause=drop-collected;productive-effects=0;"
+                    + $"effect-scope=companion-credited-tool-or-interaction-effects;interruption-is-not-failure=true;claimed-yield-type={type};claimed-yield-quantity={quantity}");
+            System.Collections.Generic.List<FixtureEvent> Events() => new() { Pickup(12, 699, 5, 0), Pickup(14, 699, 6, 3), Pickup(15, 699, 4, 3), Claim("Complete", "Companion", 699, 10) };
+            string Write(Action<System.Collections.Generic.List<FixtureEvent>>? mutate = null, string schema = "0.26.0", bool closed = true)
+            {
+                var events = Events();
+                mutate?.Invoke(events);
+                return WriteIdentitySession(files, columns, rows, events, schema, closed);
+            }
+            Finding[] Found(Action<System.Collections.Generic.List<FixtureEvent>>? mutate = null, bool closed = true)
+                => new CompletedTransferClaimsWereReceived().Run(Session.Load(Write(mutate, closed: closed))).ToArray();
+            void LoseTheLastPickup(System.Collections.Generic.List<FixtureEvent> e) => e.RemoveAll(x => x.Kind == "pickup" && x.Tick == 15);
+
+            string clean = Write();
+            Require(Found().Length == 0, "a claim its own pickups delivered exactly was reported: " + string.Join(" | ", Found().Select(f => f.Title)));
+            Require(!Program.Evaluate(Session.Load(clean)).Skipped.Any(s => s.Name == new CompletedTransferClaimsWereReceived().Name),
+                "the transfer check was skipped on a 0.26.0 capture that carries claimed yields");
+            string attemptLine = JoinAttemptEvidence.Describe(clean, Session.Load(clean), full: true).Split('\n').SingleOrDefault(l => l.StartsWith("  attempt 3  ", StringComparison.Ordinal)) ?? "";
+            Require(attemptLine.Contains("claimed 10 of item 699; its 2 pickup(s) delivered 10", StringComparison.Ordinal),
+                "the identity view did not put attempt 3's claim beside what its own pickups delivered: " + attemptLine);
+            Require(JoinAttemptEvidence.Describe(clean, Session.Load(clean), full: true).Contains("1 incidental pickup(s)", StringComparison.Ordinal),
+                "the incidental pickup was attached to an attempt or not counted");
+
+            void Fires(string delivered, Action<System.Collections.Generic.List<FixtureEvent>> mutate, string failure)
+            {
+                Finding[] found = Found(mutate);
+                Require(found.Any(f => f.Severity == Severity.Definitive && f.Title.StartsWith("a completed transfer claim with no matching received quantity", StringComparison.Ordinal)
+                        && f.Title.Contains(delivered, StringComparison.Ordinal)),
+                    failure + (found.Length == 0 ? " (nothing fired)" : " (fired instead: " + string.Join(" | ", found.Select(f => $"{f.Severity} {f.Title}")) + ")"));
+            }
+            Fires("claimed 10 of item 699 and its pickups delivered 6", LoseTheLastPickup,
+                "a claim of ten with one of its two pickups lost was not reported, although the incidental pickup of the same item would cover it by type");
+            Fires("delivered 6", e => e[2] = Pickup(15, 700, 4, 3), "a pickup of another item under the attempt was counted toward its claim");
+            Fires("delivered 6", e => e[2] = Pickup(15, 699, 4, 4), "a pickup naming another attempt was counted toward this one's claim");
+            Fires("delivered 6", e => { LoseTheLastPickup(e); e[^1] = Claim("Partial", "NotApplicable", 699, 10); }, "a partial transfer claim above its pickups was not reported");
+            Require(Found(e => { LoseTheLastPickup(e); e[^1] = Claim("Partial", "NotApplicable", 699, 6); }).Length == 0,
+                "a partial claim its pickups delivered was reported");
+            Require(Found(e => e[^1] = Claim("Complete", "Shared", 699, 8)).Length == 0,
+                "a claim below what arrived was reported, but the transfer ledger can only undercount, so that is not a contradiction");
+            Require(Found(e => { LoseTheLastPickup(e); e[^1] = Claim("Invalid", "NotApplicable", 0, 0); }).Length == 0,
+                "an attempt claiming no yield was held to one");
+            Finding[] unclosed = Found(LoseTheLastPickup, closed: false);
+            Require(unclosed.Length == 1 && unclosed[0].Severity == Severity.Potential && unclosed[0].Detail.Contains("never closed", StringComparison.Ordinal),
+                "a short claim over a stream that never closed was not downgraded to potential with the reason: " + string.Join(" | ", unclosed.Select(f => $"{f.Severity} {f.Detail}")));
+
+            string Skip(string tsv) => Program.Evaluate(Session.Load(tsv)).Skipped.SingleOrDefault(s => s.Name == new CompletedTransferClaimsWereReceived().Name).Missing ?? "";
+            Require(Skip(Write(LoseTheLastPickup, schema: "0.25.0")).Contains("schema 0.26.0", StringComparison.Ordinal),
+                "a capture older than claimed yields was judged, or skipped without naming the schema that introduced them");
+            Require(Skip(WriteIdentitySession(files, columns, rows, events: null, schema: "0.26.0")).Contains("-events.jsonl", StringComparison.Ordinal),
+                "a capture with no sidecar was judged, or skipped without naming it");
+        }
+        finally { foreach (string file in files) File.Delete(file); }
+    }
+
+    /// <summary>
+    /// One family at a time, a claimed arrival held against the region its destination was admitted against: a follow
+    /// arrival inside either admission box, a tool stand inside its own reach box and a firing arrival that still solves
+    /// report nothing; the same captures with the body or the stand moved out, or the arc gone, report the contract by name.
+    /// </summary>
+    private static void AClaimedArrivalMustLieInsideItsSuccessRegion()
+    {
+        var files = new System.Collections.Generic.List<string>();
+        try
+        {
+            string[] columns = { "tick", "wall_elapsed_ms", "region_kind", "region_revision", "region_terrain", "region_anchor_px", "region_player_px", "region_comfort",
+                "region_work_tile", "region_reach", "region_arrival", "observed_left", "observed_bottom", "npc_width", "spot", "fire" };
+            System.Collections.Generic.Dictionary<string, string> Row(long t, string kind, string arrival, float feetX, float feetY, string anchor = "-", string player = "-",
+                string comfort = "-", string tile = "-", string reach = "-", string fire = "none")
+                => new()
+                {
+                    ["tick"] = t.ToString(), ["wall_elapsed_ms"] = (t * 16).ToString(), ["region_kind"] = kind, ["region_revision"] = "7", ["region_terrain"] = "3",
+                    ["region_anchor_px"] = anchor, ["region_player_px"] = player, ["region_comfort"] = comfort, ["region_work_tile"] = tile, ["region_reach"] = reach,
+                    ["region_arrival"] = arrival, ["observed_left"] = (feetX - 10).ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    ["observed_bottom"] = feetY.ToString(System.Globalization.CultureInfo.InvariantCulture), ["npc_width"] = "20", ["spot"] = "25,60", ["fire"] = fire,
+                };
+            Finding[] Found(System.Collections.Generic.IEnumerable<System.Collections.Generic.Dictionary<string, string>> rows, string schema = "0.27.0")
+                => new ClaimedArrivalsStayInsideTheirSuccessRegion().Run(Session.Load(WriteIdentitySession(files, columns, rows, events: null, schema))).ToArray();
+            System.Collections.Generic.IEnumerable<System.Collections.Generic.Dictionary<string, string>> Many(int count, Func<long, System.Collections.Generic.Dictionary<string, string>> row)
+                => Enumerable.Range(0, count).Select(i => row(100 + i));
+            string Describe(Finding[] found) => found.Length == 0 ? " (nothing fired)" : " (fired: " + string.Join(" | ", found.Select(f => $"{f.Severity} {f.Title}")) + ")";
+            void Clean(Finding[] found, string failure) => Require(found.Length == 0, failure + Describe(found));
+            void Fires(Finding[] found, Severity severity, string title, string failure)
+                => Require(found.Length == 1 && found[0].Severity == severity && found[0].Title.StartsWith(title, StringComparison.Ordinal), failure + Describe(found));
+
+            // Following: admitted against player feet 400,800 and anchor 400,800 with a 64 by 48 comfort box.
+            const string comfort = "64.00,48.00", here = "400.00,800.00";
+            System.Collections.Generic.Dictionary<string, string> Follow(long t, float x, string arrival = "inside", string player = here, string box = comfort)
+                => Row(t, "follow-comfort", arrival, x, 800, anchor: here, player: player, comfort: box);
+            Clean(Found(Many(5, t => Follow(t, 430))), "a follow arrival thirty pixels from the admission player was reported");
+            Clean(Found(Many(5, t => Follow(t, 430, player: "900.00,800.00"))), "a follow arrival inside the anchor's box was reported because the player's box was elsewhere");
+            Clean(Found(Many(5, t => Follow(t, 480, arrival: "-"))), "a body outside the comfort box with no arrival claimed was judged as an arrival");
+            Fires(Found(new[] { Follow(100, 480, arrival: "outside") }), Severity.Definitive, "claimed purpose arrival outside its declared success region: following",
+                "a follow arrival eighty pixels from both admission references was not Definitive on its first sample");
+            Fires(Found(new[] { Follow(100, 415, arrival: "outside", box: "10.00,10.00") }), Severity.Potential, "claimed purpose arrival outside its declared success region: following",
+                "a follow arrival outside a comfort box narrower than the arrival radius was not downgraded to Potential");
+
+            // Tool reach: tile 25,59 (centre 408,952), reach 5 by 4, a stand at 380,960 whose eye is inside the box.
+            System.Collections.Generic.Dictionary<string, string> Tool(long t, float feetX, string arrival, string stand = "380.00,960.00", string reach = "5,4")
+                => Row(t, "tool-reach", arrival, feetX, 960, anchor: stand, tile: "25,59", reach: reach);
+            Clean(Found(Many(40, t => Tool(t, 200 + t, "-"))), "a walk toward a stand inside its box was reported");
+            Clean(Found(Many(10, t => Tool(t, 380, "inside"))), "a claimed arrival that settled within the half second was reported as a stall");
+            Fires(Found(Many(40, t => Tool(t, 380, "inside"))), Severity.Potential, "claimed arrival inside the tool's reach box while its activity still asked for the stand",
+                "a held arrival inside the box, on rows whose activity still asked for its stand, was not reported as a Potential line-of-reach failure");
+            Fires(Found(Many(40, t => Tool(t, 500, "outside"))), Severity.Potential, "claimed purpose arrival outside its declared success region: the navigator stopped outside the tool's reach box",
+                "a held arrival ninety-two pixels from the tile centre, outside an eighty-eight pixel box, was not reported as the navigator's slack");
+            Fires(Found(new[] { Tool(100, 200, "-", stand: "520.00,960.00") }), Severity.Definitive, "a tool stand declared outside its own working region",
+                "a stand outside its own reach box under one reach was not Definitive");
+            Fires(Found(new[] { Tool(100, 200, "-", stand: "520.00,960.00"), Tool(101, 200, "-", reach: "7,4") }), Severity.Potential, "a tool stand declared outside its own working region",
+                "a stand outside its box in a capture whose reach changed was not downgraded to Potential");
+
+            // Firing: arrival where no arc now solves is Potential only, and a position that still fires is clean.
+            System.Collections.Generic.Dictionary<string, string> Fire(long t, string fire) => Row(t, "firing-position", "undeclared", 300, 800, anchor: "600.00,700.00", fire: fire);
+            Clean(Found(Many(40, t => Fire(t, "fired"))), "an arrival at a firing position that fires was reported");
+            Fires(Found(Many(40, t => Fire(t, "no-arc"))), Severity.Potential, "claimed arrival at an admitted firing position from which no arc solves",
+                "a held arrival at a firing position with no arc was not reported");
+            Clean(Found(Many(40, t => Row(t, "meeting-place", "undeclared", 300, 800, anchor: "600.00,800.00"))), "a meeting place, which declares no region, was judged");
+
+            string old = Path.GetTempFileName(); files.Add(old);
+            File.WriteAllText(old, "# schema=0.26.0\n# text_columns=action\ntick\twall_elapsed_ms\tspot\tfire\n1\t16\t25,60\tnone\n");
+            string missing = Program.Evaluate(Session.Load(old)).Skipped.SingleOrDefault(s => s.Name == new ClaimedArrivalsStayInsideTheirSuccessRegion().Name).Missing ?? "";
+            Require(missing.Contains("region_kind", StringComparison.Ordinal), "a capture older than success regions was judged, or skipped without naming the region columns: '" + missing + "'");
+
+            // The geometry above restates the producer; these are the literals it rests on.
+            string Source(params string[] parts) => File.ReadAllText(Path.Combine(parts));
+            string navigator = Source("Companion", "Brain", "SharedMovementSystem", "MovementExecution", "Navigator.cs");
+            string access = Source("Companion", "Brain", "WorldInteractions", "FindToolAccess.cs");
+            string region = Source("Companion", "Brain", "PositionSelection", "DeclareSuccessRegion.cs");
+            string telemetry = Source("Companion", "Brain", "BehaviourDiagnostics", "RecordBrainTelemetry.cs");
+            Require(navigator.Contains($"ArriveDistance = {ClaimedArrivalsStayInsideTheirSuccessRegion.ArriveDistance:0}f", StringComparison.Ordinal)
+                    && Source("Companion", "Brain", "PositionSelection", "FollowPlayerObjective.cs").Contains("HorizontalComfort - SharedMovementSystem.Navigator.ArriveDistance", StringComparison.Ordinal),
+                "the navigator's arrival radius, or follow acceptance reserving it, no longer matches what the follow rule assumes");
+            Require(access.Contains($"Eye = new(0f, -{ClaimedArrivalsStayInsideTheirSuccessRegion.EyeHeight:0}f)", StringComparison.Ordinal)
+                    && access.Contains("reachX * 16f + 8f", StringComparison.Ordinal) && access.Contains("reachY * 16f + 8f", StringComparison.Ordinal),
+                "the tool reach box no longer has the eye height and extents the tool rule recomputes");
+            Require(Source("Companion", "Brain", "PurposeFamilies", "Gathering", "MineOre.cs").Contains("t.Hop ? PositionRequest.ExactAt(t.StandPosition) : PositionRequest.ExactAt(t.StandPosition, t.Tile)", StringComparison.Ordinal)
+                    && Source("Companion", "Brain", "PurposeFamilies", "Gathering", "ChopTree.cs").Contains("ExactAt(t.StandPosition, t.Bottom)", StringComparison.Ordinal)
+                    && Source("Companion", "Brain", "PurposeFamilies", "NearbyAssistance", "PerformNearbyWorldWork.cs").Contains("ExactAt(stand, tile)", StringComparison.Ordinal),
+                "a tool stand no longer declares its work tile, or a hop take-off now declares one it does not reach from");
+            Require(new[] { "\"follow-comfort\"", "\"tool-reach\"", "\"firing-position\"", "\"meeting-place\"", "\"undeclared\"" }.All(name => region.Contains(name, StringComparison.Ordinal))
+                    && telemetry.Contains("controlGrant?.RequestedOwner == \"travel\"", StringComparison.Ordinal)
+                    && telemetry.Contains("region_kind\\tregion_revision\\tregion_tick\\tregion_terrain\\tregion_anchor_px\\tregion_player_px\\tregion_comfort\\tregion_work_tile\\tregion_reach\\tregion_arrival", StringComparison.Ordinal),
+                "the region names, the arrival-claim gate or the region column order the rule reads has changed");
         }
         finally { foreach (string file in files) File.Delete(file); }
     }
@@ -956,6 +1175,278 @@ public static class ChronicleTests
     }
 
     /// <summary>
+    /// A 0.28.0 capture names its source revision and configuration before its rows and its closure after them. The
+    /// trailer must be read as metadata rather than as a ragged row, from the whole file and from the tail alone; a
+    /// missing end marker must be an interrupted capture and a wrong row count a contradiction; an older capture skips
+    /// the closure check by name; and a multi-run report must refuse a join across runs whose code differs or is unproven,
+    /// while a configuration difference alone is stated without refusing.
+    /// </summary>
+    private static void ACaptureStatesItsSourceAndWhetherItClosed()
+    {
+        var files = new System.Collections.Generic.List<string>();
+        try
+        {
+            const string revision = "0123456789abcdef0123456789abcdef01234567";
+            const string configuration = "character;mining=Opportunistic;chopping=Opportunistic;hunting=true;pot_breaking=true;torch_placement=true;distance_mode=Standard;inspector=true;record_telemetry=true";
+            string Write(string schema, string trailer, string source = $"# source_revision={revision};tree=clean\n", string config = $"# config={configuration}\n")
+            {
+                string path = Path.GetTempFileName(); files.Add(path);
+                File.WriteAllText(path, $"# schema={schema}\n{source}{config}tick\twall_elapsed_ms\n1\t16\n2\t32\n{trailer}");
+                return path;
+            }
+            Finding[] Found(string path) => new TheCaptureWasClosed().Run(Session.Load(path)).ToArray();
+            string Describe(Finding[] found) => found.Length == 0 ? " (nothing fired)" : " (fired: " + string.Join(" | ", found.Select(f => $"{f.Severity} {f.Title}")) + ")";
+
+            string closed = Write("0.28.0", "# end=world-unload;rows=2\n");
+            Session session = Session.Load(closed);
+            Require(session.Count == 2 && session.Ragged == 0 && session.Metadata.TryGetValue("end", out string? end) && end == "world-unload;rows=2",
+                $"the closing trailer was not read as metadata beside two whole rows (rows {session.Count}, ragged {session.Ragged})");
+            Require(Found(closed).Length == 0, "a normally closed capture holding the rows its end marker names was reported" + Describe(Found(closed)));
+            var metadata = Session.ReadMetadata(closed);
+            Require(metadata.TryGetValue("end", out string? tail) && tail == "world-unload;rows=2" && metadata.TryGetValue("source_revision", out string? recorded) && recorded == $"{revision};tree=clean",
+                "reading metadata without the rows missed the closing trailer or the source revision");
+            Require(DescribeSession.Of(session).Contains($"capture   source {revision} tree clean; closed world-unload;rows=2", StringComparison.Ordinal),
+                "the session summary did not state the capture's source and closure: " + DescribeSession.Of(session));
+
+            string cut = Write("0.28.0", "");
+            Finding[] interrupted = Found(cut);
+            Require(interrupted.Length == 1 && interrupted[0].Severity == Severity.Potential && interrupted[0].Title == "interrupted capture: the recording has no end marker",
+                "a 0.28.0 capture without its end marker was not reported as an interrupted capture" + Describe(interrupted));
+            Require(DescribeSession.Of(Session.Load(cut)).Contains("no end marker: interrupted capture", StringComparison.Ordinal), "the session summary did not call a capture without an end marker interrupted");
+            Finding[] miscounted = Found(Write("0.28.0", "# end=world-unload;rows=5\n"));
+            Require(miscounted.Length == 1 && miscounted[0].Severity == Severity.Definitive && miscounted[0].Title == "the end marker names 5 row(s) and the file holds 2",
+                "an end marker naming rows the file does not hold was not Definitive" + Describe(miscounted));
+
+            string old = Write("0.27.0", "", source: "", config: "");
+            var (oldFindings, oldSkipped, _) = Program.Evaluate(Session.Load(old));
+            Require((oldSkipped.SingleOrDefault(s => s.Name == new TheCaptureWasClosed().Name).Missing ?? "").Contains("schema 0.28.0", StringComparison.Ordinal)
+                    && !oldFindings.Any(f => f.Check == new TheCaptureWasClosed().Name),
+                "a capture older than end markers was called interrupted, or skipped without naming the schema");
+            Require(DescribeSession.Of(Session.Load(old)).Contains("source revision and closure unrecorded", StringComparison.Ordinal), "an old capture's summary did not say its source and closure are unrecorded");
+
+            string sameBuild = Write("0.28.0", "# end=world-unload;rows=2\n");
+            string joined = MultiRunReport.Of(new[] { closed, sameBuild });
+            Require(joined.Contains($"joinable    every run records the clean source revision {revision}", StringComparison.Ordinal) && !joined.Contains("refused", StringComparison.Ordinal),
+                "two runs recording one clean source revision were not reported joinable: " + joined);
+            string otherCode = Write("0.28.0", "# end=world-unload;rows=2\n", source: "# source_revision=fedcba9876543210fedcba9876543210fedcba98;tree=clean\n");
+            string differing = MultiRunReport.Of(new[] { closed, otherCode });
+            Require(differing.Contains("differs     source_revision:", StringComparison.Ordinal)
+                    && differing.Contains("refused     cross-run joins: the runs were recorded by different code or loaders (source_revision)", StringComparison.Ordinal),
+                "runs recorded from different source revisions were not refused a cross-run join: " + differing);
+            string unknownA = Write("0.28.0", "# end=world-unload;rows=2\n", source: "# source_revision=unknown;tree=unknown\n");
+            string unknownB = Write("0.28.0", "# end=world-unload;rows=2\n", source: "# source_revision=unknown;tree=unknown\n");
+            string unproven = MultiRunReport.Of(new[] { unknownA, unknownB });
+            Require(unproven.Contains("do not record a clean source revision", StringComparison.Ordinal) && unproven.Contains(Path.GetFileName(unknownA), StringComparison.Ordinal),
+                "runs agreeing only that their source is unknown were joined as one build: " + unproven);
+            string reconfigured = Write("0.28.0", "# end=world-unload;rows=2\n", config: $"# config={configuration.Replace("pot_breaking=true", "pot_breaking=false", StringComparison.Ordinal)}\n");
+            string configured = MultiRunReport.Of(new[] { closed, reconfigured });
+            Require(configured.Contains("differs     pot_breaking: true", StringComparison.Ordinal) && configured.Contains("joinable", StringComparison.Ordinal),
+                "a configuration difference was not stated, or refused a join that only differing code refuses: " + configured);
+
+            // The producer literals these rules rest on.
+            string project = File.ReadAllText("AICompanion.csproj");
+            string telemetry = File.ReadAllText(Path.Combine("Companion", "Brain", "BehaviourDiagnostics", "RecordBrainTelemetry.cs"));
+            Require(project.Contains("git rev-parse HEAD", StringComparison.Ordinal) && project.Contains("BeforeTargets=\"GetAssemblyAttributes\"", StringComparison.Ordinal)
+                    && project.Contains("<_Parameter1>SourceRevision</_Parameter1>", StringComparison.Ordinal) && project.Contains("<_Parameter1>SourceTree</_Parameter1>", StringComparison.Ordinal),
+                "the build no longer stamps the source revision and tree state the recorder reads");
+            Require(telemetry.Contains("writer.WriteLine($\"# source_revision={SourceProvenance}\");", StringComparison.Ordinal)
+                    && telemetry.Contains("$\"character;mining={Mining};chopping={Chopping};hunting=", StringComparison.Ordinal)
+                    && telemetry.Split("# end=").Length == 2 && telemetry.Contains("writer?.WriteLine($\"# end={reason};rows={rowsWritten};", StringComparison.Ordinal),
+                "the recorder's source line, configuration shape or single end-marker writer has changed");
+        }
+        finally { foreach (string file in files) File.Delete(file); }
+    }
+
+    /// <summary>
+    /// A 0.29.0 capture states what recording cost, what it did not keep and the bounds of what it keeps. The first row
+    /// carries no cost because a row cannot time its own write; any dropped occurrence is Potential and names the tick the
+    /// drops began, not the tick they were noticed; an older capture skips the check by naming a missing column and says
+    /// its cost is unrecorded rather than zero.
+    /// </summary>
+    private static void RecordingStatesItsCostWhatItDroppedAndWhatItKeeps()
+    {
+        var files = new System.Collections.Generic.List<string>();
+        try
+        {
+            const string header = "tick\twall_elapsed_ms\trecord_ms\tevents_written\tevents_dropped\tevents_coalesced\tterrain_evictions\n";
+            string Write(string schema, string rows, string columns = header, string retention = "")
+            {
+                string path = Path.GetTempFileName(); files.Add(path);
+                File.WriteAllText(path, $"# schema={schema}\n{retention}{columns}{rows}");
+                return path;
+            }
+            string Describe(Finding[] found) => found.Length == 0 ? " (nothing fired)" : " (fired: " + string.Join(" | ", found.Select(f => $"{f.Severity} {f.Title}")) + ")";
+
+            string healthy = Write("0.29.0", "1\t16\t-\t3\t0\t0\t0\n2\t32\t0.020\t4\t0\t128\t0\n3\t48\t0.040\t5\t0\t128\t1\n",
+                retention: "# retention=rows=one-per-companion-ai-tick;events=every-occurrence-offered;terrain-snapshots-remembered=8192\n");
+            Session session = Session.Load(healthy);
+            Require(session["record_ms"].Unparsed == 0, "the first row's absent cost was counted as an unparsed number");
+            Finding[] clean = new NoOccurrenceWasDropped().Run(session).ToArray();
+            Require(clean.Length == 0, "a capture that dropped nothing was reported" + Describe(clean));
+            string summary = DescribeSession.Of(session);
+            Require(summary.Contains("recording 0.020 p50, 0.020 p95, 0.040 max ms per row over 2 measured row(s); by the last row 5 occurrence(s) written, 0 dropped, 128 contact(s) coalesced, 1 terrain snapshot(s) evicted", StringComparison.Ordinal)
+                    && summary.Contains("retention rows=one-per-companion-ai-tick;events=every-occurrence-offered;terrain-snapshots-remembered=8192", StringComparison.Ordinal),
+                "the summary did not state recording cost over the measured rows only, the closing totals, or the retention statement: " + summary);
+
+            Finding[] dropped = new NoOccurrenceWasDropped().Run(Session.Load(Write("0.29.0", "1\t16\t-\t3\t0\t0\t0\n2\t32\t0.020\t4\t2\t0\t0\n3\t48\t0.040\t4\t7\t0\t0\n"))).ToArray();
+            Require(dropped.Length == 1 && dropped[0].Severity == Severity.Potential && dropped[0].Title == "the occurrence stream stopped: 7 occurrence(s) dropped from tick 2"
+                    && dropped[0].Detail.Contains("having written 4 record(s)", StringComparison.Ordinal),
+                "drops were not one Potential naming the closing count and the tick they began" + Describe(dropped));
+
+            string old = Write("0.28.0", "1\t16\n", columns: "tick\twall_elapsed_ms\n");
+            var (oldFindings, oldSkipped, _) = Program.Evaluate(Session.Load(old));
+            Require((oldSkipped.SingleOrDefault(s => s.Name == new NoOccurrenceWasDropped().Name).Missing ?? "").Contains("events_dropped", StringComparison.Ordinal)
+                    && !oldFindings.Any(f => f.Check == new NoOccurrenceWasDropped().Name),
+                "a capture older than loss counts was judged, or skipped without naming the column");
+            Require(DescribeSession.Of(Session.Load(old)).Contains("recording cost and loss counts unrecorded (written from schema 0.29.0)", StringComparison.Ordinal),
+                "an old capture's summary did not say its cost and loss are unrecorded");
+
+            // The producer literals these rules rest on.
+            string telemetry = File.ReadAllText(Path.Combine("Companion", "Brain", "BehaviourDiagnostics", "RecordBrainTelemetry.cs"));
+            string events = File.ReadAllText(Path.Combine("Companion", "Brain", "BehaviourDiagnostics", "RecordGodsEyeEvents.cs"));
+            Require(telemetry.IndexOf("recordClock.Restart();", StringComparison.Ordinal) > telemetry.IndexOf("public static void Record(CompanionNPC companion)", StringComparison.Ordinal)
+                    && telemetry.Contains("lastRecordMs = recordClock.Elapsed.TotalMilliseconds;", StringComparison.Ordinal)
+                    && telemetry.Contains("\\trecord_ms\\tevents_written\\tevents_dropped\\tevents_coalesced\\tterrain_evictions", StringComparison.Ordinal)
+                    && telemetry.Contains("events-dropped={GodsEyeEvents.Dropped}", StringComparison.Ordinal) && telemetry.Contains("# retention=", StringComparison.Ordinal),
+                "the recorder no longer times Record, writes the loss columns in order, restates them on closure, or states its retention");
+            Require(events.Contains("if (!Accepting()) return;", StringComparison.Ordinal) && !events.Contains("if (!Active) return;", StringComparison.Ordinal)
+                    && events.Contains("disabled = true;", StringComparison.Ordinal) && events.Contains("Coalesced += cosmeticContacts;", StringComparison.Ordinal),
+                "an occurrence producer bypasses the drop count, or a stopped stream or coalesced contact is no longer counted");
+        }
+        finally { foreach (string file in files) File.Delete(file); }
+    }
+
+    /// <summary>
+    /// The consistent identity capture, damaged the ways a real capture is damaged, read by every check and every reader a
+    /// report or playtest page runs. None may throw, none may call damage a contradiction — a kill leaves rows and occurrences
+    /// flushed at different moments, a corrupt cell is not a record that disagrees, a respawned brain restarts its identities,
+    /// an old producer never wrote the columns — and each must say what it could no longer measure.
+    /// </summary>
+    private static void ADamagedCaptureReducesCoverageAndInventsNoContradiction()
+    {
+        var files = new System.Collections.Generic.List<string>();
+        try
+        {
+            string Capture(Func<System.Collections.Generic.List<System.Collections.Generic.Dictionary<string, string>>, System.Collections.Generic.List<System.Collections.Generic.Dictionary<string, string>>>? rowsEdit = null,
+                Action<System.Collections.Generic.List<FixtureEvent>>? eventsEdit = null, string schema = "0.29.0", bool closed = true, bool ended = true, string[]? columns = null)
+            {
+                var (rows, events) = IdentityScenario();
+                rows = rowsEdit?.Invoke(rows) ?? rows;
+                eventsEdit?.Invoke(events);
+                string tsv = WriteIdentitySession(files, columns ?? IdentityColumns, rows, events, schema, closed);
+                if (ended) File.AppendAllText(tsv, $"# end=world-unload;rows={rows.Count}\n");
+                return tsv;
+            }
+            (Finding[] Findings, System.Collections.Generic.List<(string Name, string Missing)> Skipped, string Text) Report(string tsv)
+            {
+                Session session = Session.Load(tsv);
+                var (findings, skipped, _) = Program.Evaluate(session);
+                string html = Path.Combine(Path.GetTempPath(), $"aic-damaged-{Guid.NewGuid():N}.html"); files.Add(html);
+                WritePlaytestHtml.Write(html, new[] { tsv });
+                string text = DescribeSession.Of(session) + DescribeGodsEyeEvents.Of(tsv, true) + JoinAttemptEvidence.Describe(tsv, session, true)
+                    + Chronicle.Of(session, true) + MultiRunReport.Of(new[] { tsv });
+                return (findings.ToArray(), skipped, text);
+            }
+            void NoContradiction(string variant, Finding[] findings)
+                => Require(!findings.Any(f => f.Severity == Severity.Definitive),
+                    $"{variant}: damage to the capture was reported as a contradiction: " + string.Join(" | ", findings.Where(f => f.Severity == Severity.Definitive).Select(f => $"{f.Check}: {f.Title}")));
+            bool Has(Finding[] findings, string title) => findings.Any(f => f.Severity == Severity.Potential && f.Title.StartsWith(title, StringComparison.Ordinal));
+            string Skip(System.Collections.Generic.List<(string Name, string Missing)> skipped, ICheck check) => skipped.SingleOrDefault(s => s.Name == check.Name).Missing ?? "";
+            System.Collections.Generic.List<System.Collections.Generic.Dictionary<string, string>> Upto(System.Collections.Generic.List<System.Collections.Generic.Dictionary<string, string>> rows, long tick)
+                => rows.Where(r => long.Parse(r["tick"]) <= tick).ToList();
+
+            var whole = Report(Capture());
+            NoContradiction("the whole capture", whole.Findings);
+            Require(!Has(whole.Findings, "interrupted capture") && Skip(whole.Skipped, new AttemptIdentitiesAgreeAcrossRecords()).Length == 0,
+                "the whole capture was called interrupted, or its identity check did not run, so the damaged variants below would prove nothing");
+
+            // Killed mid-write: the last row cut inside its cells, the sidecar cut inside a line, no closure on either.
+            string killed = Capture(eventsEdit: e => e.RemoveAll(x => x.Tick > 32), closed: false, ended: false);
+            string[] killedRows = File.ReadAllLines(killed);
+            killedRows[^1] = killedRows[^1][..4];
+            File.WriteAllLines(killed, killedRows);
+            File.AppendAllText(ReadGodsEyeEvents.PathFor(killed), "{\"v\":1,\"seq\":");
+            var interrupted = Report(killed);
+            NoContradiction("a capture killed mid-write", interrupted.Findings);
+            Require(Has(interrupted.Findings, "interrupted capture: the recording has no end marker") && Has(interrupted.Findings, "some rows held the wrong number of cells")
+                    && interrupted.Text.Contains("1 malformed line", StringComparison.Ordinal) && interrupted.Text.Contains("end=missing", StringComparison.Ordinal),
+                "a capture killed mid-write did not state the missing closure, the cut row and the cut occurrence line");
+
+            // The two streams flush separately, so a kill can leave either one ahead of the other.
+            var sidecarAhead = Report(Capture(rowsEdit: rows => Upto(rows, 27), closed: false, ended: false));
+            NoContradiction("occurrences written past the last row", sidecarAhead.Findings);
+            Require(Has(sidecarAhead.Findings, "interrupted capture"), "a capture whose rows stop before its occurrences did not say it was interrupted");
+            var rowsAhead = Report(Capture(eventsEdit: e => e.RemoveAll(x => x.Tick > 20), closed: false, ended: false));
+            NoContradiction("rows written past the last occurrence", rowsAhead.Findings);
+            Require(rowsAhead.Text.Contains("end=missing", StringComparison.Ordinal), "a sidecar that stopped before the rows did not say it never closed");
+
+            // Corrupt cells and a damaged occurrence stream: one unreadable open attempt inside attempt 5, one unreadable
+            // comparison on a strike's tick, a lost occurrence and a garbage line.
+            string corrupt = Capture(rowsEdit: rows =>
+            {
+                rows.First(r => r["tick"] == "15")["activity_attempt_id"] = "garbled";
+                rows.First(r => r["tick"] == "12")["choice_id"] = "garbled";
+                // Attempt 8's strike at 32 is right only because its row names attempt 8 closed on that tick.
+                rows.First(r => r["tick"] == "32")["attempt_end_id"] = "garbled";
+                return rows;
+            });
+            string sidecar = ReadGodsEyeEvents.PathFor(corrupt);
+            var occurrences = File.ReadAllLines(sidecar).ToList();
+            occurrences[5] = "not-json";
+            occurrences.RemoveAt(3);
+            File.WriteAllLines(sidecar, occurrences);
+            var malformed = Report(corrupt);
+            NoContradiction("unreadable cells and a damaged occurrence stream", malformed.Findings);
+            Require(Has(malformed.Findings, "the column activity_attempt_id held 1 cell(s) that are not a number") && Has(malformed.Findings, "the column choice_id held 1 cell(s) that are not a number")
+                    && Has(malformed.Findings, "the column attempt_end_id held 1 cell(s) that are not a number")
+                    && malformed.Text.Contains("1 malformed line", StringComparison.Ordinal),
+                "unreadable cells or a garbage occurrence line were not named as reduced coverage");
+
+            // A respawned companion builds a new brain: comparison, grant and activity identities restart, attempt identities continue.
+            var reused = Report(Capture(rowsEdit: rows =>
+            {
+                for (long t = 42; t <= 50; t++)
+                {
+                    long open = t is >= 43 and <= 47 ? 10 : 0;
+                    bool concluded = t >= 48;
+                    rows.Add(new()
+                    {
+                        ["tick"] = t.ToString(), ["wall_elapsed_ms"] = (t * 16).ToString(), ["action"] = "mine", ["choice_id"] = "1", ["choice_fresh"] = t == 42 ? "1" : "0",
+                        ["control_grant_id"] = (t - 41).ToString(), ["activity_attempt_id"] = open.ToString(), ["attempt_end_id"] = concluded ? "10" : "0",
+                        ["attempt_end_activity_id"] = concluded ? "1" : "0", ["attempt_end_activity"] = concluded ? "mine" : "none", ["attempt_end_tick"] = concluded ? "48" : "-1",
+                        ["mine_offer"] = "Usable:proven-pose", ["chop_offer"] = "Unresolved:approach-undecided",
+                    });
+                }
+                return rows;
+            }, eventsEdit: e =>
+            {
+                e.Add(Grant(43, 2, 1, 10, "Executing", "travel", "WorkTool"));
+                e.Add(Strike(45, "pickaxe", 1, 1, 1, "Damaged", 10));
+                e.Add(Outcome(48, 10, 1, "mine", "Gathering", 43, 48, "Complete", "Companion", "tracked-vein-observed-clear", 1));
+            }));
+            NoContradiction("a respawned brain restarting its comparison, grant and activity identities", reused.Findings);
+
+            string[] oldColumns = { "tick", "wall_elapsed_ms", "action", "choice_id", "choice_fresh", "mine_offer", "chop_offer" };
+            var old = Report(Capture(schema: "0.20.0", columns: oldColumns, ended: false));
+            NoContradiction("a capture older than attempt identity", old.Findings);
+            Require(Skip(old.Skipped, new AttemptIdentitiesAgreeAcrossRecords()).Contains("activity_attempt_id", StringComparison.Ordinal)
+                    && Skip(old.Skipped, new ControlGrantsAreCompatible()).Contains("control_grant_id", StringComparison.Ordinal)
+                    && Skip(old.Skipped, new TheCaptureWasClosed()).Contains("schema 0.28.0", StringComparison.Ordinal),
+                "an old capture ran or silently passed a check whose evidence it never recorded");
+
+            // A sidecar the recorder never opened reads exactly like a stream in which nothing happened.
+            string unopened = Capture();
+            File.WriteAllText(ReadGodsEyeEvents.PathFor(unopened), "");
+            var empty = Report(unopened);
+            NoContradiction("a sidecar holding no session record", empty.Findings);
+            foreach (ICheck check in new ICheck[] { new AttemptIdentitiesAgreeAcrossRecords(), new ControlGrantsAreCompatible(), new CompletedTransferClaimsWereReceived() })
+                Require(Skip(empty.Skipped, check).Contains("no session record", StringComparison.Ordinal),
+                    $"'{check.Name}' ran over a sidecar the recorder never opened, so an empty stream would read as a clean one; skipped as '{Skip(empty.Skipped, check)}'");
+        }
+        finally { foreach (string file in files) File.Delete(file); }
+    }
+
+    /// <summary>
     /// The identity rules restate producer facts, so the literals they rest on are pinned here: a
     /// renamed owner, a reordered grant payload or a new eligibility name fails this test rather than
     /// quietly turning a rule into one that can never fire.
@@ -978,7 +1469,9 @@ public static class ChronicleTests
                 && safety.Contains("Begin(ctx, \"combat-spacing\")", StringComparison.Ordinal),
             "a safety owner the grant rules classify is no longer issued");
         Require(events.Contains("grant-id={id};grant-tick={tick};activity-id={activityId};attempt-id={attemptId};activity-phase={activityPhase};requested-owner={requestedOwner}", StringComparison.Ordinal)
-                && events.Contains("attempt={outcome.Attempt};choice-id={choiceId};activity-id={activityId}", StringComparison.Ordinal)
+                && events.Contains("attempt={outcome.Attempt};choice-id={choiceId};activity-id={activityId};activity-attempt-id={activityAttemptId}", StringComparison.Ordinal)
+                && new[] { Source("Companion", "Brain", "PurposeFamilies", "Gathering", "MineOre.cs"), Source("Companion", "Brain", "PurposeFamilies", "Gathering", "ChopTree.cs") }
+                    .All(striker => striker.Contains("owner.AttemptOpen ? owner.AttemptId : 0", StringComparison.Ordinal))
                 && events.Contains("attempt-id={attemptId};activity-id={activityId};family={family};start-tick={startTick};end-tick={endTick}", StringComparison.Ordinal)
                 && events.Contains("attemptId <= lastAttemptRecorded", StringComparison.Ordinal),
             "an occurrence payload or the outcome cursor the identity join reads has changed");
@@ -988,6 +1481,15 @@ public static class ChronicleTests
             "the offer eligibility names have changed");
         Require(owner.Contains("private static long nextAttemptId", StringComparison.Ordinal),
             "attempt identities are no longer process-wide, which the identity rules key on");
+        string npc = Source("Companion", "CharacterBody", "CompanionNPC.cs");
+        string collection = Source("Companion", "Brain", "PurposeFamilies", "NearbyAssistance", "CollectNearbyItems.cs");
+        Require(events.Contains("interruption-is-not-failure=true;claimed-yield-type={claimedYieldType};claimed-yield-quantity={claimedYieldQuantity}", StringComparison.Ordinal)
+                && events.Contains("stack={item.stack};collection-attempt-id={collectionAttemptId}", StringComparison.Ordinal),
+            "the claimed-yield or pickup payload the transfer check reads has changed");
+        Require(npc.Contains("collect.ClaimsDrop(item) ? owner.AttemptId : 0", StringComparison.Ordinal) && npc.IndexOf("ClaimsDrop(item)", StringComparison.Ordinal) < npc.IndexOf("Bag.Collect(item, player)", StringComparison.Ordinal)
+                && collection.Contains("AttemptAttribution.Shared, drop.Type, received)", StringComparison.Ordinal) && collection.Contains("AttemptAttribution.NotApplicable, drop.Type, received)", StringComparison.Ordinal)
+                && collection.Contains("drop.Bag.TransferredSince(drop.TransferMark, drop.Item)", StringComparison.Ordinal),
+            "a pickup no longer names its collection attempt before the transfer, or collection no longer claims what its own drop's transfers delivered");
     }
 
     private static void Require(bool condition, string message)

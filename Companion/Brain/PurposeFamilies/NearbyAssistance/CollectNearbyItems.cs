@@ -271,6 +271,10 @@ public sealed class CollectNearbyItems : PerformNearbyWorldWork
         return false;
     }
 
+    /// <summary>Whether <paramref name="item"/> is the world item object this activity's drop attempt walked toward, which is the
+    /// only pickup its conclusion reads from the transfer ledger. Every other contact pickup belongs to no collection attempt.</summary>
+    public bool ClaimsDrop(Item item) => dropAttempt is { } drop && ReferenceEquals(drop.Item, item);
+
     public override void BeginAttempt()
     {
         base.BeginAttempt();
@@ -291,16 +295,19 @@ public sealed class CollectNearbyItems : PerformNearbyWorldWork
         {
             int received = drop.Bag.TransferredSince(drop.TransferMark, drop.Item);
             bool gone = !LootSense.IsWorldDrop(drop.Item) || drop.Item.type != drop.Type;
+            // What the ledger received from this drop is the claimed yield, so a report can hold the completion against
+            // the pickups recorded under this attempt rather than taking the status on trust; a drop absorbed into another
+            // world drop claims what it delivered before the merge like any other partial.
             if (gone && AbsorbedIntoWorldDrop(drop))
                 return received > 0
-                    ? new(AttemptStatus.Partial, "drop-partly-transferred")
+                    ? new(AttemptStatus.Partial, "drop-partly-transferred", AttemptAttribution.NotApplicable, drop.Type, received)
                     : new(AttemptStatus.Attempted, "drop-merged-into-world-drop");
             if (gone)
                 return received <= 0
                     ? new(AttemptStatus.Invalid, "drop-left-world-without-companion-transfer")
-                    : new(AttemptStatus.Complete, "drop-collected", received >= drop.StartStack ? AttemptAttribution.Companion : AttemptAttribution.Shared);
+                    : new(AttemptStatus.Complete, "drop-collected", received >= drop.StartStack ? AttemptAttribution.Companion : AttemptAttribution.Shared, drop.Type, received);
             return received > 0
-                ? new(AttemptStatus.Partial, "drop-partly-transferred")
+                ? new(AttemptStatus.Partial, "drop-partly-transferred", AttemptAttribution.NotApplicable, drop.Type, received)
                 : new(AttemptStatus.Attempted, "replaced-with-drop-still-in-world");
         }
         return base.ConcludeAttempt(productiveEffects);

@@ -54,7 +54,7 @@ public static class SessionMap
     private const float ClosedPx = 32f;
 
     /// <summary>A ceiling on the tiles remembered, so a very long session cannot grow without bound.</summary>
-    private const int MaxTilesRemembered = 200_000;
+    internal const int MaxTilesRemembered = 200_000;
 
     public static void Reset()
     {

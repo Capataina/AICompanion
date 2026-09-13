@@ -35,6 +35,8 @@ public static class Program
         new TicksAdvance(),
         new ReturnableFitsInsideReach(),
         new ColumnsHoldWhatTheyClaim(),
+        new TheCaptureWasClosed(),
+        new NoOccurrenceWasDropped(),
         // The two boundary checks, which ask whether the record can be believed at all: a body
         // held by our own code rather than by the world, and the offline motion rule drifting away
         // from the collision that performs it. Both come before the behaviour checks because a
@@ -48,6 +50,7 @@ public static class Program
         new SelectedActivitiesHadAnEligibleOffer(),
         new ARetainedChoiceKeepsItsSelection(),
         new AttemptIdentitiesAgreeAcrossRecords(),
+        new CompletedTransferClaimsWereReceived(),
         new ControlGrantsAreCompatible(),
         // Then the body, the fight and the choices.
         new TheBodyMovesWhenDriven(),
@@ -56,6 +59,7 @@ public static class Program
         new BeingUnableToReachHimGetsNoticed(),
         new FollowingMakesRouteProgress(),
         new ArrivalDoesNotStrandFollowing(),
+        new ClaimedArrivalsStayInsideTheirSuccessRegion(),
         new HuntingProducesAnOutcome(),
         new HuntingHadAWeaponThatCouldReach(),
         new SubmergedMotionGetsExplained(),

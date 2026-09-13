@@ -284,8 +284,12 @@ public class CompanionNPC : ModNPC
                 continue;
             Item snapshot = item.Clone();
             int before = item.stack;
+            // Asked before the transfer, while the drop is still the object the attempt walked to; after it a whole stack is air.
+            var owner = Brain.Chooser.Activity;
+            long claimingAttempt = owner.AttemptOpen && owner.Current is global::AICompanion.Companion.Brain.PurposeFamilies.NearbyAssistance.CollectNearbyItems collect
+                && collect.ClaimsDrop(item) ? owner.AttemptId : 0;
             if (Bag.Collect(item, player))
-                global::AICompanion.Companion.Brain.BehaviourDiagnostics.GodsEyeEvents.RecordPickup(NPC, snapshot, before - (item.IsAir ? 0 : item.stack), "player-stacks-or-companion-bag");
+                global::AICompanion.Companion.Brain.BehaviourDiagnostics.GodsEyeEvents.RecordPickup(NPC, snapshot, before - (item.IsAir ? 0 : item.stack), "player-stacks-or-companion-bag", claimingAttempt);
         }
     }
 

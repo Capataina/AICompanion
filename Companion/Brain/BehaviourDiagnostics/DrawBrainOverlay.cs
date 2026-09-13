@@ -26,32 +26,36 @@ public sealed class BrainOverlay : ModSystem
     public static ModKeybind? ToggleKey;
     public static bool Enabled, ShowWorld = true;
     public static bool ShowThreats, ShowPredictions, ShowRoutes = true, ShowCandidates;
-    public static bool ShowProjectiles, ShowAiming, ShowMovement, ShowAttention;
+    public static bool ShowProjectiles, ShowAiming, ShowMovement, ShowAttention, ShowRegion;
 
     /// <summary>
-    /// The nine layer switches as one integer, so the character save can carry which drawings the
+    /// The layer switches as one integer, so the character save can carry which drawings the
     /// player had turned on. Which layers someone watches is a standing choice about how they work
     /// rather than a per-session decision, and re-picking them on every launch is the tax this
     /// removes. The chooser panel's own open/closed state is deliberately not in here: it covers
     /// the drawings it describes, so a session that reopened it every launch would start obscured.
     /// The bit order is the menu order and must not be reshuffled, because an older save's integer
-    /// is read against it; appending a tenth layer at bit 9 is safe, reordering the nine is not.
+    /// is read against it; a new layer is appended at the next bit, which is how the success-region
+    /// layer took bit 9, and an older save simply leaves it off.
     /// </summary>
     public static int Layers
     {
         get => (ShowWorld ? 1 : 0) | (ShowThreats ? 2 : 0) | (ShowPredictions ? 4 : 0)
             | (ShowProjectiles ? 8 : 0) | (ShowRoutes ? 16 : 0) | (ShowCandidates ? 32 : 0)
-            | (ShowAiming ? 64 : 0) | (ShowMovement ? 128 : 0) | (ShowAttention ? 256 : 0);
+            | (ShowAiming ? 64 : 0) | (ShowMovement ? 128 : 0) | (ShowAttention ? 256 : 0) | (ShowRegion ? 512 : 0);
         set
         {
             ShowWorld = (value & 1) != 0; ShowThreats = (value & 2) != 0; ShowPredictions = (value & 4) != 0;
             ShowProjectiles = (value & 8) != 0; ShowRoutes = (value & 16) != 0; ShowCandidates = (value & 32) != 0;
             ShowAiming = (value & 64) != 0; ShowMovement = (value & 128) != 0; ShowAttention = (value & 256) != 0;
+            ShowRegion = (value & 512) != 0;
         }
     }
 
     private static int scroll;
-    private static bool decisionsPage;
+    // Which tab the panel shows: 0 world layers, 1 decisions, 2 execution evidence. Input and drawing both
+    // read TabBounds, so a click lands on the tab that is drawn there at every panel width.
+    private static int page;
     private static ulong inputTick = ulong.MaxValue;
     private static readonly Color Panel = new(33, 43, 79), Edge = new(104, 130, 187);
     private static readonly Color Row = new(39, 51, 92), Highlight = new(66, 88, 151);
@@ -82,7 +86,7 @@ public sealed class BrainOverlay : ModSystem
         => new(12, 12, Math.Max(200, Math.Min(440, width - 24)), Math.Max(180, Math.Min(540, height - 24)));
     private static Rectangle Bounds => PanelBounds((int)(Main.screenWidth / Main.UIScale), (int)(Main.screenHeight / Main.UIScale));
     private static Point Mouse => new((int)(Main.mouseX / Main.UIScale), (int)(Main.mouseY / Main.UIScale));
-    private static readonly string[] labels = { "Show world drawings", "Enemies and their velocity", "Predicted enemy movement", "Incoming projectiles", "Current route and destination", "Alternative destinations", "Aiming and rejected shots", "Movement and dodge choices", "Targets and attention" };
+    private static readonly string[] labels = { "Show world drawings", "Enemies and their velocity", "Predicted enemy movement", "Incoming projectiles", "Current route and destination", "Alternative destinations", "Aiming and rejected shots", "Movement and dodge choices", "Targets and attention", "Where the purpose succeeds" };
     private static readonly string[] hints = {
         "Hide all drawings without losing your selected layers.", "Red boxes are observed bodies; arrows show current velocity.",
         "Yellow paths contain only samples the brain calculated. Future enemy decisions remain unknown.",
@@ -91,12 +95,13 @@ public sealed class BrainOverlay : ModSystem
         "Cyan dots are evaluated positions, not guaranteed routes. Only retained alternatives are shown.",
         "Green arcs intercepted a target in simulation; red arcs were rejected. Evaluated does not mean fired. Samples expire after one second.",
         "Blue paths are evaluated controls; red paths were unsafe. The orange marker is a predicted passive-body collision. Samples expire after half a second.",
-        "Lines connect the companion to its firing target, work target and player. Hands and feet may have different targets."
+        "Lines connect the companion to its firing target, work target and player. Hands and feet may have different targets.",
+        "Green boxes are the comfort regions a follow destination was admitted against, around the player's feet and the anchor then. The cyan box is where a tool stand's feet reach its tile, with the tile and the stand marked. Drawn from the positioner's retained region; nothing is recomputed."
     };
-    private static bool Value(int i) => i switch { 0 => ShowWorld, 1 => ShowThreats, 2 => ShowPredictions, 3 => ShowProjectiles, 4 => ShowRoutes, 5 => ShowCandidates, 6 => ShowAiming, 7 => ShowMovement, _ => ShowAttention };
+    private static bool Value(int i) => i switch { 0 => ShowWorld, 1 => ShowThreats, 2 => ShowPredictions, 3 => ShowProjectiles, 4 => ShowRoutes, 5 => ShowCandidates, 6 => ShowAiming, 7 => ShowMovement, 8 => ShowAttention, _ => ShowRegion };
     private static void Flip(int i)
     {
-        switch (i) { case 0: ShowWorld = !ShowWorld; break; case 1: ShowThreats = !ShowThreats; break; case 2: ShowPredictions = !ShowPredictions; break; case 3: ShowProjectiles = !ShowProjectiles; break; case 4: ShowRoutes = !ShowRoutes; break; case 5: ShowCandidates = !ShowCandidates; break; case 6: ShowAiming = !ShowAiming; break; case 7: ShowMovement = !ShowMovement; break; case 8: ShowAttention = !ShowAttention; break; }
+        switch (i) { case 0: ShowWorld = !ShowWorld; break; case 1: ShowThreats = !ShowThreats; break; case 2: ShowPredictions = !ShowPredictions; break; case 3: ShowProjectiles = !ShowProjectiles; break; case 4: ShowRoutes = !ShowRoutes; break; case 5: ShowCandidates = !ShowCandidates; break; case 6: ShowAiming = !ShowAiming; break; case 7: ShowMovement = !ShowMovement; break; case 8: ShowAttention = !ShowAttention; break; case 9: ShowRegion = !ShowRegion; break; }
     }
     public static void CaptureInput()
     {
@@ -107,19 +112,33 @@ public sealed class BrainOverlay : ModSystem
         if (inputTick == Main.GameUpdateCount) return;
         inputTick = Main.GameUpdateCount;
         Rectangle panel = Bounds;
-        int rows = VisibleRows(panel);
-        int count = decisionsPage ? CompanionNPC.Instance?.Brain.Chooser.LastScores.Count ?? 0 : labels.Length;
+        int rows = page == 2 ? VisibleExecutionLines(panel) : VisibleRows(panel);
+        int count = page switch
+        {
+            1 => CompanionNPC.Instance?.Brain.Chooser.LastScores.Count ?? 0,
+            2 => CompanionNPC.Instance is { } shown ? DescribeExecutionEvidence.Of(shown.Brain).Count : 0,
+            _ => labels.Length,
+        };
         scroll = Math.Clamp(scroll - Math.Sign(Terraria.GameInput.PlayerInput.ScrollWheelDeltaForUI), 0, Math.Max(0, count - rows));
         if (!Main.mouseLeft || !Main.mouseLeftRelease) return;
         if (new Rectangle(panel.Right - 34, panel.Y + 8, 24, 24).Contains(Mouse)) { Close(); return; }
-        if (new Rectangle(panel.X + 12, panel.Y + 102, panel.Width - 24, 24).Contains(Mouse))
-        { decisionsPage = Mouse.X >= panel.Center.X; scroll = 0; return; }
-        if (decisionsPage) return;
+        for (int tab = 0; tab < 3; tab++)
+            if (TabBounds(panel, tab).Contains(Mouse)) { page = tab; scroll = 0; return; }
+        if (page != 0) return;
         for (int row = 0; row < rows && scroll + row < labels.Length; row++)
             if (RowBounds(panel, row).Contains(Mouse)) Flip(scroll + row);
     }
     public static int VisibleRows(Rectangle panel) => Math.Max(1, (panel.Height - 160) / 36);
     public static Rectangle RowBounds(Rectangle panel, int row) => new(panel.X + 12, panel.Y + 132 + row * 36, panel.Width - 24, 32);
+    /// <summary>One of the three tabs across the strip under the heading; the last takes the division's remainder so the strip is covered exactly.</summary>
+    public static Rectangle TabBounds(Rectangle panel, int tab)
+    {
+        int width = (panel.Width - 24) / 3;
+        return new(panel.X + 12 + tab * width, panel.Y + 102, tab == 2 ? panel.Width - 24 - 2 * width : width, 24);
+    }
+    /// <summary>Execution evidence is one short line each, so it uses half-height slots in the same list area as the rows.</summary>
+    public static int VisibleExecutionLines(Rectangle panel) => Math.Max(1, (panel.Height - 160) / 18);
+    public static Rectangle ExecutionLineBounds(Rectangle panel, int line) => new(panel.X + 12, panel.Y + 132 + line * 18, panel.Width - 24, 16);
     public override void PostDrawInterface(SpriteBatch sb)
     {
         if (!CompanionDiagnosticsConfig.Current.EnableBrainInspector || Main.gameMenu) return;
@@ -136,14 +155,22 @@ public sealed class BrainOverlay : ModSystem
         Text(sb, companion?.Brain.ActivityStatus ?? "Waiting for a companion", panel.X + 14, panel.Y + 42, Color.White, .75f);
         Text(sb, "Choose layers. They keep drawing after you close this.", panel.X + 14, panel.Y + 64, Color.LightSteelBlue, .52f);
         Text(sb, "Observed: red   Predicted: yellow   Chosen: white", panel.X + 14, panel.Y + 83, Color.LightGray, .48f);
-        Fill(sb, new(panel.X + 12, panel.Y + 102, (panel.Width - 24) / 2, 24), decisionsPage ? Row : Highlight);
-        Fill(sb, new(panel.Center.X, panel.Y + 102, (panel.Width - 24) / 2, 24), decisionsPage ? Highlight : Row);
-        Text(sb, "World layers", panel.X + 24, panel.Y + 106, decisionsPage ? Color.White : Color.Gold, .6f);
-        Text(sb, "Decisions", panel.Center.X + 12, panel.Y + 106, decisionsPage ? Color.Gold : Color.White, .6f);
+        string[] tabs = { "World layers", "Decisions", "Execution" };
+        for (int tab = 0; tab < tabs.Length; tab++)
+        {
+            Rectangle bounds = TabBounds(panel, tab);
+            Fill(sb, bounds, page == tab ? Highlight : Row);
+            Text(sb, tabs[tab], bounds.X + 8, bounds.Y + 4, page == tab ? Color.Gold : Color.White, .55f);
+        }
         int rows = VisibleRows(panel);
-        if (decisionsPage)
+        if (page == 1)
         {
             DrawDecisions(sb, panel, companion, rows);
+            return;
+        }
+        if (page == 2)
+        {
+            DrawExecution(sb, panel, companion);
             return;
         }
         scroll = Math.Clamp(scroll, 0, Math.Max(0, labels.Length - rows));
@@ -182,6 +209,35 @@ public sealed class BrainOverlay : ModSystem
                 + (score.MethodEvidence.Length > 0 ? $"\nMethod: {score.MethodEvidence}" : ""));
         }
         Text(sb, scores.Count > rows ? "Scroll to inspect every behaviour" : "Raw score: outline   Final score: fill   Winner: gold", panel.X + 14, panel.Bottom - 20, Color.LightSteelBlue, .48f);
+    }
+    /// <summary>
+    /// What the companion is doing about its choice, line by line from <see cref="DescribeExecutionEvidence"/>: each family's
+    /// nominee beside its children's offers, the region the destination was admitted against, the control requested beside
+    /// the control granted, and the open attempt beside how the last one ended. Every line is retained state.
+    /// </summary>
+    private static void DrawExecution(SpriteBatch sb, Rectangle panel, CompanionNPC? companion)
+    {
+        if (companion == null) return;
+        var lines = DescribeExecutionEvidence.Of(companion.Brain);
+        int visible = VisibleExecutionLines(panel);
+        scroll = Math.Clamp(scroll, 0, Math.Max(0, lines.Count - visible));
+        for (int i = scroll; i < Math.Min(lines.Count, scroll + visible); i++)
+        {
+            Rectangle bounds = ExecutionLineBounds(panel, i - scroll);
+            var line = lines[i];
+            if (line.Heading) Fill(sb, bounds, Row);
+            Text(sb, Fit(line.Text, .5f, bounds.Width - 8), bounds.X + (line.Heading ? 4 : 12), bounds.Y + 1, line.Heading ? Color.Gold : Color.White, .5f);
+        }
+        Text(sb, lines.Count > visible ? "Scroll for the rest of the evidence" : "Retained evidence only; nothing here is recomputed", panel.X + 14, panel.Bottom - 20, Color.LightSteelBlue, .48f);
+    }
+    /// <summary><paramref name="text"/> shortened with an ellipsis until it fits <paramref name="width"/> at <paramref name="scale"/>.</summary>
+    private static string Fit(string text, float scale, int width)
+    {
+        var font = FontAssets.MouseText.Value;
+        if (font.MeasureString(text).X * scale <= width) return text;
+        int length = text.Length;
+        while (length > 1 && font.MeasureString(text[..length] + "…").X * scale > width) length--;
+        return text[..length] + "…";
     }
     private static void DrawWorld(SpriteBatch sb, CompanionNPC c)
     {
@@ -236,6 +292,20 @@ public sealed class BrainOverlay : ModSystem
             if (brain.LastAction?.ActivityTarget is Vector2 work) { Line(sb, c.NPC.Center, work, Color.Cyan); Dot(sb, work, Color.Cyan, 8); }
             if (brain.LastRequest.Kind is PositionSelection.RequestKind.WithPlayer or PositionSelection.RequestKind.Guard) Line(sb, c.NPC.Center, brain.Senses.Player.Bottom, Color.White * .4f);
         }
+        if (ShowRegion) DrawRegion(sb, brain.Positioner.Region);
+    }
+    /// <summary>The retained success region's boxes, its work tile and its anchor. Internal so the offscreen renderer can draw a
+    /// seeded region and measure the painted pixels against the geometry <see cref="DescribeExecutionEvidence.RegionBoxes"/> returns.</summary>
+    internal static void DrawRegion(SpriteBatch sb, in PositionSelection.SuccessRegion region)
+    {
+        Color colour = region.Kind == PositionSelection.SuccessRegionKind.ToolReach ? Color.Cyan : Color.LightGreen;
+        foreach (var box in DescribeExecutionEvidence.RegionBoxes(region))
+        {
+            Vector2 a = Screen(box.Min), b = Screen(box.Max);
+            Border(sb, new Rectangle((int)MathF.Round(a.X), (int)MathF.Round(a.Y), (int)MathF.Round(b.X - a.X), (int)MathF.Round(b.Y - a.Y)), colour);
+        }
+        if (region.WorkTile is Point tile) Dot(sb, tile.ToWorldCoordinates(), Color.Cyan, 7);
+        if (region.Kind != PositionSelection.SuccessRegionKind.None) Dot(sb, region.Anchor, Color.White, 5);
     }
     private static void HoverEvidence(Vector2 point, string explanation)
     {

@@ -410,7 +410,7 @@ internal static class VerifyMiningHops
     }
 
     /// <summary>A flat floor at row 60 under a two-row dirt slab whose lower row holds the ore, so the ore's only open face is underneath it.</summary>
-    private static ActionContext BuildCeilingScene(Point ore, int slabTop)
+    internal static ActionContext BuildCeilingScene(Point ore, int slabTop)
     {
         Point placeholder = new(40, 59);
         var (_, ctx) = VerifyOreWork.SetUp(WorkPolicy.Opportunistic, TileID.Copper, placeholder);

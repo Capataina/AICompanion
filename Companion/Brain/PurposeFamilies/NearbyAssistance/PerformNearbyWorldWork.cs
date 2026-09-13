@@ -282,7 +282,7 @@ public abstract class PerformNearbyWorldWork : CompanionAction
                 Release("approach-made-no-progress");
                 return PositionRequest.Hold;
             }
-            return PositionRequest.ExactAt(stand);
+            return PositionRequest.ExactAt(stand, tile);
         }
         if (Main.GameUpdateCount >= retryAfter)
         {

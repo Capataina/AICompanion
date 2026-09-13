@@ -113,6 +113,11 @@ public sealed class ARetainedChoiceKeepsItsSelection : ICheck
 ///   tool choice     a tool effect's choice-id equals the choice_id of the row at its tick: the
 ///                   comparison identity advances before Execute strikes and nothing else advances
 ///                   it that tick (ChooseBehaviour, then CoordinateBrainTick)
+///   tool attempt    a tool effect carrying activity-attempt-id (schema 0.25.0) names a non-zero
+///                   attempt, that attempt is the one its tick's row names open or names closed on
+///                   that tick, and its tick lies inside that attempt's recorded interval: only an
+///                   executing activity strikes, Execute runs after BeginExecution opened the attempt
+///                   (CoordinateBrainTick), and the row is written after the brain in the same update
 ///
 /// Deliberately not a rule: an outcome whose attempt never appears in any row or grant. An attempt
 /// can open at BeginExecution and be suspended by recovery later in the same tick, so no row or grant
@@ -124,7 +129,7 @@ public sealed class AttemptIdentitiesAgreeAcrossRecords : ICheck, ICheckCoverage
     public string[] Needs => new[] { "tick", "choice_id", "activity_attempt_id", "attempt_end_id", "attempt_end_activity_id", "attempt_end_activity", "attempt_end_tick" };
 
     public string? Missing(Session session)
-        => ReadGodsEyeEvents.Read(session.Path).Present ? null : "-events.jsonl sidecar, which carries the attempt outcomes, grants and tool effects";
+        => CheckEvents.SidecarUnavailable(session, "the attempt outcomes, grants and tool effects");
 
     public IEnumerable<Finding> Run(Session s)
     {
@@ -177,8 +182,8 @@ public sealed class AttemptIdentitiesAgreeAcrossRecords : ICheck, ICheckCoverage
                 if (ReadGodsEyeEvents.TryLong(grant.Field("activity-id"), out long activity))
                     Claim(attempt.AttemptId, activity, null, "control-grant", grant.tick);
             foreach (var (effect, route) in attempt.ToolEffects)
-                if (route == ToolEffectRoute.OpenAttemptRow && ReadGodsEyeEvents.TryLong(effect.ChannelField("activity-id"), out long activity))
-                    Claim(attempt.AttemptId, activity, null, "tool-effect on a row naming it open", effect.tick);
+                if (route is ToolEffectRoute.OpenAttemptRow or ToolEffectRoute.ProducerAttemptId && ReadGodsEyeEvents.TryLong(effect.ChannelField("activity-id"), out long activity))
+                    Claim(attempt.AttemptId, activity, null, route == ToolEffectRoute.ProducerAttemptId ? "tool-effect naming it" : "tool-effect on a row naming it open", effect.tick);
         }
         Column endId = s["attempt_end_id"], endActivityId = s["attempt_end_activity_id"], endActivity = s["attempt_end_activity"];
         for (int i = 0; i < s.Count; i++)
@@ -212,10 +217,16 @@ public sealed class AttemptIdentitiesAgreeAcrossRecords : ICheck, ICheckCoverage
             if (outside.Count > 0)
                 findings.Add(Aggregate(Severity.Definitive, $"a control grant under attempt {attempt.AttemptId} lies outside its recorded ticks {start}..{end}", outside,
                     "A grant names only the attempt open when controls were finalised, so a grant carrying this attempt before it began or after it ended misnames the attempt or the attempt's interval."));
+            var strikesOutside = attempt.ToolEffects.Where(t => t.Route == ToolEffectRoute.ProducerAttemptId && (t.Effect.tick < start || t.Effect.tick > end)).Select(t => t.Effect).ToList();
+            if (strikesOutside.Count > 0)
+                findings.Add(Aggregate(Severity.Definitive, $"a tool effect naming attempt {attempt.AttemptId} lies outside its recorded ticks {start}..{end}", strikesOutside,
+                    "A strike names only the attempt open when Execute struck, and an attempt is open from its start tick to its end tick, so a strike naming it outside that interval misnames the attempt or the attempt's interval."));
             if (!ordered || end - start < 2) continue;
             int first = LowerBound(rowTicks, start + 1), mismatched = 0, firstMismatch = -1;
+            // Only a row that names an attempt can name a different one: an unreadable cell is a damaged record, which the
+            // column audit reports, and comparing its null to the attempt would call that damage a contradiction.
             for (int r = first; r < rowTicks.Length && rowTicks[r] < end; r++)
-                if (JoinAttemptEvidence.LongAt(open, r) != attempt.AttemptId) { mismatched++; if (firstMismatch < 0) firstMismatch = r; }
+                if (JoinAttemptEvidence.LongAt(open, r) is long named && named != attempt.AttemptId) { mismatched++; if (firstMismatch < 0) firstMismatch = r; }
             if (mismatched > 0)
                 findings.Add(new Finding(Severity.Definitive, Name, $"rows inside attempt {attempt.AttemptId} name a different open attempt",
                     $"{mismatched:n0} row(s) strictly between its start tick {start} and end tick {end} do not carry it as activity_attempt_id; the first, at tick {rowTicks[firstMismatch]}, carries '{open.Text[firstMismatch]}'. An attempt stays open from BeginExecution until suspension or replacement closes it, and the owner holds one attempt at a time.",
@@ -231,6 +242,23 @@ public sealed class AttemptIdentitiesAgreeAcrossRecords : ICheck, ICheckCoverage
         if (wrongChoice.Count > 0)
             findings.Add(Aggregate(Severity.Definitive, "tool effects name a comparison their own tick's row does not", wrongChoice,
                 "Execute strikes after that tick's comparison has advanced the identity, the row is written after the brain in the same NPC update, and nothing else advances the identity between them, so the two must agree."));
+
+        // A strike that names its own attempt names the one open when it struck.
+        if (join.ToolEffectsWithNoOpenAttempt.Count > 0)
+            findings.Add(Aggregate(Severity.Definitive, "tool effects were struck with no attempt open", join.ToolEffectsWithNoOpenAttempt,
+                "Only an executing activity strikes, and Execute runs after BeginExecution has opened an attempt for the current activity, so a strike naming attempt zero ran outside any attempt and its effect is credited to nobody's purpose."));
+        Column closedTick = s["attempt_end_tick"];
+        var wrongAttempt = join.Attempts.Values
+            .SelectMany(a => a.ToolEffects.Where(t => t.Route == ToolEffectRoute.ProducerAttemptId).Select(t => (a.AttemptId, t.Effect)))
+            .Where(x => rowAt.TryGetValue(x.Effect.tick, out int row) && JoinAttemptEvidence.LongAt(open, row) is long rowOpen && rowOpen != x.AttemptId
+                // The row must say readably that it closed some other attempt, or none, on another tick: unreadable end cells
+                // may have held exactly the closure that makes this strike right, so they leave the strike unjudged.
+                && JoinAttemptEvidence.LongAt(endId, row) is long endAttempt && JoinAttemptEvidence.LongAt(closedTick, row) is long endAt
+                && !(endAttempt == x.AttemptId && endAt == x.Effect.tick))
+            .Select(x => x.Effect).OrderBy(e => e.seq).ToList();
+        if (wrongAttempt.Count > 0)
+            findings.Add(Aggregate(Severity.Definitive, "tool effects name an attempt their own tick's row does not", wrongAttempt,
+                "The row at a strike's tick is written after the brain in the same update, so it names the attempt the strike named as still open or as closed on that tick; naming neither means the strike or the row misattributes the attempt."));
         return findings;
     }
 
@@ -243,6 +271,55 @@ public sealed class AttemptIdentitiesAgreeAcrossRecords : ICheck, ICheckCoverage
         while (lo < hi) { int mid = (lo + hi) >>> 1; if (values[mid] < target) lo = mid + 1; else hi = mid; }
         return lo;
     }
+}
+
+/// <summary>
+/// A claimed transfer arrived. A collection attempt claims a yield only from what the cargo's transfer ledger received
+/// from the drop it walked to (CollectNearbyItems.ConcludeAttempt), every accepted transfer happens inside
+/// CompanionNPC.CollectTouchedItems, and that site writes one pickup per transfer naming the open collection attempt
+/// when the item is that drop. So the pickups recorded under an attempt, of the claimed type, deliver at least the
+/// claimed quantity. The rule is one-sided on purpose: the ledger keeps only the latest transfers, so a claim can fall
+/// short of what arrived and that is not reported, while a claim above what arrived names a transfer nobody recorded.
+/// It is Definitive only over a whole occurrence stream; a missing sequence, a malformed line or a stream that never
+/// closed could have lost the pickup, and then it is Potential.
+/// </summary>
+public sealed class CompletedTransferClaimsWereReceived : ICheck, ICheckCoverage
+{
+    public string Name => "did every claimed transfer arrive as pickups under its own attempt";
+    public string[] Needs => new[] { "tick", "activity_attempt_id" };
+
+    public string? Missing(Session session)
+    {
+        if (CheckEvents.SidecarUnavailable(session, "the attempt outcomes and pickups") is { } unavailable) return unavailable;
+        return SchemaAtLeast(session, new Version(0, 26, 0)) ? null
+            : "claimed yields on attempt outcomes and collection attempts on pickups (first written by schema 0.26.0)";
+    }
+
+    public IEnumerable<Finding> Run(Session s)
+    {
+        GodsEyeEventLog log = ReadGodsEyeEvents.Read(s.Path);
+        AttemptJoin join = JoinAttemptEvidence.Build(s, log);
+        bool whole = log.MissingSequences == 0 && log.Malformed == 0 && log.Closed;
+        foreach (AttemptEvidence attempt in join.Attempts.Values)
+        {
+            if (attempt.Outcome is not { } outcome || attempt.ClaimedYieldQuantity <= 0) continue;
+            if (outcome.Field("status") is not ("Complete" or "Partial")) continue;
+            int received = attempt.ReceivedOf(attempt.ClaimedYieldType);
+            if (received >= attempt.ClaimedYieldQuantity) continue;
+            string others = attempt.Pickups.Count == 0 ? "no pickup names this attempt"
+                : "pickups naming it: " + string.Join(", ", attempt.Pickups.Select(p => $"tick {p.tick} item {p.label}×{p.amount}"));
+            string coverage = whole ? "The occurrence stream is whole (no missing sequence, no malformed line, closed normally), so no pickup was lost from the record."
+                : $"The occurrence stream is not whole ({log.MissingSequences} missing sequence(s), {log.Malformed} malformed line(s), {(log.Closed ? "closed" : "never closed")}), so a pickup may have been lost from the record rather than never made.";
+            yield return new Finding(whole ? Severity.Definitive : Severity.Potential, Name,
+                $"a completed transfer claim with no matching received quantity: attempt {attempt.AttemptId} ({outcome.label}, {outcome.channel}) claimed {attempt.ClaimedYieldQuantity} of item {attempt.ClaimedYieldType} and its pickups delivered {received}",
+                $"Ticks {outcome.Field("start-tick") ?? "?"}..{outcome.Field("end-tick") ?? "?"}; {others}. The claim is read from the cargo's own transfer ledger and every transfer writes a pickup naming its collection attempt, so a claim above what those pickups delivered credits the companion with items no recorded transfer carried. {coverage}",
+                (int)Math.Min(int.MaxValue, attempt.FirstTick), (int)Math.Min(int.MaxValue, attempt.LastTick), attempt.Pickups.Count);
+        }
+    }
+
+    /// <summary>Whether the capture's recorded schema is at least <paramref name="minimum"/>; an unrecorded or unreadable schema is not.</summary>
+    internal static bool SchemaAtLeast(Session session, Version minimum)
+        => session.Metadata.TryGetValue("schema", out string? value) && Version.TryParse(value, out Version? recorded) && recorded >= minimum;
 }
 
 /// <summary>
@@ -276,7 +353,7 @@ public sealed class ControlGrantsAreCompatible : ICheck, ICheckCoverage
     public string[] Needs => new[] { "control_grant_id", "activity_attempt_id" };
 
     public string? Missing(Session session)
-        => ReadGodsEyeEvents.Read(session.Path).Present ? null : "-events.jsonl sidecar, which carries the control grant occurrences";
+        => CheckEvents.SidecarUnavailable(session, "the control grant occurrences");
 
     public IEnumerable<Finding> Run(Session s)
     {
@@ -341,6 +418,20 @@ public sealed class ControlGrantsAreCompatible : ICheck, ICheckCoverage
 
 internal static class CheckEvents
 {
+    /// <summary>
+    /// Why an event-based check cannot run, or null when it can. An absent sidecar is one reason; a sidecar the recorder never
+    /// opened is the other, because it holds no session record and every presence-based rule over it finds nothing to
+    /// contradict, so it would report a clean stream it never measured. A stream that opened and was later cut still runs:
+    /// loss can hide a record but cannot make two recorded ones disagree.
+    /// </summary>
+    public static string? SidecarUnavailable(Session session, string carries)
+    {
+        GodsEyeEventLog log = ReadGodsEyeEvents.Read(session.Path);
+        if (!log.Present) return $"-events.jsonl sidecar, which carries {carries}";
+        return log.Opened ? null
+            : $"-events.jsonl sidecar the recorder opened: the file holds no session record, so an empty stream cannot be told from one never written, and it would carry {carries}";
+    }
+
     public static Finding Aggregate(Severity severity, string check, string title, List<GodsEyeEvent> events, string explanation)
     {
         GodsEyeEvent first = events[0];

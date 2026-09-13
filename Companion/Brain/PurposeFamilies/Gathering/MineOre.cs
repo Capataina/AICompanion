@@ -489,7 +489,9 @@ public sealed class MineOre : CompanionAction
             }
             // A waypoint tolerance is not tool reach. Keep approaching the proven stand until
             // the actual body can swing; returning Hold here made approximate arrival permanent.
-            return PositionRequest.ExactAt(t.StandPosition);
+            // A hop target reaches this line walking to its take-off, which is a pose that does not
+            // reach standing, so only a standing stand declares the tile as its success region.
+            return t.Hop ? PositionRequest.ExactAt(t.StandPosition) : PositionRequest.ExactAt(t.StandPosition, t.Tile);
         }
         ctx.Companion.HoldItem(pickaxe.type);
         swinging = true;
@@ -499,7 +501,8 @@ public sealed class MineOre : CompanionAction
             ctx.Companion.StartAnimation(pickaxe.type, pickaxe.useAnimation);
             if (ctx.Companion.Miner.LastOutcome is { } outcome)
             {
-                BehaviourDiagnostics.GodsEyeEvents.RecordToolEffect(ctx.Npc, "pickaxe", outcome, ctx.Companion.Brain.Chooser.EvaluationId, ctx.Companion.Brain.Chooser.Activity.Id);
+                var owner = ctx.Companion.Brain.Chooser.Activity;
+                BehaviourDiagnostics.GodsEyeEvents.RecordToolEffect(ctx.Npc, "pickaxe", outcome, ctx.Companion.Brain.Chooser.EvaluationId, owner.Id, owner.AttemptOpen ? owner.AttemptId : 0);
                 if (outcome.Effect == WorldInteractions.TileToolEffect.Removed
                     && outcome.Before.Type == jobType && jobTiles.Contains(outcome.Target))
                     ownRemovals.Add(outcome.Target);

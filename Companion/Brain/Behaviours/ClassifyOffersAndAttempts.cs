@@ -26,13 +26,18 @@ public enum AttemptStatus { Attempted, Executed, Partial, Complete, Invalid, Int
 /// drop left the world) and no observation names who did it. NotApplicable for non-completions.</summary>
 public enum AttemptAttribution { NotApplicable, Companion, Shared, Unattributed }
 
-/// <summary>The activity's own reading of how an attempt ended when selection replaced it.</summary>
+/// <summary>The activity's own reading of how an attempt ended when selection replaced it. A claimed
+/// yield is the item type and quantity the activity says reached the companion's cargo, zero when it
+/// claims none; only an activity that reads a transfer ledger may claim one, and a reader holds the
+/// claim against the pickups recorded under the same attempt.</summary>
 public readonly record struct AttemptConclusion(AttemptStatus Status, string Cause,
-    AttemptAttribution Attribution = AttemptAttribution.NotApplicable);
+    AttemptAttribution Attribution = AttemptAttribution.NotApplicable, int ClaimedYieldType = 0, int ClaimedYieldQuantity = 0);
 
 /// <summary>Immutable history of one attempt. Productive effects count only observations the activity
 /// credited through the chooser's work record, so an external edit to the same target earns nothing.
-/// Attempt identities are unique across every activity owner in the process.</summary>
+/// Attempt identities are unique across every activity owner in the process. The claimed yield is the
+/// conclusion's, and is zero for an interruption, which the owner concludes without asking the activity.</summary>
 public readonly record struct AttemptOutcome(long AttemptId, long ActivityId, string Activity,
     BehaviourSelection.PurposeFamily Family, ulong StartTick, ulong EndTick, AttemptStatus Status,
-    string Cause, int ProductiveEffects, AttemptAttribution Attribution = AttemptAttribution.NotApplicable);
+    string Cause, int ProductiveEffects, AttemptAttribution Attribution = AttemptAttribution.NotApplicable,
+    int ClaimedYieldType = 0, int ClaimedYieldQuantity = 0);

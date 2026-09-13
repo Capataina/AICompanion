@@ -19,7 +19,9 @@ public sealed class ObserveTerrainChanges : GlobalTile
 /// <summary>Rolling local world evidence, bounded per frame rather than ending after an event quota.</summary>
 public sealed class RecordTerrainChunks : ModSystem
 {
-    private const int Side = 16, Radius = 3, CapturesPerTick = 2, MaximumRemembered = 8192;
+    private const int Side = 16, Radius = 3;
+    // Retention bounds, internal so the recorder's retention statement reads them rather than repeating them.
+    internal const int CapturesPerTick = 2, MaximumRemembered = 8192;
     private static readonly Queue<Point> pending = new();
     private static readonly HashSet<Point> queued = new();
     private static readonly Dictionary<Point, string> prior = new();
@@ -28,8 +30,12 @@ public sealed class RecordTerrainChunks : ModSystem
     private static bool actorsKnown;
     private static int cursor;
 
+    /// <summary>Chunks forgotten this session because the remembered set was full. Memory only suppresses a capture identical
+    /// to the last one written, so an evicted chunk is written again when next captured: eviction duplicates evidence, never loses it.</summary>
+    internal static long Evictions { get; private set; }
+
     internal static void Reset()
-    { pending.Clear(); queued.Clear(); prior.Clear(); age.Clear(); actorsKnown = false; cursor = 0; }
+    { pending.Clear(); queued.Clear(); prior.Clear(); age.Clear(); actorsKnown = false; cursor = 0; Evictions = 0; }
 
     public static void ObserveActors(NPC npc, Player owner)
     {
@@ -89,7 +95,7 @@ public sealed class RecordTerrainChunks : ModSystem
             if (prior.TryGetValue(key, out string? old) && old == data) continue;
             if (!prior.ContainsKey(key)) age.Enqueue(key);
             prior[key] = data;
-            while (prior.Count > MaximumRemembered && age.TryDequeue(out Point oldest)) prior.Remove(oldest);
+            while (prior.Count > MaximumRemembered && age.TryDequeue(out Point oldest)) { prior.Remove(oldest); Evictions++; }
             GodsEyeEvents.RecordTerrainSnapshot(x, y, data);
         }
     }

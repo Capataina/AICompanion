@@ -42,7 +42,51 @@ public sealed class BrainTelemetry : ModSystem
     private static string? eventsPath;
     private static readonly Stopwatch sessionClock = new();
     private static DateTime sessionStartedUtc;
-    private const string Schema = "0.26.0";
+    // 0.30.0 joins two branches that numbered their changes independently: the evidence branch's 0.25.0–0.29.0 are the
+    // numbers SessionReport's version gates use, and the combat branch's own 0.25.0 and 0.26.0 columns are read by name.
+    private const string Schema = "0.30.0";
+    // The cost of the previous row's Record call: a row cannot contain the time spent writing itself, so each row carries
+    // the one before it and the first row of a session carries none.
+    private static readonly Stopwatch recordClock = new();
+    private static double lastRecordMs = double.NaN;
+    /// <summary>What the last Record call cost in milliseconds, NaN before the first; MeasureBrainCost samples it as its own phase.</summary>
+    public static double LastRecordMilliseconds => lastRecordMs;
+    // Rows this session has written, which the end marker states so a reader can tell a file that lost rows from one
+    // that never had them.
+    private static int rowsWritten;
+    private static RecordedConfiguration recordedConfiguration;
+    /// <summary>The revision and tree state AICompanion.csproj's StampSourceRevision target stamped into this assembly,
+    /// read once; "unknown" when that build could not ask git.</summary>
+    private static readonly string SourceProvenance = ReadSourceProvenance();
+
+    private static string ReadSourceProvenance()
+    {
+        string Stamp(string key) => typeof(BrainTelemetry).Assembly.GetCustomAttributes(typeof(System.Reflection.AssemblyMetadataAttribute), false)
+            .OfType<System.Reflection.AssemblyMetadataAttribute>().FirstOrDefault(attribute => attribute.Key == key)?.Value is { Length: > 0 } value ? value : "unknown";
+        return $"{Stamp("SourceRevision")};tree={Stamp("SourceTree")}";
+    }
+
+    /// <summary>
+    /// The per-character preferences and diagnostics switches a capture runs under, as one comparable value: the
+    /// preamble states the value at the start and an occurrence records each change, compared every row without
+    /// allocating, because a preference changed from the profile card mid-session changes what the companion does.
+    /// </summary>
+    private readonly record struct RecordedConfiguration(Behaviours.Work.WorkPolicy Mining, Behaviours.Work.WorkPolicy Chopping, bool Hunting, bool PotBreaking,
+        bool TorchPlacement, PlayerIntegration.CompanionDistanceMode DistanceMode, bool Inspector, bool RecordTelemetry)
+    {
+        public static RecordedConfiguration Current()
+        {
+            var preferences = PlayerIntegration.CompanionPreferences.Current;
+            var switches = DiagnosticsConfiguration.CompanionDiagnosticsConfig.Current;
+            return new(preferences.Mining, preferences.Chopping, preferences.Hunting, preferences.PotBreaking, preferences.TorchPlacement,
+                preferences.DistanceMode, switches.EnableBrainInspector, switches.RecordTelemetry);
+        }
+
+        public string Describe()
+            => $"character;mining={Mining};chopping={Chopping};hunting={Flag(Hunting)};pot_breaking={Flag(PotBreaking)};torch_placement={Flag(TorchPlacement)};distance_mode={DistanceMode};inspector={Flag(Inspector)};record_telemetry={Flag(RecordTelemetry)}";
+
+        private static string Flag(bool value) => value ? "true" : "false";
+    }
     private static string? pendingPlayerHit;
     private static string? pendingCompanionHit;
     private static string? lastDecision;
@@ -54,7 +98,7 @@ public sealed class BrainTelemetry : ModSystem
 
     public override void OnWorldLoad()
     {
-        Close();
+        Close("superseded-by-world-load");
         if (!DiagnosticsConfiguration.CompanionDiagnosticsConfig.Current.RecordTelemetry) return;
         try
         {
@@ -67,6 +111,8 @@ public sealed class BrainTelemetry : ModSystem
             eventsPath = Path.Combine(Folder, $"{sessionStem}-events.jsonl");
             lastDumpTick = -DumpEveryTicks;
             headerWritten = false;
+            rowsWritten = 0;
+            lastRecordMs = double.NaN;
             sessionStartedUtc = DateTime.UtcNow;
             sessionClock.Restart();
             GodsEyeEvents.Open(eventsPath);
@@ -101,11 +147,11 @@ public sealed class BrainTelemetry : ModSystem
 
     public override void OnWorldUnload()
     {
-        Close();
+        Close("world-unload");
         global::AICompanion.Companion.Brain.WorldObservation.PredictObservedMotion.Clear();
     }
 
-    public static void StopRecording() => Close();
+    public static void StopRecording() => Close("recording-disabled");
 
     public override void LoadWorldData(TagCompound tag)
     {
@@ -125,7 +171,7 @@ public sealed class BrainTelemetry : ModSystem
     {
         if (!DiagnosticsConfiguration.CompanionDiagnosticsConfig.Current.RecordTelemetry)
         {
-            if (writer != null) Close();
+            if (writer != null) Close("recording-disabled");
             return;
         }
         if (writer == null || firstUpdateRecorded)
@@ -160,12 +206,14 @@ public sealed class BrainTelemetry : ModSystem
 
     public override void Unload()
     {
-        Close();
+        Close("mod-unload");
         global::AICompanion.Companion.Brain.WorldObservation.PredictObservedMotion.Clear();
         Mod.Logger.Info("BrainTelemetry.Unload: done");
     }
 
-    private static void Close()
+    /// <summary>A normal closure, named by <paramref name="reason"/>. Only this writes the end marker: a failed row write
+    /// disposes the stream without coming here, so a capture that lacks the marker was interrupted.</summary>
+    private static void Close(string reason)
     {
         // The census and the map are written here rather than per tick because both are one
         // artefact about the whole session; there is nothing to say until it is over. They land
@@ -176,6 +224,7 @@ public sealed class BrainTelemetry : ModSystem
         GodsEyeEvents.Close();
         try
         {
+            writer?.WriteLine($"# end={reason};rows={rowsWritten};events-written={GodsEyeEvents.Written};events-dropped={GodsEyeEvents.Dropped};events-coalesced={GodsEyeEvents.Coalesced};terrain-evictions={RecordTerrainChunks.Evictions}");
             writer?.Flush();
             writer?.Dispose();
         }
@@ -222,6 +271,16 @@ public sealed class BrainTelemetry : ModSystem
         writer.WriteLine($"# started_utc={sessionStartedUtc:O}");
         writer.WriteLine($"# terraria={Main.versionNumber};tml_assembly={typeof(Main).Assembly.GetName().Version};runtime={Environment.Version};os={Environment.OSVersion.Platform}");
         writer.WriteLine("# mods=" + string.Join(";", (ModLoader.Mods ?? Array.Empty<Mod>()).Select(mod => mod.Name + "@" + mod.Version)));
+        writer.WriteLine($"# source_revision={SourceProvenance}");
+        recordedConfiguration = RecordedConfiguration.Current();
+        writer.WriteLine($"# config={recordedConfiguration.Describe()}");
+        // What a capture keeps and what it forgets, read from the constants that bound each store, so a reader can tell an
+        // absence the recorder never kept from one that did not happen without knowing the code.
+        writer.WriteLine("# retention=rows=one-per-companion-ai-tick;events=every-occurrence-offered"
+            + $";terrain-snapshots-remembered={RecordTerrainChunks.MaximumRemembered};terrain-captures-per-tick={RecordTerrainChunks.CapturesPerTick}"
+            + $";recent-attempt-outcomes={BehaviourSelection.OwnCurrentActivity.RecentAttemptCapacity};cargo-transfer-ledger={(global::AICompanion.Companion.Inventory.CompanionInventory.RecentTransferCapacity)}"
+            + $";cosmetic-contacts-per-summary={GodsEyeEvents.CosmeticContactsPerSummary};inspector-traces={BrainInspectorSamples.Capacity};session-map-tiles={SessionMap.MaxTilesRemembered}"
+            + $";plan-dump-every-ticks={DumpEveryTicks};flush-every-ticks={FlushEveryTicks}");
         writer.WriteLine("# lifecycle=world-entry-observed;tag-load-not-yet-observed;first-update-not-yet-observed;outer-load-unobservable;save-not-observed");
         writer.Flush();
     }
@@ -386,9 +445,16 @@ public sealed class BrainTelemetry : ModSystem
     /// </summary>
     public static void Record(CompanionNPC companion)
     {
-        if (!DiagnosticsConfiguration.CompanionDiagnosticsConfig.Current.RecordTelemetry) { if (writer != null) Close(); return; }
+        if (!DiagnosticsConfiguration.CompanionDiagnosticsConfig.Current.RecordTelemetry) { if (writer != null) Close("recording-disabled"); return; }
         if (writer == null)
             return;
+        recordClock.Restart();
+        var configuration = RecordedConfiguration.Current();
+        if (configuration != recordedConfiguration)
+        {
+            recordedConfiguration = configuration;
+            GodsEyeEvents.RecordConfiguration(configuration.Describe());
+        }
         ScenarioCapture.Watch(companion);
         Brain brain = companion.Brain;
         var senses = brain.Senses;
@@ -403,7 +469,7 @@ public sealed class BrainTelemetry : ModSystem
         foreach (var outcome in activity.RecentAttempts)
             GodsEyeEvents.RecordAttemptOutcome(npc, outcome.AttemptId, outcome.ActivityId, outcome.Activity, outcome.Family.ToString(),
                 outcome.StartTick, outcome.EndTick, outcome.Status.ToString(), outcome.Cause, outcome.ProductiveEffects,
-                outcome.Attribution.ToString());
+                outcome.Attribution.ToString(), outcome.ClaimedYieldType, outcome.ClaimedYieldQuantity);
         var controlGrant = brain.ControlGrants.Last;
         bool controlFresh = controlGrant?.Tick == Main.GameUpdateCount;
         if (controlFresh && controlGrant is { } freshGrant)
@@ -466,6 +532,7 @@ public sealed class BrainTelemetry : ModSystem
             foreach (var a in brain.Chooser.Actions) textColumns.Append(',').Append(a.Name).Append("_offer");
             textColumns.Append(",meeting_reason,meeting_anchor,meeting_flood");
             textColumns.Append(",nav_failure,nav_failure_reason,nav_attempt_ending");
+            textColumns.Append(",region_kind,region_anchor_px,region_player_px,region_comfort,region_work_tile,region_reach,region_arrival");
             writer.WriteLine(textColumns.ToString());
             var h = new StringBuilder();
             // A start timestamp is file metadata. Stopwatch is the observed wall duration of
@@ -507,6 +574,14 @@ public sealed class BrainTelemetry : ModSystem
             h.Append("\tmeeting_reason\tmeeting_anchor\tmeeting_player_ticks\tmeeting_companion_ticks\tmeeting_candidates\tmeeting_priced\tmeeting_flood");
             h.Append("\tnav_failure\tnav_failure_reason\tnav_failure_search_id\tnav_failure_attempt_id\tnav_attempt_ending\tnav_attempts_completed\tnav_attempts_failed\tnav_attempts_preempted\tnav_attempts_cancelled");
             h.Append("\tpursuit_target\tpursuit_value\tpursuit_access_ticks\tpursuit_evidence\taim_target\tlanded_hit_target\tlanded_hit_aimed\tlanded_hit_damage\tlanded_hit_tick\tlanded_hits\tguard_removal_ticks\tguard_usefulness\ttop_threat_effective_player\ttop_threat_effective_companion\tencounter_intensity\tencounter_source\tencounter_recognised\tencounter_pressure_ticks\tguard_access_ticks");
+            // The success region the positioner admitted its destination against, and whether a claimed arrival lies
+            // inside it. The region is the positioner's own snapshot from the resolve that admitted it, so the report
+            // judges arrival against what the destination was chosen for, not against the world some ticks later.
+            h.Append("\tregion_kind\tregion_revision\tregion_tick\tregion_terrain\tregion_anchor_px\tregion_player_px\tregion_comfort\tregion_work_tile\tregion_reach\tregion_arrival");
+            // What recording costs and what the capture did not keep, as running totals: the previous row's Record cost,
+            // occurrences handed to the event writer, refused after a failed write, and folded into summaries, and
+            // terrain chunks the snapshot memory forgot. The end marker restates the closing totals.
+            h.Append("\trecord_ms\tevents_written\tevents_dropped\tevents_coalesced\tterrain_evictions");
             writer.WriteLine(h.ToString());
             headerWritten = true;
         }
@@ -847,12 +922,35 @@ public sealed class BrainTelemetry : ModSystem
         // unsettled region, a proven absence or a threat nothing can damage (read the share beside it).
         float access = guard?.AccessTicks ?? float.NaN;
         sb.Append('\t').Append(float.IsFinite(access) ? access.ToString("0.0", CultureInfo.InvariantCulture) : "-1");
+        var region = brain.Positioner.Region;
+        // A claimed arrival is the navigator reporting Arrived on a tick the ordinary branch asked it to travel;
+        // any other owner leaves the status from an earlier MoveTo, which is not a claim about this tick.
+        // The feet are the entry body the navigator judged, not the after-helper npc_px.
+        bool arrivalClaimed = brain.Navigator.Status == SharedMovementSystem.Navigator.ExecutionStatus.Arrived
+            && controlGrant?.RequestedOwner == "travel";
+        bool? inside = arrivalClaimed ? region.Contains(new Vector2(observed.Left + npc.width / 2f, observed.Bottom)) : null;
+        sb.Append('\t').Append(region.Name)
+            .Append('\t').Append(brain.Positioner.ChosenRevision)
+            .Append('\t').Append(region.AdmittedTick)
+            .Append('\t').Append(region.TerrainRevision)
+            .Append('\t').Append(region.Kind == PositionSelection.SuccessRegionKind.None ? "-" : Pair(region.Anchor))
+            .Append('\t').Append(region.Kind == PositionSelection.SuccessRegionKind.FollowComfort ? Pair(region.PlayerFeet) : "-")
+            .Append('\t').Append(region.Kind == PositionSelection.SuccessRegionKind.FollowComfort ? Pair(region.Comfort) : "-")
+            .Append('\t').Append(region.WorkTile is Point work ? $"{work.X},{work.Y}" : "-")
+            .Append('\t').Append(region.Kind == PositionSelection.SuccessRegionKind.ToolReach ? $"{region.ReachX},{region.ReachY}" : "-")
+            .Append('\t').Append(!arrivalClaimed ? "-" : inside is bool b ? (b ? "inside" : "outside") : "undeclared");
+        sb.Append('\t').Append(double.IsNaN(lastRecordMs) ? "-" : lastRecordMs.ToString("0.000", CultureInfo.InvariantCulture))
+            .Append('\t').Append(GodsEyeEvents.Written)
+            .Append('\t').Append(GodsEyeEvents.Dropped)
+            .Append('\t').Append(GodsEyeEvents.Coalesced)
+            .Append('\t').Append(RecordTerrainChunks.Evictions);
 
         // A write that fails (disk full, a stream the OS closed) must not escape the NPC's AI
         // and take the companion with it; the record stops and the game goes on.
         try
         {
             writer.WriteLine(sb.ToString());
+            rowsWritten++;
             if (++sinceFlush >= FlushEveryTicks)
             {
                 sinceFlush = 0;
@@ -866,6 +964,7 @@ public sealed class BrainTelemetry : ModSystem
             try { writer.Dispose(); } catch { /* the stream is already broken */ }
             writer = null;
         }
+        lastRecordMs = recordClock.Elapsed.TotalMilliseconds;
     }
 
     private static string Tile(Vector2 world) => $"{(int)(world.X / 16f)},{(int)(world.Y / 16f)}";
@@ -905,7 +1004,7 @@ public sealed class BrainTelemetry : ModSystem
         };
     }
 
-    private static string DescribeControls(Controls controls)
+    internal static string DescribeControls(Controls controls)
         => $"move={controls.MoveX.ToString("0.00", CultureInfo.InvariantCulture)};jump={(controls.Jump ? 1 : 0)};scale={controls.JumpScale.ToString("0.00", CultureInfo.InvariantCulture)};fall={(controls.FallThrough ? 1 : 0)};descend={(controls.Descend ? 1 : 0)}";
 
     private static void AppendState(StringBuilder sb, BodyState? state)

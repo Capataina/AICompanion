@@ -29,7 +29,22 @@ public sealed class Positioner
     private const int SampleStride = 1;
     private const int MaxSolvesPerRescore = 8;
 
-    public Vector2? Chosen { get; private set; }
+    private Vector2? chosen;
+    /// <summary>The destination this resolver holds. Every change of value advances <see cref="ChosenRevision"/>.</summary>
+    public Vector2? Chosen
+    {
+        get => chosen;
+        private set
+        {
+            if (value != chosen) ChosenRevision++;
+            chosen = value;
+        }
+    }
+    /// <summary>The destination revision: advances whenever <see cref="Chosen"/> takes a different value, including
+    /// clearing it, so every row naming one revision names one admitted destination.</summary>
+    public long ChosenRevision { get; private set; }
+    /// <summary>The success region the held destination was admitted against, snapshotted by the resolve that admitted it.</summary>
+    public SuccessRegion Region { get; private set; } = SuccessRegion.None;
     public float ChosenScore { get; private set; }
     private PositionRequest lastRequest;
     private WeaponProfile? lastFireProfile;
@@ -86,7 +101,7 @@ public sealed class Positioner
         var held = (Chosen, ChosenScore, lastRequest, lastFireProfile, lastTerrainRevision, sinceScore,
             ChoiceReason, FollowObjectiveSatisfied, FollowHorizontalGap, FollowVerticalGap,
             FollowObjectiveReason, CandidateCount, ReachableCandidateCount, RejectedCandidateCount,
-            EvidenceTick, EvaluatedCandidates, CandidateEvidence);
+            EvidenceTick, EvaluatedCandidates, CandidateEvidence, ChosenRevision, Region);
         int previousClock = clock;
         bool admitted = false;
         try
@@ -105,7 +120,9 @@ public sealed class Positioner
                 (Chosen, ChosenScore, lastRequest, lastFireProfile, lastTerrainRevision, sinceScore,
                     ChoiceReason, FollowObjectiveSatisfied, FollowHorizontalGap, FollowVerticalGap,
                     FollowObjectiveReason, CandidateCount, ReachableCandidateCount, RejectedCandidateCount,
-                    EvidenceTick, EvaluatedCandidates, CandidateEvidence) = held;
+                    // The revision and region come last: restoring Chosen above advances the revision, and a
+                    // rejected query must leave the held destination's identity exactly as it found it.
+                    EvidenceTick, EvaluatedCandidates, CandidateEvidence, ChosenRevision, Region) = held;
         }
     }
 
@@ -140,6 +157,7 @@ public sealed class Positioner
             CandidateEvidence = "";
             EvaluatedCandidates = CandidateCount = ReachableCandidateCount = RejectedCandidateCount = 0;
             EvidenceTick = senses.Tick;
+            Region = SuccessRegion.None;
             return null;
         }
         switch (request.Kind)
@@ -150,6 +168,7 @@ public sealed class Positioner
                 // interruption left in Chosen for the rest of a hold (Codex review of 2303802).
                 lastRequest = request;
                 Chosen = null;
+                Region = SuccessRegion.None;
                 return null;
             case RequestKind.Exact:
                 // Exact still means a real place to stand: the nearest standable tile the walker can
@@ -160,6 +179,11 @@ public sealed class Positioner
                 Point around = MovementQueries.FeetTile(request.Anchor);
                 Point? tile = MovementQueries.NearestStandable(around, 3, t => InReach(t) && Allowed(t)) ?? MovementQueries.NearestStandable(around, 3, Allowed);
                 Chosen = tile is Point t ? MovementQueries.FeetWorld(t) : null;
+                // Declared against the request's own stand rather than the substituted tile: the proof
+                // chose the stand, and the tile nearest it is where the walk happens to aim.
+                Region = Chosen == null ? SuccessRegion.None
+                    : request.WorkTile is Point work ? SuccessRegion.ToolStand(request.Anchor, work, senses.Tick, TerrainChanges.Revision)
+                    : SuccessRegion.Unscored(SuccessRegionKind.Undeclared, request.Anchor, senses.Tick, TerrainChanges.Revision);
                 return Chosen;
             case RequestKind.Roam:
                 // Anywhere in the region the body can reach, the further from its feet the better,
@@ -174,6 +198,8 @@ public sealed class Positioner
                 sinceScore = 0;
                 RefreshReach(senses);
                 Chosen = RoamSpot(MovementQueries.FeetTile(request.Anchor));
+                Region = Chosen == null ? SuccessRegion.None
+                    : SuccessRegion.Unscored(SuccessRegionKind.Undeclared, request.Anchor, senses.Tick, TerrainChanges.Revision);
                 return Chosen;
         }
 
@@ -192,6 +218,7 @@ public sealed class Positioner
                 sinceScore = 0;
                 Chosen = MovementQueries.FeetWorld(place);
                 ChoiceReason = "priced-meeting-place";
+                Region = SuccessRegion.Unscored(SuccessRegionKind.MeetingPlace, request.Anchor, senses.Tick, TerrainChanges.Revision);
                 return Chosen;
             }
         }
@@ -209,6 +236,13 @@ public sealed class Positioner
         sinceScore = 0;
         RefreshReach(senses);
         Chosen = Best(request, senses, fireProfile);
+        // Every non-null answer from Best passed acceptance against this call's player feet and anchor (the
+        // incumbent and every sampled candidate are gated alike), so these are the references it was admitted
+        // against even when the value did not change and the revision did not advance.
+        Region = Chosen == null ? SuccessRegion.None
+            : request.Kind == RequestKind.WithPlayer
+                ? SuccessRegion.Follow(new FollowPlayerObjective(senses.Player.Bottom, request.Anchor), senses.Tick, TerrainChanges.Revision)
+                : SuccessRegion.Unscored(SuccessRegionKind.FiringPosition, request.Anchor, senses.Tick, TerrainChanges.Revision);
         return Chosen;
     }
 

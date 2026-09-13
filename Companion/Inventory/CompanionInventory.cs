@@ -80,7 +80,8 @@ public sealed class CompanionInventory
 
     // The most recent accepted transfers, oldest overwritten first. A purpose that outlives more transfers than this can only
     // undercount what it received, never credit a transfer it did not see; collection attempts end long before that.
-    private readonly (long Sequence, Item? Source, int Quantity)[] recentTransfers = new (long, Item?, int)[32];
+    internal const int RecentTransferCapacity = 32;
+    private readonly (long Sequence, Item? Source, int Quantity)[] recentTransfers = new (long, Item?, int)[RecentTransferCapacity];
 
     /// <summary>How many of <paramref name="source"/>, the world item object itself, this cargo accepted after <paramref name="mark"/>.</summary>
     public int TransferredSince(long mark, Item source)
