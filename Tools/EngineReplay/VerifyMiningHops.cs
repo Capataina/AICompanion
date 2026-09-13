@@ -28,16 +28,22 @@ internal static class VerifyMiningHops
     public static int Run()
     {
         int red = 0;
-        void Each(string name, Action fixture)
+        // Whole-brain fixtures catch a phase by condition (walking within reach of a take-off, at rest on it), and
+        // under the wall-clock planning allowances machine load decides how far a search gets and so which phase
+        // the loop catches; they run with the allowances lifted. The deadline fixture is the exception: a lifted
+        // limit sets no deadline at all, so the expiry it proves could never fire.
+        void Each(string name, Action fixture, bool productionAllowances = false)
         {
+            LiveLimitPlanningWork.Unbounded = !productionAllowances;
             try { fixture(); Console.WriteLine($"GREEN {name}"); }
             catch (Exception e) { red++; Console.WriteLine($"RED {name}: {e.Message}"); }
+            finally { LiveLimitPlanningWork.Unbounded = false; }
         }
         Each("pit-edge", APitEdgeTakeOffSurvivesAWalkingArrival);
         Each("displaced-landed", () => ADisplacedHopTargetIsReleased(true));
         Each("displaced-placed", () => ADisplacedHopTargetIsReleased(false));
         Each("lost-take-off", ALostTakeOffEndsTheAttemptAndIsNotReoffered);
-        Each("deadline", HopScansCutShortByTheDeadlineAreUnknown);
+        Each("deadline", HopScansCutShortByTheDeadlineAreUnknown, productionAllowances: true);
         Each("tall-ceiling", ATallCeilingNeedsMostOfTheJumpsRise);
         Each("ledge", ALedgeTakeOffIsClimbedToAndLandedOn);
         if (red > 0) return red;
