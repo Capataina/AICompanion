@@ -1,6 +1,6 @@
 # Proposal 1 implementation ledger
 
-**13 September 2026.** Headless native fixtures and SessionReport self-tests. No recorded playtest of this build. Current Behaviour in the README is still the 11 September caves. A green fixture is not a live pass.
+**13 September 2026.** `sh Tools/verify.sh` exits 0: 2536/2536 native NPC collision matches, family-offer fixtures, and the rest of the default native suite. Combat's telemetry-close fixture now passes `Close(string reason)` rather than the old zero-argument invoke. No recorded playtest of this build. Current Behaviour in the README is still the 11 September caves. A green fixture is not a live pass.
 
 G1 (two-tile pillar top hop) remains a known limitation asserted as it stands. Mastery movement abilities, chaining several jobs (Proposal 3), and a projectile dodge that jumps are not built.
 

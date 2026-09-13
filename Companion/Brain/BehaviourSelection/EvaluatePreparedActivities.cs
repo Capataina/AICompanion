@@ -74,7 +74,7 @@ public static class EvaluatePreparedActivities
     {
         if (!float.IsFinite(candidate.RawValue) || candidate.RawValue < 0) return "invalid-raw-value";
         // Value is the answer to "how much is this worth", eligibility to "is there an offer at all".
-        // A positive value beside an absent, forbidden or unusable offer is an adapter defect, and
+        // A positive value beside an absent, forbidden or unusable offer is a behaviour defect, and
         // rejecting it here is what keeps an absent offer from ever winning.
         if (candidate.RawValue > 0 && candidate.Eligibility is not (Behaviours.OfferEligibility.Usable or Behaviours.OfferEligibility.Unresolved))
             return "value-without-eligible-offer";

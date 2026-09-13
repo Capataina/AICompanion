@@ -6,7 +6,7 @@ using Terraria;
 
 namespace AICompanion.Companion.Brain.BehaviourSelection;
 
-/// <summary>The target binding captured when an adapter prepares. Validation consumes live
+/// <summary>The target binding captured when a behaviour prepares. Validation consumes live
 /// availability without discovering a replacement or changing the prepared utility.</summary>
 public readonly record struct ValidatePreparedActivity(object? Identity, int Generation, int ItemType)
 {

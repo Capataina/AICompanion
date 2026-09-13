@@ -11,10 +11,10 @@ using AICompanion.Companion.Brain.ActivityCoordination;
 namespace AICompanion.Companion.Brain;
 
 /// <summary>
-/// The tick order of the companion's mind: senses read the world, reflexes may take
-/// the body, the chooser picks an action, the action acts and asks for a spot, the
-/// positioner picks the spot, the navigator walks there. Everything the overlay and
-/// telemetry show is left on these objects after the tick.
+/// The tick order of the companion's mind: senses read the world, shared safety may
+/// take the body, the chooser picks a family offer, the behaviour acts and asks for
+/// a spot, the positioner picks the spot, the navigator walks there. Everything the
+/// overlay and telemetry show is left on these objects after the tick.
 /// </summary>
 public sealed class Brain
 {

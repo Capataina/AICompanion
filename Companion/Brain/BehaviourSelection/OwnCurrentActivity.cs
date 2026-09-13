@@ -9,7 +9,7 @@ namespace AICompanion.Companion.Brain.BehaviourSelection;
 public enum ActivityPhase { None, Selected, Executing, Suspended }
 
 /// <summary>One primary activity owns entry, execution and suspension. Opportunity caches
-/// remain in their activity adapters; suspension retains only this one current purpose.
+/// remain in their behaviours; suspension retains only this one current purpose.
 /// Each continuous stretch of execution is one attempt with its own identity, so resuming a
 /// suspended purpose keeps the activity identity and receives a new attempt identity.</summary>
 public sealed class OwnCurrentActivity

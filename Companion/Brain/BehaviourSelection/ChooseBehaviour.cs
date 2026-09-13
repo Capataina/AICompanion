@@ -110,7 +110,7 @@ public sealed class Chooser
                 / Math.Max(1f, Weights.RegroupFullReturnTicks - Weights.RegroupFreeReturnTicks), 0f, 1f);
             RegroupUrgency = Math.Max(RegroupUrgency, travelPressure);
         }
-        // Discovery runs once per adapter. Score and forecast read the captured candidate;
+        // Discovery runs once per behaviour. Score and forecast read the captured candidate;
         // neither receives live context or advances the job during comparison.
         var prepared = new PreparedActivity[Actions.Count];
         var bindings = new ValidatePreparedActivity[Actions.Count];

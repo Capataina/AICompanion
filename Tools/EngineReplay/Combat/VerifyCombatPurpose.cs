@@ -183,7 +183,7 @@ internal static class VerifyCombatPurpose
             config.RecordTelemetry = false;
             config.OnChanged();
             typeof(live::AICompanion.Companion.Brain.BehaviourDiagnostics.BrainTelemetry)
-                .GetMethod("Close", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)?.Invoke(null, null);
+                .GetMethod("Close", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)?.Invoke(null, new object[] { "fixture-close" });
             savePath.SetValue(null, priorSavePath);
             if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
         }
