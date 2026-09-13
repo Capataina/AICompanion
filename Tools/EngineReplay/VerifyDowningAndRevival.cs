@@ -9,6 +9,7 @@ using HandGrant = live::AICompanion.Companion.Brain.ActivityCoordination.HandGra
 using TerrainChanges = live::AICompanion.Companion.Brain.SharedMovementSystem.TerrainChanges;
 using NavGrid = live::AICompanion.Companion.Brain.SharedMovementSystem.NavGrid;
 using GameTileWorld = live::AICompanion.Companion.Brain.SharedMovementSystem.GameTileWorld;
+using LimitPlanningWork = live::AICompanion.Companion.Brain.SharedMovementSystem.LimitPlanningWork;
 
 /// <summary>
 /// A26, getting up after downing, through the real companion AI entry point. The NPC owns downing and revival: a living
@@ -28,7 +29,14 @@ internal static class VerifyDowningAndRevival
         Main.dedServ = true;
         int failed = 0;
         revivalTickPresentation = null;
-        failed += VerifyMovementFailures.Case("a player beside the downed companion revives it, and a player out of reach leaves it to get up alone later", RevivalBesideAndAlone, "downing");
+        // The tick after revival runs the whole brain; with the live wall-clock planning allowances in force its verdict would
+        // depend on machine load rather than on the lifecycle under test.
+        LimitPlanningWork.Unbounded = true;
+        try
+        {
+            failed += VerifyMovementFailures.Case("a player beside the downed companion revives it, and a player out of reach leaves it to get up alone later", RevivalBesideAndAlone, "downing");
+        }
+        finally { LimitPlanningWork.Unbounded = false; }
         if (revivalTickPresentation != null)
             Console.WriteLine($"MEASURE downing the revival tick publishes a stale presentation: {revivalTickPresentation} (a finding for the presentation owner; every other tick passes the shared check)");
         Console.WriteLine(failed == 0
