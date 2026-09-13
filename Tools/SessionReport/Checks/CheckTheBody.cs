@@ -167,9 +167,9 @@ public sealed class BeingUnableToReachHimGetsNoticed : ICheck
 
         foreach (var stretch in stretches)
         {
-            string reach = session.Has("reach_n", "returnable_n")
-                ? $"Reach over the stretch averaged {FindStretches.Mean(session["reach_n"], stretch):0} tiles with "
-                  + $"{FindStretches.Mean(session["returnable_n"], stretch):0} returnable. "
+            string reach = session.Has("reach_any", "reach_two_way")
+                ? $"Reach over the stretch averaged {FindStretches.Mean(session["reach_any"], stretch):0} tiles with "
+                  + $"{FindStretches.Mean(session["reach_two_way"], stretch):0} returnable. "
                 : "";
             yield return new Finding(
                 Severity.Potential,

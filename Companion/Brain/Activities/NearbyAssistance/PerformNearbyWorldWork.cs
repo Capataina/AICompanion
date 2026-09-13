@@ -19,6 +19,13 @@ public abstract class PerformNearbyWorldWork : CompanionAction
     private Vector2 stand;
     private ulong nextSearch, retryAfter;
     private bool eligibleLastObservation;
+    private bool searchBudgetSpent;
+
+    /// <summary>Whether the last discovery search stopped because it had asked as many sites about their
+    /// approach as one search may, rather than because it ran out of sites. A subclass classifying its own
+    /// refusal reads this first: the sites past the cut were never asked, so this is an answer that has not
+    /// arrived rather than an answer of "no".</summary>
+    protected bool SearchBudgetSpent => searchBudgetSpent;
     private bool needsJump, jumped;
     private ulong jumpStarted;
     // Tiles whose approach was tried and did not arrive, with the tick they may be offered again.
@@ -39,6 +46,20 @@ public abstract class PerformNearbyWorldWork : CompanionAction
     protected abstract bool Perform(in ActionContext ctx, Point tile);
     protected abstract float Utility { get; }
     protected virtual bool AllowJump => false;
+    /// <summary>Whether a productive interaction keeps this method's job rather than ending it. Lighting a dark
+    /// region takes several torches, so it re-nominates from where it now stands instead of releasing the
+    /// target and waiting out the search cadence; one pot is one pot, so pot collection does not.</summary>
+    protected virtual bool ContinueAfterInteraction => false;
+    /// <summary>Why this search found no site, where the subclass knows something more specific than "nothing
+    /// in the window". Null keeps the shared answer.</summary>
+    protected virtual (OfferEligibility Eligibility, string Reason)? SearchRefusal(in ActionContext ctx) => null;
+    /// <summary>Whether the body can reach and return from this stand tile, answered from the reach sense
+    /// rather than by a pair of fresh route searches. Null means the subclass has no opinion and the shared
+    /// round-trip proof runs instead. The three answers are not two: <c>No</c> is proven and is remembered
+    /// like any other proven refusal, so the next bounded search advances past this site, while
+    /// <c>Unknown</c> is a flood that has not settled and must be re-asked rather than written off. Collapsing
+    /// them into one false made every bounded search re-ask the same nearest sites and never advance.</summary>
+    protected virtual Reachability.Reach? StandReachable(in ActionContext ctx, Point stand) => null;
     /// <summary>The classification for a method its enabling conditions currently refuse; the
     /// subclass knows whether that refusal is a player setting, missing supplies or the world.</summary>
     protected virtual (OfferEligibility Eligibility, string Reason) DisabledOffer(in ActionContext ctx)
@@ -138,7 +159,11 @@ public abstract class PerformNearbyWorldWork : CompanionAction
         preparedTarget = target?.ToWorldCoordinates();
         if (!enabledAtPreparation) { var (eligibility, reason) = DisabledOffer(ctx); Classify(eligibility, reason); }
         else if (target == null && tripRefusal is { } refusal) Classify(refusal.Eligibility, refusal.Reason);
-        else if (target == null) Classify(OfferEligibility.NoOpportunity, "no-candidate-in-search-window");
+        else if (target == null)
+        {
+            var (eligibility, reason) = SearchRefusal(ctx) ?? (OfferEligibility.NoOpportunity, "no-candidate-in-search-window");
+            Classify(eligibility, reason);
+        }
         else Classify(OfferEligibility.Usable, "reachable-interaction");
     }
 
@@ -204,6 +229,7 @@ public abstract class PerformNearbyWorldWork : CompanionAction
             // each RoundTrip is two fresh route searches, so only a few are asked per search. A hop with no take-off is
             // deferred without spending that bound.
             ordered.Clear();
+            searchBudgetSpent = false;
             GatherSearchTiles(ctx, ordered);
             ordered.Sort(static (a, b) => a.Cost != b.Cost ? a.Cost.CompareTo(b.Cost) : a.Order.CompareTo(b.Order));
             int tripsAsked = 0;
@@ -217,6 +243,15 @@ public abstract class PerformNearbyWorldWork : CompanionAction
                 { candidateStand = ctx.Npc.Bottom; jump = true; }
                 else
                 {
+                    // The bound sits on the approach query, which is the expensive half and the one both
+                    // proof routes pay. It used to sit on the round trip, and opting lighting into the reach
+                    // sense therefore removed the only thing bounding this loop: a sensed site skipped the
+                    // counter entirely, so a screen dark everywhere put every candidate through a fresh
+                    // bounded A* and one preparation measured 37.6 ms against a twelve-millisecond tick.
+                    // Charging the approach rather than the proof bounds both routes by what they actually
+                    // cost, and it deliberately tightens the round-trip route too: a site whose approach
+                    // cannot be searched was never going to have its trip proven either.
+                    if (tripsAsked++ >= Infrastructure.Selection.Weights.NearbyWorkTripChecks) { searchBudgetSpent = true; break; }
                     var standing = FindToolAccess.Approach(p, ctx.Npc.Bottom, out candidateStand);
                     if (standing == Reachability.Reach.Unknown) continue;
                     // Only a site no standing pose reaches is hopped to, from a take-off the walker reaches: the same order and
@@ -232,13 +267,55 @@ public abstract class PerformNearbyWorldWork : CompanionAction
                     // RoundTrip is what the bound is for: two fresh route searches. A hop that never
                     // finds a take-off is deferred without spending it, so a wall of unreachable air
                     // cannot hide a proven pit whose refusal is the named one-way drop.
-                    if (tripsAsked++ >= Infrastructure.Selection.Weights.NearbyWorkTripChecks) break;
-                    if (!TripReturns(ctx, p, candidateStand)) continue;
+                    // The reach sense answers the round trip where a subclass opts into it: membership of the
+                    // two-way region is what returnable means in this project — everywhere the body can go
+                    // and come home from — and one flood has already answered it for every candidate, where
+                    // RoundTrip is two fresh route searches per site and is bounded for exactly that reason.
+                    // A subclass that has not opted in keeps the route searches, so this is not a change to
+                    // pot collection dressed as a change to lighting.
+                    if (StandReachable(ctx, MovementQueries.FeetTile(candidateStand)) is Reachability.Reach sensed)
+                    {
+                        // A proven refusal is remembered exactly as a refused round trip is, with the reason
+                        // left to the subclass that knows which refusal it was. Without this the search is
+                        // bounded and forgetful at once, which is worse than either: each search spends its
+                        // whole budget on the same nearest sites and the answer never arrives.
+                        if (sensed == Reachability.Reach.No)
+                        {
+                            // The subclass owns which refusal this was, and the fact has to outlive the scan
+                            // that found it: once the site is deferred the next scan never builds it, so its
+                            // reason would decay into "the placer accepted nothing" — an absence, where a
+                            // proven no-return is knowledge. tripRefusal is the sticky home the round-trip
+                            // route already uses for the same fact.
+                            if (SearchRefusal(ctx) is { } proven) tripRefusal = proven;
+                            DeferRefusedTrip(p, null);
+                            continue;
+                        }
+                        if (sensed != Reachability.Reach.Yes) continue;
+                    }
+                    else
+                    {
+                        if (!TripReturns(ctx, p, candidateStand)) continue;
+                    }
                 }
                 target = p; stand = candidateStand; needsJump = jump; jumped = false;
                 approachOrigin = ctx.Npc.Bottom; approachTicks = 0;
                 break;
             }
+            // A search that could not answer waits a fraction of the time a search that answered "nothing
+            // here" waits. The long wait exists so a fruitless search is not repeated every tick, and a
+            // search whose evidence simply has not arrived yet is not that: the reach region is flooded
+            // incrementally and takes a few rescores to settle after a world change, so the first searches
+            // after one refuse on "not yet known" while the body keeps moving. Waiting the full cadence
+            // then re-asks from wherever the companion has since wandered, which is how a proven site a few
+            // tiles away becomes a different, worse site by the time anyone can prove anything about it.
+            // A loop that left on its own site budget is the fourth exit and it is an unanswered search, not a
+            // refusal: the sites past the cut were never asked about. It reaches here from a spent planning
+            // deadline as readily as from a crowded scene, because every approach query answers Unknown once
+            // the deadline is gone and every Unknown now charges the budget, so treating it as "nothing here"
+            // would re-ask the full cadence later from wherever the body has since walked. That is exactly the
+            // failure that turned the J08 lighting trip's site into the wrong one.
+            if (target == null && (searchBudgetSpent || SearchRefusal(ctx) is { Eligibility: OfferEligibility.Unresolved }))
+                nextSearch = Main.GameUpdateCount + (ulong)Infrastructure.Selection.Weights.NearbyWorkUnresolvedRetryTicks;
         }
         if (deferred.Count > 0)
         {
@@ -309,9 +386,14 @@ public abstract class PerformNearbyWorldWork : CompanionAction
         if (Main.GameUpdateCount >= retryAfter)
         {
             retryAfter = Main.GameUpdateCount + 30;
-            if (Perform(ctx, tile)) ctx.Companion.Brain.Chooser.RecordWork(tile.ToWorldCoordinates());
+            bool worked = Perform(ctx, tile);
+            if (worked) ctx.Companion.Brain.Chooser.RecordWork(tile.ToWorldCoordinates());
             else Release("native-interaction-refused");
-            target = null; nextSearch = Main.GameUpdateCount + 60;
+            target = null;
+            // A method that works a region rather than a site searches again on the next preparation, from
+            // where the body now stands, instead of waiting out the cadence: the wait exists so a search that
+            // found nothing is not repeated every tick, and a search that has just succeeded is not that.
+            nextSearch = worked && ContinueAfterInteraction ? 0 : Main.GameUpdateCount + 60;
         }
         return PositionRequest.Hold;
     }

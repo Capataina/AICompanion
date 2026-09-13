@@ -44,7 +44,12 @@ public sealed class BrainTelemetry : ModSystem
     private static DateTime sessionStartedUtc;
     // 0.30.0 joins two branches that numbered their changes independently: the evidence branch's 0.25.0–0.29.0 are the
     // numbers SessionReport's version gates use, and the combat branch's own 0.25.0 and 0.26.0 columns are read by name.
-    // 0.31.0 ends the row with the travel rates and adds the route-episode and stop occurrences beside them.
+    // 0.31.0 lands two lanes at once, and no played capture carries either alone. The light scalar becomes the two
+    // field queries the torch decision actually reads (`dark_near`, `dark_ahead`, `torch_reason`, with
+    // `light_samples`/`light_read_tick` renamed from the ambient pair), `light_region` names the dark region the
+    // lighting activity nominated, `reach_n`/`returnable_n` become `reach_any`/`reach_two_way` after the reach sense
+    // that now owns them with `reach_complete` beside them so an unfinished flood and a small one stop reading alike,
+    // and the row ends with the travel rates while the route-episode and stop occurrences land beside them.
     private const string Schema = "0.31.0";
     // The cost of the previous row's Record call: a row cannot contain the time spent writing itself, so each row carries
     // the one before it and the first row of a session carries none.
@@ -491,8 +496,10 @@ public sealed class BrainTelemetry : ModSystem
         var chop = default(Activities.Gathering.ChopTree);
         var survival = brain.Safety.Escape;
         var hunt = default(Activities.Combat.PursueAttackOpportunity);
+        var light = default(Activities.NearbyAssistance.LightUsefulArea);
         foreach (var candidate in brain.Chooser.Actions)
         {
+            if (candidate is Activities.NearbyAssistance.LightUsefulArea lightAction) light = lightAction;
             if (candidate is Activities.Combat.ProtectPlayer guardAction) guard = guardAction;
             if (candidate is Activities.Gathering.MineOre mineAction) mine = mineAction;
             if (candidate is Activities.Gathering.ChopTree chopAction) chop = chopAction;
@@ -523,7 +530,7 @@ public sealed class BrainTelemetry : ModSystem
             brain.Positioner.CandidateCount, brain.Positioner.ReachableCandidateCount, brain.Positioner.RejectedCandidateCount, brain.Positioner.ChoiceReason,
             senses.Threats.InterventionTicks, senses.Threats.ProtectionUrgency,
             senses.Threats.MostUrgent?.PredictionConfidence ?? 0f, senses.Threats.MostUrgent?.PredictionSamples ?? 0,
-            $"route-completed-steps={brain.Navigator.Path?.Index ?? 0};route-remaining-estimated-ticks={brain.Navigator.RemainingEstimatedRouteTicks:0.000};follow-objective-valid={brain.Positioner.FollowObjectiveSatisfied};follow-horizontal-gap={brain.Positioner.FollowHorizontalGap:0.000};follow-vertical-gap={brain.Positioner.FollowVerticalGap:0.000};follow-objective={brain.Positioner.FollowObjectiveReason};recovery-active={brain.FollowRecovery.Active};recovery-reason={brain.FollowRecovery.Reason};recovery-flights={brain.FollowRecovery.Flights};guard-threat={guard?.ProtectedThreatId ?? -1};guard-pressure={(guard?.RetainedPressure ?? 0f).ToString("0.000", CultureInfo.InvariantCulture)};guard-reason={guard?.CommitmentReason ?? "unavailable"};mine-job={mine?.JobId ?? 0};mine-policy={mine?.Policy.ToString() ?? "unavailable"};mine-status={mine?.Status ?? "unavailable"};mine-remaining={mine?.RemainingTiles ?? 0};mine-target={mine?.TargetTile?.ToString() ?? "-"};control-source={companion.Motor.ControlSource};state-search-pending={brain.Movement.StateSearchPending};retained-control-ticks={brain.Movement.StateSearchRetainedTicks};air-target={survival.AirTarget};safety-response-id={brain.Safety.Id};safety-active={brain.Safety.Active};safety-kind={brain.Safety.Kind};safety-reason={brain.Safety.Reason};safety-last-end={brain.Safety.LastEndReason};breath-ticks-left={companion.Breath.TicksLeft};position-evidence-tick={brain.Positioner.EvidenceTick};positions-evaluated={brain.Positioner.EvaluatedCandidates};position-alternatives={brain.Positioner.CandidateEvidence};target-evidence-tick={companion.Arsenal.TargetEvidenceTick};target-evidence-age={senses.Tick - companion.Arsenal.TargetEvidenceTick};target-alternatives={companion.Arsenal.TargetEvidence}");
+            $"route-completed-steps={brain.Navigator.Path?.Index ?? 0};route-remaining-estimated-ticks={brain.Navigator.RemainingEstimatedRouteTicks:0.000};follow-objective-valid={brain.Positioner.FollowObjectiveSatisfied};follow-horizontal-gap={brain.Positioner.FollowHorizontalGap:0.000};follow-vertical-gap={brain.Positioner.FollowVerticalGap:0.000};follow-objective={brain.Positioner.FollowObjectiveReason};recovery-active={brain.FollowRecovery.Active};recovery-reason={brain.FollowRecovery.Reason};recovery-flights={brain.FollowRecovery.Flights};guard-threat={guard?.ProtectedThreatId ?? -1};guard-pressure={(guard?.RetainedPressure ?? 0f).ToString("0.000", CultureInfo.InvariantCulture)};guard-reason={guard?.CommitmentReason ?? "unavailable"};mine-job={mine?.JobId ?? 0};mine-policy={mine?.Policy.ToString() ?? "unavailable"};mine-status={mine?.Status ?? "unavailable"};mine-remaining={mine?.RemainingTiles ?? 0};mine-target={mine?.TargetTile?.ToString() ?? "-"};control-source={companion.Motor.ControlSource};state-search-pending={brain.Movement.StateSearchPending};retained-control-ticks={brain.Movement.StateSearchRetainedTicks};air-target={survival.AirTarget};safety-response-id={brain.Safety.Id};safety-active={brain.Safety.Active};safety-kind={brain.Safety.Kind};safety-reason={brain.Safety.Reason};safety-last-end={brain.Safety.LastEndReason};breath-ticks-left={companion.Breath.TicksLeft};position-evidence-tick={brain.Positioner.EvidenceTick};positions-evaluated={brain.Positioner.EvaluatedCandidates};reach-complete={senses.Reach.Complete};position-alternatives={brain.Positioner.CandidateEvidence};target-evidence-tick={companion.Arsenal.TargetEvidenceTick};target-evidence-age={senses.Tick - companion.Arsenal.TargetEvidenceTick};target-alternatives={companion.Arsenal.TargetEvidence}");
         SessionMap.Watch(
             NavGrid.FeetTile(npc.Bottom),
             NavGrid.FeetTile(senses.Player.Bottom),
@@ -548,14 +555,14 @@ public sealed class BrainTelemetry : ModSystem
                 h.Append('\t').Append(a.Name).Append("_raw\t").Append(a.Name).Append("_fin");
             h.Append("\tdanger\tself_threat\thorizon\tthreats\treachable\ttop_threat\ttarget\tloot");
             h.Append("\trequest\tanchor\tspot\tspot_score\tfollow_objective_valid\tfollow_dx\tfollow_dy\tfollow_reason\trecovery_active\trecovery_reason\trecovery_flights\tpath_steps\tpath_at\troute_search_id\troute_attempt_id\troute_remaining_ticks\tnext_kind\tplan_failed\texpansions");
-            h.Append("\tnpc_tile\tnpc_px\tnpc_vel\tground\twet\tcollide_x\tcollide_y\tmoved\tvel_cut\tpress\tdescend\tpinned\tdiverge\tdiverge_valid\tdiverge_invalid_reason\tdir\tlife\tbreath\tself_danger\theld\tweapon\tshot\tfire\texp_bow\texp_knife\texp_target\tnear_threat\tweapon_reach\tengage\ttorch\tambient\tambient_samples\tambient_read_tick");
+            h.Append("\tnpc_tile\tnpc_px\tnpc_vel\tground\twet\tcollide_x\tcollide_y\tmoved\tvel_cut\tpress\tdescend\tpinned\tdiverge\tdiverge_valid\tdiverge_invalid_reason\tdir\tlife\tbreath\tself_danger\theld\tweapon\tshot\tfire\texp_bow\texp_knife\texp_target\tnear_threat\tweapon_reach\tengage\ttorch\tdark_near\tdark_ahead\ttorch_reason\tlight_samples\tlight_read_tick\tlight_region");
             h.Append("\tplayer_tile\tplayer_intent\tplayer_dead\tplayer_attacking\tplayer_chopping\tplayer_mining");
             h.Append("\tplan_ms\tflood_ms\tsenses_ms\treflex_ms\tdecide_ms\tposition_ms\tnavigate_ms\tbrain_ms\tedge_cache\tstranded");
             // The reachability tier, which is where the companion decides whether to enter somewhere
             // it cannot leave and the one decision no offline pass can watch: how many tiles it can
             // reach, how many of those it can come home from, whether the spot it picked is one of
             // them, and whether the refusing flood was discarded because the player was outside it.
-            h.Append("\treach_n\treturnable_n\tspot_home\tplayer_one_way");
+            h.Append("\treach_any\treach_two_way\treach_complete\tspot_home\tplayer_one_way");
             h.Append("\tedge_n\tedge_kind\tedge_from\tedge_to\tedge_proven\tedge_took\tedge_outcome");
             h.Append("\tguard_threat\tguard_pressure\tguard_reason\tmine_job\tmine_policy\tmine_status\tmine_remaining\tmine_target\ttarget_evidence_tick\ttarget_evidence_age\ttarget_evidence");
             h.Append("\twall_elapsed_ms\tsample_phase\tplayer_px\tplayer_vel\tplayer_ground\tplayer_liquid\tplayer_life\tplayer_hit\tnpc_hit\tplayer_state\tplayer_activity\tplayer_support\tnpc_support\tcontrol\tcontrol_source\tbrain_fresh");
@@ -727,9 +734,21 @@ public sealed class BrainTelemetry : ModSystem
         // "it was following me and not attacking" is a row where engage reads "-" beside threats.
         sb.Append('\t').Append(brain.EngageTarget is NPC eng && eng.active ? eng.TypeName : "-");
         sb.Append('\t').Append(companion.Torch.Shown ? "shown" : companion.Torch.Lit ? "lit-busy" : "out");
-        sb.Append('\t').Append(senses.Light.Ambient.ToString("0.00"));
-        sb.Append('\t').Append(senses.Light.AmbientSamples);
-        sb.Append('\t').Append(senses.Light.AmbientReadTick?.ToString(CultureInfo.InvariantCulture) ?? "-");
+        // What the torch decision actually read: the share of measured open air that is dark around the
+        // body and at the player's predicted feet, and the answer that decided the hand. A mean brightness
+        // stood here before and could not tell a lit room inside a dark cave from a dim one, which is the
+        // defect these three replace. An unmeasured neighbourhood writes "-", never a zero, because zero
+        // dark and nobody looked are opposite facts.
+        var darkNear = senses.Light.DarkAirNear(npc.Center.ToTileCoordinates(), Selection.Weights.TorchHoldRadiusTiles);
+        var darkAhead = senses.Light.DarkAirNear(
+            senses.Player.Predict(Selection.Weights.TorchHeadingLeadTicks).ToTileCoordinates(), Selection.Weights.TorchHoldRadiusTiles);
+        sb.Append('\t').Append(darkNear.Unmeasured ? "-" : darkNear.DarkFraction.ToString("0.00", CultureInfo.InvariantCulture));
+        sb.Append('\t').Append(darkAhead.Unmeasured ? "-" : darkAhead.DarkFraction.ToString("0.00", CultureInfo.InvariantCulture));
+        sb.Append('\t').Append(companion.Torch.Reason);
+        sb.Append('\t').Append(senses.Light.MeasuredSamples);
+        sb.Append('\t').Append(senses.Light.ReadTick?.ToString(CultureInfo.InvariantCulture) ?? "-");
+        sb.Append('\t').Append(light?.NominatedRegion is Infrastructure.Observation.LightSense.DarkRegion r
+            ? FormattableString.Invariant($"{r.Centre.X},{r.Centre.Y}:{r.DarkSamples}") : "-");
 
         sb.Append('\t').Append(Tile(senses.Player.Bottom));
         sb.Append('\t').Append(senses.Player.Intent.X.ToString("0.0"));
@@ -749,6 +768,9 @@ public sealed class BrainTelemetry : ModSystem
           .Append('\t').Append(brain.StrandedTicks)
           .Append('\t').Append(brain.Positioner.ReachCount)
           .Append('\t').Append(brain.Positioner.ReturnableCount)
+          // Whether the flood is settled, beside the two sizes. Without it a small region and an
+          // unfinished one read the same, and "the tile is not in the set" means opposite things.
+          .Append('\t').Append(brain.Positioner.ReachComplete ? 1 : 0)
           .Append('\t').Append(brain.Positioner.ChosenReturnable ? 1 : 0)
           .Append('\t').Append(brain.Positioner.PlayerOnlyOneWay ? 1 : 0);
         // The last step the follower finished or faulted, sticky until the next: the move, the

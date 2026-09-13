@@ -121,11 +121,14 @@ public sealed class TicksAdvance : ICheck
 public sealed class ReturnableFitsInsideReach : ICheck
 {
     public string Name => "can it come home from more places than it can reach";
-    public string[] Needs => new[] { "reach_n", "returnable_n" };
+    // Named after the reach sense that owns these two counts from schema 0.31.0. A capture older than that
+    // carries the previous names and skips this check, which is the honest outcome: the old columns were
+    // written by a different owner and matching them by position would be guessing.
+    public string[] Needs => new[] { "reach_any", "reach_two_way" };
 
     public IEnumerable<Finding> Run(Session session)
     {
-        Column reach = session["reach_n"], returnable = session["returnable_n"];
+        Column reach = session["reach_any"], returnable = session["reach_two_way"];
         var bad = FindStretches.Where(session.Count, i => returnable.Number[i] > reach.Number[i], 1);
         if (bad.Count == 0)
             yield break;

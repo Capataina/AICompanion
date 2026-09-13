@@ -25,7 +25,7 @@ internal static class VerifyEngineMotion
         if (escapeOnly) return VerifyCapturedEscape.Run();
         if (workOnly) return VerifyOreWork.Run() + VerifyCompanionPreferences.Run() + VerifyCompanionActivities.Run() + VerifyUsefulAssistance.Run()
             + VerifyMiningHops.Run() + VerifyGatheringCooperation.Run() + VerifyWorkAccounting.Run() + VerifyCollectionContracts.Run()
-            + VerifyAssistanceTrips.Run() + VerifyCapabilityRevision.Run();
+            + VerifyAssistanceTrips.Run() + VerifyCapabilityRevision.Run() + VerifyLightAndReachSenses.Run();
         if (miningBaselineOnly) return VerifyOreWork.RunRaisedLipBaseline();
         if (followOnly) return VerifyResponsiveFollowing.Run() + VerifyCompanyLocalMotion.Run() + VerifyCourtesy.Run();
         if (protectionOnly) return VerifyFollowRecoveryAndProtection.Run();
@@ -122,6 +122,7 @@ internal static class VerifyEngineMotion
         failed += VerifyCombatPurpose.Run();
         failed += VerifySafetyAftermath.Run();
         failed += VerifyAssistanceTrips.Run();
+        failed += VerifyLightAndReachSenses.Run();
         failed += VerifyCompanyLocalMotion.Run();
         failed += VerifyCapabilityRevision.Run();
         failed += VerifyDoorPassage.Run();

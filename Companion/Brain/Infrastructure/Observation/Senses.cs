@@ -16,6 +16,9 @@ public sealed class Senses
     public readonly ThreatSense Threats = new();
     public readonly LootSense Loot = new();
     public readonly LightSense Light = new();
+    /// <summary>Where the body can walk to. Refreshed by the positioner's resolve rather than by
+    /// <see cref="Update"/>, because the flood's lava and one-way rules are set per request.</summary>
+    public readonly ReachSense Reach = new();
     public readonly CompanionSense Self = new();
     public readonly ObserveProjectiles Projectiles = new();
     public readonly EncounterSense Encounter = new();

@@ -52,12 +52,12 @@ public sealed class Positioner
     private int lastInterferenceRevision;
     private int sinceScore = RescoreInterval;
 
-    // The feet tiles a walker can reach from where the companion stands, flooded once per
-    // rescore and read for every candidate. A spot the walker cannot reach is not a spot: the
-    // fourth run of 2026-09-08 parked the companion above a sealed cavity the scorer had picked.
-    private HashSet<Point>? reach;
-    private ContinueRouteSearch? returnSearch, rawSearch;
-    private bool reachLava;
+    // The feet tiles a walker can reach are the reach sense's, not this resolver's. A spot the walker
+    // cannot reach is not a spot: the fourth run of 2026-09-08 parked the companion above a sealed
+    // cavity the scorer had picked. This resolver drives the sense's cadence — the flood's lava and
+    // one-way rules are set per request, so it has to run inside a resolve — and every other consumer
+    // reads the same region instead of flooding its own.
+    private ReachSense reachSense = null!;
     public int CandidateCount { get; private set; }
     public int ReachableCandidateCount { get; private set; }
     public int RejectedCandidateCount { get; private set; }
@@ -67,10 +67,9 @@ public sealed class Positioner
     public float FollowHorizontalGap { get; private set; }
     public float FollowVerticalGap { get; private set; }
     public string FollowObjectiveReason { get; private set; } = "not-following";
-    private int sinceFlood = RescoreInterval;
 
     /// <summary>Whether the flood from the companion's feet ran out of region before its budget, so a tile outside it is truly unreachable.</summary>
-    public bool ReachComplete { get; private set; }
+    public bool ReachComplete => reachSense?.Complete ?? false;
 
     // Spots the navigator could not reach however it planned, each with the tick it is allowed
     // back; skipped by every resolve until then, so the next answer is a different place.
@@ -128,11 +127,12 @@ public sealed class Positioner
 
     public Vector2? Resolve(in PositionRequest request, Senses.Senses senses, WeaponProfile? fireProfile)
     {
+        reachSense = senses.Reach;
         if (lastTerrainRevision != TerrainChanges.Revision)
         {
-            // Cadence may retain unchanged observations, never evidence from an edited world.
+            // Cadence may retain unchanged observations, never evidence from an edited world. The
+            // flood's own reset for the same edit lives in the sense, so every consumer gets it.
             Chosen = null;
-            sinceFlood = RescoreInterval;
             lastTerrainRevision = TerrainChanges.Revision;
         }
         // New interference evidence reconsiders a held destination once. Waiting out the rescore cadence would let the
@@ -142,9 +142,9 @@ public sealed class Positioner
             lastInterferenceRevision = senses.Player.InterferenceRevision;
             sinceScore = RescoreInterval;
         }
-        // The region ages in ticks, whatever the request does this tick: counted inside the
+        // The region ages once per resolve, whatever the request does this tick: counted inside the
         // rescore it multiplied the two cadences and refloods came every 144 ticks.
-        sinceFlood++;
+        senses.Reach.Age();
         clock++;
         UpdateFollowObjective(request, senses);
         bool attackPosition = request.Kind is RequestKind.LineOfFire or RequestKind.Guard;
@@ -175,7 +175,7 @@ public sealed class Positioner
                 // reach, which NavGrid refuses when it is in or over lava; when nothing reachable is
                 // near, the nearest standable tile at all, and the partial path walks as close as it can.
                 lastRequest = request;
-                RefreshReach(senses);
+                senses.Reach.Refresh(senses);
                 Point around = MovementQueries.FeetTile(request.Anchor);
                 Point? tile = MovementQueries.NearestStandable(around, 3, t => InReach(t) && Allowed(t)) ?? MovementQueries.NearestStandable(around, 3, Allowed);
                 Chosen = tile is Point t ? MovementQueries.FeetWorld(t) : null;
@@ -196,7 +196,7 @@ public sealed class Positioner
                     return Chosen;
                 lastRequest = request;
                 sinceScore = 0;
-                RefreshReach(senses);
+                senses.Reach.Refresh(senses);
                 Chosen = RoamSpot(MovementQueries.FeetTile(request.Anchor));
                 Region = Chosen == null ? SuccessRegion.None
                     : SuccessRegion.Unscored(SuccessRegionKind.Undeclared, request.Anchor, senses.Tick, TerrainChanges.Revision);
@@ -209,7 +209,7 @@ public sealed class Positioner
             // tile nearer the player whose best route went the other way, so the companion walked back
             // along the route the meeting place had been chosen to avoid. It still has to be a place to
             // stand that this region has not proven unreachable; otherwise ordinary scoring applies.
-            RefreshReach(senses);
+            senses.Reach.Refresh(senses);
             Point place = MovementQueries.FeetTile(request.Anchor);
             if (MovementQueries.IsStandable(place.X, place.Y) && Allowed(place) && !ProvenUnreachable(place)
                 && CourtesyShare(MovementQueries.FeetWorld(place), senses) == 1f)
@@ -234,19 +234,25 @@ public sealed class Positioner
         lastRequest = request;
         lastFireProfile = fireProfile;
         sinceScore = 0;
-        RefreshReach(senses);
+        senses.Reach.Refresh(senses);
         Chosen = Best(request, senses, fireProfile);
         // Every non-null answer from Best passed acceptance against this call's player feet and anchor (the
         // incumbent and every sampled candidate are gated alike), so these are the references it was admitted
         // against even when the value did not change and the revision did not advance.
         Region = Chosen == null ? SuccessRegion.None
+            // A partial-progress answer is the one destination that is deliberately outside the objective:
+            // it exists precisely because nothing inside it was accepted. Declaring the follow region over it
+            // would publish a contract the navigator cannot meet, and an arrival there reads as a definitive
+            // violation in the record rather than as the closing of a gap it actually is.
+            : ChoiceReason == "partial-progress-candidate"
+                ? SuccessRegion.Unscored(SuccessRegionKind.Undeclared, request.Anchor, senses.Tick, TerrainChanges.Revision)
             : request.Kind == RequestKind.WithPlayer
                 ? SuccessRegion.Follow(new FollowPlayerObjective(senses.Player.Bottom, request.Anchor), senses.Tick, TerrainChanges.Revision)
                 : SuccessRegion.Unscored(SuccessRegionKind.FiringPosition, request.Anchor, senses.Tick, TerrainChanges.Revision);
         return Chosen;
     }
 
-    private bool InReach(Point tile) => reach != null && reach.Contains(tile);
+    private bool InReach(Point tile) => reachSense != null && reachSense.InScoredRegion(tile);
 
     /// <summary>
     /// A missing tile in an unfinished flood is unknown, not unreachable. The following tier may
@@ -284,86 +290,10 @@ public sealed class Positioner
     /// </summary>
     public bool IsReturnable(Senses.Senses senses, Point tile)
     {
-        RefreshReach(senses);
-        return returnable != null && returnable.Contains(tile);
+        senses.Reach.Refresh(senses);
+        return senses.Reach.Returnable(tile);
     }
-    public float? EstimatedTravelTicks(Point from, Point tile) => rawSearch?.EstimatedTicks(from, tile)
-        ?? returnSearch?.EstimatedTicks(from, tile);
-
-    private void RefreshReach(Senses.Senses senses)
-    {
-        if (reach != null && sinceFlood < RescoreInterval)
-            return;
-        sinceFlood = 0;
-        Point? feet = MovementQueries.NearestStandable(MovementQueries.FeetTile(senses.Companion.Bottom), 2);
-        if (feet == null)
-        {
-            // In the air or inside something: keep the last flood, which is a tick or two stale
-            // and still the best answer to "where can I get to" until the body lands.
-            return;
-        }
-        var clock = System.Diagnostics.Stopwatch.StartNew();
-        // Without the edges that have no way back, so this region means "everywhere the body can go
-        // and come home from". That is what turns the tier below into the decision about whether to
-        // enter somewhere: while any candidate spot is in here only those are scored, and when none
-        // is, the tier opens and the unrecoverable ones are scored instead. So the companion shoots
-        // into a pit from its rim while a rim spot exists and drops in when none does, with nothing
-        // in the code naming an enemy or a pit.
-        // Reuse needs generated connectivity in both directions, not a distance allowance.
-        // A body can cross a one-way boundary while moving only one tile.
-        if (returnSearch == null || !returnSearch.Valid || reachLava != AStar.AllowLava || !returnSearch.CanReuseFrom(feet.Value))
-        {
-            reachLava = AStar.AllowLava;
-            returnSearch?.Dispose(); rawSearch?.Dispose();
-            returnSearch = new ContinueRouteSearch(feet.Value, null, AStar.AllowLava, false);
-            rawSearch = new ContinueRouteSearch(feet.Value, null, AStar.AllowLava, true);
-        }
-        returnSearch.Advance(Weights.ReachFloodBudget, Weights.PositionReachMilliseconds / 2d);
-        returnable = returnSearch.Reached;
-        bool complete = returnSearch.Finished && returnSearch.Stop == AStar.SearchStopReason.Exhausted;
-        reach = returnable;
-
-        // Unless that map does not hold the player, in which case it is the wrong map. Being stuck
-        // is not having a way back to the take-off; it is not having a way to the player (Caner's
-        // own definition, 2026-09-08), so a place he is standing in is by definition not somewhere
-        // the companion strands itself, and refusing the only edges that reach him would leave the
-        // body on the rim of a shaft he had climbed down. The corpus's two-wide shaft fixture is
-        // exactly that shape: eight rows down, seven rim tiles returnable and inside the sample
-        // box, so a returnable candidate always survived and the tier never opened for him.
-        //
-        // The raw region has to be read before the exception is granted, because "he is not in the
-        // returnable region" is also true of a player the body cannot reach at all — walled off
-        // behind a sand fall, which is a state the mod supports until he digs the body out. Opening
-        // the tier there refuses nothing and buys nothing: it hands the roam a region full of drops
-        // with no way back, so the pocket gets deeper, and it asserts a one-way route to a player
-        // no route reaches. The exception is for the drop that leads to him, so it is granted only
-        // where the region without the refusal actually holds him.
-        Point? player = MovementQueries.NearestStandable(MovementQueries.FeetTile(senses.Player.Bottom), 2);
-        PlayerOnlyOneWay = false;
-        if (player is Point p && !returnable.Contains(p))
-        {
-            rawSearch!.Advance(Weights.ReachFloodBudget, Weights.PositionReachMilliseconds / 2d);
-            HashSet<Point> raw = new(rawSearch.Reached);
-            bool rawComplete = rawSearch.Finished && rawSearch.Stop == AStar.SearchStopReason.Exhausted;
-            // Both bounded searches prove membership, but may spend their work on different
-            // branches. Preserve all previously proven reachable tiles when opening the tier.
-            raw.UnionWith(returnable);
-            if (raw.Contains(p))
-            {
-                reach = raw;
-                complete = rawComplete;
-                PlayerOnlyOneWay = true;
-            }
-        }
-
-        LastFloodMs = clock.Elapsed.TotalMilliseconds;
-        ReachComplete = complete;
-    }
-
-    // The refusing flood is kept beside the one being scored against, because after the second
-    // flood `reach` no longer answers "can I come home from here" and that is the question the
-    // telemetry and the scenario capture ask. Nothing in the scoring reads it.
-    private HashSet<Point>? returnable;
+    public float? EstimatedTravelTicks(Point from, Point tile) => reachSense?.EstimatedTravelTicks(from, tile);
 
     /// <summary>
     /// The refusing flood did not hold the player, so the region being scored is the raw one and
@@ -371,18 +301,18 @@ public sealed class Positioner
     /// is the companion following the player into a place he chose to be. It is worth recording
     /// because it is the one state where prevention is deliberately switched off.
     /// </summary>
-    public bool PlayerOnlyOneWay { get; private set; }
+    public bool PlayerOnlyOneWay => reachSense?.PlayerOnlyOneWay ?? false;
 
     /// <summary>How many tiles the body can reach at all, and how many of those it can come home from.</summary>
-    public int ReachCount => reach?.Count ?? 0;
-    public int ReturnableCount => returnable?.Count ?? 0;
+    public int ReachCount => reachSense?.AnyCount ?? 0;
+    public int ReturnableCount => reachSense?.TwoWayCount ?? 0;
 
     /// <summary>Whether the spot last chosen is one the body can come home from; true when nothing is chosen.</summary>
     public bool ChosenReturnable
-        => Chosen is not Vector2 c || returnable == null || returnable.Contains(MovementQueries.FeetTile(c));
+        => Chosen is not Vector2 c || reachSense == null || reachSense.Returnable(MovementQueries.FeetTile(c));
 
     /// <summary>Wall-clock of the last reach flood, for the telemetry.</summary>
-    public double LastFloodMs { get; private set; }
+    public double LastFloodMs => reachSense?.LastFloodMs ?? 0d;
 
     /// <summary>
     /// The farthest of a handful of reachable tiles drawn at random, which is far without being
@@ -391,9 +321,9 @@ public sealed class Positioner
     /// </summary>
     private Vector2? RoamSpot(Point feet)
     {
-        if (reach == null || reach.Count < 2)
+        if (reachSense == null || reachSense.AnyCount < 2)
             return null;
-        var tiles = new List<Point>(reach);
+        var tiles = new List<Point>(reachSense.ScoredTiles);
         Point? best = null;
         int bestDistance = 0;
         for (int i = 0; i < RoamSamples; i++)
@@ -412,6 +342,30 @@ public sealed class Positioner
     }
 
     private const int RoamSamples = 12;
+
+    /// <summary>
+    /// The reachable standable tile that most reduces the follow objective's own two gaps, or nothing when
+    /// none improves on where the body already stands. Measured as horizontal plus vertical gap rather than
+    /// straight-line distance, because that is what the objective is satisfied by: a tile on another floor
+    /// can be nearer as the crow flies and further from being with the player. Only tiles the flood has
+    /// actually claimed qualify, so this is a proven destination and not a hopeful direction.
+    /// </summary>
+    private Vector2? PartialProgress(FollowPlayerObjective objective, Point centre)
+    {
+        Vector2 here = MovementQueries.FeetWorld(centre);
+        float best = objective.HorizontalGap(here) + objective.VerticalGap(here);
+        Vector2? found = null;
+        foreach (Point tile in reachSense?.ScoredTiles ?? (IReadOnlyCollection<Point>)System.Array.Empty<Point>())
+        {
+            if (!Allowed(tile) || !MovementQueries.IsStandable(tile.X, tile.Y)) continue;
+            Vector2 feet = MovementQueries.FeetWorld(tile);
+            float gap = objective.HorizontalGap(feet) + objective.VerticalGap(feet);
+            if (gap >= best) continue;
+            best = gap;
+            found = feet;
+        }
+        return found;
+    }
 
     private Vector2? Best(in PositionRequest request, Senses.Senses senses, WeaponProfile? fireProfile)
     {
@@ -494,6 +448,20 @@ public sealed class Positioner
         }
         if (candidates.Count == 0)
         {
+            // Following is the one request that must always produce somewhere to go. Its acceptance is a
+            // region around the player, so a companion outside that region with no candidate inside it has
+            // nothing accepted and used to answer nothing at all — which left the navigator with no proven
+            // destination and the brain reaching for a state search that jumps at the player. A reachable
+            // tile that closes the gap is not the destination the request wanted, and it is progress toward
+            // it, which is strictly better than standing still or leaping. Other request kinds keep the
+            // null: there is no partial credit for a firing position that cannot fire.
+            if (followObjective is FollowPlayerObjective partial
+                && PartialProgress(partial, MovementQueries.FeetTile(senses.Companion.Bottom)) is Vector2 step)
+            {
+                ChosenScore = 0f;
+                ChoiceReason = "partial-progress-candidate";
+                return step;
+            }
             ChosenScore = -1f;
             ChoiceReason = "no-accepted-candidate";
             return null;

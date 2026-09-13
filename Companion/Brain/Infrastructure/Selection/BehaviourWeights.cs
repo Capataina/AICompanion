@@ -72,19 +72,81 @@ public static class Weights
     // Until a finished flood prices a place, reunion aims at the player's travel continued this far: the
     // bounded continuation it used before meeting places existed, clamped by the intent history.
     public const int MeetingFallbackLeadTicks = 45;
-    // Lighting reads only light the engine computed. An area is a lighting opportunity when enough of its
-    // samples are measured and their mean is below the dark level, which deliberately equals the held
-    // torch's raise level (TorchBearer.RaiseBelow) so carrying and placing light agree about what dark
-    // means; if the two drift, the companion holds a torch where it will not place one, or the reverse.
-    // Carried light is left out within its radius, which matches the ambient reading's exclusion disc.
-    // A site's own neighbourhood vetoes it only on enough measured reads, so a sparse read cannot.
-    public const int LightAreaRadiusTiles = 18;
-    public const int LightAreaStrideTiles = 3;
-    public const float LightMeasuredFractionRequired = .6f;
+    // Lighting reads only light the engine computed. One tile of open air is dark below this brightness,
+    // and that single threshold is what both carrying and placing light mean by the word, so the companion
+    // cannot hold a torch where it would not place one or the reverse. Surface daylight reads near 1, a
+    // lit cave about 0.5, unlit caverns under 0.1: dim is not dark.
     public const float LightDarkBelow = .22f;
+    // The smallest the light field's window may be, in tiles either side of the companion, whatever the
+    // screen says. These are the half-extents the lighting search used around the body before the field
+    // existed, kept because a screen-derived window is not always real: with no screen at all the width is
+    // zero and the window becomes the one column the companion stands in, which reads as a world where no
+    // light has been measured anywhere and offers no lighting work in any fixture.
+    public const int LightWindowMinimumHalfWidthTiles = 48;
+    public const int LightWindowMinimumHalfHeightTiles = 28;
+    // How far around a body the torch decision looks. A torch lights roughly ten tiles, so a radius near
+    // that asks "is the space this torch would light actually dark" rather than "is the region dark", which
+    // is the question a screen-wide read answered and answered wrongly in a lit chamber inside a dark cave.
+    public const int TorchHoldRadiusTiles = 12;
+    // The share of measured open air that must read dark before the torch goes up, and the lower share it
+    // must fall back to before it comes down. A share beat a mean brightness, which is what this replaced:
+    // a mean over a window holding one lit chamber and three dark wings sits in the middle and is wrong
+    // about every part of it. The gap between the two is the hysteresis, and it is wide because the
+    // alternative — one threshold with only the minimum hold to damp it — flickers at a doorway.
+    public const float TorchRaiseDarkShare = .40f;
+    public const float TorchLowerDarkShare = .15f;
+    // How far ahead of the player the torch also looks, in ticks of his observed travel. It is the
+    // minimum hold in ticks, so the torch is raised about as far ahead as it is committed to staying
+    // raised: looking only one hold's worth ahead beat looking further, which lit a torch for a dark
+    // place the player turned away from before either of them reached it.
+    public const int TorchHeadingLeadTicks = 180;
+    // How far from the companion's own feet a dark region may sit and still be nominated, in tiles. It is
+    // the work radius in tiles, so lighting reaches exactly as far as every other nearby job and no
+    // further; a larger number was rejected because it lets the companion walk out of the player's area
+    // chasing darkness, which is the behaviour recovery flight exists to undo.
+    public const int LightRegionSearchTiles = (int)(FollowWorkRadius / 16f);
+    // How far around one candidate torch site its own darkness is read, in tiles. Smaller than the torch
+    // hold radius on purpose: this asks "is this particular spot dark", where the hold radius asks "is this
+    // neighbourhood dark", and a site veto as wide as the hold radius refuses every site in a small dark
+    // pocket beside a lit room.
     public const int LightSiteRadiusTiles = 5;
-    public const int LightSiteMinimumSamples = 4;
-    public const float CarriedLightRadiusTiles = 10f;
+    // How finely that neighbourhood is sampled. Half the light field's own lattice stride, because this
+    // veto has to resolve lit patches the field cannot: a torch's own glow is a few tiles across, and a
+    // sampling step as wide as the field's would step over one entirely.
+    public const int LightSiteStrideTiles = 2;
+    // A site's neighbourhood is judged by its mean brightness against LightDarkBelow, not by a share of
+    // dark samples. The share is the right question for holding a torch — is there dark air near me — and
+    // the wrong one for placing one: beside a lit room a majority of a site's neighbourhood can be dark
+    // while the room's own light already reaches the spot, and a share passes that where a mean refuses it.
+    // How long a nearby-work search waits before asking again when it could not answer, as opposed to when
+    // it answered that there is nothing. It is a rescore or two, which is what the reach region needs to
+    // settle after a world change; longer and the body has wandered somewhere else before the evidence it
+    // was waiting for arrives, so the site it then proves is a different and worse one.
+    public const int NearbyWorkUnresolvedRetryTicks = 15;
+    // How many tiles around each dark sample in the nominated region are offered to the game's own placer.
+    // It only has to bridge the gaps the light field's lattice leaves between its own samples, because the
+    // scan runs around every member rather than around one point; wider would re-create the screen-wide
+    // search this replaced, and narrower would leave unsampled tiles between members unconsidered.
+    public const int LightPlacementSearchTiles = 3;
+    // What one dark sample in the nominated region is worth, and the ceiling that stops a cavern from
+    // outbidding everything. A count rather than a flat value because a torch in the larger dark space is
+    // worth more, and the ceiling because without it a big enough cave beats protecting the player.
+    public const float LightRegionSampleValue = .04f;
+    public const float LightRegionValueCap = .20f;
+    // What lighting is worth before the region's size is added, and the multiplier when the player is
+    // carrying no light of his own. Placing a torch matters more when he cannot see either; it beat
+    // treating his held torch as a reason not to light at all, which left permanent darkness behind him
+    // everywhere he had walked holding one.
+    //
+    // Base plus the cap is deliberately the flat value lighting carried before it read a region at all, so
+    // with the player lit the biggest cavern is worth exactly what one proven site used to be and lighting
+    // keeps losing to mining and chopping. The first version let base and cap sum to .80 and then took the
+    // unlit factor on top, which reached 1.12: above the band every ordinary raw value lives in, so a dark
+    // cave with ore in it would have been lit rather than mined, and lighting could have interrupted a
+    // committed job that an expression capped at 1 cannot touch. Only the unlit factor rises past the old
+    // value, which is the one case the player is actually worse off without the torch.
+    public const float LightBaseValue = .40f;
+    public const float LightPlayerUnlitFactor = 1.4f;
     // How far a new job may sit from the player. Kept independent of fly-home so raising recovery
     // does not silently enlarge every work allowance past the worlds the fixtures fit in.
     public const float FollowWorkRadius = 1120f;

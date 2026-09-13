@@ -200,6 +200,16 @@ internal static class VerifyCapabilityRevision
         ctx.Player.inventory[0] = supply;
         VerifyUsefulAssistance.WriteMeasuredLight(new Rectangle(0, 0, 100, 100), (_, _) => .05f);
         typeof(TorchBearer).GetProperty("Shown")!.GetSetMethod(true)!.Invoke(ctx.Companion.Torch, new object[] { false });
+        // Lighting reads the light field and the reach region rather than measuring per candidate, so the
+        // scene is observed before it is prepared and its reach region is primed to settle. Tool reach, the
+        // capability these rows actually vary, is not what either sense holds, so priming here cannot hide
+        // the very-next-preparation behaviour the rows are checking.
+        var brain = ctx.Companion.Brain;
+        brain.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Breath);
+        var home = new live::AICompanion.Companion.Brain.Infrastructure.Position.PositionRequest(
+            live::AICompanion.Companion.Brain.Infrastructure.Position.RequestKind.WithPlayer, ctx.Player.Bottom);
+        for (int i = 0; i < 3000 && !brain.Positioner.ReachComplete; i++)
+            brain.Positioner.Resolve(home, brain.Senses, null);
         return (new LightUsefulArea(), ctx);
     }
 
