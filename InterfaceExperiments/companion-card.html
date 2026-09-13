@@ -8,15 +8,19 @@
 /* ------------------------------------------------------------------ *
  * A one-to-one replica of the native profile card as it renders in the
  * game on 2026-09-13 (Tools/EngineReplay --render-ui, 1600x1000 at UI
- * scale 1.5). Every size below is the logical pixel the C# layout uses,
- * so a change agreed here maps straight onto CompanionProfileCardSystem:
+ * scale 1.5), with the card's behaviour as well as its look: the lists
+ * scroll by wheel and by dragging the thumb, the title bar drags the
+ * frame, the mastery graph pans and zooms, slots select into the detail
+ * panel, filters dim what they exclude, minimise and close do what they
+ * do in the game. Every size below is the logical pixel the C# layout
+ * uses, so a change agreed here maps straight onto
+ * CompanionProfileCardSystem:
  *   frame 780x650, padding 10, title bar 34, identity row 112,
  *   content from 156, overview footer 100 (sub-pages 56),
  *   setting rows 46 with 4 between, buttons 30 tall, tiles half width
- *   with a 10 gap.
+ *   with a 10 gap, inventory slots 48 in ten columns.
  * The page is shown at UI scale 1.5 by default because that is how the
- * render and the owner's own screen show it; the control at the top
- * switches to 1.0.
+ * render and the owner's own screen show it.
  *
  * Terraria's own interface language, kept from the first mockup because
  * it is what makes this read as the game and not as a web page: every
@@ -45,9 +49,9 @@
   --z:1.5;
 }
 *{box-sizing:border-box}
-html,body{margin:0;height:100%;background:#0d1524}
+html,body{margin:0;height:100%;background:#0d1524;overflow:hidden}
 body{font-family:var(--ui);color:var(--ink);text-shadow:2px 2px 0 #000;font-weight:bold;
-  display:grid;grid-template-rows:auto 1fr;min-height:100%}
+  display:grid;grid-template-rows:auto 1fr;height:100%;user-select:none}
 
 /* the strip above the card is the mockup's own control, never part of the design */
 #bench{display:flex;gap:14px;align-items:center;padding:10px 16px;font-size:12px;
@@ -55,11 +59,13 @@ body{font-family:var(--ui);color:var(--ink);text-shadow:2px 2px 0 #000;font-weig
 #bench b{color:#c3c6f5}
 #bench button{font:inherit;background:#161f3a;color:#c3c6f5;border:1px solid #2b3560;padding:3px 9px;cursor:pointer}
 #bench button.on{background:#2b3099;color:#fff;border-color:#8f93f0}
+#bench .sp{flex:1}
 
-#stage{display:grid;place-items:center;padding:20px}
-#frame{zoom:var(--z);width:780px;height:650px;position:relative;
+#stage{position:relative;overflow:hidden}
+#frame{zoom:var(--z);width:780px;height:650px;position:absolute;left:0;top:0;
   background:var(--panel);border:2px solid var(--edge);border-radius:9px;padding:10px}
 #frame.min{height:54px;overflow:hidden}
+#frame.hidden{display:none}
 
 /* every text scale the card uses, as the C# scale times the base 18px */
 .s100{font-size:18px}.s85{font-size:15.3px}.s80{font-size:14.4px}.s75{font-size:13.5px}
@@ -70,9 +76,10 @@ body{font-family:var(--ui);color:var(--ink);text-shadow:2px 2px 0 #000;font-weig
   display:grid;place-items:center;cursor:pointer;line-height:1;position:absolute;top:0}
 .rb:hover{border-color:var(--gold)}
 
-/* ---- title bar: 34 tall, a 1px edge line under it ---- */
-#title{height:34px;position:relative;border-bottom:1px solid var(--edge)}
-#title .name{position:absolute;left:42px;top:3px}
+/* ---- title bar: 34 tall, a 1px edge line under it; the bar itself is the drag grip ---- */
+#title{height:34px;position:relative;border-bottom:1px solid var(--edge);cursor:grab}
+#title.dragging{cursor:grabbing}
+#title .name{position:absolute;left:42px;top:3px;pointer-events:none}
 #back{left:0}#minimise{right:36px}#close{right:0}
 
 /* ---- identity row: top 38 from the padded frame, 112 tall ---- */
@@ -89,9 +96,16 @@ body{font-family:var(--ui);color:var(--ink);text-shadow:2px 2px 0 #000;font-weig
 #content{position:absolute;left:10px;right:10px;top:166px;bottom:118px}
 .page{display:none;position:absolute;inset:0}.page.on{display:block}
 
+/* a scroller is a clipped viewport whose inner block is moved by the wheel or the thumb */
+.viewport{position:absolute;overflow:hidden}
+.viewport>.inner{position:absolute;left:0;right:0;top:0}
+.sb{position:absolute;width:20px;border:2px solid #0f1140;border-radius:10px;background:#5b60cf;padding:2px}
+.sb i{display:block;background:#d7d9ff;border-radius:6px;position:absolute;left:2px;right:2px;cursor:grab}
+.sb i:hover{background:#ffffff}
+
 /* overview: heading, six rows, scrollbar, note */
 #behaviour .heading{position:absolute;left:0;top:0;height:26px;line-height:26px}
-#rows{position:absolute;left:0;right:24px;top:28px;bottom:66px}
+#rows{left:0;right:24px;top:28px;bottom:66px}
 .row{height:46px;position:relative}
 .row+.row{margin-top:4px}
 .row .cap{position:absolute;left:0;top:13px;width:130px}
@@ -103,8 +117,7 @@ body{font-family:var(--ui);color:var(--ink);text-shadow:2px 2px 0 #000;font-weig
 .seg.on{border-color:var(--gold);color:var(--gold);background:var(--selected)}
 .step .less{left:0}.step .more{left:calc(66.666% - 30px)}
 .step .readout{position:absolute;left:34px;width:calc(66.666% - 68px);top:0;height:30px;display:grid;place-items:center;color:var(--gold)}
-#scroll{position:absolute;right:0;top:28px;bottom:66px;width:20px;border:2px solid #0f1140;border-radius:10px;background:#5b60cf;padding:2px}
-#scroll i{display:block;height:100%;background:#d7d9ff;border-radius:6px}
+#rowsbar{right:0;top:28px;bottom:66px}
 #behaviour .note{position:absolute;left:0;right:0;bottom:0;height:27px;line-height:27px}
 
 /* ---- footer tiles: 100 tall on the overview, 56 on the sub-pages ---- */
@@ -129,20 +142,26 @@ body{font-family:var(--ui);color:var(--ink);text-shadow:2px 2px 0 #000;font-weig
 .pill.on{color:var(--gold);background:var(--selected)}
 .pill.on:after{content:"";position:absolute;left:8px;right:8px;bottom:-2px;height:2px;background:var(--gold)}
 #invcount{position:absolute;right:30px;top:8px;color:var(--muted)}
-#grid{position:absolute;left:0;top:44px;width:520px;display:grid;grid-template-columns:repeat(10,48px);gap:4px}
-.slot{width:48px;height:48px;border:2px solid var(--edge);border-radius:6px;background:var(--panel-solid);position:relative}
-.slot.empty{opacity:.75}
+#gridview{left:0;top:44px;width:520px;height:312px}
+#grid{display:grid;grid-template-columns:repeat(10,48px);gap:4px}
+.slot{width:48px;height:48px;border:2px solid var(--edge);border-radius:6px;background:var(--panel-solid);position:relative;cursor:pointer}
+.slot:hover{border-color:var(--gold)}
+.slot.sel{border-color:var(--gold);background:var(--selected)}
+.slot.dim{opacity:.35}
 .slot .n{position:absolute;left:5px;bottom:3px;color:var(--gold)}
-.slot .it{position:absolute;right:6px;top:6px;width:12px;height:12px;image-rendering:pixelated}
+.slot .it{position:absolute;right:6px;top:6px;width:12px;height:12px}
 .slot .it.ore{background:#c47a3a;box-shadow:2px 2px 0 #8a4a1e inset}
 .slot .it.wood{background:#a8703a;box-shadow:0 3px 0 #6b4520 inset}
 .slot .it.gel{background:#4f7fff;border-radius:50%}
-#invscroll{position:absolute;left:552px;top:44px;height:312px;width:20px;border:2px solid #0f1140;border-radius:10px;background:#5b60cf;padding:2px}
-#invscroll i{display:block;height:60%;background:#d7d9ff;border-radius:6px}
+#invbar{left:552px;top:44px;height:312px}
 #detail{position:absolute;left:584px;right:0;top:44px;height:312px;border:2px solid var(--edge);border-radius:9px;padding:10px 12px}
 #detail .nm{margin-bottom:22px}#detail .qty{margin-bottom:22px}#detail .where{margin-bottom:8px}
-#detail .tileimg{width:32px;height:32px;background:
-  repeating-conic-gradient(#b06a36 0 25%,#8b4e26 0 50%) 0 0/8px 8px;image-rendering:pixelated}
+#detail .tileimg{width:32px;height:32px;image-rendering:pixelated}
+#detail .tileimg.ore{background:repeating-conic-gradient(#b06a36 0 25%,#8b4e26 0 50%) 0 0/8px 8px}
+#detail .tileimg.wood{background:repeating-linear-gradient(90deg,#a8703a 0 6px,#6b4520 6px 8px)}
+#detail .tileimg.gel{background:radial-gradient(#7fa3ff,#2f57d8);border-radius:50%}
+#detail.empty .nm,#detail.empty .qty,#detail.empty .where,#detail.empty .tileimg{display:none}
+#detail.empty:after{content:"Select a slot";color:var(--muted);font-size:13.5px}
 #handover{position:absolute;left:50%;transform:translateX(-50%);bottom:0;height:34px;padding:0 44px}
 
 /* ---- mastery page ---- */
@@ -150,8 +169,11 @@ body{font-family:var(--ui);color:var(--ink);text-shadow:2px 2px 0 #000;font-weig
 #mast .zoom{position:absolute;right:0;top:0;height:34px}
 #mast .zoom .rb{position:static;display:inline-grid;vertical-align:top;margin-right:8px}
 #mast .zoom .pill{display:inline-grid;vertical-align:top}
-#graph{position:absolute;left:0;right:0;top:44px;height:280px;overflow:hidden}
-#graph svg{width:100%;height:100%}
+#graph{position:absolute;left:0;right:0;top:44px;height:280px;overflow:hidden;cursor:grab}
+#graph.dragging{cursor:grabbing}
+#graph svg{width:100%;height:100%;display:block}
+#graph .node{cursor:pointer}
+#graph .node.sel{stroke-width:4.5}
 #mast .legend{position:absolute;left:0;top:334px;line-height:1.5}
 #mast .legend2{position:absolute;left:0;top:356px;color:var(--muted)}
 #mast .status{position:absolute;left:0;bottom:0;color:var(--muted)}
@@ -166,6 +188,8 @@ body{font-family:var(--ui);color:var(--ink);text-shadow:2px 2px 0 #000;font-weig
   <button class="on" data-z="1.5">1.5×</button><button data-z="1">1×</button>
   <span>page</span>
   <button data-page="behaviour" class="on">Companion</button><button data-page="inv">Inventory</button><button data-page="mast">Mastery</button>
+  <span class="sp"></span>
+  <button id="reopen">Open card</button>
 </div>
 
 <div id="stage">
@@ -197,7 +221,7 @@ body{font-family:var(--ui);color:var(--ink);text-shadow:2px 2px 0 #000;font-weig
     <!-- Companion page -->
     <div id="behaviour" class="page on">
       <div class="heading s85">Behaviour</div>
-      <div id="rows">
+      <div id="rows" class="viewport"><div class="inner">
         <div class="row" data-hint="Mimic: work when you do. Auto: find useful work nearby."><div class="cap s80">Mining</div>
           <div class="ctl s80"><div class="seg">Off</div><div class="seg">Mimic</div><div class="seg on">Auto</div></div></div>
         <div class="row" data-hint="Mimic: work when you do. Auto: find useful work nearby."><div class="cap s80">Chopping</div>
@@ -210,22 +234,22 @@ body{font-family:var(--ui);color:var(--ink);text-shadow:2px 2px 0 #000;font-weig
           <div class="ctl s80"><div class="seg on">On</div><div class="seg">Off</div></div></div>
         <div class="row step" data-hint="Useful jobs can travel farther than ordinary following."><div class="cap s80">Distance</div>
           <div class="ctl s80"><div class="rb less">&lt;</div><div class="readout" data-stops="Close,Standard,Free" data-i="1">Standard</div><div class="rb more">&gt;</div></div></div>
-      </div>
-      <div id="scroll"><i></i></div>
+      </div></div>
+      <div id="rowsbar" class="sb"><i></i></div>
       <div class="note s66">Fighting, dodging and pickups are automatic. The action above explains the choice.</div>
     </div>
 
     <!-- Inventory page -->
     <div id="inv" class="page">
-      <div id="filters" class="s80"><div class="pill on">All</div><div class="pill">Ore</div><div class="pill">Wood</div><div class="pill">Loot</div></div>
+      <div id="filters" class="s80"><div class="pill on" data-f="all">All</div><div class="pill" data-f="ore">Ore</div><div class="pill" data-f="wood">Wood</div><div class="pill" data-f="gel">Loot</div></div>
       <div id="invcount" class="s80">62 / 100</div>
-      <div id="grid" class="s75"></div>
-      <div id="invscroll"><i></i></div>
+      <div id="gridview" class="viewport"><div class="inner"><div id="grid" class="s75"></div></div></div>
+      <div id="invbar" class="sb"><i></i></div>
       <div id="detail">
         <div class="nm s85">Copper Ore</div>
         <div class="qty s80">x14</div>
         <div class="where s75">In the wall</div>
-        <div class="tileimg"></div>
+        <div class="tileimg ore"></div>
       </div>
       <div id="handover" class="pill s85">Hand everything over</div>
     </div>
@@ -233,15 +257,14 @@ body{font-family:var(--ui);color:var(--ink);text-shadow:2px 2px 0 #000;font-weig
     <!-- Mastery page -->
     <div id="mast" class="page">
       <div class="hint s75">Preview · drag to pan</div>
-      <div class="zoom s80"><div class="rb">-</div><div class="rb">+</div><div class="pill">Reset view</div></div>
+      <div class="zoom s80"><div class="rb" id="zout">-</div><div class="rb" id="zin">+</div><div class="pill" id="zreset">Reset view</div></div>
       <div id="graph">
         <!-- the authored graph from DefineMasteryGraph.cs, drawn by the script below from the
              same node table, edge table, label positions and branch colours the game uses -->
-        <svg id="graphsvg" viewBox="-860 -330 1620 640" preserveAspectRatio="xMidYMid meet"
-             font-family="inherit" font-size="27" font-weight="bold"></svg>
+        <svg id="graphsvg" preserveAspectRatio="none" font-family="inherit" font-weight="bold"></svg>
       </div>
       <div class="legend s80">Circle: stat &nbsp; Diamond: ability &nbsp; Small: path rank</div>
-      <div class="legend2 s75">Select a node. Shared junctions open from either incoming path.</div>
+      <div class="legend2 s75" id="mastline">Select a node. Shared junctions open from either incoming path.</div>
       <div class="status s68">No stats, points or materials changed</div>
       <div id="preview" class="pill s85">Preview rank</div>
     </div>
@@ -249,15 +272,15 @@ body{font-family:var(--ui);color:var(--ink);text-shadow:2px 2px 0 #000;font-weig
 
   <div id="footer">
     <div class="tile" data-page="inv">
-      <div class="bar"><i style="width:62%;background:var(--hp)"></i></div>
-      <div class="count s65">62/100</div>
+      <div class="bar"><i id="invfill" style="width:62%;background:var(--hp)"></i></div>
+      <div class="count s65" id="invtilecount">62/100</div>
       <div class="t s85">Inventory</div>
-      <div class="d s68">62 of 100 slots occupied</div>
-      <div class="d2 s64">No recent pickup</div>
+      <div class="d s68" id="invtiledetail">62 of 100 slots occupied</div>
+      <div class="d2 s64" id="invtilelast">No recent pickup</div>
     </div>
     <div class="tile" data-page="mast">
-      <div class="bar"><i style="width:0;background:var(--gold)"></i></div>
-      <div class="count s65">0/88</div>
+      <div class="bar"><i id="mastfill" style="width:0;background:var(--gold)"></i></div>
+      <div class="count s65" id="masttilecount">0/88</div>
       <div class="t s85">Mastery</div>
       <div class="d s68">Explore the preview</div>
       <div class="d2 s64">No points or materials spent</div>
@@ -267,15 +290,48 @@ body{font-family:var(--ui);color:var(--ink);text-shadow:2px 2px 0 #000;font-weig
 </div>
 
 <script>
-// The mockup's only logic: page switching (tiles and the title button), minimise,
-// the segment and toggle rows, the stepper, and the scale control. Nothing eases.
-const frame = document.getElementById('frame');
-const titleName = document.querySelector('#title .name');
-const back = document.getElementById('back');
-const tiles = [...document.querySelectorAll('.tile')];
-const names = {behaviour:'Companion', inv:'Inventory', mast:'Mastery'};
-function show(page){
-  document.querySelectorAll('.page').forEach(p => p.classList.toggle('on', p.id === page));
+// ---------------------------------------------------------------- helpers
+const $ = s => document.querySelector(s), $$ = s => [...document.querySelectorAll(s)];
+const z = () => Number(getComputedStyle(document.documentElement).getPropertyValue('--z')) || 1;
+const frame = $('#frame'), stage = $('#stage');
+
+// ---------------------------------------------------------------- scale and placement
+// The frame is placed in stage pixels divided by the zoom, the way the game places it in UI
+// coordinates; it opens centred, as the game does the first time, and keeps its place after.
+let framePos = null;
+function place() {
+  const zz = z(), w = 780, h = frame.classList.contains('min') ? 54 : 650;
+  const sw = stage.clientWidth / zz, sh = stage.clientHeight / zz;
+  if (!framePos) framePos = {x: Math.max(0, (sw - w) / 2), y: Math.max(0, (sh - h) / 2)};
+  framePos.x = Math.min(Math.max(0, framePos.x), Math.max(0, sw - w));
+  framePos.y = Math.min(Math.max(0, framePos.y), Math.max(0, sh - h));
+  frame.style.left = framePos.x + 'px'; frame.style.top = framePos.y + 'px';
+}
+$$('#bench [data-z]').forEach(b => b.addEventListener('click', () => {
+  document.documentElement.style.setProperty('--z', b.dataset.z);
+  $$('#bench [data-z]').forEach(x => x.classList.toggle('on', x === b));
+  framePos = null; place(); fitGraph();
+}));
+window.addEventListener('resize', place);
+
+// drag by the title bar, never by its buttons
+const title = $('#title'); let drag = null;
+title.addEventListener('pointerdown', e => {
+  if (e.target.classList.contains('rb')) return;
+  drag = {x: e.clientX, y: e.clientY, ox: framePos.x, oy: framePos.y};
+  title.classList.add('dragging'); title.setPointerCapture(e.pointerId);
+});
+title.addEventListener('pointermove', e => {
+  if (!drag) return;
+  framePos = {x: drag.ox + (e.clientX - drag.x) / z(), y: drag.oy + (e.clientY - drag.y) / z()}; place();
+});
+title.addEventListener('pointerup', () => { drag = null; title.classList.remove('dragging'); });
+
+// ---------------------------------------------------------------- pages
+const names = {behaviour: 'Companion', inv: 'Inventory', mast: 'Mastery'};
+const tiles = $$('.tile'), back = $('#back'), titleName = $('#title .name');
+function show(page) {
+  $$('.page').forEach(p => p.classList.toggle('on', p.id === page));
   frame.classList.toggle('sub', page !== 'behaviour');
   titleName.textContent = names[page];
   back.textContent = page === 'behaviour' ? '+' : '<';
@@ -284,41 +340,98 @@ function show(page){
     t.classList.toggle('on', on);
     t.querySelector('.t').textContent = (on ? '> ' : '') + (t.dataset.page === 'inv' ? 'Inventory' : 'Mastery');
   });
-  document.querySelectorAll('#bench [data-page]').forEach(b => b.classList.toggle('on', b.dataset.page === page));
+  $$('#bench [data-page]').forEach(b => b.classList.toggle('on', b.dataset.page === page));
+  scrollers.forEach(s => s.layout());
+  if (page === 'mast') fitGraph();
 }
 tiles.forEach(t => t.addEventListener('click', () => show(t.dataset.page)));
-document.querySelectorAll('#bench [data-page]').forEach(b => b.addEventListener('click', () => show(b.dataset.page)));
-back.addEventListener('click', () => { if (!document.getElementById('behaviour').classList.contains('on')) show('behaviour'); });
-document.getElementById('minimise').addEventListener('click', () => frame.classList.toggle('min'));
-document.querySelectorAll('#bench [data-z]').forEach(b => b.addEventListener('click', () => {
-  document.documentElement.style.setProperty('--z', b.dataset.z);
-  document.querySelectorAll('#bench [data-z]').forEach(x => x.classList.toggle('on', x === b));
-}));
-document.querySelectorAll('.row .seg').forEach(s => s.addEventListener('click', () => {
+$$('#bench [data-page]').forEach(b => b.addEventListener('click', () => show(b.dataset.page)));
+back.addEventListener('click', () => { if (!$('#behaviour').classList.contains('on')) show('behaviour'); });
+$('#minimise').addEventListener('click', () => { frame.classList.toggle('min'); place(); });
+$('#close').addEventListener('click', () => frame.classList.add('hidden'));
+$('#reopen').addEventListener('click', () => { frame.classList.remove('hidden'); place(); });
+
+// ---------------------------------------------------------------- scrollers
+// A viewport clips an inner block; the wheel and the thumb move it. The thumb's size is the
+// visible share of the content, as the native UIScrollbar draws it.
+class Scroller {
+  constructor(viewport, bar) {
+    this.v = viewport; this.inner = viewport.querySelector('.inner'); this.bar = bar; this.thumb = bar.querySelector('i');
+    this.y = 0;
+    viewport.addEventListener('wheel', e => { this.to(this.y + e.deltaY / z()); e.preventDefault(); }, {passive: false});
+    let d = null;
+    this.thumb.addEventListener('pointerdown', e => { d = {y: e.clientY, oy: this.y}; this.thumb.setPointerCapture(e.pointerId); });
+    this.thumb.addEventListener('pointermove', e => {
+      if (!d) return;
+      const track = this.bar.clientHeight - 4 - this.thumb.offsetHeight;
+      if (track > 0) this.to(d.oy + (e.clientY - d.y) / z() * (this.max() / track));
+    });
+    this.thumb.addEventListener('pointerup', () => d = null);
+    this.bar.addEventListener('pointerdown', e => { if (e.target === this.bar) this.to(this.y + (e.offsetY < this.thumb.offsetTop ? -1 : 1) * this.v.clientHeight); });
+  }
+  max() { return Math.max(0, this.inner.scrollHeight - this.v.clientHeight); }
+  to(y) { this.y = Math.min(Math.max(0, y), this.max()); this.inner.style.top = -this.y + 'px'; this.layout(); }
+  layout() {
+    const track = this.bar.clientHeight - 4, content = this.inner.scrollHeight, view = this.v.clientHeight;
+    const size = content > 0 ? Math.max(24, Math.round(track * Math.min(1, view / content))) : track;
+    const max = this.max();
+    this.thumb.style.height = size + 'px';
+    this.thumb.style.top = 2 + (max > 0 ? Math.round((track - size) * (this.y / max)) : 0) + 'px';
+  }
+}
+const scrollers = [new Scroller($('#rows'), $('#rowsbar')), new Scroller($('#gridview'), $('#invbar'))];
+
+// ---------------------------------------------------------------- behaviour rows
+$$('.row .seg').forEach(s => s.addEventListener('click', () => {
   s.parentElement.querySelectorAll('.seg').forEach(x => x.classList.toggle('on', x === s));
 }));
-document.querySelectorAll('.row.step').forEach(r => {
+$$('.row.step').forEach(r => {
   const out = r.querySelector('.readout'), stops = out.dataset.stops.split(',');
   const move = d => { out.dataset.i = (Number(out.dataset.i) + d + stops.length) % stops.length; out.textContent = stops[out.dataset.i]; };
   r.querySelector('.less').addEventListener('click', () => move(-1));
   r.querySelector('.more').addEventListener('click', () => move(1));
 });
-document.querySelectorAll('.pill').forEach(p => p.parentElement.id === 'filters' && p.addEventListener('click', () => {
-  p.parentElement.querySelectorAll('.pill').forEach(x => x.classList.toggle('on', x === p));
-}));
-// the inventory grid: 60 of the 100 fixed 48px slots visible at once, the same mix the render shows
-const grid = document.getElementById('grid'), kinds = ['ore','wood','gel'];
-for (let i = 14; i < 74; i++) {
-  const s = document.createElement('div'); s.className = 'slot';
-  s.innerHTML = `<span class="n">${i}</span><i class="it ${kinds[i % 3]}"></i>`;
-  grid.appendChild(s);
-}
-// hover hints on the rows, the way the native card shows them as mouse text
-document.querySelectorAll('.row').forEach(r => r.title = r.dataset.hint);
+$$('.row').forEach(r => r.title = r.dataset.hint);
 
-// ---- the mastery graph, from DefineMasteryGraph.cs (2026-09-13) ----
-// Eight regions of ten nodes: six notable (stat circles or ability diamonds) then four small
-// path ranks; eight shared junctions (80–87); -1 is the free centre. Kinds follow the C# rule.
+// ---------------------------------------------------------------- inventory
+// 100 fixed slots in ten columns; 62 hold something, as the render shows. A slot selects into
+// the detail panel; a filter dims what it excludes and keeps every slot in place.
+const items = {ore: ['Copper Ore', 'In the wall'], wood: ['Wood', 'From a tree'], gel: ['Gel', 'Dropped by a slime']};
+const bag = Array.from({length: 100}, (_, i) => i < 62 ? {kind: ['ore', 'wood', 'gel'][i % 3], n: 8 + (i * 7) % 40} : null);
+const grid = $('#grid'), detail = $('#detail'); let selected = 0;
+bag.forEach((it, i) => {
+  const s = document.createElement('div'); s.className = 'slot' + (it ? '' : ' empty');
+  s.innerHTML = it ? `<span class="n">${it.n}</span><i class="it ${it.kind}"></i>` : '';
+  s.addEventListener('click', () => select(i));
+  grid.appendChild(s);
+});
+function select(i) {
+  selected = i;
+  $$('.slot').forEach((s, j) => s.classList.toggle('sel', j === i));
+  const it = bag[i];
+  detail.classList.toggle('empty', !it);
+  if (it) { detail.querySelector('.nm').textContent = items[it.kind][0]; detail.querySelector('.qty').textContent = 'x' + it.n;
+    detail.querySelector('.where').textContent = items[it.kind][1]; detail.querySelector('.tileimg').className = 'tileimg ' + it.kind; }
+}
+select(0);
+$$('#filters .pill').forEach(p => p.addEventListener('click', () => {
+  $$('#filters .pill').forEach(x => x.classList.toggle('on', x === p));
+  $$('.slot').forEach((s, j) => s.classList.toggle('dim', p.dataset.f !== 'all' && (!bag[j] || bag[j].kind !== p.dataset.f)));
+}));
+$('#handover').addEventListener('click', () => {
+  // the whole bag goes to the player; the counts follow, the slots stay
+  bag.fill(null);
+  $$('.slot').forEach(s => { s.className = 'slot empty'; s.innerHTML = ''; });
+  $('#invcount').textContent = '0 / 100'; $('#invtilecount').textContent = '0/100'; $('#invfill').style.width = '0';
+  $('#invtiledetail').textContent = '0 of 100 slots occupied'; $('#invtilelast').textContent = 'Handed everything over';
+  select(0);
+});
+
+// ---------------------------------------------------------------- mastery graph
+// From DefineMasteryGraph.cs (2026-09-13). Eight regions of ten nodes: six notable (stat circles
+// or ability diamonds) then four small path ranks; eight shared junctions (80–87); -1 is the free
+// centre. Kinds follow the C# rule. The view is a viewBox the pan and zoom rewrite, so the
+// geometry itself never moves; reset fits the authored 1720x620 extent as the game does.
 const REGIONS = [[[-38,-40],[-136,-100],[-222,-162],[-19,-155],[-104,-213],[-246,-216],[-98,-64],[-210,-122],[-64,-121],[-170,-190]],
  [[64,-36],[205,-86],[194,-178],[368,-107],[326,-196],[456,-178],[134,-52],[171,-133],[294,-84],[256,-193]],
  [[109,-3],[314,-22],[422,-71],[483,26],[573,-38],[680,-74],[208,-7],[355,-52],[389,8],[496,-56]],
@@ -331,35 +444,81 @@ const JUNCTIONS = [[82,-198],[494,-133],[606,50],[267,202],[-160,197],[-550,101]
 const BRANCHES = ["Tools","Ranged","Movement","Magic","Survival","Support","Gathering","Melee"];
 const COLORS = ['rgb(233,180,103)','rgb(138,205,109)','rgb(104,213,220)','rgb(182,144,240)','rgb(237,132,146)','rgb(231,217,137)','rgb(109,201,178)','rgb(236,151,99)'];
 const LABELS = [[-210,-291],[295,-249],[624,-124],[592,198],[81,258],[-422,218],[-806,88],[-707,-180]];
+const NAMES = [["Tool reach","Tool speed","Careful work","Vein reach","Efficient tools","Tool mastery"],
+ ["Ranged damage","Ranged speed","Projectile speed","Piercing","Bow mastery","Ranged mastery"],
+ ["Movement speed","Jump height","Double jump","Triple jump","Dash","Flight"],
+ ["Magic damage","Mana reserve","Mana recovery","Spell reach","Staff mastery","Magic mastery"],
+ ["Maximum life","Defence","Recovery","Breath reserve","Swimming","Resilience"],
+ ["Protection reach","Threat awareness","Revival speed","Guard endurance","Protective skill","Support mastery"],
+ ["Pickup reach","Inventory capacity","Gathering speed","Search reach","Resource skill","Gathering mastery"],
+ ["Melee damage","Attack speed","Melee reach","Knockback","Sword mastery","Melee mastery"]];
+const SMALL = ["Tool speed","Ranged damage","Movement speed","Magic damage","Maximum life","Protection reach","Pickup reach","Melee damage"];
 const nodes = [];
 REGIONS.forEach((r, b) => r.forEach((p, n) => {
   const ability = n < 6 && (b === 2 ? n >= 2 : b === 4 ? n === 4 : n >= 4);
-  nodes.push({x: p[0], y: p[1], b, kind: n >= 6 ? 'filler' : ability ? 'ability' : 'stat'});
+  nodes.push({x: p[0], y: p[1], b, kind: n >= 6 ? 'filler' : ability ? 'ability' : 'stat', name: n >= 6 ? SMALL[b] + ' path' : NAMES[b][n]});
 }));
-JUNCTIONS.forEach((p, i) => nodes.push({x: p[0], y: p[1], b: i, kind: 'junction'}));
+JUNCTIONS.forEach((p, i) => nodes.push({x: p[0], y: p[1], b: i, kind: 'junction', name: 'Shared ' + SMALL[i].toLowerCase()}));
 const edges = [];
 for (let b = 0; b < 8; b++) { const o = b * 10;
   [[-1,0],[0,6],[6,1],[1,7],[7,2],[1,8],[8,3],[2,9],[9,4],[3,4],[4,5]].forEach(([f,t]) => edges.push([f < 0 ? -1 : o + f, o + t])); }
 [[3,80],[12,80],[80,4],[80,14],[13,81],[22,81],[81,15],[81,24],[23,82],[32,82],[82,24],[82,35],[33,83],[42,83],[83,34],[83,45],
  [43,84],[52,84],[84,44],[84,54],[53,85],[62,85],[85,55],[85,64],[63,86],[73,86],[86,64],[86,74],[72,87],[2,87],[87,75],[87,5]].forEach(e => edges.push(e));
-const svg = document.getElementById('graphsvg'), NS = 'http://www.w3.org/2000/svg';
+const svg = $('#graphsvg'), NS = 'http://www.w3.org/2000/svg';
 const el = (t, a) => { const e = document.createElementNS(NS, t); for (const k in a) e.setAttribute(k, a[k]); return e; };
 const at = i => i < 0 ? {x: 0, y: 0, b: -1} : nodes[i];
-edges.forEach(([f, t]) => { const a = at(f), z = at(t);
-  svg.appendChild(el('line', {x1: a.x, y1: a.y, x2: z.x, y2: z.y, stroke: COLORS[z.b], 'stroke-width': 2, opacity: .85})); });
-nodes.forEach(n => {
-  const c = COLORS[n.b];
-  if (n.kind === 'stat') svg.appendChild(el('circle', {cx: n.x, cy: n.y, r: 9, fill: 'none', stroke: c, 'stroke-width': 2.5}));
-  else if (n.kind === 'ability') svg.appendChild(el('rect', {x: n.x - 9, y: n.y - 9, width: 18, height: 18, fill: 'none', stroke: c, 'stroke-width': 2.5, transform: `rotate(45 ${n.x} ${n.y})`}));
-  else svg.appendChild(el('circle', {cx: n.x, cy: n.y, r: n.kind === 'junction' ? 6 : 4.5, fill: 'none', stroke: c, 'stroke-width': 2}));
-});
-svg.appendChild(el('rect', {x: -11, y: -11, width: 22, height: 22, fill: '#ffe066', stroke: '#ffe066', transform: 'rotate(45 0 0)'}));
-// the game's hard black text shadow, as an SVG filter because CSS text-shadow does not apply to SVG text
 const defs = el('defs', {}), filter = el('filter', {id: 'hard', x: '-10%', y: '-10%', width: '130%', height: '130%'});
 filter.appendChild(el('feDropShadow', {dx: 3, dy: 3, stdDeviation: 0, 'flood-color': '#000'}));
 defs.appendChild(filter); svg.appendChild(defs);
-LABELS.forEach((p, i) => { const t = el('text', {x: p[0], y: p[1], fill: COLORS[i], 'text-anchor': 'middle', filter: 'url(#hard)'});
+edges.forEach(([f, t]) => { const a = at(f), q = at(t);
+  svg.appendChild(el('line', {x1: a.x, y1: a.y, x2: q.x, y2: q.y, stroke: COLORS[q.b], 'stroke-width': 2, opacity: .85})); });
+const nodeEls = nodes.map((n, i) => {
+  const c = COLORS[n.b]; let e;
+  if (n.kind === 'stat') e = el('circle', {cx: n.x, cy: n.y, r: 9, fill: 'none', stroke: c, 'stroke-width': 2.5});
+  else if (n.kind === 'ability') e = el('rect', {x: n.x - 9, y: n.y - 9, width: 18, height: 18, fill: 'none', stroke: c, 'stroke-width': 2.5, transform: `rotate(45 ${n.x} ${n.y})`});
+  else e = el('circle', {cx: n.x, cy: n.y, r: n.kind === 'junction' ? 6 : 4.5, fill: 'none', stroke: c, 'stroke-width': 2});
+  e.classList.add('node'); svg.appendChild(e);
+  e.addEventListener('click', ev => { ev.stopPropagation(); nodeEls.forEach(x => x.classList.remove('sel')); e.classList.add('sel');
+    $('#mastline').textContent = n.name + ' · ' + (n.kind === 'ability' ? 'ability preview' : n.kind === 'stat' ? 'repeatable stat, rank 0 of 5' : 'path rank, rank 0 of 5'); });
+  return e;
+});
+svg.appendChild(el('rect', {x: -11, y: -11, width: 22, height: 22, fill: '#ffe066', stroke: '#ffe066', transform: 'rotate(45 0 0)'}));
+LABELS.forEach((p, i) => { const t = el('text', {x: p[0], y: p[1], fill: COLORS[i], 'text-anchor': 'middle', 'font-size': 27, filter: 'url(#hard)'});
   t.textContent = BRANCHES[i]; svg.appendChild(t); });
+
+// pan and zoom as the game does them: wheel 1.12 / 0.89 about the pointer, buttons 1.15 / 0.85
+// about the canvas centre, reset fits the authored extent
+const graph = $('#graph'); let view = {x: -860, y: -310, w: 1720, h: 620};
+function applyView() { svg.setAttribute('viewBox', `${view.x} ${view.y} ${view.w} ${view.h}`); }
+function fitGraph() {
+  const cw = graph.clientWidth, ch = graph.clientHeight; if (!cw || !ch) return;
+  const s = Math.max(1720 / cw, 620 / ch); // units per pixel that fits both
+  view = {w: cw * s, h: ch * s, x: -cw * s / 2, y: -ch * s / 2}; applyView();
+}
+function zoomAt(factor, px, py) {
+  // px,py in graph pixels; keep the point under them fixed
+  const ux = view.x + px / graph.clientWidth * view.w, uy = view.y + py / graph.clientHeight * view.h;
+  const nw = view.w / factor, nh = view.h / factor;
+  const minS = Math.min(1720 / graph.clientWidth, 620 / graph.clientHeight) * 0.25, maxS = Math.max(1720 / graph.clientWidth, 620 / graph.clientHeight) * 3;
+  const s = Math.min(Math.max(nw / graph.clientWidth, minS), maxS);
+  view = {w: graph.clientWidth * s, h: graph.clientHeight * s, x: ux - px / graph.clientWidth * graph.clientWidth * s, y: uy - py / graph.clientHeight * graph.clientHeight * s};
+  applyView();
+}
+graph.addEventListener('wheel', e => { const r = graph.getBoundingClientRect(); zoomAt(e.deltaY < 0 ? 1.12 : 0.89, (e.clientX - r.left) / z(), (e.clientY - r.top) / z()); e.preventDefault(); }, {passive: false});
+$('#zin').addEventListener('click', () => zoomAt(1.15, graph.clientWidth / 2, graph.clientHeight / 2));
+$('#zout').addEventListener('click', () => zoomAt(0.85, graph.clientWidth / 2, graph.clientHeight / 2));
+$('#zreset').addEventListener('click', fitGraph);
+let pan = null;
+graph.addEventListener('pointerdown', e => { pan = {x: e.clientX, y: e.clientY, vx: view.x, vy: view.y}; graph.classList.add('dragging'); graph.setPointerCapture(e.pointerId); });
+graph.addEventListener('pointermove', e => {
+  if (!pan) return;
+  view.x = pan.vx - (e.clientX - pan.x) / z() * (view.w / graph.clientWidth);
+  view.y = pan.vy - (e.clientY - pan.y) / z() * (view.h / graph.clientHeight); applyView();
+});
+graph.addEventListener('pointerup', () => { pan = null; graph.classList.remove('dragging'); });
+
+// ---------------------------------------------------------------- start
+place(); scrollers.forEach(s => s.layout()); fitGraph();
 </script>
 </body>
 </html>
