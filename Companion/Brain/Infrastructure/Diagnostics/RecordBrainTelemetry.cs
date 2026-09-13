@@ -600,6 +600,13 @@ public sealed class BrainTelemetry : ModSystem
             // tick on a route, because a rate over no travel is not zero, it is unmeasured. The route-episode and stop
             // occurrences beside them carry the individual journeys; these two are the shape of the session.
             h.Append("\tstops_per_minute\troute_speed_mean");
+            // How many lights somebody was carrying inside the light field's window this tick — the player's
+            // torch, a pet, a helmet, anything a mod adds — each of which the field discounted rather than
+            // reading as the room's. Appended at the end and the schema left where it is, because nothing
+            // before it moved and the reader addresses columns by name. It is here because the failure it
+            // describes is otherwise invisible in a capture: a companion that walks a lit-looking passage
+            // beside a torch-carrying player and places nothing looks exactly like one with nothing to do.
+            h.Append("\ttransient_lights");
             writer.WriteLine(h.ToString());
             headerWritten = true;
         }
@@ -979,6 +986,7 @@ public sealed class BrainTelemetry : ModSystem
             .Append('\t').Append(RecordTerrainChunks.Evictions);
         sb.Append('\t').Append(TravelEpisodes.StopsPerMinute.ToString("0.00", CultureInfo.InvariantCulture))
             .Append('\t').Append(TravelEpisodes.RouteSpeedMean.ToString("0.00", CultureInfo.InvariantCulture));
+        sb.Append('\t').Append(Observation.TransientLights.Count);
 
         // A write that fails (disk full, a stream the OS closed) must not escape the NPC's AI
         // and take the companion with it; the record stops and the game goes on.
