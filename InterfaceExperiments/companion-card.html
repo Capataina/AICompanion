@@ -9,32 +9,43 @@
  * The companion card as it should be built next, iterated here before
  * it is built in CompanionProfileCardSystem. It started as a one-to-one
  * replica of the native card (Tools/EngineReplay --render-ui, 2026-09-13)
- * and this revision changes what the owner rejected in that render:
+ * and two rounds of the owner's review produced this shape:
  *
- *   - the card is 720x580 instead of 780x650;
- *   - the Companion page is two columns: the six behaviour rows on the
- *     left and the ore list on the right, which is where the empty right
- *     half went; the rows no longer scroll because they fit;
- *   - the ore list is the only allow/deny control in the card. An ore
- *     appears once the player has picked one up (a saved set, so selling
- *     the last copper does not remove it), never before, so the list does
- *     not spoil what a world or a mod holds. A mode says what a mark
- *     means: blacklist mines everything except the marked ores, whitelist
- *     mines only the marked ones. There is no "mine N to unlock";
- *   - a behaviour row's segments split the control evenly by their count,
- *     so an On/Off row no longer leaves a third of its control empty;
+ *   - the overview is short: a 720x272 card holding the title bar, the
+ *     identity strip and three tiles. The strip carries the portrait,
+ *     name, health and the current action on the left and the three
+ *     controls that survive on the right — mining and chopping at
+ *     Off/Mimic/Auto, torches at Off/On — each an icon with a joined
+ *     segment control beside it. Hunting and pot breaking are not
+ *     toggles in the first version and following distance never
+ *     changes, so none of them is drawn;
+ *   - the three tiles — Inventory, Mastery, Mining list — each take over
+ *     the whole card at 720x580 when clicked, with only back and close
+ *     in the title bar; the frame keeps its top-left so the title bar
+ *     does not jump;
+ *   - the Mining list is the only allow/deny control in the card. An
+ *     ore appears once the player has picked one up (a saved set, so
+ *     selling the last copper does not remove it), never before, so the
+ *     list does not spoil what a world or a mod holds. A mode says what
+ *     a mark means — skip the marked ores, or mine only the marked ones;
+ *     whatever the mode, an ore the companion will mine is bright and one
+ *     it will leave is dim. The grid scrolls with a bar on its right
+ *     like the inventory, and the hovered ore's wall preview sits in a
+ *     panel beside the grid rather than under it;
  *   - the Inventory page is the grid alone with Terraria's own chest
  *     buttons above it — Loot All, Deposit All, Quick Stack, Restock —
  *     and no filters, no detail panel; the bag sorts itself after every
  *     transfer, so there is no Sort button either;
- *   - the Mastery page is the whole card: no identity strip, no tiles,
- *     only back and close in the title bar;
+ *   - the Mastery graph is authored round: eight branches radiating from
+ *     the centre, each with its own kinks and side-shoots, the shared
+ *     junctions between neighbouring branches. The node table below is
+ *     the proposal for DefineMasteryGraph.cs;
  *   - there is no minimise button.
  *
  * Every size is the logical pixel the C# layout will use:
- *   frame 720x580, padding 10, title bar 34, identity 100,
- *   content from 158, overview footer 100 (sub-pages 56),
- *   setting rows 38 with 4 between, buttons 30 tall, slots 48 with 4 gap.
+ *   overview 720x272, full pages 720x580, padding 10, title bar 34,
+ *   identity 100, tiles 100 from 158, joined segments 22 tall,
+ *   buttons 30 tall, slots 48 with 4 gap.
  *
  * Terraria's own interface language, kept from the first mockup because
  * it is what makes this read as the game and not as a web page: every
@@ -74,11 +85,11 @@ body{font-family:var(--ui);color:var(--ink);text-shadow:2px 2px 0 #000;font-weig
 #bench button{font:inherit;background:#161f3a;color:#c3c6f5;border:1px solid #2b3560;padding:3px 9px;cursor:pointer}
 #bench button.on{background:#2b3099;color:#fff;border-color:#8f93f0}
 #bench .sp{flex:1}
-#bench #yours{color:#8f93cc}
 
 #stage{position:relative;overflow:hidden}
-#frame{zoom:var(--z);width:720px;height:580px;position:absolute;left:0;top:0;
+#frame{zoom:var(--z);width:720px;height:272px;position:absolute;left:0;top:0;
   background:var(--panel);border:2px solid var(--edge);border-radius:9px;padding:10px}
+#frame.full{height:580px}
 #frame.hidden{display:none}
 
 /* every text scale the card uses, as the C# scale times the base 18px */
@@ -89,6 +100,10 @@ body{font-family:var(--ui);color:var(--ink);text-shadow:2px 2px 0 #000;font-weig
 .rb{width:30px;height:30px;border:2px solid var(--edge);border-radius:15px;background:var(--panel-solid);
   display:grid;place-items:center;cursor:pointer;line-height:1;flex:none}
 .rb:hover{border-color:var(--gold)}
+.pill{height:34px;padding:0 14px;border:2px solid var(--edge);border-radius:17px;background:var(--panel-solid);
+  display:grid;place-items:center;cursor:pointer;line-height:1;position:relative}
+.pill:hover{border-color:var(--gold)}
+.pill.on{color:var(--gold);background:var(--selected)}
 
 /* ---- title bar: 34 tall, a 1px edge line under it; the bar itself is the drag grip ---- */
 #title{height:34px;position:relative;border-bottom:1px solid var(--edge);cursor:grab}
@@ -97,23 +112,47 @@ body{font-family:var(--ui);color:var(--ink);text-shadow:2px 2px 0 #000;font-weig
 #title .rb{position:absolute;top:0}
 #back{left:0}#close{right:0}
 
-/* ---- identity row: top 48 from the padded frame, 100 tall; hidden on the mastery page ---- */
-#identity{position:absolute;left:10px;right:10px;top:48px;height:100px;border-bottom:1px solid var(--edge-soft)}
+/* ---- identity strip: top 48, 100 tall; the controls sit on its right ---- */
+#identity{position:absolute;left:10px;right:10px;top:48px;height:100px}
 #portrait{position:absolute;left:2px;top:3px;width:66px;height:92px;background:var(--sunk);display:grid;place-items:center}
 #portrait svg{image-rendering:pixelated;width:44px;height:56px}
 #who{position:absolute;left:80px;top:3px}
-#hp{position:absolute;right:6px;top:7px;color:var(--hp)}
-#hpbar{position:absolute;left:80px;right:6px;top:31px;height:8px;background:var(--bar-bg)}
+#hp{position:absolute;left:300px;width:100px;text-align:right;top:7px;color:var(--hp)}
+#hpbar{position:absolute;left:80px;width:320px;top:31px;height:8px;background:var(--bar-bg)}
 #hpbar i{display:block;height:100%;background:var(--green);width:100%}
-#action{position:absolute;left:80px;right:8px;top:48px;line-height:1.35}
+#action{position:absolute;left:80px;width:340px;top:48px;line-height:1.35}
 #frame.full #identity,#frame.full #footer{display:none}
 
-/* ---- content: from 158 to the footer; the whole card on the mastery page ---- */
-#content{position:absolute;left:10px;right:10px;top:158px;bottom:118px}
-#frame.sub #content{bottom:74px}
-#frame.full #content{top:44px;bottom:10px}
+/* three controls: a 26px icon and a joined segment control, 26 tall with 8 between */
+#controls{position:absolute;left:430px;right:0;top:4px}
+.ctlrow{height:26px;display:flex;align-items:center;gap:10px}
+.ctlrow+.ctlrow{margin-top:7px}
+.ctlrow .ico{width:26px;height:26px;flex:none;image-rendering:pixelated}
+.ctlrow .ico svg{width:26px;height:26px;display:block}
+.joined{display:flex;height:22px;flex:1}
+.joined .seg{flex:1;height:22px;border:2px solid var(--edge);background:var(--panel-solid);display:grid;place-items:center;
+  cursor:pointer;line-height:1;margin-left:-2px}
+.joined .seg:first-child{margin-left:0;border-radius:11px 0 0 11px}
+.joined .seg:last-child{border-radius:0 11px 11px 0}
+.joined .seg:hover{border-color:var(--gold);z-index:1}
+.joined .seg.on{border-color:var(--gold);color:var(--gold);background:var(--selected);z-index:1}
+#controls .hint{position:absolute;left:36px;right:0;top:94px;color:var(--muted);white-space:nowrap;overflow:hidden;height:0}
+
+/* ---- tiles: three across, 100 tall from 158 ---- */
+#footer{position:absolute;left:10px;right:10px;top:158px;height:100px;display:flex;gap:10px}
+.tile{flex:1;position:relative;border:2px solid var(--edge);border-radius:9px;background:var(--panel);cursor:pointer}
+.tile:hover{border-color:var(--gold)}
+.tile .bar{position:absolute;left:10px;top:10px;right:64px;height:6px;background:var(--tile-bar-bg)}
+.tile .bar i{display:block;height:100%}
+.tile .count{position:absolute;right:10px;top:4px;color:var(--muted);width:50px;text-align:right}
+.tile .t{position:absolute;left:10px;top:23px}
+.tile .d{position:absolute;left:10px;top:47px;color:var(--muted);white-space:nowrap;overflow:hidden;right:6px}
+.tile .d2{position:absolute;left:10px;top:69px;color:var(--muted);white-space:nowrap;overflow:hidden;right:6px}
+
+/* ---- full pages: from 44 to 10 from the bottom ---- */
+#content{position:absolute;left:10px;right:10px;top:44px;bottom:10px;display:none}
+#frame.full #content{display:block}
 .page{display:none;position:absolute;inset:0}.page.on{display:block}
-.heading{position:absolute;left:0;top:0;height:26px;line-height:26px}
 
 /* a scroller is a clipped viewport whose inner block is moved by the wheel or the thumb */
 .viewport{position:absolute;overflow:hidden}
@@ -122,59 +161,8 @@ body{font-family:var(--ui);color:var(--ink);text-shadow:2px 2px 0 #000;font-weig
 .sb i{display:block;background:#d7d9ff;border-radius:6px;position:absolute;left:2px;right:2px;cursor:grab}
 .sb i:hover{background:#ffffff}
 
-/* ---- Companion page: behaviour rows on the left, the ore list on the right ---- */
-#left{position:absolute;left:0;top:0;bottom:0;width:300px}
-#right{position:absolute;left:310px;right:0;top:0;bottom:0}
-#rows{position:absolute;left:0;right:0;top:30px}
-.row{height:38px;position:relative;display:flex;align-items:center}
-.row+.row{margin-top:4px}
-.row .cap{width:104px;flex:none}
-.row .ctl{flex:1;display:flex;gap:4px;height:30px}
-.seg{flex:1;height:30px;border:2px solid var(--edge);border-radius:15px;
-  background:var(--panel-solid);display:grid;place-items:center;cursor:pointer;line-height:1}
-.seg:hover{border-color:var(--gold)}
-.seg.on{border-color:var(--gold);color:var(--gold);background:var(--selected)}
-.step .readout{flex:1;height:30px;display:grid;place-items:center;color:var(--gold)}
-#note{position:absolute;left:0;right:0;bottom:0;height:22px;line-height:22px;color:var(--muted);white-space:nowrap;overflow:hidden}
-
-#mode{position:absolute;right:0;top:0;width:236px;height:26px;display:flex;gap:4px}
-#mode .seg{height:26px;border-radius:13px}
-/* the ore grid grows as ores are found; the hovered ore's wall preview sits directly under it,
-   because the wall is the form the player has to recognise while digging and the icon never teaches it */
-#orebody{position:absolute;left:0;right:0;top:34px}
-#ores{display:grid;grid-template-columns:repeat(7,48px);gap:4px}
-.oretile{width:48px;height:48px;border:2px solid var(--edge);border-radius:6px;background:var(--panel-solid);position:relative;cursor:pointer}
-.oretile:hover{border-color:var(--gold)}
-.oretile .sw{position:absolute;left:9px;top:9px;width:26px;height:26px;image-rendering:pixelated}
-.oretile .mk{position:absolute;right:3px;top:1px;line-height:1}
-.oretile.off .sw{opacity:.35}
-.oretile.off .mk{color:var(--red)}
-.oretile.on .mk{color:var(--gold)}
-#oreline{position:relative;margin-top:10px;height:48px}
-#oreline .sw{position:absolute;left:0;top:0;width:48px;height:48px;border:2px solid var(--edge);border-radius:6px;image-rendering:pixelated}
-#oreline .nm{position:absolute;left:58px;top:4px;white-space:nowrap}
-#oreline .st{position:absolute;left:58px;top:27px;color:var(--muted);white-space:nowrap}
-#orenote{position:absolute;left:0;right:0;bottom:0;height:22px;line-height:22px;color:var(--muted);white-space:nowrap;overflow:hidden}
-
-/* ---- footer tiles: 100 tall on the overview, 56 on the inventory ---- */
-#footer{position:absolute;left:10px;right:10px;bottom:10px;height:100px;display:flex;gap:10px}
-#frame.sub #footer{height:56px}
-.tile{flex:1;position:relative;border:2px solid var(--edge);border-radius:9px;background:var(--panel);cursor:pointer}
-.tile:hover,.tile.on{border-color:var(--gold)}
-.tile .bar{position:absolute;left:10px;top:10px;right:70px;height:6px;background:var(--tile-bar-bg)}
-.tile .bar i{display:block;height:100%}
-.tile .count{position:absolute;right:10px;top:4px;color:var(--muted);width:53px;text-align:left}
-.tile .t{position:absolute;left:10px;top:23px}
-.tile .d{position:absolute;left:10px;top:47px;color:var(--muted)}
-.tile .d2{position:absolute;left:10px;top:69px;color:var(--muted)}
-#frame.sub .tile .d,#frame.sub .tile .d2{display:none}
-
-/* ---- inventory page: chest buttons over a twelve-wide grid, nothing else ---- */
+/* ---- inventory: chest buttons over a twelve-wide grid, nothing else ---- */
 #chest{position:absolute;left:23px;width:650px;top:0;height:34px;display:flex;gap:6px}
-.pill{height:34px;padding:0 14px;border:2px solid var(--edge);border-radius:17px;background:var(--panel-solid);
-  display:grid;place-items:center;cursor:pointer;line-height:1;position:relative}
-.pill:hover{border-color:var(--gold)}
-.pill.on{color:var(--gold);background:var(--selected)}
 #chest .pill{flex:1;padding:0}
 #gridview{left:23px;top:44px;width:620px;bottom:30px}
 #grid{display:grid;grid-template-columns:repeat(12,48px);gap:4px}
@@ -190,7 +178,29 @@ body{font-family:var(--ui);color:var(--ink);text-shadow:2px 2px 0 #000;font-weig
 #invcount{position:absolute;right:23px;bottom:0;height:24px;line-height:24px;color:var(--muted)}
 #invlast{position:absolute;left:23px;bottom:0;height:24px;line-height:24px;color:var(--muted)}
 
-/* ---- mastery page: the whole card ---- */
+/* ---- mining list: a mode, a scrolling grid of found ores, the hovered ore's wall preview beside it ---- */
+#mode{position:absolute;left:0;top:0;width:280px;height:34px;display:flex;gap:4px}
+#mode .pill{flex:1;padding:0}
+#oreview{left:0;top:44px;width:412px;bottom:30px}
+#ores{display:grid;grid-template-columns:repeat(8,48px);gap:4px}
+.oretile{width:48px;height:48px;border:2px solid var(--edge);border-radius:6px;background:var(--panel-solid);position:relative;cursor:pointer}
+.oretile:hover{border-color:var(--gold)}
+.oretile .sw{position:absolute;left:9px;top:9px;width:26px;height:26px;image-rendering:pixelated}
+.oretile .mk{position:absolute;right:3px;top:1px;line-height:1}
+.oretile.off .sw{opacity:.35}
+.oretile.off .mk{color:var(--red)}
+.oretile.on .mk{color:var(--gold)}
+#orebar{left:416px;top:44px;bottom:30px}
+#orepanel{position:absolute;left:456px;right:0;top:44px;height:214px;border:2px solid var(--edge);border-radius:9px;padding:12px}
+#orepanel .sw{display:block;width:96px;height:96px;border:2px solid var(--edge);border-radius:6px;image-rendering:pixelated;margin-bottom:12px}
+#orepanel .nm{margin-bottom:6px}
+#orepanel .st{margin-bottom:4px}
+#orepanel .how{color:var(--muted)}
+#orepanel .how.leave{color:var(--red)}
+#orenote{position:absolute;left:456px;right:0;top:270px;color:var(--muted);line-height:1.4}
+#orecount{position:absolute;left:0;bottom:0;height:24px;line-height:24px;color:var(--muted)}
+
+/* ---- mastery: the whole card ---- */
 #mast .hint{position:absolute;left:0;top:10px;color:var(--muted)}
 #mast .zoom{position:absolute;right:0;top:0;height:34px;display:flex;gap:8px;align-items:flex-start}
 #graph{position:absolute;left:0;right:0;top:44px;bottom:64px;overflow:hidden;cursor:grab}
@@ -210,7 +220,7 @@ body{font-family:var(--ui);color:var(--ink);text-shadow:2px 2px 0 #000;font-weig
   <span>scale</span>
   <button class="on" data-z="1">1×</button><button data-z="1.5">1.5×</button>
   <span>page</span>
-  <button data-page="behaviour" class="on">Companion</button><button data-page="inv">Inventory</button><button data-page="mast">Mastery</button>
+  <button data-page="overview" class="on">Companion</button><button data-page="inv">Inventory</button><button data-page="mast">Mastery</button><button data-page="ore">Mining list</button>
   <span class="sp"></span>
   <span id="yours"></span>
   <button id="reopen">Open card</button>
@@ -238,40 +248,58 @@ body{font-family:var(--ui);color:var(--ink);text-shadow:2px 2px 0 #000;font-weig
     <div id="hp" class="s75">400 / 400 HP</div>
     <div id="hpbar"><i></i></div>
     <div id="action" class="s75">Mining · Copper vein · 12 tiles below · opportunistic</div>
+
+    <div id="controls" class="s68">
+      <!-- the three controls that survive, each an item icon in the game's own pixel style and a joined segment control -->
+      <div class="ctlrow" data-hint="Mimic: mine when you do. Auto: find ore nearby on its own.">
+        <div class="ico" title="Mining"><svg viewBox="0 0 13 13" shape-rendering="crispEdges">
+          <rect x="2" y="1" width="8" height="2" fill="#b9b3c9"/><rect x="1" y="2" width="2" height="2" fill="#b9b3c9"/><rect x="9" y="2" width="2" height="3" fill="#b9b3c9"/>
+          <rect x="6" y="3" width="2" height="2" fill="#8a5a2b"/><rect x="5" y="5" width="2" height="2" fill="#8a5a2b"/><rect x="4" y="7" width="2" height="2" fill="#8a5a2b"/><rect x="3" y="9" width="2" height="2" fill="#8a5a2b"/><rect x="2" y="11" width="2" height="1" fill="#8a5a2b"/>
+        </svg></div>
+        <div class="joined"><div class="seg">Off</div><div class="seg">Mimic</div><div class="seg on">Auto</div></div>
+      </div>
+      <div class="ctlrow" data-hint="Mimic: chop when you do. Auto: find trees nearby on its own.">
+        <div class="ico" title="Chopping"><svg viewBox="0 0 13 13" shape-rendering="crispEdges">
+          <rect x="7" y="1" width="4" height="2" fill="#b9b3c9"/><rect x="6" y="2" width="6" height="3" fill="#b9b3c9"/><rect x="8" y="5" width="3" height="1" fill="#b9b3c9"/>
+          <rect x="6" y="5" width="2" height="2" fill="#8a5a2b"/><rect x="5" y="7" width="2" height="2" fill="#8a5a2b"/><rect x="4" y="9" width="2" height="2" fill="#8a5a2b"/><rect x="3" y="11" width="2" height="1" fill="#8a5a2b"/>
+        </svg></div>
+        <div class="joined"><div class="seg">Off</div><div class="seg">Mimic</div><div class="seg on">Auto</div></div>
+      </div>
+      <div class="ctlrow" data-hint="Places torches in dark places, the companion's first, then yours.">
+        <div class="ico" title="Torches"><svg viewBox="0 0 13 13" shape-rendering="crispEdges">
+          <rect x="5" y="1" width="3" height="2" fill="#ffe066"/><rect x="4" y="2" width="5" height="3" fill="#ffb347"/><rect x="5" y="4" width="3" height="2" fill="#ff7a3d"/>
+          <rect x="5" y="6" width="3" height="6" fill="#8a5a2b"/><rect x="6" y="6" width="1" height="6" fill="#6b4520"/>
+        </svg></div>
+        <div class="joined"><div class="seg">Off</div><div class="seg on">On</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="footer">
+    <div class="tile" data-page="inv">
+      <div class="bar"><i id="invfill" style="background:var(--hp)"></i></div>
+      <div class="count s65" id="invtilecount"></div>
+      <div class="t s85">Inventory</div>
+      <div class="d s68" id="invtiledetail"></div>
+      <div class="d2 s64" id="invtilelast">No recent pickup</div>
+    </div>
+    <div class="tile" data-page="mast">
+      <div class="bar"><i style="width:0;background:var(--gold)"></i></div>
+      <div class="count s65">0/88</div>
+      <div class="t s85">Mastery</div>
+      <div class="d s68">Explore the preview</div>
+      <div class="d2 s64">No points or materials spent</div>
+    </div>
+    <div class="tile" data-page="ore">
+      <div class="bar"><i id="orefill" style="background:var(--gold)"></i></div>
+      <div class="count s65" id="oretilecount"></div>
+      <div class="t s85">Mining list</div>
+      <div class="d s68" id="oretiledetail"></div>
+      <div class="d2 s64" id="oretilemode"></div>
+    </div>
   </div>
 
   <div id="content">
-    <!-- Companion page -->
-    <div id="behaviour" class="page on">
-      <div id="left">
-        <div class="heading s85">Behaviour</div>
-        <div id="rows">
-          <div class="row" data-hint="Mimic: mine when you do. Auto: find ore nearby on its own."><div class="cap s80">Mining</div>
-            <div class="ctl s80"><div class="seg">Off</div><div class="seg">Mimic</div><div class="seg on">Auto</div></div></div>
-          <div class="row" data-hint="Mimic: chop when you do. Auto: find trees nearby on its own."><div class="cap s80">Chopping</div>
-            <div class="ctl s80"><div class="seg">Off</div><div class="seg">Mimic</div><div class="seg on">Auto</div></div></div>
-          <div class="row" data-hint="Seek enemies when protection and useful work leave time."><div class="cap s80">Hunting</div>
-            <div class="ctl s80"><div class="seg">Off</div><div class="seg on">On</div></div></div>
-          <div class="row" data-hint="Break nearby reachable pots and collect their drops."><div class="cap s80">Break pots</div>
-            <div class="ctl s80"><div class="seg">Off</div><div class="seg on">On</div></div></div>
-          <div class="row" data-hint="Uses the companion's torches first, then yours. Protects homes."><div class="cap s80">Place torches</div>
-            <div class="ctl s80"><div class="seg">Off</div><div class="seg on">On</div></div></div>
-          <div class="row step" data-hint="Useful jobs can travel farther than ordinary following."><div class="cap s80">Distance</div>
-            <div class="ctl s80"><div class="rb less">&lt;</div><div class="readout" data-stops="Close,Standard,Free" data-i="1">Standard</div><div class="rb more">&gt;</div></div></div>
-        </div>
-        <div id="note" class="s66">Fighting, dodging and pickups are automatic.</div>
-      </div>
-      <div id="right">
-        <div class="heading s85">Ores</div>
-        <div id="mode" class="s75"><div class="seg on" data-mode="black">Skip marked</div><div class="seg" data-mode="white">Only marked</div></div>
-        <div id="orebody">
-          <div id="ores"></div>
-          <div id="oreline"><i class="sw"></i><div class="nm s85"></div><div class="st s68"></div></div>
-        </div>
-        <div id="orenote" class="s66">An ore appears here once you have picked one up.</div>
-      </div>
-    </div>
-
     <!-- Inventory page -->
     <div id="inv" class="page">
       <div id="chest" class="s80">
@@ -286,35 +314,33 @@ body{font-family:var(--ui);color:var(--ink);text-shadow:2px 2px 0 #000;font-weig
       <div id="invcount" class="s80"></div>
     </div>
 
+    <!-- Mining list page -->
+    <div id="ore" class="page">
+      <div id="mode" class="s80"><div class="pill on" data-mode="black">Skip marked</div><div class="pill" data-mode="white">Only marked</div></div>
+      <div id="oreview" class="viewport"><div class="inner"><div id="ores"></div></div></div>
+      <div id="orebar" class="sb"><i></i></div>
+      <div id="orepanel">
+        <i class="sw"></i>
+        <div class="nm s100"></div>
+        <div class="st s80"></div>
+        <div class="how s68"></div>
+      </div>
+      <div id="orenote" class="s68">An ore appears here once you have picked one up. Click an ore to mark it.</div>
+      <div id="orecount" class="s80"></div>
+    </div>
+
     <!-- Mastery page -->
     <div id="mast" class="page">
       <div class="hint s75">Preview · drag to pan · wheel to zoom · nothing is spent</div>
       <div class="zoom s80"><div class="rb" id="zout">-</div><div class="rb" id="zin">+</div><div class="pill" id="zreset">Reset view</div></div>
       <div id="graph">
-        <!-- the authored graph from DefineMasteryGraph.cs, drawn by the script below from the
-             same node table, edge table, label positions and branch colours the game uses -->
+        <!-- eight branches radiating from the centre; the node table is generated below and is the
+             proposal for DefineMasteryGraph.cs -->
         <svg id="graphsvg" preserveAspectRatio="none" font-family="inherit" font-weight="bold"></svg>
       </div>
       <div class="legend s80">Circle: stat &nbsp; Diamond: ability &nbsp; Small: path rank</div>
       <div class="legend2 s75" id="mastline">Select a node. Shared junctions open from either incoming path.</div>
       <div id="preview" class="pill s85">Preview rank</div>
-    </div>
-  </div>
-
-  <div id="footer">
-    <div class="tile" data-page="inv">
-      <div class="bar"><i id="invfill" style="background:var(--hp)"></i></div>
-      <div class="count s65" id="invtilecount"></div>
-      <div class="t s85">Inventory</div>
-      <div class="d s68" id="invtiledetail"></div>
-      <div class="d2 s64" id="invtilelast">No recent pickup</div>
-    </div>
-    <div class="tile" data-page="mast">
-      <div class="bar"><i id="mastfill" style="width:0;background:var(--gold)"></i></div>
-      <div class="count s65" id="masttilecount">0/88</div>
-      <div class="t s85">Mastery</div>
-      <div class="d s68">Explore the preview</div>
-      <div class="d2 s64">No points or materials spent</div>
     </div>
   </div>
 </div>
@@ -325,17 +351,19 @@ body{font-family:var(--ui);color:var(--ink);text-shadow:2px 2px 0 #000;font-weig
 const $ = s => document.querySelector(s), $$ = s => [...document.querySelectorAll(s)];
 const z = () => Number(getComputedStyle(document.documentElement).getPropertyValue('--z')) || 1;
 const frame = $('#frame'), stage = $('#stage');
-const W = 720, H = 580;
+const W = 720, H_OVERVIEW = 272, H_FULL = 580;
 
 // ---------------------------------------------------------------- scale and placement
 // The frame is placed in stage pixels divided by the zoom, the way the game places it in UI
-// coordinates; it opens centred, as the game does the first time, and keeps its place after.
+// coordinates; it opens centred as the full card would, and keeps its top-left after, so opening
+// a tile grows the card downward without moving the title bar.
 let framePos = null;
 function place() {
   const zz = z(), sw = stage.clientWidth / zz, sh = stage.clientHeight / zz;
-  if (!framePos) framePos = {x: Math.max(0, (sw - W) / 2), y: Math.max(0, (sh - H) / 2)};
+  const h = frame.classList.contains('full') ? H_FULL : H_OVERVIEW;
+  if (!framePos) framePos = {x: Math.max(0, (sw - W) / 2), y: Math.max(0, (sh - H_FULL) / 2)};
   framePos.x = Math.min(Math.max(0, framePos.x), Math.max(0, sw - W));
-  framePos.y = Math.min(Math.max(0, framePos.y), Math.max(0, sh - H));
+  framePos.y = Math.min(Math.max(0, framePos.y), Math.max(0, sh - h));
   frame.style.left = framePos.x + 'px'; frame.style.top = framePos.y + 'px';
 }
 $$('#bench [data-z]').forEach(b => b.addEventListener('click', () => {
@@ -359,28 +387,23 @@ title.addEventListener('pointermove', e => {
 title.addEventListener('pointerup', () => { drag = null; title.classList.remove('dragging'); });
 
 // ---------------------------------------------------------------- pages
-// The overview carries the identity strip and the tiles; the inventory keeps them small; the
-// mastery page takes the whole card and only back and close remain.
-const names = {behaviour: 'Companion', inv: 'Inventory', mast: 'Mastery'};
-const tiles = $$('.tile'), back = $('#back'), titleName = $('#title .name');
+// The overview is the short card; each tile turns the whole card into its page, with back and
+// close the only buttons left in the title bar.
+const names = {overview: 'Companion', inv: 'Inventory', mast: 'Mastery', ore: 'Mining list'};
+const back = $('#back'), titleName = $('#title .name');
 function show(page) {
   $$('.page').forEach(p => p.classList.toggle('on', p.id === page));
-  frame.classList.toggle('sub', page === 'inv');
-  frame.classList.toggle('full', page === 'mast');
+  frame.classList.toggle('full', page !== 'overview');
   titleName.textContent = names[page];
-  back.textContent = page === 'behaviour' ? '+' : '<';
-  tiles.forEach(t => {
-    const on = t.dataset.page === page;
-    t.classList.toggle('on', on);
-    t.querySelector('.t').textContent = (on ? '> ' : '') + (t.dataset.page === 'inv' ? 'Inventory' : 'Mastery');
-  });
+  back.textContent = page === 'overview' ? '+' : '<';
   $$('#bench [data-page]').forEach(b => b.classList.toggle('on', b.dataset.page === page));
+  place();
   scrollers.forEach(s => s.layout());
   if (page === 'mast') fitGraph();
 }
-tiles.forEach(t => t.addEventListener('click', () => show(t.dataset.page)));
+$$('.tile').forEach(t => t.addEventListener('click', () => show(t.dataset.page)));
 $$('#bench [data-page]').forEach(b => b.addEventListener('click', () => show(b.dataset.page)));
-back.addEventListener('click', () => { if (!$('#behaviour').classList.contains('on')) show('behaviour'); });
+back.addEventListener('click', () => { if (frame.classList.contains('full')) show('overview'); });
 $('#close').addEventListener('click', () => frame.classList.add('hidden'));
 $('#reopen').addEventListener('click', () => { frame.classList.remove('hidden'); place(); });
 
@@ -412,43 +435,29 @@ class Scroller {
     this.thumb.style.top = 2 + (max > 0 ? Math.round((track - size) * (this.y / max)) : 0) + 'px';
   }
 }
-const scrollers = [new Scroller($('#gridview'), $('#invbar'))];
+const scrollers = [new Scroller($('#gridview'), $('#invbar')), new Scroller($('#oreview'), $('#orebar'))];
 
-// ---------------------------------------------------------------- behaviour rows
-// A segment row is one choice; the hovered row's hint replaces the note under the rows, as the
-// native card shows the hint of the row under the pointer.
-const note = $('#note'), noteDefault = note.textContent;
-$$('.row .seg').forEach(s => s.addEventListener('click', () => {
+// ---------------------------------------------------------------- the three controls
+$$('.joined .seg').forEach(s => s.addEventListener('click', () => {
   s.parentElement.querySelectorAll('.seg').forEach(x => x.classList.toggle('on', x === s));
 }));
-$$('.row.step').forEach(r => {
-  const out = r.querySelector('.readout'), stops = out.dataset.stops.split(',');
-  const move = d => { out.dataset.i = (Number(out.dataset.i) + d + stops.length) % stops.length; out.textContent = stops[out.dataset.i]; };
-  r.querySelector('.less').addEventListener('click', () => move(-1));
-  r.querySelector('.more').addEventListener('click', () => move(1));
-});
-$$('.row').forEach(r => {
-  r.addEventListener('mouseenter', () => note.textContent = r.dataset.hint);
-  r.addEventListener('mouseleave', () => note.textContent = noteDefault);
-});
+$$('.ctlrow').forEach(r => r.title = r.dataset.hint);
 
-// ---------------------------------------------------------------- ore list
+// ---------------------------------------------------------------- mining list
 // Only ores the player has picked up at least once are listed, in the order they were found;
 // nothing here says what else the world holds. Each tile is a mark; the mode says what a mark
 // means. Whatever the mode, an ore the companion will mine is bright and one it will not is dim,
 // so the picture answers "what will it dig" without reading the mode.
 const ORES = [
-  {name: 'Copper Ore', a: '#c8763a', b: '#8e4c22'},
-  {name: 'Iron Ore', a: '#b9aea4', b: '#7d7167'},
-  {name: 'Silver Ore', a: '#dfe6ee', b: '#96a3b3'},
-  {name: 'Gold Ore', a: '#f2c94c', b: '#b08a1e'},
-  {name: 'Demonite Ore', a: '#7c5fd8', b: '#4a3592'},
-  {name: 'Obsidian', a: '#4a3f6b', b: '#221c36', marked: true},
-  {name: 'Hellstone', a: '#ff7a3d', b: '#9c2a12', marked: true},
-  {name: 'Meteorite', a: '#8b5a4a', b: '#4e2f26'},
-];
+  ['Copper Ore', '#c8763a', '#8e4c22'], ['Tin Ore', '#c9c1a2', '#8c8468'], ['Iron Ore', '#b9aea4', '#7d7167'], ['Lead Ore', '#7f86a3', '#4d536b'],
+  ['Silver Ore', '#dfe6ee', '#96a3b3'], ['Tungsten Ore', '#7fb59a', '#4c7a62'], ['Gold Ore', '#f2c94c', '#b08a1e'], ['Platinum Ore', '#cfd8f0', '#8a95b8'],
+  ['Demonite Ore', '#7c5fd8', '#4a3592'], ['Crimtane Ore', '#c0333f', '#7a1b24'], ['Meteorite', '#8b5a4a', '#4e2f26'], ['Obsidian', '#4a3f6b', '#221c36', true],
+  ['Hellstone', '#ff7a3d', '#9c2a12', true], ['Cobalt Ore', '#3f6fd6', '#23408a'], ['Palladium Ore', '#e07a4a', '#93441f'], ['Mythril Ore', '#5fbf8f', '#2f7a58'],
+  ['Orichalcum Ore', '#d86fc0', '#8a3c78'], ['Adamantite Ore', '#d94a5c', '#8a2333'], ['Titanium Ore', '#a3a7b5', '#5f6373'], ['Chlorophyte Ore', '#7fe05a', '#3f8a2a'],
+  ['Luminite', '#9fe8e0', '#4f9a92'],
+].map(([name, a, b, marked]) => ({name, a, b, marked: !!marked}));
 let mode = 'black';
-const oresEl = $('#ores'), oreline = $('#oreline'), orenote = $('#orenote');
+const oresEl = $('#ores'), orepanel = $('#orepanel');
 const swatch = o => `background:repeating-conic-gradient(${o.a} 0 25%,${o.b} 0 50%) 0 0/8px 8px`;
 const mines = o => mode === 'black' ? !o.marked : !!o.marked;
 function drawOres() {
@@ -461,32 +470,37 @@ function drawOres() {
     t.addEventListener('mouseenter', () => describe(o));
     oresEl.appendChild(t);
   });
-  const n = ORES.filter(mines).length;
-  orenote.textContent = `${ORES.length} found · will mine ${n} · an ore appears once you have picked one up`;
+  const n = ORES.filter(mines).length, found = ORES.length;
+  $('#orecount').textContent = `${found} found · will mine ${n}`;
+  $('#oretilecount').textContent = `${n}/${found}`; $('#orefill').style.width = Math.round(100 * n / found) + '%';
+  $('#oretiledetail').textContent = `${found} ores found · will mine ${n}`;
+  $('#oretilemode').textContent = mode === 'black' ? `Skips the ${found - n} marked` : `Mines only the ${n} marked`;
+  scrollers.forEach(s => s.layout());
 }
 function describe(o) {
-  oreline.querySelector('.sw').style = swatch(o);
-  oreline.querySelector('.nm').textContent = o.name;
-  oreline.querySelector('.st').textContent = (mines(o) ? 'will mine' : 'will leave') + ' · how it looks in the wall';
+  orepanel.querySelector('.sw').style = swatch(o);
+  orepanel.querySelector('.nm').textContent = o.name;
+  orepanel.querySelector('.st').textContent = mines(o) ? 'Will mine' : 'Will leave';
+  orepanel.querySelector('.how').textContent = 'How it looks in the wall';
+  orepanel.querySelector('.st').style.color = mines(o) ? 'var(--green)' : 'var(--red)';
 }
-$$('#mode .seg').forEach(s => s.addEventListener('click', () => {
-  mode = s.dataset.mode; $$('#mode .seg').forEach(x => x.classList.toggle('on', x === s)); drawOres();
+$$('#mode .pill').forEach(s => s.addEventListener('click', () => {
+  mode = s.dataset.mode; $$('#mode .pill').forEach(x => x.classList.toggle('on', x === s)); drawOres();
 }));
 drawOres(); describe(ORES[0]);
 
 // ---------------------------------------------------------------- inventory
-// The bag is 96 slots in twelve columns and sorts itself after every transfer: by kind, then by
+// The bag is 120 slots in twelve columns and sorts itself after every transfer: by kind, then by
 // count, packed to the front. The four buttons are Terraria's own chest buttons and do what they
 // do at a chest: Loot All empties the bag to you, Deposit All empties you into the bag, Quick
 // Stack sends what you carry that the bag already has, Restock brings what the bag has that you
 // already carry. Your own carry is mocked in the bench strip so every button visibly does something.
 const KIND = {ore: 'Copper Ore', wood: 'Wood', gel: 'Gel', torch: 'Torch'};
-const ORDER = ['ore', 'wood', 'gel', 'torch'], STACK = 99, SLOTS = 96;
+const ORDER = ['ore', 'wood', 'gel', 'torch'], STACK = 99, SLOTS = 120;
 let bag = []; for (let i = 0; i < 60; i++) bag.push({kind: ['ore', 'wood', 'gel'][i % 3], n: 8 + (i * 7) % 40});
 let yours = {ore: 30, wood: 12, torch: 50};
 const grid = $('#grid');
 function sortBag() {
-  // merge stacks of one kind, then order by kind and count
   const total = {}; bag.forEach(it => total[it.kind] = (total[it.kind] || 0) + it.n);
   bag = [];
   ORDER.forEach(k => { let n = total[k] || 0; while (n > 0) { bag.push({kind: k, n: Math.min(STACK, n)}); n -= STACK; } });
@@ -525,22 +539,15 @@ $$('#chest .pill').forEach(p => p.addEventListener('click', () => { const msg = 
 sortBag(); drawBag();
 
 // ---------------------------------------------------------------- mastery graph
-// From DefineMasteryGraph.cs (2026-09-13). Eight regions of ten nodes: six notable (stat circles
-// or ability diamonds) then four small path ranks; eight shared junctions (80–87); -1 is the free
-// centre. Kinds follow the C# rule. The view is a viewBox the pan and zoom rewrite, so the
-// geometry itself never moves; reset fits the authored 1720x620 extent as the game does.
-const REGIONS = [[[-38,-40],[-136,-100],[-222,-162],[-19,-155],[-104,-213],[-246,-216],[-98,-64],[-210,-122],[-64,-121],[-170,-190]],
- [[64,-36],[205,-86],[194,-178],[368,-107],[326,-196],[456,-178],[134,-52],[171,-133],[294,-84],[256,-193]],
- [[109,-3],[314,-22],[422,-71],[483,26],[573,-38],[680,-74],[208,-7],[355,-52],[389,8],[496,-56]],
- [[82,38],[277,71],[482,66],[325,150],[491,178],[638,138],[176,50],[384,53],[259,115],[494,117]],
- [[2,52],[83,137],[205,184],[-48,164],[46,216],[184,233],[48,91],[152,154],[0,132],[136,206]],
- [[-82,41],[-242,87],[-306,171],[-466,114],[-435,190],[-560,171],[-168,50],[-248,134],[-355,86],[-366,175]],
- [[-109,2],[-325,14],[-454,54],[-462,-39],[-624,2],[-680,56],[-218,6],[-386,41],[-403,-14],[-552,41]],
- [[-78,-31],[-317,-75],[-443,-138],[-517,-82],[-570,-183],[-421,-210],[-189,-42],[-382,-98],[-432,-61],[-507,-158]]];
-const JUNCTIONS = [[82,-198],[494,-133],[606,50],[267,202],[-160,197],[-550,101],[-589,-80],[-326,-191]];
+// Eight branches around a free centre, one every 45 degrees with Tools at the top and the rest
+// clockwise. Each branch has the same ten roles as DefineMasteryGraph.cs — six notable nodes
+// (stat circles or ability diamonds) then four small path ranks — placed from one polar template
+// of radius and angular offset, with the offsets mirrored on every other branch and the radii
+// wobbled per branch so no two spokes are the same shape. Shared junctions sit between
+// neighbouring branches. Kinds follow the C# rule. The geometry is the proposal for the native
+// node table; the edge table is the existing one.
 const BRANCHES = ["Tools","Ranged","Movement","Magic","Survival","Support","Gathering","Melee"];
 const COLORS = ['rgb(233,180,103)','rgb(138,205,109)','rgb(104,213,220)','rgb(182,144,240)','rgb(237,132,146)','rgb(231,217,137)','rgb(109,201,178)','rgb(236,151,99)'];
-const LABELS = [[-210,-291],[295,-249],[624,-124],[592,198],[81,258],[-422,218],[-806,88],[-707,-180]];
 const NAMES = [["Tool reach","Tool speed","Careful work","Vein reach","Efficient tools","Tool mastery"],
  ["Ranged damage","Ranged speed","Projectile speed","Piercing","Bow mastery","Ranged mastery"],
  ["Movement speed","Jump height","Double jump","Triple jump","Dash","Flight"],
@@ -550,17 +557,30 @@ const NAMES = [["Tool reach","Tool speed","Careful work","Vein reach","Efficient
  ["Pickup reach","Inventory capacity","Gathering speed","Search reach","Resource skill","Gathering mastery"],
  ["Melee damage","Attack speed","Melee reach","Knockback","Sword mastery","Melee mastery"]];
 const SMALL = ["Tool speed","Ranged damage","Movement speed","Magic damage","Maximum life","Protection reach","Pickup reach","Melee damage"];
+// [radius, angular offset in degrees] for roles 0..9: the trunk, its fork, the outer pair, the tip, and the four path ranks between
+const TEMPLATE = [[72,0],[142,8],[214,-16],[208,26],[280,7],[348,-5],[106,5],[178,-6],[175,18],[247,-3]];
+const LABEL_R = 402, JUNCTION_R = 262;
+const rad = d => d * Math.PI / 180;
+const polar = (r, deg) => ({x: Math.round(r * Math.cos(rad(deg))), y: Math.round(r * Math.sin(rad(deg)))});
 const nodes = [];
-REGIONS.forEach((r, b) => r.forEach((p, n) => {
-  const ability = n < 6 && (b === 2 ? n >= 2 : b === 4 ? n === 4 : n >= 4);
-  nodes.push({x: p[0], y: p[1], b, kind: n >= 6 ? 'filler' : ability ? 'ability' : 'stat', name: n >= 6 ? SMALL[b] + ' path' : NAMES[b][n]});
-}));
-JUNCTIONS.forEach((p, i) => nodes.push({x: p[0], y: p[1], b: i, kind: 'junction', name: 'Shared ' + SMALL[i].toLowerCase()}));
+for (let b = 0; b < 8; b++) {
+  const base = b * 45 - 90, mirror = b % 2 ? -1 : 1, wobble = ((b * 37) % 23) - 11;
+  TEMPLATE.forEach(([r, d], n) => {
+    const p = polar(r + wobble * ((n % 3) - 1), base + mirror * d);
+    const ability = n < 6 && (b === 2 ? n >= 2 : b === 4 ? n === 4 : n >= 4);
+    nodes.push({x: p.x, y: p.y, b, kind: n >= 6 ? 'filler' : ability ? 'ability' : 'stat', name: n >= 6 ? SMALL[b] + ' path' : NAMES[b][n]});
+  });
+}
+for (let i = 0; i < 8; i++) {
+  const p = polar(JUNCTION_R + ((i * 13) % 9), i * 45 - 90 + 22.5 + (i % 2 ? 4 : -4));
+  nodes.push({x: p.x, y: p.y, b: i, kind: 'junction', name: 'Shared ' + SMALL[i].toLowerCase()});
+}
+const LABELS = BRANCHES.map((_, b) => { const p = polar(LABEL_R, b * 45 - 90); return [p.x, p.y + 9]; });
 const edges = [];
 for (let b = 0; b < 8; b++) { const o = b * 10;
   [[-1,0],[0,6],[6,1],[1,7],[7,2],[1,8],[8,3],[2,9],[9,4],[3,4],[4,5]].forEach(([f,t]) => edges.push([f < 0 ? -1 : o + f, o + t])); }
-[[3,80],[12,80],[80,4],[80,14],[13,81],[22,81],[81,15],[81,24],[23,82],[32,82],[82,24],[82,35],[33,83],[42,83],[83,34],[83,45],
- [43,84],[52,84],[84,44],[84,54],[53,85],[62,85],[85,55],[85,64],[63,86],[73,86],[86,64],[86,74],[72,87],[2,87],[87,75],[87,5]].forEach(e => edges.push(e));
+for (let i = 0; i < 8; i++) { const a = i * 10, c = ((i + 1) % 8) * 10, j = 80 + i;
+  edges.push([a + 3, j], [c + 2, j], [j, a + 4], [j, c + 4]); }
 const svg = $('#graphsvg'), NS = 'http://www.w3.org/2000/svg';
 const el = (t, a) => { const e = document.createElementNS(NS, t); for (const k in a) e.setAttribute(k, a[k]); return e; };
 const at = i => i < 0 ? {x: 0, y: 0, b: -1} : nodes[i];
@@ -584,19 +604,19 @@ LABELS.forEach((p, i) => { const t = el('text', {x: p[0], y: p[1], fill: COLORS[
   t.textContent = BRANCHES[i]; svg.appendChild(t); });
 
 // pan and zoom as the game does them: wheel 1.12 / 0.89 about the pointer, buttons 1.15 / 0.85
-// about the canvas centre, reset fits the authored extent
-const graph = $('#graph'); let view = {x: -860, y: -310, w: 1720, h: 620};
+// about the canvas centre, reset fits the authored extent with room for the outermost labels
+const EXTENT = 2 * (LABEL_R + 60);
+const graph = $('#graph'); let view = {x: -EXTENT / 2, y: -EXTENT / 2, w: EXTENT, h: EXTENT};
 function applyView() { svg.setAttribute('viewBox', `${view.x} ${view.y} ${view.w} ${view.h}`); }
 function fitGraph() {
   const cw = graph.clientWidth, ch = graph.clientHeight; if (!cw || !ch) return;
-  const s = Math.max(1780 / cw, 660 / ch); // units per pixel that fits both, with room for the outermost labels
+  const s = Math.max(EXTENT / cw, EXTENT / ch); // units per pixel that fits the whole wheel
   view = {w: cw * s, h: ch * s, x: -cw * s / 2, y: -ch * s / 2}; applyView();
 }
 function zoomAt(factor, px, py) {
-  // px,py in graph pixels; keep the point under them fixed
   const ux = view.x + px / graph.clientWidth * view.w, uy = view.y + py / graph.clientHeight * view.h;
   const nw = view.w / factor;
-  const minS = Math.min(1720 / graph.clientWidth, 620 / graph.clientHeight) * 0.25, maxS = Math.max(1720 / graph.clientWidth, 620 / graph.clientHeight) * 3;
+  const minS = Math.min(EXTENT / graph.clientWidth, EXTENT / graph.clientHeight) * 0.25, maxS = Math.max(EXTENT / graph.clientWidth, EXTENT / graph.clientHeight) * 3;
   const s = Math.min(Math.max(nw / graph.clientWidth, minS), maxS);
   view = {w: graph.clientWidth * s, h: graph.clientHeight * s, x: ux - px * s, y: uy - py * s};
   applyView();
