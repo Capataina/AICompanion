@@ -99,6 +99,9 @@ public sealed class MineOre : CompanionAction
             if (end.ObservedClear)
             {
                 if (productiveEffects == 0) return new(AttemptStatus.Invalid, "tracked-vein-cleared-without-companion-effect");
+                // Every tracked site is empty but ore of the same kind still touches one: the vein continues past what the
+                // job tracked, so the work is a finished portion. Calling it complete is a completion the world contradicts.
+                if (!end.VeinObservedClear) return new(AttemptStatus.Partial, "tracked-portion-clear-vein-continues");
                 // Every tracked site removed by the companion's own strikes finished the job alone;
                 // any site that vanished some other way means it was finished together.
                 return new(AttemptStatus.Complete, "tracked-vein-observed-clear",
@@ -170,6 +173,18 @@ public sealed class MineOre : CompanionAction
             return 0f;
         }
         int pick = TileMiner.PickaxeFor(ctx.Player).pick;
+        if (patch.Count > 0)
+        {
+            // Ore removed or transformed by anyone leaves the working set on the preparation that observes it, so the
+            // remaining count stays true, and a job whose ore is all gone ends as that rather than as lost permission.
+            patch.RemoveWhere(tile => !OreFinder.IsOreOfType(tile.X, tile.Y, jobType));
+            if (patch.Count == 0)
+            {
+                ClearJob("no eligible ore remains");
+                if (LastConclusion is { ObservedClear: true }) status = "tracked ore cleared";
+                sinceSearch = SearchEveryTicks;
+            }
+        }
         if (patch.Count > 0)
         {
             var context = ctx;
