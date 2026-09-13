@@ -156,16 +156,20 @@ public abstract class PerformNearbyWorldWork : CompanionAction
     {
         enabledAtPreparation = RefreshEligibility(ctx);
         if (!enabledAtPreparation) return 0f;
-        // The held stand, the failed-approach deferrals and the wait before the next search were all derived under the reach
-        // they were computed with. A smaller reach walked to a stand it could no longer swing from until the progress window
-        // deferred the site; a larger one waited out the search cadence for a site it could already reach. So a reach change
-        // discards all three and this preparation searches again.
+        // Everything this executor retains about a site was derived under the reach it was computed with: the held stand, the
+        // wait before the next search, the failed-approach deferrals, and the proven refusals in noReturn (no way back and not
+        // enough breath from the working pose that reach chose, and no take-off for a hop that reach needed). A smaller reach
+        // walked to a stand it could no longer swing from; a larger one waited out the cadence, and kept refusing a site whose
+        // pit-floor pose had no return although the larger reach works it from the rim. So a reach change releases every store
+        // together and this preparation searches again. The capability is this one comparison: a capability added to it
+        // releases all of them, where a key added to one store and not the other refuses under the old value for its hold time.
         if (FindToolAccess.Reach != derivedReach)
         {
             derivedReach = FindToolAccess.Reach;
             target = null;
             nextSearch = 0;
             deferred.Clear();
+            noReturn.Clear();
         }
         if (target is Point old && (!Candidate(ctx, old) || !AllowsTarget(ctx, old.ToWorldCoordinates())))
         { target = null; }
