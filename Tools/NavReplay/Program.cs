@@ -579,7 +579,7 @@ static void TraceWalk(Point start, int dir)
 }
 
 static string Describe(Search s)
-    => $"{(s.Path == null ? "no path" : $"{s.Path.Steps.Count} steps{(s.Path.Partial ? $", partial, ends {Fmt(s.Path.Goal)}" : "")}")}, {s.Used} expansions, {s.Closed.Count} tiles reached";
+    => $"{(s.Path == null ? "no path" : $"{s.Path.Steps.Count} steps{(s.Path.Partial ? $", partial, ends {Fmt(s.Path.Goal)}" : "")}")}, {s.Used} expansions, {s.Closed.Count} tiles reached, {s.Ms:F1} ms";
 
 // "npcbox 55795.0,5808.0,20,42" out of a dump header: the companion's own rectangle at the tick
 // the window was written, as the pose the follower starts from. Null for any dump older than the
@@ -629,8 +629,9 @@ static Search Run(Point? from, Point goal)
     int used = 0;
     var clock = System.Diagnostics.Stopwatch.StartNew();
     NavPath? path = from == null || to == null ? null : AStar.Find(from.Value, to.Value, 20000, out used);
-    Timing.PlannerMs += clock.Elapsed.TotalMilliseconds;
-    return new Search(path, used, new HashSet<Point>(AStar.TraceClosed), path != null && !path.Partial);
+    double ms = clock.Elapsed.TotalMilliseconds;
+    Timing.PlannerMs += ms;
+    return new Search(path, used, new HashSet<Point>(AStar.TraceClosed), path != null && !path.Partial, ms);
 }
 
 // A plans file holds many dumps separated by blank lines; a scenario file holds one.
@@ -699,8 +700,15 @@ static class Timing
     public static double PlannerMs;
 }
 
-/// <summary>One search's answer with its own closed set, so two searches in one scenario never share a drawing.</summary>
-record Search(NavPath? Path, int Used, HashSet<Point> Closed, bool Pass);
+/// <summary>
+/// One search's answer with its own closed set, so two searches in one scenario never share a
+/// drawing. <paramref name="Ms"/> is that one search's own wall clock, printed per route because
+/// the run total cannot say whether a change spread its cost evenly or built one expensive route:
+/// a graph that multiplies nodes is judged on the worst route, not the mean. Read it beside
+/// <paramref name="Used"/> rather than instead of it — expansions are deterministic and the
+/// milliseconds are this machine on this run.
+/// </summary>
+record Search(NavPath? Path, int Used, HashSet<Point> Closed, bool Pass, double Ms);
 
 /// <summary>What the follow harness read: the plan walked to the goal, walked to the end a budget-cut plan promised, or a body that parked, faulted out or was lost.</summary>
 enum FollowOutcome { Walked, PartialEnd, Parked }
