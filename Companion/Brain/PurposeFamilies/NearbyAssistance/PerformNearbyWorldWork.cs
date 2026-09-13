@@ -28,9 +28,9 @@ public abstract class PerformNearbyWorldWork : CompanionAction
     private Vector2? preparedTarget;
     private float preparedValue;
     private bool enabledAtPreparation;
-    // The last way this method gave up on a target, with its tick, so an attempt can be concluded
-    // from what actually happened to it rather than from the absence of a target afterwards.
-    private (ulong At, string Reason)? release;
+    // The last way this method gave up on a target during the current attempt, so the attempt is
+    // concluded from what happened to it rather than from the absence of a target afterwards.
+    private string? release;
     public override Vector2? ActivityTarget => preparedTarget;
     public override object? ActivityIdentity => target;
     protected abstract bool Enabled(in ActionContext ctx);
@@ -63,15 +63,18 @@ public abstract class PerformNearbyWorldWork : CompanionAction
 
     /// <summary>One interaction is this purpose's whole job, so an observed productive effect
     /// completes it; a named give-up is a failed method unless the target itself stopped qualifying.</summary>
-    public override AttemptConclusion ConcludeAttempt(ulong startedAt, int productiveEffects)
+    public override AttemptConclusion ConcludeAttempt(int productiveEffects)
     {
-        if (productiveEffects > 0) return new(AttemptStatus.Complete, CompletedEffect);
-        if (release is { } given && given.At >= startedAt)
-            return new(given.Reason == "target-no-longer-candidate" ? AttemptStatus.Invalid : AttemptStatus.Failed, given.Reason);
+        // The companion's own native call produced the credited effect, so the completion is its own.
+        if (productiveEffects > 0) return new(AttemptStatus.Complete, CompletedEffect, AttemptAttribution.Companion);
+        if (release is string reason)
+            return new(reason == "target-no-longer-candidate" ? AttemptStatus.Invalid : AttemptStatus.Failed, reason);
         return new(AttemptStatus.Attempted, "replaced-before-interaction");
     }
 
-    private void Release(string reason) => release = (Main.GameUpdateCount, reason);
+    public override void BeginAttempt() => release = null;
+
+    private void Release(string reason) => release = reason;
 
     private bool RefreshEligibility(in ActionContext ctx)
     {

@@ -24,8 +24,8 @@ internal static class VerifyPreparedActivities
         var context = new Context(.2f, false, 10, 20, 100, 1.25f, true, .5f);
         Prepared[] board =
         {
-            new(0, "mine", .6f, 90, true, true, false, true),
-            new(1, "follow", .7f, 0, false, false, true, false),
+            new(0, "mine", .6f, 90, true, true, false, true, Offer.Usable),
+            new(1, "follow", .7f, 0, false, false, true, false, Offer.Usable),
         };
         var snapshot = board.ToArray();
         var first = Evaluator.Evaluate(board, context);
@@ -63,7 +63,7 @@ internal static class VerifyPreparedActivities
             var varied = context with { ProtectionUrgency = (float)random.NextDouble(), ThreatHorizonTicks = random.Next(0, 120),
                 Stranded = random.Next(2) == 0, WithinActivityAllowance = random.Next(2) == 0 };
             var candidates = Enumerable.Range(0, 11).Select(i => new Prepared(i, i.ToString(), (float)random.NextDouble() * 4,
-                random.Next(0, 600), i % 2 == 0, i % 3 == 0, i == 10, i == run % 11)).ToArray();
+                random.Next(0, 600), i % 2 == 0, i % 3 == 0, i == 10, i == run % 11, Offer.Usable)).ToArray();
             var expected = candidates.Select(c =>
             {
                 float protection = c.IsExcursion && !varied.Stranded ? 1 - varied.ProtectionUrgency : 1;
@@ -101,7 +101,7 @@ internal static class VerifyPreparedActivities
     private static void VerifyReunionCostsAndHistory()
     {
         var context = new Context(0, false, float.PositiveInfinity, 12, 240, 1.15f, true, .2f, .12f);
-        Prepared[] board = { new(0, "work", .7f, 31, true, true, false, false), new(1, "company", 1, 0, false, false, true, false) };
+        Prepared[] board = { new(0, "work", .7f, 31, true, true, false, false, Offer.Usable), new(1, "company", 1, 0, false, false, true, false, Offer.Usable) };
         var longWork = Evaluator.Evaluate(board, context);
         var shortWork = Evaluator.Evaluate(new[] { board[0] with { ForecastTicks = 1 }, board[1] }, context);
         Require(longWork[0].Final < longWork[1].Final && shortWork[0].Final > shortWork[1].Final,
@@ -139,7 +139,7 @@ internal static class VerifyPreparedActivities
     private sealed class ProbeActivity : live::AICompanion.Companion.Brain.Behaviours.CompanionAction
     {
         private readonly string name;
-        public int Conclusions;
+        public int Conclusions, Begins;
         public ProbeActivity(string name) => this.name = name;
         public override string Name => name;
         public override Family Family => Family.Gathering;
@@ -148,7 +148,8 @@ internal static class VerifyPreparedActivities
         public override float Score() => 1;
         public override live::AICompanion.Companion.Brain.PositionSelection.PositionRequest Execute(in live::AICompanion.Companion.Brain.Behaviours.ActionContext ctx)
             => live::AICompanion.Companion.Brain.PositionSelection.PositionRequest.Hold;
-        public override live::AICompanion.Companion.Brain.Behaviours.AttemptConclusion ConcludeAttempt(ulong startedAt, int productiveEffects)
+        public override void BeginAttempt() => Begins++;
+        public override live::AICompanion.Companion.Brain.Behaviours.AttemptConclusion ConcludeAttempt(int productiveEffects)
         {
             Conclusions++;
             return new(AttemptStatus.Failed, $"probe-{name}-{productiveEffects}");
@@ -193,6 +194,13 @@ internal static class VerifyPreparedActivities
             "an empty selection must close the open attempt");
         Require(owner.RecentAttempts.Select(a => a.AttemptId).Distinct().Count() == 3,
             "every concluded attempt must keep a distinct identity");
+        Require(mine.Begins == 2 && chop.Begins == 1,
+            $"the owner must announce each opened attempt exactly once, never on reselection or suspension; mine={mine.Begins} chop={chop.Begins}");
+        var other = new live::AICompanion.Companion.Brain.BehaviourSelection.OwnCurrentActivity();
+        other.Select(new ProbeActivity("other"), context);
+        other.BeginExecution();
+        Require(owner.RecentAttempts.All(a => a.AttemptId < other.AttemptId),
+            "attempt identities must stay unique across owners, so a respawned brain cannot reuse ids a recorder cursor already wrote");
     }
 
     private static void Require(bool condition, string message)

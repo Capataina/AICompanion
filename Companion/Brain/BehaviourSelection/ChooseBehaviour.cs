@@ -18,7 +18,7 @@ public sealed class Chooser
 {
     public readonly record struct Scored(CompanionAction Action, float Raw, float Final,
         float Protection = 1f, float Commitment = 1f, float Horizon = 1f, float UsefulWork = 1f, string Error = "", float Reunion = 1f,
-        string MethodEvidence = "", OfferEligibility Eligibility = OfferEligibility.Usable, string EligibilityReason = "");
+        string MethodEvidence = "", OfferEligibility Eligibility = OfferEligibility.NoOpportunity, string EligibilityReason = "");
 
     public readonly List<CompanionAction> Actions = new()
     {
@@ -110,6 +110,7 @@ public sealed class Chooser
         bool[] ran = Queries.Prepare(Actions, Current, FamilyPreparationMilliseconds, i =>
         {
             CompanionAction action = Actions[i];
+            action.ResetClassification();
             action.Prepare(context);
             float raw = action.Score();
             offers[i] = (action.Eligibility, action.EligibilityReason);

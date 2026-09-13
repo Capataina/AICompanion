@@ -177,10 +177,11 @@ internal static class VerifyObservationLifecycle
                 + string.Join("\n", activities));
         string[] attempts = File.ReadLines(events).Where(line => line.Contains("\"kind\":\"attempt-outcome\"", StringComparison.Ordinal)).ToArray();
         Require(attempts.Length == 2
-            && attempts[0].Contains("status=Interrupted;cause=follow-recovery-flight")
-            && attempts[1].Contains("status=Interrupted;cause=downed"),
+            && attempts[0].Contains("status=Interrupted;attribution=NotApplicable;cause=follow-recovery-flight")
+            && attempts[1].Contains("status=Interrupted;attribution=NotApplicable;cause=downed"),
             "recovery and downing must each close their own attempt as an interruption, and the empty board between them must not invent one; actual records: "
-                + string.Join("\n", attempts));
+                + string.Join("\n", attempts) + "\nretained by the brain: "
+                + string.Join("\n", companion.Brain.Chooser.Activity.RecentAttempts));
         string recoveryEvent = File.ReadLines(events).Single(line => line.Contains("\"kind\":\"decision\"", StringComparison.Ordinal)
             && line.Contains("control-source=follow-recovery-flight", StringComparison.Ordinal));
         using var recorded = System.Text.Json.JsonDocument.Parse(recoveryEvent);

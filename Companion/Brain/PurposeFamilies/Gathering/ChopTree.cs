@@ -63,22 +63,33 @@ public sealed class ChopTree : CompanionAction
 
     public override float Score() => prepared?.Value ?? 0f;
 
-    private (Point Trunk, ulong At)? attemptTrunk;
-    private (ulong At, string Reason)? release;
-    private void Release(string reason) => release = (Main.GameUpdateCount, reason);
+    // Attempt-local evidence, cleared when an attempt opens: the trunk this attempt swung at, whether
+    // its own strike removed it, and the last way it gave the tree up.
+    private Point? attemptTrunk;
+    private bool attemptFelled;
+    private string? release;
+    private void Release(string reason) => release = reason;
 
-    /// <summary>A trunk that stopped standing after this attempt's own productive strikes completes
-    /// it; the same disappearance without them is someone else's work. A named release is a failed
-    /// method only when the approach itself could not be established.</summary>
-    public override AttemptConclusion ConcludeAttempt(ulong startedAt, int productiveEffects)
+    public override void BeginAttempt()
     {
-        if (attemptTrunk is { } worked && worked.At >= startedAt && !TileChopper.TreeStands(worked.Trunk))
+        attemptTrunk = null;
+        attemptFelled = false;
+        release = null;
+    }
+
+    /// <summary>A trunk that stopped standing after this attempt's productive strikes completes it,
+    /// attributed to the companion only when its own strike was the removal. The same disappearance
+    /// without strikes is someone else's work. A release is a failed method only when the approach
+    /// itself could not be established; lost permission or changed material is invalid.</summary>
+    public override AttemptConclusion ConcludeAttempt(int productiveEffects)
+    {
+        if (attemptTrunk is Point trunk && !TileChopper.TreeStands(trunk))
             return productiveEffects > 0
-                ? new(AttemptStatus.Complete, "trunk-no-longer-stands-after-companion-strikes")
+                ? new(AttemptStatus.Complete, "trunk-no-longer-stands", attemptFelled ? AttemptAttribution.Companion : AttemptAttribution.Shared)
                 : new(AttemptStatus.Invalid, "trunk-gone-without-companion-effect");
-        if (release is { } given && given.At >= startedAt)
+        if (release is string reason)
             return new(productiveEffects > 0 ? AttemptStatus.Partial
-                : given.Reason == "approach-not-established" ? AttemptStatus.Failed : AttemptStatus.Invalid, given.Reason);
+                : reason == "approach-not-established" ? AttemptStatus.Failed : AttemptStatus.Invalid, reason);
         return productiveEffects > 0
             ? new(AttemptStatus.Partial, "replaced-with-trunk-standing")
             : new(AttemptStatus.Attempted, "replaced-before-productive-effect");
@@ -235,7 +246,7 @@ public sealed class ChopTree : CompanionAction
             ReleaseActivity();
             return PositionRequest.Hold;
         }
-        attemptTrunk = (t.Bottom, Main.GameUpdateCount);
+        attemptTrunk = t.Bottom;
 
         if (FindToolAccess.InReach(ctx.Npc.Bottom, t.Bottom))
         {
@@ -248,6 +259,7 @@ public sealed class ChopTree : CompanionAction
                 if (ctx.Companion.Chopper.LastOutcome is { } outcome)
                 {
                     BehaviourDiagnostics.GodsEyeEvents.RecordToolEffect(ctx.Npc, "axe", outcome, ctx.Companion.Brain.Chooser.EvaluationId, ctx.Companion.Brain.Chooser.Activity.Id);
+                    if (outcome.Effect == WorldInteractions.TileToolEffect.Removed && outcome.Target == t.Bottom) attemptFelled = true;
                     if (outcome.Productive) ctx.Companion.Brain.Chooser.RecordWork(t.Bottom.ToWorldCoordinates());
                 }
             }

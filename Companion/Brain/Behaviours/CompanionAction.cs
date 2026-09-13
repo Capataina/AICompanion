@@ -64,13 +64,23 @@ public abstract class CompanionAction
         EligibilityReason = reason;
     }
 
+    /// <summary>Called by the activity owner when an attempt opens. An activity clears the evidence
+    /// its conclusion reads here, so a conclusion can only read what happened after this call; a
+    /// job ended by the same tick's preparation, before selection opened this attempt, belongs to
+    /// the attempt that selection just closed. Tick comparisons cannot make that distinction.</summary>
+    public virtual void BeginAttempt() { }
+
     /// <summary>Called by the activity owner when selection replaces an executing attempt, before
     /// Exit clears any method state. Interruption is concluded by the owner and never reaches here.
     /// The default claims no completion: only an activity with its own success evidence may.</summary>
-    public virtual AttemptConclusion ConcludeAttempt(ulong startedAt, int productiveEffects)
+    public virtual AttemptConclusion ConcludeAttempt(int productiveEffects)
         => productiveEffects > 0
             ? new(AttemptStatus.Partial, "replaced-after-productive-effect")
             : new(AttemptStatus.Attempted, "replaced-before-productive-effect");
+
+    /// <summary>The chooser clears the classification before each preparation, so a preparation path
+    /// that returns without classifying reads as no opportunity rather than keeping last tick's.</summary>
+    internal void ResetClassification() => Classify(OfferEligibility.NoOpportunity, "not-classified-this-preparation");
 
     public abstract string Name { get; }
     public abstract PurposeFamily Family { get; }

@@ -78,13 +78,16 @@ public static class GodsEyeEvents
     /// the cursor skips those already written, so two conclusions inside one tick both reach the
     /// record. Plain fields keep this writer compilable beside the replay stubs without the brain.</summary>
     public static void RecordAttemptOutcome(NPC companion, long attemptId, long activityId, string activity, string family,
-        ulong startTick, ulong endTick, string status, string cause, int productiveEffects)
+        ulong startTick, ulong endTick, string status, string cause, int productiveEffects, string attribution)
     {
         if (!Active || attemptId <= lastAttemptRecorded) return;
         lastAttemptRecorded = attemptId;
-        Write("attempt-outcome", Stable(npcGenerations, companion.whoAmI), "", activity, status,
+        // The channel carries attribution beside status wherever one applies, so a reader grouping
+        // by channel cannot fold a shared or unattributed completion into the companion's own.
+        string channel = attribution == "NotApplicable" ? status : status + ":" + attribution;
+        Write("attempt-outcome", Stable(npcGenerations, companion.whoAmI), "", activity, channel,
             companion.Bottom, Vector2.Zero, Vector2.Zero, productiveEffects,
-            $"attempt-id={attemptId};activity-id={activityId};family={family};start-tick={startTick};end-tick={endTick};status={status};cause={cause};productive-effects={productiveEffects};effect-scope=companion-credited-tool-or-interaction-effects;interruption-is-not-failure=true");
+            $"attempt-id={attemptId};activity-id={activityId};family={family};start-tick={startTick};end-tick={endTick};status={status};attribution={attribution};cause={cause};productive-effects={productiveEffects};effect-scope=companion-credited-tool-or-interaction-effects;interruption-is-not-failure=true");
     }
 
     internal static void Open(string path)

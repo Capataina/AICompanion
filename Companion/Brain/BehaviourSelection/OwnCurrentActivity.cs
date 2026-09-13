@@ -32,7 +32,10 @@ public sealed class OwnCurrentActivity
     public IReadOnlyList<AttemptOutcome> RecentAttempts => recent;
     private readonly List<AttemptOutcome> recent = new();
     private const int RecentAttemptCapacity = 16;
-    private long nextId, nextAttemptId;
+    private long nextId;
+    // Process-wide rather than per owner: a respawned companion builds a new brain, and a recorder
+    // cursor that has already written this session's attempts must never see those ids again.
+    private static long nextAttemptId;
     private object? identity;
     private int generation;
 
@@ -47,8 +50,8 @@ public sealed class OwnCurrentActivity
         // would conclude from. A purpose kept under the same executor keeps its attempt open.
         if (AttemptOpen && Current != null && (next == null || changedPurpose))
         {
-            var conclusion = Current.ConcludeAttempt(AttemptStartedAt, AttemptEffects);
-            CloseAttempt(conclusion.Status, conclusion.Cause);
+            var conclusion = Current.ConcludeAttempt(AttemptEffects);
+            CloseAttempt(conclusion.Status, conclusion.Cause, conclusion.Attribution);
         }
         if (changedExecutor)
         {
@@ -89,6 +92,7 @@ public sealed class OwnCurrentActivity
             AttemptStartedAt = Terraria.Main.GameUpdateCount;
             AttemptEffects = 0;
             AttemptOpen = true;
+            Current.BeginAttempt();
         }
         SetPhase(ActivityPhase.Executing, "ordinary-execution");
     }
@@ -110,16 +114,16 @@ public sealed class OwnCurrentActivity
     public void Suspend(in ActionContext context, string reason)
     {
         if (Current == null) return;
-        if (AttemptOpen) CloseAttempt(AttemptStatus.Interrupted, reason);
+        if (AttemptOpen) CloseAttempt(AttemptStatus.Interrupted, reason, AttemptAttribution.NotApplicable);
         if (Phase != ActivityPhase.Suspended) Current.Suspend(context);
         SetPhase(ActivityPhase.Suspended, reason);
     }
 
-    private void CloseAttempt(AttemptStatus status, string cause)
+    private void CloseAttempt(AttemptStatus status, string cause, AttemptAttribution attribution)
     {
         if (recent.Count == RecentAttemptCapacity) recent.RemoveAt(0);
         recent.Add(new AttemptOutcome(AttemptId, Id, Current!.Name, Current.Family, AttemptStartedAt,
-            Terraria.Main.GameUpdateCount, status, cause, AttemptEffects));
+            Terraria.Main.GameUpdateCount, status, cause, AttemptEffects, attribution));
         AttemptOpen = false;
     }
 

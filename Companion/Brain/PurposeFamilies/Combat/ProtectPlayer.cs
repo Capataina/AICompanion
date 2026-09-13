@@ -51,8 +51,7 @@ public sealed class ProtectPlayer : CompanionAction
         if (ctx.Senses.Player.IsDead || !protectedThreat.active || protectedThreat.life <= 0
             || generation != HostileAttackSources.Generation(protectedThreat))
         {
-            clearedWithPlayerDead = ctx.Senses.Player.IsDead;
-            Clear("threat-or-player-unavailable");
+            Clear("threat-or-player-unavailable", ctx.Senses.Player.IsDead);
             return null;
         }
         ThreatRecord? record = ctx.Senses.Threats.Threats.Find(t => ReferenceEquals(t.Npc, protectedThreat));
@@ -76,29 +75,33 @@ public sealed class ProtectPlayer : CompanionAction
         return record;
     }
 
-    private void Clear(string reason)
+    private void Clear(string reason, bool playerDead = false)
     {
-        if (protectedThreat != null) clearedAt = Terraria.Main.GameUpdateCount;
+        // One record of how this attempt's commitment ended, written where it ends; a later Enter
+        // for a different threat rewrites CommitmentReason but never this.
+        if (protectedThreat != null) attemptClear = (reason, playerDead);
         protectedThreat = null;
         committedPressure = 0f;
         safeSince = -1;
         CommitmentReason = reason;
     }
 
-    private ulong? clearedAt;
-    private bool clearedWithPlayerDead;
+    private (string Reason, bool PlayerDead)? attemptClear;
+
+    public override void BeginAttempt() => attemptClear = null;
 
     /// <summary>Protection ends complete when the committed threat stopped mattering, either by a
-    /// full clearance window or by being gone while the player lives. Who removed it is not observed
-    /// here, and the cause says so; a dead player leaves nothing to protect and the attempt invalid.</summary>
-    public override AttemptConclusion ConcludeAttempt(ulong startedAt, int productiveEffects)
+    /// full clearance window or by being gone while the player lives. Nothing observed names who
+    /// removed it, so the completion is unattributed; a dead player leaves the attempt invalid.</summary>
+    public override AttemptConclusion ConcludeAttempt(int productiveEffects)
     {
-        if (clearedAt is ulong at && at >= startedAt)
+        if (attemptClear is { } clear)
         {
-            if (CommitmentReason == "sustained-clearance") return new(AttemptStatus.Complete, "threat-irrelevant-for-clearance-window");
-            return clearedWithPlayerDead
+            if (clear.Reason == "sustained-clearance")
+                return new(AttemptStatus.Complete, "threat-irrelevant-for-clearance-window", AttemptAttribution.Unattributed);
+            return clear.PlayerDead
                 ? new(AttemptStatus.Invalid, "player-unavailable")
-                : new(AttemptStatus.Complete, "protected-threat-gone-actor-unattributed");
+                : new(AttemptStatus.Complete, "protected-threat-gone", AttemptAttribution.Unattributed);
         }
         return new(AttemptStatus.Attempted, "replaced-before-threat-cleared");
     }

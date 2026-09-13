@@ -94,27 +94,42 @@ public sealed class MineOre : CompanionAction
     /// remaining work and earn the companion nothing. A job ended by lost permission or changed
     /// material is invalid rather than failed, because the method never got to prove itself.
     /// </summary>
-    public override AttemptConclusion ConcludeAttempt(ulong startedAt, int productiveEffects)
+    public override AttemptConclusion ConcludeAttempt(int productiveEffects)
     {
-        if (LastConclusion is { } end && end.Tick >= startedAt)
+        // A job conclusion counts only if it was captured after this attempt opened.
+        if (conclusionSequence > attemptConclusionBase && LastConclusion is { } end)
         {
             if (end.ObservedClear)
-                return productiveEffects > 0
-                    ? new(AttemptStatus.Complete, "tracked-vein-observed-clear-after-companion-effects")
-                    : new(AttemptStatus.Invalid, "tracked-vein-cleared-without-companion-effect");
+            {
+                if (productiveEffects == 0) return new(AttemptStatus.Invalid, "tracked-vein-cleared-without-companion-effect");
+                // Every tracked site removed by the companion's own strikes finished the job alone;
+                // any site that vanished some other way means it was finished together.
+                return new(AttemptStatus.Complete, "tracked-vein-observed-clear",
+                    end.CompanionRemovals == end.Tracked ? AttemptAttribution.Companion : AttemptAttribution.Shared);
+            }
             if (productiveEffects > 0) return new(AttemptStatus.Partial, end.Reason);
-            return new(end.Reason == "remaining ore has no proven working pose" ? AttemptStatus.Failed : AttemptStatus.Invalid, end.Reason);
+            return new(end.Reason == NoProvenPoseReason ? AttemptStatus.Failed : AttemptStatus.Invalid, end.Reason);
         }
-        if (approachAbandonedAt is ulong abandoned && abandoned >= startedAt)
-            return new(AttemptStatus.Failed, "unproven-ore-approach-made-no-progress");
-        if (status == "jump lost its take-off")
-            return new(productiveEffects > 0 ? AttemptStatus.Partial : AttemptStatus.Failed, status);
-        if (status == "prepared tile invalidated")
-            return new(productiveEffects > 0 ? AttemptStatus.Partial : AttemptStatus.Invalid, status);
+        if (attemptSetback is { } setback)
+            return productiveEffects > 0 ? new(AttemptStatus.Partial, setback.Cause) : new(setback.Status, setback.Cause);
         return productiveEffects > 0
             ? new(AttemptStatus.Partial, "replaced-with-vein-remaining")
             : new(AttemptStatus.Attempted, "replaced-before-productive-effect");
     }
+
+    public override void BeginAttempt()
+    {
+        attemptConclusionBase = conclusionSequence;
+        attemptSetback = null;
+    }
+
+    private const string NoProvenPoseReason = "remaining ore has no proven working pose";
+    // Incremented each time a job conclusion is captured; an attempt reads a conclusion only if the
+    // sequence moved after it opened, which is what a same-tick clear-then-rediscover needs.
+    private int conclusionSequence, attemptConclusionBase;
+    // A method-level setback this attempt suffered, recorded where it happens rather than inferred
+    // later from a discovery status string that the next preparation may already have replaced.
+    private (AttemptStatus Status, string Cause)? attemptSetback;
 
     private float DiscoverValue(in ActionContext ctx)
     {
@@ -276,6 +291,7 @@ public sealed class MineOre : CompanionAction
             // Walking has stopped resolving it. Give the tick back rather than lean on the ore.
             unproven = null;
             approachAbandonedAt = Main.GameUpdateCount;
+            attemptSetback = (AttemptStatus.Failed, "unproven-ore-approach-made-no-progress");
             return 0f;
         }
         return 0.7f * safe * Weights.MineUnprovenApproach;
@@ -349,6 +365,7 @@ public sealed class MineOre : CompanionAction
             jumpTile = unproven = null;
             sinceSearch = SearchEveryTicks;
             status = "prepared tile invalidated";
+            attemptSetback = (AttemptStatus.Invalid, "prepared-tile-invalidated");
             return PositionRequest.Hold;
         }
         if (target == null && unproven is Point approach)
@@ -369,7 +386,11 @@ public sealed class MineOre : CompanionAction
                 // Re-proved against the live pose: another behaviour may have moved the body since
                 // the vein chose this tile, and a hop proved from somewhere else is not a hop.
                 if (!ProveInteractionJump.CanReach(NavGrid.World, ctx.Companion.Motor.State, body => FindToolAccess.InReach(body.Feet, t.Tile)))
-                { jumpTile = null; target = null; status = "jump lost its take-off"; return PositionRequest.Hold; }
+                {
+                    jumpTile = null; target = null; status = "jump lost its take-off";
+                    attemptSetback = (AttemptStatus.Failed, "interaction-jump-lost-take-off");
+                    return PositionRequest.Hold;
+                }
                 if (Main.GameUpdateCount - jumpAsked > 90) { jumpAsked = Main.GameUpdateCount; return PositionRequest.Hold with { JumpScale = 1f }; }
                 return PositionRequest.Hold;
             }
@@ -461,7 +482,7 @@ public sealed class MineOre : CompanionAction
         }
         // A complete bounded search established that none of the remaining tiles has a
         // legal approach. End this job's reachable portion; a later discovery starts fresh.
-        ClearJob("remaining ore has no proven working pose");
+        ClearJob(NoProvenPoseReason);
         return null;
     }
 
@@ -476,7 +497,10 @@ public sealed class MineOre : CompanionAction
     private void ClearJob(string reason)
     {
         if (jobId > 0)
+        {
             LastConclusion = DescribeOreJobEnd.Capture(jobId, reason, jobTiles, jobType, ownRemovals.Count);
+            conclusionSequence++;
+        }
         jobTiles.Clear();
         ownRemovals.Clear();
         target = null;

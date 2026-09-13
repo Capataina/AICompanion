@@ -43,8 +43,10 @@ public sealed class CollectNearbyItems : PerformNearbyWorldWork
         bool incumbent = ctx.Companion.Brain.Chooser.Current == this;
         var options = new PreparedActivity[]
         {
-            new(0, "known-drop", dropValue, candidate?.TripTicks ?? 0f, true, candidate != null, false, incumbent),
-            new(1, "potential-pot-contents", potValue, potTrip, true, base.ActivityTarget != null, false, incumbent),
+            new(0, "known-drop", dropValue, candidate?.TripTicks ?? 0f, true, candidate != null, false, incumbent,
+                candidate != null ? OfferEligibility.Usable : OfferEligibility.NoOpportunity),
+            new(1, "potential-pot-contents", potValue, potTrip, true, base.ActivityTarget != null, false, incumbent,
+                base.ActivityTarget != null ? OfferEligibility.Usable : OfferEligibility.NoOpportunity),
         };
         var values = EvaluatePreparedActivities.Evaluate(options, ctx.Companion.Brain.Chooser.ComparisonContext(ctx));
         // Compare methods with the same costs used by the parent, then publish the chosen
@@ -108,22 +110,28 @@ public sealed class CollectNearbyItems : PerformNearbyWorldWork
         if (candidate is not { } prepared || !LootSense.IsWorldDrop(prepared.Item)
             || prepared.Item.type != prepared.Type || !ctx.Companion.Bag.CanAccept(prepared.Item, ctx.Player))
             return PositionRequest.Hold;
-        dropAttempt = (prepared.Item, prepared.Type, Main.GameUpdateCount);
+        dropAttempt = (prepared.Item, prepared.Type);
         return PositionRequest.ExactAt(prepared.Position);
     }
 
-    private (Item Item, int Type, ulong At)? dropAttempt;
+    private (Item Item, int Type)? dropAttempt;
+
+    public override void BeginAttempt()
+    {
+        base.BeginAttempt();
+        dropAttempt = null;
+    }
 
     /// <summary>A drop this attempt walked toward that has left the world completes collection;
-    /// contact pickup is independent of the activity, so the collector is named as unattributed.
-    /// Pot attempts use the shared interaction conclusion.</summary>
-    public override AttemptConclusion ConcludeAttempt(ulong startedAt, int productiveEffects)
+    /// contact pickup is independent of the activity and the player may take it too, so the
+    /// completion is unattributed. Pot attempts use the shared interaction conclusion.</summary>
+    public override AttemptConclusion ConcludeAttempt(int productiveEffects)
     {
-        if (dropAttempt is { } drop && drop.At >= startedAt)
+        if (dropAttempt is { } drop)
             return !LootSense.IsWorldDrop(drop.Item) || drop.Item.type != drop.Type
-                ? new(AttemptStatus.Complete, "drop-left-world-collector-unattributed")
+                ? new(AttemptStatus.Complete, "drop-left-world", AttemptAttribution.Unattributed)
                 : new(AttemptStatus.Attempted, "replaced-with-drop-still-in-world");
-        return base.ConcludeAttempt(startedAt, productiveEffects);
+        return base.ConcludeAttempt(productiveEffects);
     }
 
     protected override string CompletedEffect => "pot-broken-contents-unobserved";

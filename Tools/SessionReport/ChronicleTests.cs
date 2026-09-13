@@ -462,7 +462,8 @@ public static class ChronicleTests
             Add("tool-effect", 1, "attempt=4", 550, detail: "effect=NoObservedChange;before-damage=0;after-damage=0;yield=unobserved", label: "pickaxe");
             Add("activity-state", 1, "Suspended", 560, detail: "activity-id=2;phase=Suspended;reason=projectile", label: "mine");
             Add("attempt-outcome", 1, "Interrupted", 561, detail: "attempt-id=3;activity-id=2;status=Interrupted;cause=projectile;productive-effects=1", label: "mine");
-            Add("attempt-outcome", 1, "Complete", 562, detail: "attempt-id=4;activity-id=2;status=Complete;cause=tracked-vein-observed-clear-after-companion-effects;productive-effects=2", label: "mine");
+            Add("attempt-outcome", 1, "Complete:Shared", 562, detail: "attempt-id=4;activity-id=2;status=Complete;attribution=Shared;cause=tracked-vein-observed-clear;productive-effects=2", label: "mine");
+            Add("attempt-outcome", 1, "Complete:Companion", 563, detail: "attempt-id=5;activity-id=3;status=Complete;attribution=Companion;cause=tracked-vein-observed-clear;productive-effects=4", label: "mine");
             Add("method-assessment", 1, "not-established", 570, detail: "choice-id=1;choice-phase=pre-activation;reason=no-arc;native-effect=unobserved", label: "guard");
             Add("method-assessment", 1, "not-established", 580, detail: "choice-id=2;choice-phase=pre-activation;reason=no-arc;native-effect=unobserved", label: "guard");
             Add("method-assessment", 1, "admitted", 590, detail: "choice-id=3;choice-phase=pre-activation;reason=clear-arc;native-effect=unobserved", label: "guard");
@@ -479,8 +480,9 @@ public static class ChronicleTests
             Require(report.Contains("activity mine; activity-id=2;phase=Suspended;reason=projectile"),
                 "ordinary report output must expose suspension separately from tool results");
             Require(report.Contains("attempt mine, Interrupted: 1 attempt(s); latest attempt-id=3")
-                && report.Contains("attempt mine, Complete: 1 attempt(s); latest attempt-id=4"),
-                "an interrupted attempt must stay visible beside a later completed attempt of the same activity");
+                && report.Contains("attempt mine, Complete:Shared: 1 attempt(s); latest attempt-id=4")
+                && report.Contains("attempt mine, Complete:Companion: 1 attempt(s); latest attempt-id=5"),
+                "an interrupted attempt must stay visible beside later completions, and a shared completion must not fold into the companion's own");
             Require(report.Contains("method guard, not-established: 2 assessment(s)")
                 && report.Contains("method guard, admitted: 1 assessment(s)")
                 && report.Contains("choice-id=2;choice-phase=pre-activation;reason=no-arc;native-effect=unobserved"),

@@ -33,6 +33,8 @@ internal static class VerifyOreWork
             ChoppingUsesActualReachRatherThanStandDistance();
             LosingWorkEligibilityDoesNotClaimCompletion();
             OreDisappearanceAndAttributedRemovalRemainSeparate();
+            AnAttemptConcludesOnlyFromItsOwnEvidence();
+            AJointlyClearedVeinIsASharedCompletion();
             PreparedToolsRejectReplacementMaterial();
             AxeEligibilityAloneDoesNotMakeATree();
             AnUnprovenApproachWalksInsteadOfScoringZero();
@@ -651,8 +653,67 @@ internal static class VerifyOreWork
             $"a transformed unmineable deposit must not be reported as completed work: {mine.Status}");
         Require(mine.LastConclusion is { Tracked: 1, Changed: 1, Missing: 0, ObservedClear: false, CompanionRemovals: 0 },
             "the ended job must retain the changed material instead of losing it during eligibility pruning");
-        Require(mine.ConcludeAttempt(0, 0).Status == live::AICompanion.Companion.Brain.Behaviours.AttemptStatus.Invalid,
-            $"material that stopped qualifying makes the attempt invalid rather than completed or failed; got {mine.ConcludeAttempt(0, 0)}");
+        Require(mine.ConcludeAttempt(0).Status == live::AICompanion.Companion.Brain.Behaviours.AttemptStatus.Invalid,
+            $"material that stopped qualifying makes the attempt invalid rather than completed or failed; got {mine.ConcludeAttempt(0)}");
+    }
+
+    /// <summary>
+    /// A conclusion reads only evidence produced after its attempt opened. The first job ends during
+    /// a preparation and the attempt that owned it concludes from that end; a new attempt then opens
+    /// and discovers the next job, and must not inherit the first job's clear. Every call here runs
+    /// on one engine tick, which is exactly where a tick comparison could not tell the two apart.
+    /// </summary>
+    private static void AnAttemptConcludesOnlyFromItsOwnEvidence()
+    {
+        Point first = new(25, 89), second = new(40, 89);
+        var (mine, ctx) = SetUp(WorkPolicy.Opportunistic, TileID.Copper, first);
+        Require(VerifyPreparedActivities.PrepareAndScore(mine, ctx) > 0, "the evidence fixture needs a first job");
+        int firstJob = mine.JobId;
+        mine.BeginAttempt();
+        Tile removed = Main.tile[first.X, first.Y];
+        removed.HasTile = false;
+        VerifyPreparedActivities.PrepareAndScore(mine, ctx);
+        Require(mine.LastConclusion is { ObservedClear: true } end && end.JobId == firstJob, "the first job must end observed clear");
+        Require(mine.ConcludeAttempt(0).Status == live::AICompanion.Companion.Brain.Behaviours.AttemptStatus.Invalid,
+            "the attempt that owned the externally cleared job must conclude invalid");
+        mine.BeginAttempt();
+        Tile ore = Main.tile[second.X, second.Y];
+        ore.ClearEverything();
+        ore.HasTile = true;
+        ore.TileType = TileID.Copper;
+        for (int i = 0; i < 61 && mine.JobId <= firstJob; i++) VerifyPreparedActivities.PrepareAndScore(mine, ctx);
+        Require(mine.JobId > firstJob, "the fixture must discover the second job before concluding");
+        Require(mine.ConcludeAttempt(0).Status == live::AICompanion.Companion.Brain.Behaviours.AttemptStatus.Attempted,
+            $"a new attempt must not conclude from the previous job's end; got {mine.ConcludeAttempt(0)}");
+    }
+
+    /// <summary>The companion removes one tile of a two-tile vein with its own native strikes and the
+    /// player removes the other: the vein is observed clear and the attempt complete, but shared.</summary>
+    private static void AJointlyClearedVeinIsASharedCompletion()
+    {
+        Point left = new(24, 89), right = new(25, 89);
+        var (mine, ctx) = SetUp(WorkPolicy.Opportunistic, TileID.Copper, left, right);
+        Require(VerifyPreparedActivities.PrepareAndScore(mine, ctx) > 0, "the joint fixture needs a two-tile vein");
+        mine.BeginAttempt();
+        int effects = 0;
+        for (int tick = 0; tick < 600 && Main.tile[left.X, left.Y].HasTile && Main.tile[right.X, right.Y].HasTile; tick++)
+        {
+            long before = ctx.Companion.Miner.LastOutcome?.Attempt ?? -1;
+            mine.Execute(ctx);
+            if (ctx.Companion.Miner.LastOutcome is { Productive: true } outcome && outcome.Attempt != before) effects++;
+            ctx.Companion.Miner.Tick();
+        }
+        Point other = Main.tile[left.X, left.Y].HasTile ? left : right;
+        Require(!Main.tile[(other == left ? right : left).X, (other == left ? right : left).Y].HasTile && effects > 0,
+            "the companion must remove one tile with its own native strikes");
+        Tile taken = Main.tile[other.X, other.Y];
+        taken.HasTile = false;
+        VerifyPreparedActivities.PrepareAndScore(mine, ctx);
+        Require(mine.LastConclusion is { ObservedClear: true, Tracked: 2, CompanionRemovals: 1 },
+            $"the joint vein must end clear with one companion removal; got {mine.LastConclusion}");
+        Require(mine.ConcludeAttempt(effects) is { Status: live::AICompanion.Companion.Brain.Behaviours.AttemptStatus.Complete,
+                Attribution: live::AICompanion.Companion.Brain.Behaviours.AttemptAttribution.Shared },
+            $"a vein finished together must be a shared completion, not the companion's own; got {mine.ConcludeAttempt(effects)}");
     }
 
     private static void OreDisappearanceAndAttributedRemovalRemainSeparate()
@@ -687,11 +748,12 @@ internal static class VerifyOreWork
             // Direct Execute calls here bypass the activity owner, so the credited effect count is
             // supplied: the question is whether the same cleared vein reads differently with and
             // without the attempt's own productive effects.
-            var attempt = mine.ConcludeAttempt(0, ownRemoval ? 3 : 0);
-            Require(attempt.Status == (ownRemoval
-                    ? live::AICompanion.Companion.Brain.Behaviours.AttemptStatus.Complete
-                    : live::AICompanion.Companion.Brain.Behaviours.AttemptStatus.Invalid),
-                $"external ore removal must change remaining work without earning a completed attempt: own={ownRemoval}; attempt={attempt}");
+            var attempt = mine.ConcludeAttempt(ownRemoval ? 3 : 0);
+            Require(ownRemoval
+                    ? attempt is { Status: live::AICompanion.Companion.Brain.Behaviours.AttemptStatus.Complete,
+                        Attribution: live::AICompanion.Companion.Brain.Behaviours.AttemptAttribution.Companion }
+                    : attempt.Status == live::AICompanion.Companion.Brain.Behaviours.AttemptStatus.Invalid,
+                $"external ore removal must change remaining work without earning a completed attempt, and the companion's own clearance is its own: own={ownRemoval}; attempt={attempt}");
         }
     }
 

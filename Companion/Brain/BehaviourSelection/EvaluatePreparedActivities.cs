@@ -9,7 +9,7 @@ namespace AICompanion.Companion.Brain.BehaviourSelection;
 /// enters evaluation, so comparing a prepared board cannot acquire, prune or advance a job.</summary>
 public readonly record struct PreparedActivity(int Index, string Name, float RawValue, float ForecastTicks,
     bool IsExcursion, bool HasTarget, bool IsFollowing, bool IsIncumbent,
-    Behaviours.OfferEligibility Eligibility = Behaviours.OfferEligibility.Usable);
+    Behaviours.OfferEligibility Eligibility = Behaviours.OfferEligibility.NoOpportunity);
 
 public readonly record struct ActivityComparisonContext(float ProtectionUrgency, bool Stranded,
     float ThreatHorizonTicks, float InterruptibleTicks, float HorizonOverrunTicks, float Commitment,

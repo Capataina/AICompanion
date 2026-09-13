@@ -145,6 +145,19 @@ internal static class VerifyFollowRecoveryAndProtection
         second.Urgency = .15f;
         Require(VerifyPreparedActivities.PrepareAndScore(guard, context) >= renewed && guard.ProtectedThreatId == 5,
             "a second threat must inherit commitment while guarding stays selected");
+
+        // Attempt boundaries: the first threat's release above happened before this attempt opened,
+        // so it cannot conclude it; the committed second threat vanishing while the player lives
+        // completes protection without naming who removed it.
+        guard.BeginAttempt();
+        Require(guard.ConcludeAttempt(0).Status == live::AICompanion.Companion.Brain.Behaviours.AttemptStatus.Attempted,
+            $"an attempt opened after an earlier release must not conclude from it; got {guard.ConcludeAttempt(0)}");
+        replacement.active = false;
+        senses.Threats.Threats.Clear();
+        VerifyPreparedActivities.PrepareAndScore(guard, context);
+        Require(guard.ConcludeAttempt(0) is { Status: live::AICompanion.Companion.Brain.Behaviours.AttemptStatus.Complete,
+                Attribution: live::AICompanion.Companion.Brain.Behaviours.AttemptAttribution.Unattributed, Cause: "protected-threat-gone" },
+            $"a committed threat gone while the player lives completes protection, unattributed; got {guard.ConcludeAttempt(0)}");
     }
 
     private static void VerifyRecoveryThroughBrain()

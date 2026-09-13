@@ -402,7 +402,8 @@ public sealed class BrainTelemetry : ModSystem
             activity.LastEndedId, activity.LastEndReason, activity.ChangedAt);
         foreach (var outcome in activity.RecentAttempts)
             GodsEyeEvents.RecordAttemptOutcome(npc, outcome.AttemptId, outcome.ActivityId, outcome.Activity, outcome.Family.ToString(),
-                outcome.StartTick, outcome.EndTick, outcome.Status.ToString(), outcome.Cause, outcome.ProductiveEffects);
+                outcome.StartTick, outcome.EndTick, outcome.Status.ToString(), outcome.Cause, outcome.ProductiveEffects,
+                outcome.Attribution.ToString());
         var controlGrant = brain.ControlGrants.Last;
         bool controlFresh = controlGrant?.Tick == Main.GameUpdateCount;
         if (controlFresh && controlGrant is { } freshGrant)
@@ -459,7 +460,7 @@ public sealed class BrainTelemetry : ModSystem
 
         if (!headerWritten)
         {
-            var textColumns = new StringBuilder("# text_columns=state,action,reflex,top_threat,target,request,anchor,spot,next_kind,npc_tile,npc_px,npc_vel,held,weapon,fire,engage,torch,player_tile,edge_kind,edge_from,edge_to,edge_outcome,spot_home,diverge_invalid_reason,sample_phase,player_px,player_vel,player_liquid,player_hit,npc_hit,player_state,player_activity,player_support,npc_support,control,control_source,observed_vel,observed_mobility,predicted_vel,predicted_mobility,follow_reason,recovery_reason,guard_reason,mine_policy,mine_status,mine_target,target_evidence,nav_status,position_reason,escape_stage,escape_target,hunt_reason,hand_grant,control_request_owner,safety_kind,safety_reason,safety_last_end,collection_method,mine_end_reason,attempt_end_activity,attempt_end_family,attempt_end_status,attempt_end_cause");
+            var textColumns = new StringBuilder("# text_columns=state,action,reflex,top_threat,target,request,anchor,spot,next_kind,npc_tile,npc_px,npc_vel,held,weapon,fire,engage,torch,player_tile,edge_kind,edge_from,edge_to,edge_outcome,spot_home,diverge_invalid_reason,sample_phase,player_px,player_vel,player_liquid,player_hit,npc_hit,player_state,player_activity,player_support,npc_support,control,control_source,observed_vel,observed_mobility,predicted_vel,predicted_mobility,follow_reason,recovery_reason,guard_reason,mine_policy,mine_status,mine_target,target_evidence,nav_status,position_reason,escape_stage,escape_target,hunt_reason,hand_grant,control_request_owner,safety_kind,safety_reason,safety_last_end,collection_method,mine_end_reason,attempt_end_activity,attempt_end_family,attempt_end_status,attempt_end_cause,attempt_end_attribution");
             // Offer columns are named from the registered activities, like the raw/final pairs, so
             // the declaration and the header cannot disagree about which activities exist.
             foreach (var a in brain.Chooser.Actions) textColumns.Append(',').Append(a.Name).Append("_offer");
@@ -493,7 +494,7 @@ public sealed class BrainTelemetry : ModSystem
             h.Append("\treunion_apart_ticks\treunion_departure\treunion_delay_cost_per_tick");
             h.Append("\tcollection_method");
             h.Append("\tmine_end_job\tmine_end_tick\tmine_end_reason\tmine_end_tracked\tmine_end_present\tmine_end_changed\tmine_end_missing\tmine_end_unobserved\tmine_end_companion_removed_sites\tmine_end_observed_clear");
-            h.Append("\tactivity_attempt_id\tattempt_end_id\tattempt_end_activity_id\tattempt_end_activity\tattempt_end_family\tattempt_end_status\tattempt_end_cause\tattempt_end_effects\tattempt_end_start_tick\tattempt_end_tick");
+            h.Append("\tactivity_attempt_id\tattempt_end_id\tattempt_end_activity_id\tattempt_end_activity\tattempt_end_family\tattempt_end_status\tattempt_end_cause\tattempt_end_attribution\tattempt_end_effects\tattempt_end_start_tick\tattempt_end_tick");
             foreach (var a in brain.Chooser.Actions)
                 h.Append('\t').Append(a.Name).Append("_offer");
             foreach (var family in Enum.GetValues<BehaviourSelection.PurposeFamily>())
@@ -762,6 +763,7 @@ public sealed class BrainTelemetry : ModSystem
             .Append('\t').Append(attempt?.Family.ToString() ?? "none")
             .Append('\t').Append(attempt?.Status.ToString() ?? "none")
             .Append('\t').Append(attempt?.Cause ?? "none")
+            .Append('\t').Append(attempt?.Attribution.ToString() ?? "none")
             .Append('\t').Append(attempt?.ProductiveEffects ?? -1)
             .Append('\t').Append(attempt?.StartTick.ToString(CultureInfo.InvariantCulture) ?? "-1")
             .Append('\t').Append(attempt?.EndTick.ToString(CultureInfo.InvariantCulture) ?? "-1");

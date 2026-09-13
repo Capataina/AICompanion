@@ -57,8 +57,8 @@ public sealed class PursueAttackOpportunity : CompanionAction
         // defect one step further out: two targets would buy twice the window and nothing else.
         stalled[(enemy.whoAmI, generation)] = enemy.Center;
         observedTarget = enemy.whoAmI; observedGeneration = generation; observedLife = enemy.life;
-        pursued = (enemy, generation, Main.GameUpdateCount);
-        if (pursuitShot) lastPursuitShotAt = Main.GameUpdateCount;
+        pursued = (enemy, generation);
+        attacked |= pursuitShot;
         if (progress)
         {
             NoProgressTicks = 0; engagementOrigin = ctx.Npc.Bottom;
@@ -70,28 +70,34 @@ public sealed class PursueAttackOpportunity : CompanionAction
                 deferred[key] = (ctx.Senses.Tick + Weights.HuntRetryTicks, centre, ctx.Npc.Bottom,
                     SharedMovementSystem.TerrainChanges.Revision);
             LastRejection = "no-movement-or-attack-progress";
-            failedAt = Main.GameUpdateCount;
+            failed = true;
             NoProgressTicks = 0;
             stalled.Clear();
         }
     }
 
-    private (NPC Enemy, int Generation, ulong At)? pursued;
-    private ulong? lastPursuitShotAt, failedAt;
+    // Attempt-local evidence, written only while the hunt executes and cleared when an attempt opens.
+    private (NPC Enemy, int Generation)? pursued;
+    private bool attacked, failed;
+
+    public override void BeginAttempt()
+    {
+        pursued = null;
+        attacked = failed = false;
+    }
 
     /// <summary>The pursued generation disappearing after this attempt fired at it completes the hunt,
-    /// with the killer unattributed because the native death hook does not name one; disappearing
-    /// before any pursuit shot leaves the attempt invalid. An expired progress window is failure.
-    /// Incidental shots at other enemies are not pursuit evidence here, as in progress accounting.</summary>
-    public override AttemptConclusion ConcludeAttempt(ulong startedAt, int productiveEffects)
+    /// unattributed because the native death hook does not name a killer; disappearing before any
+    /// pursuit shot leaves the attempt invalid. An expired progress window is failure. Incidental shots
+    /// at other enemies are not pursuit evidence here, as in progress accounting.</summary>
+    public override AttemptConclusion ConcludeAttempt(int productiveEffects)
     {
-        bool attacked = lastPursuitShotAt is ulong shot && shot >= startedAt;
-        if (pursued is { } target && target.At >= startedAt
+        if (pursued is { } target
             && (!target.Enemy.active || target.Enemy.life <= 0 || HostileAttackSources.Generation(target.Enemy) != target.Generation))
             return attacked
-                ? new(AttemptStatus.Complete, "pursued-target-gone-after-attack-actor-unattributed")
-                : new(AttemptStatus.Invalid, "pursued-target-gone-before-attack");
-        if (failedAt is ulong failed && failed >= startedAt)
+                ? new(AttemptStatus.Complete, "pursued-target-gone-after-pursuit-attack", AttemptAttribution.Unattributed)
+                : new(AttemptStatus.Invalid, "pursued-target-gone-before-pursuit-attack");
+        if (failed)
             return new(AttemptStatus.Failed, "no-movement-or-attack-progress");
         return attacked
             ? new(AttemptStatus.Partial, "attacked-pursued-target-still-present")
