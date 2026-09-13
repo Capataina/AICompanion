@@ -5,6 +5,7 @@ using Microsoft.Xna.Framework;
 using Terraria;
 using Terraria.ID;
 using AStar = live::AICompanion.Companion.Brain.SharedMovementSystem.AStar;
+using FollowPlayerObjective = live::AICompanion.Companion.Brain.PositionSelection.FollowPlayerObjective;
 using ActionContext = live::AICompanion.Companion.Brain.Behaviours.ActionContext;
 using KeepCompany = live::AICompanion.Companion.Brain.PurposeFamilies.NearbyAssistance.KeepCompany;
 using LimitPlanningWork = live::AICompanion.Companion.Brain.SharedMovementSystem.LimitPlanningWork;
@@ -34,6 +35,7 @@ internal static class VerifyCompanyLocalMotion
         }
         Each("J06/X01 stroll goals avoid lava, deep water and a one-way drop", StrollGoalsAvoidHazards);
         Each("J06 an idle window neither hops for show nor collapses to one method", IdleCompanyNeitherHopsNorFreezes);
+        Each("empty-world reunion: nothing on offer and the player walks away", AnEmptyWorldReunitesWithAWalkingPlayer);
         if (red == 0) Console.WriteLine("company local motion: hazard-free returnable stroll goals and bounded idle movement pass");
         return red;
     }
@@ -129,6 +131,42 @@ internal static class VerifyCompanyLocalMotion
         Require(rest is >= .25f and <= .75f, $"idle company must neither always walk nor always stand; {ledger}");
         Require(goals.Count >= 2, $"idle company must still stroll; {ledger}");
         Console.WriteLine($"idle company: {ledger}");
+    }
+
+    /// <summary>
+    /// P10's "empty world reunion": every activity registered, nothing any of them can offer (no ore, drops, pots, measured darkness or
+    /// enemies), and a player who walks forty tiles away along the floor and stops. Keeping company must be the only activity chosen
+    /// throughout, must ask for reunion, and must end with the body inside the follow objective at the stopped player. The C-turn case
+    /// keeps the full chooser in an empty world too, but its player never moves, and the meeting-place and company-method cases remove
+    /// every other activity, so none of them is this scene.
+    /// </summary>
+    private static void AnEmptyWorldReunitesWithAWalkingPlayer()
+    {
+        var ctx = BuildNeighbourhood(hazards: false);
+        VerifyUsefulAssistance.ClearMeasuredLight();
+        var brain = ctx.Companion.Brain;
+        Player player = ctx.Player;
+        float stopAt = 80 * 16 + 8;
+        int otherActivity = 0, stoppedAt = -1, arrivedAt = -1;
+        bool askedForReunion = false;
+        for (int tick = 0; tick < 1500 && arrivedAt < 0; tick++)
+        {
+            bool walking = player.Bottom.X < stopAt;
+            player.velocity = walking ? new Vector2(3f, 0f) : Vector2.Zero;
+            player.position += player.velocity;
+            if (!walking && stoppedAt < 0) stoppedAt = tick;
+            VerifyOreWork.AdvanceBrain(ctx);
+            if (brain.LastAction?.Name != "keep-company") otherActivity++;
+            askedForReunion |= brain.LastRequest.Kind == RequestKind.WithPlayer;
+            if (!walking && new FollowPlayerObjective(player.Bottom, player.Bottom).IsSatisfied(ctx.Npc.Bottom,
+                    Collision.CanHitLine(ctx.Npc.position, ctx.Npc.width, ctx.Npc.height, player.position, player.width, player.height)))
+                arrivedAt = tick;
+        }
+        string ledger = $"player stopped at tick {stoppedAt}, companion arrived at tick {arrivedAt}; feet={ctx.Npc.Bottom} player={player.Bottom}; "
+            + $"reunion requested={askedForReunion}; ticks not keeping company={otherActivity}; recovery={brain.FollowRecovery.Active}";
+        Require(otherActivity == 0, $"with nothing on offer keeping company must be the only activity; {ledger}");
+        Require(askedForReunion && arrivedAt >= 0, $"a player walking away in an empty world must be met where they stop; {ledger}");
+        Console.WriteLine($"empty-world reunion: {ledger}");
     }
 
     private static Point? Walking(KeepCompany company)
