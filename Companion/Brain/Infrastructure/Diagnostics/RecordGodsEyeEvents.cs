@@ -268,13 +268,17 @@ public static class GodsEyeEvents
     /// proven total is what the route's own steps were priced at, the actual is what the body took, and the player's is
     /// what a body that definitely can do it took over the same ground. A player comparison of "-" means the player's
     /// recorded trail never covered both ends, which is missing coverage rather than a player who was slower.
+    ///
+    /// The actual is the span between the two tick stamps less the ticks the body spent downed, which travel beside it so
+    /// the wall clock is still recoverable. A death inside a journey is not the journey being slow, and a downing lasts
+    /// longer than most journeys, so charging it would make every death the loudest slow journey in the report.
     /// </summary>
     public static void RecordRouteEpisode(NPC companion, string request, string outcome, ulong startTick, ulong endTick,
-        int plannedTicks, int actualTicks, float straightTiles, float pathTiles, float meanSpeed, string playerTicks)
+        int plannedTicks, int actualTicks, int downedTicks, float straightTiles, float pathTiles, float meanSpeed, string playerTicks)
     {
         if (!Accepting()) return;
         Write("route-episode", Stable(npcGenerations, companion.whoAmI), "", request, outcome, companion.Bottom, Vector2.Zero, Vector2.Zero, actualTicks,
-            FormattableString.Invariant($"start-tick={startTick};end-tick={endTick};outcome={outcome};planned-ticks={plannedTicks};actual-ticks={actualTicks};player-ticks={playerTicks};straight-tiles={straightTiles:0.00};path-tiles={pathTiles:0.00};mean-speed-px-per-tick={meanSpeed:0.00};planned-scope=sum-of-proven-step-ticks-for-steps-that-finished;player-scope=tightest-recorded-trail-crossing-within-2-tiles-of-both-ends"));
+            FormattableString.Invariant($"start-tick={startTick};end-tick={endTick};outcome={outcome};planned-ticks={plannedTicks};actual-ticks={actualTicks};downed-ticks={downedTicks};player-ticks={playerTicks};straight-tiles={straightTiles:0.00};path-tiles={pathTiles:0.00};mean-speed-px-per-tick={meanSpeed:0.00};planned-scope=sum-of-proven-step-ticks-for-steps-that-finished;actual-scope=span-less-downed-ticks;player-scope=tightest-recorded-trail-crossing-within-2-tiles-of-both-ends"));
     }
 
     /// <summary>

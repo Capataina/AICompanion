@@ -128,7 +128,10 @@ internal static class VerifyDowningAndRevival
     /// revival afterwards, so the revival tick's presentation describes the state before the NPC got up.</summary>
     private static string? revivalTickPresentation;
 
-    private static void Tick(CompanionNPC companion)
+    /// <summary>Shared with <see cref="VerifyTravelEpisodes"/>, which drives a downing for a different question: the
+    /// revival tick's stale presentation is a known finding with a precise tolerance, and a second copy of that
+    /// tolerance elsewhere would be a second thing to retire when the presentation owner fixes it.</summary>
+    internal static void Tick(CompanionNPC companion)
     {
         VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
         bool downedBefore = companion.IsDowned;
