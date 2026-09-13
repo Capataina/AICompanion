@@ -74,7 +74,8 @@ internal static class MeasureBrainCost
         }
         finally
         {
-            typeof(BrainTelemetry).GetMethod("Close", BindingFlags.Static | BindingFlags.NonPublic)?.Invoke(null, null);
+            // Close takes the reason it writes into the capture's end marker; this measurement names itself.
+            typeof(BrainTelemetry).GetMethod("Close", BindingFlags.Static | BindingFlags.NonPublic)?.Invoke(null, new object[] { "fixture-close" });
             savePath.SetValue(null, priorSavePath);
             if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
         }

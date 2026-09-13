@@ -10,4 +10,44 @@
     <!-- Tools/ holds console projects that compile the navigation core on their own; they are not mod code. -->
     <Compile Remove="Tools/**" />
   </ItemGroup>
+  <!--
+    Stamps the git revision this assembly was built from, and whether tracked files differed from it, as assembly
+    metadata the telemetry recorder writes into every capture, so a capture names the code that produced it and two
+    captures from different code are never read as one build. git may be unavailable (a build outside a checkout, a
+    host without it on PATH), and then both read unknown rather than anything inferred from the folder. Untracked
+    files are ignored because Telemetry and build output are untracked by design.
+
+    It runs before GetAssemblyAttributes rather than GenerateAssemblyInfo: BeforeTargets fires after a target's own
+    dependencies, and the SDK hashes the attribute items in a dependency of GenerateAssemblyInfo, so items added any
+    later would be missing from that hash and a changed revision would not regenerate the attributes.
+  -->
+  <Target Name="StampSourceRevision" BeforeTargets="GetAssemblyAttributes">
+    <Exec Command="git rev-parse HEAD" WorkingDirectory="$(MSBuildProjectDirectory)" ConsoleToMSBuild="true" IgnoreExitCode="true"
+          IgnoreStandardErrorWarningFormat="true" StandardOutputImportance="low" StandardErrorImportance="low" ContinueOnError="true">
+      <Output TaskParameter="ConsoleOutput" PropertyName="StampedRevisionOutput" />
+      <Output TaskParameter="ExitCode" PropertyName="StampedRevisionExit" />
+    </Exec>
+    <Exec Command="git status --porcelain --untracked-files=no" WorkingDirectory="$(MSBuildProjectDirectory)" ConsoleToMSBuild="true" IgnoreExitCode="true"
+          IgnoreStandardErrorWarningFormat="true" StandardOutputImportance="low" StandardErrorImportance="low" ContinueOnError="true">
+      <Output TaskParameter="ConsoleOutput" PropertyName="StampedTreeOutput" />
+      <Output TaskParameter="ExitCode" PropertyName="StampedTreeExit" />
+    </Exec>
+    <PropertyGroup>
+      <StampedRevision>unknown</StampedRevision>
+      <StampedRevision Condition="'$(StampedRevisionExit)' == '0' and $(StampedRevisionOutput.Length) == 40">$(StampedRevisionOutput)</StampedRevision>
+      <StampedTree>unknown</StampedTree>
+      <StampedTree Condition="'$(StampedRevision)' != 'unknown' and '$(StampedTreeExit)' == '0' and '$(StampedTreeOutput)' == ''">clean</StampedTree>
+      <StampedTree Condition="'$(StampedRevision)' != 'unknown' and '$(StampedTreeExit)' == '0' and '$(StampedTreeOutput)' != ''">dirty</StampedTree>
+    </PropertyGroup>
+    <ItemGroup>
+      <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+        <_Parameter1>SourceRevision</_Parameter1>
+        <_Parameter2>$(StampedRevision)</_Parameter2>
+      </AssemblyAttribute>
+      <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+        <_Parameter1>SourceTree</_Parameter1>
+        <_Parameter2>$(StampedTree)</_Parameter2>
+      </AssemblyAttribute>
+    </ItemGroup>
+  </Target>
 </Project>

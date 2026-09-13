@@ -79,6 +79,13 @@ public sealed class Session
         {
             if (lines[i].Length == 0)
                 continue;
+            // A '#' line after the header is the recorder's closing trailer (schema 0.28.0 ends a normal closure with
+            // '# end='), so it is metadata; a row always starts with its tick and never with '#'.
+            if (lines[i].StartsWith('#'))
+            {
+                AddMetadata(metadata, lines[i]);
+                continue;
+            }
             string[] row = lines[i].Split('\t');
             if (row.Length != width)
             {
@@ -136,12 +143,35 @@ public sealed class Session
     public static IReadOnlyDictionary<string, string> ReadMetadata(string path)
     {
         var metadata = new Dictionary<string, string>(StringComparer.Ordinal);
+        bool rows = false;
         foreach (string line in File.ReadLines(path))
         {
             if (line.Length > 0 && !line.TrimStart('﻿').StartsWith('#'))
+            {
+                rows = true;
                 break;
+            }
             AddMetadata(metadata, line);
         }
+        if (!rows)
+            return metadata;
+        // The closing trailer follows the rows, so only the file's tail is read for it: the trailer is a line or two,
+        // and reading every row of a long capture to find it would undo what reading the preamble alone saves.
+        const int TailBytes = 4096;
+        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+        stream.Seek(Math.Max(0, stream.Length - TailBytes), SeekOrigin.Begin);
+        string[] tail = new StreamReader(stream).ReadToEnd().Split('\n');
+        // The first tail line may start mid-row, so it is never read as a trailer line.
+        var trailer = new List<string>();
+        for (int i = tail.Length - 1; i >= (stream.Length > TailBytes ? 1 : 0); i--)
+        {
+            string line = tail[i].TrimEnd('\r');
+            if (line.Length == 0) continue;
+            if (!line.StartsWith('#')) break;
+            trailer.Add(line);
+        }
+        for (int i = trailer.Count - 1; i >= 0; i--)
+            AddMetadata(metadata, trailer[i]);
         return metadata;
     }
 

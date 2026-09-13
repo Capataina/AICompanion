@@ -15,6 +15,17 @@ namespace AICompanion.Tools.SessionReport;
 /// </summary>
 public static class DescribeSession
 {
+    /// <summary>Where a capture's code came from and whether it closed, in one line shared by this summary and the HTML coverage.</summary>
+    internal static string CaptureStatement(Session session)
+    {
+        if (!CompletedTransferClaimsWereReceived.SchemaAtLeast(session, new Version(0, 28, 0)))
+            return "source revision and closure unrecorded (both written from schema 0.28.0)";
+        string source = session.Metadata.TryGetValue("source_revision", out string? revision)
+            ? "source " + revision.Replace(";tree=", " tree ", StringComparison.Ordinal) : "source revision unrecorded";
+        string closure = session.Metadata.TryGetValue("end", out string? end) ? "closed " + end : "no end marker: interrupted capture";
+        return $"{source}; {closure}";
+    }
+
     public static string Of(Session session)
     {
         var sb = new StringBuilder();
@@ -23,6 +34,7 @@ public static class DescribeSession
             sb.Append($"file      {Path.GetFileName(session.Path)}\n");
             sb.Append("rows      0; the recorder wrote its header but no samples\n");
             sb.Append($"columns   {session.Names.Count}\n");
+            sb.Append($"capture   {CaptureStatement(session)}\n");
             return sb.ToString();
         }
         int first = session.Tick(0), last = session.Tick(session.Count - 1);
@@ -34,6 +46,7 @@ public static class DescribeSession
         if (session.Ragged > 0)
             sb.Append($", {session.Ragged} ragged row(s) dropped");
         sb.Append('\n');
+        sb.Append($"capture   {CaptureStatement(session)}\n");
 
         var whole = new Stretch(0, session.Count - 1);
 

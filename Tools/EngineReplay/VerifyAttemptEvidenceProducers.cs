@@ -89,6 +89,35 @@ internal static class VerifyAttemptEvidenceProducers
             $"collection attempt {attempt} must claim exactly the ten its own pickups delivered; outcome={outcome.Detail}; delivered={delivered}");
         Console.WriteLine($"attempt evidence producers: collection attempt {attempt} claimed {delivered} copper ore and its {claimed.Count} pickup(s) delivered exactly that");
         SuccessRegionsAreWhatTheirRowsClaim(capture, ore: null, followRegions: true);
+        ACaptureNamesItsSourceConfigurationAndClosure(capture, potBreakingTurnedOff: true);
+    }
+
+    /// <summary>
+    /// The real recorder's preamble names the revision this build was stamped from and the configuration the session
+    /// started under, a preference changed after the world loaded is recorded as a configuration occurrence carrying the
+    /// changed value, and the file ends with the world-unload end marker stating exactly the rows it holds.
+    /// </summary>
+    private static void ACaptureNamesItsSourceConfigurationAndClosure(Capture capture, bool potBreakingTurnedOff)
+    {
+        string? source = capture.Preamble.FirstOrDefault(line => line.StartsWith("# source_revision=", StringComparison.Ordinal));
+        Require(source is not null, "the recorder wrote no source revision line: " + string.Join(" | ", capture.Preamble));
+        string[] stamp = source!["# source_revision=".Length..].Split(';');
+        // This host builds the mod from a git checkout, so an unknown revision here means the stamp is not reaching the
+        // assembly rather than that git is absent.
+        Require(stamp.Length == 2 && stamp[0].Length == 40 && stamp[0].All(Uri.IsHexDigit) && stamp[1] is "tree=clean" or "tree=dirty",
+            $"the source revision line does not name a forty-digit revision and a clean or dirty tree: {source}");
+        string? config = capture.Preamble.FirstOrDefault(line => line.StartsWith("# config=character;", StringComparison.Ordinal));
+        Require(config is not null && config.Contains(";pot_breaking=", StringComparison.Ordinal) && config.Contains(";record_telemetry=true", StringComparison.Ordinal),
+            "the recorder wrote no configuration snapshot with the preferences and switches: " + string.Join(" | ", capture.Preamble));
+        var changes = capture.Events.Where(e => e.Kind == "configuration").ToList();
+        if (potBreakingTurnedOff)
+            Require(changes.Count == 1 && changes[0].Detail.Contains(";pot_breaking=false;", StringComparison.Ordinal),
+                $"turning pot breaking off after the world loaded must be one configuration occurrence carrying the new value; recorded {changes.Count}: {string.Join(" | ", changes.Select(c => c.Detail))}");
+        else
+            Require(changes.Count == 0, "a scene that changed no preference recorded configuration changes: " + string.Join(" | ", changes.Select(c => c.Detail)));
+        Require(capture.Trailer.Length == 1 && capture.Trailer[0] == $"# end=world-unload;rows={capture.Rows.Count}",
+            $"a world unload must end the file with one end marker naming its {capture.Rows.Count} rows; trailer: {string.Join(" | ", capture.Trailer)}");
+        Console.WriteLine($"attempt evidence producers: capture names source {stamp[0][..12]} ({stamp[1]}), {changes.Count} configuration change(s), and closes with {capture.Trailer[0]}");
     }
 
     /// <summary>
@@ -146,6 +175,7 @@ internal static class VerifyAttemptEvidenceProducers
         }
         Console.WriteLine($"attempt evidence producers: {strikes.Count} native strike(s) each name the attempt their row and outcome name");
         SuccessRegionsAreWhatTheirRowsClaim(capture, ore);
+        ACaptureNamesItsSourceConfigurationAndClosure(capture, potBreakingTurnedOff: false);
     }
 
     /// <summary>

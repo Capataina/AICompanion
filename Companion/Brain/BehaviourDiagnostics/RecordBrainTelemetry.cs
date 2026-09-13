@@ -42,7 +42,43 @@ public sealed class BrainTelemetry : ModSystem
     private static string? eventsPath;
     private static readonly Stopwatch sessionClock = new();
     private static DateTime sessionStartedUtc;
-    private const string Schema = "0.27.0";
+    private const string Schema = "0.28.0";
+    // Rows this session has written, which the end marker states so a reader can tell a file that lost rows from one
+    // that never had them.
+    private static int rowsWritten;
+    private static RecordedConfiguration recordedConfiguration;
+    /// <summary>The revision and tree state AICompanion.csproj's StampSourceRevision target stamped into this assembly,
+    /// read once; "unknown" when that build could not ask git.</summary>
+    private static readonly string SourceProvenance = ReadSourceProvenance();
+
+    private static string ReadSourceProvenance()
+    {
+        string Stamp(string key) => typeof(BrainTelemetry).Assembly.GetCustomAttributes(typeof(System.Reflection.AssemblyMetadataAttribute), false)
+            .OfType<System.Reflection.AssemblyMetadataAttribute>().FirstOrDefault(attribute => attribute.Key == key)?.Value is { Length: > 0 } value ? value : "unknown";
+        return $"{Stamp("SourceRevision")};tree={Stamp("SourceTree")}";
+    }
+
+    /// <summary>
+    /// The per-character preferences and diagnostics switches a capture runs under, as one comparable value: the
+    /// preamble states the value at the start and an occurrence records each change, compared every row without
+    /// allocating, because a preference changed from the profile card mid-session changes what the companion does.
+    /// </summary>
+    private readonly record struct RecordedConfiguration(Behaviours.Work.WorkPolicy Mining, Behaviours.Work.WorkPolicy Chopping, bool Hunting, bool PotBreaking,
+        bool TorchPlacement, PlayerIntegration.CompanionDistanceMode DistanceMode, bool Inspector, bool RecordTelemetry)
+    {
+        public static RecordedConfiguration Current()
+        {
+            var preferences = PlayerIntegration.CompanionPreferences.Current;
+            var switches = DiagnosticsConfiguration.CompanionDiagnosticsConfig.Current;
+            return new(preferences.Mining, preferences.Chopping, preferences.Hunting, preferences.PotBreaking, preferences.TorchPlacement,
+                preferences.DistanceMode, switches.EnableBrainInspector, switches.RecordTelemetry);
+        }
+
+        public string Describe()
+            => $"character;mining={Mining};chopping={Chopping};hunting={Flag(Hunting)};pot_breaking={Flag(PotBreaking)};torch_placement={Flag(TorchPlacement)};distance_mode={DistanceMode};inspector={Flag(Inspector)};record_telemetry={Flag(RecordTelemetry)}";
+
+        private static string Flag(bool value) => value ? "true" : "false";
+    }
     private static string? pendingPlayerHit;
     private static string? pendingCompanionHit;
     private static string? lastDecision;
@@ -54,7 +90,7 @@ public sealed class BrainTelemetry : ModSystem
 
     public override void OnWorldLoad()
     {
-        Close();
+        Close("superseded-by-world-load");
         if (!DiagnosticsConfiguration.CompanionDiagnosticsConfig.Current.RecordTelemetry) return;
         try
         {
@@ -67,6 +103,7 @@ public sealed class BrainTelemetry : ModSystem
             eventsPath = Path.Combine(Folder, $"{sessionStem}-events.jsonl");
             lastDumpTick = -DumpEveryTicks;
             headerWritten = false;
+            rowsWritten = 0;
             sessionStartedUtc = DateTime.UtcNow;
             sessionClock.Restart();
             GodsEyeEvents.Open(eventsPath);
@@ -101,11 +138,11 @@ public sealed class BrainTelemetry : ModSystem
 
     public override void OnWorldUnload()
     {
-        Close();
+        Close("world-unload");
         global::AICompanion.Companion.Brain.WorldObservation.PredictObservedMotion.Clear();
     }
 
-    public static void StopRecording() => Close();
+    public static void StopRecording() => Close("recording-disabled");
 
     public override void LoadWorldData(TagCompound tag)
     {
@@ -125,7 +162,7 @@ public sealed class BrainTelemetry : ModSystem
     {
         if (!DiagnosticsConfiguration.CompanionDiagnosticsConfig.Current.RecordTelemetry)
         {
-            if (writer != null) Close();
+            if (writer != null) Close("recording-disabled");
             return;
         }
         if (writer == null || firstUpdateRecorded)
@@ -160,12 +197,14 @@ public sealed class BrainTelemetry : ModSystem
 
     public override void Unload()
     {
-        Close();
+        Close("mod-unload");
         global::AICompanion.Companion.Brain.WorldObservation.PredictObservedMotion.Clear();
         Mod.Logger.Info("BrainTelemetry.Unload: done");
     }
 
-    private static void Close()
+    /// <summary>A normal closure, named by <paramref name="reason"/>. Only this writes the end marker: a failed row write
+    /// disposes the stream without coming here, so a capture that lacks the marker was interrupted.</summary>
+    private static void Close(string reason)
     {
         // The census and the map are written here rather than per tick because both are one
         // artefact about the whole session; there is nothing to say until it is over. They land
@@ -176,6 +215,7 @@ public sealed class BrainTelemetry : ModSystem
         GodsEyeEvents.Close();
         try
         {
+            writer?.WriteLine($"# end={reason};rows={rowsWritten}");
             writer?.Flush();
             writer?.Dispose();
         }
@@ -222,6 +262,9 @@ public sealed class BrainTelemetry : ModSystem
         writer.WriteLine($"# started_utc={sessionStartedUtc:O}");
         writer.WriteLine($"# terraria={Main.versionNumber};tml_assembly={typeof(Main).Assembly.GetName().Version};runtime={Environment.Version};os={Environment.OSVersion.Platform}");
         writer.WriteLine("# mods=" + string.Join(";", (ModLoader.Mods ?? Array.Empty<Mod>()).Select(mod => mod.Name + "@" + mod.Version)));
+        writer.WriteLine($"# source_revision={SourceProvenance}");
+        recordedConfiguration = RecordedConfiguration.Current();
+        writer.WriteLine($"# config={recordedConfiguration.Describe()}");
         writer.WriteLine("# lifecycle=world-entry-observed;tag-load-not-yet-observed;first-update-not-yet-observed;outer-load-unobservable;save-not-observed");
         writer.Flush();
     }
@@ -386,9 +429,15 @@ public sealed class BrainTelemetry : ModSystem
     /// </summary>
     public static void Record(CompanionNPC companion)
     {
-        if (!DiagnosticsConfiguration.CompanionDiagnosticsConfig.Current.RecordTelemetry) { if (writer != null) Close(); return; }
+        if (!DiagnosticsConfiguration.CompanionDiagnosticsConfig.Current.RecordTelemetry) { if (writer != null) Close("recording-disabled"); return; }
         if (writer == null)
             return;
+        var configuration = RecordedConfiguration.Current();
+        if (configuration != recordedConfiguration)
+        {
+            recordedConfiguration = configuration;
+            GodsEyeEvents.RecordConfiguration(configuration.Describe());
+        }
         ScenarioCapture.Watch(companion);
         Brain brain = companion.Brain;
         var senses = brain.Senses;
@@ -841,6 +890,7 @@ public sealed class BrainTelemetry : ModSystem
         try
         {
             writer.WriteLine(sb.ToString());
+            rowsWritten++;
             if (++sinceFlush >= FlushEveryTicks)
             {
                 sinceFlush = 0;

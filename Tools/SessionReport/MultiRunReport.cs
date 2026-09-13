@@ -69,7 +69,11 @@ public static class MultiRunReport
     }
 
     /// <summary>The recorded identity fields compared across runs; each is written by RecordBrainTelemetry.WriteMetadata.</summary>
-    private static readonly string[] ProvenanceKeys = { "schema", "terraria", "tml_assembly", "runtime", "os", "mods" };
+    private static readonly string[] ProvenanceKeys = { "schema", "source_revision", "tree", "terraria", "tml_assembly", "runtime", "os", "mods" };
+
+    /// <summary>The preferences and diagnostics switches a run started under (the <c>config</c> line, from schema 0.28.0).
+    /// A difference is stated but never refuses a join: it changes what the companion chose to do, not which code chose.</summary>
+    private static readonly string[] ConfigurationKeys = { "mining", "chopping", "hunting", "pot_breaking", "torch_placement", "distance_mode", "inspector", "record_telemetry" };
 
     /// <summary>
     /// Which recorded build, loader and mod identities the selected runs share and which they do not.
@@ -86,14 +90,17 @@ public static class MultiRunReport
             try { runs.Add((name, Provenance(Session.ReadMetadata(path)))); }
             catch (Exception error) { text.Append($"  unreadable  {name} — its metadata could not be read ({error.GetType().Name}), so its provenance is unknown\n"); }
         }
-        bool anyDifference = false;
-        foreach (string key in ProvenanceKeys)
+        var differingBuild = new List<string>();
+        foreach (string key in ProvenanceKeys.Concat(ConfigurationKeys))
         {
             var recorded = runs.Where(r => r.Fields.ContainsKey(key)).GroupBy(r => r.Fields[key], StringComparer.Ordinal).ToList();
             var unrecorded = runs.Where(r => !r.Fields.ContainsKey(key)).Select(r => r.Name).ToList();
+            bool configuration = ConfigurationKeys.Contains(key);
+            // A configuration key no run records is an older capture, and one line per such key would bury the provenance.
+            if (configuration && recorded.Count == 0) continue;
             if (recorded.Count > 1)
             {
-                anyDifference = true;
+                if (!configuration) differingBuild.Add(key);
                 text.Append($"  differs     {key}: ").Append(string.Join(" · ", recorded.Select(g => $"{g.Key} ({string.Join(", ", g.Select(r => r.Name))})"))).Append('\n');
             }
             else if (recorded.Count == 1)
@@ -101,8 +108,16 @@ public static class MultiRunReport
             if (unrecorded.Count > 0)
                 text.Append($"  unrecorded  {key} in {string.Join(", ", unrecorded)} — unknown for those runs, not filled from this checkout\n");
         }
-        if (anyDifference)
-            text.Append("  The runs below were recorded by different builds or loaders; each keeps its own findings, and a pattern across them is not a comparison of one build.\n");
+        // A join across runs reads one run's evidence as if the other's code had produced it, so it is allowed only when
+        // every run records the same clean source revision: an unknown or dirty tree cannot be shown to be one build.
+        var unproven = runs.Where(r => !r.Fields.TryGetValue("source_revision", out string? revision) || revision == "unknown"
+            || !r.Fields.TryGetValue("tree", out string? tree) || tree != "clean").Select(r => r.Name).ToList();
+        if (differingBuild.Count > 0)
+            text.Append($"  refused     cross-run joins: the runs were recorded by different code or loaders ({string.Join(", ", differingBuild)}); each keeps its own findings, and a pattern across them is not a comparison of one build\n");
+        else if (unproven.Count > 0)
+            text.Append($"  refused     cross-run joins: {string.Join(", ", unproven)} do not record a clean source revision, so the runs cannot be shown to come from one build\n");
+        else if (runs.Count > 0)
+            text.Append($"  joinable    every run records the clean source revision {runs[0].Fields["source_revision"]}, so a pattern across them compares one build\n");
         return text.ToString();
     }
 

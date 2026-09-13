@@ -44,8 +44,9 @@ public static class ChronicleTests
             ControlGrantRulesJudgeTheRequestedOwner();
             IdentityChecksSkipOldAndPartialCapturesByName();
             MultiRunStatesProvenanceBeforeAnyRun();
+            ACaptureStatesItsSourceAndWhetherItClosed();
             IdentityRulesStillMatchTheProducer();
-            Console.WriteLine("Chronicle self-tests passed (27 assertion groups).");
+            Console.WriteLine("Chronicle self-tests passed (28 assertion groups).");
             return 0;
         }
         catch (Exception error)
@@ -1169,6 +1170,89 @@ public static class ChronicleTests
                 "identically recorded runs were reported as differing");
         }
         finally { File.Delete(a); File.Delete(b); File.Delete(c); }
+    }
+
+    /// <summary>
+    /// A 0.28.0 capture names its source revision and configuration before its rows and its closure after them. The
+    /// trailer must be read as metadata rather than as a ragged row, from the whole file and from the tail alone; a
+    /// missing end marker must be an interrupted capture and a wrong row count a contradiction; an older capture skips
+    /// the closure check by name; and a multi-run report must refuse a join across runs whose code differs or is unproven,
+    /// while a configuration difference alone is stated without refusing.
+    /// </summary>
+    private static void ACaptureStatesItsSourceAndWhetherItClosed()
+    {
+        var files = new System.Collections.Generic.List<string>();
+        try
+        {
+            const string revision = "0123456789abcdef0123456789abcdef01234567";
+            const string configuration = "character;mining=Opportunistic;chopping=Opportunistic;hunting=true;pot_breaking=true;torch_placement=true;distance_mode=Standard;inspector=true;record_telemetry=true";
+            string Write(string schema, string trailer, string source = $"# source_revision={revision};tree=clean\n", string config = $"# config={configuration}\n")
+            {
+                string path = Path.GetTempFileName(); files.Add(path);
+                File.WriteAllText(path, $"# schema={schema}\n{source}{config}tick\twall_elapsed_ms\n1\t16\n2\t32\n{trailer}");
+                return path;
+            }
+            Finding[] Found(string path) => new TheCaptureWasClosed().Run(Session.Load(path)).ToArray();
+            string Describe(Finding[] found) => found.Length == 0 ? " (nothing fired)" : " (fired: " + string.Join(" | ", found.Select(f => $"{f.Severity} {f.Title}")) + ")";
+
+            string closed = Write("0.28.0", "# end=world-unload;rows=2\n");
+            Session session = Session.Load(closed);
+            Require(session.Count == 2 && session.Ragged == 0 && session.Metadata.TryGetValue("end", out string? end) && end == "world-unload;rows=2",
+                $"the closing trailer was not read as metadata beside two whole rows (rows {session.Count}, ragged {session.Ragged})");
+            Require(Found(closed).Length == 0, "a normally closed capture holding the rows its end marker names was reported" + Describe(Found(closed)));
+            var metadata = Session.ReadMetadata(closed);
+            Require(metadata.TryGetValue("end", out string? tail) && tail == "world-unload;rows=2" && metadata.TryGetValue("source_revision", out string? recorded) && recorded == $"{revision};tree=clean",
+                "reading metadata without the rows missed the closing trailer or the source revision");
+            Require(DescribeSession.Of(session).Contains($"capture   source {revision} tree clean; closed world-unload;rows=2", StringComparison.Ordinal),
+                "the session summary did not state the capture's source and closure: " + DescribeSession.Of(session));
+
+            string cut = Write("0.28.0", "");
+            Finding[] interrupted = Found(cut);
+            Require(interrupted.Length == 1 && interrupted[0].Severity == Severity.Potential && interrupted[0].Title == "interrupted capture: the recording has no end marker",
+                "a 0.28.0 capture without its end marker was not reported as an interrupted capture" + Describe(interrupted));
+            Require(DescribeSession.Of(Session.Load(cut)).Contains("no end marker: interrupted capture", StringComparison.Ordinal), "the session summary did not call a capture without an end marker interrupted");
+            Finding[] miscounted = Found(Write("0.28.0", "# end=world-unload;rows=5\n"));
+            Require(miscounted.Length == 1 && miscounted[0].Severity == Severity.Definitive && miscounted[0].Title == "the end marker names 5 row(s) and the file holds 2",
+                "an end marker naming rows the file does not hold was not Definitive" + Describe(miscounted));
+
+            string old = Write("0.27.0", "", source: "", config: "");
+            var (oldFindings, oldSkipped, _) = Program.Evaluate(Session.Load(old));
+            Require((oldSkipped.SingleOrDefault(s => s.Name == new TheCaptureWasClosed().Name).Missing ?? "").Contains("schema 0.28.0", StringComparison.Ordinal)
+                    && !oldFindings.Any(f => f.Check == new TheCaptureWasClosed().Name),
+                "a capture older than end markers was called interrupted, or skipped without naming the schema");
+            Require(DescribeSession.Of(Session.Load(old)).Contains("source revision and closure unrecorded", StringComparison.Ordinal), "an old capture's summary did not say its source and closure are unrecorded");
+
+            string sameBuild = Write("0.28.0", "# end=world-unload;rows=2\n");
+            string joined = MultiRunReport.Of(new[] { closed, sameBuild });
+            Require(joined.Contains($"joinable    every run records the clean source revision {revision}", StringComparison.Ordinal) && !joined.Contains("refused", StringComparison.Ordinal),
+                "two runs recording one clean source revision were not reported joinable: " + joined);
+            string otherCode = Write("0.28.0", "# end=world-unload;rows=2\n", source: "# source_revision=fedcba9876543210fedcba9876543210fedcba98;tree=clean\n");
+            string differing = MultiRunReport.Of(new[] { closed, otherCode });
+            Require(differing.Contains("differs     source_revision:", StringComparison.Ordinal)
+                    && differing.Contains("refused     cross-run joins: the runs were recorded by different code or loaders (source_revision)", StringComparison.Ordinal),
+                "runs recorded from different source revisions were not refused a cross-run join: " + differing);
+            string unknownA = Write("0.28.0", "# end=world-unload;rows=2\n", source: "# source_revision=unknown;tree=unknown\n");
+            string unknownB = Write("0.28.0", "# end=world-unload;rows=2\n", source: "# source_revision=unknown;tree=unknown\n");
+            string unproven = MultiRunReport.Of(new[] { unknownA, unknownB });
+            Require(unproven.Contains("do not record a clean source revision", StringComparison.Ordinal) && unproven.Contains(Path.GetFileName(unknownA), StringComparison.Ordinal),
+                "runs agreeing only that their source is unknown were joined as one build: " + unproven);
+            string reconfigured = Write("0.28.0", "# end=world-unload;rows=2\n", config: $"# config={configuration.Replace("pot_breaking=true", "pot_breaking=false", StringComparison.Ordinal)}\n");
+            string configured = MultiRunReport.Of(new[] { closed, reconfigured });
+            Require(configured.Contains("differs     pot_breaking: true", StringComparison.Ordinal) && configured.Contains("joinable", StringComparison.Ordinal),
+                "a configuration difference was not stated, or refused a join that only differing code refuses: " + configured);
+
+            // The producer literals these rules rest on.
+            string project = File.ReadAllText("AICompanion.csproj");
+            string telemetry = File.ReadAllText(Path.Combine("Companion", "Brain", "BehaviourDiagnostics", "RecordBrainTelemetry.cs"));
+            Require(project.Contains("git rev-parse HEAD", StringComparison.Ordinal) && project.Contains("BeforeTargets=\"GetAssemblyAttributes\"", StringComparison.Ordinal)
+                    && project.Contains("<_Parameter1>SourceRevision</_Parameter1>", StringComparison.Ordinal) && project.Contains("<_Parameter1>SourceTree</_Parameter1>", StringComparison.Ordinal),
+                "the build no longer stamps the source revision and tree state the recorder reads");
+            Require(telemetry.Contains("writer.WriteLine($\"# source_revision={SourceProvenance}\");", StringComparison.Ordinal)
+                    && telemetry.Contains("$\"character;mining={Mining};chopping={Chopping};hunting=", StringComparison.Ordinal)
+                    && telemetry.Split("# end=").Length == 2 && telemetry.Contains("writer?.WriteLine($\"# end={reason};rows={rowsWritten}\");", StringComparison.Ordinal),
+                "the recorder's source line, configuration shape or single end-marker writer has changed");
+        }
+        finally { foreach (string file in files) File.Delete(file); }
     }
 
     /// <summary>

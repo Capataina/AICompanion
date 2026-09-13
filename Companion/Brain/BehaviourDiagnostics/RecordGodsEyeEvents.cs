@@ -122,6 +122,10 @@ public static class GodsEyeEvents
     internal static void RecordLifecycle(string phase, string evidence)
         => Write("lifecycle", 0, "", phase, "", Vector2.Zero, Vector2.Zero, Vector2.Zero, 0, evidence);
 
+    /// <summary>The preferences and diagnostics switches changed mid-session; the detail has the TSV preamble's <c>config</c> shape.</summary>
+    internal static void RecordConfiguration(string detail)
+        => Write("configuration", 0, "", "changed", "", Vector2.Zero, Vector2.Zero, Vector2.Zero, 0, detail);
+
     internal static void Close()
     {
         FlushCosmeticContacts();

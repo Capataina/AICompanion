@@ -35,6 +35,7 @@ public static class Program
         new TicksAdvance(),
         new ReturnableFitsInsideReach(),
         new ColumnsHoldWhatTheyClaim(),
+        new TheCaptureWasClosed(),
         // The two boundary checks, which ask whether the record can be believed at all: a body
         // held by our own code rather than by the world, and the offline motion rule drifting away
         // from the collision that performs it. Both come before the behaviour checks because a

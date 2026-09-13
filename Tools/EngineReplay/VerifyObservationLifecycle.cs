@@ -325,7 +325,9 @@ internal static class VerifyObservationLifecycle
 
     private static void Close()
     {
-        typeof(BrainTelemetry).GetMethod("Close", BindingFlags.Static | BindingFlags.NonPublic)?.Invoke(null, null);
+        // The recorder's Close takes the closure reason it writes into the end marker; a fixture closing it directly names
+        // itself rather than borrowing a gameplay reason such as world-unload or recording-disabled.
+        typeof(BrainTelemetry).GetMethod("Close", BindingFlags.Static | BindingFlags.NonPublic)?.Invoke(null, new object[] { "fixture-close" });
     }
 
     private static void VerifyNotchOpeningConsumesThePress()

@@ -5,6 +5,43 @@ using System.Collections.Generic;
 namespace AICompanion.Tools.SessionReport;
 
 /// <summary>
+/// Whether the recorder closed the capture normally. From schema 0.28.0 every normal closure — world unload, mod
+/// unload, recording switched off, a new world superseding the session — ends the file with
+/// <c># end=&lt;reason&gt;;rows=&lt;n&gt;</c>, and nothing else writes that line: a failed row write disposes the stream
+/// without it, and a killed game never reaches it. A capture without it is an interrupted capture, whose rows since the
+/// last flush and whose closing census, map and event closure may be missing. An end marker naming a row count the
+/// file does not hold is Definitive, because the recorder counts exactly the rows it wrote.
+/// </summary>
+public sealed class TheCaptureWasClosed : ICheck, ICheckCoverage
+{
+    public string Name => "was the capture closed normally";
+    public string[] Needs => System.Array.Empty<string>();
+
+    public string? Missing(Session session)
+        => CompletedTransferClaimsWereReceived.SchemaAtLeast(session, new System.Version(0, 28, 0)) ? null
+            : "an end marker on normal closure (first written by schema 0.28.0)";
+
+    public IEnumerable<Finding> Run(Session session)
+    {
+        int last = session.Count == 0 ? 0 : session.Tick(session.Count - 1);
+        if (!session.Metadata.TryGetValue("end", out string? end))
+        {
+            yield return new Finding(Severity.Potential, Name, "interrupted capture: the recording has no end marker",
+                $"The file holds {session.Count} row(s){(session.Count > 0 ? $" ending at tick {last}" : "")} and ends without the line every normal closure writes, so the game was closed without unloading the world, crashed, or a write failed. "
+                + "Rows written since the last flush, the session census and map, and the event stream's closure may be missing, so nothing absent near the end of this capture is evidence that it did not happen.",
+                last, last, 0);
+            yield break;
+        }
+        foreach (string part in end.Split(';'))
+            if (part.StartsWith("rows=", System.StringComparison.Ordinal) && int.TryParse(part[5..], out int rows) && rows != session.Count + session.Ragged)
+                yield return new Finding(Severity.Definitive, Name,
+                    $"the end marker names {rows} row(s) and the file holds {session.Count + session.Ragged}",
+                    $"The recorder counts each row it wrote and states the count when it closes ({end}). A file holding a different number was cut, edited or appended to after closure, so its rows are not the session the recorder wrote.",
+                    last, last, System.Math.Abs(rows - session.Count - session.Ragged));
+    }
+}
+
+/// <summary>
 /// Whether the record contradicts itself, asked before anything is concluded from it. A broken
 /// instrument reads exactly like a broken brain, and this project has spent whole diagnoses on the
 /// instrument: four of its defects came from one mechanism being modelled one way in the code that
