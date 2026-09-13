@@ -7,6 +7,10 @@ Mining/
 └─ TileMiner.cs   runs the game's own Player.PickTile on the companion's drawing-only player, so the damage formula, the power gates, a modded tile's power check, the crack table and the break are the game's; CanMine asks the game's private damage formula through a delegate bound to that player
 ```
 
+## Invariants
+
+- **Ore work never excavates ordinary terrain.** `OreFinder.IsOre()` uses `TileID.Sets.Ore` to classify tiles; only ore tiles are added to the discovered vein or the search result. A wall, dirt, sand or any other tile sits beside the ore and is never targeted or damaged, even by swings whose visual spread reaches beyond the intended tile.
+
 ## Traps
 
 Remaining-work estimation uses the same private damage delegate as the native eligibility query, then includes the world modifier applied by PickTile after that formula. It reads the miner's existing hit table without allocating or damaging an entry. The estimate describes an ore completion while native gates and damage remain unchanged; modded transformations and later permission changes still require outcome revalidation. A removed, protected or undamageable ore has no completion estimate.
