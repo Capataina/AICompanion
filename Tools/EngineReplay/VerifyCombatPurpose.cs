@@ -6,6 +6,9 @@ using Terraria.ID;
 using Terraria.ModLoader;
 using Policy = live::AICompanion.Companion.Brain.Behaviours.Work.WorkPolicy;
 using LineOfSight = live::AICompanion.Companion.Brain.WorldObservation.LineOfSight;
+using Guard = live::AICompanion.Companion.Brain.PurposeFamilies.Combat.ProtectPlayer;
+using Hunt = live::AICompanion.Companion.Brain.PurposeFamilies.Combat.PursueAttackOpportunity;
+using Weights = live::AICompanion.Companion.Brain.BehaviourSelection.Weights;
 
 /// <summary>
 /// Proposal 1's P08 acceptance scenes for purposeful combat, each a matched pair or matrix that
@@ -20,8 +23,74 @@ internal static class VerifyCombatPurpose
         ThreatConsequenceCountsEffectiveDamageAgainstRemainingLife();
         TheSameSmallAttackIsIgnoredAtFullHealthAndEscapedAtLowHealth();
         PursuitWeighsARepositionAgainstTheShotsItDelays();
-        Console.WriteLine("combat purpose: effective damage and remaining life decide threat consequence, low health turns a tolerable attack into an escape, and pursuit weighs a reposition against the shots it delays");
+        ProtectionIsWorthTheHarmAnInterventionCanRemove();
+        Console.WriteLine("combat purpose: effective damage and remaining life decide threat consequence, low health turns a tolerable attack into an escape, pursuit weighs a reposition against the shots it delays, and protection is worth only the harm an intervention can remove");
         return 0;
+    }
+
+    private readonly record struct GuardScene(float Guard, float Hunt, float Urgency, float Removal, float Usefulness);
+
+    /// <summary>
+    /// One hostile beside the player, with the companion across an open floor. Only the hostile differs
+    /// between rows — its type, or for the matched pair only its life — so a change in guarding's value is
+    /// the fight's length acting through the removal estimate. Enemy AI does not run; this values the
+    /// arrangement, it does not stage a fight.
+    /// </summary>
+    private static GuardScene GuardAgainst(int type, int life = 0)
+    {
+        var (_, ctx) = VerifyOreWork.SetUp(Policy.Disabled, TileID.Copper, new Point(25, 89));
+        Main.tile[25, 89].ClearEverything();
+        ctx.Player.Bottom = new Vector2(60 * 16, 90 * 16);
+        ctx.Player.DefenseEffectiveness = MultipliableFloat.One * .5f;
+        NPC enemy = Main.npc[30];
+        enemy.SetDefaults(type);
+        enemy.whoAmI = 30; enemy.active = true; enemy.velocity = Vector2.Zero;
+        if (life > 0) { enemy.lifeMax = life; enemy.life = life; }
+        enemy.Bottom = ctx.Player.Bottom - new Vector2(48, 0);
+        var brain = ctx.Companion.Brain;
+        brain.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Breath);
+        var threat = brain.Senses.Threats.Threats.Find(t => t.Npc == enemy);
+        Require(threat != null && threat.CanReachPlayer && threat.Urgency > 0f,
+            $"the guard scene's hostile (type {type}) must threaten the player before protection is read; urgency={threat?.Urgency}");
+        brain.Senses.SetInterventionEstimate(ctx.Companion.Arsenal.EstimateInterventionTicks(ctx));
+        var guard = brain.Chooser.Actions.OfType<Guard>().Single();
+        var hunt = brain.Chooser.Actions.OfType<Hunt>().Single();
+        float guardValue = VerifyPreparedActivities.PrepareAndScore(guard, ctx);
+        float huntValue = VerifyPreparedActivities.PrepareAndScore(hunt, ctx);
+        return new(guardValue, huntValue, threat!.Urgency, guard.RemovalTicks, guard.InterventionUsefulness);
+    }
+
+    /// <summary>
+    /// Protection is worth the harm an intervention can remove. The matched pair holds one zombie beside
+    /// the player at its ordinary life and at a hundred times it: the urgency is identical and only the
+    /// fight's length differs, so guarding the tank must be worth exactly the usefulness share of guarding
+    /// the ordinary zombie. The second pair is the owner's boss story — against the Eye of Cthulhu there is
+    /// no version where standing between it and the player helps, while the small eyes on the player are
+    /// things the companion can remove — and it must hold on starting weapons without any boss flag being
+    /// read. Hunting must still offer the long fight: making protection pointless is not a refusal to fight.
+    /// </summary>
+    private static void ProtectionIsWorthTheHarmAnInterventionCanRemove()
+    {
+        var ordinary = GuardAgainst(NPCID.Zombie);
+        var tank = GuardAgainst(NPCID.Zombie, life: 4500);
+        var eye = GuardAgainst(NPCID.EyeofCthulhu);
+        var servant = GuardAgainst(NPCID.ServantofCthulhu);
+        foreach (var (name, scene) in new[] { ("ordinary", ordinary), ("tank", tank), ("eye", eye), ("servant", servant) })
+            Console.WriteLine($"  guard row {name}: guard={scene.Guard:0.000} hunt={scene.Hunt:0.000} urgency={scene.Urgency:0.000} removal-ticks={scene.Removal:0.0} usefulness={scene.Usefulness:0.000}");
+
+        Require(ordinary.Removal < Weights.GuardUsefulRemovalTicks && tank.Removal > Weights.GuardUsefulRemovalTicks
+            && servant.Removal < Weights.GuardUsefulRemovalTicks && eye.Removal > Weights.GuardUsefulRemovalTicks,
+            $"the rows must sit on the stated sides of the useful fight length; ordinary={ordinary.Removal}, tank={tank.Removal}, servant={servant.Removal}, eye={eye.Removal}");
+        Require(MathF.Abs(tank.Urgency - ordinary.Urgency) < 1e-5f,
+            $"the matched pair must threaten the player identically; tank={tank.Urgency}, ordinary={ordinary.Urgency}");
+        Require(tank.Guard < ordinary.Guard,
+            $"a threat the weapons would need far longer to remove must be worth less protection than the same threat they can remove; tank={tank.Guard}, ordinary={ordinary.Guard}");
+        Require(MathF.Abs(tank.Guard - ordinary.Guard * tank.Usefulness) < 1e-4f,
+            $"the fight's length must be the only difference between the matched guard values; tank={tank.Guard}, ordinary×usefulness={ordinary.Guard * tank.Usefulness}");
+        Require(servant.Guard > eye.Guard,
+            $"the small eyes on the player must be worth more protection than the boss itself; servant={servant.Guard}, eye={eye.Guard}");
+        Require(tank.Hunt > 0f && eye.Hunt > 0f,
+            $"a fight too long to protect through must still be a fight hunting offers; tank={tank.Hunt}, eye={eye.Hunt}");
     }
 
     private const int PitFloorY = 80, ShaftLeft = 49, ShaftRight = 53, ShaftFloorY = 86, HiddenX = 51;

@@ -231,4 +231,18 @@ public static class Weights
     /// never outranks doing something certain.
     /// </summary>
     public const float MineUnprovenApproach = .55f;
+
+    // P08 — purposeful combat and combined safety. Proposal 1's P08 tunables sit together at the end of
+    // the class so parallel lanes adding their own blocks collide on nothing but position.
+
+    /// <summary>
+    /// Guard: the longest a protective fight can take and still be worth guarding over, in ticks. A
+    /// threat the weapons could remove sooner keeps its full protection value; one needing longer keeps
+    /// value in proportion — half at twice this — because standing between the player and something that
+    /// outlasts the companion's weapons for that long protects nobody. Thirty seconds is a judgement about
+    /// what a player would still call helping, not a measurement: on starting weapons a zombie or a swarm
+    /// of small eyes sits well inside it and a boss's life bar far outside it, and that separation is
+    /// what the number has to preserve when weapons or enemies change.
+    /// </summary>
+    public const float GuardUsefulRemovalTicks = 1800f;
 }

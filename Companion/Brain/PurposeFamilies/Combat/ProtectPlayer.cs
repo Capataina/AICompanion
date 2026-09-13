@@ -35,6 +35,12 @@ public sealed class ProtectPlayer : CompanionAction
     public float RetainedPressure => committedPressure;
     public string CommitmentReason { get; private set; } = "no-commitment";
 
+    /// <summary>The arsenal's optimistic time to remove the prepared threat, and the share of protection
+    /// value that leaves: one within <see cref="Weights.GuardUsefulRemovalTicks"/>, less in proportion
+    /// beyond it. Infinity and a share of one for a threat no weapon can damage.</summary>
+    public float RemovalTicks { get; private set; } = float.PositiveInfinity;
+    public float InterventionUsefulness { get; private set; } = 1f;
+
     public override void Enter(in ActionContext ctx)
     {
         if (prepared is not { } candidate || !IsAvailable(candidate) || ctx.Senses.Player.IsDead) return;
@@ -147,7 +153,17 @@ public sealed class ProtectPlayer : CompanionAction
         // its interruption scale. Shared safety owns personal escape independently.
         // Protection is the ability to intervene, not the distance between the allies. Charging
         // closeness again suppressed protection precisely when an enemy reached the player.
-        preparedValue = danger * Weights.GuardUrgency;
+        // Protection is worth the harm an intervention can actually remove. A threat the weapons would
+        // need longer than GuardUsefulRemovalTicks to remove is guarded over in proportion, so a boss's
+        // life bar stops being the most protection-worthy thing on screen while the small enemies on the
+        // player keep their full value — the owner's "no version where it stands between you and the Eye
+        // of Cthulhu and that helps", reached from the fight's length rather than from a boss flag. A
+        // threat no weapon can damage has no removal to estimate and keeps its urgency; its avoidance
+        // belongs to shared safety.
+        RemovalTicks = ctx.Companion.Arsenal.EstimateRemovalTicks(ctx, target);
+        InterventionUsefulness = float.IsFinite(RemovalTicks) && RemovalTicks > Weights.GuardUsefulRemovalTicks
+            ? Weights.GuardUsefulRemovalTicks / RemovalTicks : 1f;
+        preparedValue = danger * InterventionUsefulness * Weights.GuardUrgency;
     }
 
     public override float Score() => preparedValue;

@@ -375,6 +375,28 @@ public sealed class Arsenal
             + Math.Max(0, hits - 1) * Math.Max(1, weapon.UseTime);
     }
 
+    /// <summary>
+    /// Optimistic ticks to remove a target if every attack lands: for each weapon, the hits its life needs
+    /// after defence spaced by the weapon's use time, plus one flight from the current distance, and the
+    /// faster weapon's answer. Unlike <see cref="EstimateInterventionTicks"/> it asks nothing of the current
+    /// arc or cooldown, so it answers whether a fight against this target could ever be short rather than
+    /// whether a shot is open now. Infinity for a target no weapon can damage.
+    /// </summary>
+    public float EstimateRemovalTicks(in ActionContext ctx, NPC target)
+    {
+        if (!target.active || target.life <= 0 || !target.CanBeChasedBy()) return float.PositiveInfinity;
+        Vector2 muzzle = Muzzle(ctx.Npc);
+        float best = float.PositiveInfinity;
+        for (int w = 0; w < 2; w++)
+        {
+            CompanionWeapon weapon = w == 0 ? Primary : Secondary;
+            int hits = (int)MathF.Ceiling(target.life / PerHit(ctx, weapon, target));
+            float flight = Vector2.Distance(muzzle, target.Center) / MathF.Max(1f, weapon.Profile.Speed);
+            best = MathF.Min(best, Math.Max(0, hits - 1) * Math.Max(1, weapon.UseTime) + flight);
+        }
+        return best;
+    }
+
     private NPC? held;
     private int heldGeneration;
     private int heldAt = 0;
