@@ -37,6 +37,7 @@ internal static class VerifyRoundTripEvidence
             failed += Case("a drop into a sealed pit has no return, a shallow pit returns, and native execution agrees", PitReturnMatchesNativeExecution);
             failed += Case("a spent search budget is an unknown return, never a return", SpentBudgetIsUnknownReturn);
             failed += Case("breath is charged over the return leg and never below the native body's submersion", BreathCoversTheReturnLeg);
+            failed += Case("breath over a trip walked entirely under water is never charged below the native body's submersion", SubmergedWalkIsNotUnderCharged);
         }
         finally
         {
@@ -156,6 +157,60 @@ internal static class VerifyRoundTripEvidence
         Console.WriteLine($"   basin native: out {outward.Tick} ticks, back {back.Tick} ticks (arrived={back.Arrived}), head under water {nativeSubmerged} ticks, query charged {charged}");
         Require(back.Arrived, $"the native body must climb out and return as the query says; last {back.Describe()}");
         Require(charged >= nativeSubmerged, $"the query charged {charged} submerged ticks where the native head spent {nativeSubmerged}");
+    }
+
+    /// <summary>
+    /// The basin's margin comes from its staircase: a jump or drop with one end under water is charged in
+    /// full while the head is under for only part of it. A trip walked on a flat flooded floor has no such
+    /// step, so every charged step is one the native head spends wholly under water, and this is the case
+    /// that shows whether the rule errs high when the route is walking alone. The body is driven from rest
+    /// out along the floor and back, and its head-underwater ticks are compared with the query's charge.
+    /// </summary>
+    private static void SubmergedWalkIsNotUnderCharged()
+    {
+        BuildFloodedCorridor();
+        Point from = new(22, 89), to = new(56, 89);
+        var trip = Reachability.RoundTrip(from, to, FullBreath);
+        Console.WriteLine($"   flooded corridor trip: {trip}");
+        Require(trip.Outward == Reachability.Reach.Yes && trip.Return == Reachability.Reach.Yes,
+            $"the flooded corridor must be walkable both ways, got {trip.Outward}/{trip.Return}");
+        Require(trip.OutwardSubmergedTicks == trip.OutwardTicks && trip.ReturnSubmergedTicks == trip.ReturnTicks,
+            $"every step of a trip on a flooded floor must be charged as submerged, got {trip}");
+
+        int outSubmerged = 0, backSubmerged = 0;
+        var outward = new VerifyMovementFailures.Drive(from);
+        while (outward.Tick < 2400 && !outward.Arrived)
+        {
+            outward.Step(to);
+            if (Submerged(outward.Body)) outSubmerged++;
+        }
+        Require(outward.Arrived, $"the native body must walk the flooded corridor out; last {outward.Describe()}");
+        var back = new VerifyMovementFailures.Drive(outward.Body);
+        while (back.Tick < 2400 && !back.Arrived)
+        {
+            back.Step(from);
+            if (Submerged(back.Body)) backSubmerged++;
+        }
+        Require(back.Arrived, $"the native body must walk the flooded corridor back; last {back.Describe()}");
+        int charged = trip.OutwardSubmergedTicks + trip.ReturnSubmergedTicks, native = outSubmerged + backSubmerged;
+        Console.WriteLine($"   flooded corridor native: out {outward.Tick} ticks ({outSubmerged} submerged) against {trip.OutwardSubmergedTicks} charged, back {back.Tick} ticks ({backSubmerged} submerged) against {trip.ReturnSubmergedTicks} charged; total charged {charged}, native {native}");
+        Require(charged >= native, $"a walked flooded trip was charged {charged} submerged ticks where the native head spent {native}");
+    }
+
+    /// <summary>The movement-failure corridor (a floor at row 90 walled at columns 19 and 60), flooded from row 80 to
+    /// the floor, so a body standing anywhere on it has its head under water and every route along it is walks.</summary>
+    private static void BuildFloodedCorridor()
+    {
+        VerifyMovementFailures.NewWorld(90);
+        for (int y = 70; y < 90; y++) { VerifyMovementFailures.Solid(19, y); VerifyMovementFailures.Solid(60, y); }
+        for (int x = 20; x <= 59; x++)
+        for (int y = 80; y <= 89; y++)
+        {
+            Tile water = Main.tile[x, y];
+            water.LiquidAmount = byte.MaxValue;
+            water.LiquidType = 0;
+        }
+        VerifyMovementFailures.Finish();
     }
 
     private static bool Submerged(BodyState body)
