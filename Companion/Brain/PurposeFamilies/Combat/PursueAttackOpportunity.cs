@@ -56,6 +56,13 @@ public sealed class PursueAttackOpportunity : CompanionAction
         // that one hands each member of an alternating pair a fresh window, which is the same
         // defect one step further out: two targets would buy twice the window and nothing else.
         stalled[(enemy.whoAmI, generation)] = enemy.Center;
+        // Every admissible candidate the last preparation examined joins the stall as well. Target
+        // choice values several candidates and keeps the best, so a stationary hunt facing enemies it
+        // cannot progress against no longer alternates between them: it keeps one, and deferring only
+        // that one hands the next a fresh window of its own — the same two-targets-buy-twice-the-window
+        // defect the alternating guard exists for, reached through a steadier choice.
+        foreach (var (slot, candidateGeneration, centre) in examinedAdmissible)
+            stalled[(slot, candidateGeneration)] = centre;
         observedTarget = enemy.whoAmI; observedGeneration = generation; observedLife = enemy.life;
         pursued = (enemy, generation);
         attacked |= pursuitShot;
@@ -200,7 +207,14 @@ public sealed class PursueAttackOpportunity : CompanionAction
     }
 
     private Firing verdict = Firing.Unknown;
-    private readonly System.Collections.Generic.Dictionary<(int slot, int generation), (int at, Point origin, int terrain, Firing verdict)> firing = new();
+    private readonly System.Collections.Generic.Dictionary<(int slot, int generation), (int at, Point origin, int terrain, Firing verdict, float access)> firing = new();
+
+    /// <summary>The arsenal's delayed attack value and the reposition wait of the target this preparation chose.</summary>
+    public float PursuitValue { get; private set; }
+    public float PursuitAccessTicks { get; private set; }
+
+    /// <summary>Every candidate examined by the last preparation, as slot:generation:verdict:access-ticks:value, in examination order.</summary>
+    public string PursuitEvidence { get; private set; } = "";
     private const int FiringCacheTicks = 20;
     private const int FiringSampleRadiusTiles = 14;
     // Every other tile. A standable row is one tile high, so a stride this coarse can miss a narrow
@@ -221,7 +235,7 @@ public sealed class PursueAttackOpportunity : CompanionAction
     /// Applying the from-here test alone would have been the obvious change and the wrong one: it
     /// rejects every enemy the companion would simply have had to walk toward, which is most of them.
     /// </summary>
-    private Firing FiringOpportunity(in ActionContext ctx, NPC enemy)
+    private (Firing Verdict, float AccessTicks) FiringOpportunity(in ActionContext ctx, NPC enemy)
     {
         var key = (enemy.whoAmI, HostileAttackSources.Generation(enemy));
         // Coarse, because the exact feet tile changes on almost every tick the companion is walking
@@ -234,17 +248,26 @@ public sealed class PursueAttackOpportunity : CompanionAction
         int terrain = SharedMovementSystem.TerrainChanges.Revision;
         if (firing.TryGetValue(key, out var cached) && cached.origin == origin && cached.terrain == terrain
             && unchecked(ctx.Senses.Tick - cached.at) < FiringCacheTicks)
-            return cached.verdict;
+            return (cached.verdict, cached.access);
 
-        Firing answer = Resolve(ctx, enemy);
-        firing[key] = (ctx.Senses.Tick, origin, terrain, answer);
+        var answer = Resolve(ctx, enemy);
+        firing[key] = (ctx.Senses.Tick, origin, terrain, answer.Verdict, answer.AccessTicks);
         return answer;
     }
 
-    private static Firing Resolve(in ActionContext ctx, NPC enemy)
+    /// <summary>
+    /// The verdict, and how long the reposition it implies would take: zero from here, the travel
+    /// estimate to the nearest reachable sighted tile after moving, and a straight-line walk to the enemy
+    /// while nothing is established. The whole sample is scanned rather than stopping at the first
+    /// reachable tile, because pursuit prices a reposition by its duration and scan order says nothing
+    /// about that.
+    /// </summary>
+    private static (Firing Verdict, float AccessTicks) Resolve(in ActionContext ctx, NPC enemy)
     {
         if (ctx.Companion.Arsenal.CanEngage(ctx, enemy))
-            return Firing.FromHere;
+            return (Firing.FromHere, 0f);
+        Point feet = SharedMovementSystem.MovementQueries.FeetTile(ctx.Npc.Bottom);
+        float nearest = float.PositiveInfinity;
         var positioner = ctx.Companion.Brain.Positioner;
         float reach = MathF.Max(ctx.Companion.Arsenal.Primary.Profile.Reach, ctx.Companion.Arsenal.Secondary.Profile.Reach);
         // Never wider than the box position selection itself samples: a spot it cannot propose is
@@ -266,14 +289,22 @@ public sealed class PursueAttackOpportunity : CompanionAction
                 if (!Terraria.Collision.CanHitLine(eye, 1, 1, enemy.position, enemy.width, enemy.height))
                     continue;
                 if (positioner.Reaches(tile))
-                    return Firing.AfterMoving;
+                {
+                    float ticks = positioner.EstimatedTravelTicks(feet, tile)
+                        ?? Vector2.Distance(ctx.Npc.Bottom, SharedMovementSystem.MovementQueries.FeetWorld(tile)) / Companion.CompanionMotor.WalkSpeed;
+                    nearest = MathF.Min(nearest, ticks);
+                    continue;
+                }
                 // Sighted, and the flood has not proved it either way. Only an exhausted region
                 // turns that into an absence; until then it is the search declining to answer.
                 if (!positioner.ReachComplete)
                     sightedButUnsettled = true;
             }
         }
-        return sightedButUnsettled ? Firing.Unknown : Firing.None;
+        if (float.IsFinite(nearest)) return (Firing.AfterMoving, nearest);
+        return sightedButUnsettled
+            ? (Firing.Unknown, Vector2.Distance(ctx.Npc.Bottom, enemy.Bottom) / Companion.CompanionMotor.WalkSpeed)
+            : (Firing.None, float.PositiveInfinity);
     }
 
     private static Rectangle ScreenWithMargin()
@@ -294,38 +325,69 @@ public sealed class PursueAttackOpportunity : CompanionAction
     }
 
     /// <summary>
-    /// Threats endangering the player first, then the nearest one a weapon can reach — and then,
-    /// among those, the best one an actual standing position can shoot. A target with no reachable
-    /// firing position is passed over rather than selected and stood at, which is the difference
-    /// between choosing a fight and discovering one cannot be had.
+    /// Which enemy is worth walking toward. Candidates arrive in the threat list's order — danger to
+    /// the player, then nearness — and up to a few are examined: each needs a firing position, and each
+    /// that has one is valued by the arsenal as an attack whose first shot waits for the reposition,
+    /// zero for a target the hands can already hit and the travel estimate otherwise. The highest value
+    /// is pursued. Taking the first admissible candidate instead is what made the feet always follow
+    /// the nearest enemy while the hands shot a better one; a short step to remove a dangerous enemy
+    /// and a long walk to finish a harmless one are now priced by the same evaluator that ranks shots,
+    /// so neither a low health bar nor proximity decides alone. When every examined value is zero —
+    /// nothing lands inside the arsenal's window — the first admissible candidate is kept, so a distant
+    /// enemy that is still worth approaching is not refused for being distant.
     ///
-    /// Bounded on purpose. Each pass over the threat list is cheap, but establishing a firing
-    /// opportunity samples terrain, so a crowd where nothing is engageable must not turn one tick
-    /// into a search: after a few refusals the action yields the tick and the chooser picks
-    /// something useful instead, which is the outcome a hopeless crowd should produce anyway.
+    /// A target with no reachable firing position is passed over rather than selected and stood at,
+    /// which is the difference between choosing a fight and discovering one cannot be had. Bounded on
+    /// purpose: establishing a firing opportunity samples terrain, so a crowd where nothing is engageable
+    /// must not turn one tick into a search.
     /// </summary>
     private const int MaxFiringChecksPerTick = 3;
-    private readonly System.Collections.Generic.HashSet<int> unshootable = new();
+    private readonly System.Collections.Generic.HashSet<int> examined = new();
+    private readonly System.Collections.Generic.List<(int Slot, int Generation, Vector2 Centre)> examinedAdmissible = new();
 
     private ThreatRecord? PickTarget(in ActionContext ctx, Rectangle screen)
     {
         // Reused rather than allocated, because this runs on every tick of every hunt.
-        unshootable.Clear();
+        examined.Clear();
+        examinedAdmissible.Clear();
         bool refusedForFiring = false;
+        ThreatRecord? chosen = null, firstAdmissible = null;
+        Firing chosenVerdict = Firing.None, firstVerdict = Firing.None;
+        float chosenValue = 0f, chosenAccess = 0f, firstAccess = 0f;
+        var evidence = new System.Text.StringBuilder();
         for (int attempt = 0; attempt < MaxFiringChecksPerTick; attempt++)
         {
-            ThreatRecord? candidate = BestCandidate(ctx, screen, unshootable);
+            ThreatRecord? candidate = BestCandidate(ctx, screen, examined);
             if (candidate == null)
                 break;
-            Firing opportunity = FiringOpportunity(ctx, candidate.Npc);
-            if (opportunity != Firing.None)
+            examined.Add(candidate.Npc.whoAmI);
+            var (opportunity, access) = FiringOpportunity(ctx, candidate.Npc);
+            float value = opportunity == Firing.None ? 0f
+                : ctx.Companion.Arsenal.EstimateDelayedAttackValue(ctx, candidate.Npc, (int)MathF.Min(access, 100_000f), opportunity == Firing.FromHere);
+            if (evidence.Length > 0) evidence.Append('|');
+            evidence.Append(FormattableString.Invariant(
+                $"{candidate.Npc.whoAmI}:{HostileAttackSources.Generation(candidate.Npc)}:{opportunity}:{access:0.0}:{value:0.000}"));
+            if (opportunity == Firing.None)
             {
-                verdict = opportunity;
-                LastRejection = "accepted";
-                return candidate;
+                refusedForFiring = true;
+                continue;
             }
-            unshootable.Add(candidate.Npc.whoAmI);
-            refusedForFiring = true;
+            examinedAdmissible.Add((candidate.Npc.whoAmI, HostileAttackSources.Generation(candidate.Npc), candidate.Npc.Center));
+            if (firstAdmissible == null) { firstAdmissible = candidate; firstVerdict = opportunity; firstAccess = access; }
+            if (value > chosenValue) { chosen = candidate; chosenVerdict = opportunity; chosenValue = value; chosenAccess = access; }
+        }
+        PursuitEvidence = evidence.ToString();
+        if (chosen == null && firstAdmissible != null)
+        {
+            chosen = firstAdmissible; chosenVerdict = firstVerdict; chosenAccess = firstAccess;
+        }
+        PursuitValue = chosenValue;
+        PursuitAccessTicks = chosen == null ? 0f : chosenAccess;
+        if (chosen != null)
+        {
+            verdict = chosenVerdict;
+            LastRejection = "accepted";
+            return chosen;
         }
         // The reason is set after the loop rather than inside it, because each pass over the threat
         // list resets it, so a reason written during one pass is erased by the next and every

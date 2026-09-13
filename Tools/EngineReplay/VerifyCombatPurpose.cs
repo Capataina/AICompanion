@@ -19,8 +19,156 @@ internal static class VerifyCombatPurpose
     {
         ThreatConsequenceCountsEffectiveDamageAgainstRemainingLife();
         TheSameSmallAttackIsIgnoredAtFullHealthAndEscapedAtLowHealth();
-        Console.WriteLine("combat purpose: effective damage and remaining life decide threat consequence, and low health turns a tolerable attack into an escape");
+        PursuitWeighsARepositionAgainstTheShotsItDelays();
+        Console.WriteLine("combat purpose: effective damage and remaining life decide threat consequence, low health turns a tolerable attack into an escape, and pursuit weighs a reposition against the shots it delays");
         return 0;
+    }
+
+    private const int PitFloorY = 80, ShaftLeft = 49, ShaftRight = 53, ShaftFloorY = 86, HiddenX = 51;
+    private const int HiddenSlot = 30, VisibleSlot = 31;
+    // The player stays beside the shaft in every row, so the hidden enemy's threat to the player is
+    // identical and only the companion's start — the length of its reposition — changes between them.
+    private const int PlayerTileX = 44, NearStart = 45, MiddleStart = 39, FarStart = 22;
+
+    private readonly record struct PursuitScene(int Pursuit, int Aim, string HiddenVerdict, float HiddenAccess,
+        float HiddenValue, float VisibleValue, float HiddenDanger, float HiddenPlayerUrgency, string Evidence);
+
+    /// <summary>
+    /// A 5%-health zombie on the floor of a narrow shaft the companion cannot see into, and a full-health
+    /// zombie eight tiles along the open floor in the other direction. Only the lip of the shaft has a line
+    /// down it, so the hidden enemy needs a reposition whose length is set by where the companion starts.
+    /// The shaft-geometry discrimination is inherited from the firing-position fixture: the near floor is
+    /// blind and the lip is sighted. A dangerous hidden enemy hits for a hundred and passes through rock,
+    /// so it can reach both actors; a harmless one passes through rock too but hits for one. The difference
+    /// matters through prevented harm, which the arsenal values as expected hit × danger × timing × a
+    /// weight, so a hard hitter is worth a short reposition by a clear margin rather than a sliver a weapon
+    /// retune could erase. The headless screen is empty, so hunting's on-screen rule plays no part here and
+    /// a result says nothing about it.
+    /// </summary>
+    private static PursuitScene HuntPair(int companionX, bool hiddenDangerous, bool lineFromHere)
+    {
+        Main.maxTilesX = Main.maxTilesY = 120;
+        Main.worldSurface = 50;
+        Main.tile = (Tilemap)Activator.CreateInstance(typeof(Tilemap), System.Reflection.BindingFlags.Instance
+            | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public, null, new object[] { (ushort)120, (ushort)120 }, null)!;
+        Main.tileSolid[1] = true;
+        for (int x = 5; x < 115; x++)
+            for (int y = PitFloorY; y <= ShaftFloorY + 2; y++) { Tile rock = Main.tile[x, y]; rock.HasTile = true; rock.TileType = 1; }
+        for (int x = ShaftLeft; x <= ShaftRight; x++)
+            for (int y = PitFloorY; y < ShaftFloorY; y++) { Tile air = Main.tile[x, y]; air.HasTile = false; }
+        // The opening stops short of the companion's own floor tile, so the body stands where it did.
+        if (lineFromHere)
+            for (int x = ShaftLeft - 3; x < ShaftLeft; x++)
+                for (int y = PitFloorY; y < ShaftFloorY; y++) { Tile air = Main.tile[x, y]; air.HasTile = false; }
+        live::AICompanion.Companion.Brain.SharedMovementSystem.TerrainChanges.Reset();
+        live::AICompanion.Companion.Brain.SharedMovementSystem.NavGrid.World = new live::AICompanion.Companion.Brain.SharedMovementSystem.GameTileWorld();
+
+        var companion = VerifyCompanionLifecycle.Create();
+        live::AICompanion.Companion.Brain.SharedMovementSystem.AStar.MsBudget = 0;
+        Player player = Main.player[0];
+        player.dead = false;
+        player.statLife = player.statLifeMax2;
+        player.DefenseEffectiveness = MultipliableFloat.One * .5f;
+        player.position = new Vector2(PlayerTileX * 16f, PitFloorY * 16f - player.height);
+        companion.NPC.position = new Vector2(companionX * 16f, PitFloorY * 16f - companion.NPC.height);
+
+        NPC hidden = Main.npc[HiddenSlot];
+        hidden.SetDefaults(NPCID.Zombie);
+        hidden.whoAmI = HiddenSlot; hidden.active = true; hidden.velocity = Vector2.Zero;
+        hidden.life = Math.Max(1, hidden.lifeMax / 20);
+        hidden.noTileCollide = true;
+        hidden.damage = hiddenDangerous ? 100 : 1;
+        hidden.Bottom = new Vector2(HiddenX * 16f + 8f, ShaftFloorY * 16f);
+        NPC visible = Main.npc[VisibleSlot];
+        visible.SetDefaults(NPCID.Zombie);
+        visible.whoAmI = VisibleSlot; visible.active = true; visible.velocity = Vector2.Zero;
+        // Three tiles away, so nearness and its own danger put the visible zombie first in the threat
+        // list's candidate order: a rule that took the first admissible candidate would pursue it in
+        // every row, and only a valuation of the reposition can choose the hidden enemy.
+        visible.Bottom = new Vector2((companionX - 3) * 16f + 8f, PitFloorY * 16f);
+
+        var brain = companion.Brain;
+        brain.Senses.Update(companion.NPC, player, companion.Breath);
+        var ctx = new live::AICompanion.Companion.Brain.Behaviours.ActionContext(companion, brain.Senses);
+        var hiddenThreat = brain.Senses.Threats.Threats.Find(t => t.Npc == hidden);
+        var visibleThreat = brain.Senses.Threats.Threats.Find(t => t.Npc == visible);
+        Require(hiddenThreat != null && visibleThreat != null, "both zombies must be observed threats before pursuit is read");
+        float hiddenDanger = MathF.Max(hiddenThreat!.Urgency, hiddenThreat.UrgencyToCompanion);
+        var profile = companion.Arsenal.ProfileFor(ctx, hidden);
+        var request = new live::AICompanion.Companion.Brain.PositionSelection.PositionRequest(
+            live::AICompanion.Companion.Brain.PositionSelection.RequestKind.LineOfFire, hidden.Center, hidden);
+        // The reachable region floods incrementally across rescores; settle it so the lip's reachability
+        // is a fact rather than a flood budget.
+        for (int i = 0; i < 400; i++) brain.Positioner.Resolve(request, brain.Senses, profile);
+        brain.Senses.SetInterventionEstimate(companion.Arsenal.EstimateInterventionTicks(ctx));
+        // The hands rank their shots before the feet prepare, as the previous tick's hands step would have.
+        NPC? aim = companion.Arsenal.BestTarget(ctx);
+        var hunt = brain.Chooser.Actions.OfType<live::AICompanion.Companion.Brain.PurposeFamilies.Combat.PursueAttackOpportunity>().Single();
+        VerifyPreparedActivities.PrepareAndScore(hunt, ctx);
+
+        string hiddenVerdict = "unexamined"; float hiddenAccess = float.NaN, hiddenValue = float.NaN, visibleValue = float.NaN;
+        foreach (string entry in hunt.PursuitEvidence.Split('|', StringSplitOptions.RemoveEmptyEntries))
+        {
+            string[] field = entry.Split(':');
+            int slot = int.Parse(field[0]);
+            float access = float.Parse(field[3], System.Globalization.CultureInfo.InvariantCulture);
+            float value = float.Parse(field[4], System.Globalization.CultureInfo.InvariantCulture);
+            if (slot == HiddenSlot) { hiddenVerdict = field[2]; hiddenAccess = access; hiddenValue = value; }
+            if (slot == VisibleSlot) visibleValue = value;
+        }
+        return new(hunt.Target?.Npc.whoAmI ?? -1, aim?.whoAmI ?? -1, hiddenVerdict, hiddenAccess, hiddenValue, visibleValue, hiddenDanger,
+            hiddenThreat.Urgency, hunt.PursuitEvidence);
+    }
+
+    /// <summary>
+    /// Proposal 1's hidden-5%-versus-visible-100% pairs. The arsenal already shoots whatever it can reach
+    /// from where the companion stands; the question here is only where the feet go. Four rows, each a
+    /// matched change of one input from the first: reposition cost, the hidden enemy's threat, and whether
+    /// the hidden enemy can be seen from where the companion already stands. The expected outcomes follow
+    /// the arsenal's own unchanged valuation rather than a rule about low health: a short step to remove a
+    /// hard-hitting enemy is worth the arrows it delays, a long walk is not, and finishing a harmless enemy
+    /// is not worth an arrow into a healthy one.
+    /// </summary>
+    private static void PursuitWeighsARepositionAgainstTheShotsItDelays()
+    {
+        var cheapDangerous = HuntPair(NearStart, hiddenDangerous: true, lineFromHere: false);
+        var middleDangerous = HuntPair(MiddleStart, hiddenDangerous: true, lineFromHere: false);
+        var costlyDangerous = HuntPair(FarStart, hiddenDangerous: true, lineFromHere: false);
+        var cheapHarmless = HuntPair(NearStart, hiddenDangerous: false, lineFromHere: false);
+        var cheapDangerousInSight = HuntPair(NearStart, hiddenDangerous: true, lineFromHere: true);
+
+        foreach (var (name, scene) in new[] { ("cheap", cheapDangerous), ("middle", middleDangerous), ("costly", costlyDangerous), ("harmless", cheapHarmless), ("in-sight", cheapDangerousInSight) })
+            Console.WriteLine($"  pursuit row {name}: pursuit={scene.Pursuit} aim={scene.Aim} hidden-danger={scene.HiddenDanger:0.000} hidden-player-urgency={scene.HiddenPlayerUrgency:0.000} candidates={scene.Evidence}");
+        foreach (var (name, scene) in new[] { ("cheap", cheapDangerous), ("middle", middleDangerous), ("costly", costlyDangerous), ("harmless", cheapHarmless) })
+            Require(scene.HiddenVerdict == "AfterMoving" && float.IsFinite(scene.VisibleValue),
+                $"{name}: the hidden enemy must need a reachable reposition and the visible one must be examined, or the row tests nothing; {scene.Evidence}");
+        Require(cheapDangerous.HiddenAccess < middleDangerous.HiddenAccess && middleDangerous.HiddenAccess < costlyDangerous.HiddenAccess,
+            $"the reposition rows must lengthen the wait in order; cheap={cheapDangerous.HiddenAccess}, middle={middleDangerous.HiddenAccess}, costly={costlyDangerous.HiddenAccess}");
+        Require(middleDangerous.HiddenAccess < live::AICompanion.Companion.Weapons.Arsenal.HorizonTicks && middleDangerous.HiddenValue > 0f,
+            $"the middle row must be a priced wait inside the arsenal's evaluation window, not a second truncation; wait={middleDangerous.HiddenAccess}, value={middleDangerous.HiddenValue}");
+        Require(costlyDangerous.HiddenAccess > live::AICompanion.Companion.Weapons.Arsenal.HorizonTicks,
+            $"the costly row tests a wait longer than the arsenal's whole evaluation window, so its hidden enemy is worth nothing inside it; wait={costlyDangerous.HiddenAccess}");
+        // The companion's own exposure moves with its start, which is the physical cost of standing near
+        // an enemy; the threat to the player must not, or the rows would differ in more than the reposition.
+        Require(cheapDangerous.HiddenPlayerUrgency > 0f
+            && MathF.Abs(cheapDangerous.HiddenPlayerUrgency - middleDangerous.HiddenPlayerUrgency) < 1e-4f
+            && MathF.Abs(cheapDangerous.HiddenPlayerUrgency - costlyDangerous.HiddenPlayerUrgency) < 1e-4f,
+            $"the reposition rows must hold the hidden enemy's threat to the player fixed; cheap={cheapDangerous.HiddenPlayerUrgency}, middle={middleDangerous.HiddenPlayerUrgency}, costly={costlyDangerous.HiddenPlayerUrgency}");
+        Require(cheapDangerous.HiddenDanger > cheapHarmless.HiddenDanger,
+            $"the dangerous hidden enemy must threaten more than the harmless one; {cheapDangerous.HiddenDanger} vs {cheapHarmless.HiddenDanger}");
+        Require(cheapDangerous.HiddenValue > middleDangerous.HiddenValue && middleDangerous.HiddenValue >= costlyDangerous.HiddenValue,
+            $"a longer reposition must lower the hidden enemy's delayed value; cheap={cheapDangerous.HiddenValue}, middle={middleDangerous.HiddenValue}, costly={costlyDangerous.HiddenValue}");
+        Require(cheapDangerousInSight.HiddenVerdict == "FromHere",
+            $"opening the line must let the hidden enemy be shot from where the companion stands; {cheapDangerousInSight.Evidence}");
+
+        Require(cheapDangerous.Pursuit == HiddenSlot && cheapDangerous.Aim == VisibleSlot,
+            $"a short step to remove a hard-hitting enemy must be pursued while the hands shoot the visible one; pursuit={cheapDangerous.Pursuit}, aim={cheapDangerous.Aim}, {cheapDangerous.Evidence}");
+        Require(costlyDangerous.Pursuit == VisibleSlot,
+            $"the same enemy behind a long walk must not be pursued over the arrows the walk would delay; pursuit={costlyDangerous.Pursuit}, {costlyDangerous.Evidence}");
+        Require(cheapHarmless.Pursuit == VisibleSlot,
+            $"a nearly dead harmless enemy must not pull pursuit off a healthy one it would cost an arrow to finish; pursuit={cheapHarmless.Pursuit}, {cheapHarmless.Evidence}");
+        Require(cheapDangerousInSight.Pursuit == HiddenSlot && cheapDangerousInSight.Aim == HiddenSlot,
+            $"once the dangerous enemy is visible from here, feet and hands must both take it; pursuit={cheapDangerousInSight.Pursuit}, aim={cheapDangerousInSight.Aim}, {cheapDangerousInSight.Evidence}");
     }
 
     private readonly record struct Consequence(float PlayerUrgency, float CompanionUrgency, float PlayerDanger, float CompanionDanger, float OldPlayerUrgency, float OldCompanionUrgency);
