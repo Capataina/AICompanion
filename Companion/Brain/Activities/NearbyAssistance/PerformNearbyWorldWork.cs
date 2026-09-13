@@ -267,6 +267,15 @@ public abstract class PerformNearbyWorldWork : CompanionAction
                 approachOrigin = ctx.Npc.Bottom; approachTicks = 0;
                 break;
             }
+            // A search that could not answer waits a fraction of the time a search that answered "nothing
+            // here" waits. The long wait exists so a fruitless search is not repeated every tick, and a
+            // search whose evidence simply has not arrived yet is not that: the reach region is flooded
+            // incrementally and takes a few rescores to settle after a world change, so the first searches
+            // after one refuse on "not yet known" while the body keeps moving. Waiting the full cadence
+            // then re-asks from wherever the companion has since wandered, which is how a proven site a few
+            // tiles away becomes a different, worse site by the time anyone can prove anything about it.
+            if (target == null && SearchRefusal(ctx) is { Eligibility: OfferEligibility.Unresolved })
+                nextSearch = Main.GameUpdateCount + (ulong)Infrastructure.Selection.Weights.NearbyWorkUnresolvedRetryTicks;
         }
         if (deferred.Count > 0)
         {

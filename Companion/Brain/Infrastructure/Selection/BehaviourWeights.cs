@@ -118,6 +118,11 @@ public static class Weights
     // dark samples. The share is the right question for holding a torch — is there dark air near me — and
     // the wrong one for placing one: beside a lit room a majority of a site's neighbourhood can be dark
     // while the room's own light already reaches the spot, and a share passes that where a mean refuses it.
+    // How long a nearby-work search waits before asking again when it could not answer, as opposed to when
+    // it answered that there is nothing. It is a rescore or two, which is what the reach region needs to
+    // settle after a world change; longer and the body has wandered somewhere else before the evidence it
+    // was waiting for arrives, so the site it then proves is a different and worse one.
+    public const int NearbyWorkUnresolvedRetryTicks = 15;
     // How many tiles around each dark sample in the nominated region are offered to the game's own placer.
     // It only has to bridge the gaps the light field's lattice leaves between its own samples, because the
     // scan runs around every member rather than around one point; wider would re-create the screen-wide
