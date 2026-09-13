@@ -14,6 +14,7 @@ using Policy = live::AICompanion.Companion.Brain.Activities.WorkPolicy;
 using Preferences = live::AICompanion.Companion.PlayerIntegration.CompanionPreferences;
 using Reach = live::AICompanion.Companion.Brain.Infrastructure.Movement.Reachability.Reach;
 using TerrainChanges = live::AICompanion.Companion.Brain.Infrastructure.Movement.TerrainChanges;
+using Weights = live::AICompanion.Companion.Brain.Infrastructure.Selection.Weights;
 using ActionContext = live::AICompanion.Companion.Brain.Activities.ActionContext;
 using FindToolAccess = live::AICompanion.Companion.Brain.Infrastructure.Interactions.FindToolAccess;
 using Breath = live::AICompanion.Companion.CharacterBody.CompanionBreath;
@@ -303,7 +304,20 @@ internal static class VerifyAssistanceTrips
                 for (int i = 0; i < 3000 && !brain.Positioner.ReachComplete; i++)
                     brain.Positioner.Resolve(home, brain.Senses, null);
                 var light = new LightUsefulArea();
-                float score = VerifyPreparedActivities.PrepareAndScore(light, ctx);
+                // Prepared until the search resolves, not once. One discovery search asks a bounded number of
+                // sites about their approach, so a single preparation on a scene with many dark tiles measures
+                // that budget rather than the verdict, and reports Unresolved with the budget as its reason —
+                // which is honest about that search and says nothing about the pit. The live brain re-asks in a
+                // rescore for exactly this reason, and each search leaves its refusals behind, so the answer
+                // arrives within a few. An Unresolved offer is never a pass here: the loop falls through to the
+                // assertions with whatever it last read, so a search that never resolves fails on its reason.
+                float score = 0f;
+                for (int i = 0; i < 30; i++)
+                {
+                    score = VerifyPreparedActivities.PrepareAndScore(light, ctx);
+                    if (light.Eligibility != Offer.Unresolved) break;
+                    VerifyObservedMotion.SetTick(Main.GameUpdateCount + (ulong)Weights.NearbyWorkUnresolvedRetryTicks);
+                }
                 string ledger = $"staircase={staircase} oneWay={oneWay}: score={score:0.000} offer={light.Eligibility}/{light.EligibilityReason} target={light.ActivityTarget}";
                 if (!staircase)
                 {

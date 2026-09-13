@@ -178,7 +178,11 @@ public sealed class LightUsefulArea : PerformNearbyWorldWork
     /// tile accepts is a geometry problem in a place the companion can stand.
     /// </summary>
     protected override (OfferEligibility Eligibility, string Reason)? SearchRefusal(in ActionContext ctx)
-        => refusal switch
+        // The site budget outranks whatever the scan left, because it happened later and it says something
+        // different: the scan's reason describes the sites it built, and the budget says the loop stopped
+        // before it had asked about all of them.
+        => SearchBudgetSpent ? (OfferEligibility.Unresolved, "site-budget-spent-before-an-answer")
+        : refusal switch
         {
             "no-light-measured-in-range" => (OfferEligibility.Unresolved, refusal),
             "dark-region-tile-not-yet-known-reachable" => (OfferEligibility.Unresolved, refusal),
@@ -209,13 +213,16 @@ public sealed class LightUsefulArea : PerformNearbyWorldWork
     /// Asking the sense is free — one flood already answered it for the whole region — where the per-tile
     /// walker query behind the approach is a fresh bounded search each time.
     /// </summary>
-    protected override bool? StandReachable(in ActionContext ctx, Point stand)
+    protected override Reachability.Reach? StandReachable(in ActionContext ctx, Point stand)
     {
         switch (ctx.Senses.Reach.Reachable(stand))
         {
-            case ReachVerdict.Reachable: return true;
-            case ReachVerdict.NotYet: refusal = "dark-region-tile-not-yet-known-reachable"; return false;
-            default: refusal = "interaction-site-has-no-return"; return false;
+            case ReachVerdict.Reachable: return Reachability.Reach.Yes;
+            // Not yet known is an unfinished flood, which is why it maps to Unknown and never to No: the
+            // executor re-asks an Unknown site and permanently defers a No one, and a site written off
+            // because the flood had not reached it yet would stay written off for the deferral's whole life.
+            case ReachVerdict.NotYet: refusal = "dark-region-tile-not-yet-known-reachable"; return Reachability.Reach.Unknown;
+            default: refusal = "interaction-site-has-no-return"; return Reachability.Reach.No;
         }
     }
 

@@ -276,13 +276,15 @@ internal static class VerifyLightAndReachSenses
                     if (first < 0) { first = tick; trace += $"torch 1 at {t} tick {tick}; "; }
                     else if (second < 0) { second = tick; trace += $"torch 2 at {t} tick {tick}; "; }
                 }
-            if (first >= 0 && second < 0 && brain.LastAction?.Name == "keep-company") companyBetween++;
+            // Counted as "not still lighting" rather than as "keeping company": a broken continuation that
+            // yields nothing at all publishes no action and would pass a test looking for the other name.
+            if (first >= 0 && second < 0 && brain.LastAction?.Name != "place-torches") companyBetween++;
         }
         Require(first >= 0, $"the lighting job must place a first torch on a dark floor; {trace}placed={placed.Count}");
         Require(second >= 0,
             $"lighting must keep the job after placing and place a second torch in the same region; {trace}placed={placed.Count}");
         Require(companyBetween == 0,
-            $"the companion must not go back to the player between torches; keeping company owned {companyBetween} ticks between tick {first} and tick {second}; {trace}");
+            $"the companion must not stop lighting between torches; {companyBetween} of the ticks between tick {first} and tick {second} were not place-torches; {trace}");
         // This is the one scene in the suite where the region scan actually runs — a floor that is dark
         // everywhere, so every rescore nominates a region and scans around each of its members. The brain-cost
         // harness cannot price it, because its scene presents no light map at all and lighting's search returns
