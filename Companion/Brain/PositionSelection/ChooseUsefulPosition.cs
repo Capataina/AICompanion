@@ -34,6 +34,7 @@ public sealed class Positioner
     private PositionRequest lastRequest;
     private WeaponProfile? lastFireProfile;
     private int lastTerrainRevision = -1;
+    private int lastInterferenceRevision;
     private int sinceScore = RescoreInterval;
 
     // The feet tiles a walker can reach from where the companion stands, flooded once per
@@ -117,6 +118,13 @@ public sealed class Positioner
             sinceFlood = RescoreInterval;
             lastTerrainRevision = TerrainChanges.Revision;
         }
+        // New interference evidence reconsiders a held destination once. Waiting out the rescore cadence would let the
+        // placement or the walk that produced it finish first, and rescoring every tick while it lasts would buy nothing.
+        if (senses.Player.InterferenceRevision != lastInterferenceRevision)
+        {
+            lastInterferenceRevision = senses.Player.InterferenceRevision;
+            sinceScore = RescoreInterval;
+        }
         // The region ages in ticks, whatever the request does this tick: counted inside the
         // rescore it multiplied the two cadences and refloods came every 144 ticks.
         sinceFlood++;
@@ -177,7 +185,8 @@ public sealed class Positioner
             // stand that this region has not proven unreachable; otherwise ordinary scoring applies.
             RefreshReach(senses);
             Point place = MovementQueries.FeetTile(request.Anchor);
-            if (MovementQueries.IsStandable(place.X, place.Y) && Allowed(place) && !ProvenUnreachable(place))
+            if (MovementQueries.IsStandable(place.X, place.Y) && Allowed(place) && !ProvenUnreachable(place)
+                && CourtesyShare(MovementQueries.FeetWorld(place), senses) == 1f)
             {
                 lastRequest = request;
                 sinceScore = 0;
@@ -532,7 +541,7 @@ public sealed class Positioner
             // discounted and the body goes round rather than paying for the shortest line. The
             // planner already prices reachable enemies on the route; this is the same idea applied
             // to choosing the destination, so the two agree instead of one undoing the other.
-            RequestKind.WithPlayer => band * sight * (1f - 0.8f * danger) * open * travel * ClearWayTo(feet, senses),
+            RequestKind.WithPlayer => band * sight * (1f - 0.8f * danger) * open * travel * ClearWayTo(feet, senses) * CourtesyShare(feet, senses),
             // Guarding him is being able to shoot what is attacking him, which is not the same as
             // standing where he stands. It carried neither a standoff from the target nor the
             // clear-way test, so the only thing pulling the body anywhere was a band measured to
@@ -543,6 +552,17 @@ public sealed class Positioner
             _ => 0f,
         };
     }
+
+    /// <summary>
+    /// The share of its score a follow spot keeps when a body standing there would overlap the player's interference footprint
+    /// (a block or wall aimed at the companion, or a passage the player is walking down). It is a factor rather than a veto:
+    /// among useful spots, one out of the player's way wins, and a spot that is the only usable one stays usable. Attack
+    /// positions do not read it, because protection is not priced against courtesy.
+    /// </summary>
+    private static float CourtesyShare(Vector2 feet, Senses.Senses senses)
+        => senses.Player.Interference is Rectangle footprint
+            && PlayerSense.BodyTiles(feet, BodyPhysics.Width, BodyPhysics.Height).Intersects(footprint)
+            ? Weights.CourtesyOccupancyShare : 1f;
 
     private static bool CanSeePlayer(Vector2 eye, Senses.Senses senses)
         => Collision.CanHitLine(eye, 1, 1, senses.PlayerEntity.position, senses.PlayerEntity.width, senses.PlayerEntity.height);

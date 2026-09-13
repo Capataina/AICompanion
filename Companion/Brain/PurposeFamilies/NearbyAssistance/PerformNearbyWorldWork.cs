@@ -25,6 +25,7 @@ public abstract class PerformNearbyWorldWork : CompanionAction
     private readonly System.Collections.Generic.Dictionary<Point, ulong> deferred = new();
     private Vector2 approachOrigin;
     private int approachTicks;
+    private (int X, int Y) derivedReach;
     private Vector2? preparedTarget;
     private float preparedValue;
     private bool enabledAtPreparation;
@@ -155,6 +156,17 @@ public abstract class PerformNearbyWorldWork : CompanionAction
     {
         enabledAtPreparation = RefreshEligibility(ctx);
         if (!enabledAtPreparation) return 0f;
+        // The held stand, the failed-approach deferrals and the wait before the next search were all derived under the reach
+        // they were computed with. A smaller reach walked to a stand it could no longer swing from until the progress window
+        // deferred the site; a larger one waited out the search cadence for a site it could already reach. So a reach change
+        // discards all three and this preparation searches again.
+        if (FindToolAccess.Reach != derivedReach)
+        {
+            derivedReach = FindToolAccess.Reach;
+            target = null;
+            nextSearch = 0;
+            deferred.Clear();
+        }
         if (target is Point old && (!Candidate(ctx, old) || !AllowsTarget(ctx, old.ToWorldCoordinates())))
         { target = null; }
         if (target == null && Main.GameUpdateCount >= nextSearch)

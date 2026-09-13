@@ -21,13 +21,13 @@ internal static class VerifyEngineMotion
             tile.TileType = 1;
         }
         Main.tileSolid[19] = Main.tileSolidTop[19] = true;
-        if (lifecycleOnly) return VerifyCompanionLifecycle.Run();
+        if (lifecycleOnly) return VerifyCompanionLifecycle.Run() + VerifyDowningAndRevival.Run();
         if (escapeOnly) return VerifyCapturedEscape.Run();
         if (workOnly) return VerifyOreWork.Run() + VerifyCompanionPreferences.Run() + VerifyCompanionActivities.Run() + VerifyUsefulAssistance.Run()
             + VerifyMiningHops.Run() + VerifyGatheringCooperation.Run() + VerifyWorkAccounting.Run() + VerifyCollectionContracts.Run()
-            + VerifyAssistanceTrips.Run();
+            + VerifyAssistanceTrips.Run() + VerifyCapabilityRevision.Run();
         if (miningBaselineOnly) return VerifyOreWork.RunRaisedLipBaseline();
-        if (followOnly) return VerifyResponsiveFollowing.Run() + VerifyCompanyLocalMotion.Run();
+        if (followOnly) return VerifyResponsiveFollowing.Run() + VerifyCompanyLocalMotion.Run() + VerifyCourtesy.Run();
         if (protectionOnly) return VerifyFollowRecoveryAndProtection.Run();
         if (brainCostOnly) return MeasureBrainCost.Execute();
         if (combatCostOnly) return MeasureCombatCost.Execute();
@@ -122,6 +122,10 @@ internal static class VerifyEngineMotion
         failed += VerifySafetyAftermath.Run();
         failed += VerifyAssistanceTrips.Run();
         failed += VerifyCompanyLocalMotion.Run();
+        failed += VerifyCapabilityRevision.Run();
+        failed += VerifyDoorPassage.Run();
+        failed += VerifyCourtesy.Run();
+        failed += VerifyDowningAndRevival.Run();
         return failed == 0 ? 0 : 1;
     }
 

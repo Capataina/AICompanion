@@ -41,6 +41,13 @@ public static class Weights
     public const float PlayerIntentCorrectionSlack = 32f;
     public const float PlayerIntentWorkDiscount = .75f;
     public const float PlayerIntentTravelSpeed = 1.2f;
+    // Courtesy: evidence that the player is placing a block or wall where the companion stands, or walking a one-body-tall
+    // passage it stands in, is held this long after it was last seen, so it outlasts a placement swing and the positioner's
+    // rescore cadence. A follow spot a body would overlap that footprint in keeps this share of its score: moving aside wins
+    // among useful spots, and the only usable spot is never made unusable. The passage is read this many tiles ahead.
+    public const int CourtesyEvidenceTicks = 60;
+    public const float CourtesyOccupancyShare = .25f;
+    public const int CourtesyPassageTiles = 8;
     // Meeting places: candidates sit on the player's line of travel at this ladder of horizons,
     // snapped to a standable tile within a window smaller than a floor plus a body, so a candidate
     // never jumps to the floor below. A late arrival pays the chase at the difference in pace, capped

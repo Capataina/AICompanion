@@ -49,6 +49,7 @@ public sealed class MineOre : CompanionAction
     private Point? approachOrigin;
     private int approachRevision;
     private int approachPickPower;
+    private (int X, int Y) approachReach;
 
     private bool swinging;
 
@@ -197,10 +198,11 @@ public sealed class MineOre : CompanionAction
         BodyState liveBody = ctx.Companion.Motor.State;
         // Asked before wasAirborne is updated, because landing away from the take-off is read from the change.
         bool hopHeld = target is OreFinder.OreTarget { Hop: true } hopTarget
-            && TerrainChanges.Revision == approachRevision && pick == approachPickPower
+            && TerrainChanges.Revision == approachRevision && pick == approachPickPower && FindToolAccess.Reach == approachReach
             && HopTargetStillHeld(liveBody, hopTarget);
         wasAirborne = !liveBody.OnGround;
         if (origin != approachOrigin || TerrainChanges.Revision != approachRevision || pick != approachPickPower
+            || FindToolAccess.Reach != approachReach
             || target is OreFinder.OreTarget { Hop: true } && !hopHeld)
         {
             // A route computed from the old feet tile is stale the moment the feet move, so the
@@ -237,9 +239,19 @@ public sealed class MineOre : CompanionAction
             // should be reported as unable to mine now rather than as nothing found until the next
             // cadence, and a stronger one should start work now rather than a second later.
             if (pick != approachPickPower) sinceSearch = SearchEveryTicks;
+            // A different reach is the same kind of evidence: a larger one can reach ore the last search ruled out and
+            // take-offs deferred under the smaller one, and a smaller one strands the stand just re-derived above. Before
+            // the reach joined this key a body standing still kept a stand the new reach could not swing from and asked
+            // for it every tick; a reach that grew waited out the search cadence.
+            if (FindToolAccess.Reach != approachReach)
+            {
+                sinceSearch = SearchEveryTicks;
+                hopDeferred.Clear();
+            }
             approachOrigin = origin;
             approachRevision = TerrainChanges.Revision;
             approachPickPower = pick;
+            approachReach = FindToolAccess.Reach;
         }
         if (target is OreFinder.OreTarget t && (!OreFinder.IsOreOfType(t.Tile.X, t.Tile.Y, jobType) || !ctx.Companion.Miner.CanMine(t.Tile, pick)))
         {

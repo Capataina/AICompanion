@@ -14,6 +14,12 @@ public static class FindToolAccess
     private static int ReachX => Player.tileRangeX;
     private static int ReachY => Player.tileRangeY;
 
+    /// <summary>The reach every retained access fact is derived under, as one value to key on. Reach is the player's and
+    /// moves with accessories, buffs and held items, so a stand, a deferral or a "nothing reachable" verdict kept without
+    /// it outlives the reach that made it true: a smaller reach walks to a pose that no longer swings, and a larger one
+    /// waits out a cadence for work it could already do.</summary>
+    public static (int X, int Y) Reach => (ReachX, ReachY);
+
     /// <summary>
     /// A standable feet tile within reach of the tile whose eye has a line to it and that the
     /// walker can reach from <paramref name="fromFeet"/>, nearest to the tile first.
