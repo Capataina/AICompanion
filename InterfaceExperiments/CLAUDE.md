@@ -3,8 +3,7 @@
 ```
 InterfaceExperiments/
 ├─ CLAUDE.md              this guide
-├─ companion-card.html    the agreed next revision of the native profile card, at the pixel sizes the C# will be built to, with its three pages and controls live; its header lists every departure from the 2026-09-13 render
-└─ mastery-map.html       selectable eight-branch mastery design with ranks and nested weapon upgrades
+└─ companion-card.html    the agreed next revision of the native profile card, at the pixel sizes the C# will be built to, with its four pages and controls live, the mastery wheel included; its header lists every departure from the 2026-09-13 render
 ```
 
 This folder holds no game code. Nothing here is compiled or loaded by the mod, and `build.txt` excludes it from packaging. These early HTML experiments preserve layout and progression ideas as visual references. New interface work belongs directly in the native Terraria menus, by the user's instruction; extending a web preview does not deliver an in-game feature. The native render harness checks the real panels offscreen without repeatedly launching the game.
@@ -43,7 +42,7 @@ Picking a third weapon replaces the one picked longest ago rather than refusing 
 
 ## Making it read as Terraria
 
-The standalone mastery preview expands the original card's small tree sketch. It has eight connected radial branches: Fieldwork, Ranged, Movement, Magic, Survival, Scavenging, Thrown and Melee. These names and placements are a proposal. Circles carry multiple ranks; diamonds unlock abilities or weapons, and weapon diamonds open nested upgrades. First-rank purchases spend one preview point and make onward connections available; later ranks spend none. Stage selectors illustrate progression gates. Reset discards all preview selections, and nothing persists to game saves or changes stats, equipment, inventory or XP.
+A standalone mastery map (`mastery-map.html`, with Fieldwork, Scavenging and Thrown among its lane names and a point-and-stage purchase preview) was deleted on 2026-09-14 because the card's own mastery page is the design now and two maps invited confusion; its lane ideas survive as the card wheel's eight lanes above. Circles carry multiple ranks; diamonds unlock abilities or weapons, and weapon diamonds open nested upgrades. Nothing in the mockup persists to game saves or changes stats, equipment, inventory or XP.
 
 The intended progression separates three owners: companion levels award points, graph connections govern which node can be opened, and material/progression requirements govern purchases and upgrades. The balancing target is roughly half the full tree opened by Moon Lord, not a claim supported by this preview's point supply. Companion actions are intended to earn full XP and analogous player actions roughly one-third; sources, attribution, repetition limits, recipes and values remain design work. Shared tool upgrades cover mining, chopping and placement together. Unlocked movement must update both planner capability and real execution. Interface grouping may collect the profile, bag panel and mastery view, while bag storage and item transfer remain gameplay services.
 
