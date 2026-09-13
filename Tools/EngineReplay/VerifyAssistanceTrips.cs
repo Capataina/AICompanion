@@ -55,8 +55,83 @@ internal static class VerifyAssistanceTrips
         Each("hop torch: no take-off, no offer", () => AHopFromATakeOffElsewhere(lighting: true, reachable: false));
         Each("hop pot: a pot reachable only by a hop from a take-off elsewhere is offered and broken", () => AHopFromATakeOffElsewhere(lighting: false, reachable: true));
         Each("hop pot: no take-off, no offer", () => AHopFromATakeOffElsewhere(lighting: false, reachable: false));
-        if (red == 0) Console.WriteLine("assistance trips: lighting and pot trips require a way back, and hop from take-offs the walker reaches");
+        Each("J08 a lighting trip breaks a permitted pot in passing, with no detour and no second movement owner", () => ALightingTripPassesAPot(potBreaking: true));
+        Each("J08 the same pot with pot breaking disabled is left alone", () => ALightingTripPassesAPot(potBreaking: false));
+        if (red == 0) Console.WriteLine("assistance trips: lighting and pot trips require a way back, hop from take-offs the walker reaches, and a pot on the way breaks incidentally only when permitted");
         return red;
+    }
+
+    /// <summary>
+    /// The hop lighting trip from <see cref="AHopFromATakeOffElsewhere"/>, with a pot on the floor between the companion and the take-off,
+    /// out of reach where the walk starts and within reach as it passes. Only lighting and keeping company are registered, so breaking the
+    /// pot can be nobody's activity. With pot breaking on, the pot must break during the lighting activity after the body has moved,
+    /// with the same request and the same movement owner on the tick it breaks as on the tick before, and the lighting attempt must still
+    /// close complete with exactly one productive effect, the torch. With pot breaking off, the trip must place its torch and leave every
+    /// tile of the pot in place.
+    /// </summary>
+    private static void ALightingTripPassesAPot(bool potBreaking)
+    {
+        Point placeholder = new(60, FloorRow - 1);
+        var (_, ctx) = VerifyOreWork.SetUp(Policy.Disabled, TileID.Copper, placeholder);
+        Main.tile[placeholder.X, placeholder.Y].ClearEverything();
+        for (int i = 0; i < ctx.Player.inventory.Length; i++) ctx.Player.inventory[i] = new Item();
+        foreach (Item slot in ctx.Companion.Bag.Items) slot.TurnToAir();
+        VerifyOreWork.Place(new Point(31, 51), TileID.Dirt);
+        VerifyOreWork.Place(new Point(32, 51), TileID.Dirt);
+        GiveTorches(ctx);
+        Preferences.Current.TorchPlacement = true;
+        Preferences.Current.PotBreaking = potBreaking;
+        VerifyUsefulAssistance.WriteMeasuredLight(new Rectangle(0, 0, 100, 100), (x, y) => y is >= 57 and <= 60 ? .9f : .02f);
+        Point pot = PlacePot(new Point(27, FloorRow - 2));
+        TerrainChanges.Reset();
+        AStar.InvalidateEdges();
+        ctx.Companion.Brain.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Breath);
+        Point[] footprint = { pot, pot + new Point(1, 0), pot + new Point(0, 1), pot + new Point(1, 1) };
+        Vector2 start = ctx.Npc.Bottom;
+        Require(footprint.All(t => !FindToolAccess.InReach(start, t)), "the pot must be out of reach where the walk starts, or nothing is passed");
+        var brain = ctx.Companion.Brain;
+        brain.Chooser.Actions.RemoveAll(a => a.Name != "place-torches" && a.Name != "keep-company");
+        Point? torch = null;
+        int brokenAt = -1, torchAt = -1;
+        string before = "", atBreak = "", actionAtBreak = "";
+        float feetAtBreak = 0f;
+        double decideMax = 0, finaliseMax = 0;
+        for (int tick = 0; tick < 900 && (torchAt < 0 || tick < torchAt + 90); tick++)
+        {
+            string last = $"{brain.LastRequest.Kind}@{brain.LastRequest.Anchor}/owner={brain.ControlGrants.Last?.AppliedOwner}";
+            VerifyOreWork.AdvanceBrain(ctx);
+            decideMax = Math.Max(decideMax, brain.DecideMs);
+            finaliseMax = Math.Max(finaliseMax, brain.FinaliseMs);
+            if (brokenAt < 0 && footprint.Any(t => !Main.tile[t.X, t.Y].HasTile))
+            {
+                brokenAt = tick; before = last; actionAtBreak = brain.LastAction?.Name ?? "none"; feetAtBreak = ctx.Npc.Bottom.X;
+                atBreak = $"{brain.LastRequest.Kind}@{brain.LastRequest.Anchor}/owner={brain.ControlGrants.Last?.AppliedOwner}";
+            }
+            if (torchAt < 0)
+                for (int x = 24; x <= 36 && torch == null; x++)
+                    for (int y = 45; y <= 59 && torch == null; y++)
+                        if (Main.tile[x, y].HasTile && TileID.Sets.Torch[Main.tile[x, y].TileType]) { torch = new Point(x, y); torchAt = tick; }
+        }
+        string attempts = string.Join("; ", brain.Chooser.Activity.RecentAttempts.Select(a => $"{a.Activity}:{a.Status}:{a.Cause}:effects={a.ProductiveEffects}"));
+        object? incidental = brain.GetType().GetField("Incidental")?.GetValue(brain);
+        object? lastIncidental = incidental?.GetType().GetProperty("Last")?.GetValue(incidental);
+        string ledger = $"potBreaking={potBreaking} torch={torch} at tick {torchAt}; pot broken at tick {brokenAt} during {actionAtBreak} feet x={feetAtBreak:0} (start {start.X:0}); "
+            + $"request/owner before={before} at break={atBreak}; incidental={lastIncidental}; attempts=[{attempts}]";
+        Require(torchAt >= 0, $"the lighting trip must place its torch; {ledger}");
+        if (!potBreaking)
+        {
+            Require(brokenAt < 0 && lastIncidental == null, $"a pot with pot breaking disabled must be left alone; {ledger}");
+            return;
+        }
+        Require(brokenAt >= 0 && actionAtBreak == "place-torches" && feetAtBreak > start.X + 32f,
+            $"a permitted pot in reach must be broken in passing, during the lighting trip and after the walk began; {ledger}");
+        Require(before == atBreak, $"breaking the pot must change neither the request nor the movement owner; {ledger}");
+        Require(brain.Chooser.Activity.RecentAttempts.Any(a => a.Activity == "place-torches" && a.Status.ToString() == "Complete" && a.ProductiveEffects == 1),
+            $"the lighting attempt must complete with its torch as its only productive effect; the pot is credited to no activity; {ledger}");
+        if (incidental != null)
+            Require(lastIncidental != null && lastIncidental.ToString()!.Contains("Method = collect") && lastIncidental.ToString()!.Contains("DuringActivity = place-torches"),
+                $"the incidental record must name the pot method and the activity it happened during; {ledger}");
+        Console.WriteLine($"incidental pot: broken at tick {brokenAt} during place-torches, torch at tick {torchAt}; decide max {decideMax:0.000} ms, finalise max {finaliseMax:0.000} ms (this machine, never asserted)");
     }
 
     /// <summary>

@@ -284,4 +284,45 @@ public abstract class PerformNearbyWorldWork : CompanionAction
         // A reflex or protective action can change a take-off pose; never resume its old jump.
         if (needsJump) { target = null; }
     }
+
+    /// <summary>
+    /// The nearest target this method could act on right now from the body's current pose, for an incidental interaction: the method
+    /// enabled by its own policy, supply and measurement, the tile within actual reach, and passing the method's own candidate check,
+    /// which carries home protection and the site rules. It never searches beyond reach, never asks for a route and never touches the
+    /// method's discovery state, so the instance asked is a library of this method's rules rather than the activity itself.
+    /// </summary>
+    internal Point? FindIncidentalTarget(in ActionContext ctx, object? excluded)
+    {
+        // Enabled runs first on every ask, because lighting's candidate check reads the carried-light list its enablement fills.
+        if (ctx.Player.dead || !Enabled(ctx)) return null;
+        Point feet = MovementQueries.FeetTile(ctx.Npc.Bottom);
+        int reachX = Player.tileRangeX + 1, reachY = Player.tileRangeY + 1;
+        Point? best = null;
+        float bestDistance = float.MaxValue;
+        for (int x = feet.X - reachX; x <= feet.X + reachX; x++)
+            for (int y = feet.Y - MovementQueries.BodyHeightTiles - reachY; y <= feet.Y + reachY; y++)
+            {
+                Point p = new(x, y);
+                if (Equals(excluded, p)) continue;
+                float distance = Vector2.DistanceSquared(ctx.Npc.Center, p.ToWorldCoordinates());
+                if (distance >= bestDistance || !FindToolAccess.InReach(ctx.Npc.Bottom, p) || !Candidate(ctx, p)) continue;
+                best = p;
+                bestDistance = distance;
+            }
+        return best;
+    }
+
+    /// <summary>Act on an incidental target through the method's own native operation, which rechecks permission at mutation, with
+    /// <paramref name="note"/> carried into the interaction event so the effect reads as incidental and credited to no activity.</summary>
+    internal bool PerformIncidental(in ActionContext ctx, Point tile, string note)
+    {
+        performNote = note;
+        try { return Perform(ctx, tile); }
+        finally { performNote = ""; }
+    }
+
+    private string performNote = "";
+
+    /// <summary>Empty for the activity's own interaction; for an incidental one, the marker its event detail begins with.</summary>
+    protected string PerformNote => performNote;
 }

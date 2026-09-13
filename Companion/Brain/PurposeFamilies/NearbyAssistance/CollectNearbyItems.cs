@@ -286,7 +286,7 @@ public sealed class CollectNearbyItems : PerformNearbyWorldWork
         if (!Enabled(ctx) || !Candidate(ctx, tile) || !WorldGen.CanKillTile(tile.X, tile.Y)) return false;
         WorldGen.KillTile(tile.X, tile.Y);
         bool broken = !Main.tile[tile.X, tile.Y].HasTile;
-        if (broken) BehaviourDiagnostics.GodsEyeEvents.RecordWorldInteraction(ctx.Npc, tile, "break-pot", "native pot drops; collected yield unobserved");
+        if (broken) BehaviourDiagnostics.GodsEyeEvents.RecordWorldInteraction(ctx.Npc, tile, "break-pot", PerformNote + "native pot drops; collected yield unobserved");
         return broken;
     }
 }

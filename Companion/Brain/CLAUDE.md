@@ -17,7 +17,7 @@ Brain/
 ├─ CombatReflexes/              imminent-collision assessment, before selection
 ├─ SharedSafety/                independent environmental escape and retained collision responses
 ├─ BehaviourSelection/          utility choice among the behaviour families
-├─ ActivityCoordination/        final movement application, hand grants and distant recovery
+├─ ActivityCoordination/        final movement application, hand grants, incidental interactions and distant recovery
 ├─ Behaviours/                  shared activity contract and work-policy readers
 ├─ PurposeFamilies/             seven ordinary activities grouped by purpose
 ├─ PositionSelection/           turn a position request into a useful feet tile

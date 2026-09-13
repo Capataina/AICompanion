@@ -7,8 +7,11 @@ ActivityCoordination/
 ├─ CLAUDE.md                  this boundary and its interpretation
 ├─ GrantActivityControls.cs   movement application and the compatible hand permission snapshot
 ├─ DescribeActivitySnapshot.cs completed family/activity and shared-controller presentation state
+├─ ConsiderIncidentalInteractions.cs cheap compatible pot and torch interactions from the current pose, credited to no activity
 └─ RecoverDistantCompanion.cs continuous distant reunion admission, steering and release
 ```
+
+An incidental interaction is a proposal handled at this boundary, not another planner. After the hands run, on an ordinary execution tick only (safety, recovery and downed grants belong to responses that own the body for another purpose), `ConsiderIncidentalInteractions` may act when the final grant left the hand Available and the arm did not fire that tick. On a BehaviourWeights cadence it asks library instances of the pot and lighting methods (never the chooser's activities, so an activity's discovery is untouched) for the nearest target within actual reach of the current pose that their own enablement and candidate checks allow: pot breaking with cargo space and home protection, torch placement in measured darkness with supply and the lit-neighbourhood veto. It skips the executing activity's own method and target, because that activity will do it and one benefit must not be counted twice. It acts through the method's native operation, which rechecks permission at mutation, and marks the interaction event's detail as incidental with the activity it happened during. It never requests a position, writes movement or records productive work, so no activity's value or attempt conclusion includes the effect. It keeps the last successful interaction for readers. A detour that needs a new destination is not incidental; it is an ordinary activity choice. Contact pickup of loose items already behaves this way in `CharacterBody` and is not part of this component.
 
 Each grant also names the activity attempt open when it was issued, or zero when none is executing. A safety or recovery grant issued while the ordinary attempt is suspended therefore carries zero, which is what stops a reader charging that movement to the interrupted work.
 

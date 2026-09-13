@@ -314,4 +314,9 @@ public static class Weights
     /// <summary>Keeping company: the most predicted enemy exposure a stroll goal may carry, on PredictedExposureAt's scale, where a
     /// forecast hit is 1 and mere proximity peaks at .6. A stroll exists to be company, never to stand where something is about to arrive.</summary>
     public const float StrollExposureLimit = .3f;
+
+    /// <summary>Incidental interactions: how often the grant boundary scans the tiles in reach for a permitted pot or dark torch site. Each
+    /// scan runs every tile in reach through the methods' candidate rules, lighting's among them a light measurement and the native torch
+    /// selector, so it is spaced out; a body walking past a pot at walking speed stays in reach for many times this interval.</summary>
+    public const int IncidentalScanTicks = 15;
 }

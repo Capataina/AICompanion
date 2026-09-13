@@ -27,6 +27,7 @@ public sealed class Brain
     public Navigator Navigator => Movement.Navigator;
     public readonly CombatReflexes.Reflexes Reflexes = new();
     public readonly GrantActivityControls ControlGrants = new();
+    public readonly ConsiderIncidentalInteractions Incidental = new();
     public readonly SharedSafety.ChooseSafetyResponse Safety = new();
     public readonly RecoverDistantCompanion FollowRecovery = new();
     public ActivitySnapshot Presentation { get; private set; }
@@ -128,7 +129,9 @@ public sealed class Brain
         long started = System.Diagnostics.Stopwatch.GetTimestamp();
         ActivityControlGrant grant = ControlGrants.Apply(companion, request, Chooser.Activity);
         var ctx = new ActionContext(companion, Senses, Roaming);
-        Engage(companion, ctx, grant.Hand);
+        bool fired = Engage(companion, ctx, grant.Hand);
+        // Only an ordinary execution tick: safety, recovery and downed grants belong to responses that own the body for another purpose.
+        if (request.ObserveProgress) Incidental.Consider(ctx, grant.Hand, fired, Chooser.Current, Chooser.Activity.Id);
         if (request.CountReunion) CountStranded();
         if (request.ObserveProgress)
         {
@@ -251,7 +254,7 @@ public sealed class Brain
     /// which is what a player looks like. The hands stay out of it while they are driving a tool,
     /// because a swing and a throw cannot share the same arm.
     /// </summary>
-    private void Engage(CompanionNPC companion, in ActionContext ctx, HandGrant hand)
+    private bool Engage(CompanionNPC companion, in ActionContext ctx, HandGrant hand)
     {
         // The final grant owns compatibility, including early safety and downed paths. Tool
         // phases reserve the hand across cooldown gaps; travelling to that work leaves it free.
@@ -259,10 +262,11 @@ public sealed class Brain
         {
             EngageTarget = null;
             companion.Arsenal.NoteHandsBusy();
-            return;
+            return false;
         }
         EngageTarget = companion.Arsenal.BestTarget(ctx);
-        companion.Arsenal.TryFire(ctx, EngageTarget);
+        // Whether the arm was used this tick: a grant that leaves the hand Available permits a shot, and one arm cannot also break a pot.
+        return companion.Arsenal.TryFire(ctx, EngageTarget);
     }
 
     /// <summary>What the hands are shooting at, independent of what the feet were told to do.</summary>
