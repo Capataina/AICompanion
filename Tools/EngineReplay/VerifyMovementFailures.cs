@@ -124,6 +124,31 @@ internal static class VerifyMovementFailures
                 }
                 Console.WriteLine($"   deadline sealed starved={starved}: absent={absent} at {sealedRun.Tick}, seen {sealedRun.SeenText}");
                 Require(absent, $"starved={starved}: a sealed goal must end absent; last {sealedRun.Describe()}");
+                // An answer is kept, not asked again at once. The failed-plan retry must wait from the tick
+                // the query answered: a starved query answers after longer than that wait, so a clock read
+                // from when it was asked would re-plan on the next tick and replace the verdict with a fresh
+                // unfinished search. The window opens on an absent answered with no route in hand, which is an
+                // answer for the tile the body stands on: the starved run's first absent is answered while the
+                // body stands at the end of that search's own partial route, and re-planning from there on the
+                // next tick is a partial route walked to its end, which is progress and correct. The window
+                // ends before the stall threshold, where a still body with an answer strikes and re-plans by
+                // design.
+                var answered = sealedRun.Movement.Navigator;
+                int firstAbsentAt = sealedRun.Tick;
+                while (sealedRun.Tick < firstAbsentAt + 400
+                    && !(answered.Failure == MovementFailure.AbsentTransition && answered.Path == null && !answered.SearchPending))
+                    sealedRun.Step(new Point(44, 89));
+                Require(answered.Failure == MovementFailure.AbsentTransition && answered.Path == null && !answered.SearchPending,
+                    $"starved={starved}: no absent was answered from where the body stands within 400 ticks of the first; last {sealedRun.Describe()}");
+                long answeredSearch = answered.SearchId;
+                int answeredAt = sealedRun.Tick;
+                for (int hold = 0; hold < 30; hold++)
+                {
+                    sealedRun.Step(new Point(44, 89));
+                    Require(answered.Failure == MovementFailure.AbsentTransition && answered.SearchId == answeredSearch,
+                        $"starved={starved}: {sealedRun.Tick - answeredAt} ticks after the absent answer from where the body stands, the navigator read {answered.Failure} on search {answered.SearchId} (answered by search {answeredSearch})");
+                }
+                Console.WriteLine($"   deadline sealed starved={starved}: absent answered from the body's tile at {answeredAt - firstAbsentAt} ticks after the first held on search {answeredSearch} for 30 ticks");
                 Require(sealedRun.Movement.Navigator.FailedAttempts == 0, $"starved={starved}: a closed model is not a physical failure");
             }
             finally { Navigator.PlanMsBudget = 0; }
