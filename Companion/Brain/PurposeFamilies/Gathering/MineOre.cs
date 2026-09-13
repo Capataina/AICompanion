@@ -467,6 +467,8 @@ public sealed class MineOre : CompanionAction
                     // At rest on the take-off with no proof left: the hop itself is gone. The tile leaves discovery
                     // until something changes, or the next preparation re-proves this take-off from rest and offers
                     // it again, which is how a lost take-off used to repeat for ever without an attempt ending.
+                    // An entry leaves only when its own tile is looked up again, so tiles never revisited would accumulate.
+                    if (hopDeferred.Count > 64) hopDeferred.Clear();
                     hopDeferred[t.Tile] = (TerrainChanges.Revision, Main.GameUpdateCount + (ulong)Weights.HopTakeOffRetryTicks);
                     target = null; status = LostTakeOffReason;
                     attemptSetback = (AttemptStatus.Failed, LostTakeOffReason);
