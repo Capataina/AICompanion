@@ -42,7 +42,13 @@ public sealed class BrainTelemetry : ModSystem
     private static string? eventsPath;
     private static readonly Stopwatch sessionClock = new();
     private static DateTime sessionStartedUtc;
-    private const string Schema = "0.28.0";
+    private const string Schema = "0.29.0";
+    // The cost of the previous row's Record call: a row cannot contain the time spent writing itself, so each row carries
+    // the one before it and the first row of a session carries none.
+    private static readonly Stopwatch recordClock = new();
+    private static double lastRecordMs = double.NaN;
+    /// <summary>What the last Record call cost in milliseconds, NaN before the first; MeasureBrainCost samples it as its own phase.</summary>
+    public static double LastRecordMilliseconds => lastRecordMs;
     // Rows this session has written, which the end marker states so a reader can tell a file that lost rows from one
     // that never had them.
     private static int rowsWritten;
@@ -104,6 +110,7 @@ public sealed class BrainTelemetry : ModSystem
             lastDumpTick = -DumpEveryTicks;
             headerWritten = false;
             rowsWritten = 0;
+            lastRecordMs = double.NaN;
             sessionStartedUtc = DateTime.UtcNow;
             sessionClock.Restart();
             GodsEyeEvents.Open(eventsPath);
@@ -215,7 +222,7 @@ public sealed class BrainTelemetry : ModSystem
         GodsEyeEvents.Close();
         try
         {
-            writer?.WriteLine($"# end={reason};rows={rowsWritten}");
+            writer?.WriteLine($"# end={reason};rows={rowsWritten};events-written={GodsEyeEvents.Written};events-dropped={GodsEyeEvents.Dropped};events-coalesced={GodsEyeEvents.Coalesced};terrain-evictions={RecordTerrainChunks.Evictions}");
             writer?.Flush();
             writer?.Dispose();
         }
@@ -265,6 +272,13 @@ public sealed class BrainTelemetry : ModSystem
         writer.WriteLine($"# source_revision={SourceProvenance}");
         recordedConfiguration = RecordedConfiguration.Current();
         writer.WriteLine($"# config={recordedConfiguration.Describe()}");
+        // What a capture keeps and what it forgets, read from the constants that bound each store, so a reader can tell an
+        // absence the recorder never kept from one that did not happen without knowing the code.
+        writer.WriteLine("# retention=rows=one-per-companion-ai-tick;events=every-occurrence-offered"
+            + $";terrain-snapshots-remembered={RecordTerrainChunks.MaximumRemembered};terrain-captures-per-tick={RecordTerrainChunks.CapturesPerTick}"
+            + $";recent-attempt-outcomes={BehaviourSelection.OwnCurrentActivity.RecentAttemptCapacity};cargo-transfer-ledger={(global::AICompanion.Companion.Inventory.CompanionInventory.RecentTransferCapacity)}"
+            + $";cosmetic-contacts-per-summary={GodsEyeEvents.CosmeticContactsPerSummary};inspector-traces={BrainInspectorSamples.Capacity};session-map-tiles={SessionMap.MaxTilesRemembered}"
+            + $";plan-dump-every-ticks={DumpEveryTicks};flush-every-ticks={FlushEveryTicks}");
         writer.WriteLine("# lifecycle=world-entry-observed;tag-load-not-yet-observed;first-update-not-yet-observed;outer-load-unobservable;save-not-observed");
         writer.Flush();
     }
@@ -432,6 +446,7 @@ public sealed class BrainTelemetry : ModSystem
         if (!DiagnosticsConfiguration.CompanionDiagnosticsConfig.Current.RecordTelemetry) { if (writer != null) Close("recording-disabled"); return; }
         if (writer == null)
             return;
+        recordClock.Restart();
         var configuration = RecordedConfiguration.Current();
         if (configuration != recordedConfiguration)
         {
@@ -560,6 +575,10 @@ public sealed class BrainTelemetry : ModSystem
             // inside it. The region is the positioner's own snapshot from the resolve that admitted it, so the report
             // judges arrival against what the destination was chosen for, not against the world some ticks later.
             h.Append("\tregion_kind\tregion_revision\tregion_tick\tregion_terrain\tregion_anchor_px\tregion_player_px\tregion_comfort\tregion_work_tile\tregion_reach\tregion_arrival");
+            // What recording costs and what the capture did not keep, as running totals: the previous row's Record cost,
+            // occurrences handed to the event writer, refused after a failed write, and folded into summaries, and
+            // terrain chunks the snapshot memory forgot. The end marker restates the closing totals.
+            h.Append("\trecord_ms\tevents_written\tevents_dropped\tevents_coalesced\tterrain_evictions");
             writer.WriteLine(h.ToString());
             headerWritten = true;
         }
@@ -884,6 +903,11 @@ public sealed class BrainTelemetry : ModSystem
             .Append('\t').Append(region.WorkTile is Point work ? $"{work.X},{work.Y}" : "-")
             .Append('\t').Append(region.Kind == PositionSelection.SuccessRegionKind.ToolReach ? $"{region.ReachX},{region.ReachY}" : "-")
             .Append('\t').Append(!arrivalClaimed ? "-" : inside is bool b ? (b ? "inside" : "outside") : "undeclared");
+        sb.Append('\t').Append(double.IsNaN(lastRecordMs) ? "-" : lastRecordMs.ToString("0.000", CultureInfo.InvariantCulture))
+            .Append('\t').Append(GodsEyeEvents.Written)
+            .Append('\t').Append(GodsEyeEvents.Dropped)
+            .Append('\t').Append(GodsEyeEvents.Coalesced)
+            .Append('\t').Append(RecordTerrainChunks.Evictions);
 
         // A write that fails (disk full, a stream the OS closed) must not escape the NPC's AI
         // and take the companion with it; the record stops and the game goes on.
@@ -904,6 +928,7 @@ public sealed class BrainTelemetry : ModSystem
             try { writer.Dispose(); } catch { /* the stream is already broken */ }
             writer = null;
         }
+        lastRecordMs = recordClock.Elapsed.TotalMilliseconds;
     }
 
     private static string Tile(Vector2 world) => $"{(int)(world.X / 16f)},{(int)(world.Y / 16f)}";

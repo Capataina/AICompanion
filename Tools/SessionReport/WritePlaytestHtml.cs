@@ -27,7 +27,7 @@ public static class WritePlaytestHtml
     }
     private sealed record Run(string Source, string[] Columns, List<Sample> Samples,
         Dictionary<string, List<JsonElement>> Events, Coverage Coverage, int Rows, int RaggedRows,
-        List<AttemptView> Attempts, string AttemptCoverage, string Capture);
+        List<AttemptView> Attempts, string AttemptCoverage, string Capture, string Recording);
     /// <summary>One attempt's joined grants, effects and conclusion, placed on the scrubber by the earliest and latest tick any of its records names.</summary>
     private sealed record AttemptView(long Attempt, long Start, long End, string Text);
     private const int MaximumAttempts = 512;
@@ -56,7 +56,7 @@ public static class WritePlaytestHtml
             var events = ReadEvents(path, coverage);
             var (attempts, attemptCoverage) = JoinAttempts(path, session);
             runs.Add(new Run(Path.GetFullPath(path), columns, samples, events, coverage, session.Count, session.Ragged, attempts, attemptCoverage,
-                DescribeSession.CaptureStatement(session)));
+                DescribeSession.CaptureStatement(session), DescribeSession.RecordingStatement(session)));
         }
         string data = JsonSerializer.Serialize(new { Runs = runs, OmittedRuns = Math.Max(0, selected.Length - MaximumRuns) });
         File.WriteAllText(output, Page.Replace("__DATA__", data, StringComparison.Ordinal), Encoding.UTF8);
@@ -145,7 +145,7 @@ const data=JSON.parse(document.getElementById('data').textContent),q=id=>documen
 let current=null,indexed=[],selectedTick=0;
 const upper=(a,t,key)=>{let lo=0,hi=a.length;while(lo<hi){let mid=(lo+hi)>>>1;if(key(a[mid])<=t)lo=mid+1;else hi=mid}return lo};
 for(let i=0;i<data.Runs.length;i++){let option=document.createElement('option');option.value=i;option.textContent=data.Runs[i].Source.split('/').pop();run.append(option)}
-function selectRun(){current=data.Runs[+run.value];if(!current)return;kind.replaceChildren();for(const name of ['all',...Object.keys(current.Events)]){let option=document.createElement('option');option.value=name;option.textContent=name;kind.append(option)}time.max=Math.max(0,current.Samples.length-1);time.value=0;selectKind();let c=current.Coverage;q('coverage').textContent=current.Source+'\n'+current.Samples.length+'/'+current.Rows+' samples; '+c.Kept+'/'+c.Seen+' events retained ('+c.Omitted+' omitted); '+c.Malformed+' malformed events; '+c.Oversized+' oversized records not embedded; '+current.RaggedRows+' malformed TSV rows. Sidecar '+(c.SidecarPresent?'present':'MISSING')+'; closure '+(c.NormalClose?'normal':'not observed')+'. TSV capture: '+current.Capture+'. '+data.OmittedRuns+' earlier selected runs omitted by the four-run viewer limit.';scrub()}
+function selectRun(){current=data.Runs[+run.value];if(!current)return;kind.replaceChildren();for(const name of ['all',...Object.keys(current.Events)]){let option=document.createElement('option');option.value=name;option.textContent=name;kind.append(option)}time.max=Math.max(0,current.Samples.length-1);time.value=0;selectKind();let c=current.Coverage;q('coverage').textContent=current.Source+'\n'+current.Samples.length+'/'+current.Rows+' samples; '+c.Kept+'/'+c.Seen+' events retained ('+c.Omitted+' omitted); '+c.Malformed+' malformed events; '+c.Oversized+' oversized records not embedded; '+current.RaggedRows+' malformed TSV rows. Sidecar '+(c.SidecarPresent?'present':'MISSING')+'; closure '+(c.NormalClose?'normal':'not observed')+'. TSV capture: '+current.Capture+'. Recording: '+current.Recording+'. '+data.OmittedRuns+' earlier selected runs omitted by the four-run viewer limit.';scrub()}
 function selectKind(){indexed=(kind.value==='all'?Object.values(current.Events).flat():current.Events[kind.value]||[]).slice().sort((a,b)=>a.tick-b.tick);showEvents()}
 function showEvents(){let end=upper(indexed,selectedTick,e=>e.tick);q('events').textContent=indexed.slice(Math.max(0,end-6),end).map(e=>JSON.stringify(e,null,2)).join('\n\n')||'No retained events before this tick. This is not evidence that nothing happened.';let begun=(current.Attempts||[]).filter(a=>a.Start<=selectedTick).slice(-6);q('attempts').textContent=current.AttemptCoverage+'\n\n'+(begun.map(a=>a.Text).join('\n')||'No joined attempt began at or before this tick.')}
 function show(tick){if(!Number.isFinite(tick))return;let i=Math.max(0,upper(current.Samples,tick,s=>s.Tick)-1);time.value=i;selectedTick=tick;q('jump').value=tick;draw(i);showEvents()}

@@ -2,7 +2,9 @@
 
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Text;
 
 namespace AICompanion.Tools.SessionReport;
@@ -26,6 +28,25 @@ public static class DescribeSession
         return $"{source}; {closure}";
     }
 
+    /// <summary>What recording cost and what the capture did not keep, from the running totals schema 0.29.0 writes on every
+    /// row, in one line shared by this summary and the HTML coverage. The percentiles take the value at the floor of the
+    /// rank, the definition MeasureBrainCost prints, so the two instruments read one distribution the same way.</summary>
+    internal static string RecordingStatement(Session session)
+    {
+        if (!session.Has("record_ms", "events_written", "events_dropped", "events_coalesced", "terrain_evictions"))
+            return "cost and loss counts unrecorded (written from schema 0.29.0)";
+        if (session.Count == 0)
+            return "no rows, so no measured cost";
+        float[] costs = session["record_ms"].Number.Where(value => !float.IsNaN(value)).OrderBy(value => value).ToArray();
+        string Percentile(double p) => costs[Math.Min(costs.Length - 1, (int)Math.Floor(p * (costs.Length - 1)))].ToString("0.000", CultureInfo.InvariantCulture);
+        string cost = costs.Length == 0 ? "no measured row"
+            : $"{Percentile(.5)} p50, {Percentile(.95)} p95, {costs[^1].ToString("0.000", CultureInfo.InvariantCulture)} max ms per row over {costs.Length} measured row(s)";
+        int last = session.Count - 1;
+        string Total(string column) => session[column].Text[last];
+        return $"{cost}; by the last row {Total("events_written")} occurrence(s) written, {Total("events_dropped")} dropped, "
+            + $"{Total("events_coalesced")} contact(s) coalesced, {Total("terrain_evictions")} terrain snapshot(s) evicted";
+    }
+
     public static string Of(Session session)
     {
         var sb = new StringBuilder();
@@ -47,6 +68,9 @@ public static class DescribeSession
             sb.Append($", {session.Ragged} ragged row(s) dropped");
         sb.Append('\n');
         sb.Append($"capture   {CaptureStatement(session)}\n");
+        sb.Append($"recording {RecordingStatement(session)}\n");
+        if (session.Metadata.TryGetValue("retention", out string? retention))
+            sb.Append($"retention {retention}\n");
 
         var whole = new Stretch(0, session.Count - 1);
 

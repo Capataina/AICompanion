@@ -115,8 +115,22 @@ internal static class VerifyAttemptEvidenceProducers
                 $"turning pot breaking off after the world loaded must be one configuration occurrence carrying the new value; recorded {changes.Count}: {string.Join(" | ", changes.Select(c => c.Detail))}");
         else
             Require(changes.Count == 0, "a scene that changed no preference recorded configuration changes: " + string.Join(" | ", changes.Select(c => c.Detail)));
-        Require(capture.Trailer.Length == 1 && capture.Trailer[0] == $"# end=world-unload;rows={capture.Rows.Count}",
+        Require(capture.Trailer.Length == 1 && capture.Trailer[0].StartsWith($"# end=world-unload;rows={capture.Rows.Count};", StringComparison.Ordinal),
             $"a world unload must end the file with one end marker naming its {capture.Rows.Count} rows; trailer: {string.Join(" | ", capture.Trailer)}");
+        string closing = capture.Trailer[0]["# end=".Length..];
+        Require(Capture.Long(Capture.Field(closing, "events-written")) == capture.Events.Count && Capture.Field(closing, "events-dropped") == "0"
+                && Capture.Field(closing, "terrain-evictions") == "0" && Capture.Long(Capture.Field(closing, "events-coalesced")) >= 0,
+            $"the end marker must count exactly the {capture.Events.Count} occurrence(s) its sidecar holds, with none dropped or evicted: {capture.Trailer[0]}");
+        int lastRow = capture.Rows.Count - 1;
+        Require(capture.Text(0, "record_ms") == "-"
+                && Enumerable.Range(1, lastRow).All(r => double.TryParse(capture.Text(r, "record_ms"), NumberStyles.Float, CultureInfo.InvariantCulture, out double ms) && ms >= 0)
+                && capture.Long(lastRow, "events_written") <= Capture.Long(Capture.Field(closing, "events-written")) && capture.Text(lastRow, "events_dropped") == "0",
+            $"the first row must carry no cost and every later row a non-negative one, and the running totals must not pass the closing ones; first {capture.Text(0, "record_ms")}, last written {capture.Text(lastRow, "events_written")}");
+        string? retention = capture.Preamble.FirstOrDefault(line => line.StartsWith("# retention=", StringComparison.Ordinal));
+        string[] bounds = { "terrain-snapshots-remembered", "terrain-captures-per-tick", "recent-attempt-outcomes", "cargo-transfer-ledger",
+            "cosmetic-contacts-per-summary", "inspector-traces", "session-map-tiles", "plan-dump-every-ticks", "flush-every-ticks" };
+        Require(retention is not null && bounds.All(bound => Capture.Long(Capture.Field(retention["# retention=".Length..], bound)) > 0),
+            "the recorder wrote no retention statement carrying every bound as a positive count: " + retention);
         Console.WriteLine($"attempt evidence producers: capture names source {stamp[0][..12]} ({stamp[1]}), {changes.Count} configuration change(s), and closes with {capture.Trailer[0]}");
     }
 

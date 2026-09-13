@@ -5,6 +5,33 @@ using System.Collections.Generic;
 namespace AICompanion.Tools.SessionReport;
 
 /// <summary>
+/// Whether the occurrence stream kept everything it was offered. From schema 0.29.0 every row carries
+/// <c>events_dropped</c>, the running count of occurrences refused because a failed write had stopped the event writer;
+/// the sidecar cannot record its own loss, and the rows keep being written, so only the rows can say when it began. Any
+/// drop is Potential: strikes, pickups, outcomes and grants after that tick are missing from the sidecar, so an identity
+/// check that finds nothing after it has not measured that stretch.
+/// </summary>
+public sealed class NoOccurrenceWasDropped : ICheck
+{
+    public string Name => "did the occurrence stream keep everything it was offered";
+    public string[] Needs => new[] { "tick", "events_written", "events_dropped" };
+
+    public IEnumerable<Finding> Run(Session session)
+    {
+        int first = -1;
+        for (int i = 0; i < session.Count && first < 0; i++)
+            if (session["events_dropped"].Number[i] > 0) first = i;
+        if (first < 0) yield break;
+        int last = session.Count - 1;
+        yield return new Finding(Severity.Potential, Name,
+            $"the occurrence stream stopped: {session["events_dropped"].Text[last]} occurrence(s) dropped from tick {session.Tick(first)}",
+            $"The event writer stopped after a failed write, having written {session["events_written"].Text[first]} record(s); every occurrence offered afterwards was counted and refused while rows kept being written. "
+            + $"Strikes, pickups, attempt outcomes and grants after tick {session.Tick(first)} are missing from the sidecar, so any event-based check that finds nothing after that tick has not measured it.",
+            session.Tick(first), session.Tick(last), (int)System.Math.Min(int.MaxValue, session["events_dropped"].Number[last]));
+    }
+}
+
+/// <summary>
 /// Whether the recorder closed the capture normally. From schema 0.28.0 every normal closure — world unload, mod
 /// unload, recording switched off, a new world superseding the session — ends the file with
 /// <c># end=&lt;reason&gt;;rows=&lt;n&gt;</c>, and nothing else writes that line: a failed row write disposes the stream

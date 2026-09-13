@@ -36,6 +36,24 @@ public static class GodsEyeEvents
     private static Vector2 cosmeticFirst, cosmeticLast;
     private static long cosmeticFirstTick;
     internal static bool Active => writer != null;
+    // Set when a failed write stops the stream, cleared when a session opens: before Open and after a normal Close nothing
+    // is being recorded, so an occurrence offered then is not a loss and is not counted as one.
+    private static bool disabled;
+    internal const int CosmeticContactsPerSummary = 128;
+    /// <summary>Records handed to the writer this session, its opening and closing records included.</summary>
+    internal static int Written => sequence;
+    /// <summary>Occurrences refused this session because a failed write had stopped the stream; the sidecar cannot record its own loss.</summary>
+    internal static long Dropped { get; private set; }
+    /// <summary>Cosmetic terrain contacts folded into summary records this session.</summary>
+    internal static long Coalesced { get; private set; }
+
+    /// <summary>Whether an occurrence can be written, counting it as dropped when the stream stopped after a failed write.</summary>
+    private static bool Accepting()
+    {
+        if (writer != null) return true;
+        if (disabled) Dropped++;
+        return false;
+    }
     public static void RecordWorldInteraction(NPC companion, Point tile, string operation, string detail)
         => Write("world-interaction", companion.whoAmI, "", operation, "", companion.Bottom, Vector2.Zero,
             tile.ToWorldCoordinates(), 0, detail);
@@ -44,7 +62,7 @@ public static class GodsEyeEvents
     /// <paramref name="activityAttemptId"/> is the owner's attempt open when Execute struck, zero when none was, and is what a reader joins on.</summary>
     public static void RecordToolEffect(NPC companion, string tool, in WorldInteractions.TileToolObservation outcome, long choiceId, long activityId, long activityAttemptId)
     {
-        if (!Active) return;
+        if (!Accepting()) return;
         Write("tool-effect", Stable(npcGenerations, companion.whoAmI), "", tool,
             $"attempt={outcome.Attempt};choice-id={choiceId};activity-id={activityId};activity-attempt-id={activityAttemptId}", companion.Bottom, Vector2.Zero, outcome.Target.ToWorldCoordinates(),
             outcome.Effect == WorldInteractions.TileToolEffect.Damaged ? outcome.After.Damage - outcome.Before.Damage : 0,
@@ -54,7 +72,7 @@ public static class GodsEyeEvents
     public static void RecordActivity(NPC companion, long id, string name, string phase, string reason,
         long endedId, string endReason, ulong changedAt)
     {
-        if (!Active) return;
+        if (!Accepting()) return;
         int actor = Stable(npcGenerations, companion.whoAmI);
         string detail = $"activity-id={id};phase={phase};reason={reason};last-ended-id={endedId};last-end-reason={endReason};changed-at={changedAt}";
         string key = $"{actor}:{name}:{detail}";
@@ -67,7 +85,7 @@ public static class GodsEyeEvents
         string requestedOwner, string appliedOwner, string requestedControls, string appliedControls,
         string hand, Vector2 appliedVelocity, long motorApplications, long attemptId = 0)
     {
-        if (!Active) return;
+        if (!Accepting()) return;
         int actor = Stable(npcGenerations, companion.whoAmI);
         // IDs advance every tick. Emit ownership transitions here; the TSV retains every grant.
         string key = $"{actor}:{activityId}:{attemptId}:{activityPhase}:{requestedOwner}:{appliedOwner}:{hand}:{motorApplications}";
@@ -84,7 +102,7 @@ public static class GodsEyeEvents
         ulong startTick, ulong endTick, string status, string cause, int productiveEffects, string attribution,
         int claimedYieldType, int claimedYieldQuantity)
     {
-        if (!Active || attemptId <= lastAttemptRecorded) return;
+        if (!Accepting() || attemptId <= lastAttemptRecorded) return;
         lastAttemptRecorded = attemptId;
         // The channel carries attribution beside status wherever one applies, so a reader grouping
         // by channel cannot fold a shared or unattributed completion into the companion's own.
@@ -110,6 +128,9 @@ public static class GodsEyeEvents
         lastControlEvidence = null;
         lastAttemptRecorded = 0;
         cosmeticContacts = 0;
+        disabled = false;
+        Dropped = 0;
+        Coalesced = 0;
         // Main.GameUpdateCount can survive a prior world in a host process. It is never claimed as
         // this session's start tick; occurrence ticks remain useful only relative to one another.
         Write("session", 0, "", "", "", Vector2.Zero, Vector2.Zero, Vector2.Zero, 0, "schema=1;start-tick=unknown;capture=sparse-events;terrain=rolling-local-16x16-chunks;radius=3-chunks;nominal-scan=49-ticks;max-chunks-per-tick=2;unseen=unknown");
@@ -159,7 +180,7 @@ public static class GodsEyeEvents
             if (cosmeticContacts == 0) { cosmeticFirst = projectile.Center; cosmeticFirstTick = Main.GameUpdateCount; }
             cosmeticLast = projectile.Center;
             cosmeticContacts++;
-            if (cosmeticContacts >= 128) FlushCosmeticContacts();
+            if (cosmeticContacts >= CosmeticContactsPerSummary) FlushCosmeticContacts();
             return;
         }
         Write("projectile-" + outcome, outcome == "spawn" ? Next(projectileGenerations, projectile.whoAmI) : Stable(projectileGenerations, projectile.whoAmI), hit == null ? "" : Stable(npcGenerations, hit.whoAmI).ToString(CultureInfo.InvariantCulture), projectile.type.ToString(CultureInfo.InvariantCulture), $"owner={projectile.owner}", projectile.Center, projectile.velocity, Vector2.Zero, projectile.damage, "");
@@ -170,6 +191,7 @@ public static class GodsEyeEvents
         if (cosmeticContacts == 0) return;
         Write("projectile-terrain-contact-summary", 0, "", "cosmetic-glowstick", "coalesced", cosmeticLast, Vector2.Zero, cosmeticFirst, cosmeticContacts,
             $"first-tick={cosmeticFirstTick};first={cosmeticFirst.X:0.0},{cosmeticFirst.Y:0.0};last={cosmeticLast.X:0.0},{cosmeticLast.Y:0.0}");
+        Coalesced += cosmeticContacts;
         cosmeticContacts = 0;
     }
 
@@ -199,7 +221,7 @@ public static class GodsEyeEvents
         long comparison, string activity, string family, string request, int evidenceTick,
         float raw, float compared, Vector2? destination, string reason, string candidates)
     {
-        if (!Active) return;
+        if (!Accepting()) return;
         // This occurrence precedes activation and comparison completion. A missing later
         // decision remains missing; an admitted method is not a completed activity.
         Write("method-assessment", Stable(npcGenerations, companion.whoAmI),
@@ -248,7 +270,7 @@ public static class GodsEyeEvents
 
     private static void Write(string kind, int subject, string related, string label, string channel, Vector2 position, Vector2 velocity, Vector2 expected, int amount, string detail)
     {
-        if (writer == null) return;
+        if (!Accepting()) return;
         try
         {
             long tick = Main.GameUpdateCount; double elapsed = BrainTelemetry.ElapsedMilliseconds;
@@ -262,6 +284,7 @@ public static class GodsEyeEvents
     {
         var failed = writer;
         writer = null;
+        disabled = true;
         try { failed?.Dispose(); } catch (IOException) { }
         Terraria.ModLoader.ModContent.GetInstance<AICompanion>().Logger.Error($"GodsEyeEvents: recording stopped: {error.GetType().Name}: {error.Message}");
     }

@@ -45,8 +45,9 @@ public static class ChronicleTests
             IdentityChecksSkipOldAndPartialCapturesByName();
             MultiRunStatesProvenanceBeforeAnyRun();
             ACaptureStatesItsSourceAndWhetherItClosed();
+            RecordingStatesItsCostWhatItDroppedAndWhatItKeeps();
             IdentityRulesStillMatchTheProducer();
-            Console.WriteLine("Chronicle self-tests passed (28 assertion groups).");
+            Console.WriteLine("Chronicle self-tests passed (29 assertion groups).");
             return 0;
         }
         catch (Exception error)
@@ -1249,8 +1250,67 @@ public static class ChronicleTests
                 "the build no longer stamps the source revision and tree state the recorder reads");
             Require(telemetry.Contains("writer.WriteLine($\"# source_revision={SourceProvenance}\");", StringComparison.Ordinal)
                     && telemetry.Contains("$\"character;mining={Mining};chopping={Chopping};hunting=", StringComparison.Ordinal)
-                    && telemetry.Split("# end=").Length == 2 && telemetry.Contains("writer?.WriteLine($\"# end={reason};rows={rowsWritten}\");", StringComparison.Ordinal),
+                    && telemetry.Split("# end=").Length == 2 && telemetry.Contains("writer?.WriteLine($\"# end={reason};rows={rowsWritten};", StringComparison.Ordinal),
                 "the recorder's source line, configuration shape or single end-marker writer has changed");
+        }
+        finally { foreach (string file in files) File.Delete(file); }
+    }
+
+    /// <summary>
+    /// A 0.29.0 capture states what recording cost, what it did not keep and the bounds of what it keeps. The first row
+    /// carries no cost because a row cannot time its own write; any dropped occurrence is Potential and names the tick the
+    /// drops began, not the tick they were noticed; an older capture skips the check by naming a missing column and says
+    /// its cost is unrecorded rather than zero.
+    /// </summary>
+    private static void RecordingStatesItsCostWhatItDroppedAndWhatItKeeps()
+    {
+        var files = new System.Collections.Generic.List<string>();
+        try
+        {
+            const string header = "tick\twall_elapsed_ms\trecord_ms\tevents_written\tevents_dropped\tevents_coalesced\tterrain_evictions\n";
+            string Write(string schema, string rows, string columns = header, string retention = "")
+            {
+                string path = Path.GetTempFileName(); files.Add(path);
+                File.WriteAllText(path, $"# schema={schema}\n{retention}{columns}{rows}");
+                return path;
+            }
+            string Describe(Finding[] found) => found.Length == 0 ? " (nothing fired)" : " (fired: " + string.Join(" | ", found.Select(f => $"{f.Severity} {f.Title}")) + ")";
+
+            string healthy = Write("0.29.0", "1\t16\t-\t3\t0\t0\t0\n2\t32\t0.020\t4\t0\t128\t0\n3\t48\t0.040\t5\t0\t128\t1\n",
+                retention: "# retention=rows=one-per-companion-ai-tick;events=every-occurrence-offered;terrain-snapshots-remembered=8192\n");
+            Session session = Session.Load(healthy);
+            Require(session["record_ms"].Unparsed == 0, "the first row's absent cost was counted as an unparsed number");
+            Finding[] clean = new NoOccurrenceWasDropped().Run(session).ToArray();
+            Require(clean.Length == 0, "a capture that dropped nothing was reported" + Describe(clean));
+            string summary = DescribeSession.Of(session);
+            Require(summary.Contains("recording 0.020 p50, 0.020 p95, 0.040 max ms per row over 2 measured row(s); by the last row 5 occurrence(s) written, 0 dropped, 128 contact(s) coalesced, 1 terrain snapshot(s) evicted", StringComparison.Ordinal)
+                    && summary.Contains("retention rows=one-per-companion-ai-tick;events=every-occurrence-offered;terrain-snapshots-remembered=8192", StringComparison.Ordinal),
+                "the summary did not state recording cost over the measured rows only, the closing totals, or the retention statement: " + summary);
+
+            Finding[] dropped = new NoOccurrenceWasDropped().Run(Session.Load(Write("0.29.0", "1\t16\t-\t3\t0\t0\t0\n2\t32\t0.020\t4\t2\t0\t0\n3\t48\t0.040\t4\t7\t0\t0\n"))).ToArray();
+            Require(dropped.Length == 1 && dropped[0].Severity == Severity.Potential && dropped[0].Title == "the occurrence stream stopped: 7 occurrence(s) dropped from tick 2"
+                    && dropped[0].Detail.Contains("having written 4 record(s)", StringComparison.Ordinal),
+                "drops were not one Potential naming the closing count and the tick they began" + Describe(dropped));
+
+            string old = Write("0.28.0", "1\t16\n", columns: "tick\twall_elapsed_ms\n");
+            var (oldFindings, oldSkipped, _) = Program.Evaluate(Session.Load(old));
+            Require((oldSkipped.SingleOrDefault(s => s.Name == new NoOccurrenceWasDropped().Name).Missing ?? "").Contains("events_dropped", StringComparison.Ordinal)
+                    && !oldFindings.Any(f => f.Check == new NoOccurrenceWasDropped().Name),
+                "a capture older than loss counts was judged, or skipped without naming the column");
+            Require(DescribeSession.Of(Session.Load(old)).Contains("recording cost and loss counts unrecorded (written from schema 0.29.0)", StringComparison.Ordinal),
+                "an old capture's summary did not say its cost and loss are unrecorded");
+
+            // The producer literals these rules rest on.
+            string telemetry = File.ReadAllText(Path.Combine("Companion", "Brain", "BehaviourDiagnostics", "RecordBrainTelemetry.cs"));
+            string events = File.ReadAllText(Path.Combine("Companion", "Brain", "BehaviourDiagnostics", "RecordGodsEyeEvents.cs"));
+            Require(telemetry.IndexOf("recordClock.Restart();", StringComparison.Ordinal) > telemetry.IndexOf("public static void Record(CompanionNPC companion)", StringComparison.Ordinal)
+                    && telemetry.Contains("lastRecordMs = recordClock.Elapsed.TotalMilliseconds;", StringComparison.Ordinal)
+                    && telemetry.Contains("\\trecord_ms\\tevents_written\\tevents_dropped\\tevents_coalesced\\tterrain_evictions", StringComparison.Ordinal)
+                    && telemetry.Contains("events-dropped={GodsEyeEvents.Dropped}", StringComparison.Ordinal) && telemetry.Contains("# retention=", StringComparison.Ordinal),
+                "the recorder no longer times Record, writes the loss columns in order, restates them on closure, or states its retention");
+            Require(events.Contains("if (!Accepting()) return;", StringComparison.Ordinal) && !events.Contains("if (!Active) return;", StringComparison.Ordinal)
+                    && events.Contains("disabled = true;", StringComparison.Ordinal) && events.Contains("Coalesced += cosmeticContacts;", StringComparison.Ordinal),
+                "an occurrence producer bypasses the drop count, or a stopped stream or coalesced contact is no longer counted");
         }
         finally { foreach (string file in files) File.Delete(file); }
     }

@@ -9,7 +9,7 @@ public static class BrainInspectorSamples
 {
     public readonly record struct Reflex(ulong Tick, int UnsafeTick, BodyState Body);
     public readonly record struct Aim(ulong Tick, Vector2 Muzzle, Vector2 Target, string Weapon, Vector2? Launch, string Outcome);
-    private const int Capacity = 8;
+    internal const int Capacity = 8;
     public readonly record struct Trace(ulong Tick, Vector2[] Points, bool Accepted, string Reason);
     public static readonly System.Collections.Generic.Queue<Trace> AimTraces = new();
     public static readonly System.Collections.Generic.Queue<Trace> MovementTraces = new();

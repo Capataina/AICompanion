@@ -31,7 +31,7 @@ public sealed class OwnCurrentActivity
     /// attempt, then recovery interrupting the next) both reach the recorder.</summary>
     public IReadOnlyList<AttemptOutcome> RecentAttempts => recent;
     private readonly List<AttemptOutcome> recent = new();
-    private const int RecentAttemptCapacity = 16;
+    internal const int RecentAttemptCapacity = 16;
     private long nextId;
     // Process-wide rather than per owner: a respawned companion builds a new brain, and a recorder
     // cursor that has already written this session's attempts must never see those ids again.
