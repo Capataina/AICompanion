@@ -59,29 +59,27 @@ public sealed class KeepCompany : CompanionAction
         var p = ctx.Senses.Player;
         if (p.IsDead)
             return 0f;
-        Vector2 ahead = p.Predict(45);
-        float gap = Vector2.Distance(ctx.Npc.Bottom, ahead);
+        Vector2 ahead = ctx.Companion.Brain.Meeting.Anchor;
+        if (ahead == Vector2.Zero) ahead = p.Bottom;
+        var objective = new FollowPlayerObjective(p.Bottom, ahead);
         float hardLeash = Consideration.Step(ctx.Senses.DistanceToPlayer > Weights.LeashHard, 1f, 0f);
-        // A proven sealed pocket changes the available method, not the companion's purpose.
-        // The coordinator periodically retries reunion rather than forgetting it forever.
         float stranded = ctx.Stranded ? Weights.StrandedFollowDiscount : 1f;
         float regroup = ctx.Companion.Brain.Chooser.RegroupUrgency;
-        var objective = new FollowPlayerObjective(p.Bottom, ahead);
-        float horizontalRatio = objective.HorizontalGap(ctx.Npc.Bottom) / objective.HorizontalComfort;
-        float verticalRatio = objective.VerticalGap(ctx.Npc.Bottom) / objective.VerticalComfort;
-        float objectiveRatio = MathF.Max(horizontalRatio, verticalRatio);
-        float objectiveMiss = objectiveRatio > 1f
-            ? Consideration.AtLeast(Consideration.Rising(objectiveRatio - 1f, 3f), 0.3f)
-            : 0f;
-        if (!global::AICompanion.Companion.Brain.Infrastructure.Observation.LineOfSight.Between(ctx.Npc, ctx.Player))
-            objectiveMiss = MathF.Max(objectiveMiss, 0.3f);
-        if (p.IsTravelling)
-            return MathF.Max(objectiveMiss, MathF.Max(regroup, MathF.Max(Consideration.AtLeast(Consideration.Rising(gap, Weights.FollowIntentDistance * 2f), 0.3f), hardLeash))) * stranded;
-
-        // Standing player: only worth acting on when the companion has drifted well out of the
-        // comfort region. Local occlusion still requires following even inside its axis limits.
-        float drifted = Consideration.Rising(ctx.Senses.DistanceToPlayer - Weights.CalmBandFar, 400f) * 0.6f;
-        return MathF.Max(objectiveMiss, MathF.Max(regroup, MathF.Max(drifted, hardLeash))) * stranded;
+        bool seen = global::AICompanion.Companion.Brain.Infrastructure.Observation.LineOfSight.Between(ctx.Npc, ctx.Player);
+        bool blocking = p.Interference is Rectangle footprint
+            && PlayerSense.BodyTiles(ctx.Npc.Bottom, ctx.Npc.width, ctx.Npc.height).Intersects(footprint);
+        bool inside = !blocking && objective.IsSatisfied(ctx.Npc.Bottom, seen);
+        float inner = MathF.Max(objective.HorizontalComfort, objective.VerticalComfort);
+        float outer = MathF.Max(inner + 1f, PlayerIntegration.CompanionPreferences.Current.RecoveryRadius);
+        float pull = inside ? 0f : Consideration.Rising(ctx.Senses.DistanceToPlayer - inner, outer - inner);
+        if (!seen)
+            pull = MathF.Max(pull, 0.3f);
+        // Occupying a passage the player is walking is not "already with them": the slope from the
+        // comfort box stays at zero while they overlap, and resting would park in the way. A still
+        // player aiming a block is the other courtesy, and that one steps aside without a reunion.
+        if (blocking && p.IsTravelling)
+            pull = MathF.Max(pull, 0.3f);
+        return MathF.Max(pull, MathF.Max(regroup, hardLeash)) * stranded;
     }
 
     public override PositionRequest Execute(in ActionContext ctx)
@@ -96,8 +94,8 @@ public sealed class KeepCompany : CompanionAction
             // routes reach, not at a point extrapolated from velocity; a paused or working player
             // is met where they stand.
             var meeting = ctx.Companion.Brain.Meeting;
-            Vector2 anchor = meeting.Resolve(ctx.Npc.Bottom, p, Main.GameUpdateCount);
-            return new PositionRequest(RequestKind.WithPlayer, anchor, MeetingPlace: meeting.HasPlace);
+            meeting.Resolve(ctx.Npc.Bottom, p, Main.GameUpdateCount);
+            return new PositionRequest(RequestKind.WithPlayer, meeting.Destination, MeetingPlace: meeting.HasPlace);
         }
         ctx.Companion.Brain.Meeting.Release();
         if (ctx.Stranded) return new PositionRequest(RequestKind.Roam, ctx.Npc.Bottom);

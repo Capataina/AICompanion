@@ -23,7 +23,7 @@ internal static class VerifyFollowRecoveryAndProtection
     private static int RunWithPlanningLifted()
     {
         var recovery = new Recovery();
-        Vector2 start = new(100, 400), goal = new(1400, 400);
+        Vector2 start = new(100, 400), goal = new(2200, 400);
         Require(!recovery.Update(false, false, true, start, goal, true), "non-follow actions cannot start recovery");
         Require(!recovery.Update(true, true, true, start, goal, true), "downed cannot start recovery");
         Require(!recovery.Update(true, false, false, start, goal, true), "dead owner cannot start recovery");
@@ -60,6 +60,10 @@ internal static class VerifyFollowRecoveryAndProtection
 
     private static void VerifyRecoveryAdmissionUsesReunionPurpose()
     {
+        Main.tile = (Tilemap)Activator.CreateInstance(typeof(Tilemap), System.Reflection.BindingFlags.Instance
+            | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic,
+            null, new object[] { (ushort)200, (ushort)100 }, null)!;
+        TerrainChanges.Reset();
         foreach (var kind in new[] { live::AICompanion.Companion.Brain.Infrastructure.Position.RequestKind.WithPlayer,
             live::AICompanion.Companion.Brain.Infrastructure.Position.RequestKind.Exact,
             live::AICompanion.Companion.Brain.Infrastructure.Position.RequestKind.Guard,
@@ -67,7 +71,7 @@ internal static class VerifyFollowRecoveryAndProtection
         {
             var companion = VerifyCompanionLifecycle.Create();
             Main.LocalPlayer.dead = false;
-            Main.LocalPlayer.Bottom = new Vector2(1400, 1200);
+            Main.LocalPlayer.Bottom = new Vector2(2200, 1200);
             companion.NPC.Bottom = new Vector2(100, 1200);
             companion.Brain.Chooser.Actions.Clear();
             companion.Brain.Chooser.Actions.Add(new RequestedPurpose(kind));
@@ -175,11 +179,11 @@ internal static class VerifyFollowRecoveryAndProtection
     {
         Main.tile = (Tilemap)Activator.CreateInstance(typeof(Tilemap), System.Reflection.BindingFlags.Instance
             | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic,
-            null, new object[] { (ushort)100, (ushort)100 }, null)!;
+            null, new object[] { (ushort)200, (ushort)100 }, null)!;
         TerrainChanges.Reset();
         var companion = VerifyCompanionLifecycle.Create();
         Main.player[0].dead = false;
-        Main.player[0].Bottom = new Vector2(1400, 1200);
+        Main.player[0].Bottom = new Vector2(2200, 1200);
         companion.NPC.Bottom = new Vector2(100, 1200);
         var memory = live::AICompanion.Companion.Brain.Infrastructure.Movement.RememberExecutedRoutes.World;
         memory.Clear();

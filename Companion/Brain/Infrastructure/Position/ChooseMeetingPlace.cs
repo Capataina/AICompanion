@@ -39,6 +39,8 @@ public sealed class ChooseMeetingPlace
     private Point? chosen;
 
     public Vector2 Anchor { get; private set; }
+    /// <summary>The standable place reunion is walking to this tick, without the overlay lerp. Walking at the published box would trail a moving meeting place.</summary>
+    public Vector2 Destination { get; private set; }
     /// <summary>The anchor is a priced place on the journey rather than the player's current feet.</summary>
     public bool HasPlace => chosen != null;
     public string Reason { get; private set; } = "not-reuniting";
@@ -74,13 +76,23 @@ public sealed class ChooseMeetingPlace
         candidates.Clear();
         Priced = 0;
         PlayerTicks = CompanionTicks = float.NaN;
+        if (Anchor == Vector2.Zero)
+            Anchor = player.Bottom;
         if (player.IsDead || !player.IsTravelling)
         {
-            string reason = player.IsDead ? "player-dead" : "player-not-travelling";
-            Release();
-            Reason = reason;
-            Anchor = player.Bottom;
-            return Anchor;
+            search?.Dispose();
+            search = null;
+            chosen = null;
+            candidates.Clear();
+            Priced = 0;
+            PlayerTicks = CompanionTicks = float.NaN;
+            Reason = player.IsDead ? "player-dead" : "player-not-travelling";
+            Vector2 home = player.Bottom;
+            Destination = home;
+            Anchor = player.IsDead || Vector2.DistanceSquared(Anchor, home) < 64f
+                ? home
+                : Vector2.Lerp(Anchor, home, Weights.MeetingAnchorLerp);
+            return Destination;
         }
 
         // Route times are measured from the flood's root. An unfinished flood keeps expanding while the body
@@ -121,7 +133,7 @@ public sealed class ChooseMeetingPlace
             candidates.Add(candidate);
             if (candidate.CompanionTicks == null) continue;
             Priced++;
-            if (best is not Candidate leader || candidate.Cost < leader.Cost) best = candidate;
+            if (best is not Candidate leader || Cheaper(candidate, leader)) best = candidate;
         }
 
         Candidate? incumbent = null;
@@ -147,10 +159,11 @@ public sealed class ChooseMeetingPlace
             Reason = "retained-while-undecided";
         }
 
+        Vector2 target;
         if (decision is Candidate place)
         {
             chosen = place.Tile;
-            Anchor = MovementQueries.FeetWorld(place.Tile);
+            target = MovementQueries.FeetWorld(place.Tile);
             PlayerTicks = place.PlayerTicks;
             CompanionTicks = place.CompanionTicks ?? float.NaN;
         }
@@ -160,10 +173,22 @@ public sealed class ChooseMeetingPlace
             // aiming at the player's current feet instead trailed a travelling player for as long as a large
             // cave's flood took to finish, which was most of the time.
             chosen = null;
-            Anchor = player.Predict(Weights.MeetingFallbackLeadTicks);
+            target = player.Predict(Weights.MeetingFallbackLeadTicks);
             Reason = settled && best == null ? "no-reachable-meeting-place" : "meeting-undecided";
         }
-        return Anchor;
+        Destination = target;
+        Anchor = Vector2.Lerp(Anchor, target, Weights.MeetingAnchorLerp);
+        return Destination;
+    }
+
+    /// <summary>Equal cost prefers the place that still sits ahead of the player, so the published box does not rest on their toes when a later step on the same floor is just as cheap.</summary>
+    private static bool Cheaper(Candidate candidate, Candidate leader)
+    {
+        if (candidate.Cost < leader.Cost) return true;
+        if (candidate.Cost > leader.Cost) return false;
+        bool candidateAhead = candidate.PlayerTicks >= Weights.MeetingMinLeadTicks;
+        bool leaderAhead = leader.PlayerTicks >= Weights.MeetingMinLeadTicks;
+        return candidateAhead && !leaderAhead;
     }
 
     private Candidate Price(Point tile, float playerTicks, float confidence, float latePenalty)

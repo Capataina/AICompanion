@@ -3,7 +3,6 @@
 using FindToolAccess = AICompanion.Companion.Brain.Infrastructure.Interactions.FindToolAccess;
 using System.Collections.Generic;
 using AICompanion.Companion.Brain.Activities;
-using AICompanion.Companion.Brain.Activities;
 using Microsoft.Xna.Framework;
 using Terraria;
 using Terraria.ID;
@@ -300,6 +299,8 @@ public sealed class MineOre : CompanionAction
     private Vector2 unprovenOrigin;
     private int unprovenTicks;
     private ulong? approachAbandonedAt;
+    private Point? refusedUnproven;
+    private int refusedRevision;
 
     /// <summary>
     /// What mining is worth while the approach search has declined to answer. It used to be worth
@@ -355,6 +356,9 @@ public sealed class MineOre : CompanionAction
         {
             // Walking has stopped resolving it. Give the tick back rather than lean on the ore.
             unproven = null;
+            refusedUnproven = pending;
+            refusedRevision = Infrastructure.Movement.TerrainChanges.Revision;
+            unresolvedCandidate = null;
             approachAbandonedAt = Main.GameUpdateCount;
             attemptSetback = (AttemptStatus.Failed, "unproven-ore-approach-made-no-progress");
             return 0f;
@@ -385,6 +389,8 @@ public sealed class MineOre : CompanionAction
                 NearestTile(ctx.Npc.Bottom, byPlayer.UnresolvedTile, byCompanion.UnresolvedTile));
         }
         unresolvedCandidate = result.UnresolvedTile;
+        if (unresolvedCandidate is Point same && refusedUnproven == same && Infrastructure.Movement.TerrainChanges.Revision == refusedRevision)
+            unresolvedCandidate = null;
         OreFinder.OreTarget? found = result.Target;
         if (found is OreFinder.OreTarget f)
         {
@@ -397,7 +403,7 @@ public sealed class MineOre : CompanionAction
             status = f.Hop ? "approaching take-off" : "approaching";
         }
         else if (result.ApproachUnknown)
-            status = "approach unknown";
+            status = unresolvedCandidate == null ? "no reachable ore" : "approach unknown";
         else
         {
             // Search once without the tool predicate only after every mineable candidate was

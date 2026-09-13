@@ -18,8 +18,22 @@ public sealed class CreateCombatSpace
     public bool NeedsResponse(in ActionContext ctx)
     {
         Exposure = Positioner.PredictedExposureAt(ctx.Npc.Bottom, ctx.Senses);
-        return ctx.Senses.Threats.CompanionInTrouble && Exposure > Weights.CombatSpaceExposure
+        return ctx.Senses.Threats.CompanionInTrouble && Connecting(ctx) && Exposure > Weights.CombatSpaceExposure
             && Terraria.Main.GameUpdateCount >= retryAfter;
+    }
+
+    /// <summary>Spacing is for something that will land, not for a hopper ten tiles away. A predicted overlap, or a proven reach arriving inside CombatSpaceConnectTicks, counts; mere Inverse(160px) proximity does not.</summary>
+    private static bool Connecting(in ActionContext ctx)
+    {
+        foreach (var threat in ctx.Senses.Threats.Threats)
+        {
+            for (int tick = 0; tick <= (int)Weights.CombatSpaceConnectTicks; tick += 10)
+                if (threat.PredictedHitbox(tick).Intersects(ctx.Npc.Hitbox))
+                    return true;
+            if (threat.CanReachCompanion && threat.TicksToCompanion <= Weights.CombatSpaceConnectTicks)
+                return true;
+        }
+        return false;
     }
 
     public bool IsSatisfied(in ActionContext ctx)

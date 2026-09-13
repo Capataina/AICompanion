@@ -153,10 +153,10 @@ internal static class VerifyResponsiveFollowing
 
     private static void VerifyArrivalSlackCannotStrandFollowing()
     {
-        // Captured run: the destination was 190 pixels from the owner, but stopping twelve
-        // pixels short left the body outside the 192-pixel follow region indefinitely.
+        // A destination inside the comfort box but inside the navigator's stopping radius of its
+        // edge must not be admitted, or the body stops short and following never satisfies.
         var objective = new FollowPlayerObjective(new Vector2(500, 1280), new Vector2(500, 1280));
-        Require(!objective.AcceptsDestination(new Vector2(690, 1280), true),
+        Require(!objective.AcceptsDestination(new Vector2(500 + objective.HorizontalComfort - 6f, 1280), true),
             "follow destination must reserve the navigator's stopping radius");
         BuildFloor();
         var companion = VerifyCompanionLifecycle.Create();
@@ -331,7 +331,7 @@ internal static class VerifyResponsiveFollowing
             meeting.Resolve(companion.NPC.Bottom, companion.Brain.Senses.Player, Main.GameUpdateCount + (ulong)i);
             if (meeting.Reason is not ("meeting-undecided" or "retained-while-undecided")) break;
         }
-        return (meeting.Anchor, meeting.Reason, player.Bottom.X);
+        return (meeting.Destination, meeting.Reason, player.Bottom.X);
     }
 
     /// <summary>
@@ -382,7 +382,8 @@ internal static class VerifyResponsiveFollowing
                 if (decidedAt < 0 && meeting.Reason is "meeting-ahead-priced" or "player-position-priced")
                 {
                     decidedAt = tick; decision = meeting.Reason;
-                    anchorX = meeting.Anchor.X; playerX = player.Bottom.X; startX = companion.NPC.Bottom.X;                }
+                    anchorX = meeting.Destination.X; playerX = player.Bottom.X; startX = companion.NPC.Bottom.X;
+                }
                 if (decidedAt >= 0 && tick == decidedAt + 60) moved = companion.NPC.Bottom.X - startX;
                 arrived = new FollowPlayerObjective(player.Bottom, player.Bottom).IsSatisfied(companion.NPC.Bottom,
                     Collision.CanHitLine(companion.NPC.position, companion.NPC.width, companion.NPC.height,

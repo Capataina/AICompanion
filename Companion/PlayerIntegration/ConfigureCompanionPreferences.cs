@@ -31,10 +31,9 @@ public sealed class CompanionPreferences
     public bool TorchPlacement { get; set; } = true;
     public CompanionDistanceMode DistanceMode { get; set; } = CompanionDistanceMode.Standard;
 
-    private float RecoveryBase => Weights.FollowRecoveryDistance;
-    public float NewActivityRadius => RecoveryBase * (DistanceMode == CompanionDistanceMode.Close ? .5f : DistanceFactor);
-    public float RecoveryRadius => RecoveryBase * DistanceFactor;
-    public float ActiveActivityRadius => RecoveryRadius * Weights.ActivityContinuationFactor;
+    public float NewActivityRadius => Weights.FollowWorkRadius * (DistanceMode == CompanionDistanceMode.Close ? .5f : DistanceFactor);
+    public float RecoveryRadius => Weights.FollowRecoveryDistance * DistanceFactor;
+    public float ActiveActivityRadius => Weights.FollowWorkRadius * DistanceFactor * Weights.ActivityContinuationFactor;
     public float FollowComfortScale => DistanceMode switch
     {
         CompanionDistanceMode.Close => .75f,

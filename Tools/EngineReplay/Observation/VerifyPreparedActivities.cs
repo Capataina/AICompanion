@@ -72,7 +72,7 @@ internal static class VerifyPreparedActivities
                 float horizon = duration > varied.ThreatHorizonTicks ? Math.Max(0, 1 - (duration - varied.ThreatHorizonTicks) / varied.HorizonOverrunTicks) : 1;
                 return c.RawValue * protection * commitment * horizon;
             }).ToArray();
-            bool useful = candidates.Any(c => c.IsExcursion && c.HasTarget && expected[c.Index] > .1f);
+            bool useful = candidates.Any(c => !c.IsFollowing && c.HasTarget && expected[c.Index] > .1f);
             if (useful && varied.WithinActivityAllowance) expected[10] *= varied.FollowDuringUsefulWork;
             var actual = Evaluator.Evaluate(candidates, varied);
             Require(actual.All(c => c.Error.Length == 0 && c.Final == expected[c.Index]), "prepared comparison diverged from the valid-domain reference");

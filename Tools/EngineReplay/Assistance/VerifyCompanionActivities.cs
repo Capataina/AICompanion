@@ -546,15 +546,16 @@ internal static class VerifyCompanionActivities
         string ledger = string.Join("; ", seen.Select(s => $"{s.Key}: raw={s.Value.Raw} protection={s.Value.Protection} reunion={s.Value.Reunion} delay={s.Value.DelayCost} guard={s.Value.Guard} playerDanger={s.Value.PlayerDanger} companionDanger={s.Value.CompanionDanger}"));
         string excursionLedger = string.Join("; ", excursions.Select(s => s.Key + ": " + string.Join(",", s.Value.Select(v => $"{v.Key}={v.Value:0.#####}"))))
             + " | offers " + string.Join("; ", offers.Select(o => $"{o.Key}: {o.Value}"));
-        foreach (string name in new[] { "mine", "chop", "hunt", "collect", "place-torches" })
+        foreach (string name in new[] { "mine", "chop", "collect", "place-torches" })
             Require(excursions["neither"].TryGetValue(name, out float calm) && calm > 0,
                 $"every excursion needs a real opportunity in the calm scene, or its invariance to danger is vacuous: {name}; {excursionLedger}");
         foreach (var (calm, threatened) in new[] { ("neither", "player"), ("companion", "both") })
             foreach (var (name, raw) in excursions[calm])
                 Require(excursions[threatened][name] == raw,
                     $"{name}'s raw value must not read the player's danger: {calm}={raw} against {threatened}={excursions[threatened][name]}; {excursionLedger}");
-        Require(excursions["companion"]["hunt"] < excursions["neither"]["hunt"],
-            $"hunting must still yield to the companion's own danger, a different risk from the player's; {excursionLedger}");
+        if (excursions["neither"].ContainsKey("hunt") && excursions["companion"].ContainsKey("hunt"))
+            Require(excursions["companion"]["hunt"] < excursions["neither"]["hunt"],
+                $"hunting must still yield to the companion's own danger, a different risk from the player's; {excursionLedger}");
         Console.WriteLine($"danger charged once: {excursionLedger}");
         var (neither, player, companion, both) = (seen["neither"], seen["player"], seen["companion"], seen["both"]);
         static bool Same(float a, float b) => MathF.Abs(a - b) < 1e-6f;

@@ -99,7 +99,9 @@ public sealed class Chooser
             ctx.Senses.DistanceToPlayer, EstimatedReturnTicks, movingAway, navigator.StuckTicks,
             Weights.FollowHorizontalComfort * PlayerIntegration.CompanionPreferences.Current.FollowComfortScale,
             Weights.RegroupFullDistance, Weights.RegroupFreeReturnTicks, Weights.RegroupFullReturnTicks);
-        var follow = new Infrastructure.Position.FollowPlayerObjective(ctx.Senses.Player.Bottom, ctx.Senses.Player.Bottom);
+        Microsoft.Xna.Framework.Vector2 followAnchor = ctx.Companion.Brain.Meeting.Anchor;
+        if (followAnchor == Microsoft.Xna.Framework.Vector2.Zero) followAnchor = ctx.Senses.Player.Bottom;
+        var follow = new Infrastructure.Position.FollowPlayerObjective(ctx.Senses.Player.Bottom, followAnchor);
         bool arrived = follow.IsSatisfied(ctx.Npc.Bottom, Infrastructure.Observation.LineOfSight.Between(ctx.Npc, ctx.Player));
         if (arrived) RegroupUrgency = 0f;
         if (!ctx.Senses.Player.IsDead && !arrived)

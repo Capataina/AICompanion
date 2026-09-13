@@ -59,6 +59,14 @@ public static class Weights
     public const float MeetingChaseCeiling = 20f;
     public const float MeetingUncertaintyCost = 1f;
     public const float MeetingSwitchMargin = .15f;
+    /// <summary>How quickly the published meeting place moves toward its target, as a fraction of the remaining gap per tick. Small enough that a brief reverse does not teleport the ahead-box.</summary>
+    public const float MeetingAnchorLerp = .08f;
+    /// <summary>While travelling, prefer a meeting place at least this far ahead so the ahead-box sits off the player's toes.</summary>
+    public const float MeetingMinLeadTicks = 20f;
+    /// <summary>The ahead comfort box grows with how far the meeting place sits from the player, from none beside them up to this extra share at MeetingBoxGrowthDistance.</summary>
+    public const float MeetingBoxGrowth = .15f;
+    /// <summary>Distance at which the ahead-box reaches its full extra size, in px. The meeting ladder's far step at walk speed.</summary>
+    public const float MeetingBoxGrowthDistance = 840f;
     public const int MeetingRerootTicks = 30;
     public const double MeetingSearchMilliseconds = 1d;
     // Until a finished flood prices a place, reunion aims at the player's travel continued this far: the
@@ -77,8 +85,12 @@ public static class Weights
     public const int LightSiteRadiusTiles = 5;
     public const int LightSiteMinimumSamples = 4;
     public const float CarriedLightRadiusTiles = 10f;
+    // How far a new job may sit from the player. Kept independent of fly-home so raising recovery
+    // does not silently enlarge every work allowance past the worlds the fixtures fit in.
+    public const float FollowWorkRadius = 1120f;
     // Recovery is a following fallback, not a traversal available to route search or mastery.
-    public const float FollowRecoveryDistance = CalmBandFar * 2f;
+    // 120 tiles: enough room to hunt and work nearby without the far-follow flight cutting it short.
+    public const float FollowRecoveryDistance = 1920f;
     public const float FollowRecoveryArrival = 80f;
     public const float FollowRecoverySpeed = 12f;
     public const float FollowRecoveryAcceleration = 0.45f;
@@ -113,8 +125,8 @@ public static class Weights
     /// wandering and excursions; using it as ordinary follow comfort kept the companion a screen
     /// away even on an unobstructed floor.
     /// </summary>
-    public const float FollowHorizontalComfort = 192f;
-    public const float FollowVerticalComfort = 64f;
+    public const float FollowHorizontalComfort = 240f;
+    public const float FollowVerticalComfort = 96f;
 
     /// <summary>
     /// The band when the player is in danger. It is wider than the calm band's near edge rather
@@ -141,7 +153,11 @@ public static class Weights
     public const float StandoffFar = 520f;
 
     /// <summary>Beyond this the companion drops everything and comes back, whatever else is going on.</summary>
-    public const float LeashHard = 1400f;
+    public const float LeashHard = FollowRecoveryDistance;
+
+    /// <summary>Live walk and jump as a share of the player's current stats, so a buffed player can still be overtaken without predicting their next tile. The motor never goes slower than the body's nominal walk and jump.</summary>
+    public const float CompanionWalkPace = 1.10f;
+    public const float CompanionJumpPace = 1.05f;
 
     /// <summary>
     /// How far the companion may stray before hunting starts losing value, and how much further
@@ -211,6 +227,9 @@ public static class Weights
     /// <summary>Hunt: how far beyond the screen a target is still worth chasing.</summary>
     public const float HuntReach = 1100f;
 
+    /// <summary>Combat-space only starts when a predicted hit overlaps or a proven reach arrives inside this many ticks. Proximity inside ten tiles is not enough.</summary>
+    public const float CombatSpaceConnectTicks = 120f;
+
     /// <summary>Residual geometric enemy exposure accepted at a stable retreat landing.</summary>
     public const float CombatSpaceExposure = .1f;
     /// <summary>Converts geometric exposure into distance-like body-search guidance.</summary>
@@ -250,6 +269,9 @@ public static class Weights
     /// ordinary work outscore a hunt that would first have to cross the room.
     /// </summary>
     public const float HuntRepositionShot = .7f;
+
+    /// <summary>A hunt whose remaining trip is this short is local work, not an outing: it does not pay the reunion charge a long chase does.</summary>
+    public const float HuntLocalTripTicks = 120f;
 
     /// <summary>
     /// Hunt: what a target is worth while nothing has established whether a firing position exists —

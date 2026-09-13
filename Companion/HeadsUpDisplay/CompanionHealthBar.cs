@@ -235,7 +235,9 @@ public class CompanionHealthBar : ModSystem
         int pillH = Math.Max(4, (int)(8 * scale));
         Rectangle track = new(box.X + pad, box.Bottom - pad - pillH, box.Width - 2 * pad, pillH);
         sb.Draw(RoundedMask(track.Width, track.Height, track.Height / 2, corners: 0b1111), track, Track);
-        float fraction = npc.lifeMax > 0 ? MathHelper.Clamp(npc.life / (float)npc.lifeMax, 0f, 1f) : 0f;
+        float fraction = companion.IsDowned
+            ? MathHelper.Clamp(companion.RevivePercent / 100f, 0f, 1f)
+            : npc.lifeMax > 0 ? MathHelper.Clamp(npc.life / (float)npc.lifeMax, 0f, 1f) : 0f;
         int fillW = (int)(track.Width * fraction);
         if (fillW >= pillH)
         {

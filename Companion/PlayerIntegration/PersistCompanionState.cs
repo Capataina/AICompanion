@@ -8,6 +8,7 @@ using Terraria.ModLoader;
 using Terraria.ModLoader.IO;
 using AICompanion.Companion.Brain.Infrastructure.Diagnostics;
 using AICompanion.Companion.CharacterBody;
+using AICompanion.Companion.DiagnosticsConfiguration;
 using AICompanion.Companion.Inventory;
 
 namespace AICompanion.Companion.PlayerIntegration;
@@ -31,12 +32,7 @@ public partial class CompanionPlayer : ModPlayer
     /// <summary>The saved choices currently backing <see cref="CompanionPreferences.Current"/>.</summary>
     public CompanionPreferences Preferences { get; private set; } = new();
 
-    /// <summary>
-    /// Which diagnostic drawings this character had switched on, or null for a character that has
-    /// never touched them — which keeps <see cref="BrainOverlay"/>'s own defaults rather than
-    /// reading an absent tag as every layer off.
-    /// </summary>
-    private int? overlayLayers;
+
 
     public override void SaveData(TagCompound tag)
     {
@@ -71,7 +67,7 @@ public partial class CompanionPlayer : ModPlayer
             // loading; defaults preserve the behaviour those saves had before settings existed.
             Preferences = new CompanionPreferences();
         }
-        overlayLayers = tag.ContainsKey("overlayLayers") ? tag.GetInt("overlayLayers") : null;
+
     }
 
     public override void OnEnterWorld()
@@ -79,8 +75,9 @@ public partial class CompanionPlayer : ModPlayer
         // The static work-policy readers are evaluated by the brain after spawning. Point them
         // at this character before that happens so changing worlds cannot use another save's UI.
         CompanionPreferences.Current = Preferences;
-        if (overlayLayers is int layers)
-            BrainOverlay.Layers = layers;
+        CompanionDiagnosticsConfig.Current.EnableBrainInspector = true;
+        CompanionDiagnosticsConfig.Current.RecordTelemetry = true;
+        BrainOverlay.Layers = BrainOverlay.AllLayers;
         bool spawned = false;
         if (HasCompanion && CompanionNPC.Find() == null)
             spawned = CompanionNPC.Spawn(Player) < Main.maxNPCs;

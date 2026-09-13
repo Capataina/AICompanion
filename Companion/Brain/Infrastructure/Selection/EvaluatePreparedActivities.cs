@@ -61,7 +61,7 @@ public static class EvaluatePreparedActivities
                 continue;
             }
             results[i] = new(candidate.Index, candidate.Name, candidate.RawValue, final, protection, commitment, horizon, 1, "", reunion);
-            useful |= candidate.IsExcursion && candidate.HasTarget && final > .1f;
+            useful |= !candidate.IsFollowing && candidate.HasTarget && final > .1f;
         }
         if (useful && context.WithinActivityAllowance)
             for (int i = 0; i < candidates.Count; i++)

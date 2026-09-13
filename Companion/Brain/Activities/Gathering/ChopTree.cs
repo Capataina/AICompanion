@@ -4,7 +4,6 @@ using Microsoft.Xna.Framework;
 using Terraria;
 using Terraria.ID;
 using AICompanion.Companion.Brain.Activities;
-using AICompanion.Companion.Brain.Activities;
 using AICompanion.Companion.Brain.Infrastructure.Selection;
 using AICompanion.Companion.Brain.Infrastructure.Position;
 using AICompanion.Companion.Brain.Infrastructure.Movement;

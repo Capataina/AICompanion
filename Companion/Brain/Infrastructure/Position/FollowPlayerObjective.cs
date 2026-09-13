@@ -18,6 +18,11 @@ public readonly record struct FollowPlayerObjective(Vector2 PlayerFeet, Vector2 
 {
     public float HorizontalComfort => Weights.FollowHorizontalComfort * PlayerIntegration.CompanionPreferences.Current.FollowComfortScale;
     public float VerticalComfort => Weights.FollowVerticalComfort * PlayerIntegration.CompanionPreferences.Current.FollowComfortScale;
+    /// <summary>The ahead-box grows with how far the meeting place sits from the player, from none beside them up to MeetingBoxGrowth at MeetingBoxGrowthDistance.</summary>
+    public float AheadGrowth => 1f + Weights.MeetingBoxGrowth * MathF.Min(1f,
+        Vector2.Distance(PlayerFeet, PredictedFeet) / MathF.Max(1f, Weights.MeetingBoxGrowthDistance));
+    public float AnchorHorizontalComfort => HorizontalComfort * AheadGrowth;
+    public float AnchorVerticalComfort => VerticalComfort * AheadGrowth;
 
     public float HorizontalGap(Vector2 feet) => MathF.Abs(feet.X - PlayerFeet.X);
     public float VerticalGap(Vector2 feet) => MathF.Abs(feet.Y - PlayerFeet.Y);
@@ -33,8 +38,10 @@ public readonly record struct FollowPlayerObjective(Vector2 PlayerFeet, Vector2 
         // so reaching a legal destination cannot leave the original follow request unsatisfied.
         float horizontal = MathF.Max(0f, HorizontalComfort - Infrastructure.Movement.Navigator.ArriveDistance);
         float vertical = MathF.Max(0f, VerticalComfort - Infrastructure.Movement.Navigator.ArriveDistance);
-        bool nearPrediction = MathF.Abs(feet.X - PredictedFeet.X) <= horizontal
-            && MathF.Abs(feet.Y - PredictedFeet.Y) <= vertical;
+        float aheadH = MathF.Max(0f, AnchorHorizontalComfort - Infrastructure.Movement.Navigator.ArriveDistance);
+        float aheadV = MathF.Max(0f, AnchorVerticalComfort - Infrastructure.Movement.Navigator.ArriveDistance);
+        bool nearPrediction = MathF.Abs(feet.X - PredictedFeet.X) <= aheadH
+            && MathF.Abs(feet.Y - PredictedFeet.Y) <= aheadV;
         bool nearPlayer = HorizontalGap(feet) <= horizontal && VerticalGap(feet) <= vertical;
         return locallyConnected && (nearPrediction || nearPlayer);
     }

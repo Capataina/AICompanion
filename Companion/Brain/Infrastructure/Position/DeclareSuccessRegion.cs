@@ -40,7 +40,9 @@ public readonly record struct SuccessRegion(SuccessRegionKind Kind, int Admitted
 
     public static SuccessRegion Follow(in FollowPlayerObjective objective, int tick, int terrainRevision)
         => new(SuccessRegionKind.FollowComfort, tick, terrainRevision, objective.PredictedFeet, objective.PlayerFeet,
-            new Vector2(objective.HorizontalComfort, objective.VerticalComfort));
+            new Vector2(objective.HorizontalComfort, objective.VerticalComfort),
+            ReachX: (int)MathF.Round(objective.AnchorHorizontalComfort),
+            ReachY: (int)MathF.Round(objective.AnchorVerticalComfort));
 
     public static SuccessRegion ToolStand(Vector2 stand, Point tile, int tick, int terrainRevision)
         => new(SuccessRegionKind.ToolReach, tick, terrainRevision, stand, WorkTile: tile,
@@ -52,7 +54,7 @@ public readonly record struct SuccessRegion(SuccessRegionKind Kind, int Admitted
     /// reach, and a pose inside it can still lack a line to an exposed face.</summary>
     public bool? Contains(Vector2 feet) => Kind switch
     {
-        SuccessRegionKind.FollowComfort => Near(feet, PlayerFeet) || Near(feet, Anchor),
+        SuccessRegionKind.FollowComfort => Near(feet, PlayerFeet) || Near(feet, Anchor, ReachX > 0 ? ReachX : Comfort.X, ReachY > 0 ? ReachY : Comfort.Y),
         SuccessRegionKind.ToolReach => WorkTile is Point tile && FindToolAccess.InReachBox(feet, tile, ReachX, ReachY),
         _ => null,
     };
@@ -69,5 +71,8 @@ public readonly record struct SuccessRegion(SuccessRegionKind Kind, int Admitted
     };
 
     private bool Near(Vector2 feet, Vector2 centre)
-        => MathF.Abs(feet.X - centre.X) <= Comfort.X && MathF.Abs(feet.Y - centre.Y) <= Comfort.Y;
+        => Near(feet, centre, Comfort.X, Comfort.Y);
+
+    private static bool Near(Vector2 feet, Vector2 centre, float horizontal, float vertical)
+        => MathF.Abs(feet.X - centre.X) <= horizontal && MathF.Abs(feet.Y - centre.Y) <= vertical;
 }

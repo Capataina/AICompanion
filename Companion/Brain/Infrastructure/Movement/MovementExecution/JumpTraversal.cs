@@ -258,10 +258,12 @@ public sealed class JumpTraversal : Traversal
         float vx = live.Vx;
         if (need == 0f)
         {
-            // A standing jump: be on the take-off, still, then jump. The first tick of the jump
-            // steers as the simulation's first tick did.
             float off = takeoff.X - live.CentreX;
-            if (MathF.Abs(off) <= 6f && MathF.Abs(vx) < RestSpeed)
+            if (MathF.Abs(off) > 6f)
+                return new Controls(BodyPhysics.SteerToward(takeoff.X, live.CentreX, vx));
+            // A same-column hop (ceiling ore) still waits to rest so the proven standing arc holds.
+            // A hop that also moves sideways is a follow jump: keep the run-up instead of braking to 0.6.
+            if (step.Tile.X != step.From.X || MathF.Abs(vx) < RestSpeed)
                 return Jump(step, landing, live);
             return new Controls(BodyPhysics.SteerToward(takeoff.X, live.CentreX, vx));
         }

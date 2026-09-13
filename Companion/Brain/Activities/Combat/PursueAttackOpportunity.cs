@@ -23,6 +23,7 @@ public sealed class PursueAttackOpportunity : CompanionAction
 {
     public override string Name => "hunt";
     public override PurposeFamily Family => PurposeFamily.Combat;
+    public override bool IsExcursion => !localHunt;
 
     public ThreatRecord? Target { get; private set; }
     public override Vector2? ActivityTarget => prepared?.Bottom;
@@ -113,13 +114,18 @@ public sealed class PursueAttackOpportunity : CompanionAction
 
     private readonly record struct Candidate(NPC Enemy, int Generation, Vector2 Bottom, Vector2 Centre, float Value, float TripTicks);
     private Candidate? prepared;
+    private bool localHunt;
 
     public override void Prepare(in ActionContext ctx)
     {
         float value = DiscoverValue(ctx);
-        prepared = value > 0 && Target is { } found
-            ? new(found.Npc, HostileAttackSources.Generation(found.Npc), found.Npc.Bottom, found.Npc.Center, value,
-                MathF.Max(0f, found.DistanceToCompanion - 200f) / Companion.CompanionMotor.WalkSpeed + 60f)
+        float trip = value > 0 && Target is { } found
+            ? (verdict == FiringAccess.FromHere ? 0f
+                : MathF.Max(0f, found.DistanceToCompanion - 200f) / Companion.CompanionMotor.WalkSpeed + 60f)
+            : 0f;
+        localHunt = value > 0 && (verdict == FiringAccess.FromHere || trip <= Weights.HuntLocalTripTicks);
+        prepared = value > 0 && Target is { } ready
+            ? new(ready.Npc, HostileAttackSources.Generation(ready.Npc), ready.Npc.Bottom, ready.Npc.Center, value, trip)
             : null;
     }
 
@@ -164,7 +170,8 @@ public sealed class PursueAttackOpportunity : CompanionAction
         // 330 ticks, danger 0.00 on every one). Hunting now yields as its own danger rises, which
         // is what lets disengaging outscore pressing on.
         float leash = AllowsTarget(ctx, Target.Npc.Bottom) ? 1f : 0f;
-        float ownSkin = Consideration.AtLeast(1f - ctx.Senses.Threats.CompanionDanger, 0.05f);
+        bool local = verdict == FiringAccess.FromHere;
+        float ownSkin = local ? 1f : Consideration.AtLeast(1f - ctx.Senses.Threats.CompanionDanger, 0.05f);
         // Whether a shot is possible at all was absent from this product, so hunting something
         // unhittable scored exactly as well as hunting something killable and the companion spent
         // its day walking at enemies it could not harm. It is graded rather than binary: a target

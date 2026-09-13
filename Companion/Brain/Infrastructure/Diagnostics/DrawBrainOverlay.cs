@@ -25,8 +25,9 @@ public sealed class BrainOverlay : ModSystem
 {
     public static ModKeybind? ToggleKey;
     public static bool Enabled, ShowWorld = true;
-    public static bool ShowThreats, ShowPredictions, ShowRoutes = true, ShowCandidates;
-    public static bool ShowProjectiles, ShowAiming, ShowMovement, ShowAttention, ShowRegion;
+    public static bool ShowThreats = true, ShowPredictions = true, ShowRoutes = true, ShowCandidates = true;
+    public static bool ShowProjectiles = true, ShowAiming = true, ShowMovement = true, ShowAttention = true, ShowRegion = true;
+    public const int AllLayers = 1 | 2 | 4 | 8 | 16 | 32 | 64 | 128 | 256 | 512;
 
     /// <summary>
     /// The layer switches as one integer, so the character save can carry which drawings the
@@ -73,10 +74,15 @@ public sealed class BrainOverlay : ModSystem
     }
     public override void Unload()
     {
-        ToggleKey = null; Enabled = ShowWorld = false;
+        ToggleKey = null; Enabled = false;
         PlanLocalMovement.CaptureRequested = null; PlanLocalMovement.CandidateEvaluated = null;
         TrajectoryAimer.CaptureRequested = null; TrajectoryAimer.TraceEvaluated = null;
         BrainInspectorSamples.Reset();
+    }
+    public override void OnWorldLoad()
+    {
+        if (CompanionDiagnosticsConfig.Current.EnableBrainInspector)
+            Layers = AllLayers;
     }
     public override void OnWorldUnload() { Close(); BrainInspectorSamples.Reset(); }
     /// <summary>Dismiss the chooser panel. The selected layers keep drawing.</summary>

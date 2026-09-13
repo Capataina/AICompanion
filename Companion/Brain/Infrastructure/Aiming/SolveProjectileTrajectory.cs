@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using Microsoft.Xna.Framework;
 using Terraria;
 using AICompanion.Companion.Brain.Infrastructure.Observation;
+using AICompanion.Companion.Brain.Infrastructure.Movement;
 
 namespace AICompanion.Companion.Brain.Infrastructure.Aiming;
 
@@ -43,8 +44,21 @@ public static class ProjectileFlight
         ProjectileMotion motion = weapon.Motion;
         if (phase >= motion.GravityStartsAtPhase)
         {
-            velocity.Y = MathF.Min(velocity.Y + motion.Gravity, motion.MaxFallSpeed);
-            velocity.X *= motion.HorizontalDrag;
+            float gravity = motion.Gravity;
+            float drag = motion.HorizontalDrag;
+            var world = Movement.NavGrid.World;
+            if (world != null)
+            {
+                int tx = (int)(position.X / 16f);
+                int ty = (int)(position.Y / 16f);
+                if (world.InWorld(tx, ty) && (world.Water(tx, ty) || world.Lava(tx, ty)))
+                {
+                    gravity *= 2.5f;
+                    drag *= 0.7f;
+                }
+            }
+            velocity.Y = MathF.Min(velocity.Y + gravity, motion.MaxFallSpeed);
+            velocity.X *= drag;
         }
         position += velocity;
     }

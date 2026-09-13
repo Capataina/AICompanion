@@ -1,7 +1,9 @@
 #nullable enable
+using System;
 using Microsoft.Xna.Framework;
 using Terraria;
 using AICompanion.Companion.Brain.Infrastructure.Movement;
+using AICompanion.Companion.Brain.Infrastructure.Selection;
 
 namespace AICompanion.Companion;
 
@@ -14,6 +16,24 @@ public sealed class CompanionMotor
 {
     public const float WalkSpeed = BodyPhysics.WalkSpeed;
     public const float JumpVelocity = BodyPhysics.JumpVelocity;
+    /// <summary>The player's current run speed times CompanionWalkPace, never slower than the body's nominal walk.</summary>
+    public static float LiveWalkSpeed
+    {
+        get
+        {
+            float paced = Main.LocalPlayer.maxRunSpeed * Weights.CompanionWalkPace;
+            return float.IsFinite(paced) ? MathF.Max(BodyPhysics.WalkSpeed, paced) : BodyPhysics.WalkSpeed;
+        }
+    }
+    /// <summary>The player's current jump impulse times CompanionJumpPace, never weaker than the body's nominal jump.</summary>
+    public static float LiveJumpSpeed
+    {
+        get
+        {
+            float paced = (Player.jumpSpeed + Main.LocalPlayer.jumpSpeedBoost) * Weights.CompanionJumpPace;
+            return float.IsFinite(paced) ? MathF.Max(-BodyPhysics.JumpVelocity, paced) : -BodyPhysics.JumpVelocity;
+        }
+    }
     public const float Acceleration = BodyPhysics.Acceleration;
     public const float Slowdown = BodyPhysics.Slowdown;
     private readonly NPC npc;
@@ -72,6 +92,14 @@ public sealed class CompanionMotor
             RecoveryFlight = false;
             npc.noGravity = npc.noTileCollide = false;
         }
+        float walkPace = LiveWalkSpeed / BodyPhysics.WalkSpeed;
+        float jumpPace = LiveJumpSpeed / -BodyPhysics.JumpVelocity;
+        if (walkPace != 1f || (controls.Jump && jumpPace != 1f))
+            controls = controls with
+            {
+                MoveX = controls.MoveX * walkPace,
+                JumpScale = controls.Jump ? controls.JumpScale * jumpPace : controls.JumpScale,
+            };
         BodyState before = State;
         AppliedControls = controls;
         ControlSource = source;

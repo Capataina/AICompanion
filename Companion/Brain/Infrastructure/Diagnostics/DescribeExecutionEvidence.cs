@@ -93,7 +93,13 @@ public static class DescribeExecutionEvidence
     public static IReadOnlyList<RegionBox> RegionBoxes(in SuccessRegion region)
     {
         if (region.Kind == SuccessRegionKind.FollowComfort)
-            return new[] { Around(region.PlayerFeet, region.Comfort), Around(region.Anchor, region.Comfort) };
+        {
+            Vector2 player = region.Comfort;
+            Vector2 ahead = region.ReachX > 0 && region.ReachY > 0
+                ? new Vector2(region.ReachX, region.ReachY)
+                : player;
+            return new[] { Around(region.PlayerFeet, player), Around(region.Anchor, ahead) };
+        }
         if (region.Kind == SuccessRegionKind.ToolReach && region.WorkTile is Point tile)
         {
             Vector2 centre = tile.ToWorldCoordinates(8f, 8f) + new Vector2(0f, FindToolAccess.EyeHeight);

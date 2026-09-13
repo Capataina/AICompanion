@@ -63,7 +63,9 @@ public class CompanionNPC : ModNPC
     }
 
     public bool IsDowned { get; private set; }
-    public int RevivePercent => reviveProgress * 100 / ReviveTicks;
+    public int RevivePercent => IsDowned
+        ? (reviveProgress > 0 ? reviveProgress * 100 / ReviveTicks : downedTicks * 100 / SelfReviveTicks)
+        : 0;
 
     private int reviveProgress;
     private int downedTicks;
