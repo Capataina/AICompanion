@@ -1537,7 +1537,14 @@ public static class ChronicleTests
             for (int tick = 1; tick <= 120; tick++)
                 travelling.AppendLine($"{tick}\twalk-with\ttravel\tExecutable\t1.50\t2.40");
 
-            string busy = Capture("0.31.0", travelling.ToString(),
+            // Both stamps are derived from the gate rather than written out, because the mod's schema keeps moving and a
+            // fixture holding a literal 0.31.0 reads as *older* than the gate the moment the gate passes it: the captures
+            // that are meant to run would skip, and the assertions on their findings would fail for a reason that has
+            // nothing to do with what they test.
+            string first = TravelEvidence.First.ToString();
+            string before = new Version(TravelEvidence.First.Major, TravelEvidence.First.Minor - 1, 0).ToString();
+
+            string busy = Capture(first, travelling.ToString(),
                 Session0()
                 + Episode(60, "WithPlayer", "reached", 40, 180, "50")
                 + Episode(90, "WithPlayer", "abandoned", 20, 40, "-")
@@ -1547,7 +1554,7 @@ public static class ChronicleTests
             Session busySession = Session.Load(busy);
 
             var journeys = new JourneysTakeTheTimeTheyWereProven();
-            Require(journeys.Missing(busySession) == null, "a capture at schema 0.31.0 with a sidecar refused the journey check");
+            Require(journeys.Missing(busySession) == null, $"a capture at schema {first} with a sidecar refused the journey check");
             var byKind = journeys.Run(busySession).ToList();
             Require(byKind.Count == 2, $"three journeys over two request kinds produced {byKind.Count} finding(s) instead of one per kind");
             Finding follow = byKind.Single(f => f.Title.StartsWith("WithPlayer", StringComparison.Ordinal));
@@ -1558,7 +1565,7 @@ public static class ChronicleTests
             Require(byKind.All(f => f.Severity == Severity.Oddity), "a travel baseline was graded above an oddity without a defect behind it");
 
             var stopping = new TheBodyStopsOnItsOwnRoute();
-            Require(stopping.Missing(busySession) == null, "a capture at schema 0.31.0 with a sidecar refused the stop check");
+            Require(stopping.Missing(busySession) == null, $"a capture at schema {first} with a sidecar refused the stop check");
             Finding stopped = stopping.Run(busySession).Single();
             Require(stopped.Title.Contains("2 stops", StringComparison.Ordinal) && stopped.Title.Contains("120 ticks", StringComparison.Ordinal),
                 $"the stop count or the travel it is measured against was wrong: {stopped.Title}");
@@ -1570,11 +1577,11 @@ public static class ChronicleTests
 
             // The same evidence one schema older. Both must skip by name rather than run and find nothing.
             sequence = 0;
-            string old = Capture("0.30.0", travelling.ToString(),
+            string old = Capture(before, travelling.ToString(),
                 Session0() + Episode(60, "WithPlayer", "reached", 40, 180, "50") + Stop(30, 12, "inside-walk-step"));
             Session oldSession = Session.Load(old);
             foreach (ICheckCoverage check in new ICheckCoverage[] { journeys, stopping })
-                Require(check.Missing(oldSession)?.Contains("0.31.0", StringComparison.Ordinal) == true,
+                Require(check.Missing(oldSession)?.Contains(first, StringComparison.Ordinal) == true,
                     "a capture older than the occurrences ran the travel check instead of skipping it by the schema that first wrote them");
             var (_, skipped, _) = Program.Evaluate(oldSession);
             Require(skipped.Any(s => s.Name == journeys.Name) && skipped.Any(s => s.Name == stopping.Name),
@@ -1582,7 +1589,7 @@ public static class ChronicleTests
 
             // Clean travel: journeys that landed on their proven ticks, and no stop at all.
             sequence = 0;
-            string clean = Capture("0.31.0", travelling.ToString(),
+            string clean = Capture(first, travelling.ToString(),
                 Session0() + Episode(60, "WithPlayer", "reached", 55, 58, "56"));
             Session cleanSession = Session.Load(clean);
             Finding quiet = stopping.Run(cleanSession).Single();
