@@ -58,6 +58,7 @@ internal static class VerifyOreWork
             PreparedWorkForecastRespondsToNativeProgress();
             RemainingToolWorkMatchesNativeCompletion();
             DepartingPlayerChangesWhetherWorkIsWorthFinishing();
+            ReunionChargeReadsDepartureAndTheRouteHome();
             Console.WriteLine("ore work: policy, retained vein, tool gates, unproven approach, blocked nearest ore, reach edge, arrival offsets, ceiling hops, tool power changes, player terrain edits and native productive break pass");
             return 0;
         }
@@ -110,6 +111,126 @@ internal static class VerifyOreWork
             Require(selected?.Name == (nearlyDone ? "mine" : "keep-company"),
                 $"departure should distinguish fresh work from a one-hit finish: separation={separation}; nearlyDone={nearlyDone}; selected={selected?.Name}; scores={string.Join(",", brain.Chooser.LastScores.Select(s => s.Action.Name + "=" + s.Final))}");
         }
+    }
+
+    /// <summary>
+    /// The reunion charge on optional work reads how fast the player is leaving and how long the walk home
+    /// is. Eight scenes at one separation cross a stationary against a departing player, a way up to the
+    /// player's floor near them against one only at the far end behind the companion, and fresh against
+    /// one-hit work. Both route scenes put the player on the same upper floor over the companion's
+    /// corridor, so sight and the follow objective match and only the route home differs; a stepped mound
+    /// was tried first and cannot lengthen a route here, because a walk step moves one column and at most
+    /// one row, so climbing costs no more columns than the floor. A
+    /// calm player is met by quick justified work; a departing player's charge grows with the route home,
+    /// so the same work is worth less when the way back is awkward; a stationary player's route home is
+    /// not charged, because the charge scales the route by departure and calm absence is priced by
+    /// accumulated separation instead. Route evidence is primed through the positioner's own flood, which
+    /// is where the chooser reads it, and the mound must actually lengthen that route or nothing is compared.
+    /// </summary>
+    private static void ReunionChargeReadsDepartureAndTheRouteHome()
+    {
+        var seen = new Dictionary<(bool Departing, bool FarRoute, bool NearlyDone), (string Selected, float Mine, float Delay, float Return, float Route)>();
+        // Route floods advance under millisecond slices; every edge on the mound runs a body simulation,
+        // so a wall-clock slice would decide how far the route home is priced. Lifting the allowances
+        // keeps each flood's work count as the only bound.
+        live::AICompanion.Companion.Brain.SharedMovementSystem.LimitPlanningWork.Unbounded = true;
+        try
+        {
+        foreach (bool departing in new[] { false, true })
+        foreach (bool farRoute in new[] { false, true })
+        foreach (bool nearlyDone in new[] { false, true })
+        {
+            Point ore = new(25, 89);
+            var (_, ctx) = SetUp(WorkPolicy.Opportunistic, TileID.Copper, ore);
+            BuildPlayersUpperFloor(90, gapNearPlayer: !farRoute);
+            var brain = ctx.Companion.Brain;
+            var workClock = new live::AICompanion.Companion.Brain.WorldObservation.TileDamageClock();
+            workClock.OnWorldLoad();
+            brain.Chooser.Actions.RemoveAll(action => action.Name is not ("mine" or "keep-company"));
+            const int separation = 576;
+            float speed = departing ? 4f : 0f;
+            // The player stands on the upper floor, five rows above the companion's corridor floor.
+            ctx.Player.Bottom = ctx.Npc.Bottom + new Vector2(separation - 120 * speed, -5 * 16);
+            for (int tick = 0; tick < 120; tick++)
+            {
+                ctx.Player.velocity = new Vector2(speed, 0);
+                ctx.Player.position += ctx.Player.velocity;
+                VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
+                brain.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Breath);
+                workClock.PostUpdateEverything();
+            }
+            var home = new live::AICompanion.Companion.Brain.PositionSelection.PositionRequest(
+                live::AICompanion.Companion.Brain.PositionSelection.RequestKind.WithPlayer, ctx.Player.Bottom);
+            Point from = live::AICompanion.Companion.Brain.SharedMovementSystem.NavGrid.FeetTile(ctx.Npc.Bottom);
+            Point to = live::AICompanion.Companion.Brain.SharedMovementSystem.NavGrid.FeetTile(ctx.Player.Bottom);
+            // Prime to completion rather than to first contact: a cost-ordered flood can first reach the
+            // player's tile the long way round and lower its ticks later along the short route.
+            for (int i = 0; i < 3000 && !brain.Positioner.ReachComplete; i++)
+                brain.Positioner.Resolve(home, brain.Senses, null);
+            if (brain.Positioner.EstimatedTravelTicks(from, to) == null)
+            {
+                // An extern alias cannot appear inside an interpolation hole, so the diagnostics are locals.
+                bool standable = live::AICompanion.Companion.Brain.SharedMovementSystem.MovementQueries.IsStandable(to.X, to.Y);
+                var walker = live::AICompanion.Companion.Brain.SharedMovementSystem.MovementQueries.WalkerReach(from, to);
+                Require(false, $"the route home must be priced before return cost can be compared; departing={departing} farRoute={farRoute} from={from} to={to} "
+                    + $"standable={standable} inRegion={brain.Positioner.Reaches(to)} regionComplete={brain.Positioner.ReachComplete} walker={walker}");
+            }
+            Item pick = TileMiner.PickaxeFor(ctx.Player);
+            if (nearlyDone)
+                while (ctx.Companion.Miner.EstimateRemaining(ore, pick) is { Hits: > 1 })
+                {
+                    Require(ctx.Companion.Miner.Swing(ore, pick), "paired completion fixture needs a native hit");
+                    for (int tick = 0; tick < pick.useTime; tick++) ctx.Companion.Miner.Tick();
+                }
+            var selected = brain.Chooser.Choose(ctx);
+            var mine = brain.Chooser.LastScores.Single(s => s.Action.Name == "mine");
+            seen[(departing, farRoute, nearlyDone)] = (selected?.Name ?? "none", mine.Final, brain.Chooser.Reunion.DelayCostPerTick, brain.Chooser.EstimatedReturnTicks,
+                brain.Positioner.EstimatedTravelTicks(from, to) ?? -1f);
+        }
+        }
+        finally { live::AICompanion.Companion.Brain.SharedMovementSystem.LimitPlanningWork.Unbounded = false; }
+        string ledger = string.Join("; ", seen.Select(s =>
+            $"{(s.Key.Departing ? "departing" : "stationary")}/{(s.Key.FarRoute ? "far-route" : "near-route")}/{(s.Key.NearlyDone ? "one-hit" : "fresh")}: "
+            + $"{s.Value.Selected} mine={s.Value.Mine:0.000} delay={s.Value.Delay:0.00000} return={s.Value.Return:0} route={s.Value.Route:0}"));
+        foreach (bool nearlyDone in new[] { false, true })
+        {
+            Require(seen[(false, false, nearlyDone)].Selected == "mine",
+                $"a calm player is met by quick justified work; {ledger}");
+            // The chooser reads the larger of the straight-line estimate and the route, so a near route
+            // shorter than the straight line shows only the straight line; the guard is that the far route
+            // is strictly longer in what the chooser read, not a margin chosen before seeing that floor.
+            Require(seen[(false, true, nearlyDone)].Return > seen[(false, false, nearlyDone)].Return
+                && seen[(true, true, nearlyDone)].Return > seen[(true, false, nearlyDone)].Return
+                && seen[(true, true, nearlyDone)].Route > seen[(true, false, nearlyDone)].Route,
+                $"the far way up must lengthen the priced route home, or the pairs compare nothing; {ledger}");
+            Require(seen[(true, true, nearlyDone)].Delay > seen[(true, false, nearlyDone)].Delay
+                && seen[(true, true, nearlyDone)].Mine < seen[(true, false, nearlyDone)].Mine,
+                $"a departing player's reunion charge grows with the route home; {ledger}");
+            Require(MathF.Abs(seen[(false, true, nearlyDone)].Delay - seen[(false, false, nearlyDone)].Delay) < 1e-6f,
+                $"a stationary player's route home is not charged to optional work; {ledger}");
+        }
+        Console.WriteLine($"reunion charge matrix: {ledger}");
+    }
+
+    /// <summary>An upper floor five rows above the companion's floor, over its mining corridor. Its left
+    /// end is a ledge the companion can jump onto; with <paramref name="gapNearPlayer"/> a three-tile gap
+    /// near the player is a second, near way up. Without it the walk home runs back to the ledge and all
+    /// the way along the upper floor, which a straight-line estimate cannot see. The corridor is four rows
+    /// tall because the ore sits on its floor: under a three-row ceiling, stepping onto the ore put the
+    /// body's head into the upper floor, the corridor was closed at the ore, and every route home left
+    /// through the ledge whether the gap existed or not.</summary>
+    private static void BuildPlayersUpperFloor(int floorRow, bool gapNearPlayer)
+    {
+        int row = floorRow - 5;
+        for (int x = 10; x <= 94; x++)
+        {
+            if (gapNearPlayer && x >= 58 && x <= 60) continue;
+            Tile tile = Main.tile[x, row];
+            tile.ClearEverything();
+            tile.HasTile = true;
+            tile.TileType = TileID.Dirt;
+        }
+        TerrainChanges.Reset();
     }
 
     private static void PreparedWorkForecastRespondsToNativeProgress()

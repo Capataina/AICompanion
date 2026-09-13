@@ -51,7 +51,7 @@ EngineReplay/
 ├─ VerifyCapturedEscape.cs   captured pool and mirrored awnings exercised against native collision
 ├─ VerifyResponsiveFollowing.cs generic follow arrival, vertical separation, C-turn route progress, activity-dependent meeting places, and a parallel route that climbs to the player's journey against one that ends at a cliff
 ├─ VerifyFollowRecoveryAndProtection.cs visible recovery flight, cancellation clearance and retained guard protection
-├─ VerifyOreWork.cs           ore-job policy, native tool effects and the raised-lip diagnostic baseline
+├─ VerifyOreWork.cs           ore-job policy, native tool effects, the raised-lip diagnostic baseline, and the reunion charge matrix: departing against stationary player, near against far route home, fresh against one-hit work
 ├─ VerifyCompanionPreferences.cs per-character defaults, malformed payloads and compressed native save round trips
 ├─ VerifyCompanionActivities.cs activity identities, range boundaries, progress windows, protected rooms and native torch placement
 ├─ VerifyObservationLifecycle.cs real recorder reservation, zero-tick metadata and callback-scoped lifecycle evidence
