@@ -27,7 +27,7 @@ internal static class VerifyEngineMotion
             + VerifyMiningHops.Run() + VerifyGatheringCooperation.Run() + VerifyWorkAccounting.Run() + VerifyCollectionContracts.Run()
             + VerifyCapabilityRevision.Run();
         if (miningBaselineOnly) return VerifyOreWork.RunRaisedLipBaseline();
-        if (followOnly) return VerifyResponsiveFollowing.Run();
+        if (followOnly) return VerifyResponsiveFollowing.Run() + VerifyCourtesy.Run();
         if (protectionOnly) return VerifyFollowRecoveryAndProtection.Run();
         if (brainCostOnly) return MeasureBrainCost.Execute();
         int checkedCases = 0, failed = 0;
@@ -116,6 +116,7 @@ internal static class VerifyEngineMotion
         failed += VerifyRoundTripEvidence.Run();
         failed += VerifyCapabilityRevision.Run();
         failed += VerifyDoorPassage.Run();
+        failed += VerifyCourtesy.Run();
         return failed == 0 ? 0 : 1;
     }
 

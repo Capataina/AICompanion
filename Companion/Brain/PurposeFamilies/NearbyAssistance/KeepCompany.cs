@@ -7,6 +7,7 @@ using Terraria.ID;
 using AICompanion.Companion.Brain.Behaviours;
 using AICompanion.Companion.Brain.BehaviourSelection;
 using AICompanion.Companion.Brain.PositionSelection;
+using AICompanion.Companion.Brain.WorldObservation;
 
 namespace AICompanion.Companion.Brain.PurposeFamilies.NearbyAssistance;
 
@@ -100,6 +101,14 @@ public sealed class KeepCompany : CompanionAction
         }
         ctx.Companion.Brain.Meeting.Release();
         if (ctx.Stranded) return new PositionRequest(RequestKind.Roam, ctx.Npc.Bottom);
+        // Courtesy. Resting on, or strolling onto, the tiles the player is building on or walking down hands the choice of spot
+        // to ordinary follow selection near the player, which prices spots overlapping that footprint down. Only company yields:
+        // work, protection and safety keep their spot, which is what pricing courtesy against them means, and a rest that
+        // overlaps nothing is left exactly as it was.
+        if (p.Interference is Rectangle footprint
+            && (PlayerSense.BodyTiles(ctx.Npc.Bottom, ctx.Npc.width, ctx.Npc.height).Intersects(footprint)
+                || walking && PlayerSense.BodyTiles(goal, ctx.Npc.width, ctx.Npc.height).Intersects(footprint)))
+            return new PositionRequest(RequestKind.WithPlayer, p.Bottom);
         if (walking && Vector2.DistanceSquared(goal, p.Bottom) > Weights.CalmBandFar * Weights.CalmBandFar)
             ResetLocalMovement();
         if (--ticksLeft <= 0) PickLocalMovement(ctx);
