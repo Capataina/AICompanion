@@ -51,6 +51,28 @@ public abstract class PerformNearbyWorldWork : CompanionAction
     private const int DeferFailedApproachTicks = 1800;
     protected virtual float CandidateCost(Vector2 feet, Point tile) => Vector2.DistanceSquared(feet, tile.ToWorldCoordinates());
 
+    /// <summary>Tiles this search will consider, nearest-first by <see cref="CandidateCost"/>. Pots keep a small
+    /// window around the body; lighting overrides this to the visible screen of dark air.</summary>
+    protected virtual void GatherSearchTiles(in ActionContext ctx, System.Collections.Generic.List<(float Cost, int Order, Point Tile)> into)
+    {
+        Point centre = ctx.Npc.Center.ToTileCoordinates();
+        for (int x = centre.X - 18; x <= centre.X + 18; x++)
+            for (int y = centre.Y - 14; y <= centre.Y + 14; y++)
+            {
+                Point p = new(x, y);
+                if (deferred.TryGetValue(p, out ulong until) && Main.GameUpdateCount < until) continue;
+                if (NoReturnDeferred(p)) continue;
+                into.Add((CandidateCost(ctx.Npc.Bottom, p), into.Count, p));
+            }
+    }
+
+    /// <summary>Whether this tile is currently deferred for a failed approach or a proven no-return trip.</summary>
+    protected bool SearchTileDeferred(Point tile)
+    {
+        if (deferred.TryGetValue(tile, out ulong until) && Main.GameUpdateCount < until) return true;
+        return NoReturnDeferred(tile);
+    }
+
     // Search-window tiles in the order they are asked, reused across searches: the brain is single-threaded.
     private readonly System.Collections.Generic.List<(float Cost, int Order, Point Tile)> ordered = new();
     // Sites whose trip was proven to have no way back, or not enough breath, with the terrain revision and tick they may be
@@ -179,17 +201,10 @@ public abstract class PerformNearbyWorldWork : CompanionAction
             tripRefusal = null;
             // Nearest first by the method's own cost, stopping at the first site whose whole trip is proven. This picks the same
             // site the earlier improve-on-best scan picked (ties keep scan order), and it lets the trip proof below be bounded:
-            // each remote site costs two fresh route searches, so only a few are asked per search.
-            Point centre = ctx.Npc.Center.ToTileCoordinates();
+            // each RoundTrip is two fresh route searches, so only a few are asked per search. A hop with no take-off is
+            // deferred without spending that bound.
             ordered.Clear();
-            for (int x = centre.X - 18; x <= centre.X + 18; x++)
-                for (int y = centre.Y - 14; y <= centre.Y + 14; y++)
-                {
-                    Point p = new(x, y);
-                    if (deferred.TryGetValue(p, out ulong until) && Main.GameUpdateCount < until) continue;
-                    if (NoReturnDeferred(p)) continue;
-                    ordered.Add((CandidateCost(ctx.Npc.Bottom, p), ordered.Count, p));
-                }
+            GatherSearchTiles(ctx, ordered);
             ordered.Sort(static (a, b) => a.Cost != b.Cost ? a.Cost.CompareTo(b.Cost) : a.Order.CompareTo(b.Order));
             int tripsAsked = 0;
             foreach (var (_, _, p) in ordered)
@@ -207,7 +222,6 @@ public abstract class PerformNearbyWorldWork : CompanionAction
                     // Only a site no standing pose reaches is hopped to, from a take-off the walker reaches: the same order and
                     // the same query mining uses for ceiling ore, so a take-off is admitted here exactly when it would be there.
                     if (standing == Reachability.Reach.No && !AllowJump) continue;
-                    if (tripsAsked++ >= Infrastructure.Selection.Weights.NearbyWorkTripChecks) break;
                     if (standing == Reachability.Reach.No)
                     {
                         var hop = FindToolAccess.HopApproach(p, ctx.Npc.Bottom, ctx.Companion.Motor.State, out candidateStand);
@@ -215,6 +229,10 @@ public abstract class PerformNearbyWorldWork : CompanionAction
                         if (hop != Reachability.Reach.Yes) continue;
                         jump = true;
                     }
+                    // RoundTrip is what the bound is for: two fresh route searches. A hop that never
+                    // finds a take-off is deferred without spending it, so a wall of unreachable air
+                    // cannot hide a proven pit whose refusal is the named one-way drop.
+                    if (tripsAsked++ >= Infrastructure.Selection.Weights.NearbyWorkTripChecks) break;
                     if (!TripReturns(ctx, p, candidateStand)) continue;
                 }
                 target = p; stand = candidateStand; needsJump = jump; jumped = false;

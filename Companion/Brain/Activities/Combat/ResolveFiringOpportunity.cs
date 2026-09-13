@@ -6,6 +6,7 @@ using Microsoft.Xna.Framework;
 using Terraria;
 using AICompanion.Companion.Brain.Activities;
 using AICompanion.Companion.Brain.Infrastructure.Observation;
+using AICompanion.Companion.Weapons;
 
 namespace AICompanion.Companion.Brain.Activities.Combat;
 
@@ -13,9 +14,10 @@ namespace AICompanion.Companion.Brain.Activities.Combat;
 /// What the companion would have to do to land a shot on an enemy. Three-and-a-bit valued for
 /// the same reason <see cref="Infrastructure.Movement.Reachability.Reach"/> is: a bounded flood
 /// that has not yet grown as far as the target says nothing about whether a firing spot exists
-/// there. Hunting does not walk at that Unknown; it waits until the flood proves FromHere or
-/// AfterMoving. Collapsing Unknown into None would still be wrong, because a later tick can
-/// settle a shot that this tick could not finish asking.
+/// there. Unknown is an unfinished search that has not found a solvable stand. A solvable stand
+/// is AfterMoving even while the path is unfinished, so hunt can start walking toward that region.
+/// Collapsing Unknown into None would still be wrong, because a later tick can settle a shot that
+/// this tick could not finish asking.
 /// </summary>
 public enum FiringAccess
 {
@@ -38,13 +40,11 @@ public enum FiringAccess
 /// the first one's answer instead of scanning the terrain again. It is per companion rather than static
 /// because its key is an NPC slot and spawn generation, which a second companion or a rebuilt world reuses.
 ///
-/// The sight test is the same straight ray the positioner ranks candidates with, not a full trajectory
-/// solve, because this runs per target and a solve costs up to 48 arcs. It is a lower bound on an arcing
-/// shot, so it under-reports opportunities and never invents one; the real solve still happens in
-/// position selection, on the spot this admits.
-///
-/// Applying the from-here test alone would have been the obvious rule and the wrong one: it rejects every
-/// enemy the companion would simply have had to walk toward, which is most of them.
+/// Existence is the arsenal's real forecast — the same <c>ForecastAttack</c> the hands fire from —
+/// not a straight ray. A ray can say yes while the bow hits the floor, which is how hunt stood still
+/// on a retained stand with <c>no-clear-trajectory</c>. Hunt does not pick the pair the hands will
+/// fire; it only asks whether a pose would give the chooser something to rank, and which nearby pose
+/// ranks highest. A handful of nearest stands are solved per target so a crowd cannot spend the tick.
 /// </summary>
 public sealed class ResolveFiringOpportunity
 {
@@ -55,7 +55,10 @@ public sealed class ResolveFiringOpportunity
     // sighted tile can only make the answer more cautious.
     private const int FiringSampleStride = 2;
 
-    private readonly Dictionary<(int slot, int generation), (int at, Point origin, int terrain, FiringAccess verdict, float access)> cache = new();
+    private readonly Dictionary<(int slot, int generation), (int at, Point origin, int terrain, FiringAccess verdict, float access, float value)> cache = new();
+
+    /// <summary>Arsenal outcome value at the best solved pose of the last <see cref="Resolve"/>.</summary>
+    public float LastShotValue { get; private set; }
 
     /// <summary>
     /// The verdict, and how long the reposition it implies would take: zero from here, the travel estimate
@@ -76,31 +79,36 @@ public sealed class ResolveFiringOpportunity
         int terrain = Infrastructure.Movement.TerrainChanges.Revision;
         if (cache.TryGetValue(key, out var cached) && cached.origin == origin && cached.terrain == terrain
             && unchecked(ctx.Senses.Tick - cached.at) < FiringCacheTicks)
+        {
+            LastShotValue = cached.value;
             return (cached.verdict, cached.access);
+        }
 
         var answer = Scan(ctx, enemy);
-        cache[key] = (ctx.Senses.Tick, origin, terrain, answer.Verdict, answer.AccessTicks);
-        return answer;
+        cache[key] = (ctx.Senses.Tick, origin, terrain, answer.Verdict, answer.AccessTicks, answer.Value);
+        LastShotValue = answer.Value;
+        return (answer.Verdict, answer.AccessTicks);
     }
 
     /// <summary>
     /// The whole sample is scanned rather than stopping at the first reachable tile, because a reposition
     /// is priced by its duration and scan order says nothing about that.
     /// </summary>
-    private static (FiringAccess Verdict, float AccessTicks) Scan(in ActionContext ctx, NPC enemy)
+    private const int MaxStandSolvesPerTarget = 8;
+
+    private static (FiringAccess Verdict, float AccessTicks, float Value) Scan(in ActionContext ctx, NPC enemy)
     {
-        if (ctx.Companion.Arsenal.CanEngage(ctx, enemy))
-            return (FiringAccess.FromHere, 0f);
+        var arsenal = ctx.Companion.Arsenal;
+        Vector2 here = Arsenal.Muzzle(ctx.Npc);
+        if (arsenal.ShotSolves(ctx, here, enemy))
+            return (FiringAccess.FromHere, 0f, arsenal.BestShotValueFrom(ctx, here, enemy));
+
         Point feet = Infrastructure.Movement.MovementQueries.FeetTile(ctx.Npc.Bottom);
-        float nearest = float.PositiveInfinity;
         var positioner = ctx.Companion.Brain.Positioner;
-        float reach = MathF.Max(ctx.Companion.Arsenal.Primary.Profile.Reach, ctx.Companion.Arsenal.Secondary.Profile.Reach);
-        // Never wider than the box position selection itself samples: a spot it cannot propose is
-        // not a spot the companion can be walked to, so admitting a target on one would promise a
-        // position that never arrives.
+        float reach = MathF.Max(arsenal.Primary.Profile.Reach, arsenal.Secondary.Profile.Reach);
         int radius = Math.Min(FiringSampleRadiusTiles, (int)(reach / 16f));
         Point centre = Infrastructure.Movement.MovementQueries.FeetTile(enemy.Bottom);
-        bool sightedButUnsettled = false;
+        var stands = new List<(float Distance, Point Tile, Vector2 Eye)>();
         for (int dx = -radius; dx <= radius; dx += FiringSampleStride)
         {
             for (int dy = -radius; dy <= radius; dy += FiringSampleStride)
@@ -108,27 +116,43 @@ public sealed class ResolveFiringOpportunity
                 var tile = new Point(centre.X + dx, centre.Y + dy);
                 if (!Infrastructure.Movement.MovementQueries.IsStandable(tile.X, tile.Y))
                     continue;
-                Vector2 eye = Infrastructure.Movement.MovementQueries.FeetWorld(tile) + new Vector2(0f, -30f);
+                Vector2 eye = Arsenal.MuzzleAtFeet(Infrastructure.Movement.MovementQueries.FeetWorld(tile));
                 if (Vector2.Distance(eye, enemy.Center) > reach)
                     continue;
-                if (!Terraria.Collision.CanHitLine(eye, 1, 1, enemy.position, enemy.width, enemy.height))
-                    continue;
-                if (positioner.Reaches(tile))
-                {
-                    float ticks = positioner.EstimatedTravelTicks(feet, tile)
-                        ?? Vector2.Distance(ctx.Npc.Bottom, Infrastructure.Movement.MovementQueries.FeetWorld(tile)) / Companion.CompanionMotor.WalkSpeed;
-                    nearest = MathF.Min(nearest, ticks);
-                    continue;
-                }
-                // Sighted, and the flood has not proved it either way. Only an exhausted region
-                // turns that into an absence; until then it is the search declining to answer.
-                if (!positioner.ReachComplete)
-                    sightedButUnsettled = true;
+                stands.Add((Vector2.DistanceSquared(ctx.Npc.Bottom, Infrastructure.Movement.MovementQueries.FeetWorld(tile)), tile, eye));
             }
         }
-        if (float.IsFinite(nearest)) return (FiringAccess.AfterMoving, nearest);
-        return sightedButUnsettled
-            ? (FiringAccess.Unknown, Vector2.Distance(ctx.Npc.Bottom, enemy.Bottom) / Companion.CompanionMotor.WalkSpeed)
-            : (FiringAccess.None, float.PositiveInfinity);
+        stands.Sort(static (a, b) => a.Distance.CompareTo(b.Distance));
+
+        float nearestReachable = float.PositiveInfinity;
+        float bestValue = 0f;
+        bool solvedUnreachable = false;
+        int solves = 0;
+        foreach (var stand in stands)
+        {
+            if (solves >= MaxStandSolvesPerTarget) break;
+            solves++;
+            if (!arsenal.ShotSolves(ctx, stand.Eye, enemy)) continue;
+            float value = arsenal.BestShotValueFrom(ctx, stand.Eye, enemy);
+            if (value > bestValue) bestValue = value;
+            if (positioner.Reaches(stand.Tile))
+            {
+                float ticks = positioner.EstimatedTravelTicks(feet, stand.Tile)
+                    ?? Vector2.Distance(ctx.Npc.Bottom, Infrastructure.Movement.MovementQueries.FeetWorld(stand.Tile)) / Companion.CompanionMotor.WalkSpeed;
+                nearestReachable = MathF.Min(nearestReachable, ticks);
+            }
+            else if (!positioner.ReachComplete)
+                solvedUnreachable = true;
+        }
+
+        if (float.IsFinite(nearestReachable))
+            return (FiringAccess.AfterMoving, nearestReachable, bestValue);
+        // A real arc exists at a stand the flood has not yet claimed: hunt may start walking toward
+        // that region without freezing the tile. A sealed chamber with no arc stays Unknown or None.
+        if (solvedUnreachable)
+            return (FiringAccess.AfterMoving, Vector2.Distance(ctx.Npc.Bottom, enemy.Bottom) / Companion.CompanionMotor.WalkSpeed, bestValue);
+        if (!positioner.ReachComplete)
+            return (FiringAccess.Unknown, Vector2.Distance(ctx.Npc.Bottom, enemy.Bottom) / Companion.CompanionMotor.WalkSpeed, 0f);
+        return (FiringAccess.None, float.PositiveInfinity, 0f);
     }
 }

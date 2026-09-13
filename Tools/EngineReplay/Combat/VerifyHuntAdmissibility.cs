@@ -26,9 +26,9 @@ internal static class VerifyHuntAdmissibility
     {
         VerifyWalkableFiringPositionKeepsTheTarget();
         VerifySealedTargetIsRefused();
-        VerifyUnknownFiringAccessIsNotHunted();
+        VerifyUnfinishedFloodWithASolvableStandIsHunted();
         VerifyTheCheckIsAffordableOnAHopelessCrowd();
-        Console.WriteLine("hunt admissibility: a repositionable target is kept, an unshootable target is refused, an unfinished search is not a plan, and the check stays affordable");
+        Console.WriteLine("hunt admissibility: a repositionable target is kept, an unshootable target is refused, a solvable stand is hunted before the flood finishes, and the check stays affordable");
         return 0;
     }
 
@@ -169,11 +169,11 @@ internal static class VerifyHuntAdmissibility
     }
 
     /// <summary>
-    /// The pillar case without a settled flood: from-here is blocked, AfterMoving has not been
-    /// proved, so the access is Unknown. That is not a hunt. Walking at it was the same class of
-    /// plan as walking at unproven ore.
+    /// The pillar case without a settled flood. A real arc exists on the open floor past the pillar,
+    /// so hunt may start walking toward that region without waiting for the walker to finish. Existence
+    /// is the arsenal forecast, not a proven path to a frozen tile.
     /// </summary>
-    private static void VerifyUnknownFiringAccessIsNotHunted()
+    private static void VerifyUnfinishedFloodWithASolvableStandIsHunted()
     {
         BuildFloor();
         for (int y = FloorY - 3; y < FloorY; y++) Solid(40, y);
@@ -181,17 +181,16 @@ internal static class VerifyHuntAdmissibility
 
         var companion = Place(companionTileX: 38, enemyTileX: 60, enemyTileY: FloorY, out NPC enemy, out C ctx);
         Require(!companion.Arsenal.CanEngage(ctx, enemy),
-            "the unknown case needs the pillar to block the shot from where the companion stands");
+            "the unfinished-flood case needs the pillar to block the shot from where the companion stands");
         Require(!companion.Brain.Positioner.ReachComplete,
-            "the unknown case needs the reachable region still unfinished, or it is the sealed refusal in disguise");
+            "the unfinished-flood case needs the reachable region still unfinished");
 
         var hunt = new H();
         float score = VerifyPreparedActivities.PrepareAndScore(hunt, ctx);
-        Require(score == 0f && hunt.Target == null,
-            $"an unfinished firing search was hunted: score={score}; target={hunt.Target?.Npc.whoAmI}; rejection={hunt.LastRejection}");
-        Require(hunt.Eligibility == live::AICompanion.Companion.Brain.Activities.OfferEligibility.Unresolved
-            && hunt.EligibilityReason == "firing-position-undecided",
-            $"an unfinished firing search must stay unresolved at value zero, not become a walk; got {hunt.Eligibility}/{hunt.EligibilityReason}");
+        Require(score > 0f && hunt.Target != null,
+            $"a solvable stand past a pillar was not hunted before the flood finished: score={score}; rejection={hunt.LastRejection}");
+        Require(hunt.Eligibility == live::AICompanion.Companion.Brain.Activities.OfferEligibility.Usable,
+            $"a found arc is a hunt even while the path is unfinished; got {hunt.Eligibility}/{hunt.EligibilityReason}");
     }
 
     /// <summary>

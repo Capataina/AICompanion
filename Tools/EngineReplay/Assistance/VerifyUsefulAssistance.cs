@@ -32,7 +32,8 @@ internal static class VerifyUsefulAssistance
         {
             Preferences.Current = new Preferences { TorchPlacement = true, PotBreaking = false };
             LightingReadsOnlyMeasuredDarkness();
-            Console.WriteLine("useful assistance: unmeasured light, measured dark and lit areas, carried torches, lit neighbourhoods and an exhausted supply pass");
+            DistantDarkAirIsOfferedWhenFeetAreInLight();
+            Console.WriteLine("useful assistance: unmeasured light, measured dark and lit areas, carried torches, lit neighbourhoods, distant dark air and an exhausted supply pass");
             return 0;
         }
         finally
@@ -66,16 +67,17 @@ internal static class VerifyUsefulAssistance
         string ledger = $"unmeasured {unmeasured}; dark {dark}; lit {lit}; own torch shown {ownTorchShown}; same light uncarried {sameLightUncarried}; "
             + $"player holds torch {playerHoldsTorch}; no torch, dark {exhaustedDark}; no torch, unmeasured {exhaustedUnmeasured}";
 
-        Require(unmeasured.Score == 0 && unmeasured.Eligibility == Offer.NoOpportunity && unmeasured.Reason == "darkness-unmeasured",
+        Require(unmeasured.Score == 0 && unmeasured.Target == null,
             $"light the engine never computed is not darkness; {ledger}");
         Require(dark.Score > 0 && dark.Eligibility == Offer.Usable && dark.Target != null,
             $"a measured dark area with a torch to place is a lighting opportunity; {ledger}");
-        Require(lit.Score == 0 && lit.Eligibility == Offer.NoOpportunity && lit.Reason == "area-already-lit",
+        Require(lit.Score == 0 && lit.Target == null,
             $"a measured lit area needs no torch; {ledger}");
         Require(ownTorchShown.Score > 0 && ownTorchShown.Eligibility == Offer.Usable,
             $"the companion's own shown torch must not make a dark area look lit; {ledger}");
-        Require(sameLightUncarried.Score == 0 && sameLightUncarried.Reason == "area-already-lit",
-            $"the same light with nobody carrying it is light already in place; {ledger}");
+        Require(sameLightUncarried.Score > 0 && sameLightUncarried.Target is Vector2 uncarriedSite
+            && Vector2.Distance(uncarriedSite, new Vector2(20 * 16f + 8f, 58 * 16f + 8f)) > 9 * 16f,
+            $"world light in a disc must not hide dark air outside it; {ledger}");
         Require(playerHoldsTorch.Score > 0 && playerHoldsTorch.Eligibility == Offer.Usable,
             $"a torch the player holds lights the area only while it is carried there; {ledger}");
         Require(exhaustedDark.Score == 0 && exhaustedDark.Target == null && exhaustedDark.Eligibility == Offer.KnownUnusable && exhaustedDark.Reason == "no-torch-supply",
@@ -88,6 +90,26 @@ internal static class VerifyUsefulAssistance
         var litNeighbourhood = PrepareLighting((x, y) => DiscAt(site.X, site.Y, 4, x, y), torch: true);
         Require(litNeighbourhood.Eligibility == Offer.Usable && litNeighbourhood.Target is Vector2 moved && Vector2.Distance(moved, firstSite) > 4 * 16f,
             $"a site whose neighbourhood is already lit must lose to a dark one; first site {site}; lit neighbourhood {litNeighbourhood}; {ledger}");
+    }
+
+    /// <summary>
+    /// The playtest case: feet sit in a lit bubble while dark air is on the same screen. Lighting
+    /// must walk to that air rather than report the local disc as already lit.
+    /// </summary>
+    private static void DistantDarkAirIsOfferedWhenFeetAreInLight()
+    {
+        static float LitFeetDarkPocket(int x, int y)
+        {
+            int dx = x - 20, dy = y - 58;
+            return dx * dx + dy * dy <= 18 * 18 ? 0.8f : 0.05f;
+        }
+        var offered = PrepareLighting(LitFeetDarkPocket, torch: true);
+        Require(offered.Score > 0 && offered.Eligibility == Offer.Usable && offered.Target != null,
+            $"dark air outside a lit disc around the feet must be a lighting job; {offered}");
+        Point tile = offered.Target!.Value.ToTileCoordinates();
+        int dist2 = (tile.X - 20) * (tile.X - 20) + (tile.Y - 58) * (tile.Y - 58);
+        Require(dist2 > 10 * 10,
+            $"the offered site {tile} is still in the lit disc around the feet; {offered}");
     }
 
     private static Offered PrepareLighting(Func<int, int, float>? light, bool torch, bool companionTorchShown = false, bool playerHoldsTorch = false)

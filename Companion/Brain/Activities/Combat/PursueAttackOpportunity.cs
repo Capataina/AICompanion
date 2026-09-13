@@ -244,10 +244,11 @@ public sealed class PursueAttackOpportunity : CompanionAction
     /// nothing lands inside the arsenal's window — the first admissible candidate is kept, so a distant
     /// enemy that is still worth approaching is not refused for being distant.
     ///
-    /// A target with no reachable firing position is passed over rather than selected and stood at,
-    /// which is the difference between choosing a fight and discovering one cannot be had. Bounded on
-    /// purpose: establishing a firing opportunity samples terrain, so a crowd where nothing is engageable
-    /// must not turn one tick into a search.
+    /// Existence is the arsenal's real forecast, not a straight ray. Hunt does not pick the pair the
+    /// hands will fire; it walks toward a pose where that chooser's outcome value is highest, re-ranked
+    /// every preparation. An unfinished flood that has already found a solvable stand is a hunt; an
+    /// unfinished flood that has found no arc is not. Bounded on purpose: a crowd where nothing is
+    /// engageable must not turn one tick into a search.
     /// </summary>
     private const int MaxFiringChecksPerTick = 3;
     private readonly System.Collections.Generic.HashSet<int> examined = new();

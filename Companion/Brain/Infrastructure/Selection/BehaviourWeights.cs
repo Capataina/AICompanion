@@ -169,6 +169,11 @@ public static class Weights
     public const float HuntLeashToZero = 900f;
 
     public const float WanderFloor = 0.05f;
+    /// <summary>
+    /// Far reunion pull never sits at 1, so a proven job further across the screen can still win.
+    /// The hard leash at fly-home distance is not this cap: that one still drops everything.
+    /// </summary>
+    public const float KeepCompanyFarCap = 0.8f;
     public const float FollowIntentDistance = 140f;
     public const float RegroupFullDistance = 640f;
     public const float RegroupFreeReturnTicks = 60f;

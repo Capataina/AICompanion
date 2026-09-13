@@ -269,17 +269,23 @@ public sealed class Arsenal
     }
 
     private EvaluateAttackOutcomes.Attack? ForecastAttack(in ActionContext ctx, CompanionWeapon weapon, int slot, NPC target, out string rejection)
+        => ForecastFrom(ctx, weapon, slot, target, Muzzle(ctx.Npc), record: true, out rejection);
+
+    /// <summary>
+    /// The same forecast the hands fire from, evaluated at an arbitrary muzzle so hunt can ask whether
+    /// a pose would actually shoot rather than whether a straight ray would.
+    /// </summary>
+    private EvaluateAttackOutcomes.Attack? ForecastFrom(in ActionContext ctx, CompanionWeapon weapon, int slot, NPC target, Vector2 muzzle, bool record, out string rejection)
     {
         rejection = "outside-reach";
-        Vector2 muzzle = Muzzle(ctx.Npc);
         if (Vector2.Distance(muzzle, target.Center) > weapon.Reach) return null;
         rejection = "no-clear-trajectory";
         if (!TrajectoryAimer.TrySolve(muzzle, target, weapon.Profile, out TrajectorySolution solution))
         {
-            BrainInspectorSamples.RecordAim(muzzle, target.Center, weapon.Name, null, rejection);
+            if (record) BrainInspectorSamples.RecordAim(muzzle, target.Center, weapon.Name, null, rejection);
             return null;
         }
-        BrainInspectorSamples.RecordAim(muzzle, target.Center, weapon.Name, solution.LaunchVelocity, "solved");
+        if (record) BrainInspectorSamples.RecordAim(muzzle, target.Center, weapon.Name, solution.LaunchVelocity, "solved");
         int crossed = TrajectoryAimer.PathHits(muzzle, solution.LaunchVelocity, weapon.Profile, hostiles, pierced);
         var hits = new List<EvaluateAttackOutcomes.Hit>();
         for (int i = 0; i < Math.Min(crossed, weapon.Pierce); i++)
@@ -287,6 +293,39 @@ public sealed class Arsenal
         rejection = hits.Count == 0 ? "no-damageable-intercept" : "accepted";
         return hits.Count == 0 ? null : new(slot, target.whoAmI, weapon.UseTime, solution.ImpactTick, hits.ToArray());
     }
+
+    /// <summary>Whether either equipped weapon has a real, intercepting shot at this target from this muzzle.</summary>
+    public bool ShotSolves(in ActionContext ctx, Vector2 muzzle, NPC target)
+    {
+        if (!target.active || target.life <= 0 || !target.CanBeChasedBy()) return false;
+        Collect(ctx);
+        return ForecastFrom(ctx, Primary, 0, target, muzzle, record: false, out _) != null
+            || ForecastFrom(ctx, Secondary, 1, target, muzzle, record: false, out _) != null;
+    }
+
+    /// <summary>
+    /// The arsenal's outcome value for the best weapon–target pair from this muzzle against one body.
+    /// Hunt uses this to steer: it does not pick the pair the hands will fire.
+    /// </summary>
+    public float BestShotValueFrom(in ActionContext ctx, Vector2 muzzle, NPC target)
+    {
+        if (!target.active || target.life <= 0 || !target.CanBeChasedBy()) return 0f;
+        Collect(ctx);
+        var attacks = new List<EvaluateAttackOutcomes.Attack>();
+        var a = ForecastFrom(ctx, Primary, 0, target, muzzle, record: false, out _);
+        var b = ForecastFrom(ctx, Secondary, 1, target, muzzle, record: false, out _);
+        if (a != null) attacks.Add(a);
+        if (b != null) attacks.Add(b);
+        if (attacks.Count == 0) return 0f;
+        var targets = AttackTargets(ctx);
+        float best = 0f;
+        foreach (var attack in attacks)
+            best = MathF.Max(best, EvaluateAttackOutcomes.Evaluate(attack, attacks, targets, cooldown, HorizonTicks).Value);
+        return best;
+    }
+
+    /// <summary>Muzzle a body would have if its feet were at this stand, matching the positioner's eye height.</summary>
+    public static Vector2 MuzzleAtFeet(Vector2 feet) => feet + new Vector2(0f, -30f);
 
     private static List<EvaluateAttackOutcomes.Target> AttackTargets(in ActionContext ctx)
     {
@@ -431,8 +470,7 @@ public sealed class Arsenal
         if (now - engageCheckedAt[slot] < EngageCacheTicks && engageCheckedAt[slot] != 0 && engageState[slot] == state)
             return engageResult[slot];
         Vector2 muzzle = Muzzle(ctx.Npc);
-        bool can = TrajectoryAimer.Solve(muzzle, target, Primary.Profile) != null
-            || TrajectoryAimer.Solve(muzzle, target, Secondary.Profile) != null;
+        bool can = ShotSolves(ctx, muzzle, target);
         engageCheckedAt[slot] = now;
         engageState[slot] = state;
         engageResult[slot] = can;
@@ -539,5 +577,5 @@ public sealed class Arsenal
         failedUntilTick = ctx.Senses.Tick + FailedTraceFreshnessTicks;
     }
 
-    private static Vector2 Muzzle(NPC npc) => npc.Center + new Vector2(npc.direction * 10f, -4f);
+    public static Vector2 Muzzle(NPC npc) => npc.Center + new Vector2(npc.direction * 10f, -4f);
 }

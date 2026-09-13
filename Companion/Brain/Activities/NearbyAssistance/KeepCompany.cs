@@ -79,7 +79,8 @@ public sealed class KeepCompany : CompanionAction
         // player aiming a block is the other courtesy, and that one steps aside without a reunion.
         if (blocking && p.IsTravelling)
             pull = MathF.Max(pull, 0.3f);
-        return MathF.Max(pull, MathF.Max(regroup, hardLeash)) * stranded;
+        float demand = MathF.Min(Weights.KeepCompanyFarCap, MathF.Max(pull, regroup));
+        return MathF.Max(demand, hardLeash) * stranded;
     }
 
     public override PositionRequest Execute(in ActionContext ctx)

@@ -61,8 +61,19 @@ public static class MeasureLightCoverage
             size.X / 16f + Lighting.OffScreenTiles * 2 + 10f, size.Y / 16f + Lighting.OffScreenTiles * 2);
     }
 
+    /// <summary>
+    /// Empty space a torch could light. Packed dirt, platforms and furniture are not darkness: averaging them
+    /// in made a 5×5 of stone read as a dark room and hid real air pockets.
+    /// </summary>
+    public static bool IsOpenAir(int x, int y)
+    {
+        if (!WorldGen.InWorld(x, y, 1)) return false;
+        Tile tile = Main.tile[x, y];
+        return !tile.HasUnactuatedTile;
+    }
+
     /// <summary>Samples on a coarse lattice around a tile: how many the engine computed, how many it did not, and
-    /// the mean brightness of the computed ones. A sample inside a carried light is neither: it is lit only while
+    /// the mean brightness of the computed ones. Only open air is sampled. A sample inside a carried light is neither: it is lit only while
     /// that light is carried there.</summary>
     public readonly record struct Darkness(int Measured, int Unmeasured, float MeanBrightness)
     {
@@ -81,7 +92,7 @@ public static class MeasureLightCoverage
             {
                 if (dx * dx + dy * dy > radiusTiles * radiusTiles) continue;
                 int x = centre.X + dx, y = centre.Y + dy;
-                if (!WorldGen.InWorld(x, y, 1) || InsideCarriedLight(x, y, carried)) continue;
+                if (!WorldGen.InWorld(x, y, 1) || !IsOpenAir(x, y) || InsideCarriedLight(x, y, carried)) continue;
                 if (!coverage.Contains(x, y)) { unmeasured++; continue; }
                 measured++;
                 sum += MathHelper.Clamp(Lighting.Brightness(x, y), 0f, 1f);
