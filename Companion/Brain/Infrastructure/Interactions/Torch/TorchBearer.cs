@@ -18,10 +18,11 @@ namespace AICompanion.Companion.Brain.Infrastructure.Interactions.Torch;
 /// torch cannot flicker on its own light, and the field has the companion's own torch subtracted so
 /// the reading cannot be made by the thing it decides.
 ///
-/// <para>Neither query being measured holds the current state rather than changing it: nobody has read
-/// this neighbourhood, which is not the same as reading it as bright, and a torch that drops whenever
-/// the companion walks off the engine's computed screen is a torch that drops in exactly the caves it
-/// is for.</para>
+/// <para>An unmeasured query casts no vote: nobody having read a neighbourhood is not the same as
+/// reading it as bright, so a silent answer neither raises nor lowers, and with both silent the state
+/// simply holds. A torch that drops whenever the companion walks off the engine's computed screen is a
+/// torch that drops in exactly the caves it is for, and one that drops because the player's distant feet
+/// are the only thing anyone measured is the same failure reached from the other side.</para>
 ///
 /// <para>Whether the hand is free is the NPC's call (any action that holds a tool or weapon wins it),
 /// and light, map reveal and the torch in the hand all follow that one answer: a companion swinging a
@@ -55,6 +56,19 @@ public sealed class TorchBearer
         sinceChange++;
         var here = light.DarkAirNear(npc.Center.ToTileCoordinates(), Weights.TorchHoldRadiusTiles);
         var ahead = light.DarkAirNear(playerHeading.ToTileCoordinates(), Weights.TorchHoldRadiusTiles);
+        // The two halves are asymmetric on purpose, because the two mistakes cost differently. Raising asks
+        // whether anybody saw dark air, so one measured dark answer is enough and a silent one is skipped.
+        // Lowering asks whether there is no dark air anywhere the companion is about to be, which nobody can
+        // answer about a place nobody read: a silent query therefore blocks it rather than abstaining. Letting
+        // it abstain is the same defect as reading its share, one step further out — a companion deep in an
+        // unlit cave the engine has not computed, with the player's predicted feet out in daylight, has one
+        // bright answer and one silence, and every rule that lets the bright one carry alone drops the torch
+        // in the dark. The cost of the other error is a torch held for a few seconds in a room already lit.
+        bool raise = (!here.Unmeasured && here.DarkFraction > Weights.TorchRaiseDarkShare)
+            || (!ahead.Unmeasured && ahead.DarkFraction > Weights.TorchRaiseDarkShare);
+        bool lower = !here.Unmeasured && !ahead.Unmeasured
+            && here.DarkFraction < Weights.TorchLowerDarkShare
+            && ahead.DarkFraction < Weights.TorchLowerDarkShare;
         if (here.Unmeasured && ahead.Unmeasured)
         {
             // Nobody read either neighbourhood. That is not brightness, so the state stands: a torch that
@@ -64,14 +78,13 @@ public sealed class TorchBearer
         }
         else if (sinceChange >= MinimumHoldTicks)
         {
-            float darkHere = here.DarkFraction, darkAhead = ahead.DarkFraction;
-            if (!Lit && (darkHere > Weights.TorchRaiseDarkShare || darkAhead > Weights.TorchRaiseDarkShare))
+            if (!Lit && raise)
             {
                 Lit = true;
                 sinceChange = 0;
-                Reason = darkHere > Weights.TorchRaiseDarkShare ? "dark-near" : "dark-ahead";
+                Reason = !here.Unmeasured && here.DarkFraction > Weights.TorchRaiseDarkShare ? "dark-near" : "dark-ahead";
             }
-            else if (Lit && darkHere < Weights.TorchLowerDarkShare && darkAhead < Weights.TorchLowerDarkShare)
+            else if (Lit && lower)
             {
                 Lit = false;
                 sinceChange = 0;

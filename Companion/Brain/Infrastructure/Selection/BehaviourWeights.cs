@@ -132,12 +132,20 @@ public static class Weights
     // outbidding everything. A count rather than a flat value because a torch in the larger dark space is
     // worth more, and the ceiling because without it a big enough cave beats protecting the player.
     public const float LightRegionSampleValue = .04f;
-    public const float LightRegionValueCap = .35f;
+    public const float LightRegionValueCap = .20f;
     // What lighting is worth before the region's size is added, and the multiplier when the player is
     // carrying no light of his own. Placing a torch matters more when he cannot see either; it beat
     // treating his held torch as a reason not to light at all, which left permanent darkness behind him
     // everywhere he had walked holding one.
-    public const float LightBaseValue = .45f;
+    //
+    // Base plus the cap is deliberately the flat value lighting carried before it read a region at all, so
+    // with the player lit the biggest cavern is worth exactly what one proven site used to be and lighting
+    // keeps losing to mining and chopping. The first version let base and cap sum to .80 and then took the
+    // unlit factor on top, which reached 1.12: above the band every ordinary raw value lives in, so a dark
+    // cave with ore in it would have been lit rather than mined, and lighting could have interrupted a
+    // committed job that an expression capped at 1 cannot touch. Only the unlit factor rises past the old
+    // value, which is the one case the player is actually worse off without the torch.
+    public const float LightBaseValue = .40f;
     public const float LightPlayerUnlitFactor = 1.4f;
     // How far a new job may sit from the player. Kept independent of fly-home so raising recovery
     // does not silently enlarge every work allowance past the worlds the fixtures fit in.

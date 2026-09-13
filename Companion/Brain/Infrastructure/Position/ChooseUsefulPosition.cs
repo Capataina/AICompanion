@@ -240,6 +240,12 @@ public sealed class Positioner
         // incumbent and every sampled candidate are gated alike), so these are the references it was admitted
         // against even when the value did not change and the revision did not advance.
         Region = Chosen == null ? SuccessRegion.None
+            // A partial-progress answer is the one destination that is deliberately outside the objective:
+            // it exists precisely because nothing inside it was accepted. Declaring the follow region over it
+            // would publish a contract the navigator cannot meet, and an arrival there reads as a definitive
+            // violation in the record rather than as the closing of a gap it actually is.
+            : ChoiceReason == "partial-progress-candidate"
+                ? SuccessRegion.Unscored(SuccessRegionKind.Undeclared, request.Anchor, senses.Tick, TerrainChanges.Revision)
             : request.Kind == RequestKind.WithPlayer
                 ? SuccessRegion.Follow(new FollowPlayerObjective(senses.Player.Bottom, request.Anchor), senses.Tick, TerrainChanges.Revision)
                 : SuccessRegion.Unscored(SuccessRegionKind.FiringPosition, request.Anchor, senses.Tick, TerrainChanges.Revision);
