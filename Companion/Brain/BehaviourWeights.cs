@@ -283,4 +283,35 @@ public static class Weights
     /// edit or a drop that moved to another pose asks again at once.
     /// </summary>
     public const int CollectionReachRecheckTicks = 60;
+
+    // P08 — purposeful combat and combined safety. Proposal 1's P08 tunables sit together at the end of
+    // the class so parallel lanes adding their own blocks collide on nothing but position.
+
+    /// <summary>
+    /// Guard: the longest a protective fight can take and still be worth guarding over, in ticks. A
+    /// threat the weapons could remove sooner keeps its full protection value; one needing longer keeps
+    /// value in proportion — half at twice this — because standing between the player and something that
+    /// outlasts the companion's weapons for that long protects nobody. Thirty seconds is a judgement about
+    /// what a player would still call helping, not a measurement: on starting weapons a zombie or a swarm
+    /// of small eyes sits well inside it and a boss's life bar far outside it, and that separation is
+    /// what the number has to preserve when weapons or enemies change.
+    /// </summary>
+    public const float GuardUsefulRemovalTicks = 1800f;
+
+    /// <summary>
+    /// Encounter: how many observed hostiles able to reach either actor make the world look like an event
+    /// when no native boss or event flag says so. This is the fallback for a modded invasion nobody wrote
+    /// anything for, so it has to sit above what an ordinary cave or night puts in range at once — a
+    /// couple of zombies and a slime — and below what an invasion wave does, and that separation is what
+    /// the number must keep when spawn rates change.
+    /// </summary>
+    public const int EncounterPressureHostiles = 5;
+
+    /// <summary>
+    /// Encounter: ticks of unbroken crowd pressure before an unrecognised encounter reaches full intensity.
+    /// Intensity ramps linearly over this window so a brief knot of enemies does not stop all optional
+    /// work, and drops to nothing the first tick the crowd thins, because the return to ordinary is meant
+    /// to be immediate.
+    /// </summary>
+    public const float EncounterPressureTicks = 300f;
 }

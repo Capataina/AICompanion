@@ -12,6 +12,7 @@
     <Compile Include="../../Companion/Brain/ProjectileAiming/**/*.cs" />
     <Compile Include="../../Companion/Brain/WorldObservation/PredictObservedMotion.cs" />
     <Compile Include="../../Companion/Brain/WorldObservation/ObserveThreats.cs" />
+    <Compile Include="../../Companion/Brain/WorldObservation/EstimateEffectiveDamage.cs" />
     <Compile Include="../../Companion/Brain/WorldObservation/ObserveHostileAttackSources.cs" />
     <Compile Include="../../Companion/Brain/WorldObservation/ThreatRecord.cs" />
     <Compile Include="../../Companion/Brain/WorldObservation/LineOfSight.cs" />

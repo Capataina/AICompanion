@@ -42,7 +42,7 @@ public sealed class BrainTelemetry : ModSystem
     private static string? eventsPath;
     private static readonly Stopwatch sessionClock = new();
     private static DateTime sessionStartedUtc;
-    private const string Schema = "0.24.0";
+    private const string Schema = "0.25.0";
     private static string? pendingPlayerHit;
     private static string? pendingCompanionHit;
     private static string? lastDecision;
@@ -460,7 +460,7 @@ public sealed class BrainTelemetry : ModSystem
 
         if (!headerWritten)
         {
-            var textColumns = new StringBuilder("# text_columns=state,action,reflex,top_threat,target,request,anchor,spot,next_kind,npc_tile,npc_px,npc_vel,held,weapon,fire,engage,torch,player_tile,edge_kind,edge_from,edge_to,edge_outcome,spot_home,diverge_invalid_reason,sample_phase,player_px,player_vel,player_liquid,player_hit,npc_hit,player_state,player_activity,player_support,npc_support,control,control_source,observed_vel,observed_mobility,predicted_vel,predicted_mobility,follow_reason,recovery_reason,guard_reason,mine_policy,mine_status,mine_target,target_evidence,nav_status,position_reason,escape_stage,escape_target,hunt_reason,hand_grant,control_request_owner,safety_kind,safety_reason,safety_last_end,collection_method,mine_end_reason,attempt_end_activity,attempt_end_family,attempt_end_status,attempt_end_cause,attempt_end_attribution");
+            var textColumns = new StringBuilder("# text_columns=state,action,reflex,top_threat,target,request,anchor,spot,next_kind,npc_tile,npc_px,npc_vel,held,weapon,fire,engage,torch,player_tile,edge_kind,edge_from,edge_to,edge_outcome,spot_home,diverge_invalid_reason,sample_phase,player_px,player_vel,player_liquid,player_hit,npc_hit,player_state,player_activity,player_support,npc_support,control,control_source,observed_vel,observed_mobility,predicted_vel,predicted_mobility,follow_reason,recovery_reason,guard_reason,mine_policy,mine_status,mine_target,target_evidence,nav_status,position_reason,escape_stage,escape_target,hunt_reason,hand_grant,control_request_owner,safety_kind,safety_reason,safety_last_end,collection_method,mine_end_reason,attempt_end_activity,attempt_end_family,attempt_end_status,attempt_end_cause,attempt_end_attribution,pursuit_target,pursuit_evidence,aim_target,landed_hit_target,landed_hit_aimed,encounter_source");
             // Offer columns are named from the registered activities, like the raw/final pairs, so
             // the declaration and the header cannot disagree about which activities exist.
             foreach (var a in brain.Chooser.Actions) textColumns.Append(',').Append(a.Name).Append("_offer");
@@ -506,6 +506,7 @@ public sealed class BrainTelemetry : ModSystem
             }
             h.Append("\tmeeting_reason\tmeeting_anchor\tmeeting_player_ticks\tmeeting_companion_ticks\tmeeting_candidates\tmeeting_priced\tmeeting_flood");
             h.Append("\tnav_failure\tnav_failure_reason\tnav_failure_search_id\tnav_failure_attempt_id\tnav_attempt_ending\tnav_attempts_completed\tnav_attempts_failed\tnav_attempts_preempted\tnav_attempts_cancelled");
+            h.Append("\tpursuit_target\tpursuit_value\tpursuit_access_ticks\tpursuit_evidence\taim_target\tlanded_hit_target\tlanded_hit_aimed\tlanded_hit_damage\tlanded_hit_tick\tlanded_hits\tguard_removal_ticks\tguard_usefulness\ttop_threat_effective_player\ttop_threat_effective_companion\tencounter_intensity\tencounter_source\tencounter_recognised\tencounter_pressure_ticks");
             writer.WriteLine(h.ToString());
             headerWritten = true;
         }
@@ -813,6 +814,35 @@ public sealed class BrainTelemetry : ModSystem
             .Append('\t').Append(brain.Navigator.FailedAttempts)
             .Append('\t').Append(brain.Navigator.PreemptedAttempts)
             .Append('\t').Append(brain.Navigator.CancelledAttempts);
+        // Where the feet are going, what the hands chose and what the game says a companion shot struck
+        // are three different facts, so each has its own slot:generation column; a shot at the visible
+        // enemy is not progress against the hidden one a hunt walks toward, and a piercing arrow aimed at
+        // one enemy can land on the one in front. Guard's removal estimate and share, and what the most
+        // urgent threat's hit costs each body after defence, sit beside them. Infinity is written as -1
+        // so every numeric column parses as a number.
+        static string Identity(NPC? subject) => subject != null && subject.active
+            ? string.Create(CultureInfo.InvariantCulture, $"{subject.whoAmI}:{WorldObservation.HostileAttackSources.Generation(subject)}") : "-";
+        sb.Append('\t').Append(Identity(hunt?.Target?.Npc));
+        sb.Append('\t').Append((hunt?.PursuitValue ?? 0f).ToString("0.000", CultureInfo.InvariantCulture));
+        sb.Append('\t').Append((hunt?.PursuitAccessTicks ?? 0f).ToString("0.0", CultureInfo.InvariantCulture));
+        sb.Append('\t').Append(string.IsNullOrEmpty(hunt?.PursuitEvidence) ? "-" : hunt!.PursuitEvidence);
+        sb.Append('\t').Append(Identity(brain.EngageTarget));
+        var landed = Weapons.TrackLandedHits.Last;
+        sb.Append('\t').Append(landed is { } hit ? string.Create(CultureInfo.InvariantCulture, $"{hit.HitSlot}:{hit.HitGeneration}") : "-");
+        sb.Append('\t').Append(landed is { } aimed ? string.Create(CultureInfo.InvariantCulture, $"{aimed.AimSlot}:{aimed.AimGeneration}") : "-");
+        sb.Append('\t').Append(landed?.Damage ?? 0);
+        sb.Append('\t').Append(landed?.Tick.ToString(CultureInfo.InvariantCulture) ?? "-1");
+        sb.Append('\t').Append(Weapons.TrackLandedHits.Count);
+        float removal = guard?.RemovalTicks ?? float.PositiveInfinity;
+        sb.Append('\t').Append(float.IsFinite(removal) ? removal.ToString("0.0", CultureInfo.InvariantCulture) : "-1");
+        sb.Append('\t').Append((guard?.InterventionUsefulness ?? 1f).ToString("0.000", CultureInfo.InvariantCulture));
+        sb.Append('\t').Append((top?.EffectiveDamageToPlayer ?? 0f).ToString("0.0", CultureInfo.InvariantCulture));
+        sb.Append('\t').Append((top?.EffectiveDamageToCompanion ?? 0f).ToString("0.0", CultureInfo.InvariantCulture));
+        var encounter = brain.Senses.Encounter;
+        sb.Append('\t').Append(encounter.Intensity.ToString("0.000", CultureInfo.InvariantCulture));
+        sb.Append('\t').Append(encounter.Source);
+        sb.Append('\t').Append(encounter.Recognised ? 1 : 0);
+        sb.Append('\t').Append(encounter.PressureTicks);
 
         // A write that fails (disk full, a stream the OS closed) must not escape the NPC's AI
         // and take the companion with it; the record stops and the game goes on.

@@ -214,6 +214,57 @@ public sealed class Arsenal
                 }
         }
         TargetEvidence = string.Join("|", evidence);
+        fromHereAttacks = attacks;
+        FromHereAttacksTick = now;
+        return best;
+    }
+
+    private List<EvaluateAttackOutcomes.Attack> fromHereAttacks = new();
+
+    /// <summary>When the retained from-here attacks were last ranked; a held target keeps the older set.</summary>
+    public int FromHereAttacksTick { get; private set; }
+
+    /// <summary>
+    /// What the hands could make of a target if its first shot can only leave after
+    /// <paramref name="accessTicks"/>, valued by the same bounded outcome evaluator that ranks their own
+    /// attacks. This is how pursuit asks whether a reposition is worth it without keeping a second
+    /// opinion about what an attack is worth.
+    ///
+    /// A target the hands can already shoot uses its retained, trajectory-checked attacks from the last
+    /// ranking. A target that needs a reposition gets one assumed attack per weapon — per-hit damage after
+    /// the target's defence, the weapon's use time, a flight time from the current muzzle distance — which
+    /// is optimistic about the arc (the positioner proves the real one at the stand) and pessimistic about
+    /// the wait, because the hands' own shots during the walk are not counted. The retained from-here
+    /// attacks are the continuation after that first shot, so a reposition that delays the arrows a
+    /// healthy target would otherwise have taken is charged for them. Zero means the target cannot be
+    /// damaged or nothing lands inside the evaluation window; it is not proof the target is worthless.
+    /// </summary>
+    public float EstimateDelayedAttackValue(in ActionContext ctx, NPC target, int accessTicks, bool shootableFromHere)
+    {
+        if (!target.active || target.life <= 0 || !target.CanBeChasedBy()) return 0f;
+        var targets = AttackTargets(ctx);
+        var alternatives = new List<EvaluateAttackOutcomes.Attack>(fromHereAttacks);
+        var firsts = new List<EvaluateAttackOutcomes.Attack>();
+        if (shootableFromHere)
+            foreach (var attack in fromHereAttacks)
+                if (attack.Target == target.whoAmI) firsts.Add(attack);
+        if (firsts.Count == 0)
+        {
+            Vector2 muzzle = Muzzle(ctx.Npc);
+            for (int w = 0; w < 2; w++)
+            {
+                CompanionWeapon weapon = w == 0 ? Primary : Secondary;
+                int flight = Math.Max(1, (int)(Vector2.Distance(muzzle, target.Center) / MathF.Max(1f, weapon.Profile.Speed)));
+                var assumed = new EvaluateAttackOutcomes.Attack(w, target.whoAmI, weapon.UseTime, flight,
+                    new[] { new EvaluateAttackOutcomes.Hit(target.whoAmI, PerHit(ctx, weapon, target)) });
+                firsts.Add(assumed);
+                alternatives.Add(assumed);
+            }
+        }
+        int fireAt = Math.Max(cooldown, Math.Max(0, accessTicks));
+        float best = 0f;
+        foreach (var first in firsts)
+            best = MathF.Max(best, EvaluateAttackOutcomes.Evaluate(first, alternatives, targets, fireAt, HorizonTicks).Value);
         return best;
     }
 
@@ -322,6 +373,28 @@ public sealed class Arsenal
         int hits = (int)MathF.Ceiling(target.life / PerHit(ctx, weapon, target));
         return interventionTicks = Math.Max(0, cooldown) + solution.ImpactTick
             + Math.Max(0, hits - 1) * Math.Max(1, weapon.UseTime);
+    }
+
+    /// <summary>
+    /// Optimistic ticks to remove a target if every attack lands: for each weapon, the hits its life needs
+    /// after defence spaced by the weapon's use time, plus one flight from the current distance, and the
+    /// faster weapon's answer. Unlike <see cref="EstimateInterventionTicks"/> it asks nothing of the current
+    /// arc or cooldown, so it answers whether a fight against this target could ever be short rather than
+    /// whether a shot is open now. Infinity for a target no weapon can damage.
+    /// </summary>
+    public float EstimateRemovalTicks(in ActionContext ctx, NPC target)
+    {
+        if (!target.active || target.life <= 0 || !target.CanBeChasedBy()) return float.PositiveInfinity;
+        Vector2 muzzle = Muzzle(ctx.Npc);
+        float best = float.PositiveInfinity;
+        for (int w = 0; w < 2; w++)
+        {
+            CompanionWeapon weapon = w == 0 ? Primary : Secondary;
+            int hits = (int)MathF.Ceiling(target.life / PerHit(ctx, weapon, target));
+            float flight = Vector2.Distance(muzzle, target.Center) / MathF.Max(1f, weapon.Profile.Speed);
+            best = MathF.Min(best, Math.Max(0, hits - 1) * Math.Max(1, weapon.UseTime) + flight);
+        }
+        return best;
     }
 
     private NPC? held;
@@ -438,6 +511,7 @@ public sealed class Arsenal
             return false;
         }
         GodsEyeEvents.RecordShot(ctx.Npc, target, projectileIndex, muzzle, launch, finalShot.ExpectedImpact, weapon.Name, finalShot.ImpactTick, LastAttackValue, LastExpectedKills, LastPreventedHarm);
+        TrackLandedHits.Register(projectileIndex, target);
         cooldown = weapon.UseTime;
         ctx.Companion.StartAnimation(weapon.ItemType, Math.Max(10, weapon.BaseUseTime));
         ctx.Companion.SetAimRotation(launch);

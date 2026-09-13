@@ -30,6 +30,11 @@ public sealed class ThreatRecord
     public float PredictionConfidence;
     public int PredictionSamples;
     public int ExpectedDamage;
+
+    /// <summary>What one hit takes off the player and off the companion after each body's own defence,
+    /// by <see cref="EstimateEffectiveDamage"/>: the median hit, never a guaranteed one.</summary>
+    public float EffectiveDamageToPlayer;
+    public float EffectiveDamageToCompanion;
     public bool HasSightOnPlayer;
 
     /// <summary>0..1: how much this threat endangers the player right now.</summary>
