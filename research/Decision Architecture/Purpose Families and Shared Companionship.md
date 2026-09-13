@@ -79,7 +79,7 @@ Values still require authoring and calibration. A general architecture does not 
 
 **Route, arrival and productive outcome remain separate facts.** A route proposes travel; arrival describes the body's achieved position; a purpose-specific check says whether that position enables work; a native outcome says whether the work occurred. Path 1 connects them and exposes failure at their boundary. It must not rename route discovery as guaranteed mining success.
 
-See the [dated source audit](<../Implementation Evidence/Decisions, Activities and Shared Controls.md>) and current [coordinator](../../Companion/Brain/CoordinateBrainTick.cs), [shared movement](../../Companion/Brain/SharedMovementSystem/CoordinateMovement.cs), and [navigator](../../Companion/Brain/SharedMovementSystem/MovementExecution/Navigator.cs). Follow-up source was read at `739995a`; gameplay source still matches the research baseline.
+See the [dated source audit](<../Implementation Evidence/Decisions, Activities and Shared Controls.md>) and current [coordinator](../../Companion/Brain/CoordinateBrainTick.cs), [shared movement](../../Companion/Brain/Infrastructure/Movement/CoordinateMovement.cs), and [navigator](../../Companion/Brain/Infrastructure/Movement/MovementExecution/Navigator.cs). Follow-up source was read at `739995a`; gameplay source still matches the research baseline.
 
 ## The arsenal remains an independent consumer of compatible hand time
 

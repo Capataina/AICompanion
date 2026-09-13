@@ -4,7 +4,7 @@ using System.Collections.Generic;
 using Microsoft.Xna.Framework;
 using Terraria;
 using Terraria.Map;
-using AICompanion.Companion.Brain.SharedMovementSystem;
+using AICompanion.Companion.Brain.Infrastructure.Movement;
 
 namespace AICompanion.Companion.MapIntegration;
 

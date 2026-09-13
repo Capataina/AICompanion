@@ -3,15 +3,15 @@ extern alias live;
 using Microsoft.Xna.Framework;
 using Terraria;
 using Terraria.ID;
-using MineOre = live::AICompanion.Companion.Brain.PurposeFamilies.Gathering.MineOre;
-using TileMiner = live::AICompanion.Companion.Brain.WorldInteractions.Mining.TileMiner;
-using WorkPolicies = live::AICompanion.Companion.Brain.Behaviours.Work.WorkPolicies;
-using WorkPolicy = live::AICompanion.Companion.Brain.Behaviours.Work.WorkPolicy;
-using ActionContext = live::AICompanion.Companion.Brain.Behaviours.ActionContext;
-using AttemptStatus = live::AICompanion.Companion.Brain.Behaviours.AttemptStatus;
-using AttemptOutcome = live::AICompanion.Companion.Brain.Behaviours.AttemptOutcome;
-using TerrainChanges = live::AICompanion.Companion.Brain.SharedMovementSystem.TerrainChanges;
-using LimitPlanningWork = live::AICompanion.Companion.Brain.SharedMovementSystem.LimitPlanningWork;
+using MineOre = live::AICompanion.Companion.Brain.Activities.Gathering.MineOre;
+using TileMiner = live::AICompanion.Companion.Brain.Infrastructure.Interactions.Mining.TileMiner;
+using WorkPolicies = live::AICompanion.Companion.Brain.Activities.WorkPolicies;
+using WorkPolicy = live::AICompanion.Companion.Brain.Activities.WorkPolicy;
+using ActionContext = live::AICompanion.Companion.Brain.Activities.ActionContext;
+using AttemptStatus = live::AICompanion.Companion.Brain.Activities.AttemptStatus;
+using AttemptOutcome = live::AICompanion.Companion.Brain.Activities.AttemptOutcome;
+using TerrainChanges = live::AICompanion.Companion.Brain.Infrastructure.Movement.TerrainChanges;
+using LimitPlanningWork = live::AICompanion.Companion.Brain.Infrastructure.Movement.LimitPlanningWork;
 
 /// <summary>
 /// What a mining job reports it did against what the world shows: a tracked portion cleared while the vein continues,

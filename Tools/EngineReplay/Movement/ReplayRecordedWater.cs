@@ -4,7 +4,7 @@ using System.Reflection;
 using System.Text.Json;
 using Microsoft.Xna.Framework;
 using Terraria;
-using AICompanion.Companion.Brain.SharedMovementSystem;
+using AICompanion.Companion.Brain.Infrastructure.Movement;
 
 /// <summary>Replays one recorded submerged pose against locally captured terrain. Unknown
 /// tiles are closed boundaries; reaching them is reduced coverage, never proof of no route.</summary>

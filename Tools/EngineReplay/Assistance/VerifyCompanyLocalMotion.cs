@@ -4,17 +4,17 @@ using System.Reflection;
 using Microsoft.Xna.Framework;
 using Terraria;
 using Terraria.ID;
-using AStar = live::AICompanion.Companion.Brain.SharedMovementSystem.AStar;
-using FollowPlayerObjective = live::AICompanion.Companion.Brain.PositionSelection.FollowPlayerObjective;
-using ActionContext = live::AICompanion.Companion.Brain.Behaviours.ActionContext;
-using KeepCompany = live::AICompanion.Companion.Brain.PurposeFamilies.NearbyAssistance.KeepCompany;
-using LimitPlanningWork = live::AICompanion.Companion.Brain.SharedMovementSystem.LimitPlanningWork;
-using MovementQueries = live::AICompanion.Companion.Brain.SharedMovementSystem.MovementQueries;
-using Policy = live::AICompanion.Companion.Brain.Behaviours.Work.WorkPolicy;
-using Reach = live::AICompanion.Companion.Brain.SharedMovementSystem.Reachability.Reach;
-using RequestKind = live::AICompanion.Companion.Brain.PositionSelection.RequestKind;
-using TerrainChanges = live::AICompanion.Companion.Brain.SharedMovementSystem.TerrainChanges;
-using Weights = live::AICompanion.Companion.Brain.BehaviourSelection.Weights;
+using AStar = live::AICompanion.Companion.Brain.Infrastructure.Movement.AStar;
+using FollowPlayerObjective = live::AICompanion.Companion.Brain.Infrastructure.Position.FollowPlayerObjective;
+using ActionContext = live::AICompanion.Companion.Brain.Activities.ActionContext;
+using KeepCompany = live::AICompanion.Companion.Brain.Activities.NearbyAssistance.KeepCompany;
+using LimitPlanningWork = live::AICompanion.Companion.Brain.Infrastructure.Movement.LimitPlanningWork;
+using MovementQueries = live::AICompanion.Companion.Brain.Infrastructure.Movement.MovementQueries;
+using Policy = live::AICompanion.Companion.Brain.Activities.WorkPolicy;
+using Reach = live::AICompanion.Companion.Brain.Infrastructure.Movement.Reachability.Reach;
+using RequestKind = live::AICompanion.Companion.Brain.Infrastructure.Position.RequestKind;
+using TerrainChanges = live::AICompanion.Companion.Brain.Infrastructure.Movement.TerrainChanges;
+using Weights = live::AICompanion.Companion.Brain.Infrastructure.Selection.Weights;
 
 /// <summary>
 /// Keeping company's local method through the whole brain on native collision: where it chooses to stroll when the neighbourhood holds
@@ -334,7 +334,7 @@ internal static class VerifyCompanyLocalMotion
                     : !MovementQueries.IsStandable(x, y) ? "stand"
                     : !(bool)noDrop.Invoke(null, new object[] { tile })! ? "rim"
                     : !(bool)clearOfLiquid.Invoke(null, new object[] { tile })! ? "liquid"
-                    : live::AICompanion.Companion.Brain.PositionSelection.Positioner.PredictedExposureAt(MovementQueries.FeetWorld(tile), ctx.Senses) > Weights.StrollExposureLimit ? "exposed"
+                    : live::AICompanion.Companion.Brain.Infrastructure.Position.Positioner.PredictedExposureAt(MovementQueries.FeetWorld(tile), ctx.Senses) > Weights.StrollExposureLimit ? "exposed"
                     : !ctx.Companion.Brain.Positioner.IsReturnable(ctx.Senses, tile) ? "unreturnable"
                     : "OK";
                 line.Append($" {x},{y}:{verdict}");

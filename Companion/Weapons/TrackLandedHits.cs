@@ -3,7 +3,7 @@
 using Terraria;
 using Terraria.DataStructures;
 using Terraria.ModLoader;
-using AICompanion.Companion.Brain.WorldObservation;
+using AICompanion.Companion.Brain.Infrastructure.Observation;
 
 namespace AICompanion.Companion.Weapons;
 

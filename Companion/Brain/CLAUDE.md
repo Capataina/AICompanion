@@ -4,46 +4,48 @@ The coordinator records brain execution separately from completed choice evaluat
 
 No valid evaluated candidate produces an explicit absent activity and an ordinary Hold request. It does not select a numerically invalid last entry. Independent hand resolution and the existing early safety/recovery paths still run; the absence is not a fourth behaviour.
 
-The chooser delegates current-activity ownership to `BehaviourSelection/OwnCurrentActivity.cs`. Ordinary execution marks that owner executing; reflex and follow recovery suspend it before taking movement, and the NPC downed path suspends it even when the brain does not run. A later comparison decides whether that purpose remains useful. Suspension records interruption rather than failed work, and it does not itself certify the safety response's outcome.
+The chooser delegates current-activity ownership to `Infrastructure/Selection/OwnCurrentActivity.cs`. Ordinary execution marks that owner executing; safety and follow recovery suspend it before taking movement, and the NPC downed path suspends it even when the brain does not run. A later comparison decides whether that purpose remains useful. Suspension records interruption rather than failed work, and it does not itself certify the safety response's outcome.
 
-The brain turns one shared world observation into a body intent each tick. It does not move the NPC: `CoordinateBrainTick.cs` asks `SharedMovementSystem/CoordinateMovement.cs` for controls and the motor in `SharedMovementSystem/TerrariaIntegration/` applies those controls. The separation gives every body-changing decision one route through the same movement interface, while behaviours remain independent of route planning and engine movement details.
+The brain turns one shared world observation into a body intent each tick. It does not move the NPC: `CoordinateBrainTick.cs` asks `Infrastructure/Movement/CoordinateMovement.cs` for controls and the motor in `Infrastructure/Movement/TerrariaIntegration/` applies those controls. The separation gives every body-changing decision one route through the same movement interface, while activities remain independent of route planning and engine movement details.
 
 ```
 Brain/
-├─ CLAUDE.md                    this guide
-├─ CoordinateBrainTick.cs       tick coordinator and the independent hands step
-├─ BehaviourWeights.cs          player-visible behaviour tuning in one authority
-├─ WorldObservation/            facts derived once from Terraria
-├─ CombatReflexes/              imminent-collision assessment, before selection
-├─ SharedSafety/                independent environmental escape and retained collision responses
-├─ BehaviourSelection/          utility choice among the behaviour families
-├─ ActivityCoordination/        final movement application, hand grants, incidental interactions and distant recovery
-├─ Behaviours/                  shared activity contract and work-policy readers
-├─ PurposeFamilies/             seven ordinary activities grouped by purpose
-├─ PositionSelection/           turn a position request into a useful feet tile
-├─ SharedMovementSystem/        core simulation, route planning, execution and Terraria adapter
-├─ ProjectileAiming/            trajectory solve shared by weapons and position selection
-├─ WorldInteractions/           chop, mine, doors, torch and crack rendering
-└─ BehaviourDiagnostics/        overlay, telemetry, scenario capture and session map
+├─ CLAUDE.md
+├─ CoordinateBrainTick.cs
+├─ Activities/                 the seven competing jobs and the contract they implement
+├─ SharedBehaviours/           can take the body without winning a family comparison
+│  ├─ Safety/                  escape, collision avoidance, combat space, hit prediction
+│  └─ Recovery/                distant flight home
+└─ Infrastructure/             how those get done
+   ├─ Observation/
+   ├─ Selection/               scoring, family nomination, tunables
+   ├─ Position/
+   ├─ Movement/
+   ├─ Interactions/
+   ├─ Aiming/
+   ├─ Grants/                  one packet for feet and hand; incidentals
+   └─ Diagnostics/
 ```
+
+Weapons stay in `Companion/Weapons/`. The brain grants a free hand; the arsenal chooses target and weapon.
 
 ## One tick has one direction of flow
 
 Planning consumers share a soft deadline and retain unfinished work. Survival can supply a safe-state predicate directly to movement when the head needs air; the same controller searches legal controls for ordinary local clearance. Hands still resolve after that movement choice. The coordinator stamps the current engine tick when it runs, so diagnostics distinguish fresh decisions from the stale state intentionally left while the companion itself is downed. Player death no longer suspends its decisions.
 
 ```
-WorldObservation ──► CombatReflexes ──► SharedMovementSystem ──► Companion motor
-       │                     │                  ▲
-       └─► BehaviourSelection ─► PositionSelection ┘
-                              │
-                              └─► WorldInteractions
+Observation ──► Safety ──► Movement ──► Companion motor
+     │              │            ▲
+     └─► Selection ─► Position ──┘
+              │
+              └─► Interactions and the arsenal
 
 hands: arsenal fires after movement whenever no work tool owns the arm
 ```
 
-`WorldObservation.Senses` is rebuilt first. Combat reflex assessment supplies predicted unsafe body states. SharedSafety may then suspend ordinary selection for environmental escape or collision avoidance, using shared movement to prepare the controls and retaining its response through the relevant aftermath. Otherwise selection scores every behaviour from the same facts; the winner acts and returns a kind of place, position selection chooses a tile, and movement plans or holds. The motor is the only writer to the live NPC body. Movement outcomes return to the next tick only as observed facts such as a stranded body, never as a lower stage changing a higher stage’s decision.
+`Observation.Senses` is rebuilt first. Safety may then suspend ordinary selection for environmental escape or collision avoidance, using movement to prepare the controls and retaining its response through the relevant aftermath. Otherwise selection scores every activity from the same facts; the winner acts and returns a kind of place, position selection chooses a tile, and movement plans or holds. The motor is the only writer to the live NPC body. Movement outcomes return to the next tick only as observed facts such as a stranded body, never as a lower stage changing a higher stage’s decision.
 
-Ordinary selection prepares candidates before comparison. The common evaluator supplies their values, each purpose family nominates its best positive-value child, and the parent chooses among those three nominations. An empty family nominates nothing; an entirely empty board has no ordinary activity. Environmental escape and combat spacing run independently through SharedSafety even with no ordinary offers. Keeping company combines reunion and relaxed nearby movement without changing purpose identity between methods. Collection compares known drops with uncertain pot contents as opportunities under one activity. The seven ordinary activities are mining, chopping, hunting, guarding, lighting, collecting and keeping company.
+Ordinary selection prepares candidates before comparison. The common evaluator supplies their values, each purpose family nominates its best positive-value child, and the parent chooses among those three nominations. An empty family nominates nothing; an entirely empty board has no ordinary activity. Environmental escape and combat spacing run independently through Safety even with no ordinary offers. Keeping company combines reunion and relaxed nearby movement without changing purpose identity between methods. Collection compares known drops with uncertain pot contents as opportunities under one activity. The seven ordinary activities are mining, chopping, hunting, guarding, lighting, collecting and keeping company.
 
 Every branch returns a movement request and hand permission to the common finaliser. Ordinary travel, reflex avoidance, survival escape and recovery flight therefore share one motor application and a retained grant describing its actual AI-phase output. The downed lifecycle enters that finaliser without running ordinary selection. The grant does not certify the subsequently integrated motion or a productive native effect.
 
@@ -57,11 +59,11 @@ Distant-follow recovery is an explicit coordinator branch outside the route grap
 
 ## Choice is utility, not a priority chain
 
-Each behaviour returns a score whose considerations multiply, so any zero vetoes it. The incumbent receives a commitment bonus and long trips are discounted by the observed threat horizon. Guard urgency can exceed a committed ordinary action; it lives in `BehaviourWeights.cs`, which is the source for player-feel tuning. Shared environmental escape does not need to win that comparison. Behaviours are opportunistic: the companion follows loosely and helps with nearby activities the player is already doing. Player-directed missions were abandoned. The unbuilt mastery tree may later give the movement system capabilities such as air jumps, dash, swimming and flight.
+Each activity returns a score whose considerations multiply, so any zero vetoes it. The incumbent receives a commitment bonus and long trips are discounted by the observed threat horizon. Guard urgency can exceed a committed ordinary action; it lives in `Infrastructure/Selection/BehaviourWeights.cs`, which is the source for player-feel tuning. Shared environmental escape does not need to win that comparison. Activities are opportunistic: the companion follows loosely and helps with nearby work the player is already doing. Player-directed missions were abandoned. The unbuilt mastery tree may later give the movement system capabilities such as air jumps, dash, swimming and flight.
 
 ## Movement is one shared system with an engine adapter
 
-`SharedMovementSystem/` owns simulation, movement abilities, path search, execution, cached terrain facts and the Terraria adapter. The planner and offline replay use the portable core; the live companion uses the Terraria adapter and motor. EngineReplay compares the native adapter against Terraria’s own NPC collision path, including liquid transitions. That is evidence about controlled collision fixtures, while portable replay remains an approximation and gameplay comfort still needs playtest evidence.
+`Infrastructure/Movement/` owns simulation, movement abilities, path search, execution, cached terrain facts and the Terraria adapter. The planner and offline replay use the portable core; the live companion uses the Terraria adapter and motor. EngineReplay compares the native adapter against Terraria’s own NPC collision path, including liquid transitions. That is evidence about controlled collision fixtures, while portable replay remains an approximation and gameplay comfort still needs playtest evidence.
 
 The shared public surface is `CoordinateMovement` for requests and `MovementQueries` for geometry and reachability. Reflexes, position selection and behaviours ask it questions or submit intent; none writes controls or reaches into grid, navigator or motor state. The motor applies one resolved control set and tracks what the engine actually did.
 

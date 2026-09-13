@@ -14,7 +14,7 @@ using Terraria.UI;
 using AICompanion.Companion.CharacterBody;
 using AICompanion.Companion.Inventory;
 using AICompanion.Companion.PlayerIntegration;
-using AICompanion.Companion.Brain.Behaviours.Work;
+using AICompanion.Companion.Brain.Activities;
 
 namespace AICompanion.Companion.ProfileCard;
 
@@ -63,7 +63,7 @@ public sealed class CompanionProfileCardSystem : ModSystem
     {
         if (CompanionNPC.Find()?.ModNPC is not CompanionNPC)
             return;
-        Brain.BehaviourDiagnostics.BrainOverlay.Close();
+        Brain.Infrastructure.Diagnostics.BrainOverlay.Close();
         state = new CompanionProfileCard(this);
         state.Activate();
         ui?.SetState(state);

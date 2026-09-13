@@ -7,7 +7,7 @@ Companion/
 ├─ CLAUDE.md                 this guide
 ├─ CharacterBody/            NPC lifecycle, player-shaped rendering and breath
 ├─ EnemyIntegration/         temporary targeting stand-in and spawn-rate changes
-├─ Brain/                    observation, behaviour, positioning and movement requests
+├─ Brain/                    Activities, SharedBehaviours (Safety, Recovery) and Infrastructure
 ├─ Weapons/                  companion equipment and outcome-based arsenal selection
 ├─ Inventory/                bag storage and its UI
 ├─ PlayerIntegration/        persistence, input, player events and /companion

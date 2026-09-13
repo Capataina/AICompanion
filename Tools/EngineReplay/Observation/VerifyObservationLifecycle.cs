@@ -5,7 +5,7 @@ using Terraria;
 using Terraria.ID;
 using Terraria.ModLoader;
 using Terraria.ModLoader.IO;
-using BrainTelemetry = live::AICompanion.Companion.Brain.BehaviourDiagnostics.BrainTelemetry;
+using BrainTelemetry = live::AICompanion.Companion.Brain.Infrastructure.Diagnostics.BrainTelemetry;
 
 /// <summary>
 /// Exercises the real telemetry writer without a game window. It proves what the recorder can
@@ -19,7 +19,7 @@ internal static class VerifyObservationLifecycle
         FieldInfo savePath = typeof(Terraria.Program).GetField("SavePath", BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic)
             ?? throw new InvalidOperationException("Terraria save-path backing field is unavailable");
         object? priorSavePath = savePath.GetValue(null);
-        var priorMiningPolicy = live::AICompanion.Companion.Brain.Behaviours.Work.WorkPolicies.Mining;
+        var priorMiningPolicy = live::AICompanion.Companion.Brain.Activities.WorkPolicies.Mining;
         string root = Path.Combine(Path.GetTempPath(), "aic-observation-lifecycle-" + Guid.NewGuid().ToString("N"));
         savePath.SetValue(null, root);
         try
@@ -46,7 +46,7 @@ internal static class VerifyObservationLifecycle
         finally
         {
             Close();
-            live::AICompanion.Companion.Brain.Behaviours.Work.WorkPolicies.Mining = priorMiningPolicy;
+            live::AICompanion.Companion.Brain.Activities.WorkPolicies.Mining = priorMiningPolicy;
             savePath.SetValue(null, priorSavePath);
             if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
         }
@@ -58,7 +58,7 @@ internal static class VerifyObservationLifecycle
         var companion = VerifyCompanionLifecycle.Create();
         // This is a new observation scenario. Native world callbacks reset and age
         // tool contacts; otherwise a prior fixture's ore hit lasts forever here.
-        var workClock = new live::AICompanion.Companion.Brain.WorldObservation.TileDamageClock();
+        var workClock = new live::AICompanion.Companion.Brain.Infrastructure.Observation.TileDamageClock();
         workClock.OnWorldLoad();
         Main.LocalPlayer.dead = false;
         Main.LocalPlayer.velocity = new Microsoft.Xna.Framework.Vector2(0, -1);
@@ -73,8 +73,8 @@ internal static class VerifyObservationLifecycle
         string path = Directory.GetFiles(BrainTelemetry.Folder, "*.tsv").OrderByDescending(File.GetLastWriteTimeUtc).First();
         // Distinct values catch a recorder that duplicates one side or queries a later pose.
         typeof(NPC).GetProperty("gravity")!.SetValue(companion.NPC, .1234f);
-        float modelGravity = live::AICompanion.Companion.Brain.SharedMovementSystem.BodyMotion.GravityAt(
-            live::AICompanion.Companion.Brain.SharedMovementSystem.MovementQueries.World, companion.Motor.State);
+        float modelGravity = live::AICompanion.Companion.Brain.Infrastructure.Movement.BodyMotion.GravityAt(
+            live::AICompanion.Companion.Brain.Infrastructure.Movement.MovementQueries.World, companion.Motor.State);
         VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
         VerifyCompanionLifecycle.TickWithOneControlGrant(companion); recorder.OnWorldUnload();
         string[] lines = File.ReadAllLines(path);
@@ -103,12 +103,12 @@ internal static class VerifyObservationLifecycle
 
     private static void VerifyEndedOreJobRecording()
     {
-        var (mine, ctx) = VerifyOreWork.SetUp(live::AICompanion.Companion.Brain.Behaviours.Work.WorkPolicy.Opportunistic,
+        var (mine, ctx) = VerifyOreWork.SetUp(live::AICompanion.Companion.Brain.Activities.WorkPolicy.Opportunistic,
             TileID.Copper, new Microsoft.Xna.Framework.Point(25, 89));
         Require(VerifyPreparedActivities.PrepareAndScore(mine, ctx) > 0, "recorded conclusion needs a real admitted vein");
         int index = ctx.Companion.Brain.Chooser.Actions.FindIndex(action => action.Name == "mine");
         ctx.Companion.Brain.Chooser.Actions[index] = mine;
-        live::AICompanion.Companion.Brain.Behaviours.Work.WorkPolicies.Mining = live::AICompanion.Companion.Brain.Behaviours.Work.WorkPolicy.Disabled;
+        live::AICompanion.Companion.Brain.Activities.WorkPolicies.Mining = live::AICompanion.Companion.Brain.Activities.WorkPolicy.Disabled;
         mine.Execute(ctx);
         var conclusion = mine.LastConclusion ?? throw new InvalidOperationException("revocation omitted the job conclusion");
         Require(conclusion is { Present: 1, ObservedClear: false }, "revocation must preserve remaining world work");
@@ -133,7 +133,7 @@ internal static class VerifyObservationLifecycle
         string events = File.ReadAllText(Path.ChangeExtension(path, null) + "-events.jsonl");
         Require(events.Contains("mine-last-conclusion=") && events.Contains("disabled before execution"),
             "God's Eye must receive the same retained job conclusion");
-        live::AICompanion.Companion.Brain.Behaviours.Work.WorkPolicies.Mining = live::AICompanion.Companion.Brain.Behaviours.Work.WorkPolicy.Opportunistic;
+        live::AICompanion.Companion.Brain.Activities.WorkPolicies.Mining = live::AICompanion.Companion.Brain.Activities.WorkPolicy.Opportunistic;
     }
 
     private static void VerifyRecoveryDoesNotRefreshTheChoice()
@@ -151,7 +151,7 @@ internal static class VerifyObservationLifecycle
         // return before choosing. The owner stays inside the native fixture's world.
         Main.LocalPlayer.dead = false;
         Main.LocalPlayer.position = new Microsoft.Xna.Framework.Vector2(1100, 1398);
-        typeof(live::AICompanion.Companion.Brain.ActivityCoordination.RecoverDistantCompanion)
+        typeof(live::AICompanion.Companion.Brain.SharedBehaviours.Recovery.RecoverDistantCompanion)
             .GetField("<Active>k__BackingField", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(companion.Brain.FollowRecovery, true);
         VerifyObservedMotion.SetTick((Main.GameUpdateCount / 60 + 1) * 60);
         VerifyCompanionLifecycle.TickWithOneControlGrant(companion);
@@ -238,7 +238,7 @@ internal static class VerifyObservationLifecycle
 
     private static void VerifySafetyWithNoOrdinaryOffer()
     {
-        var (_, context) = VerifyOreWork.SetUp(live::AICompanion.Companion.Brain.Behaviours.Work.WorkPolicy.Disabled,
+        var (_, context) = VerifyOreWork.SetUp(live::AICompanion.Companion.Brain.Activities.WorkPolicy.Disabled,
             TileID.Copper, new Microsoft.Xna.Framework.Point(25, 89));
         var companion = context.Companion;
         companion.Brain.Chooser.Actions.Clear();
@@ -251,7 +251,7 @@ internal static class VerifyObservationLifecycle
         for (int y = 84; y <= 89; y++) Main.tile[x, y].LiquidAmount = byte.MaxValue;
         companion.NPC.wet = true;
         typeof(live::AICompanion.Companion.CharacterBody.CompanionBreath).GetProperty("Breath")!.SetValue(companion.Breath, 20);
-        live::AICompanion.Companion.Brain.SharedMovementSystem.TerrainChanges.Reset();
+        live::AICompanion.Companion.Brain.Infrastructure.Movement.TerrainChanges.Reset();
         VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
         VerifyCompanionLifecycle.TickWithOneControlGrant(companion);
         Require(companion.Brain.Safety.Active && companion.Brain.Chooser.Current == null,
@@ -370,11 +370,11 @@ internal static class VerifyObservationLifecycle
         recorder.OnWorldLoad();
         string newest = Directory.GetFiles(BrainTelemetry.Folder, "*.tsv").OrderByDescending(File.GetLastWriteTimeUtc).First();
         var subject = new NPC { whoAmI = 77, type = NPCID.BlueSlime, width = 20, height = 20, noGravity = true, noTileCollide = true };
-        live::AICompanion.Companion.Brain.WorldObservation.PredictObservedMotion.Observe(subject);
-        var forecast = live::AICompanion.Companion.Brain.WorldObservation.PredictObservedMotion.ExistingForecast(subject);
+        live::AICompanion.Companion.Brain.Infrastructure.Observation.PredictObservedMotion.Observe(subject);
+        var forecast = live::AICompanion.Companion.Brain.Infrastructure.Observation.PredictObservedMotion.ExistingForecast(subject);
         Require(forecast.Count > 0, "fixture must contain an active gameplay forecast");
         config.RecordTelemetry = false; config.OnChanged();
-        Require(ReferenceEquals(forecast, live::AICompanion.Companion.Brain.WorldObservation.PredictObservedMotion.ExistingForecast(subject)),
+        Require(ReferenceEquals(forecast, live::AICompanion.Companion.Brain.Infrastructure.Observation.PredictObservedMotion.ExistingForecast(subject)),
             "turning off telemetry must preserve gameplay prediction state");
         using (File.Open(newest, FileMode.Open, FileAccess.ReadWrite, FileShare.None)) { }
         long bytes = new FileInfo(newest).Length;
@@ -382,7 +382,7 @@ internal static class VerifyObservationLifecycle
         Require(new FileInfo(newest).Length == bytes, "disabled capture must not append samples");
         config.RecordTelemetry = true;
         config.EnableBrainInspector = false; config.OnChanged();
-        Require(!live::AICompanion.Companion.Brain.BehaviourDiagnostics.BrainOverlay.MayCapture,
+        Require(!live::AICompanion.Companion.Brain.Infrastructure.Diagnostics.BrainOverlay.MayCapture,
             "disabled inspector must not retain simulation traces");
         config.EnableBrainInspector = true;
     }
@@ -393,13 +393,13 @@ internal static class VerifyObservationLifecycle
         foreach (float scale in new[] { 1f, 1.25f, 1.5f })
         {
             int width = (int)(viewport.Item1 / scale), height = (int)(viewport.Item2 / scale);
-            var bounds = live::AICompanion.Companion.Brain.BehaviourDiagnostics.BrainOverlay.PanelBounds(width, height);
+            var bounds = live::AICompanion.Companion.Brain.Infrastructure.Diagnostics.BrainOverlay.PanelBounds(width, height);
             Require(bounds.Left >= 0 && bounds.Top >= 0 && bounds.Right <= width && bounds.Bottom <= height,
                 $"inspector escapes {width}x{height}");
-            int count = live::AICompanion.Companion.Brain.BehaviourDiagnostics.BrainOverlay.VisibleRows(bounds);
+            int count = live::AICompanion.Companion.Brain.Infrastructure.Diagnostics.BrainOverlay.VisibleRows(bounds);
             for (int row = 0; row < count; row++)
             {
-                var item = live::AICompanion.Companion.Brain.BehaviourDiagnostics.BrainOverlay.RowBounds(bounds, row);
+                var item = live::AICompanion.Companion.Brain.Infrastructure.Diagnostics.BrainOverlay.RowBounds(bounds, row);
                 Require(bounds.Contains(item) && item.Bottom <= bounds.Bottom - 20,
                     "scrollable inspector row overlaps its footer or escapes its panel");
             }

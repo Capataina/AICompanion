@@ -1,12 +1,12 @@
 extern alias live;
 
 using System.Reflection;
-using AICompanion.Companion.Brain.SharedMovementSystem;
+using AICompanion.Companion.Brain.Infrastructure.Movement;
 using Microsoft.Xna.Framework;
 using Terraria;
 
-using FollowPlayerObjective = live::AICompanion.Companion.Brain.PositionSelection.FollowPlayerObjective;
-using RequestKind = live::AICompanion.Companion.Brain.PositionSelection.RequestKind;
+using FollowPlayerObjective = live::AICompanion.Companion.Brain.Infrastructure.Position.FollowPlayerObjective;
+using RequestKind = live::AICompanion.Companion.Brain.Infrastructure.Position.RequestKind;
 
 /// <summary>
 /// Exercises the production brain through its live alias. The player is moved directly because
@@ -61,10 +61,10 @@ internal static class VerifyResponsiveFollowing
         player.dead = false;
         player.velocity = Vector2.Zero;
         companion.NPC.Bottom = player.Bottom = new Vector2(400, 1280);
-        var company = brain.Chooser.Actions.OfType<live::AICompanion.Companion.Brain.PurposeFamilies.NearbyAssistance.KeepCompany>().Single();
+        var company = brain.Chooser.Actions.OfType<live::AICompanion.Companion.Brain.Activities.NearbyAssistance.KeepCompany>().Single();
         Require(!brain.Chooser.Actions.Any(a => a.Name is "walk-with" or "wander"), "obsolete companionship candidates remain registered");
         brain.Chooser.Actions.RemoveAll(a => !ReferenceEquals(a, company));
-        var context = new live::AICompanion.Companion.Brain.Behaviours.ActionContext(companion, brain.Senses);
+        var context = new live::AICompanion.Companion.Brain.Activities.ActionContext(companion, brain.Senses);
         brain.Senses.Update(companion.NPC, player, companion.Breath);
         Require(brain.Chooser.Choose(context) == company && company.Score() > 0, "company must be a positive ordinary offer while nearby");
         long identity = brain.Chooser.Activity.Id;
@@ -99,8 +99,8 @@ internal static class VerifyResponsiveFollowing
 
     private static void VerifyIntentEvidenceAndRevision()
     {
-        var travel = new live::AICompanion.Companion.Brain.WorldObservation.InferPlayerActivity();
-        var working = new live::AICompanion.Companion.Brain.WorldObservation.InferPlayerActivity();
+        var travel = new live::AICompanion.Companion.Brain.Infrastructure.Observation.InferPlayerActivity();
+        var working = new live::AICompanion.Companion.Brain.Infrastructure.Observation.InferPlayerActivity();
         Vector2 position = Vector2.Zero;
         ulong tick = 0;
         travel.Observe(position, Vector2.Zero, false, false, tick);
@@ -262,7 +262,7 @@ internal static class VerifyResponsiveFollowing
             door.TileFrameY = (short)((y - 77) * 18);
         }
         Main.tileSolid[Terraria.ID.TileID.ClosedDoor] = true;
-        live::AICompanion.Companion.Brain.SharedMovementSystem.TerrainChanges.Reset();
+        live::AICompanion.Companion.Brain.Infrastructure.Movement.TerrainChanges.Reset();
         Require(!Collision.CanHitLine(companion.NPC.position, companion.NPC.width, companion.NPC.height,
             player.position, player.width, player.height), "closed-door fixture must occlude the player");
         VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
@@ -415,7 +415,7 @@ internal static class VerifyResponsiveFollowing
     /// </summary>
     private static void VerifyAnUnfinishedMeetingFloodKeepsItsProgress()
     {
-        live::AICompanion.Companion.Brain.SharedMovementSystem.LimitPlanningWork.Unbounded = true;
+        live::AICompanion.Companion.Brain.Infrastructure.Movement.LimitPlanningWork.Unbounded = true;
         try
         {
             BuildParallelRoutes(76);
@@ -435,9 +435,9 @@ internal static class VerifyResponsiveFollowing
             var meeting = companion.Brain.Meeting;
             var sense = companion.Brain.Senses.Player;
             ulong start = Main.GameUpdateCount + 1;
-            int cadence = live::AICompanion.Companion.Brain.BehaviourSelection.Weights.MeetingRerootTicks;
+            int cadence = live::AICompanion.Companion.Brain.Infrastructure.Selection.Weights.MeetingRerootTicks;
             Vector2 first = meeting.Resolve(companion.NPC.Bottom, sense, start);
-            Vector2 continuation = sense.Predict(live::AICompanion.Companion.Brain.BehaviourSelection.Weights.MeetingFallbackLeadTicks);
+            Vector2 continuation = sense.Predict(live::AICompanion.Companion.Brain.Infrastructure.Selection.Weights.MeetingFallbackLeadTicks);
             Require(meeting.Reason == "meeting-undecided",
                 $"one slice must not finish the flood, or nothing about retaining its progress is tested; reason={meeting.Reason} flood={meeting.FloodState}");
             Require(Vector2.Distance(first, continuation) < 1f && MathF.Abs(first.X - sense.Bottom.X) >= 16f,
@@ -449,7 +449,7 @@ internal static class VerifyResponsiveFollowing
                 $"an unfinished flood must keep its progress while the body stays in the region it can return from; reason={meeting.Reason} after {calls} slices, flood={meeting.FloodState}");
             Console.WriteLine($"meeting flood: {meeting.Reason} after {calls} slices, each past the re-root cadence with the body moved; flood {meeting.FloodState}");
         }
-        finally { live::AICompanion.Companion.Brain.SharedMovementSystem.LimitPlanningWork.Unbounded = false; }
+        finally { live::AICompanion.Companion.Brain.Infrastructure.Movement.LimitPlanningWork.Unbounded = false; }
     }
 
     /// <summary>
@@ -468,12 +468,12 @@ internal static class VerifyResponsiveFollowing
         companion.NPC.position = new Vector2(40 * 16 - companion.NPC.width / 2f, 80 * 16 - companion.NPC.height);
         companion.Brain.Senses.Update(companion.NPC, player, companion.Breath);
         var positioner = companion.Brain.Positioner;
-        Vector2 place = live::AICompanion.Companion.Brain.SharedMovementSystem.MovementQueries.FeetWorld(new Point(80, 79));
-        positioner.Resolve(new live::AICompanion.Companion.Brain.PositionSelection.PositionRequest(RequestKind.WithPlayer, place, MeetingPlace: true),
+        Vector2 place = live::AICompanion.Companion.Brain.Infrastructure.Movement.MovementQueries.FeetWorld(new Point(80, 79));
+        positioner.Resolve(new live::AICompanion.Companion.Brain.Infrastructure.Position.PositionRequest(RequestKind.WithPlayer, place, MeetingPlace: true),
             companion.Brain.Senses, null);
         Require(positioner.Chosen is Vector2 held && Vector2.Distance(held, place) < 1f && positioner.ChoiceReason == "priced-meeting-place",
             $"a priced meeting place must first become the exact destination, or dropping it tests nothing; chosen={positioner.Chosen} reason={positioner.ChoiceReason}");
-        positioner.Resolve(new live::AICompanion.Companion.Brain.PositionSelection.PositionRequest(RequestKind.WithPlayer, player.Bottom),
+        positioner.Resolve(new live::AICompanion.Companion.Brain.Infrastructure.Position.PositionRequest(RequestKind.WithPlayer, player.Bottom),
             companion.Brain.Senses, null);
         Require(positioner.Chosen is not Vector2 kept || Vector2.Distance(kept, place) >= 16f,
             $"a dropped meeting place must not remain the destination until the next rescore; chosen={positioner.Chosen} reason={positioner.ChoiceReason} place={place}");
@@ -494,8 +494,8 @@ internal static class VerifyResponsiveFollowing
                 for (int y = 80; y <= 89; y++) Clear(x, y);
                 Solid(x, 90);
             }
-        live::AICompanion.Companion.Brain.SharedMovementSystem.TerrainChanges.Reset();
-        live::AICompanion.Companion.Brain.SharedMovementSystem.NavGrid.World = new live::AICompanion.Companion.Brain.SharedMovementSystem.GameTileWorld();
+        live::AICompanion.Companion.Brain.Infrastructure.Movement.TerrainChanges.Reset();
+        live::AICompanion.Companion.Brain.Infrastructure.Movement.NavGrid.World = new live::AICompanion.Companion.Brain.Infrastructure.Movement.GameTileWorld();
     }
 
     private static void BuildFloor()
@@ -511,8 +511,8 @@ internal static class VerifyResponsiveFollowing
             tile.HasTile = true;
             tile.TileType = 1;
         }
-        live::AICompanion.Companion.Brain.SharedMovementSystem.TerrainChanges.Reset();
-        live::AICompanion.Companion.Brain.SharedMovementSystem.NavGrid.World = new live::AICompanion.Companion.Brain.SharedMovementSystem.GameTileWorld();
+        live::AICompanion.Companion.Brain.Infrastructure.Movement.TerrainChanges.Reset();
+        live::AICompanion.Companion.Brain.Infrastructure.Movement.NavGrid.World = new live::AICompanion.Companion.Brain.Infrastructure.Movement.GameTileWorld();
     }
 
     private static void BuildCturn()
@@ -525,8 +525,8 @@ internal static class VerifyResponsiveFollowing
         for (int x = 40; x <= 60; x++) Solid(x, 70);
         for (int x = 40; x <= 60; x++) Solid(x, 64);
         for (int y = 65; y <= 70; y++) Solid(60, y);
-        live::AICompanion.Companion.Brain.SharedMovementSystem.TerrainChanges.Reset();
-        live::AICompanion.Companion.Brain.SharedMovementSystem.NavGrid.World = new live::AICompanion.Companion.Brain.SharedMovementSystem.GameTileWorld();
+        live::AICompanion.Companion.Brain.Infrastructure.Movement.TerrainChanges.Reset();
+        live::AICompanion.Companion.Brain.Infrastructure.Movement.NavGrid.World = new live::AICompanion.Companion.Brain.Infrastructure.Movement.GameTileWorld();
     }
 
     internal static void AdvanceNative(live::AICompanion.Companion.CharacterBody.CompanionNPC companion)

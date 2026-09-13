@@ -128,7 +128,7 @@ internal static class RenderNativeInterface
                 graphics.SetRenderTarget(target); graphics.Clear(new Color(18, 27, 40));
                 graphics.ScissorRectangle = new Rectangle(0, 0, size.X, size.Y);
                 batch.Begin(SpriteSortMode.Deferred, BlendState.AlphaBlend, SamplerState.PointClamp, DepthStencilState.None, rasterizer, null, Main.UIScaleMatrix);
-                typeof(live::AICompanion.Companion.Brain.BehaviourDiagnostics.BrainOverlay)
+                typeof(live::AICompanion.Companion.Brain.Infrastructure.Diagnostics.BrainOverlay)
                     .GetMethod("DrawMenu", BindingFlags.Static | BindingFlags.NonPublic)!.Invoke(null, new object?[] { batch, null });
                 batch.End(); graphics.SetRenderTarget(null);
                 using (var stream = File.Create(Path.Combine(output, $"Inspector-{suffix}.png")))
@@ -158,16 +158,16 @@ internal static class RenderNativeInterface
         typeof(NPC).GetProperty("ModNPC")!.SetValue(npc, companion);
         typeof(live::AICompanion.Companion.CharacterBody.CompanionBody).GetField("rendererFailed", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(companion.Body, true);
         Main.npc[0] = npc;
-        var mine = new live::AICompanion.Companion.Brain.PurposeFamilies.Gathering.MineOre();
+        var mine = new live::AICompanion.Companion.Brain.Activities.Gathering.MineOre();
         var target = new Point(20, 33);
         Tile oreTile = Main.tile[20, 33]; oreTile.HasTile = true; oreTile.TileType = Terraria.ID.TileID.Copper;
-        var ore = new live::AICompanion.Companion.Brain.WorldInteractions.Mining.OreFinder.OreTarget(target, Terraria.ID.TileID.Copper, new Vector2(320, 320));
+        var ore = new live::AICompanion.Companion.Brain.Infrastructure.Interactions.Mining.OreFinder.OreTarget(target, Terraria.ID.TileID.Copper, new Vector2(320, 320));
         mine.GetType().GetField("target", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(mine, ore);
         // This is a retained-state rendering fixture, not a discovery run. The public
         // activity target comes from preparation, separately from the native ore target.
         mine.GetType().GetField("preparedTarget", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(mine, target.ToWorldCoordinates());
         companion.Brain.Chooser.Activity.Select(mine,
-            new live::AICompanion.Companion.Brain.Behaviours.ActionContext(companion, companion.Brain.Senses));
+            new live::AICompanion.Companion.Brain.Activities.ActionContext(companion, companion.Brain.Senses));
         foreach (var entry in new[] { (Terraria.ID.ItemID.CopperOre, "Copper Ore"), (Terraria.ID.ItemID.Wood, "Wood"), (Terraria.ID.ItemID.Gel, "Gel") })
         {
             TextureAssets.Item[entry.Item1] = assets.Request<Texture2D>("Images/Item_" + entry.Item1, AssetRequestMode.ImmediateLoad);
@@ -195,28 +195,28 @@ internal static class RenderNativeInterface
     /// the chooser, the positioner or the finaliser to compute anything.
     /// </summary>
     private static void SeedExecutionEvidence(live::AICompanion.Companion.CharacterBody.CompanionNPC companion,
-        live::AICompanion.Companion.Brain.PurposeFamilies.Gathering.MineOre mine, Point tile)
+        live::AICompanion.Companion.Brain.Activities.Gathering.MineOre mine, Point tile)
     {
         var brain = companion.Brain;
         var chooser = brain.Chooser;
         var chop = chooser.Actions.First(action => action.Name == "chop");
         chooser.LastScores.Clear();
-        chooser.LastScores.Add(new(mine, .80f, .80f, Eligibility: live::AICompanion.Companion.Brain.Behaviours.OfferEligibility.Usable, EligibilityReason: "proven-pose"));
-        chooser.LastScores.Add(new(chop, .40f, 0f, Eligibility: live::AICompanion.Companion.Brain.Behaviours.OfferEligibility.Unresolved, EligibilityReason: "approach-undecided"));
-        typeof(live::AICompanion.Companion.Brain.BehaviourSelection.Chooser).GetProperty("LastNominations")!.SetValue(chooser, new[]
+        chooser.LastScores.Add(new(mine, .80f, .80f, Eligibility: live::AICompanion.Companion.Brain.Activities.OfferEligibility.Usable, EligibilityReason: "proven-pose"));
+        chooser.LastScores.Add(new(chop, .40f, 0f, Eligibility: live::AICompanion.Companion.Brain.Activities.OfferEligibility.Unresolved, EligibilityReason: "approach-undecided"));
+        typeof(live::AICompanion.Companion.Brain.Infrastructure.Selection.Chooser).GetProperty("LastNominations")!.SetValue(chooser, new[]
         {
-            new live::AICompanion.Companion.Brain.BehaviourSelection.FamilyNomination(live::AICompanion.Companion.Brain.BehaviourSelection.PurposeFamily.Gathering,
-                new live::AICompanion.Companion.Brain.BehaviourSelection.EvaluatedActivity(0, "mine", .80f, .80f, 1f, 1f, 1f, 1f, "")),
+            new live::AICompanion.Companion.Brain.Infrastructure.Selection.FamilyNomination(live::AICompanion.Companion.Brain.Infrastructure.Selection.PurposeFamily.Gathering,
+                new live::AICompanion.Companion.Brain.Infrastructure.Selection.EvaluatedActivity(0, "mine", .80f, .80f, 1f, 1f, 1f, 1f, "")),
         });
-        var region = live::AICompanion.Companion.Brain.PositionSelection.SuccessRegion.ToolStand(new Vector2(320, 320), tile, 100, 1);
+        var region = live::AICompanion.Companion.Brain.Infrastructure.Position.SuccessRegion.ToolStand(new Vector2(320, 320), tile, 100, 1);
         brain.Positioner.GetType().GetProperty("Region")!.SetValue(brain.Positioner, region);
         brain.ControlGrants.GetType().GetProperty("Last")!.SetValue(brain.ControlGrants,
-            new live::AICompanion.Companion.Brain.ActivityCoordination.ActivityControlGrant(3, 100, 1, live::AICompanion.Companion.Brain.BehaviourSelection.ActivityPhase.Suspended,
-                "downed", "travel-recovery-clearance", default, default, live::AICompanion.Companion.Brain.ActivityCoordination.HandGrant.Unavailable, null, Vector2.Zero, 1));
+            new live::AICompanion.Companion.Brain.Infrastructure.Grants.ActivityControlGrant(3, 100, 1, live::AICompanion.Companion.Brain.Infrastructure.Selection.ActivityPhase.Suspended,
+                "downed", "travel-recovery-clearance", default, default, live::AICompanion.Companion.Brain.Infrastructure.Grants.HandGrant.Unavailable, null, Vector2.Zero, 1));
         var recent = (System.Collections.IList)chooser.Activity.GetType().GetField("recent", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(chooser.Activity)!;
-        recent.Add(new live::AICompanion.Companion.Brain.Behaviours.AttemptOutcome(7, 1, "mine", live::AICompanion.Companion.Brain.BehaviourSelection.PurposeFamily.Gathering,
-            90, 100, live::AICompanion.Companion.Brain.Behaviours.AttemptStatus.Complete, "tracked-vein-observed-clear", 3,
-            live::AICompanion.Companion.Brain.Behaviours.AttemptAttribution.Companion));
+        recent.Add(new live::AICompanion.Companion.Brain.Activities.AttemptOutcome(7, 1, "mine", live::AICompanion.Companion.Brain.Infrastructure.Selection.PurposeFamily.Gathering,
+            90, 100, live::AICompanion.Companion.Brain.Activities.AttemptStatus.Complete, "tracked-vein-observed-clear", 3,
+            live::AICompanion.Companion.Brain.Activities.AttemptAttribution.Companion));
     }
 
     /// <summary>
@@ -226,7 +226,7 @@ internal static class RenderNativeInterface
     /// </summary>
     private static void VerifyInspectorDrawsNoSolver()
     {
-        string folder = Path.Combine("Companion", "Brain", "BehaviourDiagnostics");
+        string folder = Path.Combine("Companion", "Brain", "Infrastructure", "Diagnostics");
         foreach (string file in new[] { "DrawBrainOverlay.cs", "DescribeExecutionEvidence.cs" })
         {
             string source = File.ReadAllText(Path.Combine(folder, file));
@@ -249,13 +249,13 @@ internal static class RenderNativeInterface
         try
         {
             var tile = new Point(20, 20);
-            var tool = live::AICompanion.Companion.Brain.PositionSelection.SuccessRegion.ToolStand(new Vector2(20 * 16 + 8, 23 * 16), tile, 100, 1);
-            var follow = live::AICompanion.Companion.Brain.PositionSelection.SuccessRegion.Follow(
-                new live::AICompanion.Companion.Brain.PositionSelection.FollowPlayerObjective(new Vector2(600, 400), new Vector2(900, 400)), 100, 1);
+            var tool = live::AICompanion.Companion.Brain.Infrastructure.Position.SuccessRegion.ToolStand(new Vector2(20 * 16 + 8, 23 * 16), tile, 100, 1);
+            var follow = live::AICompanion.Companion.Brain.Infrastructure.Position.SuccessRegion.Follow(
+                new live::AICompanion.Companion.Brain.Infrastructure.Position.FollowPlayerObjective(new Vector2(600, 400), new Vector2(900, 400)), 100, 1);
             int judged = 0, outside = 0;
             foreach (var region in new[] { tool, follow })
             {
-                var boxes = live::AICompanion.Companion.Brain.BehaviourDiagnostics.DescribeExecutionEvidence.RegionBoxes(region);
+                var boxes = live::AICompanion.Companion.Brain.Infrastructure.Diagnostics.DescribeExecutionEvidence.RegionBoxes(region);
                 if (boxes.Count == 0) throw new InvalidOperationException($"a {region.Kind} region declared no box to draw");
                 foreach (var box in boxes)
                 {
@@ -267,8 +267,8 @@ internal static class RenderNativeInterface
                         bool drawn = boxes.Any(b => point.X >= b.Min.X && point.X <= b.Max.X && point.Y >= b.Min.Y && point.Y <= b.Max.Y);
                         if (region.Contains(point) != drawn)
                             throw new InvalidOperationException($"the drawn {region.Kind} boxes say {point} is {(drawn ? "inside" : "outside")}, but the region's own test disagrees");
-                        if (region.Kind == live::AICompanion.Companion.Brain.PositionSelection.SuccessRegionKind.ToolReach
-                            && live::AICompanion.Companion.Brain.WorldInteractions.FindToolAccess.InReachBox(point, tile, 5, 4) != drawn)
+                        if (region.Kind == live::AICompanion.Companion.Brain.Infrastructure.Position.SuccessRegionKind.ToolReach
+                            && live::AICompanion.Companion.Brain.Infrastructure.Interactions.FindToolAccess.InReachBox(point, tile, 5, 4) != drawn)
                             throw new InvalidOperationException($"the drawn reach box says {point} is {(drawn ? "inside" : "outside")}, but the reach arithmetic disagrees");
                         judged++;
                         if (!drawn) outside++;
@@ -277,12 +277,12 @@ internal static class RenderNativeInterface
             }
             if (outside == 0) throw new InvalidOperationException("no sampled point fell outside a drawn box, so the edge comparison measured nothing");
 
-            var toolBox = live::AICompanion.Companion.Brain.BehaviourDiagnostics.DescribeExecutionEvidence.RegionBoxes(tool)[0];
+            var toolBox = live::AICompanion.Companion.Brain.Infrastructure.Diagnostics.DescribeExecutionEvidence.RegionBoxes(tool)[0];
             Main.screenPosition = toolBox.Min - new Vector2(40, 40);
             using var target = new RenderTarget2D(graphics, 320, 240);
             graphics.SetRenderTarget(target); graphics.Clear(Color.Transparent);
             batch.Begin();
-            typeof(live::AICompanion.Companion.Brain.BehaviourDiagnostics.BrainOverlay)
+            typeof(live::AICompanion.Companion.Brain.Infrastructure.Diagnostics.BrainOverlay)
                 .GetMethod("DrawRegion", BindingFlags.Static | BindingFlags.NonPublic)!.Invoke(null, new object[] { batch, tool });
             batch.End(); graphics.SetRenderTarget(null);
             Main.screenPosition = Vector2.Zero;
@@ -316,7 +316,7 @@ internal static class RenderNativeInterface
     private static void RenderExecutionPage(GraphicsDevice graphics, SpriteBatch batch, RasterizerState rasterizer, Point size, float scale,
         string output, string suffix, live::AICompanion.Companion.CharacterBody.CompanionNPC companion)
     {
-        Type overlay = typeof(live::AICompanion.Companion.Brain.BehaviourDiagnostics.BrainOverlay);
+        Type overlay = typeof(live::AICompanion.Companion.Brain.Infrastructure.Diagnostics.BrainOverlay);
         FieldInfo page = overlay.GetField("page", BindingFlags.Static | BindingFlags.NonPublic)!;
         using var target = new RenderTarget2D(graphics, size.X, size.Y);
         var background = new Color(18, 27, 40);
@@ -333,7 +333,7 @@ internal static class RenderNativeInterface
         using (var stream = File.Create(Path.Combine(output, $"InspectorExecution-{suffix}.png")))
             target.SaveAsPng(stream, size.X, size.Y);
 
-        var lines = live::AICompanion.Companion.Brain.BehaviourDiagnostics.DescribeExecutionEvidence.Of(companion.Brain);
+        var lines = live::AICompanion.Companion.Brain.Infrastructure.Diagnostics.DescribeExecutionEvidence.Of(companion.Brain);
         string text = string.Join("\n", lines.Select(line => line.Text));
         foreach (string expected in new[] { "Gathering: nominated mine at 0.80", "  mine Usable:proven-pose raw 0.80 final 0.80", "  chop Unresolved:approach-undecided",
             "to tile 20,33 from stand 320.00,320.00", "requested downed, applied travel-recovery-clearance  (differs)", "hand Unavailable",
@@ -341,11 +341,11 @@ internal static class RenderNativeInterface
             if (!text.Contains(expected, StringComparison.Ordinal))
                 throw new InvalidOperationException($"the Execution evidence lost '{expected}':\n{text}");
 
-        Rectangle panel = live::AICompanion.Companion.Brain.BehaviourDiagnostics.BrainOverlay.PanelBounds((int)(size.X / scale), (int)(size.Y / scale));
-        int visible = live::AICompanion.Companion.Brain.BehaviourDiagnostics.BrainOverlay.VisibleExecutionLines(panel);
-        Rectangle lastLine = live::AICompanion.Companion.Brain.BehaviourDiagnostics.BrainOverlay.ExecutionLineBounds(panel, visible - 1);
-        Rectangle firstTab = live::AICompanion.Companion.Brain.BehaviourDiagnostics.BrainOverlay.TabBounds(panel, 0);
-        Rectangle executionTab = live::AICompanion.Companion.Brain.BehaviourDiagnostics.BrainOverlay.TabBounds(panel, 2);
+        Rectangle panel = live::AICompanion.Companion.Brain.Infrastructure.Diagnostics.BrainOverlay.PanelBounds((int)(size.X / scale), (int)(size.Y / scale));
+        int visible = live::AICompanion.Companion.Brain.Infrastructure.Diagnostics.BrainOverlay.VisibleExecutionLines(panel);
+        Rectangle lastLine = live::AICompanion.Companion.Brain.Infrastructure.Diagnostics.BrainOverlay.ExecutionLineBounds(panel, visible - 1);
+        Rectangle firstTab = live::AICompanion.Companion.Brain.Infrastructure.Diagnostics.BrainOverlay.TabBounds(panel, 0);
+        Rectangle executionTab = live::AICompanion.Companion.Brain.Infrastructure.Diagnostics.BrainOverlay.TabBounds(panel, 2);
         if (lastLine.Bottom > panel.Bottom - 20 || firstTab.Left != panel.X + 12 || executionTab.Right != panel.Right - 12)
             throw new InvalidOperationException($"the Execution page overflows its panel {panel}: last visible line {lastLine}, tabs {firstTab}..{executionTab}");
         if (scale == 1f)
@@ -353,7 +353,7 @@ internal static class RenderNativeInterface
             var pixels = new Color[size.X * size.Y]; target.GetData(pixels);
             Color At(int x, int y) => pixels[y * size.X + x];
             bool Near(Color a, Color b) => Math.Abs(a.R - b.R) <= 2 && Math.Abs(a.G - b.G) <= 2 && Math.Abs(a.B - b.B) <= 2;
-            Rectangle heading = live::AICompanion.Companion.Brain.BehaviourDiagnostics.BrainOverlay.ExecutionLineBounds(panel, 0);
+            Rectangle heading = live::AICompanion.Companion.Brain.Infrastructure.Diagnostics.BrainOverlay.ExecutionLineBounds(panel, 0);
             bool gold = false;
             for (int y = heading.Top; y < heading.Bottom && !gold; y++)
                 for (int x = heading.Left; x < heading.Right && !gold; x++)
@@ -374,7 +374,7 @@ internal static class RenderNativeInterface
         using var target = new RenderTarget2D(graphics, 320, 180);
         graphics.SetRenderTarget(target); graphics.Clear(Color.Transparent);
         batch.Begin();
-        typeof(live::AICompanion.Companion.Brain.BehaviourDiagnostics.BrainOverlay)
+        typeof(live::AICompanion.Companion.Brain.Infrastructure.Diagnostics.BrainOverlay)
             .GetMethod("Line", BindingFlags.Static | BindingFlags.NonPublic)!
             .Invoke(null, new object[] { batch, new Vector2(20, 40), new Vector2(120, 40), Color.White });
         batch.End(); graphics.SetRenderTarget(null);

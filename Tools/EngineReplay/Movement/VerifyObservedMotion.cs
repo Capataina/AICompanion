@@ -1,6 +1,6 @@
 #nullable enable
 
-using AICompanion.Companion.Brain.WorldObservation;
+using AICompanion.Companion.Brain.Infrastructure.Observation;
 using Microsoft.Xna.Framework;
 using Terraria;
 using System.Reflection;

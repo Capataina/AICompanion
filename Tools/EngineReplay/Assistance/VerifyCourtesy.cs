@@ -5,11 +5,11 @@ using Microsoft.Xna.Framework;
 using Terraria;
 using Terraria.ID;
 using CompanionNPC = live::AICompanion.Companion.CharacterBody.CompanionNPC;
-using KeepCompany = live::AICompanion.Companion.Brain.PurposeFamilies.NearbyAssistance.KeepCompany;
-using TerrainChanges = live::AICompanion.Companion.Brain.SharedMovementSystem.TerrainChanges;
-using NavGrid = live::AICompanion.Companion.Brain.SharedMovementSystem.NavGrid;
-using GameTileWorld = live::AICompanion.Companion.Brain.SharedMovementSystem.GameTileWorld;
-using LimitPlanningWork = live::AICompanion.Companion.Brain.SharedMovementSystem.LimitPlanningWork;
+using KeepCompany = live::AICompanion.Companion.Brain.Activities.NearbyAssistance.KeepCompany;
+using TerrainChanges = live::AICompanion.Companion.Brain.Infrastructure.Movement.TerrainChanges;
+using NavGrid = live::AICompanion.Companion.Brain.Infrastructure.Movement.NavGrid;
+using GameTileWorld = live::AICompanion.Companion.Brain.Infrastructure.Movement.GameTileWorld;
+using LimitPlanningWork = live::AICompanion.Companion.Brain.Infrastructure.Movement.LimitPlanningWork;
 
 /// <summary>
 /// A01, moving out of the player's way, through the whole brain on native tiles with only keeping company offered. Evidence of

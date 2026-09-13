@@ -5,16 +5,16 @@ using Microsoft.Xna.Framework;
 using Terraria;
 using Terraria.ID;
 using Terraria.ModLoader;
-using DoorOpener = live::AICompanion.Companion.Brain.WorldInteractions.Doors.DoorOpener;
+using DoorOpener = live::AICompanion.Companion.Brain.Infrastructure.Interactions.Doors.DoorOpener;
 // Every movement-core type comes from the live mod: EngineReplay also compiles its own copy of that core, and its
 // statics (revision, edge cache, planning allowance, grid world) are not the ones the live brain and door interaction use.
-using TerrainChanges = live::AICompanion.Companion.Brain.SharedMovementSystem.TerrainChanges;
-using NavGrid = live::AICompanion.Companion.Brain.SharedMovementSystem.NavGrid;
-using GameTileWorld = live::AICompanion.Companion.Brain.SharedMovementSystem.GameTileWorld;
-using MovementQueries = live::AICompanion.Companion.Brain.SharedMovementSystem.MovementQueries;
-using Reachability = live::AICompanion.Companion.Brain.SharedMovementSystem.Reachability;
-using AStar = live::AICompanion.Companion.Brain.SharedMovementSystem.AStar;
-using LimitPlanningWork = live::AICompanion.Companion.Brain.SharedMovementSystem.LimitPlanningWork;
+using TerrainChanges = live::AICompanion.Companion.Brain.Infrastructure.Movement.TerrainChanges;
+using NavGrid = live::AICompanion.Companion.Brain.Infrastructure.Movement.NavGrid;
+using GameTileWorld = live::AICompanion.Companion.Brain.Infrastructure.Movement.GameTileWorld;
+using MovementQueries = live::AICompanion.Companion.Brain.Infrastructure.Movement.MovementQueries;
+using Reachability = live::AICompanion.Companion.Brain.Infrastructure.Movement.Reachability;
+using AStar = live::AICompanion.Companion.Brain.Infrastructure.Movement.AStar;
+using LimitPlanningWork = live::AICompanion.Companion.Brain.Infrastructure.Movement.LimitPlanningWork;
 
 /// <summary>
 /// A25 on native tiles: Terraria's own door helper decides whether a door opens, the companion's door interaction

@@ -7,10 +7,10 @@ using Microsoft.Xna.Framework;
 using Terraria;
 using Terraria.ID;
 using Terraria.ModLoader;
-using BrainTelemetry = live::AICompanion.Companion.Brain.BehaviourDiagnostics.BrainTelemetry;
+using BrainTelemetry = live::AICompanion.Companion.Brain.Infrastructure.Diagnostics.BrainTelemetry;
 using CompanionNPC = live::AICompanion.Companion.CharacterBody.CompanionNPC;
 using DiagnosticsConfig = live::AICompanion.Companion.DiagnosticsConfiguration.CompanionDiagnosticsConfig;
-using WorkPolicy = live::AICompanion.Companion.Brain.Behaviours.Work.WorkPolicy;
+using WorkPolicy = live::AICompanion.Companion.Brain.Activities.WorkPolicy;
 
 /// <summary>
 /// One seeded full-brain scenario — mining a short vein, then following a player who walks away
@@ -45,7 +45,7 @@ internal static class MeasureBrainCost
             Print(on);
             // Invariance is proven with those allowances lifted, because under them the machine's
             // load decides how far a search gets and two identical runs need not agree.
-            live::AICompanion.Companion.Brain.SharedMovementSystem.LimitPlanningWork.Unbounded = true;
+            live::AICompanion.Companion.Brain.Infrastructure.Movement.LimitPlanningWork.Unbounded = true;
             try
             {
                 var first = Scenario("unbounded, recording off", recording: false);
@@ -68,7 +68,7 @@ internal static class MeasureBrainCost
                     ? "brain cost: production allowances changed no decision in this scenario on this run"
                     : $"brain cost: production allowances first changed a decision at tick {budgeted} on this run (machine-dependent, reported rather than asserted):\n  unbounded  {repeat.Trace[budgeted]}\n  production {off.Trace[budgeted]}");
             }
-            finally { live::AICompanion.Companion.Brain.SharedMovementSystem.LimitPlanningWork.Unbounded = false; }
+            finally { live::AICompanion.Companion.Brain.Infrastructure.Movement.LimitPlanningWork.Unbounded = false; }
             Console.WriteLine($"brain cost: {Ticks} ticks, identical decisions, requests, controls, grants and positions across repeated runs and with recording off and on");
             return 0;
         }
@@ -90,7 +90,7 @@ internal static class MeasureBrainCost
         CompanionNPC companion = context.Companion;
         // Route memory and tick-keyed caches are process-wide; each run starts from the same world
         // clock and an empty archive so the second run cannot inherit what the first one learned.
-        var world = new live::AICompanion.Companion.Brain.SharedMovementSystem.ResetTerrainChanges();
+        var world = new live::AICompanion.Companion.Brain.Infrastructure.Movement.ResetTerrainChanges();
         world.OnWorldLoad();
         world.LoadWorldData(new Terraria.ModLoader.IO.TagCompound());
         VerifyObservedMotion.SetTick(10_000);

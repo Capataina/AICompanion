@@ -1,6 +1,6 @@
 using System.Reflection;
 using System.Text.RegularExpressions;
-using AICompanion.Companion.Brain.SharedMovementSystem;
+using AICompanion.Companion.Brain.Infrastructure.Movement;
 using Microsoft.Xna.Framework;
 using Terraria;
 
@@ -166,7 +166,7 @@ internal static class VerifyMovementFailures
     /// </summary>
     private static void TerrainChurnCannotHoldOffEscalation()
     {
-        int bound = AICompanion.Companion.Brain.BehaviourSelection.Weights.RouteAnswerWaitTicks;
+        int bound = AICompanion.Companion.Brain.Infrastructure.Selection.Weights.RouteAnswerWaitTicks;
         foreach (bool sealGoal in new[] { true, false })
         {
             BuildCorridor(sealGoal);

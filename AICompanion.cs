@@ -1,7 +1,7 @@
 #nullable enable
 
 using Terraria.ModLoader;
-using AICompanion.Companion.Brain.SharedMovementSystem;
+using AICompanion.Companion.Brain.Infrastructure.Movement;
 
 namespace AICompanion;
 

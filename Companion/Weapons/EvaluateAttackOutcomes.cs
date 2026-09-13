@@ -1,7 +1,7 @@
 #nullable enable
 using System;
 using System.Collections.Generic;
-using AICompanion.Companion.Brain.BehaviourSelection;
+using AICompanion.Companion.Brain.Infrastructure.Selection;
 
 namespace AICompanion.Companion.Weapons;
 

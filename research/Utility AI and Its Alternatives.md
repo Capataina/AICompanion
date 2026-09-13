@@ -22,7 +22,7 @@ Utility can score goals, plans, targets, positions or continuing activities. The
 
 ## The current implementation makes several additional choices
 
-[ChooseBehaviour.cs](../Companion/Brain/BehaviourSelection/ChooseBehaviour.cs) is a particular policy within the utility family. Its ordinary selection can be summarised as:
+[ChooseBehaviour.cs](../Companion/Brain/Infrastructure/Selection/ChooseBehaviour.cs) is a particular policy within the utility family. Its ordinary selection can be summarised as:
 
 ```text
 for each registered activity:

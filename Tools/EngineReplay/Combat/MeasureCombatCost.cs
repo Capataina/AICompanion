@@ -6,7 +6,7 @@ using Microsoft.Xna.Framework;
 using Terraria;
 using Terraria.ID;
 using CompanionNPC = live::AICompanion.Companion.CharacterBody.CompanionNPC;
-using WorkPolicy = live::AICompanion.Companion.Brain.Behaviours.Work.WorkPolicy;
+using WorkPolicy = live::AICompanion.Companion.Brain.Activities.WorkPolicy;
 
 /// <summary>
 /// The seeded brain-cost scene has no hostiles, so it cannot price anything threat consequence, target
@@ -34,7 +34,7 @@ internal static class MeasureCombatCost
         var (_, context) = VerifyOreWork.SetUp(WorkPolicy.Opportunistic, TileID.Copper,
             new Point(30, 59), new Point(31, 59), new Point(32, 59), new Point(33, 59));
         CompanionNPC companion = context.Companion;
-        var world = new live::AICompanion.Companion.Brain.SharedMovementSystem.ResetTerrainChanges();
+        var world = new live::AICompanion.Companion.Brain.Infrastructure.Movement.ResetTerrainChanges();
         world.OnWorldLoad();
         world.LoadWorldData(new Terraria.ModLoader.IO.TagCompound());
         VerifyObservedMotion.SetTick(10_000);

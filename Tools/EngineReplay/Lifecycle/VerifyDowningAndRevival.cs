@@ -5,11 +5,11 @@ using Microsoft.Xna.Framework;
 using Terraria;
 using Terraria.ID;
 using CompanionNPC = live::AICompanion.Companion.CharacterBody.CompanionNPC;
-using HandGrant = live::AICompanion.Companion.Brain.ActivityCoordination.HandGrant;
-using TerrainChanges = live::AICompanion.Companion.Brain.SharedMovementSystem.TerrainChanges;
-using NavGrid = live::AICompanion.Companion.Brain.SharedMovementSystem.NavGrid;
-using GameTileWorld = live::AICompanion.Companion.Brain.SharedMovementSystem.GameTileWorld;
-using LimitPlanningWork = live::AICompanion.Companion.Brain.SharedMovementSystem.LimitPlanningWork;
+using HandGrant = live::AICompanion.Companion.Brain.Infrastructure.Grants.HandGrant;
+using TerrainChanges = live::AICompanion.Companion.Brain.Infrastructure.Movement.TerrainChanges;
+using NavGrid = live::AICompanion.Companion.Brain.Infrastructure.Movement.NavGrid;
+using GameTileWorld = live::AICompanion.Companion.Brain.Infrastructure.Movement.GameTileWorld;
+using LimitPlanningWork = live::AICompanion.Companion.Brain.Infrastructure.Movement.LimitPlanningWork;
 
 /// <summary>
 /// A26, getting up after downing, through the real companion AI entry point. The NPC owns downing and revival: a living

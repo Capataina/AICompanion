@@ -4,12 +4,12 @@ using Microsoft.Xna.Framework;
 using Terraria;
 using Terraria.ID;
 using Terraria.ModLoader;
-using Hunt = live::AICompanion.Companion.Brain.PurposeFamilies.Combat.PursueAttackOpportunity;
-using Guard = live::AICompanion.Companion.Brain.PurposeFamilies.Combat.ProtectPlayer;
-using ActionContext = live::AICompanion.Companion.Brain.Behaviours.ActionContext;
-using PositionRequest = live::AICompanion.Companion.Brain.PositionSelection.PositionRequest;
-using RequestKind = live::AICompanion.Companion.Brain.PositionSelection.RequestKind;
-using Weights = live::AICompanion.Companion.Brain.BehaviourSelection.Weights;
+using Hunt = live::AICompanion.Companion.Brain.Activities.Combat.PursueAttackOpportunity;
+using Guard = live::AICompanion.Companion.Brain.Activities.Combat.ProtectPlayer;
+using ActionContext = live::AICompanion.Companion.Brain.Activities.ActionContext;
+using PositionRequest = live::AICompanion.Companion.Brain.Infrastructure.Position.PositionRequest;
+using RequestKind = live::AICompanion.Companion.Brain.Infrastructure.Position.RequestKind;
+using Weights = live::AICompanion.Companion.Brain.Infrastructure.Selection.Weights;
 
 /// <summary>
 /// Proposal 1's actor matrix repeated with a clear shot against a blocked one. Four scenes differ in who a
@@ -42,7 +42,7 @@ internal static class VerifyCombatActorMatrix
 
     public static void Run()
     {
-        live::AICompanion.Companion.Brain.SharedMovementSystem.LimitPlanningWork.Unbounded = true;
+        live::AICompanion.Companion.Brain.Infrastructure.Movement.LimitPlanningWork.Unbounded = true;
         var rows = new List<Row>();
         var guardRows = new List<Row>();
         try
@@ -54,7 +54,7 @@ internal static class VerifyCombatActorMatrix
                 foreach (bool blocked in new[] { false, true })
                     guardRows.Add(Scene(actor, true, companion, blocked, GuardedLife));
         }
-        finally { live::AICompanion.Companion.Brain.SharedMovementSystem.LimitPlanningWork.Unbounded = false; }
+        finally { live::AICompanion.Companion.Brain.Infrastructure.Movement.LimitPlanningWork.Unbounded = false; }
 
         foreach (Row row in rows)
             Console.WriteLine($"  actor matrix {row.Actor,-9} {(row.Blocked ? "blocked" : "clear  ")}: danger player {row.PlayerDanger:0.000} companion {row.CompanionDanger:0.000}; aim {row.Aim}; guard {row.Guard:0.000} access {row.GuardAccess} {row.GuardAccessTicks:0.0} removal {row.Removal:0.0} share {row.Usefulness:0.000} intervention {row.Intervention:0.0} urgency {row.Urgency:0.000}; evidence {row.Evidence}; "
@@ -134,12 +134,12 @@ internal static class VerifyCombatActorMatrix
             for (int y = FloorY; y <= FloorY + 2; y++) { Tile rock = Main.tile[x, y]; rock.HasTile = true; rock.TileType = 1; }
         if (blocked)
             for (int y = FloorY - 3; y < FloorY; y++) { Tile rock = Main.tile[PillarX, y]; rock.HasTile = true; rock.TileType = 1; }
-        live::AICompanion.Companion.Brain.SharedMovementSystem.TerrainChanges.Reset();
-        live::AICompanion.Companion.Brain.SharedMovementSystem.NavGrid.World = new live::AICompanion.Companion.Brain.SharedMovementSystem.GameTileWorld();
-        live::AICompanion.Companion.Brain.SharedMovementSystem.AStar.InvalidateEdges();
+        live::AICompanion.Companion.Brain.Infrastructure.Movement.TerrainChanges.Reset();
+        live::AICompanion.Companion.Brain.Infrastructure.Movement.NavGrid.World = new live::AICompanion.Companion.Brain.Infrastructure.Movement.GameTileWorld();
+        live::AICompanion.Companion.Brain.Infrastructure.Movement.AStar.InvalidateEdges();
 
         var companion = VerifyCompanionLifecycle.Create();
-        live::AICompanion.Companion.Brain.SharedMovementSystem.AStar.MsBudget = 0;
+        live::AICompanion.Companion.Brain.Infrastructure.Movement.AStar.MsBudget = 0;
         Player player = Main.player[0];
         player.dead = false;
         player.statLife = player.statLifeMax2;

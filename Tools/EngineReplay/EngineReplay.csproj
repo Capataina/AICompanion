@@ -8,20 +8,20 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../../AICompanion.csproj" Aliases="live" AdditionalProperties="BuildMod=false" />
-    <Compile Include="../../Companion/Brain/SharedMovementSystem/**/*.cs" Exclude="../../Companion/Brain/SharedMovementSystem/TerrariaIntegration/ApplyControlsToCompanion.cs" />
-    <Compile Include="../../Companion/Brain/ProjectileAiming/**/*.cs" />
-    <Compile Include="../../Companion/Brain/WorldObservation/PredictObservedMotion.cs" />
-    <Compile Include="../../Companion/Brain/WorldObservation/ObserveThreats.cs" />
-    <Compile Include="../../Companion/Brain/WorldObservation/EstimateEffectiveDamage.cs" />
-    <Compile Include="../../Companion/Brain/WorldObservation/ObserveHostileAttackSources.cs" />
-    <Compile Include="../../Companion/Brain/WorldObservation/ThreatRecord.cs" />
-    <Compile Include="../../Companion/Brain/WorldObservation/LineOfSight.cs" />
-    <Compile Include="../../Companion/Brain/WorldObservation/CalculateRegroupUrgency.cs" />
-    <Compile Include="../../Companion/Brain/BehaviourDiagnostics/RecordGodsEyeEvents.cs" />
-    <Compile Include="../../Companion/Brain/WorldInteractions/ObserveTileToolEffect.cs" />
-    <Compile Include="../../Companion/Brain/BehaviourDiagnostics/ObserveNativeCombatEvents.cs" />
-    <Compile Include="../../Companion/Brain/BehaviourDiagnostics/ObserveTerrainChanges.cs" />
-    <Compile Include="../../Companion/Brain/BehaviourWeights.cs" />
+    <Compile Include="../../Companion/Brain/Infrastructure/Movement/**/*.cs" Exclude="../../Companion/Brain/Infrastructure/Movement/TerrariaIntegration/ApplyControlsToCompanion.cs" />
+    <Compile Include="../../Companion/Brain/Infrastructure/Aiming/**/*.cs" />
+    <Compile Include="../../Companion/Brain/Infrastructure/Observation/PredictObservedMotion.cs" />
+    <Compile Include="../../Companion/Brain/Infrastructure/Observation/ObserveThreats.cs" />
+    <Compile Include="../../Companion/Brain/Infrastructure/Observation/EstimateEffectiveDamage.cs" />
+    <Compile Include="../../Companion/Brain/Infrastructure/Observation/ObserveHostileAttackSources.cs" />
+    <Compile Include="../../Companion/Brain/Infrastructure/Observation/ThreatRecord.cs" />
+    <Compile Include="../../Companion/Brain/Infrastructure/Observation/LineOfSight.cs" />
+    <Compile Include="../../Companion/Brain/Infrastructure/Observation/CalculateRegroupUrgency.cs" />
+    <Compile Include="../../Companion/Brain/Infrastructure/Diagnostics/RecordGodsEyeEvents.cs" />
+    <Compile Include="../../Companion/Brain/Infrastructure/Interactions/ObserveTileToolEffect.cs" />
+    <Compile Include="../../Companion/Brain/Infrastructure/Diagnostics/ObserveNativeCombatEvents.cs" />
+    <Compile Include="../../Companion/Brain/Infrastructure/Diagnostics/ObserveTerrainChanges.cs" />
+    <Compile Include="../../Companion/Brain/Infrastructure/Selection/BehaviourWeights.cs" />
     <Compile Include="../../Companion/PlayerIntegration/ObservePlayerEvents.cs" />
     <Reference Include="tModLoader"><HintPath>$(TModLoaderRoot)/tModLoader.dll</HintPath></Reference>
     <Reference Include="FNA"><HintPath>$(TModLoaderRoot)/Libraries/FNA/1.0.0/FNA.dll</HintPath></Reference>

@@ -1,18 +1,18 @@
 extern alias live;
 
-using Prepared = live::AICompanion.Companion.Brain.BehaviourSelection.PreparedActivity;
-using Context = live::AICompanion.Companion.Brain.BehaviourSelection.ActivityComparisonContext;
-using Evaluator = live::AICompanion.Companion.Brain.BehaviourSelection.EvaluatePreparedActivities;
-using Families = live::AICompanion.Companion.Brain.BehaviourSelection.NominateFamilyActivities;
-using Family = live::AICompanion.Companion.Brain.BehaviourSelection.PurposeFamily;
-using Candidate = live::AICompanion.Companion.Brain.BehaviourSelection.FamilyCandidate;
-using Offer = live::AICompanion.Companion.Brain.Behaviours.OfferEligibility;
-using AttemptStatus = live::AICompanion.Companion.Brain.Behaviours.AttemptStatus;
+using Prepared = live::AICompanion.Companion.Brain.Infrastructure.Selection.PreparedActivity;
+using Context = live::AICompanion.Companion.Brain.Infrastructure.Selection.ActivityComparisonContext;
+using Evaluator = live::AICompanion.Companion.Brain.Infrastructure.Selection.EvaluatePreparedActivities;
+using Families = live::AICompanion.Companion.Brain.Infrastructure.Selection.NominateFamilyActivities;
+using Family = live::AICompanion.Companion.Brain.Infrastructure.Selection.PurposeFamily;
+using Candidate = live::AICompanion.Companion.Brain.Infrastructure.Selection.FamilyCandidate;
+using Offer = live::AICompanion.Companion.Brain.Activities.OfferEligibility;
+using AttemptStatus = live::AICompanion.Companion.Brain.Activities.AttemptStatus;
 
 internal static class VerifyPreparedActivities
 {
-    internal static float PrepareAndScore(live::AICompanion.Companion.Brain.Behaviours.CompanionAction action,
-        in live::AICompanion.Companion.Brain.Behaviours.ActionContext context)
+    internal static float PrepareAndScore(live::AICompanion.Companion.Brain.Activities.CompanionAction action,
+        in live::AICompanion.Companion.Brain.Activities.ActionContext context)
     {
         action.Prepare(context);
         return action.Score();
@@ -113,7 +113,7 @@ internal static class VerifyPreparedActivities
             "a more costly return must reduce optional work value on the same board");
         Require(Evaluator.Evaluate(new[] { board[0] with { IsExcursion = false } }, context)[0].Reunion == 1,
             "player protection must not inherit the optional-excursion cost");
-        var history = new live::AICompanion.Companion.Brain.BehaviourSelection.AssessReunionCost();
+        var history = new live::AICompanion.Companion.Brain.Infrastructure.Selection.AssessReunionCost();
         history.Observe(1, false, false);
         history.Observe(2, false, false);
         history.Observe(2, false, false);
@@ -136,7 +136,7 @@ internal static class VerifyPreparedActivities
 
     /// <summary>A minimal real activity whose only behaviour is naming its own conclusion, so the
     /// owner's attempt accounting is exercised without discovery, terrain or native tools.</summary>
-    private sealed class ProbeActivity : live::AICompanion.Companion.Brain.Behaviours.CompanionAction
+    private sealed class ProbeActivity : live::AICompanion.Companion.Brain.Activities.CompanionAction
     {
         private readonly string name;
         public int Conclusions, Begins;
@@ -144,12 +144,12 @@ internal static class VerifyPreparedActivities
         public override string Name => name;
         public override Family Family => Family.Gathering;
         public override object ActivityIdentity => name;
-        public override void Prepare(in live::AICompanion.Companion.Brain.Behaviours.ActionContext ctx) { }
+        public override void Prepare(in live::AICompanion.Companion.Brain.Activities.ActionContext ctx) { }
         public override float Score() => 1;
-        public override live::AICompanion.Companion.Brain.PositionSelection.PositionRequest Execute(in live::AICompanion.Companion.Brain.Behaviours.ActionContext ctx)
-            => live::AICompanion.Companion.Brain.PositionSelection.PositionRequest.Hold;
+        public override live::AICompanion.Companion.Brain.Infrastructure.Position.PositionRequest Execute(in live::AICompanion.Companion.Brain.Activities.ActionContext ctx)
+            => live::AICompanion.Companion.Brain.Infrastructure.Position.PositionRequest.Hold;
         public override void BeginAttempt() => Begins++;
-        public override live::AICompanion.Companion.Brain.Behaviours.AttemptConclusion ConcludeAttempt(int productiveEffects)
+        public override live::AICompanion.Companion.Brain.Activities.AttemptConclusion ConcludeAttempt(int productiveEffects)
         {
             Conclusions++;
             return new(AttemptStatus.Failed, $"probe-{name}-{productiveEffects}");
@@ -158,8 +158,8 @@ internal static class VerifyPreparedActivities
 
     private static void VerifyAttemptOwnership()
     {
-        var owner = new live::AICompanion.Companion.Brain.BehaviourSelection.OwnCurrentActivity();
-        var context = default(live::AICompanion.Companion.Brain.Behaviours.ActionContext);
+        var owner = new live::AICompanion.Companion.Brain.Infrastructure.Selection.OwnCurrentActivity();
+        var context = default(live::AICompanion.Companion.Brain.Activities.ActionContext);
         var mine = new ProbeActivity("mine");
         var chop = new ProbeActivity("chop");
         owner.Select(mine, context);
@@ -196,7 +196,7 @@ internal static class VerifyPreparedActivities
             "every concluded attempt must keep a distinct identity");
         Require(mine.Begins == 2 && chop.Begins == 1,
             $"the owner must announce each opened attempt exactly once, never on reselection or suspension; mine={mine.Begins} chop={chop.Begins}");
-        var other = new live::AICompanion.Companion.Brain.BehaviourSelection.OwnCurrentActivity();
+        var other = new live::AICompanion.Companion.Brain.Infrastructure.Selection.OwnCurrentActivity();
         other.Select(new ProbeActivity("other"), context);
         other.BeginExecution();
         Require(owner.RecentAttempts.All(a => a.AttemptId < other.AttemptId),

@@ -4,22 +4,22 @@ using Microsoft.Xna.Framework;
 using Terraria;
 using Terraria.Graphics.Light;
 using Terraria.ID;
-using AStar = live::AICompanion.Companion.Brain.SharedMovementSystem.AStar;
-using CollectNearbyItems = live::AICompanion.Companion.Brain.PurposeFamilies.NearbyAssistance.CollectNearbyItems;
-using LightUsefulArea = live::AICompanion.Companion.Brain.PurposeFamilies.NearbyAssistance.LightUsefulArea;
-using LimitPlanningWork = live::AICompanion.Companion.Brain.SharedMovementSystem.LimitPlanningWork;
-using MovementQueries = live::AICompanion.Companion.Brain.SharedMovementSystem.MovementQueries;
-using Offer = live::AICompanion.Companion.Brain.Behaviours.OfferEligibility;
-using Policy = live::AICompanion.Companion.Brain.Behaviours.Work.WorkPolicy;
+using AStar = live::AICompanion.Companion.Brain.Infrastructure.Movement.AStar;
+using CollectNearbyItems = live::AICompanion.Companion.Brain.Activities.NearbyAssistance.CollectNearbyItems;
+using LightUsefulArea = live::AICompanion.Companion.Brain.Activities.NearbyAssistance.LightUsefulArea;
+using LimitPlanningWork = live::AICompanion.Companion.Brain.Infrastructure.Movement.LimitPlanningWork;
+using MovementQueries = live::AICompanion.Companion.Brain.Infrastructure.Movement.MovementQueries;
+using Offer = live::AICompanion.Companion.Brain.Activities.OfferEligibility;
+using Policy = live::AICompanion.Companion.Brain.Activities.WorkPolicy;
 using Preferences = live::AICompanion.Companion.PlayerIntegration.CompanionPreferences;
-using Reach = live::AICompanion.Companion.Brain.SharedMovementSystem.Reachability.Reach;
-using TerrainChanges = live::AICompanion.Companion.Brain.SharedMovementSystem.TerrainChanges;
-using ActionContext = live::AICompanion.Companion.Brain.Behaviours.ActionContext;
-using FindToolAccess = live::AICompanion.Companion.Brain.WorldInteractions.FindToolAccess;
+using Reach = live::AICompanion.Companion.Brain.Infrastructure.Movement.Reachability.Reach;
+using TerrainChanges = live::AICompanion.Companion.Brain.Infrastructure.Movement.TerrainChanges;
+using ActionContext = live::AICompanion.Companion.Brain.Activities.ActionContext;
+using FindToolAccess = live::AICompanion.Companion.Brain.Infrastructure.Interactions.FindToolAccess;
 using Breath = live::AICompanion.Companion.CharacterBody.CompanionBreath;
-using BreathEnvelope = live::AICompanion.Companion.Brain.SharedMovementSystem.Reachability.BreathEnvelope;
-using HandGrant = live::AICompanion.Companion.Brain.ActivityCoordination.HandGrant;
-using ConsiderIncidentalInteractions = live::AICompanion.Companion.Brain.ActivityCoordination.ConsiderIncidentalInteractions;
+using BreathEnvelope = live::AICompanion.Companion.Brain.Infrastructure.Movement.Reachability.BreathEnvelope;
+using HandGrant = live::AICompanion.Companion.Brain.Infrastructure.Grants.HandGrant;
+using ConsiderIncidentalInteractions = live::AICompanion.Companion.Brain.Infrastructure.Grants.ConsiderIncidentalInteractions;
 
 /// <summary>
 /// Lighting and pot trips through the shared nearby-interaction executor, on native tiles: a trip is offered only where the
@@ -210,8 +210,8 @@ internal static class VerifyAssistanceTrips
         ctx.Companion.Brain.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Breath);
         var body = ctx.Companion.Motor.State;
         Require(FindToolAccess.Approach(interaction, ctx.Npc.Bottom, out _) == Reach.No
-            && !live::AICompanion.Companion.Brain.SharedMovementSystem.ProveInteractionJump.CanReach(
-                live::AICompanion.Companion.Brain.SharedMovementSystem.NavGrid.World, body, b => FindToolAccess.InReach(b.Feet, interaction)),
+            && !live::AICompanion.Companion.Brain.Infrastructure.Movement.ProveInteractionJump.CanReach(
+                live::AICompanion.Companion.Brain.Infrastructure.Movement.NavGrid.World, body, b => FindToolAccess.InReach(b.Feet, interaction)),
             $"the shelf must be out of standing reach from every floor pose and out of a jump from where the companion starts; shelf row {shelfRow}");
         var hop = FindToolAccess.HopApproach(interaction, ctx.Npc.Bottom, body, out Vector2 takeOff);
         Require(hop == (reachable ? Reach.Yes : Reach.No),
@@ -220,7 +220,7 @@ internal static class VerifyAssistanceTrips
         var brain = ctx.Companion.Brain;
         string methodName = lighting ? "place-torches" : "collect";
         brain.Chooser.Actions.RemoveAll(a => a.Name != methodName && a.Name != "keep-company");
-        var method = brain.Chooser.Actions.OfType<live::AICompanion.Companion.Brain.PurposeFamilies.NearbyAssistance.PerformNearbyWorldWork>().Single();
+        var method = brain.Chooser.Actions.OfType<live::AICompanion.Companion.Brain.Activities.NearbyAssistance.PerformNearbyWorldWork>().Single();
         float score = VerifyPreparedActivities.PrepareAndScore(method, ctx);
         string offer = $"shelf row {shelfRow}: score={score:0.000} offer={method.Eligibility}/{method.EligibilityReason} target={method.ActivityIdentity}";
         if (!reachable)

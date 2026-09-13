@@ -3,22 +3,22 @@ extern alias live;
 using Microsoft.Xna.Framework;
 using Terraria;
 using Terraria.ID;
-using FindToolAccess = live::AICompanion.Companion.Brain.WorldInteractions.FindToolAccess;
-using MineOre = live::AICompanion.Companion.Brain.PurposeFamilies.Gathering.MineOre;
-using ChopTree = live::AICompanion.Companion.Brain.PurposeFamilies.Gathering.ChopTree;
-using LightUsefulArea = live::AICompanion.Companion.Brain.PurposeFamilies.NearbyAssistance.LightUsefulArea;
-using CollectNearbyItems = live::AICompanion.Companion.Brain.PurposeFamilies.NearbyAssistance.CollectNearbyItems;
-using WorkPolicies = live::AICompanion.Companion.Brain.Behaviours.Work.WorkPolicies;
-using WorkPolicy = live::AICompanion.Companion.Brain.Behaviours.Work.WorkPolicy;
-using ActionContext = live::AICompanion.Companion.Brain.Behaviours.ActionContext;
-using OfferEligibility = live::AICompanion.Companion.Brain.Behaviours.OfferEligibility;
-using PositionRequest = live::AICompanion.Companion.Brain.PositionSelection.PositionRequest;
-using RequestKind = live::AICompanion.Companion.Brain.PositionSelection.RequestKind;
-using TerrainChanges = live::AICompanion.Companion.Brain.SharedMovementSystem.TerrainChanges;
-using LimitPlanningWork = live::AICompanion.Companion.Brain.SharedMovementSystem.LimitPlanningWork;
-using AStar = live::AICompanion.Companion.Brain.SharedMovementSystem.AStar;
+using FindToolAccess = live::AICompanion.Companion.Brain.Infrastructure.Interactions.FindToolAccess;
+using MineOre = live::AICompanion.Companion.Brain.Activities.Gathering.MineOre;
+using ChopTree = live::AICompanion.Companion.Brain.Activities.Gathering.ChopTree;
+using LightUsefulArea = live::AICompanion.Companion.Brain.Activities.NearbyAssistance.LightUsefulArea;
+using CollectNearbyItems = live::AICompanion.Companion.Brain.Activities.NearbyAssistance.CollectNearbyItems;
+using WorkPolicies = live::AICompanion.Companion.Brain.Activities.WorkPolicies;
+using WorkPolicy = live::AICompanion.Companion.Brain.Activities.WorkPolicy;
+using ActionContext = live::AICompanion.Companion.Brain.Activities.ActionContext;
+using OfferEligibility = live::AICompanion.Companion.Brain.Activities.OfferEligibility;
+using PositionRequest = live::AICompanion.Companion.Brain.Infrastructure.Position.PositionRequest;
+using RequestKind = live::AICompanion.Companion.Brain.Infrastructure.Position.RequestKind;
+using TerrainChanges = live::AICompanion.Companion.Brain.Infrastructure.Movement.TerrainChanges;
+using LimitPlanningWork = live::AICompanion.Companion.Brain.Infrastructure.Movement.LimitPlanningWork;
+using AStar = live::AICompanion.Companion.Brain.Infrastructure.Movement.AStar;
 using Preferences = live::AICompanion.Companion.PlayerIntegration.CompanionPreferences;
-using TorchBearer = live::AICompanion.Companion.Brain.WorldInteractions.Torch.TorchBearer;
+using TorchBearer = live::AICompanion.Companion.Brain.Infrastructure.Interactions.Torch.TorchBearer;
 
 /// <summary>
 /// P11's capability revision for the player-derived capabilities the companion reads live: tool reach

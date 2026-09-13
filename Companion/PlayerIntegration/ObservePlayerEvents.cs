@@ -1,7 +1,7 @@
 #nullable enable
 
 using Terraria;
-using AICompanion.Companion.Brain.BehaviourDiagnostics;
+using AICompanion.Companion.Brain.Infrastructure.Diagnostics;
 
 namespace AICompanion.Companion.PlayerIntegration;
 

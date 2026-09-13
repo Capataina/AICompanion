@@ -2,8 +2,8 @@
 
 using System;
 using Terraria.ModLoader.IO;
-using AICompanion.Companion.Brain.BehaviourSelection;
-using AICompanion.Companion.Brain.Behaviours.Work;
+using AICompanion.Companion.Brain.Infrastructure.Selection;
+using AICompanion.Companion.Brain.Activities;
 
 namespace AICompanion.Companion.PlayerIntegration;
 

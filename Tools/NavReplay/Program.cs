@@ -7,7 +7,7 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using Microsoft.Xna.Framework;
-using AICompanion.Companion.Brain.SharedMovementSystem;
+using AICompanion.Companion.Brain.Infrastructure.Movement;
 
 // Replays navigation scenarios off-game: for every file given, load its tile window, ask the
 // mod's own planner for the path the game asked for (S to G, the recorded plan) and, when the
@@ -233,7 +233,7 @@ foreach (string file in files)
             // answers that question starts from an empty cache.
             AStar.InvalidateEdges();
             world.AskedOutside = false;
-            region = AStar.Region(f, AICompanion.Companion.Brain.BehaviourSelection.Weights.ReachFloodBudget, out complete);
+            region = AStar.Region(f, AICompanion.Companion.Brain.Infrastructure.Selection.Weights.ReachFloodBudget, out complete);
             bool startClipped = world.AskedOutside;
             goalIn = region.Contains(goal.Value) ? "in" : "out";
             playerIn = player is Point pl3 ? (region.Contains(pl3) ? ", player in" : ", player out") : "";
@@ -243,7 +243,7 @@ foreach (string file in files)
             // nothing returnable is left. Reported beside the raw region rather than replacing it,
             // because SEALED still has to mean what it has always meant, a region the world itself
             // closes, and a region that closes only because its exit is one-way is a different fact.
-            HashSet<Point> returnable = AStar.Region(f, AICompanion.Companion.Brain.BehaviourSelection.Weights.ReachFloodBudget, out _, refuseOneWay: true);
+            HashSet<Point> returnable = AStar.Region(f, AICompanion.Companion.Brain.Infrastructure.Selection.Weights.ReachFloodBudget, out _, refuseOneWay: true);
             // And the positioner's own escape hatch, modelled here or this line reports a region the
             // positioner does not use: a returnable region that does not hold the player is the wrong
             // map, because being stuck is having no way to the player and not having no way back, so
@@ -266,7 +266,7 @@ foreach (string file in files)
                 AStar.InvalidateEdges();
                 world.AskedOutside = false;
                 HashSet<Point> goalRegion = Ground(world, goal.Value) is Point goalFeet
-                    ? AStar.Region(goalFeet, AICompanion.Companion.Brain.BehaviourSelection.Weights.ReachFloodBudget, out _)
+                    ? AStar.Region(goalFeet, AICompanion.Companion.Brain.Infrastructure.Selection.Weights.ReachFloodBudget, out _)
                     : new HashSet<Point>();
                 bool goalClipped = world.AskedOutside;
                 pocket = !startClipped ? "; SEALED START IN MODEL: the graph closes inside the capture; physical impossibility is not established"

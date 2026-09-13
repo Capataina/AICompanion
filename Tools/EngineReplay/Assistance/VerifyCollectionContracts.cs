@@ -3,16 +3,16 @@ extern alias live;
 using Microsoft.Xna.Framework;
 using Terraria;
 using Terraria.ID;
-using CollectNearbyItems = live::AICompanion.Companion.Brain.PurposeFamilies.NearbyAssistance.CollectNearbyItems;
-using WorkPolicy = live::AICompanion.Companion.Brain.Behaviours.Work.WorkPolicy;
-using ActionContext = live::AICompanion.Companion.Brain.Behaviours.ActionContext;
-using AttemptStatus = live::AICompanion.Companion.Brain.Behaviours.AttemptStatus;
-using AttemptAttribution = live::AICompanion.Companion.Brain.Behaviours.AttemptAttribution;
-using OfferEligibility = live::AICompanion.Companion.Brain.Behaviours.OfferEligibility;
-using RequestKind = live::AICompanion.Companion.Brain.PositionSelection.RequestKind;
-using TerrainChanges = live::AICompanion.Companion.Brain.SharedMovementSystem.TerrainChanges;
-using AStar = live::AICompanion.Companion.Brain.SharedMovementSystem.AStar;
-using LimitPlanningWork = live::AICompanion.Companion.Brain.SharedMovementSystem.LimitPlanningWork;
+using CollectNearbyItems = live::AICompanion.Companion.Brain.Activities.NearbyAssistance.CollectNearbyItems;
+using WorkPolicy = live::AICompanion.Companion.Brain.Activities.WorkPolicy;
+using ActionContext = live::AICompanion.Companion.Brain.Activities.ActionContext;
+using AttemptStatus = live::AICompanion.Companion.Brain.Activities.AttemptStatus;
+using AttemptAttribution = live::AICompanion.Companion.Brain.Activities.AttemptAttribution;
+using OfferEligibility = live::AICompanion.Companion.Brain.Activities.OfferEligibility;
+using RequestKind = live::AICompanion.Companion.Brain.Infrastructure.Position.RequestKind;
+using TerrainChanges = live::AICompanion.Companion.Brain.Infrastructure.Movement.TerrainChanges;
+using AStar = live::AICompanion.Companion.Brain.Infrastructure.Movement.AStar;
+using LimitPlanningWork = live::AICompanion.Companion.Brain.Infrastructure.Movement.LimitPlanningWork;
 using Preferences = live::AICompanion.Companion.PlayerIntegration.CompanionPreferences;
 
 /// <summary>
@@ -83,7 +83,7 @@ internal static class VerifyCollectionContracts
         var pit = new List<Item>();
         for (int i = 0; i < 4; i++) pit.Add(Drop(ItemID.CopperOre, 5, new Vector2((43 + i) * 16 + 8, 75 * 16), Slot + i));
         Item far = Drop(ItemID.CopperOre, 5, new Vector2(12 * 16 + 8, 60 * 16), Slot + 4);
-        int budget = live::AICompanion.Companion.Brain.BehaviourSelection.Weights.CollectionReachCandidates;
+        int budget = live::AICompanion.Companion.Brain.Infrastructure.Selection.Weights.CollectionReachCandidates;
         float Distance(Item item) => Vector2.Distance(ctx.Npc.Center, item.Center);
         Require(pit.All(drop => Distance(drop) < Distance(far)) && pit.Count > budget,
             $"premise: every pit drop must be nearer than the floor drop, and there must be more of them than the budget ({budget}); far={Distance(far):0} pit={string.Join(",", pit.Select(d => Distance(d).ToString("0")))}");
@@ -440,7 +440,7 @@ internal static class VerifyCollectionContracts
         if (LootIsInWorld(item)) ctx.Senses.Loot.Pickups.Add(new(item, 1f, Vector2.Distance(ctx.Npc.Center, item.Center)));
     }
 
-    private static bool LootIsInWorld(Item item) => live::AICompanion.Companion.Brain.WorldObservation.LootSense.IsWorldDrop(item);
+    private static bool LootIsInWorld(Item item) => live::AICompanion.Companion.Brain.Infrastructure.Observation.LootSense.IsWorldDrop(item);
 
     private static void Require(bool condition, string message)
     {

@@ -4,11 +4,11 @@ using System.Reflection;
 using Microsoft.Xna.Framework;
 using Terraria;
 
-using H = live::AICompanion.Companion.Brain.PurposeFamilies.Combat.PursueAttackOpportunity;
-using T = live::AICompanion.Companion.Brain.WorldObservation.ThreatRecord;
-using C = live::AICompanion.Companion.Brain.Behaviours.ActionContext;
-using PositionRequest = live::AICompanion.Companion.Brain.PositionSelection.PositionRequest;
-using RequestKind = live::AICompanion.Companion.Brain.PositionSelection.RequestKind;
+using H = live::AICompanion.Companion.Brain.Activities.Combat.PursueAttackOpportunity;
+using T = live::AICompanion.Companion.Brain.Infrastructure.Observation.ThreatRecord;
+using C = live::AICompanion.Companion.Brain.Activities.ActionContext;
+using PositionRequest = live::AICompanion.Companion.Brain.Infrastructure.Position.PositionRequest;
+using RequestKind = live::AICompanion.Companion.Brain.Infrastructure.Position.RequestKind;
 
 /// <summary>
 /// A hunt target is admissible only if a standing position exists that the walker can reach and
@@ -122,7 +122,7 @@ internal static class VerifyHuntAdmissibility
         Require(hunt.Score() == score && hunt.ForecastTicks() == capturedTrip && hunt.ActivityTarget == capturedTarget,
             "hunt comparison must retain its prepared values when live observation changes");
         enemy.active = false;
-        Require(hunt.Execute(ctx).Kind == live::AICompanion.Companion.Brain.PositionSelection.RequestKind.Hold,
+        Require(hunt.Execute(ctx).Kind == live::AICompanion.Companion.Brain.Infrastructure.Position.RequestKind.Hold,
             "a disappeared prepared enemy must not receive a pursuit request");
     }
 
@@ -162,7 +162,7 @@ internal static class VerifyHuntAdmissibility
             $"a sealed enemy no reachable position can shoot was still hunted: score={score}; target={hunt.Target?.Npc.whoAmI}; rejection={hunt.LastRejection}");
         Require(hunt.LastRejection == "no-reachable-firing-position",
             $"the refusal must name its reason so a session can be read for it; got {hunt.LastRejection}");
-        Require(hunt.Eligibility == live::AICompanion.Companion.Brain.Behaviours.OfferEligibility.KnownUnusable
+        Require(hunt.Eligibility == live::AICompanion.Companion.Brain.Activities.OfferEligibility.KnownUnusable
             && hunt.EligibilityReason == "no-reachable-firing-position",
             $"a proven absence of firing positions is a known-unusable method, not an absent enemy; got {hunt.Eligibility}/{hunt.EligibilityReason}");
     }
@@ -226,8 +226,8 @@ internal static class VerifyHuntAdmissibility
 
     private static void Rebuild()
     {
-        live::AICompanion.Companion.Brain.SharedMovementSystem.TerrainChanges.Reset();
-        live::AICompanion.Companion.Brain.SharedMovementSystem.NavGrid.World = new live::AICompanion.Companion.Brain.SharedMovementSystem.GameTileWorld();
+        live::AICompanion.Companion.Brain.Infrastructure.Movement.TerrainChanges.Reset();
+        live::AICompanion.Companion.Brain.Infrastructure.Movement.NavGrid.World = new live::AICompanion.Companion.Brain.Infrastructure.Movement.GameTileWorld();
     }
 
     private static void Solid(int x, int y)

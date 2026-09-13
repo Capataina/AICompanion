@@ -4,10 +4,10 @@ using System.Reflection;
 using Microsoft.Xna.Framework;
 using Terraria;
 
-using PositionRequest = live::AICompanion.Companion.Brain.PositionSelection.PositionRequest;
-using RequestKind = live::AICompanion.Companion.Brain.PositionSelection.RequestKind;
-using T = live::AICompanion.Companion.Brain.WorldObservation.ThreatRecord;
-using C = live::AICompanion.Companion.Brain.Behaviours.ActionContext;
+using PositionRequest = live::AICompanion.Companion.Brain.Infrastructure.Position.PositionRequest;
+using RequestKind = live::AICompanion.Companion.Brain.Infrastructure.Position.RequestKind;
+using T = live::AICompanion.Companion.Brain.Infrastructure.Observation.ThreatRecord;
+using C = live::AICompanion.Companion.Brain.Activities.ActionContext;
 
 /// <summary>
 /// The firing-spot shortlist has to carry line-of-fire information before it is cut to the few
@@ -26,7 +26,7 @@ internal static class VerifyFiringPosition
     public static int Run()
     {
         string path = Path.Combine(Path.GetTempPath(), "aic-method-assessment-" + Guid.NewGuid().ToString("N") + ".jsonl");
-        Type events = typeof(live::AICompanion.Companion.Brain.BehaviourDiagnostics.GodsEyeEvents);
+        Type events = typeof(live::AICompanion.Companion.Brain.Infrastructure.Diagnostics.GodsEyeEvents);
         var close = events.GetMethod("Close", BindingFlags.Static | BindingFlags.NonPublic)!;
         try
         {
@@ -159,7 +159,7 @@ internal static class VerifyFiringPosition
         // Seal the same target beneath continuous rock. Reachable floor remains available,
         // but arriving anywhere on it cannot fulfil an attack request.
         for (int x = ShaftLeft; x <= ShaftRight; x++) Solid(x, FloorY);
-        live::AICompanion.Companion.Brain.SharedMovementSystem.TerrainChanges.Reset();
+        live::AICompanion.Companion.Brain.Infrastructure.Movement.TerrainChanges.Reset();
         Require(companion.Brain.Positioner.PrepareOffer(request, companion.Brain.Senses, profile).Destination == null,
             "changed terrain must invalidate a cached attack method before its rescore interval expires");
         foreach (RequestKind kind in new[] { RequestKind.LineOfFire, RequestKind.Guard })
@@ -184,10 +184,10 @@ internal static class VerifyFiringPosition
         urgent.CanReachPlayer = true;
         urgent.Urgency = 1f;
         urgent.EffectiveTicksToPlayer = 0f;
-        typeof(live::AICompanion.Companion.Brain.WorldObservation.ThreatSense)
+        typeof(live::AICompanion.Companion.Brain.Infrastructure.Observation.ThreatSense)
             .GetProperty("MostUrgent")!.SetValue(companion.Brain.Senses.Threats, urgent);
         companion.Brain.Senses.SetInterventionEstimate(float.PositiveInfinity);
-        var guard = companion.Brain.Chooser.Actions.OfType<live::AICompanion.Companion.Brain.PurposeFamilies.Combat.ProtectPlayer>().Single();
+        var guard = companion.Brain.Chooser.Actions.OfType<live::AICompanion.Companion.Brain.Activities.Combat.ProtectPlayer>().Single();
         Vector2? heldDestination = companion.Brain.Positioner.Resolve(PositionRequest.ExactAt(companion.NPC.Bottom),
             companion.Brain.Senses, profile);
         Require(heldDestination != null, "the admission fixture needs an existing ordinary destination to preserve");
@@ -225,10 +225,10 @@ internal static class VerifyFiringPosition
         {
             var selected = companion.Brain.Chooser.Choose(ctx);
             var guardScore = companion.Brain.Chooser.LastScores.Single(s => ReferenceEquals(s.Action, guard));
-            Require(guard.Access == live::AICompanion.Companion.Brain.PurposeFamilies.Combat.FiringAccess.None && float.IsFinite(guard.RemovalTicks),
+            Require(guard.Access == live::AICompanion.Companion.Brain.Activities.Combat.FiringAccess.None && float.IsFinite(guard.RemovalTicks),
                 $"the damageable sealed threat must be a proven absence of firing positions from a settled flood; access={guard.Access}, removal={guard.RemovalTicks}, reach-complete={companion.Brain.Positioner.ReachComplete}");
             Require(guardScore.Raw == 0f && !ReferenceEquals(selected, guard)
-                && guardScore.Eligibility == live::AICompanion.Companion.Brain.Behaviours.OfferEligibility.KnownUnusable
+                && guardScore.Eligibility == live::AICompanion.Companion.Brain.Activities.OfferEligibility.KnownUnusable
                 && guardScore.EligibilityReason == "no-reachable-firing-position",
                 $"a threat no reachable position can shoot must be worth no protection and named unusable; selected={selected?.Name}, raw={guardScore.Raw}, eligibility={guardScore.Eligibility}/{guardScore.EligibilityReason}");
             Require(guardScore.MethodEvidence.Length == 0,
@@ -240,7 +240,7 @@ internal static class VerifyFiringPosition
 
         // Reopening is fresh evidence, not a permanent unreachable verdict on the enemy.
         for (int x = ShaftLeft; x <= ShaftRight; x++) Open(x, FloorY);
-        live::AICompanion.Companion.Brain.SharedMovementSystem.TerrainChanges.Reset();
+        live::AICompanion.Companion.Brain.Infrastructure.Movement.TerrainChanges.Reset();
         for (int tick = 0; tick < 400; tick++)
             chosen = companion.Brain.Positioner.Resolve(request, companion.Brain.Senses, profile);
         Require(chosen != null && companion.Brain.Positioner.CandidateEvidence.Contains(":clear-arc"),
@@ -281,8 +281,8 @@ internal static class VerifyFiringPosition
         for (int x = ShaftLeft; x <= ShaftRight; x++)
             for (int y = FloorY; y < ShaftFloorY; y++)
                 Open(x, y);
-        live::AICompanion.Companion.Brain.SharedMovementSystem.TerrainChanges.Reset();
-        live::AICompanion.Companion.Brain.SharedMovementSystem.NavGrid.World = new live::AICompanion.Companion.Brain.SharedMovementSystem.GameTileWorld();
+        live::AICompanion.Companion.Brain.Infrastructure.Movement.TerrainChanges.Reset();
+        live::AICompanion.Companion.Brain.Infrastructure.Movement.NavGrid.World = new live::AICompanion.Companion.Brain.Infrastructure.Movement.GameTileWorld();
     }
 
     /// <summary>Whether a body standing on the main floor at this tile column has a straight line to the target.</summary>

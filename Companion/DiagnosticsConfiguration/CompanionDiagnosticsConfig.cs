@@ -20,12 +20,12 @@ public sealed class CompanionDiagnosticsConfig : ModConfig
 
     public override void OnChanged()
     {
-        if (!RecordTelemetry) Brain.BehaviourDiagnostics.BrainTelemetry.StopRecording();
+        if (!RecordTelemetry) Brain.Infrastructure.Diagnostics.BrainTelemetry.StopRecording();
         if (!EnableBrainInspector)
         {
-            Brain.BehaviourDiagnostics.BrainOverlay.Enabled = false;
-            Brain.BehaviourDiagnostics.BrainOverlay.ShowWorld = false;
-            Brain.BehaviourDiagnostics.BrainInspectorSamples.Reset();
+            Brain.Infrastructure.Diagnostics.BrainOverlay.Enabled = false;
+            Brain.Infrastructure.Diagnostics.BrainOverlay.ShowWorld = false;
+            Brain.Infrastructure.Diagnostics.BrainInspectorSamples.Reset();
         }
     }
 }

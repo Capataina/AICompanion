@@ -1,12 +1,12 @@
 extern alias live;
 
-using Prepared = live::AICompanion.Companion.Brain.BehaviourSelection.PreparedActivity;
-using Context = live::AICompanion.Companion.Brain.BehaviourSelection.ActivityComparisonContext;
-using Evaluator = live::AICompanion.Companion.Brain.BehaviourSelection.EvaluatePreparedActivities;
-using Families = live::AICompanion.Companion.Brain.BehaviourSelection.NominateFamilyActivities;
-using Family = live::AICompanion.Companion.Brain.BehaviourSelection.PurposeFamily;
-using Candidate = live::AICompanion.Companion.Brain.BehaviourSelection.FamilyCandidate;
-using Offer = live::AICompanion.Companion.Brain.Behaviours.OfferEligibility;
+using Prepared = live::AICompanion.Companion.Brain.Infrastructure.Selection.PreparedActivity;
+using Context = live::AICompanion.Companion.Brain.Infrastructure.Selection.ActivityComparisonContext;
+using Evaluator = live::AICompanion.Companion.Brain.Infrastructure.Selection.EvaluatePreparedActivities;
+using Families = live::AICompanion.Companion.Brain.Infrastructure.Selection.NominateFamilyActivities;
+using Family = live::AICompanion.Companion.Brain.Infrastructure.Selection.PurposeFamily;
+using Candidate = live::AICompanion.Companion.Brain.Infrastructure.Selection.FamilyCandidate;
+using Offer = live::AICompanion.Companion.Brain.Activities.OfferEligibility;
 
 /// <summary>
 /// P03's named family-offer contract: on identical evaluated candidates the three nominations pick

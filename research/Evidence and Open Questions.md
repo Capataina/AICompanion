@@ -19,9 +19,9 @@ In `Telemetry/2026-09-11_18-30-04-871.tsv`, ticks 21,400 through 21,476 inclusiv
 | `danger` | 0.85–0.97 | This is the player-danger field, not the companion's own danger. |
 | `self_danger` | 0.23–0.52 | The separately recorded personal danger is lower and changes within the window. |
 
-The baseline [coordinator](../Companion/Brain/CoordinateBrainTick.cs) returns from the reflex branch before `Chooser.Choose`. The [recorder](../Companion/Brain/BehaviourDiagnostics/RecordBrainTelemetry.cs) reads retained scores. This supplies a mechanism for stale decision fields, consistent with the historical rows. Exact historical execution should still be reconstructed from the captured build before attributing every interruption to a particular branch.
+The baseline [coordinator](../Companion/Brain/CoordinateBrainTick.cs) returns from the reflex branch before `Chooser.Choose`. The [recorder](../Companion/Brain/Infrastructure/Diagnostics/RecordBrainTelemetry.cs) reads retained scores. This supplies a mechanism for stale decision fields, consistent with the historical rows. Exact historical execution should still be reconstructed from the captured build before attributing every interruption to a particular branch.
 
-The current [ObserveCompanion.cs](../Companion/Brain/WorldObservation/ObserveCompanion.cs) incorporates recent damage and low health into personal danger, alongside environmental danger. [SurviveAction.cs](../Companion/Brain/Behaviours/Survival/SurviveAction.cs) scores personal danger and escape pressure. Thus “add damage as a missing term” is not justified as a current-code diagnosis without examining the existing term's values and use.
+The current [ObserveCompanion.cs](../Companion/Brain/Infrastructure/Observation/ObserveCompanion.cs) incorporates recent damage and low health into personal danger, alongside environmental danger. [SurviveAction.cs](../Companion/Brain/Activities/Survival/SurviveAction.cs) scores personal danger and escape pressure. Thus “add damage as a missing term” is not justified as a current-code diagnosis without examining the existing term's values and use.
 
 **What remains open:** the companion did go down in the cited capture, and the relationship between avoidance, interrupted movement, breath and harm deserves investigation. Nonzero survival does not prove adequate survival policy. The data correction removes a particular explanation; it does not solve the death.
 
@@ -54,11 +54,11 @@ The pattern is consistent with worsening action-label churn across the selected 
 
 | Statement in baseline documentation | Baseline source observation | Consequence for research |
 |---|---|---|
-| Light is only one number at the companion and nothing is known elsewhere. | [ObserveLight.cs](../Companion/Brain/WorldObservation/ObserveLight.cs) has `AtPlayer`, `AtCompanion` and an ambient neighbourhood sample. | The missing capability is a retained spatial representation of useful unlit regions, not the absence of every non-companion brightness measurement. Offscreen unknown light also needs care. |
-| There is no player trail of any kind. | [ObservePlayer.cs](../Companion/Brain/WorldObservation/ObservePlayer.cs) keeps a bounded sequence of changed grounded feet tiles; it is written to diagnostic windows. | A trail exists. It is not gameplay exploration coverage or proof that a particular directed traversal was performed with capabilities the companion possesses. |
-| The route graph already carries pose and velocity in each node. | [NavPath.cs](../Companion/Brain/SharedMovementSystem/RoutePlanning/NavPath.cs) defines `NavNode` as tile plus `MobilityState`; full `BodyState` is separate. | Assess the coarse graph and local dynamic search separately. Future abilities cannot be declared solved because a few resource fields exist. |
-| A fixed small A* budget describes navigation as a whole. | [Reachability.cs](../Companion/Brain/SharedMovementSystem/RoutePlanning/Reachability.cs) has bounded synchronous queries; live navigation also retains search across ticks. | Query starvation and travel planning can fail differently. Increasing one budget is not a test of all search. |
-| All normalised actions share a simple 0–1 range. | [ChooseBehaviour.cs](../Companion/Brain/BehaviourSelection/ChooseBehaviour.cs) applies multiple modifiers; action urgency can exceed one. | Normalised inputs do not establish comparable final preferences. |
+| Light is only one number at the companion and nothing is known elsewhere. | [ObserveLight.cs](../Companion/Brain/Infrastructure/Observation/ObserveLight.cs) has `AtPlayer`, `AtCompanion` and an ambient neighbourhood sample. | The missing capability is a retained spatial representation of useful unlit regions, not the absence of every non-companion brightness measurement. Offscreen unknown light also needs care. |
+| There is no player trail of any kind. | [ObservePlayer.cs](../Companion/Brain/Infrastructure/Observation/ObservePlayer.cs) keeps a bounded sequence of changed grounded feet tiles; it is written to diagnostic windows. | A trail exists. It is not gameplay exploration coverage or proof that a particular directed traversal was performed with capabilities the companion possesses. |
+| The route graph already carries pose and velocity in each node. | [NavPath.cs](../Companion/Brain/Infrastructure/Movement/RoutePlanning/NavPath.cs) defines `NavNode` as tile plus `MobilityState`; full `BodyState` is separate. | Assess the coarse graph and local dynamic search separately. Future abilities cannot be declared solved because a few resource fields exist. |
+| A fixed small A* budget describes navigation as a whole. | [Reachability.cs](../Companion/Brain/Infrastructure/Movement/RoutePlanning/Reachability.cs) has bounded synchronous queries; live navigation also retains search across ticks. | Query starvation and travel planning can fail differently. Increasing one budget is not a test of all search. |
+| All normalised actions share a simple 0–1 range. | [ChooseBehaviour.cs](../Companion/Brain/Infrastructure/Selection/ChooseBehaviour.cs) applies multiple modifiers; action urgency can exceed one. | Normalised inputs do not establish comparable final preferences. |
 | Equal scores are broken by something independent of registration order. | `ChooseBehaviour.Choose` uses strict `final > bestScore` while iterating the registered list. | For equal positive maxima, the first encountered winner remains. This is an implementation detail to include in policy comparisons. |
 | There are twenty-five named responsibility rows. | The current README table contains 27. | The [system map](<Architecture and Behaviour Map.md>) includes all 27 rather than silently omitting two. |
 
@@ -116,10 +116,10 @@ PY
 To inspect current representation directly, these searches identify the relevant declarations and consumers; their output needs reading rather than treating a match as a behavioural test:
 
 ```sh
-rg -n 'AtPlayer|AtCompanion|Ambient' Companion/Brain/WorldObservation/ObserveLight.cs
+rg -n 'AtPlayer|AtCompanion|Ambient' Companion/Brain/Infrastructure/Observation/ObserveLight.cs
 rg -n '\bTrail\b' Companion --glob '*.cs'
-rg -n 'record struct NavNode|struct NavNode|MobilityState' Companion/Brain/SharedMovementSystem/RoutePlanning/NavPath.cs
-rg -n 'LastScores|Chooser.Choose|Engage|TryAssess' Companion/Brain/CoordinateBrainTick.cs Companion/Brain/BehaviourDiagnostics/RecordBrainTelemetry.cs
+rg -n 'record struct NavNode|struct NavNode|MobilityState' Companion/Brain/Infrastructure/Movement/RoutePlanning/NavPath.cs
+rg -n 'LastScores|Chooser.Choose|Engage|TryAssess' Companion/Brain/CoordinateBrainTick.cs Companion/Brain/Infrastructure/Diagnostics/RecordBrainTelemetry.cs
 rg -n 'no-clear-trajectory|no-target|BestTarget|ForecastAttack' Companion/Weapons/Arsenal.cs
 ```
 

@@ -11,16 +11,15 @@ Behaviours compete by score each tick for companionship, combat, gathering and n
 ## The architecture has one movement boundary
 
 ```
-Terraria world ─► Brain/WorldObservation
+Terraria world ─► Brain/Infrastructure/Observation
                      │
-                     ├─► CombatReflexes (collision predicate)
-                     ├─► SharedSafety ─► SharedMovementSystem ─► Companion motor ─► NPC body
-                     └─► PurposeFamilies ─► BehaviourSelection ─► PositionSelection ─┘
+                     ├─► SharedBehaviours/Safety ─► Infrastructure/Movement ─► motor ─► NPC
+                     └─► Activities ─► Infrastructure/Selection ─► Infrastructure/Position ─┘
                                   │
-                                  └─► WorldInteractions and the hands
+                                  └─► Infrastructure/Interactions and Companion/Weapons
 ```
 
-`Companion/Brain/CoordinateBrainTick.cs` owns the tick order. `Companion/Brain/SharedMovementSystem/CoordinateMovement.cs` is the single movement request interface; its query surface is how other brain systems ask movement questions. The motor is the only component permitted to apply resolved controls to the live NPC. The portable simulation, route planner and offline replay share the core; Terraria integration is an adapter outside that core. EngineReplay compares the native collision adapter with Terraria’s own NPC collision routine, including liquid transitions. The portable text-world simulation is a separate approximation. The live parity recorder checks each requested tick during gameplay, which still needs playtest evidence.
+`Companion/Brain/CoordinateBrainTick.cs` owns the tick order. `Companion/Brain/Infrastructure/Movement/CoordinateMovement.cs` is the single movement request interface; its query surface is how other brain systems ask movement questions. The motor is the only component permitted to apply resolved controls to the live NPC. The portable simulation, route planner and offline replay share the core; Terraria integration is an adapter outside that core. EngineReplay compares the native collision adapter with Terraria’s own NPC collision routine, including liquid transitions. The portable text-world simulation is a separate approximation. The live parity recorder checks each requested tick during gameplay, which still needs playtest evidence.
 
 ## Rulings that constrain every change
 
@@ -37,34 +36,23 @@ AICompanion/
 ├─ Companion/                the complete companion gameplay subsystem
 │  ├─ CharacterBody/         NPC lifecycle, rendering and breath
 │  ├─ EnemyIntegration/      hostile targeting bridge and spawn-rate adjustment
-│  ├─ Brain/                 observation, behaviour, movement and interactions
-│  │  ├─ WorldObservation/      player, terrain, threat and activity facts
-│  │  ├─ BehaviourSelection/    utility scoring and considerations
-│  │  ├─ ActivityCoordination/  final movement application, hand grants and distant recovery
-│  │  ├─ Behaviours/            shared activity contract and work-policy readers
-│  │  │  └─ Work/               thin per-character work-policy access
-│  │  ├─ PurposeFamilies/      consolidated ordinary activities
-│  │  │  ├─ Combat/            guarding and hunting
-│  │  │  ├─ Gathering/         mining and chopping
-│  │  │  └─ NearbyAssistance/  lighting, collection and keeping company
-│  │  ├─ PositionSelection/     position requests and candidate scoring
-│  │  ├─ CombatReflexes/        immediate threat assessment
-│  │  ├─ SharedSafety/          independent environmental escape and collision response ownership
-│  │  ├─ SharedMovementSystem/  shared travel, avoidance and control contracts
-│  │  │  ├─ TerrainModel/       tile geometry and pass-through properties
-│  │  │  ├─ BodySimulation/     body state and portable motion
-│  │  │  ├─ MovementAbilities/  movement capabilities and resource transitions
-│  │  │  ├─ RoutePlanning/      coarse routes, reachability and cache
-│  │  │  ├─ MovementExecution/  actual-state validation and retained movement
-│  │  │  └─ TerrariaIntegration/ native collision, terrain and live control adapter
-│  │  ├─ WorldInteractions/     tools and environment interactions
-│  │  │  ├─ Chopping/           tree discovery and axe use
-│  │  │  ├─ Mining/             ore discovery and pickaxe use
-│  │  │  ├─ Torch/              held light and supplied Smart Cursor placement
-│  │  │  ├─ WorldProtection/    bed-anchored autonomous-edit boundaries
-│  │  │  └─ Doors/              open a door in the route
-│  │  ├─ ProjectileAiming/      shared projectile trajectory solver
-│  │  └─ BehaviourDiagnostics/  overlay, timeline recording and scenario capture
+│  ├─ Brain/                 observe, choose, request movement
+│  │  ├─ Activities/         the seven jobs and their shared contract
+│  │  │  ├─ Combat/         guarding and hunting
+│  │  │  ├─ Gathering/      mining and chopping
+│  │  │  └─ NearbyAssistance/ lighting, collection and keeping company
+│  │  ├─ SharedBehaviours/   can take the body without winning a family
+│  │  │  ├─ Safety/         escape, dodge, combat space
+│  │  │  └─ Recovery/       distant flight home
+│  │  └─ Infrastructure/     how those get done
+│  │     ├─ Observation/    player, terrain, threat and activity facts
+│  │     ├─ Selection/      utility scoring and tunables
+│  │     ├─ Position/       position requests and candidate scoring
+│  │     ├─ Movement/       travel, avoidance and the motor
+│  │     ├─ Interactions/   chop, mine, torch, doors, homes
+│  │     ├─ Aiming/         projectile trajectory solver
+│  │     ├─ Grants/         one packet for feet and hand
+│  │     └─ Diagnostics/    overlay, telemetry, scenario capture
 │  ├─ Weapons/               companion equipment and arsenal choice
 │  ├─ Inventory/             persistent cargo bag and panel
 │  ├─ PlayerIntegration/     persistence, input, player events and /companion
@@ -134,6 +122,6 @@ Proposal 1 is in source. Three purpose families — Gathering, Combat, NearbyAss
 
 `sh Tools/verify.sh` exits 0: 2536/2536 native NPC collision matches, family-offer fixtures (flat match, empty family, deferred child, absent offers), and the rest of the default native suite. G1 (two-tile pillar-top hop) is asserted as a known limitation. Schema 0.30.0 joins decision, activity and attempt identities; a repeated failed method with no credited effect is a SessionReport finding, and a hunt already refused as no reachable firing position is not reported as the hands refusing to shoot.
 
-Utility scoring and the independent shooting chain remain the architecture. Hunting still scores below proven work, an enemy with no reachable firing position is not hunted, jumps are proven from the take-off the body actually reaches, and ore work never excavates ordinary terrain. CombatReflexes still only supplies a collision predicate; they never write the NPC. The packaged playable build is `0.22.40`.
+Utility scoring and the independent shooting chain remain the architecture. Hunting still scores below proven work, an enemy with no reachable firing position is not hunted, jumps are proven from the take-off the body actually reaches, and ore work never excavates ordinary terrain. CombatReflexes still only supplies a collision predicate; they never write the NPC. The packaged playable build is `0.22.41`. The brain is Activities, SharedBehaviours (Safety, Recovery) and Infrastructure. Weapons stay at Companion/Weapons.
 
 What still needs a person: a recorded playtest of this packaged build (Current Behaviour is still the 11 September caves), owner look at the family/activity notch, and slope walking (AIC-212). Not built, and named as such: mastery movement abilities, chaining several jobs (Proposal 3), a projectile dodge that jumps. Route search still treats a closed door as a wall. The portable historical corpus remains non-green. These checks establish the recorded fixtures, not reliable movement through every live cave or compatibility with every mod.

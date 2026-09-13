@@ -1,6 +1,6 @@
 #nullable enable
 
-using AICompanion.Companion.Brain.ProjectileAiming;
+using AICompanion.Companion.Brain.Infrastructure.Aiming;
 using Microsoft.Xna.Framework;
 using Terraria;
 using Terraria.ID;

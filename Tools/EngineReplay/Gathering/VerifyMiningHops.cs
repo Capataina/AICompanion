@@ -3,17 +3,17 @@ extern alias live;
 using Microsoft.Xna.Framework;
 using Terraria;
 using Terraria.ID;
-using AICompanion.Companion.Brain.SharedMovementSystem;
-using FindToolAccess = live::AICompanion.Companion.Brain.WorldInteractions.FindToolAccess;
-using MineOre = live::AICompanion.Companion.Brain.PurposeFamilies.Gathering.MineOre;
-using WorkPolicy = live::AICompanion.Companion.Brain.Behaviours.Work.WorkPolicy;
-using ActionContext = live::AICompanion.Companion.Brain.Behaviours.ActionContext;
-using AttemptStatus = live::AICompanion.Companion.Brain.Behaviours.AttemptStatus;
-using OfferEligibility = live::AICompanion.Companion.Brain.Behaviours.OfferEligibility;
-using LiveTerrainChanges = live::AICompanion.Companion.Brain.SharedMovementSystem.TerrainChanges;
-using LiveMovementQueries = live::AICompanion.Companion.Brain.SharedMovementSystem.MovementQueries;
-using LiveReach = live::AICompanion.Companion.Brain.SharedMovementSystem.Reachability.Reach;
-using LiveLimitPlanningWork = live::AICompanion.Companion.Brain.SharedMovementSystem.LimitPlanningWork;
+using AICompanion.Companion.Brain.Infrastructure.Movement;
+using FindToolAccess = live::AICompanion.Companion.Brain.Infrastructure.Interactions.FindToolAccess;
+using MineOre = live::AICompanion.Companion.Brain.Activities.Gathering.MineOre;
+using WorkPolicy = live::AICompanion.Companion.Brain.Activities.WorkPolicy;
+using ActionContext = live::AICompanion.Companion.Brain.Activities.ActionContext;
+using AttemptStatus = live::AICompanion.Companion.Brain.Activities.AttemptStatus;
+using OfferEligibility = live::AICompanion.Companion.Brain.Activities.OfferEligibility;
+using LiveTerrainChanges = live::AICompanion.Companion.Brain.Infrastructure.Movement.TerrainChanges;
+using LiveMovementQueries = live::AICompanion.Companion.Brain.Infrastructure.Movement.MovementQueries;
+using LiveReach = live::AICompanion.Companion.Brain.Infrastructure.Movement.Reachability.Reach;
+using LiveLimitPlanningWork = live::AICompanion.Companion.Brain.Infrastructure.Movement.LimitPlanningWork;
 
 /// <summary>
 /// Ceiling-ore hops against the ways a take-off stops being one: an arrival that slides off an overhang, a
@@ -115,7 +115,7 @@ internal static class VerifyMiningHops
         ctx.Npc.velocity = Vector2.Zero;
         ctx.Npc.Bottom = new Vector2(24 * 16 + 8, landed ? 73 * 16 : 75 * 16);
         long strikesBefore = ctx.Companion.Miner.LastOutcome?.Attempt ?? -1;
-        int limit = landed ? 90 : live::AICompanion.Companion.Brain.BehaviourSelection.Weights.ObjectiveProgressWindowTicks + 90;
+        int limit = landed ? 90 : live::AICompanion.Companion.Brain.Infrastructure.Selection.Weights.ObjectiveProgressWindowTicks + 90;
         int released = -1;
         for (int t = 0; t < limit + 60; t++)
         {
@@ -343,11 +343,11 @@ internal static class VerifyMiningHops
             Vector2 feet = LiveMovementQueries.FeetWorld(top);
             var rest = ctx.Companion.Motor.State with
             {
-                Left = feet.X - live::AICompanion.Companion.Brain.SharedMovementSystem.BodyPhysics.Width / 2f, Bottom = feet.Y, Vx = 0f, Vy = 0f, OnGround = true,
+                Left = feet.X - live::AICompanion.Companion.Brain.Infrastructure.Movement.BodyPhysics.Width / 2f, Bottom = feet.Y, Vx = 0f, Vy = 0f, OnGround = true,
                 CollideX = false, Stuck = false, Pinned = false, Wet = false, StairFall = false, LiquidKind = 0,
             };
-            Require(live::AICompanion.Companion.Brain.SharedMovementSystem.ProveInteractionJump.CanReach(
-                    live::AICompanion.Companion.Brain.SharedMovementSystem.NavGrid.World, rest, rising => FindToolAccess.InReach(rising.Feet, ore)),
+            Require(live::AICompanion.Companion.Brain.Infrastructure.Movement.ProveInteractionJump.CanReach(
+                    live::AICompanion.Companion.Brain.Infrastructure.Movement.NavGrid.World, rest, rising => FindToolAccess.InReach(rising.Feet, ore)),
                 "premise: a jump from rest on the two-wide top must bring the ore into reach and land, or the refusal is physics rather than admission");
             Require(LiveMovementQueries.WalkerReach(LiveMovementQueries.FeetTile(ctx.Npc.Bottom), top) == LiveReach.Yes,
                 "premise: the walker must reach the two-wide top");

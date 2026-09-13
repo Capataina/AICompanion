@@ -6,9 +6,9 @@ using Terraria;
 using Hud = live::AICompanion.Companion.HeadsUpDisplay.CompanionHealthBar;
 using Describe = live::AICompanion.Companion.HeadsUpDisplay.DescribeCompanionHud;
 using Symbol = live::AICompanion.Companion.HeadsUpDisplay.HudSymbol;
-using Snapshot = live::AICompanion.Companion.Brain.ActivityCoordination.ActivitySnapshot;
-using Phase = live::AICompanion.Companion.Brain.BehaviourSelection.ActivityPhase;
-using Family = live::AICompanion.Companion.Brain.BehaviourSelection.PurposeFamily;
+using Snapshot = live::AICompanion.Companion.Brain.Infrastructure.Grants.ActivitySnapshot;
+using Phase = live::AICompanion.Companion.Brain.Infrastructure.Selection.ActivityPhase;
+using Family = live::AICompanion.Companion.Brain.Infrastructure.Selection.PurposeFamily;
 
 internal static class VerifyCompanionHud
 {
@@ -25,7 +25,7 @@ internal static class VerifyCompanionHud
 
     public static void Verify()
     {
-        var registered = new live::AICompanion.Companion.Brain.BehaviourSelection.Chooser().Actions;
+        var registered = new live::AICompanion.Companion.Brain.Infrastructure.Selection.Chooser().Actions;
         Require(registered.Count == Activities.Length && Activities.All(pair =>
             registered.Any(action => action.Family == pair.Family && action.Name == pair.Activity)),
             "HUD coverage must match every registered ordinary activity");

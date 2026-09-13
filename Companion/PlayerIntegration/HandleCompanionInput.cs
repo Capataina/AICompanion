@@ -6,7 +6,7 @@ using Terraria;
 using Terraria.GameInput;
 using Terraria.ModLoader;
 using Terraria.ModLoader.IO;
-using AICompanion.Companion.Brain.BehaviourDiagnostics;
+using AICompanion.Companion.Brain.Infrastructure.Diagnostics;
 using AICompanion.Companion.CharacterBody;
 using AICompanion.Companion.Inventory;
 

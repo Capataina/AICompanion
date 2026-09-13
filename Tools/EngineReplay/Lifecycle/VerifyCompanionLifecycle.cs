@@ -47,7 +47,7 @@ internal static class VerifyCompanionLifecycle
         for (int i = 0; i < Main.projectile.Length; i++) Main.projectile[i] = new Projectile { whoAmI = i, active = false };
         for (int i = 0; i < Main.item.Length; i++) Main.item[i] = new Item { whoAmI = i, active = false };
         var companion = new CompanionNPC();
-        live::AICompanion.Companion.Brain.SharedMovementSystem.NavGrid.World = new live::AICompanion.Companion.Brain.SharedMovementSystem.GameTileWorld();
+        live::AICompanion.Companion.Brain.Infrastructure.Movement.NavGrid.World = new live::AICompanion.Companion.Brain.Infrastructure.Movement.GameTileWorld();
         var npc = new NPC();
         typeof(ModNPC).GetProperty("Entity", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)!.SetValue(companion, npc);
         // Native damage calls NPCLoader through the NPC's reverse attachment. Entity alone
@@ -66,9 +66,9 @@ internal static class VerifyCompanionLifecycle
     {
         // Every full-brain fixture lifts the live tick's wall-clock planning allowances so its verdict cannot follow
         // machine load; this one's assertions never wait on a search, and it lifts them so that stays true as it grows.
-        live::AICompanion.Companion.Brain.SharedMovementSystem.LimitPlanningWork.Unbounded = true;
+        live::AICompanion.Companion.Brain.Infrastructure.Movement.LimitPlanningWork.Unbounded = true;
         try { return RunWithPlanningLifted(); }
-        finally { live::AICompanion.Companion.Brain.SharedMovementSystem.LimitPlanningWork.Unbounded = false; }
+        finally { live::AICompanion.Companion.Brain.Infrastructure.Movement.LimitPlanningWork.Unbounded = false; }
     }
 
     private static int RunWithPlanningLifted()
@@ -96,15 +96,15 @@ internal static class VerifyCompanionLifecycle
 
     private static void VerifyWorldMemory()
     {
-        var owner = new live::AICompanion.Companion.Brain.SharedMovementSystem.ResetTerrainChanges();
-        var memory = live::AICompanion.Companion.Brain.SharedMovementSystem.RememberExecutedRoutes.World;
+        var owner = new live::AICompanion.Companion.Brain.Infrastructure.Movement.ResetTerrainChanges();
+        var memory = live::AICompanion.Companion.Brain.Infrastructure.Movement.RememberExecutedRoutes.World;
         owner.OnWorldLoad();
-        var entry = new live::AICompanion.Companion.Brain.SharedMovementSystem.BodyState(150, 176, 0, 0, true,
-            Capabilities: live::AICompanion.Companion.Brain.SharedMovementSystem.MovementCapabilities.Basic);
+        var entry = new live::AICompanion.Companion.Brain.Infrastructure.Movement.BodyState(150, 176, 0, 0, true,
+            Capabilities: live::AICompanion.Companion.Brain.Infrastructure.Movement.MovementCapabilities.Basic);
         var end = entry with { Left = 166 };
-        var step = new live::AICompanion.Companion.Brain.SharedMovementSystem.NavStep(end.FeetTile,
-            live::AICompanion.Companion.Brain.SharedMovementSystem.MoveKind.Walk, entry.FeetTile, Ticks: 10);
-        memory.Record(live::AICompanion.Companion.Brain.SharedMovementSystem.NavGrid.World, step, entry, end,
+        var step = new live::AICompanion.Companion.Brain.Infrastructure.Movement.NavStep(end.FeetTile,
+            live::AICompanion.Companion.Brain.Infrastructure.Movement.MoveKind.Walk, entry.FeetTile, Ticks: 10);
+        memory.Record(live::AICompanion.Companion.Brain.Infrastructure.Movement.NavGrid.World, step, entry, end,
             new Rectangle(150, 134, 36, 42));
         Require(memory.Count == 1, "archive lifecycle fixture must contain an entry");
         var firstWorld = new Terraria.ModLoader.IO.TagCompound();
@@ -141,7 +141,7 @@ internal static class VerifyCompanionLifecycle
             && result.AppliedMovement == companion.Motor.AppliedControls,
             "the completed grant must describe the current motor application, including early returns");
         if (companion.IsDowned)
-            Require(grant!.Value.Hand == live::AICompanion.Companion.Brain.ActivityCoordination.HandGrant.Unavailable,
+            Require(grant!.Value.Hand == live::AICompanion.Companion.Brain.Infrastructure.Grants.HandGrant.Unavailable,
                 "downed controls must revoke the hand grant");
     }
 

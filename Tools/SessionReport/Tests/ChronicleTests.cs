@@ -416,7 +416,7 @@ public static class ChronicleTests
 
     private static void RecorderChronologyContractUsesActualLifeColumn()
     {
-        string source = File.ReadAllText(Path.Combine("Companion", "Brain", "BehaviourDiagnostics", "RecordBrainTelemetry.cs"));
+        string source = File.ReadAllText(Path.Combine("Companion", "Brain", "Infrastructure", "Diagnostics", "RecordBrainTelemetry.cs"));
         Require(source.Contains("\\tplayer_life\\tplayer_hit\\tnpc_hit\\tplayer_state", StringComparison.Ordinal), "recorder header lost the hit-event sequence consumed by Chronicle");
         Require(source.Contains("\\tdir\\tlife\\tbreath", StringComparison.Ordinal), "recorder no longer writes the actual companion life column");
         Require(!source.Contains("npc_life", StringComparison.Ordinal), "recorder contract invented an npc_life column it does not write");
@@ -424,8 +424,8 @@ public static class ChronicleTests
 
     private static void RecorderCapturesFreshNavigationEvidence()
     {
-        string telemetry = File.ReadAllText(Path.Combine("Companion", "Brain", "BehaviourDiagnostics", "RecordBrainTelemetry.cs"));
-        string events = File.ReadAllText(Path.Combine("Companion", "Brain", "BehaviourDiagnostics", "RecordGodsEyeEvents.cs"));
+        string telemetry = File.ReadAllText(Path.Combine("Companion", "Brain", "Infrastructure", "Diagnostics", "RecordBrainTelemetry.cs"));
+        string events = File.ReadAllText(Path.Combine("Companion", "Brain", "Infrastructure", "Diagnostics", "RecordGodsEyeEvents.cs"));
         Require(telemetry.Contains("brain.LastTick == Main.GameUpdateCount", StringComparison.Ordinal), "recorder does not distinguish an old brain action from this tick's action");
         Require(telemetry.Contains("RecordNavigationEvidence", StringComparison.Ordinal), "recorder does not sample navigation evidence at the diagnostics boundary");
         Require(events.Contains("search-id=", StringComparison.Ordinal) && events.Contains("attempt-id=", StringComparison.Ordinal)
@@ -435,8 +435,8 @@ public static class ChronicleTests
 
     private static void RecorderLifecycleAndReservationContractsArePresent()
     {
-        string telemetry = File.ReadAllText(Path.Combine("Companion", "Brain", "BehaviourDiagnostics", "RecordBrainTelemetry.cs"));
-        string events = File.ReadAllText(Path.Combine("Companion", "Brain", "BehaviourDiagnostics", "RecordGodsEyeEvents.cs"));
+        string telemetry = File.ReadAllText(Path.Combine("Companion", "Brain", "Infrastructure", "Diagnostics", "RecordBrainTelemetry.cs"));
+        string events = File.ReadAllText(Path.Combine("Companion", "Brain", "Infrastructure", "Diagnostics", "RecordGodsEyeEvents.cs"));
         Require(telemetry.Contains("FileMode.CreateNew", StringComparison.Ordinal) && telemetry.Contains("ReserveSessionPath", StringComparison.Ordinal),
             "recorder can still overwrite a same-second run instead of reserving an attempt-specific file");
         Require(telemetry.Contains("WriteMetadata();", StringComparison.Ordinal) && telemetry.Contains("PostUpdateEverything", StringComparison.Ordinal)
@@ -1091,19 +1091,19 @@ public static class ChronicleTests
 
             // The geometry above restates the producer; these are the literals it rests on.
             string Source(params string[] parts) => File.ReadAllText(Path.Combine(parts));
-            string navigator = Source("Companion", "Brain", "SharedMovementSystem", "MovementExecution", "Navigator.cs");
-            string access = Source("Companion", "Brain", "WorldInteractions", "FindToolAccess.cs");
-            string region = Source("Companion", "Brain", "PositionSelection", "DeclareSuccessRegion.cs");
-            string telemetry = Source("Companion", "Brain", "BehaviourDiagnostics", "RecordBrainTelemetry.cs");
+            string navigator = Source("Companion", "Brain", "Infrastructure", "Movement", "MovementExecution", "Navigator.cs");
+            string access = Source("Companion", "Brain", "Infrastructure", "Interactions", "FindToolAccess.cs");
+            string region = Source("Companion", "Brain", "Infrastructure", "Position", "DeclareSuccessRegion.cs");
+            string telemetry = Source("Companion", "Brain", "Infrastructure", "Diagnostics", "RecordBrainTelemetry.cs");
             Require(navigator.Contains($"ArriveDistance = {ClaimedArrivalsStayInsideTheirSuccessRegion.ArriveDistance:0}f", StringComparison.Ordinal)
-                    && Source("Companion", "Brain", "PositionSelection", "FollowPlayerObjective.cs").Contains("HorizontalComfort - SharedMovementSystem.Navigator.ArriveDistance", StringComparison.Ordinal),
+                    && Source("Companion", "Brain", "Infrastructure", "Position", "FollowPlayerObjective.cs").Contains("HorizontalComfort - Infrastructure.Movement.Navigator.ArriveDistance", StringComparison.Ordinal),
                 "the navigator's arrival radius, or follow acceptance reserving it, no longer matches what the follow rule assumes");
             Require(access.Contains($"Eye = new(0f, -{ClaimedArrivalsStayInsideTheirSuccessRegion.EyeHeight:0}f)", StringComparison.Ordinal)
                     && access.Contains("reachX * 16f + 8f", StringComparison.Ordinal) && access.Contains("reachY * 16f + 8f", StringComparison.Ordinal),
                 "the tool reach box no longer has the eye height and extents the tool rule recomputes");
-            Require(Source("Companion", "Brain", "PurposeFamilies", "Gathering", "MineOre.cs").Contains("t.Hop ? PositionRequest.ExactAt(t.StandPosition) : PositionRequest.ExactAt(t.StandPosition, t.Tile)", StringComparison.Ordinal)
-                    && Source("Companion", "Brain", "PurposeFamilies", "Gathering", "ChopTree.cs").Contains("ExactAt(t.StandPosition, t.Bottom)", StringComparison.Ordinal)
-                    && Source("Companion", "Brain", "PurposeFamilies", "NearbyAssistance", "PerformNearbyWorldWork.cs").Contains("ExactAt(stand, tile)", StringComparison.Ordinal),
+            Require(Source("Companion", "Brain", "Activities", "Gathering", "MineOre.cs").Contains("t.Hop ? PositionRequest.ExactAt(t.StandPosition) : PositionRequest.ExactAt(t.StandPosition, t.Tile)", StringComparison.Ordinal)
+                    && Source("Companion", "Brain", "Activities", "Gathering", "ChopTree.cs").Contains("ExactAt(t.StandPosition, t.Bottom)", StringComparison.Ordinal)
+                    && Source("Companion", "Brain", "Activities", "NearbyAssistance", "PerformNearbyWorldWork.cs").Contains("ExactAt(stand, tile)", StringComparison.Ordinal),
                 "a tool stand no longer declares its work tile, or a hop take-off now declares one it does not reach from");
             Require(new[] { "\"follow-comfort\"", "\"tool-reach\"", "\"firing-position\"", "\"meeting-place\"", "\"undeclared\"" }.All(name => region.Contains(name, StringComparison.Ordinal))
                     && telemetry.Contains("controlGrant?.RequestedOwner == \"travel\"", StringComparison.Ordinal)
@@ -1245,7 +1245,7 @@ public static class ChronicleTests
 
             // The producer literals these rules rest on.
             string project = File.ReadAllText("AICompanion.csproj");
-            string telemetry = File.ReadAllText(Path.Combine("Companion", "Brain", "BehaviourDiagnostics", "RecordBrainTelemetry.cs"));
+            string telemetry = File.ReadAllText(Path.Combine("Companion", "Brain", "Infrastructure", "Diagnostics", "RecordBrainTelemetry.cs"));
             Require(project.Contains("git rev-parse HEAD", StringComparison.Ordinal) && project.Contains("BeforeTargets=\"GetAssemblyAttributes\"", StringComparison.Ordinal)
                     && project.Contains("<_Parameter1>SourceRevision</_Parameter1>", StringComparison.Ordinal) && project.Contains("<_Parameter1>SourceTree</_Parameter1>", StringComparison.Ordinal),
                 "the build no longer stamps the source revision and tree state the recorder reads");
@@ -1302,8 +1302,8 @@ public static class ChronicleTests
                 "an old capture's summary did not say its cost and loss are unrecorded");
 
             // The producer literals these rules rest on.
-            string telemetry = File.ReadAllText(Path.Combine("Companion", "Brain", "BehaviourDiagnostics", "RecordBrainTelemetry.cs"));
-            string events = File.ReadAllText(Path.Combine("Companion", "Brain", "BehaviourDiagnostics", "RecordGodsEyeEvents.cs"));
+            string telemetry = File.ReadAllText(Path.Combine("Companion", "Brain", "Infrastructure", "Diagnostics", "RecordBrainTelemetry.cs"));
+            string events = File.ReadAllText(Path.Combine("Companion", "Brain", "Infrastructure", "Diagnostics", "RecordGodsEyeEvents.cs"));
             Require(telemetry.IndexOf("recordClock.Restart();", StringComparison.Ordinal) > telemetry.IndexOf("public static void Record(CompanionNPC companion)", StringComparison.Ordinal)
                     && telemetry.Contains("lastRecordMs = recordClock.Elapsed.TotalMilliseconds;", StringComparison.Ordinal)
                     && telemetry.Contains("\\trecord_ms\\tevents_written\\tevents_dropped\\tevents_coalesced\\tterrain_evictions", StringComparison.Ordinal)
@@ -1455,11 +1455,11 @@ public static class ChronicleTests
     {
         string Source(params string[] parts) => File.ReadAllText(Path.Combine(parts));
         string tick = Source("Companion", "Brain", "CoordinateBrainTick.cs");
-        string safety = Source("Companion", "Brain", "SharedSafety", "ChooseSafetyResponse.cs");
-        string events = Source("Companion", "Brain", "BehaviourDiagnostics", "RecordGodsEyeEvents.cs");
-        string telemetry = Source("Companion", "Brain", "BehaviourDiagnostics", "RecordBrainTelemetry.cs");
-        string offers = Source("Companion", "Brain", "Behaviours", "ClassifyOffersAndAttempts.cs");
-        string owner = Source("Companion", "Brain", "BehaviourSelection", "OwnCurrentActivity.cs");
+        string safety = Source("Companion", "Brain", "SharedBehaviours", "Safety", "ChooseSafetyResponse.cs");
+        string events = Source("Companion", "Brain", "Infrastructure", "Diagnostics", "RecordGodsEyeEvents.cs");
+        string telemetry = Source("Companion", "Brain", "Infrastructure", "Diagnostics", "RecordBrainTelemetry.cs");
+        string offers = Source("Companion", "Brain", "Activities", "ClassifyOffersAndAttempts.cs");
+        string owner = Source("Companion", "Brain", "Infrastructure", "Selection", "OwnCurrentActivity.cs");
         foreach (string ordinary in ControlGrantsAreCompatible.OrdinaryOwners)
             Require(tick.Contains($"owner = \"{ordinary}\"", StringComparison.Ordinal), $"the ordinary movement owner '{ordinary}' is no longer issued by the coordinator");
         Require(tick.Contains("\"downed\", HandGrant.Unavailable", StringComparison.Ordinal) && tick.Contains("HandGrant.WorkTool : HandGrant.Available", StringComparison.Ordinal)
@@ -1470,7 +1470,7 @@ public static class ChronicleTests
             "a safety owner the grant rules classify is no longer issued");
         Require(events.Contains("grant-id={id};grant-tick={tick};activity-id={activityId};attempt-id={attemptId};activity-phase={activityPhase};requested-owner={requestedOwner}", StringComparison.Ordinal)
                 && events.Contains("attempt={outcome.Attempt};choice-id={choiceId};activity-id={activityId};activity-attempt-id={activityAttemptId}", StringComparison.Ordinal)
-                && new[] { Source("Companion", "Brain", "PurposeFamilies", "Gathering", "MineOre.cs"), Source("Companion", "Brain", "PurposeFamilies", "Gathering", "ChopTree.cs") }
+                && new[] { Source("Companion", "Brain", "Activities", "Gathering", "MineOre.cs"), Source("Companion", "Brain", "Activities", "Gathering", "ChopTree.cs") }
                     .All(striker => striker.Contains("owner.AttemptOpen ? owner.AttemptId : 0", StringComparison.Ordinal))
                 && events.Contains("attempt-id={attemptId};activity-id={activityId};family={family};start-tick={startTick};end-tick={endTick}", StringComparison.Ordinal)
                 && events.Contains("attemptId <= lastAttemptRecorded", StringComparison.Ordinal),
@@ -1482,7 +1482,7 @@ public static class ChronicleTests
         Require(owner.Contains("private static long nextAttemptId", StringComparison.Ordinal),
             "attempt identities are no longer process-wide, which the identity rules key on");
         string npc = Source("Companion", "CharacterBody", "CompanionNPC.cs");
-        string collection = Source("Companion", "Brain", "PurposeFamilies", "NearbyAssistance", "CollectNearbyItems.cs");
+        string collection = Source("Companion", "Brain", "Activities", "NearbyAssistance", "CollectNearbyItems.cs");
         Require(events.Contains("interruption-is-not-failure=true;claimed-yield-type={claimedYieldType};claimed-yield-quantity={claimedYieldQuantity}", StringComparison.Ordinal)
                 && events.Contains("stack={item.stack};collection-attempt-id={collectionAttemptId}", StringComparison.Ordinal),
             "the claimed-yield or pickup payload the transfer check reads has changed");

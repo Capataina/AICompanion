@@ -4,11 +4,11 @@ using System.Reflection;
 using Microsoft.Xna.Framework;
 using Terraria;
 using Terraria.ID;
-using BrainTelemetry = live::AICompanion.Companion.Brain.BehaviourDiagnostics.BrainTelemetry;
-using ActionContext = live::AICompanion.Companion.Brain.Behaviours.ActionContext;
-using MineOre = live::AICompanion.Companion.Brain.PurposeFamilies.Gathering.MineOre;
-using LiveMovementQueries = live::AICompanion.Companion.Brain.SharedMovementSystem.MovementQueries;
-using LiveLimitPlanningWork = live::AICompanion.Companion.Brain.SharedMovementSystem.LimitPlanningWork;
+using BrainTelemetry = live::AICompanion.Companion.Brain.Infrastructure.Diagnostics.BrainTelemetry;
+using ActionContext = live::AICompanion.Companion.Brain.Activities.ActionContext;
+using MineOre = live::AICompanion.Companion.Brain.Activities.Gathering.MineOre;
+using LiveMovementQueries = live::AICompanion.Companion.Brain.Infrastructure.Movement.MovementQueries;
+using LiveLimitPlanningWork = live::AICompanion.Companion.Brain.Infrastructure.Movement.LimitPlanningWork;
 
 /// <summary>
 /// Records one unproductive native scene per purpose family through the real recorder and the real event writer, and
@@ -38,7 +38,7 @@ internal static class RecordEvidenceScenes
         savePath.SetValue(null, root);
         var preferences = live::AICompanion.Companion.PlayerIntegration.CompanionPreferences.Current;
         bool potBreaking = preferences.PotBreaking;
-        var priorMining = live::AICompanion.Companion.Brain.Behaviours.Work.WorkPolicies.Mining;
+        var priorMining = live::AICompanion.Companion.Brain.Activities.WorkPolicies.Mining;
         bool server = Main.dedServ;
         // Native PickTile runs achievement bookkeeping unless the process is a dedicated server; the planning allowances
         // are lifted so machine load cannot decide which phase a scene reaches, as the whole-brain fixtures do.
@@ -57,7 +57,7 @@ internal static class RecordEvidenceScenes
             LiveLimitPlanningWork.Unbounded = false;
             Main.dedServ = server;
             preferences.PotBreaking = potBreaking;
-            live::AICompanion.Companion.Brain.Behaviours.Work.WorkPolicies.Mining = priorMining;
+            live::AICompanion.Companion.Brain.Activities.WorkPolicies.Mining = priorMining;
             savePath.SetValue(null, priorSavePath);
         }
         Console.WriteLine($"evidence scenes kept under {root}");
@@ -148,7 +148,7 @@ internal static class RecordEvidenceScenes
         enemy.velocity = Vector2.Zero;
         enemy.Bottom = new Vector2(22 * 16 + 8, 73 * 16);
         Main.npc[25] = enemy;
-        live::AICompanion.Companion.Brain.SharedMovementSystem.TerrainChanges.Reset();
+        live::AICompanion.Companion.Brain.Infrastructure.Movement.TerrainChanges.Reset();
         return ctx;
     }
 
@@ -196,6 +196,6 @@ internal static class RecordEvidenceScenes
             VerifyOreWork.Place(new Point(right, y), TileID.Dirt);
         }
         for (int x = left; x <= right; x++) VerifyOreWork.Place(new Point(x, top), TileID.Dirt);
-        live::AICompanion.Companion.Brain.SharedMovementSystem.TerrainChanges.Reset();
+        live::AICompanion.Companion.Brain.Infrastructure.Movement.TerrainChanges.Reset();
     }
 }

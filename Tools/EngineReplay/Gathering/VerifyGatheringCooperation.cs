@@ -3,23 +3,23 @@ extern alias live;
 using Microsoft.Xna.Framework;
 using Terraria;
 using Terraria.ID;
-using FindToolAccess = live::AICompanion.Companion.Brain.WorldInteractions.FindToolAccess;
-using MineOre = live::AICompanion.Companion.Brain.PurposeFamilies.Gathering.MineOre;
-using ChopTree = live::AICompanion.Companion.Brain.PurposeFamilies.Gathering.ChopTree;
-using TileChopper = live::AICompanion.Companion.Brain.WorldInteractions.Chopping.TileChopper;
-using TileMiner = live::AICompanion.Companion.Brain.WorldInteractions.Mining.TileMiner;
-using WorkPolicies = live::AICompanion.Companion.Brain.Behaviours.Work.WorkPolicies;
-using WorkPolicy = live::AICompanion.Companion.Brain.Behaviours.Work.WorkPolicy;
-using ActionContext = live::AICompanion.Companion.Brain.Behaviours.ActionContext;
-using AttemptStatus = live::AICompanion.Companion.Brain.Behaviours.AttemptStatus;
-using AttemptAttribution = live::AICompanion.Companion.Brain.Behaviours.AttemptAttribution;
-using AttemptOutcome = live::AICompanion.Companion.Brain.Behaviours.AttemptOutcome;
-using OfferEligibility = live::AICompanion.Companion.Brain.Behaviours.OfferEligibility;
-using HandGrant = live::AICompanion.Companion.Brain.ActivityCoordination.HandGrant;
-using TerrainChanges = live::AICompanion.Companion.Brain.SharedMovementSystem.TerrainChanges;
-using Protection = live::AICompanion.Companion.Brain.WorldInteractions.WorldProtection.ProtectCompanionHomes;
-using TileDamageWatcher = live::AICompanion.Companion.Brain.WorldObservation.TileDamageWatcher;
-using TileDamageClock = live::AICompanion.Companion.Brain.WorldObservation.TileDamageClock;
+using FindToolAccess = live::AICompanion.Companion.Brain.Infrastructure.Interactions.FindToolAccess;
+using MineOre = live::AICompanion.Companion.Brain.Activities.Gathering.MineOre;
+using ChopTree = live::AICompanion.Companion.Brain.Activities.Gathering.ChopTree;
+using TileChopper = live::AICompanion.Companion.Brain.Infrastructure.Interactions.Chopping.TileChopper;
+using TileMiner = live::AICompanion.Companion.Brain.Infrastructure.Interactions.Mining.TileMiner;
+using WorkPolicies = live::AICompanion.Companion.Brain.Activities.WorkPolicies;
+using WorkPolicy = live::AICompanion.Companion.Brain.Activities.WorkPolicy;
+using ActionContext = live::AICompanion.Companion.Brain.Activities.ActionContext;
+using AttemptStatus = live::AICompanion.Companion.Brain.Activities.AttemptStatus;
+using AttemptAttribution = live::AICompanion.Companion.Brain.Activities.AttemptAttribution;
+using AttemptOutcome = live::AICompanion.Companion.Brain.Activities.AttemptOutcome;
+using OfferEligibility = live::AICompanion.Companion.Brain.Activities.OfferEligibility;
+using HandGrant = live::AICompanion.Companion.Brain.Infrastructure.Grants.HandGrant;
+using TerrainChanges = live::AICompanion.Companion.Brain.Infrastructure.Movement.TerrainChanges;
+using Protection = live::AICompanion.Companion.Brain.Infrastructure.Interactions.WorldProtection.ProtectCompanionHomes;
+using TileDamageWatcher = live::AICompanion.Companion.Brain.Infrastructure.Observation.TileDamageWatcher;
+using TileDamageClock = live::AICompanion.Companion.Brain.Infrastructure.Observation.TileDamageClock;
 
 /// <summary>
 /// P09's gathering cooperation and permission lifecycle against the whole brain and native tiles: chopping
@@ -35,9 +35,9 @@ internal static class VerifyGatheringCooperation
         // Whole-brain phases here are caught by condition, and under the production millisecond allowances a search can stop
         // at its deadline and leave an approach undecided, so the phase a fixture catches would depend on machine load.
         // The allowances are lifted as the seal and brain-cost fixtures do; the undecided state is exercised directly.
-        live::AICompanion.Companion.Brain.SharedMovementSystem.LimitPlanningWork.Unbounded = true;
+        live::AICompanion.Companion.Brain.Infrastructure.Movement.LimitPlanningWork.Unbounded = true;
         try { return RunAll(); }
-        finally { live::AICompanion.Companion.Brain.SharedMovementSystem.LimitPlanningWork.Unbounded = false; }
+        finally { live::AICompanion.Companion.Brain.Infrastructure.Movement.LimitPlanningWork.Unbounded = false; }
     }
 
     private static int RunAll()
@@ -238,17 +238,17 @@ internal static class VerifyGatheringCooperation
         // The undecided approach, which the lifted allowances above never reach: mining walks at an ore its bounded search
         // could not decide, and a bed placed then must end that attempt invalid rather than as a replacement before any
         // effect. The search is starved of its time budget, as the unproven-approach fixture in the ore suite does.
-        live::AICompanion.Companion.Brain.SharedMovementSystem.LimitPlanningWork.Unbounded = false;
-        double budget = live::AICompanion.Companion.Brain.SharedMovementSystem.AStar.MsBudget;
+        live::AICompanion.Companion.Brain.Infrastructure.Movement.LimitPlanningWork.Unbounded = false;
+        double budget = live::AICompanion.Companion.Brain.Infrastructure.Movement.AStar.MsBudget;
         try
         {
             Point far = new(50, 59);
             var (mine, ctx) = VerifyOreWork.SetUp(WorkPolicy.Opportunistic, TileID.Copper, far);
-            live::AICompanion.Companion.Brain.SharedMovementSystem.AStar.MsBudget = 0.0001d;
+            live::AICompanion.Companion.Brain.Infrastructure.Movement.AStar.MsBudget = 0.0001d;
             Require(VerifyPreparedActivities.PrepareAndScore(mine, ctx) > 0 && mine.Status == "approach unknown",
                 $"the undecided case needs mining to offer a walk at an unproven ore; status={mine.Status}");
             mine.BeginAttempt();
-            Require(mine.Execute(ctx).Kind == live::AICompanion.Companion.Brain.PositionSelection.RequestKind.Exact,
+            Require(mine.Execute(ctx).Kind == live::AICompanion.Companion.Brain.Infrastructure.Position.RequestKind.Exact,
                 "the undecided case needs mining walking at the ore");
             Protection.Reset();
             PlaceBed(new Point(52, 58));
@@ -260,8 +260,8 @@ internal static class VerifyGatheringCooperation
         }
         finally
         {
-            live::AICompanion.Companion.Brain.SharedMovementSystem.AStar.MsBudget = budget;
-            live::AICompanion.Companion.Brain.SharedMovementSystem.LimitPlanningWork.Unbounded = true;
+            live::AICompanion.Companion.Brain.Infrastructure.Movement.AStar.MsBudget = budget;
+            live::AICompanion.Companion.Brain.Infrastructure.Movement.LimitPlanningWork.Unbounded = true;
             Protection.Reset();
         }
     }
@@ -444,7 +444,7 @@ internal static class VerifyGatheringCooperation
         float chopWalk = chop.ForecastTicks() - chop.RemainingWork!.Value.Ticks;
         float expectedMine = Vector2.Distance(ctx.Npc.Bottom, mine.TargetStandPosition!.Value) / walkSpeed;
         // The trunk's working pose from the same shared query and the same feet that chopping's discovery asks.
-        Require(FindToolAccess.Approach(trunk, ctx.Npc.Bottom, out Vector2 chopStand) == live::AICompanion.Companion.Brain.SharedMovementSystem.Reachability.Reach.Yes,
+        Require(FindToolAccess.Approach(trunk, ctx.Npc.Bottom, out Vector2 chopStand) == live::AICompanion.Companion.Brain.Infrastructure.Movement.Reachability.Reach.Yes,
             "the unit fixture needs a proven working pose for the trunk");
         float expectedChop = Vector2.Distance(ctx.Npc.Bottom, chopStand) / walkSpeed;
         Require(MathF.Abs(mineWalk - expectedMine) < 0.01f && MathF.Abs(chopWalk - expectedChop) < 0.01f && chopWalk > 0 && mineWalk > 0,
@@ -477,7 +477,7 @@ internal static class VerifyGatheringCooperation
     private static AttemptOutcome? LastAttempt(ActionContext ctx, string activity)
         => ctx.Companion.Brain.Chooser.Activity.RecentAttempts.LastOrDefault(a => a.Activity == activity) is { AttemptId: > 0 } found ? found : null;
 
-    private static live::AICompanion.Companion.Brain.WorldInteractions.TileToolObservation? LastToolOutcome(ActionContext ctx, bool chopping)
+    private static live::AICompanion.Companion.Brain.Infrastructure.Interactions.TileToolObservation? LastToolOutcome(ActionContext ctx, bool chopping)
         => chopping ? ctx.Companion.Chopper.LastOutcome : ctx.Companion.Miner.LastOutcome;
 
     private static bool TargetPresent(Point target, bool chopping)

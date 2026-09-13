@@ -3,9 +3,9 @@ extern alias live;
 using Microsoft.Xna.Framework;
 using Terraria;
 using Terraria.ID;
-using Policy = live::AICompanion.Companion.Brain.Behaviours.Work.WorkPolicy;
-using HandGrant = live::AICompanion.Companion.Brain.ActivityCoordination.HandGrant;
-using ActivityPhase = live::AICompanion.Companion.Brain.BehaviourSelection.ActivityPhase;
+using Policy = live::AICompanion.Companion.Brain.Activities.WorkPolicy;
+using HandGrant = live::AICompanion.Companion.Brain.Infrastructure.Grants.HandGrant;
+using ActivityPhase = live::AICompanion.Companion.Brain.Infrastructure.Selection.ActivityPhase;
 using CompanionNPC = live::AICompanion.Companion.CharacterBody.CompanionNPC;
 
 /// <summary>
@@ -25,7 +25,7 @@ internal static class VerifySafetyAftermath
         // Left in force, the surfacing escape under a shot reached air or drowned depending on how loaded
         // the machine was, so the verdict measured the machine. Lifting them keeps each query's work-count
         // limits and takes load out of the result.
-        live::AICompanion.Companion.Brain.SharedMovementSystem.LimitPlanningWork.Unbounded = true;
+        live::AICompanion.Companion.Brain.Infrastructure.Movement.LimitPlanningWork.Unbounded = true;
         try
         {
             TheHandsKeepFiringWhileCombatSpacingRetreats();
@@ -33,7 +33,7 @@ internal static class VerifySafetyAftermath
             GuardingReachesThePlayerPastAnInterveningHostileWithoutContact();
             SurfacingIsNotVetoedIntoDrowningByAProjectileAboveTheWater();
         }
-        finally { live::AICompanion.Companion.Brain.SharedMovementSystem.LimitPlanningWork.Unbounded = false; }
+        finally { live::AICompanion.Companion.Brain.Infrastructure.Movement.LimitPlanningWork.Unbounded = false; }
         Console.WriteLine("safety aftermath: the hands fire while combat spacing retreats, a projectile reflex suspends guarding and the same guard resumes, guarding passes an intervening hostile without contact, and a projectile over the only exit does not drown a surfacing escape");
         return 0;
     }

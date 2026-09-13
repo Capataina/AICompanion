@@ -1,8 +1,8 @@
 #nullable enable
 
 using System.Text.Json;
-using AICompanion.Companion.Brain.BehaviourDiagnostics;
-using AICompanion.Companion.Brain.SharedMovementSystem;
+using AICompanion.Companion.Brain.Infrastructure.Diagnostics;
+using AICompanion.Companion.Brain.Infrastructure.Movement;
 using Microsoft.Xna.Framework;
 using Terraria;
 using Terraria.DataStructures;
@@ -42,9 +42,9 @@ internal static class VerifyGodsEyeEvents
         npcHooks.OnKill(shooter);
         NPC reusedNpc = Npc(21, new Vector2(720f, 800f), Vector2.Zero);
         npcHooks.OnSpawn(reusedNpc, source);
-        var toolBefore = new AICompanion.Companion.Brain.WorldInteractions.TileToolState(true, 7, 18, 36, 30);
+        var toolBefore = new AICompanion.Companion.Brain.Infrastructure.Interactions.TileToolState(true, 7, 18, 36, 30);
         var toolAfter = toolBefore with { Damage = 65 };
-        var toolOutcome = new AICompanion.Companion.Brain.WorldInteractions.TileToolObservation(
+        var toolOutcome = new AICompanion.Companion.Brain.Infrastructure.Interactions.TileToolObservation(
             Main.GameUpdateCount, 3, new Point(25, 59), Terraria.ID.ItemID.CopperPickaxe, toolBefore, toolAfter);
         GodsEyeEvents.RecordToolEffect(reusedNpc, "pickaxe", toolOutcome, 12, 34, 56);
         GodsEyeEvents.RecordToolEffect(reusedNpc, "pickaxe", toolOutcome with

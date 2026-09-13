@@ -5,15 +5,15 @@ using Microsoft.Xna.Framework;
 using Terraria;
 using Terraria.GameContent.Events;
 using Terraria.ID;
-using Encounter = live::AICompanion.Companion.Brain.WorldObservation.EncounterSense;
-using Threats = live::AICompanion.Companion.Brain.WorldObservation.ThreatSense;
-using Evaluate = live::AICompanion.Companion.Brain.BehaviourSelection.EvaluatePreparedActivities;
-using Prepared = live::AICompanion.Companion.Brain.BehaviourSelection.PreparedActivity;
-using Comparison = live::AICompanion.Companion.Brain.BehaviourSelection.ActivityComparisonContext;
-using Eligibility = live::AICompanion.Companion.Brain.Behaviours.OfferEligibility;
-using Policy = live::AICompanion.Companion.Brain.Behaviours.Work.WorkPolicy;
-using Weights = live::AICompanion.Companion.Brain.BehaviourSelection.Weights;
-using LimitPlanningWork = live::AICompanion.Companion.Brain.SharedMovementSystem.LimitPlanningWork;
+using Encounter = live::AICompanion.Companion.Brain.Infrastructure.Observation.EncounterSense;
+using Threats = live::AICompanion.Companion.Brain.Infrastructure.Observation.ThreatSense;
+using Evaluate = live::AICompanion.Companion.Brain.Infrastructure.Selection.EvaluatePreparedActivities;
+using Prepared = live::AICompanion.Companion.Brain.Infrastructure.Selection.PreparedActivity;
+using Comparison = live::AICompanion.Companion.Brain.Infrastructure.Selection.ActivityComparisonContext;
+using Eligibility = live::AICompanion.Companion.Brain.Activities.OfferEligibility;
+using Policy = live::AICompanion.Companion.Brain.Activities.WorkPolicy;
+using Weights = live::AICompanion.Companion.Brain.Infrastructure.Selection.Weights;
+using LimitPlanningWork = live::AICompanion.Companion.Brain.Infrastructure.Movement.LimitPlanningWork;
 
 /// <summary>
 /// Proposal 1's boss and event context, proven at three depths. The observation must say the world is
@@ -282,16 +282,16 @@ internal static class VerifyEncounterContext
             tile.HasTile = x == 70 || x == 78 || y == 83;
             tile.TileType = TileID.Dirt;
         }
-        live::AICompanion.Companion.Brain.SharedMovementSystem.AStar.InvalidateEdges();
-        live::AICompanion.Companion.Brain.SharedMovementSystem.NavGrid.World = new live::AICompanion.Companion.Brain.SharedMovementSystem.GameTileWorld();
+        live::AICompanion.Companion.Brain.Infrastructure.Movement.AStar.InvalidateEdges();
+        live::AICompanion.Companion.Brain.Infrastructure.Movement.NavGrid.World = new live::AICompanion.Companion.Brain.Infrastructure.Movement.GameTileWorld();
         Hostile(FirstHostileSlot + CaveCap, NPCID.Zombie, OnFloor(74));
         var walled = Observe(scene, ticks: window * 2);
         ClearHostiles();
         for (int x = 70; x <= 78; x++)
         for (int y = 83; y < FloorRow; y++)
             Main.tile[x, y].ClearEverything();
-        live::AICompanion.Companion.Brain.SharedMovementSystem.AStar.InvalidateEdges();
-        live::AICompanion.Companion.Brain.SharedMovementSystem.NavGrid.World = new live::AICompanion.Companion.Brain.SharedMovementSystem.GameTileWorld();
+        live::AICompanion.Companion.Brain.Infrastructure.Movement.AStar.InvalidateEdges();
+        live::AICompanion.Companion.Brain.Infrastructure.Movement.NavGrid.World = new live::AICompanion.Companion.Brain.Infrastructure.Movement.GameTileWorld();
         Require(walled.Records == CaveCap + 1 && walled.Reaching == CaveCap,
             $"the walled-off premise needs the sealed zombie observed and unable to reach either actor; got {walled}");
         Require(walled is { Intensity: 0f, Source: "none" } && MathF.Abs(walled.Weight - CaveCap) < 1e-5f,
@@ -359,8 +359,8 @@ internal static class VerifyEncounterContext
             tile.HasTile = x == 70 || x == 78 || y == 83;
             tile.TileType = TileID.Dirt;
         }
-        live::AICompanion.Companion.Brain.SharedMovementSystem.AStar.InvalidateEdges();
-        live::AICompanion.Companion.Brain.SharedMovementSystem.NavGrid.World = new live::AICompanion.Companion.Brain.SharedMovementSystem.GameTileWorld();
+        live::AICompanion.Companion.Brain.Infrastructure.Movement.AStar.InvalidateEdges();
+        live::AICompanion.Companion.Brain.Infrastructure.Movement.NavGrid.World = new live::AICompanion.Companion.Brain.Infrastructure.Movement.GameTileWorld();
         scene.Player.Bottom = OnFloor(74);
         Crowd(CaveCap + 1);
         var companionOnlyThreats = new Threats();
@@ -379,8 +379,8 @@ internal static class VerifyEncounterContext
             for (int x = 70; x <= 78; x++)
             for (int y = 83; y < FloorRow; y++)
                 Main.tile[x, y].ClearEverything();
-            live::AICompanion.Companion.Brain.SharedMovementSystem.AStar.InvalidateEdges();
-            live::AICompanion.Companion.Brain.SharedMovementSystem.NavGrid.World = new live::AICompanion.Companion.Brain.SharedMovementSystem.GameTileWorld();
+            live::AICompanion.Companion.Brain.Infrastructure.Movement.AStar.InvalidateEdges();
+            live::AICompanion.Companion.Brain.Infrastructure.Movement.NavGrid.World = new live::AICompanion.Companion.Brain.Infrastructure.Movement.GameTileWorld();
         }
         Require(reachPlayer == 0 && reachCompanion == CaveCap + 1,
             $"the companion-only premise needs every hostile to reach the companion and none the player; player {reachPlayer}, companion {reachCompanion}, {companionOnly}");

@@ -1,9 +1,9 @@
 extern alias live;
 using Microsoft.Xna.Framework;
 using Terraria;
-using H = live::AICompanion.Companion.Brain.PurposeFamilies.Combat.PursueAttackOpportunity;
-using T = live::AICompanion.Companion.Brain.WorldObservation.ThreatRecord;
-using C = live::AICompanion.Companion.Brain.Behaviours.ActionContext;
+using H = live::AICompanion.Companion.Brain.Activities.Combat.PursueAttackOpportunity;
+using T = live::AICompanion.Companion.Brain.Infrastructure.Observation.ThreatRecord;
+using C = live::AICompanion.Companion.Brain.Activities.ActionContext;
 
 internal static class VerifyHuntProgress
 {

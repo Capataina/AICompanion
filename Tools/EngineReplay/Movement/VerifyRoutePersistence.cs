@@ -7,13 +7,13 @@ internal static class VerifyRoutePersistence
 {
     public static int Run()
     {
-        var owner = new live::AICompanion.Companion.Brain.SharedMovementSystem.ResetTerrainChanges();
+        var owner = new live::AICompanion.Companion.Brain.Infrastructure.Movement.ResetTerrainChanges();
         // Native ModSystem instances are loader-attached. Keep that contract in this fixture so
         // invalid optional data exercises the real warning path instead of a null test owner.
         var mod = new live::AICompanion.AICompanion();
         typeof(Terraria.ModLoader.Mod).GetProperty("Logger")!.SetValue(mod, log4net.LogManager.GetLogger(typeof(VerifyRoutePersistence)));
         typeof(Terraria.ModLoader.ModType).GetProperty("Mod")!.SetValue(owner, mod);
-        var memory = live::AICompanion.Companion.Brain.SharedMovementSystem.RememberExecutedRoutes.World;
+        var memory = live::AICompanion.Companion.Brain.Infrastructure.Movement.RememberExecutedRoutes.World;
         owner.OnWorldLoad();
         try
         {
@@ -74,42 +74,42 @@ internal static class VerifyRoutePersistence
         }
     }
 
-    private static void FillToCapacity(live::AICompanion.Companion.Brain.SharedMovementSystem.RememberExecutedRoutes memory)
+    private static void FillToCapacity(live::AICompanion.Companion.Brain.Infrastructure.Movement.RememberExecutedRoutes memory)
     {
         memory.Clear();
         for (int i = 0; i < 1024; i++) Record(memory, i);
     }
 
-    private static void RecordOne(live::AICompanion.Companion.Brain.SharedMovementSystem.RememberExecutedRoutes memory)
+    private static void RecordOne(live::AICompanion.Companion.Brain.Infrastructure.Movement.RememberExecutedRoutes memory)
     {
         memory.Clear();
         Record(memory, 0);
     }
 
-    private static void Record(live::AICompanion.Companion.Brain.SharedMovementSystem.RememberExecutedRoutes memory, int index)
+    private static void Record(live::AICompanion.Companion.Brain.Infrastructure.Movement.RememberExecutedRoutes memory, int index)
     {
         int left = (index + 10) * 16;
-        var entry = new live::AICompanion.Companion.Brain.SharedMovementSystem.BodyState(left, 176, 0, 0, true,
-            Capabilities: live::AICompanion.Companion.Brain.SharedMovementSystem.MovementCapabilities.Basic);
+        var entry = new live::AICompanion.Companion.Brain.Infrastructure.Movement.BodyState(left, 176, 0, 0, true,
+            Capabilities: live::AICompanion.Companion.Brain.Infrastructure.Movement.MovementCapabilities.Basic);
         var end = entry with { Left = left + 16 };
-        var step = new live::AICompanion.Companion.Brain.SharedMovementSystem.NavStep(end.FeetTile,
-            live::AICompanion.Companion.Brain.SharedMovementSystem.MoveKind.Walk, entry.FeetTile, Ticks: 10);
+        var step = new live::AICompanion.Companion.Brain.Infrastructure.Movement.NavStep(end.FeetTile,
+            live::AICompanion.Companion.Brain.Infrastructure.Movement.MoveKind.Walk, entry.FeetTile, Ticks: 10);
         memory.Record(new EmptyWorld(), step, entry, end, new Rectangle(left, 134, 36, 42));
     }
 
-    private static void AssertDiscarded(live::AICompanion.Companion.Brain.SharedMovementSystem.ResetTerrainChanges owner,
-        live::AICompanion.Companion.Brain.SharedMovementSystem.RememberExecutedRoutes memory, byte[] archive, string description)
+    private static void AssertDiscarded(live::AICompanion.Companion.Brain.Infrastructure.Movement.ResetTerrainChanges owner,
+        live::AICompanion.Companion.Brain.Infrastructure.Movement.RememberExecutedRoutes memory, byte[] archive, string description)
     {
         RecordOne(memory);
         owner.LoadWorldData(new TagCompound { ["executedRoutes"] = archive });
         Require(memory.Count == 0, $"{description} must be discarded without retaining old route state");
     }
 
-    private sealed class EmptyWorld : live::AICompanion.Companion.Brain.SharedMovementSystem.ITileWorld
+    private sealed class EmptyWorld : live::AICompanion.Companion.Brain.Infrastructure.Movement.ITileWorld
     {
         public bool InWorld(int x, int y) => true;
-        public live::AICompanion.Companion.Brain.SharedMovementSystem.TileShape Shape(int x, int y)
-            => live::AICompanion.Companion.Brain.SharedMovementSystem.TileShape.Air;
+        public live::AICompanion.Companion.Brain.Infrastructure.Movement.TileShape Shape(int x, int y)
+            => live::AICompanion.Companion.Brain.Infrastructure.Movement.TileShape.Air;
         public bool PassThrough(int x, int y) => false;
         public bool Water(int x, int y) => false;
         public bool Lava(int x, int y) => false;

@@ -5,11 +5,11 @@ using Microsoft.Xna.Framework;
 using Terraria;
 using Terraria.Graphics.Light;
 using Terraria.ID;
-using LightUsefulArea = live::AICompanion.Companion.Brain.PurposeFamilies.NearbyAssistance.LightUsefulArea;
-using Offer = live::AICompanion.Companion.Brain.Behaviours.OfferEligibility;
-using Policy = live::AICompanion.Companion.Brain.Behaviours.Work.WorkPolicy;
+using LightUsefulArea = live::AICompanion.Companion.Brain.Activities.NearbyAssistance.LightUsefulArea;
+using Offer = live::AICompanion.Companion.Brain.Activities.OfferEligibility;
+using Policy = live::AICompanion.Companion.Brain.Activities.WorkPolicy;
 using Preferences = live::AICompanion.Companion.PlayerIntegration.CompanionPreferences;
-using TorchBearer = live::AICompanion.Companion.Brain.WorldInteractions.Torch.TorchBearer;
+using TorchBearer = live::AICompanion.Companion.Brain.Infrastructure.Interactions.Torch.TorchBearer;
 
 /// <summary>
 /// Lighting reads only light the engine computed. Scenes write the colour engine's own presented light map

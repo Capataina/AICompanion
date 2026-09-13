@@ -5,7 +5,7 @@
 # every offending line, and exit 1. Run from the repository root:  sh Tools/check-navigation-boundary.sh
 cd "$(dirname "$0")/.." || exit 2
 # Comment lines are prose and may say "NPC"; only code lines count.
-test -d Companion/Brain/SharedMovementSystem || { echo 'movement source directory missing'; exit 1; }
+test -d Companion/Brain/Infrastructure/Movement || { echo 'movement source directory missing'; exit 1; }
 # The search tool is checked for before it is used. A missing rg made the pipeline print nothing,
 # and nothing is exactly what a held boundary prints, so an absent tool read as a green check on
 # 2026-09-11. ripgrep stays the fast path, and POSIX grep carries the same search where it is
@@ -13,9 +13,9 @@ test -d Companion/Brain/SharedMovementSystem || { echo 'movement source director
 # stops running on the machine that does not have it. The word boundary is spelled out rather
 # than written \b, which BSD and GNU grep disagree about.
 if command -v rg >/dev/null 2>&1; then
-  found=$(rg -n 'using Terraria|Terraria\.|\bNPC\b|\bMain\.|CompanionMotor' Companion/Brain/SharedMovementSystem -g '*.cs' -g '!TerrariaIntegration/**')
+  found=$(rg -n 'using Terraria|Terraria\.|\bNPC\b|\bMain\.|CompanionMotor' Companion/Brain/Infrastructure/Movement -g '*.cs' -g '!TerrariaIntegration/**')
 elif command -v grep >/dev/null 2>&1; then
-  found=$(grep -rnE 'using Terraria|Terraria\.|(^|[^A-Za-z0-9_])NPC([^A-Za-z0-9_]|$)|Main\.|CompanionMotor' --include='*.cs' Companion/Brain/SharedMovementSystem)
+  found=$(grep -rnE 'using Terraria|Terraria\.|(^|[^A-Za-z0-9_])NPC([^A-Za-z0-9_]|$)|Main\.|CompanionMotor' --include='*.cs' Companion/Brain/Infrastructure/Movement)
 else
   echo 'movement boundary NOT checked: neither ripgrep nor grep is available'; exit 2
 fi

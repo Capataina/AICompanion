@@ -1,13 +1,13 @@
 extern alias live;
 using Microsoft.Xna.Framework;
 using Terraria;
-using Recovery = live::AICompanion.Companion.Brain.ActivityCoordination.RecoverDistantCompanion;
-using Guard = live::AICompanion.Companion.Brain.PurposeFamilies.Combat.ProtectPlayer;
-using Context = live::AICompanion.Companion.Brain.Behaviours.ActionContext;
-using Threat = live::AICompanion.Companion.Brain.WorldObservation.ThreatRecord;
-using Weights = live::AICompanion.Companion.Brain.BehaviourSelection.Weights;
-using LimitPlanningWork = live::AICompanion.Companion.Brain.SharedMovementSystem.LimitPlanningWork;
-using TerrainChanges = live::AICompanion.Companion.Brain.SharedMovementSystem.TerrainChanges;
+using Recovery = live::AICompanion.Companion.Brain.SharedBehaviours.Recovery.RecoverDistantCompanion;
+using Guard = live::AICompanion.Companion.Brain.Activities.Combat.ProtectPlayer;
+using Context = live::AICompanion.Companion.Brain.Activities.ActionContext;
+using Threat = live::AICompanion.Companion.Brain.Infrastructure.Observation.ThreatRecord;
+using Weights = live::AICompanion.Companion.Brain.Infrastructure.Selection.Weights;
+using LimitPlanningWork = live::AICompanion.Companion.Brain.Infrastructure.Movement.LimitPlanningWork;
+using TerrainChanges = live::AICompanion.Companion.Brain.Infrastructure.Movement.TerrainChanges;
 
 internal static class VerifyFollowRecoveryAndProtection
 {
@@ -48,7 +48,7 @@ internal static class VerifyFollowRecoveryAndProtection
         Require(companion.NPC.noGravity && companion.NPC.noTileCollide, "native motor enables flight flags");
         companion.CheckDead();
         Require(companion.NPC.velocity == Vector2.Zero, "downed flight stops immediately");
-        companion.Motor.Apply(live::AICompanion.Companion.Brain.SharedMovementSystem.Controls.None, "downed");
+        companion.Motor.Apply(live::AICompanion.Companion.Brain.Infrastructure.Movement.Controls.None, "downed");
         Require(!companion.NPC.noGravity && !companion.NPC.noTileCollide, "clear downed body restores ordinary collision");
         VerifyGuard();
         VerifyRecoveryThroughBrain();
@@ -60,10 +60,10 @@ internal static class VerifyFollowRecoveryAndProtection
 
     private static void VerifyRecoveryAdmissionUsesReunionPurpose()
     {
-        foreach (var kind in new[] { live::AICompanion.Companion.Brain.PositionSelection.RequestKind.WithPlayer,
-            live::AICompanion.Companion.Brain.PositionSelection.RequestKind.Exact,
-            live::AICompanion.Companion.Brain.PositionSelection.RequestKind.Guard,
-            live::AICompanion.Companion.Brain.PositionSelection.RequestKind.Hold })
+        foreach (var kind in new[] { live::AICompanion.Companion.Brain.Infrastructure.Position.RequestKind.WithPlayer,
+            live::AICompanion.Companion.Brain.Infrastructure.Position.RequestKind.Exact,
+            live::AICompanion.Companion.Brain.Infrastructure.Position.RequestKind.Guard,
+            live::AICompanion.Companion.Brain.Infrastructure.Position.RequestKind.Hold })
         {
             var companion = VerifyCompanionLifecycle.Create();
             Main.LocalPlayer.dead = false;
@@ -73,23 +73,23 @@ internal static class VerifyFollowRecoveryAndProtection
             companion.Brain.Chooser.Actions.Add(new RequestedPurpose(kind));
             VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
             VerifyCompanionLifecycle.TickWithOneControlGrant(companion);
-            bool reunion = kind == live::AICompanion.Companion.Brain.PositionSelection.RequestKind.WithPlayer;
+            bool reunion = kind == live::AICompanion.Companion.Brain.Infrastructure.Position.RequestKind.WithPlayer;
             Require(companion.Brain.FollowRecovery.Active == reunion,
                 $"recovery admission must follow explicit reunion rather than executor class or shared destination; request={kind}, active={companion.Brain.FollowRecovery.Active}");
         }
     }
 
-    private sealed class RequestedPurpose(live::AICompanion.Companion.Brain.PositionSelection.RequestKind kind)
-        : live::AICompanion.Companion.Brain.Behaviours.CompanionAction
+    private sealed class RequestedPurpose(live::AICompanion.Companion.Brain.Infrastructure.Position.RequestKind kind)
+        : live::AICompanion.Companion.Brain.Activities.CompanionAction
     {
         public override string Name => "recovery-purpose-probe";
-        public override live::AICompanion.Companion.Brain.BehaviourSelection.PurposeFamily Family
-            => live::AICompanion.Companion.Brain.BehaviourSelection.PurposeFamily.NearbyAssistance;
+        public override live::AICompanion.Companion.Brain.Infrastructure.Selection.PurposeFamily Family
+            => live::AICompanion.Companion.Brain.Infrastructure.Selection.PurposeFamily.NearbyAssistance;
         public override bool IsExcursion => false;
         // A positive score needs a classified offer, exactly as for a production activity.
-        public override void Prepare(in Context ctx) => Classify(live::AICompanion.Companion.Brain.Behaviours.OfferEligibility.Usable, "probe");
+        public override void Prepare(in Context ctx) => Classify(live::AICompanion.Companion.Brain.Activities.OfferEligibility.Usable, "probe");
         public override float Score() => 1f;
-        public override live::AICompanion.Companion.Brain.PositionSelection.PositionRequest Execute(in Context ctx)
+        public override live::AICompanion.Companion.Brain.Infrastructure.Position.PositionRequest Execute(in Context ctx)
             => new(kind, ctx.Player.Bottom);
     }
 
@@ -103,7 +103,7 @@ internal static class VerifyFollowRecoveryAndProtection
         var npc = new NPC { whoAmI = 4, active = true, life = 100, damage = 20 };
         var threat = new Threat { Npc = npc, CanReachPlayer = true, Urgency = 1f, EffectiveTicksToPlayer = 0 };
         senses.Threats.Threats.Add(threat);
-        typeof(live::AICompanion.Companion.Brain.WorldObservation.ThreatSense).GetProperty("MostUrgent")!.SetValue(senses.Threats, threat);
+        typeof(live::AICompanion.Companion.Brain.Infrastructure.Observation.ThreatSense).GetProperty("MostUrgent")!.SetValue(senses.Threats, threat);
         senses.SetInterventionEstimate(float.PositiveInfinity);
         var context = new Context(companion, senses);
         var guard = new Guard();
@@ -113,14 +113,14 @@ internal static class VerifyFollowRecoveryAndProtection
         var preparedRequest = guard.Execute(context);
         var unrelated = new Threat { Npc = new NPC { whoAmI = 6, active = true, life = 100,
             position = new Vector2(800, 900) }, CanReachPlayer = true, Urgency = 1f };
-        typeof(live::AICompanion.Companion.Brain.WorldObservation.ThreatSense).GetProperty("MostUrgent")!.SetValue(senses.Threats, unrelated);
+        typeof(live::AICompanion.Companion.Brain.Infrastructure.Observation.ThreatSense).GetProperty("MostUrgent")!.SetValue(senses.Threats, unrelated);
         Require(guard.Score() == entry && guard.Execute(context) == preparedRequest,
             "guard execution must retain the scored target and anchor until preparation refreshes them");
         guard.Enter(context);
         Require(guard.ProtectedThreatId == npc.whoAmI, "guard entry must commit the prepared enemy, not the later urgent enemy");
         companion.Brain.Chooser.Activity.Select(guard, context);
         long firstProtection = companion.Brain.Chooser.Activity.Id;
-        typeof(live::AICompanion.Companion.Brain.WorldObservation.ThreatSense).GetProperty("MostUrgent")!.SetValue(senses.Threats, threat);
+        typeof(live::AICompanion.Companion.Brain.Infrastructure.Observation.ThreatSense).GetProperty("MostUrgent")!.SetValue(senses.Threats, threat);
         threat.Urgency = .15f;
         threat.EffectiveTicksToPlayer = 150;
         senses.SetInterventionEstimate(1);
@@ -130,7 +130,7 @@ internal static class VerifyFollowRecoveryAndProtection
         senses.SetInterventionEstimate(float.PositiveInfinity);
         int firstClear = senses.Tick;
         Require(VerifyPreparedActivities.PrepareAndScore(guard, context) > 0, "one safe frame must not abandon protection");
-        typeof(live::AICompanion.Companion.Brain.WorldObservation.Senses).GetProperty("Tick")!.SetValue(senses,
+        typeof(live::AICompanion.Companion.Brain.Infrastructure.Observation.Senses).GetProperty("Tick")!.SetValue(senses,
             firstClear + Weights.GuardClearTicks);
         Require(VerifyPreparedActivities.PrepareAndScore(guard, context) == 0 && guard.ProtectedThreatId == -1,
             "sustained irrelevance releases a living threat");
@@ -139,7 +139,7 @@ internal static class VerifyFollowRecoveryAndProtection
         VerifyPreparedActivities.PrepareAndScore(guard, context);
         guard.Enter(context);
         npc.active = false;
-        Require(guard.Execute(context) == live::AICompanion.Companion.Brain.PositionSelection.PositionRequest.Hold,
+        Require(guard.Execute(context) == live::AICompanion.Companion.Brain.Infrastructure.Position.PositionRequest.Hold,
             "an unavailable prepared guard target must be refused at execution");
         senses.Threats.Threats.Clear();
         senses.SetInterventionEstimate(float.PositiveInfinity);
@@ -148,7 +148,7 @@ internal static class VerifyFollowRecoveryAndProtection
         var replacement = new NPC { whoAmI = 5, active = true, life = 100, damage = 20 };
         var second = new Threat { Npc = replacement, CanReachPlayer = true, Urgency = 1f, EffectiveTicksToPlayer = 0 };
         senses.Threats.Threats.Add(second);
-        typeof(live::AICompanion.Companion.Brain.WorldObservation.ThreatSense).GetProperty("MostUrgent")!.SetValue(senses.Threats, second);
+        typeof(live::AICompanion.Companion.Brain.Infrastructure.Observation.ThreatSense).GetProperty("MostUrgent")!.SetValue(senses.Threats, second);
         float renewed = VerifyPreparedActivities.PrepareAndScore(guard, context);
         companion.Brain.Chooser.Activity.Select(guard, context);
         Require(companion.Brain.Chooser.Activity.Id != firstProtection,
@@ -161,13 +161,13 @@ internal static class VerifyFollowRecoveryAndProtection
         // so it cannot conclude it; the committed second threat vanishing while the player lives
         // completes protection without naming who removed it.
         guard.BeginAttempt();
-        Require(guard.ConcludeAttempt(0).Status == live::AICompanion.Companion.Brain.Behaviours.AttemptStatus.Attempted,
+        Require(guard.ConcludeAttempt(0).Status == live::AICompanion.Companion.Brain.Activities.AttemptStatus.Attempted,
             $"an attempt opened after an earlier release must not conclude from it; got {guard.ConcludeAttempt(0)}");
         replacement.active = false;
         senses.Threats.Threats.Clear();
         VerifyPreparedActivities.PrepareAndScore(guard, context);
-        Require(guard.ConcludeAttempt(0) is { Status: live::AICompanion.Companion.Brain.Behaviours.AttemptStatus.Complete,
-                Attribution: live::AICompanion.Companion.Brain.Behaviours.AttemptAttribution.Unattributed, Cause: "protected-threat-gone" },
+        Require(guard.ConcludeAttempt(0) is { Status: live::AICompanion.Companion.Brain.Activities.AttemptStatus.Complete,
+                Attribution: live::AICompanion.Companion.Brain.Activities.AttemptAttribution.Unattributed, Cause: "protected-threat-gone" },
             $"a committed threat gone while the player lives completes protection, unattributed; got {guard.ConcludeAttempt(0)}");
     }
 
@@ -181,7 +181,7 @@ internal static class VerifyFollowRecoveryAndProtection
         Main.player[0].dead = false;
         Main.player[0].Bottom = new Vector2(1400, 1200);
         companion.NPC.Bottom = new Vector2(100, 1200);
-        var memory = live::AICompanion.Companion.Brain.SharedMovementSystem.RememberExecutedRoutes.World;
+        var memory = live::AICompanion.Companion.Brain.Infrastructure.Movement.RememberExecutedRoutes.World;
         memory.Clear();
         bool started = false, landed = false;
         bool answeredThreat = false;
@@ -231,12 +231,12 @@ internal static class VerifyFollowRecoveryAndProtection
         int ticks = 0;
         while (companion.Motor.RecoveryFlight && ticks++ < 100)
         {
-            companion.Motor.Apply(live::AICompanion.Companion.Brain.SharedMovementSystem.Controls.None, "downed");
+            companion.Motor.Apply(live::AICompanion.Companion.Brain.Infrastructure.Movement.Controls.None, "downed");
             companion.NPC.position += companion.NPC.velocity;
         }
         Require(companion.IsDowned && companion.Motor.ClearOfTerrain && !companion.Motor.RecoveryFlight,
             "a downed interrupted flight must leave the wall without travelling to the owner");
-        Require(live::AICompanion.Companion.Brain.SharedMovementSystem.RememberExecutedRoutes.World.Count == 0,
+        Require(live::AICompanion.Companion.Brain.Infrastructure.Movement.RememberExecutedRoutes.World.Count == 0,
             "cancelled-flight clearance must never teach world route memory");
         Require(companion.NPC.position.X < 448 && !companion.NPC.noTileCollide && !companion.NPC.noGravity,
             "clearance returns to the entry side and restores native collision");

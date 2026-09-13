@@ -6,11 +6,11 @@ using Microsoft.Xna.Framework;
 using Terraria;
 using Terraria.ID;
 using Terraria.ModLoader;
-using AICompanion.Companion.Brain.Behaviours;
-using AICompanion.Companion.Brain.BehaviourDiagnostics;
-using AICompanion.Companion.Brain.ProjectileAiming;
-using AICompanion.Companion.Brain.SharedMovementSystem;
-using AICompanion.Companion.Brain.WorldObservation;
+using AICompanion.Companion.Brain.Activities;
+using AICompanion.Companion.Brain.Infrastructure.Diagnostics;
+using AICompanion.Companion.Brain.Infrastructure.Aiming;
+using AICompanion.Companion.Brain.Infrastructure.Movement;
+using AICompanion.Companion.Brain.Infrastructure.Observation;
 
 namespace AICompanion.Companion.Weapons;
 
@@ -354,7 +354,7 @@ public sealed class Arsenal
     {
         NPC? target = ctx.Senses.Threats.MostUrgent?.Npc;
         if (target == null || !target.CanBeChasedBy()) return interventionTicks = float.PositiveInfinity;
-        int generation = global::AICompanion.Companion.Brain.WorldObservation.HostileAttackSources.Generation(target);
+        int generation = global::AICompanion.Companion.Brain.Infrastructure.Observation.HostileAttackSources.Generation(target);
         ShotState state = ShotState.Capture(ctx, target);
         if (target == interventionTarget && generation == interventionGeneration && interventionCheckedAt != int.MinValue
             && state == interventionState

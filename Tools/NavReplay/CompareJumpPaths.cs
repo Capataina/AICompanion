@@ -3,7 +3,7 @@
 using System;
 using System.Collections.Generic;
 using Microsoft.Xna.Framework;
-using AICompanion.Companion.Brain.SharedMovementSystem;
+using AICompanion.Companion.Brain.Infrastructure.Movement;
 
 /// <summary>
 /// The two halves of a jump, run over the same edge and printed against each other.

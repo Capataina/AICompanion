@@ -19,7 +19,7 @@ internal static class VerifyThreatAnticipation
         Main.npc[1] = hazard;
         hazard.dontTakeDamage = true;
         Require(!hazard.CanBeChasedBy(), "fixture must contain a genuinely unattackable hazard");
-        var sense = new live::AICompanion.Companion.Brain.WorldObservation.ThreatSense();
+        var sense = new live::AICompanion.Companion.Brain.Infrastructure.Observation.ThreatSense();
         sense.Update(player, companion);
         Require(sense.Threats.Count == 1, "harmful nonchaseable hostile disappeared before threat observation");
         Require(sense.PlayerDanger > 0f, "near harmful hostile did not create player danger");
@@ -39,37 +39,37 @@ internal static class VerifyThreatAnticipation
         // nearby un-attributed projectile must not be filed under it.
         var source = new NPC { active = true, whoAmI = 2, damage = 0, life = 50, lifeMax = 50, friendly = false };
         Main.npc[2] = source;
-        live::AICompanion.Companion.Brain.WorldObservation.HostileAttackSources.Clear();
-        live::AICompanion.Companion.Brain.WorldObservation.HostileAttackSources.Spawn(source);
+        live::AICompanion.Companion.Brain.Infrastructure.Observation.HostileAttackSources.Clear();
+        live::AICompanion.Companion.Brain.Infrastructure.Observation.HostileAttackSources.Spawn(source);
         var shot = new Projectile { hostile = true, damage = 37 };
-        live::AICompanion.Companion.Brain.WorldObservation.HostileAttackSources.Observe(shot, new EntitySource_Parent(source));
-        Require(live::AICompanion.Companion.Brain.WorldObservation.HostileAttackSources.RecentDamage(source) == 37,
+        live::AICompanion.Companion.Brain.Infrastructure.Observation.HostileAttackSources.Observe(shot, new EntitySource_Parent(source));
+        Require(live::AICompanion.Companion.Brain.Infrastructure.Observation.HostileAttackSources.RecentDamage(source) == 37,
             "parent-sourced hostile projectile was not attributed to its zero-melee-damage source NPC");
-        live::AICompanion.Companion.Brain.WorldObservation.HostileAttackSources.Spawn(source);
-        Require(live::AICompanion.Companion.Brain.WorldObservation.HostileAttackSources.RecentDamage(source) == 0,
+        live::AICompanion.Companion.Brain.Infrastructure.Observation.HostileAttackSources.Spawn(source);
+        Require(live::AICompanion.Companion.Brain.Infrastructure.Observation.HostileAttackSources.RecentDamage(source) == 0,
             "NPC generation reuse retained a prior projectile attack attribution");
 
         // The generic predictor records a measured continuation miss and reduces confidence;
         // it does not require a type-specific enemy script.
         player.dead = false;
-        live::AICompanion.Companion.Brain.WorldObservation.PredictObservedMotion.Clear();
+        live::AICompanion.Companion.Brain.Infrastructure.Observation.PredictObservedMotion.Clear();
         hazard.velocity = new Vector2(1, 0);
         hazard.noGravity = true;
         hazard.noTileCollide = true;
-        live::AICompanion.Companion.Brain.WorldObservation.PredictObservedMotion.Observe(hazard);
+        live::AICompanion.Companion.Brain.Infrastructure.Observation.PredictObservedMotion.Observe(hazard);
         hazard.position += hazard.velocity;
         VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
-        live::AICompanion.Companion.Brain.WorldObservation.PredictObservedMotion.Observe(hazard);
-        float confidenceBefore = live::AICompanion.Companion.Brain.WorldObservation.PredictObservedMotion.Confidence(hazard, 1);
+        live::AICompanion.Companion.Brain.Infrastructure.Observation.PredictObservedMotion.Observe(hazard);
+        float confidenceBefore = live::AICompanion.Companion.Brain.Infrastructure.Observation.PredictObservedMotion.Confidence(hazard, 1);
         hazard.position += new Vector2(40, 0);
         VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
-        live::AICompanion.Companion.Brain.WorldObservation.PredictObservedMotion.Observe(hazard);
-        Require(live::AICompanion.Companion.Brain.WorldObservation.PredictObservedMotion.ErrorSamples(hazard) > 0,
+        live::AICompanion.Companion.Brain.Infrastructure.Observation.PredictObservedMotion.Observe(hazard);
+        Require(live::AICompanion.Companion.Brain.Infrastructure.Observation.PredictObservedMotion.ErrorSamples(hazard) > 0,
             "observation must measure its own forecast without an aiming consumer");
-        Require(live::AICompanion.Companion.Brain.WorldObservation.PredictObservedMotion.Confidence(hazard, 1) < confidenceBefore,
+        Require(live::AICompanion.Companion.Brain.Infrastructure.Observation.PredictObservedMotion.Confidence(hazard, 1) < confidenceBefore,
             "measured forecast miss did not lower generic prediction confidence");
-        live::AICompanion.Companion.Brain.WorldObservation.HostileAttackSources.Spawn(hazard);
-        Require(live::AICompanion.Companion.Brain.WorldObservation.PredictObservedMotion.ErrorSamples(hazard) == 0,
+        live::AICompanion.Companion.Brain.Infrastructure.Observation.HostileAttackSources.Spawn(hazard);
+        Require(live::AICompanion.Companion.Brain.Infrastructure.Observation.PredictObservedMotion.ErrorSamples(hazard) == 0,
             "a recycled NPC slot must not inherit the previous occupant's confidence");
         VerifyAttackability();
         Console.WriteLine("threat anticipation: harmful nonchaseable hazards, player-death isolation and measured forecast confidence pass");
@@ -86,7 +86,7 @@ internal static class VerifyThreatAnticipation
             width = 30, height = 40, position = new Vector2(510, 800), noGravity = true };
         Main.npc[1] = target;
         companion.Brain.Senses.Update(companion.NPC, Main.player[0], companion.Breath);
-        var context = new live::AICompanion.Companion.Brain.Behaviours.ActionContext(companion, companion.Brain.Senses);
+        var context = new live::AICompanion.Companion.Brain.Activities.ActionContext(companion, companion.Brain.Senses);
         Require(companion.Arsenal.CanEngage(context, target), "open fixture must initially have an attackable shot");
         float estimate = companion.Arsenal.EstimateInterventionTicks(context);
         Require(float.IsFinite(estimate) && estimate > 0f,
@@ -95,7 +95,7 @@ internal static class VerifyThreatAnticipation
         float singleHit = companion.Arsenal.EstimateInterventionTicks(context);
         Require(singleHit < estimate, "protection must budget repeat hits to remove a healthy threat, not only first impact");
         companion.Arsenal.NoteHandsBusy();
-        typeof(live::AICompanion.Companion.Brain.WorldObservation.Senses).GetProperty("Tick")!.SetValue(
+        typeof(live::AICompanion.Companion.Brain.Infrastructure.Observation.Senses).GetProperty("Tick")!.SetValue(
             companion.Brain.Senses, companion.Brain.Senses.Tick + 5);
         Require(companion.Arsenal.EstimateInterventionTicks(context) == singleHit,
             "time holding a tool must not count down a projectile that was never fired");
@@ -108,16 +108,16 @@ internal static class VerifyThreatAnticipation
             tile.HasTile = true;
             tile.TileType = 1;
         }
-        live::AICompanion.Companion.Brain.SharedMovementSystem.TerrainChanges.Changed(40, 50);
+        live::AICompanion.Companion.Brain.Infrastructure.Movement.TerrainChanges.Changed(40, 50);
         target.position = new Vector2(40 * 16, 50 * 16);
         Require(!companion.Arsenal.CanEngage(context, target), "target inside solid terrain must invalidate a cached clear shot");
         target.position = openPosition;
         Require(companion.Arsenal.CanEngage(context, target),
             "an opening firing window must invalidate a negative answer immediately without waiting for cache age");
         Require(companion.Arsenal.BestTarget(context) == target, "single attackable target must initially win retention");
-        typeof(live::AICompanion.Companion.Brain.WorldObservation.Senses).GetProperty("Tick")!.SetValue(
+        typeof(live::AICompanion.Companion.Brain.Infrastructure.Observation.Senses).GetProperty("Tick")!.SetValue(
             companion.Brain.Senses, companion.Brain.Senses.Tick + 1);
-        live::AICompanion.Companion.Brain.WorldObservation.HostileAttackSources.Spawn(target);
+        live::AICompanion.Companion.Brain.Infrastructure.Observation.HostileAttackSources.Spawn(target);
         companion.Arsenal.BestTarget(context);
         Require(companion.Arsenal.TargetEvidenceTick == companion.Brain.Senses.Tick,
             "a reused hostile slot must be reranked instead of inheriting prior target retention");

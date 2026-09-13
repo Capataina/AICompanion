@@ -1,16 +1,16 @@
 extern alias live;
-using FindToolAccess = live::AICompanion.Companion.Brain.WorldInteractions.FindToolAccess;
+using FindToolAccess = live::AICompanion.Companion.Brain.Infrastructure.Interactions.FindToolAccess;
 using System.Reflection;
 using Microsoft.Xna.Framework;
 using Terraria;
 using Terraria.ID;
 using Terraria.ModLoader;
 using Preferences = live::AICompanion.Companion.PlayerIntegration.CompanionPreferences;
-using Policy = live::AICompanion.Companion.Brain.Behaviours.Work.WorkPolicy;
-using Protection = live::AICompanion.Companion.Brain.WorldInteractions.WorldProtection.ProtectCompanionHomes;
-using Torches = live::AICompanion.Companion.Brain.WorldInteractions.Torch.PlaceSuppliedTorches;
-using OreFinder = live::AICompanion.Companion.Brain.WorldInteractions.Mining.OreFinder;
-using RequestKind = live::AICompanion.Companion.Brain.PositionSelection.RequestKind;
+using Policy = live::AICompanion.Companion.Brain.Activities.WorkPolicy;
+using Protection = live::AICompanion.Companion.Brain.Infrastructure.Interactions.WorldProtection.ProtectCompanionHomes;
+using Torches = live::AICompanion.Companion.Brain.Infrastructure.Interactions.Torch.PlaceSuppliedTorches;
+using OreFinder = live::AICompanion.Companion.Brain.Infrastructure.Interactions.Mining.OreFinder;
+using RequestKind = live::AICompanion.Companion.Brain.Infrastructure.Position.RequestKind;
 
 internal static class VerifyCompanionActivities
 {
@@ -59,7 +59,7 @@ internal static class VerifyCompanionActivities
         Require(chosen?.Name == "mine", $"reachable ore at 480px separation must beat ordinary following; got {chosen?.Name ?? "none"}");
     }
 
-    private sealed class ActivityProbe : live::AICompanion.Companion.Brain.Behaviours.CompanionAction
+    private sealed class ActivityProbe : live::AICompanion.Companion.Brain.Activities.CompanionAction
     {
         public object Identity = new();
         public Vector2 Target;
@@ -68,31 +68,31 @@ internal static class VerifyCompanionActivities
         public int Exits;
         public int Preparations;
         public Action? DuringPreparation;
-        public live::AICompanion.Companion.Brain.BehaviourSelection.PurposeFamily Purpose
-            = live::AICompanion.Companion.Brain.BehaviourSelection.PurposeFamily.NearbyAssistance;
+        public live::AICompanion.Companion.Brain.Infrastructure.Selection.PurposeFamily Purpose
+            = live::AICompanion.Companion.Brain.Infrastructure.Selection.PurposeFamily.NearbyAssistance;
         public bool Excursion = true;
         public override string Name => "probe";
         public override bool IsExcursion => Excursion;
-        public override live::AICompanion.Companion.Brain.BehaviourSelection.PurposeFamily Family
+        public override live::AICompanion.Companion.Brain.Infrastructure.Selection.PurposeFamily Family
             => Purpose;
         public override Vector2? ActivityTarget => Target;
         public override object ActivityIdentity => Identity;
-        public bool Allows(live::AICompanion.Companion.Brain.Behaviours.ActionContext ctx) => AllowsTarget(ctx, Target, Identity);
+        public bool Allows(live::AICompanion.Companion.Brain.Activities.ActionContext ctx) => AllowsTarget(ctx, Target, Identity);
         private float preparedValue;
-        public override void Prepare(in live::AICompanion.Companion.Brain.Behaviours.ActionContext ctx)
+        public override void Prepare(in live::AICompanion.Companion.Brain.Activities.ActionContext ctx)
         {
             Preparations++;
             DuringPreparation?.Invoke();
             bool allowed = Allows(ctx);
             preparedValue = allowed ? Value : 0f;
-            Classify(allowed ? live::AICompanion.Companion.Brain.Behaviours.OfferEligibility.Usable
-                : live::AICompanion.Companion.Brain.Behaviours.OfferEligibility.PolicyForbidden, allowed ? "probe" : "outside-activity-allowance");
+            Classify(allowed ? live::AICompanion.Companion.Brain.Activities.OfferEligibility.Usable
+                : live::AICompanion.Companion.Brain.Activities.OfferEligibility.PolicyForbidden, allowed ? "probe" : "outside-activity-allowance");
         }
         public override float Score() => preparedValue;
-        public override void Enter(in live::AICompanion.Companion.Brain.Behaviours.ActionContext ctx) => Entries++;
-        public override void Exit(in live::AICompanion.Companion.Brain.Behaviours.ActionContext ctx) { Exits++; base.Exit(ctx); }
-        public override live::AICompanion.Companion.Brain.PositionSelection.PositionRequest Execute(in live::AICompanion.Companion.Brain.Behaviours.ActionContext ctx)
-            => live::AICompanion.Companion.Brain.PositionSelection.PositionRequest.Hold;
+        public override void Enter(in live::AICompanion.Companion.Brain.Activities.ActionContext ctx) => Entries++;
+        public override void Exit(in live::AICompanion.Companion.Brain.Activities.ActionContext ctx) { Exits++; base.Exit(ctx); }
+        public override live::AICompanion.Companion.Brain.Infrastructure.Position.PositionRequest Execute(in live::AICompanion.Companion.Brain.Activities.ActionContext ctx)
+            => live::AICompanion.Companion.Brain.Infrastructure.Position.PositionRequest.Hold;
     }
 
     /// <summary>
@@ -105,14 +105,14 @@ internal static class VerifyCompanionActivities
     {
         var (_, ctx) = VerifyOreWork.SetUp(Policy.Disabled, TileID.Copper, new Point(25, 59));
         var chooser = ctx.Companion.Brain.Chooser;
-        var gathering = live::AICompanion.Companion.Brain.BehaviourSelection.PurposeFamily.Gathering;
-        var deferredOffer = live::AICompanion.Companion.Brain.Behaviours.OfferEligibility.Deferred;
+        var gathering = live::AICompanion.Companion.Brain.Infrastructure.Selection.PurposeFamily.Gathering;
+        var deferredOffer = live::AICompanion.Companion.Brain.Activities.OfferEligibility.Deferred;
         var first = new ActivityProbe { Target = ctx.Player.Bottom, Value = .4f, Purpose = gathering };
         var second = new ActivityProbe { Target = ctx.Player.Bottom, Value = .9f, Purpose = gathering };
-        var combat = new ActivityProbe { Target = ctx.Player.Bottom, Value = .95f, Purpose = live::AICompanion.Companion.Brain.BehaviourSelection.PurposeFamily.Combat };
+        var combat = new ActivityProbe { Target = ctx.Player.Bottom, Value = .95f, Purpose = live::AICompanion.Companion.Brain.Infrastructure.Selection.PurposeFamily.Combat };
         var company = new ActivityProbe { Target = ctx.Player.Bottom, Value = .1f, Excursion = false };
         chooser.Actions.Clear();
-        chooser.Actions.AddRange(new live::AICompanion.Companion.Brain.Behaviours.CompanionAction[] { first, second, combat, company });
+        chooser.Actions.AddRange(new live::AICompanion.Companion.Brain.Activities.CompanionAction[] { first, second, combat, company });
         chooser.FamilyPreparationMilliseconds = 0;
 
         var chosen = chooser.Choose(ctx);
@@ -138,17 +138,17 @@ internal static class VerifyCompanionActivities
         var left = new ActivityProbe { Target = ctx.Player.Bottom, Value = .3f, Purpose = gathering };
         var right = new ActivityProbe { Target = ctx.Player.Bottom, Value = .2f, Purpose = gathering };
         chooser.Actions.Clear();
-        chooser.Actions.AddRange(new live::AICompanion.Companion.Brain.Behaviours.CompanionAction[] { left, right, company });
+        chooser.Actions.AddRange(new live::AICompanion.Companion.Brain.Activities.CompanionAction[] { left, right, company });
         chooser.Choose(ctx);
         Require(left.Preparations + right.Preparations == 1, "the counter-case must defer one sibling under a zero share");
-        live::AICompanion.Companion.Brain.SharedMovementSystem.LimitPlanningWork.Unbounded = true;
+        live::AICompanion.Companion.Brain.Infrastructure.Movement.LimitPlanningWork.Unbounded = true;
         try
         {
             chooser.Choose(ctx);
             Require(left.Preparations + right.Preparations == 3 && chooser.Queries.LastFamilies.All(f => f.Deferred == 0),
                 "with wall-clock allowances lifted no sibling may be deferred");
         }
-        finally { live::AICompanion.Companion.Brain.SharedMovementSystem.LimitPlanningWork.Unbounded = false; }
+        finally { live::AICompanion.Companion.Brain.Infrastructure.Movement.LimitPlanningWork.Unbounded = false; }
     }
 
     private static void ActivityOwnershipSurvivesInterruption()
@@ -211,13 +211,13 @@ internal static class VerifyCompanionActivities
             // Families prepare in enum order, so the invalidated candidate sits in the family that
             // prepares first and the invalidating sibling in a later one; within one family the
             // registration order is the rotation's starting order.
-            if (invalidation != "identity") first.Purpose = live::AICompanion.Companion.Brain.BehaviourSelection.PurposeFamily.Combat;
+            if (invalidation != "identity") first.Purpose = live::AICompanion.Companion.Brain.Infrastructure.Selection.PurposeFamily.Combat;
             if (invalidation == "all") second.Identity = new Item { active = false, stack = 0 };
             second.DuringPreparation = () =>
             {
                 if (first.Identity is NPC npc)
                 {
-                    if (invalidation == "generation") live::AICompanion.Companion.Brain.WorldObservation.HostileAttackSources.Spawn(npc);
+                    if (invalidation == "generation") live::AICompanion.Companion.Brain.Infrastructure.Observation.HostileAttackSources.Spawn(npc);
                     else npc.active = false;
                 }
                 else if (first.Identity is Item item)
@@ -280,7 +280,7 @@ internal static class VerifyCompanionActivities
         ctx.Player.Bottom = new Vector2(80, 960);
         activity.Target = ctx.Player.Bottom + new Vector2(Preferences.Current.NewActivityRadius + 100, 0);
         ctx.Companion.Brain.Chooser.RecordWork(activity.Target);
-        var loot = new live::AICompanion.Companion.Brain.PurposeFamilies.NearbyAssistance.CollectNearbyItems();
+        var loot = new live::AICompanion.Companion.Brain.Activities.NearbyAssistance.CollectNearbyItems();
         var item = new Item(); item.SetDefaults(ItemID.CopperOre); item.active = true; item.Bottom = activity.Target;
         Item previous = Main.item[5];
         item.whoAmI = 5; Main.item[5] = item;
@@ -323,7 +323,7 @@ internal static class VerifyCompanionActivities
             }
             Preferences.Current.PotBreaking = true;
             ctx.Senses.Loot.Pickups.Clear();
-            var collect = new live::AICompanion.Companion.Brain.PurposeFamilies.NearbyAssistance.CollectNearbyItems();
+            var collect = new live::AICompanion.Companion.Brain.Activities.NearbyAssistance.CollectNearbyItems();
             collect.Prepare(ctx);
             Require(collect.Score() > 0 && collect.Method == "potential-pot-contents" && collect.ForecastTicks() > 0,
                 "an accessible pot must be a costed uncertain collection opportunity");
@@ -374,7 +374,7 @@ internal static class VerifyCompanionActivities
             Main.item[5] = item;
             ctx.Senses.Loot.Pickups.Clear();
             ctx.Senses.Loot.Pickups.Add(new(item, 1f, 0f));
-            var collect = new live::AICompanion.Companion.Brain.PurposeFamilies.NearbyAssistance.CollectNearbyItems();
+            var collect = new live::AICompanion.Companion.Brain.Activities.NearbyAssistance.CollectNearbyItems();
             collect.Prepare(ctx);
             Require(collect.Method == "known-drop" && collect.Execute(ctx).Kind != RequestKind.Hold,
                 "the captured live world drop must be usable before slot replacement");
@@ -423,10 +423,10 @@ internal static class VerifyCompanionActivities
                 {
                     observedSpacing = true;
                     Require(ctx.Companion.Brain.ControlGrants.Last!.Value.Hand
-                        == live::AICompanion.Companion.Brain.ActivityCoordination.HandGrant.Available,
+                        == live::AICompanion.Companion.Brain.Infrastructure.Grants.HandGrant.Available,
                         "shared spacing must leave compatible shooting available");
                     Require(emptyOffers ? chooser.Current == null
-                        : chooser.Activity.Phase == live::AICompanion.Companion.Brain.BehaviourSelection.ActivityPhase.Suspended,
+                        : chooser.Activity.Phase == live::AICompanion.Companion.Brain.Infrastructure.Selection.ActivityPhase.Suspended,
                         "spacing must operate without an offer or suspend the ordinary activity");
                 }
                 VerifyResponsiveFollowing.AdvanceNative(ctx.Companion);
@@ -438,7 +438,7 @@ internal static class VerifyCompanionActivities
                 && ctx.Companion.Brain.Safety.LastEndReason == "safe-state-observed"
                 && ctx.Companion.Brain.Safety.CombatSpace.IsSatisfied(ctx),
                 $"shared spacing must produce and release a stable retreat, emptyOffers={emptyOffers}, started={observedSpacing}, released={observedRelease}, gap={Vector2.Distance(ctx.Npc.Bottom, enemy.Bottom)}, reason={ctx.Companion.Brain.Safety.Reason}");
-            Require(!new live::AICompanion.Companion.Brain.BehaviourSelection.Chooser().Actions.Any(a => a.Name == "kite"),
+            Require(!new live::AICompanion.Companion.Brain.Infrastructure.Selection.Chooser().Actions.Any(a => a.Name == "kite"),
                 "kiting must not remain an ordinary family candidate");
         }
 
@@ -479,7 +479,7 @@ internal static class VerifyCompanionActivities
         var lightMode = Lighting.Mode;
         float brightness = Lighting.GlobalBrightness;
         Item previousItem = Main.item[5];
-        live::AICompanion.Companion.Brain.SharedMovementSystem.LimitPlanningWork.Unbounded = true;
+        live::AICompanion.Companion.Brain.Infrastructure.Movement.LimitPlanningWork.Unbounded = true;
         try
         {
             Preferences.Current.TorchPlacement = true;
@@ -494,7 +494,7 @@ internal static class VerifyCompanionActivities
                 trunk.TileType = TileID.Trees;
                 Main.tileAxe[TileID.Trees] = true;
                 Main.tileSolid[TileID.Trees] = false;
-                live::AICompanion.Companion.Brain.SharedMovementSystem.TerrainChanges.Reset();
+                live::AICompanion.Companion.Brain.Infrastructure.Movement.TerrainChanges.Reset();
                 for (int i = 0; i < ctx.Player.inventory.Length; i++) ctx.Player.inventory[i] = new Item();
                 Item torches = new();
                 torches.SetDefaults(ItemID.Torch);
@@ -535,7 +535,7 @@ internal static class VerifyCompanionActivities
         }
         finally
         {
-            live::AICompanion.Companion.Brain.SharedMovementSystem.LimitPlanningWork.Unbounded = false;
+            live::AICompanion.Companion.Brain.Infrastructure.Movement.LimitPlanningWork.Unbounded = false;
             Preferences.Current.TorchPlacement = torchPlacement;
             VerifyUsefulAssistance.ClearMeasuredLight();
             Lighting.Mode = lightMode;
@@ -610,14 +610,14 @@ internal static class VerifyCompanionActivities
         var brain = ctx.Companion.Brain;
         var request = brain.GetType().GetProperty("LastRequest")!;
         var watch = brain.GetType().GetMethod("WatchProgress", BindingFlags.Instance | BindingFlags.NonPublic)!;
-        int window = live::AICompanion.Companion.Brain.BehaviourSelection.Weights.ObjectiveProgressWindowTicks;
+        int window = live::AICompanion.Companion.Brain.Infrastructure.Selection.Weights.ObjectiveProgressWindowTicks;
         Vector2 origin = ctx.Npc.Bottom;
         ctx.Player.Bottom = origin + new Vector2(500, 0);
         brain.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Breath);
         void Tick(RequestKind kind, float offset = 0)
         {
             ctx.Npc.Bottom = origin + new Vector2(offset, 0);
-            request.SetValue(brain, new live::AICompanion.Companion.Brain.PositionSelection.PositionRequest(kind, ctx.Player.Bottom));
+            request.SetValue(brain, new live::AICompanion.Companion.Brain.Infrastructure.Position.PositionRequest(kind, ctx.Player.Bottom));
             watch.Invoke(brain, new object[] { ctx.Companion });
         }
         for (int i = 0; i < window; i++) Tick(RequestKind.WithPlayer);
@@ -627,13 +627,13 @@ internal static class VerifyCompanionActivities
         for (int i = 0; i < window; i++)
         {
             brain.Chooser.Activity.Select(i % 2 == 0
-                ? new live::AICompanion.Companion.Brain.PurposeFamilies.Combat.PursueAttackOpportunity()
-                : new live::AICompanion.Companion.Brain.PurposeFamilies.NearbyAssistance.KeepCompany(), ctx);
+                ? new live::AICompanion.Companion.Brain.Activities.Combat.PursueAttackOpportunity()
+                : new live::AICompanion.Companion.Brain.Activities.NearbyAssistance.KeepCompany(), ctx);
             Tick(i % 2 == 0 ? RequestKind.WithPlayer : RequestKind.Guard, i % 8 - 4);
         }
         Require(brain.MovementStalled, "local oscillation and behaviour churn must not reset continuing non-progress");
         Tick(RequestKind.Hold);
-        var route = new live::AICompanion.Companion.Brain.SharedMovementSystem.NavPath(new(), new Point(50, 60));
+        var route = new live::AICompanion.Companion.Brain.Infrastructure.Movement.NavPath(new(), new Point(50, 60));
         brain.Navigator.GetType().GetProperty("Path")!.SetValue(brain.Navigator, route);
         for (int i = 0; i < window; i++)
         {
@@ -668,7 +668,7 @@ internal static class VerifyCompanionActivities
         Vector2 stand = new(ore.X * 16 + 8 - (Player.tileRangeX * 16 + 8) + 1, 60 * 16);
         ctx.Npc.Bottom = stand - new Vector2(19, 0);
         Require(!FindToolAccess.InReach(ctx.Npc.Bottom, ore) && FindToolAccess.InReach(stand, ore), "fixture must straddle the actual mining reach boundary");
-        typeof(live::AICompanion.Companion.Brain.PurposeFamilies.Gathering.MineOre).GetField("target", BindingFlags.Instance | BindingFlags.NonPublic)!
+        typeof(live::AICompanion.Companion.Brain.Activities.Gathering.MineOre).GetField("target", BindingFlags.Instance | BindingFlags.NonPublic)!
             .SetValue(mine, new OreFinder.OreTarget(ore, TileID.Copper, stand));
         Require(mine.Execute(ctx).Kind == RequestKind.Exact, "a non-swingable approximate arrival must keep approaching instead of holding");
     }
@@ -716,7 +716,7 @@ internal static class VerifyCompanionActivities
         int width = Main.screenWidth, height = Main.screenHeight;
         try
         {
-            var light = new live::AICompanion.Companion.Brain.WorldObservation.LightSense();
+            var light = new live::AICompanion.Companion.Brain.Infrastructure.Observation.LightSense();
             Require(light.AmbientReadTick == null && light.AmbientSamples == 0,
                 "an uninitialised light observer must carry no invented reading time or samples");
             Main.screenPosition = new Vector2(100000, 100000);
@@ -787,7 +787,7 @@ internal static class VerifyCompanionActivities
         {
             targets.SetValue(null, sentinel); Player.tileTargetX = 71; Player.tileTargetY = 42;
             Item torch = new(); torch.SetDefaults(ItemID.Torch);
-            Require(live::AICompanion.Companion.Brain.WorldInteractions.Torch.RecommendTorchPlacement.Accepts(new Point(10, 59), torch, ctx.Player),
+            Require(live::AICompanion.Companion.Brain.Infrastructure.Interactions.Torch.RecommendTorchPlacement.Accepts(new Point(10, 59), torch, ctx.Player),
                 "fixture must exercise a native recommended torch site");
             Require(ReferenceEquals(targets.GetValue(null), sentinel) && sentinel.Count == 1 && sentinel[0].Equals(Tuple.Create(71, 42)),
                 "companion recommendation must restore the player's exact Smart Cursor scratch state");
@@ -803,13 +803,13 @@ internal static class VerifyCompanionActivities
         // fixture tests a cave jump, not a deliberately unbounded low-gravity flight.
         Main.worldSurface = 60;
         for (int x = 5; x < 95; x++) { Tile t = Main.tile[x, 90]; t.HasTile = true; t.TileType = TileID.Dirt; }
-        var start = new live::AICompanion.Companion.Brain.SharedMovementSystem.BodyState(320, 1440, 0, 0, true);
-        bool Reach(live::AICompanion.Companion.Brain.SharedMovementSystem.BodyState body) => body.Bottom < start.Bottom - 48;
-        Require(live::AICompanion.Companion.Brain.SharedMovementSystem.ProveInteractionJump.CanReach(
-            live::AICompanion.Companion.Brain.SharedMovementSystem.NavGrid.World, start, Reach), "clear ground jump must reach an elevated interaction and return safely");
+        var start = new live::AICompanion.Companion.Brain.Infrastructure.Movement.BodyState(320, 1440, 0, 0, true);
+        bool Reach(live::AICompanion.Companion.Brain.Infrastructure.Movement.BodyState body) => body.Bottom < start.Bottom - 48;
+        Require(live::AICompanion.Companion.Brain.Infrastructure.Movement.ProveInteractionJump.CanReach(
+            live::AICompanion.Companion.Brain.Infrastructure.Movement.NavGrid.World, start, Reach), "clear ground jump must reach an elevated interaction and return safely");
         for (int x = 19; x <= 23; x++) { Tile t = Main.tile[x, 86]; t.HasTile = true; t.TileType = TileID.Stone; }
-        Require(!live::AICompanion.Companion.Brain.SharedMovementSystem.ProveInteractionJump.CanReach(
-            live::AICompanion.Companion.Brain.SharedMovementSystem.NavGrid.World, start, Reach), "low ceiling must refuse an interaction jump that cannot reach its target");
+        Require(!live::AICompanion.Companion.Brain.Infrastructure.Movement.ProveInteractionJump.CanReach(
+            live::AICompanion.Companion.Brain.Infrastructure.Movement.NavGrid.World, start, Reach), "low ceiling must refuse an interaction jump that cannot reach its target");
     }
 
     private static void Require(bool condition, string message) { if (!condition) throw new InvalidOperationException(message); }

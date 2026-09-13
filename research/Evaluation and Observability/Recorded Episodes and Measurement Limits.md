@@ -108,11 +108,11 @@ That chain is the common prerequisite in all three proposals. Its value survives
 
 ## Source appendix
 
-[^mine]: `Companion/Brain/Behaviours/Work/MineAction.cs`, `Score`, `FindApproach` and `Execute`; `Companion/Brain/WorldInteractions/Mining/TileMiner.cs`, `Swing`. Baseline source was read directly. Paths identify symbols as well as files because line numbers drift.
-[^danger]: `Companion/Brain/WorldObservation/ObserveCompanion.cs`, `ObserveThreats.cs`, `ThreatRecord.cs`; sample fields `danger`, `self_danger`, life and breath. Damage estimates in threat utility are not a calibrated effective-damage distribution.
-[^tick]: `Companion/Brain/CoordinateBrainTick.cs`, early recovery/reflex branches and timer boundaries; `Companion/Brain/BehaviourDiagnostics/RecordBrainTelemetry.cs`, `brain_fresh`; `Companion/CharacterBody/CompanionNPC.cs`, downed bypass and recording order.
+[^mine]: `Companion/Brain/Activities/MineAction.cs`, `Score`, `FindApproach` and `Execute`; `Companion/Brain/Infrastructure/Interactions/Mining/TileMiner.cs`, `Swing`. Baseline source was read directly. Paths identify symbols as well as files because line numbers drift.
+[^danger]: `Companion/Brain/Infrastructure/Observation/ObserveCompanion.cs`, `ObserveThreats.cs`, `ThreatRecord.cs`; sample fields `danger`, `self_danger`, life and breath. Damage estimates in threat utility are not a calibrated effective-damage distribution.
+[^tick]: `Companion/Brain/CoordinateBrainTick.cs`, early recovery/reflex branches and timer boundaries; `Companion/Brain/Infrastructure/Diagnostics/RecordBrainTelemetry.cs`, `brain_fresh`; `Companion/CharacterBody/CompanionNPC.cs`, downed bypass and recording order.
 [^hunt]: [Decisions, Activities and Shared Controls](<../Implementation Evidence/Decisions, Activities and Shared Controls.md>), source references for HuntAction, firing evidence and Positioner.
 [^reader]: `Tools/SessionReport/Checks/CheckTheFight.cs`, `HuntingHadAWeaponThatCouldReach`, baseline lines 292–325. The branch tests `Contains("outside-reach")` before constructing a definitive universal range explanation.
-[^events]: `Companion/Brain/BehaviourDiagnostics/RecordGodsEyeEvents.cs` and `RecordBrainTelemetry.cs`; latest JSONL counted by its `kind` field with the read-only recipe in the inventory.
-[^terrain]: `Companion/Brain/BehaviourDiagnostics/ObserveTerrainChanges.cs`, `RecordTerrainChunks.PostUpdateEverything` and dirtiness callbacks. Sampling and remembered-content bounds are implementation tunables, not a promise of complete terrain capture.
-[^inspector]: `Companion/Brain/BehaviourDiagnostics/BrainInspectorSamples.cs`. Samples come from current solver instrumentation, bounded retained queues and opt-in capture.
+[^events]: `Companion/Brain/Infrastructure/Diagnostics/RecordGodsEyeEvents.cs` and `RecordBrainTelemetry.cs`; latest JSONL counted by its `kind` field with the read-only recipe in the inventory.
+[^terrain]: `Companion/Brain/Infrastructure/Diagnostics/ObserveTerrainChanges.cs`, `RecordTerrainChunks.PostUpdateEverything` and dirtiness callbacks. Sampling and remembered-content bounds are implementation tunables, not a promise of complete terrain capture.
+[^inspector]: `Companion/Brain/Infrastructure/Diagnostics/BrainInspectorSamples.cs`. Samples come from current solver instrumentation, bounded retained queues and opt-in capture.

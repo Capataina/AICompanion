@@ -9,10 +9,10 @@ using Terraria.ModLoader;
 using AICompanion.Companion.Weapons;
 using AICompanion.Companion.Inventory;
 using AICompanion.Companion.PlayerIntegration;
-using AICompanion.Companion.Brain.WorldInteractions.Chopping;
-using AICompanion.Companion.Brain.WorldInteractions.Doors;
-using AICompanion.Companion.Brain.WorldInteractions.Mining;
-using AICompanion.Companion.Brain.WorldInteractions.Torch;
+using AICompanion.Companion.Brain.Infrastructure.Interactions.Chopping;
+using AICompanion.Companion.Brain.Infrastructure.Interactions.Doors;
+using AICompanion.Companion.Brain.Infrastructure.Interactions.Mining;
+using AICompanion.Companion.Brain.Infrastructure.Interactions.Torch;
 
 namespace AICompanion.Companion.CharacterBody;
 
@@ -152,7 +152,7 @@ public class CompanionNPC : ModNPC
     public override void HitEffect(NPC.HitInfo hit)
     {
         Motor?.NotifyExternalHit();
-        global::AICompanion.Companion.Brain.BehaviourDiagnostics.BrainTelemetry.RecordCompanionHit(hit);
+        global::AICompanion.Companion.Brain.Infrastructure.Diagnostics.BrainTelemetry.RecordCompanionHit(hit);
     }
 
     public override void AI()
@@ -207,7 +207,7 @@ public class CompanionNPC : ModNPC
         }
 
         body.Sync(NPC, player, heldItemType, itemAnimation, itemAnimationMax, itemRotation, IsDowned);
-        global::AICompanion.Companion.Brain.BehaviourDiagnostics.BrainTelemetry.Record(this);
+        global::AICompanion.Companion.Brain.Infrastructure.Diagnostics.BrainTelemetry.Record(this);
     }
 
     /// <summary>What the hand holds this tick, for the telemetry and the HUD.</summary>
@@ -286,10 +286,10 @@ public class CompanionNPC : ModNPC
             int before = item.stack;
             // Asked before the transfer, while the drop is still the object the attempt walked to; after it a whole stack is air.
             var owner = Brain.Chooser.Activity;
-            long claimingAttempt = owner.AttemptOpen && owner.Current is global::AICompanion.Companion.Brain.PurposeFamilies.NearbyAssistance.CollectNearbyItems collect
+            long claimingAttempt = owner.AttemptOpen && owner.Current is global::AICompanion.Companion.Brain.Activities.NearbyAssistance.CollectNearbyItems collect
                 && collect.ClaimsDrop(item) ? owner.AttemptId : 0;
             if (Bag.Collect(item, player))
-                global::AICompanion.Companion.Brain.BehaviourDiagnostics.GodsEyeEvents.RecordPickup(NPC, snapshot, before - (item.IsAir ? 0 : item.stack), "player-stacks-or-companion-bag", claimingAttempt);
+                global::AICompanion.Companion.Brain.Infrastructure.Diagnostics.GodsEyeEvents.RecordPickup(NPC, snapshot, before - (item.IsAir ? 0 : item.stack), "player-stacks-or-companion-bag", claimingAttempt);
         }
     }
 

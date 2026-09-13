@@ -5,7 +5,7 @@ extern alias live;
 using Terraria.ModLoader.IO;
 using Preferences = live::AICompanion.Companion.PlayerIntegration.CompanionPreferences;
 using Distance = live::AICompanion.Companion.PlayerIntegration.CompanionDistanceMode;
-using WorkPolicy = live::AICompanion.Companion.Brain.Behaviours.Work.WorkPolicy;
+using WorkPolicy = live::AICompanion.Companion.Brain.Activities.WorkPolicy;
 
 /// <summary>Portable checks for the scalar preference contract before gameplay reads it each tick.</summary>
 internal static class VerifyCompanionPreferences

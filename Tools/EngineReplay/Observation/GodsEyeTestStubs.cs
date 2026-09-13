@@ -8,7 +8,7 @@ namespace AICompanion
     public sealed class AICompanion : Mod { }
 }
 
-namespace AICompanion.Companion.Brain.BehaviourDiagnostics
+namespace AICompanion.Companion.Brain.Infrastructure.Diagnostics
 {
     internal static class BrainTelemetry
     {

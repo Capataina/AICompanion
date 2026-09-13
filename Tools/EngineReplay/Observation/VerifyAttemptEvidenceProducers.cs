@@ -5,8 +5,8 @@ using System.Text.Json;
 using Microsoft.Xna.Framework;
 using Terraria;
 using Terraria.ID;
-using BrainTelemetry = live::AICompanion.Companion.Brain.BehaviourDiagnostics.BrainTelemetry;
-using WorkPolicy = live::AICompanion.Companion.Brain.Behaviours.Work.WorkPolicy;
+using BrainTelemetry = live::AICompanion.Companion.Brain.Infrastructure.Diagnostics.BrainTelemetry;
+using WorkPolicy = live::AICompanion.Companion.Brain.Activities.WorkPolicy;
 
 /// <summary>
 /// Drives the whole brain, the real recorder and the real event writer through native work, then
@@ -47,11 +47,11 @@ internal static class VerifyAttemptEvidenceProducers
         var recorder = new BrainTelemetry(); VerifyObservationLifecycle.Attach(recorder);
         recorder.OnWorldLoad();
         string path = Directory.GetFiles(BrainTelemetry.Folder, "*.tsv").OrderByDescending(File.GetLastWriteTimeUtc).First();
-        live::AICompanion.Companion.Brain.SharedMovementSystem.LimitPlanningWork.Unbounded = true;
+        live::AICompanion.Companion.Brain.Infrastructure.Movement.LimitPlanningWork.Unbounded = true;
         preferences.PotBreaking = false;
         try
         {
-            for (int tick = 0; tick < 900 && live::AICompanion.Companion.Brain.WorldObservation.LootSense.IsWorldDrop(drop); tick++)
+            for (int tick = 0; tick < 900 && live::AICompanion.Companion.Brain.Infrastructure.Observation.LootSense.IsWorldDrop(drop); tick++)
                 VerifyOreWork.AdvanceBrain(ctx);
             for (int tick = 0; tick < 30; tick++) VerifyOreWork.AdvanceBrain(ctx);
             // Then the player moves fifteen tiles along the floor, well inside ordinary following, so the whole brain
@@ -63,12 +63,12 @@ internal static class VerifyAttemptEvidenceProducers
         }
         finally
         {
-            live::AICompanion.Companion.Brain.SharedMovementSystem.LimitPlanningWork.Unbounded = false;
+            live::AICompanion.Companion.Brain.Infrastructure.Movement.LimitPlanningWork.Unbounded = false;
             preferences.PotBreaking = potBreaking;
             recorder.OnWorldUnload();
             Main.item[slot] = previous;
         }
-        Require(!live::AICompanion.Companion.Brain.WorldObservation.LootSense.IsWorldDrop(drop),
+        Require(!live::AICompanion.Companion.Brain.Infrastructure.Observation.LootSense.IsWorldDrop(drop),
             $"the recorded collection scene must take its drop before its evidence means anything; action={ctx.Companion.Brain.LastAction?.Name} feet={ctx.Npc.Bottom}");
 
         var capture = Capture.Read(path);
@@ -145,18 +145,18 @@ internal static class VerifyAttemptEvidenceProducers
         var (_, ctx) = VerifyOreWork.SetUp(WorkPolicy.Opportunistic, TileID.Copper, ore);
         // Outside reach, so the attempt spans an approach walk as well as its strikes.
         ctx.Npc.Bottom = new Vector2(8 * 16f + 3f, ctx.Npc.Bottom.Y);
-        live::AICompanion.Companion.Brain.SharedMovementSystem.TerrainChanges.Reset();
+        live::AICompanion.Companion.Brain.Infrastructure.Movement.TerrainChanges.Reset();
         var recorder = new BrainTelemetry(); VerifyObservationLifecycle.Attach(recorder);
         recorder.OnWorldLoad();
         string path = Directory.GetFiles(BrainTelemetry.Folder, "*.tsv").OrderByDescending(File.GetLastWriteTimeUtc).First();
-        live::AICompanion.Companion.Brain.SharedMovementSystem.LimitPlanningWork.Unbounded = true;
+        live::AICompanion.Companion.Brain.Infrastructure.Movement.LimitPlanningWork.Unbounded = true;
         try
         {
             for (int tick = 0; tick < 900 && Main.tile[ore.X, ore.Y].HasTile; tick++) VerifyOreWork.AdvanceBrain(ctx);
             // Long enough for the next comparison to conclude the finished attempt.
             for (int tick = 0; tick < 30; tick++) VerifyOreWork.AdvanceBrain(ctx);
         }
-        finally { live::AICompanion.Companion.Brain.SharedMovementSystem.LimitPlanningWork.Unbounded = false; }
+        finally { live::AICompanion.Companion.Brain.Infrastructure.Movement.LimitPlanningWork.Unbounded = false; }
         recorder.OnWorldUnload();
         Require(!Main.tile[ore.X, ore.Y].HasTile, "the recorded mining scene must break its ore natively before its evidence means anything");
 
@@ -227,12 +227,12 @@ internal static class VerifyAttemptEvidenceProducers
                 var stand = PairOf(capture.Text(row, "region_anchor_px"));
                 var reach = PairOf(capture.Text(row, "region_reach"));
                 Require(stand is not null && reach is not null, $"a tool-reach row at tick {capture.Text(row, "tick")} has no stand or reach: {capture.Text(row, "region_anchor_px")} {capture.Text(row, "region_reach")}");
-                Require(live::AICompanion.Companion.Brain.WorldInteractions.FindToolAccess.InReachBox(new Vector2(stand!.Value.X, stand.Value.Y), work, (int)reach!.Value.X, (int)reach.Value.Y),
+                Require(live::AICompanion.Companion.Brain.Infrastructure.Interactions.FindToolAccess.InReachBox(new Vector2(stand!.Value.X, stand.Value.Y), work, (int)reach!.Value.X, (int)reach.Value.Y),
                     $"the stand {capture.Text(row, "region_anchor_px")} declared at tick {capture.Text(row, "tick")} lies outside its own reach box around {work}");
                 if (arrival != "-")
                 {
                     toolClaims++;
-                    bool inside = live::AICompanion.Companion.Brain.WorldInteractions.FindToolAccess.InReachBox(feet, work, (int)reach.Value.X, (int)reach.Value.Y);
+                    bool inside = live::AICompanion.Companion.Brain.Infrastructure.Interactions.FindToolAccess.InReachBox(feet, work, (int)reach.Value.X, (int)reach.Value.Y);
                     Require(arrival == (inside ? "inside" : "outside"), $"the arrival at tick {capture.Text(row, "tick")} is recorded {arrival}, but feet {feet} are {(inside ? "inside" : "outside")} the reach box");
                 }
             }

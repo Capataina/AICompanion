@@ -1,0 +1,1024 @@
+#nullable enable
+
+using System;
+using System.Diagnostics;
+using System.Globalization;
+using System.IO;
+using System.Linq;
+using System.Text;
+using Microsoft.Xna.Framework;
+using Terraria;
+using Terraria.ModLoader;
+using Terraria.ModLoader.IO;
+using AICompanion.Companion.Brain.Infrastructure.Movement;
+using AICompanion.Companion.CharacterBody;
+
+namespace AICompanion.Companion.Brain.Infrastructure.Diagnostics;
+
+/// <summary>
+/// The record of what the brain did, one tab-separated line per companion tick, written
+/// to a file under the mod's own source folder so a session is diagnosed from the record
+/// instead of from memory. It writes what the overlay shows and more: every action's raw
+/// and final score, the reflex, danger and horizon, the request and the spot, the path
+/// and its next step, the body's position, velocity, ground, wet and collision state, what
+/// is in the hand, the light, and where the player is and what they are doing. A jump is
+/// readable as a tick where the body left the ground with upward velocity; a stuck
+/// companion is a run of ticks with the same tile, a path and no progress.
+///
+/// One file per world session, named by the clock, opened on world load and closed on
+/// world unload or mod unload; the folder is ignored by git and by the mod packager. At
+/// sixty lines a second a session runs to a few megabytes, which is the price of never
+/// having to guess again.
+/// </summary>
+public sealed class BrainTelemetry : ModSystem
+{
+    private const int FlushEveryTicks = 60;
+
+    private static StreamWriter? writer;
+    private static int sinceFlush;
+    private static bool headerWritten;
+    private static string? censusPath;
+    private static string? mapPath;
+    private static string? eventsPath;
+    private static readonly Stopwatch sessionClock = new();
+    private static DateTime sessionStartedUtc;
+    // 0.30.0 joins two branches that numbered their changes independently: the evidence branch's 0.25.0–0.29.0 are the
+    // numbers SessionReport's version gates use, and the combat branch's own 0.25.0 and 0.26.0 columns are read by name.
+    private const string Schema = "0.30.0";
+    // The cost of the previous row's Record call: a row cannot contain the time spent writing itself, so each row carries
+    // the one before it and the first row of a session carries none.
+    private static readonly Stopwatch recordClock = new();
+    private static double lastRecordMs = double.NaN;
+    /// <summary>What the last Record call cost in milliseconds, NaN before the first; MeasureBrainCost samples it as its own phase.</summary>
+    public static double LastRecordMilliseconds => lastRecordMs;
+    // Rows this session has written, which the end marker states so a reader can tell a file that lost rows from one
+    // that never had them.
+    private static int rowsWritten;
+    private static RecordedConfiguration recordedConfiguration;
+    /// <summary>The revision and tree state AICompanion.csproj's StampSourceRevision target stamped into this assembly,
+    /// read once; "unknown" when that build could not ask git.</summary>
+    private static readonly string SourceProvenance = ReadSourceProvenance();
+
+    private static string ReadSourceProvenance()
+    {
+        string Stamp(string key) => typeof(BrainTelemetry).Assembly.GetCustomAttributes(typeof(System.Reflection.AssemblyMetadataAttribute), false)
+            .OfType<System.Reflection.AssemblyMetadataAttribute>().FirstOrDefault(attribute => attribute.Key == key)?.Value is { Length: > 0 } value ? value : "unknown";
+        return $"{Stamp("SourceRevision")};tree={Stamp("SourceTree")}";
+    }
+
+    /// <summary>
+    /// The per-character preferences and diagnostics switches a capture runs under, as one comparable value: the
+    /// preamble states the value at the start and an occurrence records each change, compared every row without
+    /// allocating, because a preference changed from the profile card mid-session changes what the companion does.
+    /// </summary>
+    private readonly record struct RecordedConfiguration(Activities.WorkPolicy Mining, Activities.WorkPolicy Chopping, bool Hunting, bool PotBreaking,
+        bool TorchPlacement, PlayerIntegration.CompanionDistanceMode DistanceMode, bool Inspector, bool RecordTelemetry)
+    {
+        public static RecordedConfiguration Current()
+        {
+            var preferences = PlayerIntegration.CompanionPreferences.Current;
+            var switches = DiagnosticsConfiguration.CompanionDiagnosticsConfig.Current;
+            return new(preferences.Mining, preferences.Chopping, preferences.Hunting, preferences.PotBreaking, preferences.TorchPlacement,
+                preferences.DistanceMode, switches.EnableBrainInspector, switches.RecordTelemetry);
+        }
+
+        public string Describe()
+            => $"character;mining={Mining};chopping={Chopping};hunting={Flag(Hunting)};pot_breaking={Flag(PotBreaking)};torch_placement={Flag(TorchPlacement)};distance_mode={DistanceMode};inspector={Flag(Inspector)};record_telemetry={Flag(RecordTelemetry)}";
+
+        private static string Flag(bool value) => value ? "true" : "false";
+    }
+    private static string? pendingPlayerHit;
+    private static string? pendingCompanionHit;
+    private static string? lastDecision;
+    private static bool firstUpdateRecorded;
+
+    /// <summary>The folder the files land in: the mod's source folder, which is where the repository is.</summary>
+    public static string Folder => Path.Combine(Main.SavePath, "ModSources", "AICompanion", "Telemetry");
+    internal static double ElapsedMilliseconds => sessionClock.Elapsed.TotalMilliseconds;
+
+    public override void OnWorldLoad()
+    {
+        Close("superseded-by-world-load");
+        if (!DiagnosticsConfiguration.CompanionDiagnosticsConfig.Current.RecordTelemetry) return;
+        try
+        {
+            Directory.CreateDirectory(Folder);
+            string stamp = $"{DateTime.UtcNow:yyyy-MM-dd_HH-mm-ss-fff}";
+            string path = ReserveSessionPath(stamp, out string sessionStem);
+            plansPath = Path.Combine(Folder, $"{sessionStem}-plans.txt");
+            censusPath = Path.Combine(Folder, $"{sessionStem}-census.txt");
+            mapPath = Path.Combine(Folder, $"{sessionStem}-map.txt");
+            eventsPath = Path.Combine(Folder, $"{sessionStem}-events.jsonl");
+            lastDumpTick = -DumpEveryTicks;
+            headerWritten = false;
+            rowsWritten = 0;
+            lastRecordMs = double.NaN;
+            sessionStartedUtc = DateTime.UtcNow;
+            sessionClock.Restart();
+            GodsEyeEvents.Open(eventsPath);
+            WriteMetadata();
+            GodsEyeEvents.RecordLifecycle("world-entry", "observed=ModSystem.OnWorldLoad;tag-load=not-yet-observed;outer-load=unobservable");
+            pendingPlayerHit = null;
+            pendingCompanionHit = null;
+            lastDecision = null;
+            firstUpdateRecorded = false;
+            ScenarioCapture.Reset();
+            BehaviourCensus.Reset();
+            SessionMap.Reset();
+            Mod.Logger.Info($"BrainTelemetry: writing {path}");
+        }
+        catch (Exception e)
+        {
+            // Reservation can succeed before a sidecar or later initialisation fails. Release
+            // that stream here rather than abandoning the handle until garbage collection.
+            GodsEyeEvents.RecordLifecycle("recorder-initialization-failed", "capture=incomplete;outer-load=unobservable");
+            GodsEyeEvents.Close();
+            try { writer?.Dispose(); }
+            catch (Exception closeError) { Mod.Logger.Warn($"BrainTelemetry: cleanup after open failure: {closeError.Message}"); }
+            finally
+            {
+                writer = null;
+                plansPath = censusPath = mapPath = eventsPath = null;
+                sessionClock.Reset();
+            }
+            Mod.Logger.Error($"BrainTelemetry: could not open a file under {Folder}: {e.Message}");
+        }
+    }
+
+    public override void OnWorldUnload()
+    {
+        Close("world-unload");
+        global::AICompanion.Companion.Brain.Infrastructure.Observation.PredictObservedMotion.Clear();
+    }
+
+    public static void StopRecording() => Close("recording-disabled");
+
+    public override void LoadWorldData(TagCompound tag)
+    {
+        GodsEyeEvents.RecordLifecycle("tag-load-entered", "observed=BrainTelemetry.LoadWorldData;outer-load=unobservable");
+        // Returning from this callback proves this mod's callback finished. It cannot prove that
+        // another ModSystem callback or Terraria's outer load completed after it.
+        GodsEyeEvents.RecordLifecycle("tag-load-returned", "observed=BrainTelemetry.LoadWorldData-returned;outer-load=unobservable");
+    }
+
+    public override void SaveWorldData(TagCompound tag)
+    {
+        GodsEyeEvents.RecordLifecycle("save-entered", "observed=BrainTelemetry.SaveWorldData;world-persisted=unobservable");
+        GodsEyeEvents.RecordLifecycle("save-returned", "observed=BrainTelemetry.SaveWorldData-returned;world-persisted=unobservable");
+    }
+
+    public override void PostUpdateEverything()
+    {
+        if (!DiagnosticsConfiguration.CompanionDiagnosticsConfig.Current.RecordTelemetry)
+        {
+            if (writer != null) Close("recording-disabled");
+            return;
+        }
+        if (writer == null || firstUpdateRecorded)
+            return;
+        firstUpdateRecorded = true;
+        GodsEyeEvents.RecordLifecycle("first-update", "observed=ModSystem.PostUpdateEverything;outer-load=unobservable");
+    }
+
+    /// <summary>
+    /// Receives Terraria's final hurt calculation from the local player's ModPlayer hook. A life
+    /// drop proves neither the hit source nor knockback; this bounded event supplies both.
+    /// </summary>
+    public static void RecordPlayerHurt(Player.HurtInfo info)
+    {
+        string source = "unidentified";
+        if (info.DamageSource.TryGetCausingEntity(out Entity entity))
+            source = entity switch
+            {
+                NPC npc => $"npc:{npc.TypeName}",
+                Projectile projectile => $"projectile:{projectile.type}",
+                _ => entity.GetType().Name,
+            };
+        pendingPlayerHit = $"damage={info.Damage};source={source};direction={info.HitDirection};knockback={info.Knockback.ToString("0.00", CultureInfo.InvariantCulture)}";
+    }
+
+    /// <summary>
+    /// Receives the NPC damage callback. NPC hurt information has no attacker source, so this
+    /// preserves only the exact final damage, direction and knockback rather than inventing one.
+    /// </summary>
+    public static void RecordCompanionHit(NPC.HitInfo info)
+        => pendingCompanionHit = $"damage={info.Damage};direction={info.HitDirection};knockback={info.Knockback.ToString("0.00", CultureInfo.InvariantCulture)};source=unrecorded";
+
+    public override void Unload()
+    {
+        Close("mod-unload");
+        global::AICompanion.Companion.Brain.Infrastructure.Observation.PredictObservedMotion.Clear();
+        Mod.Logger.Info("BrainTelemetry.Unload: done");
+    }
+
+    /// <summary>A normal closure, named by <paramref name="reason"/>. Only this writes the end marker: a failed row write
+    /// disposes the stream without coming here, so a capture that lacks the marker was interrupted.</summary>
+    private static void Close(string reason)
+    {
+        // The census and the map are written here rather than per tick because both are one
+        // artefact about the whole session; there is nothing to say until it is over. They land
+        // beside the .tsv under the same stamp, so the session reader finds them without being
+        // told where to look.
+        WriteWhole(censusPath, BehaviourCensus.Report, "census");
+        WriteWhole(mapPath, SessionMap.Report, "map");
+        GodsEyeEvents.Close();
+        try
+        {
+            writer?.WriteLine($"# end={reason};rows={rowsWritten};events-written={GodsEyeEvents.Written};events-dropped={GodsEyeEvents.Dropped};events-coalesced={GodsEyeEvents.Coalesced};terrain-evictions={RecordTerrainChunks.Evictions}");
+            writer?.Flush();
+            writer?.Dispose();
+        }
+        catch (Exception e)
+        {
+            ModContent.GetInstance<AICompanion>().Logger.Warn($"BrainTelemetry: close failed: {e.Message}");
+        }
+        finally
+        {
+            sessionClock.Reset();
+            writer = null;
+            plansPath = null;
+            censusPath = null;
+            mapPath = null;
+            eventsPath = null;
+        }
+    }
+
+    private static string ReserveSessionPath(string timestamp, out string sessionStem)
+    {
+        Directory.CreateDirectory(Folder);
+        for (int attempt = 0; ; attempt++)
+        {
+            sessionStem = attempt == 0 ? timestamp : $"{timestamp}-{attempt}";
+            string candidate = Path.Combine(Folder, $"{sessionStem}.tsv");
+            try
+            {
+                writer = new StreamWriter(new FileStream(candidate, FileMode.CreateNew, FileAccess.Write, FileShare.Read), Encoding.UTF8);
+                return candidate;
+            }
+            catch (IOException) when (File.Exists(candidate))
+            {
+                // A retry in the same clock instant is a second capture, never permission to
+                // replace the evidence from the first one.
+            }
+        }
+    }
+
+    private static void WriteMetadata()
+    {
+        if (writer == null)
+            return;
+        writer.WriteLine($"# schema={Schema}");
+        writer.WriteLine($"# started_utc={sessionStartedUtc:O}");
+        writer.WriteLine($"# terraria={Main.versionNumber};tml_assembly={typeof(Main).Assembly.GetName().Version};runtime={Environment.Version};os={Environment.OSVersion.Platform}");
+        writer.WriteLine("# mods=" + string.Join(";", (ModLoader.Mods ?? Array.Empty<Mod>()).Select(mod => mod.Name + "@" + mod.Version)));
+        writer.WriteLine($"# source_revision={SourceProvenance}");
+        recordedConfiguration = RecordedConfiguration.Current();
+        writer.WriteLine($"# config={recordedConfiguration.Describe()}");
+        // What a capture keeps and what it forgets, read from the constants that bound each store, so a reader can tell an
+        // absence the recorder never kept from one that did not happen without knowing the code.
+        writer.WriteLine("# retention=rows=one-per-companion-ai-tick;events=every-occurrence-offered"
+            + $";terrain-snapshots-remembered={RecordTerrainChunks.MaximumRemembered};terrain-captures-per-tick={RecordTerrainChunks.CapturesPerTick}"
+            + $";recent-attempt-outcomes={Infrastructure.Selection.OwnCurrentActivity.RecentAttemptCapacity};cargo-transfer-ledger={(global::AICompanion.Companion.Inventory.CompanionInventory.RecentTransferCapacity)}"
+            + $";cosmetic-contacts-per-summary={GodsEyeEvents.CosmeticContactsPerSummary};inspector-traces={BrainInspectorSamples.Capacity};session-map-tiles={SessionMap.MaxTilesRemembered}"
+            + $";plan-dump-every-ticks={DumpEveryTicks};flush-every-ticks={FlushEveryTicks}");
+        writer.WriteLine("# lifecycle=world-entry-observed;tag-load-not-yet-observed;first-update-not-yet-observed;outer-load-unobservable;save-not-observed");
+        writer.Flush();
+    }
+
+    /// <summary>
+    /// One whole-session artefact to its own file. It runs on world unload, where a throw would
+    /// take the unload with it, so a failure to write a report is logged and swallowed: the report
+    /// is a convenience and the session's own record is already on disk.
+    /// </summary>
+    private static void WriteWhole(string? path, Func<string> produce, string what)
+    {
+        if (path == null || writer == null)
+            return;
+        try
+        {
+            File.WriteAllText(path, produce(), Encoding.UTF8);
+            ModContent.GetInstance<AICompanion>().Logger.Info($"BrainTelemetry: wrote the {what} to {path}");
+        }
+        catch (Exception e)
+        {
+            ModContent.GetInstance<AICompanion>().Logger.Warn($"BrainTelemetry: could not write the {what}: {e.Message}");
+        }
+    }
+
+    private const int DumpEveryTicks = 300;
+    // The window is wider than the screen on purpose, by Caner's ruling on 2026-09-08: the
+    // replay treats the window's edge as a wall, so a route that leaves the box reads as "no
+    // path", and the first dumps (six-tile pad) and the fifth run's (twenty) both had to be
+    // widened from the saved world before they said anything. A screen is about 120 by 70
+    // tiles at normal zoom; the pad alone is more than half of that on every side, so an
+    // alternate route the companion never took is in the picture too. A block costs about
+    // a byte per tile, so a run of sixty dumps is a few megabytes of git-ignored text.
+    private const int DumpMaxWidth = 480, DumpMaxHeight = 400, DumpPad = 80;
+    private static string? plansPath;
+    private static long lastDumpTick;
+
+    /// <summary>
+    /// Write the tile window between a failed plan's start and its goal to a sidecar text
+    /// file beside the session's telemetry, a few seconds apart at most, so the link the grid
+    /// is missing can be read off the terrain after the run instead of guessed at. One
+    /// character per tile: # solid, = platform or half block, ~ water or honey, L lava,
+    /// o air the body can stand in, . other air; then S start, G goal, E where a partial
+    /// path ends, N the companion's feet, P the player's feet on top.
+    /// </summary>
+    public static void DumpPlan(Point start, Point goal, Point? partialEnd, int expansions, string why)
+    {
+        if (plansPath == null || Main.GameUpdateCount - lastDumpTick < DumpEveryTicks)
+            return;
+        lastDumpTick = Main.GameUpdateCount;
+        WriteWindow(start, goal, partialEnd, expansions, why);
+    }
+
+    /// <summary>
+    /// The same window, written by a scenario detector (<see cref="ScenarioCapture"/>) under its
+    /// own reason and its own cooldown, so a follow failure or a stuck run becomes a replayable
+    /// block whether or not a plan failed in the same second.
+    /// </summary>
+    public static void DumpScenario(Point start, Point goal, string why)
+    {
+        if (plansPath == null)
+            return;
+        WriteWindow(start, goal, null, 0, why);
+    }
+
+    private static void WriteWindow(Point start, Point goal, Point? partialEnd, int expansions, string why)
+    {
+        // Read once and check here rather than trusting the caller's check: both callers do check,
+        // but the field is a mutable static that world unload clears, so the check has to be in the
+        // scope that uses it for the write to be sound as well as for the compiler to agree.
+        string? path = plansPath;
+        if (path == null)
+            return;
+        try
+        {
+            NPC? npc = CompanionNPC.Find();
+            Point n = npc == null ? new Point(-1, -1) : NavGrid.FeetTile(npc.Bottom);
+            Point p = NavGrid.FeetTile(Main.LocalPlayer.Bottom);
+
+            // The window holds the player's tile as well as the start and the goal, because "could
+            // it have reached the player" is the question the replay tool answers, and a goal the
+            // positioner picked above a pit says nothing about the player six rows below the window.
+            int x0 = Math.Min(Math.Min(start.X, goal.X), p.X) - DumpPad, x1 = Math.Max(Math.Max(start.X, goal.X), p.X) + DumpPad;
+            int y0 = Math.Min(Math.Min(start.Y, goal.Y), p.Y) - DumpPad, y1 = Math.Max(Math.Max(start.Y, goal.Y), p.Y) + DumpPad;
+            // A window too big to read is cut to the start's side, because the first missing link is near it.
+            if (x1 - x0 >= DumpMaxWidth) { if (goal.X > start.X) x1 = x0 + DumpMaxWidth - 1; else x0 = x1 - DumpMaxWidth + 1; }
+            if (y1 - y0 >= DumpMaxHeight) { if (goal.Y > start.Y) y1 = y0 + DumpMaxHeight - 1; else y0 = y1 - DumpMaxHeight + 1; }
+
+            // The body is a rectangle at a pixel, and a tile is not enough to reproduce it. A tile
+            // names a column and the grid proves a move at one of nine sub-tile offsets inside it,
+            // so a dump that records only the tile is replayed from whichever offset the grid picks
+            // rather than the one the body was actually at — which is how a fall-through that welds
+            // the body into a wall at left 55795 replays clean from left 55788 (2026-09-09, the
+            // 3487,362 shaft). Every question about clearance is asked of these four numbers.
+            float boxLeft = npc == null ? 0f : npc.position.X;
+            float boxTop = npc == null ? 0f : npc.position.Y;
+            int boxW = npc?.width ?? 0, boxH = npc?.height ?? 0;
+            int bx0 = (int)MathF.Floor(boxLeft / 16f), bx1 = (int)MathF.Floor((boxLeft + boxW - BodyPhysics.Touch) / 16f);
+            int by0 = (int)MathF.Floor(boxTop / 16f), by1 = (int)MathF.Floor((boxTop + boxH - BodyPhysics.Touch) / 16f);
+
+            var sb = new StringBuilder((x1 - x0 + 2) * (y1 - y0 + 1) + 200);
+            sb.Append($"tick {Main.GameUpdateCount} {why}: start {start.X},{start.Y} goal {goal.X},{goal.Y}");
+            if (partialEnd is Point e) sb.Append($" partial-end {e.X},{e.Y}");
+            sb.Append($" expansions {expansions} npc {n.X},{n.Y}");
+            if (npc != null)
+                sb.Append($" npcbox {boxLeft.ToString("0.0", CultureInfo.InvariantCulture)},{(boxTop + boxH).ToString("0.0", CultureInfo.InvariantCulture)},{boxW},{boxH}");
+            sb.Append($" player {p.X},{p.Y} window x {x0}..{x1} y {y0}..{y1}\n");
+            sb.Append($"markers S {start.X},{start.Y} G {goal.X},{goal.Y} N {n.X},{n.Y} P {p.X},{p.Y}");
+            if (partialEnd is Point pe) sb.Append($" E {pe.X},{pe.Y}");
+            sb.Append('\n');
+            // The player's trail is the design's own pass line ("if I can get through, it can"),
+            // written as one line the replay tool reads back and checks tile by tile.
+            if (npc is NPC body && body.ModNPC is CompanionNPC companion && companion.Brain.Senses.Player.Trail.Count > 0)
+            {
+                sb.Append("trail");
+                foreach (Point t in companion.Brain.Senses.Player.Trail)
+                    sb.Append(' ').Append(t.X).Append(',').Append(t.Y);
+                sb.Append('\n');
+            }
+            for (int y = y0; y <= y1; y++)
+            {
+                for (int x = x0; x <= x1; x++)
+                {
+                    var t = new Point(x, y);
+                    // The replay tool reads this alphabet back through the same function, so a
+                    // slope or half block dumped here is the shape the offline planner sees. A
+                    // marker is drawn over air only: on a half block or a floor slope the feet
+                    // tile is the supporting tile itself, and a marker written there erased the
+                    // support from the replay. The markers line above carries every position.
+                    char c = TextTileWorld.Glyph(NavGrid.World.Shape(x, y), NavGrid.IsLiquid(x, y), NavGrid.IsLava(x, y), NavGrid.World.PassThrough(x, y));
+                    if (c == '.' && NavGrid.IsStandable(x, y)) c = 'o';
+                    if (c is '.' or 'o')
+                    {
+                        if (t == p) c = 'P';
+                        else if (t == n) c = 'N';
+                        else if (t == start) c = 'S';
+                        else if (t == goal) c = 'G';
+                        else if (partialEnd == t) c = 'E';
+                        // The rest of the body, lowest priority so no other marker is lost to it,
+                        // and lowercase so the marker reader still finds exactly one N. A body
+                        // drawn as one glyph reads as a point that fits anywhere; drawn as the
+                        // tiles its rectangle overlaps it reads as the two-wide, three-tall thing
+                        // that has to fit through the gap, which is what the map is for.
+                        else if (x >= bx0 && x <= bx1 && y >= by0 && y <= by1) c = 'n';
+                    }
+                    sb.Append(c);
+                }
+                sb.Append('\n');
+            }
+            sb.Append('\n');
+            File.AppendAllText(path, sb.ToString());
+        }
+        catch (Exception e)
+        {
+            ModContent.GetInstance<AICompanion>().Logger.Warn($"BrainTelemetry.WriteWindow ({why}): {e.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Write this tick's line after the brain selected and applied controls. The row carries the
+    /// motor's AI-entry observation separately from the legacy after-helper NPC pose, because
+    /// helpers may write position before this method runs.
+    /// </summary>
+    public static void Record(CompanionNPC companion)
+    {
+        if (!DiagnosticsConfiguration.CompanionDiagnosticsConfig.Current.RecordTelemetry) { if (writer != null) Close("recording-disabled"); return; }
+        if (writer == null)
+            return;
+        recordClock.Restart();
+        var configuration = RecordedConfiguration.Current();
+        if (configuration != recordedConfiguration)
+        {
+            recordedConfiguration = configuration;
+            GodsEyeEvents.RecordConfiguration(configuration.Describe());
+        }
+        ScenarioCapture.Watch(companion);
+        Brain brain = companion.Brain;
+        var senses = brain.Senses;
+        NPC npc = companion.NPC;
+        RecordTerrainChunks.ObserveActors(npc, Main.LocalPlayer);
+        string decision = brain.Reflexes.Active ?? brain.LastAction?.Name ?? "-";
+        bool brainExecuted = brain.LastTick == Main.GameUpdateCount;
+        bool choiceEvaluated = brainExecuted && brain.ChoiceEvaluated;
+        var activity = brain.Chooser.Activity;
+        GodsEyeEvents.RecordActivity(npc, activity.Id, activity.Current?.Name ?? "none", activity.Phase.ToString(), activity.Reason,
+            activity.LastEndedId, activity.LastEndReason, activity.ChangedAt);
+        foreach (var outcome in activity.RecentAttempts)
+            GodsEyeEvents.RecordAttemptOutcome(npc, outcome.AttemptId, outcome.ActivityId, outcome.Activity, outcome.Family.ToString(),
+                outcome.StartTick, outcome.EndTick, outcome.Status.ToString(), outcome.Cause, outcome.ProductiveEffects,
+                outcome.Attribution.ToString(), outcome.ClaimedYieldType, outcome.ClaimedYieldQuantity);
+        var controlGrant = brain.ControlGrants.Last;
+        bool controlFresh = controlGrant?.Tick == Main.GameUpdateCount;
+        if (controlFresh && controlGrant is { } freshGrant)
+            GodsEyeEvents.RecordControlGrant(npc, freshGrant.Id, freshGrant.Tick, freshGrant.ActivityId, freshGrant.ActivityPhase.ToString(),
+                freshGrant.RequestedOwner, freshGrant.AppliedOwner, DescribeControls(freshGrant.RequestedMovement),
+                DescribeControls(freshGrant.AppliedMovement), freshGrant.Hand.ToString(), freshGrant.AppliedVelocity, freshGrant.MotorApplications,
+                freshGrant.AttemptId);
+        string controls = DescribeControls(companion.Motor.AppliedControls);
+        string activityControls = controls + $";activity-id={activity.Id};activity-phase={activity.Phase};activity-reason={activity.Reason}"
+            + FormattableString.Invariant($";gravity-observation-tick={companion.Motor.GravityObservationTick};engine-gravity={companion.Motor.ObservedEngineGravity:R};model-gravity={companion.Motor.ObservedModelGravity:R};gravity-enabled={companion.Motor.ObservedGravityEnabled}");
+        var guard = default(Activities.Combat.ProtectPlayer);
+        var mine = default(Activities.Gathering.MineOre);
+        var chop = default(Activities.Gathering.ChopTree);
+        var survival = brain.Safety.Escape;
+        var hunt = default(Activities.Combat.PursueAttackOpportunity);
+        foreach (var candidate in brain.Chooser.Actions)
+        {
+            if (candidate is Activities.Combat.ProtectPlayer guardAction) guard = guardAction;
+            if (candidate is Activities.Gathering.MineOre mineAction) mine = mineAction;
+            if (candidate is Activities.Gathering.ChopTree chopAction) chop = chopAction;
+            if (candidate is Activities.Combat.PursueAttackOpportunity huntAction) hunt = huntAction;
+        }
+        activityControls += $";mine-last-conclusion={mine?.LastConclusion?.ToString() ?? "none"}";
+        if (decision != lastDecision || Main.GameUpdateCount % 60 == 0)
+        {
+            var board = new StringBuilder();
+            foreach (var score in brain.Chooser.LastScores) { if (board.Length > 0) board.Append(','); board.Append(score.Action.Name).Append('=').Append(score.Raw.ToString("0.000", CultureInfo.InvariantCulture)).Append("->").Append(score.Final.ToString("0.000", CultureInfo.InvariantCulture)); }
+            board.Append(CultureInfo.InvariantCulture, $";regroup={brain.Chooser.RegroupUrgency:0.000};return-ticks={brain.Chooser.EstimatedReturnTicks:0.0}");
+            foreach (var score in brain.Chooser.LastScores)
+                board.Append(CultureInfo.InvariantCulture, $";factors:{score.Action.Name}=protection:{score.Protection:0.000},commitment:{score.Commitment:0.000},horizon:{score.Horizon:0.000},useful-work:{score.UsefulWork:0.000},reunion:{score.Reunion:0.000},error:{score.Error},offer:{score.Eligibility}/{score.EligibilityReason},method:{score.MethodEvidence}");
+            foreach (var nomination in brain.Chooser.LastNominations)
+                board.Append(CultureInfo.InvariantCulture, $";family:{nomination.Family}=child:{nomination.Activity?.Name ?? "none"},value:{nomination.Activity?.Final ?? 0:0.000}");
+            foreach (var family in brain.Chooser.Queries.LastFamilies)
+                board.Append(CultureInfo.InvariantCulture, $";queries:{family.Family}=prepared:{family.Prepared},deferred:{family.Deferred},ms:{family.Milliseconds:0.000}");
+            var preferences = PlayerIntegration.CompanionPreferences.Current;
+            board.Append(CultureInfo.InvariantCulture, $";movement-stalled={brain.MovementStalled};activity-status={brain.ActivityStatus};activity-target={brain.LastAction?.ActivityTarget};activity-radius={preferences.NewActivityRadius};continuation-radius={preferences.ActiveActivityRadius};recovery-radius={preferences.RecoveryRadius}");
+            GodsEyeEvents.RecordDecision(npc, brain.LastAction?.Name ?? "-", board.ToString(), brain.LastRequest.Kind.ToString(),
+                activityControls + $";freshness={(choiceEvaluated ? "fresh" : "stale-or-not-executed")};brain-fresh={brainExecuted};choice-id={brain.Chooser.EvaluationId};choice-tick={brain.Chooser.EvaluationTick?.ToString(CultureInfo.InvariantCulture) ?? "unavailable"};execution={decision};control-source={companion.Motor.ControlSource}");
+            lastDecision = decision;
+        }
+        GodsEyeEvents.RecordMovementState(npc, brain.Navigator);
+        GodsEyeEvents.RecordNavigationEvidence(npc, brainExecuted, decision, brain.LastRequest.Kind.ToString(), activityControls,
+            brain.Navigator.SearchId, brain.Navigator.AttemptId, brain.Navigator.SearchExpansions, brain.Navigator.SearchPending,
+            brain.Navigator.ProgressReason, brain.Navigator.ExperienceRoutesUsed,
+            brain.Positioner.CandidateCount, brain.Positioner.ReachableCandidateCount, brain.Positioner.RejectedCandidateCount, brain.Positioner.ChoiceReason,
+            senses.Threats.InterventionTicks, senses.Threats.ProtectionUrgency,
+            senses.Threats.MostUrgent?.PredictionConfidence ?? 0f, senses.Threats.MostUrgent?.PredictionSamples ?? 0,
+            $"route-completed-steps={brain.Navigator.Path?.Index ?? 0};route-remaining-estimated-ticks={brain.Navigator.RemainingEstimatedRouteTicks:0.000};follow-objective-valid={brain.Positioner.FollowObjectiveSatisfied};follow-horizontal-gap={brain.Positioner.FollowHorizontalGap:0.000};follow-vertical-gap={brain.Positioner.FollowVerticalGap:0.000};follow-objective={brain.Positioner.FollowObjectiveReason};recovery-active={brain.FollowRecovery.Active};recovery-reason={brain.FollowRecovery.Reason};recovery-flights={brain.FollowRecovery.Flights};guard-threat={guard?.ProtectedThreatId ?? -1};guard-pressure={(guard?.RetainedPressure ?? 0f).ToString("0.000", CultureInfo.InvariantCulture)};guard-reason={guard?.CommitmentReason ?? "unavailable"};mine-job={mine?.JobId ?? 0};mine-policy={mine?.Policy.ToString() ?? "unavailable"};mine-status={mine?.Status ?? "unavailable"};mine-remaining={mine?.RemainingTiles ?? 0};mine-target={mine?.TargetTile?.ToString() ?? "-"};control-source={companion.Motor.ControlSource};state-search-pending={brain.Movement.StateSearchPending};retained-control-ticks={brain.Movement.StateSearchRetainedTicks};air-target={survival.AirTarget};safety-response-id={brain.Safety.Id};safety-active={brain.Safety.Active};safety-kind={brain.Safety.Kind};safety-reason={brain.Safety.Reason};safety-last-end={brain.Safety.LastEndReason};breath-ticks-left={companion.Breath.TicksLeft};position-evidence-tick={brain.Positioner.EvidenceTick};positions-evaluated={brain.Positioner.EvaluatedCandidates};position-alternatives={brain.Positioner.CandidateEvidence};target-evidence-tick={companion.Arsenal.TargetEvidenceTick};target-evidence-age={senses.Tick - companion.Arsenal.TargetEvidenceTick};target-alternatives={companion.Arsenal.TargetEvidence}");
+        SessionMap.Watch(
+            NavGrid.FeetTile(npc.Bottom),
+            NavGrid.FeetTile(senses.Player.Bottom),
+            brain.Navigator.GoalTile,
+            brain.Positioner.Chosen is Vector2 spot ? Vector2.Distance(npc.Bottom, spot) : float.MaxValue);
+
+        if (!headerWritten)
+        {
+            var textColumns = new StringBuilder("# text_columns=state,action,reflex,top_threat,target,request,anchor,spot,next_kind,npc_tile,npc_px,npc_vel,held,weapon,fire,engage,torch,player_tile,edge_kind,edge_from,edge_to,edge_outcome,spot_home,diverge_invalid_reason,sample_phase,player_px,player_vel,player_liquid,player_hit,npc_hit,player_state,player_activity,player_support,npc_support,control,control_source,observed_vel,observed_mobility,predicted_vel,predicted_mobility,follow_reason,recovery_reason,guard_reason,mine_policy,mine_status,mine_target,target_evidence,nav_status,position_reason,escape_stage,escape_target,hunt_reason,hand_grant,control_request_owner,safety_kind,safety_reason,safety_last_end,collection_method,mine_end_reason,attempt_end_activity,attempt_end_family,attempt_end_status,attempt_end_cause,attempt_end_attribution,pursuit_target,pursuit_evidence,aim_target,landed_hit_target,landed_hit_aimed,encounter_source");
+            // Offer columns are named from the registered activities, like the raw/final pairs, so
+            // the declaration and the header cannot disagree about which activities exist.
+            foreach (var a in brain.Chooser.Actions) textColumns.Append(',').Append(a.Name).Append("_offer");
+            textColumns.Append(",meeting_reason,meeting_anchor,meeting_flood");
+            textColumns.Append(",nav_failure,nav_failure_reason,nav_attempt_ending");
+            textColumns.Append(",region_kind,region_anchor_px,region_player_px,region_comfort,region_work_tile,region_reach,region_arrival");
+            writer.WriteLine(textColumns.ToString());
+            var h = new StringBuilder();
+            // A start timestamp is file metadata. Stopwatch is the observed wall duration of
+            // every row; deriving wall time from game ticks would conceal pauses and lag.
+            h.Append("tick\tstate\taction\treflex");
+            foreach (var a in brain.Chooser.Actions)
+                h.Append('\t').Append(a.Name).Append("_raw\t").Append(a.Name).Append("_fin");
+            h.Append("\tdanger\tself_threat\thorizon\tthreats\treachable\ttop_threat\ttarget\tloot");
+            h.Append("\trequest\tanchor\tspot\tspot_score\tfollow_objective_valid\tfollow_dx\tfollow_dy\tfollow_reason\trecovery_active\trecovery_reason\trecovery_flights\tpath_steps\tpath_at\troute_search_id\troute_attempt_id\troute_remaining_ticks\tnext_kind\tplan_failed\texpansions");
+            h.Append("\tnpc_tile\tnpc_px\tnpc_vel\tground\twet\tcollide_x\tcollide_y\tmoved\tvel_cut\tpress\tdescend\tpinned\tdiverge\tdiverge_valid\tdiverge_invalid_reason\tdir\tlife\tbreath\tself_danger\theld\tweapon\tshot\tfire\texp_bow\texp_knife\texp_target\tnear_threat\tweapon_reach\tengage\ttorch\tambient\tambient_samples\tambient_read_tick");
+            h.Append("\tplayer_tile\tplayer_intent\tplayer_dead\tplayer_attacking\tplayer_chopping\tplayer_mining");
+            h.Append("\tplan_ms\tflood_ms\tsenses_ms\treflex_ms\tdecide_ms\tposition_ms\tnavigate_ms\tbrain_ms\tedge_cache\tstranded");
+            // The reachability tier, which is where the companion decides whether to enter somewhere
+            // it cannot leave and the one decision no offline pass can watch: how many tiles it can
+            // reach, how many of those it can come home from, whether the spot it picked is one of
+            // them, and whether the refusing flood was discarded because the player was outside it.
+            h.Append("\treach_n\treturnable_n\tspot_home\tplayer_one_way");
+            h.Append("\tedge_n\tedge_kind\tedge_from\tedge_to\tedge_proven\tedge_took\tedge_outcome");
+            h.Append("\tguard_threat\tguard_pressure\tguard_reason\tmine_job\tmine_policy\tmine_status\tmine_remaining\tmine_target\ttarget_evidence_tick\ttarget_evidence_age\ttarget_evidence");
+            h.Append("\twall_elapsed_ms\tsample_phase\tplayer_px\tplayer_vel\tplayer_ground\tplayer_liquid\tplayer_life\tplayer_hit\tnpc_hit\tplayer_state\tplayer_activity\tplayer_support\tnpc_support\tcontrol\tcontrol_source\tbrain_fresh");
+            h.Append("\tobserved_left\tobserved_bottom\tobserved_vel\tobserved_ground\tobserved_wet\tobserved_mobility\tpredicted_left\tpredicted_bottom\tpredicted_vel\tpredicted_ground\tpredicted_wet\tpredicted_mobility\tnpc_width\tnpc_height");
+            h.Append("\tnav_status\tposition_reason\tmovement_stalled\tescape_active\tescape_stage\tescape_target\tstate_search_pending\tstate_search_retained\thead_submerged\tbreath_ticks\tattack_value\tattack_kills\tattack_harm\tweapon_cooldown\thunt_idle_ticks\thunt_reason");
+            h.Append("\tchoice_fresh\tchoice_id\tchoice_tick");
+            h.Append("\tcontrol_grant_fresh\tcontrol_grant_id\tcontrol_grant_tick\thand_grant\tcontrol_request_owner\tcontrol_motor_applications\tfinalise_ms");
+            h.Append("\tsafety_response_id\tsafety_active\tsafety_kind\tsafety_reason\tsafety_last_end");
+            h.Append("\tplayer_intent_y\tplayer_intent_confidence\tplayer_intent_samples\tplayer_local_work_fraction");
+            h.Append("\tmine_remaining_work_ticks\tmine_remaining_hits\tchop_remaining_work_ticks\tchop_remaining_hits");
+            h.Append("\treunion_apart_ticks\treunion_departure\treunion_delay_cost_per_tick");
+            h.Append("\tcollection_method");
+            h.Append("\tmine_end_job\tmine_end_tick\tmine_end_reason\tmine_end_tracked\tmine_end_present\tmine_end_changed\tmine_end_missing\tmine_end_unobserved\tmine_end_companion_removed_sites\tmine_end_observed_clear");
+            h.Append("\tactivity_attempt_id\tattempt_end_id\tattempt_end_activity_id\tattempt_end_activity\tattempt_end_family\tattempt_end_status\tattempt_end_cause\tattempt_end_attribution\tattempt_end_effects\tattempt_end_start_tick\tattempt_end_tick");
+            foreach (var a in brain.Chooser.Actions)
+                h.Append('\t').Append(a.Name).Append("_offer");
+            foreach (var family in Enum.GetValues<Infrastructure.Selection.PurposeFamily>())
+            {
+                string name = family.ToString().ToLowerInvariant();
+                h.Append('\t').Append(name).Append("_prepared\t").Append(name).Append("_deferred\t").Append(name).Append("_prepare_ms");
+            }
+            h.Append("\tmeeting_reason\tmeeting_anchor\tmeeting_player_ticks\tmeeting_companion_ticks\tmeeting_candidates\tmeeting_priced\tmeeting_flood");
+            h.Append("\tnav_failure\tnav_failure_reason\tnav_failure_search_id\tnav_failure_attempt_id\tnav_attempt_ending\tnav_attempts_completed\tnav_attempts_failed\tnav_attempts_preempted\tnav_attempts_cancelled");
+            h.Append("\tpursuit_target\tpursuit_value\tpursuit_access_ticks\tpursuit_evidence\taim_target\tlanded_hit_target\tlanded_hit_aimed\tlanded_hit_damage\tlanded_hit_tick\tlanded_hits\tguard_removal_ticks\tguard_usefulness\ttop_threat_effective_player\ttop_threat_effective_companion\tencounter_intensity\tencounter_source\tencounter_recognised\tencounter_pressure_ticks\tguard_access_ticks");
+            // The success region the positioner admitted its destination against, and whether a claimed arrival lies
+            // inside it. The region is the positioner's own snapshot from the resolve that admitted it, so the report
+            // judges arrival against what the destination was chosen for, not against the world some ticks later.
+            h.Append("\tregion_kind\tregion_revision\tregion_tick\tregion_terrain\tregion_anchor_px\tregion_player_px\tregion_comfort\tregion_work_tile\tregion_reach\tregion_arrival");
+            // What recording costs and what the capture did not keep, as running totals: the previous row's Record cost,
+            // occurrences handed to the event writer, refused after a failed write, and folded into summaries, and
+            // terrain chunks the snapshot memory forgot. The end marker restates the closing totals.
+            h.Append("\trecord_ms\tevents_written\tevents_dropped\tevents_coalesced\tterrain_evictions");
+            writer.WriteLine(h.ToString());
+            headerWritten = true;
+        }
+
+        var sb = new StringBuilder(400);
+        sb.Append(Main.GameUpdateCount);
+        // Read player death from the live player rather than a cached observation. The brain now
+        // continues after death, but this remains the authoritative lifecycle state for the row.
+        sb.Append('\t').Append(companion.IsDowned ? "downed" : Main.LocalPlayer.dead ? "player-dead" : "up");
+        sb.Append('\t').Append(brain.LastAction?.Name ?? "-");
+        sb.Append('\t').Append(brain.Reflexes.Active ?? "-");
+        foreach (var a in brain.Chooser.Actions)
+        {
+            float raw = 0f, fin = 0f;
+            foreach (var s in brain.Chooser.LastScores)
+                if (ReferenceEquals(s.Action, a)) { raw = s.Raw; fin = s.Final; break; }
+            sb.Append('\t').Append(raw.ToString("0.00")).Append('\t').Append(fin.ToString("0.00"));
+        }
+
+        int reachable = 0;
+        Infrastructure.Observation.ThreatRecord? top = null;
+        foreach (var t in senses.Threats.Threats)
+        {
+            if (t.CanReachPlayer) reachable++;
+            if (top == null || t.Urgency > top.Urgency) top = t;
+        }
+        sb.Append('\t').Append(senses.Threats.PlayerDanger.ToString("0.00"));
+        // Danger to the companion beside danger to the player, because the two came apart badly:
+        // it died 84 tiles out with the player's danger reading 0.00 on every hit it took.
+        sb.Append('\t').Append(senses.Threats.CompanionDanger.ToString("0.00"));
+        sb.Append('\t').Append(senses.Threats.Horizon == float.MaxValue ? "inf" : senses.Threats.Horizon.ToString("0"));
+        sb.Append('\t').Append(senses.Threats.Threats.Count).Append('\t').Append(reachable);
+        sb.Append('\t').Append(top == null ? "-" : $"{top.Npc.TypeName}:{top.Class.ToString()[0]}:u{top.Urgency:0.00}:t{(top.TicksToPlayer > 9999 ? 9999 : (int)top.TicksToPlayer)}:{(top.CanReachPlayer ? "r" : "x")}{(top.Shoots ? ":s" : "")}");
+        sb.Append('\t').Append(brain.LastRequest.Target is NPC target && target.active ? target.TypeName : "-");
+        sb.Append('\t').Append(senses.Loot.Pickups.Count);
+
+        sb.Append('\t').Append(brain.LastRequest.Kind);
+        sb.Append('\t').Append(Tile(brain.LastRequest.Anchor));
+        sb.Append('\t').Append(brain.Positioner.Chosen is Vector2 c ? Tile(c) : "-");
+        sb.Append('\t').Append(brain.Positioner.ChosenScore.ToString("0.00"));
+        sb.Append('\t').Append(brain.Positioner.FollowObjectiveSatisfied ? 1 : 0);
+        sb.Append('\t').Append(brain.Positioner.FollowHorizontalGap.ToString("0.00", CultureInfo.InvariantCulture));
+        sb.Append('\t').Append(brain.Positioner.FollowVerticalGap.ToString("0.00", CultureInfo.InvariantCulture));
+        sb.Append('\t').Append(brain.Positioner.FollowObjectiveReason);
+        sb.Append('\t').Append(brain.FollowRecovery.Active ? 1 : 0);
+        sb.Append('\t').Append(brain.FollowRecovery.Reason);
+        sb.Append('\t').Append(brain.FollowRecovery.Flights);
+        NavPath? path = brain.Navigator.Path;
+        sb.Append('\t').Append(path?.Steps.Count ?? 0).Append('\t').Append(path?.Index ?? 0);
+        sb.Append('\t').Append(brain.Navigator.SearchId).Append('\t').Append(brain.Navigator.AttemptId);
+        sb.Append('\t').Append(brain.Navigator.RemainingEstimatedRouteTicks.ToString("0.00", CultureInfo.InvariantCulture));
+        sb.Append('\t').Append(path != null && !path.Finished ? path.Current.Kind.ToString() : "-");
+        sb.Append('\t').Append(brain.Navigator.LastPlanFailed ? 1 : 0).Append('\t').Append(brain.Navigator.LastExpansions);
+
+        sb.Append('\t').Append(Tile(npc.Bottom));
+        sb.Append('\t').Append((int)npc.Bottom.X).Append(',').Append((int)npc.Bottom.Y);
+        sb.Append('\t').Append(npc.velocity.X.ToString("0.00")).Append(',').Append(npc.velocity.Y.ToString("0.00"));
+        sb.Append('\t').Append(companion.Motor.OnGround ? 1 : 0);
+        sb.Append('\t').Append(npc.wet ? 1 : 0);
+        sb.Append('\t').Append(npc.collideX ? 1 : 0).Append('\t').Append(npc.collideY ? 1 : 0);
+        // What the engine did with the last tick's request, which is the one thing this record has
+        // never held. Record runs inside AI, before the engine's collision and its position += velocity,
+        // so every number on this line describes the tick before — and three attempts at the platform
+        // freeze were argued from position and collision values nobody had established were a tick
+        // apart. `moved` is the engine's own displacement (position - oldPosition) and `vel_cut` is
+        // what its collision took off the velocity it was handed (velocity - oldVelocity). A body
+        // frozen with moved 0,0 and vel_cut 0,0 is not being blocked, it is not being integrated,
+        // and those two cells say which without anyone reading twenty rows to infer it.
+        sb.Append('\t').Append((npc.position.X - npc.oldPosition.X).ToString("0.00", CultureInfo.InvariantCulture))
+          .Append(',').Append((npc.position.Y - npc.oldPosition.Y).ToString("0.00", CultureInfo.InvariantCulture));
+        sb.Append('\t').Append((npc.velocity.X - npc.oldVelocity.X).ToString("0.00", CultureInfo.InvariantCulture))
+          .Append(',').Append((npc.velocity.Y - npc.oldVelocity.Y).ToString("0.00", CultureInfo.InvariantCulture));
+        // Whether the body asked to pass its platform this tick. It is written here because the
+        // game reads and clears the flag in UpdateCollision, which runs after this line, and
+        // because two attempts at the fall-through defect were spent inferring this column's value
+        // from velocity and ground: a press that is not held shows as a three-tick fall and a
+        // catch, and with the column present that reads directly instead of being reconstructed.
+        sb.Append('\t').Append(companion.Motor.WantsFallThrough ? 1 : 0);
+        // Whether the move in hand is going down, which is what decides whether the motor may lift
+        // the body onto a platform at its knee. It sits beside `press` because the two are
+        // different questions that looked like one: a press is this tick's request to pass the
+        // platform underfoot, and this is the whole descent's intent, held for the ticks after the
+        // press is released — which are exactly the ticks the body is falling past platforms it
+        // must not catch. Hard-coding the permission on was the shaft freeze.
+        sb.Append('\t').Append(companion.Motor.Descending ? 1 : 0);
+        // How long the body has held a velocity while not moving. The engine cannot do that to a
+        // body it is integrating, so any run above a tick or two means something wrote the
+        // position back during the AI phase, where `moved` cannot see it. During the 2026-09-09
+        // freeze this would have read a rising count for 265 ticks while `ground` read 0 and both
+        // collide flags read clear, which is the state that had to be inferred across twenty rows.
+        sb.Append('\t').Append(companion.Motor.PinnedTicks);
+        // How far the offline motion rule's prediction of this tick missed, in pixels: the rule
+        // every planned move is proven with, run on last tick's state and controls, against where
+        // the engine actually put the body. It is the divergence check for the boundary that has
+        // cost this project the most, because a move proved by one rule and performed by another
+        // is a body standing still holding a valid path — and it is measured continuously on the
+        // real world rather than by replaying a recording, which only ever covers the tiles the
+        // recording happened to visit.
+        sb.Append('\t').Append(companion.Motor.Divergence.ToString("0.00", CultureInfo.InvariantCulture));
+        sb.Append('\t').Append(companion.Motor.DivergenceValid ? 1 : 0);
+        sb.Append('\t').Append(companion.Motor.DivergenceInvalidReason);
+        sb.Append('\t').Append(npc.direction);
+        sb.Append('\t').Append(npc.life).Append('/').Append(npc.lifeMax);
+        sb.Append('\t').Append(senses.Self.BreathFraction.ToString("0.00")).Append(senses.Self.HeadUnderwater ? "u" : "");
+        sb.Append('\t').Append(senses.Self.SelfDanger.ToString("0.00")).Append(senses.Self.InLava ? "L" : senses.Self.OnFire ? "f" : "");
+        sb.Append('\t').Append(companion.HeldItemType == 0 ? "-" : Lang.GetItemNameValue(companion.HeldItemType));
+        sb.Append('\t').Append(companion.Arsenal.LastChosen?.Name ?? "-");
+        sb.Append('\t').Append(companion.Arsenal.LastShotSolved ? 1 : 0);
+        // Why no projectile left the hands, which the shot flag alone cannot say: a reload and a
+        // target with no reachable arc both read as a zero there, and they want opposite fixes.
+        sb.Append('\t').Append(companion.Arsenal.LastFireOutcome);
+        // Both weapons' expected damage, the rejected one included, so the choice can be read back
+        // instead of re-derived: a row where the loser scored higher is a defect with no other tell.
+        sb.Append('\t').Append(companion.Arsenal.LastPrimaryExpected.ToString("0.0"));
+        sb.Append('\t').Append(companion.Arsenal.LastSecondaryExpected.ToString("0.0"));
+        sb.Append('\t').Append(companion.Arsenal.LastTargetExpected.ToString("0.0"));
+        // How far the nearest reachable hostile is, and how far the hands can actually throw,
+        // both in tiles. These exist because "no target" is ambiguous without them and the
+        // 2026-09-09 session could not be read: the hands reported no-target on 78.3% of ticks
+        // with reachable hostiles present, and reachable in the threat sense means "a walker could
+        // path from it to the player", which has nothing to do with being inside weapon range.
+        // Without both numbers on the row, a companion correctly declining a shot it cannot make
+        // and a companion failing to see a target it could hit are the same cell — and the first
+        // is right behaviour, so guessing which one it is risks fixing a thing that is not broken.
+        float nearest = float.MaxValue;
+        foreach (Infrastructure.Observation.ThreatRecord t in senses.Threats.Threats)
+            if (t.CanReachEither && t.Npc != null && t.Npc.active)
+                nearest = MathF.Min(nearest, t.DistanceToCompanion);
+        sb.Append('\t').Append(nearest == float.MaxValue ? "-" : (nearest / 16f).ToString("0.0", CultureInfo.InvariantCulture));
+        sb.Append('\t').Append((MathF.Max(companion.Arsenal.Primary.Reach, companion.Arsenal.Secondary.Reach) / 16f).ToString("0.0", CultureInfo.InvariantCulture));
+        // What the hands are shooting at, which is now independent of what the feet were told, so
+        // "it was following me and not attacking" is a row where engage reads "-" beside threats.
+        sb.Append('\t').Append(brain.EngageTarget is NPC eng && eng.active ? eng.TypeName : "-");
+        sb.Append('\t').Append(companion.Torch.Shown ? "shown" : companion.Torch.Lit ? "lit-busy" : "out");
+        sb.Append('\t').Append(senses.Light.Ambient.ToString("0.00"));
+        sb.Append('\t').Append(senses.Light.AmbientSamples);
+        sb.Append('\t').Append(senses.Light.AmbientReadTick?.ToString(CultureInfo.InvariantCulture) ?? "-");
+
+        sb.Append('\t').Append(Tile(senses.Player.Bottom));
+        sb.Append('\t').Append(senses.Player.Intent.X.ToString("0.0"));
+        sb.Append('\t').Append(Main.LocalPlayer.dead ? 1 : 0);
+        sb.Append('\t').Append(senses.Player.IsAttacking ? 1 : 0);
+        sb.Append('\t').Append(senses.Player.IsChoppingTree ? 1 : 0);
+        sb.Append('\t').Append(senses.Player.MinedOre != null ? 1 : 0);
+        // The cost of the pose grid in the game, per tick: the last plan's and the last reach flood's wall-clock.
+        sb.Append('\t').Append(brain.Navigator.LastPlanMs.ToString("0.00")).Append('\t').Append(brain.Positioner.LastFloodMs.ToString("0.00"));
+        // The two above are sticky (the last search's cost, repeated until the next); these six
+        // are this tick's, so a sum over a stretch of rows is the brain's real share of the wall.
+        sb.Append('\t').Append(brain.SensesMs.ToString("0.00")).Append('\t').Append(brain.ReflexMs.ToString("0.00"))
+          .Append('\t').Append(brain.DecideMs.ToString("0.00")).Append('\t').Append(brain.PositionMs.ToString("0.00"))
+          .Append('\t').Append(brain.NavigateMs.ToString("0.00")).Append('\t').Append(brain.TotalMs.ToString("0.00"))
+          .Append('\t').Append(Infrastructure.Movement.AStar.CachedTiles)
+          // Ticks sealed off from the player; a roam is a wander row while this stays above zero.
+          .Append('\t').Append(brain.StrandedTicks)
+          .Append('\t').Append(brain.Positioner.ReachCount)
+          .Append('\t').Append(brain.Positioner.ReturnableCount)
+          .Append('\t').Append(brain.Positioner.ChosenReturnable ? 1 : 0)
+          .Append('\t').Append(brain.Positioner.PlayerOnlyOneWay ? 1 : 0);
+        // The last step the follower finished or faulted, sticky until the next: the move, the
+        // ticks it was proven to take against the ticks it took, and how it ended. Read against
+        // the replay's --follow on the same block, this is where the body model and the game's
+        // engine disagree per kind of move; the count column says when a new one has landed.
+        if (brain.Navigator.LastEdge is Infrastructure.Movement.EdgeReport edge)
+            sb.Append('\t').Append(brain.Navigator.EdgeCount).Append('\t').Append(edge.Kind)
+              .Append('\t').Append(edge.From.X).Append(',').Append(edge.From.Y)
+              .Append('\t').Append(edge.Tile.X).Append(',').Append(edge.Tile.Y)
+              .Append('\t').Append(edge.Expected).Append('\t').Append(edge.Actual).Append('\t').Append(edge.Outcome);
+        else
+            sb.Append("\t0\t-\t-\t-\t0\t0\t-");
+
+        sb.Append('\t').Append(guard?.ProtectedThreatId ?? -1);
+        sb.Append('\t').Append((guard?.RetainedPressure ?? 0f).ToString("0.000", CultureInfo.InvariantCulture));
+        sb.Append('\t').Append(guard?.CommitmentReason ?? "unavailable");
+        sb.Append('\t').Append(mine?.JobId ?? 0);
+        sb.Append('\t').Append(mine?.Policy.ToString() ?? "unavailable");
+        sb.Append('\t').Append(mine?.Status ?? "unavailable");
+        sb.Append('\t').Append(mine?.RemainingTiles ?? 0);
+        sb.Append('\t').Append(mine?.TargetTile?.ToString() ?? "-");
+        sb.Append('\t').Append(companion.Arsenal.TargetEvidenceTick);
+        sb.Append('\t').Append(senses.Tick - companion.Arsenal.TargetEvidenceTick);
+        sb.Append('\t').Append(companion.Arsenal.TargetEvidence);
+
+        Player player = Main.LocalPlayer;
+        sb.Append('\t').Append(sessionClock.Elapsed.TotalMilliseconds.ToString("0.000", CultureInfo.InvariantCulture));
+        // The three phases are deliberately named together: the motor sampled ObservedState at
+        // AI entry, then built PredictedState from that observation and this tick's controls, and
+        // the legacy npc_px below was sampled after AI helpers such as StepUp may have moved it.
+        sb.Append("\tobserved_before_ai;request_after_ai;npc_px_after_helpers");
+        sb.Append('\t').Append(Pair(player.Bottom));
+        sb.Append('\t').Append(Pair(player.velocity));
+        sb.Append('\t').Append(player.velocity.Y == 0f ? 1 : 0);
+        sb.Append('\t').Append(player.shimmerWet ? "shimmer" : Liquid(player.wet, player.honeyWet, player.lavaWet));
+        sb.Append('\t').Append(player.statLife).Append('/').Append(player.statLifeMax2);
+        string playerHit = pendingPlayerHit ?? "-";
+        pendingPlayerHit = null;
+        sb.Append('\t').Append(playerHit);
+        string companionHit = pendingCompanionHit ?? "-";
+        pendingCompanionHit = null;
+        sb.Append('\t').Append(companionHit);
+        sb.Append('\t').Append(player.dead ? "dead" : "alive");
+        sb.Append('\t').Append(PlayerActivity(player, senses));
+        sb.Append('\t').Append(SupportAt(player.Bottom));
+        BodyState observed = companion.Motor.ObservedState;
+        sb.Append('\t').Append(SupportAt(new Vector2(observed.Left + npc.width / 2f, observed.Bottom)));
+        sb.Append('\t').Append(DescribeControls(companion.Motor.AppliedControls));
+        sb.Append('\t').Append(companion.Motor.ControlSource);
+        sb.Append('\t').Append(brainExecuted ? 1 : 0);
+        AppendState(sb, observed);
+        AppendState(sb, companion.Motor.PredictedState);
+        sb.Append('\t').Append(npc.width).Append('\t').Append(npc.height);
+        sb.Append('\t').Append(brain.Navigator.Status).Append('\t').Append(brain.Positioner.ChoiceReason);
+        sb.Append('\t').Append(brain.MovementStalled ? 1 : 0).Append('\t').Append(survival?.EscapeActive == true ? 1 : 0);
+        sb.Append('\t').Append(survival?.EscapeStage ?? "inactive").Append('\t').Append(survival?.AirTarget?.ToString() ?? "-");
+        sb.Append('\t').Append(brain.Movement.StateSearchPending ? 1 : 0).Append('\t').Append(brain.Movement.StateSearchRetainedTicks);
+        sb.Append('\t').Append(senses.Self.HeadUnderwater ? 1 : 0).Append('\t').Append(companion.Breath.TicksLeft);
+        sb.Append('\t').Append(companion.Arsenal.LastAttackValue.ToString("0.000", CultureInfo.InvariantCulture));
+        sb.Append('\t').Append(companion.Arsenal.LastExpectedKills).Append('\t').Append(companion.Arsenal.LastPreventedHarm.ToString("0.000", CultureInfo.InvariantCulture));
+        sb.Append('\t').Append(companion.Arsenal.CooldownTicks).Append('\t').Append(hunt?.NoProgressTicks ?? 0).Append('\t').Append(hunt?.LastRejection ?? "unavailable");
+        sb.Append('\t').Append(choiceEvaluated ? 1 : 0).Append('\t').Append(brain.Chooser.EvaluationId)
+            .Append('\t').Append(brain.Chooser.EvaluationTick?.ToString(CultureInfo.InvariantCulture) ?? "-1");
+        sb.Append('\t').Append(controlFresh ? 1 : 0).Append('\t').Append(controlGrant?.Id ?? 0)
+            .Append('\t').Append(controlGrant?.Tick.ToString(CultureInfo.InvariantCulture) ?? "-1")
+            .Append('\t').Append(controlGrant?.Hand.ToString() ?? "unavailable")
+            .Append('\t').Append(controlGrant?.RequestedOwner ?? "unavailable")
+            .Append('\t').Append(controlGrant?.MotorApplications ?? 0)
+            .Append('\t').Append(controlFresh ? brain.FinaliseMs.ToString("0.00", CultureInfo.InvariantCulture) : "0.00");
+        sb.Append('\t').Append(brain.Safety.Id).Append('\t').Append(brain.Safety.Active ? 1 : 0)
+            .Append('\t').Append(brain.Safety.Kind).Append('\t').Append(brain.Safety.Reason).Append('\t').Append(brain.Safety.LastEndReason);
+        sb.Append('\t').Append(senses.Player.Intent.Y.ToString("0.000", CultureInfo.InvariantCulture))
+            .Append('\t').Append(senses.Player.Activity.Confidence.ToString("0.000", CultureInfo.InvariantCulture))
+            .Append('\t').Append(senses.Player.Activity.Samples)
+            .Append('\t').Append(senses.Player.Activity.LocalWorkFraction.ToString("0.000", CultureInfo.InvariantCulture));
+        sb.Append('\t').Append((mine?.RemainingWork?.Ticks ?? -1f).ToString("0.000", CultureInfo.InvariantCulture))
+            .Append('\t').Append(mine?.RemainingWork?.Hits ?? -1)
+            .Append('\t').Append((chop?.RemainingWork?.Ticks ?? -1f).ToString("0.000", CultureInfo.InvariantCulture))
+            .Append('\t').Append(chop?.RemainingWork?.Hits ?? -1);
+        sb.Append('\t').Append(brain.Chooser.Reunion.ApartTicks)
+            .Append('\t').Append(brain.Chooser.Reunion.Departure.ToString("0.000", CultureInfo.InvariantCulture))
+            .Append('\t').Append(brain.Chooser.Reunion.DelayCostPerTick.ToString("0.000000", CultureInfo.InvariantCulture));
+        sb.Append('\t').Append(brain.LastAction is Activities.NearbyAssistance.CollectNearbyItems collection
+            ? collection.Method : "none");
+        var end = mine?.LastConclusion;
+        sb.Append('\t').Append(end?.JobId ?? 0)
+            .Append('\t').Append(end?.Tick.ToString(CultureInfo.InvariantCulture) ?? "-1")
+            .Append('\t').Append(end?.Reason ?? "none")
+            .Append('\t').Append(end?.Tracked ?? -1)
+            .Append('\t').Append(end?.Present ?? -1)
+            .Append('\t').Append(end?.Changed ?? -1)
+            .Append('\t').Append(end?.Missing ?? -1)
+            .Append('\t').Append(end?.Unobserved ?? -1)
+            .Append('\t').Append(end?.CompanionRemovals ?? -1)
+            .Append('\t').Append(end?.ObservedClear == true ? 1 : 0);
+        var owner = brain.Chooser.Activity;
+        var attempt = owner.LastAttempt;
+        sb.Append('\t').Append(owner.AttemptOpen ? owner.AttemptId : 0)
+            .Append('\t').Append(attempt?.AttemptId ?? 0)
+            .Append('\t').Append(attempt?.ActivityId ?? 0)
+            .Append('\t').Append(attempt?.Activity ?? "none")
+            .Append('\t').Append(attempt?.Family.ToString() ?? "none")
+            .Append('\t').Append(attempt?.Status.ToString() ?? "none")
+            .Append('\t').Append(attempt?.Cause ?? "none")
+            .Append('\t').Append(attempt?.Attribution.ToString() ?? "none")
+            .Append('\t').Append(attempt?.ProductiveEffects ?? -1)
+            .Append('\t').Append(attempt?.StartTick.ToString(CultureInfo.InvariantCulture) ?? "-1")
+            .Append('\t').Append(attempt?.EndTick.ToString(CultureInfo.InvariantCulture) ?? "-1");
+        // The retained board's classification, keyed like the raw/final pairs; an activity absent
+        // from the latest comparison says so rather than borrowing an eligibility it never received.
+        foreach (var a in brain.Chooser.Actions)
+        {
+            string offer = "not-compared";
+            foreach (var s in brain.Chooser.LastScores)
+                if (ReferenceEquals(s.Action, a)) { offer = s.Eligibility + ":" + s.EligibilityReason; break; }
+            sb.Append('\t').Append(offer);
+        }
+        // Retained from the last completed comparison, like the score board; -1 before any.
+        foreach (var family in Enum.GetValues<Infrastructure.Selection.PurposeFamily>())
+        {
+            int index = Array.FindIndex(brain.Chooser.Queries.LastFamilies, f => f.Family == family);
+            if (index < 0) { sb.Append("\t-1\t-1\t-1"); continue; }
+            var queries = brain.Chooser.Queries.LastFamilies[index];
+            sb.Append('\t').Append(queries.Prepared).Append('\t').Append(queries.Deferred)
+                .Append('\t').Append(queries.Milliseconds.ToString("0.000", CultureInfo.InvariantCulture));
+        }
+        // The meeting place keeps company's reunion reason and prices; -1 is an unpriced time, and a
+        // reason of not-reuniting means the columns describe no current destination.
+        var meeting = brain.Meeting;
+        bool reuniting = meeting.Reason != "not-reuniting";
+        sb.Append('\t').Append(meeting.Reason)
+            .Append('\t').Append(reuniting ? FormattableString.Invariant($"{meeting.Anchor.X:0},{meeting.Anchor.Y:0}") : "-")
+            .Append('\t').Append(float.IsNaN(meeting.PlayerTicks) ? "-1" : meeting.PlayerTicks.ToString("0.0", CultureInfo.InvariantCulture))
+            .Append('\t').Append(float.IsNaN(meeting.CompanionTicks) ? "-1" : meeting.CompanionTicks.ToString("0.0", CultureInfo.InvariantCulture))
+            .Append('\t').Append(meeting.Candidates.Count)
+            .Append('\t').Append(meeting.Priced)
+            .Append('\t').Append(meeting.FloodState);
+        // Why the held movement goal is not being delivered, sticky until delivery or a new goal,
+        // joined to the search and attempt it came from; and how attempts have ended, with physical
+        // completion and voluntary cancellation counted apart.
+        var movementFailure = brain.Navigator.LastFailure;
+        sb.Append('\t').Append(movementFailure?.Kind.ToString() ?? "None")
+            .Append('\t').Append(movementFailure?.Reason is { Length: > 0 } why ? why : "-")
+            .Append('\t').Append(movementFailure?.SearchId ?? 0)
+            .Append('\t').Append(movementFailure?.AttemptId ?? 0)
+            .Append('\t').Append(brain.Navigator.LastEnding?.ToString() ?? "-")
+            .Append('\t').Append(brain.Navigator.CompletedAttempts)
+            .Append('\t').Append(brain.Navigator.FailedAttempts)
+            .Append('\t').Append(brain.Navigator.PreemptedAttempts)
+            .Append('\t').Append(brain.Navigator.CancelledAttempts);
+        // Where the feet are going, what the hands chose and what the game says a companion shot struck
+        // are three different facts, so each has its own slot:generation column; a shot at the visible
+        // enemy is not progress against the hidden one a hunt walks toward, and a piercing arrow aimed at
+        // one enemy can land on the one in front. Guard's removal estimate and share, and what the most
+        // urgent threat's hit costs each body after defence, sit beside them. Infinity is written as -1
+        // so every numeric column parses as a number.
+        static string Identity(NPC? subject) => subject != null && subject.active
+            ? string.Create(CultureInfo.InvariantCulture, $"{subject.whoAmI}:{Infrastructure.Observation.HostileAttackSources.Generation(subject)}") : "-";
+        sb.Append('\t').Append(Identity(hunt?.Target?.Npc));
+        sb.Append('\t').Append((hunt?.PursuitValue ?? 0f).ToString("0.000", CultureInfo.InvariantCulture));
+        sb.Append('\t').Append((hunt?.PursuitAccessTicks ?? 0f).ToString("0.0", CultureInfo.InvariantCulture));
+        sb.Append('\t').Append(string.IsNullOrEmpty(hunt?.PursuitEvidence) ? "-" : hunt!.PursuitEvidence);
+        sb.Append('\t').Append(Identity(brain.EngageTarget));
+        var landed = Weapons.TrackLandedHits.Last;
+        sb.Append('\t').Append(landed is { } hit ? string.Create(CultureInfo.InvariantCulture, $"{hit.HitSlot}:{hit.HitGeneration}") : "-");
+        sb.Append('\t').Append(landed is { } aimed ? string.Create(CultureInfo.InvariantCulture, $"{aimed.AimSlot}:{aimed.AimGeneration}") : "-");
+        sb.Append('\t').Append(landed?.Damage ?? 0);
+        sb.Append('\t').Append(landed?.Tick.ToString(CultureInfo.InvariantCulture) ?? "-1");
+        sb.Append('\t').Append(Weapons.TrackLandedHits.Count);
+        float removal = guard?.RemovalTicks ?? float.PositiveInfinity;
+        sb.Append('\t').Append(float.IsFinite(removal) ? removal.ToString("0.0", CultureInfo.InvariantCulture) : "-1");
+        sb.Append('\t').Append((guard?.InterventionUsefulness ?? 1f).ToString("0.000", CultureInfo.InvariantCulture));
+        sb.Append('\t').Append((top?.EffectiveDamageToPlayer ?? 0f).ToString("0.0", CultureInfo.InvariantCulture));
+        sb.Append('\t').Append((top?.EffectiveDamageToCompanion ?? 0f).ToString("0.0", CultureInfo.InvariantCulture));
+        var encounter = brain.Senses.Encounter;
+        sb.Append('\t').Append(encounter.Intensity.ToString("0.000", CultureInfo.InvariantCulture));
+        sb.Append('\t').Append(encounter.Source);
+        sb.Append('\t').Append(encounter.Recognised ? 1 : 0);
+        sb.Append('\t').Append(encounter.PressureTicks);
+        // The firing access guard's share counted: zero from here, the walk after moving, -1 for an
+        // unsettled region, a proven absence or a threat nothing can damage (read the share beside it).
+        float access = guard?.AccessTicks ?? float.NaN;
+        sb.Append('\t').Append(float.IsFinite(access) ? access.ToString("0.0", CultureInfo.InvariantCulture) : "-1");
+        var region = brain.Positioner.Region;
+        // A claimed arrival is the navigator reporting Arrived on a tick the ordinary branch asked it to travel;
+        // any other owner leaves the status from an earlier MoveTo, which is not a claim about this tick.
+        // The feet are the entry body the navigator judged, not the after-helper npc_px.
+        bool arrivalClaimed = brain.Navigator.Status == Infrastructure.Movement.Navigator.ExecutionStatus.Arrived
+            && controlGrant?.RequestedOwner == "travel";
+        bool? inside = arrivalClaimed ? region.Contains(new Vector2(observed.Left + npc.width / 2f, observed.Bottom)) : null;
+        sb.Append('\t').Append(region.Name)
+            .Append('\t').Append(brain.Positioner.ChosenRevision)
+            .Append('\t').Append(region.AdmittedTick)
+            .Append('\t').Append(region.TerrainRevision)
+            .Append('\t').Append(region.Kind == Infrastructure.Position.SuccessRegionKind.None ? "-" : Pair(region.Anchor))
+            .Append('\t').Append(region.Kind == Infrastructure.Position.SuccessRegionKind.FollowComfort ? Pair(region.PlayerFeet) : "-")
+            .Append('\t').Append(region.Kind == Infrastructure.Position.SuccessRegionKind.FollowComfort ? Pair(region.Comfort) : "-")
+            .Append('\t').Append(region.WorkTile is Point work ? $"{work.X},{work.Y}" : "-")
+            .Append('\t').Append(region.Kind == Infrastructure.Position.SuccessRegionKind.ToolReach ? $"{region.ReachX},{region.ReachY}" : "-")
+            .Append('\t').Append(!arrivalClaimed ? "-" : inside is bool b ? (b ? "inside" : "outside") : "undeclared");
+        sb.Append('\t').Append(double.IsNaN(lastRecordMs) ? "-" : lastRecordMs.ToString("0.000", CultureInfo.InvariantCulture))
+            .Append('\t').Append(GodsEyeEvents.Written)
+            .Append('\t').Append(GodsEyeEvents.Dropped)
+            .Append('\t').Append(GodsEyeEvents.Coalesced)
+            .Append('\t').Append(RecordTerrainChunks.Evictions);
+
+        // A write that fails (disk full, a stream the OS closed) must not escape the NPC's AI
+        // and take the companion with it; the record stops and the game goes on.
+        try
+        {
+            writer.WriteLine(sb.ToString());
+            rowsWritten++;
+            if (++sinceFlush >= FlushEveryTicks)
+            {
+                sinceFlush = 0;
+                writer.Flush();
+                GodsEyeEvents.Flush();
+            }
+        }
+        catch (Exception e)
+        {
+            ModContent.GetInstance<AICompanion>().Logger.Error($"BrainTelemetry: write failed, recording stops: {e.Message}");
+            try { writer.Dispose(); } catch { /* the stream is already broken */ }
+            writer = null;
+        }
+        lastRecordMs = recordClock.Elapsed.TotalMilliseconds;
+    }
+
+    private static string Tile(Vector2 world) => $"{(int)(world.X / 16f)},{(int)(world.Y / 16f)}";
+
+    private static string Pair(Vector2 value) => $"{value.X.ToString("0.00", CultureInfo.InvariantCulture)},{value.Y.ToString("0.00", CultureInfo.InvariantCulture)}";
+
+    private static string Liquid(bool wet, bool honey, bool lava) => lava ? "lava" : honey ? "honey" : wet ? "water" : "dry";
+
+    private static string PlayerActivity(Player player, Infrastructure.Observation.Senses senses)
+        => senses.Player.IsChoppingTree ? "chop"
+         : senses.Player.MinedOre != null ? "mine"
+         : senses.Player.IsAttacking ? "attack"
+         : player.itemAnimation > 0 ? "item-use"
+         : MathF.Abs(player.velocity.X) > 0.2f ? "move"
+         : "idle";
+
+    private static string SupportAt(Vector2 bottom)
+    {
+        // FeetTile is the final pixel occupied by the body, above a flat support. The support
+        // probe starts at the first pixel below the body so ordinary ground does not read air.
+        Point feet = new((int)MathF.Floor(bottom.X / 16f), (int)MathF.Floor(bottom.Y / 16f));
+        TileShape shape = NavGrid.World.Shape(feet.X, feet.Y);
+        bool passThrough = NavGrid.World.PassThrough(feet.X, feet.Y);
+        return shape switch
+        {
+            // A hammered platform retains its fall-through rule even when its shape is a slope;
+            // exposing that distinction lets the reader recognise a stair tread sequence without
+            // calling every slope a stair from position alone.
+            TileShape.SolidLowerLeft => passThrough ? "platform-slope-lower-left" : "slope-lower-left",
+            TileShape.SolidLowerRight => passThrough ? "platform-slope-lower-right" : "slope-lower-right",
+            TileShape.SolidUpperLeft => "slope-upper-left",
+            TileShape.SolidUpperRight => "slope-upper-right",
+            TileShape.Half => "half-block",
+            TileShape.Platform => passThrough ? "platform" : "solid-platform",
+            TileShape.Solid => "solid",
+            _ => "air",
+        };
+    }
+
+    internal static string DescribeControls(Controls controls)
+        => $"move={controls.MoveX.ToString("0.00", CultureInfo.InvariantCulture)};jump={(controls.Jump ? 1 : 0)};scale={controls.JumpScale.ToString("0.00", CultureInfo.InvariantCulture)};fall={(controls.FallThrough ? 1 : 0)};descend={(controls.Descend ? 1 : 0)}";
+
+    private static void AppendState(StringBuilder sb, BodyState? state)
+    {
+        if (state is not BodyState body)
+        {
+            sb.Append("\t-\t-\t-\t-\t-\t-");
+            return;
+        }
+        sb.Append('\t').Append(body.Left.ToString("0.00", CultureInfo.InvariantCulture));
+        sb.Append('\t').Append(body.Bottom.ToString("0.00", CultureInfo.InvariantCulture));
+        sb.Append('\t').Append(body.Vx.ToString("0.00", CultureInfo.InvariantCulture)).Append(',').Append(body.Vy.ToString("0.00", CultureInfo.InvariantCulture));
+        sb.Append('\t').Append(body.OnGround ? 1 : 0);
+        sb.Append('\t').Append(body.Wet ? 1 : 0);
+        sb.Append('\t').Append($"air={body.Mobility.AirJumpsLeft};latched={(body.Mobility.Latched ? 1 : 0)};dash={body.Mobility.DashCooldown}");
+    }
+}

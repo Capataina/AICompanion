@@ -111,13 +111,13 @@ The least speculative architectural step is to make those distinctions observabl
 ## Sources
 
 [^1]: [CoordinateBrainTick.cs](../../Companion/Brain/CoordinateBrainTick.cs), `Tick`, `TickPhases`, `TryFollowRecovery`, `Engage`; [CompanionNPC.cs](../../Companion/CharacterBody/CompanionNPC.cs), lifecycle and downing.
-[^2]: [ChooseBehaviour.cs](../../Companion/Brain/BehaviourSelection/ChooseBehaviour.cs), `Actions`, `Choose`, `RecordWork`; [CompanionAction.cs](../../Companion/Brain/Behaviours/CompanionAction.cs), activity identity and admission.
-[^3]: [MineAction.cs](../../Companion/Brain/Behaviours/Work/MineAction.cs), `Score`, `UnprovenApproach`, `Execute`, `NextInPatch`.
-[^4]: [OreFinder.cs](../../Companion/Brain/WorldInteractions/Mining/OreFinder.cs), `Approach`, `InReach`, `HasLineToExposedFace`; [TileMiner.cs](../../Companion/Brain/WorldInteractions/Mining/TileMiner.cs), `CanMine`, `Swing`.
-[^5]: [ChopAction.cs](../../Companion/Brain/Behaviours/Work/ChopAction.cs), mode-specific discovery, `Score`, `Execute`.
-[^6]: [LootAction.cs](../../Companion/Brain/Behaviours/Gathering/LootAction.cs); [CompanionNPC.cs](../../Companion/CharacterBody/CompanionNPC.cs), `CollectTouchedItems`.
-[^7]: [HuntAction.cs](../../Companion/Brain/Behaviours/Combat/HuntAction.cs), `Resolve`, `PickTarget`, `ObserveOutcome`; [Arsenal.cs](../../Companion/Weapons/Arsenal.cs), attack evaluation and firing.
-[^8]: [ChooseUsefulPosition.cs](../../Companion/Brain/PositionSelection/ChooseUsefulPosition.cs), `Best`; [Navigator.cs](../../Companion/Brain/SharedMovementSystem/MovementExecution/Navigator.cs), arrival acceptance.
-[^9]: [ObserveThreats.cs](../../Companion/Brain/WorldObservation/ObserveThreats.cs); [ObserveHostileAttackSources.cs](../../Companion/Brain/WorldObservation/ObserveHostileAttackSources.cs); [ObserveCompanion.cs](../../Companion/Brain/WorldObservation/ObserveCompanion.cs).
-[^10]: [AssessImmediateThreats.cs](../../Companion/Brain/CombatReflexes/AssessImmediateThreats.cs), `TryAssess`.
-[^11]: [CompanionNPC.cs](../../Companion/CharacterBody/CompanionNPC.cs), stat scaling; [DescribeMovementCapabilities.cs](../../Companion/Brain/SharedMovementSystem/MovementAbilities/DescribeMovementCapabilities.cs); [ApplyMovementAbilities.cs](../../Companion/Brain/SharedMovementSystem/MovementAbilities/ApplyMovementAbilities.cs).
+[^2]: [ChooseBehaviour.cs](../../Companion/Brain/Infrastructure/Selection/ChooseBehaviour.cs), `Actions`, `Choose`, `RecordWork`; [CompanionAction.cs](../../Companion/Brain/Activities/CompanionAction.cs), activity identity and admission.
+[^3]: [MineAction.cs](../../Companion/Brain/Activities/MineAction.cs), `Score`, `UnprovenApproach`, `Execute`, `NextInPatch`.
+[^4]: [OreFinder.cs](../../Companion/Brain/Infrastructure/Interactions/Mining/OreFinder.cs), `Approach`, `InReach`, `HasLineToExposedFace`; [TileMiner.cs](../../Companion/Brain/Infrastructure/Interactions/Mining/TileMiner.cs), `CanMine`, `Swing`.
+[^5]: [ChopAction.cs](../../Companion/Brain/Activities/ChopAction.cs), mode-specific discovery, `Score`, `Execute`.
+[^6]: [LootAction.cs](../../Companion/Brain/Activities/Gathering/LootAction.cs); [CompanionNPC.cs](../../Companion/CharacterBody/CompanionNPC.cs), `CollectTouchedItems`.
+[^7]: [HuntAction.cs](../../Companion/Brain/Activities/Combat/HuntAction.cs), `Resolve`, `PickTarget`, `ObserveOutcome`; [Arsenal.cs](../../Companion/Weapons/Arsenal.cs), attack evaluation and firing.
+[^8]: [ChooseUsefulPosition.cs](../../Companion/Brain/Infrastructure/Position/ChooseUsefulPosition.cs), `Best`; [Navigator.cs](../../Companion/Brain/Infrastructure/Movement/MovementExecution/Navigator.cs), arrival acceptance.
+[^9]: [ObserveThreats.cs](../../Companion/Brain/Infrastructure/Observation/ObserveThreats.cs); [ObserveHostileAttackSources.cs](../../Companion/Brain/Infrastructure/Observation/ObserveHostileAttackSources.cs); [ObserveCompanion.cs](../../Companion/Brain/Infrastructure/Observation/ObserveCompanion.cs).
+[^10]: [AssessImmediateThreats.cs](../../Companion/Brain/SharedBehaviours/Safety/AssessImmediateThreats.cs), `TryAssess`.
+[^11]: [CompanionNPC.cs](../../Companion/CharacterBody/CompanionNPC.cs), stat scaling; [DescribeMovementCapabilities.cs](../../Companion/Brain/Infrastructure/Movement/MovementAbilities/DescribeMovementCapabilities.cs); [ApplyMovementAbilities.cs](../../Companion/Brain/Infrastructure/Movement/MovementAbilities/ApplyMovementAbilities.cs).

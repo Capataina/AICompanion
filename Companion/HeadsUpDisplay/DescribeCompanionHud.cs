@@ -1,6 +1,6 @@
 #nullable enable
-using AICompanion.Companion.Brain.ActivityCoordination;
-using AICompanion.Companion.Brain.BehaviourSelection;
+using AICompanion.Companion.Brain.Infrastructure.Grants;
+using AICompanion.Companion.Brain.Infrastructure.Selection;
 
 namespace AICompanion.Companion.HeadsUpDisplay;
 

@@ -2,8 +2,8 @@ extern alias live;
 #nullable enable
 
 using System;
-using AICompanion.Companion.Brain.BehaviourSelection;
-using AICompanion.Companion.Brain.SharedMovementSystem;
+using AICompanion.Companion.Brain.Infrastructure.Selection;
+using AICompanion.Companion.Brain.Infrastructure.Movement;
 using Microsoft.Xna.Framework;
 using Terraria;
 
@@ -24,7 +24,7 @@ internal static class VerifyCapturedEscape
         // The full-brain cases lift the live tick's wall-clock planning allowances: under them, how far each
         // search got before its deadline decides the escape, so the verdict follows machine load rather than
         // the brain. The isolated searches above keep the budgets they exist to exercise.
-        live::AICompanion.Companion.Brain.SharedMovementSystem.LimitPlanningWork.Unbounded = true;
+        live::AICompanion.Companion.Brain.Infrastructure.Movement.LimitPlanningWork.Unbounded = true;
         try
         {
             failed += VerifyFullBrainAwning(false, 200);
@@ -32,7 +32,7 @@ internal static class VerifyCapturedEscape
             failed += VerifyFullBrainCapturedPool();
             failed += VerifyFullBrainCapturedPool(emptyOffers: true);
         }
-        finally { live::AICompanion.Companion.Brain.SharedMovementSystem.LimitPlanningWork.Unbounded = false; }
+        finally { live::AICompanion.Companion.Brain.Infrastructure.Movement.LimitPlanningWork.Unbounded = false; }
         return failed;
     }
 
@@ -41,7 +41,7 @@ internal static class VerifyCapturedEscape
         BuildCapturedPool();
         // The bare TerrainChanges in this file is EngineReplay's own copy, which the isolated searches use; the live
         // brain keeps its route knowledge in the live assembly, so a rebuilt world must be announced there.
-        live::AICompanion.Companion.Brain.SharedMovementSystem.TerrainChanges.Reset();
+        live::AICompanion.Companion.Brain.Infrastructure.Movement.TerrainChanges.Reset();
         var companion = VerifyCompanionLifecycle.Create();
         if (emptyOffers) companion.Brain.Chooser.Actions.Clear();
         Main.player[0].dead = false;
@@ -69,7 +69,7 @@ internal static class VerifyCapturedEscape
     private static int VerifyFullBrainAwning(bool mirrored, int breath)
     {
         BuildAwning(mirrored);
-        live::AICompanion.Companion.Brain.SharedMovementSystem.TerrainChanges.Reset();
+        live::AICompanion.Companion.Brain.Infrastructure.Movement.TerrainChanges.Reset();
         var companion = VerifyCompanionLifecycle.Create();
         Main.player[0].dead = false;
         Main.player[0].position = new Vector2((mirrored ? 70 : 30) * 16, 70 * 16 - Main.player[0].height);
@@ -107,7 +107,7 @@ internal static class VerifyCapturedEscape
     {
         BuildCapturedPool();
         TerrainChanges.Reset();
-        live::AICompanion.Companion.Brain.SharedMovementSystem.TerrainChanges.Reset();
+        live::AICompanion.Companion.Brain.Infrastructure.Movement.TerrainChanges.Reset();
         NavGrid.World = new GameTileWorld();
         // Exact captured NPC box, translated by the fixture's five-tile origin.
         BodyState live = new(5 * 16f + (60540f - 3704 * 16f), 5 * 16f + (9072f - 446 * 16f), 0f, 0f, true, Wet: true,
@@ -119,7 +119,7 @@ internal static class VerifyCapturedEscape
         // Surviving the escape is the contract; damage-free escape from a late
         // rescue is not guaranteed, and a one-cell dry-head test was insufficient.
         typeof(live::AICompanion.Companion.CharacterBody.CompanionBreath).GetProperty("Breath")!.SetValue(companion.Breath, 40);
-        var survival = new live::AICompanion.Companion.Brain.SharedSafety.ReachEnvironmentalSafety();
+        var survival = new live::AICompanion.Companion.Brain.SharedBehaviours.Safety.ReachEnvironmentalSafety();
         if (Environment.GetEnvironmentVariable("AIC_TRACE_POOL") == "1")
         {
             var search = new SearchControlSequences();
@@ -159,7 +159,7 @@ internal static class VerifyCapturedEscape
             companion.Motor.Track();
             companion.Breath.Update(companion.NPC);
             companion.Brain.Senses.Update(companion.NPC, Main.player[0], companion.Breath);
-            var context = new live::AICompanion.Companion.Brain.Behaviours.ActionContext(companion, companion.Brain.Senses);
+            var context = new live::AICompanion.Companion.Brain.Activities.ActionContext(companion, companion.Brain.Senses);
             bool chosen = survival.TryEscape(context, out var input, out bool pending);
             if (!chosen && !pending) throw new InvalidOperationException($"production escape has no control or pending work at {tick}");
             var controls = new Controls(input.MoveX, Jump: input.Jump, FallThrough: input.FallThrough, Descend: input.Descend);

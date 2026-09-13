@@ -4,11 +4,11 @@ using Microsoft.Xna.Framework;
 using Terraria;
 using Terraria.ID;
 using Terraria.ModLoader;
-using Policy = live::AICompanion.Companion.Brain.Behaviours.Work.WorkPolicy;
-using LineOfSight = live::AICompanion.Companion.Brain.WorldObservation.LineOfSight;
-using Guard = live::AICompanion.Companion.Brain.PurposeFamilies.Combat.ProtectPlayer;
-using Hunt = live::AICompanion.Companion.Brain.PurposeFamilies.Combat.PursueAttackOpportunity;
-using Weights = live::AICompanion.Companion.Brain.BehaviourSelection.Weights;
+using Policy = live::AICompanion.Companion.Brain.Activities.WorkPolicy;
+using LineOfSight = live::AICompanion.Companion.Brain.Infrastructure.Observation.LineOfSight;
+using Guard = live::AICompanion.Companion.Brain.Activities.Combat.ProtectPlayer;
+using Hunt = live::AICompanion.Companion.Brain.Activities.Combat.PursueAttackOpportunity;
+using Weights = live::AICompanion.Companion.Brain.Infrastructure.Selection.Weights;
 
 /// <summary>
 /// Proposal 1's P08 acceptance scenes for purposeful combat, each a matched pair or matrix that
@@ -137,10 +137,10 @@ internal static class VerifyCombatPurpose
             Projectile shot = Main.projectile.First(p => p.active);
             new live::AICompanion.Companion.Weapons.ObserveLandedCompanionHits().OnHitByProjectile(enemy, shot, new NPC.HitInfo { Damage = 5 }, 5);
 
-            var recorder = new live::AICompanion.Companion.Brain.BehaviourDiagnostics.BrainTelemetry();
+            var recorder = new live::AICompanion.Companion.Brain.Infrastructure.Diagnostics.BrainTelemetry();
             VerifyObservationLifecycle.Attach(recorder);
             recorder.OnWorldLoad();
-            string path = Directory.GetFiles(live::AICompanion.Companion.Brain.BehaviourDiagnostics.BrainTelemetry.Folder, "*.tsv")
+            string path = Directory.GetFiles(live::AICompanion.Companion.Brain.Infrastructure.Diagnostics.BrainTelemetry.Folder, "*.tsv")
                 .OrderByDescending(File.GetLastWriteTimeUtc).First();
             VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
             VerifyCompanionLifecycle.TickWithOneControlGrant(ctx.Companion);
@@ -162,7 +162,7 @@ internal static class VerifyCombatPurpose
                 Require(declaration.Split('=')[1].Split(',').Contains(text), "textual identity column not declared as text: " + text);
             string Value(string name) => values[Array.IndexOf(names, name)];
             string Identity(NPC? npc) => npc != null && npc.active
-                ? $"{npc.whoAmI}:{(live::AICompanion.Companion.Brain.WorldObservation.HostileAttackSources.Generation(npc))}" : "-";
+                ? $"{npc.whoAmI}:{(live::AICompanion.Companion.Brain.Infrastructure.Observation.HostileAttackSources.Generation(npc))}" : "-";
             var hunt = ctx.Companion.Brain.Chooser.Actions.OfType<Hunt>().Single();
             var landed = live::AICompanion.Companion.Weapons.TrackLandedHits.Last;
             Require(landed is { } hit && Value("landed_hit_target") == $"{hit.HitSlot}:{hit.HitGeneration}"
@@ -182,7 +182,7 @@ internal static class VerifyCombatPurpose
             foreach (int type in filledNames) nameCache[type] = null!;
             config.RecordTelemetry = false;
             config.OnChanged();
-            typeof(live::AICompanion.Companion.Brain.BehaviourDiagnostics.BrainTelemetry)
+            typeof(live::AICompanion.Companion.Brain.Infrastructure.Diagnostics.BrainTelemetry)
                 .GetMethod("Close", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)?.Invoke(null, new object[] { "fixture-close" });
             savePath.SetValue(null, priorSavePath);
             if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
@@ -286,12 +286,12 @@ internal static class VerifyCombatPurpose
         if (access == ShaftAccess.InSight)
             for (int x = ShaftLeft - 3; x < ShaftLeft; x++)
                 for (int y = PitFloorY; y < ShaftFloorY; y++) { Tile air = Main.tile[x, y]; air.HasTile = false; }
-        live::AICompanion.Companion.Brain.SharedMovementSystem.TerrainChanges.Reset();
-        live::AICompanion.Companion.Brain.SharedMovementSystem.NavGrid.World = new live::AICompanion.Companion.Brain.SharedMovementSystem.GameTileWorld();
-        live::AICompanion.Companion.Brain.SharedMovementSystem.AStar.InvalidateEdges();
+        live::AICompanion.Companion.Brain.Infrastructure.Movement.TerrainChanges.Reset();
+        live::AICompanion.Companion.Brain.Infrastructure.Movement.NavGrid.World = new live::AICompanion.Companion.Brain.Infrastructure.Movement.GameTileWorld();
+        live::AICompanion.Companion.Brain.Infrastructure.Movement.AStar.InvalidateEdges();
 
         var companion = VerifyCompanionLifecycle.Create();
-        live::AICompanion.Companion.Brain.SharedMovementSystem.AStar.MsBudget = 0;
+        live::AICompanion.Companion.Brain.Infrastructure.Movement.AStar.MsBudget = 0;
         Player player = Main.player[0];
         player.dead = false;
         player.statLife = player.statLifeMax2;
@@ -315,13 +315,13 @@ internal static class VerifyCombatPurpose
 
         var brain = companion.Brain;
         brain.Senses.Update(companion.NPC, player, companion.Breath);
-        var ctx = new live::AICompanion.Companion.Brain.Behaviours.ActionContext(companion, brain.Senses);
+        var ctx = new live::AICompanion.Companion.Brain.Activities.ActionContext(companion, brain.Senses);
         var threat = brain.Senses.Threats.Threats.Find(t => t.Npc == hidden);
         Require(threat != null && threat.CanReachPlayer && threat.Urgency > 0f,
             $"shaft guard {access}: the zombie must threaten the player before protection is read; urgency={threat?.Urgency}");
         var profile = companion.Arsenal.ProfileFor(ctx, hidden);
-        var request = new live::AICompanion.Companion.Brain.PositionSelection.PositionRequest(
-            live::AICompanion.Companion.Brain.PositionSelection.RequestKind.LineOfFire, hidden.Center, hidden);
+        var request = new live::AICompanion.Companion.Brain.Infrastructure.Position.PositionRequest(
+            live::AICompanion.Companion.Brain.Infrastructure.Position.RequestKind.LineOfFire, hidden.Center, hidden);
         // Settled, so a proven absence is the flood's finished answer rather than its budget.
         for (int i = 0; i < 400; i++) brain.Positioner.Resolve(request, brain.Senses, profile);
         brain.Senses.SetInterventionEstimate(companion.Arsenal.EstimateInterventionTicks(ctx));
@@ -341,7 +341,7 @@ internal static class VerifyCombatPurpose
     /// </summary>
     private static void ProtectionCountsTheTimeToReachAFiringPosition()
     {
-        live::AICompanion.Companion.Brain.SharedMovementSystem.LimitPlanningWork.Unbounded = true;
+        live::AICompanion.Companion.Brain.Infrastructure.Movement.LimitPlanningWork.Unbounded = true;
         ShaftGuard sealedShaft, lip, inSight;
         try
         {
@@ -349,7 +349,7 @@ internal static class VerifyCombatPurpose
             lip = GuardShaft(ShaftAccess.Lip);
             inSight = GuardShaft(ShaftAccess.InSight);
         }
-        finally { live::AICompanion.Companion.Brain.SharedMovementSystem.LimitPlanningWork.Unbounded = false; }
+        finally { live::AICompanion.Companion.Brain.Infrastructure.Movement.LimitPlanningWork.Unbounded = false; }
         foreach (var (name, scene) in new[] { ("sealed", sealedShaft), ("lip", lip), ("in-sight", inSight) })
             Console.WriteLine($"  guard access row {name}: guard={scene.Guard:0.0000} target={scene.Target} access={scene.Access} {scene.AccessTicks:0.0} removal={scene.Removal:0.0} share={scene.Usefulness:0.0000} player-urgency={scene.PlayerUrgency:0.000} protection-urgency={scene.ProtectionUrgency:0.000} reach-complete={scene.ReachComplete}");
 
@@ -414,11 +414,11 @@ internal static class VerifyCombatPurpose
         if (lineFromHere)
             for (int x = ShaftLeft - 3; x < ShaftLeft; x++)
                 for (int y = PitFloorY; y < ShaftFloorY; y++) { Tile air = Main.tile[x, y]; air.HasTile = false; }
-        live::AICompanion.Companion.Brain.SharedMovementSystem.TerrainChanges.Reset();
-        live::AICompanion.Companion.Brain.SharedMovementSystem.NavGrid.World = new live::AICompanion.Companion.Brain.SharedMovementSystem.GameTileWorld();
+        live::AICompanion.Companion.Brain.Infrastructure.Movement.TerrainChanges.Reset();
+        live::AICompanion.Companion.Brain.Infrastructure.Movement.NavGrid.World = new live::AICompanion.Companion.Brain.Infrastructure.Movement.GameTileWorld();
 
         var companion = VerifyCompanionLifecycle.Create();
-        live::AICompanion.Companion.Brain.SharedMovementSystem.AStar.MsBudget = 0;
+        live::AICompanion.Companion.Brain.Infrastructure.Movement.AStar.MsBudget = 0;
         Player player = Main.player[0];
         player.dead = false;
         player.statLife = player.statLifeMax2;
@@ -443,21 +443,21 @@ internal static class VerifyCombatPurpose
 
         var brain = companion.Brain;
         brain.Senses.Update(companion.NPC, player, companion.Breath);
-        var ctx = new live::AICompanion.Companion.Brain.Behaviours.ActionContext(companion, brain.Senses);
+        var ctx = new live::AICompanion.Companion.Brain.Activities.ActionContext(companion, brain.Senses);
         var hiddenThreat = brain.Senses.Threats.Threats.Find(t => t.Npc == hidden);
         var visibleThreat = brain.Senses.Threats.Threats.Find(t => t.Npc == visible);
         Require(hiddenThreat != null && visibleThreat != null, "both zombies must be observed threats before pursuit is read");
         float hiddenDanger = MathF.Max(hiddenThreat!.Urgency, hiddenThreat.UrgencyToCompanion);
         var profile = companion.Arsenal.ProfileFor(ctx, hidden);
-        var request = new live::AICompanion.Companion.Brain.PositionSelection.PositionRequest(
-            live::AICompanion.Companion.Brain.PositionSelection.RequestKind.LineOfFire, hidden.Center, hidden);
+        var request = new live::AICompanion.Companion.Brain.Infrastructure.Position.PositionRequest(
+            live::AICompanion.Companion.Brain.Infrastructure.Position.RequestKind.LineOfFire, hidden.Center, hidden);
         // The reachable region floods incrementally across rescores; settle it so the lip's reachability
         // is a fact rather than a flood budget.
         for (int i = 0; i < 400; i++) brain.Positioner.Resolve(request, brain.Senses, profile);
         brain.Senses.SetInterventionEstimate(companion.Arsenal.EstimateInterventionTicks(ctx));
         // The hands rank their shots before the feet prepare, as the previous tick's hands step would have.
         NPC? aim = companion.Arsenal.BestTarget(ctx);
-        var hunt = brain.Chooser.Actions.OfType<live::AICompanion.Companion.Brain.PurposeFamilies.Combat.PursueAttackOpportunity>().Single();
+        var hunt = brain.Chooser.Actions.OfType<live::AICompanion.Companion.Brain.Activities.Combat.PursueAttackOpportunity>().Single();
         VerifyPreparedActivities.PrepareAndScore(hunt, ctx);
 
         string hiddenVerdict = "unexamined"; float hiddenAccess = float.NaN, hiddenValue = float.NaN, visibleValue = float.NaN;

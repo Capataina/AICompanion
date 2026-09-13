@@ -1,21 +1,21 @@
 extern alias live;
 
-using FindToolAccess = live::AICompanion.Companion.Brain.WorldInteractions.FindToolAccess;
+using FindToolAccess = live::AICompanion.Companion.Brain.Infrastructure.Interactions.FindToolAccess;
 using Microsoft.Xna.Framework;
 using Terraria;
 using Terraria.ID;
 using Terraria.ModLoader;
 using System.Reflection;
-using MineOre = live::AICompanion.Companion.Brain.PurposeFamilies.Gathering.MineOre;
-using WorkPolicies = live::AICompanion.Companion.Brain.Behaviours.Work.WorkPolicies;
-using WorkPolicy = live::AICompanion.Companion.Brain.Behaviours.Work.WorkPolicy;
-using ActionContext = live::AICompanion.Companion.Brain.Behaviours.ActionContext;
-using AStar = live::AICompanion.Companion.Brain.SharedMovementSystem.AStar;
-using Reachability = live::AICompanion.Companion.Brain.SharedMovementSystem.Reachability;
-using TerrainChanges = live::AICompanion.Companion.Brain.SharedMovementSystem.TerrainChanges;
-using OfferEligibility = live::AICompanion.Companion.Brain.Behaviours.OfferEligibility;
-using AttemptStatus = live::AICompanion.Companion.Brain.Behaviours.AttemptStatus;
-using TileMiner = live::AICompanion.Companion.Brain.WorldInteractions.Mining.TileMiner;
+using MineOre = live::AICompanion.Companion.Brain.Activities.Gathering.MineOre;
+using WorkPolicies = live::AICompanion.Companion.Brain.Activities.WorkPolicies;
+using WorkPolicy = live::AICompanion.Companion.Brain.Activities.WorkPolicy;
+using ActionContext = live::AICompanion.Companion.Brain.Activities.ActionContext;
+using AStar = live::AICompanion.Companion.Brain.Infrastructure.Movement.AStar;
+using Reachability = live::AICompanion.Companion.Brain.Infrastructure.Movement.Reachability;
+using TerrainChanges = live::AICompanion.Companion.Brain.Infrastructure.Movement.TerrainChanges;
+using OfferEligibility = live::AICompanion.Companion.Brain.Activities.OfferEligibility;
+using AttemptStatus = live::AICompanion.Companion.Brain.Activities.AttemptStatus;
+using TileMiner = live::AICompanion.Companion.Brain.Infrastructure.Interactions.Mining.TileMiner;
 
 /// <summary>Native-tile regression checks for the work policy and retained ore-job contracts.</summary>
 internal static class VerifyOreWork
@@ -72,11 +72,11 @@ internal static class VerifyOreWork
     {
         var (action, ctx) = SetUp(WorkPolicy.Disabled, TileID.Copper, new Point(25, 59));
         Require(VerifyPreparedActivities.PrepareAndScore(action, ctx) == 0f && action.RemainingTiles == 0 && action.Status == "disabled", "disabled mining must not retain ore work");
-        Require(action.Eligibility == live::AICompanion.Companion.Brain.Behaviours.OfferEligibility.PolicyForbidden && action.EligibilityReason == "mining-disabled",
+        Require(action.Eligibility == live::AICompanion.Companion.Brain.Activities.OfferEligibility.PolicyForbidden && action.EligibilityReason == "mining-disabled",
             $"a disabled policy must be classified as a policy prohibition, not as absent ore; got {action.Eligibility}/{action.EligibilityReason}");
         WorkPolicies.Mining = WorkPolicy.Opportunistic;
         Require(VerifyPreparedActivities.PrepareAndScore(action, ctx) > 0f
-            && action.Eligibility == live::AICompanion.Companion.Brain.Behaviours.OfferEligibility.Usable,
+            && action.Eligibility == live::AICompanion.Companion.Brain.Activities.OfferEligibility.Usable,
             $"the same exposed ore with mining enabled must be a usable offer; got {action.Eligibility}/{action.EligibilityReason}");
     }
 
@@ -88,7 +88,7 @@ internal static class VerifyOreWork
             Point ore = new(25, 89);
             var (_, ctx) = SetUp(WorkPolicy.Opportunistic, TileID.Copper, ore);
             var brain = ctx.Companion.Brain;
-            var workClock = new live::AICompanion.Companion.Brain.WorldObservation.TileDamageClock();
+            var workClock = new live::AICompanion.Companion.Brain.Infrastructure.Observation.TileDamageClock();
             workClock.OnWorldLoad();
             brain.Chooser.Actions.RemoveAll(action => action.Name is not ("mine" or "keep-company"));
             ctx.Player.Bottom = ctx.Npc.Bottom + new Vector2(separation - 120 * 4, 0);
@@ -100,7 +100,7 @@ internal static class VerifyOreWork
                 brain.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Breath);
                 workClock.PostUpdateEverything();
             }
-            Item pick = live::AICompanion.Companion.Brain.WorldInteractions.Mining.TileMiner.PickaxeFor(ctx.Player);
+            Item pick = live::AICompanion.Companion.Brain.Infrastructure.Interactions.Mining.TileMiner.PickaxeFor(ctx.Player);
             if (nearlyDone)
                 while (ctx.Companion.Miner.EstimateRemaining(ore, pick) is { Hits: > 1 })
                 {
@@ -137,7 +137,7 @@ internal static class VerifyOreWork
         // Route floods advance under millisecond slices; every edge on the mound runs a body simulation,
         // so a wall-clock slice would decide how far the route home is priced. Lifting the allowances
         // keeps each flood's work count as the only bound.
-        live::AICompanion.Companion.Brain.SharedMovementSystem.LimitPlanningWork.Unbounded = true;
+        live::AICompanion.Companion.Brain.Infrastructure.Movement.LimitPlanningWork.Unbounded = true;
         try
         {
         foreach (float speed in speeds)
@@ -148,7 +148,7 @@ internal static class VerifyOreWork
             var (_, ctx) = SetUp(WorkPolicy.Opportunistic, TileID.Copper, ore);
             BuildPlayersUpperFloor(90, gapNearPlayer: !farRoute);
             var brain = ctx.Companion.Brain;
-            var workClock = new live::AICompanion.Companion.Brain.WorldObservation.TileDamageClock();
+            var workClock = new live::AICompanion.Companion.Brain.Infrastructure.Observation.TileDamageClock();
             workClock.OnWorldLoad();
             brain.Chooser.Actions.RemoveAll(action => action.Name is not ("mine" or "keep-company"));
             const int separation = 576;
@@ -162,10 +162,10 @@ internal static class VerifyOreWork
                 brain.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Breath);
                 workClock.PostUpdateEverything();
             }
-            var home = new live::AICompanion.Companion.Brain.PositionSelection.PositionRequest(
-                live::AICompanion.Companion.Brain.PositionSelection.RequestKind.WithPlayer, ctx.Player.Bottom);
-            Point from = live::AICompanion.Companion.Brain.SharedMovementSystem.NavGrid.FeetTile(ctx.Npc.Bottom);
-            Point to = live::AICompanion.Companion.Brain.SharedMovementSystem.NavGrid.FeetTile(ctx.Player.Bottom);
+            var home = new live::AICompanion.Companion.Brain.Infrastructure.Position.PositionRequest(
+                live::AICompanion.Companion.Brain.Infrastructure.Position.RequestKind.WithPlayer, ctx.Player.Bottom);
+            Point from = live::AICompanion.Companion.Brain.Infrastructure.Movement.NavGrid.FeetTile(ctx.Npc.Bottom);
+            Point to = live::AICompanion.Companion.Brain.Infrastructure.Movement.NavGrid.FeetTile(ctx.Player.Bottom);
             // Prime to completion rather than to first contact: a cost-ordered flood can first reach the
             // player's tile the long way round and lower its ticks later along the short route.
             for (int i = 0; i < 3000 && !brain.Positioner.ReachComplete; i++)
@@ -173,8 +173,8 @@ internal static class VerifyOreWork
             if (brain.Positioner.EstimatedTravelTicks(from, to) == null)
             {
                 // An extern alias cannot appear inside an interpolation hole, so the diagnostics are locals.
-                bool standable = live::AICompanion.Companion.Brain.SharedMovementSystem.MovementQueries.IsStandable(to.X, to.Y);
-                var walker = live::AICompanion.Companion.Brain.SharedMovementSystem.MovementQueries.WalkerReach(from, to);
+                bool standable = live::AICompanion.Companion.Brain.Infrastructure.Movement.MovementQueries.IsStandable(to.X, to.Y);
+                var walker = live::AICompanion.Companion.Brain.Infrastructure.Movement.MovementQueries.WalkerReach(from, to);
                 Require(false, $"the route home must be priced before return cost can be compared; speed={speed} farRoute={farRoute} from={from} to={to} "
                     + $"standable={standable} inRegion={brain.Positioner.Reaches(to)} regionComplete={brain.Positioner.ReachComplete} walker={walker}");
             }
@@ -191,7 +191,7 @@ internal static class VerifyOreWork
                 brain.Positioner.EstimatedTravelTicks(from, to) ?? -1f);
         }
         }
-        finally { live::AICompanion.Companion.Brain.SharedMovementSystem.LimitPlanningWork.Unbounded = false; }
+        finally { live::AICompanion.Companion.Brain.Infrastructure.Movement.LimitPlanningWork.Unbounded = false; }
         string ledger = string.Join("; ", seen.Select(s =>
             $"{(s.Key.Speed == 0 ? "stationary" : $"departing {s.Key.Speed}px")}/{(s.Key.FarRoute ? "far-route" : "near-route")}/{(s.Key.NearlyDone ? "one-hit" : "fresh")}: "
             + $"{s.Value.Selected} mine={s.Value.Mine:0.000} delay={s.Value.Delay:0.00000} return={s.Value.Return:0} route={s.Value.Route:0}"));
@@ -243,7 +243,7 @@ internal static class VerifyOreWork
         var (mine, ctx) = SetUp(WorkPolicy.Opportunistic, TileID.Copper, ore);
         VerifyPreparedActivities.PrepareAndScore(mine, ctx);
         float untouched = mine.ForecastTicks();
-        Item pick = live::AICompanion.Companion.Brain.WorldInteractions.Mining.TileMiner.PickaxeFor(ctx.Player);
+        Item pick = live::AICompanion.Companion.Brain.Infrastructure.Interactions.Mining.TileMiner.PickaxeFor(ctx.Player);
         Require(ctx.Companion.Miner.Swing(ore, pick) && Main.tile[ore.X, ore.Y].HasTile,
             "remaining-work fixture needs actual partial native damage");
         for (int tick = 0; tick < pick.useTime; tick++) ctx.Companion.Miner.Tick();
@@ -255,7 +255,7 @@ internal static class VerifyOreWork
 
     private static void RemainingToolWorkMatchesNativeCompletion()
     {
-        Require(live::AICompanion.Companion.Brain.WorldInteractions.RemainingToolWork.Estimate(100, 35, 0, 10, "fixture")
+        Require(live::AICompanion.Companion.Brain.Infrastructure.Interactions.RemainingToolWork.Estimate(100, 35, 0, 10, "fixture")
             is { Hits: 1, Ticks: > 0 }, "an existing tile with a saturated buffer must still require an operation");
         bool priorWorld = Main.getGoodWorld;
         try
@@ -266,7 +266,7 @@ internal static class VerifyOreWork
                 var (_, ctx) = SetUp(WorkPolicy.Opportunistic, TileID.Copper, ore);
                 Main.getGoodWorld = worldModifier;
                 var miner = ctx.Companion.Miner;
-                Item pick = live::AICompanion.Companion.Brain.WorldInteractions.Mining.TileMiner.PickaxeFor(ctx.Player);
+                Item pick = live::AICompanion.Companion.Brain.Infrastructure.Interactions.Mining.TileMiner.PickaxeFor(ctx.Player);
                 var initial = miner.EstimateRemaining(ore, pick);
                 Require(initial is { Hits: > 0 } && miner.LastOutcome == null && miner.Ready,
                     "estimating native work must not swing or change cooldown");
@@ -293,14 +293,14 @@ internal static class VerifyOreWork
             Point hardOre = new(25, 89);
             var (_, weak) = SetUp(WorkPolicy.Opportunistic, TileID.Chlorophyte, hardOre);
             Require(weak.Companion.Miner.EstimateRemaining(hardOre,
-                live::AICompanion.Companion.Brain.WorldInteractions.Mining.TileMiner.PickaxeFor(weak.Player)) == null,
+                live::AICompanion.Companion.Brain.Infrastructure.Interactions.Mining.TileMiner.PickaxeFor(weak.Player)) == null,
                 "an incapable pick must not claim a finite completion estimate");
             var (_, tree) = SetUp(WorkPolicy.Opportunistic, TileID.Copper, hardOre);
             Main.tile[hardOre.X, hardOre.Y].TileType = TileID.Trees;
             Main.tileAxe[TileID.Trees] = true;
             Main.tileSolid[TileID.Trees] = false;
             var chopper = tree.Companion.Chopper;
-            Item axe = live::AICompanion.Companion.Brain.WorldInteractions.Chopping.TileChopper.AxeFor(tree.Player);
+            Item axe = live::AICompanion.Companion.Brain.Infrastructure.Interactions.Chopping.TileChopper.AxeFor(tree.Player);
             var before = chopper.EstimateRemaining(hardOre, axe);
             Require(before is { Hits: > 1 } && chopper.LastOutcome == null,
                 "axe estimate must describe unfinished work without producing an effect");
@@ -320,7 +320,7 @@ internal static class VerifyOreWork
         var (_, ctx) = SetUp(WorkPolicy.Opportunistic, TileID.Copper, ore);
         Require(FindToolAccess.InReach(ctx.Npc.Bottom, ore),
             "the productive-work control must begin within actual tool reach");
-        Item pick = live::AICompanion.Companion.Brain.WorldInteractions.Mining.TileMiner.PickaxeFor(ctx.Player);
+        Item pick = live::AICompanion.Companion.Brain.Infrastructure.Interactions.Mining.TileMiner.PickaxeFor(ctx.Player);
         int swings = 0;
         for (int tick = 0; tick < 600 && Main.tile[ore.X, ore.Y].HasTile; tick++)
         {
@@ -329,7 +329,7 @@ internal static class VerifyOreWork
         }
         Require(!Main.tile[ore.X, ore.Y].HasTile,
             $"a usable fixed pose must produce a real native tile break, not merely report {swings} swings");
-        Require(ctx.Companion.Miner.LastOutcome is { Effect: live::AICompanion.Companion.Brain.WorldInteractions.TileToolEffect.Removed, Productive: true },
+        Require(ctx.Companion.Miner.LastOutcome is { Effect: live::AICompanion.Companion.Brain.Infrastructure.Interactions.TileToolEffect.Removed, Productive: true },
             "native tile removal must remain distinguishable from a requested swing or partial damage");
     }
 
@@ -355,12 +355,12 @@ internal static class VerifyOreWork
         VerifyCompanionLifecycle.TickWithOneControlGrant(ctx.Companion);
         var effect = ctx.Companion.Miner.LastOutcome;
         Require(effect is { Productive: true } && mine.HandsBusy
-            && ctx.Companion.Brain.ControlGrants.Last?.Hand == live::AICompanion.Companion.Brain.ActivityCoordination.HandGrant.WorkTool,
+            && ctx.Companion.Brain.ControlGrants.Last?.Hand == live::AICompanion.Companion.Brain.Infrastructure.Grants.HandGrant.WorkTool,
             "actual native mining must reserve the tool hand");
         VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
         VerifyCompanionLifecycle.TickWithOneControlGrant(ctx.Companion);
         Require(ctx.Companion.Miner.LastOutcome == effect && mine.HandsBusy
-            && ctx.Companion.Brain.ControlGrants.Last?.Hand == live::AICompanion.Companion.Brain.ActivityCoordination.HandGrant.WorkTool,
+            && ctx.Companion.Brain.ControlGrants.Last?.Hand == live::AICompanion.Companion.Brain.Infrastructure.Grants.HandGrant.WorkTool,
             "a cooldown gap must retain tool ownership without fabricating another swing");
 
         Main.projectile[0] = new Projectile { whoAmI = 0, active = true, hostile = true, damage = 10,
@@ -369,11 +369,11 @@ internal static class VerifyOreWork
         VerifyCompanionLifecycle.TickWithOneControlGrant(ctx.Companion);
         Require(ctx.Companion.Brain.Senses.Threats.Threats.Count == 0
             && ctx.Companion.Brain.Reflexes.Active == "avoid-collision"
-            && ctx.Companion.Brain.ControlGrants.Last is { AppliedOwner: "combat-reflex", Hand: live::AICompanion.Companion.Brain.ActivityCoordination.HandGrant.Available }
-            && ctx.Companion.Brain.Chooser.Activity.Phase == live::AICompanion.Companion.Brain.BehaviourSelection.ActivityPhase.Suspended
+            && ctx.Companion.Brain.ControlGrants.Last is { AppliedOwner: "combat-reflex", Hand: live::AICompanion.Companion.Brain.Infrastructure.Grants.HandGrant.Available }
+            && ctx.Companion.Brain.Chooser.Activity.Phase == live::AICompanion.Companion.Brain.Infrastructure.Selection.ActivityPhase.Suspended
             && !mine.HandsBusy && ctx.Companion.Miner.LastOutcome == effect,
             $"a projectile without an enemy must suspend native work and grant avoidance with a free hand; enemies={ctx.Companion.Brain.Senses.Threats.Threats.Count}; projectiles={ctx.Companion.Brain.Senses.Projectiles.Threats.Count}; reflex={ctx.Companion.Brain.Reflexes.Active}; grant={ctx.Companion.Brain.ControlGrants.Last}; phase={ctx.Companion.Brain.Chooser.Activity.Phase}; busy={mine.HandsBusy}; same-effect={ctx.Companion.Miner.LastOutcome == effect}");
-        Require(ctx.Companion.Brain.Chooser.Activity.LastAttempt is { Status: live::AICompanion.Companion.Brain.Behaviours.AttemptStatus.Interrupted, Activity: "mine", ProductiveEffects: >= 1 }
+        Require(ctx.Companion.Brain.Chooser.Activity.LastAttempt is { Status: live::AICompanion.Companion.Brain.Activities.AttemptStatus.Interrupted, Activity: "mine", ProductiveEffects: >= 1 }
             && !ctx.Companion.Brain.Chooser.Activity.AttemptOpen,
             $"interrupted productive mining must close as an interruption carrying its credited effect, never a failure; attempt={ctx.Companion.Brain.Chooser.Activity.LastAttempt}");
         Main.projectile[0].active = false;
@@ -383,10 +383,10 @@ internal static class VerifyOreWork
     {
         Point ore = new(25, 59);
         var (_, ctx) = SetUp(WorkPolicy.Opportunistic, TileID.Copper, ore);
-        Item pick = live::AICompanion.Companion.Brain.WorldInteractions.Mining.TileMiner.PickaxeFor(ctx.Player);
+        Item pick = live::AICompanion.Companion.Brain.Infrastructure.Interactions.Mining.TileMiner.PickaxeFor(ctx.Player);
         Require(ctx.Companion.Miner.Swing(ore, pick), "the native partial-damage fixture must actually swing");
         var partial = ctx.Companion.Miner.LastOutcome;
-        Require(partial is { Effect: live::AICompanion.Companion.Brain.WorldInteractions.TileToolEffect.Damaged, Productive: true }
+        Require(partial is { Effect: live::AICompanion.Companion.Brain.Infrastructure.Interactions.TileToolEffect.Damaged, Productive: true }
             && partial.Value.After.Damage > partial.Value.Before.Damage && Main.tile[ore.X, ore.Y].HasTile,
             "partial native damage must be observed without claiming that ore was removed");
         Require(!ctx.Companion.Miner.Swing(ore, pick) && ctx.Companion.Miner.LastOutcome == partial,
@@ -394,7 +394,7 @@ internal static class VerifyOreWork
 
         var (_, weak) = SetUp(WorkPolicy.Opportunistic, TileID.Chlorophyte, ore);
         Require(weak.Companion.Miner.Swing(ore, pick)
-            && weak.Companion.Miner.LastOutcome is { Effect: live::AICompanion.Companion.Brain.WorldInteractions.TileToolEffect.NoObservedChange, Productive: false }
+            && weak.Companion.Miner.LastOutcome is { Effect: live::AICompanion.Companion.Brain.Infrastructure.Interactions.TileToolEffect.NoObservedChange, Productive: false }
             && Main.tile[ore.X, ore.Y].HasTile,
             "a native weak-pick call must remain an attempt without productive damage");
 
@@ -403,12 +403,12 @@ internal static class VerifyOreWork
         trunk.TileType = TileID.Trees;
         Main.tileAxe[TileID.Trees] = true;
         Main.tileSolid[TileID.Trees] = false;
-        Item axe = live::AICompanion.Companion.Brain.WorldInteractions.Chopping.TileChopper.AxeFor(tree.Player);
+        Item axe = live::AICompanion.Companion.Brain.Infrastructure.Interactions.Chopping.TileChopper.AxeFor(tree.Player);
         Require(tree.Companion.Chopper.Swing(ore, axe)
-            && tree.Companion.Chopper.LastOutcome is { Effect: live::AICompanion.Companion.Brain.WorldInteractions.TileToolEffect.Damaged, Productive: true },
+            && tree.Companion.Chopper.LastOutcome is { Effect: live::AICompanion.Companion.Brain.Infrastructure.Interactions.TileToolEffect.Damaged, Productive: true },
             "axe progress must use its own native hit table");
         trunk.ClearEverything();
-        var idleAxe = new live::AICompanion.Companion.Brain.WorldInteractions.Chopping.TileChopper();
+        var idleAxe = new live::AICompanion.Companion.Brain.Infrastructure.Interactions.Chopping.TileChopper();
         Require(!idleAxe.Swing(ore, axe) && idleAxe.LastOutcome == null,
             "a vanished trunk must not become a successful axe attempt");
     }
@@ -452,7 +452,7 @@ internal static class VerifyOreWork
             ctx.Npc.position = new Vector2(30 * 16, floor * 16 - ctx.Npc.height);
             ctx.Player.position = new Vector2(30 * 16, floor * 16 - ctx.Player.height);
         }
-        live::AICompanion.Companion.Brain.SharedMovementSystem.TerrainChanges.Reset();
+        live::AICompanion.Companion.Brain.Infrastructure.Movement.TerrainChanges.Reset();
         var mine = ctx.Companion.Brain.Chooser.Actions.OfType<MineOre>().Single();
         if (mode == BaselineMode.HeldActivity)
         {
@@ -475,7 +475,7 @@ internal static class VerifyOreWork
         if (diagnostics && mode == BaselineMode.HeldActivity)
         {
             DescribeRaisedLipRoutes(ctx, ore);
-            live::AICompanion.Companion.Brain.SharedMovementSystem.TerrainChanges.Reset();
+            live::AICompanion.Companion.Brain.Infrastructure.Movement.TerrainChanges.Reset();
         }
         int miningTicks = 0;
         for (int tick = 0; tick < 600 && Main.tile[ore.X, ore.Y].HasTile; tick++)
@@ -485,7 +485,7 @@ internal static class VerifyOreWork
             {
                 ctx.Companion.Miner.Tick();
                 ctx.Companion.Miner.Swing(ore,
-                    live::AICompanion.Companion.Brain.WorldInteractions.Mining.TileMiner.PickaxeFor(ctx.Player));
+                    live::AICompanion.Companion.Brain.Infrastructure.Interactions.Mining.TileMiner.PickaxeFor(ctx.Player));
             }
             else VerifyCompanionLifecycle.TickWithOneControlGrant(ctx.Companion);
             if (ctx.Companion.Brain.LastAction?.Name == "mine") miningTicks++;
@@ -498,8 +498,8 @@ internal static class VerifyOreWork
         bool broken = !Main.tile[ore.X, ore.Y].HasTile;
         if (!broken)
         {
-            bool jumpProven = live::AICompanion.Companion.Brain.SharedMovementSystem.ProveInteractionJump.CanReach(
-                live::AICompanion.Companion.Brain.SharedMovementSystem.NavGrid.World, initialBody,
+            bool jumpProven = live::AICompanion.Companion.Brain.Infrastructure.Movement.ProveInteractionJump.CanReach(
+                live::AICompanion.Companion.Brain.Infrastructure.Movement.NavGrid.World, initialBody,
                 body => FindToolAccess.InReach(body.Feet, ore));
             Console.WriteLine($"lip initial-pose ground-jump proof={jumpProven}");
             AStar.MsBudget = 0;
@@ -508,10 +508,10 @@ internal static class VerifyOreWork
             for (int x = 22; x <= 28; x++)
                 for (int y = floor - 4; y < floor; y++)
                 {
-                    if (!live::AICompanion.Companion.Brain.SharedMovementSystem.NavGrid.IsStandable(x, y)) continue;
-                    Vector2 feet = live::AICompanion.Companion.Brain.SharedMovementSystem.NavGrid.FeetWorld(new Point(x, y));
+                    if (!live::AICompanion.Companion.Brain.Infrastructure.Movement.NavGrid.IsStandable(x, y)) continue;
+                    Vector2 feet = live::AICompanion.Companion.Brain.Infrastructure.Movement.NavGrid.FeetWorld(new Point(x, y));
                     bool useful = FindToolAccess.InReach(feet, ore);
-                    if (useful) Console.WriteLine($"lip usable={feet} route={Reachability.WalkerReach(live::AICompanion.Companion.Brain.SharedMovementSystem.NavGrid.FeetTile(ctx.Npc.Bottom), new Point(x, y))}");
+                    if (useful) Console.WriteLine($"lip usable={feet} route={Reachability.WalkerReach(live::AICompanion.Companion.Brain.Infrastructure.Movement.NavGrid.FeetTile(ctx.Npc.Bottom), new Point(x, y))}");
                 }
         }
         Console.WriteLine($"raised-lip native mining broken={broken} (floor={floor}, mirrored={mirrored}, mode={mode}, miningTicks={miningTicks}, "
@@ -524,14 +524,14 @@ internal static class VerifyOreWork
 
     private static void DescribeRaisedLipRoutes(in ActionContext ctx, Point ore)
     {
-        var start = live::AICompanion.Companion.Brain.SharedMovementSystem.NavGrid.FeetTile(ctx.Npc.Bottom);
+        var start = live::AICompanion.Companion.Brain.Infrastructure.Movement.NavGrid.FeetTile(ctx.Npc.Bottom);
         for (int x = ore.X - 3; x <= ore.X + 3; x++)
             for (int y = ore.Y - 3; y <= ore.Y; y++)
             {
-                var pose = live::AICompanion.Companion.Brain.SharedMovementSystem.NavGrid.StandAt(x, y, false);
+                var pose = live::AICompanion.Companion.Brain.Infrastructure.Movement.NavGrid.StandAt(x, y, false);
                 if (pose == null) continue;
                 var tile = new Point(x, y);
-                Vector2 feet = live::AICompanion.Companion.Brain.SharedMovementSystem.NavGrid.FeetWorld(tile);
+                Vector2 feet = live::AICompanion.Companion.Brain.Infrastructure.Movement.NavGrid.FeetWorld(tile);
                 if (!FindToolAccess.InReach(feet, ore)) continue;
                 var route = AStar.Find(start, tile, Reachability.WalkerBudget, out int used, out var stop);
                 Console.WriteLine($"lip initial useful pose={feet} route={stop} used={used} partial={route?.Partial} "
@@ -540,10 +540,10 @@ internal static class VerifyOreWork
         for (int x = ore.X - 3; x <= ore.X + 3; x++)
         {
             var tile = new Point(x, ore.Y);
-            var pose = live::AICompanion.Companion.Brain.SharedMovementSystem.NavGrid.StandAt(tile.X, tile.Y, false);
+            var pose = live::AICompanion.Companion.Brain.Infrastructure.Movement.NavGrid.StandAt(tile.X, tile.Y, false);
             if (pose == null) continue;
-            var jumps = new live::AICompanion.Companion.Brain.SharedMovementSystem.JumpTraversal().Candidates(
-                live::AICompanion.Companion.Brain.SharedMovementSystem.NavNode.At(tile), pose, false);
+            var jumps = new live::AICompanion.Companion.Brain.Infrastructure.Movement.JumpTraversal().Candidates(
+                live::AICompanion.Companion.Brain.Infrastructure.Movement.NavNode.At(tile), pose, false);
             Console.WriteLine($"lip jump proposals from={tile}: {string.Join(';', jumps.Select(edge => edge.Step.Tile))}");
         }
     }
@@ -626,15 +626,15 @@ internal static class VerifyOreWork
         trunk.HasTile = true;
         trunk.TileType = TileID.Trees;
         Main.tileAxe[TileID.Trees] = true;
-        live::AICompanion.Companion.Brain.SharedMovementSystem.TerrainChanges.Reset();
-        var chop = new live::AICompanion.Companion.Brain.PurposeFamilies.Gathering.ChopTree();
-        var tree = new live::AICompanion.Companion.Brain.WorldInteractions.Chopping.TreeFinder.ChoppableTree(
+        live::AICompanion.Companion.Brain.Infrastructure.Movement.TerrainChanges.Reset();
+        var chop = new live::AICompanion.Companion.Brain.Activities.Gathering.ChopTree();
+        var tree = new live::AICompanion.Companion.Brain.Infrastructure.Interactions.Chopping.TreeFinder.ChoppableTree(
             new Point(40, 59), new Vector2(38 * 16 + 8, 60 * 16), 1);
-        typeof(live::AICompanion.Companion.Brain.PurposeFamilies.Gathering.ChopTree)
+        typeof(live::AICompanion.Companion.Brain.Activities.Gathering.ChopTree)
             .GetField("tree", BindingFlags.NonPublic | BindingFlags.Instance)!.SetValue(chop, tree);
         Require(VerifyPreparedActivities.PrepareAndScore(chop, ctx) == 0f && VerifyPreparedActivities.PrepareAndScore(mine, ctx) > 0f,
             "a retained tree across a sealed wall must yield to reachable ore beside the companion");
-        var sinceReachField = typeof(live::AICompanion.Companion.Brain.PurposeFamilies.Gathering.ChopTree)
+        var sinceReachField = typeof(live::AICompanion.Companion.Brain.Activities.Gathering.ChopTree)
             .GetField("sinceReach", BindingFlags.NonPublic | BindingFlags.Instance)!;
         int preparedAge = (int)sinceReachField.GetValue(chop)!;
         for (int comparison = 0; comparison < 20; comparison++)
@@ -642,7 +642,7 @@ internal static class VerifyOreWork
         Require((int)sinceReachField.GetValue(chop)! == preparedAge,
             "chopping comparison must not advance its discovery timer or repeat its reach search");
         for (int tick = 0; tick < 20; tick++) VerifyPreparedActivities.PrepareAndScore(chop, ctx);
-        Require((int)typeof(live::AICompanion.Companion.Brain.PurposeFamilies.Gathering.ChopTree)
+        Require((int)typeof(live::AICompanion.Companion.Brain.Activities.Gathering.ChopTree)
             .GetField("sinceReach", BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(chop)! == 20,
             "unchanged retained work must reuse its reach verdict rather than search every scoring tick");
     }
@@ -650,7 +650,7 @@ internal static class VerifyOreWork
     private static void ChoppingPrefersASeparateActiveTrunk()
     {
         WorkPolicy original = WorkPolicies.Chopping;
-        var clock = new live::AICompanion.Companion.Brain.WorldObservation.TileDamageClock();
+        var clock = new live::AICompanion.Companion.Brain.Infrastructure.Observation.TileDamageClock();
         try
         {
             Point first = new(25, 89), second = new(32, 89);
@@ -668,14 +668,14 @@ internal static class VerifyOreWork
             void PlayerHits(Point point)
             {
                 bool fail = true, effectOnly = false, noItem = false;
-                new live::AICompanion.Companion.Brain.WorldObservation.TileDamageWatcher()
+                new live::AICompanion.Companion.Brain.Infrastructure.Observation.TileDamageWatcher()
                     .KillTile(point.X, point.Y, TileID.Trees, ref fail, ref effectOnly, ref noItem);
                 ctx.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Breath);
                 Require(ctx.Senses.Player.ChoppedTree == point, "cooperation fixture must observe the actual active trunk");
             }
             WorkPolicies.Chopping = WorkPolicy.Opportunistic;
             PlayerHits(first);
-            var chop = new live::AICompanion.Companion.Brain.PurposeFamilies.Gathering.ChopTree();
+            var chop = new live::AICompanion.Companion.Brain.Activities.Gathering.ChopTree();
             Require(VerifyPreparedActivities.PrepareAndScore(chop, ctx) > 0 && chop.ActivityTarget == second.ToWorldCoordinates(),
                 "automatic chopping must prefer a separate usable tree over the nearer player trunk");
             PlayerHits(second);
@@ -683,10 +683,10 @@ internal static class VerifyOreWork
                 "a new player trunk must refresh cooperation before the ordinary discovery deadline");
             Tile removed = Main.tile[first.X, first.Y];
             removed.HasTile = false;
-            Require(VerifyPreparedActivities.PrepareAndScore(new live::AICompanion.Companion.Brain.PurposeFamilies.Gathering.ChopTree(), ctx) > 0,
+            Require(VerifyPreparedActivities.PrepareAndScore(new live::AICompanion.Companion.Brain.Activities.Gathering.ChopTree(), ctx) > 0,
                 "automatic cooperation is a preference and must permit the sole remaining player tree");
             WorkPolicies.Chopping = WorkPolicy.Mimic;
-            Require(VerifyPreparedActivities.PrepareAndScore(new live::AICompanion.Companion.Brain.PurposeFamilies.Gathering.ChopTree(), ctx) == 0,
+            Require(VerifyPreparedActivities.PrepareAndScore(new live::AICompanion.Companion.Brain.Activities.Gathering.ChopTree(), ctx) == 0,
                 "Mimic must retain its explicit exclusion of the active player trunk");
         }
         finally { WorkPolicies.Chopping = original; clock.OnWorldUnload(); }
@@ -703,7 +703,7 @@ internal static class VerifyOreWork
                 Point tile = new(25, 89);
                 var (mine, ctx) = SetUp(WorkPolicy.Opportunistic, TileID.Copper, tile);
                 WorkPolicies.Chopping = WorkPolicy.Opportunistic;
-                live::AICompanion.Companion.Brain.Behaviours.CompanionAction action = mine;
+                live::AICompanion.Companion.Brain.Activities.CompanionAction action = mine;
                 if (chopping)
                 {
                     Tile trunk = Main.tile[tile.X, tile.Y];
@@ -711,19 +711,19 @@ internal static class VerifyOreWork
                     Main.tileAxe[TileID.Trees] = true;
                     Main.tileSolid[TileID.Trees] = false;
                     TileID.Sets.IsATreeTrunk[TileID.Trees] = true;
-                    action = new live::AICompanion.Companion.Brain.PurposeFamilies.Gathering.ChopTree();
+                    action = new live::AICompanion.Companion.Brain.Activities.Gathering.ChopTree();
                 }
                 if (inPosition) ctx.Npc.Bottom = new Vector2(23 * 16 + 8, 90 * 16);
                 else ctx.Npc.Bottom = new Vector2(15 * 16 + 8, 90 * 16);
                 Require(VerifyPreparedActivities.PrepareAndScore(action, ctx) > 0,
                     $"permission fixture needs prepared work: chopping={chopping}; inPosition={inPosition}");
-                var admission = live::AICompanion.Companion.Brain.BehaviourSelection.ValidatePreparedActivity.Capture(action);
+                var admission = live::AICompanion.Companion.Brain.Infrastructure.Selection.ValidatePreparedActivity.Capture(action);
                 if (chopping) WorkPolicies.Chopping = WorkPolicy.Disabled;
                 else WorkPolicies.Mining = WorkPolicy.Disabled;
                 Require(admission.Rejection(action) == "work-disabled",
                     $"revoked work must fail activation admission: chopping={chopping}; inPosition={inPosition}; rejection={admission.Rejection(action)}");
                 var request = action.Execute(ctx);
-                Require(request == live::AICompanion.Companion.Brain.PositionSelection.PositionRequest.Hold
+                Require(request == live::AICompanion.Companion.Brain.Infrastructure.Position.PositionRequest.Hold
                     && !action.HandsBusy && ctx.Companion.Miner.LastOutcome == null && ctx.Companion.Chopper.LastOutcome == null,
                     $"revoked work must neither approach nor swing: chopping={chopping}; inPosition={inPosition}; request={request}; hands={action.HandsBusy}");
             }
@@ -747,11 +747,11 @@ internal static class VerifyOreWork
                 TileID.Sets.IsATreeTrunk[TileID.Trees] = true;
                 WorkPolicies.Chopping = WorkPolicy.Opportunistic;
                 ctx.Npc.Bottom = new Vector2((mirrored ? 30 : 20) * 16 + 8, 90 * 16);
-                var chop = new live::AICompanion.Companion.Brain.PurposeFamilies.Gathering.ChopTree();
+                var chop = new live::AICompanion.Companion.Brain.Activities.Gathering.ChopTree();
                 Require(VerifyPreparedActivities.PrepareAndScore(chop, ctx) > 0,
                     "a tree inside actual reach must prepare useful work");
                 var request = chop.Execute(ctx);
-                Require(request == live::AICompanion.Companion.Brain.PositionSelection.PositionRequest.Hold
+                Require(request == live::AICompanion.Companion.Brain.Infrastructure.Position.PositionRequest.Hold
                     && chop.HandsBusy && ctx.Companion.Chopper.LastOutcome is { Productive: true },
                     $"actual axe access must produce native work without walking to a preferred stand: mirrored={mirrored}; request={request}");
                 var firstEffect = ctx.Companion.Chopper.LastOutcome;
@@ -789,7 +789,7 @@ internal static class VerifyOreWork
             $"a transformed unmineable deposit must not be reported as completed work: {mine.Status}");
         Require(mine.LastConclusion is { Tracked: 1, Changed: 1, Missing: 0, ObservedClear: false, CompanionRemovals: 0 },
             "the ended job must retain the changed material instead of losing it during eligibility pruning");
-        Require(mine.ConcludeAttempt(0).Status == live::AICompanion.Companion.Brain.Behaviours.AttemptStatus.Invalid,
+        Require(mine.ConcludeAttempt(0).Status == live::AICompanion.Companion.Brain.Activities.AttemptStatus.Invalid,
             $"material that stopped qualifying makes the attempt invalid rather than completed or failed; got {mine.ConcludeAttempt(0)}");
     }
 
@@ -810,7 +810,7 @@ internal static class VerifyOreWork
         removed.HasTile = false;
         VerifyPreparedActivities.PrepareAndScore(mine, ctx);
         Require(mine.LastConclusion is { ObservedClear: true } end && end.JobId == firstJob, "the first job must end observed clear");
-        Require(mine.ConcludeAttempt(0).Status == live::AICompanion.Companion.Brain.Behaviours.AttemptStatus.Invalid,
+        Require(mine.ConcludeAttempt(0).Status == live::AICompanion.Companion.Brain.Activities.AttemptStatus.Invalid,
             "the attempt that owned the externally cleared job must conclude invalid");
         mine.BeginAttempt();
         Tile ore = Main.tile[second.X, second.Y];
@@ -819,7 +819,7 @@ internal static class VerifyOreWork
         ore.TileType = TileID.Copper;
         for (int i = 0; i < 61 && mine.JobId <= firstJob; i++) VerifyPreparedActivities.PrepareAndScore(mine, ctx);
         Require(mine.JobId > firstJob, "the fixture must discover the second job before concluding");
-        Require(mine.ConcludeAttempt(0).Status == live::AICompanion.Companion.Brain.Behaviours.AttemptStatus.Attempted,
+        Require(mine.ConcludeAttempt(0).Status == live::AICompanion.Companion.Brain.Activities.AttemptStatus.Attempted,
             $"a new attempt must not conclude from the previous job's end; got {mine.ConcludeAttempt(0)}");
     }
 
@@ -847,8 +847,8 @@ internal static class VerifyOreWork
         VerifyPreparedActivities.PrepareAndScore(mine, ctx);
         Require(mine.LastConclusion is { ObservedClear: true, Tracked: 2, CompanionRemovals: 1 },
             $"the joint vein must end clear with one companion removal; got {mine.LastConclusion}");
-        Require(mine.ConcludeAttempt(effects) is { Status: live::AICompanion.Companion.Brain.Behaviours.AttemptStatus.Complete,
-                Attribution: live::AICompanion.Companion.Brain.Behaviours.AttemptAttribution.Shared },
+        Require(mine.ConcludeAttempt(effects) is { Status: live::AICompanion.Companion.Brain.Activities.AttemptStatus.Complete,
+                Attribution: live::AICompanion.Companion.Brain.Activities.AttemptAttribution.Shared },
             $"a vein finished together must be a shared completion, not the companion's own; got {mine.ConcludeAttempt(effects)}");
     }
 
@@ -892,7 +892,7 @@ internal static class VerifyOreWork
     {
         if (FindToolAccess.InReach(fromFeet, tile)) { stand = fromFeet; return Reachability.Reach.Yes; }
         Vector2 eye = new(0f, -30f), tileCentre = tile.ToWorldCoordinates(8f, 8f);
-        Point from = live::AICompanion.Companion.Brain.SharedMovementSystem.MovementQueries.FeetTile(fromFeet);
+        Point from = live::AICompanion.Companion.Brain.Infrastructure.Movement.MovementQueries.FeetTile(fromFeet);
         Vector2? best = null;
         bool unknown = false;
         float bestDist = float.MaxValue;
@@ -900,11 +900,11 @@ internal static class VerifyOreWork
             for (int dy = -Player.tileRangeY; dy <= Player.tileRangeY + 2; dy++)
             {
                 int x = tile.X + dx, y = tile.Y + dy;
-                if (!live::AICompanion.Companion.Brain.SharedMovementSystem.MovementQueries.IsStandable(x, y)) continue;
-                Vector2 feet = live::AICompanion.Companion.Brain.SharedMovementSystem.MovementQueries.FeetWorld(new Point(x, y));
+                if (!live::AICompanion.Companion.Brain.Infrastructure.Movement.MovementQueries.IsStandable(x, y)) continue;
+                Vector2 feet = live::AICompanion.Companion.Brain.Infrastructure.Movement.MovementQueries.FeetWorld(new Point(x, y));
                 if (!FindToolAccess.InReach(feet, tile) || !FindToolAccess.InReach(feet + new Vector2(-8, 0), tile) || !FindToolAccess.InReach(feet + new Vector2(8, 0), tile)) continue;
                 float d = Vector2.DistanceSquared(feet + eye, tileCentre);
-                var reach = live::AICompanion.Companion.Brain.SharedMovementSystem.MovementQueries.WalkerReach(from, new Point(x, y));
+                var reach = live::AICompanion.Companion.Brain.Infrastructure.Movement.MovementQueries.WalkerReach(from, new Point(x, y));
                 if (reach == Reachability.Reach.Unknown) unknown = true;
                 if (d < bestDist && reach == Reachability.Reach.Yes) { bestDist = d; best = feet; }
             }
@@ -946,9 +946,9 @@ internal static class VerifyOreWork
             // without the attempt's own productive effects.
             var attempt = mine.ConcludeAttempt(ownRemoval ? 3 : 0);
             Require(ownRemoval
-                    ? attempt is { Status: live::AICompanion.Companion.Brain.Behaviours.AttemptStatus.Complete,
-                        Attribution: live::AICompanion.Companion.Brain.Behaviours.AttemptAttribution.Companion }
-                    : attempt.Status == live::AICompanion.Companion.Brain.Behaviours.AttemptStatus.Invalid,
+                    ? attempt is { Status: live::AICompanion.Companion.Brain.Activities.AttemptStatus.Complete,
+                        Attribution: live::AICompanion.Companion.Brain.Activities.AttemptAttribution.Companion }
+                    : attempt.Status == live::AICompanion.Companion.Brain.Activities.AttemptStatus.Invalid,
                 $"external ore removal must change remaining work without earning a completed attempt, and the companion's own clearance is its own: own={ownRemoval}; attempt={attempt}");
         }
     }
@@ -963,7 +963,7 @@ internal static class VerifyOreWork
                 Point point = new(25, 89);
                 var (mine, ctx) = SetUp(WorkPolicy.Opportunistic, TileID.Copper, point);
                 WorkPolicies.Chopping = WorkPolicy.Opportunistic;
-                live::AICompanion.Companion.Brain.Behaviours.CompanionAction action = mine;
+                live::AICompanion.Companion.Brain.Activities.CompanionAction action = mine;
                 Tile tile = Main.tile[point.X, point.Y];
                 if (chopping)
                 {
@@ -971,7 +971,7 @@ internal static class VerifyOreWork
                     Main.tileAxe[TileID.Trees] = true;
                     Main.tileSolid[TileID.Trees] = false;
                     TileID.Sets.IsATreeTrunk[TileID.Trees] = true;
-                    action = new live::AICompanion.Companion.Brain.PurposeFamilies.Gathering.ChopTree();
+                    action = new live::AICompanion.Companion.Brain.Activities.Gathering.ChopTree();
                 }
                 Require(VerifyPreparedActivities.PrepareAndScore(action, ctx) > 0,
                     "replacement fixture needs a real prepared tool target");
@@ -980,7 +980,7 @@ internal static class VerifyOreWork
                 Main.tileAxe[TileID.Cactus] = true;
                 Main.tileSolid[TileID.Tin] = true;
                 var request = action.Execute(ctx);
-                Require(request == live::AICompanion.Companion.Brain.PositionSelection.PositionRequest.Hold
+                Require(request == live::AICompanion.Companion.Brain.Infrastructure.Position.PositionRequest.Hold
                     && !action.HandsBusy && ctx.Companion.Miner.LastOutcome == null && ctx.Companion.Chopper.LastOutcome == null,
                     $"a prepared tool must not act on replacement material: chopping={chopping}; hand={action.HandsBusy}");
                 float renewedValue = VerifyPreparedActivities.PrepareAndScore(action, ctx);
@@ -1003,7 +1003,7 @@ internal static class VerifyOreWork
         {
             // A mod can make a material axe-eligible without classifying it as a tree.
             Main.tileAxe[TileID.WoodBlock] = true;
-            Item axe = live::AICompanion.Companion.Brain.WorldInteractions.Chopping.TileChopper.AxeFor(ctx.Player);
+            Item axe = live::AICompanion.Companion.Brain.Infrastructure.Interactions.Chopping.TileChopper.AxeFor(ctx.Player);
             Require(!ctx.Companion.Chopper.Swing(point, axe) && ctx.Companion.Chopper.LastOutcome == null,
                 "native axe work must reject an axe-eligible material outside the discovery tree category");
         }
@@ -1041,7 +1041,7 @@ internal static class VerifyOreWork
             Require(score > 0f,
                 $"ore whose approach the search could not decide scored zero, so the companion stands still and the search is asked the same unanswerable question for ever; status={action.Status}");
             var request = action.Execute(ctx);
-            Require(request.Kind == live::AICompanion.Companion.Brain.PositionSelection.RequestKind.Exact,
+            Require(request.Kind == live::AICompanion.Companion.Brain.Infrastructure.Position.RequestKind.Exact,
                 $"an undecided approach must produce a walk toward the ore, since moving is what makes the approach decidable; got {request.Kind}");
             Require(VerifyPreparedActivities.PrepareAndScore(action, ctx) < 0.7f,
                 "an unproven approach must score below a proven ore job, so reachable ore always wins");
@@ -1062,7 +1062,7 @@ internal static class VerifyOreWork
             wall.HasTile = true;
             wall.TileType = TileID.Dirt;
         }
-        live::AICompanion.Companion.Brain.SharedMovementSystem.TerrainChanges.Reset();
+        live::AICompanion.Companion.Brain.Infrastructure.Movement.TerrainChanges.Reset();
         double budget = AStar.MsBudget;
         try
         {
@@ -1276,9 +1276,9 @@ internal static class VerifyOreWork
         // The premise is a proven job the player then seals. Under production millisecond allowances a
         // cold first search can stop at its deadline and leave the approach undecided, which is correct
         // live behaviour and not this fixture's question, so the allowances are lifted as brain-cost does.
-        live::AICompanion.Companion.Brain.SharedMovementSystem.LimitPlanningWork.Unbounded = true;
+        live::AICompanion.Companion.Brain.Infrastructure.Movement.LimitPlanningWork.Unbounded = true;
         try { SealThenReopenAnApproachedOre(); }
-        finally { live::AICompanion.Companion.Brain.SharedMovementSystem.LimitPlanningWork.Unbounded = false; }
+        finally { live::AICompanion.Companion.Brain.Infrastructure.Movement.LimitPlanningWork.Unbounded = false; }
     }
 
     private static void SealThenReopenAnApproachedOre()
@@ -1310,13 +1310,13 @@ internal static class VerifyOreWork
         TerrainChanges.Changed(opened.X, opened.Y);
         // The reopened face is a one-tile notch with the player's block diagonally above it: the swing
         // reaches in, and the game's wide beam test would have refused it.
-        Vector2 besideFeet = live::AICompanion.Companion.Brain.SharedMovementSystem.MovementQueries.FeetWorld(new Point(23, 59));
+        Vector2 besideFeet = live::AICompanion.Companion.Brain.Infrastructure.Movement.MovementQueries.FeetWorld(new Point(23, 59));
         Require(FindToolAccess.InReach(besideFeet, ore)
             && !Collision.CanHitLine(besideFeet + new Vector2(0f, -30f), 1, 1, opened.ToWorldCoordinates(8f, 8f), 1, 1),
             "the notch fixture must be one the wide native beam refuses and a swing reaches, or it does not test the face-access walk");
         var run = RunBrainUntilBroken(ctx, ore, 900);
         var approachNow = FindToolAccess.Approach(ore, ctx.Npc.Bottom, out Vector2 standNow);
-        bool standableBeside = live::AICompanion.Companion.Brain.SharedMovementSystem.MovementQueries.IsStandable(23, 59);
+        bool standableBeside = live::AICompanion.Companion.Brain.Infrastructure.Movement.MovementQueries.IsStandable(23, 59);
         Require(run.Broken, $"reopening one face must let the same ore be mined; feet={ctx.Npc.Bottom} status={mine.Status} "
             + $"offer={mine.Eligibility}/{mine.EligibilityReason} action={ctx.Companion.Brain.LastAction?.Name} approach-now={approachNow}@{standNow} "
             + $"in-reach-now={FindToolAccess.InReach(ctx.Npc.Bottom, ore)} mineable={ctx.Companion.Miner.CanMine(ore, TileMiner.PickaxeFor(ctx.Player).pick)} "
@@ -1380,8 +1380,8 @@ internal static class VerifyOreWork
         for (int i = 0; i < Main.player.Length; i++) Main.player[i] ??= new Player();
         AStar.MsBudget = 0;
         AStar.InvalidateEdges();
-        live::AICompanion.Companion.Brain.SharedMovementSystem.TerrainChanges.Reset();
-        live::AICompanion.Companion.Brain.SharedMovementSystem.NavGrid.World = new live::AICompanion.Companion.Brain.SharedMovementSystem.GameTileWorld();
+        live::AICompanion.Companion.Brain.Infrastructure.Movement.TerrainChanges.Reset();
+        live::AICompanion.Companion.Brain.Infrastructure.Movement.NavGrid.World = new live::AICompanion.Companion.Brain.Infrastructure.Movement.GameTileWorld();
         var copperPickaxe = new Item();
         copperPickaxe.SetDefaults(ItemID.CopperPickaxe);
         ContentSamples.ItemsByType[ItemID.CopperPickaxe] = copperPickaxe;
@@ -1414,7 +1414,7 @@ internal static class VerifyOreWork
         if (playerHit is Point hit)
         {
             bool fail = false, effectOnly = false, noItem = false;
-            new live::AICompanion.Companion.Brain.WorldObservation.TileDamageWatcher()
+            new live::AICompanion.Companion.Brain.Infrastructure.Observation.TileDamageWatcher()
                 .KillTile(hit.X, hit.Y, tileType, ref fail, ref effectOnly, ref noItem);
         }
         companion.Brain.Senses.Update(companion.NPC, player, companion.Breath);

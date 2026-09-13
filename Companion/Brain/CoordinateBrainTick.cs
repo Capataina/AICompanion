@@ -1,12 +1,17 @@
 #nullable enable
 
 using Microsoft.Xna.Framework;
-using AICompanion.Companion.Brain.Behaviours;
-using AICompanion.Companion.Brain.BehaviourSelection;
-using AICompanion.Companion.Brain.SharedMovementSystem;
-using AICompanion.Companion.Brain.PositionSelection;
+using AICompanion.Companion.Brain.Activities;
+using AICompanion.Companion.Brain.Infrastructure.Selection;
+using AICompanion.Companion.Brain.Infrastructure.Movement;
+using AICompanion.Companion.Brain.Infrastructure.Position;
+using AICompanion.Companion.Brain.Infrastructure.Observation;
+using AICompanion.Companion.Brain.Infrastructure.Interactions.WorldProtection;
+using AICompanion.Companion.Brain.Infrastructure.Diagnostics;
+using AICompanion.Companion.Brain.Infrastructure.Grants;
+using AICompanion.Companion.Brain.SharedBehaviours.Safety;
+using AICompanion.Companion.Brain.SharedBehaviours.Recovery;
 using AICompanion.Companion.CharacterBody;
-using AICompanion.Companion.Brain.ActivityCoordination;
 
 namespace AICompanion.Companion.Brain;
 
@@ -18,17 +23,17 @@ namespace AICompanion.Companion.Brain;
 /// </summary>
 public sealed class Brain
 {
-    public Brain() => WorldInteractions.WorldProtection.ProtectCompanionHomes.Reset();
-    public readonly WorldObservation.Senses Senses = new();
+    public Brain() => ProtectCompanionHomes.Reset();
+    public readonly Senses Senses = new();
     public readonly Chooser Chooser = new();
     public readonly Positioner Positioner = new();
     public readonly ChooseMeetingPlace Meeting = new();
     public readonly CoordinateMovement Movement = new();
     public Navigator Navigator => Movement.Navigator;
-    public readonly CombatReflexes.Reflexes Reflexes = new();
+    public readonly Reflexes Reflexes = new();
     public readonly GrantActivityControls ControlGrants = new();
     public readonly ConsiderIncidentalInteractions Incidental = new();
-    public readonly SharedSafety.ChooseSafetyResponse Safety = new();
+    public readonly ChooseSafetyResponse Safety = new();
     public readonly RecoverDistantCompanion FollowRecovery = new();
     public ActivitySnapshot Presentation { get; private set; }
 
@@ -36,7 +41,7 @@ public sealed class Brain
     // through this seam; the replay tool leaves it unset.
     static Brain()
     {
-        Navigator.PlanFailed = BehaviourDiagnostics.BrainTelemetry.DumpPlan;
+        Navigator.PlanFailed = BrainTelemetry.DumpPlan;
         Navigator.PlanMsBudget = Weights.RouteSearchMilliseconds;
         PlanLocalMovement.PreparationMsBudget = Weights.MovementPreparationMilliseconds;
     }
@@ -155,7 +160,7 @@ public sealed class Brain
     {
         phase.Restart();
         Senses.Update(companion.NPC, player, companion.Breath);
-        WorldInteractions.WorldProtection.ProtectCompanionHomes.Refresh(player.Bottom, companion.NPC.Bottom);
+        ProtectCompanionHomes.Refresh(player.Bottom, companion.NPC.Bottom);
         companion.Arsenal.Tick();
         companion.Chopper.Tick();
         SensesMs = Lap();
@@ -295,7 +300,7 @@ public sealed class Brain
         bool wantsTravel = Safety.Active
             || (LastRequest.Kind == RequestKind.WithPlayer
             ? !new FollowPlayerObjective(Senses.Player.Bottom, Senses.Player.Bottom).IsSatisfied(companion.NPC.Bottom,
-                WorldObservation.LineOfSight.Between(companion.NPC, Senses.PlayerEntity))
+                LineOfSight.Between(companion.NPC, Senses.PlayerEntity))
             : LastRequest.Kind != RequestKind.Hold && (Positioner.Chosen is not Vector2 spot
                 || Vector2.DistanceSquared(spot, companion.NPC.Bottom) > 16f * 16f));
         if (!wantsTravel)

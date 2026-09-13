@@ -8,8 +8,8 @@ using Terraria.ID;
 using Terraria.Map;
 using Terraria.UI;
 using AICompanion.Companion.CharacterBody;
-using AICompanion.Companion.Brain.PurposeFamilies.Gathering;
-using AICompanion.Companion.Brain.Behaviours.Work;
+using AICompanion.Companion.Brain.Activities.Gathering;
+using AICompanion.Companion.Brain.Activities;
 using AICompanion.Companion.PlayerIntegration;
 
 namespace AICompanion.Companion.ProfileCard;
