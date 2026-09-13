@@ -9,6 +9,7 @@ Evaluation and Observability/
 ├─ Recording Inventory and Reproduction.md        corpus identities and read-only analysis recipes
 ├─ Experiments and Recorder Requirements.md       discriminating tests and observability changes
 ├─ Proposal 1 Failure Cases and Diagnostic Contracts.md  prospective failure matrix, plain flows and HUD evidence
+├─ Proposal 1 Implementation Ledger.md            fixture evidence and remaining acceptance milestones
 ├─ Behavioural Acceptance Matrix.md               positive and countercases for all README responsibilities
 ├─ Question Answers and Remaining Evidence.md    dispositions for all 140 research questions
 └─ Research Scope and Verification.md             obligations, checks, corrections and reproducibility limits
