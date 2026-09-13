@@ -44,6 +44,8 @@ public sealed class ChopTree : CompanionAction
     private (Point from, Point goal, int revision, int reachX, int reachY)? reachKey;
     private Reachability.Reach approachReach;
     private int sinceReach = SearchEveryTicks;
+    // The reach the approach deferrals and the last "no admissible tree" search were made under.
+    private (int X, int Y) deferredReach;
     private readonly record struct Candidate(Vector2 Target, float Value, float TripTicks, BindTileTarget Binding);
     private Candidate? prepared;
     public WorldInteractions.RemainingToolWork? RemainingWork { get; private set; }
@@ -106,6 +108,15 @@ public sealed class ChopTree : CompanionAction
         }
         sinceSearch++;
         sinceReach++;
+        // A trunk deferred because no pose reached it was deferred under the reach of that moment. The approach key below
+        // already re-derives a retained trunk's stand when reach changes; the deferral and the search wait did not, so a
+        // larger reach left a trunk it could now reach refused until the deferral expired.
+        if (FindToolAccess.Reach != deferredReach)
+        {
+            deferredReach = FindToolAccess.Reach;
+            deferred.Clear();
+            sinceSearch = SearchEveryTicks;
+        }
         if (tree is { } retained && (!AllowsTarget(ctx, retained.Bottom.ToWorldCoordinates())
             || WorldInteractions.WorldProtection.ProtectCompanionHomes.IsProtected(retained.Bottom)))
         { tree = null; ReleaseActivity(); sinceSearch = SearchEveryTicks; Release("outside-allowance-or-protected-home"); }
@@ -193,7 +204,7 @@ public sealed class ChopTree : CompanionAction
         // Retained work must still have a useful position after the body, terrain or
         // effective reach changes. Actual current access needs no representative node.
         var key = (MovementQueries.FeetTile(ctx.Npc.Bottom),
-            tree.Value.Bottom, TerrainChanges.Revision, Player.tileRangeX, Player.tileRangeY);
+            tree.Value.Bottom, TerrainChanges.Revision, FindToolAccess.Reach.X, FindToolAccess.Reach.Y);
         if (FindToolAccess.InReach(ctx.Npc.Bottom, tree.Value.Bottom))
         {
             tree = tree.Value with { StandPosition = ctx.Npc.Bottom };
