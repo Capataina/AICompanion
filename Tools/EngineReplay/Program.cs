@@ -21,4 +21,6 @@ if (args.Contains("--observation")) return VerifyObservationLifecycle.Run();
 if (args.Contains("--brain-cost")) return VerifyEngineMotion.Run(brainCostOnly: true);
 if (args.Contains("--combat-cost")) return VerifyEngineMotion.Run(combatCostOnly: true);
 if (args.Contains("--combat-purpose")) return VerifyEngineMotion.Run(combatPurposeOnly: true);
+if (args.Contains("--safety-aftermath")) return VerifyEngineMotion.Run(safetyAftermathOnly: true);
+if (args.Contains("--dodge-repro")) return VerifyEngineMotion.Run(dodgeReproOnly: true);
 return VerifyEngineMotion.Run(args.Contains("--lifecycle"), args.Contains("--escape"));

@@ -243,7 +243,7 @@ internal static class VerifyCapturedEscape
             Solid(wall, y);
     }
 
-    private static void BuildCapturedPool()
+    internal static void BuildCapturedPool()
     {
         string[] lines = File.ReadAllLines(CapturePath());
         if (lines.Length != 204 || !lines[0].StartsWith("tick 14964 follow failure", StringComparison.Ordinal))

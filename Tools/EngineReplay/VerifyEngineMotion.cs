@@ -5,7 +5,7 @@ using Terraria;
 
 internal static class VerifyEngineMotion
 {
-    public static int Run(bool lifecycleOnly = false, bool escapeOnly = false, bool workOnly = false, bool followOnly = false, bool protectionOnly = false, bool miningBaselineOnly = false, bool brainCostOnly = false, bool combatCostOnly = false, bool combatPurposeOnly = false)
+    public static int Run(bool lifecycleOnly = false, bool escapeOnly = false, bool workOnly = false, bool followOnly = false, bool protectionOnly = false, bool miningBaselineOnly = false, bool brainCostOnly = false, bool combatCostOnly = false, bool combatPurposeOnly = false, bool safetyAftermathOnly = false, bool dodgeReproOnly = false)
     {
         typeof(Terraria.Program).GetField("SavePath", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)!.SetValue(null, Path.GetTempPath());
         Main.dedServ = true;
@@ -30,6 +30,8 @@ internal static class VerifyEngineMotion
         if (brainCostOnly) return MeasureBrainCost.Execute();
         if (combatCostOnly) return MeasureCombatCost.Execute();
         if (combatPurposeOnly) return VerifyCombatPurpose.Run();
+        if (safetyAftermathOnly) return VerifySafetyAftermath.Run();
+        if (dodgeReproOnly) return VerifySafetyAftermath.ReproduceDodgeOnDryFloor();
         int checkedCases = 0, failed = 0;
         foreach (int altitude in new[] { 0, 30 })
         foreach (int shape in Enumerable.Range(0, 7))
@@ -108,6 +110,7 @@ internal static class VerifyEngineMotion
         failed += VerifyHuntAdmissibility.Run();
         failed += VerifyAttackOutcomes.Run();
         failed += VerifyCombatPurpose.Run();
+        failed += VerifySafetyAftermath.Run();
         return failed == 0 ? 0 : 1;
     }
 
