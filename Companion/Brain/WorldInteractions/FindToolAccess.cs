@@ -66,6 +66,77 @@ public static class FindToolAccess
         return unknown ? Reachability.Reach.Unknown : Reachability.Reach.No;
     }
 
+    /// <summary>
+    /// A tile no standing pose can swing at, reached the way a player reaches a ceiling: walk to a
+    /// take-off pose, jump, and swing while the rising body's reach covers the tile. A pose counts
+    /// only when the shared body model proves a dry ground jump from rest there brings the tile into
+    /// reach and lands back beside the take-off, and only then is the walker asked whether it can get
+    /// there, nearest pose first with the same early stop as <see cref="Approach"/>. The
+    /// <paramref name="body"/> supplies everything about the companion except where it stands, so a
+    /// capability that changes the jump changes the proof.
+    /// </summary>
+    public static Reachability.Reach HopApproach(Point tile, Vector2 fromFeet, BodyState body, out Vector2 stand)
+    {
+        stand = default;
+        // A tile with no open neighbour has no face a line can reach from any height.
+        if (!HasOpenFace(tile))
+            return Reachability.Reach.No;
+        Vector2 tileCentre = tile.ToWorldCoordinates(8f, 8f);
+        Point from = MovementQueries.FeetTile(fromFeet);
+        poses.Clear();
+        for (int dx = -ReachX; dx <= ReachX; dx++)
+        {
+            for (int dy = -ReachY; dy <= ReachY + HopRiseTiles; dy++)
+            {
+                int x = tile.X + dx, y = tile.Y + dy;
+                if (!MovementQueries.IsStandable(x, y))
+                    continue;
+                Vector2 feet = MovementQueries.FeetWorld(new Point(x, y));
+                // A pose that already reaches standing belongs to Approach; hopping from it adds nothing.
+                if (InReach(feet, tile))
+                    continue;
+                poses.Add((Vector2.DistanceSquared(feet + Eye, tileCentre), poses.Count, new Point(x, y), feet));
+            }
+        }
+        poses.Sort(static (a, b) => a.Distance != b.Distance ? a.Distance.CompareTo(b.Distance) : a.Order.CompareTo(b.Order));
+        bool unknown = false;
+        foreach (var pose in poses)
+        {
+            BodyState rest = body with
+            {
+                Left = pose.Feet.X - BodyPhysics.Width / 2f, Bottom = pose.Feet.Y, Vx = 0f, Vy = 0f, OnGround = true,
+                CollideX = false, Stuck = false, Pinned = false, Wet = false, StairFall = false, LiquidKind = 0,
+            };
+            if (!ProveInteractionJump.CanReach(NavGrid.World, rest, rising => InReach(rising.Feet, tile)))
+                continue;
+            Reachability.Reach reach = MovementQueries.WalkerReach(from, pose.Tile);
+            if (reach == Reachability.Reach.Yes)
+            {
+                stand = pose.Feet;
+                return Reachability.Reach.Yes;
+            }
+            unknown |= reach == Reachability.Reach.Unknown;
+        }
+        return unknown ? Reachability.Reach.Unknown : Reachability.Reach.No;
+    }
+
+    /// <summary>How many tiles above standing reach a ground jump can lift the eye: the apex of a jump at
+    /// the body's own take-off speed under its own gravity, rounded up. Air jumps are not ground hops,
+    /// so no capability extends this bound.</summary>
+    private static readonly int HopRiseTiles = (int)System.MathF.Ceiling(
+        BodyPhysics.JumpVelocity * BodyPhysics.JumpVelocity / (2f * BodyPhysics.Gravity) / 16f);
+
+    private static bool HasOpenFace(Point tile)
+    {
+        foreach (Point side in new[] { new Point(-1, 0), new Point(1, 0), new Point(0, -1), new Point(0, 1) })
+        {
+            Point face = tile + side;
+            if (WorldGen.InWorld(face.X, face.Y, 5) && !WorldGen.SolidTile(face.X, face.Y))
+                return true;
+        }
+        return false;
+    }
+
     // Reused across calls: the brain is single-threaded and Approach never re-enters itself.
     private static readonly System.Collections.Generic.List<(float Distance, int Order, Point Tile, Vector2 Feet)> poses = new();
 
@@ -85,14 +156,21 @@ public static class FindToolAccess
     {
         // PickTile applies damage and native kill permission without enforcing tool reach here.
         // The companion supplies both range and occlusion so its closed-set
-        // ability does not mine through a wall. CanHitLine includes a solid destination tile,
+        // ability does not mine through a wall. A tile walk refuses a solid destination tile,
         // therefore the actual target is an adjacent open tile on an exposed tile face.
+        //
+        // The walk is Collision.CanHit, the game's own "can this NPC see its target" test: it refuses a
+        // cell the walk enters and a step squeezed between two solid full blocks. CanHitLine is not a
+        // thin line — every step refuses a solid tile on either side as well, a beam three tiles wide —
+        // so it refused every line along a floor and any reach into a one-tile notch whose diagonal
+        // neighbour was solid, which a player's swing reaches without trouble. Projectile line of fire
+        // keeps CanHitLine, because a projectile has width and a swing does not.
         foreach (Point side in new[] { new Point(-1, 0), new Point(1, 0), new Point(0, -1), new Point(0, 1) })
         {
             Point face = tile + side;
             if (!WorldGen.InWorld(face.X, face.Y, 5) || WorldGen.SolidTile(face.X, face.Y))
                 continue;
-            if (Collision.CanHitLine(eye, 1, 1, face.ToWorldCoordinates(8f, 8f), 1, 1))
+            if (Collision.CanHit(eye, 1, 1, face.ToWorldCoordinates(8f, 8f), 1, 1))
                 return true;
         }
         return false;

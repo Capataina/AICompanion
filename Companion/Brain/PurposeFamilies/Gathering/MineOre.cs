@@ -40,6 +40,7 @@ public sealed class MineOre : CompanionAction
     private HashSet<Point> patch = new();
     private HashSet<Point> jobTiles = new();
     private readonly HashSet<Point> ownRemovals = new();
+    private readonly List<Point> noStandingPose = new();
     private int jobType;
     private int nextJobId = 1;
     private int jobId;
@@ -50,10 +51,6 @@ public sealed class MineOre : CompanionAction
     private int approachPickPower;
 
     private bool swinging;
-    // The vein tile that is only reachable by hopping, and the tick the hop was asked for, so a
-    // jump that does not deliver the swing releases instead of being re-asked on every tick.
-    private Point? jumpTile;
-    private ulong jumpAsked;
 
     public int JobId => jobId;
     public DescribeOreJobEnd? LastConclusion { get; private set; }
@@ -176,18 +173,26 @@ public sealed class MineOre : CompanionAction
             // declines to answer, the tile becomes the walk-at-it target rather than nothing.
             if (target is OreFinder.OreTarget held)
             {
-                // A hop to a ceiling tile moves the feet by design, so the move that the target
-                // exists for must not be the move that cancels it. The hop's own re-proof against
-                // the live pose in Execute is what ends it when the take-off is genuinely lost.
-                if (jumpTile == held.Tile) { /* retained: the jump owns this target until it lands */ }
+                // A hop target's feet move by design twice over — walking to the take-off and the hop
+                // itself — so feet movement alone must not cancel it. Its take-off is re-derived only
+                // when terrain or the pick changed; the live re-proof in Execute is what ends a hop
+                // whose take-off is genuinely gone.
+                if (held.Hop && TerrainChanges.Revision == approachRevision && pick == approachPickPower) { }
                 else if (FindToolAccess.InReach(ctx.Npc.Bottom, held.Tile))
-                    target = held with { StandPosition = ctx.Npc.Bottom };
-                else if (FindToolAccess.Approach(held.Tile, ctx.Npc.Bottom, out Vector2 restand) == Reachability.Reach.Yes)
-                    target = held with { StandPosition = restand };
+                    target = held with { StandPosition = ctx.Npc.Bottom, Hop = false };
+                else if (FindToolAccess.Approach(held.Tile, ctx.Npc.Bottom, out Vector2 restand) is var standing && standing == Reachability.Reach.Yes)
+                    target = held with { StandPosition = restand, Hop = false };
+                else if (standing == Reachability.Reach.No
+                    && FindToolAccess.HopApproach(held.Tile, ctx.Npc.Bottom, ctx.Companion.Motor.State, out Vector2 takeOff) == Reachability.Reach.Yes)
+                    target = held with { StandPosition = takeOff, Hop = true };
                 else
                     target = null; // the walk-at-unproven-ore path below re-finds it
             }
             if (patch.Count > 0 && target == null) sinceSearch = SearchEveryTicks;
+            // A different pick is new evidence about every ore, not only the held one: a weaker tool
+            // should be reported as unable to mine now rather than as nothing found until the next
+            // cadence, and a stronger one should start work now rather than a second later.
+            if (pick != approachPickPower) sinceSearch = SearchEveryTicks;
             approachOrigin = origin;
             approachRevision = TerrainChanges.Revision;
             approachPickPower = pick;
@@ -306,15 +311,16 @@ public sealed class MineOre : CompanionAction
         bool Mineable(Point tile) => miner.CanMine(tile, pick) && AllowsTarget(context, tile.ToWorldCoordinates())
             && !WorldInteractions.WorldProtection.ProtectCompanionHomes.IsProtected(tile);
         OreFinder.SearchResult result = default;
+        BodyState body = ctx.Companion.Motor.State;
         if (WorkPolicies.Mining == WorkPolicy.Mimic)
         {
             if (playerHit is (Point hit, int type))
-                result = OreFinder.FindNearest(ctx.Npc.Bottom, ctx.Player.Bottom, SearchRadiusTiles, type, Mineable);
+                result = OreFinder.FindNearest(ctx.Npc.Bottom, ctx.Player.Bottom, SearchRadiusTiles, type, Mineable, body);
         }
         else
         {
-            OreFinder.SearchResult byPlayer = OreFinder.FindNearest(ctx.Npc.Bottom, ctx.Player.Bottom, SearchRadiusTiles, accept: Mineable);
-            OreFinder.SearchResult byCompanion = OreFinder.FindNearest(ctx.Npc.Bottom, ctx.Npc.Bottom, SearchRadiusTiles, accept: Mineable);
+            OreFinder.SearchResult byPlayer = OreFinder.FindNearest(ctx.Npc.Bottom, ctx.Player.Bottom, SearchRadiusTiles, accept: Mineable, body: body);
+            OreFinder.SearchResult byCompanion = OreFinder.FindNearest(ctx.Npc.Bottom, ctx.Npc.Bottom, SearchRadiusTiles, accept: Mineable, body: body);
             result = new OreFinder.SearchResult(Nearest(ctx.Npc.Bottom, byPlayer.Target, byCompanion.Target),
                 NearestTile(ctx.Npc.Bottom, byPlayer.UnresolvedTile, byCompanion.UnresolvedTile));
         }
@@ -328,7 +334,7 @@ public sealed class MineOre : CompanionAction
             ownRemovals.Clear();
             jobType = f.Type;
             jobId = nextJobId++;
-            status = "approaching";
+            status = f.Hop ? "approaching take-off" : "approaching";
         }
         else if (result.ApproachUnknown)
             status = "approach unknown";
@@ -337,8 +343,8 @@ public sealed class MineOre : CompanionAction
             // Search once without the tool predicate only after every mineable candidate was
             // rejected, so a closer weak-pick ore cannot mask a farther usable one.
             OreFinder.SearchResult anyOre = WorkPolicies.Mining == WorkPolicy.Mimic && playerHit is (Point _, int anyType)
-                ? OreFinder.FindNearest(ctx.Npc.Bottom, ctx.Player.Bottom, SearchRadiusTiles, anyType)
-                : OreFinder.FindNearest(ctx.Npc.Bottom, ctx.Npc.Bottom, SearchRadiusTiles);
+                ? OreFinder.FindNearest(ctx.Npc.Bottom, ctx.Player.Bottom, SearchRadiusTiles, anyType, body: body)
+                : OreFinder.FindNearest(ctx.Npc.Bottom, ctx.Npc.Bottom, SearchRadiusTiles, body: body);
             status = anyOre.Target != null ? "no mineable ore" : anyOre.ApproachUnknown ? "no eligible approach" : "no reachable ore";
         }
     }
@@ -362,7 +368,7 @@ public sealed class MineOre : CompanionAction
         if (preparedTile == null || PreparedTargetRejection.Length > 0)
         {
             target = null;
-            jumpTile = unproven = null;
+            unproven = null;
             sinceSearch = SearchEveryTicks;
             status = "prepared tile invalidated";
             attemptSetback = (AttemptStatus.Invalid, "prepared-tile-invalidated");
@@ -381,18 +387,27 @@ public sealed class MineOre : CompanionAction
 
         if (!FindToolAccess.InReach(ctx.Npc.Bottom, t.Tile))
         {
-            if (jumpTile == t.Tile)
+            if (t.Hop)
             {
-                // Re-proved against the live pose: another behaviour may have moved the body since
-                // the vein chose this tile, and a hop proved from somewhere else is not a hop.
-                if (!ProveInteractionJump.CanReach(NavGrid.World, ctx.Companion.Motor.State, body => FindToolAccess.InReach(body.Feet, t.Tile)))
+                BodyState live = ctx.Companion.Motor.State;
+                // The rising body is what swings; while it is in the air there is nothing new to ask.
+                if (!live.OnGround)
+                    return PositionRequest.Hold;
+                // Re-proved against the live pose every time: another behaviour may have moved the
+                // body since the take-off was chosen, and a hop proved from somewhere else is not a hop.
+                if (ProveInteractionJump.CanReach(NavGrid.World, live, body => FindToolAccess.InReach(body.Feet, t.Tile)))
                 {
-                    jumpTile = null; target = null; status = "jump lost its take-off";
+                    status = "jumping to ore";
+                    return PositionRequest.Hold with { JumpScale = 1f };
+                }
+                // At the take-off with no proof left, the hop itself is gone rather than the walk unfinished;
+                // the tolerance is the proof's own landing tolerance, so the two agree on "here".
+                if (Vector2.DistanceSquared(ctx.Npc.Bottom, t.StandPosition) <= BodyPhysics.Width * BodyPhysics.Width)
+                {
+                    target = null; status = "jump lost its take-off";
                     attemptSetback = (AttemptStatus.Failed, "interaction-jump-lost-take-off");
                     return PositionRequest.Hold;
                 }
-                if (Main.GameUpdateCount - jumpAsked > 90) { jumpAsked = Main.GameUpdateCount; return PositionRequest.Hold with { JumpScale = 1f }; }
-                return PositionRequest.Hold;
             }
             // A waypoint tolerance is not tool reach. Keep approaching the proven stand until
             // the actual body can swing; returning Hold here made approximate arrival permanent.
@@ -457,12 +472,11 @@ public sealed class MineOre : CompanionAction
             if (!ProveInteractionJump.CanReach(NavGrid.World, ctx.Companion.Motor.State, body => FindToolAccess.InReach(body.Feet, p)))
                 continue;
             status = "jumping to ore";
-            jumpTile = p;
-            return new OreFinder.OreTarget(p, jobType, ctx.Npc.Bottom);
+            return new OreFinder.OreTarget(p, jobType, ctx.Npc.Bottom, Hop: true);
         }
-        jumpTile = null;
         bool unknown = false;
         unresolvedCandidate = null;
+        noStandingPose.Clear();
         foreach (Point p in patch)
         {
             var approach = FindToolAccess.Approach(p, ctx.Npc.Bottom, out Vector2 stand);
@@ -474,6 +488,26 @@ public sealed class MineOre : CompanionAction
             unknown |= approach == Reachability.Reach.Unknown;
             if (approach == Reachability.Reach.Unknown)
                 unresolvedCandidate = NearestTile(ctx.Npc.Bottom, unresolvedCandidate, p);
+            else
+                noStandingPose.Add(p);
+        }
+        // Only when no tile can be worked standing: a proven hop from a reachable take-off elsewhere, asked
+        // before an undecided standing approach is waited on, because a proven method beats a maybe. Only
+        // tiles the standing search proved unreachable are asked, for the reason OreFinder gives.
+        BodyState body = ctx.Companion.Motor.State;
+        foreach (Point p in noStandingPose)
+        {
+            var hop = FindToolAccess.HopApproach(p, ctx.Npc.Bottom, body, out Vector2 takeOff);
+            if (hop == Reachability.Reach.Yes)
+            {
+                status = "relocating to take-off";
+                return new OreFinder.OreTarget(p, jobType, takeOff, Hop: true);
+            }
+            if (hop == Reachability.Reach.Unknown)
+            {
+                unknown = true;
+                unresolvedCandidate = NearestTile(ctx.Npc.Bottom, unresolvedCandidate, p);
+            }
         }
         if (unknown)
         {
@@ -504,7 +538,6 @@ public sealed class MineOre : CompanionAction
         jobTiles.Clear();
         ownRemovals.Clear();
         target = null;
-        jumpTile = null;
         unresolvedCandidate = unproven = null;
         patch.Clear();
         jobId = 0;

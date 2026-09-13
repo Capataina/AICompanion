@@ -12,6 +12,10 @@ using WorkPolicy = live::AICompanion.Companion.Brain.Behaviours.Work.WorkPolicy;
 using ActionContext = live::AICompanion.Companion.Brain.Behaviours.ActionContext;
 using AStar = live::AICompanion.Companion.Brain.SharedMovementSystem.AStar;
 using Reachability = live::AICompanion.Companion.Brain.SharedMovementSystem.Reachability;
+using TerrainChanges = live::AICompanion.Companion.Brain.SharedMovementSystem.TerrainChanges;
+using OfferEligibility = live::AICompanion.Companion.Brain.Behaviours.OfferEligibility;
+using AttemptStatus = live::AICompanion.Companion.Brain.Behaviours.AttemptStatus;
+using TileMiner = live::AICompanion.Companion.Brain.WorldInteractions.Mining.TileMiner;
 
 /// <summary>Native-tile regression checks for the work policy and retained ore-job contracts.</summary>
 internal static class VerifyOreWork
@@ -35,6 +39,12 @@ internal static class VerifyOreWork
             OreDisappearanceAndAttributedRemovalRemainSeparate();
             AnAttemptConcludesOnlyFromItsOwnEvidence();
             TheNearestFirstApproachMatchesTheExhaustiveScan();
+            ABlockedNearestOreYieldsToAnExposedFartherOre();
+            AMaximumReachPoseMinesWithoutClosingIn();
+            EveryArrivalOffsetEndsInUsableWork();
+            CeilingOreIsMinedFromAProvenHop();
+            ToolPowerChangesDuringAJobChangeEligibility();
+            PlayerTerrainEditsCloseAndReopenAccess();
             AJointlyClearedVeinIsASharedCompletion();
             PreparedToolsRejectReplacementMaterial();
             AxeEligibilityAloneDoesNotMakeATree();
@@ -48,7 +58,7 @@ internal static class VerifyOreWork
             PreparedWorkForecastRespondsToNativeProgress();
             RemainingToolWorkMatchesNativeCompletion();
             DepartingPlayerChangesWhetherWorkIsWorthFinishing();
-            Console.WriteLine("ore work: policy, retained vein, tool gates, unproven approach and native productive break pass");
+            Console.WriteLine("ore work: policy, retained vein, tool gates, unproven approach, blocked nearest ore, reach edge, arrival offsets, ceiling hops, tool power changes, player terrain edits and native productive break pass");
             return 0;
         }
         finally
@@ -946,6 +956,286 @@ internal static class VerifyOreWork
         finally { AStar.MsBudget = budget; }
     }
 
+    /// <summary>
+    /// The nearest ore is unusable in two different ways — sealed on every face, or exposed only inside a
+    /// chamber the walker cannot enter — while a farther ore on the open floor is usable. Discovery must
+    /// choose the farther ore, the whole brain must break it, and neither nearer ore nor its enclosure may
+    /// be dug out to make access.
+    /// </summary>
+    private static void ABlockedNearestOreYieldsToAnExposedFartherOre()
+    {
+        foreach (bool pocket in new[] { false, true })
+        {
+            Point usable = new(27, 59);
+            Point blocked = pocket ? new Point(16, 59) : new Point(17, 58);
+            var (_, ctx) = SetUp(WorkPolicy.Opportunistic, TileID.Copper, usable);
+            var walls = new List<Point>();
+            if (pocket)
+            {
+                // A chamber two tiles wide and three tall at columns 14–15. The ore is the foot of its right
+                // wall, a second wall column seals it from outside, and it faces only the chamber.
+                for (int y = 56; y <= 59; y++) { walls.Add(new Point(13, y)); walls.Add(new Point(17, y)); }
+                for (int y = 56; y <= 58; y++) walls.Add(new Point(16, y));
+                walls.Add(new Point(14, 56));
+                walls.Add(new Point(15, 56));
+            }
+            else
+                walls.AddRange(new[] { new Point(16, 58), new Point(18, 58), new Point(17, 57), new Point(17, 59) });
+            foreach (Point wall in walls) Place(wall, TileID.Dirt);
+            Place(blocked, TileID.Copper);
+            TerrainChanges.Reset();
+            string shape = pocket ? "chambered" : "sealed";
+            Require(Vector2.DistanceSquared(ctx.Npc.Bottom, blocked.ToWorldCoordinates()) < Vector2.DistanceSquared(ctx.Npc.Bottom, usable.ToWorldCoordinates()),
+                $"the {shape} ore must be the nearer one, or the fixture tests nothing");
+            var standing = FindToolAccess.Approach(blocked, ctx.Npc.Bottom, out _);
+            var hop = FindToolAccess.HopApproach(blocked, ctx.Npc.Bottom, ctx.Companion.Motor.State, out _);
+            Require(standing != Reachability.Reach.Yes && hop != Reachability.Reach.Yes,
+                $"the {shape} ore must have no usable approach, standing or hopping; got {standing}/{hop}");
+            var mine = ctx.Companion.Brain.Chooser.Actions.OfType<MineOre>().Single();
+            float value = VerifyPreparedActivities.PrepareAndScore(mine, ctx);
+            Require(value > 0f && mine.TargetTile == usable && mine.Eligibility == OfferEligibility.Usable,
+                $"a {shape} nearer ore must not mask the exposed farther one; value={value} target={mine.TargetTile} offer={mine.Eligibility}/{mine.EligibilityReason}");
+            var run = RunBrainUntilBroken(ctx, usable, 900);
+            Require(run.Broken, $"the whole brain must break the exposed ore beside a {shape} one; feet={ctx.Npc.Bottom} status={mine.Status} action={ctx.Companion.Brain.LastAction?.Name}");
+            Require(Main.tile[blocked.X, blocked.Y].HasTile && walls.All(wall => Main.tile[wall.X, wall.Y].HasTile),
+                $"the {shape} ore and its enclosure must be left intact; mining never excavates to make access");
+        }
+    }
+
+    /// <summary>
+    /// A pose exactly on the edge of tool reach mines from where it stands. Approach reserves a margin for a
+    /// future arrival; that margin must not shrink reach at a pose the body already occupies, or the
+    /// companion walks in to a pose it never needed.
+    /// </summary>
+    private static void AMaximumReachPoseMinesWithoutClosingIn()
+    {
+        Point ore = new(25, 59);
+        var (_, ctx) = SetUp(WorkPolicy.Opportunistic, TileID.Copper, ore);
+        float edge = ore.ToWorldCoordinates(8f, 8f).X - (Player.tileRangeX * 16f + 8f);
+        ctx.Npc.Bottom = new Vector2(edge, ctx.Npc.Bottom.Y);
+        Require(FindToolAccess.InReach(ctx.Npc.Bottom, ore) && !FindToolAccess.InReach(ctx.Npc.Bottom - new Vector2(1f, 0f), ore),
+            "the fixture pose must sit exactly on the edge of actual tool reach");
+        Vector2 start = ctx.Npc.Bottom;
+        TerrainChanges.Reset();
+        var run = RunBrainUntilBroken(ctx, ore, 600);
+        Require(run.Broken && run.StrikeFeet.Count > 0, $"a maximum-reach pose must produce a native break; feet={ctx.Npc.Bottom}");
+        float drift = run.StrikeFeet.Max(feet => MathF.Abs(feet.X - start.X));
+        Require(drift < 4f, $"every strike must come from the edge pose itself rather than from walking in; the largest drift was {drift:0.0} px");
+    }
+
+    /// <summary>
+    /// The approach delivers the body from both sides and from different sub-tile offsets, so it arrives at
+    /// different working poses. Every start must end in a native break, and every productive strike must come
+    /// from a pose with actual reach rather than from wherever the navigator happened to stop.
+    /// </summary>
+    private static void EveryArrivalOffsetEndsInUsableWork()
+    {
+        Point ore = new(25, 59);
+        var arrivals = new List<string>();
+        foreach (float startX in new[] { 8 * 16f + 3f, 13 * 16f + 11f, 34 * 16f + 5f, 39 * 16f + 14f })
+        {
+            var (_, ctx) = SetUp(WorkPolicy.Opportunistic, TileID.Copper, ore);
+            ctx.Npc.Bottom = new Vector2(startX, ctx.Npc.Bottom.Y);
+            TerrainChanges.Reset();
+            Require(!FindToolAccess.InReach(ctx.Npc.Bottom, ore), $"start x={startX} must begin outside reach so the approach delivers the pose");
+            var run = RunBrainUntilBroken(ctx, ore, 900);
+            Require(run.Broken && run.StrikeFeet.Count > 0,
+                $"start x={startX}: the delivered pose must produce a native break; feet={ctx.Npc.Bottom} request={ctx.Companion.Brain.LastRequest} nav={ctx.Companion.Brain.Navigator.Status}");
+            Require(run.StrikeFeet.All(feet => FindToolAccess.InReach(feet, ore)),
+                $"start x={startX}: every productive strike must come from actual reach; strikes at {string.Join("; ", run.StrikeFeet)}");
+            arrivals.Add($"{startX:0}->{run.StrikeFeet[0].X:0.0}");
+        }
+        Console.WriteLine($"ore arrival offsets (start x -> first strike x): {string.Join(", ", arrivals)}");
+    }
+
+    /// <summary>
+    /// Ore set in a ceiling slab above standing reach is worked the way a player works it: walk under it,
+    /// jump, swing while rising. Discovery must find it through a proven hop, the whole brain must break it
+    /// and land, and the slab must stay whole. Ore beyond the reach of any hop must never be offered.
+    /// </summary>
+    private static void CeilingOreIsMinedFromAProvenHop()
+    {
+        foreach ((int oreRow, bool mirrored, bool reachable) in new[] { (52, false, true), (52, true, true), (44, false, false) })
+        {
+            Point placeholder = new(25, 59);
+            var (_, ctx) = SetUp(WorkPolicy.Opportunistic, TileID.Copper, placeholder);
+            Tile cleared = Main.tile[placeholder.X, placeholder.Y];
+            cleared.ClearEverything();
+            Point ore = new(mirrored ? 15 : 25, oreRow);
+            // Two rows thick, so the ore's only open face is the one underneath it.
+            var slab = new List<Point>();
+            for (int x = 5; x < 40; x++)
+                for (int y = oreRow - 1; y <= oreRow; y++)
+                    if (new Point(x, y) != ore) slab.Add(new Point(x, y));
+            foreach (Point p in slab) Place(p, TileID.Dirt);
+            Place(ore, TileID.Copper);
+            TerrainChanges.Reset();
+            Vector2 standingFeet = ctx.Npc.Bottom;
+            var standing = FindToolAccess.Approach(ore, standingFeet, out _);
+            var hop = FindToolAccess.HopApproach(ore, standingFeet, ctx.Companion.Motor.State, out Vector2 takeOff);
+            Require(standing != Reachability.Reach.Yes, $"ore row {oreRow} must be out of standing reach, or this is not a ceiling case; got {standing}");
+            var mine = ctx.Companion.Brain.Chooser.Actions.OfType<MineOre>().Single();
+            if (!reachable)
+            {
+                Require(hop != Reachability.Reach.Yes, $"ore row {oreRow} is beyond any hop and must not be proven; got {hop} from {takeOff}");
+                for (int tick = 0; tick < 240; tick++) AdvanceBrain(ctx);
+                Require(Main.tile[ore.X, ore.Y].HasTile && slab.All(p => Main.tile[p.X, p.Y].HasTile)
+                    && mine.Eligibility is not (OfferEligibility.Usable or OfferEligibility.Unresolved),
+                    $"ore beyond any hop must stay unoffered and untouched; offer={mine.Eligibility}/{mine.EligibilityReason}");
+                continue;
+            }
+            Require(hop == Reachability.Reach.Yes, $"ore row {oreRow} mirrored={mirrored} must be reachable by a proven hop from a walkable take-off; got {hop}");
+            var run = RunBrainUntilBroken(ctx, ore, 900);
+            Require(run.Broken && run.StrikeFeet.Count > 0,
+                $"ceiling ore mirrored={mirrored} must be mined from a hop; status={mine.Status} feet={ctx.Npc.Bottom} action={ctx.Companion.Brain.LastAction?.Name} request={ctx.Companion.Brain.LastRequest}");
+            Require(run.StrikeFeet.All(feet => FindToolAccess.InReach(feet, ore) && feet.Y < standingFeet.Y - 1f),
+                $"every strike must come from a raised body in actual reach, which only the hop provides; strikes at {string.Join("; ", run.StrikeFeet)}");
+            for (int tick = 0; tick < 120 && !ctx.Companion.Motor.State.OnGround; tick++) AdvanceBrain(ctx);
+            Require(ctx.Companion.Motor.State.OnGround && slab.All(p => Main.tile[p.X, p.Y].HasTile),
+                "the hop must land and the ceiling slab must stay whole");
+        }
+    }
+
+    /// <summary>
+    /// Tool power moves in both directions around one job. A pick too weak for the only ore offers no work
+    /// and says the tool is why; equipping a stronger pick starts the job on the next preparation; swapping
+    /// back after real damage ends it as partial work with the ore still in place.
+    /// </summary>
+    private static void ToolPowerChangesDuringAJobChangeEligibility()
+    {
+        Point ore = new(25, 59);
+        var (mine, ctx) = SetUp(WorkPolicy.Opportunistic, TileID.Chlorophyte, ore);
+        var strong = new Item();
+        strong.SetDefaults(ItemID.Picksaw);
+        int weakPower = TileMiner.PickaxeFor(ctx.Player).pick;
+        Require(!ctx.Companion.Miner.CanMine(ore, weakPower) && ctx.Companion.Miner.CanMine(ore, strong.pick),
+            $"the fixture needs ore the fallback pick ({weakPower}) cannot damage and the stronger pick ({strong.pick}) can");
+        Require(VerifyPreparedActivities.PrepareAndScore(mine, ctx) == 0f && mine.RemainingTiles == 0
+            && mine.Eligibility == OfferEligibility.KnownUnusable,
+            $"a pick too weak for the only ore must offer no work and say the tool is why; got {mine.Eligibility}/{mine.EligibilityReason}");
+
+        ctx.Player.inventory[ctx.Player.selectedItem] = strong;
+        float stronger = VerifyPreparedActivities.PrepareAndScore(mine, ctx);
+        Require(stronger > 0f && mine.JobId > 0 && mine.Eligibility == OfferEligibility.Usable,
+            $"a stronger pick must start the job on the next preparation, not after a search cadence; value={stronger} job={mine.JobId} offer={mine.Eligibility}/{mine.EligibilityReason}");
+
+        mine.BeginAttempt();
+        int effects = 0;
+        for (int tick = 0; tick < 120 && effects == 0; tick++)
+        {
+            long before = ctx.Companion.Miner.LastOutcome?.Attempt ?? -1;
+            mine.Execute(ctx);
+            if (ctx.Companion.Miner.LastOutcome is { Productive: true } outcome && outcome.Attempt != before) effects++;
+            ctx.Companion.Miner.Tick();
+        }
+        Require(effects > 0 && Main.tile[ore.X, ore.Y].HasTile, "the stronger pick must land real partial damage before the swap");
+
+        ctx.Player.inventory[ctx.Player.selectedItem] = new Item();
+        float weaker = VerifyPreparedActivities.PrepareAndScore(mine, ctx);
+        Require(weaker == 0f && mine.Eligibility == OfferEligibility.KnownUnusable && Main.tile[ore.X, ore.Y].HasTile,
+            $"a weaker pick must end the offer as a tool that cannot mine, with the ore still in place; value={weaker} offer={mine.Eligibility}/{mine.EligibilityReason}");
+        var conclusion = mine.ConcludeAttempt(effects);
+        Require(conclusion.Status == AttemptStatus.Partial,
+            $"real damage followed by a lost tool is partial work, never complete or failed; got {conclusion}");
+    }
+
+    /// <summary>
+    /// The player walls off the ore while the companion walks to it, then opens one face again. Sealing must
+    /// end the approach as a failed method with no strike and no digging, and the offer must stop claiming
+    /// usable or undecided work; reopening must let the same ore be mined through the new face with the rest
+    /// of the wall untouched. The edits reach the companion through the same invalidation call the game's
+    /// placement and kill hooks make.
+    /// </summary>
+    private static void PlayerTerrainEditsCloseAndReopenAccess()
+    {
+        // The premise is a proven job the player then seals. Under production millisecond allowances a
+        // cold first search can stop at its deadline and leave the approach undecided, which is correct
+        // live behaviour and not this fixture's question, so the allowances are lifted as brain-cost does.
+        live::AICompanion.Companion.Brain.SharedMovementSystem.LimitPlanningWork.Unbounded = true;
+        try { SealThenReopenAnApproachedOre(); }
+        finally { live::AICompanion.Companion.Brain.SharedMovementSystem.LimitPlanningWork.Unbounded = false; }
+    }
+
+    private static void SealThenReopenAnApproachedOre()
+    {
+        Point ore = new(25, 59);
+        var (_, ctx) = SetUp(WorkPolicy.Opportunistic, TileID.Copper, ore);
+        ctx.Npc.Bottom = new Vector2(15 * 16f + 8f, ctx.Npc.Bottom.Y);
+        TerrainChanges.Reset();
+        var mine = ctx.Companion.Brain.Chooser.Actions.OfType<MineOre>().Single();
+        AdvanceBrain(ctx);
+        Require(mine.JobId > 0 && ctx.Companion.Brain.LastAction?.Name == "mine" && !FindToolAccess.InReach(ctx.Npc.Bottom, ore),
+            $"the fixture must catch the companion walking to a proven job; job={mine.JobId} action={ctx.Companion.Brain.LastAction?.Name} status={mine.Status} feet={ctx.Npc.Bottom}");
+        var seal = new[] { new Point(24, 59), new Point(26, 59), new Point(25, 58) };
+        foreach (Point p in seal) { Place(p, TileID.Dirt); TerrainChanges.Changed(p.X, p.Y); }
+        long strikesBefore = ctx.Companion.Miner.LastOutcome?.Attempt ?? -1;
+        for (int tick = 0; tick < 240; tick++) AdvanceBrain(ctx);
+        Require(Main.tile[ore.X, ore.Y].HasTile && seal.All(p => Main.tile[p.X, p.Y].HasTile)
+            && (ctx.Companion.Miner.LastOutcome?.Attempt ?? -1) == strikesBefore,
+            "a sealed ore must receive no strike and its seal no digging");
+        Require(mine.Score() == 0f && mine.Eligibility is not (OfferEligibility.Usable or OfferEligibility.Unresolved),
+            $"a sealed ore must stop being offered as usable or undecided work; offer={mine.Eligibility}/{mine.EligibilityReason}");
+        var sealedAttempt = ctx.Companion.Brain.Chooser.Activity.RecentAttempts.LastOrDefault(attempt => attempt.Activity == "mine");
+        Require(sealedAttempt is { Status: AttemptStatus.Failed, Cause: "remaining ore has no proven working pose", ProductiveEffects: 0 },
+            $"the approach lost to the player's wall must close as a failed method with no credited effect; got {sealedAttempt}");
+
+        Point opened = seal[0];
+        Tile gap = Main.tile[opened.X, opened.Y];
+        gap.ClearEverything();
+        TerrainChanges.Changed(opened.X, opened.Y);
+        // The reopened face is a one-tile notch with the player's block diagonally above it: the swing
+        // reaches in, and the game's wide beam test would have refused it.
+        Vector2 besideFeet = live::AICompanion.Companion.Brain.SharedMovementSystem.MovementQueries.FeetWorld(new Point(23, 59));
+        Require(FindToolAccess.InReach(besideFeet, ore)
+            && !Collision.CanHitLine(besideFeet + new Vector2(0f, -30f), 1, 1, opened.ToWorldCoordinates(8f, 8f), 1, 1),
+            "the notch fixture must be one the wide native beam refuses and a swing reaches, or it does not test the face-access walk");
+        var run = RunBrainUntilBroken(ctx, ore, 900);
+        var approachNow = FindToolAccess.Approach(ore, ctx.Npc.Bottom, out Vector2 standNow);
+        bool standableBeside = live::AICompanion.Companion.Brain.SharedMovementSystem.MovementQueries.IsStandable(23, 59);
+        Require(run.Broken, $"reopening one face must let the same ore be mined; feet={ctx.Npc.Bottom} status={mine.Status} "
+            + $"offer={mine.Eligibility}/{mine.EligibilityReason} action={ctx.Companion.Brain.LastAction?.Name} approach-now={approachNow}@{standNow} "
+            + $"in-reach-now={FindToolAccess.InReach(ctx.Npc.Bottom, ore)} mineable={ctx.Companion.Miner.CanMine(ore, TileMiner.PickaxeFor(ctx.Player).pick)} "
+            + $"standable(23,59)={standableBeside} families={string.Join(";", ctx.Companion.Brain.Chooser.Queries.LastFamilies)}");
+        Require(seal.Skip(1).All(p => Main.tile[p.X, p.Y].HasTile), "the rest of the player's wall must stay as the player built it");
+    }
+
+    /// <summary>Runs the whole brain against native collision until the ore breaks or the tick limit passes,
+    /// returning the feet at every productive strike so a fixture can check the pose each strike came from.</summary>
+    private static (bool Broken, List<Vector2> StrikeFeet) RunBrainUntilBroken(ActionContext ctx, Point ore, int ticks)
+    {
+        var strikes = new List<Vector2>();
+        long last = ctx.Companion.Miner.LastOutcome?.Attempt ?? -1;
+        for (int tick = 0; tick < ticks && Main.tile[ore.X, ore.Y].HasTile; tick++)
+        {
+            VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
+            VerifyCompanionLifecycle.TickWithOneControlGrant(ctx.Companion);
+            // The swing happens inside the brain tick, before the engine moves the body, so these are the
+            // feet the strike was actually taken from.
+            if (ctx.Companion.Miner.LastOutcome is { Productive: true } outcome && outcome.Attempt != last)
+            {
+                strikes.Add(ctx.Npc.Bottom);
+                last = outcome.Attempt;
+            }
+            VerifyResponsiveFollowing.AdvanceNative(ctx.Companion);
+        }
+        return (!Main.tile[ore.X, ore.Y].HasTile, strikes);
+    }
+
+    private static void AdvanceBrain(ActionContext ctx)
+    {
+        VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
+        VerifyCompanionLifecycle.TickWithOneControlGrant(ctx.Companion);
+        VerifyResponsiveFollowing.AdvanceNative(ctx.Companion);
+    }
+
+    private static void Place(Point tile, ushort type)
+    {
+        Tile placed = Main.tile[tile.X, tile.Y];
+        placed.ClearEverything();
+        placed.HasTile = true;
+        placed.TileType = type;
+    }
+
     private static (MineOre Action, ActionContext Context) SetUp(WorkPolicy policy, ushort tileType, Point ore, Point? playerHit)
         => SetUp(policy, tileType, new[] { ore }, playerHit);
 
@@ -1009,10 +1299,10 @@ internal static class VerifyOreWork
     private static void ProbeOreLineTarget(Vector2 feet, Point ore)
     {
         Vector2 eye = feet + new Vector2(0f, -30f);
-        bool oreCentre = Collision.CanHitLine(eye, 1, 1, ore.ToWorldCoordinates(), 1, 1);
-        bool exposedFace = Collision.CanHitLine(eye, 1, 1, new Point(ore.X - 1, ore.Y).ToWorldCoordinates(), 1, 1);
+        bool oreCentre = Collision.CanHit(eye, 1, 1, ore.ToWorldCoordinates(), 1, 1);
+        bool exposedFace = Collision.CanHit(eye, 1, 1, new Point(ore.X - 1, ore.Y).ToWorldCoordinates(), 1, 1);
         Require(!oreCentre && exposedFace,
-            "native CanHitLine must reject the solid ore destination but accept its exposed adjacent face");
+            "native CanHit must reject the solid ore destination but accept its exposed adjacent face");
     }
 
     private static void InitialiseVanillaTileHooks()
