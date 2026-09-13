@@ -220,7 +220,7 @@ internal static class VerifyCollectionContracts
         return (collect, ctx, drop);
     }
 
-    private static ActionContext SetUpFloor()
+    internal static ActionContext SetUpFloor()
     {
         Point placeholder = new(60, 59);
         var (_, ctx) = VerifyOreWork.SetUp(WorkPolicy.Disabled, TileID.Copper, placeholder);
@@ -241,7 +241,7 @@ internal static class VerifyCollectionContracts
         last.stack = last.maxStack - room;
     }
 
-    private static Item Drop(int type, int stack, Vector2 bottom)
+    internal static Item Drop(int type, int stack, Vector2 bottom)
     {
         var item = new Item();
         item.SetDefaults(type);

@@ -48,6 +48,7 @@ public static class Program
         new SelectedActivitiesHadAnEligibleOffer(),
         new ARetainedChoiceKeepsItsSelection(),
         new AttemptIdentitiesAgreeAcrossRecords(),
+        new CompletedTransferClaimsWereReceived(),
         new ControlGrantsAreCompatible(),
         // Then the body, the fight and the choices.
         new TheBodyMovesWhenDriven(),

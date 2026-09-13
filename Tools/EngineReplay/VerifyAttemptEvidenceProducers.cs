@@ -23,8 +23,65 @@ internal static class VerifyAttemptEvidenceProducers
         // same flag before its fixtures. Restored so the observation fixtures around this keep theirs.
         bool server = Main.dedServ;
         Main.dedServ = true;
-        try { StrikesNameTheAttemptTheirRowNames(); }
+        try
+        {
+            StrikesNameTheAttemptTheirRowNames();
+            ACollectionClaimIsWhatItsOwnPickupsDelivered();
+        }
         finally { Main.dedServ = server; }
+    }
+
+    /// <summary>
+    /// A drop ten tiles along the floor, collected by the whole brain through the real contact pickup. The pickup that
+    /// took it must name the collection attempt that walked to it, and that attempt's outcome must claim exactly what
+    /// those pickups delivered, of the drop's own type.
+    /// </summary>
+    private static void ACollectionClaimIsWhatItsOwnPickupsDelivered()
+    {
+        var preferences = live::AICompanion.Companion.PlayerIntegration.CompanionPreferences.Current;
+        bool potBreaking = preferences.PotBreaking;
+        const int slot = 7;
+        Item previous = Main.item[slot];
+        var ctx = VerifyCollectionContracts.SetUpFloor();
+        Item drop = VerifyCollectionContracts.Drop(ItemID.CopperOre, 10, new Vector2(30 * 16 + 8, 60 * 16));
+        var recorder = new BrainTelemetry(); VerifyObservationLifecycle.Attach(recorder);
+        recorder.OnWorldLoad();
+        string path = Directory.GetFiles(BrainTelemetry.Folder, "*.tsv").OrderByDescending(File.GetLastWriteTimeUtc).First();
+        live::AICompanion.Companion.Brain.SharedMovementSystem.LimitPlanningWork.Unbounded = true;
+        preferences.PotBreaking = false;
+        try
+        {
+            for (int tick = 0; tick < 900 && live::AICompanion.Companion.Brain.WorldObservation.LootSense.IsWorldDrop(drop); tick++)
+                VerifyOreWork.AdvanceBrain(ctx);
+            for (int tick = 0; tick < 30; tick++) VerifyOreWork.AdvanceBrain(ctx);
+        }
+        finally
+        {
+            live::AICompanion.Companion.Brain.SharedMovementSystem.LimitPlanningWork.Unbounded = false;
+            preferences.PotBreaking = potBreaking;
+            recorder.OnWorldUnload();
+            Main.item[slot] = previous;
+        }
+        Require(!live::AICompanion.Companion.Brain.WorldObservation.LootSense.IsWorldDrop(drop),
+            $"the recorded collection scene must take its drop before its evidence means anything; action={ctx.Companion.Brain.LastAction?.Name} feet={ctx.Npc.Bottom}");
+
+        var capture = Capture.Read(path);
+        var pickups = capture.Events.Where(e => e.Kind == "pickup").ToList();
+        Require(pickups.Count > 0 && pickups.All(p => Capture.Long(Capture.Field(p.Detail, "collection-attempt-id")) is not null),
+            $"the real contact pickup wrote {pickups.Count} pickup(s), or one without a collection attempt field");
+        var claimed = pickups.Where(p => Capture.Long(Capture.Field(p.Detail, "collection-attempt-id")) > 0).ToList();
+        Require(claimed.Count > 0, "the pickup of the drop collection walked to named no collection attempt: " + string.Join(" | ", pickups.Select(p => p.Detail)));
+        long attempt = Capture.Long(Capture.Field(claimed[0].Detail, "collection-attempt-id"))!.Value;
+        Require(claimed.All(p => Capture.Long(Capture.Field(p.Detail, "collection-attempt-id")) == attempt && p.Label == ItemID.CopperOre.ToString()),
+            "the drop's pickups named more than one attempt or another item type");
+        var outcome = capture.Events.FirstOrDefault(e => e.Kind == "attempt-outcome" && Capture.Long(Capture.Field(e.Detail, "attempt-id")) == attempt);
+        Require(outcome.Kind != null, $"collection attempt {attempt} has no outcome after its drop was taken and thirty more ticks");
+        int delivered = claimed.Sum(p => p.Amount);
+        Require(Capture.Field(outcome.Detail, "status") == "Complete" && Capture.Field(outcome.Detail, "attribution") == "Companion"
+            && Capture.Long(Capture.Field(outcome.Detail, "claimed-yield-type")) == ItemID.CopperOre
+            && Capture.Long(Capture.Field(outcome.Detail, "claimed-yield-quantity")) == delivered && delivered == 10,
+            $"collection attempt {attempt} must claim exactly the ten its own pickups delivered; outcome={outcome.Detail}; delivered={delivered}");
+        Console.WriteLine($"attempt evidence producers: collection attempt {attempt} claimed {delivered} copper ore and its {claimed.Count} pickup(s) delivered exactly that");
     }
 
     /// <summary>

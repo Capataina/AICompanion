@@ -20,14 +20,21 @@ public sealed class AttemptEvidence
     public List<GodsEyeEvent> DuplicateOutcomes { get; } = new();
     public List<GodsEyeEvent> Grants { get; } = new();
     public List<(GodsEyeEvent Effect, ToolEffectRoute Route)> ToolEffects { get; } = new();
+    /// <summary>Pickups whose producer named this attempt as the collection attempt that walked to them (schema 0.26.0).</summary>
+    public List<GodsEyeEvent> Pickups { get; } = new();
+
+    public int ClaimedYieldType => Number(Outcome?.Field("claimed-yield-type")) is long type ? (int)type : 0;
+    public int ClaimedYieldQuantity => Number(Outcome?.Field("claimed-yield-quantity")) is long quantity ? (int)quantity : 0;
+    /// <summary>What the pickups recorded under this attempt delivered of <paramref name="type"/>.</summary>
+    public int ReceivedOf(int type) => Pickups.Where(p => p.label == type.ToString(CultureInfo.InvariantCulture)).Sum(p => p.amount);
 
     public long? OutcomeActivityId => Number(Outcome?.Field("activity-id"));
     public long? StartTick => Number(Outcome?.Field("start-tick"));
     public long? EndTick => Number(Outcome?.Field("end-tick"));
 
     /// <summary>The earliest tick any joined record names, which places an attempt with no outcome on a timeline.</summary>
-    public long FirstTick => new[] { StartTick ?? long.MaxValue, Grants.Count > 0 ? Grants.Min(g => g.tick) : long.MaxValue, ToolEffects.Count > 0 ? ToolEffects.Min(t => t.Effect.tick) : long.MaxValue }.Min();
-    public long LastTick => new[] { EndTick ?? long.MinValue, Grants.Count > 0 ? Grants.Max(g => g.tick) : long.MinValue, ToolEffects.Count > 0 ? ToolEffects.Max(t => t.Effect.tick) : long.MinValue }.Max();
+    public long FirstTick => new[] { StartTick ?? long.MaxValue, Grants.Count > 0 ? Grants.Min(g => g.tick) : long.MaxValue, ToolEffects.Count > 0 ? ToolEffects.Min(t => t.Effect.tick) : long.MaxValue, Pickups.Count > 0 ? Pickups.Min(p => p.tick) : long.MaxValue }.Min();
+    public long LastTick => new[] { EndTick ?? long.MinValue, Grants.Count > 0 ? Grants.Max(g => g.tick) : long.MinValue, ToolEffects.Count > 0 ? ToolEffects.Max(t => t.Effect.tick) : long.MinValue, Pickups.Count > 0 ? Pickups.Max(p => p.tick) : long.MinValue }.Max();
 
     private static long? Number(string? value) => ReadGodsEyeEvents.TryLong(value, out long result) ? result : null;
 }
@@ -44,6 +51,9 @@ public sealed class AttemptJoin
     public int OutcomeCount { get; set; }
     public int GrantCount { get; set; }
     public int ToolEffectCount { get; set; }
+    public int PickupCount { get; set; }
+    /// <summary>Pickups naming no collection attempt: contact pickups during other work, or captures older than schema 0.26.0.</summary>
+    public int IncidentalPickups { get; set; }
 }
 
 /// <summary>
@@ -102,6 +112,13 @@ public static class JoinAttemptEvidence
                     join.ToolEffectCount++;
                     toolEffects.Add(e);
                     break;
+                case "pickup":
+                    // Only a 0.26.0 pickup names an attempt, and only the drop a collection attempt walked to names a
+                    // non-zero one; every other contact pickup is incidental and belongs to no attempt.
+                    join.PickupCount++;
+                    if (ReadGodsEyeEvents.TryLong(e.Field("collection-attempt-id"), out long collection) && collection > 0) At(collection).Pickups.Add(e);
+                    else join.IncidentalPickups++;
+                    break;
             }
         }
 
@@ -157,7 +174,7 @@ public static class JoinAttemptEvidence
         var text = new StringBuilder();
         text.Append($"attempts  {join.Attempts.Count:n0} attempt identities from {join.OutcomeCount:n0} outcome(s), {join.GrantCount:n0} control grant transition(s) and {join.ToolEffectCount:n0} tool effect(s); {withoutOutcome:n0} carry no recorded outcome\n");
         text.Append("  join      outcomes and grants by attempt id; tool effects by the activity-attempt-id they carry (schema 0.25.0), or, for older strikes, by activity id through the row at their tick, else the one outcome interval containing it; a tool's own attempt= counter is never an attempt identity\n");
-        text.Append($"  unjoined  {join.GrantsOutsideAttempts:n0} grant(s) issued with no attempt open (safety, recovery, downing or no activity); {join.GrantsWithoutIdentity.Count:n0} grant(s) and {join.OutcomesWithoutIdentity.Count:n0} outcome(s) with no readable attempt id; {join.UnjoinedToolEffects.Count:n0} tool effect(s) no attempt contains\n");
+        text.Append($"  unjoined  {join.GrantsOutsideAttempts:n0} grant(s) issued with no attempt open (safety, recovery, downing or no activity); {join.GrantsWithoutIdentity.Count:n0} grant(s) and {join.OutcomesWithoutIdentity.Count:n0} outcome(s) with no readable attempt id; {join.UnjoinedToolEffects.Count:n0} tool effect(s) no attempt contains; {join.IncidentalPickups:n0} incidental pickup(s) naming no collection attempt\n");
         IEnumerable<AttemptEvidence> shown = join.Attempts.Values;
         if (!full && join.Attempts.Count > AttemptsShown)
         {
@@ -193,6 +210,10 @@ public static class JoinAttemptEvidence
             line.Append(" (").Append(string.Join(", ", a.ToolEffects.GroupBy(t => t.Effect.Field("effect") ?? "?").Select(g => $"{g.Key} {g.Count()}"))).Append(')');
             line.Append(" joined by ").Append(string.Join(", ", a.ToolEffects.GroupBy(t => t.Route).OrderBy(g => g.Key).Select(g => $"{RouteName(g.Key)}×{g.Count()}")));
         }
+        if (a.ClaimedYieldQuantity > 0)
+            line.Append($"; claimed {a.ClaimedYieldQuantity} of item {a.ClaimedYieldType}; its {a.Pickups.Count} pickup(s) delivered {a.ReceivedOf(a.ClaimedYieldType)}");
+        else if (a.Pickups.Count > 0)
+            line.Append($"; no yield claimed; its {a.Pickups.Count} pickup(s) delivered {a.Pickups.Sum(p => p.amount)}");
         return line.ToString();
     }
 

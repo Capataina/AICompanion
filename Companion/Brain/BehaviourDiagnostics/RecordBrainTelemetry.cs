@@ -42,7 +42,7 @@ public sealed class BrainTelemetry : ModSystem
     private static string? eventsPath;
     private static readonly Stopwatch sessionClock = new();
     private static DateTime sessionStartedUtc;
-    private const string Schema = "0.25.0";
+    private const string Schema = "0.26.0";
     private static string? pendingPlayerHit;
     private static string? pendingCompanionHit;
     private static string? lastDecision;
@@ -403,7 +403,7 @@ public sealed class BrainTelemetry : ModSystem
         foreach (var outcome in activity.RecentAttempts)
             GodsEyeEvents.RecordAttemptOutcome(npc, outcome.AttemptId, outcome.ActivityId, outcome.Activity, outcome.Family.ToString(),
                 outcome.StartTick, outcome.EndTick, outcome.Status.ToString(), outcome.Cause, outcome.ProductiveEffects,
-                outcome.Attribution.ToString());
+                outcome.Attribution.ToString(), outcome.ClaimedYieldType, outcome.ClaimedYieldQuantity);
         var controlGrant = brain.ControlGrants.Last;
         bool controlFresh = controlGrant?.Tick == Main.GameUpdateCount;
         if (controlFresh && controlGrant is { } freshGrant)

@@ -269,6 +269,55 @@ public sealed class AttemptIdentitiesAgreeAcrossRecords : ICheck, ICheckCoverage
 }
 
 /// <summary>
+/// A claimed transfer arrived. A collection attempt claims a yield only from what the cargo's transfer ledger received
+/// from the drop it walked to (CollectNearbyItems.ConcludeAttempt), every accepted transfer happens inside
+/// CompanionNPC.CollectTouchedItems, and that site writes one pickup per transfer naming the open collection attempt
+/// when the item is that drop. So the pickups recorded under an attempt, of the claimed type, deliver at least the
+/// claimed quantity. The rule is one-sided on purpose: the ledger keeps only the latest transfers, so a claim can fall
+/// short of what arrived and that is not reported, while a claim above what arrived names a transfer nobody recorded.
+/// It is Definitive only over a whole occurrence stream; a missing sequence, a malformed line or a stream that never
+/// closed could have lost the pickup, and then it is Potential.
+/// </summary>
+public sealed class CompletedTransferClaimsWereReceived : ICheck, ICheckCoverage
+{
+    public string Name => "did every claimed transfer arrive as pickups under its own attempt";
+    public string[] Needs => new[] { "tick", "activity_attempt_id" };
+
+    public string? Missing(Session session)
+    {
+        if (!ReadGodsEyeEvents.Read(session.Path).Present) return "-events.jsonl sidecar, which carries the attempt outcomes and pickups";
+        return SchemaAtLeast(session, new Version(0, 26, 0)) ? null
+            : "claimed yields on attempt outcomes and collection attempts on pickups (first written by schema 0.26.0)";
+    }
+
+    public IEnumerable<Finding> Run(Session s)
+    {
+        GodsEyeEventLog log = ReadGodsEyeEvents.Read(s.Path);
+        AttemptJoin join = JoinAttemptEvidence.Build(s, log);
+        bool whole = log.MissingSequences == 0 && log.Malformed == 0 && log.Closed;
+        foreach (AttemptEvidence attempt in join.Attempts.Values)
+        {
+            if (attempt.Outcome is not { } outcome || attempt.ClaimedYieldQuantity <= 0) continue;
+            if (outcome.Field("status") is not ("Complete" or "Partial")) continue;
+            int received = attempt.ReceivedOf(attempt.ClaimedYieldType);
+            if (received >= attempt.ClaimedYieldQuantity) continue;
+            string others = attempt.Pickups.Count == 0 ? "no pickup names this attempt"
+                : "pickups naming it: " + string.Join(", ", attempt.Pickups.Select(p => $"tick {p.tick} item {p.label}×{p.amount}"));
+            string coverage = whole ? "The occurrence stream is whole (no missing sequence, no malformed line, closed normally), so no pickup was lost from the record."
+                : $"The occurrence stream is not whole ({log.MissingSequences} missing sequence(s), {log.Malformed} malformed line(s), {(log.Closed ? "closed" : "never closed")}), so a pickup may have been lost from the record rather than never made.";
+            yield return new Finding(whole ? Severity.Definitive : Severity.Potential, Name,
+                $"a completed transfer claim with no matching received quantity: attempt {attempt.AttemptId} ({outcome.label}, {outcome.channel}) claimed {attempt.ClaimedYieldQuantity} of item {attempt.ClaimedYieldType} and its pickups delivered {received}",
+                $"Ticks {outcome.Field("start-tick") ?? "?"}..{outcome.Field("end-tick") ?? "?"}; {others}. The claim is read from the cargo's own transfer ledger and every transfer writes a pickup naming its collection attempt, so a claim above what those pickups delivered credits the companion with items no recorded transfer carried. {coverage}",
+                (int)Math.Min(int.MaxValue, attempt.FirstTick), (int)Math.Min(int.MaxValue, attempt.LastTick), attempt.Pickups.Count);
+        }
+    }
+
+    /// <summary>Whether the capture's recorded schema is at least <paramref name="minimum"/>; an unrecorded or unreadable schema is not.</summary>
+    internal static bool SchemaAtLeast(Session session, Version minimum)
+        => session.Metadata.TryGetValue("schema", out string? value) && Version.TryParse(value, out Version? recorded) && recorded >= minimum;
+}
+
+/// <summary>
 /// Control grants whose owner, hand, attempt and phase the producer cannot issue together. The rules
 /// constrain the <em>requested</em> owner, never the applied one: a downed hold can legitimately be
 /// applied as recovery clearance inside terrain (CharacterBody), so the applied owner is not the branch

@@ -39,11 +39,12 @@ public static class ChronicleTests
             ASelectedActivityMustHaveCarriedAnEligibleOffer();
             ASelectionChangesOnlyWithANewComparison();
             AttemptEvidenceJoinsByIdentityAndDisagreementsAreDefinitive();
+            ACompletedTransferClaimNeedsItsReceivedQuantity();
             ControlGrantRulesJudgeTheRequestedOwner();
             IdentityChecksSkipOldAndPartialCapturesByName();
             MultiRunStatesProvenanceBeforeAnyRun();
             IdentityRulesStillMatchTheProducer();
-            Console.WriteLine("Chronicle self-tests passed (25 assertion groups).");
+            Console.WriteLine("Chronicle self-tests passed (26 assertion groups).");
             return 0;
         }
         catch (Exception error)
@@ -740,10 +741,11 @@ public static class ChronicleTests
 
     /// <summary>Writes a TSV and, unless <paramref name="events"/> is null, its sidecar, to a fresh temporary stem so the sidecar cache can never serve an earlier fixture.</summary>
     private static string WriteIdentitySession(System.Collections.Generic.List<string> files, string[] columns,
-        System.Collections.Generic.IEnumerable<System.Collections.Generic.IReadOnlyDictionary<string, string>> rows, System.Collections.Generic.IEnumerable<FixtureEvent>? events)
+        System.Collections.Generic.IEnumerable<System.Collections.Generic.IReadOnlyDictionary<string, string>> rows, System.Collections.Generic.IEnumerable<FixtureEvent>? events,
+        string schema = "0.21.0", bool closed = true)
     {
         string tsv = Path.GetTempFileName(); files.Add(tsv);
-        var text = new StringBuilder("# schema=0.21.0\n# text_columns=")
+        var text = new StringBuilder($"# schema={schema}\n# text_columns=")
             .Append(string.Join(',', columns.Where(c => c is "action" or "attempt_end_activity" || c.EndsWith("_offer", StringComparison.Ordinal)))).Append('\n')
             .Append(string.Join('\t', columns)).Append('\n');
         foreach (var row in rows) text.Append(string.Join('\t', columns.Select(c => row[c]))).Append('\n');
@@ -756,7 +758,7 @@ public static class ChronicleTests
         var ordered = events.OrderBy(e => e.Tick).ToList();
         var lines = new System.Collections.Generic.List<string> { Json(0, 0, "session", "", "", 0, "schema=1") };
         foreach (FixtureEvent e in ordered) lines.Add(Json(lines.Count, e.Tick, e.Kind, e.Label, e.Channel, e.Amount, e.Detail));
-        lines.Add(Json(lines.Count, ordered.Count == 0 ? 0 : ordered[^1].Tick, "session-end", "", "", ordered.Count, "normal-close"));
+        if (closed) lines.Add(Json(lines.Count, ordered.Count == 0 ? 0 : ordered[^1].Tick, "session-end", "", "", ordered.Count, "normal-close"));
         File.WriteAllLines(sidecar, lines);
         return tsv;
     }
@@ -936,6 +938,85 @@ public static class ChronicleTests
         finally { foreach (string file in files) File.Delete(file); }
     }
 
+    /// <summary>
+    /// Collection attempt 3 (ticks 10..16) claims ten of item 699 and its drop arrives as two pickups naming it, six and four,
+    /// beside an incidental pickup of five of the same item during other work. The incidental pickup is the trap: a join by
+    /// item type alone would cover a lost pickup with it, so every case that loses a pickup keeps it in.
+    /// </summary>
+    private static void ACompletedTransferClaimNeedsItsReceivedQuantity()
+    {
+        var files = new System.Collections.Generic.List<string>();
+        try
+        {
+            string[] columns = { "tick", "wall_elapsed_ms", "action", "choice_id", "choice_fresh", "control_grant_id",
+                "activity_attempt_id", "attempt_end_id", "attempt_end_activity_id", "attempt_end_activity", "attempt_end_tick" };
+            var rows = new System.Collections.Generic.List<System.Collections.Generic.Dictionary<string, string>>();
+            for (long t = 10; t <= 16; t++)
+                rows.Add(new()
+                {
+                    ["tick"] = t.ToString(), ["wall_elapsed_ms"] = (t * 16).ToString(), ["action"] = t < 16 ? "collect" : "keep-company",
+                    ["choice_id"] = t < 16 ? "1" : "2", ["choice_fresh"] = t is 10 or 16 ? "1" : "0", ["control_grant_id"] = t.ToString(),
+                    ["activity_attempt_id"] = t < 16 ? "3" : "0", ["attempt_end_id"] = t < 16 ? "0" : "3", ["attempt_end_activity_id"] = t < 16 ? "0" : "1",
+                    ["attempt_end_activity"] = t < 16 ? "none" : "collect", ["attempt_end_tick"] = t < 16 ? "-1" : "16",
+                });
+            FixtureEvent Pickup(long tick, int type, int amount, long attempt)
+                => new(tick, "pickup", type.ToString(), "player-stacks-or-companion-bag", amount, $"stack={amount};collection-attempt-id={attempt}");
+            FixtureEvent Claim(string status, string attribution, int type, int quantity)
+                => new(16, "attempt-outcome", "collect", attribution == "NotApplicable" ? status : status + ":" + attribution, 0,
+                    $"attempt-id=3;activity-id=1;family=NearbyAssistance;start-tick=10;end-tick=16;status={status};attribution={attribution};cause=drop-collected;productive-effects=0;"
+                    + $"effect-scope=companion-credited-tool-or-interaction-effects;interruption-is-not-failure=true;claimed-yield-type={type};claimed-yield-quantity={quantity}");
+            System.Collections.Generic.List<FixtureEvent> Events() => new() { Pickup(12, 699, 5, 0), Pickup(14, 699, 6, 3), Pickup(15, 699, 4, 3), Claim("Complete", "Companion", 699, 10) };
+            string Write(Action<System.Collections.Generic.List<FixtureEvent>>? mutate = null, string schema = "0.26.0", bool closed = true)
+            {
+                var events = Events();
+                mutate?.Invoke(events);
+                return WriteIdentitySession(files, columns, rows, events, schema, closed);
+            }
+            Finding[] Found(Action<System.Collections.Generic.List<FixtureEvent>>? mutate = null, bool closed = true)
+                => new CompletedTransferClaimsWereReceived().Run(Session.Load(Write(mutate, closed: closed))).ToArray();
+            void LoseTheLastPickup(System.Collections.Generic.List<FixtureEvent> e) => e.RemoveAll(x => x.Kind == "pickup" && x.Tick == 15);
+
+            string clean = Write();
+            Require(Found().Length == 0, "a claim its own pickups delivered exactly was reported: " + string.Join(" | ", Found().Select(f => f.Title)));
+            Require(!Program.Evaluate(Session.Load(clean)).Skipped.Any(s => s.Name == new CompletedTransferClaimsWereReceived().Name),
+                "the transfer check was skipped on a 0.26.0 capture that carries claimed yields");
+            string attemptLine = JoinAttemptEvidence.Describe(clean, Session.Load(clean), full: true).Split('\n').SingleOrDefault(l => l.StartsWith("  attempt 3  ", StringComparison.Ordinal)) ?? "";
+            Require(attemptLine.Contains("claimed 10 of item 699; its 2 pickup(s) delivered 10", StringComparison.Ordinal),
+                "the identity view did not put attempt 3's claim beside what its own pickups delivered: " + attemptLine);
+            Require(JoinAttemptEvidence.Describe(clean, Session.Load(clean), full: true).Contains("1 incidental pickup(s)", StringComparison.Ordinal),
+                "the incidental pickup was attached to an attempt or not counted");
+
+            void Fires(string delivered, Action<System.Collections.Generic.List<FixtureEvent>> mutate, string failure)
+            {
+                Finding[] found = Found(mutate);
+                Require(found.Any(f => f.Severity == Severity.Definitive && f.Title.StartsWith("a completed transfer claim with no matching received quantity", StringComparison.Ordinal)
+                        && f.Title.Contains(delivered, StringComparison.Ordinal)),
+                    failure + (found.Length == 0 ? " (nothing fired)" : " (fired instead: " + string.Join(" | ", found.Select(f => $"{f.Severity} {f.Title}")) + ")"));
+            }
+            Fires("claimed 10 of item 699 and its pickups delivered 6", LoseTheLastPickup,
+                "a claim of ten with one of its two pickups lost was not reported, although the incidental pickup of the same item would cover it by type");
+            Fires("delivered 6", e => e[2] = Pickup(15, 700, 4, 3), "a pickup of another item under the attempt was counted toward its claim");
+            Fires("delivered 6", e => e[2] = Pickup(15, 699, 4, 4), "a pickup naming another attempt was counted toward this one's claim");
+            Fires("delivered 6", e => { LoseTheLastPickup(e); e[^1] = Claim("Partial", "NotApplicable", 699, 10); }, "a partial transfer claim above its pickups was not reported");
+            Require(Found(e => { LoseTheLastPickup(e); e[^1] = Claim("Partial", "NotApplicable", 699, 6); }).Length == 0,
+                "a partial claim its pickups delivered was reported");
+            Require(Found(e => e[^1] = Claim("Complete", "Shared", 699, 8)).Length == 0,
+                "a claim below what arrived was reported, but the transfer ledger can only undercount, so that is not a contradiction");
+            Require(Found(e => { LoseTheLastPickup(e); e[^1] = Claim("Invalid", "NotApplicable", 0, 0); }).Length == 0,
+                "an attempt claiming no yield was held to one");
+            Finding[] unclosed = Found(LoseTheLastPickup, closed: false);
+            Require(unclosed.Length == 1 && unclosed[0].Severity == Severity.Potential && unclosed[0].Detail.Contains("never closed", StringComparison.Ordinal),
+                "a short claim over a stream that never closed was not downgraded to potential with the reason: " + string.Join(" | ", unclosed.Select(f => $"{f.Severity} {f.Detail}")));
+
+            string Skip(string tsv) => Program.Evaluate(Session.Load(tsv)).Skipped.SingleOrDefault(s => s.Name == new CompletedTransferClaimsWereReceived().Name).Missing ?? "";
+            Require(Skip(Write(LoseTheLastPickup, schema: "0.25.0")).Contains("schema 0.26.0", StringComparison.Ordinal),
+                "a capture older than claimed yields was judged, or skipped without naming the schema that introduced them");
+            Require(Skip(WriteIdentitySession(files, columns, rows, events: null, schema: "0.26.0")).Contains("-events.jsonl", StringComparison.Ordinal),
+                "a capture with no sidecar was judged, or skipped without naming it");
+        }
+        finally { foreach (string file in files) File.Delete(file); }
+    }
+
     private static void IdentityChecksSkipOldAndPartialCapturesByName()
     {
         var files = new System.Collections.Generic.List<string>();
@@ -1032,6 +1113,15 @@ public static class ChronicleTests
             "the offer eligibility names have changed");
         Require(owner.Contains("private static long nextAttemptId", StringComparison.Ordinal),
             "attempt identities are no longer process-wide, which the identity rules key on");
+        string npc = Source("Companion", "CharacterBody", "CompanionNPC.cs");
+        string collection = Source("Companion", "Brain", "PurposeFamilies", "NearbyAssistance", "CollectNearbyItems.cs");
+        Require(events.Contains("interruption-is-not-failure=true;claimed-yield-type={claimedYieldType};claimed-yield-quantity={claimedYieldQuantity}", StringComparison.Ordinal)
+                && events.Contains("stack={item.stack};collection-attempt-id={collectionAttemptId}", StringComparison.Ordinal),
+            "the claimed-yield or pickup payload the transfer check reads has changed");
+        Require(npc.Contains("collect.ClaimsDrop(item) ? owner.AttemptId : 0", StringComparison.Ordinal) && npc.IndexOf("ClaimsDrop(item)", StringComparison.Ordinal) < npc.IndexOf("Bag.Collect(item, player)", StringComparison.Ordinal)
+                && collection.Contains("AttemptAttribution.Shared, drop.Type, received)", StringComparison.Ordinal) && collection.Contains("AttemptAttribution.NotApplicable, drop.Type, received)", StringComparison.Ordinal)
+                && collection.Contains("drop.Bag.TransferredSince(drop.TransferMark, drop.Item)", StringComparison.Ordinal),
+            "a pickup no longer names its collection attempt before the transfer, or collection no longer claims what its own drop's transfers delivered");
     }
 
     private static void Require(bool condition, string message)

@@ -81,7 +81,8 @@ public static class GodsEyeEvents
     /// the cursor skips those already written, so two conclusions inside one tick both reach the
     /// record. Plain fields keep this writer compilable beside the replay stubs without the brain.</summary>
     public static void RecordAttemptOutcome(NPC companion, long attemptId, long activityId, string activity, string family,
-        ulong startTick, ulong endTick, string status, string cause, int productiveEffects, string attribution)
+        ulong startTick, ulong endTick, string status, string cause, int productiveEffects, string attribution,
+        int claimedYieldType, int claimedYieldQuantity)
     {
         if (!Active || attemptId <= lastAttemptRecorded) return;
         lastAttemptRecorded = attemptId;
@@ -90,7 +91,7 @@ public static class GodsEyeEvents
         string channel = attribution == "NotApplicable" ? status : status + ":" + attribution;
         Write("attempt-outcome", Stable(npcGenerations, companion.whoAmI), "", activity, channel,
             companion.Bottom, Vector2.Zero, Vector2.Zero, productiveEffects,
-            $"attempt-id={attemptId};activity-id={activityId};family={family};start-tick={startTick};end-tick={endTick};status={status};attribution={attribution};cause={cause};productive-effects={productiveEffects};effect-scope=companion-credited-tool-or-interaction-effects;interruption-is-not-failure=true");
+            $"attempt-id={attemptId};activity-id={activityId};family={family};start-tick={startTick};end-tick={endTick};status={status};attribution={attribution};cause={cause};productive-effects={productiveEffects};effect-scope=companion-credited-tool-or-interaction-effects;interruption-is-not-failure=true;claimed-yield-type={claimedYieldType};claimed-yield-quantity={claimedYieldQuantity}");
     }
 
     internal static void Open(string path)
@@ -168,8 +169,10 @@ public static class GodsEyeEvents
         cosmeticContacts = 0;
     }
 
-    public static void RecordPickup(NPC companion, Item item, int amount, string destination)
-        => Write("pickup", Stable(npcGenerations, companion.whoAmI), Stable(itemGenerations, item.whoAmI).ToString(CultureInfo.InvariantCulture), item.type.ToString(CultureInfo.InvariantCulture), destination, item.Center, Vector2.Zero, Vector2.Zero, amount, $"stack={item.stack}");
+    /// <summary>One accepted contact pickup. <paramref name="collectionAttemptId"/> is the open collection attempt when this item is
+    /// the drop that attempt walked toward, zero for every other pickup, so a reader sums an attempt's received quantity by identity.</summary>
+    public static void RecordPickup(NPC companion, Item item, int amount, string destination, long collectionAttemptId)
+        => Write("pickup", Stable(npcGenerations, companion.whoAmI), Stable(itemGenerations, item.whoAmI).ToString(CultureInfo.InvariantCulture), item.type.ToString(CultureInfo.InvariantCulture), destination, item.Center, Vector2.Zero, Vector2.Zero, amount, $"stack={item.stack};collection-attempt-id={collectionAttemptId}");
 
     public static void RecordItemSpawn(Item item) => Next(itemGenerations, item.whoAmI);
 

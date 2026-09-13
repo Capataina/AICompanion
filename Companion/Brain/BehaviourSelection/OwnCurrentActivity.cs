@@ -51,7 +51,7 @@ public sealed class OwnCurrentActivity
         if (AttemptOpen && Current != null && (next == null || changedPurpose))
         {
             var conclusion = Current.ConcludeAttempt(AttemptEffects);
-            CloseAttempt(conclusion.Status, conclusion.Cause, conclusion.Attribution);
+            CloseAttempt(conclusion.Status, conclusion.Cause, conclusion.Attribution, conclusion.ClaimedYieldType, conclusion.ClaimedYieldQuantity);
         }
         if (changedExecutor)
         {
@@ -119,11 +119,11 @@ public sealed class OwnCurrentActivity
         SetPhase(ActivityPhase.Suspended, reason);
     }
 
-    private void CloseAttempt(AttemptStatus status, string cause, AttemptAttribution attribution)
+    private void CloseAttempt(AttemptStatus status, string cause, AttemptAttribution attribution, int claimedYieldType = 0, int claimedYieldQuantity = 0)
     {
         if (recent.Count == RecentAttemptCapacity) recent.RemoveAt(0);
         recent.Add(new AttemptOutcome(AttemptId, Id, Current!.Name, Current.Family, AttemptStartedAt,
-            Terraria.Main.GameUpdateCount, status, cause, AttemptEffects, attribution));
+            Terraria.Main.GameUpdateCount, status, cause, AttemptEffects, attribution, claimedYieldType, claimedYieldQuantity));
         AttemptOpen = false;
     }
 
