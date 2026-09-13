@@ -283,4 +283,20 @@ public static class Weights
     /// edit or a drop that moved to another pose asks again at once.
     /// </summary>
     public const int CollectionReachRecheckTicks = 60;
+
+    // ---- P10: useful assistance without endless detours ----
+
+    /// <summary>
+    /// Lighting and pots: how many remote working poses one discovery search may put to the round-trip query, nearest first.
+    /// Each question is two fresh route searches, outward and back, so a window full of sites with no way back costs at most
+    /// this many per search and the rest wait for the next one.
+    /// </summary>
+    public const int NearbyWorkTripChecks = 3;
+
+    /// <summary>
+    /// Lighting and pots: how long a site whose trip was proven to have no way back, or not enough breath, stays out of
+    /// discovery while the terrain is unchanged. Any terrain change ends the wait, because a new staircase or a drained pool
+    /// is exactly what makes the same site worth asking again.
+    /// </summary>
+    public const int NearbyWorkNoReturnRetryTicks = 600;
 }

@@ -50,11 +50,56 @@ public abstract class PerformNearbyWorldWork : CompanionAction
     private const int DeferFailedApproachTicks = 1800;
     protected virtual float CandidateCost(Vector2 feet, Point tile) => Vector2.DistanceSquared(feet, tile.ToWorldCoordinates());
 
+    // Search-window tiles in the order they are asked, reused across searches: the brain is single-threaded.
+    private readonly System.Collections.Generic.List<(float Cost, int Order, Point Tile)> ordered = new();
+    // Sites whose trip was proven to have no way back, or not enough breath, with the terrain revision and tick they may be
+    // asked again. Without it the same nearest one-way site spends the bounded trip checks on every search and a farther site
+    // with a way back is never reached.
+    private readonly System.Collections.Generic.Dictionary<Point, (int Revision, ulong Until)> noReturn = new();
+    // Why the last search found no site, when the reason was the trip rather than the absence of a candidate.
+    private (OfferEligibility Eligibility, string Reason)? tripRefusal;
+
+    /// <summary>
+    /// Whether the companion can walk to a remote working pose and come back to where it stands, with breath for both legs.
+    /// Reaching a pose is not a certificate of leaving it, and the walker search behind <see cref="FindToolAccess.Approach"/>
+    /// runs under whichever one-way rule the previous tick's request left set: after a reunion tick it certified a site
+    /// reached only by a drop, which the Exact request then refused to plan, so the trip stalled until its progress window
+    /// deferred it. The round trip asks both legs under one rule of its own, so the answer does not depend on the last request.
+    /// A proven No is deferred until the terrain changes or the wait passes; an undecided return is only skipped for this search.
+    /// </summary>
+    private bool TripReturns(in ActionContext ctx, Point tile, Vector2 pose)
+    {
+        var breath = ctx.Companion.Breath;
+        var envelope = new Reachability.BreathEnvelope(breath.TicksLeft,
+            CharacterBody.CompanionBreath.BreathMax * CharacterBody.CompanionBreath.BreathCDMax,
+            CharacterBody.CompanionBreath.RecoverPerTick * CharacterBody.CompanionBreath.BreathCDMax);
+        var trip = MovementQueries.RoundTrip(MovementQueries.FeetTile(ctx.Npc.Bottom), MovementQueries.FeetTile(pose), envelope);
+        if (trip.Outward == Reachability.Reach.Yes && trip.Return == Reachability.Reach.Yes && trip.Breath == Reachability.Reach.Yes)
+            return true;
+        if (trip.Return == Reachability.Reach.No || trip.Breath == Reachability.Reach.No)
+        {
+            if (noReturn.Count > 64) noReturn.Clear();
+            noReturn[tile] = (TerrainChanges.Revision, Main.GameUpdateCount + (ulong)BehaviourSelection.Weights.NearbyWorkNoReturnRetryTicks);
+            tripRefusal = (OfferEligibility.KnownUnusable, trip.Return == Reachability.Reach.No ? "interaction-site-has-no-return" : "interaction-trip-exceeds-breath");
+        }
+        else tripRefusal ??= (OfferEligibility.Unresolved, "interaction-trip-undecided");
+        return false;
+    }
+
+    private bool NoReturnDeferred(Point tile)
+    {
+        if (!noReturn.TryGetValue(tile, out var entry)) return false;
+        if (entry.Revision == TerrainChanges.Revision && Main.GameUpdateCount < entry.Until) return true;
+        noReturn.Remove(tile);
+        return false;
+    }
+
     public override void Prepare(in ActionContext ctx)
     {
         preparedValue = DiscoverValue(ctx);
         preparedTarget = target?.ToWorldCoordinates();
         if (!enabledAtPreparation) { var (eligibility, reason) = DisabledOffer(ctx); Classify(eligibility, reason); }
+        else if (target == null && tripRefusal is { } refusal) Classify(refusal.Eligibility, refusal.Reason);
         else if (target == null) Classify(OfferEligibility.NoOpportunity, "no-candidate-in-search-window");
         else Classify(OfferEligibility.Usable, "reachable-interaction");
     }
@@ -100,25 +145,37 @@ public abstract class PerformNearbyWorldWork : CompanionAction
         if (target == null && Main.GameUpdateCount >= nextSearch)
         {
             nextSearch = Main.GameUpdateCount + 90;
-            float best = float.MaxValue;
+            tripRefusal = null;
+            // Nearest first by the method's own cost, stopping at the first site whose whole trip is proven. This picks the same
+            // site the earlier improve-on-best scan picked (ties keep scan order), and it lets the trip proof below be bounded:
+            // each remote site costs two fresh route searches, so only a few are asked per search.
             Point centre = ctx.Npc.Center.ToTileCoordinates();
+            ordered.Clear();
             for (int x = centre.X - 18; x <= centre.X + 18; x++)
                 for (int y = centre.Y - 14; y <= centre.Y + 14; y++)
                 {
                     Point p = new(x, y);
-                    float distance = CandidateCost(ctx.Npc.Bottom, p);
-                    if (distance >= best) continue;
                     if (deferred.TryGetValue(p, out ulong until) && Main.GameUpdateCount < until) continue;
-                    if (!AllowsTarget(ctx, p.ToWorldCoordinates(), p) || !Candidate(ctx, p)) continue;
-                    Vector2 candidateStand;
-                    bool jump = false;
-                    if (FindToolAccess.InReach(ctx.Npc.Bottom, p)) candidateStand = ctx.Npc.Bottom;
-                    else if (AllowJump && ProveInteractionJump.CanReach(NavGrid.World, ctx.Companion.Motor.State, body => FindToolAccess.InReach(body.Feet, p)))
-                    { candidateStand = ctx.Npc.Bottom; jump = true; }
-                    else if (FindToolAccess.Approach(p, ctx.Npc.Bottom, out candidateStand) != Reachability.Reach.Yes) continue;
-                    target = p; best = distance; stand = candidateStand; needsJump = jump; jumped = false;
-                    approachOrigin = ctx.Npc.Bottom; approachTicks = 0;
+                    if (NoReturnDeferred(p)) continue;
+                    ordered.Add((CandidateCost(ctx.Npc.Bottom, p), ordered.Count, p));
                 }
+            ordered.Sort(static (a, b) => a.Cost != b.Cost ? a.Cost.CompareTo(b.Cost) : a.Order.CompareTo(b.Order));
+            int tripsAsked = 0;
+            foreach (var (_, _, p) in ordered)
+            {
+                if (!AllowsTarget(ctx, p.ToWorldCoordinates(), p) || !Candidate(ctx, p)) continue;
+                Vector2 candidateStand;
+                bool jump = false;
+                if (FindToolAccess.InReach(ctx.Npc.Bottom, p)) candidateStand = ctx.Npc.Bottom;
+                else if (AllowJump && ProveInteractionJump.CanReach(NavGrid.World, ctx.Companion.Motor.State, body => FindToolAccess.InReach(body.Feet, p)))
+                { candidateStand = ctx.Npc.Bottom; jump = true; }
+                else if (FindToolAccess.Approach(p, ctx.Npc.Bottom, out candidateStand) != Reachability.Reach.Yes) continue;
+                else if (tripsAsked++ >= BehaviourSelection.Weights.NearbyWorkTripChecks) break;
+                else if (!TripReturns(ctx, p, candidateStand)) continue;
+                target = p; stand = candidateStand; needsJump = jump; jumped = false;
+                approachOrigin = ctx.Npc.Bottom; approachTicks = 0;
+                break;
+            }
         }
         if (deferred.Count > 0)
         {
