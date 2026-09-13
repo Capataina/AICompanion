@@ -19,6 +19,8 @@ public static class MovementQueries
     public static bool IsStandable(int x, int y) => NavGrid.IsStandable(x, y);
     public static bool IsBodyClear(int x, int y) => NavGrid.IsBodyClear(x, y);
     public static bool IsBlock(int x, int y) => NavGrid.IsBlock(x, y);
+    /// <summary>Whether a body standing on row y - 1 is held up by this tile: a solid block or a platform.</summary>
+    public static bool IsSupport(int x, int y) => NavGrid.IsSupport(x, y);
     public static bool IsLiquid(int x, int y) => NavGrid.IsLiquid(x, y);
     public static bool IsLava(int x, int y) => NavGrid.IsLava(x, y);
     public static int BodyHeightTiles => NavGrid.BodyHeightTiles;

@@ -299,4 +299,19 @@ public static class Weights
     /// is exactly what makes the same site worth asking again.
     /// </summary>
     public const int NearbyWorkNoReturnRetryTicks = 600;
+
+    /// <summary>Keeping company: the nearest a stroll goal may be to the feet, in tiles, so a stroll is a walk rather than a shuffle on the spot.</summary>
+    public const int StrollMinimumTiles = 3;
+
+    /// <summary>Keeping company: how many rows above or below the player's feet a stroll goal may sit, so strolls stay on the floor
+    /// the player is on or a step away from it rather than wandering to another level.</summary>
+    public const int StrollRowsFromPlayer = 4;
+
+    /// <summary>Keeping company: how many random columns of the player's neighbourhood one pick examines for a safe standing tile.
+    /// Each column reads a handful of rows, so this bounds the cost of a pick; a pick that finds nothing rests instead.</summary>
+    public const int StrollColumnSamples = 12;
+
+    /// <summary>Keeping company: the most predicted enemy exposure a stroll goal may carry, on PredictedExposureAt's scale, where a
+    /// forecast hit is 1 and mere proximity peaks at .6. A stroll exists to be company, never to stand where something is about to arrive.</summary>
+    public const float StrollExposureLimit = .3f;
 }
