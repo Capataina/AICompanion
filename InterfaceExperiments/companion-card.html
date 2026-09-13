@@ -579,9 +579,13 @@ sortBag(); drawBag();
 // spoke so no two spokes are the same shape, and the offsets stay under a quarter of the spoke
 // spacing so neighbouring spokes never touch. Shared junctions sit between neighbouring spokes.
 // The geometry is the proposal for the native node table; every name is a placeholder.
-const BRANCHES = ["Tools","Ranged","Movement","Magic","Survival","Support","Gathering","Melee"];
+// Eight lanes, clockwise from the top. Four are the weapon classes, and five diamonds on each
+// of those is the twenty-weapon kit; Movement, Survival, Gathering and Guarding hold abilities.
+// Gathering is all tool use (mining, chopping, reach, the torch hat and its light, the bag);
+// Guarding is the companion's protection duties (reach, threat awareness, revival, cleansing).
+const BRANCHES = ["Guarding","Ranged","Movement","Magic","Survival","Throwing","Gathering","Melee"];
 const COLORS = ['rgb(233,180,103)','rgb(138,205,109)','rgb(104,213,220)','rgb(182,144,240)','rgb(237,132,146)','rgb(231,217,137)','rgb(109,201,178)','rgb(236,151,99)'];
-const WEAPON_BRANCH = [false, true, false, true, false, false, false, true];
+const WEAPON_BRANCH = [false, true, false, true, false, true, false, true];
 // Nineteen roles per spoke: the trunk and the fork (both stats), then two paths of eight read
 // rank by rank — diamond left and circle right, circles both sides, circle left and diamond
 // right, circles both sides, and again — and the fifth diamond at the tip where the paths meet.
@@ -589,13 +593,13 @@ const WEAPON_BRANCH = [false, true, false, true, false, false, false, true];
 // one at the very end: five per branch, one per weapon on the weapon branches and abilities
 // elsewhere. There are no small path ranks. Names in role order: [trunk, fork, left x8, right x8, tip].
 const NAMES = [
-  ["Mining speed","Chopping speed","Faster torches","Tool reach","Careful work","Vein reach","Ore sense","Tool durability","Reach further","Steady hands","Tool speed","Wood sense","Torch supply","Pot sense","Swing speed","Sharp tools","Wide vein","Quick clear","Tool mastery"],
+  ["Protection reach","Threat awareness","Cleanse","Revival speed","Vigilance","Guard endurance","Warding","Rally","Steadfast","Cover","Inspire","Mending","Shielding","Watchful","Quick revive","Calm","Bulwark","Guardian","Sanctuary"],
   ["Ranged damage","Ranged rate","Short bow","Projectile speed","Ranged reach","Projectile resistance","Long bow","Steady aim","Reload speed","Recoil control","Sharp eye","Quick draw","Pistol","Ammo pouch","Lead the target","Critical eye","Rifle","Cover fire","Launcher"],
   ["Movement speed","Jump height","Double jump","Fall control","Sure footing","Swim speed","Dash","Sprint","Air control","Glide","Climb speed","Hover","Triple jump","Ledge grab","Soft landing","Quick turn","Flight","Wall kick","Long flight"],
   ["Magic damage","Mana reserve","Wand","Mana recovery","Cast speed","Spell reach","Tome","Focus","Mana efficiency","Arcane guard","Overcharge","Regen aura","Staff","Ward","Spell haste","Mana shield","Orb","Channel","Grimoire"],
   ["Maximum life","Defence","Quick respawn","Life regen","Armour","Breath reserve","Second wind","Fall resistance","Thick skin","Endurance","Knockback resistance","Poison resistance","Burn resistance","Chill resistance","Steady feet","Iron will","Last stand","Bounce back","Resilience"],
-  ["Protection reach","Threat awareness","Cleanse","Revival speed","Vigilance","Guard endurance","Warding","Rally","Steadfast","Cover","Inspire","Mending","Shielding","Watchful","Quick revive","Calm","Bulwark","Guardian","Sanctuary"],
-  ["Pickup reach","Bag capacity","Torch hat","Gathering speed","Coin sense","Search reach","Wide beam","Keen eye","Quick hands","Sorting","Deep pockets","Magnet","Brighter hat","Loot sense","Careful hands","Long arms","Night sight","Sweep","Auto torch"],
+  ["Throw damage","Throw rate","Shuriken","Throw reach","Quick recover","Steady arm","Javelin","Spin up","Ricochet","Pouch size","Arc control","Precision","Throwing knife","Volley","Retrieve","Follow-through","Boomerang","Fan throw","Bomb"],
+  ["Mining speed","Chopping speed","Torch hat","Tool reach","Careful work","Vein reach","Brighter hat","Pickup reach","Bag capacity","Coin sense","Search reach","Keen eye","Wide beam","Ore sense","Wood sense","Quick hands","Night sight","Sorting","Auto torch"],
   ["Melee damage","Attack speed","Short sword","Melee reach","Hit resistance","Knockback","Spear","Stamina","Riposte","Guard","Cleave","Fury","Broadsword","Parry","Lunge","Brace","Flail","Whirl","Greatsword"],
 ];
 // [radius, angular offset in degrees] per role. Consecutive nodes on a path are 70 apart; the two
@@ -615,11 +619,11 @@ const rad = d => d * Math.PI / 180;
 const polar = (r, deg) => ({x: Math.round(r * Math.cos(rad(deg))), y: Math.round(r * Math.sin(rad(deg)))});
 const wheel = {nodes: [], edges: [], labels: []};
 for (let b = 0; b < 8; b++) {
-  // every role on a spoke shares the spoke's stretch and twist, so the spacing along the spoke is
-  // the template's and only the spoke as a whole differs from its neighbours
-  const base = b * 45 - 90, lean = 0.7 + 0.3 * ((b * 5) % 3) / 2, stretch = 1 + (((b * 37) % 23) - 11) / 120, twist = ((b * 11) % 7) - 3;
+  // every spoke is the template rotated by its own multiple of 45 degrees and nothing else, so the
+  // wheel is eightfold symmetric: any spoke turned onto any other lands node for node
+  const base = b * 45 - 90;
   TEMPLATE.forEach(([r, d], n) => {
-    const p = polar(r * stretch, base + twist + lean * d);
+    const p = polar(r, base + d);
     const kind = ROLE_KIND(n);
     wheel.nodes.push({x: p.x, y: p.y, b, kind: kind === 'side' ? (WEAPON_BRANCH[b] ? 'weapon' : 'ability') : kind, name: NAMES[b][n]});
   });
@@ -628,7 +632,7 @@ for (let b = 0; b < 8; b++) {
 for (let i = 0; i < 8; i++) {
   // a junction joins spoke i's left path to spoke i+1's right path at their fourth rank, and opens the fifth rank of each
   const a = i * ROLES, c = ((i + 1) % 8) * ROLES, j = wheel.nodes.length;
-  const p = polar(JUNCTION_R + ((i * 13) % 9), i * 45 - 90 + 22.5 + (i % 2 ? 2 : -2));
+  const p = polar(JUNCTION_R, i * 45 - 90 + 22.5);
   wheel.nodes.push({x: p.x, y: p.y, b: i, kind: 'junction', name: 'Shared ' + NAMES[i][0].toLowerCase()});
   wheel.edges.push([a + 5, j], [c + 13, j], [j, a + 6], [j, c + 14]);
 }
@@ -642,7 +646,7 @@ $('#masttilecount').textContent = '0/' + wheel.nodes.length;
 // Opening a weapon replaces the wheel with the weapon at the centre and four short branches: the
 // damage line, the rate line, the tier line, and one special line that depends on the branch.
 // These are the upgrade families the owner named; the names and counts are placeholders.
-const SPECIAL = {1: ['Pierces one more', 'Pierces two more'], 3: ['Cheaper cast', 'Wider bolt'], 7: ['Wider swing', 'Longer reach']};
+const SPECIAL = {1: ['Pierces one more', 'Pierces two more'], 3: ['Cheaper cast', 'Wider bolt'], 5: ['Bounces once more', 'Returns faster'], 7: ['Wider swing', 'Longer reach']};
 function weaponTree(node) {
   const t = {nodes: [{x: 0, y: 0, b: node.b, kind: 'weapon', name: node.name}], edges: [], labels: [], extent: 620};
   const lines = [['Damage', ['Damage I', 'Damage II', 'Damage III'], -90], ['Rate', ['Rate I', 'Rate II', 'Rate III'], 90],
