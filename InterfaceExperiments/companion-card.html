@@ -593,7 +593,9 @@ const WEAPON_BRANCH = [false, true, false, true, false, true, false, true];
 // one at the very end: five per branch, one per weapon on the weapon branches and abilities
 // elsewhere. There are no small path ranks. Names in role order: [trunk, fork, left x8, right x8, tip].
 const NAMES = [
-  ["Protection reach","Threat awareness","Cleanse","Revival speed","Vigilance","Guard endurance","Warding","Rally","Steadfast","Cover","Inspire","Mending","Shielding","Watchful","Quick revive","Calm","Bulwark","Guardian","Sanctuary"],
+  // Guarding is effects, never behaviours: a share of the player's damage taken instead, less damage for both the
+  // closer they stand, a share of the companion's damage healing the player, its hits cleansing burns and poisons
+  ["Protection reach","Threat awareness","Shared pain","Revival speed","Vigilance","Guard endurance","Close guard","Steadfast","Cover","Watchful","Calm","Mending","Lifelink","Quick revive","Resolve","Bulwark","Cleanse","Guardian","Sanctuary"],
   ["Ranged damage","Ranged rate","Short bow","Projectile speed","Ranged reach","Projectile resistance","Long bow","Steady aim","Reload speed","Recoil control","Sharp eye","Quick draw","Pistol","Ammo pouch","Lead the target","Critical eye","Rifle","Cover fire","Launcher"],
   ["Movement speed","Jump height","Double jump","Fall control","Sure footing","Swim speed","Dash","Sprint","Air control","Glide","Climb speed","Hover","Triple jump","Ledge grab","Soft landing","Quick turn","Flight","Wall kick","Long flight"],
   ["Magic damage","Mana reserve","Wand","Mana recovery","Cast speed","Spell reach","Tome","Focus","Mana efficiency","Arcane guard","Overcharge","Regen aura","Staff","Ward","Spell haste","Mana shield","Orb","Channel","Grimoire"],
