@@ -44,7 +44,8 @@ public sealed class BrainTelemetry : ModSystem
     private static DateTime sessionStartedUtc;
     // 0.30.0 joins two branches that numbered their changes independently: the evidence branch's 0.25.0–0.29.0 are the
     // numbers SessionReport's version gates use, and the combat branch's own 0.25.0 and 0.26.0 columns are read by name.
-    private const string Schema = "0.30.0";
+    // 0.31.0 ends the row with the travel rates and adds the route-episode and stop occurrences beside them.
+    private const string Schema = "0.31.0";
     // The cost of the previous row's Record call: a row cannot contain the time spent writing itself, so each row carries
     // the one before it and the first row of a session carries none.
     private static readonly Stopwatch recordClock = new();
@@ -123,6 +124,7 @@ public sealed class BrainTelemetry : ModSystem
             lastDecision = null;
             firstUpdateRecorded = false;
             ScenarioCapture.Reset();
+            TravelEpisodes.Reset();
             BehaviourCensus.Reset();
             SessionMap.Reset();
             Mod.Logger.Info($"BrainTelemetry: writing {path}");
@@ -221,6 +223,9 @@ public sealed class BrainTelemetry : ModSystem
         // told where to look.
         WriteWhole(censusPath, BehaviourCensus.Report, "census");
         WriteWhole(mapPath, SessionMap.Report, "map");
+        // The open journey and the open stop belong to this session, so they are written before the stream closes; the
+        // census closes its own open episode inside Report for the same reason.
+        TravelEpisodes.Close(CompanionNPC.Instance);
         GodsEyeEvents.Close();
         try
         {
@@ -279,7 +284,7 @@ public sealed class BrainTelemetry : ModSystem
         writer.WriteLine("# retention=rows=one-per-companion-ai-tick;events=every-occurrence-offered"
             + $";terrain-snapshots-remembered={RecordTerrainChunks.MaximumRemembered};terrain-captures-per-tick={RecordTerrainChunks.CapturesPerTick}"
             + $";recent-attempt-outcomes={Infrastructure.Selection.OwnCurrentActivity.RecentAttemptCapacity};cargo-transfer-ledger={(global::AICompanion.Companion.Inventory.CompanionInventory.RecentTransferCapacity)}"
-            + $";cosmetic-contacts-per-summary={GodsEyeEvents.CosmeticContactsPerSummary};inspector-traces={BrainInspectorSamples.Capacity};session-map-tiles={SessionMap.MaxTilesRemembered}"
+            + $";cosmetic-contacts-per-summary={GodsEyeEvents.CosmeticContactsPerSummary};inspector-traces={BrainInspectorSamples.Capacity};inspector-cost-ticks={BrainInspectorSamples.CostTicks};session-map-tiles={SessionMap.MaxTilesRemembered}"
             + $";plan-dump-every-ticks={DumpEveryTicks};flush-every-ticks={FlushEveryTicks}");
         writer.WriteLine("# lifecycle=world-entry-observed;tag-load-not-yet-observed;first-update-not-yet-observed;outer-load-unobservable;save-not-observed");
         writer.Flush();
@@ -456,6 +461,7 @@ public sealed class BrainTelemetry : ModSystem
             GodsEyeEvents.RecordConfiguration(configuration.Describe());
         }
         ScenarioCapture.Watch(companion);
+        TravelEpisodes.Watch(companion);
         Brain brain = companion.Brain;
         var senses = brain.Senses;
         NPC npc = companion.NPC;
@@ -582,6 +588,11 @@ public sealed class BrainTelemetry : ModSystem
             // occurrences handed to the event writer, refused after a failed write, and folded into summaries, and
             // terrain chunks the snapshot memory forgot. The end marker restates the closing totals.
             h.Append("\trecord_ms\tevents_written\tevents_dropped\tevents_coalesced\tterrain_evictions");
+            // What travelling has cost so far, as running values rather than per-tick ones: stops against minutes of
+            // route travel, and the mean observed speed over those same ticks. Both read -1 until the body has spent a
+            // tick on a route, because a rate over no travel is not zero, it is unmeasured. The route-episode and stop
+            // occurrences beside them carry the individual journeys; these two are the shape of the session.
+            h.Append("\tstops_per_minute\troute_speed_mean");
             writer.WriteLine(h.ToString());
             headerWritten = true;
         }
@@ -944,6 +955,8 @@ public sealed class BrainTelemetry : ModSystem
             .Append('\t').Append(GodsEyeEvents.Dropped)
             .Append('\t').Append(GodsEyeEvents.Coalesced)
             .Append('\t').Append(RecordTerrainChunks.Evictions);
+        sb.Append('\t').Append(TravelEpisodes.StopsPerMinute.ToString("0.00", CultureInfo.InvariantCulture))
+            .Append('\t').Append(TravelEpisodes.RouteSpeedMean.ToString("0.00", CultureInfo.InvariantCulture));
 
         // A write that fails (disk full, a stream the OS closed) must not escape the NPC's AI
         // and take the companion with it; the record stops and the game goes on.

@@ -57,6 +57,11 @@ public static class Program
         new TheBodyMovesWhenDriven(),
         new EveryMoveOfferedGetsMade(),
         new ProvenMovesTakeTheirProvenTime(),
+        // One move against its proven ticks, then the whole journey against its proven ticks and against the player's
+        // own: every move inside a journey can land inside its price while the journey costs four times as much,
+        // because the time goes into the gaps between the moves, and the stops are where those gaps are.
+        new JourneysTakeTheTimeTheyWereProven(),
+        new TheBodyStopsOnItsOwnRoute(),
         new BeingUnableToReachHimGetsNoticed(),
         new FollowingMakesRouteProgress(),
         new ArrivalDoesNotStrandFollowing(),

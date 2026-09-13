@@ -48,7 +48,8 @@ public static class ChronicleTests
             RecordingStatesItsCostWhatItDroppedAndWhatItKeeps();
             ADamagedCaptureReducesCoverageAndInventsNoContradiction();
             IdentityRulesStillMatchTheProducer();
-            Console.WriteLine("Chronicle self-tests passed (30 assertion groups).");
+            TravelIsReadPerJourneyAndSkippedByNameOnAnOlderCapture();
+            Console.WriteLine("Chronicle self-tests passed (31 assertion groups).");
             return 0;
         }
         catch (Exception error)
@@ -1490,6 +1491,119 @@ public static class ChronicleTests
                 && collection.Contains("AttemptAttribution.Shared, drop.Type, received)", StringComparison.Ordinal) && collection.Contains("AttemptAttribution.NotApplicable, drop.Type, received)", StringComparison.Ordinal)
                 && collection.Contains("drop.Bag.TransferredSince(drop.TransferMark, drop.Item)", StringComparison.Ordinal),
             "a pickup no longer names its collection attempt before the transfer, or collection no longer claims what its own drop's transfers delivered");
+    }
+
+    /// <summary>
+    /// The two travel questions, over three captures that separate the three things a report must never confuse: a
+    /// capture carrying journeys and stops, the same capture stamped one schema older, and a capture of clean travel.
+    ///
+    /// The middle one is the case that matters most and it is the reason this fixture exists rather than a single happy
+    /// path. Every capture on disk today predates these occurrences, so the skip path is the only one a real session can
+    /// exercise, and a skip that quietly returned no findings would be indistinguishable from a clean run — which is the
+    /// failure the coverage block exists to prevent and the failure this folder has already paid for once.
+    ///
+    /// The third asks the opposite question of the first: a session that travelled well must produce no stop finding and
+    /// must still say so, because "no stop was recorded" over real travel is a result and over no travel is silence.
+    /// </summary>
+    private static void TravelIsReadPerJourneyAndSkippedByNameOnAnOlderCapture()
+    {
+        var files = new System.Collections.Generic.List<string>();
+        try
+        {
+            // A distinct stem per variant: the event reader caches the last sidecar it read while the path, write time
+            // and length are unchanged, so rewriting one in place can serve a stale log to the next variant.
+            string Capture(string schema, string rows, string events)
+            {
+                string stem = Path.Combine(Path.GetTempPath(), $"aic-travel-{Guid.NewGuid():N}");
+                string tsv = stem + ".tsv";
+                files.Add(tsv);
+                files.Add(stem + "-events.jsonl");
+                File.WriteAllText(tsv, $"# schema={schema}\n# started_utc=2026-09-13T18:00:00.0000000Z\n"
+                    + "# text_columns=action,control_source,nav_status\n"
+                    + "tick\taction\tcontrol_source\tnav_status\tstops_per_minute\troute_speed_mean\n" + rows);
+                File.WriteAllText(stem + "-events.jsonl", events);
+                return tsv;
+            }
+
+            int sequence = 0;
+            string Event(string json) => json.Replace("\"seq\":0", $"\"seq\":{sequence++}", StringComparison.Ordinal) + "\n";
+            string Session0() => Event("{\"v\":1,\"seq\":0,\"tick\":0,\"wall_elapsed_ms\":0,\"kind\":\"session\",\"subject\":0,\"related\":\"\",\"label\":\"\",\"channel\":\"\",\"pos_x\":0,\"pos_y\":0,\"vel_x\":0,\"vel_y\":0,\"expected_x\":0,\"expected_y\":0,\"amount\":0,\"detail\":\"\"}");
+            string Episode(long tick, string kind, string outcome, int planned, int actual, string player)
+                => Event($"{{\"v\":1,\"seq\":0,\"tick\":{tick},\"wall_elapsed_ms\":{tick * 16},\"kind\":\"route-episode\",\"subject\":1,\"related\":\"\",\"label\":\"{kind}\",\"channel\":\"{outcome}\",\"pos_x\":0,\"pos_y\":0,\"vel_x\":0,\"vel_y\":0,\"expected_x\":0,\"expected_y\":0,\"amount\":{actual},\"detail\":\"start-tick={tick - actual};end-tick={tick};outcome={outcome};planned-ticks={planned};actual-ticks={actual};player-ticks={player};straight-tiles=10.00;path-tiles=14.00;mean-speed-px-per-tick=1.20\"}}");
+            string Stop(long tick, int ticks, string reason)
+                => Event($"{{\"v\":1,\"seq\":0,\"tick\":{tick},\"wall_elapsed_ms\":{tick * 16},\"kind\":\"stop\",\"subject\":1,\"related\":\"\",\"label\":\"{reason}\",\"channel\":\"{reason}\",\"pos_x\":0,\"pos_y\":0,\"vel_x\":0,\"vel_y\":0,\"expected_x\":0,\"expected_y\":0,\"amount\":{ticks},\"detail\":\"start-tick={tick - ticks};end-tick={tick};ticks={ticks};reason={reason};grounded-throughout=True;airborne-throughout=False;same-step-throughout=True;replanned-during=False;next-step-from-rest=False;fastest-sideways-px-per-tick=0.10;threshold-px-per-tick=0.60;threshold-ticks=3\"}}");
+
+            var travelling = new StringBuilder();
+            for (int tick = 1; tick <= 120; tick++)
+                travelling.AppendLine($"{tick}\twalk-with\ttravel\tExecutable\t1.50\t2.40");
+
+            // Both stamps are derived from the gate rather than written out, because the mod's schema keeps moving and a
+            // fixture holding a literal 0.31.0 reads as *older* than the gate the moment the gate passes it: the captures
+            // that are meant to run would skip, and the assertions on their findings would fail for a reason that has
+            // nothing to do with what they test.
+            string first = TravelEvidence.First.ToString();
+            string before = new Version(TravelEvidence.First.Major, TravelEvidence.First.Minor - 1, 0).ToString();
+
+            string busy = Capture(first, travelling.ToString(),
+                Session0()
+                + Episode(60, "WithPlayer", "reached", 40, 180, "50")
+                + Episode(90, "WithPlayer", "abandoned", 20, 40, "-")
+                + Episode(110, "Exact", "reached", 30, 33, "-")
+                + Stop(30, 12, "inside-walk-step")
+                + Stop(70, 4, "during-replan"));
+            Session busySession = Session.Load(busy);
+
+            var journeys = new JourneysTakeTheTimeTheyWereProven();
+            Require(journeys.Missing(busySession) == null, $"a capture at schema {first} with a sidecar refused the journey check");
+            var byKind = journeys.Run(busySession).ToList();
+            Require(byKind.Count == 2, $"three journeys over two request kinds produced {byKind.Count} finding(s) instead of one per kind");
+            Finding follow = byKind.Single(f => f.Title.StartsWith("WithPlayer", StringComparison.Ordinal));
+            // 220 taken against 60 proven, and the one journey the trail covered took 180 against the player's 50.
+            Require(follow.Title.Contains("3.67x", StringComparison.Ordinal), $"the ratio of taken to proven ticks was not reported: {follow.Title}");
+            Require(follow.Detail.Contains("3.60x", StringComparison.Ordinal), $"the player comparison was not formed over the journeys his trail covered: {follow.Detail}");
+            Require(follow.Detail.Contains("tick 60", StringComparison.Ordinal), "the worst journeys were not named with their ticks");
+            Require(byKind.All(f => f.Severity == Severity.Oddity), "a travel baseline was graded above an oddity without a defect behind it");
+
+            var stopping = new TheBodyStopsOnItsOwnRoute();
+            Require(stopping.Missing(busySession) == null, $"a capture at schema {first} with a sidecar refused the stop check");
+            Finding stopped = stopping.Run(busySession).Single();
+            Require(stopped.Title.Contains("2 stops", StringComparison.Ordinal) && stopped.Title.Contains("120 ticks", StringComparison.Ordinal),
+                $"the stop count or the travel it is measured against was wrong: {stopped.Title}");
+            // Two stops over 120 ticks of travel is one a second, which is 60 a minute.
+            Require(stopped.Title.Contains("60.00 a minute", StringComparison.Ordinal), $"the rate per minute of travel was wrong: {stopped.Title}");
+            Require(stopped.Detail.Contains("inside-walk-step 1", StringComparison.Ordinal) && stopped.Detail.Contains("during-replan 1", StringComparison.Ordinal),
+                $"the split by reason was not reported: {stopped.Detail}");
+            Require(stopped.Detail.Contains("reads 1.50", StringComparison.Ordinal), "the recorder's own running rate was not printed beside the reader's");
+
+            // The same evidence one schema older. Both must skip by name rather than run and find nothing.
+            sequence = 0;
+            string old = Capture(before, travelling.ToString(),
+                Session0() + Episode(60, "WithPlayer", "reached", 40, 180, "50") + Stop(30, 12, "inside-walk-step"));
+            Session oldSession = Session.Load(old);
+            foreach (ICheckCoverage check in new ICheckCoverage[] { journeys, stopping })
+                Require(check.Missing(oldSession)?.Contains(first, StringComparison.Ordinal) == true,
+                    "a capture older than the occurrences ran the travel check instead of skipping it by the schema that first wrote them");
+            var (_, skipped, _) = Program.Evaluate(oldSession);
+            Require(skipped.Any(s => s.Name == journeys.Name) && skipped.Any(s => s.Name == stopping.Name),
+                "the runner did not report the travel checks in its coverage block on an older capture");
+
+            // Clean travel: journeys that landed on their proven ticks, and no stop at all.
+            sequence = 0;
+            string clean = Capture(first, travelling.ToString(),
+                Session0() + Episode(60, "WithPlayer", "reached", 55, 58, "56"));
+            Session cleanSession = Session.Load(clean);
+            Finding quiet = stopping.Run(cleanSession).Single();
+            Require(quiet.Title.Contains("never stopped", StringComparison.Ordinal) && quiet.Detail.Contains("clean result over real travel", StringComparison.Ordinal),
+                $"a session with real travel and no stops did not say so: {quiet.Title}");
+            Require(journeys.Run(cleanSession).Single().Title.Contains("1.05x", StringComparison.Ordinal),
+                "a journey that landed near its proven ticks was not reported at its real ratio");
+        }
+        finally
+        {
+            foreach (string file in files)
+                if (File.Exists(file))
+                    File.Delete(file);
+        }
     }
 
     private static void Require(bool condition, string message)
