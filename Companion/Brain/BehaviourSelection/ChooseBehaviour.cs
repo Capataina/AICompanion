@@ -20,16 +20,25 @@ public sealed class Chooser
         float Protection = 1f, float Commitment = 1f, float Horizon = 1f, float UsefulWork = 1f, string Error = "", float Reunion = 1f,
         string MethodEvidence = "", OfferEligibility Eligibility = OfferEligibility.NoOpportunity, string EligibilityReason = "");
 
-    public readonly List<CompanionAction> Actions = new()
+    public readonly List<CompanionAction> Actions;
+
+    public Chooser()
     {
-        new ProtectPlayer(),
-        new PursueAttackOpportunity(),
-        new CollectNearbyItems(),
-        new ChopTree(),
-        new MineOre(),
-        new LightUsefulArea(),
-        new KeepCompany(),
-    };
+        // Guarding and hunting ask one firing-opportunity query, so a threat on the player is judged
+        // shootable or not by the same terrain scan and cache the hunt reads; guard prepares first and
+        // warms that cache for the hunt on the same tick.
+        var firingAccess = new ResolveFiringOpportunity();
+        Actions = new()
+        {
+            new ProtectPlayer(firingAccess),
+            new PursueAttackOpportunity(firingAccess),
+            new CollectNearbyItems(),
+            new ChopTree(),
+            new MineOre(),
+            new LightUsefulArea(),
+            new KeepCompany(),
+        };
+    }
 
     public readonly List<Scored> LastScores = new();
     /// <summary>Which activities prepared in the last comparison and what each family spent.</summary>

@@ -47,12 +47,18 @@ internal static class VerifyFiringPosition
             for (int i = 0; i < records.Length; i++)
             {
                 string detail = records[i].GetProperty("detail").GetString()!;
-                Require(detail.Contains($"choice-id={i + 1};") && detail.Contains("choice-phase=pre-activation;")
+                // The fourth comparison is the damageable sealed threat, whose guard offer is worth nothing and is never
+                // queried, so it takes a comparison identity and writes no record.
+                int choice = i < 3 ? i + 1 : i + 2;
+                Require(detail.Contains($"choice-id={choice};") && detail.Contains("choice-phase=pre-activation;")
                     && detail.Contains("target-slot=30;") && detail.Contains("native-effect=unobserved"),
-                    "method occurrences need comparison/target identity and explicit execution limits");
+                    $"method occurrences need comparison/target identity and explicit execution limits; expected choice-id={choice}, detail={detail}");
                 bool rejected = records[i].GetProperty("channel").GetString() == "not-established";
-                Require(!rejected || detail.Contains("selectable=0;") && detail.Contains("no-arc"),
-                    "a rejection must preserve the tested failure rather than claim low desirability or native success");
+                // The first three are the undamageable sealed threat, which admission refuses before solving; any later
+                // rejection is the reopened shaft's tested arc.
+                string failure = i < 3 ? "attack-target-not-attackable" : "no-arc";
+                Require(!rejected || detail.Contains("selectable=0;") && detail.Contains(failure),
+                    $"a rejection must preserve the method's own failure ({failure}) rather than claim low desirability or native success; detail={detail}");
             }
             Console.WriteLine("firing position: usable method admission, terrain invalidation and every-query occurrence evidence pass");
             return 0;
@@ -186,18 +192,50 @@ internal static class VerifyFiringPosition
             companion.Brain.Senses, profile);
         Require(heldDestination != null, "the admission fixture needs an existing ordinary destination to preserve");
         string heldExplanation = companion.Brain.Positioner.CandidateEvidence;
+
+        // Positive desirability beside a rejected method needs a threat guarding still values. Under the sealed rock
+        // a damageable zombie is a proven absence of any firing position once the flood is settled — and it is settled
+        // here from the first comparison — so guarding is worth nothing against it and is never nominated or queried.
+        // An undamageable one has no removal to estimate, keeps its full share without asking whether it can be shot,
+        // and still has to establish a destination, so it carries the rejection and occurrence contract.
+        enemy.dontTakeDamage = true;
         for (int tick = 0; tick < 3; tick++)
         {
             var selected = companion.Brain.Chooser.Choose(ctx);
             var guardScore = companion.Brain.Chooser.LastScores.Single(s => ReferenceEquals(s.Action, guard));
-            Require(guardScore.Raw > 0f, "the sealed threat must remain worth protecting against");
+            Require(guard.Access == null && float.IsPositiveInfinity(guard.RemovalTicks),
+                $"the rejection phase needs a threat no weapon can damage, which guarding never asks the firing query about; access={guard.Access}, removal={guard.RemovalTicks}");
+            Require(guardScore.Raw > 0f, "the sealed undamageable threat must remain worth protecting against");
             Require(!ReferenceEquals(selected, guard) && guardScore.Final == 0f && guardScore.Error.Length > 0,
                 $"unestablished protective access must reject the method without erasing urgency: selected={selected?.Name}, raw={guardScore.Raw}, final={guardScore.Final}, reason={guardScore.Error}");
-            Require(guardScore.MethodEvidence.Contains("no-arc") && guardScore.Error.StartsWith("method-"),
-                "the rejected offer must retain actual tested method evidence separately from its raw value");
+            // Admission refuses a target no weapon can damage before solving any candidate, so the retained evidence
+            // names that refusal rather than a tested arc; the sealed shaft's no-arc evidence is required above, on the
+            // positioner's own guard resolution, and again after reopening.
+            Require(guardScore.MethodEvidence.Contains("attack-target-not-attackable") && guardScore.Error == "method-attack-target-not-attackable",
+                $"the rejected offer must retain the method's own refusal separately from its raw value; evidence={guardScore.MethodEvidence}, error={guardScore.Error}");
             Require(companion.Brain.Positioner.Chosen == heldDestination
                 && companion.Brain.Positioner.CandidateEvidence == heldExplanation,
                 "a rejected nomination must preserve the previous ordinary destination and explanation");
+        }
+
+        // The same threat damageable again: nothing the companion can reach has a line to it, so protection is access
+        // that never arrives. Guarding yields — getting away from such a threat is shared safety's job — without a
+        // method query, so this comparison writes no method occurrence and is not counted in the returned total.
+        enemy.dontTakeDamage = false;
+        {
+            var selected = companion.Brain.Chooser.Choose(ctx);
+            var guardScore = companion.Brain.Chooser.LastScores.Single(s => ReferenceEquals(s.Action, guard));
+            Require(guard.Access == live::AICompanion.Companion.Brain.PurposeFamilies.Combat.FiringAccess.None && float.IsFinite(guard.RemovalTicks),
+                $"the damageable sealed threat must be a proven absence of firing positions from a settled flood; access={guard.Access}, removal={guard.RemovalTicks}, reach-complete={companion.Brain.Positioner.ReachComplete}");
+            Require(guardScore.Raw == 0f && !ReferenceEquals(selected, guard)
+                && guardScore.Eligibility == live::AICompanion.Companion.Brain.Behaviours.OfferEligibility.KnownUnusable
+                && guardScore.EligibilityReason == "no-reachable-firing-position",
+                $"a threat no reachable position can shoot must be worth no protection and named unusable; selected={selected?.Name}, raw={guardScore.Raw}, eligibility={guardScore.Eligibility}/{guardScore.EligibilityReason}");
+            Require(guardScore.MethodEvidence.Length == 0,
+                $"a guard offer worth nothing must not be queried for a destination; evidence={guardScore.MethodEvidence}");
+            Require(companion.Brain.Positioner.Chosen == heldDestination
+                && companion.Brain.Positioner.CandidateEvidence == heldExplanation,
+                "an unqueried guard offer must preserve the previous ordinary destination and explanation");
         }
 
         // Reopening is fresh evidence, not a permanent unreachable verdict on the enemy.

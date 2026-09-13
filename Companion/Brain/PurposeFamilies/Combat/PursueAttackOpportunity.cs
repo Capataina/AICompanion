@@ -173,41 +173,30 @@ public sealed class PursueAttackOpportunity : CompanionAction
         // veto is what stops the hunt being started at all.
         float shot = verdict switch
         {
-            Firing.FromHere => 1f,
-            Firing.AfterMoving => Weights.HuntRepositionShot,
-            Firing.Unknown => Weights.HuntUnprovenShot,
+            FiringAccess.FromHere => 1f,
+            FiringAccess.AfterMoving => Weights.HuntRepositionShot,
+            FiringAccess.Unknown => Weights.HuntUnprovenShot,
             _ => 0f,
         };
         if (leash == 0f) Classify(OfferEligibility.PolicyForbidden, "outside-activity-allowance");
-        else Classify(verdict == Firing.Unknown ? OfferEligibility.Unresolved : OfferEligibility.Usable, verdict switch
+        else Classify(verdict == FiringAccess.Unknown ? OfferEligibility.Unresolved : OfferEligibility.Usable, verdict switch
         {
-            Firing.FromHere => "shot-from-current-position",
-            Firing.AfterMoving => "reachable-firing-position",
+            FiringAccess.FromHere => "shot-from-current-position",
+            FiringAccess.AfterMoving => "reachable-firing-position",
             _ => "firing-position-undecided",
         });
         return near * worth * leash * ownSkin * shot;
     }
 
-    /// <summary>
-    /// What the companion would have to do to land a shot on an enemy. Three-and-a-bit valued for
-    /// the same reason <see cref="SharedMovementSystem.Reachability.Reach"/> is: a bounded flood
-    /// that has not yet grown as far as the target says nothing about whether a firing spot exists
-    /// there, and collapsing that into "no" refuses targets for being newly noticed.
-    /// </summary>
-    private enum Firing
-    {
-        /// <summary>A weapon already solves a shot from where the companion stands.</summary>
-        FromHere,
-        /// <summary>Somewhere the walker can reach has a line to the enemy; the hunt is the walk to it.</summary>
-        AfterMoving,
-        /// <summary>Sighted standing spots exist but the reachable region has not settled, so nothing is established.</summary>
-        Unknown,
-        /// <summary>No standing position with a line to the enemy exists within weapon reach at all.</summary>
-        None,
-    }
+    private FiringAccess verdict = FiringAccess.Unknown;
 
-    private Firing verdict = Firing.Unknown;
-    private readonly System.Collections.Generic.Dictionary<(int slot, int generation), (int at, Point origin, int terrain, Firing verdict, float access)> firing = new();
+    /// <summary>The companion's shared firing-opportunity query; guarding reads the same answers through it.</summary>
+    private readonly ResolveFiringOpportunity firingAccess;
+
+    /// <summary>A hunt that owns its own query, for callers that construct one activity alone.</summary>
+    public PursueAttackOpportunity() : this(new ResolveFiringOpportunity()) { }
+
+    public PursueAttackOpportunity(ResolveFiringOpportunity firingAccess) => this.firingAccess = firingAccess;
 
     /// <summary>The arsenal's delayed attack value and the reposition wait of the target this preparation chose.</summary>
     public float PursuitValue { get; private set; }
@@ -215,97 +204,6 @@ public sealed class PursueAttackOpportunity : CompanionAction
 
     /// <summary>Every candidate examined by the last preparation, as slot:generation:verdict:access-ticks:value, in examination order.</summary>
     public string PursuitEvidence { get; private set; } = "";
-    private const int FiringCacheTicks = 20;
-    private const int FiringSampleRadiusTiles = 14;
-    // Every other tile. A standable row is one tile high, so a stride this coarse can miss a narrow
-    // ledge; that costs an Unknown or a missed opportunity, never a wrong refusal, because a missed
-    // sighted tile can only make the answer more cautious.
-    private const int FiringSampleStride = 2;
-
-    /// <summary>
-    /// Whether a standing position exists that the walker can reach and from which a weapon has a
-    /// line to this enemy — the owner's rule, in his words: can I hit it, if not can I move to hit
-    /// it, and if neither then it is not worth hunting.
-    ///
-    /// The sight test is the same straight ray the positioner ranks candidates with, not a full
-    /// trajectory solve, because this runs per target and a solve costs up to 48 arcs. It is a
-    /// lower bound on an arcing shot, so it under-reports opportunities and never invents one;
-    /// the real solve still happens in position selection, on the spot this admits.
-    ///
-    /// Applying the from-here test alone would have been the obvious change and the wrong one: it
-    /// rejects every enemy the companion would simply have had to walk toward, which is most of them.
-    /// </summary>
-    private (Firing Verdict, float AccessTicks) FiringOpportunity(in ActionContext ctx, NPC enemy)
-    {
-        var key = (enemy.whoAmI, HostileAttackSources.Generation(enemy));
-        // Coarse, because the exact feet tile changes on almost every tick the companion is walking
-        // and an exact key would therefore miss continuously — re-sampling hundreds of tiles every
-        // tick of every approach, which is how a previous addition on this path made a session
-        // unplayable. Whether some reachable position can shoot an enemy does not change from one
-        // tile of travel, so the key moves in strides and the tick window bounds the staleness.
-        Point feet = SharedMovementSystem.MovementQueries.FeetTile(ctx.Npc.Bottom);
-        var origin = new Point(feet.X >> 2, feet.Y >> 2);
-        int terrain = SharedMovementSystem.TerrainChanges.Revision;
-        if (firing.TryGetValue(key, out var cached) && cached.origin == origin && cached.terrain == terrain
-            && unchecked(ctx.Senses.Tick - cached.at) < FiringCacheTicks)
-            return (cached.verdict, cached.access);
-
-        var answer = Resolve(ctx, enemy);
-        firing[key] = (ctx.Senses.Tick, origin, terrain, answer.Verdict, answer.AccessTicks);
-        return answer;
-    }
-
-    /// <summary>
-    /// The verdict, and how long the reposition it implies would take: zero from here, the travel
-    /// estimate to the nearest reachable sighted tile after moving, and a straight-line walk to the enemy
-    /// while nothing is established. The whole sample is scanned rather than stopping at the first
-    /// reachable tile, because pursuit prices a reposition by its duration and scan order says nothing
-    /// about that.
-    /// </summary>
-    private static (Firing Verdict, float AccessTicks) Resolve(in ActionContext ctx, NPC enemy)
-    {
-        if (ctx.Companion.Arsenal.CanEngage(ctx, enemy))
-            return (Firing.FromHere, 0f);
-        Point feet = SharedMovementSystem.MovementQueries.FeetTile(ctx.Npc.Bottom);
-        float nearest = float.PositiveInfinity;
-        var positioner = ctx.Companion.Brain.Positioner;
-        float reach = MathF.Max(ctx.Companion.Arsenal.Primary.Profile.Reach, ctx.Companion.Arsenal.Secondary.Profile.Reach);
-        // Never wider than the box position selection itself samples: a spot it cannot propose is
-        // not a spot the hunt can be walked to, so admitting a target on one would promise a
-        // position that never arrives.
-        int radius = Math.Min(FiringSampleRadiusTiles, (int)(reach / 16f));
-        Point centre = SharedMovementSystem.MovementQueries.FeetTile(enemy.Bottom);
-        bool sightedButUnsettled = false;
-        for (int dx = -radius; dx <= radius; dx += FiringSampleStride)
-        {
-            for (int dy = -radius; dy <= radius; dy += FiringSampleStride)
-            {
-                var tile = new Point(centre.X + dx, centre.Y + dy);
-                if (!SharedMovementSystem.MovementQueries.IsStandable(tile.X, tile.Y))
-                    continue;
-                Vector2 eye = SharedMovementSystem.MovementQueries.FeetWorld(tile) + new Vector2(0f, -30f);
-                if (Vector2.Distance(eye, enemy.Center) > reach)
-                    continue;
-                if (!Terraria.Collision.CanHitLine(eye, 1, 1, enemy.position, enemy.width, enemy.height))
-                    continue;
-                if (positioner.Reaches(tile))
-                {
-                    float ticks = positioner.EstimatedTravelTicks(feet, tile)
-                        ?? Vector2.Distance(ctx.Npc.Bottom, SharedMovementSystem.MovementQueries.FeetWorld(tile)) / Companion.CompanionMotor.WalkSpeed;
-                    nearest = MathF.Min(nearest, ticks);
-                    continue;
-                }
-                // Sighted, and the flood has not proved it either way. Only an exhausted region
-                // turns that into an absence; until then it is the search declining to answer.
-                if (!positioner.ReachComplete)
-                    sightedButUnsettled = true;
-            }
-        }
-        if (float.IsFinite(nearest)) return (Firing.AfterMoving, nearest);
-        return sightedButUnsettled
-            ? (Firing.Unknown, Vector2.Distance(ctx.Npc.Bottom, enemy.Bottom) / Companion.CompanionMotor.WalkSpeed)
-            : (Firing.None, float.PositiveInfinity);
-    }
 
     private static Rectangle ScreenWithMargin()
         => new((int)Main.screenPosition.X - 200, (int)Main.screenPosition.Y - 200, Main.screenWidth + 400, Main.screenHeight + 400);
@@ -352,7 +250,7 @@ public sealed class PursueAttackOpportunity : CompanionAction
         examinedAdmissible.Clear();
         bool refusedForFiring = false;
         ThreatRecord? chosen = null, firstAdmissible = null;
-        Firing chosenVerdict = Firing.None, firstVerdict = Firing.None;
+        FiringAccess chosenVerdict = FiringAccess.None, firstVerdict = FiringAccess.None;
         float chosenValue = 0f, chosenAccess = 0f, firstAccess = 0f;
         var evidence = new System.Text.StringBuilder();
         for (int attempt = 0; attempt < MaxFiringChecksPerTick; attempt++)
@@ -361,13 +259,13 @@ public sealed class PursueAttackOpportunity : CompanionAction
             if (candidate == null)
                 break;
             examined.Add(candidate.Npc.whoAmI);
-            var (opportunity, access) = FiringOpportunity(ctx, candidate.Npc);
-            float value = opportunity == Firing.None ? 0f
-                : ctx.Companion.Arsenal.EstimateDelayedAttackValue(ctx, candidate.Npc, (int)MathF.Min(access, 100_000f), opportunity == Firing.FromHere);
+            var (opportunity, access) = firingAccess.Resolve(ctx, candidate.Npc);
+            float value = opportunity == FiringAccess.None ? 0f
+                : ctx.Companion.Arsenal.EstimateDelayedAttackValue(ctx, candidate.Npc, (int)MathF.Min(access, 100_000f), opportunity == FiringAccess.FromHere);
             if (evidence.Length > 0) evidence.Append('|');
             evidence.Append(FormattableString.Invariant(
                 $"{candidate.Npc.whoAmI}:{HostileAttackSources.Generation(candidate.Npc)}:{opportunity}:{access:0.0}:{value:0.000}"));
-            if (opportunity == Firing.None)
+            if (opportunity == FiringAccess.None)
             {
                 refusedForFiring = true;
                 continue;
@@ -395,7 +293,7 @@ public sealed class PursueAttackOpportunity : CompanionAction
         // for. Whether the companion had nowhere to shoot from is exactly what needs to survive.
         if (refusedForFiring)
             LastRejection = "no-reachable-firing-position";
-        verdict = Firing.None;
+        verdict = FiringAccess.None;
         return null;
     }
 
