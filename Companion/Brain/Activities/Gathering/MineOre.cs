@@ -299,8 +299,7 @@ public sealed class MineOre : CompanionAction
     private Vector2 unprovenOrigin;
     private int unprovenTicks;
     private ulong? approachAbandonedAt;
-    private Point? refusedUnproven;
-    private int refusedRevision;
+    private readonly Dictionary<Point, int> refusedUnproven = new();
 
     /// <summary>
     /// What mining is worth while the approach search has declined to answer. It used to be worth
@@ -355,9 +354,10 @@ public sealed class MineOre : CompanionAction
         else if (++unprovenTicks >= Weights.ObjectiveProgressWindowTicks)
         {
             // Walking has stopped resolving it. Give the tick back rather than lean on the ore.
+            // One tile is not the pocket: the next search otherwise returns the neighbouring ore
+            // in the same unreachable vein and the walk starts again.
             unproven = null;
-            refusedUnproven = pending;
-            refusedRevision = Infrastructure.Movement.TerrainChanges.Revision;
+            RefuseUnprovenVein(pending);
             unresolvedCandidate = null;
             approachAbandonedAt = Main.GameUpdateCount;
             attemptSetback = (AttemptStatus.Failed, "unproven-ore-approach-made-no-progress");
@@ -373,7 +373,8 @@ public sealed class MineOre : CompanionAction
         var miner = ctx.Companion.Miner;
         var context = ctx;
         bool Mineable(Point tile) => miner.CanMine(tile, pick) && AllowsTarget(context, tile.ToWorldCoordinates())
-            && !Infrastructure.Interactions.WorldProtection.ProtectCompanionHomes.IsProtected(tile) && !HopDeferred(tile);
+            && !Infrastructure.Interactions.WorldProtection.ProtectCompanionHomes.IsProtected(tile)
+            && !HopDeferred(tile) && !UnprovenRefused(tile);
         OreFinder.SearchResult result = default;
         BodyState body = ctx.Companion.Motor.State;
         if (WorkPolicies.Mining == WorkPolicy.Mimic)
@@ -389,7 +390,7 @@ public sealed class MineOre : CompanionAction
                 NearestTile(ctx.Npc.Bottom, byPlayer.UnresolvedTile, byCompanion.UnresolvedTile));
         }
         unresolvedCandidate = result.UnresolvedTile;
-        if (unresolvedCandidate is Point same && refusedUnproven == same && Infrastructure.Movement.TerrainChanges.Revision == refusedRevision)
+        if (unresolvedCandidate is Point same && UnprovenRefused(same))
             unresolvedCandidate = null;
         OreFinder.OreTarget? found = result.Target;
         if (found is OreFinder.OreTarget f)
@@ -644,6 +645,26 @@ public sealed class MineOre : CompanionAction
             return true;
         }
         return ++hopProgressTicks < Weights.ObjectiveProgressWindowTicks;
+    }
+
+    /// <summary>A tile of a vein whose unproven approach already failed under this terrain revision. Neighbours of the
+    /// failed tile are the same pocket: refusing only the one tile made the next search walk at the next ore over.</summary>
+    private bool UnprovenRefused(Point tile)
+    {
+        if (!refusedUnproven.TryGetValue(tile, out int revision)) return false;
+        if (revision == TerrainChanges.Revision) return true;
+        refusedUnproven.Remove(tile);
+        return false;
+    }
+
+    private void RefuseUnprovenVein(Point tile)
+    {
+        int revision = TerrainChanges.Revision;
+        int type = WorldGen.InWorld(tile.X, tile.Y, 5) ? Main.tile[tile.X, tile.Y].TileType : -1;
+        HashSet<Point> vein = type >= 0 ? OreFinder.Vein(tile, type) : new HashSet<Point>();
+        if (vein.Count == 0) vein.Add(tile);
+        foreach (Point p in vein)
+            refusedUnproven[p] = revision;
     }
 
     /// <summary>A tile whose take-off was lost at rest, while the terrain revision it was lost under still holds and its wait has not passed.</summary>

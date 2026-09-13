@@ -49,6 +49,7 @@ internal static class VerifyOreWork
             PreparedToolsRejectReplacementMaterial();
             AxeEligibilityAloneDoesNotMakeATree();
             AnUnprovenApproachWalksInsteadOfScoringZero();
+            AFailedUnprovenApproachDoesNotReadoptTheSameVein();
             AnUnknownApproachKeepsItsOwnOreIdentity();
             AReachableOreProducesANativeBreak();
             AUsefulCurrentPoseNeedsNoApproach();
@@ -59,7 +60,7 @@ internal static class VerifyOreWork
             RemainingToolWorkMatchesNativeCompletion();
             DepartingPlayerChangesWhetherWorkIsWorthFinishing();
             ReunionChargeReadsDepartureAndTheRouteHome();
-            Console.WriteLine("ore work: policy, retained vein, tool gates, unproven approach, blocked nearest ore, reach edge, arrival offsets, ceiling hops, tool power changes, player terrain edits and native productive break pass");
+            Console.WriteLine("ore work: policy, retained vein, tool gates, unproven approach, no vein readopt after a failed unproven walk, blocked nearest ore, reach edge, arrival offsets, ceiling hops, tool power changes, player terrain edits and native productive break pass");
             return 0;
         }
         finally
@@ -1045,6 +1046,34 @@ internal static class VerifyOreWork
                 $"an undecided approach must produce a walk toward the ore, since moving is what makes the approach decidable; got {request.Kind}");
             Require(VerifyPreparedActivities.PrepareAndScore(action, ctx) < 0.7f,
                 "an unproven approach must score below a proven ore job, so reachable ore always wins");
+        }
+        finally
+        {
+            AStar.MsBudget = budget;
+        }
+    }
+
+    /// <summary>Refusing only the one unproven tile made the next search walk at the neighbouring ore in the same
+    /// unreachable pocket. The 13 Sep 0.22.43 session spent 3,602 ticks on {3518,388} and its two neighbours after
+    /// five failed unproven approaches.</summary>
+    private static void AFailedUnprovenApproachDoesNotReadoptTheSameVein()
+    {
+        Point a = new(50, 59), b = new(51, 59), c = new(52, 59);
+        var (action, ctx) = SetUp(WorkPolicy.Opportunistic, TileID.Copper, a, b, c);
+        double budget = AStar.MsBudget;
+        try
+        {
+            AStar.MsBudget = 0.0001d;
+            Require(VerifyPreparedActivities.PrepareAndScore(action, ctx) > 0,
+                "the vein must start as an unproven approach");
+            action.Execute(ctx);
+            int window = live::AICompanion.Companion.Brain.Infrastructure.Selection.Weights.ObjectiveProgressWindowTicks;
+            for (int i = 0; i < window + 60; i++)
+                VerifyPreparedActivities.PrepareAndScore(action, ctx);
+            float after = VerifyPreparedActivities.PrepareAndScore(action, ctx);
+            Point? target = action.TargetTile;
+            Require(after == 0f || target is not Point t || (t != a && t != b && t != c),
+                $"after a failed unproven approach the same unreachable vein must not be walked at again; status={action.Status} score={after} target={target}");
         }
         finally
         {

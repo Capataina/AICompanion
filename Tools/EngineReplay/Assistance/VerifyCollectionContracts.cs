@@ -54,6 +54,7 @@ internal static class VerifyCollectionContracts
         Each("I04 partial stack capacity", PartialCargoCapacityValuesAndConcludesTheAcceptedQuantity);
         Each("I05 attribution by transfer", ADropLeavingTheWorldIsAttributedByWhatTheBagReceived);
         Each("I03 one trip unit", ADropsForecastIsTheWalkToAContactPose);
+        Each("a drop below a ledge is not a contact pose on the ledge", ADropBelowALedgeIsNotAContactPoseOnTheLedge);
         Each("D1 a reachable drop behind refused drops is offered", AReachableDropBehindRefusedDropsIsOffered);
         Each("D2 a drop merged into another world drop", ADropMergedIntoAnotherWorldDropIsNotAPurposeThatWentAway);
         // Timings under the production allowances, printed and never asserted: they describe this machine.
@@ -368,6 +369,37 @@ internal static class VerifyCollectionContracts
             Require(collect.Method != "known-drop" && collect.Score() == 0,
                 $"a drop already taken by contact pickup must leave no collection trip; method={collect.Method} value={collect.Score()}");
         }
+    }
+
+    /// <summary>A gel two tiles below the companion's floor is not something it is already standing on. The 13 Sep 0.22.43
+    /// session froze 1,896 ticks on a ledge whose inflated AABB grazed a drop on the slope; proving contact only on the same
+    /// floor, inside pickup reach minus arrival slack, is what stops that freeze.</summary>
+    private static void ADropBelowALedgeIsNotAContactPoseOnTheLedge()
+    {
+        var ctx = SetUpFloor();
+        int ledge = 58;
+        for (int x = 18; x <= 22; x++)
+        {
+            Tile tile = Main.tile[x, ledge];
+            tile.ClearEverything();
+            tile.HasTile = true;
+            tile.TileType = TileID.Dirt;
+        }
+        live::AICompanion.Companion.Brain.Infrastructure.Movement.TerrainChanges.Reset();
+        ctx.Npc.position = new Vector2(20 * 16, ledge * 16 - ctx.Npc.height);
+        var collect = new CollectNearbyItems();
+        Item drop = Drop(ItemID.Gel, 3, new Vector2(20 * 16 + 8, 60 * 16));
+        Observe(ctx, drop);
+        collect.Prepare(ctx);
+        if (collect.Method == "known-drop")
+        {
+            var request = collect.Execute(ctx);
+            Require(MathF.Abs(request.Anchor.Y - drop.Bottom.Y) <= 16f,
+                $"a drop on the floor below a ledge must not use the ledge as its contact pose; pose={request.Anchor} drop={drop.Bottom} offer={collect.EligibilityReason}");
+        }
+        else
+            Require(collect.EligibilityReason is "drop-has-no-contact-pose" or "drop-unreachable" or "drop-would-strand-return" or "drop-approach-undecided",
+                $"if the ledge cannot pick the drop up, the offer must say so; method={collect.Method} offer={collect.EligibilityReason}");
     }
 
     /// <summary>A drop on the floor ten tiles from the companion. Collection must price the walk the way mining and chopping do,

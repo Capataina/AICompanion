@@ -40,6 +40,11 @@ public sealed class CollectNearbyItems : PerformNearbyWorldWork
     /// never touches the drop or sends the companion farther than contact needs.</summary>
     private const float PickupContactReach = 28f;
 
+    /// <summary>Contact poses are proved inside the live pickup reach minus the navigator's arrival slack, so a body that
+    /// stops twelve pixels short of the pose still intersects the drop. Proving at the full inflate picked the most
+    /// marginal tile that still grazed, and on a slope that graze missed for thousands of ticks.</summary>
+    private static float ProvePickupReach => MathF.Max(8f, PickupContactReach - Navigator.ArriveDistance);
+
     /// <summary>How far from a drop's own tile a contact pose can stand: half the body and the pickup reach, in tiles.</summary>
     private static readonly int ContactSearchTiles = (int)MathF.Ceiling((BodyPhysics.Width / 2f + PickupContactReach) / 16f);
 
@@ -116,11 +121,11 @@ public sealed class CollectNearbyItems : PerformNearbyWorldWork
                 continue;
             }
             Vector2 pose;
-            if (TouchesDrop(ctx.Npc.Hitbox, item))
+            if (TouchesDrop(ctx.Npc.Hitbox, item, ProvePickupReach))
                 pose = ctx.Npc.Bottom;
             else
             {
-                if (ContactPose(ctx.Npc.Bottom, item) is not Point contact)
+                if (ContactPose(item) is not Point contact)
                 {
                     Refuse(OfferEligibility.KnownUnusable, "drop-has-no-contact-pose");
                     continue;
@@ -157,14 +162,16 @@ public sealed class CollectNearbyItems : PerformNearbyWorldWork
     private static Rectangle BodyAt(Vector2 feet)
         => new((int)(feet.X - BodyPhysics.Width / 2f), (int)(feet.Y - BodyPhysics.Height), BodyPhysics.Width, BodyPhysics.Height);
 
-    private static bool TouchesDrop(Rectangle body, Item item)
+    private static bool TouchesDrop(Rectangle body, Item item, float reach)
     {
-        body.Inflate((int)PickupContactReach, (int)PickupContactReach);
+        body.Inflate((int)reach, (int)reach);
         return body.Intersects(item.Hitbox);
     }
 
-    /// <summary>The standable pose nearest the companion from which contact pickup touches the drop, or none.</summary>
-    private static Point? ContactPose(Vector2 companionFeet, Item item)
+    /// <summary>The standable pose nearest the drop from which a body that has arrived still picks it up, or none.
+    /// Nearest-to-companion among tiles that merely graze was the pose with the least overlap: arrival slack and a
+    /// slope then missed, and the navigator reported Arrived so the body froze on the ledge above the gel.</summary>
+    private static Point? ContactPose(Item item)
     {
         Point around = MovementQueries.FeetTile(item.Bottom);
         Point? best = null;
@@ -175,8 +182,11 @@ public sealed class CollectNearbyItems : PerformNearbyWorldWork
                 Point tile = new(around.X + dx, around.Y + dy);
                 if (!MovementQueries.IsStandable(tile.X, tile.Y)) continue;
                 Vector2 feet = MovementQueries.FeetWorld(tile);
-                if (!TouchesDrop(BodyAt(feet), item)) continue;
-                float distance = Vector2.DistanceSquared(feet, companionFeet);
+                // A floor more than a tile above the drop is a cliff, not a pickup: the inflated AABB can
+                // graze an item on the slope below while the live body never takes it.
+                if (item.Bottom.Y - feet.Y > 16f || feet.Y - item.Bottom.Y > 16f) continue;
+                if (!TouchesDrop(BodyAt(feet), item, ProvePickupReach)) continue;
+                float distance = Vector2.DistanceSquared(feet, item.Bottom);
                 if (distance >= bestDistance) continue;
                 best = tile;
                 bestDistance = distance;
