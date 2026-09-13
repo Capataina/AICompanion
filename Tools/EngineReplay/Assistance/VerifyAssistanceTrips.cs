@@ -169,7 +169,13 @@ internal static class VerifyAssistanceTrips
         Require(torchAt >= 0, $"the lighting trip must place its torch; {ledger}");
         if (!potBreaking)
         {
-            Require(brokenAt < 0 && lastIncidental == null, $"a pot with pot breaking disabled must be left alone; {ledger}");
+            // The pot specifically, not "nothing incidental happened". Those were the same claim only while a
+            // carried torch made every nearby site read lit: now that the field discounts every carried light,
+            // the companion places a torch in passing while keeping company, which is the behaviour the
+            // discount exists to produce and has nothing to do with the pot this row is about.
+            Require(brokenAt < 0, $"a pot with pot breaking disabled must be left alone; {ledger}");
+            Require(lastIncidental == null || !lastIncidental.ToString()!.Contains("Method = collect"),
+                $"no incidental interaction may reach for the pot while pot breaking is disabled; {ledger}");
             return;
         }
         Require(brokenAt >= 0 && actionAtBreak == "place-torches" && feetAtBreak > start.X + 32f,

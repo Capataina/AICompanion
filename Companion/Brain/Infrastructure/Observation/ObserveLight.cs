@@ -55,9 +55,6 @@ public sealed class LightSense
     private readonly List<Sample> samples = new();
     private int sinceRefresh = RefreshTicks;
     private Rectangle lastFrame = Rectangle.Empty;
-    // The torch state the field was built under, so a point query answers by the same rule as the lattice.
-    private bool torchWasOut;
-    private Point torchHand;
 
     private readonly record struct Sample(Point Tile, float Brightness);
 
@@ -80,25 +77,6 @@ public sealed class LightSense
         AtCompanion = RawBrightness(c.X, c.Y);
         AtPlayer = RawBrightness(p.X, p.Y);
 
-        // The companion's own torch, as the engine's own falloff would have spread it from the hand. It is
-        // subtracted rather than cut out as a disc, because a disc throws away every real reading inside it
-        // — including the dark tiles a torch has not actually reached — while a subtraction leaves them.
-        // Read from the same body the bearer lights: it is out when the hand was free, so a companion
-        // swinging a pickaxe contributes nothing and none is taken off.
-        //
-        // `Shown` here is last tick's answer, and that is the one this wants rather than a staleness to be
-        // fixed: the light map being read was written by last tick's `AddLight`, so the torch that is in it
-        // is the torch that was out then. `CompanionNPC.AI` therefore recomputes `Shown` after the brain
-        // rather than clearing it before — it used to clear it first, which made this read false on every
-        // live tick, left the companion's own glow in the field, and put the torch out in the dark because
-        // the cavern it was lighting read as a lit room. `Lit` is not the value to read instead: it is true
-        // while a pickaxe holds the hand, when no light was emitted and nothing should be taken off.
-        var self = companion.ModNPC as global::AICompanion.Companion.CharacterBody.CompanionNPC;
-        bool torchOut = self?.Torch.Shown ?? false;
-        Point hand = torchOut ? (companion.Center + new Vector2(companion.direction * 10f, -6f)).ToTileCoordinates() : default;
-        torchWasOut = torchOut;
-        torchHand = hand;
-
         // The window is screen-sized and centred on the companion, and it is deliberately not clipped to
         // where the screen happens to be. Clipping was the old approximation of "where has the engine
         // computed light", and the coverage test below is that question asked exactly: a tile inside the
@@ -116,6 +94,14 @@ public sealed class LightSense
         int left = c.X - halfWidth, top = c.Y - halfHeight;
         int right = c.X + halfWidth, bottom = c.Y + halfHeight;
 
+        // Every light that is only in the world while something carries it, taken from the engine's own
+        // per-frame list. This replaced a model of the companion's own torch alone, and the generalisation
+        // is what the behaviour needed rather than tidiness: the companion follows a player holding a torch,
+        // so under the old rule everything around him read lit, nothing was ever placed there, and the
+        // passage went dark the moment he walked on.
+        TransientLights.Snapshot(new Rectangle(left, top, right - left + 1, bottom - top + 1));
+        bool anyTransient = TransientLights.Count > 0;
+
         samples.Clear();
         for (int x = left; x <= right; x += SampleStrideTiles)
             for (int y = top; y <= bottom; y += SampleStrideTiles)
@@ -123,21 +109,8 @@ public sealed class LightSense
                 if (!IsOpenAir(x, y) || !coverage.Contains(x, y))
                     continue;
                 float lit = RawBrightness(x, y);
-                if (torchOut)
-                {
-                    float mine = CarriedTorchAt(hand, x, y);
-                    // The engine merges a light into the map by max and propagates it by max, so the torch
-                    // never added to this tile: it either lost to what was already there, or it replaced it.
-                    // A reading brighter than the torch could produce is therefore the world's own light and
-                    // is kept whole. A reading the torch could account for tells us only that the ambient is
-                    // no brighter than the torch — which answers the question when the torch itself is below
-                    // the dark level (the place is dark and reads dark), and destroys it when the torch is
-                    // above it, because every ambient from pitch black up to the torch looks identical. That
-                    // last case is not dark and not lit: it is unmeasured, and it is dropped rather than
-                    // stored, so no query counts it either way.
-                    if (lit <= mine + TorchModelTolerance && mine >= Weights.LightDarkBelow)
-                        continue;
-                }
+                if (anyTransient && Occluded(lit, x, y))
+                    continue;
                 samples.Add(new Sample(new Point(x, y), Math.Clamp(lit, 0f, 1f)));
             }
         MeasuredSamples = samples.Count;
@@ -305,9 +278,7 @@ public sealed class LightSense
     {
         if (!IsOpenAir(tile.X, tile.Y) || !Coverage.Current().Contains(tile.X, tile.Y)) return null;
         float lit = RawBrightness(tile.X, tile.Y);
-        if (!torchWasOut) return lit;
-        float mine = CarriedTorchAt(torchHand, tile.X, tile.Y);
-        return lit <= mine + TorchModelTolerance && mine >= Weights.LightDarkBelow ? null : lit;
+        return Occluded(lit, tile.X, tile.Y) ? null : lit;
     }
 
     /// <summary>
@@ -343,19 +314,15 @@ public sealed class LightSense
                 int x = centre.X + dx, y = centre.Y + dy;
                 if (!IsOpenAir(x, y) || !coverage.Contains(x, y)) continue;
                 float lit = RawBrightness(x, y);
-                if (torchWasOut)
+                if (Occluded(lit, x, y))
                 {
-                    float mine = CarriedTorchAt(torchHand, x, y);
-                    if (lit <= mine + TorchModelTolerance && mine >= Weights.LightDarkBelow)
-                    {
-                        if (!carriedCountsAsDark) continue;
-                        // Counted at nothing rather than at `lit`, because `lit` here is the companion's own
-                        // torch and it is leaving with the companion. What stays behind is bounded above by
-                        // this sample and is not measured any closer than that.
-                        measured++;
-                        dark++;
-                        continue;
-                    }
+                    if (!carriedCountsAsDark) continue;
+                    // Counted at nothing rather than at `lit`, because `lit` here is a light somebody is
+                    // carrying and it leaves when they do. What stays behind is bounded above by this sample
+                    // and is not measured any closer than that.
+                    measured++;
+                    dark++;
+                    continue;
                 }
                 measured++;
                 total += lit;
@@ -368,38 +335,34 @@ public sealed class LightSense
         => WorldGen.InWorld(x, y, 1) ? MathHelper.Clamp(Lighting.Brightness(x, y), 0f, 1f) : 0f;
 
     /// <summary>
-    /// The brightest the companion's own torch could make a tile, modelled the way the engine spreads it.
-    /// <see cref="LightMap.LightDecayThroughAir"/> is 0.91 and <c>LegacyLighting._negLight</c> is the same
-    /// 0.91 in its colour mode, applied as a multiply per tile; the blur runs a horizontal pass and a
-    /// vertical pass in turn, so a light reaching a tile offset by (dx, dy) has been multiplied |dx| + |dy|
-    /// times, which makes the falloff Manhattan rather than round. Propagation stops below 0.0185 in the
-    /// same loop, so a torch reaches exactly nothing past that. <see cref="Lighting.Brightness"/> is the
-    /// mean of the three channels times <see cref="Lighting.GlobalBrightness"/>, so the torch is reduced
-    /// the same way before it is compared. If any of those four numbers drifts from the engine, the model
-    /// stops bounding what the engine actually wrote and the companion reads its own torchlight as the
-    /// room's.
+    /// Whether a transient light accounts for this reading, in which case the world's own light under it
+    /// cannot be recovered and the sample is dropped.
     ///
-    /// <para>This is an upper bound rather than an estimate, and deliberately so: it decays only through
-    /// air, while the engine decays through solid at 0.56, so near a wall the real torch is dimmer than
-    /// this says. Bounding high means hiding a few samples the torch did not actually reach, which costs a
-    /// little coverage; bounding low would mean keeping samples the torch did brighten and calling the
-    /// companion's own light the room's, which is the failure this whole field exists to prevent.</para>
+    /// <para>The engine merges a light into the map by maximum and propagates it by maximum —
+    /// <c>LightMap.BlurLine</c> keeps a running value per channel, replaces it where the tile is brighter
+    /// and writes it back where the tile is darker, decaying by 0.91 per tile of air — so a transient never
+    /// added to a tile: it either lost to what was already there, or it replaced it. A reading brighter than
+    /// the brightest transient could produce is therefore the world's own light, exactly, and is kept whole.
+    /// A reading a transient could account for tells us only that the world's light is no brighter than the
+    /// transient. That answers the question when the transient is itself below the dark level — the place is
+    /// dark and reads dark either way — and destroys it when the transient is above it, because every world
+    /// light from pitch black up to the transient looks identical. That last case is neither dark nor lit: it
+    /// is unmeasured, and is dropped rather than stored, so no query counts it either way.</para>
+    ///
+    /// <para>Subtraction would be the right arithmetic if the engine summed lights, and it is not what the
+    /// engine does; subtracting a modelled light from a maximum produced a false pitch-dark blob at the
+    /// carrier and a companion that walked to its own feet to light them.</para>
     /// </summary>
-    private const float DecayThroughAirPerTile = 0.91f;
-    private const float PropagationCutoff = 0.0185f;
-    /// <summary>Slack on the comparison against the modelled torch, for the difference between the engine's
-    /// per-channel blur and this mean-of-channels model of it. Without it a tile the torch lit to exactly
-    /// its modelled value reads as the world's own light through floating-point noise.</summary>
-    private const float TorchModelTolerance = 0.02f;
-
-    private static float CarriedTorchAt(Point hand, int x, int y)
+    private static bool Occluded(float lit, int x, int y)
     {
-        TorchID.TorchColor(TorchID.Torch, out float r, out float g, out float b);
-        float source = Lighting.GlobalBrightness * (r + g + b) / 3f;
-        int steps = Math.Abs(x - hand.X) + Math.Abs(y - hand.Y);
-        float reached = source * MathF.Pow(DecayThroughAirPerTile, steps);
-        return reached < PropagationCutoff ? 0f : reached;
+        float transient = TransientLights.BrightestAt(x, y);
+        return lit <= transient + TransientModelTolerance && transient >= Weights.LightDarkBelow;
     }
+
+    /// <summary>Slack on the comparison against a modelled transient, for the difference between the
+    /// engine's per-channel blur and this mean-of-channels model of it. Without it a tile a light lit to
+    /// exactly its modelled value reads as the world's own light through floating-point noise.</summary>
+    private const float TransientModelTolerance = 0.02f;
 
     /// <summary>
     /// Reads light only where the game's lighting engine has computed it. `Lighting.Brightness` answers zero
