@@ -3,1231 +3,363 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Companion profile card — Multi... Player?</title>
+<title>Companion card — replica of the native card (2026-09-13)</title>
 <style>
 /* ------------------------------------------------------------------ *
- * Terraria's own interface language, not a generic dark UI.
+ * A one-to-one replica of the native profile card as it renders in the
+ * game on 2026-09-13 (Tools/EngineReplay --render-ui, 1600x1000 at UI
+ * scale 1.5). Every size below is the logical pixel the C# layout uses,
+ * so a change agreed here maps straight onto CompanionProfileCardSystem:
+ *   frame 780x650, padding 10, title bar 34, identity row 112,
+ *   content from 156, overview footer 100 (sub-pages 56),
+ *   setting rows 46 with 4 between, buttons 30 tall, tiles half width
+ *   with a 10 gap.
+ * The page is shown at UI scale 1.5 by default because that is how the
+ * render and the owner's own screen show it; the control at the top
+ * switches to 1.0.
  *
- * Four things carry nearly all of the resemblance, and they are worth
- * naming because a mockup that misses them reads as "a game menu" and
- * never as "Terraria":
- *   1. every string has a hard black drop shadow, offset down-right,
- *      with no blur — the game draws all UI text that way
- *   2. panels are a saturated blue-violet at ~82% over the world, so
- *      the world shows through and the panel never reads as a page
- *   3. item slots are a lighter blue with a bright thin border, square
- *   4. headings and item names are coloured by rarity, not by role
- *
- * No transitions and no keyframes anywhere, on purpose: Terraria's
- * interface does not animate, so hover and selection change instantly.
+ * Terraria's own interface language, kept from the first mockup because
+ * it is what makes this read as the game and not as a web page: every
+ * string has a hard black drop shadow, panels are the saturated
+ * blue-violet at 86% over a dark world, slots are a lighter blue with a
+ * bright thin border, and nothing animates — hover and selection change
+ * instantly. The game draws text in its own Andy font; the browser has
+ * no copy, so a rounded humanist face stands in and the widths are a
+ * little narrower than in the game.
  * ------------------------------------------------------------------ */
 :root{
   --panel:rgba(43,48,153,.86);
   --panel-solid:#2b3099;
-  --panel-lit:#3b41bd;
-  --panel-sunk:rgba(26,29,105,.9);
-  --slot:#4a4eb4;
-  --slot-lit:#5f64d4;
+  --sunk:rgba(37,41,122,.75);
+  --bar-bg:#161645;
+  --tile-bar-bg:#14184b;
+  --selected:#565bc2;
   --edge:#8f93f0;
-  --edge-soft:#5f64c8;
-  --ring:#12143f;
+  --edge-soft:rgba(143,147,240,.6);
   --ink:#ffffff;
-  --ink-dim:#c3c6f5;
-  --ink-mute:#8f93cc;
+  --muted:#c3c6f5;
   --gold:#ffe066;
-  --green:#8cf08c;
-  --red:#ff6b6b;
-  --orange:#ffb04a;
-  --cyan:#7ceaea;
+  --green:#66dd74;
+  --hp:#8cf08c;
   --ui:"Trebuchet MS","Lucida Grande",Verdana,sans-serif;
+  --z:1.5;
 }
 *{box-sizing:border-box}
-html,body{margin:0;height:100%}
-body{
-  background:#0a0c14;
-  color:var(--ink);
-  font-family:var(--ui);
-  font-size:14px;font-weight:bold;
-  /* The single most recognisable Terraria text trait. Applied on body so
-     every string inherits it, which is also how the game does it. */
-  text-shadow:2px 2px 0 rgba(0,0,0,.85);
-  display:flex;flex-direction:column;align-items:center;justify-content:center;
-  gap:14px;padding:22px;min-height:100%;
-}
-/* The world behind the panel. Without it the 86% panel has nothing to be
-   translucent against, and translucency is half of why a Terraria menu
-   looks like a Terraria menu. */
-#world{position:fixed;inset:0;z-index:-1;image-rendering:pixelated;width:100%;height:100%}
+html,body{margin:0;height:100%;background:#0d1524}
+body{font-family:var(--ui);color:var(--ink);text-shadow:2px 2px 0 #000;font-weight:bold;
+  display:grid;grid-template-rows:auto 1fr;min-height:100%}
 
-/* ---- the card ---------------------------------------------------- */
-.card{
-  width:880px;
-  background:var(--panel);
-  border:2px solid var(--edge-soft);
-  box-shadow:0 0 0 2px var(--ring), 0 14px 44px rgba(0,0,0,.6);
-  display:flex;flex-direction:column;
-  position:relative;
-}
-.titlebar{
-  display:flex;align-items:center;gap:10px;
-  padding:7px 10px;border-bottom:2px solid var(--edge-soft);
-  background:rgba(59,65,189,.55);
-}
-.titlebar h1{font-size:17px;margin:0;color:var(--gold)}
-.titlebar .crumb{color:var(--ink-dim);font-size:14px}
-.titlebar .spacer{flex:1}
-.iconbtn{
-  width:28px;height:24px;display:grid;place-items:center;
-  background:var(--slot);border:1px solid var(--edge-soft);color:var(--ink-dim);
-  font-size:15px;line-height:1;cursor:pointer;font-family:var(--ui);font-weight:bold;
-  text-shadow:2px 2px 0 rgba(0,0,0,.85);
-}
-.iconbtn:hover{background:var(--slot-lit);border-color:var(--edge);color:#fff}
-.view{display:none;flex-direction:column}
-.view.on{display:flex}
+/* the strip above the card is the mockup's own control, never part of the design */
+#bench{display:flex;gap:14px;align-items:center;padding:10px 16px;font-size:12px;
+  color:#8f93cc;text-shadow:none;font-weight:normal;border-bottom:1px solid #1e2748;background:#0a1020}
+#bench b{color:#c3c6f5}
+#bench button{font:inherit;background:#161f3a;color:#c3c6f5;border:1px solid #2b3560;padding:3px 9px;cursor:pointer}
+#bench button.on{background:#2b3099;color:#fff;border-color:#8f93f0}
 
-/* ---- overview ---------------------------------------------------- */
-#v-overview{padding:10px;gap:10px}
-.top{display:grid;grid-template-columns:250px 1fr;gap:10px}
-.bottom{display:grid;grid-template-columns:1fr 1fr;gap:10px;height:136px}
+#stage{display:grid;place-items:center;padding:20px}
+#frame{zoom:var(--z);width:780px;height:650px;position:relative;
+  background:var(--panel);border:2px solid var(--edge);border-radius:9px;padding:10px}
+#frame.min{height:54px;overflow:hidden}
 
-.pane{background:var(--panel-sunk);border:1px solid var(--edge-soft);min-width:0}
-.pane > h2{
-  margin:0;padding:5px 9px;font-size:14px;color:var(--gold);
-  background:rgba(59,65,189,.5);border-bottom:1px solid var(--edge-soft);
-}
+/* every text scale the card uses, as the C# scale times the base 18px */
+.s100{font-size:18px}.s85{font-size:15.3px}.s80{font-size:14.4px}.s75{font-size:13.5px}
+.s68{font-size:12.2px}.s66{font-size:11.9px}.s65{font-size:11.7px}.s64{font-size:11.5px}
 
-/* portrait */
-.portrait{display:flex;flex-direction:column}
-.portrait .frame{
-  flex:1;display:flex;align-items:center;justify-content:center;
-  background:linear-gradient(180deg,rgba(10,12,32,.75) 0%,rgba(26,29,105,.4) 100%);
-  min-height:0;padding:10px 0;
-}
-/* An integer upscale of the canvas, so every source pixel stays a whole
-   block and the sprite keeps hard edges. */
-.sprite{image-rendering:pixelated;display:block;width:144px;height:192px}
-.portrait .nameplate{padding:6px 9px 2px;text-align:center}
-.portrait .nameplate .nm{font-size:16px;color:var(--ink)}
-.portrait .nameplate .lv{font-size:12.5px;color:var(--ink-mute)}
-.hpwrap{padding:0 9px 8px}
-.hpbar{height:14px;background:#4a1414;border:1px solid #8f3232;position:relative}
-.hpbar i{display:block;height:100%;background:linear-gradient(180deg,#ff7b7b,#c42a2a)}
-.hpbar span{position:absolute;inset:0;display:grid;place-items:center;font-size:11px;color:#fff}
-/* The live action strip, at the foot of the portrait because what the
-   companion is doing belongs with the picture of it doing it. */
-.action{
-  border-top:1px solid var(--edge-soft);background:rgba(59,65,189,.45);
-  padding:6px 9px;text-align:right;
-}
-.action .k{font-size:11.5px;color:var(--ink-mute);display:block}
-.action .v{font-size:15px;color:var(--gold)}
-.action .why{font-size:12px;color:var(--ink-dim);display:block;line-height:1.4;font-weight:normal}
+/* round 30px buttons: the native UITextPanel drawn small reads as a circle */
+.rb{width:30px;height:30px;border:2px solid var(--edge);border-radius:15px;background:var(--panel-solid);
+  display:grid;place-items:center;cursor:pointer;line-height:1;position:absolute;top:0}
+.rb:hover{border-color:var(--gold)}
 
-/* behaviour settings */
-.behaviour{display:flex;flex-direction:column}
-.behaviour .body{padding:7px 9px 10px}
-.grouphead{
-  font-size:12px;color:var(--ink-mute);
-  margin:10px 0 4px;padding-bottom:3px;border-bottom:1px solid var(--edge-soft);
-}
-.grouphead:first-child{margin-top:2px}
-.row{display:grid;grid-template-columns:1fr 274px 24px;align-items:center;gap:8px;padding:3px 0}
-.row .lbl{font-size:14px;color:var(--ink)}
-.lbl em{font-style:normal;color:var(--ink-mute);font-size:12px;font-weight:normal}
-.seg{display:grid;grid-template-columns:repeat(3,1fr);border:1px solid var(--edge-soft)}
-.seg button{
-  font-family:var(--ui);font-weight:bold;font-size:12.5px;padding:4px 0;cursor:pointer;
-  background:var(--slot);color:var(--ink-mute);border:0;border-right:1px solid var(--edge-soft);
-  text-shadow:2px 2px 0 rgba(0,0,0,.85);
-}
-.seg button:last-child{border-right:0}
-.seg button:hover{background:var(--slot-lit);color:#fff}
-.seg button[aria-pressed="true"]{background:var(--panel-lit);color:var(--gold)}
-.more{
-  width:24px;height:24px;display:grid;place-items:center;cursor:pointer;
-  background:var(--slot);border:1px solid var(--edge-soft);color:var(--ink-dim);font-size:13px;
-  font-family:var(--ui);font-weight:bold;text-shadow:2px 2px 0 rgba(0,0,0,.85);
-}
-.more:hover{background:var(--slot-lit);color:#fff;border-color:var(--edge)}
-.more.ghost{visibility:hidden}
+/* ---- title bar: 34 tall, a 1px edge line under it ---- */
+#title{height:34px;position:relative;border-bottom:1px solid var(--edge)}
+#title .name{position:absolute;left:42px;top:3px}
+#back{left:0}#minimise{right:36px}#close{right:0}
 
-/* Follow distance is a value, not a mode, so it must not wear a mode's
-   clothes: a matching three-segment control would read as a fourth
-   behaviour toggle. */
-.stops{display:flex;border:1px solid var(--edge-soft)}
-.stops button{
-  flex:1;font-family:var(--ui);font-weight:bold;font-size:12.5px;padding:4px 0;cursor:pointer;
-  background:var(--slot);color:var(--ink-mute);border:0;border-right:1px solid var(--edge-soft);
-  text-shadow:2px 2px 0 rgba(0,0,0,.85);
-}
-.stops button:last-child{border-right:0}
-.stops button:hover{background:var(--slot-lit);color:#fff}
-.stops button[aria-pressed="true"]{background:var(--panel-lit);color:var(--cyan)}
+/* ---- identity row: top 38 from the padded frame, 112 tall ---- */
+#identity{position:absolute;left:10px;right:10px;top:48px;height:112px;border-bottom:1px solid var(--edge-soft)}
+#portrait{position:absolute;left:2px;top:3px;width:72px;height:104px;background:var(--sunk);display:grid;place-items:center}
+#portrait svg{image-rendering:pixelated;width:44px;height:56px}
+#who{position:absolute;left:86px;top:3px}
+#hp{position:absolute;right:6px;top:7px;color:var(--hp)}
+#hpbar{position:absolute;left:86px;right:6px;top:31px;height:8px;background:var(--bar-bg)}
+#hpbar i{display:block;height:100%;background:var(--green);width:100%}
+#action{position:absolute;left:86px;right:8px;top:48px;line-height:1.35}
 
-/* the two live weapon slots on the overview */
-.wepslots{display:flex;align-items:center;gap:8px;padding:2px 0}
-.wepslot{
-  display:flex;align-items:center;gap:8px;padding:5px 10px 5px 6px;
-  background:var(--slot);border:1px solid var(--edge-soft);font-size:13.5px;min-width:186px;
-}
-.wepslot.empty{color:var(--ink-mute);font-weight:normal}
-.wepslot .pip{width:20px;height:20px;border:1px solid rgba(0,0,0,.6)}
+/* ---- content: from 156 to the footer ---- */
+#content{position:absolute;left:10px;right:10px;top:166px;bottom:118px}
+.page{display:none;position:absolute;inset:0}.page.on{display:block}
 
-/* summary tiles */
-.tile{
-  background:var(--panel-sunk);border:1px solid var(--edge-soft);
-  display:flex;flex-direction:column;cursor:pointer;text-align:left;
-  font-family:var(--ui);font-weight:bold;color:var(--ink);padding:0;
-  text-shadow:2px 2px 0 rgba(0,0,0,.85);
-}
-.tile:hover{border-color:var(--edge);background:rgba(59,65,189,.5)}
-.tile h2{
-  margin:0;padding:5px 9px;font-size:14px;color:var(--gold);
-  background:rgba(59,65,189,.5);border-bottom:1px solid var(--edge-soft);
-  display:flex;justify-content:space-between;align-items:center;
-}
-.tile h2 .go{color:var(--ink-dim);font-size:12px;font-weight:normal}
-.tile .in{padding:8px 9px;display:flex;gap:10px;flex:1;min-height:0}
-.fillbar{height:14px;background:var(--slot);border:1px solid var(--edge-soft);position:relative}
-.fillbar i{display:block;height:100%;background:linear-gradient(180deg,#9aa0ff,#5a60d8)}
-.fillbar span{position:absolute;inset:0;display:grid;place-items:center;font-size:11px}
-.minislots{display:grid;grid-template-columns:repeat(6,24px);gap:3px}
-.branchbar{display:grid;grid-template-columns:80px 1fr 34px;align-items:center;gap:6px;font-size:12px;color:var(--ink-dim)}
-.branchbar .track{height:10px;background:var(--slot);border:1px solid var(--edge-soft)}
-.branchbar .track i{display:block;height:100%}
+/* overview: heading, six rows, scrollbar, note */
+#behaviour .heading{position:absolute;left:0;top:0;height:26px;line-height:26px}
+#rows{position:absolute;left:0;right:24px;top:28px;bottom:66px}
+.row{height:46px;position:relative}
+.row+.row{margin-top:4px}
+.row .cap{position:absolute;left:0;top:13px;width:130px}
+.row .ctl{position:absolute;left:136px;right:0;top:8px;height:30px}
+.seg{position:absolute;top:0;height:30px;width:calc(33.333% - 4px);border:2px solid var(--edge);border-radius:15px;
+  background:var(--panel-solid);display:grid;place-items:center;cursor:pointer;line-height:1}
+.seg:nth-child(1){left:0}.seg:nth-child(2){left:33.333%}.seg:nth-child(3){left:66.666%}
+.seg:hover{border-color:var(--gold)}
+.seg.on{border-color:var(--gold);color:var(--gold);background:var(--selected)}
+.step .less{left:0}.step .more{left:calc(66.666% - 30px)}
+.step .readout{position:absolute;left:34px;width:calc(66.666% - 68px);top:0;height:30px;display:grid;place-items:center;color:var(--gold)}
+#scroll{position:absolute;right:0;top:28px;bottom:66px;width:20px;border:2px solid #0f1140;border-radius:10px;background:#5b60cf;padding:2px}
+#scroll i{display:block;height:100%;background:#d7d9ff;border-radius:6px}
+#behaviour .note{position:absolute;left:0;right:0;bottom:0;height:27px;line-height:27px}
 
-/* ---- item slots (shared) ----------------------------------------- */
-.slot{
-  width:100%;aspect-ratio:1;background:var(--slot);border:2px solid var(--edge-soft);
-  display:grid;place-items:center;position:relative;
-}
-.slot.lit{background:var(--slot-lit);border-color:var(--edge)}
-.slot .qty{position:absolute;right:2px;bottom:0;font-size:11px;color:#fff}
-.gem{width:58%;height:58%;border:1px solid rgba(0,0,0,.55)}
+/* ---- footer tiles: 100 tall on the overview, 56 on the sub-pages ---- */
+#footer{position:absolute;left:10px;right:10px;bottom:10px;height:100px;display:flex;gap:10px}
+#frame.sub #footer{height:56px}
+#frame.sub #content{bottom:74px}
+.tile{flex:1;position:relative;border:2px solid var(--edge);border-radius:9px;background:var(--panel);cursor:pointer}
+.tile:hover,.tile.on{border-color:var(--gold)}
+.tile .bar{position:absolute;left:10px;top:10px;right:70px;height:6px;background:var(--tile-bar-bg)}
+.tile .bar i{display:block;height:100%}
+.tile .count{position:absolute;right:10px;top:4px;color:var(--muted);width:53px;text-align:left}
+.tile .t{position:absolute;left:10px;top:23px}
+.tile .d{position:absolute;left:10px;top:47px;color:var(--muted)}
+.tile .d2{position:absolute;left:10px;top:69px;color:var(--muted)}
+#frame.sub .tile .d,#frame.sub .tile .d2{display:none}
 
-/* ---- shared sub-view furniture ----------------------------------- */
-.subhead{display:flex;align-items:center;gap:8px;padding:0 0 8px}
-.subhead .grow{flex:1}
-.subhead .who{font-size:15px;color:var(--gold)}
-.subhead .count{font-size:12.5px;color:var(--ink-dim);font-weight:normal}
-.wlbl{display:flex;border:1px solid var(--edge-soft)}
-.wlbl button{
-  font-family:var(--ui);font-weight:bold;font-size:12.5px;padding:4px 14px;cursor:pointer;
-  background:var(--slot);color:var(--ink-mute);border:0;border-right:1px solid var(--edge-soft);
-  text-shadow:2px 2px 0 rgba(0,0,0,.85);
-}
-.wlbl button:last-child{border-right:0}
-.wlbl button:hover{background:var(--slot-lit);color:#fff}
-.wlbl button[aria-pressed="true"]{background:var(--panel-lit);color:var(--gold)}
-.hintbar{
-  font-size:12.5px;color:var(--ink-dim);padding:6px 9px;font-weight:normal;
-  background:var(--panel-sunk);border:1px solid var(--edge-soft);margin-bottom:8px;
-}
-.splitbody{display:flex;gap:10px;height:392px}
-.gridbox{overflow-y:auto;background:var(--panel-sunk);border:1px solid var(--edge-soft);padding:9px}
-/* Slots are a fixed 48px rather than a fraction of the panel: stretched to
-   fill the width they came out four times Terraria's own slot and stopped
-   reading as an inventory at all. The column count follows from the width. */
-.grid4{display:grid;grid-template-columns:repeat(4,48px);gap:5px;align-content:start}
-.grid8{display:grid;grid-template-columns:repeat(8,48px);gap:5px;align-content:start}
-.grid10{display:grid;grid-template-columns:repeat(10,48px);gap:5px;align-content:start}
-.classhead{display:grid;grid-template-columns:repeat(4,48px);gap:5px;padding:0 9px 4px;
-  font-size:11px;color:var(--ink-mute);text-align:center;font-weight:normal}
-.detail{
-  flex:1;min-width:0;background:var(--panel-sunk);border:1px solid var(--edge-soft);
-  padding:11px 13px;display:flex;flex-direction:column;gap:9px;
-}
-.detail h3{margin:0;font-size:16px}
-.detail .cat{font-size:12.5px;color:var(--ink-mute);font-weight:normal}
-.detail p{margin:0;font-size:13px;color:var(--ink-dim);line-height:1.55;font-weight:normal}
-.detail .big{
-  width:72px;height:72px;border:2px solid var(--edge-soft);background:var(--slot);
-  display:grid;place-items:center;
-}
-.detail .big i{display:block;width:42px;height:42px;border:1px solid rgba(0,0,0,.55)}
-.detail .empty{font-size:13px;color:var(--ink-mute);line-height:1.6;font-weight:normal}
-.detail .act{
-  font-family:var(--ui);font-weight:bold;font-size:13px;margin-top:auto;padding:6px 0;cursor:pointer;
-  background:var(--panel-lit);border:1px solid var(--edge);color:var(--gold);
-  text-shadow:2px 2px 0 rgba(0,0,0,.85);
-}
-.detail .act:hover{background:var(--slot-lit)}
-.detail .act[disabled]{background:var(--slot);border-color:var(--edge-soft);color:var(--ink-mute);cursor:default}
+/* ---- inventory page ---- */
+#filters{position:absolute;left:0;top:0;height:34px;display:flex;gap:4px}
+.pill{height:34px;padding:0 14px;border:2px solid var(--edge);border-radius:17px;background:var(--panel-solid);
+  display:grid;place-items:center;cursor:pointer;line-height:1;position:relative}
+.pill:hover{border-color:var(--gold)}
+.pill.on{color:var(--gold);background:var(--selected)}
+.pill.on:after{content:"";position:absolute;left:8px;right:8px;bottom:-2px;height:2px;background:var(--gold)}
+#invcount{position:absolute;right:30px;top:8px;color:var(--muted)}
+#grid{position:absolute;left:0;top:44px;width:520px;display:grid;grid-template-columns:repeat(10,48px);gap:4px}
+.slot{width:48px;height:48px;border:2px solid var(--edge);border-radius:6px;background:var(--panel-solid);position:relative}
+.slot.empty{opacity:.75}
+.slot .n{position:absolute;left:5px;bottom:3px;color:var(--gold)}
+.slot .it{position:absolute;right:6px;top:6px;width:12px;height:12px;image-rendering:pixelated}
+.slot .it.ore{background:#c47a3a;box-shadow:2px 2px 0 #8a4a1e inset}
+.slot .it.wood{background:#a8703a;box-shadow:0 3px 0 #6b4520 inset}
+.slot .it.gel{background:#4f7fff;border-radius:50%}
+#invscroll{position:absolute;left:552px;top:44px;height:312px;width:20px;border:2px solid #0f1140;border-radius:10px;background:#5b60cf;padding:2px}
+#invscroll i{display:block;height:60%;background:#d7d9ff;border-radius:6px}
+#detail{position:absolute;left:584px;right:0;top:44px;height:312px;border:2px solid var(--edge);border-radius:9px;padding:10px 12px}
+#detail .nm{margin-bottom:22px}#detail .qty{margin-bottom:22px}#detail .where{margin-bottom:8px}
+#detail .tileimg{width:32px;height:32px;background:
+  repeating-conic-gradient(#b06a36 0 25%,#8b4e26 0 50%) 0 0/8px 8px;image-rendering:pixelated}
+#handover{position:absolute;left:50%;transform:translateX(-50%);bottom:0;height:34px;padding:0 44px}
 
-/* Terraria-flavoured scrollbar rather than the operating system's */
-.gridbox::-webkit-scrollbar{width:12px}
-.gridbox::-webkit-scrollbar-track{background:var(--panel-sunk);border:1px solid var(--edge-soft)}
-.gridbox::-webkit-scrollbar-thumb{background:var(--panel-lit);border:1px solid var(--edge)}
-
-.ore{cursor:pointer}
-.ore.picked{outline:3px solid var(--gold);outline-offset:-3px}
-.ore.partial{opacity:.5;cursor:default}
-.ore .lockbadge{position:absolute;left:2px;top:0;font-size:10px;color:var(--orange)}
-
-/* tooltip: Terraria style, follows the cursor, no fade */
-#tip{
-  position:fixed;z-index:50;display:none;pointer-events:none;
-  background:rgba(20,22,70,.96);border:2px solid var(--edge);padding:7px 9px;max-width:240px;
-}
-#tip .nm{font-size:14px;color:var(--ink)}
-#tip .sub{font-size:12px;color:var(--ink-dim);margin-top:2px;font-weight:normal}
-#tip .need{font-size:12px;color:var(--orange);margin-top:2px}
-
-.placed{margin-top:6px;display:grid;gap:1px}
-.placedlbl{font-size:11px;color:var(--ink-mute);margin-top:5px;font-weight:normal}
-
-/* ---- mastery view ------------------------------------------------ */
-.treewrap{height:392px;position:relative;overflow:hidden;background:rgba(14,16,58,.75);cursor:grab}
-.treewrap.drag{cursor:grabbing}
-.treewrap svg{position:absolute;inset:0;width:100%;height:100%;display:block}
-.node-c{cursor:pointer}
-/* Chrome sits outside the pannable surface. Floated over it, the legend
-   landed on a node label the moment the graph used its corners. */
-.treefoot{
-  display:flex;align-items:center;gap:16px;padding:7px 11px;
-  background:rgba(59,65,189,.45);border-top:1px solid var(--edge-soft);
-  font-size:12px;color:var(--ink-dim);
-}
-.treefoot .sp{flex:1}
-.legend{display:flex;align-items:center;gap:6px}
-.legend b{width:11px;height:11px;display:block;border:1px solid rgba(0,0,0,.6)}
-.zoomhint{color:var(--ink-mute);font-weight:normal}
-.nodeinfo{
-  position:absolute;right:9px;top:9px;width:222px;
-  background:rgba(20,22,70,.96);border:2px solid var(--edge);padding:9px 10px;
-}
-.nodeinfo h3{margin:0 0 4px;font-size:14px;color:var(--gold)}
-.nodeinfo p{margin:0;font-size:12.5px;color:var(--ink-dim);line-height:1.5;font-weight:normal}
-.nodeinfo .st{font-size:12px;margin-top:6px}
-.nodeinfo button{
-  font-family:var(--ui);font-weight:bold;font-size:12.5px;margin-top:7px;width:100%;padding:4px 0;
-  cursor:pointer;background:var(--panel-lit);border:1px solid var(--edge);color:var(--gold);
-  text-shadow:2px 2px 0 rgba(0,0,0,.85);
-}
-.nodeinfo button:hover{background:var(--slot-lit)}
-
-/* ---- demo strip (not part of the game UI) ------------------------ */
-.demo{
-  width:880px;background:#14141c;border:1px solid #2c2c36;padding:9px 11px;
-  display:flex;align-items:center;gap:9px;flex-wrap:wrap;
-  font-size:12.5px;color:#8a8a96;font-weight:normal;text-shadow:none;
-}
-.demo b{color:#c9c9d4;font-weight:bold}
-.demo button{
-  font-family:var(--ui);font-size:12.5px;padding:3px 10px;cursor:pointer;
-  background:#1f1f28;border:1px solid #34343f;color:#c9c9d4;text-shadow:none;
-}
-.demo button:hover{background:#2a2a35;color:#fff}
-.demo input[type=range]{width:110px;accent-color:#5f64c8}
+/* ---- mastery page ---- */
+#mast .hint{position:absolute;left:0;top:10px;color:var(--muted)}
+#mast .zoom{position:absolute;right:0;top:0;height:34px}
+#mast .zoom .rb{position:static;display:inline-grid;vertical-align:top;margin-right:8px}
+#mast .zoom .pill{display:inline-grid;vertical-align:top}
+#graph{position:absolute;left:0;right:0;top:44px;height:280px;overflow:hidden}
+#graph svg{width:100%;height:100%}
+#mast .legend{position:absolute;left:0;top:334px;line-height:1.5}
+#mast .legend2{position:absolute;left:0;top:356px;color:var(--muted)}
+#mast .status{position:absolute;left:0;bottom:0;color:var(--muted)}
+#preview{position:absolute;right:0;bottom:0;height:34px;padding:0 30px}
 </style>
 </head>
 <body>
-<canvas id="world"></canvas>
-
-<div class="card">
-  <div class="titlebar">
-    <button class="iconbtn" id="back" title="Back" style="display:none">&#8592;</button>
-    <h1 id="cardtitle">Companion</h1>
-    <span class="crumb" id="crumb"></span>
-    <span class="spacer"></span>
-    <button class="iconbtn" title="Close">&#10005;</button>
-  </div>
-
-  <!-- OVERVIEW ---------------------------------------------------- -->
-  <div class="view on" id="v-overview">
-    <div class="top">
-
-      <div class="pane portrait">
-        <h2>Companion</h2>
-        <div class="frame"><canvas class="sprite" id="sprite" width="96" height="128"></canvas></div>
-        <div class="nameplate">
-          <div class="nm" id="cname">Companion</div>
-          <div class="lv" id="clevel"></div>
-        </div>
-        <div class="hpwrap">
-          <div class="hpbar"><i id="hpfill"></i><span id="hptext"></span></div>
-        </div>
-        <div class="action">
-          <span class="k">Right now</span>
-          <span class="v" id="actname"></span>
-          <span class="why" id="actwhy"></span>
-        </div>
-      </div>
-
-      <div class="pane behaviour">
-        <h2>Behaviour</h2>
-        <div class="body" id="behaviourbody"></div>
-      </div>
-
-    </div>
-    <div class="bottom">
-
-      <button class="tile" id="tile-inv">
-        <h2>Cargo bag <span class="go">Open &#8594;</span></h2>
-        <div class="in">
-          <div style="flex:1;display:flex;flex-direction:column;gap:7px;justify-content:center">
-            <div class="fillbar"><i id="invfill"></i><span id="invtext"></span></div>
-            <div style="font-size:12px;color:var(--ink-dim);font-weight:normal" id="invnote"></div>
-          </div>
-          <div>
-            <div style="font-size:11.5px;color:var(--ink-mute);margin-bottom:4px">Latest pickups</div>
-            <div class="minislots" id="minislots"></div>
-          </div>
-        </div>
-      </button>
-
-      <button class="tile" id="tile-mastery">
-        <h2>Mastery <span class="go">Open &#8594;</span></h2>
-        <div class="in" style="flex-direction:column;gap:6px;justify-content:center" id="branchbars"></div>
-      </button>
-
-    </div>
-  </div>
-
-  <!-- CARGO BAG --------------------------------------------------- -->
-  <div class="view" id="v-inventory">
-    <div style="padding:10px">
-      <div class="subhead">
-        <div class="wlbl" id="invfilter">
-          <button aria-pressed="true" data-f="all">All</button>
-          <button aria-pressed="false" data-f="ore">Ore</button>
-          <button aria-pressed="false" data-f="wood">Wood</button>
-          <button aria-pressed="false" data-f="loot">Loot</button>
-        </div>
-        <span class="grow"></span>
-        <span class="count" id="invcount"></span>
-        <button class="wlbl" style="border:0"><span></span></button>
-        <div class="wlbl"><button id="dumpbtn" aria-pressed="false">Hand everything over</button></div>
-      </div>
-      <div class="splitbody">
-        <div class="gridbox"><div class="grid10" id="invgrid"></div></div>
-        <div class="detail" id="invdetail"></div>
-      </div>
-    </div>
-  </div>
-
-  <!-- ACTIVITY DETAIL --------------------------------------------- -->
-  <div class="view" id="v-activity">
-    <div style="padding:10px">
-      <div class="subhead">
-        <span class="who" id="actTitle"></span>
-        <span class="grow"></span>
-        <div class="wlbl" id="wlblToggle">
-          <button aria-pressed="true" data-m="wl">Whitelist</button>
-          <button aria-pressed="false" data-m="bl">Blacklist</button>
-        </div>
-      </div>
-      <div class="hintbar" id="orehint"></div>
-      <div class="splitbody">
-        <div class="gridbox"><div class="grid8" id="oregrid"></div></div>
-        <div class="detail" id="oredetail"></div>
-      </div>
-    </div>
-  </div>
-
-  <!-- WEAPONS ----------------------------------------------------- -->
-  <div class="view" id="v-weapons">
-    <div style="padding:10px">
-      <div class="subhead">
-        <span class="who">Weapons</span>
-        <span class="count" id="wepcount"></span>
-        <span class="grow"></span>
-      </div>
-      <div class="hintbar" id="wephint"></div>
-      <div class="splitbody">
-        <div class="gridbox" style="padding-top:0">
-          <div class="classhead" style="padding:8px 0 4px" id="wepclasshead"></div>
-          <div class="grid4" id="wepgrid"></div>
-        </div>
-        <div class="detail" id="wepdetail"></div>
-      </div>
-    </div>
-  </div>
-
-  <!-- MASTERY ----------------------------------------------------- -->
-  <div class="view" id="v-mastery">
-    <div class="treewrap" id="treewrap">
-      <svg id="tree"><g id="treeg"></g></svg>
-      <div class="nodeinfo" id="nodeinfo" style="display:none"></div>
-    </div>
-    <div class="treefoot">
-      <span class="legend"><b style="background:#8cf08c"></b> taken</span>
-      <span class="legend"><b style="background:#ffe066"></b> available</span>
-      <span class="legend"><b style="background:#4a4e8f"></b> locked</span>
-      <span class="legend"><b style="background:#7ceaea;transform:rotate(45deg)"></b> opens its own tree</span>
-      <span class="sp"></span>
-      <span class="zoomhint">Drag to pan &middot; scroll to zoom</span>
-    </div>
-  </div>
-
+<div id="bench">
+  <b>Native card replica</b>
+  <span>rendered from the game on 2026-09-13 · Tools/EngineReplay --render-ui</span>
+  <span>scale</span>
+  <button class="on" data-z="1.5">1.5×</button><button data-z="1">1×</button>
+  <span>page</span>
+  <button data-page="behaviour" class="on">Companion</button><button data-page="inv">Inventory</button><button data-page="mast">Mastery</button>
 </div>
 
-<div class="demo">
-  <b>Demo controls</b> &mdash; not part of the game UI
-  <button id="d-action">Change current action</button>
-  <label>Bag <input type="range" id="d-bag" min="0" max="40" value="26"></label>
-  <label>Health <input type="range" id="d-hp" min="1" max="400" value="340"></label>
-  <button id="d-points">Spend a mastery point</button>
-</div>
+<div id="stage">
+<div id="frame">
+  <div id="title">
+    <div id="back" class="rb s80">+</div>
+    <div class="name s100">Companion</div>
+    <div id="minimise" class="rb s80">_</div>
+    <div id="close" class="rb s80">X</div>
+  </div>
 
-<div id="tip"></div>
+  <div id="identity">
+    <div id="portrait">
+      <!-- the companion's head and body from the player renderer, stood in by a pixel figure -->
+      <svg viewBox="0 0 22 28" shape-rendering="crispEdges">
+        <rect x="6" y="1" width="10" height="4" fill="#a24b28"/><rect x="5" y="3" width="12" height="3" fill="#b85a30"/>
+        <rect x="7" y="6" width="8" height="5" fill="#f2c9a0"/><rect x="8" y="7" width="2" height="2" fill="#2a2a2a"/>
+        <rect x="6" y="11" width="10" height="8" fill="#6f7f5a"/><rect x="4" y="11" width="2" height="6" fill="#f2c9a0"/><rect x="16" y="11" width="2" height="6" fill="#f2c9a0"/>
+        <rect x="6" y="19" width="10" height="5" fill="#3f4d7a"/><rect x="6" y="24" width="4" height="3" fill="#8a3a2a"/><rect x="12" y="24" width="4" height="3" fill="#8a3a2a"/>
+      </svg>
+    </div>
+    <div id="who" class="s100">Aria</div>
+    <div id="hp" class="s75">400 / 400 HP</div>
+    <div id="hpbar"><i></i></div>
+    <div id="action" class="s75">Mining · Copper vein · 12 tiles below · opportunistic</div>
+  </div>
+
+  <div id="content">
+    <!-- Companion page -->
+    <div id="behaviour" class="page on">
+      <div class="heading s85">Behaviour</div>
+      <div id="rows">
+        <div class="row" data-hint="Mimic: work when you do. Auto: find useful work nearby."><div class="cap s80">Mining</div>
+          <div class="ctl s80"><div class="seg">Off</div><div class="seg">Mimic</div><div class="seg on">Auto</div></div></div>
+        <div class="row" data-hint="Mimic: work when you do. Auto: find useful work nearby."><div class="cap s80">Chopping</div>
+          <div class="ctl s80"><div class="seg">Off</div><div class="seg">Mimic</div><div class="seg on">Auto</div></div></div>
+        <div class="row" data-hint="Seek enemies when protection and useful work leave time."><div class="cap s80">Hunting</div>
+          <div class="ctl s80"><div class="seg on">On</div><div class="seg">Off</div></div></div>
+        <div class="row" data-hint="Break nearby reachable pots and collect their drops."><div class="cap s80">Break pots</div>
+          <div class="ctl s80"><div class="seg on">On</div><div class="seg">Off</div></div></div>
+        <div class="row" data-hint="Uses the companion's torches first, then yours. Protects homes."><div class="cap s80">Place torches</div>
+          <div class="ctl s80"><div class="seg on">On</div><div class="seg">Off</div></div></div>
+        <div class="row step" data-hint="Useful jobs can travel farther than ordinary following."><div class="cap s80">Distance</div>
+          <div class="ctl s80"><div class="rb less">&lt;</div><div class="readout" data-stops="Close,Standard,Free" data-i="1">Standard</div><div class="rb more">&gt;</div></div></div>
+      </div>
+      <div id="scroll"><i></i></div>
+      <div class="note s66">Fighting, dodging and pickups are automatic. The action above explains the choice.</div>
+    </div>
+
+    <!-- Inventory page -->
+    <div id="inv" class="page">
+      <div id="filters" class="s80"><div class="pill on">All</div><div class="pill">Ore</div><div class="pill">Wood</div><div class="pill">Loot</div></div>
+      <div id="invcount" class="s80">62 / 100</div>
+      <div id="grid" class="s75"></div>
+      <div id="invscroll"><i></i></div>
+      <div id="detail">
+        <div class="nm s85">Copper Ore</div>
+        <div class="qty s80">x14</div>
+        <div class="where s75">In the wall</div>
+        <div class="tileimg"></div>
+      </div>
+      <div id="handover" class="pill s85">Hand everything over</div>
+    </div>
+
+    <!-- Mastery page -->
+    <div id="mast" class="page">
+      <div class="hint s75">Preview · drag to pan</div>
+      <div class="zoom s80"><div class="rb">-</div><div class="rb">+</div><div class="pill">Reset view</div></div>
+      <div id="graph">
+        <!-- the authored graph from DefineMasteryGraph.cs, drawn by the script below from the
+             same node table, edge table, label positions and branch colours the game uses -->
+        <svg id="graphsvg" viewBox="-860 -330 1620 640" preserveAspectRatio="xMidYMid meet"
+             font-family="inherit" font-size="27" font-weight="bold"></svg>
+      </div>
+      <div class="legend s80">Circle: stat &nbsp; Diamond: ability &nbsp; Small: path rank</div>
+      <div class="legend2 s75">Select a node. Shared junctions open from either incoming path.</div>
+      <div class="status s68">No stats, points or materials changed</div>
+      <div id="preview" class="pill s85">Preview rank</div>
+    </div>
+  </div>
+
+  <div id="footer">
+    <div class="tile" data-page="inv">
+      <div class="bar"><i style="width:62%;background:var(--hp)"></i></div>
+      <div class="count s65">62/100</div>
+      <div class="t s85">Inventory</div>
+      <div class="d s68">62 of 100 slots occupied</div>
+      <div class="d2 s64">No recent pickup</div>
+    </div>
+    <div class="tile" data-page="mast">
+      <div class="bar"><i style="width:0;background:var(--gold)"></i></div>
+      <div class="count s65">0/88</div>
+      <div class="t s85">Mastery</div>
+      <div class="d s68">Explore the preview</div>
+      <div class="d2 s64">No points or materials spent</div>
+    </div>
+  </div>
+</div>
+</div>
 
 <script>
-"use strict";
-
-/* ------------------------------------------------------------------ *
- * Mock state, standing in for things the mod already has or plans: the
- * bag is Companion/Inventory, the action line is what BehaviourSelection
- * scored highest this tick, the work policies are the real WorkPolicy
- * enum, and the mastery points are the unbuilt tree the repository guide
- * names.
- * ------------------------------------------------------------------ */
-const S = {
-  name:'Companion', level:14, points:3,
-  hp:340, hpMax:400,
-  action:0,
-  bag:26, bagMax:40,
-  distance:1,
-  wlMode:'wl',
-  activity:'Mining'
-};
-
-/* Exactly the WorkPolicy enum in Companion/Brain/Behaviours/Work/WorkPolicies.cs.
-   The names are the code's own so the panel and the field cannot drift apart.
-
-   Only work has three states, and the reason is structural rather than a
-   design preference: Mimic means "the player's own action is the trigger",
-   which can only exist for something the player themselves does. Combat,
-   torch-carrying and drop collection have no player action to mirror, so
-   they are not settings on this panel at all — they are behaviours the
-   utility scorer picks between every tick. */
-const POLICIES = [
-  { id:'Disabled',      label:'Disabled',      hint:'the companion never starts this' },
-  { id:'Mimic',         label:'Mimic',         hint:'only while you are doing it yourself' },
-  { id:'Opportunistic', label:'Opportunistic', hint:'whenever it sees something worth doing' }
-];
-
-const WORK = [
-  { id:'wood', label:'Woodcutting', mode:2, detail:'Woodcutting' },
-  { id:'mine', label:'Mining',      mode:2, detail:'Mining' },
-  { id:'fish', label:'Fishing',     mode:0, detail:'Fishing' }
-];
-
-/* Roam is gone from the design, so the ladder ends at Loose. */
-const DISTANCES = [
-  { label:'Heel',  hint:'right beside you' },
-  { label:'Close', hint:'a little further out' },
-  { label:'Loose', hint:'further again, to the screen edge' }
-];
-
-const ACTIONS = [
-  ['Mining', 'Copper vein, 12 tiles below — opportunistic'],
-  ['Following you', 'Nothing worth doing within reach'],
-  ['Hunting', 'Zombie, 9 tiles right — shooting while it closes'],
-  ['Kiting', 'Demon Eye above — backing off to keep the shot'],
-  ['Chopping', 'Oak trunk, 6 tiles left — mimicking you'],
-  ['Collecting', 'Fallen star, 20 tiles — the bag has room'],
-  ['Seeking safety', 'Took a hit, waiting out the slime pack'],
-  ['Idle', 'Bag full, nothing it can pick up']
-];
-
-/* Terraria's own rarity ladder, in the game's real ordering, so the grid
-   reads as progression to anyone who has played it. */
-const RARITY = { base:'#ffffff', s1:'#9696ff', s2:'#96ff96', s3:'#ffff00', s4:'#00ffff', s5:'#ff4444' };
-const TIERNAME = {
-  base:'Starting kit', s1:'Pre-hardmode', s2:'Pre-mechanical bosses',
-  s3:'Pre-Plantera', s4:'Pre-Moon Lord', s5:'Post-Moon Lord'
-};
-
-/* Two starting weapons plus the twenty from the design matrix. The companion
-   carries two at a time, which is why this is a loadout picker rather than a
-   list of what it owns. */
-const WEAPONS = [
-  { n:'Copper Shortsword', c:'melee',  t:'base', got:true,  d:'An aimable shiv. Short reach, no projectile, always available.' },
-  { n:'Companion Bow',     c:'ranger', t:'base', got:true,  d:'A plain arc shot. The arrow drops, so it leads a moving target badly at range.' },
-
-  { n:'Ragged Edge',       c:'melee',  t:'s1', got:true,  d:'Every hit adds a bleed stack that keeps ticking. Best on one big target.' },
-  { n:'Carom Bow',         c:'ranger', t:'s1', got:true,  d:'The arrow leaps from one enemy to the next. Best in a crowd.' },
-  { n:'Thistle Charges',   c:'rogue',  t:'s1', got:true,  d:'Sticks where it lands, then blows after a fuse. Works on either.' },
-  { n:'Rimeglass Wand',    c:'mage',   t:'s1', got:true,  d:'Slows what it hits, and freezes it outright once slowed enough.' },
-
-  { n:'Pistonfang',        c:'melee',  t:'s2', got:true,  d:'Extends and retracts. On a hit it drags up to two nearby enemies into that body.' },
-  { n:'Gravedigger',       c:'ranger', t:'s2', got:true,  d:'Burrows through the floor and erupts underneath. Cannot touch anything flying.' },
-  { n:'Backbite',          c:'rogue',  t:'s2', got:false, d:'Returns harder the further it flew, and sheds blades while it spins.' },
-  { n:'Hexbomb Sceptre',   c:'mage',   t:'s2', got:false, d:'A bomb that bounces before it bursts. Reaches over cover.' },
-
-  { n:'Millstone Flail',   c:'melee',  t:'s3', got:false, d:'Orbits the wielder constantly. Hits everything that closes in.' },
-  { n:'Ruptureshot',       c:'ranger', t:'s3', got:false, d:'Pierces a body, then splits. The second round detonates instead of splitting.' },
-  { n:'Leechdisc',         c:'rogue',  t:'s3', got:false, d:'Latches on and ramps its damage the longer it stays attached.' },
-  { n:'Twinstrand Staff',  c:'mage',   t:'s3', got:false, d:'Two shards spiral around each other and detonate where they cross.' },
-
-  { n:'Freeblade',         c:'melee',  t:'s4', got:false, d:'Leaves the hand and fights on its own, or takes station on you.' },
-  { n:'Plumbline',         c:'ranger', t:'s4', got:false, d:'Its scatter closes the longer it holds one target.' },
-  { n:'Loosestrife',       c:'rogue',  t:'s4', got:false, d:'A blade on a wire. Everything between the two is cut.' },
-  { n:'Tithe Staff',       c:'mage',   t:'s4', got:false, d:'Turns the damage it deals into a shield on you.' },
-
-  { n:'Verdict',           c:'melee',  t:'s5', got:false, d:'A thrown crescent that grows the further it travels.' },
-  { n:'Rebuke',            c:'ranger', t:'s5', got:false, d:'Swallows enemy fire and sends it back.' },
-  { n:'Foregone',          c:'rogue',  t:'s5', got:false, d:'No travel time at all. The line between it and the target is already cut.' },
-  { n:'Requiem',           c:'mage',   t:'s5', got:false, d:'Kills sometimes get back up on your side, then decay away.' }
-];
-const ACTIVE_MAX = 2;
-let active = ['Ragged Edge', 'Carom Bow'];
-
-const ORES = [
-  { name:'Copper',     col:'#c87f4a', mined:180, need:20 },
-  { name:'Tin',        col:'#c2a06a', mined:140, need:20 },
-  { name:'Iron',       col:'#b4b0a6', mined:96,  need:25 },
-  { name:'Lead',       col:'#8f92a8', mined:74,  need:25 },
-  { name:'Silver',     col:'#dcdfe8', mined:52,  need:30 },
-  { name:'Tungsten',   col:'#c8d2c0', mined:41,  need:30 },
-  { name:'Gold',       col:'#ffd05a', mined:33,  need:35 },
-  { name:'Platinum',   col:'#e6ecf5', mined:12,  need:35 },
-  { name:'Demonite',   col:'#8d6fbf', mined:9,   need:40 },
-  { name:'Crimtane',   col:'#c04a5a', mined:6,   need:40 },
-  { name:'Meteorite',  col:'#a06a6a', mined:3,   need:30 },
-  { name:'Obsidian',   col:'#4a3f6b', mined:44,  need:20 },
-  { name:'Hellstone',  col:'#e05a2a', mined:1,   need:45 },
-  { name:'Cobalt',     col:'#3f8fd0', mined:0,   need:50 },
-  { name:'Mythril',    col:'#4fbfa0', mined:0,   need:50 },
-  { name:'Adamantite', col:'#d04f8f', mined:0,   need:60 },
-  { name:'Chlorophyte',col:'#7fd04f', mined:0,   need:70 },
-  { name:'Aerialite',  col:'#8fd8e8', mined:2,   need:35 },
-  { name:'Cryonic',    col:'#7fb8e8', mined:0,   need:60 },
-  { name:'Perennial',  col:'#5fd07f', mined:0,   need:70 }
-];
-const orePicked = new Set(['Copper','Iron','Gold']);
-
-const ITEMS = [
-  ['Copper Ore','#c87f4a','ore',97],['Iron Ore','#b4b0a6','ore',64],['Gold Ore','#ffd05a','ore',22],
-  ['Oak Wood','#9a6b3f','wood',240],['Ebonwood','#6b5a8f','wood',88],['Boreal Wood','#c4b49a','wood',53],
-  ['Stone Block','#8a8a94','loot',420],['Gel','#5fbf6a','loot',66],['Fallen Star','#ffe98a','loot',7],
-  ['Life Crystal','#e8506a','loot',2],['Torch','#ffb347','loot',94],['Rope','#b4926a','loot',110],
-  ['Silver Ore','#dcdfe8','ore',30],['Lead Ore','#8f92a8','ore',48],['Mushroom','#e8d0c0','loot',14],
-  ['Acorn','#8f6b3f','wood',19],['Cobweb','#d8d8e0','loot',75],['Obsidian','#4a3f6b','ore',12],
-  ['Amethyst','#a06ad0','loot',5],['Topaz','#e8b04a','loot',3],['Sapphire','#4a8fd0','loot',2],
-  ['Emerald','#4ad07f','loot',1],['Bomb','#6a6a74','loot',8],['Healing Potion','#e8506a','loot',6],
-  ['Chain','#9a9aa4','loot',31],['Glowstick','#7fe0a0','loot',17]
-];
-
-/* Mastery tree. Positions are laid out by hand around a hub so the four
-   branches read as four directions rather than as a list. Diamond nodes own
-   a sub-tree; circles are plain nodes. */
-const TREE_MAIN = {
-  title:'Mastery',
-  nodes:[
-    { id:'hub', x:0, y:0, r:26, shape:'c', state:'taken', name:'Awakening', desc:'The companion learns. Everything hangs off this.' },
-    { id:'c1', x:-150, y:-84, shape:'c', state:'taken', name:'Steadier hands', desc:'Less spread on every shot the arsenal takes.' },
-    { id:'c2', x:-268, y:-140, shape:'c', state:'taken', name:'Faster reload', desc:'Cuts the gap between shots.' },
-    { id:'c3', x:-268, y:-26, shape:'c', state:'avail', name:'Deeper reach', desc:'Longer range before a shot stops being worth attempting.' },
-    { id:'c4', x:-386, y:-140, shape:'d', state:'avail', name:'Weapon mastery', desc:'Opens its own tree, one branch per weapon you have unlocked.', sub:'weapons' },
-    { id:'g1', x:150, y:-84, shape:'c', state:'taken', name:'Wider pickup', desc:'Collects drops from further away.' },
-    { id:'g2', x:268, y:-140, shape:'c', state:'avail', name:'Longer mining reach', desc:'Breaks tiles from further off.' },
-    { id:'g3', x:268, y:-26, shape:'c', state:'lock', name:'Bigger bag', desc:'Eight more cargo slots, which is when the bag first needs to scroll.' },
-    { id:'g4', x:386, y:-140, shape:'c', state:'lock', name:'Faster swing', desc:'Tools cycle quicker on wood and stone.' },
-    { id:'m1', x:-150, y:84, shape:'c', state:'taken', name:'Surer footing', desc:'Fewer failed jumps on broken ground.' },
-    { id:'m2', x:-268, y:140, shape:'d', state:'avail', name:'Movement arts', desc:'Opens its own tree: air jump, dash, swimming, and eventually flight.', sub:'movement' },
-    { id:'m3', x:-268, y:26, shape:'c', state:'lock', name:'Quicker on the turn', desc:'Less time lost changing direction.' },
-    { id:'s1', x:150, y:84, shape:'c', state:'avail', name:'Tougher', desc:'More health, and it gets back up sooner.' },
-    { id:'s2', x:268, y:140, shape:'c', state:'lock', name:'Reads danger earlier', desc:'Starts avoiding a threat sooner.' },
-    { id:'s3', x:268, y:26, shape:'d', state:'lock', name:'Standing effects', desc:'Opens its own tree: permanent light, breath, immunity to a hazard.', sub:'aura' },
-    { id:'s4', x:386, y:140, shape:'c', state:'lock', name:'Shrugs it off', desc:'Takes less from a single big hit.' }
-  ],
-  edges:[['hub','c1'],['c1','c2'],['c1','c3'],['c2','c4'],
-         ['hub','g1'],['g1','g2'],['g1','g3'],['g2','g4'],
-         ['hub','m1'],['m1','m2'],['m1','m3'],
-         ['hub','s1'],['s1','s2'],['s1','s3'],['s2','s4']]
-};
-
-const SUBTREES = {
-  weapons:{ title:'Weapon mastery', nodes:[
-    { id:'w0', x:0, y:0, r:22, shape:'c', state:'taken', name:'Weapon mastery', desc:'One branch for each weapon the tree has unlocked.' },
-    { id:'w1', x:-140, y:-70, shape:'c', state:'avail', name:'Ragged Edge II', desc:'Bleed stacks stop expiring in combat.' },
-    { id:'w2', x:-240, y:-120, shape:'c', state:'lock', name:'Ragged Edge III', desc:'A kill sprays the remaining bleed onto whatever is near.' },
-    { id:'w3', x:140, y:-70, shape:'c', state:'avail', name:'Carom Bow II', desc:'Two extra leaps between enemies.' },
-    { id:'w4', x:240, y:-120, shape:'c', state:'lock', name:'Carom Bow III', desc:'The last leap returns to the first target and detonates.' },
-    { id:'w5', x:0, y:120, shape:'c', state:'lock', name:'Hexbomb II', desc:'The burst scatters mines across the ground.' }
-  ], edges:[['w0','w1'],['w1','w2'],['w0','w3'],['w3','w4'],['w0','w5']] },
-  movement:{ title:'Movement arts', nodes:[
-    { id:'v0', x:0, y:0, r:22, shape:'c', state:'taken', name:'Movement arts', desc:'Everything the body can newly do.' },
-    { id:'v1', x:-130, y:-80, shape:'c', state:'avail', name:'Air jump', desc:'One jump with nothing underneath.' },
-    { id:'v2', x:-130, y:80, shape:'c', state:'lock', name:'Dash', desc:'A short burst along the ground.' },
-    { id:'v3', x:130, y:-80, shape:'c', state:'lock', name:'Swimming', desc:'Moves through water without drowning its route.' },
-    { id:'v4', x:130, y:80, shape:'c', state:'lock', name:'Flight', desc:'Sustained lift. The route planner gains a whole edge type.' }
-  ], edges:[['v0','v1'],['v0','v2'],['v0','v3'],['v2','v4']] },
-  aura:{ title:'Standing effects', nodes:[
-    { id:'a0', x:0, y:0, r:22, shape:'c', state:'taken', name:'Standing effects', desc:'Things that are simply always true.' },
-    { id:'a1', x:-120, y:-70, shape:'c', state:'lock', name:'Permanent light', desc:'No torch needed and the hand stays free.' },
-    { id:'a2', x:120, y:-70, shape:'c', state:'lock', name:'Long breath', desc:'Underwater work stops being a countdown.' },
-    { id:'a3', x:0, y:110, shape:'c', state:'lock', name:'Hazard immunity', desc:'Pick one: lava, thorns, or cold.' }
-  ], edges:[['a0','a1'],['a0','a2'],['a0','a3']] }
-};
-
-const $ = s => document.querySelector(s);
-const $$ = s => [...document.querySelectorAll(s)];
-const el = (t, c) => { const e = document.createElement(t); if (c) e.className = c; return e; };
-
-/* ---- the world behind the panel ---------------------------------- */
-function drawWorld(){
-  const c = $('#world');
-  const TS = 16, cols = Math.ceil(innerWidth / (TS * 3)) + 1, rows = Math.ceil(innerHeight / (TS * 3)) + 1;
-  c.width = cols * TS; c.height = rows * TS;
-  const x = c.getContext('2d');
-  x.fillStyle = '#2a1f18'; x.fillRect(0, 0, c.width, c.height);   // dirt wall behind everything
-
-  /* A deterministic scatter rather than Math.random, so the backdrop is the
-     same on every load and a screenshot is comparable to the last one. */
-  let seed = 20260910;
-  const rnd = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
-
-  /* Terraria's tiles are legible from their grain, not their outline: every
-     block carries speckle and a lit top edge, and without that a 48px square
-     of flat colour reads as a wireframe rather than as dirt. */
-  const grain = (tx, ty, base, light, dark) => {
-    x.fillStyle = base; x.fillRect(tx, ty, TS, TS);
-    for (let i = 0; i < 14; i++){
-      x.fillStyle = rnd() > .5 ? light : dark;
-      x.fillRect(tx + ((rnd() * TS) | 0), ty + ((rnd() * TS) | 0), 2, 2);
-    }
-    x.fillStyle = light; x.fillRect(tx, ty, TS, 2);
-    x.fillStyle = 'rgba(0,0,0,.35)'; x.fillRect(tx, ty + TS - 2, TS, 2);
-  };
-
-  for (let r = 0; r < rows; r++){
-    for (let col = 0; col < cols; col++){
-      const n = rnd();
-      // a rough cave: the middle band is open wall, the top and bottom are tile
-      const open = r > rows * .28 && r < rows * .78 && n > .18;
-      if (open) continue;
-      if (r < rows * .3)      grain(col*TS, r*TS, '#6b4a2f', '#8a6440', '#4d3320');   // surface dirt
-      else if (n > .62)       grain(col*TS, r*TS, '#6f6f7c', '#8d8d9c', '#4e4e5a');   // stone
-      else                    grain(col*TS, r*TS, '#5f452e', '#7c5a3c', '#432f1f');   // cave dirt
-      if (n > .965){                                                                  // an ore speck
-        x.fillStyle = n > .985 ? '#c87f4a' : '#b4b0a6';
-        x.fillRect(col*TS + 4, r*TS + 4, 5, 5);
-        x.fillRect(col*TS + 9, r*TS + 8, 4, 4);
-      }
-    }
-  }
-  x.fillStyle = 'rgba(6,8,26,.5)'; x.fillRect(0, 0, c.width, c.height);   // darken so the UI reads
-}
-
-/* ---- companion sprite ------------------------------------------- */
-function drawSprite(){
-  const c = $('#sprite'), x = c.getContext('2d');
-  x.imageSmoothingEnabled = false;
-  x.clearRect(0, 0, 96, 128);
-  const px = (cx, cy, w, h, col) => { x.fillStyle = col; x.fillRect(cx*6, cy*6, w*6, h*6); };
-  px(5,2,6,5,'#e8c9a0');                            // head
-  px(5,1,6,1,'#7a4a2a');                            // hair
-  px(4,2,1,3,'#7a4a2a'); px(11,2,1,3,'#7a4a2a');
-  px(6,4,1,1,'#1b1d2a'); px(9,4,1,1,'#1b1d2a');     // eyes
-  px(5,7,6,6,'#8a7f66');                            // torso
-  px(4,7,1,5,'#e8c9a0'); px(11,7,1,5,'#e8c9a0');    // arms
-  px(5,13,2,5,'#3f4a7a'); px(9,13,2,5,'#3f4a7a');   // legs
-  px(5,18,2,1,'#4a3a2a'); px(9,18,2,1,'#4a3a2a');   // boots
-  px(12,5,1,8,'#d8cba0'); px(12,4,1,1,'#a89870');   // the shortsword it starts with
-  px(13,12,1,1,'#a89870');
-}
-
-/* ---- overview: behaviour panel ----------------------------------- */
-function renderBehaviour(){
-  const b = $('#behaviourbody');
-  b.innerHTML = '';
-
-  const h1 = el('div','grouphead'); h1.textContent = 'Work'; b.appendChild(h1);
-  WORK.forEach(r => {
-    const row = el('div','row');
-    const lbl = el('div','lbl'); lbl.textContent = r.label; row.appendChild(lbl);
-    const seg = el('div','seg');
-    POLICIES.forEach((m, i) => {
-      const btn = el('button');
-      btn.textContent = m.label;
-      btn.setAttribute('aria-pressed', String(r.mode === i));
-      btn.title = r.label + ': ' + m.hint;
-      btn.onclick = () => { r.mode = i; renderBehaviour(); };
-      seg.appendChild(btn);
-    });
-    row.appendChild(seg);
-    const more = el('button','more');
-    more.textContent = '…';
-    more.title = 'Choose what it may ' + r.label.toLowerCase();
-    more.onclick = () => openActivity(r.detail);
-    row.appendChild(more);
-    b.appendChild(row);
+// The mockup's only logic: page switching (tiles and the title button), minimise,
+// the segment and toggle rows, the stepper, and the scale control. Nothing eases.
+const frame = document.getElementById('frame');
+const titleName = document.querySelector('#title .name');
+const back = document.getElementById('back');
+const tiles = [...document.querySelectorAll('.tile')];
+const names = {behaviour:'Companion', inv:'Inventory', mast:'Mastery'};
+function show(page){
+  document.querySelectorAll('.page').forEach(p => p.classList.toggle('on', p.id === page));
+  frame.classList.toggle('sub', page !== 'behaviour');
+  titleName.textContent = names[page];
+  back.textContent = page === 'behaviour' ? '+' : '<';
+  tiles.forEach(t => {
+    const on = t.dataset.page === page;
+    t.classList.toggle('on', on);
+    t.querySelector('.t').textContent = (on ? '> ' : '') + (t.dataset.page === 'inv' ? 'Inventory' : 'Mastery');
   });
-
-  const h2 = el('div','grouphead'); h2.textContent = 'Positioning'; b.appendChild(h2);
-  const d = el('div','row');
-  const dl = el('div','lbl');
-  dl.innerHTML = 'Follow distance <em>&mdash; ' + DISTANCES[S.distance].hint + '</em>';
-  d.appendChild(dl);
-  const stops = el('div','stops');
-  DISTANCES.forEach((x, i) => {
-    const btn = el('button');
-    btn.textContent = x.label;
-    btn.setAttribute('aria-pressed', String(S.distance === i));
-    btn.onclick = () => { S.distance = i; renderBehaviour(); };
-    stops.appendChild(btn);
-  });
-  d.appendChild(stops); d.appendChild(el('div','more ghost'));
-  b.appendChild(d);
-
-  const h3 = el('div','grouphead'); h3.textContent = 'Weapons carried'; b.appendChild(h3);
-  const wr = el('div','wepslots');
-  for (let i = 0; i < ACTIVE_MAX; i++){
-    const name = active[i];
-    const w = name && WEAPONS.find(x => x.n === name);
-    const s = el('div', 'wepslot' + (w ? '' : ' empty'));
-    const pip = el('span','pip');
-    pip.style.background = w ? RARITY[w.t] : 'rgba(0,0,0,.25)';
-    s.appendChild(pip);
-    s.appendChild(document.createTextNode(w ? w.n : 'Empty slot'));
-    if (w) s.style.color = RARITY[w.t];
-    wr.appendChild(s);
-  }
-  const more = el('button','more');
-  more.textContent = '…';
-  more.title = 'Choose which two weapons it carries';
-  more.onclick = () => show('weapons');
-  wr.appendChild(more);
-  b.appendChild(wr);
-
-  /* The panel's own footnote. Every other setting a player might look for —
-     whether it fights, whether it carries a torch, whether it grabs drops —
-     is not a setting, and saying so here is cheaper than the player hunting
-     for a toggle that was never going to exist. */
-  const note = el('div');
-  note.style.cssText = 'margin-top:14px;padding-top:9px;border-top:1px solid var(--edge-soft);'
-    + 'font-size:12px;font-weight:normal;color:var(--ink-mute);line-height:1.55';
-  note.textContent = 'Fighting, dodging, carrying a light and picking things up are not settings. '
-    + 'The companion scores those against each other every tick and does whichever is worth most '
-    + 'right now — which is what the line under its portrait is showing you.';
-  b.appendChild(note);
+  document.querySelectorAll('#bench [data-page]').forEach(b => b.classList.toggle('on', b.dataset.page === page));
 }
-
-function renderTiles(){
-  $('#invfill').style.width = (S.bag / S.bagMax * 100) + '%';
-  $('#invtext').textContent = S.bag + ' of ' + S.bagMax + ' slots';
-  $('#invnote').textContent = S.bag >= S.bagMax
-    ? 'Full — it has stopped picking things up.'
-    : (S.bagMax - S.bag) + ' free. Gathering stays on.';
-  const mini = $('#minislots'); mini.innerHTML = '';
-  ITEMS.slice(0, 6).forEach(it => {
-    const s = el('div','slot');
-    const g = el('div','gem'); g.style.background = it[1];
-    s.appendChild(g); mini.appendChild(s);
-  });
-
-  const bars = [['Combat',.62,'#ff8f6b'],['Gathering',.41,'#96ff96'],['Movement',.18,'#7ceaea'],['Standing',.05,'#ffe066']];
-  const bb = $('#branchbars'); bb.innerHTML = '';
-  bars.forEach(([n, v, c]) => {
-    const r = el('div','branchbar');
-    const a = el('span'); a.textContent = n;
-    const t = el('div','track'); const i = el('i');
-    i.style.width = (v * 100) + '%'; i.style.background = c; t.appendChild(i);
-    const p = el('span'); p.textContent = Math.round(v * 100) + '%'; p.style.textAlign = 'right';
-    r.appendChild(a); r.appendChild(t); r.appendChild(p);
-    bb.appendChild(r);
-  });
+tiles.forEach(t => t.addEventListener('click', () => show(t.dataset.page)));
+document.querySelectorAll('#bench [data-page]').forEach(b => b.addEventListener('click', () => show(b.dataset.page)));
+back.addEventListener('click', () => { if (!document.getElementById('behaviour').classList.contains('on')) show('behaviour'); });
+document.getElementById('minimise').addEventListener('click', () => frame.classList.toggle('min'));
+document.querySelectorAll('#bench [data-z]').forEach(b => b.addEventListener('click', () => {
+  document.documentElement.style.setProperty('--z', b.dataset.z);
+  document.querySelectorAll('#bench [data-z]').forEach(x => x.classList.toggle('on', x === b));
+}));
+document.querySelectorAll('.row .seg').forEach(s => s.addEventListener('click', () => {
+  s.parentElement.querySelectorAll('.seg').forEach(x => x.classList.toggle('on', x === s));
+}));
+document.querySelectorAll('.row.step').forEach(r => {
+  const out = r.querySelector('.readout'), stops = out.dataset.stops.split(',');
+  const move = d => { out.dataset.i = (Number(out.dataset.i) + d + stops.length) % stops.length; out.textContent = stops[out.dataset.i]; };
+  r.querySelector('.less').addEventListener('click', () => move(-1));
+  r.querySelector('.more').addEventListener('click', () => move(1));
+});
+document.querySelectorAll('.pill').forEach(p => p.parentElement.id === 'filters' && p.addEventListener('click', () => {
+  p.parentElement.querySelectorAll('.pill').forEach(x => x.classList.toggle('on', x === p));
+}));
+// the inventory grid: 60 of the 100 fixed 48px slots visible at once, the same mix the render shows
+const grid = document.getElementById('grid'), kinds = ['ore','wood','gel'];
+for (let i = 14; i < 74; i++) {
+  const s = document.createElement('div'); s.className = 'slot';
+  s.innerHTML = `<span class="n">${i}</span><i class="it ${kinds[i % 3]}"></i>`;
+  grid.appendChild(s);
 }
+// hover hints on the rows, the way the native card shows them as mouse text
+document.querySelectorAll('.row').forEach(r => r.title = r.dataset.hint);
 
-function renderHeader(){
-  $('#cname').textContent = S.name;
-  $('#clevel').textContent = 'Mastery level ' + S.level + ' · ' + S.points
-    + ' point' + (S.points === 1 ? '' : 's') + ' unspent';
-  $('#hpfill').style.width = (S.hp / S.hpMax * 100) + '%';
-  $('#hptext').textContent = S.hp + ' / ' + S.hpMax;
-  $('#actname').textContent = ACTIONS[S.action][0];
-  $('#actwhy').textContent = ACTIONS[S.action][1];
-}
-
-/* ---- cargo bag ---------------------------------------------------- */
-let invFilter = 'all', invHover = null;
-const CATNAME = { ore:'Ore', wood:'Wood', loot:'Material' };
-
-/* What the companion will do with a stack, which is the reason this panel
-   is worth its half of the view: the bag is the companion's, so the real
-   question about any stack is whether it will keep collecting this. */
-function itemNote(it){
-  if (S.bag >= S.bagMax) return 'The bag is full, so nothing more of this is being picked up.';
-  if (it[2] === 'ore') return 'Mined by the companion and kept. Handed over when you ask.';
-  if (it[2] === 'wood') return 'Chopped by the companion and kept. A chopping run produces stacks of this.';
-  return 'Picked up off the ground while gathering is on.';
-}
-
-function renderInvDetail(){
-  const d = $('#invdetail');
-  if (!invHover){
-    d.innerHTML = '<div class="empty">Hover a stack to read it.<br><br>'
-      + 'The bag holds what the companion collected. Its weapons and tools are equipment '
-      + 'and never take a slot here.</div>';
-    return;
-  }
-  const it = invHover;
-  d.innerHTML = '<div class="big"><i style="background:' + it[1] + '"></i></div>'
-    + '<div><h3 style="color:' + it[1] + '">' + it[0] + '</h3>'
-    + '<div class="cat">' + CATNAME[it[2]] + ' · ' + it[3] + ' held</div></div>'
-    + '<p>' + itemNote(it) + '</p>';
-}
-
-function renderInventory(){
-  const g = $('#invgrid'); g.innerHTML = '';
-  const shown = ITEMS.filter(i => invFilter === 'all' || i[2] === invFilter).slice(0, S.bag);
-  shown.forEach(it => {
-    const s = el('div','slot');
-    const gem = el('div','gem'); gem.style.background = it[1];
-    s.appendChild(gem);
-    const q = el('span','qty'); q.textContent = it[3]; s.appendChild(q);
-    /* No wall preview here: a bag stack is an item, and "how it looks in the
-       wall" is only meaningful in the mining whitelist, where recognising the
-       ore while digging is the actual task. */
-    s.onmouseenter = e => { invHover = it; renderInvDetail(); showTip(e, it[0], CATNAME[it[2]] + ' · ' + it[3]); };
-    s.onmousemove = moveTip; s.onmouseleave = hideTip;
-    g.appendChild(s);
-  });
-  for (let i = shown.length; i < S.bagMax; i++) g.appendChild(el('div','slot'));
-  $('#invcount').textContent = shown.length + ' stacks shown · ' + (S.bagMax - S.bag) + ' slots free';
-  renderInvDetail();
-}
-
-/* ---- activity detail: the ore whitelist -------------------------- */
-let oreHover = null;
-
-/* The wall preview, built once and reused. It is the form the player has to
-   spot while digging; an item icon never teaches that. */
-function wallSwatch(col, cell){
-  let h = '<div class="placed" style="grid-template-columns:repeat(4,' + cell + 'px)">';
-  for (let i = 0; i < 16; i++){
-    const isOre = [1,2,5,6,9,10,13].includes(i);
-    h += '<i style="display:block;width:' + cell + 'px;height:' + cell + 'px;background:'
-       + (isOre ? col : '#4a3828') + '"></i>';
-  }
-  return h + '</div>';
-}
-
-function renderOreDetail(){
-  const d = $('#oredetail');
-  if (!oreHover){
-    d.innerHTML = '<div class="empty">Hover an ore to read it. Click an unlocked one to '
-      + (S.wlMode === 'wl' ? 'put it on the whitelist.' : 'put it on the blacklist.')
-      + '<br><br>An ore only appears here once the companion has mined it at least once, '
-      + 'so this grid grows as you explore rather than listing the whole game up front.</div>';
-    return;
-  }
-  const o = oreHover, done = o.mined >= o.need, chosen = orePicked.has(o.name);
-  let state;
-  if (!done) state = '<span style="color:var(--orange)">Mine ' + (o.need - o.mined) + ' more to choose this</span>';
-  else if (S.wlMode === 'wl') state = chosen
-    ? '<span style="color:var(--green)">On the whitelist — the companion mines this</span>'
-    : '<span style="color:var(--ink-mute)">Not on the whitelist — left in the wall</span>';
-  else state = chosen
-    ? '<span style="color:var(--red)">On the blacklist — left in the wall</span>'
-    : '<span style="color:var(--green)">Not blacklisted — the companion mines this</span>';
-  d.innerHTML = '<div><h3 style="color:' + o.col + '">' + o.name + '</h3>'
-    + '<div class="cat">' + o.mined + ' mined so far</div></div>'
-    + '<p>' + state + '</p>'
-    + wallSwatch(o.col, 20) + '<div class="placedlbl">how it looks in the wall</div>';
-}
-
-function renderOres(){
-  const g = $('#oregrid'); g.innerHTML = '';
-  $('#actTitle').textContent = S.activity;
-  $('#orehint').textContent = S.wlMode === 'wl'
-    ? 'Whitelist — it mines only what is selected here. Nothing selected means it mines nothing on its own.'
-    : 'Blacklist — it mines anything except what is selected here. Nothing selected means it mines everything.';
-  ORES.filter(o => o.mined > 0).forEach(o => {
-    const done = o.mined >= o.need;
-    const s = el('div', 'slot ore' + (done ? '' : ' partial') + (done && orePicked.has(o.name) ? ' picked' : ''));
-    const gem = el('div','gem');
-    gem.style.background = o.col;
-    gem.style.clipPath = 'polygon(50% 0,100% 34%,82% 100%,18% 100%,0 34%)';
-    s.appendChild(gem);
-    if (!done){ const b = el('span','lockbadge'); b.textContent = o.mined + '/' + o.need; s.appendChild(b); }
-    s.onmouseenter = e => {
-      oreHover = o; renderOreDetail();
-      /* No wall preview in the tooltip: the panel beside the grid already
-         shows it, and two copies of one swatch under the cursor is noise. */
-      showTip(e, o.name, done ? 'Unlocked' : null,
-        done ? null : 'Mine ' + (o.need - o.mined) + ' more to choose this');
-    };
-    s.onmousemove = moveTip; s.onmouseleave = hideTip;
-    if (done) s.onclick = () => {
-      orePicked.has(o.name) ? orePicked.delete(o.name) : orePicked.add(o.name);
-      renderOres();
-    };
-    g.appendChild(s);
-  });
-  renderOreDetail();
-}
-
-/* ---- weapons: a loadout picker, not a list of what it owns -------- */
-let wepHover = null;
-
-function setActive(w){
-  const i = active.indexOf(w.n);
-  if (i >= 0){ active.splice(i, 1); }
-  /* Two slots, so picking a third replaces the one picked longest ago rather
-     than refusing the click. A refusal makes the player guess which of the
-     two to drop first, which is two clicks to do one thing. */
-  else { if (active.length >= ACTIVE_MAX) active.shift(); active.push(w.n); }
-  renderWeapons(); renderBehaviour();
-}
-
-function renderWepDetail(){
-  const d = $('#wepdetail');
-  if (!wepHover){
-    d.innerHTML = '<div class="empty">Hover a weapon to read it. Click an unlocked one to carry it.'
-      + '<br><br>The companion carries two at a time and picks between them per shot, so the pair '
-      + 'is the choice — one for a single target and one for a crowd covers most of a run.'
-      + '<br><br>A locked weapon is one the mastery tree has not bought yet.</div>';
-    return;
-  }
-  const w = wepHover, on = active.includes(w.n);
-  d.innerHTML = '<div class="big"><i style="background:' + RARITY[w.t] + '"></i></div>'
-    + '<div><h3 style="color:' + RARITY[w.t] + '">' + w.n + '</h3>'
-    + '<div class="cat">' + w.c[0].toUpperCase() + w.c.slice(1) + ' · ' + TIERNAME[w.t] + '</div></div>'
-    + '<p>' + w.d + '</p>'
-    + '<p>' + (!w.got
-        ? '<span style="color:var(--orange)">Locked — unlock it in the mastery tree</span>'
-        : on ? '<span style="color:var(--green)">Carried right now</span>'
-             : '<span style="color:var(--ink-mute)">Owned, not carried</span>') + '</p>';
-  const btn = el('button','act');
-  btn.textContent = !w.got ? 'Locked'
-    : on ? 'Put it away'
-    : (active.length >= ACTIVE_MAX ? 'Carry it instead of ' + active[0] : 'Carry it');
-  if (!w.got) btn.disabled = true; else btn.onclick = () => setActive(w);
-  d.appendChild(btn);
-}
-
-/* The grid is the design matrix itself: a row is a tier, a column is a class.
-   Laid out as one continuous run of slots the tier boundaries fell mid-row and
-   the ladder — the one thing this grid exists to show — stopped being visible.
-   A tier with no weapon in a class leaves that cell empty on purpose, which is
-   how the starting kit reads as two weapons rather than as a short row. */
-const CLASSES = ['melee','ranger','rogue','mage'];
-
-function renderWeapons(){
-  const g = $('#wepgrid'); g.innerHTML = '';
-  const ch = $('#wepclasshead'); ch.innerHTML = '';
-  CLASSES.forEach(c => { const s = el('span'); s.textContent = c[0].toUpperCase() + c.slice(1); ch.appendChild(s); });
-
-  /* The carried pair, shown while you choose. Picking a loadout is a decision
-     about the pair rather than about one weapon — one for a single target and
-     one for a crowd — so the other half has to be on screen while you pick. */
-  $('#wepcount').innerHTML = 'Carrying &nbsp;' + Array.from({ length:ACTIVE_MAX }, (_, i) => {
-    const w = active[i] && WEAPONS.find(x => x.n === active[i]);
-    return w
-      ? '<span style="display:inline-flex;align-items:center;gap:5px;margin-right:10px">'
-        + '<i style="width:14px;height:14px;display:inline-block;border:1px solid rgba(0,0,0,.6);'
-        + 'background:' + RARITY[w.t] + '"></i>'
-        + '<b style="color:' + RARITY[w.t] + '">' + w.n + '</b></span>'
-      : '<span style="margin-right:10px;color:var(--ink-mute)">empty slot</span>';
-  }).join('');
-  $('#wephint').textContent = 'The companion carries ' + ACTIVE_MAX
-    + ' weapons and chooses between them shot by shot. Everything else it owns stays put away.';
-
-  Object.keys(TIERNAME).forEach(tier => {
-    const head = el('div');
-    head.style.cssText = 'grid-column:1/-1;font-size:11.5px;color:' + RARITY[tier]
-      + ';margin:7px 0 1px;opacity:.9;font-weight:normal';
-    head.textContent = TIERNAME[tier];
-    g.appendChild(head);
-
-    CLASSES.forEach(cls => {
-      const w = WEAPONS.find(x => x.t === tier && x.c === cls);
-      if (!w){ const blank = el('div','slot'); blank.style.opacity = '.25'; g.appendChild(blank); return; }
-      const on = active.includes(w.n);
-      const s = el('div', 'slot ore' + (w.got ? '' : ' partial') + (on ? ' picked' : ''));
-      const gem = el('div','gem');
-      /* A locked weapon keeps its rarity colour and only loses brightness, so
-         the ladder stays readable before anything on it is owned. */
-      gem.style.background = RARITY[w.t];
-      s.appendChild(gem);
-      if (!w.got){ const b = el('span','lockbadge'); b.textContent = '✕'; s.appendChild(b); }
-      s.onmouseenter = e => {
-        wepHover = w; renderWepDetail();
-        showTip(e, w.n, w.c[0].toUpperCase() + w.c.slice(1) + ' · ' + TIERNAME[w.t],
-          w.got ? null : 'Locked — unlock it in the mastery tree');
-      };
-      s.onmousemove = moveTip; s.onmouseleave = hideTip;
-      if (w.got) s.onclick = () => setActive(w);
-      g.appendChild(s);
-    });
-  });
-  renderWepDetail();
-}
-
-/* ---- tooltip ----------------------------------------------------- */
-function showTip(e, name, sub, need){
-  const t = $('#tip');
-  let h = '<div class="nm">' + name + '</div>';
-  if (sub) h += '<div class="sub">' + sub + '</div>';
-  if (need) h += '<div class="need">' + need + '</div>';
-  t.innerHTML = h; t.style.display = 'block'; moveTip(e);
-}
-function moveTip(e){
-  const t = $('#tip');
-  let x = e.clientX + 16, y = e.clientY + 16;
-  if (x + t.offsetWidth > innerWidth - 8) x = e.clientX - t.offsetWidth - 12;
-  if (y + t.offsetHeight > innerHeight - 8) y = e.clientY - t.offsetHeight - 12;
-  t.style.left = x + 'px'; t.style.top = y + 'px';
-}
-function hideTip(){ $('#tip').style.display = 'none'; }
-
-/* ---- mastery tree ------------------------------------------------ */
-const view = { x:0, y:0, k:1, tree:'main', stack:[] };
-const COL = { taken:'#8cf08c', avail:'#ffe066', lock:'#4a4e8f' };
-const currentTree = () => view.tree === 'main' ? TREE_MAIN : SUBTREES[view.tree];
-
-function renderTree(){
-  const t = currentTree(), g = $('#treeg');
-  g.innerHTML = '';
-  const box = $('#treewrap').getBoundingClientRect();
-  g.setAttribute('transform', 'translate(' + (box.width/2 + view.x) + ',' + (box.height/2 + view.y)
-    + ') scale(' + view.k + ')');
-  const byId = {}; t.nodes.forEach(n => byId[n.id] = n);
-
-  t.edges.forEach(([a, b]) => {
-    const A = byId[a], B = byId[b];
-    const line = document.createElementNS('http://www.w3.org/2000/svg','line');
-    line.setAttribute('x1', A.x); line.setAttribute('y1', A.y);
-    line.setAttribute('x2', B.x); line.setAttribute('y2', B.y);
-    line.setAttribute('stroke', B.state === 'lock' ? '#2d3068' : (B.state === 'taken' ? '#4a7f52' : '#7a6b3a'));
-    line.setAttribute('stroke-width', 4);
-    g.appendChild(line);
-  });
-
-  t.nodes.forEach(n => {
-    const r = n.r || 17;
-    let shape;
-    if (n.shape === 'd'){
-      shape = document.createElementNS('http://www.w3.org/2000/svg','rect');
-      shape.setAttribute('x', -r); shape.setAttribute('y', -r);
-      shape.setAttribute('width', r*2); shape.setAttribute('height', r*2);
-      shape.setAttribute('transform', 'translate(' + n.x + ',' + n.y + ') rotate(45)');
-    } else {
-      shape = document.createElementNS('http://www.w3.org/2000/svg','circle');
-      shape.setAttribute('cx', n.x); shape.setAttribute('cy', n.y); shape.setAttribute('r', r);
-    }
-    shape.setAttribute('fill', n.state === 'lock' ? '#1e2050' : '#2b3099');
-    shape.setAttribute('stroke', n.shape === 'd' && n.state !== 'lock' ? '#7ceaea' : COL[n.state]);
-    shape.setAttribute('stroke-width', n.shape === 'd' ? 4 : 3.5);
-    shape.setAttribute('class','node-c');
-    shape.onclick = ev => { ev.stopPropagation(); pickNode(n); };
-    g.appendChild(shape);
-
-    const label = document.createElementNS('http://www.w3.org/2000/svg','text');
-    label.setAttribute('x', n.x); label.setAttribute('y', n.y + r + 16);
-    label.setAttribute('text-anchor','middle');
-    label.setAttribute('fill', n.state === 'lock' ? '#5b5f9a' : '#d5d8ff');
-    label.setAttribute('font-size','12.5');
-    label.setAttribute('font-family','Trebuchet MS, sans-serif');
-    label.setAttribute('font-weight','bold');
-    label.setAttribute('style','text-shadow:2px 2px 0 rgba(0,0,0,.85)');
-    label.textContent = n.name;
-    g.appendChild(label);
-  });
-}
-
-function pickNode(n){
-  const box = $('#nodeinfo');
-  const st = n.state === 'taken' ? '<span style="color:var(--green)">Taken</span>'
-    : n.state === 'avail' ? '<span style="color:var(--gold)">Available — costs 1 point</span>'
-    : '<span style="color:var(--ink-mute)">Locked — take the node before it first</span>';
-  let h = '<h3>' + n.name + '</h3><p>' + n.desc + '</p><div class="st">' + st + '</div>';
-  /* A diamond can be both unspent and enterable, so it gets both buttons —
-     showing only the drill-down left the card claiming a cost with nothing
-     to pay it with. */
-  if (n.state === 'avail' && S.points > 0) h += '<button data-take="' + n.id + '">Spend a point</button>';
-  if (n.sub && n.state !== 'lock') h += '<button data-sub="' + n.sub + '">Open its tree →</button>';
-  box.innerHTML = h; box.style.display = 'block';
-
-  const sub = box.querySelector('[data-sub]');
-  if (sub) sub.onclick = () => {
-    view.stack.push(view.tree); view.tree = sub.dataset.sub;
-    view.x = 0; view.y = 0; view.k = 1;
-    box.style.display = 'none'; setTitle(); renderTree();
-  };
-  const take = box.querySelector('[data-take]');
-  if (take) take.onclick = () => {
-    n.state = 'taken'; S.points--;
-    currentTree().edges.filter(e => e[0] === n.id).forEach(e => {
-      const nx = currentTree().nodes.find(m => m.id === e[1]);
-      if (nx && nx.state === 'lock') nx.state = 'avail';
-    });
-    renderHeader(); renderTree(); pickNode(n);
-  };
-}
-
-(function treeControls(){
-  const w = $('#treewrap');
-  let drag = false, sx = 0, sy = 0;
-  w.addEventListener('mousedown', e => { drag = true; sx = e.clientX - view.x; sy = e.clientY - view.y; w.classList.add('drag'); });
-  addEventListener('mouseup', () => { drag = false; w.classList.remove('drag'); });
-  addEventListener('mousemove', e => { if (!drag) return; view.x = e.clientX - sx; view.y = e.clientY - sy; renderTree(); });
-  w.addEventListener('wheel', e => {
-    e.preventDefault();
-    view.k = Math.max(.4, Math.min(2.4, view.k * (e.deltaY < 0 ? 1.12 : 1/1.12)));
-    renderTree();
-  }, { passive:false });
-  w.addEventListener('click', () => { $('#nodeinfo').style.display = 'none'; });
-})();
-
-/* ---- view switching ---------------------------------------------- */
-let current = 'overview';
-function setTitle(){
-  const crumb = { overview:'', inventory:'› Cargo bag', activity:'› ' + S.activity,
-                  weapons:'› Weapons', mastery:'› ' + currentTree().title };
-  $('#crumb').textContent = crumb[current];
-  $('#back').style.display = current === 'overview' ? 'none' : 'grid';
-}
-function show(v){
-  $$('.view').forEach(x => x.classList.remove('on'));
-  $('#v-' + v).classList.add('on');
-  current = v; setTitle(); hideTip();
-  if (v === 'mastery') renderTree();
-  if (v === 'inventory') renderInventory();
-  if (v === 'activity') renderOres();
-  if (v === 'weapons') renderWeapons();
-}
-function openActivity(name){ S.activity = name; show('activity'); }
-
-$('#back').onclick = () => {
-  if (current === 'mastery' && view.stack.length){
-    view.tree = view.stack.pop(); view.x = 0; view.y = 0; view.k = 1;
-    $('#nodeinfo').style.display = 'none'; setTitle(); renderTree(); return;
-  }
-  show('overview');
-};
-$('#tile-inv').onclick = () => show('inventory');
-$('#tile-mastery').onclick = () => {
-  view.tree = 'main'; view.stack = []; view.x = 0; view.y = 0; view.k = 1;
-  $('#nodeinfo').style.display = 'none'; show('mastery');
-};
-$('#invfilter').onclick = e => {
-  const b = e.target.closest('button'); if (!b) return;
-  invFilter = b.dataset.f;
-  [...e.currentTarget.children].forEach(c => c.setAttribute('aria-pressed', String(c === b)));
-  renderInventory();
-};
-$('#wlblToggle').onclick = e => {
-  const b = e.target.closest('button'); if (!b) return;
-  S.wlMode = b.dataset.m;
-  [...e.currentTarget.children].forEach(c => c.setAttribute('aria-pressed', String(c === b)));
-  renderOres();
-};
-$('#dumpbtn').onclick = () => { S.bag = 0; renderInventory(); renderTiles(); $('#d-bag').value = 0; };
-
-/* ---- demo strip --------------------------------------------------- */
-$('#d-action').onclick = () => { S.action = (S.action + 1) % ACTIONS.length; renderHeader(); };
-$('#d-bag').oninput = e => { S.bag = +e.target.value; renderTiles(); if (current === 'inventory') renderInventory(); };
-$('#d-hp').oninput = e => { S.hp = +e.target.value; renderHeader(); };
-$('#d-points').onclick = () => { S.points++; renderHeader(); };
-
-drawWorld(); drawSprite(); renderHeader(); renderBehaviour(); renderTiles(); setTitle();
-addEventListener('resize', () => { drawWorld(); if (current === 'mastery') renderTree(); });
+// ---- the mastery graph, from DefineMasteryGraph.cs (2026-09-13) ----
+// Eight regions of ten nodes: six notable (stat circles or ability diamonds) then four small
+// path ranks; eight shared junctions (80–87); -1 is the free centre. Kinds follow the C# rule.
+const REGIONS = [[[-38,-40],[-136,-100],[-222,-162],[-19,-155],[-104,-213],[-246,-216],[-98,-64],[-210,-122],[-64,-121],[-170,-190]],
+ [[64,-36],[205,-86],[194,-178],[368,-107],[326,-196],[456,-178],[134,-52],[171,-133],[294,-84],[256,-193]],
+ [[109,-3],[314,-22],[422,-71],[483,26],[573,-38],[680,-74],[208,-7],[355,-52],[389,8],[496,-56]],
+ [[82,38],[277,71],[482,66],[325,150],[491,178],[638,138],[176,50],[384,53],[259,115],[494,117]],
+ [[2,52],[83,137],[205,184],[-48,164],[46,216],[184,233],[48,91],[152,154],[0,132],[136,206]],
+ [[-82,41],[-242,87],[-306,171],[-466,114],[-435,190],[-560,171],[-168,50],[-248,134],[-355,86],[-366,175]],
+ [[-109,2],[-325,14],[-454,54],[-462,-39],[-624,2],[-680,56],[-218,6],[-386,41],[-403,-14],[-552,41]],
+ [[-78,-31],[-317,-75],[-443,-138],[-517,-82],[-570,-183],[-421,-210],[-189,-42],[-382,-98],[-432,-61],[-507,-158]]];
+const JUNCTIONS = [[82,-198],[494,-133],[606,50],[267,202],[-160,197],[-550,101],[-589,-80],[-326,-191]];
+const BRANCHES = ["Tools","Ranged","Movement","Magic","Survival","Support","Gathering","Melee"];
+const COLORS = ['rgb(233,180,103)','rgb(138,205,109)','rgb(104,213,220)','rgb(182,144,240)','rgb(237,132,146)','rgb(231,217,137)','rgb(109,201,178)','rgb(236,151,99)'];
+const LABELS = [[-210,-291],[295,-249],[624,-124],[592,198],[81,258],[-422,218],[-806,88],[-707,-180]];
+const nodes = [];
+REGIONS.forEach((r, b) => r.forEach((p, n) => {
+  const ability = n < 6 && (b === 2 ? n >= 2 : b === 4 ? n === 4 : n >= 4);
+  nodes.push({x: p[0], y: p[1], b, kind: n >= 6 ? 'filler' : ability ? 'ability' : 'stat'});
+}));
+JUNCTIONS.forEach((p, i) => nodes.push({x: p[0], y: p[1], b: i, kind: 'junction'}));
+const edges = [];
+for (let b = 0; b < 8; b++) { const o = b * 10;
+  [[-1,0],[0,6],[6,1],[1,7],[7,2],[1,8],[8,3],[2,9],[9,4],[3,4],[4,5]].forEach(([f,t]) => edges.push([f < 0 ? -1 : o + f, o + t])); }
+[[3,80],[12,80],[80,4],[80,14],[13,81],[22,81],[81,15],[81,24],[23,82],[32,82],[82,24],[82,35],[33,83],[42,83],[83,34],[83,45],
+ [43,84],[52,84],[84,44],[84,54],[53,85],[62,85],[85,55],[85,64],[63,86],[73,86],[86,64],[86,74],[72,87],[2,87],[87,75],[87,5]].forEach(e => edges.push(e));
+const svg = document.getElementById('graphsvg'), NS = 'http://www.w3.org/2000/svg';
+const el = (t, a) => { const e = document.createElementNS(NS, t); for (const k in a) e.setAttribute(k, a[k]); return e; };
+const at = i => i < 0 ? {x: 0, y: 0, b: -1} : nodes[i];
+edges.forEach(([f, t]) => { const a = at(f), z = at(t);
+  svg.appendChild(el('line', {x1: a.x, y1: a.y, x2: z.x, y2: z.y, stroke: COLORS[z.b], 'stroke-width': 2, opacity: .85})); });
+nodes.forEach(n => {
+  const c = COLORS[n.b];
+  if (n.kind === 'stat') svg.appendChild(el('circle', {cx: n.x, cy: n.y, r: 9, fill: 'none', stroke: c, 'stroke-width': 2.5}));
+  else if (n.kind === 'ability') svg.appendChild(el('rect', {x: n.x - 9, y: n.y - 9, width: 18, height: 18, fill: 'none', stroke: c, 'stroke-width': 2.5, transform: `rotate(45 ${n.x} ${n.y})`}));
+  else svg.appendChild(el('circle', {cx: n.x, cy: n.y, r: n.kind === 'junction' ? 6 : 4.5, fill: 'none', stroke: c, 'stroke-width': 2}));
+});
+svg.appendChild(el('rect', {x: -11, y: -11, width: 22, height: 22, fill: '#ffe066', stroke: '#ffe066', transform: 'rotate(45 0 0)'}));
+// the game's hard black text shadow, as an SVG filter because CSS text-shadow does not apply to SVG text
+const defs = el('defs', {}), filter = el('filter', {id: 'hard', x: '-10%', y: '-10%', width: '130%', height: '130%'});
+filter.appendChild(el('feDropShadow', {dx: 3, dy: 3, stdDeviation: 0, 'flood-color': '#000'}));
+defs.appendChild(filter); svg.appendChild(defs);
+LABELS.forEach((p, i) => { const t = el('text', {x: p[0], y: p[1], fill: COLORS[i], 'text-anchor': 'middle', filter: 'url(#hard)'});
+  t.textContent = BRANCHES[i]; svg.appendChild(t); });
 </script>
 </body>
 </html>

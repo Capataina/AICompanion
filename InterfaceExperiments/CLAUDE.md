@@ -3,7 +3,7 @@
 ```
 InterfaceExperiments/
 ├─ CLAUDE.md              this guide
-├─ companion-card.html    the original companion profile card and its sub-views, self-contained
+├─ companion-card.html    a one-to-one replica of the native profile card as rendered on 2026-09-13, at the C# layout's own pixel sizes, with its three pages and controls live so a change can be tried here before it is built in game
 └─ mastery-map.html       selectable eight-branch mastery design with ranks and nested weapon upgrades
 ```
 
