@@ -25,9 +25,9 @@ namespace AICompanion.Companion.Brain.PositionSelection;
 /// abandoned for the way back, and a companion already ahead waits on the journey instead of walking
 /// back to where the player stands now.
 ///
-/// A candidate the flood has not reached is undecided rather than cheap: while any candidate is
-/// undecided the previous place is kept, and with none the player's current feet stand in. A player
-/// working or paused in place is not on a journey, so company is where they are.
+/// A candidate the flood has not reached is undecided rather than cheap: while the flood is unfinished
+/// the previous place is kept, and with none the bounded continuation of the player's travel stands in.
+/// A player working or paused in place is not on a journey, so company is where they are.
 /// </summary>
 public sealed class ChooseMeetingPlace
 {
@@ -35,7 +35,7 @@ public sealed class ChooseMeetingPlace
 
     private readonly List<Candidate> candidates = new();
     private ContinueRouteSearch? search;
-    private ulong rootedAt;
+    private ulong rootedAt, resolvedAt;
     private Point? chosen;
 
     public Vector2 Anchor { get; private set; }
@@ -47,11 +47,13 @@ public sealed class ChooseMeetingPlace
     /// <summary>Route ticks for the companion from where its flood was rooted, or NaN when unknown.</summary>
     public float CompanionTicks { get; private set; } = float.NaN;
     public int Priced { get; private set; }
-    /// <summary>How the companion's flood stands: unfinished, exhausted, or capped at its node limit,
-    /// which bounds the answer without proving that an unreached place is unreachable.</summary>
+    /// <summary>How the companion's flood stands — unfinished, exhausted, or capped at its node limit, which
+    /// bounds the answer without proving that an unreached place is unreachable — and, after the @, how many
+    /// ticks ago it was rooted, which is how old the route times behind a decision are.</summary>
     public string FloodState => search == null ? "none"
-        : !search.Finished ? "advancing"
-        : search.Stop == AStar.SearchStopReason.Exhausted ? "exhausted" : "node-limit:" + search.TravelTicks.Count;
+        : (!search.Finished ? "advancing"
+            : search.Stop == AStar.SearchStopReason.Exhausted ? "exhausted" : "node-limit:" + search.TravelTicks.Count)
+          + "@" + (resolvedAt >= rootedAt ? resolvedAt - rootedAt : 0);
     public IReadOnlyList<Candidate> Candidates => candidates;
 
     /// <summary>Reunion is not the method in use: nothing is retained and no flood advances.</summary>
@@ -68,6 +70,7 @@ public sealed class ChooseMeetingPlace
 
     public Vector2 Resolve(Vector2 companionFeet, PlayerSense player, ulong tick)
     {
+        resolvedAt = tick;
         candidates.Clear();
         Priced = 0;
         PlayerTicks = CompanionTicks = float.NaN;
@@ -80,14 +83,19 @@ public sealed class ChooseMeetingPlace
             return Anchor;
         }
 
-        // Route times are measured from the flood's root. Re-rooting on a cadence keeps them within
-        // that many ticks of the body's live position without restarting the flood on every step.
-        if (MovementQueries.NearestStandable(MovementQueries.FeetTile(companionFeet), 2) is Point root
-            && (search == null || !search.Valid || search.Start != root && tick - rootedAt >= (ulong)Weights.MeetingRerootTicks))
+        // Route times are measured from the flood's root. An unfinished flood keeps expanding while the body
+        // stays in the region it can return from, because restarting it on every cadence meant a cave-sized
+        // flood never finished and reunion never got a priced place. It re-roots when the terrain changed, when
+        // the body left that region, or when it finished with prices older than the cadence.
+        if (MovementQueries.NearestStandable(MovementQueries.FeetTile(companionFeet), 2) is Point root)
         {
-            search?.Dispose();
-            search = new ContinueRouteSearch(root, null, AStar.AllowLava, false);
-            rootedAt = tick;
+            bool stale = search is { Finished: true } && search.Start != root && tick - rootedAt >= (ulong)Weights.MeetingRerootTicks;
+            if (search == null || !search.Valid || stale || !search.CanReuseFrom(root))
+            {
+                search?.Dispose();
+                search = new ContinueRouteSearch(root, null, AStar.AllowLava, false);
+                rootedAt = tick;
+            }
         }
         search?.Advance(Weights.ReachFloodBudget, Weights.MeetingSearchMilliseconds);
         // A best-first flood finalises a tile's travel time only when it stops expanding: before that a
@@ -148,8 +156,11 @@ public sealed class ChooseMeetingPlace
         }
         else
         {
+            // With no priced place the anchor is the bounded continuation reunion used before meeting places:
+            // aiming at the player's current feet instead trailed a travelling player for as long as a large
+            // cave's flood took to finish, which was most of the time.
             chosen = null;
-            Anchor = player.Bottom;
+            Anchor = player.Predict(Weights.MeetingFallbackLeadTicks);
             Reason = settled && best == null ? "no-reachable-meeting-place" : "meeting-undecided";
         }
         return Anchor;

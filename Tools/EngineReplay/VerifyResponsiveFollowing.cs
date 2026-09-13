@@ -27,7 +27,9 @@ internal static class VerifyResponsiveFollowing
         VerifyCturnCompletesThroughTheProductionBrain();
         VerifyRecentActivityChangesTheMeetingPlace();
         VerifyMeetingPlacesFollowTheCompanionsOwnRoutes();
-        Console.WriteLine("responsive following: vertical intent, two-axis arrival, live brain follow selection, activity-dependent meeting places and route-priced reunion passed");
+        VerifyAnUnfinishedMeetingFloodKeepsItsProgress();
+        VerifyADroppedMeetingPlaceIsNotWalkedTo();
+        Console.WriteLine("responsive following: vertical intent, two-axis arrival, live brain follow selection, activity-dependent meeting places, route-priced reunion, retained meeting floods and dropped meeting places passed");
         return 0;
     }
 
@@ -397,6 +399,80 @@ internal static class VerifyResponsiveFollowing
             Console.WriteLine($"meeting place {(reconnects ? "gap ahead" : "cliff")}: {decision} at tick {decidedAt}, anchor {(anchorX - playerX) / 16:+0.0;-0.0} tiles from the player, "
                 + $"companion moved {moved / 16:+0.0;-0.0} tiles in 60 ticks, reunited by tick {lastTick}");
         }
+    }
+
+    /// <summary>
+    /// The companion's flood keeps its progress while the body moves inside the region it has proven it can
+    /// return from. Restarting it whenever the re-root cadence passed meant a flood needing more than one
+    /// cadence never finished, so reunion in a large cave never got a priced place. Every call here arrives
+    /// after the cadence with the body one tile along, which restarted the old flood on each call. While
+    /// nothing is decided the anchor is the bounded continuation of the player's travel rather than their
+    /// current feet, which a travelling player has already left.
+    /// </summary>
+    private static void VerifyAnUnfinishedMeetingFloodKeepsItsProgress()
+    {
+        live::AICompanion.Companion.Brain.SharedMovementSystem.LimitPlanningWork.Unbounded = true;
+        try
+        {
+            BuildParallelRoutes(76);
+            var companion = VerifyCompanionLifecycle.Create();
+            Player player = Main.player[0];
+            player.dead = false;
+            player.position = new Vector2(30 * 16, 76 * 16 - player.height);
+            companion.NPC.position = new Vector2(35 * 16, 80 * 16 - companion.NPC.height);
+            companion.NPC.velocity = Vector2.Zero;
+            for (int tick = 0; tick < 30; tick++)
+            {
+                player.velocity = new Vector2(3f, 0f);
+                player.position += player.velocity;
+                VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
+                companion.Brain.Senses.Update(companion.NPC, player, companion.Breath);
+            }
+            var meeting = companion.Brain.Meeting;
+            var sense = companion.Brain.Senses.Player;
+            ulong start = Main.GameUpdateCount + 1;
+            int cadence = live::AICompanion.Companion.Brain.BehaviourSelection.Weights.MeetingRerootTicks;
+            Vector2 first = meeting.Resolve(companion.NPC.Bottom, sense, start);
+            Vector2 continuation = sense.Predict(live::AICompanion.Companion.Brain.BehaviourSelection.Weights.MeetingFallbackLeadTicks);
+            Require(meeting.Reason == "meeting-undecided",
+                $"one slice must not finish the flood, or nothing about retaining its progress is tested; reason={meeting.Reason} flood={meeting.FloodState}");
+            Require(Vector2.Distance(first, continuation) < 1f && MathF.Abs(first.X - sense.Bottom.X) >= 16f,
+                $"an undecided meeting place must aim at the player's continued travel, not the feet they have left; anchor={first} continuation={continuation} feet={sense.Bottom}");
+            int calls = 1;
+            for (; calls < 200 && meeting.Reason == "meeting-undecided"; calls++)
+                meeting.Resolve(companion.NPC.Bottom + new Vector2(calls % 2 * 16, 0), sense, start + (ulong)(calls * (cadence + 1)));
+            Require(meeting.Reason is "meeting-ahead-priced" or "player-position-priced",
+                $"an unfinished flood must keep its progress while the body stays in the region it can return from; reason={meeting.Reason} after {calls} slices, flood={meeting.FloodState}");
+            Console.WriteLine($"meeting flood: {meeting.Reason} after {calls} slices, each past the re-root cadence with the body moved; flood {meeting.FloodState}");
+        }
+        finally { live::AICompanion.Companion.Brain.SharedMovementSystem.LimitPlanningWork.Unbounded = false; }
+    }
+
+    /// <summary>
+    /// A meeting place reaches the positioner as an exact tile. When reunion drops it, because the flood
+    /// re-rooted or the player stopped, the next request asks for the region around a different anchor, and
+    /// the old tile must not survive the rescore cadence as the destination: it can lie behind a player who
+    /// has moved on.
+    /// </summary>
+    private static void VerifyADroppedMeetingPlaceIsNotWalkedTo()
+    {
+        BuildFloor();
+        var companion = VerifyCompanionLifecycle.Create();
+        Player player = Main.player[0];
+        player.dead = false;
+        player.position = new Vector2(30 * 16 - player.width / 2f, 80 * 16 - player.height);
+        companion.NPC.position = new Vector2(40 * 16 - companion.NPC.width / 2f, 80 * 16 - companion.NPC.height);
+        companion.Brain.Senses.Update(companion.NPC, player, companion.Breath);
+        var positioner = companion.Brain.Positioner;
+        Vector2 place = live::AICompanion.Companion.Brain.SharedMovementSystem.MovementQueries.FeetWorld(new Point(80, 79));
+        positioner.Resolve(new live::AICompanion.Companion.Brain.PositionSelection.PositionRequest(RequestKind.WithPlayer, place, MeetingPlace: true),
+            companion.Brain.Senses, null);
+        Require(positioner.Chosen is Vector2 held && Vector2.Distance(held, place) < 1f && positioner.ChoiceReason == "priced-meeting-place",
+            $"a priced meeting place must first become the exact destination, or dropping it tests nothing; chosen={positioner.Chosen} reason={positioner.ChoiceReason}");
+        positioner.Resolve(new live::AICompanion.Companion.Brain.PositionSelection.PositionRequest(RequestKind.WithPlayer, player.Bottom),
+            companion.Brain.Senses, null);
+        Require(positioner.Chosen is not Vector2 kept || Vector2.Distance(kept, place) >= 16f,
+            $"a dropped meeting place must not remain the destination until the next rescore; chosen={positioner.Chosen} reason={positioner.ChoiceReason} place={place}");
     }
 
     private static void BuildParallelRoutes(int gapAt)

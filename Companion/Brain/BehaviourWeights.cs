@@ -54,6 +54,9 @@ public static class Weights
     public const float MeetingSwitchMargin = .15f;
     public const int MeetingRerootTicks = 30;
     public const double MeetingSearchMilliseconds = 1d;
+    // Until a finished flood prices a place, reunion aims at the player's travel continued this far: the
+    // bounded continuation it used before meeting places existed, clamped by the intent history.
+    public const int MeetingFallbackLeadTicks = 45;
     // Lighting reads only light the engine computed. An area is a lighting opportunity when enough of its
     // samples are measured and their mean is below the dark level, which deliberately equals the held
     // torch's raise level (TorchBearer.RaiseBelow) so carrying and placing light agree about what dark

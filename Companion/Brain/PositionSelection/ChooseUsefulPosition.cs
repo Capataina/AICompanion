@@ -188,8 +188,10 @@ public sealed class Positioner
         }
 
         sinceScore++;
+        // A dropped meeting place is a changed request: without this the scored path kept walking to the
+        // dropped tile for the rest of the rescore cadence, even once it lay behind the player.
         bool kindChanged = request.Kind != lastRequest.Kind || request.Target != lastRequest.Target
-            || fireProfile != lastFireProfile;
+            || request.MeetingPlace != lastRequest.MeetingPlace || fireProfile != lastFireProfile;
         if (Chosen != null && !kindChanged && sinceScore < RescoreInterval)
             return Chosen;
 

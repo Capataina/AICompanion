@@ -129,14 +129,18 @@ internal static class VerifyOreWork
     /// </summary>
     private static void ReunionChargeReadsDepartureAndTheRouteHome()
     {
-        var seen = new Dictionary<(bool Departing, bool FarRoute, bool NearlyDone), (string Selected, float Mine, float Delay, float Return, float Route)>();
+        // Stationary, a slow walk away and a quick departure. Which activity the slow departure should pick is a
+        // judgement for play, so its selection is printed rather than required; its charge must still grow with
+        // the route home, because any departure scales the route by the same factor.
+        float[] speeds = { 0f, 1.5f, 4f };
+        var seen = new Dictionary<(float Speed, bool FarRoute, bool NearlyDone), (string Selected, float Mine, float Delay, float Return, float Route)>();
         // Route floods advance under millisecond slices; every edge on the mound runs a body simulation,
         // so a wall-clock slice would decide how far the route home is priced. Lifting the allowances
         // keeps each flood's work count as the only bound.
         live::AICompanion.Companion.Brain.SharedMovementSystem.LimitPlanningWork.Unbounded = true;
         try
         {
-        foreach (bool departing in new[] { false, true })
+        foreach (float speed in speeds)
         foreach (bool farRoute in new[] { false, true })
         foreach (bool nearlyDone in new[] { false, true })
         {
@@ -148,7 +152,6 @@ internal static class VerifyOreWork
             workClock.OnWorldLoad();
             brain.Chooser.Actions.RemoveAll(action => action.Name is not ("mine" or "keep-company"));
             const int separation = 576;
-            float speed = departing ? 4f : 0f;
             // The player stands on the upper floor, five rows above the companion's corridor floor.
             ctx.Player.Bottom = ctx.Npc.Bottom + new Vector2(separation - 120 * speed, -5 * 16);
             for (int tick = 0; tick < 120; tick++)
@@ -172,7 +175,7 @@ internal static class VerifyOreWork
                 // An extern alias cannot appear inside an interpolation hole, so the diagnostics are locals.
                 bool standable = live::AICompanion.Companion.Brain.SharedMovementSystem.MovementQueries.IsStandable(to.X, to.Y);
                 var walker = live::AICompanion.Companion.Brain.SharedMovementSystem.MovementQueries.WalkerReach(from, to);
-                Require(false, $"the route home must be priced before return cost can be compared; departing={departing} farRoute={farRoute} from={from} to={to} "
+                Require(false, $"the route home must be priced before return cost can be compared; speed={speed} farRoute={farRoute} from={from} to={to} "
                     + $"standable={standable} inRegion={brain.Positioner.Reaches(to)} regionComplete={brain.Positioner.ReachComplete} walker={walker}");
             }
             Item pick = TileMiner.PickaxeFor(ctx.Player);
@@ -184,29 +187,30 @@ internal static class VerifyOreWork
                 }
             var selected = brain.Chooser.Choose(ctx);
             var mine = brain.Chooser.LastScores.Single(s => s.Action.Name == "mine");
-            seen[(departing, farRoute, nearlyDone)] = (selected?.Name ?? "none", mine.Final, brain.Chooser.Reunion.DelayCostPerTick, brain.Chooser.EstimatedReturnTicks,
+            seen[(speed, farRoute, nearlyDone)] = (selected?.Name ?? "none", mine.Final, brain.Chooser.Reunion.DelayCostPerTick, brain.Chooser.EstimatedReturnTicks,
                 brain.Positioner.EstimatedTravelTicks(from, to) ?? -1f);
         }
         }
         finally { live::AICompanion.Companion.Brain.SharedMovementSystem.LimitPlanningWork.Unbounded = false; }
         string ledger = string.Join("; ", seen.Select(s =>
-            $"{(s.Key.Departing ? "departing" : "stationary")}/{(s.Key.FarRoute ? "far-route" : "near-route")}/{(s.Key.NearlyDone ? "one-hit" : "fresh")}: "
+            $"{(s.Key.Speed == 0 ? "stationary" : $"departing {s.Key.Speed}px")}/{(s.Key.FarRoute ? "far-route" : "near-route")}/{(s.Key.NearlyDone ? "one-hit" : "fresh")}: "
             + $"{s.Value.Selected} mine={s.Value.Mine:0.000} delay={s.Value.Delay:0.00000} return={s.Value.Return:0} route={s.Value.Route:0}"));
         foreach (bool nearlyDone in new[] { false, true })
         {
-            Require(seen[(false, false, nearlyDone)].Selected == "mine",
+            Require(seen[(0f, false, nearlyDone)].Selected == "mine",
                 $"a calm player is met by quick justified work; {ledger}");
             // The chooser reads the larger of the straight-line estimate and the route, so a near route
             // shorter than the straight line shows only the straight line; the guard is that the far route
             // is strictly longer in what the chooser read, not a margin chosen before seeing that floor.
-            Require(seen[(false, true, nearlyDone)].Return > seen[(false, false, nearlyDone)].Return
-                && seen[(true, true, nearlyDone)].Return > seen[(true, false, nearlyDone)].Return
-                && seen[(true, true, nearlyDone)].Route > seen[(true, false, nearlyDone)].Route,
-                $"the far way up must lengthen the priced route home, or the pairs compare nothing; {ledger}");
-            Require(seen[(true, true, nearlyDone)].Delay > seen[(true, false, nearlyDone)].Delay
-                && seen[(true, true, nearlyDone)].Mine < seen[(true, false, nearlyDone)].Mine,
-                $"a departing player's reunion charge grows with the route home; {ledger}");
-            Require(MathF.Abs(seen[(false, true, nearlyDone)].Delay - seen[(false, false, nearlyDone)].Delay) < 1e-6f,
+            foreach (float speed in speeds)
+                Require(seen[(speed, true, nearlyDone)].Return > seen[(speed, false, nearlyDone)].Return
+                    && (speed == 0f || seen[(speed, true, nearlyDone)].Route > seen[(speed, false, nearlyDone)].Route),
+                    $"the far way up must lengthen the priced route home, or the pairs compare nothing; speed={speed}; {ledger}");
+            foreach (float speed in speeds.Where(s => s > 0f))
+                Require(seen[(speed, true, nearlyDone)].Delay > seen[(speed, false, nearlyDone)].Delay
+                    && seen[(speed, true, nearlyDone)].Mine < seen[(speed, false, nearlyDone)].Mine,
+                    $"a departing player's reunion charge grows with the route home; speed={speed}; {ledger}");
+            Require(MathF.Abs(seen[(0f, true, nearlyDone)].Delay - seen[(0f, false, nearlyDone)].Delay) < 1e-6f,
                 $"a stationary player's route home is not charged to optional work; {ledger}");
         }
         Console.WriteLine($"reunion charge matrix: {ledger}");

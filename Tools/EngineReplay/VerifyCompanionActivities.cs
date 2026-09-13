@@ -456,35 +456,70 @@ internal static class VerifyCompanionActivities
     }
 
     /// <summary>
-    /// Four matched scenes on one ore floor differ only in who a hostile threatens: nobody, the player,
-    /// the companion or both. Threat, protection, reunion and chooser run in production order. Mining's
-    /// raw value must not move in any of them, because the player's need for help reaches optional work
-    /// once, through the shared protection factor, and a threat to the companion alone must change
-    /// neither that factor, the reunion charge nor the value of guarding. A raw value that still
-    /// multiplied in player danger, or a self-only threat leaking into either shared factor, fails here.
+    /// Four matched scenes on one ore floor differ only in whom an added hostile threatens: nobody, the
+    /// player, the companion or both. Threat, protection, reunion and chooser run in production order. Every
+    /// excursion has a real opportunity in every scene — ore, a tree, a dropped item, a measured dark area
+    /// with a torch supply, and an attackable zombie between the two actors — so each raw value has something
+    /// to read danger into. The zombie is also a mild threat to both actors, identical in every scene, so the
+    /// premise is relational: each added threat raises exactly the danger of the actor it names and leaves
+    /// the other's unchanged. No excursion's raw value may move between the
+    /// scenes that differ only in the player's danger, because the player's need for help reaches optional
+    /// work once, through the shared protection factor; hunting must still yield to the companion's own
+    /// danger, which is a different risk. A threat to the companion alone must change neither protection,
+    /// the reunion charge nor the value of guarding.
     /// </summary>
     private static void DangerIsChargedOnceToTheActorItThreatens()
     {
         var scenes = new (string Name, bool Player, bool Companion)[]
             { ("neither", false, false), ("player", true, false), ("companion", false, true), ("both", true, true) };
         var seen = new Dictionary<string, (float Raw, float Protection, float Reunion, float DelayCost, float Guard, float PlayerDanger, float CompanionDanger)>();
+        var excursions = new Dictionary<string, Dictionary<string, float>>();
+        var offers = new Dictionary<string, string>();
+        bool torchPlacement = Preferences.Current.TorchPlacement;
+        var lightMode = Lighting.Mode;
+        float brightness = Lighting.GlobalBrightness;
+        Item previousItem = Main.item[5];
         live::AICompanion.Companion.Brain.SharedMovementSystem.LimitPlanningWork.Unbounded = true;
         try
         {
+            Preferences.Current.TorchPlacement = true;
             foreach (var scene in scenes)
             {
                 var (_, ctx) = VerifyOreWork.SetUp(Policy.Opportunistic, TileID.Copper, new Point(25, 59));
+                VerifyUsefulAssistance.WriteMeasuredLight(new Rectangle(0, 0, 100, 100), (_, _) => .05f);
                 ctx.Player.Bottom = new Vector2(50 * 16, 60 * 16);
-                for (int i = 30; i <= 31; i++) Main.npc[i] = new NPC();
-                void Hostile(int slot, Vector2 feet)
+                Tile trunk = Main.tile[30, 59];
+                trunk.ClearEverything();
+                trunk.HasTile = true;
+                trunk.TileType = TileID.Trees;
+                Main.tileAxe[TileID.Trees] = true;
+                Main.tileSolid[TileID.Trees] = false;
+                live::AICompanion.Companion.Brain.SharedMovementSystem.TerrainChanges.Reset();
+                for (int i = 0; i < ctx.Player.inventory.Length; i++) ctx.Player.inventory[i] = new Item();
+                Item torches = new();
+                torches.SetDefaults(ItemID.Torch);
+                torches.stack = 5;
+                ctx.Player.inventory[0] = torches;
+                ctx.Player.selectedItem = 1;
+                Item drop = new();
+                drop.SetDefaults(ItemID.CopperOre);
+                drop.active = true;
+                drop.whoAmI = 5;
+                drop.Bottom = new Vector2(22 * 16, 60 * 16);
+                Main.item[5] = drop;
+                for (int i = 30; i <= 32; i++) Main.npc[i] = new NPC();
+                void Hostile(int slot, Vector2 feet, bool attackable)
                 {
                     NPC npc = Main.npc[slot];
                     npc.SetDefaults(NPCID.Zombie);
-                    npc.whoAmI = slot; npc.active = true; npc.damage = 100; npc.dontTakeDamage = true;
-                    npc.Bottom = feet;
+                    npc.whoAmI = slot; npc.active = true; npc.Bottom = feet;
+                    if (!attackable) { npc.damage = 100; npc.dontTakeDamage = true; }
                 }
-                if (scene.Player) Hostile(30, ctx.Player.Bottom - new Vector2(64, 0));
-                if (scene.Companion) Hostile(31, ctx.Npc.Bottom - new Vector2(64, 0));
+                // The hunt target. A straight floor has no spot far enough from both actors to leave it outside
+                // either arrival window, so it is a mild threat to both, and the same one in every scene.
+                Hostile(32, new Vector2(36 * 16, 60 * 16), attackable: true);
+                if (scene.Player) Hostile(30, ctx.Player.Bottom - new Vector2(64, 0), attackable: false);
+                if (scene.Companion) Hostile(31, ctx.Npc.Bottom - new Vector2(64, 0), attackable: false);
                 var brain = ctx.Companion.Brain;
                 brain.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Breath);
                 brain.Senses.SetInterventionEstimate(ctx.Companion.Arsenal.EstimateInterventionTicks(ctx));
@@ -493,22 +528,49 @@ internal static class VerifyCompanionActivities
                 var guard = brain.Chooser.LastScores.Single(s => s.Action.Name == "guard");
                 seen[scene.Name] = (mine.Raw, mine.Protection, mine.Reunion, brain.Chooser.Reunion.DelayCostPerTick, guard.Raw,
                     brain.Senses.Threats.PlayerDanger, brain.Senses.Threats.CompanionDanger);
+                excursions[scene.Name] = brain.Chooser.LastScores.Where(s => s.Action.IsExcursion).ToDictionary(s => s.Action.Name, s => s.Raw);
+                offers[scene.Name] = string.Join(",", brain.Chooser.LastScores.Where(s => s.Action.IsExcursion)
+                    .Select(s => $"{s.Action.Name}:{s.Action.Eligibility}/{s.Action.EligibilityReason}"));
             }
         }
-        finally { live::AICompanion.Companion.Brain.SharedMovementSystem.LimitPlanningWork.Unbounded = false; }
+        finally
+        {
+            live::AICompanion.Companion.Brain.SharedMovementSystem.LimitPlanningWork.Unbounded = false;
+            Preferences.Current.TorchPlacement = torchPlacement;
+            VerifyUsefulAssistance.ClearMeasuredLight();
+            Lighting.Mode = lightMode;
+            Lighting.GlobalBrightness = brightness;
+            Main.item[5] = previousItem;
+            for (int i = 30; i <= 32; i++) Main.npc[i] = new NPC();
+        }
         string ledger = string.Join("; ", seen.Select(s => $"{s.Key}: raw={s.Value.Raw} protection={s.Value.Protection} reunion={s.Value.Reunion} delay={s.Value.DelayCost} guard={s.Value.Guard} playerDanger={s.Value.PlayerDanger} companionDanger={s.Value.CompanionDanger}"));
+        string excursionLedger = string.Join("; ", excursions.Select(s => s.Key + ": " + string.Join(",", s.Value.Select(v => $"{v.Key}={v.Value:0.#####}"))))
+            + " | offers " + string.Join("; ", offers.Select(o => $"{o.Key}: {o.Value}"));
+        foreach (string name in new[] { "mine", "chop", "hunt", "collect", "place-torches" })
+            Require(excursions["neither"].TryGetValue(name, out float calm) && calm > 0,
+                $"every excursion needs a real opportunity in the calm scene, or its invariance to danger is vacuous: {name}; {excursionLedger}");
+        foreach (var (calm, threatened) in new[] { ("neither", "player"), ("companion", "both") })
+            foreach (var (name, raw) in excursions[calm])
+                Require(excursions[threatened][name] == raw,
+                    $"{name}'s raw value must not read the player's danger: {calm}={raw} against {threatened}={excursions[threatened][name]}; {excursionLedger}");
+        Require(excursions["companion"]["hunt"] < excursions["neither"]["hunt"],
+            $"hunting must still yield to the companion's own danger, a different risk from the player's; {excursionLedger}");
+        Console.WriteLine($"danger charged once: {excursionLedger}");
         var (neither, player, companion, both) = (seen["neither"], seen["player"], seen["companion"], seen["both"]);
-        Require(neither.PlayerDanger == 0 && neither.CompanionDanger == 0 && player.PlayerDanger > 0 && player.CompanionDanger == 0
-            && companion.PlayerDanger == 0 && companion.CompanionDanger > 0 && both.PlayerDanger > 0 && both.CompanionDanger > 0,
-            $"the four scenes must threaten exactly the actors they name, or the matrix tests nothing; {ledger}");
+        static bool Same(float a, float b) => MathF.Abs(a - b) < 1e-6f;
+        Require(player.PlayerDanger > neither.PlayerDanger && both.PlayerDanger > companion.PlayerDanger
+            && companion.CompanionDanger > neither.CompanionDanger && both.CompanionDanger > player.CompanionDanger
+            && Same(companion.PlayerDanger, neither.PlayerDanger) && Same(both.PlayerDanger, player.PlayerDanger)
+            && Same(player.CompanionDanger, neither.CompanionDanger) && Same(both.CompanionDanger, companion.CompanionDanger),
+            $"each added threat must raise exactly the danger of the actor it names and leave the other's unchanged, or the matrix tests nothing; {ledger}");
         Require(neither.Raw > 0 && seen.Values.All(v => v.Raw == neither.Raw),
             $"mining's raw value must not read either actor's danger; the player's need reaches it once, as protection; {ledger}");
-        Require(neither.Protection == 1 && companion.Protection == 1 && player.Protection < 1 && MathF.Abs(both.Protection - player.Protection) < 1e-5f,
+        Require(Same(companion.Protection, neither.Protection) && player.Protection < neither.Protection && Same(both.Protection, player.Protection),
             $"only a threat to the player may discount optional work for protection, and a companion threat must not add to it; {ledger}");
         Require(seen.Values.All(v => v.DelayCost == neither.DelayCost && v.Reunion == neither.Reunion),
             $"no threat to either actor may change the separation charge while reunion evidence is unchanged; {ledger}");
-        Require(neither.Guard == 0 && companion.Guard == 0 && player.Guard > 0,
-            $"a threat to the companion alone creates no player-protection offer; {ledger}");
+        Require(Same(companion.Guard, neither.Guard) && player.Guard > neither.Guard,
+            $"a threat to the companion alone must not change the player-protection offer; {ledger}");
     }
 
     private static void ComfortableFollowingHasNoRegroupPressure()
