@@ -26,7 +26,11 @@ public static class WritePlaytestHtml
         public bool NormalClose { get; set; }
     }
     private sealed record Run(string Source, string[] Columns, List<Sample> Samples,
-        Dictionary<string, List<JsonElement>> Events, Coverage Coverage, int Rows, int RaggedRows);
+        Dictionary<string, List<JsonElement>> Events, Coverage Coverage, int Rows, int RaggedRows,
+        List<AttemptView> Attempts, string AttemptCoverage);
+    /// <summary>One attempt's joined grants, effects and conclusion, placed on the scrubber by the earliest and latest tick any of its records names.</summary>
+    private sealed record AttemptView(long Attempt, long Start, long End, string Text);
+    private const int MaximumAttempts = 512;
 
     public static void Write(string output, IEnumerable<string> paths)
     {
@@ -50,10 +54,32 @@ public static class WritePlaytestHtml
             }
             var coverage = new Coverage();
             var events = ReadEvents(path, coverage);
-            runs.Add(new Run(Path.GetFullPath(path), columns, samples, events, coverage, session.Count, session.Ragged));
+            var (attempts, attemptCoverage) = JoinAttempts(path, session);
+            runs.Add(new Run(Path.GetFullPath(path), columns, samples, events, coverage, session.Count, session.Ragged, attempts, attemptCoverage));
         }
         string data = JsonSerializer.Serialize(new { Runs = runs, OmittedRuns = Math.Max(0, selected.Length - MaximumRuns) });
         File.WriteAllText(output, Page.Replace("__DATA__", data, StringComparison.Ordinal), Encoding.UTF8);
+    }
+
+    /// <summary>
+    /// The identity join the text report prints, embedded for the scrubber. The sampled event
+    /// reservoirs above can drop any single grant or effect, so the join reads the full validated
+    /// sidecar instead and keeps only its latest attempts, saying how many it left out.
+    /// </summary>
+    private static (List<AttemptView> Attempts, string Coverage) JoinAttempts(string path, Session session)
+    {
+        if (!session.Has("activity_attempt_id"))
+            return (new List<AttemptView>(), "Attempt identity unavailable: this session predates schema 0.20.0.");
+        GodsEyeEventLog log = ReadGodsEyeEvents.Read(path);
+        if (!log.Present)
+            return (new List<AttemptView>(), "Attempt identity unavailable: there is no events sidecar.");
+        AttemptJoin join = JoinAttemptEvidence.Build(session, log);
+        var views = join.Attempts.Values
+            .Select(a => new AttemptView(a.AttemptId, a.FirstTick, a.LastTick, JoinAttemptEvidence.DescribeAttempt(a))).ToList();
+        int omitted = Math.Max(0, views.Count - MaximumAttempts);
+        views = views.Skip(omitted).ToList();
+        return (views, $"{views.Count} of {join.Attempts.Count} attempts embedded ({omitted} earliest omitted); "
+            + $"{join.UnjoinedToolEffects.Count} tool effect(s), {join.GrantsWithoutIdentity.Count} grant(s) and {join.OutcomesWithoutIdentity.Count} outcome(s) unjoined.");
     }
 
     private static float? Number(Session session, string column, int row) => session.Has(column)
@@ -111,7 +137,7 @@ public static class WritePlaytestHtml
 </style>
 <header><h1>Recorded actor timeline</h1><p>Blue: player · Coral: companion. Blank/unrecorded terrain and gaps are unknown.</p><p>Inspect sampled state and retained events; the TSV and JSONL files contain the full recorded evidence.</p></header>
 <nav><label>Run <select id="run"></select></label><label>Events <select id="kind"></select></label><label>Tick <input id="jump" type="number" value="0"></label><button id="go">Go</button><button id="previous">Previous event</button><button id="next">Next event</button></nav>
-<div id="coverage"></div><main><section><input id="time" type="range" min="0" value="0"><div id="position"></div><canvas id="map" width="1000" height="600"></canvas><details><summary>Recorded sample fields</summary><pre id="state"></pre></details></section><section><strong>Events at or before the selected tick</strong><pre id="events"></pre></section></main>
+<div id="coverage"></div><main><section><input id="time" type="range" min="0" value="0"><div id="position"></div><canvas id="map" width="1000" height="600"></canvas><details><summary>Recorded sample fields</summary><pre id="state"></pre></details></section><section><strong>Events at or before the selected tick</strong><pre id="events"></pre><details open><summary>Attempts joined by identity</summary><pre id="attempts"></pre></details></section></main>
 <script id="data" type="application/json">__DATA__</script><script>
 'use strict';
 const data=JSON.parse(document.getElementById('data').textContent),q=id=>document.getElementById(id),run=q('run'),kind=q('kind'),time=q('time'),canvas=q('map'),ctx=canvas.getContext('2d');
@@ -120,7 +146,7 @@ const upper=(a,t,key)=>{let lo=0,hi=a.length;while(lo<hi){let mid=(lo+hi)>>>1;if
 for(let i=0;i<data.Runs.length;i++){let option=document.createElement('option');option.value=i;option.textContent=data.Runs[i].Source.split('/').pop();run.append(option)}
 function selectRun(){current=data.Runs[+run.value];if(!current)return;kind.replaceChildren();for(const name of ['all',...Object.keys(current.Events)]){let option=document.createElement('option');option.value=name;option.textContent=name;kind.append(option)}time.max=Math.max(0,current.Samples.length-1);time.value=0;selectKind();let c=current.Coverage;q('coverage').textContent=current.Source+'\n'+current.Samples.length+'/'+current.Rows+' samples; '+c.Kept+'/'+c.Seen+' events retained ('+c.Omitted+' omitted); '+c.Malformed+' malformed events; '+c.Oversized+' oversized records not embedded; '+current.RaggedRows+' malformed TSV rows. Sidecar '+(c.SidecarPresent?'present':'MISSING')+'; closure '+(c.NormalClose?'normal':'not observed')+'. '+data.OmittedRuns+' earlier selected runs omitted by the four-run viewer limit.';scrub()}
 function selectKind(){indexed=(kind.value==='all'?Object.values(current.Events).flat():current.Events[kind.value]||[]).slice().sort((a,b)=>a.tick-b.tick);showEvents()}
-function showEvents(){let end=upper(indexed,selectedTick,e=>e.tick);q('events').textContent=indexed.slice(Math.max(0,end-6),end).map(e=>JSON.stringify(e,null,2)).join('\n\n')||'No retained events before this tick. This is not evidence that nothing happened.'}
+function showEvents(){let end=upper(indexed,selectedTick,e=>e.tick);q('events').textContent=indexed.slice(Math.max(0,end-6),end).map(e=>JSON.stringify(e,null,2)).join('\n\n')||'No retained events before this tick. This is not evidence that nothing happened.';let begun=(current.Attempts||[]).filter(a=>a.Start<=selectedTick).slice(-6);q('attempts').textContent=current.AttemptCoverage+'\n\n'+(begun.map(a=>a.Text).join('\n')||'No joined attempt began at or before this tick.')}
 function show(tick){if(!Number.isFinite(tick))return;let i=Math.max(0,upper(current.Samples,tick,s=>s.Tick)-1);time.value=i;selectedTick=tick;q('jump').value=tick;draw(i);showEvents()}
 function scrub(){let sample=current?.Samples[+time.value];if(sample)show(sample.Tick)}
 function draw(i){let sample=current.Samples[i];ctx.clearRect(0,0,canvas.width,canvas.height);if(!sample){q('position').textContent='No valid samples';return}q('position').textContent='Tick '+selectedTick+' · displayed sample '+sample.Tick+' · '+(sample.Wall/1000).toFixed(2)+' seconds from session start';q('state').textContent=JSON.stringify(Object.fromEntries(current.Columns.map((name,n)=>[name,sample.Values[n]])),null,2);let ox=sample.PlayerX??sample.CompanionX??0,oy=sample.PlayerY??sample.CompanionY??0;const point=(x,y,color,r)=>{if(x===null||y===null)return;ctx.fillStyle=color;ctx.beginPath();ctx.arc(500+(x-ox)*.3,300+(y-oy)*.3,r,0,Math.PI*2);ctx.fill()};for(let n=Math.max(0,i-600);n<=i;n++){let s=current.Samples[n];point(s.PlayerX,s.PlayerY,'#76b6f0',1.5);point(s.CompanionX,s.CompanionY,'#f49283',1.5)}point(sample.PlayerX,sample.PlayerY,'#76b6f0',6);point(sample.CompanionX,sample.CompanionY,'#f49283',6)}

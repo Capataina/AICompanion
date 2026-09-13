@@ -14,55 +14,32 @@ public static class DescribeGodsEyeEvents
 {
     public static string Of(string tsvPath, bool full = false)
     {
-        string path = Path.ChangeExtension(tsvPath, null) + "-events.jsonl";
-        if (!File.Exists(path)) return "events    unavailable — this session predates the God’s Eye event stream\n";
-        int valid = 0, malformed = 0; var kinds = new Dictionary<string, int>(StringComparer.Ordinal);
-        var chronology = new List<EventLine>();
-        var lifecycle = new List<EventLine>();
-        bool opened = false, closed = false;
-        int lastSequence = -1, missingSequences = 0;
-        foreach (string line in File.ReadLines(path))
-        {
-            try
-            {
-                using var document = JsonDocument.Parse(line);
-                if (document.RootElement.ValueKind != JsonValueKind.Object) throw new InvalidDataException();
-                foreach (string field in new[] { "v", "seq", "tick", "wall_elapsed_ms", "kind", "subject", "related", "label", "channel", "pos_x", "pos_y", "vel_x", "vel_y", "expected_x", "expected_y", "amount", "detail" })
-                    if (!document.RootElement.TryGetProperty(field, out _)) throw new InvalidDataException();
-                EventLine e = JsonSerializer.Deserialize<EventLine>(line) ?? throw new InvalidDataException();
-                if (e.v != 1 || string.IsNullOrWhiteSpace(e.kind) || e.tick < 0 || e.wall_elapsed_ms < 0 || !double.IsFinite(e.wall_elapsed_ms)
-                    || e.related == null || e.label == null || e.channel == null || e.detail == null || e.seq <= lastSequence
-                    || !float.IsFinite(e.pos_x) || !float.IsFinite(e.pos_y) || !float.IsFinite(e.vel_x) || !float.IsFinite(e.vel_y)
-                    || !float.IsFinite(e.expected_x) || !float.IsFinite(e.expected_y)) throw new InvalidDataException();
-                if (e.seq > lastSequence + 1) missingSequences += e.seq - lastSequence - 1;
-                lastSequence = e.seq;
-                string kind = e.kind;
-                if (kind == "session") { opened = true; continue; }
-                if (kind == "session-end") { closed = true; continue; }
-                valid++; kinds[kind] = kinds.TryGetValue(kind, out int count) ? count + 1 : 1;
-                chronology.Add(e);
-                if (kind == "lifecycle") lifecycle.Add(e);
-            }
-            catch (Exception error) when (error is JsonException or InvalidDataException or NotSupportedException) { malformed++; }
-        }
+        GodsEyeEventLog log = ReadGodsEyeEvents.Read(tsvPath);
+        if (!log.Present) return "events    unavailable — this session predates the God’s Eye event stream\n";
+        int valid = log.Events.Count, malformed = log.Malformed, missingSequences = log.MissingSequences;
+        bool opened = log.Opened, closed = log.Closed;
+        var kinds = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (GodsEyeEvent e in log.Events) kinds[e.kind] = kinds.TryGetValue(e.kind, out int count) ? count + 1 : 1;
+        var chronology = new List<GodsEyeEvent>(log.Events);
+        var lifecycle = chronology.Where(e => e.kind == "lifecycle").ToList();
         var text = new StringBuilder($"events    {valid:n0} occurrence record(s)" + (malformed == 0 ? "\n" : $", {malformed:n0} malformed line(s)\n"));
         text.Append($"coverage  start={(opened ? "recorded" : "missing")}; end={(closed ? "normal close" : "missing — active or interrupted capture")}; missing-sequences={missingSequences}; terrain is sampled locally, uncaptured terrain remains unknown\n");
         if (lifecycle.Count == 0)
             text.Append("lifecycle unavailable — this session predates lifecycle callback evidence\n");
         else
-            foreach (EventLine e in lifecycle.OrderBy(e => e.seq))
+            foreach (GodsEyeEvent e in lifecycle.OrderBy(e => e.seq))
                 text.Append($"lifecycle {e.label}: {e.detail}\n");
         foreach (var pair in kinds) text.Append($"  {pair.Key} {pair.Value:n0}\n");
         chronology.Sort((a, b) => a.wall_elapsed_ms != b.wall_elapsed_ms ? a.wall_elapsed_ms.CompareTo(b.wall_elapsed_ms) : a.seq.CompareTo(b.seq));
-        var launches = new Dictionary<int, EventLine>();
+        var launches = new Dictionary<int, GodsEyeEvent>();
         var contacted = new HashSet<int>();
         var rejections = new HashSet<string>(StringComparer.Ordinal);
-        foreach (EventLine e in chronology)
+        foreach (GodsEyeEvent e in chronology)
         {
             if (e.kind == "shot" && e.channel.StartsWith("projectile=", StringComparison.Ordinal) && int.TryParse(e.channel[11..], out int id)) launches[id] = e;
-            if (e.kind == "projectile-terrain-hit" && !contacted.Contains(e.subject) && launches.TryGetValue(e.subject, out EventLine? shot) && shot != null)
+            if (e.kind == "projectile-terrain-hit" && !contacted.Contains(e.subject) && launches.TryGetValue(e.subject, out GodsEyeEvent? shot) && shot != null)
                 text.Append($"causal    {TimeSpan.FromMilliseconds(e.wall_elapsed_ms):hh\\:mm\\:ss\\.fff} tick {e.tick}: {shot.label} projectile {e.subject} intended target {shot.related} at {shot.expected_x:0.0},{shot.expected_y:0.0} from {shot.pos_x:0.0},{shot.pos_y:0.0} met terrain at {e.pos_x:0.0},{e.pos_y:0.0} before any recorded enemy contact (observed obstruction; cause requires the recorded trajectory and terrain)\n");
-            if (e.kind == "projectile-enemy-hit" && launches.TryGetValue(e.subject, out EventLine? hitShot) && hitShot != null)
+            if (e.kind == "projectile-enemy-hit" && launches.TryGetValue(e.subject, out GodsEyeEvent? hitShot) && hitShot != null)
                 contacted.Add(e.subject);
             if (e.kind == "movement-state" && TryRejection(e.detail, out string rejected) && rejections.Add(rejected))
                 text.Append($"causal    {TimeSpan.FromMilliseconds(e.wall_elapsed_ms):hh\\:mm\\:ss\\.fff} tick {e.tick}: recorded movement rejection at {e.pos_x:0.0},{e.pos_y:0.0}; {Abbreviate(rejected, 280)} (observed planner/execution evidence; its underlying terrain cause remains unknown unless a matching terrain snapshot covers it)\n");
@@ -143,7 +120,4 @@ public static class DescribeGodsEyeEvents
         rejection = detail[(start + marker.Length)..];
         return !string.IsNullOrEmpty(rejection);
     }
-
-    private sealed record EventLine(int v, int seq, long tick, double wall_elapsed_ms, string kind, int subject, string related, string label, string channel,
-        float pos_x, float pos_y, float vel_x, float vel_y, float expected_x, float expected_y, int amount, string detail);
 }

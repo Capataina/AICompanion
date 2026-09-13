@@ -66,15 +66,7 @@ public sealed class Session
 
         var metadata = new Dictionary<string, string>(StringComparer.Ordinal);
         for (int i = 0; i < headerRow; i++)
-        {
-            string line = lines[i];
-            if (!line.StartsWith("# ", StringComparison.Ordinal))
-                continue;
-            int equals = line.IndexOf('=', 2);
-            if (equals <= 2)
-                continue;
-            metadata[line[2..equals]] = line[(equals + 1)..];
-        }
+            AddMetadata(metadata, lines[i]);
 
         // The writer opens the stream as UTF-8 and the framework prefixes a byte-order mark, so the
         // first column's name arrives as "﻿tick" and every lookup for "tick" misses.
@@ -135,6 +127,39 @@ public sealed class Session
         foreach (var pair in columns)
             session.byName[pair.Key] = pair.Value;
         return session;
+    }
+
+    /// <summary>
+    /// The metadata preamble alone, read without loading the rows, so a multi-run comparison of build
+    /// identity costs a few lines per run rather than a second parse of every session.
+    /// </summary>
+    public static IReadOnlyDictionary<string, string> ReadMetadata(string path)
+    {
+        var metadata = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (string line in File.ReadLines(path))
+        {
+            if (line.Length > 0 && !line.TrimStart('﻿').StartsWith('#'))
+                break;
+            AddMetadata(metadata, line);
+        }
+        return metadata;
+    }
+
+    /// <summary>
+    /// One <c># key=value</c> line, split at its first equals sign. A value can itself hold
+    /// <c>;key=value</c> pairs — the writer packs terraria, tml_assembly, runtime and os into one
+    /// line — and those stay inside the first key's value here; <see cref="MultiRunReport"/> expands
+    /// them where it compares provenance.
+    /// </summary>
+    private static void AddMetadata(Dictionary<string, string> metadata, string line)
+    {
+        line = line.TrimStart('﻿');
+        if (!line.StartsWith("# ", StringComparison.Ordinal))
+            return;
+        int equals = line.IndexOf('=', 2);
+        if (equals <= 2)
+            return;
+        metadata[line[2..equals]] = line[(equals + 1)..];
     }
 
     public int Tick(int row) => row >= 0 && row < Ticks.Length && !float.IsNaN(Ticks[row]) ? (int)Ticks[row] : row;

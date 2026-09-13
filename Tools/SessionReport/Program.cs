@@ -41,6 +41,14 @@ public static class Program
         // finding in either means the behaviour below it was measured on a broken body.
         new TheBodyIsNeverPinned(),
         new TheTwoBodiesAgree(),
+        // The identity contracts: whether a selection, an attempt and a control grant are named
+        // consistently across the rows and the occurrence sibling. Every one is a rule the producer
+        // guarantees rather than a threshold, and a finding here means any later attribution of
+        // effort or failure to an activity is being read across records that disagree.
+        new SelectedActivitiesHadAnEligibleOffer(),
+        new ARetainedChoiceKeepsItsSelection(),
+        new AttemptIdentitiesAgreeAcrossRecords(),
+        new ControlGrantsAreCompatible(),
         // Then the body, the fight and the choices.
         new TheBodyMovesWhenDriven(),
         new EveryMoveOfferedGetsMade(),
@@ -133,6 +141,7 @@ public static class Program
 
         Console.Write(DescribeSession.Of(session));
         Console.Write(DescribeGodsEyeEvents.Of(path, fullTimeline));
+        Console.Write(JoinAttemptEvidence.Describe(path, session, fullTimeline));
         Console.Write(Chronicle.Of(session, fullTimeline));
         if (session.Count == 0)
             return 0;
@@ -194,6 +203,7 @@ public static class Program
         {
             string[] missing = check.Needs.Where(n => !session.Has(n)).ToArray();
             if (missing.Length > 0) { skipped.Add((check.Name, string.Join(", ", missing))); continue; }
+            if (check is ICheckCoverage coverage && coverage.Missing(session) is { } absent) { skipped.Add((check.Name, absent)); continue; }
             ran++;
             try { findings.AddRange(check.Run(session)); }
             catch (Exception e)

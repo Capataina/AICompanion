@@ -65,3 +65,15 @@ public interface ICheck
 
     IEnumerable<Finding> Run(Session session);
 }
+
+/// <summary>
+/// A check whose evidence cannot be named as fixed columns: columns whose names come from the
+/// producer's registration list (<c>&lt;activity&gt;_offer</c>), or the occurrence sibling beside the
+/// session. The runner asks it after <see cref="ICheck.Needs"/> and skips it with the returned text
+/// exactly as it skips a missing column, so an old or partial capture reads as reduced coverage.
+/// </summary>
+public interface ICheckCoverage
+{
+    /// <summary>Null when the session carries what the check reads; otherwise what is absent, phrased to follow "the file has no".</summary>
+    string? Missing(Session session);
+}
