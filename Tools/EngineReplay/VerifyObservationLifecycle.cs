@@ -34,6 +34,7 @@ internal static class VerifyObservationLifecycle
             VerifyEndedOreJobRecording();
             VerifyRecoveryDoesNotRefreshTheChoice();
             VerifySafetyWithNoOrdinaryOffer();
+            VerifyAttemptEvidenceProducers.Run();
             Console.WriteLine("observation lifecycle: reserved retry names, zero-tick metadata and callback-scoped lifecycle evidence passed");
             return 0;
         }

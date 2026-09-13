@@ -113,6 +113,11 @@ public sealed class ARetainedChoiceKeepsItsSelection : ICheck
 ///   tool choice     a tool effect's choice-id equals the choice_id of the row at its tick: the
 ///                   comparison identity advances before Execute strikes and nothing else advances
 ///                   it that tick (ChooseBehaviour, then CoordinateBrainTick)
+///   tool attempt    a tool effect carrying activity-attempt-id (schema 0.25.0) names a non-zero
+///                   attempt, that attempt is the one its tick's row names open or names closed on
+///                   that tick, and its tick lies inside that attempt's recorded interval: only an
+///                   executing activity strikes, Execute runs after BeginExecution opened the attempt
+///                   (CoordinateBrainTick), and the row is written after the brain in the same update
 ///
 /// Deliberately not a rule: an outcome whose attempt never appears in any row or grant. An attempt
 /// can open at BeginExecution and be suspended by recovery later in the same tick, so no row or grant
@@ -177,8 +182,8 @@ public sealed class AttemptIdentitiesAgreeAcrossRecords : ICheck, ICheckCoverage
                 if (ReadGodsEyeEvents.TryLong(grant.Field("activity-id"), out long activity))
                     Claim(attempt.AttemptId, activity, null, "control-grant", grant.tick);
             foreach (var (effect, route) in attempt.ToolEffects)
-                if (route == ToolEffectRoute.OpenAttemptRow && ReadGodsEyeEvents.TryLong(effect.ChannelField("activity-id"), out long activity))
-                    Claim(attempt.AttemptId, activity, null, "tool-effect on a row naming it open", effect.tick);
+                if (route is ToolEffectRoute.OpenAttemptRow or ToolEffectRoute.ProducerAttemptId && ReadGodsEyeEvents.TryLong(effect.ChannelField("activity-id"), out long activity))
+                    Claim(attempt.AttemptId, activity, null, route == ToolEffectRoute.ProducerAttemptId ? "tool-effect naming it" : "tool-effect on a row naming it open", effect.tick);
         }
         Column endId = s["attempt_end_id"], endActivityId = s["attempt_end_activity_id"], endActivity = s["attempt_end_activity"];
         for (int i = 0; i < s.Count; i++)
@@ -212,6 +217,10 @@ public sealed class AttemptIdentitiesAgreeAcrossRecords : ICheck, ICheckCoverage
             if (outside.Count > 0)
                 findings.Add(Aggregate(Severity.Definitive, $"a control grant under attempt {attempt.AttemptId} lies outside its recorded ticks {start}..{end}", outside,
                     "A grant names only the attempt open when controls were finalised, so a grant carrying this attempt before it began or after it ended misnames the attempt or the attempt's interval."));
+            var strikesOutside = attempt.ToolEffects.Where(t => t.Route == ToolEffectRoute.ProducerAttemptId && (t.Effect.tick < start || t.Effect.tick > end)).Select(t => t.Effect).ToList();
+            if (strikesOutside.Count > 0)
+                findings.Add(Aggregate(Severity.Definitive, $"a tool effect naming attempt {attempt.AttemptId} lies outside its recorded ticks {start}..{end}", strikesOutside,
+                    "A strike names only the attempt open when Execute struck, and an attempt is open from its start tick to its end tick, so a strike naming it outside that interval misnames the attempt or the attempt's interval."));
             if (!ordered || end - start < 2) continue;
             int first = LowerBound(rowTicks, start + 1), mismatched = 0, firstMismatch = -1;
             for (int r = first; r < rowTicks.Length && rowTicks[r] < end; r++)
@@ -231,6 +240,20 @@ public sealed class AttemptIdentitiesAgreeAcrossRecords : ICheck, ICheckCoverage
         if (wrongChoice.Count > 0)
             findings.Add(Aggregate(Severity.Definitive, "tool effects name a comparison their own tick's row does not", wrongChoice,
                 "Execute strikes after that tick's comparison has advanced the identity, the row is written after the brain in the same NPC update, and nothing else advances the identity between them, so the two must agree."));
+
+        // A strike that names its own attempt names the one open when it struck.
+        if (join.ToolEffectsWithNoOpenAttempt.Count > 0)
+            findings.Add(Aggregate(Severity.Definitive, "tool effects were struck with no attempt open", join.ToolEffectsWithNoOpenAttempt,
+                "Only an executing activity strikes, and Execute runs after BeginExecution has opened an attempt for the current activity, so a strike naming attempt zero ran outside any attempt and its effect is credited to nobody's purpose."));
+        Column closedTick = s["attempt_end_tick"];
+        var wrongAttempt = join.Attempts.Values
+            .SelectMany(a => a.ToolEffects.Where(t => t.Route == ToolEffectRoute.ProducerAttemptId).Select(t => (a.AttemptId, t.Effect)))
+            .Where(x => rowAt.TryGetValue(x.Effect.tick, out int row) && JoinAttemptEvidence.LongAt(open, row) != x.AttemptId
+                && !(JoinAttemptEvidence.LongAt(endId, row) == x.AttemptId && JoinAttemptEvidence.LongAt(closedTick, row) == x.Effect.tick))
+            .Select(x => x.Effect).OrderBy(e => e.seq).ToList();
+        if (wrongAttempt.Count > 0)
+            findings.Add(Aggregate(Severity.Definitive, "tool effects name an attempt their own tick's row does not", wrongAttempt,
+                "The row at a strike's tick is written after the brain in the same update, so it names the attempt the strike named as still open or as closed on that tick; naming neither means the strike or the row misattributes the attempt."));
         return findings;
     }
 

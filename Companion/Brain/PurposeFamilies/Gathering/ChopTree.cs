@@ -264,7 +264,8 @@ public sealed class ChopTree : CompanionAction
                 ctx.Companion.StartAnimation(axe.type, axe.useAnimation);
                 if (ctx.Companion.Chopper.LastOutcome is { } outcome)
                 {
-                    BehaviourDiagnostics.GodsEyeEvents.RecordToolEffect(ctx.Npc, "axe", outcome, ctx.Companion.Brain.Chooser.EvaluationId, ctx.Companion.Brain.Chooser.Activity.Id);
+                    var owner = ctx.Companion.Brain.Chooser.Activity;
+                    BehaviourDiagnostics.GodsEyeEvents.RecordToolEffect(ctx.Npc, "axe", outcome, ctx.Companion.Brain.Chooser.EvaluationId, owner.Id, owner.AttemptOpen ? owner.AttemptId : 0);
                     if (outcome.Effect == WorldInteractions.TileToolEffect.Removed && outcome.Target == t.Bottom) attemptFelled = true;
                     if (outcome.Productive) ctx.Companion.Brain.Chooser.RecordWork(t.Bottom.ToWorldCoordinates());
                 }

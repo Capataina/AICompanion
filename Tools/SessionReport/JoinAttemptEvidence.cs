@@ -8,8 +8,8 @@ using System.Text;
 
 namespace AICompanion.Tools.SessionReport;
 
-/// <summary>How a tool effect reached its attempt, so a reader can tell a row-proven join from an interval inference.</summary>
-public enum ToolEffectRoute { OpenAttemptRow, ClosedOnItsTick, OutcomeInterval }
+/// <summary>How a tool effect reached its attempt, so a reader can tell the producer's own identity from a row-proven join and both from an interval inference.</summary>
+public enum ToolEffectRoute { OpenAttemptRow, ClosedOnItsTick, OutcomeInterval, ProducerAttemptId }
 
 /// <summary>Everything the record names under one attempt identity: its conclusion, the grants issued under it and the tool effects it produced.</summary>
 public sealed class AttemptEvidence
@@ -38,6 +38,8 @@ public sealed class AttemptJoin
     public List<GodsEyeEvent> OutcomesWithoutIdentity { get; } = new();
     public List<GodsEyeEvent> GrantsWithoutIdentity { get; } = new();
     public List<GodsEyeEvent> UnjoinedToolEffects { get; } = new();
+    /// <summary>Strikes whose producer wrote attempt zero: struck with no attempt open. Also counted in <see cref="UnjoinedToolEffects"/>.</summary>
+    public List<GodsEyeEvent> ToolEffectsWithNoOpenAttempt { get; } = new();
     public int GrantsOutsideAttempts { get; set; }
     public int OutcomeCount { get; set; }
     public int GrantCount { get; set; }
@@ -51,14 +53,17 @@ public sealed class AttemptJoin
 ///   attempt-outcome   attempt-id, process-wide unique (OwnCurrentActivity's static counter)
 ///   control-grant     attempt-id of the attempt open at finalisation, zero when none is open —
 ///                     every safety, recovery and downed path suspends before it finalises
-///   tool-effect       activity-id and choice-id only. Its attempt= is the tool instance's own
-///                     counter (ObserveTileToolEffect.cs), unrelated to attempt identity, so it is
-///                     never used; the effect joins through the TSV row at its tick, which names
-///                     the attempt open when the tick was recorded, or the attempt that closed on
-///                     that tick under the same activity (an attempt can open, strike and be
-///                     suspended by recovery inside one tick). Only with no such row does it fall
-///                     back to the single recorded outcome of that activity whose interval
-///                     contains the tick, and more than one such outcome leaves it unjoined.
+///   tool-effect       activity-attempt-id from schema 0.25.0: the attempt open when Execute struck,
+///                     written by the strike itself, so it joins by that id alone and zero means no
+///                     attempt was open. Its attempt= is the tool instance's own counter
+///                     (ObserveTileToolEffect.cs), unrelated to attempt identity, and is never used.
+///                     An older strike carries only activity-id and choice-id, so it joins through
+///                     the TSV row at its tick, which names the attempt open when the tick was
+///                     recorded, or the attempt that closed on that tick under the same activity (an
+///                     attempt can open, strike and be suspended by recovery inside one tick). Only
+///                     with no such row does it fall back to the single recorded outcome of that
+///                     activity whose interval contains the tick, and more than one such outcome
+///                     leaves it unjoined.
 ///
 /// An identity no record resolves stays visible as unjoined; nothing is merged by proximity.
 /// </summary>
@@ -106,6 +111,16 @@ public static class JoinAttemptEvidence
         Dictionary<long, int> rowAt = RowsByTick(session);
         foreach (GodsEyeEvent e in toolEffects)
         {
+            // A 0.25.0 strike names its attempt, so no row or interval is consulted: the producer's
+            // identity outranks any inference, and a row or interval disagreeing with it is the
+            // identity check's finding rather than a second opinion on the join.
+            if (e.ChannelField("activity-attempt-id") is string named)
+            {
+                if (!ReadGodsEyeEvents.TryLong(named, out long producerAttempt)) join.UnjoinedToolEffects.Add(e);
+                else if (producerAttempt > 0) At(producerAttempt).ToolEffects.Add((e, ToolEffectRoute.ProducerAttemptId));
+                else { join.ToolEffectsWithNoOpenAttempt.Add(e); join.UnjoinedToolEffects.Add(e); }
+                continue;
+            }
             if (!ReadGodsEyeEvents.TryLong(e.ChannelField("activity-id"), out long activityId)) { join.UnjoinedToolEffects.Add(e); continue; }
             long? joined = null;
             ToolEffectRoute route = ToolEffectRoute.OutcomeInterval;
@@ -141,7 +156,7 @@ public static class JoinAttemptEvidence
         int withoutOutcome = join.Attempts.Values.Count(a => a.Outcome == null);
         var text = new StringBuilder();
         text.Append($"attempts  {join.Attempts.Count:n0} attempt identities from {join.OutcomeCount:n0} outcome(s), {join.GrantCount:n0} control grant transition(s) and {join.ToolEffectCount:n0} tool effect(s); {withoutOutcome:n0} carry no recorded outcome\n");
-        text.Append("  join      outcomes and grants by attempt id; tool effects by activity id through the row at their tick, else the one outcome interval containing it; a tool's own attempt= counter is never an attempt identity\n");
+        text.Append("  join      outcomes and grants by attempt id; tool effects by the activity-attempt-id they carry (schema 0.25.0), or, for older strikes, by activity id through the row at their tick, else the one outcome interval containing it; a tool's own attempt= counter is never an attempt identity\n");
         text.Append($"  unjoined  {join.GrantsOutsideAttempts:n0} grant(s) issued with no attempt open (safety, recovery, downing or no activity); {join.GrantsWithoutIdentity.Count:n0} grant(s) and {join.OutcomesWithoutIdentity.Count:n0} outcome(s) with no readable attempt id; {join.UnjoinedToolEffects.Count:n0} tool effect(s) no attempt contains\n");
         IEnumerable<AttemptEvidence> shown = join.Attempts.Values;
         if (!full && join.Attempts.Count > AttemptsShown)
@@ -174,7 +189,10 @@ public static class JoinAttemptEvidence
             line.Append(" (").Append(string.Join(", ", a.Grants.GroupBy(g => $"{g.Field("requested-owner") ?? "?"}/{g.Field("hand") ?? "?"}").Select(g => $"{g.Key}×{g.Count()}"))).Append(')');
         line.Append($"; tool effects {a.ToolEffects.Count}");
         if (a.ToolEffects.Count > 0)
+        {
             line.Append(" (").Append(string.Join(", ", a.ToolEffects.GroupBy(t => t.Effect.Field("effect") ?? "?").Select(g => $"{g.Key} {g.Count()}"))).Append(')');
+            line.Append(" joined by ").Append(string.Join(", ", a.ToolEffects.GroupBy(t => t.Route).OrderBy(g => g.Key).Select(g => $"{RouteName(g.Key)}×{g.Count()}")));
+        }
         return line.ToString();
     }
 
@@ -199,6 +217,15 @@ public static class JoinAttemptEvidence
     /// </summary>
     internal static long? LongAt(Column column, int row)
         => long.TryParse(column.Text[row], NumberStyles.Integer, CultureInfo.InvariantCulture, out long value) ? value : null;
+
+    /// <summary>How a strike reached its attempt, in words that rank the routes by what proves them.</summary>
+    internal static string RouteName(ToolEffectRoute route) => route switch
+    {
+        ToolEffectRoute.ProducerAttemptId => "its own attempt id",
+        ToolEffectRoute.OpenAttemptRow => "the row holding it open",
+        ToolEffectRoute.ClosedOnItsTick => "the row closing it on that tick",
+        _ => "outcome interval",
+    };
 
     internal static string Abbreviate(string value, int maximum)
         => value.Length <= maximum ? value : value[..maximum] + "… (full detail in --timeline)";

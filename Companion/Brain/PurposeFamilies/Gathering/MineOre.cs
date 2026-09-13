@@ -487,7 +487,8 @@ public sealed class MineOre : CompanionAction
             ctx.Companion.StartAnimation(pickaxe.type, pickaxe.useAnimation);
             if (ctx.Companion.Miner.LastOutcome is { } outcome)
             {
-                BehaviourDiagnostics.GodsEyeEvents.RecordToolEffect(ctx.Npc, "pickaxe", outcome, ctx.Companion.Brain.Chooser.EvaluationId, ctx.Companion.Brain.Chooser.Activity.Id);
+                var owner = ctx.Companion.Brain.Chooser.Activity;
+                BehaviourDiagnostics.GodsEyeEvents.RecordToolEffect(ctx.Npc, "pickaxe", outcome, ctx.Companion.Brain.Chooser.EvaluationId, owner.Id, owner.AttemptOpen ? owner.AttemptId : 0);
                 if (outcome.Effect == WorldInteractions.TileToolEffect.Removed
                     && outcome.Before.Type == jobType && jobTiles.Contains(outcome.Target))
                     ownRemovals.Add(outcome.Target);

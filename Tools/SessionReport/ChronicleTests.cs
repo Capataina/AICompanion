@@ -677,10 +677,19 @@ public static class ChronicleTests
             $"attempt-id={attempt};activity-id={activity};family={family};start-tick={start};end-tick={end};status={status};attribution={attribution};cause={cause};productive-effects={effects};effect-scope=companion-credited-tool-or-interaction-effects;interruption-is-not-failure=true");
 
     // The tool-local attempt= is 1 on both strikes on purpose: a join by that number would invent
-    // attempt 1 and leave attempts 5 and 8 with no effects.
-    private static FixtureEvent Strike(long tick, string tool, long toolAttempt, long choice, long activity, string effect)
-        => new(tick, "tool-effect", tool, $"attempt={toolAttempt};choice-id={choice};activity-id={activity}", effect == "Damaged" ? 10 : 0,
+    // attempt 1 and leave attempts 5 and 8 with no effects. A null activityAttempt writes the
+    // pre-0.25.0 channel, which carries no attempt of its own and must join through rows.
+    private static FixtureEvent Strike(long tick, string tool, long toolAttempt, long choice, long activity, string effect, long? activityAttempt = null)
+        => new(tick, "tool-effect", tool, $"attempt={toolAttempt};choice-id={choice};activity-id={activity}" + (activityAttempt is long a ? $";activity-attempt-id={a}" : ""), effect == "Damaged" ? 10 : 0,
             $"observation-tick={tick};tool-item=1;effect={effect};before-present=True;after-present={(effect == "Removed" ? "False" : "True")};damage-scope=tool-owned-hit-table;yield=unobserved");
+
+    /// <summary>The same capture as an older producer wrote it: every strike loses the attempt it named.</summary>
+    private static void AsPre025Strikes(System.Collections.Generic.List<FixtureEvent> events)
+    {
+        for (int i = 0; i < events.Count; i++)
+            if (events[i].Kind == "tool-effect")
+                events[i] = events[i] with { Channel = events[i].Channel.Split(";activity-attempt-id=")[0] };
+    }
 
     /// <summary>
     /// A consistent capture: mining attempt 5 (ticks 10..20) interrupted by escape; mining attempt 6
@@ -710,17 +719,17 @@ public static class ChronicleTests
         var events = new System.Collections.Generic.List<FixtureEvent>
         {
             Grant(10, 1, 2, 5, "Executing", "travel", "WorkTool"),
-            Strike(12, "pickaxe", 1, 3, 2, "Damaged"),
+            Strike(12, "pickaxe", 1, 3, 2, "Damaged", 5),
             Grant(15, 6, 2, 5, "Executing", "hold", "WorkTool"),
             Outcome(20, 5, 2, "mine", "Gathering", 10, 20, "Interrupted", "NotApplicable", "survival-escape", 1),
             Grant(20, 11, 2, 0, "Suspended", "survival-escape", "Available"),
             Grant(25, 16, 2, 6, "Executing", "travel", "WorkTool"),
-            Strike(27, "pickaxe", 2, 13, 2, "Removed"),
+            Strike(27, "pickaxe", 2, 13, 2, "Removed", 6),
             Outcome(30, 6, 2, "mine", "Gathering", 25, 30, "Complete", "Companion", "tracked-vein-observed-clear", 1),
             Grant(30, 21, 3, 7, "Executing", "travel", "Available"),
             Outcome(31, 7, 3, "chop", "Gathering", 30, 31, "Interrupted", "NotApplicable", "combat-reflex", 0),
             Grant(31, 22, 3, 0, "Suspended", "combat-reflex", "Available"),
-            Strike(32, "axe", 1, 18, 3, "Damaged"),
+            Strike(32, "axe", 1, 18, 3, "Damaged", 8),
             Outcome(32, 8, 3, "chop", "Gathering", 32, 32, "Interrupted", "NotApplicable", "follow-recovery-flight", 1),
             Grant(32, 23, 3, 0, "Suspended", "follow-recovery-flight", "Available"),
             Grant(40, 31, 3, 0, "Suspended", "downed", "Unavailable", applied: "travel-recovery-clearance"),
@@ -798,7 +807,8 @@ public static class ChronicleTests
             // With every outcome present the interval fallback reaches the same attempts, so the
             // row routes are only proven when an outcome occurrence is lost: both strikes must still
             // join through the row at their tick, the open one and the one closed on that tick.
-            string lost = Write((_, e) => e.RemoveAll(x => x.Kind == "attempt-outcome" && (x.Detail.StartsWith("attempt-id=5;") || x.Detail.StartsWith("attempt-id=8;"))));
+            // These are pre-0.25.0 strikes, because a strike naming its attempt never consults a row.
+            string lost = Write((_, e) => { AsPre025Strikes(e); e.RemoveAll(x => x.Kind == "attempt-outcome" && (x.Detail.StartsWith("attempt-id=5;") || x.Detail.StartsWith("attempt-id=8;"))); });
             string[] lostView = JoinAttemptEvidence.Describe(lost, Session.Load(lost), full: true).Split('\n');
             string LostLine(long attempt) => lostView.SingleOrDefault(l => l.StartsWith($"  attempt {attempt}  ", StringComparison.Ordinal)) ?? "";
             Require(LostLine(5).Contains("outcome unrecorded", StringComparison.Ordinal) && LostLine(5).Contains("tool effects 1", StringComparison.Ordinal),
@@ -808,11 +818,32 @@ public static class ChronicleTests
 
             // And the fallback alone: with the strike's row missing, only attempt 5's recorded
             // interval under activity 2 contains tick 12.
-            string rowless = Write((r, _) => r.RemoveAll(x => x["tick"] == "12"));
+            string rowless = Write((r, e) => { AsPre025Strikes(e); r.RemoveAll(x => x["tick"] == "12"); });
             string[] rowlessView = JoinAttemptEvidence.Describe(rowless, Session.Load(rowless), full: true).Split('\n');
-            Require(rowlessView.Any(l => l.StartsWith("  attempt 5  ", StringComparison.Ordinal) && l.Contains("tool effects 1 (Damaged 1)", StringComparison.Ordinal))
+            Require(rowlessView.Any(l => l.StartsWith("  attempt 5  ", StringComparison.Ordinal) && l.Contains("tool effects 1 (Damaged 1) joined by outcome interval×1", StringComparison.Ordinal))
                 && rowlessView.Any(l => l.Contains("0 tool effect(s) no attempt contains", StringComparison.Ordinal)),
                 "a strike with no row at its tick was not joined to the single outcome interval of its activity that contains it");
+
+            // A strike that names its attempt needs neither the row nor the outcome. Losing both
+            // leaves an older strike with nothing to join through, and must not cost this one.
+            void LoseRowAndOutcome(System.Collections.Generic.List<System.Collections.Generic.Dictionary<string, string>> r, System.Collections.Generic.List<FixtureEvent> e)
+            {
+                r.RemoveAll(x => x["tick"] == "12");
+                e.RemoveAll(x => x.Kind == "attempt-outcome" && x.Detail.StartsWith("attempt-id=5;"));
+            }
+            string bare = Write(LoseRowAndOutcome);
+            string[] bareView = JoinAttemptEvidence.Describe(bare, Session.Load(bare), full: true).Split('\n');
+            Require(bareView.Any(l => l.StartsWith("  attempt 5  ", StringComparison.Ordinal) && l.Contains("tool effects 1 (Damaged 1) joined by its own attempt id×1", StringComparison.Ordinal))
+                && bareView.Any(l => l.Contains("0 tool effect(s) no attempt contains", StringComparison.Ordinal)),
+                "a strike naming its own attempt was not joined once its row and its attempt's outcome were both lost");
+            string bareOld = Write((r, e) => { AsPre025Strikes(e); LoseRowAndOutcome(r, e); });
+            Require(JoinAttemptEvidence.Describe(bareOld, Session.Load(bareOld), full: true).Contains("1 tool effect(s) no attempt contains", StringComparison.Ordinal),
+                "an older strike with no row and no containing outcome was joined anyway, so the case above does not prove the producer route");
+            Require(Line(6).Contains("joined by its own attempt id×1", StringComparison.Ordinal) && Line(8).Contains("joined by its own attempt id×1", StringComparison.Ordinal),
+                "a strike carrying its attempt joined through a row or an interval instead of by the identity it names");
+            string old = Write((_, e) => AsPre025Strikes(e));
+            Require(Contradictions(old).Length == 0 && JoinAttemptEvidence.Describe(old, Session.Load(old), full: true).Contains("0 tool effect(s) no attempt contains", StringComparison.Ordinal),
+                "the same consistent capture written by an older producer, whose strikes name no attempt, was reported or lost its joins");
 
             WritePlaytestHtml.Write(html, new[] { consistent });
             string data = File.ReadAllText(html).Split("<script id=\"data\" type=\"application/json\">")[1].Split("</script>")[0];
@@ -840,8 +871,19 @@ public static class ChronicleTests
                 "a grant under attempt 6 issued before it began was not reported");
             Fires("rows inside attempt 5 name a different open attempt", (r, _) => r.Single(x => x["tick"] == "15")["activity_attempt_id"] = "7",
                 "a row inside attempt 5 naming another open attempt was not reported");
-            Fires("comparison their own tick's row does not", (_, e) => e[1] = Strike(12, "pickaxe", 1, 9, 2, "Damaged"),
+            Fires("comparison their own tick's row does not", (_, e) => e[1] = Strike(12, "pickaxe", 1, 9, 2, "Damaged", 5),
                 "a strike naming a comparison its tick's row does not was not reported");
+            Fires("struck with no attempt open", (_, e) => e[1] = Strike(12, "pickaxe", 1, 3, 2, "Damaged", 0),
+                "a strike naming attempt zero was not reported");
+            // Attempt 42 has no outcome and no grant, so only the row can contradict it.
+            Fires("an attempt their own tick's row does not", (_, e) => e[1] = Strike(12, "pickaxe", 1, 3, 2, "Damaged", 42),
+                "a strike naming an attempt its tick's row neither holds open nor closed on that tick was not reported");
+            Fires("naming attempt 5 lies outside its recorded ticks 10..20", (_, e) => e.Add(Strike(21, "pickaxe", 3, 10, 2, "Damaged", 5)),
+                "a strike naming attempt 5 after that attempt ended was not reported");
+            Fires("attempt 7 is named under two activities", (_, e) => e[1] = Strike(12, "pickaxe", 1, 3, 2, "Damaged", 7),
+                "a strike naming chopping's attempt under the mining activity was not reported");
+            Require(!Contradictions(Write((_, e) => e[1] = Strike(12, "pickaxe", 1, 3, 2, "Damaged", 0))).Any(f => f.Title.Contains("an attempt their own tick's row does not", StringComparison.Ordinal)),
+                "a strike naming no attempt was also judged against its row, counting one contradiction twice");
         }
         finally
         {
@@ -978,7 +1020,9 @@ public static class ChronicleTests
                 && safety.Contains("Begin(ctx, \"combat-spacing\")", StringComparison.Ordinal),
             "a safety owner the grant rules classify is no longer issued");
         Require(events.Contains("grant-id={id};grant-tick={tick};activity-id={activityId};attempt-id={attemptId};activity-phase={activityPhase};requested-owner={requestedOwner}", StringComparison.Ordinal)
-                && events.Contains("attempt={outcome.Attempt};choice-id={choiceId};activity-id={activityId}", StringComparison.Ordinal)
+                && events.Contains("attempt={outcome.Attempt};choice-id={choiceId};activity-id={activityId};activity-attempt-id={activityAttemptId}", StringComparison.Ordinal)
+                && new[] { Source("Companion", "Brain", "PurposeFamilies", "Gathering", "MineOre.cs"), Source("Companion", "Brain", "PurposeFamilies", "Gathering", "ChopTree.cs") }
+                    .All(striker => striker.Contains("owner.AttemptOpen ? owner.AttemptId : 0", StringComparison.Ordinal))
                 && events.Contains("attempt-id={attemptId};activity-id={activityId};family={family};start-tick={startTick};end-tick={endTick}", StringComparison.Ordinal)
                 && events.Contains("attemptId <= lastAttemptRecorded", StringComparison.Ordinal),
             "an occurrence payload or the outcome cursor the identity join reads has changed");
