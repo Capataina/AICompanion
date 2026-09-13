@@ -70,7 +70,7 @@ internal static class MeasureCombatCost
             double ai = stopwatch.Elapsed.TotalMilliseconds;
             VerifyResponsiveFollowing.AdvanceNative(companion);
             var brain = companion.Brain;
-            trace.Add($"{brain.Chooser.Current?.Name ?? "-"}|{brain.LastRequest.Kind}|safety={brain.Safety.Kind}|aim={brain.EngageTarget?.whoAmI ?? -1}");
+            trace.Add($"{brain.Chooser.Current?.Name ?? "-"}|{brain.LastRequest.Kind}|safety={brain.Safety.Kind}|aim={brain.EngageTarget?.whoAmI ?? -1}|encounter={brain.Senses.Encounter.Source}");
             Sample("senses", brain.SensesMs);
             Sample("reflex+safety", brain.ReflexMs);
             Sample("decide", brain.DecideMs);
@@ -99,5 +99,7 @@ internal static class MeasureCombatCost
                 $"  costly tick {tick}: AI {total[tick]:0.000} decide {timings["decide"][tick]:0.000} position {timings["position"][tick]:0.000} navigate {timings["navigate"][tick]:0.000}; {trace[tick]}"));
         var activities = trace.GroupBy(t => t.Split('|')[0]).Select(g => $"{g.Key}={g.Count()}");
         Console.WriteLine($"  activity ticks: {string.Join(", ", activities)}");
+        var encounters = trace.GroupBy(t => t.Split('|')[4]).Select(g => $"{g.Key}={g.Count()}");
+        Console.WriteLine($"  encounter ticks: {string.Join(", ", encounters)}");
     }
 }

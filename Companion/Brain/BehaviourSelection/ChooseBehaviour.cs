@@ -115,7 +115,8 @@ public sealed class Chooser
             float raw = action.Score();
             offers[i] = (action.Eligibility, action.EligibilityReason);
             prepared[i] = new(i, action.Name, raw, raw > 0 ? action.ForecastTicks() : 0,
-                action.IsExcursion, action.ActivityTarget != null, action is KeepCompany, action == Current, action.Eligibility);
+                action.IsExcursion, action.ActivityTarget != null, action is KeepCompany, action == Current, action.Eligibility,
+                action.Family == PurposeFamily.Combat);
             bindings[i] = ValidatePreparedActivity.Capture(action);
         });
         for (int i = 0; i < Actions.Count; i++)
@@ -186,5 +187,5 @@ public sealed class Chooser
         => new(ctx.Senses.Threats.ProtectionUrgency, ctx.Stranded,
             ctx.Senses.Threats.Horizon, Weights.InterruptibleActionTicks, Weights.HorizonOverrunToZero, Weights.Commitment,
             ctx.Senses.DistanceToPlayer <= PlayerIntegration.CompanionPreferences.Current.ActiveActivityRadius,
-            Weights.FollowDuringUsefulWork, Reunion.DelayCostPerTick);
+            Weights.FollowDuringUsefulWork, Reunion.DelayCostPerTick, ctx.Senses.Encounter.Intensity);
 }

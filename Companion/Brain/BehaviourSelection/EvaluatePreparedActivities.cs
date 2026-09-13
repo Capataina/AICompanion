@@ -9,11 +9,11 @@ namespace AICompanion.Companion.Brain.BehaviourSelection;
 /// enters evaluation, so comparing a prepared board cannot acquire, prune or advance a job.</summary>
 public readonly record struct PreparedActivity(int Index, string Name, float RawValue, float ForecastTicks,
     bool IsExcursion, bool HasTarget, bool IsFollowing, bool IsIncumbent,
-    Behaviours.OfferEligibility Eligibility = Behaviours.OfferEligibility.NoOpportunity);
+    Behaviours.OfferEligibility Eligibility = Behaviours.OfferEligibility.NoOpportunity, bool ServesEncounter = false);
 
 public readonly record struct ActivityComparisonContext(float ProtectionUrgency, bool Stranded,
     float ThreatHorizonTicks, float InterruptibleTicks, float HorizonOverrunTicks, float Commitment,
-    bool WithinActivityAllowance, float FollowDuringUsefulWork, float ReunionDelayCostPerTick = 0);
+    bool WithinActivityAllowance, float FollowDuringUsefulWork, float ReunionDelayCostPerTick = 0, float EncounterIntensity = 0);
 
 public readonly record struct EvaluatedActivity(int Index, string Name, float Raw, float Final,
     float Protection, float Commitment, float Horizon, float UsefulWork, string Error, float Reunion = 1);
@@ -39,7 +39,12 @@ public static class EvaluatePreparedActivities
             // weighs each threat against how soon the companion could intervene, so an activity that
             // also multiplied its raw value by player danger charged the same threat twice and could
             // not tell a shot the companion can take from across the room from one it cannot.
-            float protection = candidate.IsExcursion && !context.Stranded ? 1 - context.ProtectionUrgency : 1;
+            // A boss fight or world event is the second reason optional work stops mattering, and it is a
+            // reading of the same danger rather than an independent one: a boss is also a threat raising
+            // urgency, and crowd pressure is the threats themselves. So the stronger of the two readings is
+            // charged, never their product, and combat — the thing an encounter is about — pays urgency only.
+            float danger = candidate.ServesEncounter ? context.ProtectionUrgency : Math.Max(context.ProtectionUrgency, context.EncounterIntensity);
+            float protection = candidate.IsExcursion && !context.Stranded ? 1 - danger : 1;
             float commitment = candidate.RawValue > 0 && candidate.IsIncumbent ? context.Commitment : 1;
             float horizon = 1;
             if (candidate.RawValue > 0)
@@ -76,6 +81,7 @@ public static class EvaluatePreparedActivities
         if (!float.IsFinite(candidate.ForecastTicks) || candidate.ForecastTicks < 0) return "invalid-forecast";
         if (!float.IsFinite(context.ReunionDelayCostPerTick) || context.ReunionDelayCostPerTick < 0) return "invalid-reunion-cost";
         if (!float.IsFinite(context.ProtectionUrgency) || context.ProtectionUrgency < 0 || context.ProtectionUrgency > 1) return "invalid-protection";
+        if (!float.IsFinite(context.EncounterIntensity) || context.EncounterIntensity < 0 || context.EncounterIntensity > 1) return "invalid-encounter";
         // Positive infinity means no observed threat deadline; every other timing value is finite.
         if (float.IsNaN(context.ThreatHorizonTicks) || context.ThreatHorizonTicks < 0) return "invalid-threat-horizon";
         if (!float.IsFinite(context.InterruptibleTicks) || context.InterruptibleTicks < 0

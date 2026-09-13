@@ -18,6 +18,7 @@ public sealed class Senses
     public readonly LightSense Light = new();
     public readonly CompanionSense Self = new();
     public readonly ObserveProjectiles Projectiles = new();
+    public readonly EncounterSense Encounter = new();
 
     public NPC Companion { get; private set; } = null!;
     public Terraria.Player PlayerEntity { get; private set; } = null!;
@@ -35,6 +36,7 @@ public sealed class Senses
         PlayerEntity = player;
         Player.Update(player, companion);
         Threats.Update(player, companion);
+        Encounter.Update(player, Threats);
         Projectiles.Update(companion);
         Loot.Update(companion, player);
         Light.Update(companion, player);
