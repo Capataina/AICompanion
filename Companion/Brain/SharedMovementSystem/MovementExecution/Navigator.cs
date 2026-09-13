@@ -807,13 +807,22 @@ public sealed class Navigator
             // answers rather than the absence of the ordinary path's own precondition.
             bool physicallyImpossible = fault != TraversalFault.None;
             bool atEntry = execution!.Ticks == 0;
-            if (physicallyImpossible && atEntry)
+            // The direct proof refuses from the exact state; preparation is what asks whether a short
+            // run-in, stop or alignment makes the move. A preparation search that ran out of its allowance
+            // has not answered that, so the refusal is neither remembered nor struck, whatever the direct
+            // proof said. Both used to follow the direct proof alone: a body knocked toward a ledge faster
+            // than it walks mislands going straight off and is rescued by shedding speed first, and with the
+            // allowance starved every such refusal was remembered and struck, three to eight per approach,
+            // which is two strikes and a spot ban for a goal the body then reached. A preparation refusal is
+            // only ever made at entry, because preparation declines an attempt that has begun.
+            bool preparationSpent = local.PreparationResult == "search-budget-exhausted";
+            if (physicallyImpossible && atEntry && !preparationSpent)
                 RememberRejectedEntry(step, live);
             // Which contract refused the step. A preparation search that ran out of its allowance
             // has not shown the entry impossible, whatever the direct proof said; a refusal with no
             // physical fault came from the threat forecast; a physical fault before the first tick is
             // the refused entry, and after it the attempt's own observations decide.
-            var (ending, failure, reason) = local.PreparationResult == "search-budget-exhausted"
+            var (ending, failure, reason) = preparationSpent
                 ? (AttemptEnding.Cancelled, MovementFailure.UnfinishedSearch, "preparation-budget")
                 : !physicallyImpossible ? (AttemptEnding.Preempted, MovementFailure.Preempted, "unsafe-forecast")
                 : atEntry ? (AttemptEnding.PhysicalFailure, MovementFailure.InvalidActualEntry,
@@ -830,7 +839,7 @@ public sealed class Navigator
             // only the in-flight failure left an entry the proof rejects being re-offered by every
             // later plan for ever, which is the 246 mislanded jumps of the 2026-09-11 session, none
             // of which the body ever flew.
-            if (physicallyImpossible) Strike(step.Tile);
+            if (physicallyImpossible && !preparationSpent) Strike(step.Tile);
             forceReplan = true;
             Status = ExecutionStatus.Rejected;
             return Controls.None;

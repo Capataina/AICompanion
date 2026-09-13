@@ -32,6 +32,7 @@ internal static class VerifyMovementFailures
             failed += Case("terrain churn cannot hold off stall escalation while an answer is awaited", TerrainChurnCannotHoldOffEscalation);
             failed += Case("away-first detour delivers, sealed twin is absent, reopening delivers", AwayFirstDetourAndSealedTwin);
             failed += Case("ledge and lip entries from varied actual states all deliver", LedgeAndLipEntriesDeliver);
+            failed += Case("an entry refused only because preparation ran out of time neither closes the next search nor strikes", SpentPreparationDoesNotCloseTheNextSearch);
             failed += Case("unattributed divergence is native mismatch, an external hit is pre-emption", DivergenceIsAttributedBeforeBlame);
             failed += Case("unannounced wall is a refused entry, announced wall is absent", UnannouncedWallIsRefusedEntry);
             failed += Case("interruptions score as pre-empted or cancelled, never failed", InterruptionsAreNotFailures);
@@ -267,6 +268,82 @@ internal static class VerifyMovementFailures
     }
 
     /// <summary>
+    /// A refused entry is remembered, and struck, because the proof showed the body cannot make the move
+    /// from where it stands. When the direct proof refuses and the preparation search that could have found
+    /// a way in stops on its time allowance, nothing has shown the move impossible. The shelf's exit end sits
+    /// under a low ceiling so its drop is the only way off the end tile. A body arriving at the edge faster
+    /// than it walks, as a knock sends it, misses the drop's landing when it goes straight off and is rescued
+    /// by a prefix that sheds speed first; those states are found with preparation unbounded. Each is then
+    /// driven with preparation starved, where every refusal is a spent budget and must neither record a
+    /// rejected entry, strike, nor let a search end absent, and the goal must still be delivered, with the
+    /// allowance lifted if the starved body never got there.
+    /// </summary>
+    private static void SpentPreparationDoesNotCloseTheNextSearch()
+    {
+        Point goal = new(70, 79);
+        var rescued = new List<BodyState>();
+        int swept = 0;
+        foreach (int column in new[] { 40, 41 })
+        foreach (float offset in new[] { 1f, 6f, 11f })
+        foreach (float vx in new[] { -8f, -6f })
+        {
+            BuildLowShelf();
+            var start = new BodyState(column * 16 + offset - 2f, 70 * 16, vx, 0f, true, Capabilities: MovementCapabilities.Basic);
+            var probe = new Drive(start);
+            bool prepared = false;
+            while (probe.Tick < 600 && !probe.Arrived)
+            {
+                probe.Step(goal);
+                var nav = probe.Movement.Navigator;
+                if (nav.Path is { Finished: false } path && path.Current.Kind is MoveKind.Drop or MoveKind.Jump or MoveKind.FallThrough
+                    && nav.PreparationResult.StartsWith("validated-prefix"))
+                    prepared = true;
+            }
+            swept++;
+            if (prepared && probe.Arrived) rescued.Add(start);
+        }
+        Console.WriteLine($"   spent preparation: {rescued.Count} of {swept} shelf-end states need preparation for their exit and are delivered with it");
+        Require(rescued.Count > 0, "no shelf-end state needed preparation for its exit, so this case proves nothing about a spent preparation budget");
+
+        var failures = new List<string>();
+        foreach (BodyState start in rescued)
+        {
+            BuildLowShelf();
+            var run = new Drive(start);
+            var nav = run.Movement.Navigator;
+            int refusals = 0, struckRefusals = 0, remembered = 0;
+            PlanLocalMovement.PreparationMsBudget = .000001;
+            try
+            {
+                while (run.Tick < 300 && !run.Arrived)
+                {
+                    int strikes = nav.StuckStrikes, faults = nav.FaultCount;
+                    run.Step(goal);
+                    if (nav.FaultCount == faults || nav.LastFailure?.Reason != "preparation-budget") continue;
+                    refusals++;
+                    if (nav.PreparationResult != "search-budget-exhausted")
+                        failures.Add($"left={start.Left} vx={start.Vx}: a preparation-budget verdict with preparation result {nav.PreparationResult}");
+                    if (nav.StuckStrikes > strikes) struckRefusals++;
+                    if (nav.LastRejection is { } rejection && nav.EntryRejected(rejection.Step, rejection.Entry)) remembered++;
+                }
+            }
+            finally { PlanLocalMovement.PreparationMsBudget = 0; }
+            var seen = run.SeenText;
+            bool absent = run.Seen.Contains(MovementFailure.AbsentTransition);
+            bool starvedArrival = run.Arrived;
+            int lifted = run.Tick;
+            while (run.Tick < lifted + 900 && !run.Arrived) run.Step(goal);
+            Console.WriteLine($"   spent preparation left={start.Left} vx={start.Vx}: {refusals} budget refusals, {struckRefusals} struck, {remembered} remembered, seen {seen}; arrived={run.Arrived} ({(starvedArrival ? $"while starved, tick {lifted}" : $"{run.Tick - lifted} ticks after the allowance was lifted")})");
+            if (refusals == 0) failures.Add($"left={start.Left} vx={start.Vx}: no refusal on a spent preparation budget was observed");
+            if (struckRefusals > 0) failures.Add($"left={start.Left} vx={start.Vx}: {struckRefusals} refusals on a spent budget struck the step");
+            if (remembered > 0) failures.Add($"left={start.Left} vx={start.Vx}: {remembered} refusals on a spent budget were remembered as rejected entries");
+            if (absent) failures.Add($"left={start.Left} vx={start.Vx}: a spent preparation budget made a reachable goal absent");
+            if (!run.Arrived) failures.Add($"left={start.Left} vx={start.Vx}: with the allowance lifted the goal was not delivered; last {run.Describe()}");
+        }
+        Require(failures.Count == 0, string.Join("\n     ", failures));
+    }
+
+    /// <summary>
     /// The native-mismatch class is only honest if an external cause the motor knows about is kept
     /// out of it. One scene, a body pinned mid-walk by a position write, is run twice: unattributed,
     /// which must read native mismatch, fail the attempt and retire the remembered connection it was
@@ -493,6 +570,17 @@ internal static class VerifyMovementFailures
         for (int x = 40; x <= 60; x++) { Solid(x, 70); Solid(x, 64); }
         for (int y = 65; y <= 70; y++) Solid(60, y);
         if (sealedExit) for (int y = 64; y <= 70; y++) Solid(39, y);
+        Finish();
+    }
+
+    /// <summary>The open C-turn shelf with a ceiling flush over its exit end (row 66, columns 40 to 44), so the
+    /// body on the end tile clears it by a few pixels and has no jump off the end: the drop is the only exit.</summary>
+    private static void BuildLowShelf()
+    {
+        NewWorld(80);
+        for (int x = 40; x <= 60; x++) { Solid(x, 70); Solid(x, 64); }
+        for (int y = 65; y <= 70; y++) Solid(60, y);
+        for (int x = 40; x <= 44; x++) Solid(x, 66);
         Finish();
     }
 
