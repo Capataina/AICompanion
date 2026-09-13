@@ -372,7 +372,7 @@ The decision interval includes candidate discovery, feasibility work and action 
 
 This section describes what is actually built, read from the source. It says what each part is for, how the parts hand work to each other, and where the recordings show a gap between intent and result. It describes the machinery; it does not defend it.
 
-Source assessment: **14 September 2026**, source at `6ab0477`. The commit is the identifier rather than the version, because `build.txt` still reads `0.22.46` and so does the newest capture Current Behaviour describes — 18:56 on 13 September, packaged from `9ca5ae4`. Every behaviour change in this section that arrived after that capture has headless fixtures behind it and no play at all: light as a field with every carried light discounted, reach as a sense every consumer reads, lighting working a dark region under a bounded site budget, and a walk that no longer raises a jump of its own. Headless checks still establish their fixtures, not every cave.
+Source assessment: **14 September 2026**, source at `6ab0477`, packaged as `0.23.0` and not yet played. The newest capture Current Behaviour describes is still 18:56 on 13 September, packaged 0.22.46 from `9ca5ae4`, so the version now separates what that capture condemned from what answered it. Every behaviour change in this section that arrived after that capture has headless fixtures behind it and no play at all: light as a field with every carried light discounted, reach as a sense every consumer reads, lighting working a dark region under a bounded site budget, and a walk that no longer raises a jump of its own. Headless checks still establish their fixtures, not every cave.
 
 ## Maintaining this section
 
