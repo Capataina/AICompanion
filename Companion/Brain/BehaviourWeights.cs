@@ -306,19 +306,12 @@ public static class Weights
     public const float GuardUsefulRemovalTicks = 1800f;
 
     /// <summary>
-    /// Encounter: how many observed hostiles able to reach either actor make the world look like an event
-    /// when no native boss or event flag says so. This is the fallback for a modded invasion nobody wrote
-    /// anything for, so it has to sit above what an ordinary cave or night puts in range at once — a
-    /// couple of zombies and a slime — and below what an invasion wave does, and that separation is what
-    /// the number must keep when spawn rates change.
-    /// </summary>
-    public const int EncounterPressureHostiles = 5;
-
-    /// <summary>
-    /// Encounter: ticks of unbroken crowd pressure before an unrecognised encounter reaches full intensity.
-    /// Intensity ramps linearly over this window so a brief knot of enemies does not stop all optional
-    /// work, and drops to nothing the first tick the crowd thins, because the return to ordinary is meant
-    /// to be immediate.
+    /// Encounter: ticks of unbroken pressure — reachable hostiles weighing more than the game's own spawn cap
+    /// allows — before an unrecognised encounter reaches full intensity. There is no count threshold beside
+    /// it: the cap is the game's, so it moves with depth, events and every spawn-rate change on its own.
+    /// Intensity ramps linearly over this window so a brief overshoot does not stop all optional work, and
+    /// drops to nothing the first tick the weight is back at or under the cap, because the return to
+    /// ordinary is meant to be immediate.
     /// </summary>
     public const float EncounterPressureTicks = 300f;
 
