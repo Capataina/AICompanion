@@ -32,56 +32,17 @@ The recorder's seeded travel scenario resets and advances the native tool-contac
 
 ```
 EngineReplay/
-├─ CLAUDE.md                 setup, scope and evidence limits
-├─ EngineReplay.csproj       compiles the movement core and native adapter against the installed game
-├─ Program.cs               resolves the installed game’s library dependencies
-├─ RenderNativeInterface.cs  hidden native graphics render, production controls and debug-line pixel regression
-├─ VerifyNativeCard.cs       real UI navigation, fixed slot geometry, native transfers and mastery graph contracts
-├─ VerifyCompanionHud.cs     family/activity mapping, paused/neutral states and native notch rendering
-├─ ReplayRecordedWater.cs    event-terrain reconstruction with native full-brain water replay and coverage limits
-├─ VerifyAttackOutcomes.cs   threat removal, overkill, multi-hit and follow-up attack valuation
-├─ VerifyHuntProgress.cs     ineffective engagements defer without cancelling productive travel, and an alternating pick still defers
-├─ VerifyFiringPosition.cs   the solve shortlist carries line of sight, so the chosen spot has an arc
-├─ VerifyHuntAdmissibility.cs a repositionable target is kept; one no reachable spot can shoot is refused
-├─ VerifyEngineMotion.cs     terrain/liquid matrix, scratch-state assertions and native route checks
-├─ VerifyObservedMotion.cs   native-terrain hostile forecast and pure regroup-urgency contracts
-├─ VerifyProjectileMotion.cs native projectile-AI and swept-shot contracts
-├─ VerifyPersonalDanger.cs   separated chambers verify actor-specific hostile reachability
-├─ VerifyCompanionLifecycle.cs actual mod NPC attachment, player-death decisions and hand/downed lifecycle
-├─ VerifyRoutePersistence.cs full route-cache TagIO round trips and fail-open load cases
-├─ VerifyThreatAnticipation.cs harmful unattackable actors, projectile attribution and measured forecast confidence
-├─ VerifyCapturedEscape.cs   captured pool and mirrored awnings exercised against native collision
-├─ VerifyUsefulAssistance.cs  lighting against the colour engine's own presented light map: unmeasured, dark and lit areas, carried torches, lit neighbourhoods, an exhausted supply
-├─ VerifyResponsiveFollowing.cs generic follow arrival, vertical separation, C-turn route progress, activity-dependent meeting places, a parallel route that climbs to the player's journey against one that ends at a cliff, a meeting flood that keeps its progress past the re-root cadence, and a dropped meeting place
-├─ VerifyMovementFailures.cs  held movement goals delivered or refused with the right failure class, in discriminating pairs
-├─ VerifyRoundTripEvidence.cs outward and return reach and breath over both legs, each verdict held against native execution
-├─ VerifyFollowRecoveryAndProtection.cs visible recovery flight, cancellation clearance and retained guard protection
-├─ VerifyOreWork.cs           ore-job policy, native tool effects, the raised-lip diagnostic baseline, and the reunion charge matrix: a stationary, slowly departing and quickly departing player, near against far route home, fresh against one-hit work
-├─ VerifyMiningHops.cs        ceiling hops against sliding arrivals, displacement, lost take-offs and the planning deadline
-├─ VerifyGatheringCooperation.cs trunk hand-over, external felling, protection and policy changes in every tool phase, family choice
-├─ VerifyWorkAccounting.cs    continuing veins, equal remaining work whoever removed the rest, and cancelled work
-├─ VerifyCollectionContracts.cs a drop's own reach and return, moved drops, partial cargo capacity and transfer attribution
-├─ VerifyCompanyLocalMotion.cs keeping company's strolls through a neighbourhood with lava, deep water and a one-way drop, and an idle window's jumps and rest share
-├─ VerifyAssistanceTrips.cs    lighting and pot trips through the shared interaction executor: a site below an unreturnable ledge against the same site with a staircase back, and a shelf reached only by a hop from a take-off elsewhere against one no take-off reaches
-├─ VerifyCapabilityRevision.cs player reach and tool power changed between preparations of mining, chopping, lighting and collection
-├─ VerifyDoorPassage.cs      native door opening, announced toggles, a door walked through, a locked door refused like a wall
-├─ VerifyCourtesy.cs         a block aimed at the companion moves it, a weapon or torch does not, and a passage is given back
-├─ VerifyDowningAndRevival.cs revival beside the player, self-revival apart, revoked hands while downed and ordinary grants after
-├─ VerifyCompanionPreferences.cs per-character defaults, malformed payloads and compressed native save round trips
-├─ VerifyCompanionActivities.cs activity identities, range boundaries, progress windows, protected rooms, native torch placement, and each actor's danger charged once across every excursion
-├─ VerifyObservationLifecycle.cs real recorder reservation, zero-tick metadata and callback-scoped lifecycle evidence
-├─ VerifyAttemptEvidenceProducers.cs whole-brain scenes through the real recorder, read back for the identities SessionReport joins on
-├─ RecordEvidenceScenes.cs   one unproductive native scene per family recorded into a kept folder, for SessionReport to read
-├─ GodsEyeTestStubs.cs       unrelated mod and TSV seams; the real player hurt observer remains compiled
-├─ MeasureBrainCost.cs       per-phase cost distributions and recording-invariance proof on one seeded full-brain scenario
-├─ MeasureCombatCost.cs      per-phase cost distributions on a seeded full-brain scene with four stationary hostiles
-├─ VerifyCombatPurpose.cs    P08 matched combat scenes: effective consequence and low-health escape
-├─ VerifyEncounterContext.cs P08 boss and event context: native facts, pressure fallback, one evaluator charge, a live mining pair
-├─ VerifySafetyAftermath.cs  P08 combined safety: firing while spacing, reflex suspends guarding, no contact, surfacing under a shot; S01 dodge reproduction
-├─ VerifyCombatActorMatrix.cs P08 actor matrix × clear or pillar-blocked shot: danger follows placement, shot evidence follows terrain, guarding counts the walk to a firing spot
-├─ VerifyPreparedActivities.cs pure comparison, invalid-value rejection and preceding arithmetic reference
-└─ VerifyGodsEyeEvents.cs    real sparse-event writer, native-hook, generation and terrain-capture contracts
+├─ CLAUDE.md
+├─ EngineReplay.csproj
+├─ Program.cs                 entry: installed-game libraries and the flag table
+├─ Combat/                    hunting, guarding, arsenal, safety aftermath, encounter
+├─ Gathering/                 ore, hops, chopping cooperation, remaining-work accounting
+├─ Assistance/                lighting, collection, company strolls, courtesy, capability
+├─ Movement/                  native collision, routes, follow, recovery, escape, round trips
+├─ Observation/               recorder, family offers, prepared comparison, evidence scenes
+└─ Lifecycle/                 NPC attach, downing, doors, HUD, card, preferences, offscreen UI
 ```
+Each child folder has its own file list in its CLAUDE.md. `dotnet run --project Tools/EngineReplay` is unchanged.
 
 `dotnet run --project Tools/EngineReplay -- --brain-cost` runs one seeded full-brain scenario — a flat four-tile copper vein, then a player walking away along the floor and back — for 600 ticks with native collision advancing the body. A discarded warm-up with recording on pays JIT compilation for both paths. Two measured runs under the production millisecond allowances then report every brain phase, and the AI time the brain did not account for (which is where recording lands), as p50/p95/max/mean with the three costliest ticks named. With `LimitPlanningWork.Unbounded` set, it runs twice with recording off and once on, and exits 1 unless all three agree tick for tick on activity, request, applied controls, grant owner, hand grant and body position. The first repeat is the determinism control; only then does the recording comparison prove recording changes no decision. It is not part of the default run.
 

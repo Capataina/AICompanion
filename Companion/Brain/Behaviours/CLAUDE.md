@@ -10,6 +10,8 @@ Behaviours/
 └─ Work/                         thin per-character work-policy readers
 ```
 
+The old Combat, Companionship, Gathering and Survival directories under this folder are gone. The seven activities live in `../PurposeFamilies/`.
+
 ## An offer says what it is before it says what it is worth
 
 Every `Prepare` classifies its offer as usable, unresolved, known-unusable, forbidden by policy, or no opportunity, with a short reason, beside the value it captures. The two questions are separate on purpose: a hunt can be worth a lot and have no reachable firing position, and a mine can be worth nothing this tick while its ore is perfectly usable. Only usable and unresolved offers may carry positive value, and the evaluator rejects any other combination as an evaluation error, so an adapter that forgets to classify reads as no opportunity and cannot win on a stale number. That strictness is deliberate and has already caught two test probes that scored without saying what they offered. Unresolved means a bounded investigation — an ore approach the search has not decided, a firing position whose reachable region has not settled, a guard destination that method admission has not yet queried — and never proven work.

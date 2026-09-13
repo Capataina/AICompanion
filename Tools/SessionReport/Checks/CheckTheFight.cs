@@ -161,15 +161,21 @@ public sealed class TheHandsWorkWhileThreatened : ICheck
         Column? fresh = session.Find("brain_fresh");
         Column? playerDead = session.Find("player_dead");
         Column? state = session.Find("state");
+        Column? huntReason = session.Find("hunt_reason");
 
         // No gap allowance, because a tick that fired *is* the break in the stretch. With one, a
         // healthy fight reads as one enormous finding: the reload ticks between two shots satisfy the
         // condition and a single "fired" row between them falls inside the allowance, so a two-minute
         // exchange folds into a single "nothing fired for 7,000 ticks" whose own tally shows the shots
         // it fired. The gap allowance is for a condition that flickers, and this one does not.
+        //
+        // `reachable` is hostiles that can reach the player, not hostiles hunting can shoot. A sealed
+        // enemy the hunt already refused as no-reachable-firing-position is still reachable in that
+        // column; counting it as "the target chooser refused everything" is the wrong question.
         var quiet = FindStretches.Where(session.Count, i =>
             reachable.Number[i] > 0f && shot.Number[i] == 0f && (fire == null || fire.Text[i] != "fired")
-                && (fresh != null ? fresh.Number[i] > 0f : playerDead?.Text[i] != "1") && state?.Text[i] != "downed",
+                && (fresh != null ? fresh.Number[i] > 0f : playerDead?.Text[i] != "1") && state?.Text[i] != "downed"
+                && (huntReason == null || huntReason.Text[i].IndexOf("no-reachable-firing-position", StringComparison.Ordinal) < 0),
             MinTicks, allowGap: 0);
 
         foreach (var stretch in quiet)

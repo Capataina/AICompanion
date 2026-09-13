@@ -9,9 +9,9 @@ Tools/
 ├─ verify.sh                         repository verification entry point
 ├─ corpus.sh                         scenario corpus helper
 ├─ decompile.sh                      Terraria source lookup helper
-├─ EngineReplay/                     compares adapter predictions with native NPC collision
-├─ NavReplay/                        replays portable movement plans and scenarios
-├─ SessionReport/                    reads telemetry into definitive, potential and odd findings
+├─ EngineReplay/                     native collision and whole-brain fixtures, grouped by Combat, Gathering, Assistance, Movement, Observation and Lifecycle
+├─ NavReplay/                        portable movement replay — three sources, stays flat
+├─ SessionReport/                    telemetry reader, grouped by Read, Checks, Write and Tests
 ├─ WorldWindow/                      reshapes old plan windows from saved-world tile shapes
 └─ Scenarios/                        committed movement cases
 ```

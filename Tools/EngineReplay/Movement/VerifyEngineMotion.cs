@@ -95,6 +95,7 @@ internal static class VerifyEngineMotion
         failed += VerifyObservedMotion.Run();
         failed += VerifyGodsEyeEvents.Run();
         failed += VerifyPreparedActivities.Run();
+        failed += VerifyFamilyOffers.Run();
         failed += VerifyRoutes();
         failed += VerifyProjectileMotion.Run();
         failed += VerifyPersonalDanger.Run();

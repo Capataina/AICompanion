@@ -15,28 +15,16 @@ The record was never the problem; the reading was. A session is tens of thousand
 ```
 SessionReport/
 ├─ CLAUDE.md
-├─ SessionReport.csproj   a plain console project; it compiles nothing from the mod tree and references no game assembly, because the record is text
-├─ Program.cs             the entry point: resolve the file, describe the session, run every check, print by severity, exit non-zero on a definitive finding
-├─ Session.cs             the parsed file — columns addressed by name, each kept as raw text and as a number with NaN where the cell holds none
-├─ Finding.cs             a finding, the three severities and what separates them, the contract a check implements, and the coverage contract for evidence that is not a fixed column
-├─ FindStretches.cs       the shared shape of nearly every check: "this condition held for long enough to matter", with a gap allowance
-├─ DescribeSession.cs     the measurement block above the findings, and the reader for the sibling -plans.txt window file
-├─ ReadGodsEyeEvents.cs   the one validated reader of the -events.jsonl sibling and its key=value payload fields, shared by every consumer so no two disagree about a line
-├─ DescribeGodsEyeEvents.cs summarises the occurrence sibling in time windows, checks completeness, joins projectile launches to contacts and spans the full session
-├─ JoinAttemptEvidence.cs  reads one attempt's conclusion, control grants and tool effects together by identity, and prints what no identity resolves as unjoined
-├─ CheckOffersAttemptsAndGrants.cs the threshold-free contradictions between records the producer guarantees to agree: selected offers, retained selections, attempt identity and control grants
-├─ MultiRunReport.cs       states recorded source, build, loader and configuration provenance and whether runs may be joined before any run, then preserves each selected run's independent causal and continuous-motion coverage
-├─ WritePlaytestHtml.cs    writes a self-contained sampled actor timeline with the joined attempts beside it; it draws no terrain the record did not capture
-├─ Chronicle.cs           the bounded event-and-interval account of player movement and companion response, with observation and inference kept distinct
-├─ ChronicleTests.cs      deterministic synthetic-record tests run through the real parser and chronology reader
-├─ CheckTheRecord.cs      is the instrument sane — ticks advancing, the returnable count inside the reach count, every numeric column parsing
-├─ CheckDecisionContracts.cs arrival versus intent, ineffective hunts and stationary submerged bodies
-├─ CheckTheBody.cs        did the body move when driven, did each proven move take its proven time, was being unable to reach him ever noticed
-├─ CheckTheFight.cs       did it see the damage coming, did the hands work while threatened, was the fired weapon the higher-scoring one, did it go down
-├─ CheckTheChoices.cs     did hunting stay on his screen, did the action board get used, was the torch in the hand during a fight, did the brain fit in a frame
-├─ CheckTheInstrument.cs  was the body ever held in place with a velocity it never spent, do the offline motion rule and the engine still agree, and was every kind of move the plan offered ever actually made
-└─ CheckFollowProgress.cs separates an unsatisfied follow objective with no navigator progress from a valid detour, and measures observed response time after departure
+├─ SessionReport.csproj   a plain console project; it compiles nothing from the mod tree
+├─ Program.cs             resolve the file, run every check, exit non-zero on a definitive finding
+├─ Session.cs             the parsed file — columns addressed by name
+├─ Finding.cs             severities, the check contract, and the coverage contract
+├─ Read/                  parser, stretches, God's Eye, attempt joins, chronicle, session description
+├─ Checks/                one file per question the record can answer
+├─ Write/                 HTML timeline and multi-run provenance
+└─ Tests/                 ChronicleTests — synthetic records through the real parser
 ```
+`dotnet run --project Tools/SessionReport` is unchanged. Each child folder lists its files.
 
 ## The operating manual
 
@@ -176,7 +164,7 @@ Neither exclusion has fired on a real session, because no playtest has yet taken
 
 **A detector written from one observed failure inherits that failure's extremity, and the partial case then walks past it.** `EveryMoveOfferedGetsMade` was built from a session where a move kind completed *none* of its attempts, and it encoded that as its test — so when the same defect returned on 2026-09-11 as 30 completions out of 276 endings, with Walk and Drop faulting zero times between them, the check passed the session in silence and the 89% failure rate reached the owner through play instead. It now asks for a completion rate against a floor of a half, keeping the never-once case as its own wording and its own Definitive grade. Two properties of that repair generalise to every check here: the floor is a half rather than a fitted number because the claim is that simple and because every kind in every session so far sits near one or near zero; and an interruption is a third outcome rather than a fault, counted apart and left out of the rate, because something else claiming the body says nothing about whether the move can be performed — Walk is interrupted constantly and faults never, so folding the two together would report the healthiest kind in the session. When reviewing any other detector here, the question to ask is which observed failure it was written from and whether a milder instance of the same thing would clear it.
 
-**Two stalls recorded natively on purpose show where no question has been asked yet.** EngineReplay's `--evidence-scenes` puts one unproductive scene per family through the real recorder, and two of its captures expose gaps in this tool rather than in the brain. A hop take-off drowned under the walking body closes two `mine` attempts `Failed` with zero effects, and the attempt join lists them by identity, yet no check names a failed contract: the only reader of `attempt-outcome` is `AttemptIdentitiesAgreeAcrossRecords`, which judges whether records agree on identity, so a method that failed repeatedly is never itself a finding. An enemy sealed in rock that hunting correctly refuses as `no-reachable-firing-position` is reported by `TheHandsWorkWhileThreatened` as "nothing fired" and blamed on the target chooser, because that check counts the `reachable` column, which holds hostiles that can reach the player, and never reads the hunt offer's eligibility; a refusal with a proven reason is thus read as a refusal of everything. Both are open, and both are the next check to write or correct in their files.
+**Two stalls recorded natively used to expose gaps in this tool rather than in the brain.** Those questions now have checks: `RepeatedFailedMethodsAreFindings` names a method that failed more than once with no credited effect, and `TheHandsWorkWhileThreatened` no longer treats a hunt refused as `no-reachable-firing-position` as the target chooser refusing everything. EngineReplay's `--evidence-scenes` is still the instrument that produces the stalls. A hop take-off drowned under the walking body closes two `mine` attempts `Failed` with zero effects, and the attempt join lists them by identity, yet no check names a failed contract: the only reader of `attempt-outcome` is `AttemptIdentitiesAgreeAcrossRecords`, which judges whether records agree on identity, so a method that failed repeatedly is never itself a finding. An enemy sealed in rock that hunting correctly refuses as `no-reachable-firing-position` is reported by `TheHandsWorkWhileThreatened` as "nothing fired" and blamed on the target chooser, because that check counts the `reachable` column, which holds hostiles that can reach the player, and never reads the hunt offer's eligibility; a refusal with a proven reason is thus read as a refusal of everything. Both are open, and both are the next check to write or correct in their files.
 
 When adding a check, prefer the form with no threshold in it where one exists. `EveryMoveOfferedGetsMade` asks whether a kind of move that was offered was ever once completed, which has no number to tune and therefore no failure it is blind to; it fires on the 2026-09-09 session retroactively, which is the only proof a check ever really has.
 

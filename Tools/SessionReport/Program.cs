@@ -50,6 +50,7 @@ public static class Program
         new SelectedActivitiesHadAnEligibleOffer(),
         new ARetainedChoiceKeepsItsSelection(),
         new AttemptIdentitiesAgreeAcrossRecords(),
+        new RepeatedFailedMethodsAreFindings(),
         new CompletedTransferClaimsWereReceived(),
         new ControlGrantsAreCompatible(),
         // Then the body, the fight and the choices.
