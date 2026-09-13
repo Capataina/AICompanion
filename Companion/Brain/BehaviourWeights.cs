@@ -338,10 +338,6 @@ public static class Weights
     /// the player is on or a step away from it rather than wandering to another level.</summary>
     public const int StrollRowsFromPlayer = 4;
 
-    /// <summary>Keeping company: how many random columns of the player's neighbourhood one pick examines for a safe standing tile.
-    /// Each column reads a handful of rows, so this bounds the cost of a pick; a pick that finds nothing rests instead.</summary>
-    public const int StrollColumnSamples = 12;
-
     /// <summary>Keeping company: the most predicted enemy exposure a stroll goal may carry, on PredictedExposureAt's scale, where a
     /// forecast hit is 1 and mere proximity peaks at .6. A stroll exists to be company, never to stand where something is about to arrive.</summary>
     public const float StrollExposureLimit = .3f;

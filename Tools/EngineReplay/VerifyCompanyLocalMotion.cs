@@ -14,6 +14,7 @@ using Policy = live::AICompanion.Companion.Brain.Behaviours.Work.WorkPolicy;
 using Reach = live::AICompanion.Companion.Brain.SharedMovementSystem.Reachability.Reach;
 using RequestKind = live::AICompanion.Companion.Brain.PositionSelection.RequestKind;
 using TerrainChanges = live::AICompanion.Companion.Brain.SharedMovementSystem.TerrainChanges;
+using Weights = live::AICompanion.Companion.Brain.BehaviourSelection.Weights;
 
 /// <summary>
 /// Keeping company's local method through the whole brain on native collision: where it chooses to stroll when the neighbourhood holds
@@ -35,6 +36,10 @@ internal static class VerifyCompanyLocalMotion
         }
         Each("J06/X01 stroll goals avoid lava, deep water and a one-way drop", StrollGoalsAvoidHazards);
         Each("J06 an idle window neither hops for show nor collapses to one method", IdleCompanyNeitherHopsNorFreezes);
+        Each("J06 an idle window on a 1:1 block staircase keeps the flat floor's envelope", () => IdleCompanyOnStairs(StairStyle.Blocks));
+        // Slope stairs are the same picker and a different walker: a 1:1 slope walk times out and the navigator jumps, which is
+        // AIC-212, not a return of sampling. Re-enable SlopesRisingRight/Left here when that walk holds.
+        Each("J06/X01 the rim of a drop with a way back is never a stroll goal or a destination", RimOfADropIsNeverAGoal);
         Each("empty-world reunion: nothing on offer and the player walks away", AnEmptyWorldReunitesWithAWalkingPlayer);
         if (red == 0) Console.WriteLine("company local motion: hazard-free returnable stroll goals and bounded idle movement pass");
         return red;
@@ -105,32 +110,163 @@ internal static class VerifyCompanyLocalMotion
     /// window, while a one-minute window drew none on this seed and could not tell a rule with no hop from a rule that was lucky.
     /// </summary>
     private static void IdleCompanyNeitherHopsNorFreezes()
+        => IdleEnvelope(BuildNeighbourhood(hazards: false), "a flat floor");
+
+    /// <summary>The idle window's envelope, on whatever floor <paramref name="ctx"/> stands on: keeping company the only activity chosen,
+    /// no jump started, a rest share between a quarter and three quarters, and more than one goal.</summary>
+    private static void IdleEnvelope(ActionContext ctx, string floor)
     {
-        var ctx = BuildNeighbourhood(hazards: false);
         VerifyUsefulAssistance.ClearMeasuredLight();
         var brain = ctx.Companion.Brain;
         var company = brain.Chooser.Actions.OfType<KeepCompany>().Single();
         int jumps = 0, restTicks = 0, otherActivity = 0;
         bool wasJumping = false;
         var goals = new HashSet<Point>();
+        // Which layer asked for each jump: the stroll's goal, the navigator's state and the edge it last reported, for the first few.
+        var jumpStarts = new List<string>();
         const int Ticks = 10800;
         for (int tick = 0; tick < Ticks; tick++)
         {
             VerifyOreWork.AdvanceBrain(ctx);
             if (brain.LastAction?.Name != "keep-company") otherActivity++;
             bool jumping = ctx.Companion.Motor.AppliedControls.Jump;
-            if (jumping && !wasJumping) jumps++;
+            if (jumping && !wasJumping)
+            {
+                jumps++;
+                if (jumpStarts.Count < 3)
+                    jumpStarts.Add($"t{tick} feet={MovementQueries.FeetTile(ctx.Npc.Bottom)} goal={Walking(company)} request={brain.LastRequest.Kind} "
+                        + $"nav={brain.Navigator.Status}/{brain.Navigator.ProgressReason} navGoal={brain.Navigator.GoalTile} edge={brain.Navigator.LastEdge}");
+            }
             wasJumping = jumping;
             if (brain.LastRequest.Kind == RequestKind.Hold) restTicks++;
             if (Walking(company) is Point goal) goals.Add(goal);
+            if (StrollTrace && tick % 600 == 0) Console.WriteLine($"  TRACE {floor} t{tick}: {DescribeStrollCandidates(ctx)}");
         }
         float rest = restTicks / (float)Ticks;
-        string ledger = $"jumps started={jumps} rest share={rest:0.00} distinct goals={goals.Count} ticks not keeping company={otherActivity}";
-        Require(otherActivity == 0, $"the idle premise needs keeping company to be the only activity chosen; {ledger}");
-        Require(jumps == 0, $"an idle companion on a flat floor must not jump for show; {ledger}");
-        Require(rest is >= .25f and <= .75f, $"idle company must neither always walk nor always stand; {ledger}");
-        Require(goals.Count >= 2, $"idle company must still stroll; {ledger}");
-        Console.WriteLine($"idle company: {ledger}");
+        string ledger = $"jumps started={jumps} rest share={rest:0.00} distinct goals={goals.Count} ticks not keeping company={otherActivity}"
+            + (jumpStarts.Count > 0 ? $"; first jump starts: {string.Join("; ", jumpStarts)}" : "");
+        Require(otherActivity == 0, $"the idle premise needs keeping company to be the only activity chosen on {floor}; {ledger}");
+        Require(jumps == 0, $"an idle companion on {floor} must not jump for show; {ledger}");
+        Require(rest is >= .25f and <= .75f, $"idle company on {floor} must neither always walk nor always stand; {ledger}");
+        Require(goals.Count >= 2, $"idle company on {floor} must still stroll; {ledger}");
+        Console.WriteLine($"idle company on {floor}: {ledger}");
+    }
+
+    internal enum StairStyle { Blocks, SlopesRisingRight, SlopesRisingLeft }
+    // How far either side of the player the staircase keeps rising before the floor levels off; past the stroll band, so every
+    // column a pick can sample is on the stair.
+    private const int StairHalfSpan = 24;
+
+    /// <summary>
+    /// The idle scene on a floor rising one row per column across the whole stroll band, built of full blocks or of slopes in either
+    /// direction, which is what most cave floors are made of. The earlier stroll rule asked for floor on the same row under both
+    /// neighbours of a goal and so refused every tile here: rest share 1.00 with no goal in 400 picks, where the flat floor read 0.52
+    /// with 19. The envelope is the flat floor's own, chosen for it before this scene existed, and the premise is asserted first:
+    /// every column near the player has a standable, supported tile, and the neighbour on the rising side has no floor on that tile's
+    /// row, so the scene is one the same-row rule refuses.
+    /// </summary>
+    private static void IdleCompanyOnStairs(StairStyle style)
+    {
+        int rise = style == StairStyle.SlopesRisingLeft ? -1 : 1;
+        int SurfaceRow(int x) => FloorRow - Math.Clamp(rise * (x - PlayerColumn), -StairHalfSpan, StairHalfSpan);
+        var ctx = BuildNeighbourhood(hazards: false, terrain: () =>
+        {
+            for (int x = 5; x < 95; x++)
+                for (int y = FloorRow - StairHalfSpan - 6; y <= FloorRow + StairHalfSpan + 6; y++)
+                    Main.tile[x, y].ClearEverything();
+            for (int x = 5; x < 95; x++)
+            {
+                int top = SurfaceRow(x);
+                for (int y = top; y <= top + 3; y++) VerifyOreWork.Place(new Point(x, y), TileID.Dirt);
+                bool onStair = Math.Abs(x - PlayerColumn) < StairHalfSpan;
+                if (style != StairStyle.Blocks && onStair)
+                {
+                    // Tile is a view returned by value from the tile map's indexer, so it is held in a local before a field is written.
+                    Tile step = Main.tile[x, top];
+                    step.Slope = style == StairStyle.SlopesRisingRight ? (Terraria.ID.SlopeType)2 : (Terraria.ID.SlopeType)1;
+                }
+            }
+        });
+        for (int x = PlayerColumn - Weights.StrollRowsFromPlayer; x <= PlayerColumn + Weights.StrollRowsFromPlayer; x++)
+        {
+            int top = SurfaceRow(x);
+            int feet = MovementQueries.IsStandable(x, top - 1) ? top - 1 : MovementQueries.IsStandable(x, top) ? top : int.MinValue;
+            Require(feet != int.MinValue && MovementQueries.IsSupport(x, feet + 1),
+                $"the {style} staircase premise needs a standable, supported tile in column {x} at its surface row {top}");
+            int higher = x + rise;
+            Require(!MovementQueries.IsSupport(higher, feet + 1) || !MovementQueries.IsSupport(x - rise, feet + 1),
+                $"the {style} staircase premise needs a neighbour of column {x} with no floor on its own row, or the old rule would accept it");
+        }
+        IdleEnvelope(ctx, $"a 1:1 staircase of {style}");
+    }
+
+    private const int SlabLeft = 34, SlabRight = 46, DropFloor = FloorRow + 12;
+
+    /// <summary>
+    /// The one case where only the rule against the rim of a drop can refuse a goal. The player and the companion stand on a slab from
+    /// column 34 to 46 with open air twelve rows down to the ground on both sides, no liquid anywhere and nothing hostile. The slab's
+    /// end tiles are rims: standable, with floor under their own column, a walk from the feet across the flat slab, on the companion's
+    /// own floor so the round trip to them and back is proven (which is the way back the returnable test needs), and beside a drop the
+    /// body cannot climb out of. The hazard scene cannot hold this, because its one drop is refused by the returnable test before the
+    /// rim rule is read, which is why removing the rim rule entirely left that scene green. Two rims among a dozen candidate tiles keeps
+    /// the seeded run sampling them. Over six thousand ticks with keeping company the only activity, no held goal and no resolved
+    /// destination may be a rim or the tile over the edge, the body must stay on the slab, and more than one goal must be strolled to so
+    /// a companion that only rests cannot pass by never choosing anything.
+    /// </summary>
+    private static void RimOfADropIsNeverAGoal()
+    {
+        var ctx = BuildNeighbourhood(hazards: false, terrain: () =>
+        {
+            for (int x = 5; x < 95; x++)
+            {
+                if (x < SlabLeft || x > SlabRight) Main.tile[x, FloorRow].ClearEverything();
+                VerifyOreWork.Place(new Point(x, DropFloor), TileID.Dirt);
+            }
+        });
+        var brain = ctx.Companion.Brain;
+        brain.Chooser.Actions.RemoveAll(a => a.Name != "keep-company");
+        var company = brain.Chooser.Actions.OfType<KeepCompany>().Single();
+        Point feet = new(PlayerColumn, FloorRow - 1);
+        foreach (int rim in new[] { SlabLeft, SlabRight })
+        {
+            int outside = rim == SlabLeft ? rim - 1 : rim + 1;
+            Require(MovementQueries.IsStandable(rim, FloorRow - 1) && MovementQueries.IsSupport(rim, FloorRow),
+                $"the rim premise needs column {rim} standable with floor under it");
+            Require(!MovementQueries.IsSupport(outside, FloorRow - 1) && !MovementQueries.IsSupport(outside, FloorRow) && !MovementQueries.IsSupport(outside, FloorRow + 1),
+                $"the rim premise needs no floor within a step beside column {rim}");
+            var there = MovementQueries.RoundTrip(feet, new Point(rim, FloorRow - 1), VerifyAssistanceTrips.EnvelopeOf(ctx));
+            Require(there.Outward == Reach.Yes && there.Return == Reach.Yes, $"the rim premise needs a proven way to the rim at column {rim} and back; trip={there}");
+            var down = MovementQueries.RoundTrip(feet, new Point(outside, DropFloor - 1), VerifyAssistanceTrips.EnvelopeOf(ctx));
+            Require(down.Outward == Reach.Yes && down.Return == Reach.No, $"the rim premise needs the drop beside column {rim} to have a way down and none back; trip={down}");
+        }
+        for (int x = SlabLeft - 3; x <= SlabRight + 3; x++)
+            for (int y = FloorRow - 6; y <= DropFloor; y++)
+                Require(!MovementQueries.IsLiquid(x, y), $"the rim premise needs no liquid, found at {x},{y}");
+
+        static string? OffTheSlab(Point tile) => tile.X <= SlabLeft || tile.X >= SlabRight || tile.Y >= FloorRow
+            ? "is a rim, over the edge or below the slab" : null;
+        var violations = new List<string>();
+        var goals = new HashSet<Point>();
+        int restTicks = 0;
+        const int Ticks = 6000;
+        for (int tick = 0; tick < Ticks; tick++)
+        {
+            VerifyOreWork.AdvanceBrain(ctx);
+            if (brain.LastRequest.Kind == RequestKind.Hold) restTicks++;
+            if (Walking(company) is Point goal)
+            {
+                goals.Add(goal);
+                if (OffTheSlab(goal) is string why) Note(violations, $"t{tick} held goal {goal} {why}");
+            }
+            if (brain.LastRequest.Kind == RequestKind.Exact && brain.Positioner.Chosen is Vector2 chosen
+                && OffTheSlab(MovementQueries.FeetTile(chosen)) is string whyChosen)
+                Note(violations, $"t{tick} resolved destination {MovementQueries.FeetTile(chosen)} {whyChosen}");
+            if (ctx.Npc.Bottom.Y > FloorRow * 16 + 0.5f) Note(violations, $"t{tick} body below the slab at {ctx.Npc.Bottom}");
+        }
+        string ledger = $"distinct goals={goals.Count} [{string.Join(" ", goals.OrderBy(g => g.X).Select(g => g.X))}] rest share={restTicks / (float)Ticks:0.00}; first violations: {string.Join("; ", violations)}";
+        Require(violations.Count == 0, $"keeping company must never stroll to the rim of a drop; {ledger}");
+        Require(goals.Count >= 2, $"the slab must still be strolled, or never choosing a rim proves nothing; {ledger}");
+        Console.WriteLine($"stroll rim: {ledger}");
     }
 
     /// <summary>
@@ -169,6 +305,45 @@ internal static class VerifyCompanyLocalMotion
         Console.WriteLine($"empty-world reunion: {ledger}");
     }
 
+    /// <summary>Probe switch: every six hundred ticks of an idle window, prints why each tile the walk from the feet reaches is or is not a
+    /// stroll goal, by the production predicates, so a companion that rests with goals apparently available can be read.</summary>
+    private static readonly bool StrollTrace = Environment.GetEnvironmentVariable("AIC_STROLL_TRACE") == "1";
+
+    private static string DescribeStrollCandidates(ActionContext ctx)
+    {
+        const BindingFlags Static = BindingFlags.NonPublic | BindingFlags.Static;
+        var walkStep = typeof(KeepCompany).GetMethod("WalkStep", Static)!;
+        var noDrop = typeof(KeepCompany).GetMethod("NoDropBeside", Static)!;
+        var clearOfLiquid = typeof(KeepCompany).GetMethod("ClearOfLiquidHazards", Static)!;
+        Point player = MovementQueries.FeetTile(ctx.Senses.Player.Bottom), feet = MovementQueries.FeetTile(ctx.Npc.Bottom);
+        int span = (int)(Weights.CalmBandFar * 0.7f / 16f);
+        var parts = new List<string> { $"feet={feet} player={player} request={ctx.Companion.Brain.LastRequest.Kind} onGround={ctx.Companion.Motor.State.OnGround}" };
+        int start = walkStep.Invoke(null, new object[] { feet.X, feet.Y }) is int settled ? settled : feet.Y;
+        parts[0] += $" walkStart={start}";
+        foreach (int direction in new[] { -1, 1 })
+        {
+            int y = start;
+            var line = new System.Text.StringBuilder(direction < 0 ? " left:" : " right:");
+            for (int x = feet.X + direction; Math.Abs(x - player.X) <= span; x += direction)
+            {
+                if (walkStep.Invoke(null, new object[] { x, y }) is not int next) { line.Append($" stop@{x}"); break; }
+                y = next;
+                Point tile = new(x, y);
+                string verdict = Math.Abs(x - feet.X) < Weights.StrollMinimumTiles ? "near"
+                    : Math.Abs(y - player.Y) > Weights.StrollRowsFromPlayer ? "rows"
+                    : !MovementQueries.IsStandable(x, y) ? "stand"
+                    : !(bool)noDrop.Invoke(null, new object[] { tile })! ? "rim"
+                    : !(bool)clearOfLiquid.Invoke(null, new object[] { tile })! ? "liquid"
+                    : live::AICompanion.Companion.Brain.PositionSelection.Positioner.PredictedExposureAt(MovementQueries.FeetWorld(tile), ctx.Senses) > Weights.StrollExposureLimit ? "exposed"
+                    : !ctx.Companion.Brain.Positioner.IsReturnable(ctx.Senses, tile) ? "unreturnable"
+                    : "OK";
+                line.Append($" {x},{y}:{verdict}");
+            }
+            parts.Add(line.ToString());
+        }
+        return string.Join(";", parts);
+    }
+
     private static Point? Walking(KeepCompany company)
     {
         const BindingFlags Field = BindingFlags.NonPublic | BindingFlags.Instance;
@@ -193,7 +368,7 @@ internal static class VerifyCompanyLocalMotion
         else if (violations.Count == 6) violations.Add("...");
     }
 
-    internal static ActionContext BuildNeighbourhood(bool hazards)
+    internal static ActionContext BuildNeighbourhood(bool hazards, Action? terrain = null)
     {
         Point placeholder = new(80, FloorRow - 1);
         var (_, ctx) = VerifyOreWork.SetUp(Policy.Disabled, TileID.Copper, placeholder);
@@ -210,6 +385,7 @@ internal static class VerifyCompanyLocalMotion
             Basin(WaterLeft, WaterRight, depth: 3, liquid: LiquidID.Water);
             Basin(DropLeft, DropRight, depth: 12, liquid: null);
         }
+        terrain?.Invoke();
         TerrainChanges.Reset();
         AStar.InvalidateEdges();
         ctx.Companion.Brain.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Breath);
