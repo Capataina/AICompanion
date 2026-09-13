@@ -26,8 +26,9 @@ internal static class VerifyHuntAdmissibility
     {
         VerifyWalkableFiringPositionKeepsTheTarget();
         VerifySealedTargetIsRefused();
+        VerifyUnknownFiringAccessIsNotHunted();
         VerifyTheCheckIsAffordableOnAHopelessCrowd();
-        Console.WriteLine("hunt admissibility: a repositionable target is kept, an unshootable target is refused, and the check stays affordable");
+        Console.WriteLine("hunt admissibility: a repositionable target is kept, an unshootable target is refused, an unfinished search is not a plan, and the check stays affordable");
         return 0;
     }
 
@@ -165,6 +166,32 @@ internal static class VerifyHuntAdmissibility
         Require(hunt.Eligibility == live::AICompanion.Companion.Brain.Activities.OfferEligibility.KnownUnusable
             && hunt.EligibilityReason == "no-reachable-firing-position",
             $"a proven absence of firing positions is a known-unusable method, not an absent enemy; got {hunt.Eligibility}/{hunt.EligibilityReason}");
+    }
+
+    /// <summary>
+    /// The pillar case without a settled flood: from-here is blocked, AfterMoving has not been
+    /// proved, so the access is Unknown. That is not a hunt. Walking at it was the same class of
+    /// plan as walking at unproven ore.
+    /// </summary>
+    private static void VerifyUnknownFiringAccessIsNotHunted()
+    {
+        BuildFloor();
+        for (int y = FloorY - 3; y < FloorY; y++) Solid(40, y);
+        Rebuild();
+
+        var companion = Place(companionTileX: 38, enemyTileX: 60, enemyTileY: FloorY, out NPC enemy, out C ctx);
+        Require(!companion.Arsenal.CanEngage(ctx, enemy),
+            "the unknown case needs the pillar to block the shot from where the companion stands");
+        Require(!companion.Brain.Positioner.ReachComplete,
+            "the unknown case needs the reachable region still unfinished, or it is the sealed refusal in disguise");
+
+        var hunt = new H();
+        float score = VerifyPreparedActivities.PrepareAndScore(hunt, ctx);
+        Require(score == 0f && hunt.Target == null,
+            $"an unfinished firing search was hunted: score={score}; target={hunt.Target?.Npc.whoAmI}; rejection={hunt.LastRejection}");
+        Require(hunt.Eligibility == live::AICompanion.Companion.Brain.Activities.OfferEligibility.Unresolved
+            && hunt.EligibilityReason == "firing-position-undecided",
+            $"an unfinished firing search must stay unresolved at value zero, not become a walk; got {hunt.Eligibility}/{hunt.EligibilityReason}");
     }
 
     /// <summary>

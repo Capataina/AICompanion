@@ -29,7 +29,7 @@ public sealed class MineOre : CompanionAction
     private float preparedValue, preparedTrip;
     private Infrastructure.Interactions.BindTileTarget? preparedTile;
     public override string PreparedTargetRejection => WorkPolicies.Mining == WorkPolicy.Disabled ? "work-disabled" : preparedTile is { } bound
-        ? (target?.Tile ?? unproven) != bound.Tile ? "prepared-target-changed" : bound.Rejection : "";
+        ? target?.Tile != bound.Tile ? "prepared-target-changed" : bound.Rejection : "";
 
     private const int KeepJobTicks = 600;
     private const int SearchRadiusTiles = 45;
@@ -56,18 +56,18 @@ public sealed class MineOre : CompanionAction
     public DescribeOreJobEnd? LastConclusion { get; private set; }
     /// <summary>True only while the pickaxe is actually out; the whole walk to the vein is empty-handed.</summary>
     public override bool HandsBusy => swinging;
-    public override object? ActivityIdentity => jobId > 0 ? jobId : (object?)unproven;
+    public override object? ActivityIdentity => jobId > 0 ? jobId : null;
     public WorkPolicy Policy => WorkPolicies.Mining;
     public string Status => status;
     public int RemainingTiles => patch.Count;
-    public Point? TargetTile => target?.Tile ?? unproven;
+    public Point? TargetTile => target?.Tile;
     public Vector2? TargetStandPosition => target?.StandPosition;
     public Infrastructure.Interactions.RemainingToolWork? RemainingWork { get; private set; }
 
     public override void Prepare(in ActionContext ctx)
     {
         preparedValue = DiscoverValue(ctx);
-        preparedTarget = (target?.Tile ?? unproven)?.ToWorldCoordinates();
+        preparedTarget = target?.Tile.ToWorldCoordinates();
         RemainingWork = target is { } workTarget
             ? ctx.Companion.Miner.EstimateRemaining(workTarget.Tile, TileMiner.PickaxeFor(ctx.Player)) : null;
         if (target != null && RemainingWork == null)
@@ -77,10 +77,10 @@ public sealed class MineOre : CompanionAction
         }
         preparedTrip = target is { } found
             ? Vector2.Distance(ctx.Npc.Bottom, found.StandPosition) / Companion.CompanionMotor.WalkSpeed + (RemainingWork?.Ticks ?? 0f)
-            : unproven is Point pending ? Vector2.Distance(ctx.Npc.Bottom, pending.ToWorldCoordinates()) / Companion.CompanionMotor.WalkSpeed + 180f : 0f;
-        preparedTile = preparedValue <= 0 ? null
-            : target is { } boundTarget ? new Infrastructure.Interactions.BindTileTarget(boundTarget.Tile, boundTarget.Type)
-            : unproven is Point point ? Infrastructure.Interactions.BindTileTarget.Capture(point) : null;
+            : 0f;
+        preparedTile = preparedValue <= 0 || target is not { } boundTarget
+            ? null
+            : new Infrastructure.Interactions.BindTileTarget(boundTarget.Tile, boundTarget.Type);
     }
 
     public override float Score() => preparedValue;
@@ -211,7 +211,8 @@ public sealed class MineOre : CompanionAction
             // be reached. The 2026-09-11 session sat in "approach unknown" for 9,123 of 26,716
             // ticks against 267 ticks of actual mining, and ore stayed in the ground beside the
             // player. The tile is kept and only its approach is recomputed; when the recomputation
-            // declines to answer, the tile becomes the walk-at-it target rather than nothing.
+            // declines to answer, the stand is dropped and mining offers nothing until a later
+            // preparation proves a pose from new feet.
             if (target is OreFinder.OreTarget held)
             {
                 // A hop target's feet move by design twice over — walking to the take-off and the hop
@@ -231,7 +232,7 @@ public sealed class MineOre : CompanionAction
                     && FindToolAccess.HopApproach(held.Tile, ctx.Npc.Bottom, ctx.Companion.Motor.State, out Vector2 takeOff) == Reachability.Reach.Yes)
                     target = held with { StandPosition = takeOff, Hop = true };
                 else
-                    target = null; // the walk-at-unproven-ore path below re-finds it
+                    target = null;
             }
             if (patch.Count > 0 && target == null) sinceSearch = SearchEveryTicks;
             // A different pick is new evidence about every ore, not only the held one: a weaker tool
@@ -270,11 +271,9 @@ public sealed class MineOre : CompanionAction
         }
         if (patch.Count == 0 || (target == null && status == "approach unknown"))
         {
-            float investigation = UnprovenApproach(ctx);
-            ClassifyWithoutProvenTarget(investigation);
-            return investigation;
+            ClassifyWithoutProvenTarget(0f);
+            return 0f;
         }
-        unproven = null;
         Classify(OfferEligibility.Usable, "vein-target-established");
         return 0.7f;
     }
@@ -291,80 +290,10 @@ public sealed class MineOre : CompanionAction
             "no mineable ore" or NoProvenPoseReason or LostTakeOffReason => OfferEligibility.KnownUnusable,
             _ => OfferEligibility.NoOpportunity,
         };
-        Classify(eligibility, approachAbandonedAt == Main.GameUpdateCount ? "unproven-ore-approach-made-no-progress" : status.Replace(' ', '-'));
+        Classify(eligibility, status.Replace(' ', '-'));
     }
 
-    private Point? unproven;
     private Point? unresolvedCandidate;
-    private Vector2 unprovenOrigin;
-    private int unprovenTicks;
-    private ulong? approachAbandonedAt;
-    private readonly Dictionary<Point, int> refusedUnproven = new();
-
-    /// <summary>
-    /// What mining is worth while the approach search has declined to answer. It used to be worth
-    /// nothing, and that zero was self-fulfilling: the reachability question is a bounded search run
-    /// fresh from the companion's feet each time, so for a body that does not move it returns the
-    /// same "could not tell" for ever, and the only thing that would shorten the search — walking
-    /// closer — is the thing a zero score prevents. A quarter of the 2026-09-11 session sat in that
-    /// state: 3,444 ticks where mining had found ore, wanted it, and contributed nothing.
-    ///
-    /// So the companion walks at the ore instead, and the approach is re-asked from each new
-    /// position until it resolves one way or the other. The score is discounted well below a proven
-    /// job, so a vein it can actually reach always wins, and it is renewed only while the body is
-    /// covering ground: standing still stops earning it, which preserves the property the original
-    /// zero was protecting — that the chooser is never held by mining that is not going anywhere.
-    /// </summary>
-    private float UnprovenApproach(in ActionContext ctx)
-    {
-        // Both spellings are the same state: the second is what the walk toward an unproven ore
-        // reports so a session can be read for it, and it must not read as a different state here
-        // or the attempt would end on the tick after it started.
-        if (status is not ("approach unknown" or "approaching unproven ore"))
-        {
-            unproven = null;
-            return 0f;
-        }
-        if (unresolvedCandidate is not Point pending || !OreFinder.IsOre(pending.X, pending.Y)
-            || !ctx.Companion.Miner.CanMine(pending, TileMiner.PickaxeFor(ctx.Player).pick)
-            || !AllowsTarget(ctx, pending.ToWorldCoordinates())
-            || Infrastructure.Interactions.WorldProtection.ProtectCompanionHomes.IsProtected(pending))
-        {
-            // Already walking at an ore that has since vanished, left the allowance, stopped being mineable or become
-            // protected: the attempt ended because its target or permission went away, which is invalid rather than a
-            // replacement before any effect.
-            if (unproven != null)
-                attemptSetback = (AttemptStatus.Invalid, "unproven-ore-no-longer-admissible");
-            unproven = null;
-            return 0f;
-        }
-        if (unproven != pending)
-        {
-            unproven = pending;
-            unprovenOrigin = ctx.Npc.Bottom;
-            unprovenTicks = 0;
-        }
-        if (unproven == null)
-            return 0f;
-        if (Vector2.DistanceSquared(unprovenOrigin, ctx.Npc.Bottom) >= Weights.ObjectiveProgressPixels * Weights.ObjectiveProgressPixels)
-        {
-            unprovenOrigin = ctx.Npc.Bottom;
-            unprovenTicks = 0;
-        }
-        else if (++unprovenTicks >= Weights.ObjectiveProgressWindowTicks)
-        {
-            // Walking has stopped resolving it. Give the tick back rather than lean on the ore.
-            // One tile is not the pocket: the next search otherwise returns the neighbouring ore
-            // in the same unreachable vein and the walk starts again.
-            unproven = null;
-            RefuseUnprovenVein(pending);
-            unresolvedCandidate = null;
-            approachAbandonedAt = Main.GameUpdateCount;
-            attemptSetback = (AttemptStatus.Failed, "unproven-ore-approach-made-no-progress");
-            return 0f;
-        }
-        return 0.7f * Weights.MineUnprovenApproach;
-    }
 
     private void Search(in ActionContext ctx, (Point Tile, int Type)? playerHit)
     {
@@ -374,7 +303,7 @@ public sealed class MineOre : CompanionAction
         var context = ctx;
         bool Mineable(Point tile) => miner.CanMine(tile, pick) && AllowsTarget(context, tile.ToWorldCoordinates())
             && !Infrastructure.Interactions.WorldProtection.ProtectCompanionHomes.IsProtected(tile)
-            && !HopDeferred(tile) && !UnprovenRefused(tile);
+            && !HopDeferred(tile);
         OreFinder.SearchResult result = default;
         BodyState body = ctx.Companion.Motor.State;
         if (WorkPolicies.Mining == WorkPolicy.Mimic)
@@ -390,8 +319,6 @@ public sealed class MineOre : CompanionAction
                 NearestTile(ctx.Npc.Bottom, byPlayer.UnresolvedTile, byCompanion.UnresolvedTile));
         }
         unresolvedCandidate = result.UnresolvedTile;
-        if (unresolvedCandidate is Point same && UnprovenRefused(same))
-            unresolvedCandidate = null;
         OreFinder.OreTarget? found = result.Target;
         if (found is OreFinder.OreTarget f)
         {
@@ -438,19 +365,10 @@ public sealed class MineOre : CompanionAction
         if (preparedTile == null || PreparedTargetRejection.Length > 0)
         {
             target = null;
-            unproven = null;
             sinceSearch = SearchEveryTicks;
             status = "prepared tile invalidated";
             attemptSetback = (AttemptStatus.Invalid, "prepared-tile-invalidated");
             return PositionRequest.Hold;
-        }
-        if (target == null && unproven is Point approach)
-        {
-            // No proven stand exists yet, so walk at the ore itself. Exact resolves to the nearest
-            // standable tile it can actually reach, and the partial route walks as close as it can —
-            // which is what re-asks the approach question from somewhere new.
-            status = "approaching unproven ore";
-            return PositionRequest.ExactAt(approach.ToWorldCoordinates());
         }
         if (target is not OreFinder.OreTarget t)
             return PositionRequest.Hold;
@@ -647,26 +565,6 @@ public sealed class MineOre : CompanionAction
         return ++hopProgressTicks < Weights.ObjectiveProgressWindowTicks;
     }
 
-    /// <summary>A tile of a vein whose unproven approach already failed under this terrain revision. Neighbours of the
-    /// failed tile are the same pocket: refusing only the one tile made the next search walk at the next ore over.</summary>
-    private bool UnprovenRefused(Point tile)
-    {
-        if (!refusedUnproven.TryGetValue(tile, out int revision)) return false;
-        if (revision == TerrainChanges.Revision) return true;
-        refusedUnproven.Remove(tile);
-        return false;
-    }
-
-    private void RefuseUnprovenVein(Point tile)
-    {
-        int revision = TerrainChanges.Revision;
-        int type = WorldGen.InWorld(tile.X, tile.Y, 5) ? Main.tile[tile.X, tile.Y].TileType : -1;
-        HashSet<Point> vein = type >= 0 ? OreFinder.Vein(tile, type) : new HashSet<Point>();
-        if (vein.Count == 0) vein.Add(tile);
-        foreach (Point p in vein)
-            refusedUnproven[p] = revision;
-    }
-
     /// <summary>A tile whose take-off was lost at rest, while the terrain revision it was lost under still holds and its wait has not passed.</summary>
     private bool HopDeferred(Point tile)
     {
@@ -696,7 +594,7 @@ public sealed class MineOre : CompanionAction
         jobTiles.Clear();
         ownRemovals.Clear();
         target = null;
-        unresolvedCandidate = unproven = null;
+        unresolvedCandidate = null;
         patch.Clear();
         jobId = 0;
         status = reason;

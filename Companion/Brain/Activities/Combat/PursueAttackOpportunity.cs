@@ -144,8 +144,12 @@ public sealed class PursueAttackOpportunity : CompanionAction
         if (Target == null)
         {
             // A refusal with a named cause is a known-unusable method; no candidate at all is absence.
-            Classify(LastRejection is "no-reachable-firing-position" or "engagement-deferred-no-progress"
-                ? OfferEligibility.KnownUnusable : OfferEligibility.NoOpportunity, LastRejection);
+            // An unfinished firing search is neither: it is not a plan, and it is not a proven absence.
+            if (LastRejection == "firing-position-undecided")
+                Classify(OfferEligibility.Unresolved, LastRejection);
+            else
+                Classify(LastRejection is "no-reachable-firing-position" or "engagement-deferred-no-progress"
+                    ? OfferEligibility.KnownUnusable : OfferEligibility.NoOpportunity, LastRejection);
             return 0f;
         }
         if (ctx.Senses.Player.IsDead)
@@ -175,18 +179,17 @@ public sealed class PursueAttackOpportunity : CompanionAction
         // Whether a shot is possible at all was absent from this product, so hunting something
         // unhittable scored exactly as well as hunting something killable and the companion spent
         // its day walking at enemies it could not harm. It is graded rather than binary: a target
-        // it can already hit is worth more than one it must walk to, and one it must walk to is
-        // worth more than one nothing has established yet. Only a proven absence vetoes, and that
-        // veto is what stops the hunt being started at all.
+        // it can already hit is worth more than one it must walk to. An unfinished search is not
+        // a third grade — PickTarget never selects it — so the only remaining veto is a proven
+        // absence, which is what stops the hunt being started at all.
         float shot = verdict switch
         {
             FiringAccess.FromHere => 1f,
             FiringAccess.AfterMoving => Weights.HuntRepositionShot,
-            FiringAccess.Unknown => Weights.HuntUnprovenShot,
             _ => 0f,
         };
         if (leash == 0f) Classify(OfferEligibility.PolicyForbidden, "outside-activity-allowance");
-        else Classify(verdict == FiringAccess.Unknown ? OfferEligibility.Unresolved : OfferEligibility.Usable, verdict switch
+        else Classify(OfferEligibility.Usable, verdict switch
         {
             FiringAccess.FromHere => "shot-from-current-position",
             FiringAccess.AfterMoving => "reachable-firing-position",
@@ -256,6 +259,7 @@ public sealed class PursueAttackOpportunity : CompanionAction
         examined.Clear();
         examinedAdmissible.Clear();
         bool refusedForFiring = false;
+        bool undecidedFiring = false;
         ThreatRecord? chosen = null, firstAdmissible = null;
         FiringAccess chosenVerdict = FiringAccess.None, firstVerdict = FiringAccess.None;
         float chosenValue = 0f, chosenAccess = 0f, firstAccess = 0f;
@@ -267,7 +271,7 @@ public sealed class PursueAttackOpportunity : CompanionAction
                 break;
             examined.Add(candidate.Npc.whoAmI);
             var (opportunity, access) = firingAccess.Resolve(ctx, candidate.Npc);
-            float value = opportunity == FiringAccess.None ? 0f
+            float value = opportunity is FiringAccess.None or FiringAccess.Unknown ? 0f
                 : ctx.Companion.Arsenal.EstimateDelayedAttackValue(ctx, candidate.Npc, (int)MathF.Min(access, 100_000f), opportunity == FiringAccess.FromHere);
             if (evidence.Length > 0) evidence.Append('|');
             evidence.Append(FormattableString.Invariant(
@@ -275,6 +279,11 @@ public sealed class PursueAttackOpportunity : CompanionAction
             if (opportunity == FiringAccess.None)
             {
                 refusedForFiring = true;
+                continue;
+            }
+            if (opportunity == FiringAccess.Unknown)
+            {
+                undecidedFiring = true;
                 continue;
             }
             examinedAdmissible.Add((candidate.Npc.whoAmI, HostileAttackSources.Generation(candidate.Npc), candidate.Npc.Center));
@@ -300,6 +309,8 @@ public sealed class PursueAttackOpportunity : CompanionAction
         // for. Whether the companion had nowhere to shoot from is exactly what needs to survive.
         if (refusedForFiring)
             LastRejection = "no-reachable-firing-position";
+        else if (undecidedFiring)
+            LastRejection = "firing-position-undecided";
         verdict = FiringAccess.None;
         return null;
     }

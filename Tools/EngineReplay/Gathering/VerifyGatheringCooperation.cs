@@ -235,9 +235,10 @@ internal static class VerifyGatheringCooperation
             RunBrain(ctx, 900, () => !TargetPresent(target, chopping));
             Require(!TargetPresent(target, chopping), $"{phase}: removing the protection must let the same work finish");
         }
-        // The undecided approach, which the lifted allowances above never reach: mining walks at an ore its bounded search
-        // could not decide, and a bed placed then must end that attempt invalid rather than as a replacement before any
-        // effect. The search is starved of its time budget, as the unproven-approach fixture in the ore suite does.
+        // The undecided approach, which the lifted allowances above never reach: mining does not
+        // walk at ore its bounded search could not decide, so a bed placed over that ore has
+        // nothing to invalidate. The search is starved of its time budget, as the unproven-approach
+        // fixture in the ore suite does.
         live::AICompanion.Companion.Brain.Infrastructure.Movement.LimitPlanningWork.Unbounded = false;
         double budget = live::AICompanion.Companion.Brain.Infrastructure.Movement.AStar.MsBudget;
         try
@@ -245,18 +246,15 @@ internal static class VerifyGatheringCooperation
             Point far = new(50, 59);
             var (mine, ctx) = VerifyOreWork.SetUp(WorkPolicy.Opportunistic, TileID.Copper, far);
             live::AICompanion.Companion.Brain.Infrastructure.Movement.AStar.MsBudget = 0.0001d;
-            Require(VerifyPreparedActivities.PrepareAndScore(mine, ctx) > 0 && mine.Status == "approach unknown",
-                $"the undecided case needs mining to offer a walk at an unproven ore; status={mine.Status}");
-            mine.BeginAttempt();
-            Require(mine.Execute(ctx).Kind == live::AICompanion.Companion.Brain.Infrastructure.Position.RequestKind.Exact,
-                "the undecided case needs mining walking at the ore");
+            Require(VerifyPreparedActivities.PrepareAndScore(mine, ctx) == 0f && mine.Status == "approach unknown",
+                $"the undecided case must not be a plan; status={mine.Status} score={mine.Score()}");
+            Require(mine.Execute(ctx).Kind == live::AICompanion.Companion.Brain.Infrastructure.Position.RequestKind.Hold,
+                "the undecided case must not walk at the ore");
             Protection.Reset();
             PlaceBed(new Point(52, 58));
             Protection.Refresh(ctx.Player.Bottom, ctx.Npc.Bottom);
             Require(Protection.IsProtected(far), "the fixture bed must protect the undecided ore");
-            Require(VerifyPreparedActivities.PrepareAndScore(mine, ctx) == 0f, "a protected undecided ore must stop being offered");
-            Require(mine.ConcludeAttempt(0) is { Status: AttemptStatus.Invalid, Cause: "unproven-ore-no-longer-admissible" },
-                $"walking at an ore that became protected ends the attempt invalid; got {mine.ConcludeAttempt(0)}");
+            Require(VerifyPreparedActivities.PrepareAndScore(mine, ctx) == 0f, "a protected undecided ore must still not be offered");
         }
         finally
         {

@@ -13,7 +13,9 @@ namespace AICompanion.Companion.Brain.Activities.Combat;
 /// What the companion would have to do to land a shot on an enemy. Three-and-a-bit valued for
 /// the same reason <see cref="Infrastructure.Movement.Reachability.Reach"/> is: a bounded flood
 /// that has not yet grown as far as the target says nothing about whether a firing spot exists
-/// there, and collapsing that into "no" refuses targets for being newly noticed.
+/// there. Hunting does not walk at that Unknown; it waits until the flood proves FromHere or
+/// AfterMoving. Collapsing Unknown into None would still be wrong, because a later tick can
+/// settle a shot that this tick could not finish asking.
 /// </summary>
 public enum FiringAccess
 {
@@ -58,8 +60,8 @@ public sealed class ResolveFiringOpportunity
     /// <summary>
     /// The verdict, and how long the reposition it implies would take: zero from here, the travel estimate
     /// to the nearest reachable sighted tile after moving, a straight-line walk to the enemy while nothing is
-    /// established, and infinity for a proven absence. The straight-line figure under Unknown is a guess a
-    /// hunt may price against; it is not evidence that any firing position arrives.
+    /// established, and infinity for a proven absence. The straight-line figure under Unknown is not a hunt
+    /// price; hunting skips Unknown rather than walking at a guess.
     /// </summary>
     public (FiringAccess Verdict, float AccessTicks) Resolve(in ActionContext ctx, NPC enemy)
     {

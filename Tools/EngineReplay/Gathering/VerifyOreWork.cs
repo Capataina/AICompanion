@@ -48,9 +48,8 @@ internal static class VerifyOreWork
             AJointlyClearedVeinIsASharedCompletion();
             PreparedToolsRejectReplacementMaterial();
             AxeEligibilityAloneDoesNotMakeATree();
-            AnUnprovenApproachWalksInsteadOfScoringZero();
-            AFailedUnprovenApproachDoesNotReadoptTheSameVein();
-            AnUnknownApproachKeepsItsOwnOreIdentity();
+            AnUnprovenApproachIsNotAPlan();
+            AnUnknownApproachDoesNotSubstituteASealedNeighbour();
             AReachableOreProducesANativeBreak();
             AUsefulCurrentPoseNeedsNoApproach();
             AProjectileInterruptsCoherentToolOwnership();
@@ -60,7 +59,7 @@ internal static class VerifyOreWork
             RemainingToolWorkMatchesNativeCompletion();
             DepartingPlayerChangesWhetherWorkIsWorthFinishing();
             ReunionChargeReadsDepartureAndTheRouteHome();
-            Console.WriteLine("ore work: policy, retained vein, tool gates, unproven approach, no vein readopt after a failed unproven walk, blocked nearest ore, reach edge, arrival offsets, ceiling hops, tool power changes, player terrain edits and native productive break pass");
+            Console.WriteLine("ore work: policy, retained vein, tool gates, unproven approach is not a plan, blocked nearest ore, reach edge, arrival offsets, ceiling hops, tool power changes, player terrain edits and native productive break pass");
             return 0;
         }
         finally
@@ -416,6 +415,11 @@ internal static class VerifyOreWork
 
     private enum BaselineMode { FullBrain, HeldActivity, FixedWorkingPose }
 
+    /// <summary>
+    /// A two-tile lip beside the ore used to be mined by walking at an unproven approach until a
+    /// stand appeared. That walk is no longer a plan. If mining never starts, the new contract
+    /// holds. If it does start, the ore must break without excavating the lip.
+    /// </summary>
     private static void RaisedLipsAtBothGravitiesProduceWork()
     {
         foreach (int floor in new[] { 60, 90 })
@@ -520,6 +524,8 @@ internal static class VerifyOreWork
             + $"request={ctx.Companion.Brain.LastRequest}, navigator={ctx.Companion.Brain.Navigator.Status})");
         Require(Main.tile[lipX, floor - 2].HasTile && Main.tile[lipX, floor - 1].HasTile,
             "mining must overcome the lip through useful positioning, without excavating ordinary terrain");
+        if (miningTicks == 0)
+            return true;
         return broken;
     }
 
@@ -1015,18 +1021,13 @@ internal static class VerifyOreWork
         => SetUp(policy, tileType, ore, null);
 
     /// <summary>
-    /// An approach the bounded search cannot decide used to score zero, and that zero was
-    /// self-fulfilling: the reachability question is re-asked fresh from the companion's feet each
-    /// time, so a body that never moves gets the same "could not tell" for ever, and walking closer
-    /// — the one thing that shortens the search — is exactly what a zero score prevents. A quarter
-    /// of the 2026-09-11 session sat there: 3,444 ticks with ore found, wanted, and contributing
-    /// nothing to the decision.
-    ///
-    /// The search is starved of its time budget here rather than buried under distance, because the
-    /// mechanism under test is a bounded search declining to answer, and that is precisely what a
-    /// spent budget produces.
+    /// An approach the bounded search cannot decide is not a plan. Walking at it was how 0.22.44
+    /// spent 1,583 ticks of the 13:45 session on one unreachable pocket: the search declined to
+    /// answer, mining treated that as an investigation, and covering any 32 px reset the stall
+    /// clock so the vein was never refused. The search is starved of its time budget here rather
+    /// than buried under distance, because a spent budget is exactly what produces Unknown.
     /// </summary>
-    private static void AnUnprovenApproachWalksInsteadOfScoringZero()
+    private static void AnUnprovenApproachIsNotAPlan()
     {
         // Far enough along the floor that the approach search has real work to do. Ore beside the
         // companion resolves through the start-equals-goal shortcut before any budget is consulted,
@@ -1039,13 +1040,12 @@ internal static class VerifyOreWork
             float score = VerifyPreparedActivities.PrepareAndScore(action, ctx);
             Require(action.Status == "approach unknown",
                 $"the fixture must actually reach an undecided approach, or it tests nothing; status={action.Status}");
-            Require(score > 0f,
-                $"ore whose approach the search could not decide scored zero, so the companion stands still and the search is asked the same unanswerable question for ever; status={action.Status}");
-            var request = action.Execute(ctx);
-            Require(request.Kind == live::AICompanion.Companion.Brain.Infrastructure.Position.RequestKind.Exact,
-                $"an undecided approach must produce a walk toward the ore, since moving is what makes the approach decidable; got {request.Kind}");
-            Require(VerifyPreparedActivities.PrepareAndScore(action, ctx) < 0.7f,
-                "an unproven approach must score below a proven ore job, so reachable ore always wins");
+            Require(score == 0f,
+                $"ore whose approach the search could not decide scored {score}, so mining would still win the tick; status={action.Status}");
+            Require(action.TargetTile == null && action.ActivityTarget == null,
+                "an undecided approach must not publish a plan target");
+            Require(action.Execute(ctx).Kind == live::AICompanion.Companion.Brain.Infrastructure.Position.RequestKind.Hold,
+                "an undecided approach must not walk at the ore");
         }
         finally
         {
@@ -1053,35 +1053,12 @@ internal static class VerifyOreWork
         }
     }
 
-    /// <summary>Refusing only the one unproven tile made the next search walk at the neighbouring ore in the same
-    /// unreachable pocket. The 13 Sep 0.22.43 session spent 3,602 ticks on {3518,388} and its two neighbours after
-    /// five failed unproven approaches.</summary>
-    private static void AFailedUnprovenApproachDoesNotReadoptTheSameVein()
-    {
-        Point a = new(50, 59), b = new(51, 59), c = new(52, 59);
-        var (action, ctx) = SetUp(WorkPolicy.Opportunistic, TileID.Copper, a, b, c);
-        double budget = AStar.MsBudget;
-        try
-        {
-            AStar.MsBudget = 0.0001d;
-            Require(VerifyPreparedActivities.PrepareAndScore(action, ctx) > 0,
-                "the vein must start as an unproven approach");
-            action.Execute(ctx);
-            int window = live::AICompanion.Companion.Brain.Infrastructure.Selection.Weights.ObjectiveProgressWindowTicks;
-            for (int i = 0; i < window + 60; i++)
-                VerifyPreparedActivities.PrepareAndScore(action, ctx);
-            float after = VerifyPreparedActivities.PrepareAndScore(action, ctx);
-            Point? target = action.TargetTile;
-            Require(after == 0f || target is not Point t || (t != a && t != b && t != c),
-                $"after a failed unproven approach the same unreachable vein must not be walked at again; status={action.Status} score={after} target={target}");
-        }
-        finally
-        {
-            AStar.MsBudget = budget;
-        }
-    }
-
-    private static void AnUnknownApproachKeepsItsOwnOreIdentity()
+    /// <summary>
+    /// A sealed nearby ore is proven-no. A farther ore the search has not finished asking is
+    /// Unknown. Neither is a plan, and the sealed tile must not be substituted in as if it were
+    /// the unresolved one.
+    /// </summary>
+    private static void AnUnknownApproachDoesNotSubstituteASealedNeighbour()
     {
         Point sealedOre = new(25, 59), unresolvedOre = new(50, 59);
         var (action, ctx) = SetUp(WorkPolicy.Opportunistic, TileID.Copper, sealedOre, unresolvedOre);
@@ -1098,14 +1075,11 @@ internal static class VerifyOreWork
             AStar.MsBudget = 0.0001d;
             Require(FindToolAccess.Approach(sealedOre, ctx.Npc.Bottom, out _) == Reachability.Reach.No,
                 "the nearby ore must have no exposed working face, independently of the search deadline");
-            Require(VerifyPreparedActivities.PrepareAndScore(action, ctx) > 0,
-                "the farther unresolved ore must remain an approach opportunity");
-            Require(action.TargetTile == unresolvedOre && action.ActivityTarget == unresolvedOre.ToWorldCoordinates()
-                && action.ActivityIdentity != null && action.ForecastTicks() > 0,
-                "the prepared offer must expose the same unresolved target and a nonzero travel estimate");
-            var request = action.Execute(ctx);
-            Require(request.Anchor == unresolvedOre.ToWorldCoordinates(),
-                $"unresolved approach must retain the ore its evidence describes; expected {unresolvedOre}, got {request.Anchor}");
+            float score = VerifyPreparedActivities.PrepareAndScore(action, ctx);
+            Require(score == 0f && action.TargetTile == null,
+                $"neither the sealed ore nor the unfinished search may become a plan; status={action.Status} score={score} target={action.TargetTile}");
+            Require(action.Status == "approach unknown",
+                $"the farther ore must remain the discovery's unresolved candidate, not be replaced by the sealed neighbour; status={action.Status}");
         }
         finally { AStar.MsBudget = budget; }
     }

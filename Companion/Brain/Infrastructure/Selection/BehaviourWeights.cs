@@ -273,22 +273,6 @@ public static class Weights
     /// <summary>A hunt whose remaining trip is this short is local work, not an outing: it does not pay the reunion charge a long chase does.</summary>
     public const float HuntLocalTripTicks = 120f;
 
-    /// <summary>
-    /// Hunt: what a target is worth while nothing has established whether a firing position exists —
-    /// sighted standing spots near it, and a reachable region that has not finished expanding. It is
-    /// deliberately not a veto: refusing a target because the flood is young would refuse every
-    /// enemy at the moment it is first noticed, which is when hunting it is most useful.
-    /// </summary>
-    public const float HuntUnprovenShot = .45f;
-
-    /// <summary>
-    /// Mining: what an ore job is worth while its approach search has declined to answer and the
-    /// companion is walking closer to make it answerable. Well under a proven job, so ore it can
-    /// actually reach always wins, and under a hunt it can already shoot, so walking at a maybe
-    /// never outranks doing something certain.
-    /// </summary>
-    public const float MineUnprovenApproach = .55f;
-
     // ---- P09: gathering cooperation and truthful completion ----
 
     /// <summary>
