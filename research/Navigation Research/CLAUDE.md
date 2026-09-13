@@ -12,3 +12,5 @@ Navigation Research/
 ```
 
 `Dynamic Platformer Navigation.md` establishes a durable constraint for this area: a shortest-path or incremental-repair claim is only about the supplied directed graph. State abstraction, transition generation, native execution and safe-prefix policy need their own evidence. It records conditional experiments rather than selecting a replacement search architecture.
+
+A speed class cannot carry speed accurately enough to land a descent because class gap multiplied by the longest steered move must fit inside arrival slack, which needs finer quantisation than planning can afford (3.81× at five classes; roughly twice that for soundness).
