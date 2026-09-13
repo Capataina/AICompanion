@@ -24,8 +24,165 @@ internal static class VerifyCombatPurpose
         TheSameSmallAttackIsIgnoredAtFullHealthAndEscapedAtLowHealth();
         PursuitWeighsARepositionAgainstTheShotsItDelays();
         ProtectionIsWorthTheHarmAnInterventionCanRemove();
-        Console.WriteLine("combat purpose: effective damage and remaining life decide threat consequence, low health turns a tolerable attack into an escape, pursuit weighs a reposition against the shots it delays, and protection is worth only the harm an intervention can remove");
+        LandedHitsAreRecordedApartFromTheAimedTarget();
+        TheRecordCarriesPursuitAimAndHitApart();
+        Console.WriteLine("combat purpose: effective damage and remaining life decide threat consequence, low health turns a tolerable attack into an escape, pursuit weighs a reposition against the shots it delays, protection is worth only the harm an intervention can remove, and pursuit, aim and landed-hit identities are recorded apart");
         return 0;
+    }
+
+    /// <summary>
+    /// Pursuit target, aim target and landed hit are three facts. A real shot leaves the arsenal aimed at
+    /// one of two zombies; the native hit hook then reports the projectile striking the other one — the
+    /// piercing or blocking case — and then the aimed one. The ledger must name the struck NPC and the
+    /// aimed one separately each time, ignore a projectile the companion never fired, and forget the
+    /// companion's shot once a new projectile spawns into its slot, so slot reuse cannot inherit it.
+    /// </summary>
+    private static void LandedHitsAreRecordedApartFromTheAimedTarget()
+    {
+        var (_, ctx) = VerifyOreWork.SetUp(Policy.Disabled, TileID.Copper, new Point(25, 89));
+        Main.tile[25, 89].ClearEverything();
+        ctx.Player.Bottom = ctx.Npc.Bottom - new Vector2(32, 0);
+        void Hostile(int slot, float offset)
+        {
+            NPC npc = Main.npc[slot];
+            npc.SetDefaults(NPCID.Zombie);
+            npc.whoAmI = slot; npc.active = true; npc.velocity = Vector2.Zero;
+            npc.Bottom = ctx.Npc.Bottom + new Vector2(offset, 0);
+        }
+        Hostile(30, 200f);
+        Hostile(31, 110f);
+        live::AICompanion.Companion.Weapons.TrackLandedHits.Clear();
+        ctx.Companion.Brain.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Breath);
+        var arsenal = ctx.Companion.Arsenal;
+        NPC? aimed = arsenal.BestTarget(ctx);
+        Require(aimed != null, "the identity scene needs the arsenal to choose a target");
+        Require(arsenal.TryFire(ctx, aimed!), $"the identity scene needs a real shot; fire={arsenal.LastFireOutcome}");
+        Projectile[] airborne = Main.projectile.Where(p => p.active).ToArray();
+        Require(airborne.Length == 1, $"exactly one projectile must be in the air after the shot; active={airborne.Length}");
+        Projectile shot = airborne[0];
+        NPC other = aimed!.whoAmI == 30 ? Main.npc[31] : Main.npc[30];
+
+        var hook = new live::AICompanion.Companion.Weapons.ObserveLandedCompanionHits();
+        hook.OnHitByProjectile(other, shot, new NPC.HitInfo { Damage = 7 }, 7);
+        var first = live::AICompanion.Companion.Weapons.TrackLandedHits.Last;
+        Require(first is { } strayHit && strayHit.HitSlot == other.whoAmI && strayHit.AimSlot == aimed.whoAmI
+            && !strayHit.StruckAimedTarget && strayHit.Damage == 7,
+            $"a shot landing on the enemy in front must record that enemy as hit and the chosen one as aimed; got {first}");
+        hook.OnHitByProjectile(aimed, shot, new NPC.HitInfo { Damage = 9 }, 9);
+        Require(live::AICompanion.Companion.Weapons.TrackLandedHits.Last is { StruckAimedTarget: true, Damage: 9 }
+            && live::AICompanion.Companion.Weapons.TrackLandedHits.Count == 2,
+            $"the same shot reaching its aimed enemy must record a hit on the aimed target; got {(live::AICompanion.Companion.Weapons.TrackLandedHits.Last)}, count={(live::AICompanion.Companion.Weapons.TrackLandedHits.Count)}");
+
+        int foreignSlot = shot.whoAmI == 0 ? 1 : 0;
+        Main.projectile[foreignSlot] = new Projectile { whoAmI = foreignSlot, active = true, friendly = true, damage = 11, owner = Main.myPlayer };
+        hook.OnHitByProjectile(aimed, Main.projectile[foreignSlot], new NPC.HitInfo { Damage = 11 }, 11);
+        Require(live::AICompanion.Companion.Weapons.TrackLandedHits.Count == 2,
+            "a projectile the companion never fired must not be attributed to it, even when it is the player's own");
+
+        new live::AICompanion.Companion.Weapons.ForgetReusedShotSlots().OnSpawn(shot, new Terraria.DataStructures.EntitySource_Misc("engine-replay"));
+        hook.OnHitByProjectile(aimed, shot, new NPC.HitInfo { Damage = 13 }, 13);
+        Require(live::AICompanion.Companion.Weapons.TrackLandedHits.Count == 2,
+            "a new projectile spawned into the shot's slot must not inherit the companion's shot");
+        Main.projectile[foreignSlot].active = false;
+        shot.active = false;
+        live::AICompanion.Companion.Weapons.TrackLandedHits.Clear();
+    }
+
+    /// <summary>
+    /// The appended identity columns carry the brain's own facts on a real recorded row. One shot is fired
+    /// and its landing reported through the native hook, the whole brain then runs one recorded tick, and
+    /// the row is read by column name — as every reader must, because columns are appended — against the
+    /// hunt, the hands and the ledger as they stand after that tick.
+    /// </summary>
+    private static void TheRecordCarriesPursuitAimAndHitApart()
+    {
+        var savePath = typeof(Terraria.Program).GetField("SavePath", System.Reflection.BindingFlags.Static
+            | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic)!;
+        object? priorSavePath = savePath.GetValue(null);
+        string root = Path.Combine(Path.GetTempPath(), "aic-combat-identities-" + Guid.NewGuid().ToString("N"));
+        savePath.SetValue(null, root);
+        var config = ModContent.GetInstance<live::AICompanion.Companion.DiagnosticsConfiguration.CompanionDiagnosticsConfig>();
+        if (config == null)
+        {
+            config = new live::AICompanion.Companion.DiagnosticsConfiguration.CompanionDiagnosticsConfig();
+            ContentInstance.Register(config);
+        }
+        // A recorded row with a hostile present writes `NPC.TypeName` into the target, top-threat and
+        // engage columns, which reads Lang's NPC name cache; a headless process never loaded localisation,
+        // so every entry is null and the writer would throw. Empty names are supplied for exactly the null
+        // entries and those are restored to null afterwards, so no later fixture inherits them.
+        var nameCache = (Terraria.Localization.LocalizedText[])typeof(Lang)
+            .GetField("_npcNameCache", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)!.GetValue(null)!;
+        var filledNames = new List<int>();
+        for (int type = 0; type < nameCache.Length; type++)
+            if (nameCache[type] == null) { nameCache[type] = Terraria.Localization.LocalizedText.Empty; filledNames.Add(type); }
+        try
+        {
+            config.RecordTelemetry = true;
+            config.OnChanged();
+            var (_, ctx) = VerifyOreWork.SetUp(Policy.Disabled, TileID.Copper, new Point(25, 89));
+            Main.tile[25, 89].ClearEverything();
+            ctx.Player.Bottom = ctx.Npc.Bottom - new Vector2(32, 0);
+            NPC enemy = Main.npc[30];
+            enemy.SetDefaults(NPCID.Zombie);
+            enemy.whoAmI = 30; enemy.active = true; enemy.velocity = Vector2.Zero;
+            enemy.Bottom = ctx.Npc.Bottom + new Vector2(200, 0);
+            live::AICompanion.Companion.Weapons.TrackLandedHits.Clear();
+            ctx.Companion.Brain.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Breath);
+            NPC? aimed = ctx.Companion.Arsenal.BestTarget(ctx);
+            Require(aimed != null && ctx.Companion.Arsenal.TryFire(ctx, aimed), "the recorded identity scene needs a real shot");
+            Projectile shot = Main.projectile.First(p => p.active);
+            new live::AICompanion.Companion.Weapons.ObserveLandedCompanionHits().OnHitByProjectile(enemy, shot, new NPC.HitInfo { Damage = 5 }, 5);
+
+            var recorder = new live::AICompanion.Companion.Brain.BehaviourDiagnostics.BrainTelemetry();
+            VerifyObservationLifecycle.Attach(recorder);
+            recorder.OnWorldLoad();
+            string path = Directory.GetFiles(live::AICompanion.Companion.Brain.BehaviourDiagnostics.BrainTelemetry.Folder, "*.tsv")
+                .OrderByDescending(File.GetLastWriteTimeUtc).First();
+            VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
+            VerifyCompanionLifecycle.TickWithOneControlGrant(ctx.Companion);
+            recorder.OnWorldUnload();
+
+            string[] lines = File.ReadAllLines(path);
+            int header = Array.FindIndex(lines, l => l.StartsWith("tick\t"));
+            Require(header >= 0 && header + 1 < lines.Length, "the recorder wrote no row for the identity scene");
+            string[] names = lines[header].Split('\t'), values = lines[header + 1].Split('\t');
+            Require(names.Length == values.Length, $"identity row and header widths disagree: {names.Length}/{values.Length}");
+            string[] appended = { "pursuit_target", "pursuit_value", "pursuit_access_ticks", "pursuit_evidence", "aim_target",
+                "landed_hit_target", "landed_hit_aimed", "landed_hit_damage", "landed_hit_tick", "landed_hits",
+                "guard_removal_ticks", "guard_usefulness", "top_threat_effective_player", "top_threat_effective_companion" };
+            foreach (string name in appended)
+                Require(Array.IndexOf(names, name) >= 0, "identity column missing from the recording: " + name);
+            string declaration = lines.First(l => l.StartsWith("# text_columns="));
+            foreach (string text in new[] { "pursuit_target", "pursuit_evidence", "aim_target", "landed_hit_target", "landed_hit_aimed" })
+                Require(declaration.Split('=')[1].Split(',').Contains(text), "textual identity column not declared as text: " + text);
+            string Value(string name) => values[Array.IndexOf(names, name)];
+            string Identity(NPC? npc) => npc != null && npc.active
+                ? $"{npc.whoAmI}:{(live::AICompanion.Companion.Brain.WorldObservation.HostileAttackSources.Generation(npc))}" : "-";
+            var hunt = ctx.Companion.Brain.Chooser.Actions.OfType<Hunt>().Single();
+            var landed = live::AICompanion.Companion.Weapons.TrackLandedHits.Last;
+            Require(landed is { } hit && Value("landed_hit_target") == $"{hit.HitSlot}:{hit.HitGeneration}"
+                && Value("landed_hit_aimed") == $"{hit.AimSlot}:{hit.AimGeneration}" && Value("landed_hit_damage") == "5"
+                && Value("landed_hits") == "1",
+                $"the recorded landed hit must be the ledger's; row={Value("landed_hit_target")}/{Value("landed_hit_aimed")}/{Value("landed_hit_damage")}/{Value("landed_hits")}, ledger={landed}");
+            Require(Value("aim_target") == Identity(ctx.Companion.Brain.EngageTarget),
+                $"the recorded aim must be the hands' target; row={Value("aim_target")}, hands={Identity(ctx.Companion.Brain.EngageTarget)}");
+            Require(Value("pursuit_target") == Identity(hunt.Target?.Npc)
+                && Math.Abs(float.Parse(Value("pursuit_value"), System.Globalization.CultureInfo.InvariantCulture) - hunt.PursuitValue) < 1e-3f,
+                $"the recorded pursuit must be the hunt's retained choice; row={Value("pursuit_target")}/{Value("pursuit_value")}, hunt={Identity(hunt.Target?.Npc)}/{hunt.PursuitValue}");
+            Main.projectile.Where(p => p.active).ToList().ForEach(p => p.active = false);
+            live::AICompanion.Companion.Weapons.TrackLandedHits.Clear();
+        }
+        finally
+        {
+            foreach (int type in filledNames) nameCache[type] = null!;
+            config.RecordTelemetry = false;
+            config.OnChanged();
+            typeof(live::AICompanion.Companion.Brain.BehaviourDiagnostics.BrainTelemetry)
+                .GetMethod("Close", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)?.Invoke(null, null);
+            savePath.SetValue(null, priorSavePath);
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
     }
 
     private readonly record struct GuardScene(float Guard, float Hunt, float Urgency, float Removal, float Usefulness);
