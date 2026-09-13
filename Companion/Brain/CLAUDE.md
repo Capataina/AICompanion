@@ -75,6 +75,10 @@ The shared public surface is `CoordinateMovement` for requests and `MovementQuer
 - A route replay checks the portable system. It is diagnostic evidence, not live engine parity.
 - A tool does work only after a behaviour selected it. Interactions never decide what the companion should do next.
 
-## Current state — 2026-09-09
+## Senses: observation becomes a shared interface
 
-The responsibility migration has replaced the old `DecisionMatrix`, `Actions`, `Aiming`, `Work` and `Debug` folder boundaries. The new folders above are the current ownership model. The companion has no missions; loose following and opportunistic help are the product direction. Native adapter parity is exercised headlessly; comfortable travel through real play remains the playtest gate.
+`Observation.Senses` rebuilds once per tick and holds facts every consumer reads: the tile beneath the body, the player's position and threat level, `Light` as a field the torch and lighting job query, and `Reach` as two reachability floods (standing and jumped) that every activity and movement query consult. A consumer never computes its own light visibility or reachability; both are observed once and cached for the tick. This changed how the lighting activity works — it finds dark air by querying the field rather than by visiting candidates — and how all movement and work decisions score approach feasibility.
+
+## Current state — 2026-09-14
+
+Three purpose families — Combat (hunting, guarding), Gathering (mining, chopping), NearbyAssistance (lighting, collecting, keeping company) — each nominate their best offer; the parent compares those three. Lighting is a dark-region job that works sites from the player's own darkness and chains them before returning. Light and reach are senses every consumer reads; optional work does not start on an unanswered search (mining and hunting publish Unknown at zero). The reactive floor was deleted in 5ce9bac because the clearance search had already replaced its output. Walk no longer raises its own jump — the simulator does — and the portable movement system remains diagnostic while live play remains the gate.
