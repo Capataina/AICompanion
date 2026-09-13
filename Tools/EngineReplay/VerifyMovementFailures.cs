@@ -29,8 +29,10 @@ internal static class VerifyMovementFailures
         try
         {
             failed += Case("search deadline is unfinished and never absent", SearchDeadlineIsUnfinishedNeverAbsent);
+            failed += Case("terrain churn cannot hold off stall escalation while an answer is awaited", TerrainChurnCannotHoldOffEscalation);
             failed += Case("away-first detour delivers, sealed twin is absent, reopening delivers", AwayFirstDetourAndSealedTwin);
             failed += Case("ledge and lip entries from varied actual states all deliver", LedgeAndLipEntriesDeliver);
+            failed += Case("an entry refused only because preparation ran out of time neither closes the next search nor strikes", SpentPreparationDoesNotCloseTheNextSearch);
             failed += Case("unattributed divergence is native mismatch, an external hit is pre-emption", DivergenceIsAttributedBeforeBlame);
             failed += Case("unannounced wall is a refused entry, announced wall is absent", UnannouncedWallIsRefusedEntry);
             failed += Case("interruptions score as pre-empted or cancelled, never failed", InterruptionsAreNotFailures);
@@ -122,7 +124,86 @@ internal static class VerifyMovementFailures
                 }
                 Console.WriteLine($"   deadline sealed starved={starved}: absent={absent} at {sealedRun.Tick}, seen {sealedRun.SeenText}");
                 Require(absent, $"starved={starved}: a sealed goal must end absent; last {sealedRun.Describe()}");
+                // An answer is kept, not asked again at once. The failed-plan retry must wait from the tick
+                // the query answered: a starved query answers after longer than that wait, so a clock read
+                // from when it was asked would re-plan on the next tick and replace the verdict with a fresh
+                // unfinished search. The window opens on an absent answered with no route in hand, which is an
+                // answer for the tile the body stands on: the starved run's first absent is answered while the
+                // body stands at the end of that search's own partial route, and re-planning from there on the
+                // next tick is a partial route walked to its end, which is progress and correct. The window
+                // ends before the stall threshold, where a still body with an answer strikes and re-plans by
+                // design.
+                var answered = sealedRun.Movement.Navigator;
+                int firstAbsentAt = sealedRun.Tick;
+                while (sealedRun.Tick < firstAbsentAt + 400
+                    && !(answered.Failure == MovementFailure.AbsentTransition && answered.Path == null && !answered.SearchPending))
+                    sealedRun.Step(new Point(44, 89));
+                Require(answered.Failure == MovementFailure.AbsentTransition && answered.Path == null && !answered.SearchPending,
+                    $"starved={starved}: no absent was answered from where the body stands within 400 ticks of the first; last {sealedRun.Describe()}");
+                long answeredSearch = answered.SearchId;
+                int answeredAt = sealedRun.Tick;
+                for (int hold = 0; hold < 30; hold++)
+                {
+                    sealedRun.Step(new Point(44, 89));
+                    Require(answered.Failure == MovementFailure.AbsentTransition && answered.SearchId == answeredSearch,
+                        $"starved={starved}: {sealedRun.Tick - answeredAt} ticks after the absent answer from where the body stands, the navigator read {answered.Failure} on search {answered.SearchId} (answered by search {answeredSearch})");
+                }
+                Console.WriteLine($"   deadline sealed starved={starved}: absent answered from the body's tile at {answeredAt - firstAbsentAt} ticks after the first held on search {answeredSearch} for 30 ticks");
                 Require(sealedRun.Movement.Navigator.FailedAttempts == 0, $"starved={starved}: a closed model is not a physical failure");
+            }
+            finally { Navigator.PlanMsBudget = 0; }
+        }
+    }
+
+    /// <summary>
+    /// A slow answer is not a stall, but only for so long. A distant tile changed and announced every
+    /// twenty ticks invalidates a retained search before a search starved to one work unit per tick can
+    /// answer, which is what a player mining beside the companion does. With the goal sealed the body
+    /// stands at the wall with no route and a search that never finishes: it must still take a strike
+    /// within the answer-wait bound plus the stall threshold, or the spot ban and regroup's travel
+    /// pressure never arrive. With the goal open, the same churn must not stop delivery, because each
+    /// short search publishes a route the body walks.
+    /// </summary>
+    private static void TerrainChurnCannotHoldOffEscalation()
+    {
+        int bound = AICompanion.Companion.Brain.BehaviourSelection.Weights.RouteAnswerWaitTicks;
+        foreach (bool sealGoal in new[] { true, false })
+        {
+            BuildCorridor(sealGoal);
+            Point goal = sealGoal ? new Point(44, 89) : new Point(40, 89);
+            var run = new Drive(new Point(22, 89));
+            Navigator.PlanMsBudget = .000001;
+            try
+            {
+                int stoppedAt = -1, firstStrike = -1, maxWait = 0;
+                Point lastFeet = run.Body.FeetTile;
+                int limit = sealGoal ? 3000 + bound : 6000;
+                for (; run.Tick < limit && !run.Arrived; )
+                {
+                    if (run.Tick % 20 == 10)
+                    {
+                        if (Main.tile[90, 50].HasTile) Clear(90, 50); else Solid(90, 50);
+                        TerrainChanges.Changed(90, 50);
+                    }
+                    run.Step(goal);
+                    var nav = run.Movement.Navigator;
+                    maxWait = Math.Max(maxWait, nav.AnswerWaitTicks);
+                    if (run.Body.FeetTile != lastFeet) { lastFeet = run.Body.FeetTile; stoppedAt = -1; }
+                    else if (stoppedAt < 0) stoppedAt = run.Tick;
+                    if (firstStrike < 0 && nav.StuckStrikes > 0) firstStrike = run.Tick;
+                    if (sealGoal && nav.StuckStrikes >= 2) break;
+                }
+                var n = run.Movement.Navigator;
+                Console.WriteLine($"   churn sealed={sealGoal}: arrived={run.Arrived} tick {run.Tick}, stood from {stoppedAt}, first strike {firstStrike}, strikes {n.StuckStrikes}, searches {n.SearchId}, longest answer wait {maxWait}, failure {n.LastFailure}");
+                if (sealGoal)
+                {
+                    Require(firstStrike >= 0 && n.StuckStrikes >= 2,
+                        $"a body kept waiting by terrain churn never escalated: strikes {n.StuckStrikes} after {run.Tick} ticks and {n.SearchId} searches");
+                    Require(firstStrike - stoppedAt <= bound + 60,
+                        $"the first strike came {firstStrike - stoppedAt} ticks after the body stood, past the {bound}-tick answer wait and the stall threshold");
+                }
+                else
+                    Require(run.Arrived, $"churn must not stop delivery of an open goal; last {run.Describe()}");
             }
             finally { Navigator.PlanMsBudget = 0; }
         }
@@ -209,6 +290,82 @@ internal static class VerifyMovementFailures
         }
         Console.WriteLine($"   entry sweep: {cases - failures.Count}/{cases} delivered, {rescued} delivered after a failed attempt");
         Require(failures.Count == 0, "undelivered native-valid entries:\n     " + string.Join("\n     ", failures));
+    }
+
+    /// <summary>
+    /// A refused entry is remembered, and struck, because the proof showed the body cannot make the move
+    /// from where it stands. When the direct proof refuses and the preparation search that could have found
+    /// a way in stops on its time allowance, nothing has shown the move impossible. The shelf's exit end sits
+    /// under a low ceiling so its drop is the only way off the end tile. A body arriving at the edge faster
+    /// than it walks, as a knock sends it, misses the drop's landing when it goes straight off and is rescued
+    /// by a prefix that sheds speed first; those states are found with preparation unbounded. Each is then
+    /// driven with preparation starved, where every refusal is a spent budget and must neither record a
+    /// rejected entry, strike, nor let a search end absent, and the goal must still be delivered, with the
+    /// allowance lifted if the starved body never got there.
+    /// </summary>
+    private static void SpentPreparationDoesNotCloseTheNextSearch()
+    {
+        Point goal = new(70, 79);
+        var rescued = new List<BodyState>();
+        int swept = 0;
+        foreach (int column in new[] { 40, 41 })
+        foreach (float offset in new[] { 1f, 6f, 11f })
+        foreach (float vx in new[] { -8f, -6f })
+        {
+            BuildLowShelf();
+            var start = new BodyState(column * 16 + offset - 2f, 70 * 16, vx, 0f, true, Capabilities: MovementCapabilities.Basic);
+            var probe = new Drive(start);
+            bool prepared = false;
+            while (probe.Tick < 600 && !probe.Arrived)
+            {
+                probe.Step(goal);
+                var nav = probe.Movement.Navigator;
+                if (nav.Path is { Finished: false } path && path.Current.Kind is MoveKind.Drop or MoveKind.Jump or MoveKind.FallThrough
+                    && nav.PreparationResult.StartsWith("validated-prefix"))
+                    prepared = true;
+            }
+            swept++;
+            if (prepared && probe.Arrived) rescued.Add(start);
+        }
+        Console.WriteLine($"   spent preparation: {rescued.Count} of {swept} shelf-end states need preparation for their exit and are delivered with it");
+        Require(rescued.Count > 0, "no shelf-end state needed preparation for its exit, so this case proves nothing about a spent preparation budget");
+
+        var failures = new List<string>();
+        foreach (BodyState start in rescued)
+        {
+            BuildLowShelf();
+            var run = new Drive(start);
+            var nav = run.Movement.Navigator;
+            int refusals = 0, struckRefusals = 0, remembered = 0;
+            PlanLocalMovement.PreparationMsBudget = .000001;
+            try
+            {
+                while (run.Tick < 300 && !run.Arrived)
+                {
+                    int strikes = nav.StuckStrikes, faults = nav.FaultCount;
+                    run.Step(goal);
+                    if (nav.FaultCount == faults || nav.LastFailure?.Reason != "preparation-budget") continue;
+                    refusals++;
+                    if (nav.PreparationResult != "search-budget-exhausted")
+                        failures.Add($"left={start.Left} vx={start.Vx}: a preparation-budget verdict with preparation result {nav.PreparationResult}");
+                    if (nav.StuckStrikes > strikes) struckRefusals++;
+                    if (nav.LastRejection is { } rejection && nav.EntryRejected(rejection.Step, rejection.Entry)) remembered++;
+                }
+            }
+            finally { PlanLocalMovement.PreparationMsBudget = 0; }
+            var seen = run.SeenText;
+            bool absent = run.Seen.Contains(MovementFailure.AbsentTransition);
+            bool starvedArrival = run.Arrived;
+            int lifted = run.Tick;
+            while (run.Tick < lifted + 900 && !run.Arrived) run.Step(goal);
+            Console.WriteLine($"   spent preparation left={start.Left} vx={start.Vx}: {refusals} budget refusals, {struckRefusals} struck, {remembered} remembered, seen {seen}; arrived={run.Arrived} ({(starvedArrival ? $"while starved, tick {lifted}" : $"{run.Tick - lifted} ticks after the allowance was lifted")})");
+            if (refusals == 0) failures.Add($"left={start.Left} vx={start.Vx}: no refusal on a spent preparation budget was observed");
+            if (struckRefusals > 0) failures.Add($"left={start.Left} vx={start.Vx}: {struckRefusals} refusals on a spent budget struck the step");
+            if (remembered > 0) failures.Add($"left={start.Left} vx={start.Vx}: {remembered} refusals on a spent budget were remembered as rejected entries");
+            if (absent) failures.Add($"left={start.Left} vx={start.Vx}: a spent preparation budget made a reachable goal absent");
+            if (!run.Arrived) failures.Add($"left={start.Left} vx={start.Vx}: with the allowance lifted the goal was not delivered; last {run.Describe()}");
+        }
+        Require(failures.Count == 0, string.Join("\n     ", failures));
     }
 
     /// <summary>
@@ -438,6 +595,17 @@ internal static class VerifyMovementFailures
         for (int x = 40; x <= 60; x++) { Solid(x, 70); Solid(x, 64); }
         for (int y = 65; y <= 70; y++) Solid(60, y);
         if (sealedExit) for (int y = 64; y <= 70; y++) Solid(39, y);
+        Finish();
+    }
+
+    /// <summary>The open C-turn shelf with a ceiling flush over its exit end (row 66, columns 40 to 44), so the
+    /// body on the end tile clears it by a few pixels and has no jump off the end: the drop is the only exit.</summary>
+    private static void BuildLowShelf()
+    {
+        NewWorld(80);
+        for (int x = 40; x <= 60; x++) { Solid(x, 70); Solid(x, 64); }
+        for (int y = 65; y <= 70; y++) Solid(60, y);
+        for (int x = 40; x <= 44; x++) Solid(x, 66);
         Finish();
     }
 

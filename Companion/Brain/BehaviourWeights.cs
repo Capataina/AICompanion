@@ -350,4 +350,17 @@ public static class Weights
     /// scan runs every tile in reach through the methods' candidate rules, lighting's among them a light measurement and the native torch
     /// selector, so it is spaced out; a body walking past a pot at walking speed stays in reach for many times this interval.</summary>
     public const int IncidentalScanTicks = 15;
+
+    // ---- P07: movement failures and retained route searches ----
+
+    /// <summary>
+    /// Navigation: how long a body with no route to walk may stand still waiting for the answer to its current goal before
+    /// standing still counts as a stall again. The wait is summed across every search restarted for that goal, and it
+    /// restarts only when the goal moves, the body arrives or a route is being walked. Exempting a body from the stall only
+    /// while one search instance is running let terrain churn anywhere in the world restart the search for ever, so the
+    /// two-strike spot ban and regroup's travel pressure never came. The authority for the value is the slowest legitimate
+    /// answer any fixture measures (a search starved to one work unit per tick answering a sealed corridor); it must stay
+    /// above that, or a slow answer is struck as a stall and its retained frontier is thrown away.
+    /// </summary>
+    public const int RouteAnswerWaitTicks = 300;
 }

@@ -125,7 +125,15 @@ public static class Reachability
         if (start == null || goal == null)
             return new RoundTripEvidence(Reach.Unknown, Reach.Unknown, 0, 0, 0, 0, breath.TicksLeft, Reach.Unknown);
         bool oneWay = AStar.AllowOneWayDrops;
+        double allowance = AStar.MsBudget;
         AStar.AllowOneWayDrops = true;
+        // The per-search millisecond allowance is static, and the navigator's plan sets it to its own
+        // planning allowance and leaves it there, so a round trip asked afterwards inherited whatever that
+        // was: after a plan starved to one work unit it stopped each leg after its first node and answered
+        // unknown both ways for a pit it can walk. Each leg is bounded here by its expansion budget and by
+        // the shared planning deadline the caller runs under, which a caller narrows with
+        // LimitPlanningWork.Narrow, and the caller's allowance is put back afterwards.
+        AStar.MsBudget = 0;
         NavPath? outward, back;
         AStar.SearchStopReason outwardStop, backStop;
         try
@@ -136,6 +144,7 @@ public static class Reachability
         finally
         {
             AStar.AllowOneWayDrops = oneWay;
+            AStar.MsBudget = allowance;
         }
         Reach there = Verdict(outward, outwardStop), home = Verdict(back, backStop);
         int outwardTicks = DurationOf(outward), returnTicks = DurationOf(back);

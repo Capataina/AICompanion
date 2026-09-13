@@ -167,6 +167,9 @@ public sealed class Navigator
 
     private int ticksSincePlan = ReplanInterval;
     private int stuckTicks;
+    private int answerWaitTicks;
+    /// <summary>Ticks the body has stood without a route waiting for its current goal's search, summed across restarts.</summary>
+    internal int AnswerWaitTicks => answerWaitTicks;
     private Vector2 lastPosition;
     private int clock;
     private bool forceReplan;
@@ -251,6 +254,7 @@ public sealed class Navigator
             onStep = null;
             execution = null;
             StuckStrikes = 0;
+            answerWaitTicks = 0;
             Arrived = true;
             Status = ExecutionStatus.Arrived;
             search?.Dispose(); search = null; SearchPending = false;
@@ -274,7 +278,7 @@ public sealed class Navigator
         bool goalMoved = goal is Point want
             && (GoalTile is not Point had || Math.Abs(want.X - had.X) > GoalSlackTiles || Math.Abs(want.Y - had.Y) > GoalSlackTiles);
         // A failure explains the goal it was found for; a different goal has not failed yet.
-        if (goalMoved) LastFailure = null;
+        if (goalMoved) { LastFailure = null; answerWaitTicks = 0; }
         // The strike count is not reset here. It used to be, and with the goal tile changing every
         // seventeen ticks that zeroed it about three times a second, so the two-strike escalation
         // the brain reads to ask for a different spot was unreachable by construction: the body
@@ -302,7 +306,14 @@ public sealed class Navigator
         // restarts in 8,000 ticks on the starved sealed corridor); it also handed the brain a
         // physical strike, and two of those ban the spot, for what was only a slow answer. The
         // stall clock starts once the search has answered.
-        if (search is { Finished: false } && (noPath || Path!.Finished))
+        // The exemption is bounded by how long the body has waited for an answer to this goal, summed
+        // across restarts, and not by the life of one search: a terrain change anywhere invalidates the
+        // retained query, so a player mining nearby restarted it every few ticks and a body that could
+        // never be answered never struck either (166 restarts and no strike in 3,000 ticks of churn on
+        // the starved sealed corridor). Walking a route, arriving or a moved goal starts the wait again.
+        if (Path is { Finished: false }) answerWaitTicks = 0;
+        if (search is { Finished: false } && (noPath || Path!.Finished)
+            && ++answerWaitTicks <= BehaviourSelection.Weights.RouteAnswerWaitTicks)
             stuckTicks = 0;
         bool stuck = stuckTicks > StuckReplanTicks;
         // The cadence waits while the current step is part way through a move a fresh plan would
@@ -796,13 +807,22 @@ public sealed class Navigator
             // answers rather than the absence of the ordinary path's own precondition.
             bool physicallyImpossible = fault != TraversalFault.None;
             bool atEntry = execution!.Ticks == 0;
-            if (physicallyImpossible && atEntry)
+            // The direct proof refuses from the exact state; preparation is what asks whether a short
+            // run-in, stop or alignment makes the move. A preparation search that ran out of its allowance
+            // has not answered that, so the refusal is neither remembered nor struck, whatever the direct
+            // proof said. Both used to follow the direct proof alone: a body knocked toward a ledge faster
+            // than it walks mislands going straight off and is rescued by shedding speed first, and with the
+            // allowance starved every such refusal was remembered and struck, three to eight per approach,
+            // which is two strikes and a spot ban for a goal the body then reached. A preparation refusal is
+            // only ever made at entry, because preparation declines an attempt that has begun.
+            bool preparationSpent = local.PreparationResult == "search-budget-exhausted";
+            if (physicallyImpossible && atEntry && !preparationSpent)
                 RememberRejectedEntry(step, live);
             // Which contract refused the step. A preparation search that ran out of its allowance
             // has not shown the entry impossible, whatever the direct proof said; a refusal with no
             // physical fault came from the threat forecast; a physical fault before the first tick is
             // the refused entry, and after it the attempt's own observations decide.
-            var (ending, failure, reason) = local.PreparationResult == "search-budget-exhausted"
+            var (ending, failure, reason) = preparationSpent
                 ? (AttemptEnding.Cancelled, MovementFailure.UnfinishedSearch, "preparation-budget")
                 : !physicallyImpossible ? (AttemptEnding.Preempted, MovementFailure.Preempted, "unsafe-forecast")
                 : atEntry ? (AttemptEnding.PhysicalFailure, MovementFailure.InvalidActualEntry,
@@ -819,7 +839,7 @@ public sealed class Navigator
             // only the in-flight failure left an entry the proof rejects being re-offered by every
             // later plan for ever, which is the 246 mislanded jumps of the 2026-09-11 session, none
             // of which the body ever flew.
-            if (physicallyImpossible) Strike(step.Tile);
+            if (physicallyImpossible && !preparationSpent) Strike(step.Tile);
             forceReplan = true;
             Status = ExecutionStatus.Rejected;
             return Controls.None;
@@ -936,6 +956,7 @@ public sealed class Navigator
         clearance.Clear();
         search?.Dispose(); search = null; SearchPending = false;
         StuckStrikes = 0;
+        answerWaitTicks = 0;
         PlannedThisTick = false;
         onStep = null;
         execution = null;
