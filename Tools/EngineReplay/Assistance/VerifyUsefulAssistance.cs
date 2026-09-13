@@ -130,6 +130,17 @@ internal static class VerifyUsefulAssistance
         if (light == null) ClearMeasuredLight();
         else WriteMeasuredLight(new Rectangle(0, 0, 100, 100), light);
         typeof(TorchBearer).GetProperty("Shown")!.GetSetMethod(true)!.Invoke(ctx.Companion.Torch, new object[] { companionTorchShown });
+        // Lighting reads two senses now rather than measuring per candidate, so the scene has to be observed
+        // before it is prepared: the light field must hold the frame written above, and the reach region must
+        // have settled, because work that reads reachability refuses an unfinished flood instead of walking
+        // at it — an unprimed region would make every row below read "not yet known" rather than its verdict.
+        var brain = ctx.Companion.Brain;
+        brain.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Breath);
+        var home = new live::AICompanion.Companion.Brain.Infrastructure.Position.PositionRequest(
+            live::AICompanion.Companion.Brain.Infrastructure.Position.RequestKind.WithPlayer, ctx.Player.Bottom);
+        for (int i = 0; i < 3000 && !brain.Positioner.ReachComplete; i++)
+            brain.Positioner.Resolve(home, brain.Senses, null);
+        Require(brain.Positioner.ReachComplete, "the lighting scenes need a settled reach region before preparing");
         var action = new LightUsefulArea();
         float score = VerifyPreparedActivities.PrepareAndScore(action, ctx);
         return new Offered(score, action.Eligibility, action.EligibilityReason, action.ActivityTarget);

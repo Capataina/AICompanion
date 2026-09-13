@@ -337,6 +337,30 @@ public sealed class Positioner
 
     private const int RoamSamples = 12;
 
+    /// <summary>
+    /// The reachable standable tile that most reduces the follow objective's own two gaps, or nothing when
+    /// none improves on where the body already stands. Measured as horizontal plus vertical gap rather than
+    /// straight-line distance, because that is what the objective is satisfied by: a tile on another floor
+    /// can be nearer as the crow flies and further from being with the player. Only tiles the flood has
+    /// actually claimed qualify, so this is a proven destination and not a hopeful direction.
+    /// </summary>
+    private Vector2? PartialProgress(FollowPlayerObjective objective, Point centre)
+    {
+        Vector2 here = MovementQueries.FeetWorld(centre);
+        float best = objective.HorizontalGap(here) + objective.VerticalGap(here);
+        Vector2? found = null;
+        foreach (Point tile in reachSense?.ScoredTiles ?? (IReadOnlyCollection<Point>)System.Array.Empty<Point>())
+        {
+            if (!Allowed(tile) || !MovementQueries.IsStandable(tile.X, tile.Y)) continue;
+            Vector2 feet = MovementQueries.FeetWorld(tile);
+            float gap = objective.HorizontalGap(feet) + objective.VerticalGap(feet);
+            if (gap >= best) continue;
+            best = gap;
+            found = feet;
+        }
+        return found;
+    }
+
     private Vector2? Best(in PositionRequest request, Senses.Senses senses, WeaponProfile? fireProfile)
     {
         EvidenceTick = senses.Tick;
@@ -418,6 +442,20 @@ public sealed class Positioner
         }
         if (candidates.Count == 0)
         {
+            // Following is the one request that must always produce somewhere to go. Its acceptance is a
+            // region around the player, so a companion outside that region with no candidate inside it has
+            // nothing accepted and used to answer nothing at all — which left the navigator with no proven
+            // destination and the brain reaching for a state search that jumps at the player. A reachable
+            // tile that closes the gap is not the destination the request wanted, and it is progress toward
+            // it, which is strictly better than standing still or leaping. Other request kinds keep the
+            // null: there is no partial credit for a firing position that cannot fire.
+            if (followObjective is FollowPlayerObjective partial
+                && PartialProgress(partial, MovementQueries.FeetTile(senses.Companion.Bottom)) is Vector2 step)
+            {
+                ChosenScore = 0f;
+                ChoiceReason = "partial-progress-candidate";
+                return step;
+            }
             ChosenScore = -1f;
             ChoiceReason = "no-accepted-candidate";
             return null;

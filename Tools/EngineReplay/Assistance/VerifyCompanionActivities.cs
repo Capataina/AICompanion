@@ -523,6 +523,19 @@ internal static class VerifyCompanionActivities
                 var brain = ctx.Companion.Brain;
                 brain.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Breath);
                 brain.Senses.SetInterventionEstimate(ctx.Companion.Arsenal.EstimateInterventionTicks(ctx));
+                // The light field must describe the frame this scene presented, not one measured before it.
+                Require(brain.Senses.Light.MeasuredSamples > 0,
+                    $"the light field must hold this scene's presented frame, or every lighting offer below is vacuous: {scene.Name}");
+                // Prime the reach region to completion before comparing. The flood is bounded per advance and
+                // grows across resolves, and work that reads it refuses an unfinished answer rather than
+                // walking at it, so a single resolve would leave every reach-reading offer unresolved and the
+                // comparison below would be measuring the flood's budget instead of the scene's danger.
+                var primeHome = new live::AICompanion.Companion.Brain.Infrastructure.Position.PositionRequest(
+                    live::AICompanion.Companion.Brain.Infrastructure.Position.RequestKind.WithPlayer, ctx.Player.Bottom);
+                for (int i = 0; i < 3000 && !brain.Positioner.ReachComplete; i++)
+                    brain.Positioner.Resolve(primeHome, brain.Senses, null);
+                Require(brain.Positioner.ReachComplete,
+                    $"the reach region must settle before the comparison, or a refusal reads as an absence: {scene.Name}");
                 brain.Chooser.Choose(ctx);
                 var mine = brain.Chooser.LastScores.Single(s => s.Action.Name == "mine");
                 var guard = brain.Chooser.LastScores.Single(s => s.Action.Name == "guard");
@@ -718,17 +731,33 @@ internal static class VerifyCompanionActivities
         try
         {
             var light = new live::AICompanion.Companion.Brain.Infrastructure.Observation.LightSense();
-            Require(light.AmbientReadTick == null && light.AmbientSamples == 0,
+            Require(light.ReadTick == null && light.MeasuredSamples == 0,
                 "an uninitialised light observer must carry no invented reading time or samples");
             Main.screenPosition = new Vector2(100000, 100000);
             Main.screenWidth = 800; Main.screenHeight = 600;
             light.Update(ctx.Npc, ctx.Player);
-            Require(light.Ambient == 0 && light.AmbientSamples == 0 && light.AmbientReadTick == Main.GameUpdateCount,
+            // The field's own version of the same property: a window nobody could read holds no samples, and
+            // its dark query says so rather than answering "no dark air", which is what a zero would mean.
+            Require(light.MeasuredSamples == 0 && light.ReadTick == Main.GameUpdateCount,
                 "off-screen held-light fallback must remain distinguishable from sampled darkness");
+            Require(light.DarkAirNear(ctx.Npc.Center.ToTileCoordinates(), 12).Unmeasured,
+                "an unread window must answer unmeasured, never a dark fraction of zero");
+            Require(light.NearestDarkRegion(ctx.Npc.Center.ToTileCoordinates(), 200) == null,
+                "an unread window must nominate no dark region");
+            // What separates unmeasured from dark is the engine's own presented frame, not where the screen
+            // happens to sit: the field asks the coverage question exactly, so a frame the engine is
+            // presenting is read wherever the camera is, and no frame is read nowhere.
             Main.screenPosition = ctx.Npc.Center - new Vector2(400, 300);
             for (int i = 0; i < 20; i++) light.Update(ctx.Npc, ctx.Player);
-            Require(light.AmbientSamples > 0,
-                "an in-world clipped window must retain its actual brightness read count");
+            Require(light.MeasuredSamples == 0,
+                "with no frame presented the field must measure nothing, wherever the camera sits");
+            VerifyUsefulAssistance.WriteMeasuredLight(new Rectangle(0, 0, 100, 100), (_, _) => .05f);
+            Main.screenPosition = new Vector2(100000, 100000);
+            light.Update(ctx.Npc, ctx.Player);
+            Require(light.MeasuredSamples > 0,
+                "a presented frame must be read even with the camera elsewhere, because coverage is the question");
+            Require(light.DarkAirNear(ctx.Npc.Center.ToTileCoordinates(), 12).DarkFraction > 0.9f,
+                "a frame presented at .05 brightness must read as dark air, not as unmeasured");
         }
         finally { Main.screenPosition = position; Main.screenWidth = width; Main.screenHeight = height; }
     }

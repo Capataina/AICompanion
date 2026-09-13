@@ -39,6 +39,17 @@ public abstract class PerformNearbyWorldWork : CompanionAction
     protected abstract bool Perform(in ActionContext ctx, Point tile);
     protected abstract float Utility { get; }
     protected virtual bool AllowJump => false;
+    /// <summary>Whether a productive interaction keeps this method's job rather than ending it. Lighting a dark
+    /// region takes several torches, so it re-nominates from where it now stands instead of releasing the
+    /// target and waiting out the search cadence; one pot is one pot, so pot collection does not.</summary>
+    protected virtual bool ContinueAfterInteraction => false;
+    /// <summary>Why this search found no site, where the subclass knows something more specific than "nothing
+    /// in the window". Null keeps the shared answer.</summary>
+    protected virtual (OfferEligibility Eligibility, string Reason)? SearchRefusal(in ActionContext ctx) => null;
+    /// <summary>Whether the body can reach and return from this stand tile, answered from the reach sense
+    /// rather than by a pair of fresh route searches. Null means the subclass has no opinion and the shared
+    /// round-trip proof runs instead.</summary>
+    protected virtual bool? StandReachable(in ActionContext ctx, Point stand) => null;
     /// <summary>The classification for a method its enabling conditions currently refuse; the
     /// subclass knows whether that refusal is a player setting, missing supplies or the world.</summary>
     protected virtual (OfferEligibility Eligibility, string Reason) DisabledOffer(in ActionContext ctx)
@@ -138,7 +149,11 @@ public abstract class PerformNearbyWorldWork : CompanionAction
         preparedTarget = target?.ToWorldCoordinates();
         if (!enabledAtPreparation) { var (eligibility, reason) = DisabledOffer(ctx); Classify(eligibility, reason); }
         else if (target == null && tripRefusal is { } refusal) Classify(refusal.Eligibility, refusal.Reason);
-        else if (target == null) Classify(OfferEligibility.NoOpportunity, "no-candidate-in-search-window");
+        else if (target == null)
+        {
+            var (eligibility, reason) = SearchRefusal(ctx) ?? (OfferEligibility.NoOpportunity, "no-candidate-in-search-window");
+            Classify(eligibility, reason);
+        }
         else Classify(OfferEligibility.Usable, "reachable-interaction");
     }
 
@@ -232,8 +247,21 @@ public abstract class PerformNearbyWorldWork : CompanionAction
                     // RoundTrip is what the bound is for: two fresh route searches. A hop that never
                     // finds a take-off is deferred without spending it, so a wall of unreachable air
                     // cannot hide a proven pit whose refusal is the named one-way drop.
-                    if (tripsAsked++ >= Infrastructure.Selection.Weights.NearbyWorkTripChecks) break;
-                    if (!TripReturns(ctx, p, candidateStand)) continue;
+                    // The reach sense answers the round trip where a subclass opts into it: membership of the
+                    // two-way region is what returnable means in this project — everywhere the body can go
+                    // and come home from — and one flood has already answered it for every candidate, where
+                    // RoundTrip is two fresh route searches per site and is bounded for exactly that reason.
+                    // A subclass that has not opted in keeps the route searches, so this is not a change to
+                    // pot collection dressed as a change to lighting.
+                    if (StandReachable(ctx, MovementQueries.FeetTile(candidateStand)) is bool sensed)
+                    {
+                        if (!sensed) continue;
+                    }
+                    else
+                    {
+                        if (tripsAsked++ >= Infrastructure.Selection.Weights.NearbyWorkTripChecks) break;
+                        if (!TripReturns(ctx, p, candidateStand)) continue;
+                    }
                 }
                 target = p; stand = candidateStand; needsJump = jump; jumped = false;
                 approachOrigin = ctx.Npc.Bottom; approachTicks = 0;
@@ -309,9 +337,14 @@ public abstract class PerformNearbyWorldWork : CompanionAction
         if (Main.GameUpdateCount >= retryAfter)
         {
             retryAfter = Main.GameUpdateCount + 30;
-            if (Perform(ctx, tile)) ctx.Companion.Brain.Chooser.RecordWork(tile.ToWorldCoordinates());
+            bool worked = Perform(ctx, tile);
+            if (worked) ctx.Companion.Brain.Chooser.RecordWork(tile.ToWorldCoordinates());
             else Release("native-interaction-refused");
-            target = null; nextSearch = Main.GameUpdateCount + 60;
+            target = null;
+            // A method that works a region rather than a site searches again on the next preparation, from
+            // where the body now stands, instead of waiting out the cadence: the wait exists so a search that
+            // found nothing is not repeated every tick, and a search that has just succeeded is not that.
+            nextSearch = worked && ContinueAfterInteraction ? 0 : Main.GameUpdateCount + 60;
         }
         return PositionRequest.Hold;
     }

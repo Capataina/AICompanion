@@ -218,6 +218,13 @@ internal static class VerifyAssistanceTrips
             $"the premise needs a take-off exactly when the shelf is low; shelf row {shelfRow} hop={hop} take-off={takeOff}");
 
         var brain = ctx.Companion.Brain;
+        // Lighting reads the reach region rather than proving a round trip per site, so it must have settled
+        // before this preparation: an unfinished flood answers "not yet known" for the take-off and the
+        // shelf would read as unoffered for a reason that has nothing to do with the hop this row is about.
+        var reachHome = new live::AICompanion.Companion.Brain.Infrastructure.Position.PositionRequest(
+            live::AICompanion.Companion.Brain.Infrastructure.Position.RequestKind.WithPlayer, ctx.Player.Bottom);
+        for (int i = 0; i < 3000 && !brain.Positioner.ReachComplete; i++)
+            brain.Positioner.Resolve(reachHome, brain.Senses, null);
         string methodName = lighting ? "place-torches" : "collect";
         brain.Chooser.Actions.RemoveAll(a => a.Name != methodName && a.Name != "keep-company");
         var method = brain.Chooser.Actions.OfType<live::AICompanion.Companion.Brain.Activities.NearbyAssistance.PerformNearbyWorldWork>().Single();
@@ -286,6 +293,15 @@ internal static class VerifyAssistanceTrips
                 Preferences.Current.TorchPlacement = true;
                 LightIslandOnly();
                 AStar.AllowOneWayDrops = oneWay;
+                // Lighting reads the light field and the reach region, so the scene is observed and its
+                // region primed to settle before preparing: an unprimed flood answers "not yet known" for
+                // every site, which would pass the no-offer half of this pair for the wrong reason.
+                var brain = ctx.Companion.Brain;
+                brain.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Breath);
+                var home = new live::AICompanion.Companion.Brain.Infrastructure.Position.PositionRequest(
+                    live::AICompanion.Companion.Brain.Infrastructure.Position.RequestKind.WithPlayer, ctx.Player.Bottom);
+                for (int i = 0; i < 3000 && !brain.Positioner.ReachComplete; i++)
+                    brain.Positioner.Resolve(home, brain.Senses, null);
                 var light = new LightUsefulArea();
                 float score = VerifyPreparedActivities.PrepareAndScore(light, ctx);
                 string ledger = $"staircase={staircase} oneWay={oneWay}: score={score:0.000} offer={light.Eligibility}/{light.EligibilityReason} target={light.ActivityTarget}";

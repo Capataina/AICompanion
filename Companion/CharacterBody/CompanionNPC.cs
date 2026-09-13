@@ -198,7 +198,8 @@ public class CompanionNPC : ModNPC
             // The torch takes the hand only when no action claimed it this tick: a tool or a
             // weapon held by chop, mine, hunt or guard always wins, and a torch that is not
             // in the hand gives no light and reveals nothing.
-            if (!IsDowned) Torch.Update(Brain.Senses.Light, NPC, heldItemType == ItemID.None);
+            if (!IsDowned) Torch.Update(Brain.Senses.Light, NPC, heldItemType == ItemID.None,
+                Brain.Senses.Player.Predict(global::AICompanion.Companion.Brain.Infrastructure.Selection.Weights.TorchHeadingLeadTicks));
             if (Torch.Shown)
                 heldItemType = ItemID.Torch;
             if (!loggedFirstTick)

@@ -81,7 +81,7 @@ internal static class VerifyCompanionLifecycle
             "an unclaimed previous-tick torch must not survive hand resolution");
         Set(companion.Torch, "<Lit>k__BackingField", true);
         companion.NPC.wet = true;
-        companion.Torch.Update(companion.Brain.Senses.Light, companion.NPC, true);
+        companion.Torch.Update(companion.Brain.Senses.Light, companion.NPC, true, companion.NPC.Center);
         Require(!companion.Torch.Shown, "ordinary torches must not remain visible underwater");
         companion.CheckDead();
         int tick = companion.Brain.Senses.Tick;
