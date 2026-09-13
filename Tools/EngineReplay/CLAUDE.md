@@ -139,6 +139,17 @@ The separate departure pair seeds sustained player travel, holds ore geometry an
 
 `--render-ui` uses a hidden SDL surface to render the actual profile, inventory, mastery and inspector pages with installed game assets. PNGs go under the process temporary directory's `aic-native-ui` folder. On macOS, provide `DYLD_LIBRARY_PATH` pointing to the installed loader's `Libraries/Native/OSX`. From the repository root, build with `env DOTNET_CLI_HOME=/tmp/aic-dotnet dotnet build Tools/EngineReplay -nologo -v q`, then run `env DOTNET_CLI_HOME=/tmp/aic-dotnet DYLD_LIBRARY_PATH="$HOME/Library/Application Support/Steam/steamapps/common/tModLoader/Libraries/Native/OSX" dotnet run --no-build --project Tools/EngineReplay -- --render-ui`. It creates no visible game window. A macOS sandbox may refuse SDL video initialisation before any drawing; the hidden renderer needs graphics access even though it never shows its surface.
 
+The inspector's evidence views are checked in the same run:
+
+- **No solver call.** Neither `DrawBrainOverlay.cs` nor `DescribeExecutionEvidence.cs` may call the positioner, a route or reach search, the local planner or the aimer.
+- **Box geometry.** Points half a pixel inside and one pixel outside every edge of a tool region's box and a follow region's two boxes must agree with the region's own containment test, and the tool box with the reach arithmetic `InReach` uses.
+- **Box pixels.** A drawn reach box must paint every perimeter pixel, nothing outside and nothing in its corner interiors.
+- **Execution page.**
+  - **Seeding.** The fixture seeds retained state by reflection: a Gathering nomination, a usable and an unresolved offer, a tool region, a downed grant applied as recovery clearance, and a completed attempt.
+  - **Rendering.** It renders `InspectorExecution-<viewport>.png` at every viewport, and its evidence must carry each seeded fact.
+  - **Layout.** Its last visible line must end above the footer, and its tabs must cover the strip exactly.
+  - **Pixels.** At scale 1 the heading must carry gold text, the Execution tab must be the highlighted one, and the background outside the panel must be untouched.
+
 The UI matrix covers 1280×720, 960×540, 800×600 and 640×480 at normal scale, plus 1600×1000 at 150% UI scale. The scale case calls Terraria's `PlayerInput.SetZoom_UI` rather than pretending only the drawing matrix scales. Native UI setup must supply cached original screen dimensions, the UI and world matrices, inventory gamepad link points, language, text brightness and rarity colours. The attached companion has retained mining evidence and the inventory contains actual populated item stacks. The Guide fallback portrait is intentional; this harness does not initialise the live player renderer.
 
 The HUD sheet invokes the actual notch drawing for all seven family/activity pairs, suspended mining, recovery, no activity and downing. It checks ordered family/health/activity geometry and screen-edge containment at the same viewports. Production tick fixtures separately require the published presentation to match the completed activity and control state, including early returns; injecting a presentation into a render only tests its display. The opening-click fixture covers both icon wings as well as health before drawing. Native mask textures belong to the hidden renderer's device and are released before that device is disposed.

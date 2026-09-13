@@ -968,7 +968,7 @@ public sealed class BrainTelemetry : ModSystem
         };
     }
 
-    private static string DescribeControls(Controls controls)
+    internal static string DescribeControls(Controls controls)
         => $"move={controls.MoveX.ToString("0.00", CultureInfo.InvariantCulture)};jump={(controls.Jump ? 1 : 0)};scale={controls.JumpScale.ToString("0.00", CultureInfo.InvariantCulture)};fall={(controls.FallThrough ? 1 : 0)};descend={(controls.Descend ? 1 : 0)}";
 
     private static void AppendState(StringBuilder sb, BodyState? state)

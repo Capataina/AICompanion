@@ -183,6 +183,8 @@ public static class FindToolAccess
     private static readonly System.Collections.Generic.List<(float Distance, int Order, Point Tile, Vector2 Feet)> poses = new();
 
     private static readonly Vector2 Eye = new(0f, -30f);
+    /// <summary>How far above the feet reach is measured from; read from the one offset <see cref="InReach"/> uses, so a drawing of the reach box cannot drift from the test.</summary>
+    public static float EyeHeight => -Eye.Y;
 
     /// <summary>Whether a swing from <paramref name="feet"/> can reach <paramref name="tile"/>: inside the player's native reach box and with a line to one exposed face.</summary>
     public static bool InReach(Vector2 feet, Point tile)

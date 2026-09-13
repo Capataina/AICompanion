@@ -7,6 +7,7 @@ BehaviourDiagnostics/
 ├─ CLAUDE.md
 ├─ DrawBrainOverlay.cs       selectable world layers and a scrollable raw/final decision score panel
 ├─ BrainInspectorSamples.cs bounded traces retained from actual aiming, movement and reflex computations
+├─ DescribeExecutionEvidence.cs the inspector's Execution lines and success-region boxes, read from retained brain state only
 ├─ RecordBrainTelemetry.cs   one tab-separated phase-labelled sample per companion tick, its actual elapsed wall time and a tile-window dump per failed plan or detected scenario
 ├─ RecordGodsEyeEvents.cs    sparse JSONL occurrence stream: stable spawn identities, shots, damage, pickups and native outcomes
 ├─ ObserveNativeCombatEvents.cs native spawn, projectile contact, damage and death hooks
@@ -120,6 +121,17 @@ Navigation evidence includes shared query and attempt identities, fresh/stale de
 `DrawBrainOverlay.cs` registers the inspector key, default left square bracket. `PlayerIntegration/HandleCompanionInput.cs` honours only the saved Mod Controls binding. A saved key that FNA cannot report must be rebound; changing the registered default cannot migrate it, and there are no hidden raw-key overrides. The key opens a native-coloured menu with World layers and Decisions tabs. The menu and the drawings are independent: closing the menu dismisses only the panel and the selected layers keep drawing, because the panel covers the thing it describes and a layer you can only see while a menu is open is a layer you cannot watch. "Show world drawings" is the master off switch, and the diagnostics config forces both off. Input is consumed before player item use. Rows scroll at small effective viewports, and each choice explains the evidence it draws.
 
 World layers include observed enemy bodies and velocities, already-computed terrain-constrained enemy forecasts, the projectile observer's linear forecasts, committed route steps, evaluated standing alternatives, actual sampled aiming traces, evaluated local movement alternatives, passive-body danger and separate hand/work/player attention targets. The decision panel exposes every action's raw and final score and highlights the winner. Optional captures attach to real solver calls; drawing never asks a planner or aimer to compute another answer. Each retained trace has a short lifetime and a fixed queue bound. Route lines connect steps rather than claiming to draw their full physical trajectories; evaluated candidates are not guaranteed routes, and a simulated hit is not a fired projectile. Private future enemy AI decisions remain unknown.
+
+A third tab, Execution, shows what happened to the choice rather than how it was scored, one short line each from `DescribeExecutionEvidence`:
+
+- **Family offers.** Each family's nominee beside its children's offers, with eligibility and scores.
+- **Admitted region.** The success region the held destination was admitted against, with its destination revision.
+- **Control.** The control requested beside the control applied, marked where the owners differ, with hand, phase and attempt.
+- **Attempt.** The open attempt beside the latest conclusion's status, attribution, cause, effects and claimed yield.
+
+The "Where the purpose succeeds" world layer, bit 9 of the saved layers, draws the retained region's boxes: two follow comfort boxes around the admission references, or a tool stand's reach box in feet space with its tile and stand marked. Both read retained state only.
+
+The offscreen renderer checks three things. The source of both drawing files names no positioner, planner, aimer or reach call. Box edges agree with the region's own test and the reach arithmetic. The Execution page and a drawn reach box land where their geometry says.
 
 The inspector opens with route drawing selected and other evidence layers opt-in. Sample capture follows the drawings rather than the menu: gating it on the panel being open stopped a layer recording the moment the panel closed, so the evidence for every tick in between was never taken and reopening showed an empty layer. `MagicPixel` is an atlas texture: line drawing must select one source pixel before scaling to length and thickness, or its atlas dimensions multiply every line into a screen-sized shape. The native renderer's pixel regression checks this primitive directly. Retained aiming samples use the same engine tick as their expiry comparison.
 
