@@ -21,11 +21,12 @@ public abstract class PerformNearbyWorldWork : CompanionAction
     private bool eligibleLastObservation;
     private bool searchBudgetSpent;
 
-    /// <summary>Whether the last discovery search stopped because it had asked as many sites about their
-    /// approach as one search may, rather than because it ran out of sites. A subclass classifying its own
-    /// refusal reads this first: the sites past the cut were never asked, so this is an answer that has not
-    /// arrived rather than an answer of "no".</summary>
-    protected bool SearchBudgetSpent => searchBudgetSpent;
+    /// <summary>The refusal for a search that stopped because it had asked as many sites about their approach
+    /// as one search may, rather than because it ran out of sites. It lives here rather than in a subclass
+    /// because the budget is this class's, and it is reported ahead of every subclass reason for the same
+    /// reason: the sites past the cut were never asked, so this is an answer that has not arrived rather than
+    /// an answer of "no".</summary>
+    private const string BudgetSpentReason = "site-budget-spent-before-an-answer";
     private bool needsJump, jumped;
     private ulong jumpStarted;
     // Tiles whose approach was tried and did not arrive, with the tick they may be offered again.
@@ -103,6 +104,15 @@ public abstract class PerformNearbyWorldWork : CompanionAction
     // Why the last search found no site, when the reason was the trip rather than the absence of a candidate.
     private (OfferEligibility Eligibility, string Reason)? tripRefusal;
 
+    /// <summary>The last refusal this method actually proved about a site, kept for as long as the deferral
+    /// that carries it. <see cref="tripRefusal"/> is cleared at the start of every search, which is right for
+    /// a claim about *this* search and wrong for a proof: the search that proves a pit has no way back often
+    /// also runs out of site budget, so it must report the budget, and by the next search every proven site is
+    /// deferred and never rebuilt — leaving the offer to say the placer accepted nothing, an absence, where
+    /// the truth is that everything findable was proven unusable. Cleared with the deferrals themselves, so it
+    /// cannot outlive the evidence.</summary>
+    private (OfferEligibility Eligibility, string Reason)? provenRefusal;
+
     /// <summary>
     /// Whether the companion can walk to a remote working pose and come back to where it stands, with breath for both legs.
     /// Reaching a pose is not a certificate of leaving it, and the walker search behind <see cref="FindToolAccess.Approach"/>
@@ -133,9 +143,9 @@ public abstract class PerformNearbyWorldWork : CompanionAction
     /// reach it) out of discovery until the terrain changes or the wait passes. A named reason also becomes the offer's refusal.</summary>
     private void DeferRefusedTrip(Point tile, string? reason)
     {
-        if (noReturn.Count > 64) noReturn.Clear();
+        if (noReturn.Count > 64) { noReturn.Clear(); provenRefusal = null; }
         noReturn[tile] = (TerrainChanges.Revision, Main.GameUpdateCount + (ulong)Infrastructure.Selection.Weights.NearbyWorkNoReturnRetryTicks);
-        if (reason != null) tripRefusal = (OfferEligibility.KnownUnusable, reason);
+        if (reason != null) tripRefusal = provenRefusal = (OfferEligibility.KnownUnusable, reason);
     }
 
     private bool NoReturnDeferred(Point tile)
@@ -158,7 +168,20 @@ public abstract class PerformNearbyWorldWork : CompanionAction
         preparedValue = DiscoverValue(ctx);
         preparedTarget = target?.ToWorldCoordinates();
         if (!enabledAtPreparation) { var (eligibility, reason) = DisabledOffer(ctx); Classify(eligibility, reason); }
+        // A spent budget outranks a refusal proven earlier in the same search, because it happened later and
+        // it describes the search rather than one site: proving site one unreachable and then running out of
+        // budget over sites two to four is not "the companion cannot come back from there", it is "the
+        // question was not finished". Reported the other way round, the offer and the telemetry both name a
+        // proven impossibility for a search that simply stopped, which is the one reading that would stop
+        // anyone looking again.
+        else if (target == null && searchBudgetSpent) Classify(OfferEligibility.Unresolved, BudgetSpentReason);
         else if (target == null && tripRefusal is { } refusal) Classify(refusal.Eligibility, refusal.Reason);
+        // A search that reached the end of its list and found nothing, where every site it could find was
+        // proven unusable on an earlier search and is still deferred. Without this the offer reports the scan's
+        // own absence and the proof is thrown away, which is how "the companion cannot come back from there"
+        // became "the placer accepted nothing" one search after it was established.
+        else if (target == null && noReturn.Count > 0 && provenRefusal is { } earlier)
+            Classify(earlier.Eligibility, earlier.Reason);
         else if (target == null)
         {
             var (eligibility, reason) = SearchRefusal(ctx) ?? (OfferEligibility.NoOpportunity, "no-candidate-in-search-window");
@@ -217,6 +240,9 @@ public abstract class PerformNearbyWorldWork : CompanionAction
             nextSearch = 0;
             deferred.Clear();
             noReturn.Clear();
+            // The proof went with the deferrals it described; keeping the sentence after deleting its evidence
+            // would report a refusal under a reach that never produced it.
+            provenRefusal = null;
         }
         if (target is Point old && (!Candidate(ctx, old) || !AllowsTarget(ctx, old.ToWorldCoordinates())))
         { target = null; }
@@ -286,7 +312,7 @@ public abstract class PerformNearbyWorldWork : CompanionAction
                             // reason would decay into "the placer accepted nothing" — an absence, where a
                             // proven no-return is knowledge. tripRefusal is the sticky home the round-trip
                             // route already uses for the same fact.
-                            if (SearchRefusal(ctx) is { } proven) tripRefusal = proven;
+                            if (SearchRefusal(ctx) is { } proven) tripRefusal = provenRefusal = proven;
                             DeferRefusedTrip(p, null);
                             continue;
                         }

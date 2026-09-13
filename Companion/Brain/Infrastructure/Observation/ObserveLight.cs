@@ -85,6 +85,14 @@ public sealed class LightSense
         // — including the dark tiles a torch has not actually reached — while a subtraction leaves them.
         // Read from the same body the bearer lights: it is out when the hand was free, so a companion
         // swinging a pickaxe contributes nothing and none is taken off.
+        //
+        // `Shown` here is last tick's answer, and that is the one this wants rather than a staleness to be
+        // fixed: the light map being read was written by last tick's `AddLight`, so the torch that is in it
+        // is the torch that was out then. `CompanionNPC.AI` therefore recomputes `Shown` after the brain
+        // rather than clearing it before — it used to clear it first, which made this read false on every
+        // live tick, left the companion's own glow in the field, and put the torch out in the dark because
+        // the cavern it was lighting read as a lit room. `Lit` is not the value to read instead: it is true
+        // while a pickaxe holds the hand, when no light was emitted and nothing should be taken off.
         var self = companion.ModNPC as global::AICompanion.Companion.CharacterBody.CompanionNPC;
         bool torchOut = self?.Torch.Shown ?? false;
         Point hand = torchOut ? (companion.Center + new Vector2(companion.direction * 10f, -6f)).ToTileCoordinates() : default;
@@ -310,7 +318,19 @@ public sealed class LightSense
     /// it does. It cannot come from the lattice, whose stride is wider than the lit patches that have to be
     /// resolved here — a lit disc narrower than the stride can sit entirely between two samples.
     /// </summary>
-    public DarkReading MeasuredAround(Point centre, int radiusTiles, int strideTiles)
+    /// <param name="carriedCountsAsDark">
+    /// What to do with a sample the companion's own torch accounts for. The two consumers want opposite
+    /// things and both are right. Deciding whether to <em>hold</em> a torch, such a sample is unknown and is
+    /// skipped: the world's own light there is somewhere between nothing and the torch's own contribution,
+    /// and guessing either end makes the torch decide itself. Deciding whether to <em>place</em> one, the same
+    /// sample is evidence to act on, because the bound runs the useful way — the world's light there is at
+    /// most what the companion is carrying, and the companion is about to walk off with it. Skipping it
+    /// instead makes a companion holding a torch unable to see that a place needs a permanent one, which is a
+    /// deadlock rather than caution: the held torch is exactly the reason the site looks lit. The error this
+    /// can make is a redundant torch in a spot the world already lit to just under the carried level; the
+    /// error it avoids is never lighting anything while carrying a light, which is the whole ability.
+    /// </param>
+    public DarkReading MeasuredAround(Point centre, int radiusTiles, int strideTiles, bool carriedCountsAsDark = false)
     {
         Coverage coverage = Coverage.Current();
         int stride = Math.Max(1, strideTiles);
@@ -326,7 +346,16 @@ public sealed class LightSense
                 if (torchWasOut)
                 {
                     float mine = CarriedTorchAt(torchHand, x, y);
-                    if (lit <= mine + TorchModelTolerance && mine >= Weights.LightDarkBelow) continue;
+                    if (lit <= mine + TorchModelTolerance && mine >= Weights.LightDarkBelow)
+                    {
+                        if (!carriedCountsAsDark) continue;
+                        // Counted at nothing rather than at `lit`, because `lit` here is the companion's own
+                        // torch and it is leaving with the companion. What stays behind is bounded above by
+                        // this sample and is not measured any closer than that.
+                        measured++;
+                        dark++;
+                        continue;
+                    }
                 }
                 measured++;
                 total += lit;

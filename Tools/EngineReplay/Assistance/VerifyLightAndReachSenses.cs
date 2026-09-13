@@ -79,6 +79,8 @@ internal static class VerifyLightAndReachSenses
         Each("a: dark air on the heading alone raises the torch over a lit body", DarkAheadRaisesOverALitBody);
         Each("a: one unmeasured neighbourhood beside one bright one holds the torch", AnUnmeasuredNeighbourhoodCastsNoVote);
         Each("a: the companion's own shown torch cannot light its own neighbourhood", ItsOwnTorchIsNotEvidenceOfLight);
+        Each("a: the light sense reads the torch the map was written with, through the real AI tick", TheSenseReadsTheTorchTheMapWasWrittenWith);
+        Each("a: a carried torch does not blind the placement search that would replace it", ACarriedTorchDoesNotBlindThePlacementSearch);
         Each("b: a dark wing away from a lit body is offered with a Reachable site", ADarkWingIsOfferedWithAReachableSite);
         Each("c: two sites in one dark region are worked without going back to the player", TwoSitesAreWorkedWithoutReturning);
         Each("c: the same dark floor priced under the production allowances", MeasureTheRegionScanUnderProductionAllowances);
@@ -193,20 +195,159 @@ internal static class VerifyLightAndReachSenses
         senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Breath);
         var light = senses.Light;
 
-        var here = light.DarkAirNear(body, Weights.TorchHoldRadiusTiles);
-        Require(here.Unmeasured || here.DarkFraction > Weights.TorchRaiseDarkShare,
-            $"a cave lit by nothing but the companion's own torch must not read as a lit room; {Show(here)} at hand {hand}");
+        // The field must be non-empty before anything below means anything. Without this the two assertions
+        // that follow are both satisfied by a sense that read nothing at all, which is exactly the state this
+        // scene produces when the torch flag it depends on is false — so the escape hatches these replace
+        // turned the one row covering the torch removal into a row covering nothing.
+        Require(light.MeasuredSamples > 0,
+            $"the scene must present a field for this row to test anything; samples={light.MeasuredSamples}");
 
-        // And the region search must not nominate the hand. Either it finds nothing (every sample near the body
-        // is the torch's own and is dropped as unmeasured) or it finds real darkness away from the body; what it
-        // may never do is point at where the companion is standing.
+        // Not "unmeasured": the hold radius is a box, so its far corners sit beyond the torch's own reach in
+        // Manhattan terms, and a sample there is genuinely dark and genuinely not explained by the torch.
+        // Which of the two happens depends on where the stride-4 lattice lands, and a row that depends on
+        // lattice alignment is a row that will flake. The property that does not is that the companion's own
+        // glow never becomes evidence of a lit room: every sample the sense keeps inside its own hold radius
+        // reads dark, because each one is either beyond the torch or dropped as the torch's own.
+        var here = light.DarkAirNear(body, Weights.TorchHoldRadiusTiles);
+        Require(here.Dark == here.Measured,
+            $"the companion's own torchlight is being kept as room light: {here.Measured - here.Dark} of "
+            + $"{here.Measured} samples inside the hold radius read lit; {Show(here)} at hand {hand}");
+
+        // And the region search must find real darkness away from the body. Asserted rather than skipped when
+        // absent: "found nothing" is the answer a sense that read nothing gives, and it is also the answer a
+        // sense that swallowed the whole cavern into its own glow gives.
         var region = light.NearestDarkRegion(body, Weights.LightRegionSearchTiles);
-        if (region is { } found)
+        Require(region is not null,
+            "a dark cavern lit only by the companion's own torch must still hold a dark region beyond the torch's reach");
+        int manhattan = Math.Abs(region!.Value.Centre.X - hand.X) + Math.Abs(region.Value.Centre.Y - hand.Y);
+        Require(manhattan > 4,
+            $"the nominated dark region {region.Value.Centre} sits on the companion's own hand {hand}: the torch was removed by subtraction rather than by the engine's own maximum");
+    }
+
+    /// <summary>
+    /// The ordering this whole removal rests on, driven through the real <c>CompanionNPC.AI</c> rather than
+    /// reconstructed. The sense asks whether the companion's torch was out, and the only true answer is last
+    /// tick's, because the light map it reads was written by last tick's <c>AddLight</c>. The tick used to
+    /// clear that flag before the brain ran, so the sense read "no torch" on every live tick, left the
+    /// companion's own glow in the field, and — on the stride the lattice samples — read an open dark cavern
+    /// as lit enough to put the torch out, three seconds later as dark again, and so on.
+    ///
+    /// <para>Nothing here sets <c>Shown</c> or paints a glow by hand. A fixture that arranges the state it
+    /// then checks cannot see an ordering defect, which is why the row above it passed throughout.</para>
+    /// </summary>
+    private static void TheSenseReadsTheTorchTheMapWasWrittenWith()
+    {
+        var ctx = Scene((_, _) => .02f);
+        var brain = ctx.Companion.Brain;
+        // Keeping company only, so no tool ever claims the hand and the torch is free to come up.
+        brain.Chooser.Actions.RemoveAll(a => a.Name != "keep-company");
+        var wasOut = typeof(LightSense).GetField("torchWasOut", InstanceField)!;
+
+        bool previousShown = ctx.Companion.Torch.Shown;
+        int agreed = 0, disagreed = 0, ticksWithTorchOut = 0, refreshes = 0, refreshesWithTorchOut = 0;
+        string first = "";
+        ulong? lastRead = brain.Senses.Light.ReadTick;
+        for (int tick = 0; tick < 400; tick++)
         {
-            int manhattan = Math.Abs(found.Centre.X - hand.X) + Math.Abs(found.Centre.Y - hand.Y);
-            Require(manhattan > 4,
-                $"the nominated dark region {found.Centre} sits on the companion's own hand {hand}: the torch was removed by subtraction rather than by the engine's own maximum");
+            VerifyOreWork.AdvanceBrain(ctx);
+            // Only a tick the field actually resampled is comparable. On the ticks between, the flag rightly
+            // still describes the samples in hand, which were taken when the field last read the world — so a
+            // strict every-tick comparison would fail on the cadence rather than on the ordering, and nine
+            // such ticks in four hundred is what it reported before this was understood.
+            ulong? read = brain.Senses.Light.ReadTick;
+            if (read != lastRead)
+            {
+                lastRead = read;
+                refreshes++;
+                bool sensed = (bool)wasOut.GetValue(brain.Senses.Light)!;
+                if (sensed == previousShown) agreed++;
+                else
+                {
+                    disagreed++;
+                    if (first.Length == 0) first = $"tick {tick}: the field resampled and read torch-out={sensed}, where the torch actually emitted {previousShown} on the tick before";
+                }
+                if (previousShown) refreshesWithTorchOut++;
+            }
+            previousShown = ctx.Companion.Torch.Shown;
+            if (previousShown) ticksWithTorchOut++;
         }
+        Require(ticksWithTorchOut > 0,
+            $"the torch must actually come out somewhere in a dark cavern, or this row compares false against false for 400 ticks; refreshes={refreshes}");
+        Require(refreshesWithTorchOut > 0,
+            $"at least one field refresh must follow a tick that emitted light, or the comparison never sees a true; "
+            + $"refreshes={refreshes} ticks-with-torch-out={ticksWithTorchOut}");
+        Require(disagreed == 0,
+            $"the light sense must read the torch the map was written with; {first}; agreed={agreed} disagreed={disagreed} "
+            + $"refreshes={refreshes} refreshes-after-light={refreshesWithTorchOut} ticks-with-torch-out={ticksWithTorchOut}");
+        Console.WriteLine($"        torch ordering: {ticksWithTorchOut} of 400 ticks emitted light; {refreshes} field refreshes, "
+            + $"{refreshesWithTorchOut} of them after a tick that emitted, and every one read the previous tick's emission");
+    }
+
+    /// <summary>
+    /// A companion already carrying a torch must still be able to see that a place needs a permanent one.
+    /// The two readings of the same sample are deliberately opposite: for holding the torch, light the
+    /// companion is itself emitting is unknown and skipped, so it cannot decide from its own glow; for placing
+    /// one, that same light counts as darkness, because it is leaving when the companion does. Reading it as
+    /// room light in both places is a deadlock rather than caution — the torch comes out because the cavern is
+    /// dark, and every site then reads lit precisely because the torch is out, so nothing is ever placed.
+    ///
+    /// <para>The torch here is brought out by the real decision over a real dark scene, not set: the defect
+    /// only exists once the sense is reading a torch that is genuinely emitting.</para>
+    /// </summary>
+    private static void ACarriedTorchDoesNotBlindThePlacementSearch()
+    {
+        // Dark everywhere, so the assertions below hold wherever keeping company has walked the body by the
+        // time the torch is up. A dark pocket was tried instead, to make the offer itself the discriminator,
+        // and it failed for two compounding reasons worth recording: a pocket wide enough to raise the torch
+        // is wider than the torch's own glow, so its edge is offered either way, and the body walks out of a
+        // narrow one before the field has read the torch at all.
+        var ctx = Scene((_, _) => .02f);
+        GiveTorches(ctx);
+        Settle(ctx);
+        var brain = ctx.Companion.Brain;
+        // Keeping company only, so the hand stays free and nothing places a torch while we wait for one to
+        // come up; lighting is prepared directly afterwards.
+        brain.Chooser.Actions.RemoveAll(a => a.Name != "keep-company");
+        // Driven until the field has resampled *while* the torch was emitting, not merely until the torch is
+        // out. The sense only learns about the torch when it next reads the world, so a check made in the gap
+        // between the torch coming up and the next refresh tests the scene before the defect can exist — which
+        // is how this row first passed against the very code it was written to fail on.
+        var wasOut = typeof(LightSense).GetField("torchWasOut", InstanceField)!;
+        bool sensedTheTorch = false;
+        for (int tick = 0; tick < 600 && !sensedTheTorch; tick++)
+        {
+            VerifyOreWork.AdvanceBrain(ctx);
+            sensedTheTorch = ctx.Companion.Torch.Shown && (bool)wasOut.GetValue(brain.Senses.Light)!;
+        }
+        Require(sensedTheTorch,
+            $"the premise is a companion carrying light in a dark cavern, with the field having read that torch; "
+            + $"lit={ctx.Companion.Torch.Lit} shown={ctx.Companion.Torch.Shown} reason={ctx.Companion.Torch.Reason}");
+
+        var action = new LightUsefulArea();
+        float score = VerifyPreparedActivities.PrepareAndScore(action, ctx);
+        Require(score > 0 && action.Eligibility == Offer.Usable && action.ActivityTarget is not null,
+            $"a companion holding a torch must still offer to place one; its own carried light is not evidence that "
+            + $"the cave is lit, and reading it as such leaves the ability unable to fire in the dark it exists for; "
+            + $"score={score:0.000} {action.Eligibility}:{action.EligibilityReason} torch shown={ctx.Companion.Torch.Shown}");
+
+        // And the mechanism, asked of the sense directly at a tile the carried torch is certainly lighting.
+        // Going through the search alone does not discriminate here and two attempts to make it do so failed
+        // honestly: on an all-dark floor the search walks past its own glow to a site beyond it, and a dark
+        // pocket wide enough to raise the torch at all is wider than the glow, so its edge is offered either
+        // way. The end-to-end wiring of this into the placement predicate is covered by the J08 pair in
+        // VerifyAssistanceTrips, which was red before the flag and green after; this row covers the sense's
+        // own two answers, which is where the asymmetry lives.
+        Point body = ctx.Npc.Center.ToTileCoordinates();
+        Point nearHand = new(body.X + 2, body.Y - 2);
+        var holding = brain.Senses.Light.MeasuredAround(nearHand, Weights.LightSiteRadiusTiles, Weights.LightSiteStrideTiles);
+        var placing = brain.Senses.Light.MeasuredAround(nearHand, Weights.LightSiteRadiusTiles, Weights.LightSiteStrideTiles,
+            carriedCountsAsDark: true);
+        Require(holding.Unmeasured,
+            $"the premise is a neighbourhood the companion's own torch accounts for, which the hold decision must "
+            + $"refuse to read; {Show(holding)} at {nearHand}");
+        Require(!placing.Unmeasured && placing.MeanBrightness < Weights.LightDarkBelow,
+            $"the same neighbourhood must read dark when the question is whether to leave a torch behind, because the "
+            + $"light in it is the light that leaves with the companion; {Show(placing)} at {nearHand}");
     }
 
     // ---- (b) a dark wing is offered, and its site is Reachable rather than round-tripped ---------------
@@ -291,6 +432,14 @@ internal static class VerifyLightAndReachSenses
         // before it looks at anything. These numbers describe this machine and are never asserted.
         Console.WriteLine($"        two torches at ticks {first} and {second}, {placed.Count} placed, no keeping-company tick between them; "
             + $"decide over a wholly dark floor max {decideMax:0.000} ms, mean {decideTotal / Math.Max(1, ticks):0.000} ms over {ticks} ticks");
+        // With the allowances lifted nothing bounds this but the search's own shape, so the ceiling is a blunt
+        // order-of-magnitude guard rather than a statement about any one fix — it measured 37–39 ms both before
+        // and after the site bound, because that bound only bites once a deadline exists to expire. It is here
+        // so a future change that makes the scan quadratic again fails a run instead of printing a larger number
+        // nobody reads. Cold and warm differ twelvefold on this line, so the ceiling is set for the cold case.
+        Require(decideMax < 120d,
+            $"deciding over a wholly dark floor with the planning allowances lifted must stay within an order of "
+            + $"magnitude of what it has historically cost; measured {decideMax:0.000} ms against a ceiling of 120 ms");
     }
 
     /// <summary>
@@ -320,7 +469,18 @@ internal static class VerifyLightAndReachSenses
                     if (family.Family.ToString() == "NearbyAssistance") prepareMax = Math.Max(prepareMax, family.Milliseconds);
             }
             Console.WriteLine($"        dark floor under production allowances: decide max {decideMax:0.000} ms, mean {decideTotal / 600:0.000} ms, "
-                + $"NearbyAssistance preparation max {prepareMax:0.000} ms over 600 ticks (this machine, never asserted)");
+                + $"NearbyAssistance preparation max {prepareMax:0.000} ms over 600 ticks (this machine)");
+            // A pass line, because the regression this exists to catch was found by a person reading a printed
+            // number and would have shipped otherwise. The ceiling is the tick's own planning allowance with
+            // room for the measurement and for a cold run's JIT, not a record of today's figure: the property
+            // is that the allowance bounds this preparation at all, which is precisely what was untrue when a
+            // cheaper proof deleted the loop's bound and one preparation reached 37.6 ms. It is deliberately
+            // slack rather than tight, because the same code measures 7.8 ms inside the warmed default suite
+            // and 13.0 ms run alone, and a ceiling between those two numbers tests the harness.
+            double ceiling = Weights.TotalPlanningMilliseconds * 2d;
+            Require(prepareMax < ceiling,
+                $"NearbyAssistance preparation on a wholly dark floor must stay inside twice the tick's planning "
+                + $"allowance; measured {prepareMax:0.000} ms against a ceiling of {ceiling:0.000} ms");
         }
         finally { LimitPlanningWork.Unbounded = lifted; }
     }

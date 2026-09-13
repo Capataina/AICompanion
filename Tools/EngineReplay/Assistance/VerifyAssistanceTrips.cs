@@ -154,10 +154,18 @@ internal static class VerifyAssistanceTrips
                         if (Main.tile[x, y].HasTile && TileID.Sets.Torch[Main.tile[x, y].TileType]) { torch = new Point(x, y); torchAt = tick; }
         }
         string attempts = string.Join("; ", brain.Chooser.Activity.RecentAttempts.Select(a => $"{a.Activity}:{a.Status}:{a.Cause}:effects={a.ProductiveEffects}"));
+        // Lighting's own last word and the torch it is carrying, because every way this row fails runs through
+        // one of them: a refusal names why no site was taken, and a shown torch means the field is discounting
+        // the companion's own light in exactly the neighbourhood the sites are in.
+        var lighting = brain.Chooser.Actions.OfType<LightUsefulArea>().FirstOrDefault();
+        string lightState = lighting == null ? "lighting not registered"
+            : $"lighting offer={lighting.Eligibility}/{lighting.EligibilityReason} value={lighting.Score():0.000} target={lighting.ActivityTarget}"
+            + $"; torch lit={ctx.Companion.Torch.Lit} shown={ctx.Companion.Torch.Shown} reason={ctx.Companion.Torch.Reason}"
+            + $"; light samples={brain.Senses.Light.MeasuredSamples}";
         object? incidental = brain.GetType().GetField("Incidental")?.GetValue(brain);
         object? lastIncidental = incidental?.GetType().GetProperty("Last")?.GetValue(incidental);
         string ledger = $"potBreaking={potBreaking} torch={torch} at tick {torchAt}; pot broken at tick {brokenAt} during {actionAtBreak} feet x={feetAtBreak:0} (start {start.X:0}); "
-            + $"request/owner before={before} at break={atBreak}; incidental={lastIncidental}; attempts=[{attempts}]";
+            + $"request/owner before={before} at break={atBreak}; incidental={lastIncidental}; {lightState}; attempts=[{attempts}]";
         Require(torchAt >= 0, $"the lighting trip must place its torch; {ledger}");
         if (!potBreaking)
         {
@@ -318,7 +326,11 @@ internal static class VerifyAssistanceTrips
                     if (light.Eligibility != Offer.Unresolved) break;
                     VerifyObservedMotion.SetTick(Main.GameUpdateCount + (ulong)Weights.NearbyWorkUnresolvedRetryTicks);
                 }
-                string ledger = $"staircase={staircase} oneWay={oneWay}: score={score:0.000} offer={light.Eligibility}/{light.EligibilityReason} target={light.ActivityTarget}";
+                // The reach flags are in the ledger because every refusal this row can print is downstream of
+                // them, and without them a red says which answer came back but not which flood produced it.
+                string ledger = $"staircase={staircase} oneWay={oneWay}: score={score:0.000} offer={light.Eligibility}/{light.EligibilityReason} target={light.ActivityTarget}"
+                    + $" [two-way complete={brain.Senses.Reach.Complete} scored complete={brain.Senses.Reach.ScoredComplete}"
+                    + $" player-one-way={brain.Senses.Reach.PlayerOnlyOneWay} two-way={brain.Senses.Reach.TwoWayCount} any={brain.Senses.Reach.AnyCount}]";
                 if (!staircase)
                 {
                     Require(score == 0 && light.ActivityTarget == null,
