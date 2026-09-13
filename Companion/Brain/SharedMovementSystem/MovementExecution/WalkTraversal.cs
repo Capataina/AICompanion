@@ -62,7 +62,8 @@ public sealed class WalkTraversal : Traversal
                 var atSpeedProof = Simulate(pose, dir * BodyPhysics.WalkSpeed, dir, t, lava);
                 bool fromRest = atSpeedProof is not (Point atSpeed, _) || atSpeed != landing;
                 int dy = landing.Y - t.Y;
-                // The step records how long the walk the performer makes takes. A plain walk is taken
+                // The step records how long the walk the performer makes takes, from this pose to the landing's
+                // pose, which is where the next step's proof starts. A plain walk is taken
                 // at the walk speed, so it carries the at-speed proof's duration; recording the from-rest
                 // duration priced every tile of a route as a stop and a restart, several times the body's
                 // real travel, and inflated everything that sums step durations: return estimates, the
@@ -87,8 +88,8 @@ public sealed class WalkTraversal : Traversal
 
     /// <summary>
     /// Where the walk that way lands and how long it takes, or null: the body at the pose with
-    /// <paramref name="startVx"/>, driven at the walk speed until it stands past the next
-    /// column's centre, with any time in the air ridden out (the hop the kerb rule leaves to
+    /// <paramref name="startVx"/>, driven at the walk speed until its centre stands in the next
+    /// column, and timed on until it reaches the landing's pose, with any time in the air ridden out (the hop the kerb rule leaves to
     /// gravity, and the fall off a ledge less than a tile and more than the kerb rule's window,
     /// which is a walk down as the body makes it: a moment in the air and on again), and the
     /// tile it then stands in must be a node one row at most from the start's, as many columns
@@ -113,9 +114,19 @@ public sealed class WalkTraversal : Traversal
                 continue;
             Point landing = state.FeetTile;
             int dx = (landing.X - t.X) * dir, dy = landing.Y - t.Y;
-            if (dx < 1 || Math.Abs(dy) > 1 || NavGrid.StandAt(landing.X, landing.Y, lava) == null)
+            if (dx < 1 || Math.Abs(dy) > 1 || NavGrid.StandAt(landing.X, landing.Y, lava) is not BodyPhysics.Pose next)
                 return null;
-            return (landing, ticks);
+            // The walk is made on entering the next column, but it lasts until the body stands where the next step
+            // starts, at the landing's pose. A pose sits near its column's centre, so timing the walk to the column's
+            // edge counted about half a tile, and a chain of walks read as twice the body's real pace. Rock that stops
+            // the body just short of an off-centre pose ends the count there.
+            int arrived = ticks;
+            for (BodyState walking = state; arrived < MaxTicks && dir * (walking.Left - next.Left) < 0; arrived++)
+            {
+                walking = BodyMotion.Step(world, walking, controls);
+                if (walking.Stuck || walking.CollideX) break;
+            }
+            return (landing, arrived);
         }
         return null;
     }
