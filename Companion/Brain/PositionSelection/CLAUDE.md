@@ -36,6 +36,8 @@ It does not know where the player is going, only the journey their recent displa
 
 One-way drops are refused by default. The exception is for following the player down: it opens only when the raw region actually reaches the player, which separates a player below a drop from a player sealed behind a wall. A stuck route temporarily bans its chosen tile so the next answer is a different place rather than the same unwalkable claim.
 
+`IsReturnable` exposes membership of the returnable region, the one flooded with no-way-back edges refused, and refreshes the flood on its own cadence first. Keeping company's local method reads it to choose stroll goals during its decide phase, before this tick's `Resolve`, often while its request is a hold that would not refresh the flood itself; it therefore reads a region at most a rescore old, the same staleness the positioner tolerates. It answers the returnable region even when the player stands only beyond a drop and scoring has opened the raw one, because a stroll never follows the player down. An unfinished flood answers false beyond its frontier, so a caller reading false as "not here" stays inside what has been proven.
+
 ## Traps
 
 Destination acceptance must include the navigator's stopping slack. A candidate on the comfort boundary can be valid while the body stops just outside it, leaving an Arrived navigator and an unsatisfied follow objective forever. Follow candidates leave that slack on both axes and sample each tile so a narrow valid landing is not skipped by a coarse lattice. If no candidate exists, the unresolved follow intent reaches the shared state search rather than becoming a Hold request.

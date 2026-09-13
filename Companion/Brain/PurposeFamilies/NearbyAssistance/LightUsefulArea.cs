@@ -83,7 +83,7 @@ public sealed class LightUsefulArea : PerformNearbyWorldWork
     protected override bool Perform(in ActionContext ctx, Point tile)
     {
         bool placed = PlaceSuppliedTorches.Place(tile, ctx.Companion.Bag.Items, ctx.Player, out string source);
-        BehaviourDiagnostics.GodsEyeEvents.RecordWorldInteraction(ctx.Npc, tile, placed ? "place-torch" : "placement-refused", source);
+        BehaviourDiagnostics.GodsEyeEvents.RecordWorldInteraction(ctx.Npc, tile, placed ? "place-torch" : "placement-refused", PerformNote + source);
         return placed;
     }
 }

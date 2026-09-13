@@ -50,11 +50,68 @@ public abstract class PerformNearbyWorldWork : CompanionAction
     private const int DeferFailedApproachTicks = 1800;
     protected virtual float CandidateCost(Vector2 feet, Point tile) => Vector2.DistanceSquared(feet, tile.ToWorldCoordinates());
 
+    // Search-window tiles in the order they are asked, reused across searches: the brain is single-threaded.
+    private readonly System.Collections.Generic.List<(float Cost, int Order, Point Tile)> ordered = new();
+    // Sites whose trip was proven to have no way back, or not enough breath, with the terrain revision and tick they may be
+    // asked again. Without it the same nearest one-way site spends the bounded trip checks on every search and a farther site
+    // with a way back is never reached.
+    private readonly System.Collections.Generic.Dictionary<Point, (int Revision, ulong Until)> noReturn = new();
+    // Why the last search found no site, when the reason was the trip rather than the absence of a candidate.
+    private (OfferEligibility Eligibility, string Reason)? tripRefusal;
+
+    /// <summary>
+    /// Whether the companion can walk to a remote working pose and come back to where it stands, with breath for both legs.
+    /// Reaching a pose is not a certificate of leaving it, and the walker search behind <see cref="FindToolAccess.Approach"/>
+    /// runs under whichever one-way rule the previous tick's request left set: after a reunion tick it certified a site
+    /// reached only by a drop, which the Exact request then refused to plan, so the trip stalled until its progress window
+    /// deferred it. The round trip asks both legs under one rule of its own, so the answer does not depend on the last request.
+    /// A proven No is deferred until the terrain changes or the wait passes; an undecided return is only skipped for this search.
+    /// </summary>
+    private bool TripReturns(in ActionContext ctx, Point tile, Vector2 pose)
+    {
+        var breath = ctx.Companion.Breath;
+        var envelope = new Reachability.BreathEnvelope(breath.TicksLeft,
+            CharacterBody.CompanionBreath.BreathMax * CharacterBody.CompanionBreath.BreathCDMax,
+            CharacterBody.CompanionBreath.RecoverPerTick * CharacterBody.CompanionBreath.BreathCDMax);
+        var trip = MovementQueries.RoundTrip(MovementQueries.FeetTile(ctx.Npc.Bottom), MovementQueries.FeetTile(pose), envelope);
+        if (trip.Outward == Reachability.Reach.Yes && trip.Return == Reachability.Reach.Yes && trip.Breath == Reachability.Reach.Yes)
+            return true;
+        if (trip.Return == Reachability.Reach.No || trip.Breath == Reachability.Reach.No)
+            DeferRefusedTrip(tile, trip.Return == Reachability.Reach.No ? "interaction-site-has-no-return" : "interaction-trip-exceeds-breath");
+        else tripRefusal ??= (OfferEligibility.Unresolved, "interaction-trip-undecided");
+        return false;
+    }
+
+    /// <summary>Keep a site whose trip was proven impossible (no way back, no breath, or no take-off for the only hop that could
+    /// reach it) out of discovery until the terrain changes or the wait passes. A named reason also becomes the offer's refusal.</summary>
+    private void DeferRefusedTrip(Point tile, string? reason)
+    {
+        if (noReturn.Count > 64) noReturn.Clear();
+        noReturn[tile] = (TerrainChanges.Revision, Main.GameUpdateCount + (ulong)BehaviourSelection.Weights.NearbyWorkNoReturnRetryTicks);
+        if (reason != null) tripRefusal = (OfferEligibility.KnownUnusable, reason);
+    }
+
+    private bool NoReturnDeferred(Point tile)
+    {
+        if (!noReturn.TryGetValue(tile, out var entry)) return false;
+        if (entry.Revision == TerrainChanges.Revision && Main.GameUpdateCount < entry.Until) return true;
+        noReturn.Remove(tile);
+        return false;
+    }
+
+    /// <summary>A body counts as at rest on its take-off below this horizontal speed. The engine zeroes smaller speeds and the
+    /// slowdown snaps to exactly zero, so this is a numerical tolerance, not a tunable; it matches MineOre's.</summary>
+    private const float RestSpeed = 0.01f;
+    /// <summary>The longest flight the interaction-jump proof simulates; it mirrors the step limit inside
+    /// ProveInteractionJump.CanReach, and a jump still airborne past it was never going to deliver the interaction.</summary>
+    private const int HopFlightTicks = 90;
+
     public override void Prepare(in ActionContext ctx)
     {
         preparedValue = DiscoverValue(ctx);
         preparedTarget = target?.ToWorldCoordinates();
         if (!enabledAtPreparation) { var (eligibility, reason) = DisabledOffer(ctx); Classify(eligibility, reason); }
+        else if (target == null && tripRefusal is { } refusal) Classify(refusal.Eligibility, refusal.Reason);
         else if (target == null) Classify(OfferEligibility.NoOpportunity, "no-candidate-in-search-window");
         else Classify(OfferEligibility.Usable, "reachable-interaction");
     }
@@ -100,25 +157,51 @@ public abstract class PerformNearbyWorldWork : CompanionAction
         if (target == null && Main.GameUpdateCount >= nextSearch)
         {
             nextSearch = Main.GameUpdateCount + 90;
-            float best = float.MaxValue;
+            tripRefusal = null;
+            // Nearest first by the method's own cost, stopping at the first site whose whole trip is proven. This picks the same
+            // site the earlier improve-on-best scan picked (ties keep scan order), and it lets the trip proof below be bounded:
+            // each remote site costs two fresh route searches, so only a few are asked per search.
             Point centre = ctx.Npc.Center.ToTileCoordinates();
+            ordered.Clear();
             for (int x = centre.X - 18; x <= centre.X + 18; x++)
                 for (int y = centre.Y - 14; y <= centre.Y + 14; y++)
                 {
                     Point p = new(x, y);
-                    float distance = CandidateCost(ctx.Npc.Bottom, p);
-                    if (distance >= best) continue;
                     if (deferred.TryGetValue(p, out ulong until) && Main.GameUpdateCount < until) continue;
-                    if (!AllowsTarget(ctx, p.ToWorldCoordinates(), p) || !Candidate(ctx, p)) continue;
-                    Vector2 candidateStand;
-                    bool jump = false;
-                    if (FindToolAccess.InReach(ctx.Npc.Bottom, p)) candidateStand = ctx.Npc.Bottom;
-                    else if (AllowJump && ProveInteractionJump.CanReach(NavGrid.World, ctx.Companion.Motor.State, body => FindToolAccess.InReach(body.Feet, p)))
-                    { candidateStand = ctx.Npc.Bottom; jump = true; }
-                    else if (FindToolAccess.Approach(p, ctx.Npc.Bottom, out candidateStand) != Reachability.Reach.Yes) continue;
-                    target = p; best = distance; stand = candidateStand; needsJump = jump; jumped = false;
-                    approachOrigin = ctx.Npc.Bottom; approachTicks = 0;
+                    if (NoReturnDeferred(p)) continue;
+                    ordered.Add((CandidateCost(ctx.Npc.Bottom, p), ordered.Count, p));
                 }
+            ordered.Sort(static (a, b) => a.Cost != b.Cost ? a.Cost.CompareTo(b.Cost) : a.Order.CompareTo(b.Order));
+            int tripsAsked = 0;
+            foreach (var (_, _, p) in ordered)
+            {
+                if (!AllowsTarget(ctx, p.ToWorldCoordinates(), p) || !Candidate(ctx, p)) continue;
+                Vector2 candidateStand;
+                bool jump = false;
+                if (FindToolAccess.InReach(ctx.Npc.Bottom, p)) candidateStand = ctx.Npc.Bottom;
+                else if (AllowJump && ProveInteractionJump.CanReach(NavGrid.World, ctx.Companion.Motor.State, body => FindToolAccess.InReach(body.Feet, p)))
+                { candidateStand = ctx.Npc.Bottom; jump = true; }
+                else
+                {
+                    var standing = FindToolAccess.Approach(p, ctx.Npc.Bottom, out candidateStand);
+                    if (standing == Reachability.Reach.Unknown) continue;
+                    // Only a site no standing pose reaches is hopped to, from a take-off the walker reaches: the same order and
+                    // the same query mining uses for ceiling ore, so a take-off is admitted here exactly when it would be there.
+                    if (standing == Reachability.Reach.No && !AllowJump) continue;
+                    if (tripsAsked++ >= BehaviourSelection.Weights.NearbyWorkTripChecks) break;
+                    if (standing == Reachability.Reach.No)
+                    {
+                        var hop = FindToolAccess.HopApproach(p, ctx.Npc.Bottom, ctx.Companion.Motor.State, out candidateStand);
+                        if (hop == Reachability.Reach.No) DeferRefusedTrip(p, null);
+                        if (hop != Reachability.Reach.Yes) continue;
+                        jump = true;
+                    }
+                    if (!TripReturns(ctx, p, candidateStand)) continue;
+                }
+                target = p; stand = candidateStand; needsJump = jump; jumped = false;
+                approachOrigin = ctx.Npc.Bottom; approachTicks = 0;
+                break;
+            }
         }
         if (deferred.Count > 0)
         {
@@ -136,40 +219,55 @@ public abstract class PerformNearbyWorldWork : CompanionAction
         if (!Candidate(ctx, tile)) { target = null; Release("target-no-longer-candidate"); return PositionRequest.Hold; }
         if (!FindToolAccess.InReach(ctx.Npc.Bottom, tile))
         {
-            if (!needsJump)
+            BodyState live = ctx.Companion.Motor.State;
+            if (needsJump && jumped)
             {
-                // The approach can fail, and until this existed nothing said so. Score() only ever
-                // dropped a target that vanished or left the activity envelope, so a cached stand
-                // the body could not walk to was held for ever: on 2026-09-11 that was ticks 18,501
-                // to 21,531 on one pot, 3,031 unbroken ticks with the movement system reporting
-                // itself stalled on 1,826 of them, which was 97% of every stalled tick in the run.
-                // An intent that cannot fail is an intent that cannot be given up, so covering no
-                // ground for a full progress window defers this tile and hands the tick back.
-                if (Vector2.DistanceSquared(approachOrigin, ctx.Npc.Bottom)
-                    >= BehaviourSelection.Weights.ObjectiveProgressPixels * BehaviourSelection.Weights.ObjectiveProgressPixels)
-                { approachOrigin = ctx.Npc.Bottom; approachTicks = 0; }
-                else if (++approachTicks >= BehaviourSelection.Weights.ObjectiveProgressWindowTicks)
+                // This method's own flight: the rising body is what reaches, so it is held; past the proof's own flight
+                // length the jump was never going to deliver.
+                if (Main.GameUpdateCount - jumpStarted > HopFlightTicks) { target = null; Release("interaction-jump-did-not-deliver"); }
+                return PositionRequest.Hold;
+            }
+            // On the take-off's own feet tile, the hop is re-proved from the live pose before the jump: another behaviour may have
+            // moved the body since the take-off was chosen. A body still sliding there fails the proof because its jump drifts, not
+            // because the take-off is gone, so it holds until it is at rest. At rest with no proof left, the take-off itself is gone,
+            // and the tile leaves discovery; without that, the next preparation re-proves the same take-off from rest, passes, and
+            // offers it again for ever. The tile, not a body width, is the test: HopApproach proves a pose at its tile's centre, and a
+            // pot take-off proved there failed from one tile short, 16 pixels away, which a body-width tolerance counted as arrived
+            // and so declared lost before the walk ever reached it. Short of the tile the body keeps walking, and the progress window
+            // below still ends a walk that cannot close.
+            if (needsJump && live.OnGround && MovementQueries.FeetTile(ctx.Npc.Bottom) == MovementQueries.FeetTile(stand)
+                && Vector2.DistanceSquared(ctx.Npc.Bottom, stand) <= BodyPhysics.Width * BodyPhysics.Width)
+            {
+                if (MathF.Abs(live.Vx) > RestSpeed) return PositionRequest.Hold;
+                if (!ProveInteractionJump.CanReach(NavGrid.World, live, body => FindToolAccess.InReach(body.Feet, tile)))
                 {
                     deferred[tile] = Main.GameUpdateCount + DeferFailedApproachTicks;
-                    BehaviourDiagnostics.GodsEyeEvents.RecordWorldInteraction(ctx.Npc, tile, "approach-abandoned",
-                        $"no ground covered in {BehaviourSelection.Weights.ObjectiveProgressWindowTicks} ticks");
-                    target = null; nextSearch = Main.GameUpdateCount + 60;
-                    Release("approach-made-no-progress");
-                    return PositionRequest.Hold;
+                    target = null; Release("interaction-jump-lost-take-off"); return PositionRequest.Hold;
                 }
-                return PositionRequest.ExactAt(stand);
-            }
-            if (!jumped)
-            {
-                // Validate against the live pose again: another behaviour may have moved us
-                // after candidate discovery. The shared movement controller owns the impulse.
-                if (!ProveInteractionJump.CanReach(NavGrid.World, ctx.Companion.Motor.State, body => FindToolAccess.InReach(body.Feet, tile)))
-                { target = null; Release("interaction-jump-lost-take-off"); return PositionRequest.Hold; }
                 jumped = true; jumpStarted = Main.GameUpdateCount;
                 return PositionRequest.Hold with { JumpScale = 1f };
             }
-            if (Main.GameUpdateCount - jumpStarted > 90) { target = null; Release("interaction-jump-did-not-deliver"); }
-            return PositionRequest.Hold;
+            // Walking to a standing pose or to a take-off; airborne on the way (crossing a ledge or a gap) is still the walk.
+            // The approach can fail, and until this existed nothing said so. Score() only ever
+            // dropped a target that vanished or left the activity envelope, so a cached stand
+            // the body could not walk to was held for ever: on 2026-09-11 that was ticks 18,501
+            // to 21,531 on one pot, 3,031 unbroken ticks with the movement system reporting
+            // itself stalled on 1,826 of them, which was 97% of every stalled tick in the run.
+            // An intent that cannot fail is an intent that cannot be given up, so covering no
+            // ground for a full progress window defers this tile and hands the tick back.
+            if (Vector2.DistanceSquared(approachOrigin, ctx.Npc.Bottom)
+                >= BehaviourSelection.Weights.ObjectiveProgressPixels * BehaviourSelection.Weights.ObjectiveProgressPixels)
+            { approachOrigin = ctx.Npc.Bottom; approachTicks = 0; }
+            else if (++approachTicks >= BehaviourSelection.Weights.ObjectiveProgressWindowTicks)
+            {
+                deferred[tile] = Main.GameUpdateCount + DeferFailedApproachTicks;
+                BehaviourDiagnostics.GodsEyeEvents.RecordWorldInteraction(ctx.Npc, tile, "approach-abandoned",
+                    $"no ground covered in {BehaviourSelection.Weights.ObjectiveProgressWindowTicks} ticks");
+                target = null; nextSearch = Main.GameUpdateCount + 60;
+                Release("approach-made-no-progress");
+                return PositionRequest.Hold;
+            }
+            return PositionRequest.ExactAt(stand);
         }
         if (Main.GameUpdateCount >= retryAfter)
         {
@@ -186,4 +284,45 @@ public abstract class PerformNearbyWorldWork : CompanionAction
         // A reflex or protective action can change a take-off pose; never resume its old jump.
         if (needsJump) { target = null; }
     }
+
+    /// <summary>
+    /// The nearest target this method could act on right now from the body's current pose, for an incidental interaction: the method
+    /// enabled by its own policy, supply and measurement, the tile within actual reach, and passing the method's own candidate check,
+    /// which carries home protection and the site rules. It never searches beyond reach, never asks for a route and never touches the
+    /// method's discovery state, so the instance asked is a library of this method's rules rather than the activity itself.
+    /// </summary>
+    internal Point? FindIncidentalTarget(in ActionContext ctx, object? excluded)
+    {
+        // Enabled runs first on every ask, because lighting's candidate check reads the carried-light list its enablement fills.
+        if (ctx.Player.dead || !Enabled(ctx)) return null;
+        Point feet = MovementQueries.FeetTile(ctx.Npc.Bottom);
+        int reachX = Player.tileRangeX + 1, reachY = Player.tileRangeY + 1;
+        Point? best = null;
+        float bestDistance = float.MaxValue;
+        for (int x = feet.X - reachX; x <= feet.X + reachX; x++)
+            for (int y = feet.Y - MovementQueries.BodyHeightTiles - reachY; y <= feet.Y + reachY; y++)
+            {
+                Point p = new(x, y);
+                if (Equals(excluded, p)) continue;
+                float distance = Vector2.DistanceSquared(ctx.Npc.Center, p.ToWorldCoordinates());
+                if (distance >= bestDistance || !FindToolAccess.InReach(ctx.Npc.Bottom, p) || !Candidate(ctx, p)) continue;
+                best = p;
+                bestDistance = distance;
+            }
+        return best;
+    }
+
+    /// <summary>Act on an incidental target through the method's own native operation, which rechecks permission at mutation, with
+    /// <paramref name="note"/> carried into the interaction event so the effect reads as incidental and credited to no activity.</summary>
+    internal bool PerformIncidental(in ActionContext ctx, Point tile, string note)
+    {
+        performNote = note;
+        try { return Perform(ctx, tile); }
+        finally { performNote = ""; }
+    }
+
+    private string performNote = "";
+
+    /// <summary>Empty for the activity's own interaction; for an incidental one, the marker its event detail begins with.</summary>
+    protected string PerformNote => performNote;
 }

@@ -24,9 +24,10 @@ internal static class VerifyEngineMotion
         if (lifecycleOnly) return VerifyCompanionLifecycle.Run();
         if (escapeOnly) return VerifyCapturedEscape.Run();
         if (workOnly) return VerifyOreWork.Run() + VerifyCompanionPreferences.Run() + VerifyCompanionActivities.Run() + VerifyUsefulAssistance.Run()
-            + VerifyMiningHops.Run() + VerifyGatheringCooperation.Run() + VerifyWorkAccounting.Run() + VerifyCollectionContracts.Run();
+            + VerifyMiningHops.Run() + VerifyGatheringCooperation.Run() + VerifyWorkAccounting.Run() + VerifyCollectionContracts.Run()
+            + VerifyAssistanceTrips.Run();
         if (miningBaselineOnly) return VerifyOreWork.RunRaisedLipBaseline();
-        if (followOnly) return VerifyResponsiveFollowing.Run();
+        if (followOnly) return VerifyResponsiveFollowing.Run() + VerifyCompanyLocalMotion.Run();
         if (protectionOnly) return VerifyFollowRecoveryAndProtection.Run();
         if (brainCostOnly) return MeasureBrainCost.Execute();
         if (combatCostOnly) return MeasureCombatCost.Execute();
@@ -119,6 +120,8 @@ internal static class VerifyEngineMotion
         failed += VerifyRoundTripEvidence.Run();
         failed += VerifyCombatPurpose.Run();
         failed += VerifySafetyAftermath.Run();
+        failed += VerifyAssistanceTrips.Run();
+        failed += VerifyCompanyLocalMotion.Run();
         return failed == 0 ? 0 : 1;
     }
 

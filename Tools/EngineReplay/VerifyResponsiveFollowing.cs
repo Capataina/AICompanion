@@ -76,13 +76,17 @@ internal static class VerifyResponsiveFollowing
             for (int tick = 0; tick < 2400; tick++)
             {
                 var request = company.Execute(context);
+                // Resolved every tick as the brain does: a stroll goal must lie in the positioner's returnable region, and that
+                // region grows only on the resolver's own cadence, so executing without resolving leaves it at its first slice.
+                brain.Positioner.Resolve(request, brain.Senses, null);
                 rested |= request.Kind == RequestKind.Hold;
                 strolled |= request.Kind == RequestKind.Exact;
                 Require(request.Kind != RequestKind.WithPlayer, "calm co-location should not keep requesting reunion");
             }
         }
         finally { Main.rand = random; }
-        Require(rested && strolled, "company must preserve both resting and nearby movement methods");
+        Require(rested && strolled, $"company must preserve both resting and nearby movement methods; rested={rested} strolled={strolled} "
+            + $"returnable={brain.Positioner.ReturnableCount} reach={brain.Positioner.ReachCount} complete={brain.Positioner.ReachComplete}");
         player.Bottom += new Vector2(480, 0);
         brain.Senses.Update(companion.NPC, player, companion.Breath);
         Require(brain.Chooser.Choose(context) == company && company.Execute(context).Kind == RequestKind.WithPlayer,

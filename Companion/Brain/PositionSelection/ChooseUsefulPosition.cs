@@ -231,6 +231,19 @@ public sealed class Positioner
 
     /// <summary>The last flood from the companion's feet holds this tile: the brain reads the player's feet against it to end a stranded count.</summary>
     public bool Reaches(Point tile) => InReach(tile);
+
+    /// <summary>
+    /// Whether the body can walk to this feet tile and come home from it: membership of the region flooded from the feet with the
+    /// edges that have no way back refused, which is the region every other kind is scored against unless the player stands only
+    /// beyond a drop. The flood is refreshed on its own cadence first, so a caller deciding during a hold still reads a current
+    /// region. An unfinished flood answers only for the tiles it has reached, so a tile beyond its frontier reads false rather
+    /// than unknown; a caller that treats false as "not here" stays inside what has been proven.
+    /// </summary>
+    public bool IsReturnable(Senses.Senses senses, Point tile)
+    {
+        RefreshReach(senses);
+        return returnable != null && returnable.Contains(tile);
+    }
     public float? EstimatedTravelTicks(Point from, Point tile) => rawSearch?.EstimatedTicks(from, tile)
         ?? returnSearch?.EstimatedTicks(from, tile);
 
