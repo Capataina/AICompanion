@@ -73,6 +73,9 @@ public abstract class PerformNearbyWorldWork : CompanionAction
         var envelope = new Reachability.BreathEnvelope(breath.TicksLeft,
             CharacterBody.CompanionBreath.BreathMax * CharacterBody.CompanionBreath.BreathCDMax,
             CharacterBody.CompanionBreath.RecoverPerTick * CharacterBody.CompanionBreath.BreathCDMax);
+        // The round trip holds the per-search allowance unlimited for both of its legs, so on its own it would run to whatever is
+        // left of the tick's planning deadline; one trip is given what one navigator route search is given.
+        using var allowance = LimitPlanningWork.Narrow(BehaviourSelection.Weights.RouteSearchMilliseconds);
         var trip = MovementQueries.RoundTrip(MovementQueries.FeetTile(ctx.Npc.Bottom), MovementQueries.FeetTile(pose), envelope);
         if (trip.Outward == Reachability.Reach.Yes && trip.Return == Reachability.Reach.Yes && trip.Breath == Reachability.Reach.Yes)
             return true;

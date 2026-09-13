@@ -18,6 +18,8 @@ using ActionContext = live::AICompanion.Companion.Brain.Behaviours.ActionContext
 using FindToolAccess = live::AICompanion.Companion.Brain.WorldInteractions.FindToolAccess;
 using Breath = live::AICompanion.Companion.CharacterBody.CompanionBreath;
 using BreathEnvelope = live::AICompanion.Companion.Brain.SharedMovementSystem.Reachability.BreathEnvelope;
+using HandGrant = live::AICompanion.Companion.Brain.ActivityCoordination.HandGrant;
+using ConsiderIncidentalInteractions = live::AICompanion.Companion.Brain.ActivityCoordination.ConsiderIncidentalInteractions;
 
 /// <summary>
 /// Lighting and pot trips through the shared nearby-interaction executor, on native tiles: a trip is offered only where the
@@ -57,8 +59,46 @@ internal static class VerifyAssistanceTrips
         Each("hop pot: no take-off, no offer", () => AHopFromATakeOffElsewhere(lighting: false, reachable: false));
         Each("J08 a lighting trip breaks a permitted pot in passing, with no detour and no second movement owner", () => ALightingTripPassesAPot(potBreaking: true));
         Each("J08 the same pot with pot breaking disabled is left alone", () => ALightingTripPassesAPot(potBreaking: false));
+        Each("J08 a tick whose planning allowance is spent skips the incidental scan without losing its turn", AnExpiredAllowanceDefersTheIncidentalScan);
         if (red == 0) Console.WriteLine("assistance trips: lighting and pot trips require a way back, hop from take-offs the walker reaches, and a pot on the way breaks incidentally only when permitted");
         return red;
+    }
+
+    /// <summary>
+    /// The incidental scan runs at the grant boundary, after planning has had the tick's allowance. A permitted pot is placed within reach
+    /// of where the companion stands and the scan is asked directly with the live allowance in force: once already expired, the pot must
+    /// be left alone and nothing recorded; then, on the same game tick with the allowance ended, the pot must break, which also proves the
+    /// refused tick did not use up the scan's cadence.
+    /// </summary>
+    private static void AnExpiredAllowanceDefersTheIncidentalScan()
+    {
+        Point placeholder = new(60, FloorRow - 1);
+        var (_, ctx) = VerifyOreWork.SetUp(Policy.Disabled, TileID.Copper, placeholder);
+        Main.tile[placeholder.X, placeholder.Y].ClearEverything();
+        foreach (Item slot in ctx.Companion.Bag.Items) slot.TurnToAir();
+        Preferences.Current.PotBreaking = true;
+        Vector2 feet = ctx.Npc.Bottom;
+        Point pot = PlacePot(new Point((int)(feet.X / 16f) + 1, FloorRow - 2));
+        TerrainChanges.Reset();
+        AStar.InvalidateEdges();
+        ctx.Companion.Brain.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Breath);
+        Point[] footprint = { pot, pot + new Point(1, 0), pot + new Point(0, 1), pot + new Point(1, 1) };
+        Require(footprint.Any(t => FindToolAccess.InReach(feet, t)), $"the pot must be within reach where the companion stands; feet={feet} pot={pot}");
+        var incidental = new ConsiderIncidentalInteractions();
+        LimitPlanningWork.Unbounded = false;
+        try
+        {
+            LimitPlanningWork.Begin(0.000001);
+            Thread.Sleep(2);
+            Require(LimitPlanningWork.Expired, "the allowance must already be spent, or the refusal row tests nothing");
+            incidental.Consider(ctx, HandGrant.Available, false, null, 0);
+            Require(incidental.Last == null && footprint.All(t => Main.tile[t.X, t.Y].HasTile),
+                $"a scan on a tick whose planning allowance is spent must not break the pot; last={incidental.Last}");
+        }
+        finally { LimitPlanningWork.End(); }
+        incidental.Consider(ctx, HandGrant.Available, false, null, 0);
+        Require(incidental.Last != null && footprint.Any(t => !Main.tile[t.X, t.Y].HasTile),
+            $"with time left on the same game tick the scan must break the pot, so the refused tick kept its turn; last={incidental.Last}");
     }
 
     /// <summary>

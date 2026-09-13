@@ -4,6 +4,7 @@ using Terraria;
 using AICompanion.Companion.Brain.Behaviours;
 using AICompanion.Companion.Brain.BehaviourSelection;
 using AICompanion.Companion.Brain.PurposeFamilies.NearbyAssistance;
+using AICompanion.Companion.Brain.SharedMovementSystem;
 
 namespace AICompanion.Companion.Brain.ActivityCoordination;
 
@@ -34,11 +35,16 @@ public sealed class ConsiderIncidentalInteractions
         if (hand != HandGrant.Available || armUsed || ctx.Player.dead) return;
         ulong now = Main.GameUpdateCount;
         if (now < nextScan) return;
+        // Optional work never extends a tick planning already filled: a tick whose shared allowance is spent skips the scan without
+        // using up its turn, so the next tick with time left scans instead. The cadence limits scans per tick; this limits when one
+        // may start, and the check between methods stops a scan that ran the allowance out part way.
+        if (LimitPlanningWork.Expired) return;
         // The scan reads every tile in reach through each method's candidate rules, which for lighting include a light measurement and
         // the native torch selector, so it runs on a cadence rather than every tick.
         nextScan = now + (ulong)Weights.IncidentalScanTicks;
         foreach (PerformNearbyWorldWork method in methods)
         {
+            if (LimitPlanningWork.Expired) return;
             if (executing != null && executing.GetType() == method.GetType()) continue;
             if (method.FindIncidentalTarget(ctx, executing?.ActivityIdentity) is not Point tile) continue;
             string note = $"incidental;during={executing?.Name ?? "none"};activity-id={activityId};credited-to=none;";
