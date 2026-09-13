@@ -54,6 +54,19 @@ public static class Weights
     public const float MeetingSwitchMargin = .15f;
     public const int MeetingRerootTicks = 30;
     public const double MeetingSearchMilliseconds = 1d;
+    // Lighting reads only light the engine computed. An area is a lighting opportunity when enough of its
+    // samples are measured and their mean is below the dark level, which deliberately equals the held
+    // torch's raise level (TorchBearer.RaiseBelow) so carrying and placing light agree about what dark
+    // means; if the two drift, the companion holds a torch where it will not place one, or the reverse.
+    // Carried light is left out within its radius, which matches the ambient reading's exclusion disc.
+    // A site's own neighbourhood vetoes it only on enough measured reads, so a sparse read cannot.
+    public const int LightAreaRadiusTiles = 18;
+    public const int LightAreaStrideTiles = 3;
+    public const float LightMeasuredFractionRequired = .6f;
+    public const float LightDarkBelow = .22f;
+    public const int LightSiteRadiusTiles = 5;
+    public const int LightSiteMinimumSamples = 4;
+    public const float CarriedLightRadiusTiles = 10f;
     // Recovery is a following fallback, not a traversal available to route search or mastery.
     public const float FollowRecoveryDistance = CalmBandFar * 2f;
     public const float FollowRecoveryArrival = 80f;
