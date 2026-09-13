@@ -62,6 +62,10 @@ public static class TravelEpisodes
     private static int episodePlannedTicks;
     private static float episodePathTiles;
     private static float episodeTravelledPixels;
+    /// <summary>Ticks inside the episode on which the body was downed. They are subtracted from the reported duration and
+    /// reported beside it, because the wall-clock span stays recoverable from the two tick stamps either way — so removing
+    /// them costs a reader nothing and leaving them in charges a death to the follower.</summary>
+    private static int episodeDownedTicks;
     private static int lastEdgeCount;
 
     // The open stop and the evidence gathered across it, all of it retained state sampled per tick.
@@ -94,6 +98,7 @@ public static class TravelEpisodes
         episodeKind = null;
         episodeReached = false;
         episodePlannedTicks = 0;
+        episodeDownedTicks = 0;
         episodePathTiles = episodeTravelledPixels = 0f;
         lastEdgeCount = 0;
         stopTicks = 0;
@@ -139,15 +144,25 @@ public static class TravelEpisodes
             "travel" or "seeking-destination" => brain.LastRequest.Kind.ToString(),
             // A Hold request is the ordinary way an episode ends, and the census treats it the same way.
             "hold" => null,
-            // Safety, recovery and downing leave the episode open, because the census's own RequestBegan never runs on
-            // those ticks either: they return before the navigate branch. An episode interrupted by a dodge is one episode.
+            // Safety, recovery and downing leave the episode open: an ask does not stop being one because something else
+            // took the body for a moment, and an episode interrupted by a dodge is one episode. What the census does with
+            // those ticks is not a precedent here, though — it counts asks, and this counts time, so a boundary rule that
+            // is right for a count is not automatically right for a duration. Downed ticks are therefore kept inside the
+            // episode and subtracted from its duration below, which is the only treatment that keeps the ask whole and
+            // keeps a death out of the follower's speed.
             _ => episodeKind,
         };
 
         // Everything measured this tick belongs to the episode that was open during it, so it is accumulated before the
         // transition. Accumulating afterwards credits a new episode's first tick with displacement the previous one earned,
         // which biases the mean speed of every short episode that follows a fast one.
-        if (episodeKind != null)
+        if (episodeKind != null && companion.IsDowned)
+        {
+            // A downed body is not travelling badly, it is not travelling. Its displacement is knockback and its ticks
+            // belong to the death, so neither reaches the journey's distance, its proven total or its duration.
+            episodeDownedTicks++;
+        }
+        else if (episodeKind != null)
         {
             episodeTravelledPixels += moved;
             if (navigator.Arrived) episodeReached = true;
@@ -198,6 +213,7 @@ public static class TravelEpisodes
         episodeStartTile = NavGrid.FeetTile(feet);
         episodeReached = false;
         episodePlannedTicks = 0;
+        episodeDownedTicks = 0;
         episodePathTiles = episodeTravelledPixels = 0f;
     }
 
@@ -205,10 +221,13 @@ public static class TravelEpisodes
     {
         if (episodeKind == null) return;
         EndStop(companion, tick);
-        int actual = (int)Math.Max(1, tick - episodeStart);
+        // The duration is the span less the ticks the body could not travel through. A downing runs into the hundreds of
+        // ticks, longer than most journeys, so charging it here would make a death the loudest slow journey in every
+        // report — from the one instrument whose whole purpose is to say whether the follower is slow.
+        int actual = (int)Math.Max(1, (long)(tick - episodeStart) - episodeDownedTicks);
         Vector2 feet = new(companion.Motor.ObservedState.Left + companion.NPC.width / 2f, companion.Motor.ObservedState.Bottom);
         GodsEyeEvents.RecordRouteEpisode(companion.NPC, episodeKind, episodeReached ? "reached" : "abandoned",
-            episodeStart, tick, episodePlannedTicks, actual,
+            episodeStart, tick, episodePlannedTicks, actual, episodeDownedTicks,
             Vector2.Distance(episodeStartFeet, feet) / 16f, episodePathTiles,
             episodeTravelledPixels / actual,
             PlayerTicksBetween(episodeStartTile, NavGrid.FeetTile(feet)));

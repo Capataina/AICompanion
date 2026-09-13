@@ -98,6 +98,11 @@ public sealed class JourneysTakeTheTimeTheyWereProven : ICheck, ICheckCoverage
             long planned = journeys.Sum(e => Math.Max(0, TravelEvidence.Number(e, "planned-ticks")));
             int reached = journeys.Count(e => e.channel == "reached");
 
+            // A journey holding a death is reported as such rather than only as a shorter journey. The producer removes
+            // the downed ticks from the duration, which is right — a death is not the follower being slow — but a reader
+            // comparing this against the wall clock in the row stamps would otherwise find a gap with no explanation.
+            var died = journeys.Where(e => TravelEvidence.Number(e, "downed-ticks") > 0).ToList();
+
             var compared = journeys.Where(e => TravelEvidence.Number(e, "player-ticks") >= 0).ToList();
             long comparedActual = compared.Sum(e => TravelEvidence.Number(e, "actual-ticks"));
             long comparedPlayer = compared.Sum(e => TravelEvidence.Number(e, "player-ticks"));
@@ -118,6 +123,10 @@ public sealed class JourneysTakeTheTimeTheyWereProven : ICheck, ICheckCoverage
                         ? "Your own trail covered neither end of any of them, so there is no player comparison here; that is missing coverage rather than a companion that kept up. "
                         : $"Over the {compared.Count:n0} whose ends your trail did cover, it took {comparedActual:n0} ticks against your {comparedPlayer:n0}, {TravelEvidence.Ratio(comparedActual, comparedPlayer)}. ")
                     + (slowest.Length > 0 ? $"Worst {Math.Min(Worst, journeys.Count)}: {slowest}. " : "None of them carried a proven price, so no ratio can be formed. ")
+                    + (died.Count > 0
+                        ? $"{died.Count:n0} of them held a downing, and the {died.Sum(e => TravelEvidence.Number(e, "downed-ticks")):n0} tick(s) "
+                            + "the body spent downed are outside every figure above, because a death is not a slow journey. "
+                        : "")
                     + "Read as a baseline and not as a verdict: the proven total counts only the steps that finished, so waiting, "
                     + "replanning and being pre-empted all land in the actual figure and in neither reference. A graded check here "
                     + "would have to separate those three from a body that is simply slow, which needs a capture showing it.",

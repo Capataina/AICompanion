@@ -24,6 +24,7 @@ if (args.Contains("--mining-baseline")) return VerifyEngineMotion.Run(miningBase
 if (args.Contains("--follow")) return VerifyEngineMotion.Run(followOnly: true);
 if (args.Contains("--protection-recovery")) return VerifyEngineMotion.Run(protectionOnly: true);
 if (args.Contains("--observation")) return VerifyObservationLifecycle.Run();
+if (args.Contains("--travel-episodes")) return VerifyTravelEpisodes.Run();
 if (args.Any(a => a == "--evidence-scenes" || a.StartsWith("--evidence-scenes=", StringComparison.Ordinal))) return RecordEvidenceScenes.Run(args);
 if (args.Contains("--brain-cost")) return VerifyEngineMotion.Run(brainCostOnly: true);
 if (args.Contains("--combat-cost")) return VerifyEngineMotion.Run(combatCostOnly: true);

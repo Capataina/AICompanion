@@ -1528,8 +1528,8 @@ public static class ChronicleTests
             int sequence = 0;
             string Event(string json) => json.Replace("\"seq\":0", $"\"seq\":{sequence++}", StringComparison.Ordinal) + "\n";
             string Session0() => Event("{\"v\":1,\"seq\":0,\"tick\":0,\"wall_elapsed_ms\":0,\"kind\":\"session\",\"subject\":0,\"related\":\"\",\"label\":\"\",\"channel\":\"\",\"pos_x\":0,\"pos_y\":0,\"vel_x\":0,\"vel_y\":0,\"expected_x\":0,\"expected_y\":0,\"amount\":0,\"detail\":\"\"}");
-            string Episode(long tick, string kind, string outcome, int planned, int actual, string player)
-                => Event($"{{\"v\":1,\"seq\":0,\"tick\":{tick},\"wall_elapsed_ms\":{tick * 16},\"kind\":\"route-episode\",\"subject\":1,\"related\":\"\",\"label\":\"{kind}\",\"channel\":\"{outcome}\",\"pos_x\":0,\"pos_y\":0,\"vel_x\":0,\"vel_y\":0,\"expected_x\":0,\"expected_y\":0,\"amount\":{actual},\"detail\":\"start-tick={tick - actual};end-tick={tick};outcome={outcome};planned-ticks={planned};actual-ticks={actual};player-ticks={player};straight-tiles=10.00;path-tiles=14.00;mean-speed-px-per-tick=1.20\"}}");
+            string Episode(long tick, string kind, string outcome, int planned, int actual, string player, int downed = 0)
+                => Event($"{{\"v\":1,\"seq\":0,\"tick\":{tick},\"wall_elapsed_ms\":{tick * 16},\"kind\":\"route-episode\",\"subject\":1,\"related\":\"\",\"label\":\"{kind}\",\"channel\":\"{outcome}\",\"pos_x\":0,\"pos_y\":0,\"vel_x\":0,\"vel_y\":0,\"expected_x\":0,\"expected_y\":0,\"amount\":{actual},\"detail\":\"start-tick={tick - actual - downed};end-tick={tick};outcome={outcome};planned-ticks={planned};actual-ticks={actual};downed-ticks={downed};player-ticks={player};straight-tiles=10.00;path-tiles=14.00;mean-speed-px-per-tick=1.20\"}}");
             string Stop(long tick, int ticks, string reason)
                 => Event($"{{\"v\":1,\"seq\":0,\"tick\":{tick},\"wall_elapsed_ms\":{tick * 16},\"kind\":\"stop\",\"subject\":1,\"related\":\"\",\"label\":\"{reason}\",\"channel\":\"{reason}\",\"pos_x\":0,\"pos_y\":0,\"vel_x\":0,\"vel_y\":0,\"expected_x\":0,\"expected_y\":0,\"amount\":{ticks},\"detail\":\"start-tick={tick - ticks};end-tick={tick};ticks={ticks};reason={reason};grounded-throughout=True;airborne-throughout=False;same-step-throughout=True;replanned-during=False;next-step-from-rest=False;fastest-sideways-px-per-tick=0.10;threshold-px-per-tick=0.60;threshold-ticks=3\"}}");
 
@@ -1549,6 +1549,9 @@ public static class ChronicleTests
                 + Episode(60, "WithPlayer", "reached", 40, 180, "50")
                 + Episode(90, "WithPlayer", "abandoned", 20, 40, "-")
                 + Episode(110, "Exact", "reached", 30, 33, "-")
+                // A journey the body died inside: 599 ticks of the clock belong to the death and are outside every
+                // figure, so this must not read as a journey that took 632 ticks against 30 proven.
+                + Episode(760, "Exact", "reached", 30, 33, "-", downed: 599)
                 + Stop(30, 12, "inside-walk-step")
                 + Stop(70, 4, "during-replan"));
             Session busySession = Session.Load(busy);
@@ -1563,6 +1566,15 @@ public static class ChronicleTests
             Require(follow.Detail.Contains("3.60x", StringComparison.Ordinal), $"the player comparison was not formed over the journeys his trail covered: {follow.Detail}");
             Require(follow.Detail.Contains("tick 60", StringComparison.Ordinal), "the worst journeys were not named with their ticks");
             Require(byKind.All(f => f.Severity == Severity.Oddity), "a travel baseline was graded above an oddity without a defect behind it");
+            // The two Exact journeys took 33 ticks each against 30 proven; the death inside the second contributes none
+            // of its 599 ticks to that ratio, and the finding says the ticks exist rather than leaving a silent gap
+            // between the reported duration and the tick stamps a reader can subtract for themselves.
+            Finding exact = byKind.Single(f => f.Title.StartsWith("Exact", StringComparison.Ordinal));
+            Require(exact.Title.Contains("1.10x", StringComparison.Ordinal),
+                $"a death inside a journey reached the ratio of taken to proven ticks: {exact.Title}");
+            Require(exact.Detail.Contains("1 of them held a downing", StringComparison.Ordinal)
+                    && exact.Detail.Contains("599 tick(s)", StringComparison.Ordinal),
+                $"a journey holding a death did not disclose the ticks left out of every figure: {exact.Detail}");
 
             var stopping = new TheBodyStopsOnItsOwnRoute();
             Require(stopping.Missing(busySession) == null, $"a capture at schema {first} with a sidecar refused the stop check");
