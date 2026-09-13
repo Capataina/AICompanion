@@ -1,6 +1,7 @@
 #nullable enable
 
 using System;
+using System.Collections.Generic;
 using Microsoft.Xna.Framework;
 using Terraria;
 using Terraria.ID;
@@ -16,20 +17,35 @@ namespace AICompanion.Companion.Brain.PurposeFamilies.NearbyAssistance;
 /// <summary>
 /// Compare fitting known drops with uncertain pot contents as one collecting purpose.
 /// Shared costs select the offered method; actual contact pickup remains independent
-/// in <see cref="Inventory.CompanionInventory"/>.
+/// in <see cref="Inventory.CompanionInventory"/>. A known drop is its own excursion: it proves
+/// its own contact pose, walker reach and return, and is valued for the quantity the cargo can take.
 /// </summary>
 public sealed class CollectNearbyItems : PerformNearbyWorldWork
 {
     public override string Name => "collect";
     public override PurposeFamily Family => PurposeFamily.NearbyAssistance;
 
-    private readonly record struct DropCandidate(Item Item, int Type, Vector2 Position, float Near, float Value, float TripTicks);
+    /// <summary>A drop chosen for collection: the item object and its type, where it lay when proven, the contact pose the
+    /// companion walks to, the quantity the cargo can take, and what that quantity and walk are worth.</summary>
+    private readonly record struct DropCandidate(Item Item, int Type, Vector2 Position, Vector2 Pose, float Near, float Value, float TripTicks);
     private DropCandidate? candidate;
     private bool collectDrop;
     private float preparedValue, preparedTrip;
     public string Method => collectDrop ? "known-drop" : base.Score() > 0 ? "potential-pot-contents" : "none";
     public override Vector2? ActivityTarget => collectDrop ? candidate?.Position : base.ActivityTarget;
     public override object? ActivityIdentity => collectDrop ? candidate?.Item : base.ActivityIdentity;
+
+    /// <summary>The companion takes a world item whose hitbox meets its own hitbox grown by this many pixels on every side. It
+    /// mirrors <c>CompanionNPC.PickupReach</c>, the contact pickup's own reach: if the two drift, a pose proven here either
+    /// never touches the drop or sends the companion farther than contact needs.</summary>
+    private const float PickupContactReach = 28f;
+
+    /// <summary>How far from a drop's own tile a contact pose can stand: half the body and the pickup reach, in tiles.</summary>
+    private static readonly int ContactSearchTiles = (int)MathF.Ceiling((BodyPhysics.Width / 2f + PickupContactReach) / 16f);
+
+    /// <summary>A drop that has moved more than a tile from where it was proven is not where the proof applies; a tile is the
+    /// resolution the contact pose was chosen at.</summary>
+    private const float MovedDropPixels = 16f;
 
     public override void Prepare(in ActionContext ctx)
     {
@@ -61,39 +77,130 @@ public sealed class CollectNearbyItems : PerformNearbyWorldWork
         else if (ctx.Senses.Player.IsDead) Classify(OfferEligibility.NoOpportunity, "player-dead");
         else if (candidate != null) Classify(OfferEligibility.Usable, "known-drop-valued-zero-under-shared-costs");
         else if (capacityRefused) Classify(OfferEligibility.KnownUnusable, "nearby-drops-exceed-cargo-capacity");
+        else if (dropRefusal is { } refusal) Classify(refusal.Eligibility, refusal.Reason);
         else Classify(OfferEligibility.NoOpportunity, PlayerIntegration.CompanionPreferences.Current.PotBreaking
             ? "no-fitting-drop-or-reachable-pot" : "no-fitting-drop-and-pot-breaking-disabled");
     }
 
     private bool capacityRefused;
+    // Why the nearest drops that fit were not offered. Undecided outranks known-unusable, because a search that declined to
+    // answer is the one refusal that may resolve into an offer from somewhere else.
+    private (OfferEligibility Eligibility, string Reason)? dropRefusal;
+
+    private void Refuse(OfferEligibility eligibility, string reason)
+    {
+        if (dropRefusal is null || dropRefusal.Value.Eligibility == OfferEligibility.KnownUnusable && eligibility == OfferEligibility.Unresolved)
+            dropRefusal = (eligibility, reason);
+    }
 
     private void PrepareDrop(in ActionContext ctx)
     {
         candidate = null;
         capacityRefused = false;
+        dropRefusal = null;
         if (ctx.Senses.Player.IsDead || ctx.Senses.Loot.Pickups.Count == 0)
             return;
-        // The nearest pickup that fits somewhere and has a standable tile beside it; one item
-        // in lava or on a ledge nobody can reach must not block every other item.
-        LootSense.Pickup? chosen = null;
+        // Nearest first, and each drop proven for itself: the cargo takes some of it, a pose in pickup contact exists, the
+        // companion can walk there, and walking there does not cut it off from a player it can reach now. One full,
+        // unreachable or stranding drop must not block the next. A standable tile beside a drop proves none of this, and
+        // mining's reach to the ore the drop fell from says nothing about the pit it fell into.
+        int asked = 0;
         foreach (var pickup in ctx.Senses.Loot.Pickups)
         {
-            if (!LootSense.IsWorldDrop(pickup.Item) || !AllowsTarget(ctx, pickup.Item.Bottom, pickup.Item)) continue;
-            if (!ctx.Companion.Bag.CanAccept(pickup.Item, ctx.Player))
+            Item item = pickup.Item;
+            if (!LootSense.IsWorldDrop(item) || !AllowsTarget(ctx, item.Bottom, item)) continue;
+            int acceptable = ctx.Companion.Bag.AcceptableQuantity(item, ctx.Player);
+            if (acceptable <= 0)
             {
                 capacityRefused = true;
                 continue;
             }
-            if (MovementQueries.NearestStandable(MovementQueries.FeetTile(pickup.Item.Bottom), 3) == null)
-                continue;
-            chosen = pickup;
-            break;
-        }
-        if (chosen is not LootSense.Pickup pick)
+            Vector2 pose;
+            if (TouchesDrop(ctx.Npc.Hitbox, item))
+                pose = ctx.Npc.Bottom;
+            else
+            {
+                if (ContactPose(ctx.Npc.Bottom, item) is not Point contact)
+                {
+                    Refuse(OfferEligibility.KnownUnusable, "drop-has-no-contact-pose");
+                    continue;
+                }
+                // Each reach question is a fresh bounded search, so one preparation asks about a bounded number of drops.
+                if (asked++ >= Weights.CollectionReachCandidates) break;
+                var (reach, back) = ProveExcursion(ctx, item, contact);
+                if (reach == Reachability.Reach.Unknown) { Refuse(OfferEligibility.Unresolved, "drop-approach-undecided"); continue; }
+                if (reach == Reachability.Reach.No) { Refuse(OfferEligibility.KnownUnusable, "drop-unreachable"); continue; }
+                if (back == Reachability.Reach.No) { Refuse(OfferEligibility.KnownUnusable, "drop-would-strand-return"); continue; }
+                pose = MovementQueries.FeetWorld(contact);
+            }
+            float near = Consideration.Inverse(pickup.DistanceToCompanion, Weights.LootReach);
+            // The loot sense values the whole stack; the offer is for what the cargo can take, so its value is scaled by the
+            // share of the whole stack's value that fits.
+            float whole = LootSense.ValueOf(item, item.stack);
+            float fits = whole > 0 ? LootSense.ValueOf(item, acceptable) / whole : 1f;
+            // The same unit mining and chopping price their walk in: pixels to the working pose over walking speed.
+            float trip = Vector2.Distance(ctx.Npc.Bottom, pose) / Companion.CompanionMotor.WalkSpeed;
+            candidate = new(item, item.type, item.Bottom, pose, Consideration.AtLeast(near, 0.2f), pickup.Value * fits, trip);
             return;
-        float near = Consideration.Inverse(pick.DistanceToCompanion, Weights.LootReach);
-        float trip = Vector2.Distance(ctx.Npc.Center, pick.Item.Center) * Weights.LootTripTicksPerPx / Companion.CompanionMotor.WalkSpeed * 1.5f;
-        candidate = new(pick.Item, pick.Item.type, pick.Item.Bottom, Consideration.AtLeast(near, 0.2f), pick.Value, trip);
+        }
+    }
+
+    private static Rectangle BodyAt(Vector2 feet)
+        => new((int)(feet.X - BodyPhysics.Width / 2f), (int)(feet.Y - BodyPhysics.Height), BodyPhysics.Width, BodyPhysics.Height);
+
+    private static bool TouchesDrop(Rectangle body, Item item)
+    {
+        body.Inflate((int)PickupContactReach, (int)PickupContactReach);
+        return body.Intersects(item.Hitbox);
+    }
+
+    /// <summary>The standable pose nearest the companion from which contact pickup touches the drop, or none.</summary>
+    private static Point? ContactPose(Vector2 companionFeet, Item item)
+    {
+        Point around = MovementQueries.FeetTile(item.Bottom);
+        Point? best = null;
+        float bestDistance = float.MaxValue;
+        for (int dx = -ContactSearchTiles; dx <= ContactSearchTiles; dx++)
+            for (int dy = -ContactSearchTiles; dy <= ContactSearchTiles; dy++)
+            {
+                Point tile = new(around.X + dx, around.Y + dy);
+                if (!MovementQueries.IsStandable(tile.X, tile.Y)) continue;
+                Vector2 feet = MovementQueries.FeetWorld(tile);
+                if (!TouchesDrop(BodyAt(feet), item)) continue;
+                float distance = Vector2.DistanceSquared(feet, companionFeet);
+                if (distance >= bestDistance) continue;
+                best = tile;
+                bestDistance = distance;
+            }
+        return best;
+    }
+
+    // Reach and return verdicts reused while a drop's contact pose and the terrain revision are unchanged, for a bounded time,
+    // so a companion walking toward a drop does not ask the same two searches again on every tile it crosses.
+    private readonly Dictionary<Item, (Point Pose, int Revision, ulong Tick, Reachability.Reach Reach, Reachability.Reach Return)> excursions
+        = new(ReferenceEqualityComparer.Instance);
+
+    private (Reachability.Reach Reach, Reachability.Reach Return) ProveExcursion(in ActionContext ctx, Item item, Point pose)
+    {
+        if (excursions.TryGetValue(item, out var known) && known.Pose == pose && known.Revision == TerrainChanges.Revision
+            && Main.GameUpdateCount - known.Tick < (ulong)Weights.CollectionReachRecheckTicks)
+            return (known.Reach, known.Return);
+        Point feet = MovementQueries.FeetTile(ctx.Npc.Bottom);
+        Reachability.Reach reach = MovementQueries.WalkerReach(feet, pose);
+        Reachability.Reach back = Reachability.Reach.Yes;
+        if (reach == Reachability.Reach.Yes)
+        {
+            // Marginal return: refused only when the companion can reach the player from where it stands and could not from
+            // the drop. A companion already cut off from the player is not stranded further by collecting, and a player in
+            // mid-air with no standable tile under them is not a proof that the return is gone.
+            Point player = MovementQueries.FeetTile(ctx.Player.Bottom);
+            if (MovementQueries.WalkerReach(pose, player) == Reachability.Reach.No
+                && MovementQueries.WalkerReach(feet, player) != Reachability.Reach.No)
+                back = Reachability.Reach.No;
+        }
+        if (excursions.Count > 32) excursions.Clear();
+        excursions[item] = (pose, TerrainChanges.Revision, Main.GameUpdateCount, reach, back);
+        return (reach, back);
     }
 
     public override float Score()
@@ -107,13 +214,20 @@ public sealed class CollectNearbyItems : PerformNearbyWorldWork
         if (!collectDrop) return base.Execute(ctx);
         ctx.Companion.HoldItem(ItemID.None);
         if (candidate is not { } prepared || !LootSense.IsWorldDrop(prepared.Item)
-            || prepared.Item.type != prepared.Type || !ctx.Companion.Bag.CanAccept(prepared.Item, ctx.Player))
+            || prepared.Item.type != prepared.Type || ctx.Companion.Bag.AcceptableQuantity(prepared.Item, ctx.Player) <= 0)
             return PositionRequest.Hold;
-        dropAttempt = (prepared.Item, prepared.Type);
-        return PositionRequest.ExactAt(prepared.Position);
+        // A drop that rolled or fell after it was proven is not where its reach and return were proven: hold this tick, and the
+        // next preparation proves it where it now lies instead of walking to where it was.
+        if (Vector2.DistanceSquared(prepared.Item.Bottom, prepared.Position) > MovedDropPixels * MovedDropPixels)
+            return PositionRequest.Hold;
+        if (dropAttempt is not { } open || !ReferenceEquals(open.Item, prepared.Item))
+            dropAttempt = new(prepared.Item, prepared.Type, prepared.Item.stack, ctx.Companion.Bag, ctx.Companion.Bag.TransferSequence);
+        return PositionRequest.ExactAt(prepared.Pose);
     }
 
-    private (Item Item, int Type)? dropAttempt;
+    /// <summary>The drop this attempt walked toward, its stack when the walk began, and the cargo's transfer mark then.</summary>
+    private readonly record struct DropAttempt(Item Item, int Type, int StartStack, Inventory.CompanionInventory Bag, long TransferMark);
+    private DropAttempt? dropAttempt;
 
     public override void BeginAttempt()
     {
@@ -121,15 +235,27 @@ public sealed class CollectNearbyItems : PerformNearbyWorldWork
         dropAttempt = null;
     }
 
-    /// <summary>A drop this attempt walked toward that has left the world completes collection;
-    /// contact pickup is independent of the activity and the player may take it too, so the
-    /// completion is unattributed. Pot attempts use the shared interaction conclusion.</summary>
+    /// <summary>
+    /// A drop's attempt is concluded from what the cargo actually received from that item object after the walk began, never
+    /// from the drop merely leaving the world, which the player's pickup or despawning also does. All of it received and the
+    /// drop gone: the companion's own completion. Part received and the rest gone: shared. Gone with nothing received:
+    /// the purpose went away, which is invalid. Part received and the rest still lying there: partial. Pot attempts use the
+    /// shared interaction conclusion.
+    /// </summary>
     public override AttemptConclusion ConcludeAttempt(int productiveEffects)
     {
         if (dropAttempt is { } drop)
-            return !LootSense.IsWorldDrop(drop.Item) || drop.Item.type != drop.Type
-                ? new(AttemptStatus.Complete, "drop-left-world", AttemptAttribution.Unattributed)
+        {
+            int received = drop.Bag.TransferredSince(drop.TransferMark, drop.Item);
+            bool gone = !LootSense.IsWorldDrop(drop.Item) || drop.Item.type != drop.Type;
+            if (gone)
+                return received <= 0
+                    ? new(AttemptStatus.Invalid, "drop-left-world-without-companion-transfer")
+                    : new(AttemptStatus.Complete, "drop-collected", received >= drop.StartStack ? AttemptAttribution.Companion : AttemptAttribution.Shared);
+            return received > 0
+                ? new(AttemptStatus.Partial, "drop-partly-transferred")
                 : new(AttemptStatus.Attempted, "replaced-with-drop-still-in-world");
+        }
         return base.ConcludeAttempt(productiveEffects);
     }
 

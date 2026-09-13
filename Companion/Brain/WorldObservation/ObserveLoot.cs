@@ -41,10 +41,14 @@ public sealed class LootSense
     }
 
     /// <summary>Coins and anything with sell value rank above junk, but junk still gets picked up.</summary>
-    private static float ValueOf(Item item)
+    private static float ValueOf(Item item) => ValueOf(item, item.stack);
+
+    /// <summary>What <paramref name="quantity"/> of an item is worth to collect, on the same scale as a whole drop, so a
+    /// collector can value the part of a stack its cargo can actually take.</summary>
+    public static float ValueOf(Item item, int quantity)
     {
         if (item.type is ItemID.CopperCoin or ItemID.SilverCoin or ItemID.GoldCoin or ItemID.PlatinumCoin)
             return 1f;
-        return MathHelper.Clamp(0.3f + item.value * item.stack / 50000f, 0.3f, 1f);
+        return MathHelper.Clamp(0.3f + (float)item.value * quantity / 50000f, 0.3f, 1f);
     }
 }

@@ -43,9 +43,54 @@ public sealed class CompanionInventory
             Items[i] = new Item();
     }
 
-    /// <summary>Whether a pickup has anywhere to go: the player's own inventory for a coin, a player stack with room, or a bag slot.</summary>
-    public bool CanAccept(Item item, Player player)
-        => (item.IsACoin && player.ItemSpace(item).CanTakeItem) || FindPlayerStack(item, player) >= 0 || FindBagSlot(item) >= 0;
+    /// <summary>Whether a pickup has anywhere to go: some of it would be taken now.</summary>
+    public bool CanAccept(Item item, Player player) => AcceptableQuantity(item, player) > 0;
+
+    /// <summary>
+    /// How many of <paramref name="item"/>'s stack a pickup would take now, by the routes <see cref="Collect"/> uses: a coin
+    /// through the player's own pickup path, otherwise player stacks of the item with room, then bag stacks of it with room and
+    /// empty bag slots. Collection prices an offer by this rather than by the whole stack, because a partly full cargo takes
+    /// part of a drop and leaves the rest in the world.
+    /// </summary>
+    public int AcceptableQuantity(Item item, Player player)
+    {
+        if (item.IsAir || item.stack <= 0)
+            return 0;
+        // The game's coin pickup rolls coins into higher denominations as it fills the purse, so its room is not a sum of
+        // slot space; when the purse can take the coin at all, Collect's own path takes the stack.
+        if (item.IsACoin && player.ItemSpace(item).CanTakeItem)
+            return item.stack;
+        long room = 0;
+        for (int i = 0; i < PlayerMainSlots; i++)
+            room += RoomFor(player.inventory[i], item);
+        if (item.ammo > 0)
+            for (int i = AmmoSlotsStart; i < AmmoSlotsEnd; i++)
+                room += RoomFor(player.inventory[i], item);
+        foreach (Item slot in Items)
+            room += slot.IsAir ? item.maxStack : RoomFor(slot, item);
+        return (int)System.Math.Min(room, item.stack);
+    }
+
+    private static int RoomFor(Item slot, Item item)
+        => !slot.IsAir && slot.type == item.type && slot.prefix == item.prefix && slot.stack < slot.maxStack ? slot.maxStack - slot.stack : 0;
+
+    /// <summary>Monotonic count of pickups this cargo accepted. A purpose marks it when it begins and asks
+    /// <see cref="TransferredSince"/> when it ends, so only a transfer after the mark is credited to that purpose.</summary>
+    public long TransferSequence { get; private set; }
+
+    // The most recent accepted transfers, oldest overwritten first. A purpose that outlives more transfers than this can only
+    // undercount what it received, never credit a transfer it did not see; collection attempts end long before that.
+    private readonly (long Sequence, Item? Source, int Quantity)[] recentTransfers = new (long, Item?, int)[32];
+
+    /// <summary>How many of <paramref name="source"/>, the world item object itself, this cargo accepted after <paramref name="mark"/>.</summary>
+    public int TransferredSince(long mark, Item source)
+    {
+        int total = 0;
+        foreach (var transfer in recentTransfers)
+            if (transfer.Sequence > mark && ReferenceEquals(transfer.Source, source))
+                total += transfer.Quantity;
+        return total;
+    }
 
     /// <summary>Take the world item. Returns true if anything was taken.</summary>
     public bool Collect(Item item, Player player)
@@ -106,6 +151,10 @@ public sealed class CompanionInventory
         bool took = item.stack < before;
         if (took)
         {
+            // Every accepted pickup goes through here, contact pickup during any activity included, so this is the one
+            // record of what the cargo received from which world item.
+            TransferSequence++;
+            recentTransfers[(int)(TransferSequence % recentTransfers.Length)] = (TransferSequence, item, before - item.stack);
             LastPickup = $"Last: {pickupName} x{before - item.stack}";
             SoundEngine.PlaySound(SoundID.Grab);
             Sort();

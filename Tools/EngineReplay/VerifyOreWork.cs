@@ -1326,7 +1326,7 @@ internal static class VerifyOreWork
 
     /// <summary>Runs the whole brain against native collision until the ore breaks or the tick limit passes,
     /// returning the feet at every productive strike so a fixture can check the pose each strike came from.</summary>
-    private static (bool Broken, List<Vector2> StrikeFeet) RunBrainUntilBroken(ActionContext ctx, Point ore, int ticks)
+    internal static (bool Broken, List<Vector2> StrikeFeet) RunBrainUntilBroken(ActionContext ctx, Point ore, int ticks)
     {
         var strikes = new List<Vector2>();
         long last = ctx.Companion.Miner.LastOutcome?.Attempt ?? -1;
@@ -1346,14 +1346,14 @@ internal static class VerifyOreWork
         return (!Main.tile[ore.X, ore.Y].HasTile, strikes);
     }
 
-    private static void AdvanceBrain(ActionContext ctx)
+    internal static void AdvanceBrain(ActionContext ctx)
     {
         VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
         VerifyCompanionLifecycle.TickWithOneControlGrant(ctx.Companion);
         VerifyResponsiveFollowing.AdvanceNative(ctx.Companion);
     }
 
-    private static void Place(Point tile, ushort type)
+    internal static void Place(Point tile, ushort type)
     {
         Tile placed = Main.tile[tile.X, tile.Y];
         placed.ClearEverything();
