@@ -262,6 +262,36 @@ public static class GodsEyeEvents
             $"freshness={freshness};controls={controls};search-id={searchId};attempt-id={attemptId};search-pending={pending};search-expansions={expansions};progress={progressReason};experience-routes={experienceRoutesUsed};candidates={candidates};reachable-candidates={reachableCandidates};rejected-candidates={rejectedCandidates};choice={choiceReason};intervention-ticks={interventionTicks};protection={protectionUrgency:0.000};prediction-confidence={predictionConfidence:0.000};prediction-samples={predictionSamples};{localMovement}");
     }
 
+    /// <summary>
+    /// One finished journey: one continuous stretch of wanting one kind of place, from the tick it began to the tick it
+    /// ended. The three times are deliberately separate and not one ratio, because they answer different questions — the
+    /// proven total is what the route's own steps were priced at, the actual is what the body took, and the player's is
+    /// what a body that definitely can do it took over the same ground. A player comparison of "-" means the player's
+    /// recorded trail never covered both ends, which is missing coverage rather than a player who was slower.
+    /// </summary>
+    public static void RecordRouteEpisode(NPC companion, string request, string outcome, ulong startTick, ulong endTick,
+        int plannedTicks, int actualTicks, float straightTiles, float pathTiles, float meanSpeed, string playerTicks)
+    {
+        if (!Accepting()) return;
+        Write("route-episode", Stable(npcGenerations, companion.whoAmI), "", request, outcome, companion.Bottom, Vector2.Zero, Vector2.Zero, actualTicks,
+            FormattableString.Invariant($"start-tick={startTick};end-tick={endTick};outcome={outcome};planned-ticks={plannedTicks};actual-ticks={actualTicks};player-ticks={playerTicks};straight-tiles={straightTiles:0.00};path-tiles={pathTiles:0.00};mean-speed-px-per-tick={meanSpeed:0.00};planned-scope=sum-of-proven-step-ticks-for-steps-that-finished;player-scope=tightest-recorded-trail-crossing-within-2-tiles-of-both-ends"));
+    }
+
+    /// <summary>
+    /// A body on its own route that stopped moving, with the reason attributed from retained state at the moment it
+    /// happened rather than inferred from rows afterwards. The evidence that produced the reason travels beside it, so a
+    /// reader can disagree with the attribution without re-deriving the state it was made from, and the thresholds travel
+    /// with it, so a finding built on this can be argued with.
+    /// </summary>
+    public static void RecordStop(NPC companion, ulong startTick, ulong endTick, int ticks, string reason,
+        bool grounded, bool airborne, bool sameStep, bool replanned, bool nextFromRest, float fastestSideways,
+        float stoppedPixelsPerTick, int stoppedTicks)
+    {
+        if (!Accepting()) return;
+        Write("stop", Stable(npcGenerations, companion.whoAmI), "", reason, reason, companion.Bottom, companion.velocity, Vector2.Zero, ticks,
+            FormattableString.Invariant($"start-tick={startTick};end-tick={endTick};ticks={ticks};reason={reason};grounded-throughout={grounded};airborne-throughout={airborne};same-step-throughout={sameStep};replanned-during={replanned};next-step-from-rest={nextFromRest};fastest-sideways-px-per-tick={fastestSideways:0.00};threshold-px-per-tick={stoppedPixelsPerTick:0.00};threshold-ticks={stoppedTicks};scope=ordinary-travel-owner-with-an-executable-or-partial-route"));
+    }
+
     public static void RecordTerrainSnapshot(int x, int y, string data)
         => Write("terrain-snapshot", 0, "", "local-world", "post-update", new Vector2(x * 16, y * 16), Vector2.Zero, Vector2.Zero, 0, data);
 
