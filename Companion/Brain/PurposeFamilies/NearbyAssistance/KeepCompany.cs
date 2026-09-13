@@ -29,6 +29,14 @@ public sealed class KeepCompany : CompanionAction
 
     public override void Enter(in ActionContext ctx) => ResetLocalMovement();
 
+    /// <summary>A meeting place belongs to an ongoing reunion; leaving company must not leave its flood
+    /// and reason standing as if another activity were still heading for the player.</summary>
+    public override void Exit(in ActionContext ctx)
+    {
+        ctx.Companion.Brain.Meeting.Release();
+        base.Exit(ctx);
+    }
+
     public override void Prepare(in ActionContext ctx)
     {
         float reunionValue = CalculateReunionValue(ctx);
@@ -83,9 +91,14 @@ public sealed class KeepCompany : CompanionAction
         if (reunite)
         {
             ResetLocalMovement();
-            Vector2 anchor = p.IsTravelling ? p.Predict(45) : p.Bottom;
-            return new PositionRequest(RequestKind.WithPlayer, anchor);
+            // Reunion aims at a place on the player's apparent journey that the companion's own
+            // routes reach, not at a point extrapolated from velocity; a paused or working player
+            // is met where they stand.
+            var meeting = ctx.Companion.Brain.Meeting;
+            Vector2 anchor = meeting.Resolve(ctx.Npc.Bottom, p, Main.GameUpdateCount);
+            return new PositionRequest(RequestKind.WithPlayer, anchor, MeetingPlace: meeting.HasPlace);
         }
+        ctx.Companion.Brain.Meeting.Release();
         if (ctx.Stranded) return new PositionRequest(RequestKind.Roam, ctx.Npc.Bottom);
         if (walking && Vector2.DistanceSquared(goal, p.Bottom) > Weights.CalmBandFar * Weights.CalmBandFar)
             ResetLocalMovement();

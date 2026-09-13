@@ -22,6 +22,7 @@ public sealed class Brain
     public readonly WorldObservation.Senses Senses = new();
     public readonly Chooser Chooser = new();
     public readonly Positioner Positioner = new();
+    public readonly ChooseMeetingPlace Meeting = new();
     public readonly CoordinateMovement Movement = new();
     public Navigator Navigator => Movement.Navigator;
     public readonly CombatReflexes.Reflexes Reflexes = new();

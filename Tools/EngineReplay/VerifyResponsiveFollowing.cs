@@ -25,7 +25,9 @@ internal static class VerifyResponsiveFollowing
         VerifyVerticalPlayerMotionReachesTheProductionFollowAction();
         VerifyOccludedPlayerStillProvidesADestination();
         VerifyCturnCompletesThroughTheProductionBrain();
-        Console.WriteLine("responsive following: vertical intent, two-axis arrival and live brain follow selection passed");
+        VerifyRecentActivityChangesTheMeetingPlace();
+        VerifyMeetingPlacesFollowTheCompanionsOwnRoutes();
+        Console.WriteLine("responsive following: vertical intent, two-axis arrival, live brain follow selection, activity-dependent meeting places and route-priced reunion passed");
         return 0;
     }
 
@@ -265,6 +267,157 @@ internal static class VerifyResponsiveFollowing
             "a closed door must not veto player-side follow destinations");
     }
 
+    /// <summary>
+    /// The player ends on the same tile in four scenes whose recent activity differs, with the companion
+    /// ten tiles to its right on one floor. Walking right, the player will pass the companion, so the
+    /// priced meeting place lies on the journey ahead and the companion waits there; placing torches in
+    /// place, the player is met where they stand; a brief turn keeps the journey; having turned round for
+    /// good, the player is heading away and is met at or behind where they stand. The pairs come from the
+    /// proposal's intent-to-destination acceptance and exercise the production observer and selector.
+    /// </summary>
+    private static void VerifyRecentActivityChangesTheMeetingPlace()
+    {
+        var travel = MeetingAfter(new[] { (3f, 120) }, placingTorches: false);
+        var torches = MeetingAfter(Enumerable.Repeat(new[] { (2f, 10), (-2f, 10) }, 6).SelectMany(s => s).ToArray(), placingTorches: true);
+        var brief = MeetingAfter(new[] { (3f, 110), (-3f, 10) }, placingTorches: false);
+        var backtrack = MeetingAfter(new[] { (3f, 30), (-3f, 120) }, placingTorches: false);
+        string ledger = string.Join("; ", new[] { ("travel", travel), ("torches", torches), ("brief", brief), ("backtrack", backtrack) }
+            .Select(s => $"{s.Item1}: reason={s.Item2.Reason} anchorX={s.Item2.Anchor.X / 16:0.0} playerX={s.Item2.PlayerX / 16:0.0}"));
+        Require(new[] { travel, torches, brief, backtrack }.All(s => MathF.Abs(s.PlayerX - 40 * 16) < 2f),
+            $"every scene must end with the player on the same tile, or the pairs compare positions rather than activity; {ledger}");
+        Require(travel.Reason == "meeting-ahead-priced" && travel.Anchor.X >= travel.PlayerX + 3 * 16,
+            $"a player walking towards the companion is met on the journey ahead; {ledger}");
+        Require(torches.Reason == "player-not-travelling" && MathF.Abs(torches.Anchor.X - torches.PlayerX) < 16f,
+            $"a player placing torches in place is met where they stand; {ledger}");
+        Require(brief.Anchor.X >= brief.PlayerX + 3 * 16,
+            $"a brief reversal must not replace the journey's meeting place; {ledger}");
+        Require(backtrack.Anchor.X <= backtrack.PlayerX + 16f,
+            $"sustained backtracking replaces the journey, so the meeting place is no longer ahead towards the companion; {ledger}");
+    }
+
+    private static (Vector2 Anchor, string Reason, float PlayerX) MeetingAfter((float Vx, int Ticks)[] script, bool placingTorches)
+    {
+        BuildFloor();
+        var companion = VerifyCompanionLifecycle.Create();
+        Player player = Main.player[0];
+        player.dead = false;
+        float travelled = script.Sum(s => s.Vx * s.Ticks);
+        player.position = new Vector2(40 * 16 - travelled - player.width / 2f, 80 * 16 - player.height);
+        companion.NPC.position = new Vector2(50 * 16 - companion.NPC.width / 2f, 80 * 16 - companion.NPC.height);
+        companion.NPC.velocity = Vector2.Zero;
+        Item held = player.inventory[player.selectedItem];
+        if (placingTorches) held.SetDefaults(Terraria.ID.ItemID.Torch); else held.TurnToAir();
+        foreach (var (vx, ticks) in script)
+            for (int i = 0; i < ticks; i++)
+            {
+                player.velocity = new Vector2(vx, 0f);
+                player.position += player.velocity;
+                player.itemAnimation = placingTorches ? 10 : 0;
+                VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
+                companion.Brain.Senses.Update(companion.NPC, player, companion.Breath);
+            }
+        player.itemAnimation = 0;
+        held.TurnToAir();
+        var meeting = companion.Brain.Meeting;
+        // The observation is frozen here; later calls only let the companion's flood settle.
+        for (int i = 0; i < 60; i++)
+        {
+            meeting.Resolve(companion.NPC.Bottom, companion.Brain.Senses.Player, Main.GameUpdateCount + (ulong)i);
+            if (meeting.Reason is not ("meeting-undecided" or "retained-while-undecided")) break;
+        }
+        return (meeting.Anchor, meeting.Reason, player.Bottom.X);
+    }
+
+    /// <summary>
+    /// The player walks right along an upper floor while the companion stands on the floor beneath it.
+    /// In one world the lower floor rises to the player's journey through a gap ahead; in the other it
+    /// ends at a cliff, and the only way up is the ledge behind. The gap sits far enough ahead that the
+    /// region around a point extrapolated from the player's velocity is nearer by route through the ledge
+    /// behind: on this geometry that anchor turned the companion back and reunited at tick 349, where the
+    /// priced meeting place goes forward and reunites by about tick 265 (probe of gaps at 62, 70, 76 and
+    /// 82 tiles; at 62 both went forward, so a nearer gap cannot tell them apart). In the cliff world
+    /// both go back to the ledge. Reunion must complete in both through the production brain and native
+    /// collision.
+    /// </summary>
+    private static void VerifyMeetingPlacesFollowTheCompanionsOwnRoutes()
+    {
+        foreach (int gapAt in new[] { 76, -1 })
+        {
+            bool reconnects = gapAt > 0;
+            BuildParallelRoutes(gapAt);
+            var companion = VerifyCompanionLifecycle.Create();
+            companion.Brain.Chooser.Actions.RemoveAll(a => a.Name != "keep-company");
+            Player player = Main.player[0];
+            player.dead = false;
+            player.position = new Vector2(30 * 16, 76 * 16 - player.height);
+            player.velocity = Vector2.Zero;
+            companion.NPC.position = new Vector2(35 * 16, 80 * 16 - companion.NPC.height);
+            companion.NPC.velocity = Vector2.Zero;
+            for (int tick = 0; tick < 30; tick++)
+            {
+                player.velocity = new Vector2(3f, 0f);
+                player.position += player.velocity;
+                VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
+                companion.Brain.Senses.Update(companion.NPC, player, companion.Breath);
+            }
+            int decidedAt = -1, lastTick = 0;
+            string decision = "";
+            float anchorX = 0, playerX = 0, startX = 0, moved = 0;
+            bool arrived = false;
+            for (int tick = 0; tick < 900; tick++)
+            {
+                lastTick = tick;
+                player.velocity = player.Bottom.X < 88 * 16 ? new Vector2(3f, 0f) : Vector2.Zero;
+                player.position += player.velocity;
+                VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
+                companion.AI();
+                AdvanceNative(companion);
+                var meeting = companion.Brain.Meeting;
+                if (decidedAt < 0 && meeting.Reason is "meeting-ahead-priced" or "player-position-priced")
+                {
+                    decidedAt = tick; decision = meeting.Reason;
+                    anchorX = meeting.Anchor.X; playerX = player.Bottom.X; startX = companion.NPC.Bottom.X;                }
+                if (decidedAt >= 0 && tick == decidedAt + 60) moved = companion.NPC.Bottom.X - startX;
+                arrived = new FollowPlayerObjective(player.Bottom, player.Bottom).IsSatisfied(companion.NPC.Bottom,
+                    Collision.CanHitLine(companion.NPC.position, companion.NPC.width, companion.NPC.height,
+                        player.position, player.width, player.height));
+                if (arrived && decidedAt >= 0 && tick > decidedAt + 60) break;
+            }
+            string evidence = $"reconnects={reconnects}; decision={decision} at tick {decidedAt}; anchorX={anchorX / 16:0.0}; playerX={playerX / 16:0.0}; "
+                + $"moved {moved / 16:0.0} tiles in the 60 ticks after deciding; arrived={arrived} by tick {lastTick}; meeting={companion.Brain.Meeting.Reason}; "
+                + $"feet={companion.NPC.Bottom}; player={player.Bottom}; goal={companion.Brain.Positioner.Chosen}; status={companion.Brain.Navigator.Status}";
+            Require(decidedAt >= 0, $"a travelling player's meeting place must be priced from the companion's routes; {evidence}");
+            if (reconnects)
+                Require(decision == "meeting-ahead-priced" && anchorX > playerX + 8 * 16 && moved > 3 * 16,
+                    $"a lower route that rises to the player's journey ahead must be taken forward to meet it; {evidence}");
+            else
+                Require(moved < -3 * 16,
+                    $"a lower route that ends at a cliff must be abandoned for the way up behind; {evidence}");
+            Require(arrived, $"reunion must complete through the production brain; {evidence}");
+            Console.WriteLine($"meeting place {(reconnects ? "gap ahead" : "cliff")}: {decision} at tick {decidedAt}, anchor {(anchorX - playerX) / 16:+0.0;-0.0} tiles from the player, "
+                + $"companion moved {moved / 16:+0.0;-0.0} tiles in 60 ticks, reunited by tick {lastTick}");
+        }
+    }
+
+    private static void BuildParallelRoutes(int gapAt)
+    {
+        BuildFloor();
+        // The player's journey is an upper floor four rows above the lower one; its left end is a ledge
+        // the companion can jump onto from the lower floor.
+        for (int x = 26; x <= 90; x++) Solid(x, 76);
+        if (gapAt > 0)
+            for (int x = gapAt; x <= gapAt + 2; x++) Clear(x, 76);
+        else
+            // The lower route ends at a cliff: a pit too deep to climb out of, so nothing beyond it is returnable.
+            for (int x = 50; x <= 60; x++)
+            {
+                for (int y = 80; y <= 89; y++) Clear(x, y);
+                Solid(x, 90);
+            }
+        live::AICompanion.Companion.Brain.SharedMovementSystem.TerrainChanges.Reset();
+        live::AICompanion.Companion.Brain.SharedMovementSystem.NavGrid.World = new live::AICompanion.Companion.Brain.SharedMovementSystem.GameTileWorld();
+    }
+
     private static void BuildFloor()
     {
         Main.maxTilesX = Main.maxTilesY = 100;
@@ -309,6 +462,8 @@ internal static class VerifyResponsiveFollowing
         npc.velocity.Y = MathF.Min(npc.velocity.Y + npc.gravity, npc.maxFallSpeed);
         Invoke(npc, "UpdateCollision");
     }
+
+    private static void Clear(int x, int y) => Main.tile[x, y].ClearEverything();
 
     private static void Solid(int x, int y)
     {

@@ -9,8 +9,10 @@ namespace AICompanion.Companion.Brain.PositionSelection;
 /// <summary>
 /// The destination region that counts as being with the player. Following is complete only when
 /// both axes are comfortable: a point on a nearby but different cave floor cannot satisfy the
-/// same circular distance band. The player prediction leads a sustained climb or descent without
-/// making a transient velocity spike the arrival condition.
+/// same circular distance band. <paramref name="PredictedFeet"/> is the request's anchor: for reunion
+/// that is the meeting place `ChooseMeetingPlace` priced on the player's journey, which may lie well
+/// ahead of the player or on a route the companion reaches differently, while arrival is still
+/// judged against the player's current body.
 /// </summary>
 public readonly record struct FollowPlayerObjective(Vector2 PlayerFeet, Vector2 PredictedFeet)
 {

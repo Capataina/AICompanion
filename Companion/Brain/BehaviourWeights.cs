@@ -41,6 +41,19 @@ public static class Weights
     public const float PlayerIntentCorrectionSlack = 32f;
     public const float PlayerIntentWorkDiscount = .75f;
     public const float PlayerIntentTravelSpeed = 1.2f;
+    // Meeting places: candidates sit on the player's line of travel at this ladder of horizons,
+    // snapped to a standable tile within a window smaller than a floor plus a body, so a candidate
+    // never jumps to the floor below. A late arrival pays the chase at the difference in pace, capped
+    // where the player is at least as fast as the companion. A new place must beat the held one by
+    // the switch margin, so equal-cost points on one floor do not replan the route every tick.
+    public const float MeetingHorizonStepTicks = 30f;
+    public const int MeetingHorizonSteps = 8;
+    public const int MeetingSnapTiles = 3;
+    public const float MeetingChaseCeiling = 20f;
+    public const float MeetingUncertaintyCost = 1f;
+    public const float MeetingSwitchMargin = .15f;
+    public const int MeetingRerootTicks = 30;
+    public const double MeetingSearchMilliseconds = 1d;
     // Recovery is a following fallback, not a traversal available to route search or mastery.
     public const float FollowRecoveryDistance = CalmBandFar * 2f;
     public const float FollowRecoveryArrival = 80f;

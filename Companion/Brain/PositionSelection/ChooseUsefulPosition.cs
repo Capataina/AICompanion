@@ -169,6 +169,24 @@ public sealed class Positioner
                 return Chosen;
         }
 
+        if (request.Kind == RequestKind.WithPlayer && request.MeetingPlace)
+        {
+            // A priced meeting place is the destination itself. Scoring a region around it picked a
+            // tile nearer the player whose best route went the other way, so the companion walked back
+            // along the route the meeting place had been chosen to avoid. It still has to be a place to
+            // stand that this region has not proven unreachable; otherwise ordinary scoring applies.
+            RefreshReach(senses);
+            Point place = MovementQueries.FeetTile(request.Anchor);
+            if (MovementQueries.IsStandable(place.X, place.Y) && Allowed(place) && !ProvenUnreachable(place))
+            {
+                lastRequest = request;
+                sinceScore = 0;
+                Chosen = MovementQueries.FeetWorld(place);
+                ChoiceReason = "priced-meeting-place";
+                return Chosen;
+            }
+        }
+
         sinceScore++;
         bool kindChanged = request.Kind != lastRequest.Kind || request.Target != lastRequest.Target
             || fireProfile != lastFireProfile;

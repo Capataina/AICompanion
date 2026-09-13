@@ -59,11 +59,20 @@ public sealed class WalkTraversal : Traversal
                 // column further along at speed than it did from rest promises a tile the body
                 // will not be standing on, so Done never fires there and the step faults or
                 // walks back. Comparing Y only let that through (Codex review of 7525a1b).
-                bool fromRest = Simulate(pose, dir * BodyPhysics.WalkSpeed, dir, t, lava) is not (Point atSpeed, _) || atSpeed != landing;
+                var atSpeedProof = Simulate(pose, dir * BodyPhysics.WalkSpeed, dir, t, lava);
+                bool fromRest = atSpeedProof is not (Point atSpeed, _) || atSpeed != landing;
                 int dy = landing.Y - t.Y;
+                // The step records how long the walk the performer makes takes. A plain walk is taken
+                // at the walk speed, so it carries the at-speed proof's duration; recording the from-rest
+                // duration priced every tile of a route as a stop and a restart, several times the body's
+                // real travel, and inflated everything that sums step durations: return estimates, the
+                // reunion charge and meeting places. Route cost does not read a walk's duration, so this
+                // changes estimates and never which route wins. A walk that starts from rest keeps its
+                // from-rest duration, because the step before it really does coast to a stop.
+                int duration = !fromRest && atSpeedProof is (_, int atSpeedTicks) ? atSpeedTicks : ticks;
                 // A slope or a short ledge lowers the feet a row without a real fall, so the
                 // step down is a walk like the others and not a drop; a step up costs its kerb.
-                var step = new NavStep(landing, MoveKind.Walk, t, Ticks: ticks, FromRest: fromRest);
+                var step = new NavStep(landing, MoveKind.Walk, t, Ticks: duration, FromRest: fromRest);
                 yield return new NavEdge(step, MovementCost(step), 0, false);
                 continue;
             }

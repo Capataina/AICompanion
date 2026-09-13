@@ -21,8 +21,11 @@ public enum RequestKind
     Roam,
 }
 
-/// <summary>What the running action wants from the positioner.</summary>
-public readonly record struct PositionRequest(RequestKind Kind, Vector2 Anchor, NPC? Target = null, float JumpScale = 0f)
+/// <summary>What the running action wants from the positioner. <paramref name="MeetingPlace"/> marks a
+/// reunion whose anchor is already a standable place priced by the companion's own routes: the positioner
+/// walks to that tile rather than scoring a region around it, because a different tile in the region can
+/// have a different best route, and the price was paid for this one.</summary>
+public readonly record struct PositionRequest(RequestKind Kind, Vector2 Anchor, NPC? Target = null, float JumpScale = 0f, bool MeetingPlace = false)
 {
     public static PositionRequest Hold => new(RequestKind.Hold, Vector2.Zero);
     public static PositionRequest ExactAt(Vector2 feet) => new(RequestKind.Exact, feet);

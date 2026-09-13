@@ -42,7 +42,7 @@ public sealed class BrainTelemetry : ModSystem
     private static string? eventsPath;
     private static readonly Stopwatch sessionClock = new();
     private static DateTime sessionStartedUtc;
-    private const string Schema = "0.21.0";
+    private const string Schema = "0.22.0";
     private static string? pendingPlayerHit;
     private static string? pendingCompanionHit;
     private static string? lastDecision;
@@ -464,6 +464,7 @@ public sealed class BrainTelemetry : ModSystem
             // Offer columns are named from the registered activities, like the raw/final pairs, so
             // the declaration and the header cannot disagree about which activities exist.
             foreach (var a in brain.Chooser.Actions) textColumns.Append(',').Append(a.Name).Append("_offer");
+            textColumns.Append(",meeting_reason,meeting_anchor");
             writer.WriteLine(textColumns.ToString());
             var h = new StringBuilder();
             // A start timestamp is file metadata. Stopwatch is the observed wall duration of
@@ -502,6 +503,7 @@ public sealed class BrainTelemetry : ModSystem
                 string name = family.ToString().ToLowerInvariant();
                 h.Append('\t').Append(name).Append("_prepared\t").Append(name).Append("_deferred\t").Append(name).Append("_prepare_ms");
             }
+            h.Append("\tmeeting_reason\tmeeting_anchor\tmeeting_player_ticks\tmeeting_companion_ticks\tmeeting_candidates\tmeeting_priced");
             writer.WriteLine(h.ToString());
             headerWritten = true;
         }
@@ -785,6 +787,16 @@ public sealed class BrainTelemetry : ModSystem
             sb.Append('\t').Append(queries.Prepared).Append('\t').Append(queries.Deferred)
                 .Append('\t').Append(queries.Milliseconds.ToString("0.000", CultureInfo.InvariantCulture));
         }
+        // The meeting place keeps company's reunion reason and prices; -1 is an unpriced time, and a
+        // reason of not-reuniting means the columns describe no current destination.
+        var meeting = brain.Meeting;
+        bool reuniting = meeting.Reason != "not-reuniting";
+        sb.Append('\t').Append(meeting.Reason)
+            .Append('\t').Append(reuniting ? FormattableString.Invariant($"{meeting.Anchor.X:0},{meeting.Anchor.Y:0}") : "-")
+            .Append('\t').Append(float.IsNaN(meeting.PlayerTicks) ? "-1" : meeting.PlayerTicks.ToString("0.0", CultureInfo.InvariantCulture))
+            .Append('\t').Append(float.IsNaN(meeting.CompanionTicks) ? "-1" : meeting.CompanionTicks.ToString("0.0", CultureInfo.InvariantCulture))
+            .Append('\t').Append(meeting.Candidates.Count)
+            .Append('\t').Append(meeting.Priced);
 
         // A write that fails (disk full, a stream the OS closed) must not escape the NPC's AI
         // and take the companion with it; the record stops and the game goes on.
