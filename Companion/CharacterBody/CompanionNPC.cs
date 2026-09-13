@@ -164,7 +164,13 @@ public class CompanionNPC : ModNPC
         // A hand claim lasts one AI tick. Every consumer below reads the freshly resolved item;
         // a previous torch or weapon must not occupy its own fallback's hand on the next tick.
         heldItemType = ItemID.None;
-        Torch.Hide();
+        // `Torch.Shown` is deliberately not cleared here, and that is the whole of what the light
+        // sense needs from this method. Between here and `Torch.Update` the brain runs, and the
+        // sense asks whether the companion's own torch was out — a question about the light map it
+        // is reading, which the previous tick's `AddLight` wrote. Clearing the answer before the
+        // question made it permanently "no", so the sense never removed the companion's own glow,
+        // read its own torchlight as room light, and put the torch out in the dark. The state is
+        // recomputed at `Torch.Update` below; the paths that never reach it hide explicitly.
         if (itemAnimation > 0)
             itemAnimation--;
         Miner.Tick();
@@ -177,6 +183,9 @@ public class CompanionNPC : ModNPC
         if (IsDowned)
         {
             UpdateDowned(player);
+            // Nothing recomputes the torch on this path, so it is cleared here rather than ahead of
+            // the brain: a downed companion shows no torch, and next tick's sense must read that.
+            Torch.Hide();
         }
         else
         {
@@ -200,6 +209,9 @@ public class CompanionNPC : ModNPC
             // in the hand gives no light and reveals nothing.
             if (!IsDowned) Torch.Update(Brain.Senses.Light, NPC, heldItemType == ItemID.None,
                 Brain.Senses.Player.Predict(global::AICompanion.Companion.Brain.Infrastructure.Selection.Weights.TorchHeadingLeadTicks));
+            // Downed inside this branch — a drowning strike during Breath.Update reaches here — so the
+            // torch is cleared on the one path through the tick that does not recompute it.
+            else Torch.Hide();
             if (Torch.Shown)
                 heldItemType = ItemID.Torch;
             if (!loggedFirstTick)

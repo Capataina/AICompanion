@@ -161,7 +161,13 @@ public sealed class LightUsefulArea : PerformNearbyWorldWork
     /// </summary>
     private static bool SiteIsDark(in ActionContext ctx, Point tile)
     {
-        var site = ctx.Senses.Light.MeasuredAround(tile, Weights.LightSiteRadiusTiles, Weights.LightSiteStrideTiles);
+        // The companion's own carried torch counts as darkness here, which is the opposite of how the torch's
+        // own hold decision reads the same samples and is right for the same reason: a permanent torch exists
+        // so the place stays lit once the carried one walks away. Without this a companion holding a torch
+        // refuses every site within its own glow — it cannot see that the cave it is standing in needs
+        // lighting, because it is the thing lighting it.
+        var site = ctx.Senses.Light.MeasuredAround(tile, Weights.LightSiteRadiusTiles, Weights.LightSiteStrideTiles,
+            carriedCountsAsDark: true);
         return !site.Unmeasured && site.MeanBrightness < Weights.LightDarkBelow;
     }
 
@@ -178,11 +184,10 @@ public sealed class LightUsefulArea : PerformNearbyWorldWork
     /// tile accepts is a geometry problem in a place the companion can stand.
     /// </summary>
     protected override (OfferEligibility Eligibility, string Reason)? SearchRefusal(in ActionContext ctx)
-        // The site budget outranks whatever the scan left, because it happened later and it says something
-        // different: the scan's reason describes the sites it built, and the budget says the loop stopped
-        // before it had asked about all of them.
-        => SearchBudgetSpent ? (OfferEligibility.Unresolved, "site-budget-spent-before-an-answer")
-        : refusal switch
+        // The site budget is not tested here: it belongs to the executor that owns it, which reports it ahead
+        // of every reason this method can give, so a copy of the test here would be a second home for one fact
+        // and would answer differently the moment the executor's ordering changed.
+        => refusal switch
         {
             "no-light-measured-in-range" => (OfferEligibility.Unresolved, refusal),
             "dark-region-tile-not-yet-known-reachable" => (OfferEligibility.Unresolved, refusal),
