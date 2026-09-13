@@ -64,6 +64,15 @@ internal static class VerifyCompanionLifecycle
 
     public static int Run()
     {
+        // Every full-brain fixture lifts the live tick's wall-clock planning allowances so its verdict cannot follow
+        // machine load; this one's assertions never wait on a search, and it lifts them so that stays true as it grows.
+        live::AICompanion.Companion.Brain.SharedMovementSystem.LimitPlanningWork.Unbounded = true;
+        try { return RunWithPlanningLifted(); }
+        finally { live::AICompanion.Companion.Brain.SharedMovementSystem.LimitPlanningWork.Unbounded = false; }
+    }
+
+    private static int RunWithPlanningLifted()
+    {
         var companion = Create();
         companion.HoldItem(Terraria.ID.ItemID.Torch);
         TickWithOneControlGrant(companion);

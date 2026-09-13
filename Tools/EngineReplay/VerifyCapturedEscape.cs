@@ -21,16 +21,27 @@ internal static class VerifyCapturedEscape
         for (int repeat = 0; repeat < 3; repeat++) failed += VerifyCapturedPoolEscape();
         failed += VerifyAwning("captured-right-awning", mirrored: false);
         failed += VerifyAwning("mirrored-left-awning", mirrored: true);
-        failed += VerifyFullBrainAwning(false, 200);
-        failed += VerifyFullBrainAwning(true, 30);
-        failed += VerifyFullBrainCapturedPool();
-        failed += VerifyFullBrainCapturedPool(emptyOffers: true);
+        // The full-brain cases lift the live tick's wall-clock planning allowances: under them, how far each
+        // search got before its deadline decides the escape, so the verdict follows machine load rather than
+        // the brain. The isolated searches above keep the budgets they exist to exercise.
+        live::AICompanion.Companion.Brain.SharedMovementSystem.LimitPlanningWork.Unbounded = true;
+        try
+        {
+            failed += VerifyFullBrainAwning(false, 200);
+            failed += VerifyFullBrainAwning(true, 30);
+            failed += VerifyFullBrainCapturedPool();
+            failed += VerifyFullBrainCapturedPool(emptyOffers: true);
+        }
+        finally { live::AICompanion.Companion.Brain.SharedMovementSystem.LimitPlanningWork.Unbounded = false; }
         return failed;
     }
 
     private static int VerifyFullBrainCapturedPool(bool emptyOffers = false)
     {
         BuildCapturedPool();
+        // The bare TerrainChanges in this file is EngineReplay's own copy, which the isolated searches use; the live
+        // brain keeps its route knowledge in the live assembly, so a rebuilt world must be announced there.
+        live::AICompanion.Companion.Brain.SharedMovementSystem.TerrainChanges.Reset();
         var companion = VerifyCompanionLifecycle.Create();
         if (emptyOffers) companion.Brain.Chooser.Actions.Clear();
         Main.player[0].dead = false;
@@ -58,6 +69,7 @@ internal static class VerifyCapturedEscape
     private static int VerifyFullBrainAwning(bool mirrored, int breath)
     {
         BuildAwning(mirrored);
+        live::AICompanion.Companion.Brain.SharedMovementSystem.TerrainChanges.Reset();
         var companion = VerifyCompanionLifecycle.Create();
         Main.player[0].dead = false;
         Main.player[0].position = new Vector2((mirrored ? 70 : 30) * 16, 70 * 16 - Main.player[0].height);
@@ -95,6 +107,7 @@ internal static class VerifyCapturedEscape
     {
         BuildCapturedPool();
         TerrainChanges.Reset();
+        live::AICompanion.Companion.Brain.SharedMovementSystem.TerrainChanges.Reset();
         NavGrid.World = new GameTileWorld();
         // Exact captured NPC box, translated by the fixture's five-tile origin.
         BodyState live = new(5 * 16f + (60540f - 3704 * 16f), 5 * 16f + (9072f - 446 * 16f), 0f, 0f, true, Wet: true,

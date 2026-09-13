@@ -6,10 +6,21 @@ using Guard = live::AICompanion.Companion.Brain.PurposeFamilies.Combat.ProtectPl
 using Context = live::AICompanion.Companion.Brain.Behaviours.ActionContext;
 using Threat = live::AICompanion.Companion.Brain.WorldObservation.ThreatRecord;
 using Weights = live::AICompanion.Companion.Brain.BehaviourSelection.Weights;
+using LimitPlanningWork = live::AICompanion.Companion.Brain.SharedMovementSystem.LimitPlanningWork;
+using TerrainChanges = live::AICompanion.Companion.Brain.SharedMovementSystem.TerrainChanges;
 
 internal static class VerifyFollowRecoveryAndProtection
 {
     public static int Run()
+    {
+        // The brain cases below run the live tick, whose searches stop at wall-clock allowances; lifted, each
+        // verdict is about the brain rather than about how busy the machine was.
+        LimitPlanningWork.Unbounded = true;
+        try { return RunWithPlanningLifted(); }
+        finally { LimitPlanningWork.Unbounded = false; }
+    }
+
+    private static int RunWithPlanningLifted()
     {
         var recovery = new Recovery();
         Vector2 start = new(100, 400), goal = new(1400, 400);
@@ -165,6 +176,7 @@ internal static class VerifyFollowRecoveryAndProtection
         Main.tile = (Tilemap)Activator.CreateInstance(typeof(Tilemap), System.Reflection.BindingFlags.Instance
             | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic,
             null, new object[] { (ushort)100, (ushort)100 }, null)!;
+        TerrainChanges.Reset();
         var companion = VerifyCompanionLifecycle.Create();
         Main.player[0].dead = false;
         Main.player[0].Bottom = new Vector2(1400, 1200);
@@ -212,6 +224,7 @@ internal static class VerifyFollowRecoveryAndProtection
         {
             Tile tile = Main.tile[x, y]; tile.HasTile = true; tile.TileType = 1;
         }
+        TerrainChanges.Reset();
         companion.NPC.position = new Vector2(480, 900);
         Require(!companion.Motor.ClearOfTerrain, "cancellation fixture must be inside a thick wall");
         companion.CheckDead();
