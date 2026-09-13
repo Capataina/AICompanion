@@ -295,6 +295,15 @@ public sealed class Navigator
         // becomes a real dead end only when the search from here returns nothing at all, which is
         // the empty-path case this still waits on.
         bool noPath = Path == null;
+        // A body with no route to walk moves only by an endpoint-proven clearance, so while its
+        // route search is still running, standing still is waiting for computation and not a
+        // stall. Striking it discarded the retained frontier every forty ticks and restarted the
+        // search from nothing, so a search needing more than forty slices never finished (194
+        // restarts in 8,000 ticks on the starved sealed corridor); it also handed the brain a
+        // physical strike, and two of those ban the spot, for what was only a slow answer. The
+        // stall clock starts once the search has answered.
+        if (search is { Finished: false } && (noPath || Path!.Finished))
+            stuckTicks = 0;
         bool stuck = stuckTicks > StuckReplanTicks;
         // The cadence waits while the current step is part way through a move a fresh plan would
         // undo (a jump's back-off and run-in); a stuck body and a moved goal do not wait.
@@ -353,7 +362,11 @@ public sealed class Navigator
             && (!search.Finished || search.Stop == AStar.SearchStopReason.Found && (Path == null || Path.Partial)))
         {
             AdvanceSearch(live, publish: !midMove);
-            replan = search is { Finished: true } && (Path == null || Path.Finished);
+            // Only a found route that could not be joined where the body stands is worth searching
+            // again at once. A query that finished without one has answered, and searching again from
+            // the same tile before anything changed replaced that answer with an identical unfinished
+            // query, for ever, whenever the answer took more than one tick to compute.
+            replan = search is { Finished: true, Stop: AStar.SearchStopReason.Found } && (Path == null || Path.Finished);
         }
         if (goal != null && replan && (live.OnGround || live.CannotAct))
         {
@@ -564,6 +577,11 @@ public sealed class Navigator
         var watch = System.Diagnostics.Stopwatch.StartNew();
         int before = query.Expansions;
         query.Advance(PlanBudget, PlanMsBudget);
+        // The failed-plan retry waits from the answer, not from when the question was asked: a
+        // query that took longer than the wait to finish would otherwise be retried the moment it
+        // answered.
+        if (query.Finished && query.Stop != AStar.SearchStopReason.Found)
+            ticksSincePlan = Math.Min(ticksSincePlan, 0);
         LastPlanMs = watch.Elapsed.TotalMilliseconds;
         LastExpansions = query.Expansions - before;
         SearchExpansions = query.Expansions;

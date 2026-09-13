@@ -9,8 +9,9 @@ using Terraria;
 /// one it cannot is refused with the class the evidence names. Each case drives the shared movement
 /// coordinator against Terraria's own NPC collision and is built in a pair whose halves differ in
 /// exactly the fact the class depends on, so a classification that merged the two would fail one
-/// half. The wall-clock planning allowances are lifted, and route memory and terrain are rebuilt per
-/// case, so results do not depend on the machine or on the fixture that ran before.
+/// half. The wall-clock planning allowances are lifted except where a deadline is the subject, and
+/// route memory and terrain are rebuilt per case, so results do not depend on the machine or on the
+/// fixture that ran before.
 /// </summary>
 internal static class VerifyMovementFailures
 {
@@ -27,6 +28,7 @@ internal static class VerifyMovementFailures
         int failed = 0;
         try
         {
+            failed += Case("search deadline is unfinished and never absent", SearchDeadlineIsUnfinishedNeverAbsent);
             failed += Case("away-first detour delivers, sealed twin is absent, reopening delivers", AwayFirstDetourAndSealedTwin);
             failed += Case("ledge and lip entries from varied actual states all deliver", LedgeAndLipEntriesDeliver);
             failed += Case("unattributed divergence is native mismatch, an external hit is pre-emption", DivergenceIsAttributedBeforeBlame);
@@ -39,7 +41,7 @@ internal static class VerifyMovementFailures
             PlanLocalMovement.PreparationMsBudget = preparationBudget;
         }
         Console.WriteLine(failed == 0
-            ? "movement failures: detour, entry sweep, divergence attribution, stale terrain and interruption endings pass"
+            ? "movement failures: deadline, detour, entry sweep, divergence attribution, stale terrain and interruption endings pass"
             : $"movement failures: {failed} case(s) failed");
         return failed;
     }
@@ -60,6 +62,71 @@ internal static class VerifyMovementFailures
     }
 
     // ── cases ────────────────────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// E08's timeout: one geometry, two allowances. A search that has to stop after a single unit of
+    /// work per tick has established nothing, so while it runs without a route the verdict must be
+    /// unfinished, never absent and never a failed plan, and retained work must still deliver. The
+    /// sealed twin shows absent is reachable under the same starvation, but only once the frontier is
+    /// actually exhausted.
+    /// </summary>
+    private static void SearchDeadlineIsUnfinishedNeverAbsent()
+    {
+        foreach (bool starved in new[] { false, true })
+        {
+            BuildCorridor(sealGoal: false);
+            var run = new Drive(new Point(22, 89));
+            Navigator.PlanMsBudget = starved ? .000001 : 0;
+            try
+            {
+                int firstRoute = -1, unfinishedTicks = 0;
+                long searches = 0;
+                for (; run.Tick < 6000 && !run.Arrived; )
+                {
+                    run.Step(new Point(40, 89));
+                    var nav = run.Movement.Navigator;
+                    searches = nav.SearchId;
+                    if (firstRoute < 0 && nav.Path != null) firstRoute = run.Tick;
+                    if (nav.Path == null && nav.SearchPending)
+                    {
+                        unfinishedTicks++;
+                        Require(nav.Failure == MovementFailure.UnfinishedSearch,
+                            $"starved={starved}: a running search without a route must read unfinished, got {nav.Failure} ({nav.LastFailure?.Reason}) at tick {run.Tick}");
+                        Require(!nav.LastPlanFailed, $"starved={starved}: a running search is not a failed plan (tick {run.Tick})");
+                    }
+                }
+                Console.WriteLine($"   deadline starved={starved}: arrived={run.Arrived} at {run.Tick}, first route {firstRoute}, unfinished ticks {unfinishedTicks}, searches {searches}, seen {run.SeenText}");
+                Require(run.Arrived, $"starved={starved}: retained search must deliver a reachable goal; last {run.Describe()}");
+                Require(!run.Seen.Contains(MovementFailure.AbsentTransition), $"starved={starved}: a reachable goal was called absent");
+                Require(!starved || unfinishedTicks > 0, "the starved run finished its search in one tick, so it proves nothing about deadlines");
+            }
+            finally { Navigator.PlanMsBudget = 0; }
+
+            BuildCorridor(sealGoal: true);
+            var sealedRun = new Drive(new Point(22, 89));
+            Navigator.PlanMsBudget = starved ? .000001 : 0;
+            try
+            {
+                bool absent = false;
+                for (; sealedRun.Tick < 8000 && !absent; )
+                {
+                    sealedRun.Step(new Point(44, 89));
+                    var nav = sealedRun.Movement.Navigator;
+                    if (nav.Failure != MovementFailure.AbsentTransition) continue;
+                    absent = true;
+                    Require(!nav.SearchPending && nav.LastSearchStop == AStar.SearchStopReason.Exhausted,
+                        $"starved={starved}: absent must follow an exhausted search, got pending={nav.SearchPending} stop={nav.LastSearchStop}");
+                    // One search to walk the partial route's end and one from there: retained work
+                    // restarted by a stall or by its own answer shows up here as dozens.
+                    Require(nav.SearchId <= 3, $"starved={starved}: retained search was restarted {nav.SearchId} times before it could answer");
+                }
+                Console.WriteLine($"   deadline sealed starved={starved}: absent={absent} at {sealedRun.Tick}, seen {sealedRun.SeenText}");
+                Require(absent, $"starved={starved}: a sealed goal must end absent; last {sealedRun.Describe()}");
+                Require(sealedRun.Movement.Navigator.FailedAttempts == 0, $"starved={starved}: a closed model is not a physical failure");
+            }
+            finally { Navigator.PlanMsBudget = 0; }
+        }
+    }
 
     /// <summary>
     /// K03 and the delivery half of "native-valid held goal": the only way off the shelf leaves it
