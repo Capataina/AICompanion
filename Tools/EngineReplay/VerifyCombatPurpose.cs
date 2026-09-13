@@ -27,6 +27,7 @@ internal static class VerifyCombatPurpose
         LandedHitsAreRecordedApartFromTheAimedTarget();
         TheRecordCarriesPursuitAimAndHitApart();
         VerifyEncounterContext.Run();
+        VerifyCombatActorMatrix.Run();
         Console.WriteLine("combat purpose: effective damage and remaining life decide threat consequence, low health turns a tolerable attack into an escape, pursuit weighs a reposition against the shots it delays, protection is worth only the harm an intervention can remove, pursuit, aim and landed-hit identities are recorded apart, and a boss or world event stops optional work only where it reaches, once, from native facts or observed pressure");
         return 0;
     }
