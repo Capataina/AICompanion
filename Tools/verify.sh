@@ -28,7 +28,10 @@ rm -f "$log"
 # a .tmod underneath a playtest), so "Build succeeded" alone is not proof the DLL reflects the
 # source that is actually on disk — the root CLAUDE.md's own trap: a no-op build reports
 # success in under two seconds without writing anything. The mod project compiles every .cs
-# file in the tree except Tools/ (see AICompanion.csproj's own Compile Remove), so the
+# file in the tree except Tools/ (see AICompanion.csproj's own Compile Remove) and any hidden
+# folder, which the .NET SDK leaves out by default. Agent worktrees under .claude/worktrees/ are
+# full copies of the source, so a check that read them refused a fresh build whenever a seat
+# edited a file there. So the
 # invariant checked here is the one that actually matters: the DLL must be no older than the
 # newest source file that feeds it. A DLL older than the source it is meant to contain is
 # stale regardless of what the build log claimed, whether that is a genuinely broken build or
@@ -37,7 +40,7 @@ if [ ! -f "$dll" ]; then
   echo "verify: build reported success but $dll does not exist"
   exit 1
 fi
-newest_source=$(find . -path ./bin -prune -o -path ./obj -prune -o -path ./Tools -prune -o -name "*.cs" -newer "$dll" -print 2>/dev/null | head -1)
+newest_source=$(find . -path ./bin -prune -o -path ./obj -prune -o -path ./Tools -prune -o -type d -path '*/.*' -prune -o -name "*.cs" -newer "$dll" -print 2>/dev/null | head -1)
 if [ -n "$newest_source" ]; then
   echo "verify: build reported success but $dll is stale — $newest_source is newer than the DLL"
   exit 1
