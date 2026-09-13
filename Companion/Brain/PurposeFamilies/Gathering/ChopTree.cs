@@ -213,9 +213,8 @@ public sealed class ChopTree : CompanionAction
                 undecided ? "trunk-approach-undecided" : "trunk-has-no-approach");
             return 0f;
         }
-        float safe = Consideration.AtLeast(1f - ctx.Senses.Threats.PlayerDanger, 0.1f);
         Classify(OfferEligibility.Usable, "reachable-trunk");
-        return 0.7f * safe;
+        return 0.7f;
     }
 
     public override float ForecastTicks()

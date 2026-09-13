@@ -26,6 +26,7 @@ internal static class VerifyCompanionActivities
             CollectionComparesKnownDropsAndPotentialContents();
             CollectionRejectsReplacedWorldSlots();
             SharedCombatSpacingDoesNotNeedAnOrdinaryOffer();
+            DangerIsChargedOnceToTheActorItThreatens();
             ConsecutiveJobsEarnTheirOwnAllowance();
             ActivityOwnershipSurvivesInterruption();
             InvalidCandidatesCannotBecomeTheFallback();
@@ -43,7 +44,7 @@ internal static class VerifyCompanionActivities
             AFamilyAllowanceDefersSiblingsFairly();
             TorchRecommendationsPreserveThePlayersCursor();
             InteractionJumpsRequireClearanceAndSafeLanding();
-            Console.WriteLine("companion activities: resource/follow competition, remote job release, actual swing reach, bed protection and native torch inventory contracts pass");
+            Console.WriteLine("companion activities: resource/follow competition, actor-specific danger charged once, remote job release, actual swing reach, bed protection and native torch inventory contracts pass");
             return 0;
         }
         finally { Preferences.Current = saved; Protection.Reset(); }
@@ -452,6 +453,62 @@ internal static class VerifyCompanionActivities
         Require(playerOnly.Senses.Threats.PlayerDanger > 0 && playerOnly.Senses.Threats.CompanionDanger == 0
             && !playerOnly.Companion.Brain.Safety.Active,
             "player-only danger must not become the companion's own spacing response");
+    }
+
+    /// <summary>
+    /// Four matched scenes on one ore floor differ only in who a hostile threatens: nobody, the player,
+    /// the companion or both. Threat, protection, reunion and chooser run in production order. Mining's
+    /// raw value must not move in any of them, because the player's need for help reaches optional work
+    /// once, through the shared protection factor, and a threat to the companion alone must change
+    /// neither that factor, the reunion charge nor the value of guarding. A raw value that still
+    /// multiplied in player danger, or a self-only threat leaking into either shared factor, fails here.
+    /// </summary>
+    private static void DangerIsChargedOnceToTheActorItThreatens()
+    {
+        var scenes = new (string Name, bool Player, bool Companion)[]
+            { ("neither", false, false), ("player", true, false), ("companion", false, true), ("both", true, true) };
+        var seen = new Dictionary<string, (float Raw, float Protection, float Reunion, float DelayCost, float Guard, float PlayerDanger, float CompanionDanger)>();
+        live::AICompanion.Companion.Brain.SharedMovementSystem.LimitPlanningWork.Unbounded = true;
+        try
+        {
+            foreach (var scene in scenes)
+            {
+                var (_, ctx) = VerifyOreWork.SetUp(Policy.Opportunistic, TileID.Copper, new Point(25, 59));
+                ctx.Player.Bottom = new Vector2(50 * 16, 60 * 16);
+                for (int i = 30; i <= 31; i++) Main.npc[i] = new NPC();
+                void Hostile(int slot, Vector2 feet)
+                {
+                    NPC npc = Main.npc[slot];
+                    npc.SetDefaults(NPCID.Zombie);
+                    npc.whoAmI = slot; npc.active = true; npc.damage = 100; npc.dontTakeDamage = true;
+                    npc.Bottom = feet;
+                }
+                if (scene.Player) Hostile(30, ctx.Player.Bottom - new Vector2(64, 0));
+                if (scene.Companion) Hostile(31, ctx.Npc.Bottom - new Vector2(64, 0));
+                var brain = ctx.Companion.Brain;
+                brain.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Breath);
+                brain.Senses.SetInterventionEstimate(ctx.Companion.Arsenal.EstimateInterventionTicks(ctx));
+                brain.Chooser.Choose(ctx);
+                var mine = brain.Chooser.LastScores.Single(s => s.Action.Name == "mine");
+                var guard = brain.Chooser.LastScores.Single(s => s.Action.Name == "guard");
+                seen[scene.Name] = (mine.Raw, mine.Protection, mine.Reunion, brain.Chooser.Reunion.DelayCostPerTick, guard.Raw,
+                    brain.Senses.Threats.PlayerDanger, brain.Senses.Threats.CompanionDanger);
+            }
+        }
+        finally { live::AICompanion.Companion.Brain.SharedMovementSystem.LimitPlanningWork.Unbounded = false; }
+        string ledger = string.Join("; ", seen.Select(s => $"{s.Key}: raw={s.Value.Raw} protection={s.Value.Protection} reunion={s.Value.Reunion} delay={s.Value.DelayCost} guard={s.Value.Guard} playerDanger={s.Value.PlayerDanger} companionDanger={s.Value.CompanionDanger}"));
+        var (neither, player, companion, both) = (seen["neither"], seen["player"], seen["companion"], seen["both"]);
+        Require(neither.PlayerDanger == 0 && neither.CompanionDanger == 0 && player.PlayerDanger > 0 && player.CompanionDanger == 0
+            && companion.PlayerDanger == 0 && companion.CompanionDanger > 0 && both.PlayerDanger > 0 && both.CompanionDanger > 0,
+            $"the four scenes must threaten exactly the actors they name, or the matrix tests nothing; {ledger}");
+        Require(neither.Raw > 0 && seen.Values.All(v => v.Raw == neither.Raw),
+            $"mining's raw value must not read either actor's danger; the player's need reaches it once, as protection; {ledger}");
+        Require(neither.Protection == 1 && companion.Protection == 1 && player.Protection < 1 && MathF.Abs(both.Protection - player.Protection) < 1e-5f,
+            $"only a threat to the player may discount optional work for protection, and a companion threat must not add to it; {ledger}");
+        Require(seen.Values.All(v => v.DelayCost == neither.DelayCost && v.Reunion == neither.Reunion),
+            $"no threat to either actor may change the separation charge while reunion evidence is unchanged; {ledger}");
+        Require(neither.Guard == 0 && companion.Guard == 0 && player.Guard > 0,
+            $"a threat to the companion alone creates no player-protection offer; {ledger}");
     }
 
     private static void ComfortableFollowingHasNoRegroupPressure()

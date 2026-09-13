@@ -23,7 +23,7 @@ public sealed class CollectNearbyItems : PerformNearbyWorldWork
     public override string Name => "collect";
     public override PurposeFamily Family => PurposeFamily.NearbyAssistance;
 
-    private readonly record struct DropCandidate(Item Item, int Type, Vector2 Position, float Near, float Value, float Safety, float TripTicks);
+    private readonly record struct DropCandidate(Item Item, int Type, Vector2 Position, float Near, float Value, float TripTicks);
     private DropCandidate? candidate;
     private bool collectDrop;
     private float preparedValue, preparedTrip;
@@ -36,7 +36,7 @@ public sealed class CollectNearbyItems : PerformNearbyWorldWork
         collectDrop = false;
         PrepareDrop(ctx);
         base.Prepare(ctx);
-        float dropValue = candidate is { } drop ? drop.Near * drop.Value * drop.Safety : 0f;
+        float dropValue = candidate is { } drop ? drop.Near * drop.Value : 0f;
         float potValue = base.Score();
         float potTrip = base.ActivityTarget is { } position
             ? Vector2.Distance(ctx.Npc.Bottom, position) / Companion.CompanionMotor.WalkSpeed + Weights.PotContentsHandlingTicks : 0f;
@@ -92,9 +92,8 @@ public sealed class CollectNearbyItems : PerformNearbyWorldWork
         if (chosen is not LootSense.Pickup pick)
             return;
         float near = Consideration.Inverse(pick.DistanceToCompanion, Weights.LootReach);
-        float safe = Consideration.AtLeast(1f - ctx.Senses.Threats.PlayerDanger, 0.05f);
         float trip = Vector2.Distance(ctx.Npc.Center, pick.Item.Center) * Weights.LootTripTicksPerPx / Companion.CompanionMotor.WalkSpeed * 1.5f;
-        candidate = new(pick.Item, pick.Item.type, pick.Item.Bottom, Consideration.AtLeast(near, 0.2f), pick.Value, safe, trip);
+        candidate = new(pick.Item, pick.Item.type, pick.Item.Bottom, Consideration.AtLeast(near, 0.2f), pick.Value, trip);
     }
 
     public override float Score()

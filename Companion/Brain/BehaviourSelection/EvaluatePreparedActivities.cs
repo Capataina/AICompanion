@@ -35,6 +35,10 @@ public static class EvaluatePreparedActivities
                 results[i] = new(candidate.Index, candidate.Name, candidate.RawValue, 0, 1, 1, 1, 1, error);
                 continue;
             }
+            // The player's need for help reaches optional work only here. Protection urgency already
+            // weighs each threat against how soon the companion could intervene, so an activity that
+            // also multiplied its raw value by player danger charged the same threat twice and could
+            // not tell a shot the companion can take from across the room from one it cannot.
             float protection = candidate.IsExcursion && !context.Stranded ? 1 - context.ProtectionUrgency : 1;
             float commitment = candidate.RawValue > 0 && candidate.IsIncumbent ? context.Commitment : 1;
             float horizon = 1;

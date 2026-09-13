@@ -213,16 +213,15 @@ public sealed class MineOre : CompanionAction
         {
             Search(ctx, p.MinedOre);
         }
-        float safe = Consideration.AtLeast(1f - ctx.Senses.Threats.PlayerDanger, 0.1f);
         if (patch.Count == 0 || (target == null && status == "approach unknown"))
         {
-            float investigation = UnprovenApproach(ctx, safe);
+            float investigation = UnprovenApproach(ctx);
             ClassifyWithoutProvenTarget(investigation);
             return investigation;
         }
         unproven = null;
         Classify(OfferEligibility.Usable, "vein-target-established");
-        return 0.7f * safe;
+        return 0.7f;
     }
 
     /// <summary>Without a proven working pose the offer is either an undecided approach, a vein this
@@ -260,7 +259,7 @@ public sealed class MineOre : CompanionAction
     /// covering ground: standing still stops earning it, which preserves the property the original
     /// zero was protecting — that the chooser is never held by mining that is not going anywhere.
     /// </summary>
-    private float UnprovenApproach(in ActionContext ctx, float safe)
+    private float UnprovenApproach(in ActionContext ctx)
     {
         // Both spellings are the same state: the second is what the walk toward an unproven ore
         // reports so a session can be read for it, and it must not read as a different state here
@@ -299,7 +298,7 @@ public sealed class MineOre : CompanionAction
             attemptSetback = (AttemptStatus.Failed, "unproven-ore-approach-made-no-progress");
             return 0f;
         }
-        return 0.7f * safe * Weights.MineUnprovenApproach;
+        return 0.7f * Weights.MineUnprovenApproach;
     }
 
     private void Search(in ActionContext ctx, (Point Tile, int Type)? playerHit)

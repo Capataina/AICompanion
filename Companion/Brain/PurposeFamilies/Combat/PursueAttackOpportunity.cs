@@ -140,7 +140,6 @@ public sealed class PursueAttackOpportunity : CompanionAction
             Classify(OfferEligibility.NoOpportunity, "player-dead");
             return 0f;
         }
-        float safe = Consideration.AtLeast(1f - ctx.Senses.Threats.PlayerDanger, 0.1f);
         float near = Target.Npc.Hitbox.Intersects(screen)
             ? 1f
             : Consideration.AtLeast(Consideration.Inverse(Target.DistanceToCompanion, Weights.HuntReach), 0.2f);
@@ -179,7 +178,7 @@ public sealed class PursueAttackOpportunity : CompanionAction
             Firing.AfterMoving => "reachable-firing-position",
             _ => "firing-position-undecided",
         });
-        return safe * near * worth * leash * ownSkin * shot;
+        return near * worth * leash * ownSkin * shot;
     }
 
     /// <summary>

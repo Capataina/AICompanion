@@ -126,7 +126,7 @@ public abstract class PerformNearbyWorldWork : CompanionAction
             foreach (Point expired in new System.Collections.Generic.List<Point>(deferred.Keys))
                 if (now >= deferred[expired]) deferred.Remove(expired);
         }
-        return target == null ? 0f : Utility * Math.Max(.05f, 1f - ctx.Senses.Threats.PlayerDanger);
+        return target == null ? 0f : Utility;
     }
     public override PositionRequest Execute(in ActionContext ctx)
     {
