@@ -231,4 +231,14 @@ public static class Weights
     /// never outranks doing something certain.
     /// </summary>
     public const float MineUnprovenApproach = .55f;
+
+    // ---- P09: gathering cooperation and truthful completion ----
+
+    /// <summary>
+    /// Mining: how long ceiling ore stays out of discovery after its take-off, with the body at rest on
+    /// it, stopped proving a jump while the terrain has not changed. Any terrain change ends the wait at
+    /// once, because a changed world is the condition under which the same take-off can be worth asking
+    /// again; without a wait the next preparation re-proves the same take-off from rest and re-offers it.
+    /// </summary>
+    public const int HopTakeOffRetryTicks = 600;
 }

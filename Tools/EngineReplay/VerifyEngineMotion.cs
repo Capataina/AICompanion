@@ -23,7 +23,7 @@ internal static class VerifyEngineMotion
         Main.tileSolid[19] = Main.tileSolidTop[19] = true;
         if (lifecycleOnly) return VerifyCompanionLifecycle.Run();
         if (escapeOnly) return VerifyCapturedEscape.Run();
-        if (workOnly) return VerifyOreWork.Run() + VerifyCompanionPreferences.Run() + VerifyCompanionActivities.Run();
+        if (workOnly) return VerifyOreWork.Run() + VerifyCompanionPreferences.Run() + VerifyCompanionActivities.Run() + VerifyMiningHops.Run();
         if (miningBaselineOnly) return VerifyOreWork.RunRaisedLipBaseline();
         if (followOnly) return VerifyResponsiveFollowing.Run();
         if (protectionOnly) return VerifyFollowRecoveryAndProtection.Run();
@@ -98,6 +98,7 @@ internal static class VerifyEngineMotion
         failed += VerifyResponsiveFollowing.Run();
         failed += VerifyFollowRecoveryAndProtection.Run();
         failed += VerifyOreWork.Run();
+        failed += VerifyMiningHops.Run();
         failed += VerifyCompanionPreferences.Run();
         failed += VerifyCompanionActivities.Run();
         failed += VerifyObservationLifecycle.Run();

@@ -95,6 +95,12 @@ public static class FindToolAccess
                 // A pose that already reaches standing belongs to Approach; hopping from it adds nothing.
                 if (InReach(feet, tile))
                     continue;
+                // A jump only raises the eye, so a tile level with or below the standing eye gets no nearer by
+                // rising. Skipping those before any body proof matters beyond cost: on top of a ceiling slab every
+                // pose sits above the ore it cannot see, and proving each one ran the scan past the planning
+                // deadline, which a cut-short scan must report as Unknown rather than the No it really is.
+                if (tileCentre.Y >= feet.Y + Eye.Y)
+                    continue;
                 poses.Add((Vector2.DistanceSquared(feet + Eye, tileCentre), poses.Count, new Point(x, y), feet));
             }
         }
@@ -102,6 +108,19 @@ public static class FindToolAccess
         bool unknown = false;
         foreach (var pose in poses)
         {
+            // The proof below starts the body at rest on the take-off, but the body gets there by walking, and
+            // BodyPhysics.Stand accepts a pose that overhangs an edge by two pixels. A pose is admitted only if a
+            // body still sliding to rest from walking speed, in either direction, keeps some support under it,
+            // and only if it is dry, because the proof is a dry jump and a wet body cannot make it.
+            if (!SupportedThroughArrivalSlide(pose.Feet.X, pose.Tile.Y) || MovementQueries.IsLiquid(pose.Tile.X, pose.Tile.Y))
+                continue;
+            // The body simulation does not watch the planning deadline. A scan cut short has established
+            // nothing about the poses it never reached, so it is Unknown and never No.
+            if (LimitPlanningWork.Expired)
+            {
+                unknown = true;
+                break;
+            }
             BodyState rest = body with
             {
                 Left = pose.Feet.X - BodyPhysics.Width / 2f, Bottom = pose.Feet.Y, Vx = 0f, Vy = 0f, OnGround = true,
@@ -121,10 +140,33 @@ public static class FindToolAccess
     }
 
     /// <summary>How many tiles above standing reach a ground jump can lift the eye: the apex of a jump at
-    /// the body's own take-off speed under its own gravity, rounded up. Air jumps are not ground hops,
-    /// so no capability extends this bound.</summary>
+    /// the body's own take-off speed under ordinary gravity, rounded up. Air jumps are not ground hops. The
+    /// bound understates the real rise where gravity is reduced: near the sky BodyMotion.GravityAt lowers
+    /// gravity, the true apex is higher, and a take-off further below the tile than this is never searched.</summary>
     private static readonly int HopRiseTiles = (int)System.MathF.Ceiling(
         BodyPhysics.JumpVelocity * BodyPhysics.JumpVelocity / (2f * BodyPhysics.Gravity) / 16f);
+
+    /// <summary>How far a body moving at walking speed slides before it stops with no input: StepVelocity takes
+    /// the slowdown off every tick, so the distance is v²/2a. It mirrors BodyPhysics' walking speed and slowdown
+    /// and must move with them, or a take-off admitted here is one a real arrival slides off.</summary>
+    private static readonly float ArrivalSlide = BodyPhysics.WalkSpeed * BodyPhysics.WalkSpeed / (2f * BodyPhysics.Slowdown);
+
+    /// <summary>Whether a body with its feet at <paramref name="feetX"/> in <paramref name="row"/> keeps support
+    /// under some column it covers when it comes to rest at that point or an arrival slide either side of it.
+    /// Three samples suffice: two supported samples an arrival slide apart leave no room between them for a gap
+    /// wide enough to let a body twenty pixels wide fall through.</summary>
+    private static bool SupportedThroughArrivalSlide(float feetX, int row)
+        => SupportedAt(feetX, row) && SupportedAt(feetX - ArrivalSlide, row) && SupportedAt(feetX + ArrivalSlide, row);
+
+    private static bool SupportedAt(float feetX, int row)
+    {
+        int first = (int)System.MathF.Floor((feetX - BodyPhysics.Width / 2f) / 16f);
+        int last = (int)System.MathF.Floor((feetX + BodyPhysics.Width / 2f - 0.001f) / 16f);
+        for (int x = first; x <= last; x++)
+            if (NavGrid.IsSupport(x, row + 1))
+                return true;
+        return false;
+    }
 
     private static bool HasOpenFace(Point tile)
     {
