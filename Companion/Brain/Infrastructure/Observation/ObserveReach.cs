@@ -53,8 +53,17 @@ public sealed class ReachSense
     private int sinceFlood = RefloodTicks;
     private int lastTerrainRevision = -1;
 
-    /// <summary>Whether the flood ran out of region before its budget, so a tile outside it is truly absent.</summary>
+    /// <summary>Whether the two-way flood ran out of region before its budget, so a tile outside it is truly
+    /// absent. This is the flood <see cref="Reachable"/> answers from, and the two are deliberately tied: a
+    /// verdict of absent must rest on the exhaustion of the set it was looked up in, never on another set's.</summary>
     public bool Complete { get; private set; }
+
+    /// <summary>The same question about <see cref="ScoredTiles"/>, which on a player-only-one-way tick is the
+    /// raw region rather than the two-way one. The positioner scores candidates against that set and so asks
+    /// this rather than <see cref="Complete"/>; every consumer asking whether the body can go somewhere and
+    /// come back asks <see cref="Complete"/>. Two names because they are two facts, and they diverge on
+    /// exactly the tick it matters.</summary>
+    public bool ScoredComplete { get; private set; }
 
     /// <summary>
     /// The refusing flood did not hold the player, so the region being scored is the raw one and the
@@ -147,6 +156,7 @@ public sealed class ReachSense
         returnSearch.Advance(Weights.ReachFloodBudget, Weights.PositionReachMilliseconds / 2d);
         returnable = returnSearch.Reached;
         bool complete = returnSearch.Finished && returnSearch.Stop == AStar.SearchStopReason.Exhausted;
+        bool? scoredComplete = null;
         scored = returnable;
         raw = null;
 
@@ -170,13 +180,20 @@ public sealed class ReachSense
             raw = anyReach;
             if (anyReach.Contains(p))
             {
+                // Only the scored region moves to the one-way set, and only its completeness moves with it.
+                // `complete` stays the two-way flood's, because that is the flood `Reachable` answers from,
+                // and grading a tile Unreachable on a *different* flood's exhaustion is the same
+                // not-yet-is-not-no error one layer up — now with teeth, since a proven No is remembered for
+                // the no-return wait, so one tile missing from an unfinished two-way flood would be written
+                // off for that whole period on the strength of the raw flood having finished.
                 scored = anyReach;
-                complete = rawComplete;
+                scoredComplete = rawComplete;
                 PlayerOnlyOneWay = true;
             }
         }
 
         LastFloodMs = clock.Elapsed.TotalMilliseconds;
         Complete = complete;
+        ScoredComplete = scoredComplete ?? complete;
     }
 }

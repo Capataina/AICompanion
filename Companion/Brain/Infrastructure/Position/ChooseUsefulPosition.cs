@@ -69,7 +69,11 @@ public sealed class Positioner
     public string FollowObjectiveReason { get; private set; } = "not-following";
 
     /// <summary>Whether the flood from the companion's feet ran out of region before its budget, so a tile outside it is truly unreachable.</summary>
-    public bool ReachComplete => reachSense?.Complete ?? false;
+    /// <summary>The scored region's completeness, not the two-way region's: this pairs with
+    /// <see cref="InReach"/>, which tests the scored set, and on a player-only-one-way tick that set is the
+    /// raw one. Pairing a verdict with another set's exhaustion is how a tile the flood simply has not
+    /// reached gets graded absent.</summary>
+    public bool ReachComplete => reachSense?.ScoredComplete ?? false;
 
     // Spots the navigator could not reach however it planned, each with the tick it is allowed
     // back; skipped by every resolve until then, so the next answer is a different place.
