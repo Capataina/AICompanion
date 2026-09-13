@@ -3,7 +3,7 @@
 ```
 InterfaceExperiments/
 ├─ CLAUDE.md              this guide
-├─ companion-card.html    a one-to-one replica of the native profile card as rendered on 2026-09-13, at the C# layout's own pixel sizes, with its three pages and controls live so a change can be tried here before it is built in game
+├─ companion-card.html    the agreed next revision of the native profile card, at the pixel sizes the C# will be built to, with its three pages and controls live; its header lists every departure from the 2026-09-13 render
 └─ mastery-map.html       selectable eight-branch mastery design with ranks and nested weapon upgrades
 ```
 
@@ -35,7 +35,9 @@ Picking a third weapon replaces the one picked longest ago rather than refusing 
 
 **The two bottom regions are summary tiles, not buttons.** A button that says "Inventory" spends a sixth of the card to say a word the player already knows; the tile spends the same space carrying fill state and recent pickups, and opening is what happens when it is clicked.
 
-**The whitelist grid hides what has never been mined.** An ore appears once it has been mined at least once and is choosable once a threshold is reached, with the partial count on the tile. The panel beside it previews the ore *as it appears in the wall*, because that is the form the player has to recognise while digging and the item icon never teaches it.
+**The ore list hides what has never been picked up, and ores are the only thing with a list.** An ore appears once the player has held one in their inventory at least once, recorded as a saved set on the character so that selling the last of it does not remove it, and never before, so the list does not spoil what a world or a mod holds. A "mine N first" threshold was the earlier design and is dropped because it can be gamed. One mode says what a mark on a tile means — skip the marked ores, or mine only the marked ores — and whatever the mode, an ore the companion will mine is drawn bright and one it will leave is drawn dim, so the picture answers "what will it dig" without reading the mode. The preview under the grid shows the hovered ore *as it appears in the wall*, because that is the form the player has to recognise while digging and the item icon never teaches it. No other behaviour has a list: the rest are Off/Mimic/Auto or Off/On.
+
+**The inventory page is the grid and Terraria's own chest buttons, nothing else.** Loot All, Deposit All, Quick Stack and Restock are the game's names and the game's semantics, so a player already knows them and the native build can reuse the chest routines; the bag sorts itself after every transfer, so there is no Sort button, no filters and no detail panel. An earlier version had type filters that dimmed what they excluded and a selected-slot panel on the right, and both went because they spent the space the grid should have.
 
 ## Making it read as Terraria
 
