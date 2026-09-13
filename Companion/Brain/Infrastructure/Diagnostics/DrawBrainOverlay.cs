@@ -131,7 +131,10 @@ public sealed class BrainOverlay : ModSystem
         "Orange appears only while shared safety holds the body: the response's kind and phase join the companion's label, and the line runs to the air or landing tile it is escaping to. Nothing is drawn when no response is active.",
         "One column per tick of the last second: how long deciding, positioning and navigating took together. The hairline is eight milliseconds, half a frame, and the scale never moves, so a spike reads as a spike. White is under four milliseconds, orange at or above it.",
     };
-    private static bool Value(int i) => i switch { 0 => ShowWorld, 1 => ShowThreats, 2 => ShowPredictions, 3 => ShowProjectiles, 4 => ShowRoutes, 5 => ShowCandidates, 6 => ShowAiming, 7 => ShowMovement, 8 => ShowAttention, 9 => ShowRegion, 10 => ShowFollow, 11 => ShowSenses, 12 => ShowSafety, _ => ShowCost };
+    // Every index is named and the default is false rather than the last layer, because a default arm holding a real layer
+    // silently maps the next bit anyone appends onto that layer's toggle instead of onto its own — which is exactly what the
+    // arm did when it read `_ => ShowRegion` and four layers were appended after it.
+    private static bool Value(int i) => i switch { 0 => ShowWorld, 1 => ShowThreats, 2 => ShowPredictions, 3 => ShowProjectiles, 4 => ShowRoutes, 5 => ShowCandidates, 6 => ShowAiming, 7 => ShowMovement, 8 => ShowAttention, 9 => ShowRegion, 10 => ShowFollow, 11 => ShowSenses, 12 => ShowSafety, 13 => ShowCost, _ => false };
     private static void Flip(int i)
     {
         switch (i) { case 0: ShowWorld = !ShowWorld; break; case 1: ShowThreats = !ShowThreats; break; case 2: ShowPredictions = !ShowPredictions; break; case 3: ShowProjectiles = !ShowProjectiles; break; case 4: ShowRoutes = !ShowRoutes; break; case 5: ShowCandidates = !ShowCandidates; break; case 6: ShowAiming = !ShowAiming; break; case 7: ShowMovement = !ShowMovement; break; case 8: ShowAttention = !ShowAttention; break; case 9: ShowRegion = !ShowRegion; break; case 10: ShowFollow = !ShowFollow; break; case 11: ShowSenses = !ShowSenses; break; case 12: ShowSafety = !ShowSafety; break; case 13: ShowCost = !ShowCost; break; }
@@ -174,6 +177,8 @@ public sealed class BrainOverlay : ModSystem
     /// <summary>Above this a column is drawn as a warning; a quarter of a frame is where the brain starts competing with the game.</summary>
     public const float CostWarnMs = 4f;
     private const int CostColumn = 3, CostHeight = 40, CostGap = 8, CostMargin = 12;
+    /// <summary>Pixels between the plot's last column and the numeric reading, and between that reading and the strip's edge.</summary>
+    private const int CostTextGap = 4;
 
     /// <summary>
     /// Where the cost strip sits, in the panel's own logical units: under the panel's bottom edge while the chooser is open,
@@ -396,7 +401,11 @@ public sealed class BrainOverlay : ModSystem
         var meeting = brain.Meeting;
         if (meeting.HasPlace)
         {
-            Ring(sb, meeting.Anchor, MeetingRing, Color.White);
+            // Both the ring and the label's offset are screen pixels, and they have to be the same kind of pixel or they
+            // separate with the zoom: Label lifts its text a further 16 and the text is about 13 tall, so the label's foot
+            // sits 3 px clear of the ring's top here and at every zoom. A world-radius ring put that foot inside the ring
+            // the moment the view was zoomed in.
+            ScreenRing(sb, Screen(meeting.Anchor), MeetingRing, Color.White);
             Label(sb, Screen(meeting.Anchor) - new Vector2(0, MeetingRing), $"{meeting.Reason}  you {Ticks(meeting.PlayerTicks)} / it {Ticks(meeting.CompanionTicks)}", Color.White);
         }
         if (brain.LastRequest.Kind != Infrastructure.Position.RequestKind.WithPlayer) return;
@@ -447,7 +456,8 @@ public sealed class BrainOverlay : ModSystem
     /// What the last second of thinking cost, one column per tick, against a ceiling that never moves: a strip that rescaled
     /// itself would make every session look the same, and the whole question is whether this one spikes. The plot reserves a
     /// fifth of its height above the ceiling line so a tick that overruns half a frame is visibly over it rather than merely
-    /// full. Under the panel while the chooser is open and at the screen's bottom-left otherwise, by <see cref="StripBounds"/>.
+    /// full, and a gutter on its right for the current reading so the newest columns are never drawn underneath it.
+    /// <see cref="StripBounds"/> places it, and draws nothing at all where no placement is free.
     /// </summary>
     private static void DrawCost(SpriteBatch sb)
     {
@@ -457,22 +467,30 @@ public sealed class BrainOverlay : ModSystem
         if (strip.Width == 0) return;
         Fill(sb, strip, Panel * .88f);
         Border(sb, strip, Edge);
+        // The reading is measured before the plot is laid out and the plot ends where the reading begins, because the newest
+        // columns are the right-hand ones and they are the whole reason the strip is on screen: drawn under the text, a
+        // spike in the last third of a second is the one sample nobody can see.
+        string now = $"{BrainInspectorSamples.LastCost:0.00} ms";
+        float text = FontAssets.MouseText.Value.MeasureString(now).X * .45f;
+        // The reading never takes more than half the strip: on a narrow screen a plot squeezed to nothing is worse than a
+        // reading that runs under its own last columns, and half of an already-small strip is still readable.
+        int gutter = Math.Min((int)MathF.Ceiling(text) + CostTextGap, (strip.Width - 2) / 2);
+        int plotWidth = strip.Width - 2 - gutter;
         int columns = BrainInspectorSamples.CostTicks, plot = Math.Max(1, strip.Height - 2);
-        float width = (strip.Width - 2) / (float)columns;
+        float width = plotWidth / (float)columns;
         for (int i = 0; i < samples; i++)
         {
             float ms = BrainInspectorSamples.CostAt(i);
             int height = (int)MathF.Round(Math.Clamp(ms / CostCeilingMs * .8f, 0f, 1f) * plot);
             if (height <= 0) continue;
             int x = strip.X + 1 + (int)((columns - samples + i) * width);
-            Fill(sb, new Rectangle(x, strip.Bottom - 1 - height, Math.Max(1, Math.Min((int)width, strip.Right - 1 - x)), height),
+            int right = strip.X + 1 + plotWidth;
+            Fill(sb, new Rectangle(x, strip.Bottom - 1 - height, Math.Max(1, Math.Min((int)width, right - x)), height),
                 ms >= CostWarnMs ? Color.Orange : Color.White);
         }
         int ceiling = strip.Bottom - 1 - (int)MathF.Round(plot * .8f);
-        ScreenLine(sb, new Vector2(strip.X + 1, ceiling), new Vector2(strip.Right - 1, ceiling), Color.LightSteelBlue * .7f);
-        string now = $"{BrainInspectorSamples.LastCost:0.00} ms";
-        float text = FontAssets.MouseText.Value.MeasureString(now).X * .45f;
-        Text(sb, now, strip.Right - 4 - text, strip.Y + 2, Color.LightSteelBlue, .45f);
+        ScreenLine(sb, new Vector2(strip.X + 1, ceiling), new Vector2(strip.X + 1 + plotWidth, ceiling), Color.LightSteelBlue * .7f);
+        Text(sb, now, strip.Right - CostTextGap - text, strip.Y + 2, Color.LightSteelBlue, .45f);
     }
 
     private static string Ticks(float value) => float.IsNaN(value) ? "-" : value.ToString("0.0");
@@ -546,17 +564,33 @@ public sealed class BrainOverlay : ModSystem
         Vector2 a = Screen(centre - half), b = Screen(centre + half);
         return new Rectangle((int)MathF.Round(a.X), (int)MathF.Round(a.Y), (int)MathF.Round(b.X - a.X), (int)MathF.Round(b.Y - a.Y));
     }
-    /// <summary>A circle of world radius, drawn as chords through <see cref="Line"/> so it scales with the zoom like everything else.</summary>
+    private const int RingSegments = 48;
+    /// <summary>A circle of world radius, drawn as chords through <see cref="Line"/> so it scales with the zoom like everything else.
+    /// Use it only where the radius is a real world distance, as the calm band's edges are; a marker of fixed size wants
+    /// <see cref="ScreenRing"/>, because a world radius drawn at zoom 2 is twice the pixels its own label was offset by.</summary>
     private static void Ring(SpriteBatch sb, Vector2 centre, float radius, Color c)
     {
-        const int Segments = 48;
         if (!(radius > 1f)) return;
         Vector2 previous = centre + new Vector2(radius, 0f);
-        for (int i = 1; i <= Segments; i++)
+        for (int i = 1; i <= RingSegments; i++)
         {
-            float angle = MathHelper.TwoPi * i / Segments;
+            float angle = MathHelper.TwoPi * i / RingSegments;
             Vector2 point = centre + new Vector2(MathF.Cos(angle), MathF.Sin(angle)) * radius;
             Line(sb, previous, point, c);
+            previous = point;
+        }
+    }
+    /// <summary>A circle of a fixed pixel radius around a point already in screen pixels, so a marker stays the same size at
+    /// every zoom and a label offset by the same constant clears it at every zoom too.</summary>
+    private static void ScreenRing(SpriteBatch sb, Vector2 centre, float radius, Color c)
+    {
+        if (!float.IsFinite(centre.X) || !float.IsFinite(centre.Y) || !(radius > 1f)) return;
+        Vector2 previous = centre + new Vector2(radius, 0f);
+        for (int i = 1; i <= RingSegments; i++)
+        {
+            float angle = MathHelper.TwoPi * i / RingSegments;
+            Vector2 point = centre + new Vector2(MathF.Cos(angle), MathF.Sin(angle)) * radius;
+            ScreenLine(sb, previous, point, c);
             previous = point;
         }
     }
