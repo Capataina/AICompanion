@@ -171,8 +171,12 @@ internal static class RecordEvidenceScenes
     private static void LoadNpcNames(NPC probe)
     {
         Terraria.Localization.LanguageManager.Instance.SetLanguage("en-US");
-        if (Named(probe)) return;
-        typeof(Lang).GetMethod("InitializeLegacyLocalization", BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic)?.Invoke(null, null);
+        // Setting the language alone leaves the name table empty in this host (the combat scene failed without the next
+        // call, 2026-09-13); the legacy initialiser fills it. It is undocumented, so it is looked up as required rather than
+        // invoked through a null-conditional, which would pass silently if a tModLoader update removed it.
+        MethodInfo initialise = typeof(Lang).GetMethod("InitializeLegacyLocalization", BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("Terraria.Lang.InitializeLegacyLocalization is unavailable, and the recorder needs the NPC name table it fills");
+        initialise.Invoke(null, null);
         if (!Named(probe))
             throw new InvalidOperationException("this host cannot load Terraria's NPC name table, which the recorder reads for every sensed NPC");
 
