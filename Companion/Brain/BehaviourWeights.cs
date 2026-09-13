@@ -167,7 +167,6 @@ public static class Weights
 
     /// <summary>Loot: value of the nearest pickup fades with distance over this many px.</summary>
     public const float LootReach = 900f;
-    public const int LootTripTicksPerPx = 1; // approximates 1 px per tick allowing for jumps
     /// <summary>Prior value for unknown pot contents; actual drops are reconsidered independently.</summary>
     public const float PotContentsValue = .62f;
     /// <summary>Provisional handling allowance for exposing and inspecting unknown contents, excluding approach.</summary>
@@ -241,4 +240,18 @@ public static class Weights
     /// again; without a wait the next preparation re-proves the same take-off from rest and re-offers it.
     /// </summary>
     public const int HopTakeOffRetryTicks = 600;
+
+    /// <summary>
+    /// Collection: how many nearby drops one preparation may put to the walker search, nearest first. Each question is a
+    /// fresh bounded search from the companion's feet plus, when it says yes, the return questions, so a floor strewn with
+    /// unreachable drops costs at most this many per preparation and the rest wait for a later one.
+    /// </summary>
+    public const int CollectionReachCandidates = 3;
+
+    /// <summary>
+    /// Collection: how long a drop's reach and return verdicts are reused while its contact pose and the terrain revision are
+    /// unchanged. A companion walking toward a drop would otherwise ask the same searches on every tile it crosses; a terrain
+    /// edit or a drop that moved to another pose asks again at once.
+    /// </summary>
+    public const int CollectionReachRecheckTicks = 60;
 }
