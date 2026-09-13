@@ -28,7 +28,8 @@ public static class Weights
     // the share is smaller. It bounds optional siblings only: the incumbent, non-excursion children
     // and one optional child always prepare, and the incumbent keeps the whole total because its
     // approach searches retain no progress. The 2026-09-13 brain-cost scene measured an incumbent
-    // mining approach recomputation consuming the full 12 ms, which this share does not address.
+    // mining approach recomputation consuming the full 12 ms; that cost was the approach query
+    // asking every pose, and asking nearest first brought the same scene's maximum to about 4 ms.
     public const double FamilyPreparationMilliseconds = 3d;
     public const float ProtectionLeadTicks = 60f;
     public const float GuardReleasePressure = 0.08f;

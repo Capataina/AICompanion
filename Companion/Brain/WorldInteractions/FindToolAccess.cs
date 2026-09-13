@@ -29,9 +29,14 @@ public static class FindToolAccess
         }
         Vector2 tileCentre = tile.ToWorldCoordinates(8f, 8f);
         Point from = MovementQueries.FeetTile(fromFeet);
-        Vector2? best = null;
-        bool unknown = false;
-        float bestDist = float.MaxValue;
+        // Rank every geometrically usable pose before asking whether the walker can reach it, then
+        // ask nearest first and stop at the first yes. Each reach question is a fresh bounded A*
+        // search, and asking all of them to keep the nearest yes cost the whole planning allowance
+        // on the 2026-09-13 brain-cost scene. The answer is identical: the first yes in ascending
+        // distance is the nearest yes, and equal distances keep the scan order the exhaustive loop
+        // broke ties with. Only when no pose is reachable does the full scan still run, because
+        // "unknown" versus "no" needs every answer.
+        poses.Clear();
         for (int dx = -ReachX; dx <= ReachX; dx++)
         {
             for (int dy = -ReachY; dy <= ReachY + 2; dy++)
@@ -42,20 +47,27 @@ public static class FindToolAccess
                 Vector2 feet = MovementQueries.FeetWorld(new Point(x, y));
                 if (!InReach(feet, tile) || !InReach(feet + new Vector2(-8, 0), tile) || !InReach(feet + new Vector2(8, 0), tile))
                     continue;
-                float d = Vector2.DistanceSquared(feet + Eye, tileCentre);
-                Reachability.Reach reach = MovementQueries.WalkerReach(from, new Point(x, y));
-                if (reach == Reachability.Reach.Unknown)
-                    unknown = true;
-                if (d < bestDist && reach == Reachability.Reach.Yes)
-                {
-                    bestDist = d;
-                    best = feet;
-                }
+                poses.Add((Vector2.DistanceSquared(feet + Eye, tileCentre), poses.Count, new Point(x, y), feet));
             }
         }
-        stand = best ?? default;
-        return best != null ? Reachability.Reach.Yes : unknown ? Reachability.Reach.Unknown : Reachability.Reach.No;
+        poses.Sort(static (a, b) => a.Distance != b.Distance ? a.Distance.CompareTo(b.Distance) : a.Order.CompareTo(b.Order));
+        bool unknown = false;
+        foreach (var pose in poses)
+        {
+            Reachability.Reach reach = MovementQueries.WalkerReach(from, pose.Tile);
+            if (reach == Reachability.Reach.Yes)
+            {
+                stand = pose.Feet;
+                return Reachability.Reach.Yes;
+            }
+            unknown |= reach == Reachability.Reach.Unknown;
+        }
+        stand = default;
+        return unknown ? Reachability.Reach.Unknown : Reachability.Reach.No;
     }
+
+    // Reused across calls: the brain is single-threaded and Approach never re-enters itself.
+    private static readonly System.Collections.Generic.List<(float Distance, int Order, Point Tile, Vector2 Feet)> poses = new();
 
     private static readonly Vector2 Eye = new(0f, -30f);
 

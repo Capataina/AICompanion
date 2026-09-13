@@ -34,6 +34,7 @@ internal static class VerifyOreWork
             LosingWorkEligibilityDoesNotClaimCompletion();
             OreDisappearanceAndAttributedRemovalRemainSeparate();
             AnAttemptConcludesOnlyFromItsOwnEvidence();
+            TheNearestFirstApproachMatchesTheExhaustiveScan();
             AJointlyClearedVeinIsASharedCompletion();
             PreparedToolsRejectReplacementMaterial();
             AxeEligibilityAloneDoesNotMakeATree();
@@ -714,6 +715,66 @@ internal static class VerifyOreWork
         Require(mine.ConcludeAttempt(effects) is { Status: live::AICompanion.Companion.Brain.Behaviours.AttemptStatus.Complete,
                 Attribution: live::AICompanion.Companion.Brain.Behaviours.AttemptAttribution.Shared },
             $"a vein finished together must be a shared completion, not the companion's own; got {mine.ConcludeAttempt(effects)}");
+    }
+
+    /// <summary>
+    /// The nearest-first approach must return exactly what the exhaustive scan returned: the same
+    /// verdict and the same stand, ties included. The reference below is the previous algorithm
+    /// verbatim, run on the same native terrain after the production call so both see warm caches.
+    /// Geometry varies the ore's height, the body's side and distance, and a wall that seals poses.
+    /// </summary>
+    private static void TheNearestFirstApproachMatchesTheExhaustiveScan()
+    {
+        var (_, ctx) = SetUp(WorkPolicy.Opportunistic, TileID.Copper, new Point(25, 89));
+        for (int y = 80; y < 90; y++) { Tile wall = Main.tile[45, y]; wall.HasTile = true; wall.TileType = TileID.Dirt; }
+        var ores = new[] { new Point(25, 89), new Point(30, 86), new Point(38, 84), new Point(47, 89), new Point(60, 88) };
+        var feet = new[] { 12f, 20f, 33f, 52f, 70f };
+        // All terrain is final before the first query, so both searches read one world and one cache.
+        foreach (Point ore in ores)
+        {
+            Tile tile = Main.tile[ore.X, ore.Y];
+            tile.HasTile = true;
+            tile.TileType = TileID.Copper;
+        }
+        AStar.InvalidateEdges();
+        int compared = 0, reachable = 0;
+        foreach (Point ore in ores)
+        foreach (float x in feet)
+        {
+            Vector2 from = new(x * 16 + 8, 90 * 16);
+            var actual = FindToolAccess.Approach(ore, from, out Vector2 actualStand);
+            var expected = ExhaustiveApproach(ore, from, out Vector2 expectedStand);
+            Require(actual == expected && actualStand == expectedStand,
+                $"nearest-first approach diverged from the exhaustive scan: ore={ore} from={from} actual={actual}@{actualStand} expected={expected}@{expectedStand}");
+            compared++;
+            if (actual == Reachability.Reach.Yes) reachable++;
+        }
+        Require(compared == ores.Length * feet.Length && reachable > 0 && reachable < compared,
+            $"the comparison must include reachable and unreachable approaches to mean anything; reachable={reachable}/{compared}");
+    }
+
+    private static Reachability.Reach ExhaustiveApproach(Point tile, Vector2 fromFeet, out Vector2 stand)
+    {
+        if (FindToolAccess.InReach(fromFeet, tile)) { stand = fromFeet; return Reachability.Reach.Yes; }
+        Vector2 eye = new(0f, -30f), tileCentre = tile.ToWorldCoordinates(8f, 8f);
+        Point from = live::AICompanion.Companion.Brain.SharedMovementSystem.MovementQueries.FeetTile(fromFeet);
+        Vector2? best = null;
+        bool unknown = false;
+        float bestDist = float.MaxValue;
+        for (int dx = -Player.tileRangeX; dx <= Player.tileRangeX; dx++)
+            for (int dy = -Player.tileRangeY; dy <= Player.tileRangeY + 2; dy++)
+            {
+                int x = tile.X + dx, y = tile.Y + dy;
+                if (!live::AICompanion.Companion.Brain.SharedMovementSystem.MovementQueries.IsStandable(x, y)) continue;
+                Vector2 feet = live::AICompanion.Companion.Brain.SharedMovementSystem.MovementQueries.FeetWorld(new Point(x, y));
+                if (!FindToolAccess.InReach(feet, tile) || !FindToolAccess.InReach(feet + new Vector2(-8, 0), tile) || !FindToolAccess.InReach(feet + new Vector2(8, 0), tile)) continue;
+                float d = Vector2.DistanceSquared(feet + eye, tileCentre);
+                var reach = live::AICompanion.Companion.Brain.SharedMovementSystem.MovementQueries.WalkerReach(from, new Point(x, y));
+                if (reach == Reachability.Reach.Unknown) unknown = true;
+                if (d < bestDist && reach == Reachability.Reach.Yes) { bestDist = d; best = feet; }
+            }
+        stand = best ?? default;
+        return best != null ? Reachability.Reach.Yes : unknown ? Reachability.Reach.Unknown : Reachability.Reach.No;
     }
 
     private static void OreDisappearanceAndAttributedRemovalRemainSeparate()
