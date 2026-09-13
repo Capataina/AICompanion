@@ -36,6 +36,7 @@ internal static class VerifyRoundTripEvidence
         {
             failed += Case("a drop into a sealed pit has no return, a shallow pit returns, and native execution agrees", PitReturnMatchesNativeExecution);
             failed += Case("a spent search budget is an unknown return, never a return", SpentBudgetIsUnknownReturn);
+            failed += Case("a planning deadline another search left behind does not starve a round trip", InheritedDeadlineDoesNotStarveRoundTrip);
             failed += Case("breath is charged over the return leg and never below the native body's submersion", BreathCoversTheReturnLeg);
             failed += Case("breath over a trip walked entirely under water is never charged below the native body's submersion", SubmergedWalkIsNotUnderCharged);
         }
@@ -99,6 +100,37 @@ internal static class VerifyRoundTripEvidence
         Require(evidence.Outward == Reachability.Reach.Unknown && evidence.Return == Reachability.Reach.Unknown,
             $"a one-expansion budget must establish nothing in either direction, got {evidence.Outward}/{evidence.Return}");
         Require(evidence.Breath == Reachability.Reach.Unknown, "breath must be unknown when neither leg was found");
+    }
+
+    /// <summary>
+    /// The query's searches read the static per-search millisecond allowance, which the navigator's plan
+    /// sets to its own planning allowance and leaves behind. A navigator starved to one work unit per tick
+    /// plans once; then, with nothing else changed, the shallow pit's round trip must still answer yes both
+    /// ways rather than inherit a deadline that stops each leg after its first node.
+    /// </summary>
+    private static void InheritedDeadlineDoesNotStarveRoundTrip()
+    {
+        BuildPit(2);
+        Point goal = new(35, 81);
+        double before = AStar.MsBudget;
+        try
+        {
+            Navigator.PlanMsBudget = .000001;
+            var leak = new VerifyMovementFailures.Drive(Start);
+            leak.Step(goal);
+            Navigator.PlanMsBudget = 0;
+            double inherited = AStar.MsBudget;
+            var evidence = Reachability.RoundTrip(Start, goal, FullBreath);
+            Console.WriteLine($"   inherited deadline: per-search allowance after a starved plan {inherited} ms, round trip {evidence}, allowance after the round trip {AStar.MsBudget} ms");
+            Require(evidence.Outward == Reachability.Reach.Yes && evidence.Return == Reachability.Reach.Yes,
+                $"a round trip after a starved plan must answer from its own budget, got {evidence.Outward}/{evidence.Return}");
+            Require(AStar.MsBudget == inherited, $"the round trip must leave the caller's allowance as it found it, {inherited} became {AStar.MsBudget}");
+        }
+        finally
+        {
+            Navigator.PlanMsBudget = 0;
+            AStar.MsBudget = before;
+        }
     }
 
     /// <summary>
