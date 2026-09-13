@@ -187,20 +187,21 @@ The entry-speed graph is the refusal worth reading before anyone proposes it aga
 
 The last packaged playtest is `0.22.46`, and its verdict is negative: the 18:56 capture of 2026-09-13 is the newest recording, and it is bad on lighting, following and speed — the torch never lowers, lighting nominates no site on the overwhelming majority of ticks and places no torch, and the body stops about seventy times a minute of travel.
 
-**`build.txt` still reads `0.22.46`, so the version cannot tell you which half of the tree was played.** It has not moved across a week of behaviour changes, which means "source 0.22.46" and "packaged 0.22.46" name two different systems and the manifest distinguishes them nowhere. The split, until the version moves:
+**`build.txt` reads `0.23.0`, packaged on 14 September 2026 and not yet played**, so the version now separates the two halves of the tree that 0.22.46 could not: everything the 18:56 capture condemned was in 0.22.46, and everything that answered it is in 0.23.0 and evidenced by fixtures alone until the next capture. The split:
 
 ```
-in the played package, and condemned by 18:56
+in 0.22.46, the played package, condemned by 18:56
 ├─ far reunion pull never sitting at 1, so a proven job further on screen can still win
 ├─ the bounded lighting search
 └─ hunt existence as the arsenal's ForecastAttack
 
-landed after the package, and therefore unplaytested
-├─ light as a field, and reach as a sense
+in 0.23.0, packaged and unplayed
+├─ light as a field with every carried light discounted, and reach as a sense
 ├─ lighting working a dark region and chaining its sites
 ├─ the walk no longer raising its own jump
 ├─ the reactive floor's deletion
-└─ the four overlay layers and the cost strip
+├─ the four overlay layers and the cost strip
+└─ whole journeys and every stop in the record, with the player's own time beside them
 ```
 
 Everything in the second group is evidenced by fixtures alone. Taking the first group's list in full: far reunion pull never sits at 1 so a proven job further on screen can still win (hard leash at fly-home is not that cap); lighting walks to the nearest dark region the light field found from the companion's own feet, bounded to the work radius around the player, and keeps the job after each torch so a region is worked rather than visited; the torch reads that same field around the body and at the player's predicted feet, so it is up for dark air ahead and out in a lit room; hunt existence is the arsenal's `ForecastAttack`, and a solvable stand the flood has not claimed is already a hunt. Optional work does not start on an unanswered search — mining and hunting publish Unknown at value zero rather than walking at it; companionship and safety may still walk toward the player or a refuge. A collect pose is on the drop's floor inside pickup reach minus arrival slack. Follow heading box lerps and grows, fly-home sits at recovery distance, reunion slopes from the comfort box toward that distance, local hunt is not an outing, live walk and jump track the player's stats, and debug layers default on. The brain is Activities, SharedBehaviours (Safety, Recovery) and Infrastructure. Weapons stay at Companion/Weapons.
