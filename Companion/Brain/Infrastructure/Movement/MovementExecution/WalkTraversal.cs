@@ -16,10 +16,13 @@ namespace AICompanion.Companion.Brain.Infrastructure.Movement;
 /// tread where the body is still held by the tread's last pixels and its head meets rock; the
 /// slide test that proved walks before (a body that fits along the line between two poses)
 /// accepted that walk and the body parked at it (run 5 block 12, 2026-09-08). Performing it is
-/// walking toward the step's feet point. The one move this follower still derives on its own is
-/// a jump at a real wall or a two-tile rise, which a walk edge never contains and only the
-/// first step of a path can meet, when the plan began at the nearest node to a body that was
-/// not on one; the follow harness is where that residue is measured before it is removed.
+/// walking toward the step's feet point, and nothing else: this traversal derives no move of its
+/// own. It used to raise a jump at a real wall or a two-tile rise, which is a move no walk edge
+/// can contain — the edge is proven by driving the body, and the only lift in that simulation is
+/// the motor's StepUp, which gains a tile at most — so the jump could only fire for a body that
+/// had already left what the proof described, and it answered that divergence by inventing a move
+/// instead of reporting it. <see cref="Check"/> reports it now, and the navigator replans from the
+/// live state, which is the same answer every other divergence in this folder gets.
 /// </summary>
 public sealed class WalkTraversal : Traversal
 {
@@ -157,19 +160,21 @@ public sealed class WalkTraversal : Traversal
     {
         Vector2 stepWorld = NavGrid.FeetWorld(step.Tile);
         float dx = stepWorld.X - live.CentreX;
-        float dy = stepWorld.Y - live.Bottom; // negative = step is above
         int dir = MathF.Sign(dx) == 0 ? lastDir : MathF.Sign(dx);
         lastDir = dir;
-        // Rises of one tile are steps, taken by the motor's StepUp without leaving the ground;
-        // a jump is only for two tiles or more, at the height the rise needs, or for a real wall.
-        int riseTiles = (int)MathF.Ceiling(-dy / 16f);
-        bool jump = live.OnGround && (WallAhead(live, dir) || riseTiles >= 2);
-        // A walk proven from rest has to begin from rest, and the step before it is not always
-        // there to deliver that: a replan can make it the first step of a fresh path, and a jump
-        // or a descent can land on its start tile still moving. So it brakes itself while it is
-        // still on that tile, the way the descent does and for the same reason; once it has left
-        // the tile the brake stops, so a body can never sit in it (Codex review of 7525a1b).
-        if (step.FromRest && !jump && live.OnGround && MathF.Abs(live.Vx) > RestSpeed && live.Covers(step.From))
+        // The walk raises no jump at all. Every rise a walk edge can contain is at most one tile,
+        // because the edge was proven by driving the body and the only lift in that simulation is
+        // the motor's StepUp, which never gains more than a tile; so a jump here could only ever
+        // fire for a body that is not where the proof put it — off a node, below its own step, or
+        // pressed against a shape the proof never met. That is a divergence, and the answer to a
+        // divergence is a fault and a replan from the live state (Check already returns Blocked on
+        // a sideways press and Stuck on no headway), not a move this traversal invented. The
+        // walker deriving its own jump was the last place the planner and the follower were two
+        // rules for one move, which is the defect this whole folder exists to remove; the live
+        // cost of keeping it was 19 hops on one-tile walk steps in the 18:56 capture of 0.22.46,
+        // each landing at 0.00 to 1.57 px/tick against a 3.5 walk speed, because the walker
+        // re-aims at its one-tile step every airborne tick and reverses once the body overflies it.
+        if (step.FromRest && live.OnGround && MathF.Abs(live.Vx) > RestSpeed && live.Covers(step.From))
             return Controls.None;
         // The step before a move proven from rest coasts onto its point, because a body that
         // arrives at a lip at the walk speed leaves it at that speed and lands where the
@@ -180,7 +185,7 @@ public sealed class WalkTraversal : Traversal
         float speed = next is NavStep n && StartsFromRest(n) ? BodyPhysics.SteerToward(stepWorld.X, live.CentreX, live.Vx)
             : next is NavStep j && j.Kind == MoveKind.Jump ? dir * MathF.Abs(j.StartVx)
             : dir * BodyPhysics.WalkSpeed;
-        return new Controls(speed, jump, BodyPhysics.JumpScaleForTiles(Math.Max(2, riseTiles)));
+        return new Controls(speed);
     }
 
     /// <summary>
@@ -210,20 +215,5 @@ public sealed class WalkTraversal : Traversal
         if (noProgressTicks > 45)
             return TraversalFault.Stuck;
         return base.Check(live, step, ticksOnStep);
-    }
-
-    /// <summary>
-    /// A real wall in the walking direction: solid at the feet row and the row above it, so the
-    /// motor's StepUp cannot take it. A collision flag alone is not that test: the game sets
-    /// collideX for a one-tile kerb on the tick it is met, before StepUp lifts the body over it,
-    /// and jumping on the flag made every kerb a hop.
-    /// </summary>
-    public static bool WallAhead(BodyState live, int dir)
-    {
-        if (!live.CollideX)
-            return false;
-        Point feet = live.FeetTile;
-        int ahead = feet.X + dir;
-        return NavGrid.IsSolid(ahead, feet.Y) && NavGrid.IsSolid(ahead, feet.Y - 1);
     }
 }

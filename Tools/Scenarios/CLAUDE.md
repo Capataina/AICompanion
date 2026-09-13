@@ -22,6 +22,7 @@ Scenarios/
 ├─ platform-intercepts-a-jump-from-below.txt intermediate platform contact
 ├─ platform-lip-one-row-down-is-a-walk-run-5.txt a shallow landing belongs to walking
 ├─ shaft-the-body-freezes-in.txt historical platform-lift failure
+├─ slope-lip-one-row-up-is-a-walk-not-a-hop.txt the lip at 3496,479 cut out of run 4 block 15, where a body sitting low on a floor slope made a one-row walk step read as a two-tile rise and the walker hopped it: 83 ticks with that jump against 48 without
 └─ shaft-two-wide-descended-from-the-lip.txt narrow-shaft entry and body clearance
 ```
 

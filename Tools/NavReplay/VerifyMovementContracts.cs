@@ -44,6 +44,25 @@ internal static class VerifyMovementContracts
         for (int tick = 0; tick < 60; tick++) fault = walk.Check(live, step, tick);
         Require(fault == TraversalFault.Stuck, "a walk with no displacement must report a fault");
 
+        // A walk performs a walk and never a jump. Every rise a walk edge can hold is one tile at
+        // most, because the edge is proven by driving the body and the only lift in that
+        // simulation is the motor's StepUp; so a body that reads as needing more has left what the
+        // proof described, and the answer to that is the fault above and a replan from the live
+        // state, not a move this traversal invents for itself. The state below is exactly the one
+        // that used to raise one: the walker measured the rise from the *live* bottom rather than
+        // from the pose the edge was proven at, so a body sitting low inside its own tile — which
+        // is what a floor slope does, the body resting partway down the diagonal — read a one-row
+        // step as a two-tile rise and hopped it. On run 4's block 15 that cost 34 ticks against a
+        // proven 6 at the lip 3496,479 -> 3497,478, and the hop overflew the tile after it
+        // (2026-09-08_13-48-44-plans-shaped.txt; Tools/Scenarios/slope-lip-one-row-up-is-a-walk-not-a-hop.txt
+        // is that lip cut out, 83 ticks with the jump against 48 without it).
+        var lowInsideItsTile = new BodyState(100, 178, 0, 0, true);
+        var oneRowUp = new NavStep(new Point(7, 9), MoveKind.Walk, new Point(6, 10));
+        Require(!new WalkTraversal().Steer(lowInsideItsTile, oneRowUp, null).Jump,
+            "a walk never raises a jump, however far below its own step the live body sits");
+        Require(!new WalkTraversal().Steer(lowInsideItsTile with { CollideX = true }, oneRowUp, null).Jump,
+            "a walk pressed sideways against a shape faults and replans rather than jumping at it");
+
         AStar.MsBudget = 0;
         AStar.Find(new Point(6, 9), new Point(80, 9), 0, out _, out var stop);
         Require(stop == AStar.SearchStopReason.ExpansionBudget, "a spent search budget is not exhausted terrain");
