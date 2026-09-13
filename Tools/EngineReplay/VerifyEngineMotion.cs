@@ -106,6 +106,7 @@ internal static class VerifyEngineMotion
         failed += VerifyHuntAdmissibility.Run();
         failed += VerifyAttackOutcomes.Run();
         failed += VerifyMovementFailures.Run();
+        failed += VerifyRoundTripEvidence.Run();
         return failed == 0 ? 0 : 1;
     }
 

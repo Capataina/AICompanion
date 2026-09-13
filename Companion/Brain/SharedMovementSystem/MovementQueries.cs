@@ -25,6 +25,7 @@ public static class MovementQueries
     public static Reachability.Reach WalkerReach(Point from, Point to) => Reachability.WalkerReach(from, to);
     public static bool WalkerCanReach(Point from, Point to) => Reachability.WalkerCanReach(from, to);
     public static bool WalkerProvenReach(Point from, Point to) => Reachability.WalkerProvenReach(from, to);
+    public static Reachability.RoundTripEvidence RoundTrip(Point from, Point to, Reachability.BreathEnvelope breath) => Reachability.RoundTrip(from, to, breath);
     public static bool FlyerCanReach(Point from, Point to, int arriveRadius = 3) => Reachability.FlyerCanReach(from, to, arriveRadius);
     public static HashSet<Point> Region(Point from, int budget, out bool complete, bool refuseOneWay = false) => AStar.Region(from, budget, out complete, refuseOneWay);
     public static void TerrainChanged(int x, int y) => AStar.TileChanged(x, y);

@@ -46,17 +46,17 @@ internal static class VerifyMovementFailures
         return failed;
     }
 
-    private static int Case(string name, Action test)
+    internal static int Case(string name, Action test, string family = "movement failure")
     {
         try
         {
             test();
-            Console.WriteLine($"PASS movement failure {name}");
+            Console.WriteLine($"PASS {family} {name}");
             return 0;
         }
         catch (InvalidOperationException error)
         {
-            Console.WriteLine($"FAIL movement failure {name}: {error.Message}");
+            Console.WriteLine($"FAIL {family} {name}: {error.Message}");
             return 1;
         }
     }
@@ -362,7 +362,7 @@ internal static class VerifyMovementFailures
 
     // ── driver ───────────────────────────────────────────────────────────────────────────────
 
-    private sealed class Drive
+    internal sealed class Drive
     {
         public readonly CoordinateMovement Movement = new();
         public BodyState Body;
@@ -401,7 +401,7 @@ internal static class VerifyMovementFailures
 
     // ── native geometry ──────────────────────────────────────────────────────────────────────
 
-    private static void NewWorld(int floorRow)
+    internal static void NewWorld(int floorRow)
     {
         Main.maxTilesX = Main.maxTilesY = 100;
         Main.worldSurface = 50;
@@ -411,7 +411,7 @@ internal static class VerifyMovementFailures
         for (int x = 5; x < 95; x++) Solid(x, floorRow);
     }
 
-    private static void Finish()
+    internal static void Finish()
     {
         TerrainChanges.Reset();
         NavGrid.World = new GameTileWorld();
@@ -449,14 +449,14 @@ internal static class VerifyMovementFailures
         Finish();
     }
 
-    private static void Solid(int x, int y)
+    internal static void Solid(int x, int y)
     {
         Tile tile = Main.tile[x, y];
         tile.HasTile = true;
         tile.TileType = 1;
     }
 
-    private static void Clear(int x, int y)
+    internal static void Clear(int x, int y)
     {
         Tile tile = Main.tile[x, y];
         tile.HasTile = false;
