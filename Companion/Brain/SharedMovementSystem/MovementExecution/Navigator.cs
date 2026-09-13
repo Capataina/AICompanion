@@ -167,6 +167,9 @@ public sealed class Navigator
 
     private int ticksSincePlan = ReplanInterval;
     private int stuckTicks;
+    private int answerWaitTicks;
+    /// <summary>Ticks the body has stood without a route waiting for its current goal's search, summed across restarts.</summary>
+    internal int AnswerWaitTicks => answerWaitTicks;
     private Vector2 lastPosition;
     private int clock;
     private bool forceReplan;
@@ -251,6 +254,7 @@ public sealed class Navigator
             onStep = null;
             execution = null;
             StuckStrikes = 0;
+            answerWaitTicks = 0;
             Arrived = true;
             Status = ExecutionStatus.Arrived;
             search?.Dispose(); search = null; SearchPending = false;
@@ -274,7 +278,7 @@ public sealed class Navigator
         bool goalMoved = goal is Point want
             && (GoalTile is not Point had || Math.Abs(want.X - had.X) > GoalSlackTiles || Math.Abs(want.Y - had.Y) > GoalSlackTiles);
         // A failure explains the goal it was found for; a different goal has not failed yet.
-        if (goalMoved) LastFailure = null;
+        if (goalMoved) { LastFailure = null; answerWaitTicks = 0; }
         // The strike count is not reset here. It used to be, and with the goal tile changing every
         // seventeen ticks that zeroed it about three times a second, so the two-strike escalation
         // the brain reads to ask for a different spot was unreachable by construction: the body
@@ -302,7 +306,14 @@ public sealed class Navigator
         // restarts in 8,000 ticks on the starved sealed corridor); it also handed the brain a
         // physical strike, and two of those ban the spot, for what was only a slow answer. The
         // stall clock starts once the search has answered.
-        if (search is { Finished: false } && (noPath || Path!.Finished))
+        // The exemption is bounded by how long the body has waited for an answer to this goal, summed
+        // across restarts, and not by the life of one search: a terrain change anywhere invalidates the
+        // retained query, so a player mining nearby restarted it every few ticks and a body that could
+        // never be answered never struck either (166 restarts and no strike in 3,000 ticks of churn on
+        // the starved sealed corridor). Walking a route, arriving or a moved goal starts the wait again.
+        if (Path is { Finished: false }) answerWaitTicks = 0;
+        if (search is { Finished: false } && (noPath || Path!.Finished)
+            && ++answerWaitTicks <= BehaviourSelection.Weights.RouteAnswerWaitTicks)
             stuckTicks = 0;
         bool stuck = stuckTicks > StuckReplanTicks;
         // The cadence waits while the current step is part way through a move a fresh plan would
@@ -936,6 +947,7 @@ public sealed class Navigator
         clearance.Clear();
         search?.Dispose(); search = null; SearchPending = false;
         StuckStrikes = 0;
+        answerWaitTicks = 0;
         PlannedThisTick = false;
         onStep = null;
         execution = null;

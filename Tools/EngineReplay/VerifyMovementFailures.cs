@@ -29,6 +29,7 @@ internal static class VerifyMovementFailures
         try
         {
             failed += Case("search deadline is unfinished and never absent", SearchDeadlineIsUnfinishedNeverAbsent);
+            failed += Case("terrain churn cannot hold off stall escalation while an answer is awaited", TerrainChurnCannotHoldOffEscalation);
             failed += Case("away-first detour delivers, sealed twin is absent, reopening delivers", AwayFirstDetourAndSealedTwin);
             failed += Case("ledge and lip entries from varied actual states all deliver", LedgeAndLipEntriesDeliver);
             failed += Case("unattributed divergence is native mismatch, an external hit is pre-emption", DivergenceIsAttributedBeforeBlame);
@@ -123,6 +124,60 @@ internal static class VerifyMovementFailures
                 Console.WriteLine($"   deadline sealed starved={starved}: absent={absent} at {sealedRun.Tick}, seen {sealedRun.SeenText}");
                 Require(absent, $"starved={starved}: a sealed goal must end absent; last {sealedRun.Describe()}");
                 Require(sealedRun.Movement.Navigator.FailedAttempts == 0, $"starved={starved}: a closed model is not a physical failure");
+            }
+            finally { Navigator.PlanMsBudget = 0; }
+        }
+    }
+
+    /// <summary>
+    /// A slow answer is not a stall, but only for so long. A distant tile changed and announced every
+    /// twenty ticks invalidates a retained search before a search starved to one work unit per tick can
+    /// answer, which is what a player mining beside the companion does. With the goal sealed the body
+    /// stands at the wall with no route and a search that never finishes: it must still take a strike
+    /// within the answer-wait bound plus the stall threshold, or the spot ban and regroup's travel
+    /// pressure never arrive. With the goal open, the same churn must not stop delivery, because each
+    /// short search publishes a route the body walks.
+    /// </summary>
+    private static void TerrainChurnCannotHoldOffEscalation()
+    {
+        int bound = AICompanion.Companion.Brain.BehaviourSelection.Weights.RouteAnswerWaitTicks;
+        foreach (bool sealGoal in new[] { true, false })
+        {
+            BuildCorridor(sealGoal);
+            Point goal = sealGoal ? new Point(44, 89) : new Point(40, 89);
+            var run = new Drive(new Point(22, 89));
+            Navigator.PlanMsBudget = .000001;
+            try
+            {
+                int stoppedAt = -1, firstStrike = -1, maxWait = 0;
+                Point lastFeet = run.Body.FeetTile;
+                int limit = sealGoal ? 3000 + bound : 6000;
+                for (; run.Tick < limit && !run.Arrived; )
+                {
+                    if (run.Tick % 20 == 10)
+                    {
+                        if (Main.tile[90, 50].HasTile) Clear(90, 50); else Solid(90, 50);
+                        TerrainChanges.Changed(90, 50);
+                    }
+                    run.Step(goal);
+                    var nav = run.Movement.Navigator;
+                    maxWait = Math.Max(maxWait, nav.AnswerWaitTicks);
+                    if (run.Body.FeetTile != lastFeet) { lastFeet = run.Body.FeetTile; stoppedAt = -1; }
+                    else if (stoppedAt < 0) stoppedAt = run.Tick;
+                    if (firstStrike < 0 && nav.StuckStrikes > 0) firstStrike = run.Tick;
+                    if (sealGoal && nav.StuckStrikes >= 2) break;
+                }
+                var n = run.Movement.Navigator;
+                Console.WriteLine($"   churn sealed={sealGoal}: arrived={run.Arrived} tick {run.Tick}, stood from {stoppedAt}, first strike {firstStrike}, strikes {n.StuckStrikes}, searches {n.SearchId}, longest answer wait {maxWait}, failure {n.LastFailure}");
+                if (sealGoal)
+                {
+                    Require(firstStrike >= 0 && n.StuckStrikes >= 2,
+                        $"a body kept waiting by terrain churn never escalated: strikes {n.StuckStrikes} after {run.Tick} ticks and {n.SearchId} searches");
+                    Require(firstStrike - stoppedAt <= bound + 60,
+                        $"the first strike came {firstStrike - stoppedAt} ticks after the body stood, past the {bound}-tick answer wait and the stall threshold");
+                }
+                else
+                    Require(run.Arrived, $"churn must not stop delivery of an open goal; last {run.Describe()}");
             }
             finally { Navigator.PlanMsBudget = 0; }
         }
