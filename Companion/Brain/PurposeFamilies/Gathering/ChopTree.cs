@@ -114,6 +114,12 @@ public sealed class ChopTree : CompanionAction
             && !WorldInteractions.WorldProtection.ProtectCompanionHomes.IsProtected(bottom)
             && (!deferred.TryGetValue(bottom, out ulong until) || Main.GameUpdateCount >= until);
 
+        // The player's axe contact ages under every policy, Disabled included, so it is aged before any policy returns. Aged
+        // only inside Mimic, a job begun opportunistically read as one the player had triggered this very tick when the policy
+        // changed to Mimic, and kept swinging; frozen while Disabled, a contact made just before chopping was switched off
+        // read as a moment old whenever Mimic came back.
+        if (p.IsChoppingTree) sincePlayerHit = 0;
+        else if (sincePlayerHit <= KeepJobTicks) sincePlayerHit++;
         if (WorkPolicies.Chopping == WorkPolicy.Disabled)
         {
             if (tree != null) Release("work-disabled");
@@ -123,10 +129,6 @@ public sealed class ChopTree : CompanionAction
             Classify(OfferEligibility.PolicyForbidden, "chopping-disabled");
             return 0f;
         }
-        // The player's axe contact ages under every policy. Aged only inside Mimic, a job begun opportunistically read
-        // as one the player had triggered this very tick when the policy changed to Mimic, and kept swinging.
-        if (p.IsChoppingTree) sincePlayerHit = 0;
-        else if (sincePlayerHit <= KeepJobTicks) sincePlayerHit++;
         if (WorkPolicies.Chopping == WorkPolicy.Mimic)
         {
             if (p.IsChoppingTree)

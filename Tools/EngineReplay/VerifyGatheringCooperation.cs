@@ -56,6 +56,7 @@ internal static class VerifyGatheringCooperation
         Each("W04 chop remaining work against departure", ChoppingRemainingWorkMeetsADepartingPlayer);
         Each("W05 protection after approach", ProtectionAddedAfterTheApproachStopsTheTool);
         Each("policy toggles during every phase", PolicyTogglesDuringEveryToolPhaseStopWorkAndResume);
+        Each("D4 Mimic after Disabled reads no stale player hit", AMimicSwitchAfterDisabledReadsNoStalePlayerHit);
         Each("G01 unmineable ore beside a usable tree", AnUnmineableOreDoesNotMaskAUsableTree);
         Each("G02 retained vein against a new tree", ARetainedVeinIsComparedNotReserved);
         Each("G03 one trip unit", MiningAndChoppingPriceTravelInOneUnit);
@@ -329,6 +330,39 @@ internal static class VerifyGatheringCooperation
             Require(!TargetPresent(target, c.Chopping), $"{c.Name}: restoring the policy must let the same work finish");
             RequireOnlyChanged(before, target);
         }
+    }
+
+    /// <summary>
+    /// The player hits a tree under Mimic, then chopping is disabled for longer than both the player-contact memory and the
+    /// mimic job window, then Mimic is switched back on with no player contact. The offer must read as waiting for the
+    /// player, because the player's axe contact ages under every policy; a contact frozen while chopping was disabled would
+    /// read as a swing made a moment ago.
+    /// </summary>
+    private static void AMimicSwitchAfterDisabledReadsNoStalePlayerHit()
+    {
+        Point trunk = new(25, 59);
+        var ctx = SetUpTrees(trunk);
+        WorkPolicies.Chopping = WorkPolicy.Mimic;
+        var workClock = new TileDamageClock();
+        workClock.OnWorldLoad();
+        var chop = ctx.Companion.Brain.Chooser.Actions.OfType<ChopTree>().Single();
+        bool fail = true, effectOnly = false, noItem = false;
+        new TileDamageWatcher().KillTile(trunk.X, trunk.Y, TileID.Trees, ref fail, ref effectOnly, ref noItem);
+        VerifyOreWork.AdvanceBrain(ctx);
+        workClock.PostUpdateEverything();
+        chop.Prepare(ctx);
+        Require(ctx.Companion.Brain.Senses.Player.IsChoppingTree, "premise: the player's axe contact must be observed under Mimic");
+        WorkPolicies.Chopping = WorkPolicy.Disabled;
+        for (int tick = 0; tick < 300; tick++)
+        {
+            VerifyOreWork.AdvanceBrain(ctx);
+            workClock.PostUpdateEverything();
+        }
+        Require(!ctx.Companion.Brain.Senses.Player.IsChoppingTree, "premise: the player's axe contact must have expired while chopping was disabled");
+        WorkPolicies.Chopping = WorkPolicy.Mimic;
+        chop.Prepare(ctx);
+        Require(chop.Eligibility == OfferEligibility.PolicyForbidden && chop.EligibilityReason == "mimic-awaiting-player-tree-contact",
+            $"Mimic switched on long after the player's last axe contact must wait for the player; got {chop.Eligibility}/{chop.EligibilityReason}");
     }
 
     /// <summary>Copper the fallback pick cannot damage beside the companion, and a usable tree farther away. The unmineable ore

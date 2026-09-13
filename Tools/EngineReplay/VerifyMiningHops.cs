@@ -46,9 +46,12 @@ internal static class VerifyMiningHops
         Each("deadline", HopScansCutShortByTheDeadlineAreUnknown, productionAllowances: true);
         Each("tall-ceiling", ATallCeilingNeedsMostOfTheJumpsRise);
         Each("ledge", ALedgeTakeOffIsClimbedToAndLandedOn);
+        Each("G1 narrow top refused by arrival-slide admission (known limitation)", ANarrowTopIsRefusedByArrivalSlideAdmission);
         if (red > 0) return red;
         MeasureStandingNoHopCost(warmUp: true);
         MeasureStandingNoHopCost(warmUp: false);
+        MeasureTraversalJumpHopCost(warmUp: true);
+        MeasureTraversalJumpHopCost(warmUp: false);
         Console.WriteLine("mining hops: pit-edge arrival, displaced take-off, lost take-off outcome, deadline-bounded scans, tall ceiling and ledge take-off pass");
         return 0;
     }
@@ -308,6 +311,102 @@ internal static class VerifyMiningHops
         }
         var mine = ctx.Companion.Brain.Chooser.Actions.OfType<MineOre>().Single();
         Console.WriteLine($"hop cost, standing-No ceiling scene (300 ticks): decide {Stats(decide)} | tick {Stats(whole)} | mine offer={mine.Eligibility}/{mine.EligibilityReason}");
+    }
+
+    /// <summary>
+    /// G1, a known limitation asserted as it stands so that a change to it is visible. Ore a jump from the floor cannot reach
+    /// sits above a pillar two tiles wide and two tall. A jump from rest on the pillar top brings the ore into reach and the
+    /// walker can climb there, yet no take-off on it is admitted, because admission requires support under the body through a
+    /// walking-speed stopping slide either side of a tile-centred pose, and a top that narrow has drops on both sides within
+    /// that slide. The same scene with the top three tiles wide admits a take-off on it.
+    /// </summary>
+    private static void ANarrowTopIsRefusedByArrivalSlideAdmission()
+    {
+        Point ore = new(26, 44);
+        foreach (int width in new[] { 3, 2 })
+        {
+            var ctx = BuildCeilingScene(ore, slabTop: 43);
+            for (int x = 25; x < 25 + width; x++)
+                for (int y = 58; y <= 59; y++)
+                    VerifyOreWork.Place(new Point(x, y), TileID.Dirt);
+            LiveTerrainChanges.Reset();
+            var hop = FindToolAccess.HopApproach(ore, ctx.Npc.Bottom, ctx.Companion.Motor.State, out Vector2 takeOff);
+            if (width == 3)
+            {
+                Require(hop == LiveReach.Yes && LiveMovementQueries.FeetTile(takeOff).Y == 57,
+                    $"a three-wide top must admit a take-off on it; hop={hop} take-off={takeOff}");
+                continue;
+            }
+            Require(hop == LiveReach.No,
+                $"G1 changed: a two-wide top was refused by arrival-slide admission and the ore had no proven pose; now hop={hop} take-off={takeOff}. Update the Mining and WorldInteractions guides");
+            Point top = new(26, 57);
+            Vector2 feet = LiveMovementQueries.FeetWorld(top);
+            var rest = ctx.Companion.Motor.State with
+            {
+                Left = feet.X - live::AICompanion.Companion.Brain.SharedMovementSystem.BodyPhysics.Width / 2f, Bottom = feet.Y, Vx = 0f, Vy = 0f, OnGround = true,
+                CollideX = false, Stuck = false, Pinned = false, Wet = false, StairFall = false, LiquidKind = 0,
+            };
+            Require(live::AICompanion.Companion.Brain.SharedMovementSystem.ProveInteractionJump.CanReach(
+                    live::AICompanion.Companion.Brain.SharedMovementSystem.NavGrid.World, rest, rising => FindToolAccess.InReach(rising.Feet, ore)),
+                "premise: a jump from rest on the two-wide top must bring the ore into reach and land, or the refusal is physics rather than admission");
+            Require(LiveMovementQueries.WalkerReach(LiveMovementQueries.FeetTile(ctx.Npc.Bottom), top) == LiveReach.Yes,
+                "premise: the walker must reach the two-wide top");
+        }
+    }
+
+    /// <summary>
+    /// S1 measurement under the production planning allowances. Ceiling ore above a ledge four tiles tall, reached from the
+    /// left over a two-tile step, so the walk to the take-off needs traversal jumps (a one-tile rise is climbed by native
+    /// step-up and jumps nothing) whose landings are away from the take-off. Prints landings, hop-target releases with the
+    /// decide time on each release tick, and decide and Gathering preparation timings; asserts nothing.
+    /// </summary>
+    private static void MeasureTraversalJumpHopCost(bool warmUp)
+    {
+        Point ore = new(26, 44);
+        var ctx = BuildCeilingScene(ore, slabTop: 43);
+        for (int x = 14; x <= 21; x++)
+            for (int y = 58; y <= 59; y++)
+                VerifyOreWork.Place(new Point(x, y), TileID.Dirt);
+        for (int x = 22; x <= 30; x++)
+            for (int y = 56; y <= 59; y++)
+                VerifyOreWork.Place(new Point(x, y), TileID.Dirt);
+        LiveTerrainChanges.Reset();
+        ctx.Npc.Bottom = new Vector2(8 * 16 + 8, 60 * 16);
+        ctx.Player.Bottom = ctx.Npc.Bottom;
+        var brain = ctx.Companion.Brain;
+        var mine = brain.Chooser.Actions.OfType<MineOre>().Single();
+        brain.Chooser.Actions.RemoveAll(action => action is not MineOre);
+        var progressFor = typeof(MineOre).GetField("hopProgressFor", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
+        var decide = new List<double>();
+        var gathering = new List<double>();
+        var releaseDecide = new List<string>();
+        int landings = 0, releases = 0, ticks = 0;
+        bool wasAir = false;
+        object? lastProgress = null;
+        for (; ticks < 1200 && Main.tile[ore.X, ore.Y].HasTile; ticks++)
+        {
+            VerifyOreWork.AdvanceBrain(ctx);
+            decide.Add(brain.DecideMs);
+            if (brain.ChoiceEvaluated)
+                foreach (var family in brain.Chooser.Queries.LastFamilies)
+                    if (family.Family.ToString() == "Gathering") gathering.Add(family.Milliseconds);
+            bool air = !ctx.Companion.Motor.State.OnGround;
+            if (wasAir && !air) landings++;
+            wasAir = air;
+            object? progress = progressFor.GetValue(mine);
+            if (lastProgress != null && progress == null) { releases++; releaseDecide.Add($"{brain.DecideMs:0.000}@{ticks}"); }
+            lastProgress = progress;
+        }
+        if (warmUp) return;
+        Console.WriteLine($"hop cost, step-then-ledge walk to a take-off ({ticks} ticks, production allowances, broken={!Main.tile[ore.X, ore.Y].HasTile}): "
+            + $"landings {landings}, hop-target releases {releases} (decide ms@tick {string.Join(", ", releaseDecide)}) | decide {Stats(decide)} | prepare Gathering {Stats(gathering)}");
+    }
+
+    private static string Stats(List<double> samples)
+    {
+        if (samples.Count == 0) return "no samples";
+        var sorted = samples.OrderBy(v => v).ToList();
+        return $"p50 {sorted[sorted.Count / 2]:0.000} p95 {sorted[(int)(sorted.Count * .95)]:0.000} max {sorted[^1]:0.000} mean {sorted.Average():0.000}";
     }
 
     /// <summary>A flat floor at row 60 under a two-row dirt slab whose lower row holds the ore, so the ore's only open face is underneath it.</summary>

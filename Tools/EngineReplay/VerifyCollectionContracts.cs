@@ -23,12 +23,17 @@ using Preferences = live::AICompanion.Companion.PlayerIntegration.CompanionPrefe
 internal static class VerifyCollectionContracts
 {
     private const int Slot = 7;
+    private const int SlotCount = 5;
 
     public static int Run()
     {
         bool potBreaking = Preferences.Current.PotBreaking;
-        Item previous = Main.item[Slot];
+        Item[] previous = Enumerable.Range(Slot, SlotCount).Select(i => Main.item[i]).ToArray();
         int red = 0;
+        void Restore()
+        {
+            for (int i = 0; i < SlotCount; i++) Main.item[Slot + i] = previous[i];
+        }
         void Each(string name, Action fixture)
         {
             LimitPlanningWork.Unbounded = true;
@@ -41,7 +46,7 @@ internal static class VerifyCollectionContracts
                 LimitPlanningWork.Unbounded = false;
                 AStar.AllowOneWayDrops = oneWay;
                 Preferences.Current.PotBreaking = potBreaking;
-                Main.item[Slot] = previous;
+                Restore();
             }
         }
         Each("I03 a drop in a pit proves its own reach and return", ADropInAPitIsNotCollectedOnAStandableTileAlone);
@@ -49,8 +54,183 @@ internal static class VerifyCollectionContracts
         Each("I04 partial stack capacity", PartialCargoCapacityValuesAndConcludesTheAcceptedQuantity);
         Each("I05 attribution by transfer", ADropLeavingTheWorldIsAttributedByWhatTheBagReceived);
         Each("I03 one trip unit", ADropsForecastIsTheWalkToAContactPose);
-        if (red == 0) Console.WriteLine("collection contracts: own reach and return, moved drops, partial capacity, transfer attribution and trip unit pass");
+        Each("D1 a reachable drop behind refused drops is offered", AReachableDropBehindRefusedDropsIsOffered);
+        Each("D2 a drop merged into another world drop", ADropMergedIntoAnotherWorldDropIsNotAPurposeThatWentAway);
+        // Timings under the production allowances, printed and never asserted: they describe this machine.
+        foreach (bool warmUp in new[] { true, false })
+            foreach (bool pit in new[] { false, true })
+            {
+                bool oneWay = AStar.AllowOneWayDrops;
+                try { MeasureFallingDropCost(pit, warmUp); }
+                finally { AStar.AllowOneWayDrops = oneWay; Preferences.Current.PotBreaking = potBreaking; Restore(); }
+            }
+        if (red == 0) Console.WriteLine("collection contracts: own reach and return, moved drops, partial capacity, transfer attribution, trip unit, refused-drop budget and merged drops pass");
         return red;
+    }
+
+    /// <summary>
+    /// Four drops at the bottom of a sealed pit beside the companion, nearer than one reachable drop on the open floor, with
+    /// more refused drops than one preparation may put to a fresh walker search. The budget bounds searches, so drops whose
+    /// verdicts are already known cost nothing and the farther drop must be reached within a bounded number of preparations.
+    /// The first preparation must not already offer it, or the budget is not being exercised at all.
+    /// </summary>
+    private static void AReachableDropBehindRefusedDropsIsOffered()
+    {
+        var ctx = SetUpFloor();
+        ctx.Npc.Bottom = new Vector2(40 * 16 + 8, 60 * 16);
+        BuildSealedPit(43, 46);
+        AStar.AllowOneWayDrops = false;
+        var pit = new List<Item>();
+        for (int i = 0; i < 4; i++) pit.Add(Drop(ItemID.CopperOre, 5, new Vector2((43 + i) * 16 + 8, 75 * 16), Slot + i));
+        Item far = Drop(ItemID.CopperOre, 5, new Vector2(12 * 16 + 8, 60 * 16), Slot + 4);
+        int budget = live::AICompanion.Companion.Brain.BehaviourSelection.Weights.CollectionReachCandidates;
+        float Distance(Item item) => Vector2.Distance(ctx.Npc.Center, item.Center);
+        Require(pit.All(drop => Distance(drop) < Distance(far)) && pit.Count > budget,
+            $"premise: every pit drop must be nearer than the floor drop, and there must be more of them than the budget ({budget}); far={Distance(far):0} pit={string.Join(",", pit.Select(d => Distance(d).ToString("0")))}");
+        {
+            var alone = new CollectNearbyItems();
+            ObserveAll(ctx, far);
+            alone.Prepare(ctx);
+            Require(alone.Method == "known-drop" && ReferenceEquals(alone.ActivityIdentity, far),
+                $"premise: the floor drop must be a usable offer on its own; offer={alone.Eligibility}/{alone.EligibilityReason}");
+        }
+        var collect = new CollectNearbyItems();
+        ObserveAll(ctx, pit.Append(far).ToArray());
+        collect.Prepare(ctx);
+        Require(!ReferenceEquals(collect.ActivityIdentity, far) && collect.Eligibility == OfferEligibility.KnownUnusable,
+            $"premise: the first preparation asks only about the nearest pit drops and finds them unusable; offer={collect.Eligibility}/{collect.EligibilityReason} target={collect.ActivityTarget}");
+        int bound = (pit.Count + 1 + budget - 1) / budget;
+        int preparations = 1;
+        while (!ReferenceEquals(collect.ActivityIdentity, far) && preparations < 4 * bound)
+        {
+            collect.Prepare(ctx);
+            preparations++;
+        }
+        Require(ReferenceEquals(collect.ActivityIdentity, far) && collect.Method == "known-drop" && preparations <= bound,
+            $"a reachable drop behind refused ones must be offered within {bound} preparations, because known verdicts cost no search; offered={ReferenceEquals(collect.ActivityIdentity, far)} after {preparations} preparations, offer={collect.Eligibility}/{collect.EligibilityReason}");
+    }
+
+    /// <summary>
+    /// Terraria merges two nearby drops of one type in the world: the lower slot absorbs the higher one, which is cleared
+    /// and deactivated. A walked-to drop absorbed that way has not left the world and nobody took it, so it must not end its
+    /// attempt as a purpose that went away; after a partial transfer the rest is still lying there, so it is partial. A drop
+    /// the player took with a same-type drop lying beyond merge distance remains invalid.
+    /// </summary>
+    private static void ADropMergedIntoAnotherWorldDropIsNotAPurposeThatWentAway()
+    {
+        (CollectNearbyItems Collect, ActionContext Context, Item Walked, Item Other) Scene(int otherColumn, int? room)
+        {
+            var ctx = SetUpFloor();
+            if (room is int free) FillCargoLeavingRoom(ctx, ItemID.CopperOre, free);
+            Item other = Drop(ItemID.CopperOre, 5, new Vector2(otherColumn * 16 + 8, 60 * 16), Slot);
+            Item walked = Drop(ItemID.CopperOre, 5, new Vector2(25 * 16 + 8, 60 * 16), Slot + 1);
+            other.playerIndexTheItemIsReservedFor = walked.playerIndexTheItemIsReservedFor = Main.myPlayer;
+            ObserveAll(ctx, other, walked);
+            var collect = new CollectNearbyItems();
+            collect.Prepare(ctx);
+            Require(ReferenceEquals(collect.ActivityIdentity, walked),
+                $"premise: the nearer drop must be the one walked to; offer={collect.Eligibility}/{collect.EligibilityReason} target={collect.ActivityTarget}");
+            collect.BeginAttempt();
+            collect.Execute(ctx);
+            return (collect, ctx, walked, other);
+        }
+        {
+            var (collect, ctx, walked, absorber) = Scene(26, null);
+            absorber.TryCombiningIntoNearbyItems(Slot);
+            Require(!LootIsInWorld(walked) && absorber.stack == 10,
+                $"premise: the native merge must absorb the walked-to drop; walked active={walked.active} absorber stack={absorber.stack}");
+            var conclusion = collect.ConcludeAttempt(0);
+            Require(conclusion is { Status: AttemptStatus.Attempted, Cause: "drop-merged-into-world-drop" },
+                $"a walked-to drop merged into another world drop has not left the world; got {conclusion}");
+            ObserveAll(ctx, absorber);
+            collect.Prepare(ctx);
+            Require(collect.Method == "known-drop" && ReferenceEquals(collect.ActivityIdentity, absorber),
+                $"the absorbing drop must be offered on the next preparation; offer={collect.Eligibility}/{collect.EligibilityReason}");
+        }
+        {
+            var (collect, ctx, walked, absorber) = Scene(26, 2);
+            Require(ctx.Companion.Bag.Collect(walked, ctx.Player) && walked.stack == 3, $"premise: the bag must take the two that fit; left={walked.stack}");
+            absorber.TryCombiningIntoNearbyItems(Slot);
+            Require(!LootIsInWorld(walked) && absorber.stack == 8, $"premise: the native merge must absorb the remainder; absorber stack={absorber.stack}");
+            var conclusion = collect.ConcludeAttempt(0);
+            Require(conclusion is { Status: AttemptStatus.Partial, Cause: "drop-partly-transferred" },
+                $"part transferred and the rest merged into a world drop is partial, not a completion; got {conclusion}");
+        }
+        {
+            var (collect, _, walked, _) = Scene(30, null);
+            walked.TurnToAir();
+            walked.active = false;
+            var conclusion = collect.ConcludeAttempt(0);
+            Require(conclusion is { Status: AttemptStatus.Invalid, Cause: "drop-left-world-without-companion-transfer" },
+                $"a drop taken with the only same-type drop beyond merge distance left the world; got {conclusion}");
+        }
+    }
+
+    /// <summary>
+    /// Whole-brain collection timing under the production allowances while four drops appear at once above the companion and
+    /// fall: onto the open floor beside it, or into a sealed pit beside it. A falling drop changes its contact pose as it
+    /// descends, which the verdict reuse keys on. Once the drops have landed a reachable drop appears farther away on the
+    /// floor, so the pit scene also shows whether refused nearer drops starve it. Prints NearbyAssistance preparation per
+    /// evaluated tick, its three costliest ticks and the first tick the farther drop is offered; asserts nothing.
+    /// </summary>
+    private static void MeasureFallingDropCost(bool pit, bool warmUp)
+    {
+        const int farAppears = 110;
+        Preferences.Current.PotBreaking = false;
+        AStar.AllowOneWayDrops = false;
+        var ctx = SetUpFloor();
+        ctx.Npc.Bottom = new Vector2(40 * 16 + 8, 60 * 16);
+        if (pit) BuildSealedPit(43, 46);
+        int landing = (pit ? 75 : 60) * 16;
+        var falling = new List<Item>();
+        for (int i = 0; i < 4; i++) falling.Add(Drop(ItemID.CopperOre, 5, new Vector2((43 + i) * 16 + 8, 50 * 16), Slot + i));
+        Item? far = null;
+        var brain = ctx.Companion.Brain;
+        var collect = brain.Chooser.Actions.OfType<CollectNearbyItems>().Single();
+        var nearby = new List<(double Ms, int Tick)>();
+        int farOffered = -1, landedBy = -1;
+        for (int tick = 0; tick < 300; tick++)
+        {
+            foreach (Item drop in falling)
+                if (LootIsInWorld(drop) && drop.Bottom.Y < landing)
+                    drop.Bottom = new Vector2(drop.Bottom.X, MathF.Min(landing, drop.Bottom.Y + 4f));
+            if (landedBy < 0 && falling.All(drop => !LootIsInWorld(drop) || drop.Bottom.Y >= landing)) landedBy = tick;
+            if (tick == farAppears) far = Drop(ItemID.CopperOre, 5, new Vector2(12 * 16 + 8, 60 * 16), Slot + 4);
+            VerifyOreWork.AdvanceBrain(ctx);
+            if (brain.ChoiceEvaluated)
+                foreach (var family in brain.Chooser.Queries.LastFamilies)
+                    if (family.Family.ToString() == "NearbyAssistance") nearby.Add((family.Milliseconds, tick));
+            if (far != null && farOffered < 0 && ReferenceEquals(collect.ActivityIdentity, far)) farOffered = tick;
+        }
+        if (warmUp || nearby.Count == 0) return;
+        var sorted = nearby.Select(sample => sample.Ms).OrderBy(v => v).ToList();
+        string costliest = string.Join(", ", nearby.OrderByDescending(sample => sample.Ms).Take(3).Select(sample => $"{sample.Ms:0.000}@{sample.Tick}"));
+        Console.WriteLine($"collection cost, four drops falling {(pit ? "into a sealed pit" : "onto the open floor")} then a reachable drop at tick {farAppears} (300 ticks, production allowances, drops settled by tick {landedBy}): "
+            + $"nearby-assistance prepare p50 {sorted[sorted.Count / 2]:0.000} p95 {sorted[(int)(sorted.Count * .95)]:0.000} max {sorted[^1]:0.000} ms, costliest {costliest}, "
+            + $"{sorted.Count(v => v >= 0.5)} of {sorted.Count} evaluated ticks at or over 0.5 ms; farther drop first offered at tick {(farOffered < 0 ? "never" : farOffered.ToString())}");
+    }
+
+    private static void BuildSealedPit(int left, int right)
+    {
+        for (int x = left; x <= right; x++)
+        {
+            Main.tile[x, 60].ClearEverything();
+            VerifyOreWork.Place(new Point(x, 75), TileID.Dirt);
+        }
+        for (int y = 60; y <= 75; y++)
+        {
+            VerifyOreWork.Place(new Point(left - 1, y), TileID.Dirt);
+            VerifyOreWork.Place(new Point(right + 1, y), TileID.Dirt);
+        }
+        TerrainChanges.Reset();
+    }
+
+    private static void ObserveAll(ActionContext ctx, params Item[] items)
+    {
+        ctx.Senses.Loot.Pickups.Clear();
+        foreach (Item item in items)
+            if (LootIsInWorld(item)) ctx.Senses.Loot.Pickups.Add(new(item, 1f, Vector2.Distance(ctx.Npc.Center, item.Center)));
+        ctx.Senses.Loot.Pickups.Sort((a, b) => a.DistanceToCompanion.CompareTo(b.DistanceToCompanion));
     }
 
     /// <summary>
@@ -241,16 +421,16 @@ internal static class VerifyCollectionContracts
         last.stack = last.maxStack - room;
     }
 
-    private static Item Drop(int type, int stack, Vector2 bottom)
+    private static Item Drop(int type, int stack, Vector2 bottom, int slot = Slot)
     {
         var item = new Item();
         item.SetDefaults(type);
         item.stack = stack;
         item.active = true;
         item.noGrabDelay = 0;
-        item.whoAmI = Slot;
+        item.whoAmI = slot;
         item.Bottom = bottom;
-        Main.item[Slot] = item;
+        Main.item[slot] = item;
         return item;
     }
 
