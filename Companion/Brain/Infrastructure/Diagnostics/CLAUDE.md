@@ -164,3 +164,11 @@ The HUD and inspector read the coordinator's movement-progress state independent
 Follow-gap and one-way-held-out captures read the actual reunion/protection request kind. Keeping company can also rest or stroll, so its activity label alone cannot establish an outstanding reunion request. Recording retains the activity and requested method separately.
 
 The continuous collection_method field distinguishes a known-drop offer from potential pot contents under the same collecting activity. It is retained activity evidence, read with choice freshness and suspension state; it does not report that a pot was broken or its contents picked up. Native world-interaction and pickup events establish those separate outcomes.
+
+## Planned work
+
+This folder's memory has grown to 55.7k characters, 2.8× one reading. The file addresses four distinct instrumental concerns: the detector/census philosophy (lines 20–26), the failure-as-blocks architecture and traps (lines 28–106), the telemetry schema history and what capture preserves (lines 107–166), and the overlay/inspector implementation (lines 107–166, woven with the capture section).
+
+A restructure would cluster these into subfolders by instrument: one for `RecordBrainTelemetry` and schema, one for `CaptureMovementScenario`, `DrawBrainOverlay` and the inspector layers, and one for the shared traps and philosophy. The reference surface crosses all three files (recorder, capture, overlay all read by `SessionReport` and fixtures), so a later session must sweep every wikilink, import and citation before moving code.
+
+This is blocked by "moving code is outside a droid's permission": restructuring the memory files is free, but the code belongs to the files that declare them, so moving `.cs` files into subfolders requires moving imports and re-exports through the whole brain subsystem.
