@@ -258,7 +258,6 @@ public sealed class Navigator
             Arrived = true;
             Status = ExecutionStatus.Arrived;
             search?.Dispose(); search = null; SearchPending = false;
-            floor.Reset();
             BehaviourCensus.RequestReached();
             return Controls.None;
         }
@@ -398,9 +397,11 @@ public sealed class Navigator
             }
         }
 
-        // Stuck is tracked in every branch, including the fallback: a body going nowhere is going
-        // nowhere whether it is following a step or walking straight at a target no plan reached.
-        Controls preferred = Path == null || Path.Finished ? floor.Toward(live, targetFeet) : Follow(live);
+        // Computed here rather than inside the branch below, because Follow reads the body before
+        // the capabilities are stamped onto it on the next line and moving the call would change
+        // which state it sees. Where there is no live path this is unused: the branch below owns
+        // that case and answers it with a proven clearance move or with nothing at all.
+        Controls preferred = Path is { Finished: false } ? Follow(live) : Controls.None;
         // A route step supplies the strategic direction; the local search executes it from the
         // actual pose, velocity, liquid state and remaining mobility. This stays on for fallback
         // movement as well, so an interrupted path does not revert to the old standing-node rule.
@@ -470,7 +471,6 @@ public sealed class Navigator
         stepFaulted = false;
         forceReplan = false;
         clearance.Clear();
-        floor.Reset();
     }
 
     private void Strike(Point tile)
@@ -549,9 +549,6 @@ public sealed class Navigator
             : LastSearchStop == AStar.SearchStopReason.Exhausted ? "model-exhausted" : "search-limit";
         if (Path != null)
         {
-            // The floor's stall counter is about one attempt at one target, so it starts clean
-            // whenever a path exists to hand back to it later.
-            floor.Reset();
             BehaviourCensus.Planned(Path);
         }
         // A partial path that ends on the tile the search started from is not a route. Every step
@@ -923,15 +920,6 @@ public sealed class Navigator
     private static Rectangle BodyBox(BodyState state) => new((int)Math.Floor(state.Left),
         (int)Math.Floor(state.Bottom - BodyPhysics.Height), (int)BodyPhysics.Width + 1, (int)BodyPhysics.Height + 1);
 
-    /// <summary>
-    /// The floor: a move from the current state with no plan, which is what every vanilla walker
-    /// has and this had only a stub of. It used to walk at the target and jump for a wall and
-    /// nothing else, which meant an unroutable ledge one tile high stopped the body dead — the
-    /// planner was the only thing that could produce a climb, so a plan that failed produced a
-    /// statue. <see cref="ReactiveWalk"/> is the fighter AI's own obstacle ladder and gap leap.
-    /// </summary>
-    private readonly ReactiveWalk floor = new();
-
     private void TrackStuck(BodyState live)
     {
         var position = new Vector2(live.Left, live.Bottom);
@@ -961,6 +949,5 @@ public sealed class Navigator
         onStep = null;
         execution = null;
         forceReplan = false;
-        floor.Reset();
     }
 }
