@@ -115,6 +115,7 @@ internal static class VerifyEngineMotion
         failed += VerifyMovementFailures.Run();
         failed += VerifyRoundTripEvidence.Run();
         failed += VerifyCapabilityRevision.Run();
+        failed += VerifyDoorPassage.Run();
         return failed == 0 ? 0 : 1;
     }
 
