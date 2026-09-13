@@ -303,6 +303,11 @@ public sealed class MineOre : CompanionAction
             || !AllowsTarget(ctx, pending.ToWorldCoordinates())
             || WorldInteractions.WorldProtection.ProtectCompanionHomes.IsProtected(pending))
         {
+            // Already walking at an ore that has since vanished, left the allowance, stopped being mineable or become
+            // protected: the attempt ended because its target or permission went away, which is invalid rather than a
+            // replacement before any effect.
+            if (unproven != null)
+                attemptSetback = (AttemptStatus.Invalid, "unproven-ore-no-longer-admissible");
             unproven = null;
             return 0f;
         }

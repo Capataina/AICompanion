@@ -38,7 +38,8 @@ public sealed class ChopTree : CompanionAction
 
     private TreeFinder.ChoppableTree? tree;
     private Point? lastSearchedFor;
-    private int sincePlayerHit;
+    // Starts expired: no player axe contact has been observed, so nothing is being mimicked yet.
+    private int sincePlayerHit = KeepJobTicks + 1;
     private int sinceSearch = SearchEveryTicks;
     private (Point from, Point goal, int revision, int reachX, int reachY)? reachKey;
     private Reachability.Reach approachReach;
@@ -122,13 +123,19 @@ public sealed class ChopTree : CompanionAction
             Classify(OfferEligibility.PolicyForbidden, "chopping-disabled");
             return 0f;
         }
+        // The player's axe contact ages under every policy. Aged only inside Mimic, a job begun opportunistically read
+        // as one the player had triggered this very tick when the policy changed to Mimic, and kept swinging.
+        if (p.IsChoppingTree) sincePlayerHit = 0;
+        else if (sincePlayerHit <= KeepJobTicks) sincePlayerHit++;
         if (WorkPolicies.Chopping == WorkPolicy.Mimic)
         {
             if (p.IsChoppingTree)
             {
-                sincePlayerHit = 0;
                 if (tree is TreeFinder.ChoppableTree t && (!TileChopper.TreeStands(t.Bottom) || t.Bottom == p.ChoppedTree))
+                {
+                    if (TileChopper.TreeStands(t.Bottom)) Release("player-took-trunk");
                     tree = null;
+                }
                 bool newTree = lastSearchedFor != p.ChoppedTree;
                 if (tree == null && (newTree || sinceSearch >= SearchEveryTicks))
                 {
@@ -141,9 +148,9 @@ public sealed class ChopTree : CompanionAction
             {
                 // Between two swings the hit flag is down; retain this mimic job long enough
                 // for a slow player swing, then release it rather than becoming a mission.
-                sincePlayerHit++;
                 if (sincePlayerHit > KeepJobTicks)
                 {
+                    if (tree != null) Release("mimic-awaiting-player-tree-contact");
                     tree = null;
                     lastSearchedFor = null;
                 }
@@ -156,10 +163,10 @@ public sealed class ChopTree : CompanionAction
             if (tree is TreeFinder.ChoppableTree t && !TileChopper.TreeStands(t.Bottom))
                 tree = null;
             // A changed player worksite can overlap our retained trunk before the next
-            // periodic discovery. Prefer a separate job, but Auto may share the only tree.
+            // periodic discovery. Prefer a separate job, but Opportunistic may share the only tree.
             if (lastSearchedFor != p.ChoppedTree)
             {
-                if (tree?.Bottom == p.ChoppedTree) tree = null;
+                if (tree?.Bottom == p.ChoppedTree) { tree = null; Release("player-took-trunk"); }
                 lastSearchedFor = p.ChoppedTree;
                 sinceSearch = SearchEveryTicks;
             }
