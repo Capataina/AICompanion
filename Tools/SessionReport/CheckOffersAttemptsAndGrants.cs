@@ -129,7 +129,7 @@ public sealed class AttemptIdentitiesAgreeAcrossRecords : ICheck, ICheckCoverage
     public string[] Needs => new[] { "tick", "choice_id", "activity_attempt_id", "attempt_end_id", "attempt_end_activity_id", "attempt_end_activity", "attempt_end_tick" };
 
     public string? Missing(Session session)
-        => ReadGodsEyeEvents.Read(session.Path).Present ? null : "-events.jsonl sidecar, which carries the attempt outcomes, grants and tool effects";
+        => CheckEvents.SidecarUnavailable(session, "the attempt outcomes, grants and tool effects");
 
     public IEnumerable<Finding> Run(Session s)
     {
@@ -223,8 +223,10 @@ public sealed class AttemptIdentitiesAgreeAcrossRecords : ICheck, ICheckCoverage
                     "A strike names only the attempt open when Execute struck, and an attempt is open from its start tick to its end tick, so a strike naming it outside that interval misnames the attempt or the attempt's interval."));
             if (!ordered || end - start < 2) continue;
             int first = LowerBound(rowTicks, start + 1), mismatched = 0, firstMismatch = -1;
+            // Only a row that names an attempt can name a different one: an unreadable cell is a damaged record, which the
+            // column audit reports, and comparing its null to the attempt would call that damage a contradiction.
             for (int r = first; r < rowTicks.Length && rowTicks[r] < end; r++)
-                if (JoinAttemptEvidence.LongAt(open, r) != attempt.AttemptId) { mismatched++; if (firstMismatch < 0) firstMismatch = r; }
+                if (JoinAttemptEvidence.LongAt(open, r) is long named && named != attempt.AttemptId) { mismatched++; if (firstMismatch < 0) firstMismatch = r; }
             if (mismatched > 0)
                 findings.Add(new Finding(Severity.Definitive, Name, $"rows inside attempt {attempt.AttemptId} name a different open attempt",
                     $"{mismatched:n0} row(s) strictly between its start tick {start} and end tick {end} do not carry it as activity_attempt_id; the first, at tick {rowTicks[firstMismatch]}, carries '{open.Text[firstMismatch]}'. An attempt stays open from BeginExecution until suspension or replacement closes it, and the owner holds one attempt at a time.",
@@ -248,8 +250,11 @@ public sealed class AttemptIdentitiesAgreeAcrossRecords : ICheck, ICheckCoverage
         Column closedTick = s["attempt_end_tick"];
         var wrongAttempt = join.Attempts.Values
             .SelectMany(a => a.ToolEffects.Where(t => t.Route == ToolEffectRoute.ProducerAttemptId).Select(t => (a.AttemptId, t.Effect)))
-            .Where(x => rowAt.TryGetValue(x.Effect.tick, out int row) && JoinAttemptEvidence.LongAt(open, row) != x.AttemptId
-                && !(JoinAttemptEvidence.LongAt(endId, row) == x.AttemptId && JoinAttemptEvidence.LongAt(closedTick, row) == x.Effect.tick))
+            .Where(x => rowAt.TryGetValue(x.Effect.tick, out int row) && JoinAttemptEvidence.LongAt(open, row) is long rowOpen && rowOpen != x.AttemptId
+                // The row must say readably that it closed some other attempt, or none, on another tick: unreadable end cells
+                // may have held exactly the closure that makes this strike right, so they leave the strike unjudged.
+                && JoinAttemptEvidence.LongAt(endId, row) is long endAttempt && JoinAttemptEvidence.LongAt(closedTick, row) is long endAt
+                && !(endAttempt == x.AttemptId && endAt == x.Effect.tick))
             .Select(x => x.Effect).OrderBy(e => e.seq).ToList();
         if (wrongAttempt.Count > 0)
             findings.Add(Aggregate(Severity.Definitive, "tool effects name an attempt their own tick's row does not", wrongAttempt,
@@ -285,7 +290,7 @@ public sealed class CompletedTransferClaimsWereReceived : ICheck, ICheckCoverage
 
     public string? Missing(Session session)
     {
-        if (!ReadGodsEyeEvents.Read(session.Path).Present) return "-events.jsonl sidecar, which carries the attempt outcomes and pickups";
+        if (CheckEvents.SidecarUnavailable(session, "the attempt outcomes and pickups") is { } unavailable) return unavailable;
         return SchemaAtLeast(session, new Version(0, 26, 0)) ? null
             : "claimed yields on attempt outcomes and collection attempts on pickups (first written by schema 0.26.0)";
     }
@@ -348,7 +353,7 @@ public sealed class ControlGrantsAreCompatible : ICheck, ICheckCoverage
     public string[] Needs => new[] { "control_grant_id", "activity_attempt_id" };
 
     public string? Missing(Session session)
-        => ReadGodsEyeEvents.Read(session.Path).Present ? null : "-events.jsonl sidecar, which carries the control grant occurrences";
+        => CheckEvents.SidecarUnavailable(session, "the control grant occurrences");
 
     public IEnumerable<Finding> Run(Session s)
     {
@@ -413,6 +418,20 @@ public sealed class ControlGrantsAreCompatible : ICheck, ICheckCoverage
 
 internal static class CheckEvents
 {
+    /// <summary>
+    /// Why an event-based check cannot run, or null when it can. An absent sidecar is one reason; a sidecar the recorder never
+    /// opened is the other, because it holds no session record and every presence-based rule over it finds nothing to
+    /// contradict, so it would report a clean stream it never measured. A stream that opened and was later cut still runs:
+    /// loss can hide a record but cannot make two recorded ones disagree.
+    /// </summary>
+    public static string? SidecarUnavailable(Session session, string carries)
+    {
+        GodsEyeEventLog log = ReadGodsEyeEvents.Read(session.Path);
+        if (!log.Present) return $"-events.jsonl sidecar, which carries {carries}";
+        return log.Opened ? null
+            : $"-events.jsonl sidecar the recorder opened: the file holds no session record, so an empty stream cannot be told from one never written, and it would carry {carries}";
+    }
+
     public static Finding Aggregate(Severity severity, string check, string title, List<GodsEyeEvent> events, string explanation)
     {
         GodsEyeEvent first = events[0];

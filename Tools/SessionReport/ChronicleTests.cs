@@ -46,8 +46,9 @@ public static class ChronicleTests
             MultiRunStatesProvenanceBeforeAnyRun();
             ACaptureStatesItsSourceAndWhetherItClosed();
             RecordingStatesItsCostWhatItDroppedAndWhatItKeeps();
+            ADamagedCaptureReducesCoverageAndInventsNoContradiction();
             IdentityRulesStillMatchTheProducer();
-            Console.WriteLine("Chronicle self-tests passed (29 assertion groups).");
+            Console.WriteLine("Chronicle self-tests passed (30 assertion groups).");
             return 0;
         }
         catch (Exception error)
@@ -1311,6 +1312,136 @@ public static class ChronicleTests
             Require(events.Contains("if (!Accepting()) return;", StringComparison.Ordinal) && !events.Contains("if (!Active) return;", StringComparison.Ordinal)
                     && events.Contains("disabled = true;", StringComparison.Ordinal) && events.Contains("Coalesced += cosmeticContacts;", StringComparison.Ordinal),
                 "an occurrence producer bypasses the drop count, or a stopped stream or coalesced contact is no longer counted");
+        }
+        finally { foreach (string file in files) File.Delete(file); }
+    }
+
+    /// <summary>
+    /// The consistent identity capture, damaged the ways a real capture is damaged, read by every check and every reader a
+    /// report or playtest page runs. None may throw, none may call damage a contradiction — a kill leaves rows and occurrences
+    /// flushed at different moments, a corrupt cell is not a record that disagrees, a respawned brain restarts its identities,
+    /// an old producer never wrote the columns — and each must say what it could no longer measure.
+    /// </summary>
+    private static void ADamagedCaptureReducesCoverageAndInventsNoContradiction()
+    {
+        var files = new System.Collections.Generic.List<string>();
+        try
+        {
+            string Capture(Func<System.Collections.Generic.List<System.Collections.Generic.Dictionary<string, string>>, System.Collections.Generic.List<System.Collections.Generic.Dictionary<string, string>>>? rowsEdit = null,
+                Action<System.Collections.Generic.List<FixtureEvent>>? eventsEdit = null, string schema = "0.29.0", bool closed = true, bool ended = true, string[]? columns = null)
+            {
+                var (rows, events) = IdentityScenario();
+                rows = rowsEdit?.Invoke(rows) ?? rows;
+                eventsEdit?.Invoke(events);
+                string tsv = WriteIdentitySession(files, columns ?? IdentityColumns, rows, events, schema, closed);
+                if (ended) File.AppendAllText(tsv, $"# end=world-unload;rows={rows.Count}\n");
+                return tsv;
+            }
+            (Finding[] Findings, System.Collections.Generic.List<(string Name, string Missing)> Skipped, string Text) Report(string tsv)
+            {
+                Session session = Session.Load(tsv);
+                var (findings, skipped, _) = Program.Evaluate(session);
+                string html = Path.Combine(Path.GetTempPath(), $"aic-damaged-{Guid.NewGuid():N}.html"); files.Add(html);
+                WritePlaytestHtml.Write(html, new[] { tsv });
+                string text = DescribeSession.Of(session) + DescribeGodsEyeEvents.Of(tsv, true) + JoinAttemptEvidence.Describe(tsv, session, true)
+                    + Chronicle.Of(session, true) + MultiRunReport.Of(new[] { tsv });
+                return (findings.ToArray(), skipped, text);
+            }
+            void NoContradiction(string variant, Finding[] findings)
+                => Require(!findings.Any(f => f.Severity == Severity.Definitive),
+                    $"{variant}: damage to the capture was reported as a contradiction: " + string.Join(" | ", findings.Where(f => f.Severity == Severity.Definitive).Select(f => $"{f.Check}: {f.Title}")));
+            bool Has(Finding[] findings, string title) => findings.Any(f => f.Severity == Severity.Potential && f.Title.StartsWith(title, StringComparison.Ordinal));
+            string Skip(System.Collections.Generic.List<(string Name, string Missing)> skipped, ICheck check) => skipped.SingleOrDefault(s => s.Name == check.Name).Missing ?? "";
+            System.Collections.Generic.List<System.Collections.Generic.Dictionary<string, string>> Upto(System.Collections.Generic.List<System.Collections.Generic.Dictionary<string, string>> rows, long tick)
+                => rows.Where(r => long.Parse(r["tick"]) <= tick).ToList();
+
+            var whole = Report(Capture());
+            NoContradiction("the whole capture", whole.Findings);
+            Require(!Has(whole.Findings, "interrupted capture") && Skip(whole.Skipped, new AttemptIdentitiesAgreeAcrossRecords()).Length == 0,
+                "the whole capture was called interrupted, or its identity check did not run, so the damaged variants below would prove nothing");
+
+            // Killed mid-write: the last row cut inside its cells, the sidecar cut inside a line, no closure on either.
+            string killed = Capture(eventsEdit: e => e.RemoveAll(x => x.Tick > 32), closed: false, ended: false);
+            string[] killedRows = File.ReadAllLines(killed);
+            killedRows[^1] = killedRows[^1][..4];
+            File.WriteAllLines(killed, killedRows);
+            File.AppendAllText(ReadGodsEyeEvents.PathFor(killed), "{\"v\":1,\"seq\":");
+            var interrupted = Report(killed);
+            NoContradiction("a capture killed mid-write", interrupted.Findings);
+            Require(Has(interrupted.Findings, "interrupted capture: the recording has no end marker") && Has(interrupted.Findings, "some rows held the wrong number of cells")
+                    && interrupted.Text.Contains("1 malformed line", StringComparison.Ordinal) && interrupted.Text.Contains("end=missing", StringComparison.Ordinal),
+                "a capture killed mid-write did not state the missing closure, the cut row and the cut occurrence line");
+
+            // The two streams flush separately, so a kill can leave either one ahead of the other.
+            var sidecarAhead = Report(Capture(rowsEdit: rows => Upto(rows, 27), closed: false, ended: false));
+            NoContradiction("occurrences written past the last row", sidecarAhead.Findings);
+            Require(Has(sidecarAhead.Findings, "interrupted capture"), "a capture whose rows stop before its occurrences did not say it was interrupted");
+            var rowsAhead = Report(Capture(eventsEdit: e => e.RemoveAll(x => x.Tick > 20), closed: false, ended: false));
+            NoContradiction("rows written past the last occurrence", rowsAhead.Findings);
+            Require(rowsAhead.Text.Contains("end=missing", StringComparison.Ordinal), "a sidecar that stopped before the rows did not say it never closed");
+
+            // Corrupt cells and a damaged occurrence stream: one unreadable open attempt inside attempt 5, one unreadable
+            // comparison on a strike's tick, a lost occurrence and a garbage line.
+            string corrupt = Capture(rowsEdit: rows =>
+            {
+                rows.First(r => r["tick"] == "15")["activity_attempt_id"] = "garbled";
+                rows.First(r => r["tick"] == "12")["choice_id"] = "garbled";
+                // Attempt 8's strike at 32 is right only because its row names attempt 8 closed on that tick.
+                rows.First(r => r["tick"] == "32")["attempt_end_id"] = "garbled";
+                return rows;
+            });
+            string sidecar = ReadGodsEyeEvents.PathFor(corrupt);
+            var occurrences = File.ReadAllLines(sidecar).ToList();
+            occurrences[5] = "not-json";
+            occurrences.RemoveAt(3);
+            File.WriteAllLines(sidecar, occurrences);
+            var malformed = Report(corrupt);
+            NoContradiction("unreadable cells and a damaged occurrence stream", malformed.Findings);
+            Require(Has(malformed.Findings, "the column activity_attempt_id held 1 cell(s) that are not a number") && Has(malformed.Findings, "the column choice_id held 1 cell(s) that are not a number")
+                    && Has(malformed.Findings, "the column attempt_end_id held 1 cell(s) that are not a number")
+                    && malformed.Text.Contains("1 malformed line", StringComparison.Ordinal),
+                "unreadable cells or a garbage occurrence line were not named as reduced coverage");
+
+            // A respawned companion builds a new brain: comparison, grant and activity identities restart, attempt identities continue.
+            var reused = Report(Capture(rowsEdit: rows =>
+            {
+                for (long t = 42; t <= 50; t++)
+                {
+                    long open = t is >= 43 and <= 47 ? 10 : 0;
+                    bool concluded = t >= 48;
+                    rows.Add(new()
+                    {
+                        ["tick"] = t.ToString(), ["wall_elapsed_ms"] = (t * 16).ToString(), ["action"] = "mine", ["choice_id"] = "1", ["choice_fresh"] = t == 42 ? "1" : "0",
+                        ["control_grant_id"] = (t - 41).ToString(), ["activity_attempt_id"] = open.ToString(), ["attempt_end_id"] = concluded ? "10" : "0",
+                        ["attempt_end_activity_id"] = concluded ? "1" : "0", ["attempt_end_activity"] = concluded ? "mine" : "none", ["attempt_end_tick"] = concluded ? "48" : "-1",
+                        ["mine_offer"] = "Usable:proven-pose", ["chop_offer"] = "Unresolved:approach-undecided",
+                    });
+                }
+                return rows;
+            }, eventsEdit: e =>
+            {
+                e.Add(Grant(43, 2, 1, 10, "Executing", "travel", "WorkTool"));
+                e.Add(Strike(45, "pickaxe", 1, 1, 1, "Damaged", 10));
+                e.Add(Outcome(48, 10, 1, "mine", "Gathering", 43, 48, "Complete", "Companion", "tracked-vein-observed-clear", 1));
+            }));
+            NoContradiction("a respawned brain restarting its comparison, grant and activity identities", reused.Findings);
+
+            string[] oldColumns = { "tick", "wall_elapsed_ms", "action", "choice_id", "choice_fresh", "mine_offer", "chop_offer" };
+            var old = Report(Capture(schema: "0.20.0", columns: oldColumns, ended: false));
+            NoContradiction("a capture older than attempt identity", old.Findings);
+            Require(Skip(old.Skipped, new AttemptIdentitiesAgreeAcrossRecords()).Contains("activity_attempt_id", StringComparison.Ordinal)
+                    && Skip(old.Skipped, new ControlGrantsAreCompatible()).Contains("control_grant_id", StringComparison.Ordinal)
+                    && Skip(old.Skipped, new TheCaptureWasClosed()).Contains("schema 0.28.0", StringComparison.Ordinal),
+                "an old capture ran or silently passed a check whose evidence it never recorded");
+
+            // A sidecar the recorder never opened reads exactly like a stream in which nothing happened.
+            string unopened = Capture();
+            File.WriteAllText(ReadGodsEyeEvents.PathFor(unopened), "");
+            var empty = Report(unopened);
+            NoContradiction("a sidecar holding no session record", empty.Findings);
+            foreach (ICheck check in new ICheck[] { new AttemptIdentitiesAgreeAcrossRecords(), new ControlGrantsAreCompatible(), new CompletedTransferClaimsWereReceived() })
+                Require(Skip(empty.Skipped, check).Contains("no session record", StringComparison.Ordinal),
+                    $"'{check.Name}' ran over a sidecar the recorder never opened, so an empty stream would read as a clean one; skipped as '{Skip(empty.Skipped, check)}'");
         }
         finally { foreach (string file in files) File.Delete(file); }
     }

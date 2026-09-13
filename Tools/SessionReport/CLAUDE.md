@@ -97,6 +97,27 @@ A capture's provenance and closure are read at schema 0.28.0. Lines beginning `#
 
 Recording cost and loss are read at schema 0.29.0. The summary's `recording` line gives the distribution of `record_ms` over the rows that carry one, with the floor-of-rank percentile MeasureBrainCost prints, and the last row's written, dropped, coalesced and evicted totals; a `retention` line repeats the capture's retention statement; the HTML coverage line carries the same recording statement. `NoOccurrenceWasDropped`, registered beside the closure check, reports any dropped occurrence as Potential and names the tick the drops began, because the sidecar cannot record its own loss and every event-based check after that tick has measured nothing. An older capture skips it by naming the missing column and states its cost as unrecorded, never as zero.
 
+## Damage reduces coverage; only records that disagree are contradictions
+
+A real capture arrives damaged in five ways, and each has one correct reading:
+
+- **Killed.** The TSV and the sidecar flush separately, so either may run ahead of the other, the last row may be cut inside its cells and the last occurrence inside its line.
+- **Corrupt.** A cell may hold something no reader parses.
+- **Respawned.** A new brain restarts comparison, grant and activity identities while attempt identities continue.
+- **Old.** An older producer never wrote the evidence.
+- **Unopened.** A sidecar may exist and hold no session record.
+
+Every one of those reduces what a check can measure, and none of them is a contradiction. A Definitive finding needs two readable records that disagree. A missing record, an unreadable cell, or a stream with nothing in it is reported where it happens instead: the column audit, the closure check, the occurrence summary's malformed and missing counts, or a named skip.
+
+Two properties follow, and both were violated before the damaged-capture self-test reproduced them:
+
+- **An unreadable identity cell is never compared.** A rule that tests `LongAt(...) != id` counts the null from a corrupt cell as a row naming another attempt, so every identity comparison first requires the cell to parse. Where an exemption rests on cells, as with a strike on the row that closed its attempt, unreadable cells leave the record unjudged rather than unexempted.
+- **A sidecar the recorder never opened is not a stream.** Event-based checks skip it by name through `CheckEvents.SidecarUnavailable`. Over an empty stream every presence-based rule finds nothing to contradict and would report a clean run it never measured.
+
+A stream that opened and was later cut still runs, because loss can hide a record but cannot make two recorded ones disagree.
+
+`ADamagedCaptureReducesCoverageAndInventsNoContradiction` damages the consistent identity capture each of these ways and drives it through every check and every reader. The readers are the summary, the occurrence summary, the identity join, the chronicle, the multi-run report and the HTML page. None may throw, none may report Definitive, and each variant must name what it lost.
+
 A false completed transfer became checkable at schema 0.26.0, because collection's conclusion now claims a yield and each pickup names the collection attempt whose drop it was. The claim is read from the cargo's transfer ledger, and that ledger is fed only by the contact pickup that writes those pickups, so the pickups under an attempt of the claimed type must deliver at least the claim. The rule runs one way on purpose: the ledger keeps only the latest transfers and can undercount, so a claim below what arrived is not reported. Mining, chopping and pots still claim nothing — tool effects say `yield=unobserved` and pot completions say contents unobserved — so their completions cannot be held to a yield, and an incidental pickup during other work names no attempt and is counted apart.
 
 ## Severity is decided by evidence, not by how bad it feels
