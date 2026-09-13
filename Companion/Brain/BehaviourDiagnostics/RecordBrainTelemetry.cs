@@ -464,6 +464,7 @@ public sealed class BrainTelemetry : ModSystem
             // Offer columns are named from the registered activities, like the raw/final pairs, so
             // the declaration and the header cannot disagree about which activities exist.
             foreach (var a in brain.Chooser.Actions) textColumns.Append(',').Append(a.Name).Append("_offer");
+            textColumns.Append(",nav_failure,nav_failure_reason,nav_attempt_ending");
             writer.WriteLine(textColumns.ToString());
             var h = new StringBuilder();
             // A start timestamp is file metadata. Stopwatch is the observed wall duration of
@@ -502,6 +503,7 @@ public sealed class BrainTelemetry : ModSystem
                 string name = family.ToString().ToLowerInvariant();
                 h.Append('\t').Append(name).Append("_prepared\t").Append(name).Append("_deferred\t").Append(name).Append("_prepare_ms");
             }
+            h.Append("\tnav_failure\tnav_failure_reason\tnav_failure_search_id\tnav_failure_attempt_id\tnav_attempt_ending\tnav_attempts_completed\tnav_attempts_failed\tnav_attempts_preempted\tnav_attempts_cancelled");
             writer.WriteLine(h.ToString());
             headerWritten = true;
         }
@@ -785,6 +787,19 @@ public sealed class BrainTelemetry : ModSystem
             sb.Append('\t').Append(queries.Prepared).Append('\t').Append(queries.Deferred)
                 .Append('\t').Append(queries.Milliseconds.ToString("0.000", CultureInfo.InvariantCulture));
         }
+        // Why the held movement goal is not being delivered, sticky until delivery or a new goal,
+        // joined to the search and attempt it came from; and how attempts have ended, with physical
+        // completion and voluntary cancellation counted apart.
+        var movementFailure = brain.Navigator.LastFailure;
+        sb.Append('\t').Append(movementFailure?.Kind.ToString() ?? "None")
+            .Append('\t').Append(movementFailure?.Reason is { Length: > 0 } why ? why : "-")
+            .Append('\t').Append(movementFailure?.SearchId ?? 0)
+            .Append('\t').Append(movementFailure?.AttemptId ?? 0)
+            .Append('\t').Append(brain.Navigator.LastEnding?.ToString() ?? "-")
+            .Append('\t').Append(brain.Navigator.CompletedAttempts)
+            .Append('\t').Append(brain.Navigator.FailedAttempts)
+            .Append('\t').Append(brain.Navigator.PreemptedAttempts)
+            .Append('\t').Append(brain.Navigator.CancelledAttempts);
 
         // A write that fails (disk full, a stream the OS closed) must not escape the NPC's AI
         // and take the companion with it; the record stops and the game goes on.

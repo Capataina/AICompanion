@@ -6,12 +6,13 @@ A traversal is one kind of move the body can make, and it is the answer to the d
 MovementExecution/
 ├─ CLAUDE.md
 ├─ Navigator.cs             owns routes, arrival, interruption, preparation and typed outcomes
+├─ ClassifyMovementFailure.cs the six classes a held goal can fail by, the four ways an attempt ends, and the report the navigator publishes
 ├─ PlanLocalMovement.cs     validates complete macros and retains controls beside expected states
 ├─ ProveInteractionJump.cs  verifies elevated tool reach during a ground jump with a safe nearby landing
 ├─ SearchControlSequences.cs bounded retained body-state search for clearance and safe-state requests
 ├─ TraversalExecution.cs    copies preparation and flight state for independent simulation
 ├─ ReactiveWalk.cs          proposes uncommitted terrain controls for shared evaluation
-├─ BehaviourCensus.cs       counts movement requests and outcomes
+├─ BehaviourCensus.cs       counts movement requests and outcomes, and attempts by the owner that ended them
 ├─ Traversal.cs             the base class (Kind, Candidates, Begin, Steer, Done, Check, the allowance, MidMove for a step the navigator's cadence must not replan out from under, ClimbTiles for how many rows this kind of move can gain from a standing start), NavEdge (a proven edge before the tick's prices), TraversalFault (Timeout, Misland, Blocked, Stuck), Fresh (one instance of each for a follower), Planning (the shared set the search generates edges with) and ClimbReachTiles, the tallest climb in that set, which is what decides whether a fall is deep enough to be worth asking if it has a way back
 ├─ WalkTraversal.cs         a walk to the next column, same row or one up or one down: the body driven from the node's pose at the walk speed through its own tick until it stands past the next column's centre, any time in the air ridden out (a kerb hop, a ledge of less than a tile), the tile it then stands in being the edge, refused where it meets a shape or lands two rows down; proven from rest and checked at the walk speed, and marked as starting from rest when the two land on different rows, so the step before it coasts to a stop; performed by walking at the step's feet point, to rest there when the next move starts from rest, at the next jump's own speed when it is a running jump, with the one move the follower still derives itself, a jump at a real wall or a two-tile rise, kept until the follow harness shows it is never needed
 ├─ JumpTraversal.cs         a jump to any tile in the box that a profile lands in when simulated with the body's own tick; the step carries the profile and the flight time, and performing it is the run-up, the take-off and the in-air steer the simulation used (JumpProfiles, Runway, TakeOff); the arc of a running profile is proven from the state the run-up actually reaches rather than from the node's pose at the profile's nominal speed, because the floor behind a take-off decides the speed and the profile only names one; done when the body has flown and stands covering the landing tile or within the slack of its point, mislanded when it has flown (jumped, or fallen off its take-off faster than a kerb hop) and rests anywhere else, so a landed jump is never in limbo between the two
@@ -84,6 +85,36 @@ The correction is the general one this folder's Record already states: **a fallb
 
 The two guards bite at different ranges and that is worth knowing before relying on either. The rejection memory is keyed on the exact `BodyState` through `PlanLocalMovement.Matches`, so any motion at all erases it; it only holds for a body that is genuinely still. The strike is keyed on the step's tile and lasts a bounded number of ticks, so it is the one that ends a re-offer loop.
 
+## A held goal that is not delivered names the first contract that broke
+
+`Navigator.LastFailure` is the navigator's explanation for a goal it is not delivering, and it exists because every failure signal this folder owns used to be read on its own — the search's stop, the macro proof's rejection, a fault, a strike — so a companion standing still was diagnosed by whichever signal a reader happened to open. The classes, and the evidence each is derived from, are the whole contract:
+
+```
+AbsentTransition     the retained or fresh search finished Exhausted and published no route
+                     (a closed model, never proof the world is sealed)
+UnfinishedSearch     a query still running without a route, one stopped on its work or deadline
+                     limit, or a preparation search that spent its allowance
+InvalidActualEntry   the macro proof from the live body failed physically before the attempt's
+                     first tick and no refined profile or preparation prefix rescued it; or a
+                     re-proof failed later while every observed tick matched its prediction; or
+                     the world changed under an announced terrain callback mid-attempt
+NativeMismatch       the attempt faulted after the observed body diverged from the predicted
+                     successor with no external cause attributed
+UnusableTerminal     body and proof agreed and the step still faulted on its own terms, or a
+                     grounded body has no standable node under it
+Preempted            another owner took the body (threat avoidance, a state search, downing,
+                     recovery flight), an attributed external hit displaced it, or the threat
+                     forecast refused the move
+```
+
+The navigator cannot see hits or terrain callbacks, so the coordinator hands it the motor's own attribution (`DisplacementCause`, from `CompanionMotor.DivergenceInvalidReason`) and the first cause seen during an attempt decides between mismatch, pre-emption and a refused entry. Without that input a knockback mid-jump reads as a native mismatch, and offline, where no motor exists, every divergence is honestly unattributed. What the class still cannot separate is an adapter defect from another mod writing the body's velocity; both are unattributed divergences and the class says so rather than guessing.
+
+The verdict is sticky within a goal and yields in a fixed order. Arrival, a completed step, a voluntary release or a changed goal clears it. A search verdict replaces an older search verdict every time the search reports. A physical verdict holds against the replan that follows it — that replan often finds nothing precisely because the refused entry is now excluded — but only while no new attempt has begun and the terrain revision is the one it was found on, because an announced change makes the failure a statement about a world that no longer exists. Getting that last condition wrong kept a refused-entry verdict standing for 900 ticks behind a wall whose announcement had already made the goal absent.
+
+Every begun attempt ends as exactly one of completed, physical failure, pre-empted or cancelled, and the navigator and the census count them apart. `Interrupt` takes the ending from its caller: `CoordinateMovement.Hold` is a cancellation unless it names the owner that pre-empted it, a state search pre-empts, a change from route to state search on one purpose is a cancellation, and a replan that replaces the step in hand is a cancellation. **Only a physical failure is evidence against a remembered connection**, so a knockback, a threat refusal or a preparation search that ran out of time no longer retires a route that works; a cancellation or pre-emption never did, and now an attributed external fault does not either.
+
+The classification is descriptive. Strikes, rejection memory, spot bans and replanning read the same signals they read before; nothing is decided from the class except which remembered connections an attempt may retire. Goal-level no-progress (the partial-route alternation AIC-177 records) is not derived here yet: completed steps that never approach the goal still read as delivery.
+
 ## Adding a mobility
 
 Short grounded branches alone can exhaust a bounded search before any jump reaches its landing. A grounded jump therefore also offers its complete simulated flight, alongside the short intermediate branch. Search continues across a budget slice without committing a stationary or worse prefix merely because the slice ended. Landing, liquid-boundary crossing and actual goal satisfaction are meaningful prefix outcomes; height at a jump apex is not completion.
@@ -102,7 +133,7 @@ same generic rule in both directions.
 
 The historical underground-house partial-goal fixtures still contain an unresolved progress failure: adjacent completed walks can alternate for thousands of ticks without a traversal fault. A per-edge success is not progress towards the final goal. AIC-177 retains those cases for goal-level progress accounting; the captured-entry fix and its no-stationary-preparation assertion do not establish freedom from every partial-route loop.
 
-Every begun attempt has one terminal outcome. Arrival and replanning settle a completed step before replacing its policy state; interruption and clearing close an unfinished attempt. A fault already reported must not be reported again on the following clear. The census sizes its categories from the enums and counts interruptions separately from failures, because ordinary replanning is not a failed collision.
+Every begun attempt has one terminal outcome. Arrival and replanning settle a completed step before replacing its policy state; interruption and clearing close an unfinished attempt. A fault already reported must not be reported again on the following clear. The census sizes its categories from the enums and counts interruptions separately from failures, because ordinary replanning is not a failed collision, and its endings section splits those interruptions into pre-empted and cancelled so the four endings sum to the attempts.
 
 A movement allowance cannot belong only to an edge identity: a cadence replan can replace the edge before its allowance expires while the body never moves. The body-level stall monitor therefore reports a typed failure across replans. Failed physical proofs are retained against their exact input state and terrain revision, just like successful proofs; repeating an identical rejected simulation every frame adds cost without information. Threat-based rejection is never cached this way because its oracle changes independently of the terrain.
 
