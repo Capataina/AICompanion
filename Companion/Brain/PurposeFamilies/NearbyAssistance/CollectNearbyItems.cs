@@ -125,9 +125,18 @@ public sealed class CollectNearbyItems : PerformNearbyWorldWork
                     Refuse(OfferEligibility.KnownUnusable, "drop-has-no-contact-pose");
                     continue;
                 }
-                // Each reach question is a fresh bounded search, so one preparation asks about a bounded number of drops.
-                if (asked++ >= Weights.CollectionReachCandidates) break;
-                var (reach, back) = ProveExcursion(ctx, item, contact);
+                // Each reach question is a fresh bounded search, so one preparation asks a bounded number of new questions. A
+                // verdict still held for this drop's pose costs no search and spends none of that budget: spending it on held
+                // verdicts let the nearest refused drops hide every farther drop for as long as their verdicts stayed fresh.
+                // The budget stops the walk rather than skipping ahead, so a farther drop with a held verdict is never offered
+                // before a nearer one has been asked about; each preparation proves the next drops in distance order.
+                if (!KnownExcursion(item, contact, out var verdict))
+                {
+                    if (asked >= Weights.CollectionReachCandidates) break;
+                    asked++;
+                    verdict = ProveExcursion(ctx, item, contact);
+                }
+                var (reach, back) = verdict;
                 if (reach == Reachability.Reach.Unknown) { Refuse(OfferEligibility.Unresolved, "drop-approach-undecided"); continue; }
                 if (reach == Reachability.Reach.No) { Refuse(OfferEligibility.KnownUnusable, "drop-unreachable"); continue; }
                 if (back == Reachability.Reach.No) { Refuse(OfferEligibility.KnownUnusable, "drop-would-strand-return"); continue; }
@@ -180,11 +189,20 @@ public sealed class CollectNearbyItems : PerformNearbyWorldWork
     private readonly Dictionary<Item, (Point Pose, int Revision, ulong Tick, Reachability.Reach Reach, Reachability.Reach Return)> excursions
         = new(ReferenceEqualityComparer.Instance);
 
+    /// <summary>The reach and return verdicts still held for this drop at this contact pose, which cost no search.</summary>
+    private bool KnownExcursion(Item item, Point pose, out (Reachability.Reach Reach, Reachability.Reach Return) verdict)
+    {
+        verdict = default;
+        if (!excursions.TryGetValue(item, out var known) || known.Pose != pose || known.Revision != TerrainChanges.Revision
+            || Main.GameUpdateCount - known.Tick >= (ulong)Weights.CollectionReachRecheckTicks)
+            return false;
+        verdict = (known.Reach, known.Return);
+        return true;
+    }
+
+    /// <summary>Fresh walker searches for a drop's reach and marginal return, recorded for reuse.</summary>
     private (Reachability.Reach Reach, Reachability.Reach Return) ProveExcursion(in ActionContext ctx, Item item, Point pose)
     {
-        if (excursions.TryGetValue(item, out var known) && known.Pose == pose && known.Revision == TerrainChanges.Revision
-            && Main.GameUpdateCount - known.Tick < (ulong)Weights.CollectionReachRecheckTicks)
-            return (known.Reach, known.Return);
         Point feet = MovementQueries.FeetTile(ctx.Npc.Bottom);
         Reachability.Reach reach = MovementQueries.WalkerReach(feet, pose);
         Reachability.Reach back = Reachability.Reach.Yes;
