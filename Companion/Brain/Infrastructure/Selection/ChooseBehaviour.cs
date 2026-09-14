@@ -174,10 +174,13 @@ public sealed class Chooser
                     prepared[winner.Index].RawValue, winner.Final, method.Destination, method.Reason, method.Candidates);
                 methods[winner.Index] = FormattableString.Invariant(
                     $"tick:{method.SourceTick},kind:{request.Kind},destination:{method.Destination},reason:{method.Reason},candidates:{method.Candidates}");
-                // The query answers what preparation left unresolved: a destination makes the offer
-                // usable for this comparison, none makes it known-unusable here without blacklisting it.
+                // The query answers what preparation left unresolved: a destination makes the offer usable for this
+                // comparison, none makes it known-unusable here without blacklisting it — except where the reason
+                // says the bounded search was cut rather than answered. A budget that ran out establishes nothing
+                // about the candidates it never reached, and branding that impossible is what let a hunt be vetoed
+                // by its own solve count and the companion flip to keeping company on the tick the budget expired.
                 offers[winner.Index] = method.Destination == null
-                    ? (OfferEligibility.KnownUnusable, "method-" + method.Reason)
+                    ? (method.Undecided ? OfferEligibility.Unresolved : OfferEligibility.KnownUnusable, "method-" + method.Reason)
                     : (OfferEligibility.Usable, "method-admitted-" + method.Reason);
                 int row = LastScores.FindIndex(s => ReferenceEquals(s.Action, Actions[winner.Index]));
                 if (row >= 0) LastScores[row] = LastScores[row] with { MethodEvidence = methods[winner.Index],

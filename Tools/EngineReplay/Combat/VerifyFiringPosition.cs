@@ -149,7 +149,12 @@ internal static class VerifyFiringPosition
         // floor spots that outscore the rim on standoff and cannot see the pit, and every one of
         // them reads no-arc.
         string best = evidence.Split('|')[0];
-        Require(best.EndsWith(":clear-arc"),
+        // The arc may be recorded as clear-arc or clear-arc-unforecast, and the property under test is the same for
+        // both: a real trajectory solve succeeded from the chosen spot. The suffix names which target position was
+        // asked — the forecast at the estimated arrival, or the current one where the forecast carries too few
+        // measured samples to be evidence, which is this fixture's case because its enemy never moves and its world
+        // never advances a game tick, so the motion track never accumulates an error sample to be confident about.
+        Require(best.Contains(":clear-arc"),
             $"the chosen firing spot has no solved arc, so the shortlist was ranked without line of sight: best={best}; all={evidence}");
 
         bool anyClear = evidence.Contains(":clear-arc");
@@ -194,8 +199,9 @@ internal static class VerifyFiringPosition
         string heldExplanation = companion.Brain.Positioner.CandidateEvidence;
 
         // Positive desirability beside a rejected method needs a threat guarding still values. Under the sealed rock
-        // a damageable zombie is a proven absence of any firing position once the flood is settled — and it is settled
-        // here from the first comparison — so guarding is worth nothing against it and is never nominated or queried.
+        // a damageable zombie is a proven absence of any firing position once its stand sweep has been all the way
+        // round, and then guarding is worth nothing against it and is never nominated or queried; the block below
+        // drives that sweep to completion, because a settled reach flood alone no longer establishes the absence.
         // An undamageable one has no removal to estimate, keeps its full share without asking whether it can be shot,
         // and still has to establish a destination, so it carries the rejection and occurrence contract.
         enemy.dontTakeDamage = true;
@@ -223,10 +229,33 @@ internal static class VerifyFiringPosition
         // method query, so this comparison writes no method occurrence and is not counted in the returned total.
         enemy.dontTakeDamage = false;
         {
+            // A proven absence now costs a completed sweep of every sampled stand, not the first eight of them. The
+            // stand sample is sorted by distance and only a handful are solved per scan, so a scan that stopped at
+            // the cap and answered None was reporting an exhausted budget as a fact about the world — the same
+            // mistake the positioner's shortlist made one layer up, and the one this build exists to remove. The
+            // sweep resumes where the last scan stopped and its answer stays Unknown until it has been all the way
+            // round, so this loop runs the clock the firing cache is keyed to and nothing else: the threat list,
+            // the urgency and the terrain are exactly as the rows above left them, which a fresh Senses.Update
+            // would rebuild. The first comparison is asserted undecided rather than skipped, because "not yet
+            // proven" reading as "proven impossible" is precisely the defect.
+            // Guard's own preparation is what reaches the firing query, so the sweep is driven through it rather
+            // than through a comparison: a comparison would query a method and write an occurrence record, and the
+            // record assertions above are indexed against a fixed comparison count.
+            guard.Prepare(ctx);
+            Require(guard.Access == live::AICompanion.Companion.Brain.Activities.Combat.FiringAccess.Unknown,
+                $"a stand sweep cut by its solve cap must not claim a proven absence on its first scan; access={guard.Access}");
+            var clock = typeof(live::AICompanion.Companion.Brain.Infrastructure.Observation.Senses).GetProperty("Tick")!;
+            int scans = 1;
+            for (; scans < 400 && guard.Access != live::AICompanion.Companion.Brain.Activities.Combat.FiringAccess.None; scans++)
+            {
+                clock.SetValue(companion.Brain.Senses, (int)clock.GetValue(companion.Brain.Senses)! + 21);
+                guard.Prepare(ctx);
+            }
+            Console.WriteLine($"firing sweep: a sealed damageable threat became a proven absence after {scans} scans, undecided before that");
             var selected = companion.Brain.Chooser.Choose(ctx);
             var guardScore = companion.Brain.Chooser.LastScores.Single(s => ReferenceEquals(s.Action, guard));
             Require(guard.Access == live::AICompanion.Companion.Brain.Activities.Combat.FiringAccess.None && float.IsFinite(guard.RemovalTicks),
-                $"the damageable sealed threat must be a proven absence of firing positions from a settled flood; access={guard.Access}, removal={guard.RemovalTicks}, reach-complete={companion.Brain.Positioner.ReachComplete}");
+                $"the damageable sealed threat must be a proven absence of firing positions once its sweep completes; access={guard.Access}, removal={guard.RemovalTicks}, reach-complete={companion.Brain.Positioner.ReachComplete}");
             Require(guardScore.Raw == 0f && !ReferenceEquals(selected, guard)
                 && guardScore.Eligibility == live::AICompanion.Companion.Brain.Activities.OfferEligibility.KnownUnusable
                 && guardScore.EligibilityReason == "no-reachable-firing-position",

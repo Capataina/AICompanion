@@ -115,6 +115,7 @@ internal static class VerifyEngineMotion
         failed += VerifyObservationLifecycle.Run();
         failed += VerifyHuntProgress.Run();
         failed += VerifyFiringPosition.Run();
+        failed += VerifyOfferValidity.Run();
         failed += VerifyHuntAdmissibility.Run();
         failed += VerifyAttackOutcomes.Run();
         failed += VerifyMovementFailures.Run();

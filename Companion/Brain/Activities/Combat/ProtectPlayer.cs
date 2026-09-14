@@ -204,6 +204,10 @@ public sealed class ProtectPlayer : CompanionAction
             if (verdict == FiringAccess.None)
             {
                 InterventionUsefulness = 0f;
+                // The one place guarding closes itself, and it rests entirely on what None means in
+                // ResolveFiringOpportunity: a completed sweep of every sampled stand, never a solve cap that ran
+                // out. If that ever returns None from an exhausted bound again, this line writes off protection
+                // the companion could have given.
                 Classify(OfferEligibility.KnownUnusable, "no-reachable-firing-position");
             }
             else
