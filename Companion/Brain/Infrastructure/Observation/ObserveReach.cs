@@ -51,7 +51,11 @@ public sealed class ReachSense
     private ContinueRouteSearch? returnSearch, rawSearch;
     private bool floodLava;
     private int sinceFlood = RefloodTicks;
-    private int lastTerrainRevision = -1;
+
+    /// <summary>How many times the floods have been thrown away and started again this session. It
+    /// counts the discard rather than the advance, so a cadence that keeps growing one flood does
+    /// not register: this is the number a terrain edit used to drive from anywhere in the world.</summary>
+    public int Refloods { get; private set; }
 
     /// <summary>Whether the two-way flood ran out of region before its budget, so a tile outside it is truly
     /// absent. This is the flood <see cref="Reachable"/> answers from, and the two are deliberately tied: a
@@ -121,17 +125,20 @@ public sealed class ReachSense
     public void Age() => sinceFlood++;
 
     /// <summary>
-    /// Reflood if the cadence has passed or the world has been edited since the last one. The terrain
-    /// check lives here rather than in the caller so every consumer of the sense — not only the one
-    /// that happens to drive the cadence — reads a region that survived the dig.
+    /// Reflood if the cadence has passed or the world has been edited inside the region either flood
+    /// has explored. The terrain check lives here rather than in the caller so every consumer of the
+    /// sense — not only the one that happens to drive the cadence — reads a region that survived the
+    /// dig, and it expires the cadence rather than waiting for the reuse test further down, because
+    /// an edit the flood read has to land on the next resolve and not up to a cadence later.
+    ///
+    /// <para>Both floods are asked, not only the two-way one. The raw flood allows edges with no way
+    /// back, so it can have explored further than the two-way flood and can hold stale work the
+    /// two-way flood's own bounds say nothing about.</para>
     /// </summary>
     public void Refresh(Senses senses)
     {
-        if (lastTerrainRevision != TerrainChanges.Revision)
-        {
-            lastTerrainRevision = TerrainChanges.Revision;
+        if (returnSearch?.Valid == false || rawSearch?.Valid == false)
             sinceFlood = RefloodTicks;
-        }
         if (scored != null && sinceFlood < RefloodTicks)
             return;
         sinceFlood = 0;
@@ -149,6 +156,7 @@ public sealed class ReachSense
         if (returnSearch == null || !returnSearch.Valid || floodLava != AStar.AllowLava || !returnSearch.CanReuseFrom(feet.Value))
         {
             floodLava = AStar.AllowLava;
+            Refloods++;
             returnSearch?.Dispose(); rawSearch?.Dispose();
             returnSearch = new ContinueRouteSearch(feet.Value, null, AStar.AllowLava, false);
             rawSearch = new ContinueRouteSearch(feet.Value, null, AStar.AllowLava, true);

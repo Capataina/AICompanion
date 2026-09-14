@@ -14,6 +14,18 @@ The mirror of that mistake is handing a whole-brain scene a finished region buil
 
 Planting a three-site budget back into the shared discovery loop turns this row red on `Unresolved/interaction-stand-not-yet-known-reachable`, and a three-drop budget in collection turns `D1` red on `KnownUnusable/drop-unreachable`. Both were run; a row that has never failed and a row that cannot fail print the same word.
 
+## Spatial invalidation
+
+The `e:` rows hold the rule that a terrain edit invalidates retained search work only where the work actually looked. Three of them drive `ContinueRouteSearch` directly and one drives the reach sense through the real positioner, and between them they pin the three things that can go wrong in opposite directions: an edit the query never read must leave it valid and leave the answer it already has intact, an edit at exactly the scan's own reach must invalidate while one row past it must not, and a query nobody asked across more than the record's window must read invalid rather than clean.
+
+Each was mutation-run against the rule it replaces. With the predicate forced true — the world-global compare — all four go red. With the margin narrowed to a body and a tile, only the margin row goes red, which is what that row is for. With a lost window answered clean, only the window row goes red. A margin row that asserts only the invalidating half would pass a margin so wide that nothing ever survives, which is this whole mechanism doing nothing, so both halves are asserted.
+
+**The edits are announced rather than made wherever the row is about the compare.** Invalidation keys on what the game announces, so announcing without touching a tile tests exactly the surface under test and leaves the scene identical for the rows that follow. The one row that is about membership rather than about the compare builds a real wall, taller than the body can jump, and asks the region afterwards.
+
+**These rows are on a hundred-tile world whose flat floor the flood crosses end to end, so "far away" is only available vertically.** That is not a fixture convenience, it is the honest shape of the gain: the sensitive box is two dozen columns either side and tens of rows below, so an edit anywhere near the region still restarts it and only a distant one is spared. A row claiming otherwise would be claiming more than the mechanism delivers.
+
+**A settle loop of "resolve while the region is incomplete" primes nothing when the region is already complete**, which is the trap this folder's first section names and which the first version of the reflood row walked into: the scene's own setup floods before it resets the terrain, so the loop returned at once and the refloods being counted were counted against a flood built under an earlier revision. The row calls `VerifyOreWork.ResettleReach` first. The same shape is worth checking in any row here that asserts `ReachComplete` after a loop it expects to have run.
+
 Lighting, collection, keeping-company strolls, courtesy, capability revision and the shared activity contracts. `--follow` includes company motion and courtesy; `--capability` is the reach/power group.
 
 ## Assistance trips

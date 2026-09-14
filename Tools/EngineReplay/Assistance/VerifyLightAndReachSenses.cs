@@ -6,6 +6,9 @@ using Terraria;
 using Terraria.Graphics.Light;
 using Terraria.ID;
 using AStar = live::AICompanion.Companion.Brain.Infrastructure.Movement.AStar;
+using ContinueRouteSearch = live::AICompanion.Companion.Brain.Infrastructure.Movement.ContinueRouteSearch;
+using NavGrid = live::AICompanion.Companion.Brain.Infrastructure.Movement.NavGrid;
+using TerrainEditLog = live::AICompanion.Companion.Brain.Infrastructure.Movement.TerrainEditLog;
 using ActionContext = live::AICompanion.Companion.Brain.Activities.ActionContext;
 using LightSense = live::AICompanion.Companion.Brain.Infrastructure.Observation.LightSense;
 using LightUsefulArea = live::AICompanion.Companion.Brain.Activities.NearbyAssistance.LightUsefulArea;
@@ -96,6 +99,10 @@ internal static class VerifyLightAndReachSenses
         Each("c: two sites in one dark region are worked without going back to the player", TwoSitesAreWorkedWithoutReturning);
         Each("c: the same dark floor priced under the production allowances", MeasureTheRegionScanUnderProductionAllowances);
         Each("d: a player no candidate can stand beside still gets a gap-closing destination declaring no region", APlayerNoCandidateReachesStillGetsProgress);
+        Each("e: a retained search survives an edit it never read and dies on one it did", ARetainedSearchSurvivesAnEditItNeverRead);
+        Each("e: the invalidation margin is the scan's own reach, either side of it", TheMarginIsTheScansOwnReach);
+        Each("e: a revision older than the record's window is treated as changed", ARevisionOlderThanTheRecordIsChanged);
+        Each("e: the reach flood refloods for an edit it read and not for one it did not", TheReachFloodRefloodsOnlyForAnEditItRead);
         if (red == 0) Console.WriteLine("light and reach senses: the torch reads a field around the body and on the heading, lighting works a region through the reach sense, and following always has somewhere to go");
         return red;
     }
@@ -718,6 +725,181 @@ internal static class VerifyLightAndReachSenses
             $"the progress tile must be one the companion can actually get to and back from; chosen={chosen} verdict={brain.Senses.Reach.Reachable(MovementQueries.FeetTile(chosen.Value))}");
         Require(brain.Positioner.Region.Kind == SuccessRegionKind.Undeclared,
             $"a destination outside the follow objective must declare no region it cannot meet, or every arrival on it is recorded as a contract violation; kind={brain.Positioner.Region.Kind}");
+    }
+
+    // ---- (e) knowledge is invalidated where it happened -------------------------------------------------
+
+    /// <summary>
+    /// A retained route search keeps its frontier across an edit it never read, and loses it across one it
+    /// did. Before this, the compare was one world-global counter, so a player breaking a tile anywhere in
+    /// the loaded world discarded every frontier in the brain; the 2026-09-14 capture's navigator restarted
+    /// one query 166 times in 3,000 ticks and never struck.
+    ///
+    /// <para>The edits are announced rather than made, which is the whole surface under test: invalidation
+    /// keys on what the game announces, and announcing without editing keeps the scene identical for the
+    /// rows that follow.</para>
+    /// </summary>
+    private static void ARetainedSearchSurvivesAnEditItNeverRead()
+    {
+        var ctx = Scene(null);
+        Point feet = MovementQueries.FeetTile(ctx.Npc.Bottom);
+        using var search = new ContinueRouteSearch(feet, null, false, false);
+        for (int i = 0; i < 40; i++) search.Advance(Weights.ReachFloodBudget);
+        Rectangle bounds = search.ExploredBounds;
+        Require(search.Valid && search.Expansions > 0 && bounds.Height > 0,
+            $"the row needs a live query with a region behind it; valid={search.Valid} expansions={search.Expansions} bounds={bounds}");
+
+        // Far above the region: above every reached tile by more than the jump box the tile's own scans read
+        // through. Above rather than sideways because this world is a hundred tiles wide and the flood runs
+        // the whole flat floor, so no column is far from it — which is itself the honest limit of this lane
+        // and is why the boundary row below pins the margin rather than assuming a wide one.
+        int farAbove = bounds.Top - AStar.EdgeReachUp - 20;
+        Require(farAbove > 0, $"the fixture world must leave room above the flood to place a distant edit; top={bounds.Top}");
+        int reachedBefore = search.Reached.Count;
+        TerrainChanges.Changed(feet.X, farAbove);
+        Require(search.Valid,
+            $"an edit {bounds.Top - farAbove} rows above everything the query read must leave it valid; bounds={bounds} edit={feet.X},{farAbove}");
+        Require(search.Reached.Count == reachedBefore && search.Stop == AStar.SearchStopReason.Exhausted,
+            $"the answer a surviving query already has must survive with it; reached {reachedBefore} -> {search.Reached.Count} stop={search.Stop}");
+
+        // The same thing said about a query that has not finished, because "keeps its answer" and "goes on
+        // working" are two claims and this floor is small enough to exhaust in one advance at full budget.
+        using (var unfinished = new ContinueRouteSearch(feet, null, false, false))
+        {
+            unfinished.Advance(1);
+            Require(!unfinished.Finished, $"a one-unit advance must leave work to do, or the row below asserts nothing; stop={unfinished.Stop}");
+            int expansionsBefore = unfinished.Expansions;
+            TerrainChanges.Changed(feet.X, farAbove);
+            Require(unfinished.Valid, "an unfinished query must survive a distant edit too");
+            for (int i = 0; i < 20; i++) unfinished.Advance(1);
+            Require(unfinished.Expansions > expansionsBefore,
+                $"a query that survived a distant edit must go on expanding; {expansionsBefore} -> {unfinished.Expansions}");
+        }
+
+        // Inside: the tile under the body's own feet, which every reached tile on this floor reads through.
+        TerrainChanges.Changed(feet.X, feet.Y + 1);
+        Require(!search.Valid, $"an edit on the floor the query flooded must invalidate it; bounds={bounds}");
+        Require(!search.Valid, "invalidity must be remembered rather than re-derived against a moving counter");
+    }
+
+    /// <summary>
+    /// The margin is how far a tile's own scans read, not the body's size, and this row pins it to that
+    /// constant either side. A drop steers sideways for as long as the deepest fall takes and a jump rises
+    /// through a box above, so an edit two dozen columns from a tile the query has already closed can change
+    /// what that tile's drop does; a margin of a body and a tile would leave that priced from terrain that no
+    /// longer exists. Both halves are asserted so a later tidy-up cannot shrink the margin quietly — and the
+    /// looser half matters as much, because a margin that never lets anything survive is this whole lane
+    /// doing nothing while every row about invalidation still passes.
+    /// </summary>
+    private static void TheMarginIsTheScansOwnReach()
+    {
+        var ctx = Scene(null);
+        Point feet = MovementQueries.FeetTile(ctx.Npc.Bottom);
+
+        using (var atTheMargin = new ContinueRouteSearch(feet, null, false, false))
+        {
+            for (int i = 0; i < 40; i++) atTheMargin.Advance(Weights.ReachFloodBudget);
+            Rectangle bounds = atTheMargin.ExploredBounds;
+            Require(bounds.Top == feet.Y,
+                $"this flat-floor row needs a flood with nothing above its own start, or the one-row-beyond half tests a different tile's reach; top={bounds.Top} start={feet.Y}");
+            TerrainChanges.Changed(feet.X, feet.Y - AStar.EdgeReachUp);
+            Require(!atTheMargin.Valid,
+                $"an edit exactly {AStar.EdgeReachUp} rows above a reached tile is inside that tile's own jump box and must invalidate");
+        }
+
+        using (var oneBeyond = new ContinueRouteSearch(feet, null, false, false))
+        {
+            for (int i = 0; i < 40; i++) oneBeyond.Advance(Weights.ReachFloodBudget);
+            TerrainChanges.Changed(feet.X, feet.Y - AStar.EdgeReachUp - 1);
+            Require(oneBeyond.Valid,
+                $"an edit one row past the scan's reach touches nothing the query priced and must leave it valid");
+        }
+    }
+
+    /// <summary>
+    /// A revision older than the record reaches back is treated as changed. The record is a bounded ring, so
+    /// a query nobody asks about while a window's worth of edits lands anywhere in the world can no longer be
+    /// told whether any of them were its own — and the only safe answer there is that it was. The row drives
+    /// the real query rather than the log alone, because the thing that must not regress is a caller being
+    /// handed a silent Unchanged for a gap nothing was recorded over.
+    /// </summary>
+    private static void ARevisionOlderThanTheRecordIsChanged()
+    {
+        var ctx = Scene(null);
+        Point feet = MovementQueries.FeetTile(ctx.Npc.Bottom);
+        using var search = new ContinueRouteSearch(feet, null, false, false);
+        for (int i = 0; i < 40; i++) search.Advance(Weights.ReachFloodBudget);
+        Rectangle bounds = search.ExploredBounds;
+        int farAbove = bounds.Top - AStar.EdgeReachUp - 20;
+        Require(farAbove > 0, $"the fixture world must leave room above the flood; top={bounds.Top}");
+
+        // Not one call to Valid in between: the query's own revision only moves forward when it is asked, so
+        // this is exactly the case the window exists to fail safely on.
+        for (int i = 0; i <= TerrainEditLog.Window; i++) TerrainChanges.Changed(feet.X, farAbove);
+        Require(!search.Valid,
+            $"a query unasked across {TerrainEditLog.Window + 1} edits has fallen off the record's window and must read invalid rather than clean");
+
+        // And the asked query outlives the same run of distant edits, which is what makes the row above a
+        // statement about the window rather than about distance.
+        using var asked = new ContinueRouteSearch(feet, null, false, false);
+        for (int i = 0; i < 40; i++) asked.Advance(Weights.ReachFloodBudget);
+        for (int i = 0; i <= TerrainEditLog.Window * 2; i++)
+        {
+            TerrainChanges.Changed(feet.X, farAbove);
+            if (!asked.Valid) break;
+        }
+        Require(asked.Valid,
+            $"a query asked between edits advances its own revision and must survive any number of distant ones; window={TerrainEditLog.Window}");
+    }
+
+    /// <summary>
+    /// The reach flood itself: a distant edit costs no reflood, an edit it read costs one, and the region it
+    /// grows afterwards holds the edit. The flood is the consumer the 13:27 capture measured — unfinished on
+    /// 9,812 of 22,473 rows — and the world-global restart is one of the two causes named for it.
+    /// </summary>
+    private static void TheReachFloodRefloodsOnlyForAnEditItRead()
+    {
+        var ctx = Scene(null);
+        var brain = ctx.Companion.Brain;
+        var request = new PositionRequest(RequestKind.WithPlayer, ctx.Player.Bottom);
+        // The scene's own setup floods before it resets the terrain, so the region standing here is complete
+        // and was built under an earlier revision: settling on "resolve while incomplete" would return at
+        // once and every reflood counted below would be a count against a flood from the previous world.
+        // This is the trap this folder's own file names, and it is what the first version of this row hit.
+        VerifyOreWork.ResettleReach(ctx);
+        for (int i = 0; i < 3000 && !brain.Positioner.ReachComplete; i++) brain.Positioner.Resolve(request, brain.Senses, null);
+        Require(brain.Positioner.ReachComplete, "the flood must settle before a reflood can be counted against it");
+
+        Point feet = MovementQueries.FeetTile(ctx.Npc.Bottom);
+        Point beyond = new(feet.X + 30, StandRow);
+        Require(brain.Senses.Reach.Reachable(beyond) == ReachVerdict.Reachable,
+            $"the row needs a settled region holding a tile it can later lose; verdict={brain.Senses.Reach.Reachable(beyond)}");
+
+        int refloodsBefore = brain.Senses.Reach.Refloods;
+        TerrainChanges.Changed(feet.X, 10);
+        for (int i = 0; i < 40; i++) brain.Positioner.Resolve(request, brain.Senses, null);
+        Require(brain.Senses.Reach.Refloods == refloodsBefore,
+            $"an edit forty rows above everything the flood read must cost no reflood; {refloodsBefore} -> {brain.Senses.Reach.Refloods}");
+        Require(brain.Positioner.ReachComplete && brain.Senses.Reach.Reachable(beyond) == ReachVerdict.Reachable,
+            "a region that survived a distant edit keeps both its completeness and its membership");
+
+        // A wall on the floor the flood walked, taller than the body can jump, so the tiles past it leave the
+        // region. The edit is real here because this half is about membership rather than about the compare.
+        int wall = feet.X + 12;
+        for (int y = StandRow; y >= StandRow - NavGrid.JumpHeightTiles - NavGrid.BodyHeightTiles - 3; y--)
+        {
+            VerifyOreWork.Place(new Point(wall, y), TileID.Dirt);
+            TerrainChanges.Changed(wall, y);
+        }
+        // One resolve, so the sense is asked before the count is read: the discard happens inside Refresh and
+        // Refresh runs on a resolve, which is the same clock the whole flood keeps.
+        brain.Positioner.Resolve(request, brain.Senses, null);
+        Require(brain.Senses.Reach.Refloods > refloodsBefore,
+            $"an edit on the floor the flood walked must throw the flood away; refloods={brain.Senses.Reach.Refloods}");
+        for (int i = 0; i < 3000 && !brain.Positioner.ReachComplete; i++) brain.Positioner.Resolve(request, brain.Senses, null);
+        Require(brain.Positioner.ReachComplete, "the refloods region must settle again before its membership is read as final");
+        Require(brain.Senses.Reach.Reachable(beyond) == ReachVerdict.Unreachable,
+            $"the region grown after the wall must not still hold the floor behind it; verdict={brain.Senses.Reach.Reachable(beyond)}");
     }
 
     // ---- scene ----------------------------------------------------------------------------------------

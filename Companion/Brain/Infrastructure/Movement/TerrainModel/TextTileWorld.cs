@@ -22,7 +22,14 @@ public sealed class TextTileWorld : ITileWorld
     private readonly char[,] tiles;
     public readonly int OriginX, OriginY, Width, Height;
     public readonly Dictionary<char, Point> Markers = new();
-    public int Revision { get; private set; }
+    // Its own record rather than a shared one: a scenario world's counter is its own, and feeding two
+    // worlds' bumps into one ring would let a query rooted in this world be answered against edits
+    // made in another. The revision compare in ContinueRouteSearch checks world identity first, so
+    // the counters must not be able to collide in the first place.
+    private readonly TerrainEditLog edits = new();
+    public int Revision => edits.Revision;
+    public TerrainEditVerdict ChangedSince(int since, System.Func<int, int, bool> sensitive)
+        => edits.ChangedSince(since, sensitive);
 
     public TextTileWorld(int originX, int originY, IReadOnlyList<string> rows)
     {
@@ -88,7 +95,7 @@ public sealed class TextTileWorld : ITileWorld
         if (InWorld(x, y))
         {
             tiles[x - OriginX, y - OriginY] = c;
-            Revision++;
+            edits.Record(x, y);
         }
     }
     public TileShape Shape(int x, int y) => ShapeOf(At(x, y));
