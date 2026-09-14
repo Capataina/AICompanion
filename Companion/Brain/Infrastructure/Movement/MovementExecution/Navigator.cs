@@ -807,18 +807,26 @@ public sealed class Navigator
             // The direct proof refuses from the exact state; preparation is what asks whether a short
             // run-in, stop or alignment makes the move. A preparation search that ran out of its allowance
             // has not answered that, so the refusal is neither remembered nor struck, whatever the direct
-            // proof said. Both used to follow the direct proof alone: a body knocked toward a ledge faster
-            // than it walks mislands going straight off and is rescued by shedding speed first, and with the
-            // allowance starved every such refusal was remembered and struck, three to eight per approach,
-            // which is two strikes and a spot ban for a goal the body then reached. A preparation refusal is
-            // only ever made at entry, because preparation declines an attempt that has begun.
+            // proof said — a body knocked toward a ledge faster than it walks mislands going straight off
+            // and is rescued by shedding speed first, and striking every such refusal cost three to eight
+            // strikes per approach, which is two strikes and a spot ban for a goal the body then reached.
+            //
+            // What that exemption may not be is reachable by ordinary running, and for a wall-clock
+            // allowance it was: two milliseconds against a search that re-simulates a whole macro per
+            // candidate prefix meant the budget was spent on essentially every jump refusal, so a refused
+            // entry earned no strike, no memory and no controls, the body did not move, and the plan
+            // returned the same edge for ever. The 09:28 capture of 14 September holds 684 such rejections
+            // against a single jump fault, 390 of them bit-identical on one edge. The allowance is
+            // counted in simulated body ticks now and sized to cover the whole search, so exhausting it
+            // is a rare and reproducible fact about the move rather than a report on how busy the frame
+            // was — which is what makes this exemption safe to keep.
             bool preparationSpent = local.PreparationResult == "search-budget-exhausted";
             if (physicallyImpossible && atEntry && !preparationSpent)
                 RememberRejectedEntry(step, live);
-            // Which contract refused the step. A preparation search that ran out of its allowance
-            // has not shown the entry impossible, whatever the direct proof said; a refusal with no
-            // physical fault came from the threat forecast; a physical fault before the first tick is
-            // the refused entry, and after it the attempt's own observations decide.
+            // Which contract refused the step: a preparation search that ran out has not shown the
+            // entry impossible, whatever the direct proof said; a refusal with no physical fault
+            // came from the threat forecast; a physical fault before the first tick is the refused
+            // entry, and after it the attempt's own observations decide.
             var (ending, failure, reason) = preparationSpent
                 ? (AttemptEnding.Cancelled, MovementFailure.UnfinishedSearch, "preparation-budget")
                 : !physicallyImpossible ? (AttemptEnding.Preempted, MovementFailure.Preempted, "unsafe-forecast")

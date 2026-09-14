@@ -202,6 +202,26 @@ public sealed class DropTraversal : Traversal
     /// The same policy as the edge proof. Entry velocity and pose are validated by the complete
     /// live-state macro before any controls are emitted. Repeatedly braking while grounded
     /// changes the take-off trajectory and invalidates the planner's proof even from rest.
+    ///
+    /// A descent gets no entry phase of its own, and that is a decision with a measurement behind
+    /// it rather than an omission. Two were built and both failed on the captured sub-tile cave
+    /// entry (`Tools/Scenarios/actual-entry-drop-run-9.txt`, driven by `VerifyCapturedEntry`).
+    /// Steering onto the lip's point at the half-pixel tolerance the line is judged by cannot
+    /// terminate — `BodyPhysics.SteerToward`'s only non-zero output is the full walk speed, so the
+    /// body accelerates at a point it cannot stop within, overshoots, reverses and hunts until the
+    /// allowance runs out: 33 faults and no arrival, against one fault and an arrival with no
+    /// entry phase at all. Creeping in at half the remaining distance per tick converges in
+    /// principle and hunted in the same band in practice, for the same 33 faults.
+    ///
+    /// The reason neither works is that the alignment the prefix search provided was found by
+    /// *searching* — it accepted whichever short prefix made the whole macro simulate clean, which
+    /// is not a state any steering rule can be pointed at. The property to keep, because an entry
+    /// phase for descents will be proposed again: **a sub-tile entry is a positioning problem, and
+    /// a controller whose only outputs are full speed and nothing cannot solve one.** What answers
+    /// a body that is not where the proof stood is re-proving the descent from where the body
+    /// actually is, which the planner already does — the live navigator expands its first node
+    /// from the body's own pose — so the refusal, its strike and the replan that follows are the
+    /// designed path and not a fallback.
     /// </summary>
     internal static Controls Perform(NavStep step, BodyState live, bool throughPlatform, bool begun)
         => DescentControls(step.SteerX, live, throughPlatform, step.From.Y, begun);

@@ -23,15 +23,41 @@ public sealed class PlanLocalMovement
     private TraversalExecution? macroOwner;
     private ITileWorld? macroWorld;
     private int macroRevision;
-    private BodyState? rejectedState;
-    private TraversalFault rejectedFault;
+    /// <summary>
+    /// The brain's allowance for local movement work, in milliseconds. The prefix search no longer
+    /// reads it — it is bounded by <see cref="PrepareWorkTicks"/> instead — and `Navigator` still
+    /// passes it to the clearance search, which is a search over an open space and is legitimately
+    /// bounded by time. The name is the brain's and is set outside this folder.
+    /// </summary>
     public static double PreparationMsBudget { get; set; }
-    private long preparationDeadline;
-    private bool PreparationExpired => preparationDeadline != 0 && System.Diagnostics.Stopwatch.GetTimestamp() >= preparationDeadline;
+
+    /// <summary>
+    /// How many simulated body ticks the prefix search may spend before it reports an unfinished
+    /// search. It replaces a two-millisecond wall clock, and the change is not a re-tuning: a
+    /// wall-clock bound makes a *physical* verdict depend on the machine, so the same body on the
+    /// same terrain is refused on a slow frame and rescued on a fast one, and nothing downstream
+    /// can tell which it got. That is not theoretical. The search re-simulates a whole macro per
+    /// candidate prefix — for a running jump, a back-off, a run-in and a flight — so two
+    /// milliseconds were spent on essentially every jump refusal, `Navigator.Follow` read the spent
+    /// allowance as "preparation has not answered" and suppressed the strike and the rejection
+    /// memory that the refusal had earned, and the edge came back from every later plan with the
+    /// body standing still in front of it. That is the 684 rejections against one jump fault in
+    /// the census of the 09:28 capture of 14 September.
+    ///
+    /// The number is sized to cover the search the loops below can actually perform rather than to
+    /// cut it short: four directions, the longest running sixty ticks with a macro probe every
+    /// four, against macros bounded by the edge's own proof. Exhausting it is meant to be rare,
+    /// and it still means what it always meant — the search has not answered, so its refusal is
+    /// neither struck nor remembered. What has changed is that the answer no longer depends on how
+    /// busy the machine was.
+    /// </summary>
+    public static int PrepareWorkTicks { get; set; } = 12000;
+
+    private int prepareWork;
+    private bool PreparationExpired => prepareWork >= PrepareWorkTicks;
 
     public void InvalidatePhysicalProof()
     {
-        rejectedState = null;
         macro.Clear();
         preparation.Clear();
     }
@@ -54,9 +80,8 @@ public sealed class PlanLocalMovement
     public bool TryPrepare(ITileWorld world, TraversalExecution execution, BodyState live,
         Func<BodyState, int, bool>? unsafeAtTick, out Controls controls)
     {
-        preparationDeadline = LimitPlanningWork.Deadline(PreparationMsBudget);
-        try { return Prepare(world, execution, live, unsafeAtTick, out controls); }
-        finally { preparationDeadline = 0; }
+        prepareWork = 0;
+        return Prepare(world, execution, live, unsafeAtTick, out controls);
     }
 
     private bool Prepare(ITileWorld world, TraversalExecution execution, BodyState live,
@@ -101,6 +126,7 @@ public sealed class PlanLocalMovement
                 float move = float.IsNaN(direction) ? BodyPhysics.SteerToward(entryX, state.CentreX, state.Vx, .5f) : direction;
                 var input = new Controls(move, Descend: execution.Step.Kind is MoveKind.Drop or MoveKind.FallThrough);
                 BodyState before = state;
+                prepareWork++;
                 state = BodyMotion.Step(world, state, input);
                 prefix.Add((input, before, state));
                 if (state.Stuck || (unsafeAtTick?.Invoke(state, length) ?? false)) break;
@@ -108,6 +134,11 @@ public sealed class PlanLocalMovement
                 if (!state.OnGround || (length != 1 && length % 4 != 0)) continue;
                 int offset = length;
                 var probe = execution.Copy();
+                // A macro probe is charged its own worst case rather than what it happened to run,
+                // so the work spent is a function of the move and the search shape alone. Charging
+                // the actual length would make the bound depend on where each probe stopped, which
+                // is the same machine-dependence in another coat.
+                prepareWork += Math.Max(90, execution.Step.Ticks * 2 + 120);
                 if (!TryExecute(world, probe, state, unsafeAtTick == null ? null : (body, tick) => unsafeAtTick(body, tick + offset), out _, out _)) continue;
                 foreach (var frame in prefix) preparation.Enqueue(frame);
                 preparationOwner = execution;
@@ -172,14 +203,18 @@ public sealed class PlanLocalMovement
     public bool TryExecute(ITileWorld world, TraversalExecution execution, BodyState live, Func<BodyState, int, bool>? unsafeAtTick, out Controls controls, out TraversalFault fault)
     {
         fault = TraversalFault.None;
-        if (macroOwner?.Step == execution.Step && macroOwner?.Next == execution.Next && macroOwner?.Ticks == execution.Ticks
-            && macroWorld == world && macroRevision == world.Revision
-            && rejectedState is BodyState rejected && Matches(rejected, live))
-        {
-            controls = Controls.None;
-            fault = rejectedFault;
-            return false;
-        }
+        // A cache of refused body states used to sit here, answering an identical state with its
+        // stored fault instead of simulating again, on the argument that repeating an identical
+        // rejected simulation costs and teaches nothing. The argument is true and the cache was
+        // still half of what made the failure permanent. A refusal leaves the body with no
+        // controls, so the body does not move, so the next tick's state is bit-identical, so the
+        // cache answers again — and it answers without simulating, which meant without the
+        // evidence anything downstream could act on, and without ever reaching the preparation
+        // search that might have rescued it. It saved one simulation of a move the body was
+        // standing still in front of, and it bought a companion frozen at a take-off for as long
+        // as the plan kept offering the edge: 390 bit-identical rejections on one edge in the
+        // 09:28 capture of 14 September, entry velocity and predicted landing the same to the
+        // last decimal place on every one of them.
         if (macroOwner != execution || macroWorld != world || macroRevision != world.Revision
             || macro.Count == 0 || !Matches(macro.Peek().before, live))
         {
@@ -187,22 +222,18 @@ public sealed class PlanLocalMovement
             macroOwner = execution;
             macroWorld = world;
             macroRevision = world.Revision;
-            rejectedState = null;
             TraversalExecution probe = execution.Copy();
             BodyState predicted = live;
             // Validate the complete remaining macro from the body the engine actually left, not one
             // hopeful tick. The bound is deliberately the edge's own proof plus preparation slack;
             // a running jump may need its runway before its flight begins.
             int limit = Math.Max(90, execution.Step.Ticks * 2 + 120);
+            // The macro proof is bounded by `limit` alone, which is the edge's own proof plus the
+            // slack a running jump's runway needs, and is therefore a fact about the move. It used
+            // to be cut short by the preparation search's wall clock as well, which is how a
+            // complete physical answer could turn into "the search ran out" on a busy frame.
             for (int tick = 1; tick <= limit; tick++)
             {
-                if (PreparationExpired)
-                {
-                    controls = Controls.None;
-                    macro.Clear();
-                    PreparationResult = "search-budget-exhausted";
-                    return false;
-                }
                 if (probe.IsDone(predicted))
                     break;
                 BodyState before = predicted;
@@ -211,11 +242,6 @@ public sealed class PlanLocalMovement
                 if (fault != TraversalFault.None || (unsafeAtTick?.Invoke(predicted, tick) ?? false))
                 {
                     LastRejection = new(execution.Step, live, predicted, tick, fault, fault == TraversalFault.None ? "predicted-threat" : "physical-fault");
-                    if (fault != TraversalFault.None)
-                    {
-                        rejectedState = live;
-                        rejectedFault = fault;
-                    }
                     controls = Controls.None;
                     macro.Clear();
                     return false;
@@ -225,8 +251,6 @@ public sealed class PlanLocalMovement
                     LastRejection = new(execution.Step, live, predicted, tick, TraversalFault.Timeout, "macro-did-not-finish");
                     controls = Controls.None;
                     fault = TraversalFault.Timeout;
-                    rejectedState = live;
-                    rejectedFault = fault;
                     macro.Clear();
                     return false;
                 }
