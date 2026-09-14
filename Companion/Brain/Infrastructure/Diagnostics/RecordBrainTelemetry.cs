@@ -288,6 +288,8 @@ public sealed class BrainTelemetry : ModSystem
         writer.WriteLine($"# terraria={Main.versionNumber};tml_assembly={typeof(Main).Assembly.GetName().Version};runtime={Environment.Version};os={Environment.OSVersion.Platform}");
         writer.WriteLine("# mods=" + string.Join(";", (ModLoader.Mods ?? Array.Empty<Mod>()).Select(mod => mod.Name + "@" + mod.Version)));
         writer.WriteLine($"# source_revision={SourceProvenance}");
+        writer.WriteLine($"# capabilities={DescribeCapabilities()}");
+        writer.WriteLine($"# world={DescribeWorld()}");
         recordedConfiguration = RecordedConfiguration.Current();
         writer.WriteLine($"# config={recordedConfiguration.Describe()}");
         // What a capture keeps and what it forgets, read from the constants that bound each store, so a reader can tell an
@@ -299,6 +301,78 @@ public sealed class BrainTelemetry : ModSystem
             + $";plan-dump-every-ticks={DumpEveryTicks};flush-every-ticks={FlushEveryTicks}");
         writer.WriteLine("# lifecycle=world-entry-observed;tag-load-not-yet-observed;first-update-not-yet-observed;outer-load-unobservable;save-not-observed");
         writer.Flush();
+    }
+
+    /// <summary>
+    /// What each body could do, recorded rather than inferred.
+    ///
+    /// The distinction is the whole reason this line exists. A harness that watches where the
+    /// player went and decides which ability must have taken them there is a heuristic with its own
+    /// false positives, running underneath the thing being measured — and the question it feeds is
+    /// exactly the one that matters: a place the player reached by wings is not evidence that the
+    /// companion failed to reach it, and a place they walked to is. So both kits are written down
+    /// at the source, and a checkpoint the companion's kit cannot express becomes a skipped row
+    /// with its reason instead of a failure.
+    ///
+    /// The companion's side is <see cref="MovementCapabilities.Basic"/> — the mod's own declaration
+    /// of the shipping kit, rather than a list of flags copied out of it, so an ability added to
+    /// that record appears here by having been added there. It is the declared kit and not a live
+    /// read: the header is written at world entry, before any companion exists to ask, and the
+    /// navigator's own capabilities are an instance property with no instance yet. That is exact
+    /// today, because mastery is unbuilt and every companion runs the basic kit; the moment a
+    /// per-character kit can differ from the declaration, this line has to move to the row rather
+    /// than stay in the header, which is also where the plan wants the player's flags.
+    /// </summary>
+    private static string DescribeCapabilities()
+    {
+        MovementCapabilities kit = MovementCapabilities.Basic;
+        Player player = Main.LocalPlayer;
+        return $"companion:air-jumps={kit.AirJumpCount},dash={kit.CanDash},swim={kit.CanSwim},fly={kit.CanFly}"
+            + $";player:mount={player.mount?.Active == true},wings={player.wingsLogic > 0},dash={player.dashType},rocket-boots={player.rocketBoots}";
+    }
+
+    /// <summary>
+    /// Which world this is, so two captures of one world can be compared and two captures of
+    /// different worlds cannot be mistaken for one.
+    ///
+    /// Without it, replaying an old capture against a world he has since mined through is a false
+    /// positive nobody would catch: the route is the same, the terrain is not, and every
+    /// unreachable answer reads as a regression.
+    ///
+    /// The hash is FNV-1a over the world's unique id and its generation seed, written out by hand
+    /// for one reason that is easy to get wrong: <see cref="string.GetHashCode()"/> is randomised
+    /// per process on .NET Core, so a hash taken from it would differ between two captures of the
+    /// same world and agree with nothing, including itself tomorrow. A stable hash has to be one
+    /// whose arithmetic is written down.
+    /// </summary>
+    private static string DescribeWorld()
+    {
+        string identity;
+        try
+        {
+            var file = Main.ActiveWorldFileData;
+            identity = file == null ? "unknown" : $"{file.UniqueId}|{file.Seed}";
+        }
+        catch (Exception)
+        {
+            // A world whose file data is not yet attached is unknown rather than a hash of nothing;
+            // an invented identity would make two different worlds compare as one.
+            identity = "unknown";
+        }
+        string hash = identity == "unknown" ? "unknown" : StableHash(identity);
+        return $"id={Main.worldID};name={Main.worldName};hash={hash};size={Main.maxTilesX}x{Main.maxTilesY}";
+    }
+
+    /// <summary>FNV-1a, 64-bit, so the same input gives the same answer in every process and every run.</summary>
+    private static string StableHash(string text)
+    {
+        ulong hash = 14695981039346656037UL;
+        foreach (char c in text)
+        {
+            hash ^= c;
+            hash *= 1099511628211UL;
+        }
+        return hash.ToString("x16", CultureInfo.InvariantCulture);
     }
 
     /// <summary>

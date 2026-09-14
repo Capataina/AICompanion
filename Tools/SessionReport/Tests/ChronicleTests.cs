@@ -486,7 +486,14 @@ public static class ChronicleTests
                 return Session.Load(file);
             }
 
-            bool Fires(Session s) => new PersistentRejectionsAreFindings().Run(s).Any();
+            // A park is the Definitive finding. The check also emits an Oddity stating how many
+            // refusals it saw when it found no park, because after the freshness rule a zero is far
+            // more often the sensitivity limit than a clean run — and "no park" and "nothing was
+            // measured" are the two things this tool exists to keep apart. Testing for Any() would
+            // fold them back together, which is what this predicate used to do.
+            bool Fires(Session s) => new PersistentRejectionsAreFindings().Run(s).Any(f => f.Severity == Severity.Definitive);
+            bool StatesCoverage(Session s) => new PersistentRejectionsAreFindings().Run(s)
+                .Any(f => f.Severity == Severity.Oddity && f.Title.Contains("were issued", StringComparison.Ordinal));
 
             Require(Fires(Write(("Rejection { Step = A }", 50.0), ("Rejection { Step = A }", 50.0), ("Rejection { Step = A }", 50.0))),
                 "three samples of one refusal at one pixel is a body parked on a refused step and must be reported");
@@ -498,6 +505,18 @@ public static class ChronicleTests
                 "a body refused a different step each sample is being replanned for, however still it is");
             Require(!Fires(Write(("", 50.0), ("", 50.0), ("", 50.0), ("", 50.0))),
                 "a session with no refusal at all must produce no finding, which is the case no capture on this machine can demonstrate");
+            Require(new PersistentRejectionsAreFindings().Run(Write(("", 50.0), ("", 50.0))).Any() == false,
+                "a session with no refusal at all must say nothing, not even a coverage line, because there was no refusal to have a park");
+
+            // A retained refusal standing over a still body is the defect this check had: the field
+            // is sticky, so a body that stopped beside a refusal it walked away from reads exactly
+            // like one frozen at the take-off of it. The refusal is issued once, the body then
+            // moves, and the same text follows it — which must open nothing at the new pixel.
+            Require(!Fires(Write(("Rejection { Step = A }", 50.0), ("Rejection { Step = A }", 62.0),
+                                 ("Rejection { Step = A }", 62.0), ("Rejection { Step = A }", 62.0))),
+                "a refusal the body walked away from must not become a park at wherever it stopped: the field is retained, so the text following the body is a stale reading and not a refusal being issued there");
+            Require(StatesCoverage(Write(("Rejection { Step = A }", 50.0), ("Rejection { Step = A }", 62.0))),
+                "a capture holding refusals and no park must say how many refusals it saw, because zero findings and zero coverage are otherwise the same output");
         }
         finally
         {
