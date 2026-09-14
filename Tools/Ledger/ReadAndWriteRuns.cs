@@ -278,7 +278,15 @@ public static class Git
     /// Whether the working tree carries changes the run's rows were produced from. A dirty run is
     /// never a baseline for anybody, because nothing identifies what it was actually run against.
     /// </summary>
-    public static bool Dirty(string repositoryRoot) => Run(repositoryRoot, "status", "--porcelain").Length > 0;
+    /// <remarks>
+    /// The store's own run files are excluded, and without that exclusion the ledger defeats itself:
+    /// a run leaves an untracked file in <c>runs/</c>, which makes the tree dirty, which makes the
+    /// next run dirty, which disqualifies it as a baseline — so after the first run no run can ever
+    /// be clean again until somebody commits in between. A run file is the record of a run and not
+    /// a change to the code the run measures, which is exactly the thing this flag is asked about.
+    /// </remarks>
+    public static bool Dirty(string repositoryRoot)
+        => Run(repositoryRoot, "status", "--porcelain", "--", ".", ":(exclude)Tools/Ledger/runs").Length > 0;
 
     /// <summary>
     /// <paramref name="commit"/> and then its ancestors, newest first — the order a baseline search
