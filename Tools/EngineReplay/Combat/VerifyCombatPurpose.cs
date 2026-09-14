@@ -326,7 +326,17 @@ internal static class VerifyCombatPurpose
         for (int i = 0; i < 400; i++) brain.Positioner.Resolve(request, brain.Senses, profile);
         brain.Senses.SetInterventionEstimate(companion.Arsenal.EstimateInterventionTicks(ctx));
         var guard = brain.Chooser.Actions.OfType<Guard>().Single();
+        // The firing query's proven absence costs a completed sweep of every sampled stand rather than the first
+        // handful, so one preparation answers Unknown for a sealed threat and only a sweep all the way round
+        // establishes the absence this row reads a zero from. The sweep resumes on each scan and its cache is
+        // keyed to the sense's clock, so the clock is what has to run; nothing else about the scene moves.
+        var clock = typeof(live::AICompanion.Companion.Brain.Infrastructure.Observation.Senses).GetProperty("Tick")!;
         float guardValue = VerifyPreparedActivities.PrepareAndScore(guard, ctx);
+        for (int scan = 0; scan < 400 && guard.Access == live::AICompanion.Companion.Brain.Activities.Combat.FiringAccess.Unknown; scan++)
+        {
+            clock.SetValue(brain.Senses, (int)clock.GetValue(brain.Senses)! + 21);
+            guardValue = VerifyPreparedActivities.PrepareAndScore(guard, ctx);
+        }
         return new(guardValue, guard.InterventionUsefulness, guard.RemovalTicks, guard.Access?.ToString() ?? "unasked", guard.AccessTicks,
             threat!.Urgency, brain.Senses.Threats.ProtectionUrgency, brain.Positioner.ReachComplete, (guard.ActivityIdentity as NPC)?.whoAmI ?? -1);
     }

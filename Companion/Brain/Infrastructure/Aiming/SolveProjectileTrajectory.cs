@@ -80,23 +80,39 @@ public static class TrajectoryAimer
 
     /// <summary>Returns the first valid arc, flattest first, together with its actual predicted impact.</summary>
     public static bool TrySolve(Vector2 muzzle, NPC target, WeaponProfile weapon, out TrajectorySolution solution)
+        => TrySolve(muzzle, target, weapon, 0, out solution);
+
+    /// <summary>
+    /// The same solve against the target as it will be <paramref name="targetTickOffset"/> ticks from now, which is
+    /// what a caller asking "will this stand still have a shot once the body has walked to it" needs. The offset is a
+    /// tick count rather than a displacement on purpose: the forecast is terrain-constrained, so a slime about to land
+    /// on a ledge and a slime about to keep falling differ, and a straight-line displacement equals the forecast only
+    /// while the motion is straight. Every interception test inside the trace is then taken at
+    /// <c>offset + flight tick</c>, so the flight lead the aimer already applies is preserved on top of the wait.
+    /// </summary>
+    public static bool TrySolve(Vector2 muzzle, NPC target, WeaponProfile weapon, int targetTickOffset, out TrajectorySolution solution)
     {
-        Vector2 toTarget = target.Center - muzzle;
+        // Aim at where it will be, not where it is: aiming the sweep from the current centre makes the
+        // flattest-first order search the wrong side of the arc for a target that has moved a long way.
+        Vector2 aimAt = targetTickOffset > 0 ? PredictObservedMotion.Predict(target, targetTickOffset) : target.Center;
+        Vector2 toTarget = aimAt - muzzle;
         float direct = MathF.Atan2(toTarget.Y, toTarget.X);
         for (float offset = 0f; offset <= MaxElevationRadians; offset += AngleStepRadians)
         {
-            if (TryAngle(direct - offset, muzzle, target, weapon, out solution))
+            if (TryAngle(direct - offset, muzzle, target, weapon, targetTickOffset, out solution))
                 return true;
-            if (offset > 0f && offset <= MaxDepressionRadians && TryAngle(direct + offset, muzzle, target, weapon, out solution))
+            if (offset > 0f && offset <= MaxDepressionRadians && TryAngle(direct + offset, muzzle, target, weapon, targetTickOffset, out solution))
                 return true;
         }
         solution = default;
         return false;
     }
 
-    /// <summary>Compatibility query for callers that only need a launch vector.</summary>
-    public static Vector2? Solve(Vector2 muzzle, NPC target, WeaponProfile weapon)
-        => TrySolve(muzzle, target, weapon, out TrajectorySolution solution) ? solution.LaunchVelocity : null;
+    /// <summary>Compatibility query for callers that only need a launch vector, optionally against the target as it
+    /// will be after a wait — position selection asks with the trip to the stand, because a stand is chosen now and
+    /// stood on a walk later.</summary>
+    public static Vector2? Solve(Vector2 muzzle, NPC target, WeaponProfile weapon, int targetTickOffset = 0)
+        => TrySolve(muzzle, target, weapon, targetTickOffset, out TrajectorySolution solution) ? solution.LaunchVelocity : null;
 
     /// <summary>
     /// Re-validates a concrete launch, including aim noise, against the target and terrain. A
@@ -122,10 +138,10 @@ public static class TrajectoryAimer
         return found;
     }
 
-    private static bool TryAngle(float angle, Vector2 muzzle, NPC target, WeaponProfile weapon, out TrajectorySolution solution)
-        => Trace(muzzle, angle.ToRotationVector2() * weapon.Speed, target, weapon, out solution);
+    private static bool TryAngle(float angle, Vector2 muzzle, NPC target, WeaponProfile weapon, int targetTickOffset, out TrajectorySolution solution)
+        => Trace(muzzle, angle.ToRotationVector2() * weapon.Speed, target, weapon, out solution, targetTickOffset);
 
-    private static bool Trace(Vector2 muzzle, Vector2 launch, NPC target, WeaponProfile weapon, out TrajectorySolution solution)
+    private static bool Trace(Vector2 muzzle, Vector2 launch, NPC target, WeaponProfile weapon, out TrajectorySolution solution, int targetTickOffset = 0)
     {
         var trace = CaptureRequested?.Invoke() == true ? new List<Vector2> { muzzle } : null;
         Vector2 position = muzzle;
@@ -137,7 +153,7 @@ public static class TrajectoryAimer
             Vector2 start = position;
             ProjectileFlight.Advance(ref position, ref velocity, weapon, ref phase);
             trace?.Add(position);
-            if (!TraceSegment(start, position, weapon, tick, null, null, ref ignored, target, out Vector2 impact))
+            if (!TraceSegment(start, position, weapon, tick + targetTickOffset, null, null, ref ignored, target, out Vector2 impact))
             {
                 solution = default;
                 if (trace != null) { trace[^1] = impact; TraceEvaluated?.Invoke(trace.ToArray(), "blocked by terrain or world boundary"); }

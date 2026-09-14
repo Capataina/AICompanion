@@ -98,7 +98,7 @@ internal static class VerifyLightAndReachSenses
         Each("b: nearer darkness the body cannot reach does not hide the darkness it can", NearerUnreachableDarknessDoesNotHideAReachableSite);
         Each("c: two sites in one dark region are worked without going back to the player", TwoSitesAreWorkedWithoutReturning);
         Each("c: the same dark floor priced under the production allowances", MeasureTheRegionScanUnderProductionAllowances);
-        Each("d: a player no candidate can stand beside still gets a gap-closing destination declaring no region", APlayerNoCandidateReachesStillGetsProgress);
+        Each("d: a player no candidate can stand beside still gets a gap-closing destination declaring the region it can meet", APlayerNoCandidateReachesStillGetsProgress);
         Each("e: a retained search survives an edit it never read and dies on one it did", ARetainedSearchSurvivesAnEditItNeverRead);
         Each("e: the invalidation margin is the scan's own reach, either side of it", TheMarginIsTheScansOwnReach);
         Each("e: a revision older than the record's window is treated as changed", ARevisionOlderThanTheRecordIsChanged);
@@ -723,8 +723,17 @@ internal static class VerifyLightAndReachSenses
             $"a player on an unreachable shelf must be answered with progress toward him, not an accepted candidate; reason={brain.Positioner.ChoiceReason} chosen={chosen}");
         Require(brain.Senses.Reach.Reachable(MovementQueries.FeetTile(chosen!.Value)) == ReachVerdict.Reachable,
             $"the progress tile must be one the companion can actually get to and back from; chosen={chosen} verdict={brain.Senses.Reach.Reachable(MovementQueries.FeetTile(chosen.Value))}");
-        Require(brain.Positioner.Region.Kind == SuccessRegionKind.Undeclared,
-            $"a destination outside the follow objective must declare no region it cannot meet, or every arrival on it is recorded as a contract violation; kind={brain.Positioner.Region.Kind}");
+        // The destination is outside the follow objective by construction, so it must not declare the follow box —
+        // publishing a contract the navigator cannot meet is what made every arrival on it read as a violation. It
+        // declares its own instead: being at that tile, inside the navigator's arrival radius, which is the whole of
+        // what it claimed. Declaring nothing was the earlier answer and it had the mirror defect — an arrival on a
+        // destination with no region cannot be judged at all, so a body handed back the tile it was already standing
+        // on read as a satisfied journey for as long as the follow gap stayed open.
+        Require(brain.Positioner.Region.Kind == SuccessRegionKind.PartialProgress,
+            $"a destination outside the follow objective must declare the region it can meet, not the one it cannot; kind={brain.Positioner.Region.Kind}");
+        Require(brain.Positioner.Region.Contains(chosen.Value) == true
+            && brain.Positioner.Region.Contains(chosen.Value + new Vector2(64f, 0f)) == false,
+            "the partial-progress region must hold its own tile and nothing four tiles away, or an arrival on it proves nothing");
     }
 
     // ---- (e) knowledge is invalidated where it happened -------------------------------------------------

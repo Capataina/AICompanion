@@ -96,7 +96,17 @@ public sealed class ResolveFiringOpportunity
     /// </summary>
     private const int MaxStandSolvesPerTarget = 8;
 
-    private static (FiringAccess Verdict, float AccessTicks, float Value) Scan(in ActionContext ctx, NPC enemy)
+    /// <summary>
+    /// Where the next scan of a target's stands starts. The sample is sorted by distance and only a handful are
+    /// solved, so a scan that always began at the nearest re-asked the same eight stands for ever: a target whose
+    /// eight nearest stands are blocked and whose ninth works could never be found, and calling that a proven
+    /// absence was the same exhausted-bound-as-negative mistake the positioner makes one layer up. The cursor
+    /// advances a scan's worth each time the answer stays unsettled and wraps, so a sweep completes across
+    /// rescores — and only a completed sweep with nothing solved earns <see cref="FiringAccess.None"/>.
+    /// </summary>
+    private readonly Dictionary<(int slot, int generation), (int cursor, int terrain, int examined)> sweep = new();
+
+    private (FiringAccess Verdict, float AccessTicks, float Value) Scan(in ActionContext ctx, NPC enemy)
     {
         var arsenal = ctx.Companion.Arsenal;
         Vector2 here = Arsenal.Muzzle(ctx.Npc);
@@ -128,10 +138,19 @@ public sealed class ResolveFiringOpportunity
         float bestValue = 0f;
         bool solvedUnreachable = false;
         int solves = 0;
-        foreach (var stand in stands)
+        int terrain = Infrastructure.Movement.TerrainChanges.Revision;
+        var sweepKey = (enemy.whoAmI, HostileAttackSources.Generation(enemy));
+        bool resumed = sweep.TryGetValue(sweepKey, out var mark) && mark.terrain == terrain;
+        int start = resumed && mark.cursor < stands.Count ? mark.cursor : 0;
+        int examined = resumed ? mark.examined : 0;
+        if (!resumed) { start = 0; examined = 0; }
+        for (int offset = 0; offset < stands.Count && solves < MaxStandSolvesPerTarget; offset++)
         {
-            if (solves >= MaxStandSolvesPerTarget) break;
+            int index = (start + offset) % stands.Count;
+            var stand = stands[index];
             solves++;
+            examined++;
+            sweep[sweepKey] = ((index + 1) % stands.Count, terrain, examined);
             if (!arsenal.ShotSolves(ctx, stand.Eye, enemy)) continue;
             float value = arsenal.BestShotValueFrom(ctx, stand.Eye, enemy);
             if (value > bestValue) bestValue = value;
@@ -146,12 +165,23 @@ public sealed class ResolveFiringOpportunity
         }
 
         if (float.IsFinite(nearestReachable))
+        {
+            sweep.Remove(sweepKey);
             return (FiringAccess.AfterMoving, nearestReachable, bestValue);
+        }
         // A real arc exists at a stand the flood has not yet claimed: hunt may start walking toward
         // that region without freezing the tile. A sealed chamber with no arc stays Unknown or None.
         if (solvedUnreachable)
+        {
+            sweep.Remove(sweepKey);
             return (FiringAccess.AfterMoving, Vector2.Distance(ctx.Npc.Bottom, enemy.Bottom) / Companion.CompanionMotor.WalkSpeed, bestValue);
+        }
         if (!positioner.ReachComplete)
+            return (FiringAccess.Unknown, Vector2.Distance(ctx.Npc.Bottom, enemy.Bottom) / Companion.CompanionMotor.WalkSpeed, 0f);
+        // Only a completed sweep of every sampled stand is a proven absence. Stopping at the solve cap and calling
+        // it None is an exhausted bound reported as a fact about the world, which is what put hunt at KnownUnusable
+        // on 303 of the 13:27 capture's 624 decisions and let keeping company take the body by default.
+        if (examined < stands.Count)
             return (FiringAccess.Unknown, Vector2.Distance(ctx.Npc.Bottom, enemy.Bottom) / Companion.CompanionMotor.WalkSpeed, 0f);
         return (FiringAccess.None, float.PositiveInfinity, 0f);
     }

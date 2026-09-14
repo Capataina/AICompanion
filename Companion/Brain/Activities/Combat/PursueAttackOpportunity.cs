@@ -308,10 +308,15 @@ public sealed class PursueAttackOpportunity : CompanionAction
         // list resets it, so a reason written during one pass is erased by the next and every
         // refusal would report the generic "nothing eligible" instead of the one a session is read
         // for. Whether the companion had nowhere to shoot from is exactly what needs to survive.
-        if (refusedForFiring)
-            LastRejection = "no-reachable-firing-position";
-        else if (undecidedFiring)
+        // An undecided candidate outranks a refused one. Both can appear in one pass, and reporting the refusal
+        // brands the whole offer known-unusable on the strength of a different enemy's settled answer, while an
+        // enemy whose stand sweep has not finished is a question still open. A proven absence for every examined
+        // candidate is the only thing that may close the family, which is the same rule the stand sweep and the
+        // positioner's shortlist follow: an exhausted bound is not a negative.
+        if (undecidedFiring)
             LastRejection = "firing-position-undecided";
+        else if (refusedForFiring)
+            LastRejection = "no-reachable-firing-position";
         verdict = FiringAccess.None;
         return null;
     }

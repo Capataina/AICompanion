@@ -488,4 +488,30 @@ public static class Weights
     /// <summary>How far ahead a drop's fall is forecast before the answer is given up as unknown. A drop
     /// still falling after this long is going somewhere the companion should not be committing to.</summary>
     public const int DropForecastTicks = 240;
+
+    // Lane B — offer validity and destination retention.
+
+    /// <summary>
+    /// How many ticks apart the arrival-window samples of a firing stand's shot are taken. Two samples this far past the
+    /// estimated arrival are asked, so the window a stand must hold for is bounded by twice this however long the trip is;
+    /// the trip itself is the requirement below that bound. It is a sampling rate, not a promise about the ticks between:
+    /// a target that leaves the arc and returns inside one interval reads as a shot that held.
+    /// </summary>
+    public const int ShotWindowSampleTicks = 20;
+
+    /// <summary>
+    /// The measured continuation confidence a forecast must carry before a stand's shot is judged at the arrival tick
+    /// rather than at the target's current position. Below it the forecast is not evidence about where the thing will be,
+    /// so refusing a stand on it would be refusing on a guess; the solve falls back to the current position and the reason
+    /// says which of the two was asked.
+    /// </summary>
+    public const float ShotForecastConfidenceFloor = 0.35f;
+
+    /// <summary>
+    /// How far a target may drift from where it stood when a firing destination was admitted before the stand's arc is
+    /// re-proved rather than retained. It is the firing position's success region: the kind declares no box precisely
+    /// because its arc belongs to a moving target, so "still the region it was admitted against" can only mean "the
+    /// target has not moved enough to have changed the answer".
+    /// </summary>
+    public const float FiringHoldTargetSlackPx = 48f;
 }
