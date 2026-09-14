@@ -30,4 +30,21 @@ public static class MovementQueries
     public static Reachability.RoundTripEvidence RoundTrip(Point from, Point to, Reachability.BreathEnvelope breath) => Reachability.RoundTrip(from, to, breath);
     public static bool FlyerCanReach(Point from, Point to, int arriveRadius = 3) => Reachability.FlyerCanReach(from, to, arriveRadius);
     public static HashSet<Point> Region(Point from, int budget, out bool complete, bool refuseOneWay = false) => AStar.Region(from, budget, out complete, refuseOneWay);
+
+    // ── the orb's readings ──────────────────────────────────────────────────────────────────────
+    /// <summary>The tile a world point is in.</summary>
+    public static Point Tile(Vector2 point) => new((int)System.MathF.Floor(point.X / 16f), (int)System.MathF.Floor(point.Y / 16f));
+    public static Vector2 TileCentre(Point tile) => new(tile.X * 16f + 8f, tile.Y * 16f + 8f);
+    public static Vector2 CornerWorld(Point corner) => CornerGraph.ToWorld(corner);
+    /// <summary>A wall to the orb's contact: a full block, a half block, a slope or a closed door; never a platform.</summary>
+    public static bool IsSolidForOrb(int x, int y) => OrbTerrain.Solid(World, x, y);
+    /// <summary>Free for the orb under this tick's immunities: not solid and not a forbidden liquid.</summary>
+    public static bool IsFreeForOrb(int x, int y) => OrbTerrain.Free(World, x, y);
+    public static bool IsWet(int x, int y) => World.InWorld(x, y) && World.LiquidAmount(x, y) > 0;
+    /// <summary>Distance from a free tile to the nearest wall, in tiles, capped; zero for a wall.</summary>
+    public static float Clearance(int x, int y) => ClearanceField.Shared.At(World, x, y);
+    /// <summary>Whether the body fits centred on this corner: its four tiles are free.</summary>
+    public static bool IsUsableCorner(Point corner) => CornerGraph.Usable(World, corner);
+    /// <summary>The nearest corner the body fits at, within a ring radius of the point, or null.</summary>
+    public static Point? NearestUsableCorner(Vector2 point, int radius = 2, bool requireSweep = true) => CornerGraph.NearestUsable(World, point, radius, requireSweep);
 }

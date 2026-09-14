@@ -25,6 +25,18 @@ public static class Weights
     public const float OrbAccelerationPerRunAcceleration = 3f;
     public const float OrbFallbackSpeed = 6f;
     public const float OrbFallbackAcceleration = 0.24f;
+    // The route search prices an edge at its length times one plus this over the clearance at its
+    // far corner, in tiles, so a corridor's middle is cheaper than its walls without a wall ever
+    // being refused: at one, a corner touching a wall costs twice its length and one three tiles
+    // clear a third more. Zero is the shortest path and the wall-hugging the owner refused.
+    public const float CorridorMiddlePreference = 1f;
+    // A corner inside a threat's inflated body costs this many times more, so a route goes around
+    // an enemy where a way around exists and through it only where none does.
+    public const float ThreatBodyRoutePenalty = 6f;
+    // How many corners the reach flood may close per resolve. Corner expansions are cheap — eight
+    // swept tests each — and a screen-sized window is a few thousand corners, so this closes one
+    // in a handful of resolves rather than the walker's several seconds.
+    public const int ReachFloodExpansions = 1500;
     public const int HuntRetryTicks = 180;
     // Useful damage remains valuable across the forecast window. Timely threat
     // removal earns extra value without letting kill count dominate healthy targets.
