@@ -14,4 +14,13 @@
     <RootNamespace>AICompanion.Tools.SessionReport</RootNamespace>
     <InvariantGlobalization>true</InvariantGlobalization>
   </PropertyGroup>
+  <ItemGroup>
+    <!--
+      The ledger's row writer, included as a source file rather than referenced as an assembly.
+      The Tools projects are separate executables with incompatible needs — EngineReplay loads the
+      installed game assemblies and this one deliberately loads none — so a shared library would
+      drag a reference graph across that boundary to share one file.
+    -->
+    <Compile Include="../Ledger/EmitLedgerRows.cs" />
+  </ItemGroup>
 </Project>

@@ -4,6 +4,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using AICompanion.Tools.Ledger;
 
 namespace AICompanion.Tools.SessionReport;
 
@@ -90,10 +91,52 @@ public static class Program
         new TheBrainFitsInAFrame(),
     };
 
+    /// <summary>
+    /// The numbers a play holds, as opposed to the rules it breaks. These do not decide anything:
+    /// each emits a value into the ledger so the next capture is compared against this one rather
+    /// than read from scratch, and the pass lines they are eventually judged against live in the
+    /// verification plan and travel as tags on the rows.
+    /// </summary>
+    private static readonly IMeasure[] Measures =
+    {
+        new MeasureAheadShare(),
+        new MeasureCancelledInFlight(),
+        new MeasureStopsByReason(),
+        new MeasureValidityFlips(),
+        new MeasureHuntKnownUnusableShare(),
+        new MeasureReachCompleteShare(),
+        new MeasureJourneysReached(),
+        new MeasureArrivedWithFollowGap(),
+        new MeasureHandsByActivity(),
+        new MeasureTerrainRevisionRate(),
+    };
+
     public static int Main(string[] args)
     {
         if (args.Length == 1 && args[0] == "--self-test")
-            return ChronicleTests.Run();
+        {
+            // Both, always, and the play measures run even when the chronology tests fail: a
+            // partial self-test that stops at the first red hides whatever the second half would
+            // have said, which is the abort-on-first-failure shape the whole ledger exists to end.
+            int chronology = ChronicleTests.Run();
+            int measures = PlayMeasureTests.Run();
+            return chronology != 0 || measures != 0 ? 1 : 0;
+        }
+
+        // The measures alone, over any capture, which is how a recording made before the ledger
+        // existed is still benchmarked: the run is opened under the capture's own source revision
+        // rather than under whatever is checked out, so a comparison between two captures is a
+        // comparison between the two builds that wrote them.
+        if (args.Length >= 2 && args[0] == "--measures")
+        {
+            string? only = Resolve(args[1]);
+            if (only == null) { Console.Error.WriteLine($"no session file at or under {args[1]}"); return 2; }
+            Session measured;
+            try { measured = Session.Load(only); }
+            catch (Exception e) { Console.Error.WriteLine($"{only}: {e.Message}"); return 2; }
+            Console.Write(RunMeasures(measured));
+            return 0;
+        }
 
         if (args.Length >= 2 && args[0] == "--multirun")
         {
@@ -170,6 +213,8 @@ public static class Program
         Companion(path, "-census.txt", "behaviour census");
         Companion(path, "-map.txt", "session map");
 
+        Console.Write(RunMeasures(session));
+
         var (findings, skipped, ran) = Evaluate(session);
 
         Console.WriteLine();
@@ -209,6 +254,55 @@ public static class Program
             ? "no definitive issue in this session."
             : $"{definitive} definitive issue(s): something in this session is wrong by construction.");
         return definitive == 0 ? 0 : 1;
+    }
+
+    /// <summary>
+    /// Run every measure, emit its rows to whatever run file is open, and render them for a person.
+    ///
+    /// A measure that throws becomes an <c>error</c> row rather than taking the report down, and
+    /// the wording of that row matters: an error is the instrument breaking and says nothing about
+    /// the thing under test, so it must never be read as a number of zero. A measure that cannot
+    /// run because the capture predates a column it reads is skipped by name, for the same reason
+    /// the checks are — zero coverage and a clean reading look identical once they are folded
+    /// together.
+    /// </summary>
+    internal static string RunMeasures(Session session)
+    {
+        var text = new System.Text.StringBuilder();
+        text.AppendLine();
+        text.AppendLine("play measures — numbers, not verdicts; the ledger compares them against the last run");
+        foreach (IMeasure measure in Measures)
+        {
+            string[] missing = measure.Needs.Where(n => !session.Has(n)).ToArray();
+            if (missing.Length > 0)
+            {
+                EmitLedgerRows.Skipped(PlayRow.Instrument, PlayRow.Suite, measure.Name, $"the file has no {string.Join(", ", missing)}");
+                text.AppendLine($"  skipped  {measure.Name} — the file has no {string.Join(", ", missing)}");
+                continue;
+            }
+            if (measure.Missing(session) is { } absent)
+            {
+                EmitLedgerRows.Skipped(PlayRow.Instrument, PlayRow.Suite, measure.Name, $"the file has no {absent}");
+                text.AppendLine($"  skipped  {measure.Name} — the file has no {absent}");
+                continue;
+            }
+            try
+            {
+                foreach (LedgerRow row in measure.Rows(session))
+                {
+                    EmitLedgerRows.Row(row);
+                    text.AppendLine(row.Verdict == "skipped"
+                        ? $"  skipped  {row.Case} — {row.Message}"
+                        : $"  {row.Value,10:0.##} {row.Unit,-12} {row.Case}");
+                }
+            }
+            catch (Exception e)
+            {
+                EmitLedgerRows.Error(PlayRow.Instrument, PlayRow.Suite, measure.Name, $"{e.GetType().Name}: {e.Message}");
+                text.AppendLine($"  ERROR    {measure.Name} — the measure itself failed: {e.GetType().Name}: {e.Message}. Nothing was measured, so this is no coverage rather than a clean number.");
+            }
+        }
+        return text.ToString();
     }
 
     /// <summary>One evaluator for ordinary and multi-run reports; no second check policy may drift.</summary>

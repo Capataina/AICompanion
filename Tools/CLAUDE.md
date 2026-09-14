@@ -7,8 +7,10 @@ Tools/
 ├─ CLAUDE.md                         this guide
 ├─ check-navigation-boundary.sh      verifies that portable movement code remains game-free
 ├─ verify.sh                         repository verification entry point
+├─ backfill-capture.sh               turns a playtest recording into a ledger run under the revision that wrote it
 ├─ corpus.sh                         scenario corpus helper
 ├─ decompile.sh                      Terraria source lookup helper
+├─ Ledger/                           one row per named case per run, committed, diffed against the nearest ancestor with a clean run
 ├─ EngineReplay/                     native collision and whole-brain fixtures, grouped by Combat, Gathering, Assistance, Movement, Observation and Lifecycle
 ├─ NavReplay/                        portable movement replay — three sources, stays flat
 ├─ SessionReport/                    telemetry reader, grouped by Read, Checks, Write and Tests
@@ -20,7 +22,10 @@ Tools/
 
 Run `dotnet run --project Tools/SessionReport -- Telemetry` after a playtest. It reads the newest session, says which checks its schema supports, and exits non-zero for definitive faults. `NavReplay/CLAUDE.md` owns planner replay flags and verdict meanings; `WorldWindow/CLAUDE.md` owns saved-world reshaping; `EngineReplay/CLAUDE.md` owns native collision verification. `sh Tools/verify.sh` runs the build, boundary check, movement contracts, chronology tests and native engine cases. It exits 2 when a check could not be asked at all rather than failing, and carries on through the rest, so one absent tool cannot suppress the checks that still work. Exit 1 remains a real failure and exit 0 requires every check to have run and passed.
 
+`Ledger/` is what makes any of the above a trend rather than a verdict. Every instrument reports one row per named case through its emitter and through nothing else, so "every case reports" is a property rather than a habit, and no instrument parses another's printed output — a print is for a person, and the moment a second program reads it every print becomes an undeclared contract. A run stores under the commit its rows describe, which for a playtest recording is the revision the recorder stamped rather than the checkout, so a capture made before the ledger existed still becomes a run at its own commit. `Ledger/CLAUDE.md` owns the row schema, the six verdicts and the two statistical rules; the one thing worth carrying here is that a measure is never graded against a threshold, because a number nobody declared becoming a pass line is what collapses "ever green" into "green now".
+
 ## Traps
 
 - Replay success is evidence about the portable movement core. It never substitutes for a playtest or the native collision comparison.
+- **A number quoted about a capture in prose is a claim, and twice now it has been wrong in a way no reader could catch.** Both misses were the same shape — a filter somebody wrote over the file once, reported as a measurement — and both were found by building the instrument that produces the number instead. Anything asserted about a recording is reproducible through `Tools/SessionReport --measures` or it is not yet evidence.
 - **A check whose search tool is missing prints exactly what a held boundary prints.** `check-navigation-boundary.sh` pipes ripgrep into two greps and reports the boundary green when the pipeline is empty, so on a machine without `rg` it printed "movement boundary holds" while having searched nothing (2026-09-11). It falls back to POSIX grep now, and refuses with exit 2 only where neither tool exists. Two rules came out of that morning: a check states what it could not run rather than letting an absent tool read as a pass, and a check earns its keep by depending on nothing optional, because a permanent skip hides inside a green run just as well as a false pass does.

@@ -1,0 +1,278 @@
+#nullable enable
+
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.Globalization;
+using System.IO;
+using System.Linq;
+using System.Text;
+using System.Text.Json;
+
+namespace AICompanion.Tools.Ledger;
+
+/// <summary>
+/// What was true of the machine and the tree when a run was taken, which is the difference between
+/// a red that means something and a red nobody can place.
+///
+/// <see cref="Commit"/> is the commit the rows describe, and it is deliberately not always the
+/// commit that was checked out. A run over a recorded capture describes the build that wrote the
+/// capture, so it stores under that build's revision and <see cref="RanAt"/> carries the checkout
+/// — which is what lets history be backfilled at all, and is the same mechanism by which a
+/// calibration run on a known-bad build is stored like everything else rather than specially.
+///
+/// <see cref="Load"/> and <see cref="ConcurrentDotnet"/> exist because this suite's own flake trap
+/// is a wall-clock one: a planning deadline decides how far a search gets, so a red taken with four
+/// seats building in the same checkout and a red taken idle are different facts, and without the
+/// two columns they are the same row.
+/// </summary>
+public sealed record RunHeader(
+    string Commit,
+    bool Dirty,
+    string Timestamp,
+    string Machine,
+    double Load,
+    int ConcurrentDotnet,
+    string RanAt = "",
+    string Note = "")
+{
+    public static RunHeader Now(string commit, bool dirty, string ranAt, string note)
+        => new(commit, dirty,
+            DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture),
+            Environment.MachineName,
+            ReadLoad(),
+            CountDotnet(),
+            ranAt,
+            note);
+
+    /// <summary>
+    /// The one-minute load average. macOS has no <c>/proc/loadavg</c>, so this asks the kernel
+    /// through <c>sysctl</c> and returns a negative number when it cannot — never zero, because a
+    /// zero load is a real and very different claim from an unmeasured one.
+    /// </summary>
+    private static double ReadLoad()
+    {
+        try
+        {
+            if (File.Exists("/proc/loadavg"))
+                return double.Parse(File.ReadAllText("/proc/loadavg").Split(' ')[0], CultureInfo.InvariantCulture);
+            using var process = Process.Start(new ProcessStartInfo("/usr/sbin/sysctl", "-n vm.loadavg") { RedirectStandardOutput = true });
+            if (process == null) return -1;
+            string output = process.StandardOutput.ReadToEnd();
+            process.WaitForExit();
+            // "{ 2.31 2.45 2.60 }"
+            string[] parts = output.Trim().Trim('{', '}').Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            return parts.Length > 0 && double.TryParse(parts[0], NumberStyles.Float, CultureInfo.InvariantCulture, out double one) ? one : -1;
+        }
+        catch (Exception e) when (e is IOException or FormatException or InvalidOperationException or System.ComponentModel.Win32Exception)
+        {
+            return -1;
+        }
+    }
+
+    private static int CountDotnet()
+    {
+        try { return Process.GetProcessesByName("dotnet").Length; }
+        catch (InvalidOperationException) { return -1; }
+    }
+
+    public string Serialise()
+    {
+        var text = new StringBuilder("{\"kind\":\"run\"");
+        text.Append(",\"commit\":").Append(EmitLedgerRows.Quote(Commit));
+        text.Append(",\"dirty\":").Append(Dirty ? "true" : "false");
+        text.Append(",\"timestamp\":").Append(EmitLedgerRows.Quote(Timestamp));
+        text.Append(",\"machine\":").Append(EmitLedgerRows.Quote(Machine));
+        text.Append(",\"load\":").Append(Load.ToString("R", CultureInfo.InvariantCulture));
+        text.Append(",\"dotnet_processes\":").Append(ConcurrentDotnet.ToString(CultureInfo.InvariantCulture));
+        text.Append(",\"ran_at\":").Append(EmitLedgerRows.Quote(RanAt));
+        text.Append(",\"note\":").Append(EmitLedgerRows.Quote(Note));
+        return text.Append('}').ToString();
+    }
+}
+
+/// <summary>One run file as read: its header, its rows, and the lines that were not either.</summary>
+public sealed record Run(string Path, RunHeader Header, IReadOnlyList<LedgerRow> Rows, int Malformed)
+{
+    public string Name => System.IO.Path.GetFileName(Path);
+
+    /// <summary>
+    /// A run is clean when nothing in it failed or errored. Skips do not make a run dirty, because
+    /// a skip is missing coverage rather than a verdict, and a baseline that refused every run with
+    /// a skip in it would never resolve on a repository whose captures are gitignored.
+    /// </summary>
+    public bool Clean => Rows.All(r => r.Verdict is not ("fail" or "error"));
+}
+
+/// <summary>
+/// The store: where run files live, how one is opened, and which past run a new one is read
+/// against. One file per run rather than one file appended to, because several lanes run the suite
+/// in their own worktrees at once and a shared file is a conflict on every one of them.
+/// </summary>
+public static class RunStore
+{
+    public static string Folder(string repositoryRoot) => Path.Combine(repositoryRoot, "Tools", "Ledger", "runs");
+
+    /// <summary>
+    /// Open a run file and return its path. The stem is the commit the rows describe and the
+    /// instant the run began, so the folder listing sorts by commit and a second run at one commit
+    /// never overwrites the first — which is the whole basis of the repeat count the noise band and
+    /// the pass-rate interval are computed from.
+    /// </summary>
+    public static string Begin(string repositoryRoot, RunHeader header)
+    {
+        string folder = Folder(repositoryRoot);
+        Directory.CreateDirectory(folder);
+        string stamp = DateTime.UtcNow.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture);
+        string path = Path.Combine(folder, $"{header.Commit}-{stamp}.jsonl");
+        for (int attempt = 1; File.Exists(path); attempt++)
+            path = Path.Combine(folder, $"{header.Commit}-{stamp}-{attempt}.jsonl");
+        File.WriteAllText(path, header.Serialise() + "\n", new UTF8Encoding(false));
+        return path;
+    }
+
+    public static Run? Read(string path)
+    {
+        if (!File.Exists(path)) return null;
+        RunHeader? header = null;
+        var rows = new List<LedgerRow>();
+        int malformed = 0;
+        foreach (string line in File.ReadLines(path))
+        {
+            if (line.Trim().Length == 0) continue;
+            try
+            {
+                using JsonDocument document = JsonDocument.Parse(line);
+                JsonElement root = document.RootElement;
+                string kind = root.GetProperty("kind").GetString() ?? "";
+                if (kind == "run")
+                {
+                    header = new RunHeader(
+                        root.GetProperty("commit").GetString() ?? "",
+                        root.GetProperty("dirty").GetBoolean(),
+                        root.GetProperty("timestamp").GetString() ?? "",
+                        root.GetProperty("machine").GetString() ?? "",
+                        root.GetProperty("load").GetDouble(),
+                        root.GetProperty("dotnet_processes").GetInt32(),
+                        root.TryGetProperty("ran_at", out JsonElement ranAt) ? ranAt.GetString() ?? "" : "",
+                        root.TryGetProperty("note", out JsonElement note) ? note.GetString() ?? "" : "");
+                    continue;
+                }
+                if (kind != "row") { malformed++; continue; }
+                rows.Add(new LedgerRow(
+                    root.GetProperty("instrument").GetString() ?? "",
+                    root.GetProperty("suite").GetString() ?? "",
+                    root.GetProperty("case").GetString() ?? "",
+                    root.GetProperty("verdict").GetString() ?? "",
+                    root.TryGetProperty("value", out JsonElement v) && v.ValueKind == JsonValueKind.Number ? v.GetDouble() : null,
+                    root.TryGetProperty("unit", out JsonElement u) ? u.GetString() : null,
+                    root.TryGetProperty("direction", out JsonElement d) ? d.GetString() : null,
+                    root.TryGetProperty("mode", out JsonElement m) ? m.GetString() ?? "in-suite" : "in-suite",
+                    root.TryGetProperty("tags", out JsonElement t) && t.ValueKind == JsonValueKind.Array
+                        ? t.EnumerateArray().Select(e => e.GetString() ?? "").ToArray() : Array.Empty<string>(),
+                    root.TryGetProperty("killed_by", out JsonElement k) ? k.GetString() : null,
+                    root.TryGetProperty("message", out JsonElement g) ? g.GetString() ?? "" : "",
+                    root.TryGetProperty("duration_ms", out JsonElement du) && du.ValueKind == JsonValueKind.Number ? du.GetDouble() : 0));
+            }
+            catch (Exception e) when (e is JsonException or KeyNotFoundException or InvalidOperationException) { malformed++; }
+        }
+        // A file whose header never parsed is not a run. Returning one with an invented header
+        // would put a row under a commit nobody ran it at, which is the one lie the store must not
+        // tell, because every comparison below is keyed on that commit.
+        return header == null ? null : new Run(path, header, rows, malformed);
+    }
+
+    /// <summary>Every run in the store, newest first by its own timestamp.</summary>
+    public static IReadOnlyList<Run> All(string repositoryRoot)
+    {
+        string folder = Folder(repositoryRoot);
+        if (!Directory.Exists(folder)) return Array.Empty<Run>();
+        return Directory.EnumerateFiles(folder, "*.jsonl")
+            .Select(Read)
+            .Where(run => run != null)
+            .Select(run => run!)
+            .OrderByDescending(run => run.Header.Timestamp, StringComparer.Ordinal)
+            .ToArray();
+    }
+
+    /// <summary>Every run stored under one commit, newest first. More than one is the repeat count.</summary>
+    public static IReadOnlyList<Run> At(string repositoryRoot, string commit)
+        => All(repositoryRoot).Where(run => run.Header.Commit.StartsWith(commit, StringComparison.OrdinalIgnoreCase)
+                                         || commit.StartsWith(run.Header.Commit, StringComparison.OrdinalIgnoreCase)).ToArray();
+
+    /// <summary>
+    /// The nearest ancestor of <paramref name="commit"/> that has a clean run, which is what a new
+    /// run is read against.
+    ///
+    /// Ancestry comes from git rather than from the file timestamps, because the runs folder is
+    /// shared by every lane and a run taken ten minutes ago on another branch is not this change's
+    /// baseline. A run whose commit git does not know — a capture's own source revision on a
+    /// machine that never fetched it, say — is skipped rather than guessed at.
+    /// </summary>
+    public static Run? Baseline(string repositoryRoot, string commit)
+    {
+        string[] ancestry = Git.Ancestry(repositoryRoot, commit);
+        var runs = All(repositoryRoot);
+        foreach (string ancestor in ancestry)
+        {
+            Run? clean = runs.FirstOrDefault(run => !run.Header.Dirty
+                && run.Header.Commit.StartsWith(ancestor, StringComparison.OrdinalIgnoreCase)
+                && run.Clean);
+            if (clean != null) return clean;
+        }
+        return null;
+    }
+}
+
+/// <summary>
+/// The few git questions the ledger asks, each as one plain invocation. It never writes, and every
+/// failure answers "I do not know" rather than a default, because a baseline resolved from a wrong
+/// ancestry is worse than no baseline: it produces a scoreboard of confident nonsense.
+/// </summary>
+public static class Git
+{
+    public static string Run(string repositoryRoot, params string[] arguments)
+    {
+        try
+        {
+            var info = new ProcessStartInfo("git") { WorkingDirectory = repositoryRoot, RedirectStandardOutput = true, RedirectStandardError = true };
+            foreach (string argument in arguments) info.ArgumentList.Add(argument);
+            using Process? process = Process.Start(info);
+            if (process == null) return "";
+            string output = process.StandardOutput.ReadToEnd();
+            process.WaitForExit();
+            return process.ExitCode == 0 ? output.Trim() : "";
+        }
+        catch (Exception e) when (e is System.ComponentModel.Win32Exception or InvalidOperationException or IOException)
+        {
+            return "";
+        }
+    }
+
+    public static string Head(string repositoryRoot) => Run(repositoryRoot, "rev-parse", "--short", "HEAD");
+
+    /// <summary>
+    /// Whether the working tree carries changes the run's rows were produced from. A dirty run is
+    /// never a baseline for anybody, because nothing identifies what it was actually run against.
+    /// </summary>
+    public static bool Dirty(string repositoryRoot) => Run(repositoryRoot, "status", "--porcelain").Length > 0;
+
+    /// <summary>
+    /// <paramref name="commit"/> and then its ancestors, newest first — the order a baseline search
+    /// walks. An unknown commit yields just itself, so a run stored under a capture's own revision
+    /// still resolves against another run at that same revision.
+    /// </summary>
+    public static string[] Ancestry(string repositoryRoot, string commit)
+    {
+        string output = Run(repositoryRoot, "rev-list", "--max-count=400", commit);
+        if (output.Length == 0) return new[] { commit };
+        return output.Split('\n', StringSplitOptions.RemoveEmptyEntries).Select(line => line.Trim()).ToArray();
+    }
+
+    /// <summary>The repository root from any directory inside it, or the current directory.</summary>
+    public static string Root(string from)
+    {
+        string output = Run(from, "rev-parse", "--show-toplevel");
+        return output.Length > 0 ? output : from;
+    }
+}
