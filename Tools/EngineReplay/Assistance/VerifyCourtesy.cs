@@ -133,7 +133,6 @@ internal static class VerifyCourtesy
         var positioner = brain.Positioner;
         var follow = new live::AICompanion.Companion.Brain.Infrastructure.Position.PositionRequest(
             live::AICompanion.Companion.Brain.Infrastructure.Position.RequestKind.WithPlayer, player.Bottom);
-        _ = follow;
 
         // An enemy sealed inside the floor slab. It is attackable, so the query reaches the resolver rather than
         // returning at the not-attackable guard, and nothing around it is standable, so the resolver rejects it —

@@ -634,6 +634,14 @@ public sealed class Positioner
         // target's entries arriving. A blood moon with several unshootable enemies in it reaches the cap easily, and
         // each time it did, every sweep in progress went back to its first stand. Evicting one target's entries costs
         // that target its progress, which is the smallest thing that can be lost and still make room.
+        //
+        // Known and deliberate: where the only target in the memory is the one being refused, nothing is evicted and
+        // that target's entries grow past the cap. The alternative is evicting the owner's own entries, which restarts
+        // the sweep that is running right now — the exact unscoped reset this eviction replaced, narrowed to one
+        // target. The growth is bounded by the distinct stands around one target under one terrain revision, and the
+        // whole memory is thrown away on a revision change, so a long fight against a mobile boss accumulates dead
+        // marks for positions it has left (they fail the slack test and are re-solved) rather than growing without
+        // limit. No fixture exercises this path: the scenes here hold one target and about 29 stands.
         while (refused.Count > RefusalCapacity && refusalOrder.Count > 1)
         {
             (int slot, int generation) oldest = default;
