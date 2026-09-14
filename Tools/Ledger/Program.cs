@@ -34,7 +34,7 @@ switch (args[0])
         // over a recorded capture describes the build that wrote it, and the checkout it happens to
         // run in says nothing about that build's tree.
         bool dirty = Option("--commit") == null ? Git.Dirty(root) : Flag("--dirty");
-        var header = RunHeader.Now(commit, dirty, Git.Head(root), Option("--note") ?? "");
+        var header = RunHeader.Now(commit, dirty, Git.Head(root), Option("--note") ?? "", Option("--filter") ?? "");
         Console.WriteLine(RunStore.Begin(root, header));
         return 0;
     }
@@ -70,16 +70,46 @@ switch (args[0])
         Console.WriteLine($"{baseline.Header.Commit}  {baseline.Path}");
         return 0;
     }
+    case "--self-test":
+    case "self-test":
+        return SelfTestTheStore.Run() == 0 ? 0 : 1;
+    case "error":
+    {
+        // An instrument that exits non-zero having written no red row is the one failure the rest
+        // of this ledger cannot see: the scoreboard grades rows, and a process that crashed before
+        // its first row, or failed in a path that files none, contributes silence that reads
+        // exactly like a clean instrument. The caller is the shell, which knows the exit status and
+        // nothing else, so the decision of whether that status is already accounted for is made
+        // here against the rows rather than there against a grep.
+        if (args.Length < 4) { Usage(); return 2; }
+        Run? into = RunStore.Read(args[1]);
+        if (into == null) { Console.Error.WriteLine($"ledger: {args[1]} is not a readable run file"); return 2; }
+        string instrument = args[2];
+        if (into.Rows.Any(r => string.Equals(r.Instrument, instrument, StringComparison.OrdinalIgnoreCase) && r.Verdict is "fail" or "error"))
+        {
+            // Its own rows already say what went wrong, and in more detail than an exit code can.
+            return 0;
+        }
+        Environment.SetEnvironmentVariable(EmitLedgerRows.RunPathVariable, args[1]);
+        EmitLedgerRows.Error(instrument, "Instrument", $"{instrument} ran to a non-zero exit",
+            string.Join(' ', args[3..]));
+        return 0;
+    }
     case "reds":
     {
-        // The red case names, one per line, for a rerun to iterate. It lives here rather than as a
-        // grep in the shell because the run file is JSON and a shell that parses JSON with grep is
-        // one clearer message away from selecting nothing and reporting that as no reds.
+        // The red cases, one per line, for a rerun to iterate. It lives here rather than as a grep
+        // in the shell because the run file is JSON and a shell that parses JSON with grep is one
+        // clearer message away from selecting nothing and reporting that as no reds.
+        //
+        // The instrument is printed beside the case because a rerun has to know which project to
+        // run: dispatching every red to one instrument reruns a case that instrument does not own,
+        // which selects nothing there and so grades a red as unreproducible when it was never asked.
         if (args.Length < 2) { Usage(); return 2; }
         Run? run = RunStore.Read(args[1]);
         if (run == null) { Console.Error.WriteLine($"ledger: {args[1]} is not a readable run file"); return 2; }
-        foreach (string name in run.Rows.Where(r => r.Verdict is "fail" or "error").Select(r => r.Case).Distinct(StringComparer.Ordinal))
-            Console.WriteLine(name);
+        foreach ((string instrument, string @case) in run.Rows.Where(r => r.Verdict is "fail" or "error")
+                     .Select(r => (r.Instrument, r.Case)).Distinct())
+            Console.WriteLine($"{instrument}\t{@case}");
         return 0;
     }
     case "list":
@@ -131,10 +161,13 @@ bool Flag(string name) => Array.IndexOf(args, name) >= 0;
 void Usage() => Console.Error.WriteLine(
     """
     usage: dotnet run --project Tools/Ledger -- <command>
-      begin [--commit <hash>] [--dirty] [--note <text>]   open a run file; prints its path
+      begin [--commit <hash>] [--dirty] [--note <text>]
+            [--filter <case>]                             open a run file; prints its path
       scoreboard <run.jsonl> [--baseline <commit|file>]   score a run against its baseline
       compare <A> <B>                                     two commits or two run files
       baseline [<commit>]                                 nearest ancestor with a clean run
-      reds <run.jsonl>                                    the red case names, one per line
+      reds <run.jsonl>                                    the red cases as instrument<TAB>case
+      error <run.jsonl> <instrument> <message>            record a non-zero exit that wrote no row
+      --self-test                                         the store's own rules, as ledger rows
       list [<commit>]                                     every run in the store
     """);

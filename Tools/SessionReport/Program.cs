@@ -118,7 +118,16 @@ public static class Program
             // Both, always, and the play measures run even when the chronology tests fail: a
             // partial self-test that stops at the first red hides whatever the second half would
             // have said, which is the abort-on-first-failure shape the whole ledger exists to end.
-            int chronology = ChronicleTests.Run();
+            //
+            // Both halves report a ledger row, which is what makes this instrument's failure
+            // visible to the scoreboard at all. Before they did, a red self-test printed its
+            // failures, returned 1, and contributed nothing the run file could hold — so verify.sh
+            // scored a run whose reader's own tests were failing and exited 0. The chronology half
+            // runs on fixtures it builds itself and so can be wrapped; the measures half files its
+            // own row because its capture can legitimately be absent.
+            int chronology = EmitLedgerRows.Case(PlayRow.Instrument, "SelfTest",
+                "the chronology reader, its checks and its damaged-capture contracts hold",
+                ChronicleTests.Run);
             int measures = PlayMeasureTests.Run();
             return chronology != 0 || measures != 0 ? 1 : 0;
         }

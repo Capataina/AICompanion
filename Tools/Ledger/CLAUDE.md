@@ -11,9 +11,16 @@ Ledger/
 ├─ EmitLedgerRows.cs      the row, the six verdicts, and the one writer — included as a source file by every other Tools project
 ├─ ReadAndWriteRuns.cs    the run header, the store, and baseline resolution through git ancestry
 ├─ CompareRunsAndScore.cs the Wilson interval, the noise band, and the printed scoreboard
-├─ Program.cs             begin · scoreboard · compare · baseline · list
+├─ SelfTestTheStore.cs    the store's own rules: commit widths, the baseline refusals, the round trip
+├─ Program.cs             begin · scoreboard · compare · baseline · reds · error · list · --self-test
 └─ runs/                  committed run files, one per run
 ```
+
+## A run is refused as a baseline for four separate reasons, and each is its own rule
+
+A baseline is the nearest ancestor commit with a run that ran everything and came back clean, so a run is refused when its tree was dirty (nothing identifies what it ran against), when any row is `fail` or `error`, and when it was taken under `--case`. That third one is the least obvious and the most damaging: a filtered run on a clean tree is clean and non-dirty, so without the header's own filter field it would resolve as the baseline for the next full run, and every case the filter excluded would then read on the scoreboard as a case that disappeared. A `skipped` row does not refuse a run, because this repository's captures are gitignored and the play measures therefore skip in every fresh checkout — refusing on a skip would leave the store with no baseline at all.
+
+**An instrument that fails without writing a row is invisible to the scoreboard, and that is what the `error` command exists for.** A crash before the first case, a project that will not build, a failing path that files nothing — each contributes silence, and silence is what a healthy instrument contributes too. `verify.sh` hands every non-zero exit to `ledger error`, which files an error row only when that instrument's own rows do not already account for it; the reconciliation lives here rather than in the shell because the shell knows the status and cannot read the rows.
 
 ## The six verdicts are not interchangeable
 
@@ -29,6 +36,8 @@ That last rule is the one most likely to be undone by somebody trying to be help
 
 ## Traps
 
+- **A commit identifier in this store can be seven characters or forty, so it is compared with `Git.Same` and never with a bare `StartsWith`.** The header stores `rev-parse --short` output and `Git.Ancestry` returns `rev-list`'s full hashes, so a one-way comparison from the stored short hash to a full ancestor is always false. It made `Baseline` unresolvable for every run in the store while `compare` kept working, because that path compared both directions — so the suite printed "no baseline" with a perfectly good clean run sitting at the parent commit, which is a feature that silently did nothing rather than a feature that failed. `SelfTestTheStore` pins both directions and fails on the one-way rule by name.
+- **`reds` prints `instrument<TAB>case`, and a rerun dispatches on the instrument.** Sending every red to one project reruns a case that project does not own, which selects nothing, files a skip, and grades a real red as a case that could not be reproduced.
 - **`runs/` in the repository's `.gitignore` has no leading slash, so git matches a directory of that name at every depth.** The ledger's run files were invisible to `git add`, which reported nothing and said nothing — the exact failure a gitignored ledger was refused for. Two negation lines re-include this folder, and they have to be two: a parent directory that is excluded cannot have its contents re-included. **`git check-ignore` cannot verify this**, because it exits 0 when a path matches a negation pattern just as it does for a real exclusion; stage a file and read `git status` instead.
 - **The static class is `EmitLedgerRows` and not `Ledger`**, because a class named `Ledger` inside the namespace `AICompanion.Tools.Ledger` is ambiguous with the namespace from any other namespace, and the error it produces names a missing assembly reference rather than the collision.
 - **A payload field is parsed by hand and never by a regular expression that stops at a closing brace.** The movement-state detail nests braces — an `EdgeReport` contains `From = {X:… Y:…}` — so the obvious `\{([^}]*)\}` matches the inner one and silently finds nothing, which reads in a report exactly like a capture with no cancellations in it. That pattern cost a full measurement pass.

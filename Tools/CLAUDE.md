@@ -22,6 +22,8 @@ Tools/
 
 Run `dotnet run --project Tools/SessionReport -- Telemetry` after a playtest. It reads the newest session, says which checks its schema supports, and exits non-zero for definitive faults. `NavReplay/CLAUDE.md` owns planner replay flags and verdict meanings; `WorldWindow/CLAUDE.md` owns saved-world reshaping; `EngineReplay/CLAUDE.md` owns native collision verification.
 
+**An instrument's exit code is acted on, not merely collected.** Rows are the verdict, but an instrument that fails *without* writing a red row — a crash before its first case, a project that will not build, a failing path that files none — contributes exactly the silence a healthy instrument contributes. So every non-zero exit goes to `ledger error`, which files an error row only where that instrument's own rows do not already account for it. Before that, a red SessionReport self-test exited 1 and the run still scored clean at exit 0.
+
 `sh Tools/verify.sh` runs the build, the boundary check and every instrument, **and it no longer stops at the first failure**. That was not a style preference: assertions in these fixtures throw, EngineReplay summed thirty-eight of them in one expression, and the script exited on the first instrument that returned non-zero — so one throwing fixture took the rest of its chain with it and the run reported a single exit code that could not tell an unrun fixture from a passing one. The known intermittent fixture sits thirteenth of thirty-eight, so on the runs where it fired, twenty-two later fixtures reported nothing at all. Now every instrument runs to the end, every case writes its own row, and the ledger's scoreboard is the verdict. Exit 2 still means a check could not be asked rather than failed.
 
 ```

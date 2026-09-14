@@ -65,7 +65,11 @@ if [ -n "$newest_source" ]; then
   exit 1
 fi
 
-run=$(dotnet run --project Tools/Ledger -- begin)
+if [ -n "$case_filter" ]; then
+  run=$(dotnet run --project Tools/Ledger -- begin --filter "$case_filter")
+else
+  run=$(dotnet run --project Tools/Ledger -- begin)
+fi
 if [ -z "$run" ]; then
   echo "verify: could not open a ledger run, so nothing below would be recorded" >&2
   exit 2
@@ -93,22 +97,41 @@ elif [ $boundary_status -ne 0 ]; then
 fi
 rm -f "$boundary_log"
 
-# Instruments, each run to completion whatever the one before it did. The exit codes are collected
-# and not acted on: the ledger's rows are the verdict, and an instrument's own exit code is now a
-# summary of rows it already wrote.
-for project in Tools/NavReplay Tools/SessionReport; do
+# Instruments, each run to completion whatever the one before it did.
+#
+# An instrument's exit code is normally a summary of rows it already wrote, and the ledger's rows
+# are the verdict. The exception is the one this loop has to handle: an instrument that fails
+# *without* writing a red row — a crash before its first case, a build error inside its own project,
+# a failing path that files nothing — contributes silence, and silence is what a clean instrument
+# contributes too. So a non-zero exit is handed to the ledger, which files an error row only if that
+# instrument's own rows do not already account for it. Reconciling the two is the ledger's decision
+# rather than this script's, because the shell knows the status and cannot read the rows.
+record_exit() {
+  if [ "$2" -ne 0 ]; then
+    dotnet run --project Tools/Ledger -- error "$run" "$1" "exited $2 without filing a red row of its own; see the printed output above"
+  fi
+}
+
+for project in Tools/Ledger Tools/NavReplay Tools/SessionReport; do
   test_log=$(mktemp)
   dotnet run --project "$project" -- --self-test >"$test_log" 2>&1
   status=$?
   [ $status -ne 0 ] && cat "$test_log"
   tail -n 1 "$test_log"
   rm -f "$test_log"
+  case "$project" in
+    Tools/Ledger) record_exit "ledger" "$status" ;;
+    Tools/NavReplay) record_exit "nav-replay" "$status" ;;
+    Tools/SessionReport) record_exit "session-report" "$status" ;;
+  esac
 done
 
 engine_log=$(mktemp)
 dotnet run --project Tools/EngineReplay >"$engine_log" 2>&1
+engine_status=$?
 cat "$engine_log"
 rm -f "$engine_log"
+record_exit "engine-replay" "$engine_status"
 
 # Rerunning a red is how one observation becomes a claim about a rate. A case that fails once and
 # passes once at the same commit is flaky by observation rather than by suspicion, which is the
@@ -119,15 +142,26 @@ if [ "$rerun" -gt 0 ]; then
   if [ -z "$reds" ]; then
     echo "verify: --rerun-red $rerun asked for, and nothing was red"
   else
-    echo "$reds" | while IFS= read -r red; do
+    echo "$reds" | while IFS="$(printf '\t')" read -r instrument red; do
       [ -z "$red" ] && continue
-      echo "verify: rerunning '$red' $rerun time(s)"
+      # The red is rerun through the instrument that owns it. Sending every red to one project
+      # reruns a name that project does not have, which selects nothing, files a skip, and grades a
+      # real red as a case that could not be reproduced — the same silence this script spent the
+      # rest of its length removing.
+      case "$instrument" in
+        engine-replay) project="Tools/EngineReplay"; arguments="" ;;
+        ledger) project="Tools/Ledger"; arguments="--self-test" ;;
+        nav-replay) project="Tools/NavReplay"; arguments="--self-test" ;;
+        session-report) project="Tools/SessionReport"; arguments="--self-test" ;;
+        *) echo "verify: '$red' is red under instrument '$instrument', which this script cannot rerun"; continue ;;
+      esac
+      echo "verify: rerunning '$red' $rerun time(s) through $project"
       i=1
       while [ "$i" -le "$rerun" ]; do
         # Each rerun is its own process. That is the isolation: a fixture that leaves a
         # process-wide static changed cannot reach the next attempt, so a case that passes alone
         # and fails in the suite is telling you about order rather than about itself.
-        AIC_LEDGER_CASE="$red" dotnet run --project Tools/EngineReplay >/dev/null 2>&1
+        AIC_LEDGER_CASE="$red" dotnet run --project "$project" -- $arguments >/dev/null 2>&1
         i=$((i + 1))
       done
     done

@@ -34,16 +34,26 @@ public sealed record RunHeader(
     double Load,
     int ConcurrentDotnet,
     string RanAt = "",
-    string Note = "")
+    string Note = "",
+    string Filter = "")
 {
-    public static RunHeader Now(string commit, bool dirty, string ranAt, string note)
+    /// <summary>
+    /// The case filter the run was taken under, empty when it ran everything. It is a header field
+    /// rather than a note because <see cref="RunStore.Baseline"/> has to act on it: a filtered run
+    /// on a clean tree is clean and non-dirty and would otherwise resolve as the baseline for the
+    /// next full run, which would read every case the filter excluded as a case that disappeared.
+    /// </summary>
+    public bool Filtered => Filter.Length > 0;
+
+    public static RunHeader Now(string commit, bool dirty, string ranAt, string note, string filter = "")
         => new(commit, dirty,
             DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture),
             Environment.MachineName,
             ReadLoad(),
             CountDotnet(),
             ranAt,
-            note);
+            note,
+            filter);
 
     /// <summary>
     /// The one-minute load average. macOS has no <c>/proc/loadavg</c>, so this asks the kernel
@@ -87,6 +97,7 @@ public sealed record RunHeader(
         text.Append(",\"dotnet_processes\":").Append(ConcurrentDotnet.ToString(CultureInfo.InvariantCulture));
         text.Append(",\"ran_at\":").Append(EmitLedgerRows.Quote(RanAt));
         text.Append(",\"note\":").Append(EmitLedgerRows.Quote(Note));
+        text.Append(",\"filter\":").Append(EmitLedgerRows.Quote(Filter));
         return text.Append('}').ToString();
     }
 }
@@ -155,7 +166,8 @@ public static class RunStore
                         root.GetProperty("load").GetDouble(),
                         root.GetProperty("dotnet_processes").GetInt32(),
                         root.TryGetProperty("ran_at", out JsonElement ranAt) ? ranAt.GetString() ?? "" : "",
-                        root.TryGetProperty("note", out JsonElement note) ? note.GetString() ?? "" : "");
+                        root.TryGetProperty("note", out JsonElement note) ? note.GetString() ?? "" : "",
+                        root.TryGetProperty("filter", out JsonElement filter) ? filter.GetString() ?? "" : "");
                     continue;
                 }
                 if (kind != "row") { malformed++; continue; }
@@ -197,8 +209,7 @@ public static class RunStore
 
     /// <summary>Every run stored under one commit, newest first. More than one is the repeat count.</summary>
     public static IReadOnlyList<Run> At(string repositoryRoot, string commit)
-        => All(repositoryRoot).Where(run => run.Header.Commit.StartsWith(commit, StringComparison.OrdinalIgnoreCase)
-                                         || commit.StartsWith(run.Header.Commit, StringComparison.OrdinalIgnoreCase)).ToArray();
+        => All(repositoryRoot).Where(run => Git.Same(run.Header.Commit, commit)).ToArray();
 
     /// <summary>
     /// The nearest ancestor of <paramref name="commit"/> that has a clean run, which is what a new
@@ -216,7 +227,8 @@ public static class RunStore
         foreach (string ancestor in ancestry)
         {
             Run? clean = runs.FirstOrDefault(run => !run.Header.Dirty
-                && run.Header.Commit.StartsWith(ancestor, StringComparison.OrdinalIgnoreCase)
+                && !run.Header.Filtered
+                && Git.Same(run.Header.Commit, ancestor)
                 && run.Clean);
             if (clean != null) return clean;
         }
@@ -250,6 +262,17 @@ public static class Git
     }
 
     public static string Head(string repositoryRoot) => Run(repositoryRoot, "rev-parse", "--short", "HEAD");
+
+    /// <summary>
+    /// Whether two commit identifiers name one commit, when either may be abbreviated. A run header
+    /// stores the short hash <see cref="Head"/> produces and <see cref="Ancestry"/> returns the full
+    /// forty-character ones <c>rev-list</c> prints, so the comparison has to run in both directions:
+    /// a one-way <c>StartsWith</c> from the stored short hash to a full ancestor is always false,
+    /// which silently made every baseline unresolvable while the store held a perfectly good run.
+    /// </summary>
+    public static bool Same(string a, string b)
+        => a.Length > 0 && b.Length > 0
+        && (a.StartsWith(b, StringComparison.OrdinalIgnoreCase) || b.StartsWith(a, StringComparison.OrdinalIgnoreCase));
 
     /// <summary>
     /// Whether the working tree carries changes the run's rows were produced from. A dirty run is

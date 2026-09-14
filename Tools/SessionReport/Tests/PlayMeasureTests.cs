@@ -93,16 +93,37 @@ public static class PlayMeasureTests
     /// <summary>Cases that must report themselves skipped on this capture, never silently produce a number.</summary>
     private static readonly string[] MustSkip = { "terrain-revision-rate/revisions-per-minute" };
 
+    /// <summary>The ledger case this half of the self-test reports under, in the reader's own vocabulary.</summary>
+    private const string CaseName = "the pinned before-numbers reproduce against a real capture";
+
+    // The suite is the reader's own self-test rather than PlayRow.Suite: the measure rows say what a
+    // capture held, and this one says whether the instrument that produced them still works.
+    private const string Instrument = PlayRow.Instrument;
+    private const string Suite = "SelfTest";
+
     public static int Run()
     {
+        // This half files its own row rather than being wrapped in EmitLedgerRows.Case, and the
+        // reason is the absent-capture branch: Telemetry/ is gitignored, so the ordinary outcome in
+        // a fresh checkout is "could not look", and Case can only turn a returned zero into a pass.
+        // A pass row for a run that read no capture is precisely the hollow green this ledger was
+        // built to stop — it would make an unverified instrument indistinguishable from a verified
+        // one on every scoreboard afterwards.
+        if (!EmitLedgerRows.Selected(CaseName))
+        {
+            EmitLedgerRows.Skipped(Instrument, Suite, CaseName, $"not selected by --case {EmitLedgerRows.CaseFilter}");
+            return 0;
+        }
+
         string path = Environment.GetEnvironmentVariable(CaptureVariable) is { Length: > 0 } named
             ? named
             : DefaultCapture;
         if (!File.Exists(path))
         {
-            Console.WriteLine($"play measures: SKIPPED — no capture at {path}. Telemetry/ is gitignored, so set {CaptureVariable} "
-                + "to a capture to run this. Until it runs, the twenty-four before-numbers these measures reproduce are unverified in this checkout, "
-                + "which is missing coverage rather than a clean result.");
+            string reason = $"no capture at {path}; Telemetry/ is gitignored, so set {CaptureVariable} to run this";
+            Console.WriteLine($"play measures: SKIPPED — {reason}. Until it runs, the before-numbers these measures reproduce are "
+                + "unverified in this checkout, which is missing coverage rather than a clean result.");
+            EmitLedgerRows.Skipped(Instrument, Suite, CaseName, reason);
             return 0;
         }
 
@@ -111,6 +132,7 @@ public static class PlayMeasureTests
         catch (Exception e)
         {
             Console.Error.WriteLine($"play measures: could not read {path}: {e.Message}");
+            EmitLedgerRows.Error(Instrument, Suite, CaseName, $"could not read {path}: {e.Message}");
             return 1;
         }
 
@@ -159,9 +181,13 @@ public static class PlayMeasureTests
         {
             Console.Error.WriteLine($"play measures: {failures.Count} of {Pinned.Length + MustSkip.Length} pinned numbers did not reproduce against {Path.GetFileName(path)}:");
             foreach (string failure in failures) Console.Error.WriteLine($"  {failure}");
+            EmitLedgerRows.Fail(Instrument, Suite, CaseName,
+                $"{failures.Count} of {Pinned.Length + MustSkip.Length} pinned numbers did not reproduce against {Path.GetFileName(path)}: {failures[0]}");
             return 1;
         }
         Console.WriteLine($"play measures: {Pinned.Length} before-numbers and {MustSkip.Length} named skip reproduced against {Path.GetFileName(path)} ({rows.Length} rows emitted).");
+        EmitLedgerRows.Pass(Instrument, Suite, CaseName,
+            $"{Pinned.Length} before-numbers and {MustSkip.Length} named skip reproduced against {Path.GetFileName(path)}");
         return 0;
     }
 }
