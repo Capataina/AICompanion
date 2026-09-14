@@ -1129,6 +1129,11 @@ internal static class VerifyLightAndReachSenses
     /// </summary>
     private static void ADoorToggledByAnybodyAnnouncesItsRows()
     {
+        // Restored on the way out with the hooks. The headless tile table seeds almost nothing, so a row
+        // that needs a door has to state the live game's values for these two — and a row that leaves them
+        // stated is a static leaking into every row after it, which is the failure this folder's own file
+        // names twice. Inert today only because the door suite sets its own.
+        bool closedWasSolid = Main.tileSolid[TileID.ClosedDoor], openWasSolid = Main.tileSolid[TileID.OpenDoor];
         Main.tileSolid[TileID.ClosedDoor] = true;
         Main.tileSolid[TileID.OpenDoor] = false;
 
@@ -1192,7 +1197,12 @@ internal static class VerifyLightAndReachSenses
                     + "retained route survives longest under a spatial rule");
             }
         }
-        finally { TerrainChanges.RemoveDoorHooks(); }
+        finally
+        {
+            TerrainChanges.RemoveDoorHooks();
+            Main.tileSolid[TileID.ClosedDoor] = closedWasSolid;
+            Main.tileSolid[TileID.OpenDoor] = openWasSolid;
+        }
     }
 
     // ---- scene ----------------------------------------------------------------------------------------
