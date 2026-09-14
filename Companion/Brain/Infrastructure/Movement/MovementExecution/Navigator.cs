@@ -862,17 +862,15 @@ public sealed class Navigator
         controls = Controls.None;
         if (!live.OnGround) return false;
         var candidates = new System.Collections.Generic.List<NavStep>();
-        if (step.Kind == MoveKind.Jump)
-        {
-            int rise = (int)Math.Ceiling((live.Bottom - NavGrid.FeetWorld(step.Tile).Y) / 16f);
-            foreach (var profile in JumpTraversal.JumpProfiles(rise, Math.Sign(step.Tile.X - live.FeetTile.X), BodyMotion.GravityAt(NavGrid.World, live)))
-                candidates.Add(step with { JumpScale = profile.scale, StartVx = profile.startVx });
-        }
-        else
-        {
-            foreach (var edge in For(step.Kind).Candidates(new NavNode(live.FeetTile, live.Mobility), live.Pose, AStar.AllowLava))
-                if (edge.Step.Tile == step.Tile) candidates.Add(edge.Step);
-        }
+        // Every kind refines the same way: ask the traversal for the edges it can prove out of the
+        // body's own tile and pose, and keep the ones that reach this step's tile. A jump used to
+        // be the exception here, pairing the step with each entry from the profile table directly,
+        // which made this a second producer of jump edges — and the only one that never ran the
+        // take-off, so the steps it built carried a nominal speed with no run-up mark and no
+        // proven launch point behind it. The refinement is exactly the place a step must be
+        // proven hardest, because it exists to answer a proof that has already failed once.
+        foreach (var edge in For(step.Kind).Candidates(new NavNode(live.FeetTile, live.Mobility), live.Pose, AStar.AllowLava))
+            if (edge.Step.Tile == step.Tile) candidates.Add(edge.Step);
         foreach (NavStep candidate in candidates)
         {
             if (candidate == step) continue;

@@ -13,16 +13,23 @@ public sealed class RememberExecutedRoutes
 {
     public static RememberExecutedRoutes World { get; } = new();
     private const int Capacity = 1024;
-    private const int Format = 2;
+    // Format 3 is where a jump's start speed stopped meaning the profile's nominal and started
+    // meaning the take-off the arc was proven from, and where the run-up's mark and launch point
+    // joined it. A format-2 archive carries 3.5 in a slot that now promises a speed the floor
+    // behind the take-off delivers, so it is refused rather than read: the two numbers are the
+    // same shape and only the version separates them.
+    private const int Format = 3;
     private readonly List<Entry> entries = new();
     public int Count => entries.Count;
     public int Revision { get; private set; }
     public sealed record Entry(int FromX, int FromY, int ToX, int ToY, int Kind,
         float Jump, float StartSpeed, float Steer, int Ticks, bool Rest,
-        int Left, int Top, int Width, int Height, ulong Terrain);
+        int Left, int Top, int Width, int Height, ulong Terrain,
+        float RunUpBack = 0f, float LaunchAlong = 0f);
     private sealed record Archive(int Version, Entry[] Edges);
     private static NavStep Step(Entry e) => new(new Point(e.ToX, e.ToY), (MoveKind)e.Kind,
-        new Point(e.FromX, e.FromY), e.Jump, e.StartSpeed, e.Steer, e.Ticks, e.Rest);
+        new Point(e.FromX, e.FromY), e.Jump, e.StartSpeed, e.Steer, e.Ticks, e.Rest,
+        RunUpBack: e.RunUpBack, LaunchAlong: e.LaunchAlong);
     private static Rectangle Bounds(Entry e) => new(e.Left, e.Top, e.Width, e.Height);
 
     public void Clear() { entries.Clear(); Revision++; }
@@ -38,8 +45,9 @@ public sealed class RememberExecutedRoutes
         Forget(step);
         if (entries.Count == Capacity) entries.RemoveAt(0);
         entries.Add(new Entry(step.From.X, step.From.Y, step.Tile.X, step.Tile.Y, (int)step.Kind,
-            step.JumpScale, step.StartVx, step.SteerX, Math.Max(1, step.Ticks), step.FromRest,
-            area.X, area.Y, area.Width, area.Height, Fingerprint(world, area)));
+            step.JumpScale, step.LaunchVx, step.SteerX, Math.Max(1, step.Ticks), step.FromRest,
+            area.X, area.Y, area.Width, area.Height, Fingerprint(world, area),
+            step.RunUpBack, step.LaunchAlong));
         Revision++;
     }
 

@@ -170,9 +170,9 @@ internal static class VerifyMovementContracts
 
         // The run-up is cached per direction and speed, which is only sound while it is a function
         // of the take-off, the profile and the body. Two different landings, one answer.
-        BodyState? toNear = JumpTraversal.TakeOff(world, takeOff, pose, new Point(3496, 600), 1f, BodyPhysics.WalkSpeed * .5f);
-        BodyState? toFar = JumpTraversal.TakeOff(world, takeOff, pose, new Point(3497, 599), 1f, BodyPhysics.WalkSpeed * .5f);
-        Require(toNear is BodyState near && toFar is BodyState far && near == far,
+        JumpTraversal.Launch? toNear = JumpTraversal.TakeOff(world, takeOff, pose, new Point(3496, 600), 1f, BodyPhysics.WalkSpeed * .5f);
+        JumpTraversal.Launch? toFar = JumpTraversal.TakeOff(world, takeOff, pose, new Point(3497, 599), 1f, BodyPhysics.WalkSpeed * .5f);
+        Require(toNear is JumpTraversal.Launch near && toFar is JumpTraversal.Launch far && near == far,
             "a running profile's take-off must not depend on the tile it lands on, because the proof caches it per direction");
 
         // Every jump the window proves, run through the performer. A landing the shared arrival

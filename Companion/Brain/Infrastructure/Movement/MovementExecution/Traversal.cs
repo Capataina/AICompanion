@@ -95,9 +95,18 @@ public abstract class Traversal
     /// </summary>
     public virtual int ClimbTiles => 0;
 
-    /// <summary>A move the body makes from rest at its start tile: a descent, a standing jump, or a walk whose landing depends on arriving slowly. The walk before it coasts to rest on its point instead of arriving at speed.</summary>
+    /// <summary>
+    /// A move the body makes from rest at its start tile: a descent, a jump whose proof took off
+    /// at rest, or a walk whose landing depends on arriving slowly. The walk before it coasts to
+    /// rest on its point instead of arriving at speed.
+    ///
+    /// The jump case reads the speed the arc was <em>proven</em> from, which is what makes it
+    /// true of a running profile with no floor behind its take-off: that arc is a standing arc
+    /// however it was labelled, so the step before it now stops, and the body stops arriving at a
+    /// take-off carrying speed the proof never had.
+    /// </summary>
     public static bool StartsFromRest(NavStep step)
-        => step.Kind is MoveKind.Drop or MoveKind.FallThrough || (step.Kind == MoveKind.Jump && step.StartVx == 0f) || step.FromRest;
+        => step.Kind is MoveKind.Drop or MoveKind.FallThrough || (step.Kind == MoveKind.Jump && step.LaunchVx == 0f) || step.FromRest;
 
     /// <summary>A standing body has settled: still enough that a move proven from rest begins as it was proven.</summary>
     public const float RestSpeed = 0.6f;
