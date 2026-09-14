@@ -50,5 +50,3 @@ Lighting, collection, keeping-company strolls, courtesy, capability revision and
 ## Courtesy
 
 `VerifyCourtesy` (`--courtesy`, inside `--follow` and the default run) is A01 through the whole brain with only keeping company offered. The player four tiles away aims a dirt block at companion's feet-row tile without swinging: an empty hand must leave companion on that tile, the block must move it off and keep it off, and a wooden bow or torch aimed at the same tile must reproduce the empty hand's trajectory tick for tick.
-
-Co-Authored-By: Claude Haiku 4.5 <noreply@anthropic.com>
