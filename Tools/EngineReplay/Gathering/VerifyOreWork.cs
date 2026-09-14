@@ -1092,25 +1092,32 @@ internal static class VerifyOreWork
     /// companion spawned — but it means the suite says nothing about the state the live game is actually in at
     /// spawn and after every world edit, which is a region that is null rather than merely stale.
     ///
-    /// <para>What makes that state worth a row of its own is that nothing an idle companion does is obliged to
-    /// leave it. Work reads the sense, so with a null region every ore answers NotYet and every work activity
-    /// offers zero; keeping company wins by default; and <c>Resolve</c>'s <c>Hold</c> branch returns before it
-    /// reaches <c>Refresh</c>, so a resting tick ages the flood without growing it. The one thing that breaks
-    /// the circle is that a stroll is an <c>Exact</c> request and <c>Exact</c> refreshes — and the stroll is
-    /// chosen by a die roll rather than by anything that knows the region is empty. This row is the standing
-    /// check that the circle stays broken; a change that makes an idle companion hold still would close it,
-    /// and no other fixture here could tell.</para>
+    /// <para>What makes that state worth a row of its own is that nothing an idle companion <em>decides</em> is
+    /// obliged to leave it. Work reads the sense, so with a null region every ore answers NotYet and every work
+    /// activity offers zero; keeping company wins by default; and <c>Resolve</c>'s <c>Hold</c> branch returns
+    /// before it reaches <c>Refresh</c>, so a resting tick ages the flood without growing it.</para>
     ///
-    /// <para>The ore sits fourteen tiles out, past both tool reach and the band a stroll picks goals in, so it
-    /// cannot be reached by a stroll wandering into range: the only route to a break is the region growing,
-    /// mining offering usable work and winning the tick. Whether a given idle window strolls or rests is a die
-    /// roll, and the row needs no die of its own for that: every setup here goes through
+    /// <para>What opens the circle is not a decision at all. `KeepCompany.SafeStrollGoal` asks
+    /// <c>ChooseUsefulPosition.IsReturnable</c> of each candidate stroll tile, and that query calls
+    /// <c>Refresh</c> before answering — so the flood grows as a side effect of a check that is, on a null
+    /// region, about to reject every candidate precisely because the region is null. The first pick therefore
+    /// strolls nowhere and grows the region anyway, and a later pick finds goals. That is worth knowing before
+    /// anyone tidies it: the opener is a refresh inside a query rather than the `Exact` request the stroll
+    /// eventually issues, and removing the refresh from the `Exact` branch alone leaves this row green, which
+    /// is how the mechanism was established rather than assumed.</para>
+    ///
+    /// <para>The ore sits thirty-two tiles out, which is past the stroll band as well as past tool reach, so it
+    /// cannot be reached by a stroll wandering into range: `StrollGoal` spans
+    /// <c>CalmBandFar * 0.7 / 16</c> tiles either side of the player, twenty-four at the committed value, and a
+    /// stroll at the far edge of that band is still five tiles short. The only route to a break is the region
+    /// growing, mining offering usable work and winning the tick. Whether a given idle window strolls or rests
+    /// is a die roll, and the row needs no die of its own for that: every setup here goes through
     /// <c>VerifyCompanionLifecycle.Create</c>, which seeds <c>Main.rand</c>, so each row starts from the same
     /// rolls however many the rows before it took.</para>
     /// </summary>
     private static void AColdFloodDoesNotLeaveTheBrainResting()
     {
-        Point ore = new(34, 59);
+        Point ore = new(52, 59);
         var (mine, ctx) = SetUp(WorkPolicy.Opportunistic, TileID.Copper, ore);
         EmptyTheReachRegion(ctx);
         // The row must start in the cold state rather than assume it: a setup that warmed the region, or an
@@ -1122,7 +1129,7 @@ internal static class VerifyOreWork
             + $"score={cold} status={mine.Status}");
         var run = RunBrainUntilBroken(ctx, ore, 900);
         Require(run.Broken,
-            $"a companion that spawns beside its player with a cold reach flood must still start the ore fourteen "
+            $"a companion that spawns beside its player with a cold reach flood must still start the ore thirty-two "
             + $"tiles away; feet={ctx.Npc.Bottom} offer={mine.Eligibility}/{mine.EligibilityReason} "
             + $"status={mine.Status} action={ctx.Companion.Brain.LastAction?.Name} "
             + $"reach-complete={ctx.Companion.Brain.Positioner.ReachComplete} strikes={run.StrikeFeet.Count}");
