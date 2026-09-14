@@ -377,8 +377,9 @@ public sealed class Navigator
         // physical strike, and two of those ban the spot, for what was only a slow answer. The
         // stall clock starts once the search has answered.
         // The exemption is bounded by how long the body has waited for an answer to this goal, summed
-        // across restarts, and not by the life of one search: a terrain change anywhere invalidates the
-        // retained query, so a player mining nearby restarted it every few ticks and a body that could
+        // across restarts, and not by the life of one search: a terrain change where the query looked
+        // invalidates it (before invalidation went spatial, one anywhere in the world did), so a player
+        // mining nearby restarted it every few ticks and a body that could
         // never be answered never struck either (166 restarts and no strike in 3,000 ticks of churn on
         // the starved sealed corridor). Walking a route, arriving or a moved goal starts the wait again.
         if (Path is { Finished: false }) answerWaitTicks = 0;
@@ -437,8 +438,8 @@ public sealed class Navigator
         // that a replan could land in the middle of a jump backing away to its runway mark: the
         // fresh plan offered the mirror jump from the same take-off, the body turned round, and it
         // circled between two jumps with nothing ever faulting. The stale branch did not either,
-        // and a terrain revision anywhere in the world (the counter is global) replaced a grounded
-        // run-up with a fresh plan; the 13:27 capture of 14 September holds 15 jumps replaced on
+        // and a terrain revision inside the search's own region (anywhere in the world, before
+        // invalidation went spatial the same day) replaced a grounded run-up with a fresh plan; the 13:27 capture of 14 September holds 15 jumps replaced on
         // the ground that way. A stuck body still replans, because standing still is the one thing
         // a committed move never legitimately does. A stale search under a committed move is safe
         // to leave until the move lands: the macro proof re-validates its retained controls against

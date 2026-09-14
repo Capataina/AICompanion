@@ -50,7 +50,9 @@ public sealed class CoordinateMovement
     {
         CancelStateSearch();
         // Releasing the movement request interrupts the retained route explicitly, including
-        // its census outcome. Survival can request a ground jump through the same body rules.
+        // its census outcome, unless the body is committed to a move, in which case the navigator
+        // holds the release until the move lands (below). Survival can request a ground jump
+        // through the same body rules.
         Navigator.Interrupt(live, preemptedBy == null ? AttemptEnding.Cancelled : AttemptEnding.Preempted, preemptedBy ?? "released");
         // A release the navigator deferred (the body is mid-move) keeps its in-flight steer until
         // the move lands; returning no controls here is what cut jumps short in the air.

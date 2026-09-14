@@ -187,7 +187,10 @@ public sealed class ChopTree : CompanionAction
                 TreeFinder.ChoppableTree? Find(Point? exclude)
                     => Nearest(context.Npc.Center,
                         TreeFinder.FindNearest(context.Npc.Center, context.Npc.Bottom, context.Senses.Reach, SearchRadiusTiles, exclude, Accept),
-                        TreeFinder.FindNearest(context.Player.Center, context.Npc.Bottom, context.Senses.Reach, SearchRadiusTiles, exclude, Accept));
+                        // "A tree near the player" is measured from his intent region, as every work radius is
+                        // (see MineOre): a tree a few tiles ahead of a walking player is behind the search
+                        // centre the moment he starts walking towards it.
+                        TreeFinder.FindNearest(context.Senses.Intent.Region.Centre, context.Npc.Bottom, context.Senses.Reach, SearchRadiusTiles, exclude, Accept));
                 tree = Find(p.ChoppedTree);
                 if (tree == null && p.ChoppedTree != null) tree = Find(null);
                 sinceSearch = 0;
