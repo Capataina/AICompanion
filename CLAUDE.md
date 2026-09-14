@@ -96,6 +96,7 @@ AICompanion/
 │  │  ├─ Write/              the rendered report
 │  │  └─ Tests/              the reader's own self-test
 │  ├─ Ledger/                the committed run record every instrument files rows into, and the scoreboard against the last clean ancestor
+│  ├─ WorldRun/              the whole brain and the native body in a real saved world, behind a recording's player track
 │  ├─ WorldWindow/           saved-world restoration of capture geometry
 │  ├─ Scenarios/             committed terrain fixtures from play
 │  └─ Decompiled/            gitignored; game source written on demand by Tools/decompile.sh
