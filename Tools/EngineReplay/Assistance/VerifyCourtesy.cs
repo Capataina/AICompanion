@@ -47,6 +47,7 @@ internal static class VerifyCourtesy
         Each("a block aimed at the companion's tile moves it to another spot before the placement", ABlockAimedAtTheCompanionMovesIt);
         Each("a weapon or a torch aimed at the companion changes nothing", AWeaponOrTorchAimedAtTheCompanionChangesNothing);
         Each("a player walking a one-body-tall passage gets the passage back", APassageIsGivenBack);
+        Each("a rejected combat query does not eat the rescore a new footprint forces", ARejectedCombatQueryLeavesTheForcedRescore);
         MeasureTheSameWalkOnOpenFloor();
         Console.WriteLine(red == 0
             ? "courtesy: placement moves the companion, a weapon or torch does not, and a passage is given back"
@@ -89,6 +90,131 @@ internal static class VerifyCourtesy
         var walk = Passage(roofed: true);
         Require(walk.BlockingTicks == 0,
             $"a companion in a passage the player cannot jump past must not stand in the player's way; {walk}");
+    }
+
+    /// <summary>
+    /// A new footprint buys exactly one rescore, and a combat query that momentarily wins nomination and is then
+    /// rejected must not be the one who spends it.
+    ///
+    /// <para>The refinement query runs the ordinary resolver and restores everything it touched on a rejection, so
+    /// that yielding an unavailable attack leaves the previous activity's destination exactly as it found it. One
+    /// piece of that state is not idempotent and was not in the restore list: the stamp saying which footprint has
+    /// been seen. Resolve spends the forced rescore by writing that stamp, so a rejected query consumed the force
+    /// on behalf of whoever asked next — and keeping company, resolving on the same tick, saw no change, retained
+    /// the tile it was standing on, and waited out the cadence in the player's way. It is invisible in this file's
+    /// other scenes because they offer no combat candidate at all, so nothing is ever nominated and rejected.</para>
+    ///
+    /// <para>Paired, because a row asserting only that the second arm rescores cannot tell a forced rescore from a
+    /// destination that failed its own acceptance for some unrelated reason. The arms differ in one thing: whether
+    /// a rejected query runs between the footprint changing and keeping company asking.</para>
+    /// </summary>
+    private static void ARejectedCombatQueryLeavesTheForcedRescore()
+    {
+        string withoutQuery = ForcedRescoreReason(interposeRejectedQuery: false);
+        string withQuery = ForcedRescoreReason(interposeRejectedQuery: true);
+        string retained = live::AICompanion.Companion.Brain.Infrastructure.Position.PositionReasons.Retained;
+        Console.WriteLine($"MEASURE courtesy forced rescore: alone -> {withoutQuery}, after a rejected combat query -> {withQuery}");
+        // The premise. Without this the row can pass on a scene where the footprint forces nothing at all.
+        Require(withoutQuery != retained,
+            $"premise: a new footprint must force a rescore on its own, or there is no force for a query to eat; reason={withoutQuery}");
+        Require(withQuery != retained,
+            $"a rejected combat query must not consume the rescore a new footprint forced; keeping company read {withQuery} "
+            + $"where the same scene without the query read {withoutQuery}");
+    }
+
+    /// <summary>
+    /// Builds a resting companion with a destination held, moves the player's interference footprint, optionally runs a
+    /// combat query that will be rejected, and returns the reason keeping company's own resolve then gives.
+    /// </summary>
+    private static string ForcedRescoreReason(bool interposeRejectedQuery)
+    {
+        var (companion, player) = Scene(roofed: false, companionColumn: 50, playerColumn: 46);
+        var brain = companion.Brain;
+        var positioner = brain.Positioner;
+        var follow = new live::AICompanion.Companion.Brain.Infrastructure.Position.PositionRequest(
+            live::AICompanion.Companion.Brain.Infrastructure.Position.RequestKind.WithPlayer, player.Bottom);
+        _ = follow;
+
+        // An enemy sealed inside the floor slab. It is attackable, so the query reaches the resolver rather than
+        // returning at the not-attackable guard, and nothing around it is standable, so the resolver rejects it —
+        // which is the shape needed: a query that runs, consumes, and hands nothing back.
+        for (int y = FloorRow; y <= FloorRow + 6; y++)
+            for (int x = 68; x <= 76; x++) Solid(x, y);
+        TerrainChanges.Reset();
+        NavGrid.World = new GameTileWorld();
+        var enemy = new NPC();
+        enemy.SetDefaults(NPCID.Zombie);
+        enemy.whoAmI = 44;
+        enemy.active = true;
+        enemy.velocity = Vector2.Zero;
+        enemy.Bottom = new Vector2(72 * 16f + 8f, (FloorRow + 4) * 16f);
+        Main.npc[44] = enemy;
+
+        brain.Senses.Update(companion.NPC, player, companion.Breath);
+        // Settle the flood, then resolve until the resolver is actually retaining. Retention only shows itself on
+        // a rescore tick — between them the resolve returns the held destination without touching the reason — so
+        // the scene has to be left standing on one, or the arms would differ by where in the cadence they landed
+        // rather than by the query between them.
+        string retained = live::AICompanion.Companion.Brain.Infrastructure.Position.PositionReasons.Retained;
+        for (int i = 0; i < 400 && !positioner.ReachComplete; i++)
+            positioner.Resolve(follow, brain.Senses, null);
+        for (int i = 0; i < 40 && positioner.ChoiceReason != retained; i++)
+            positioner.Resolve(follow, brain.Senses, null);
+        Require(positioner.Chosen != null && positioner.ChoiceReason == retained,
+            $"the scene must be retaining a destination before the footprint moves, or the row cannot see a force; chosen={positioner.Chosen} reason={positioner.ChoiceReason}");
+
+        // Stand the body on its own held destination. The footprint is the tiles the companion's *body* covers, so
+        // a destination the body is not standing on cannot be overlapped by one however the block is aimed — and a
+        // footprint that misses the destination leaves retention untouched, which is the scene reading green with
+        // nothing exercised. A resting companion is on its spot in play; here the resolver picked it while the body
+        // was a few tiles off, so the fixture closes that gap itself.
+        Vector2 spot = positioner.Chosen!.Value;
+        companion.NPC.Bottom = spot;
+        companion.NPC.velocity = Vector2.Zero;
+        // And bring the player within his own placement range of it. A footprint is only produced for a tile the
+        // player could actually place on, so a destination further away than his reach yields nothing at all and
+        // the scene would assert on an empty footprint. Four tiles, the same separation the placement scene uses.
+        player.position = new Vector2(spot.X - 4 * 16f - player.width / 2f, FloorRow * 16 - player.height);
+        player.velocity = Vector2.Zero;
+        follow = new live::AICompanion.Companion.Brain.Infrastructure.Position.PositionRequest(
+            live::AICompanion.Companion.Brain.Infrastructure.Position.RequestKind.WithPlayer, player.Bottom);
+        brain.Senses.Update(companion.NPC, player, companion.Breath);
+        for (int i = 0; i < 40 && positioner.ChoiceReason != retained; i++)
+            positioner.Resolve(follow, brain.Senses, null);
+        Require(positioner.ChoiceReason == retained,
+            $"the scene must still be retaining once the body stands on its destination; reason={positioner.ChoiceReason} chosen={positioner.Chosen}");
+
+        // The block is aimed at the tile the resting companion's own body covers, which is what makes a footprint
+        // at all — and it has to overlap the held destination rather than sit beside it. A forced rescore that
+        // ends in retention is no rescore at all, so a footprint the destination does not overlap would leave both
+        // arms reading the same thing and the row would assert nothing. Overlapping, the courtesy clause releases
+        // the destination, and the only question left is whether the release happens now or a cadence later.
+        Item item = player.inventory[player.selectedItem];
+        item.SetDefaults(ItemID.DirtBlock);
+        player.itemAnimation = 0;
+        Player.tileTargetX = (int)(companion.NPC.Bottom.X / 16f);
+        Player.tileTargetY = FloorRow - 1;
+        brain.Senses.Update(companion.NPC, player, companion.Breath);
+        Require(brain.Senses.Player.Interference is Rectangle asked
+                && live::AICompanion.Companion.Brain.Infrastructure.Observation.PlayerSense
+                    .BodyTiles(positioner.Chosen!.Value, companion.NPC.width, companion.NPC.height).Intersects(asked),
+            $"the block must produce a footprint the held destination overlaps, or retention is never released and both "
+            + $"arms read the same; footprint={brain.Senses.Player.Interference}, destination={positioner.Chosen}");
+
+        if (interposeRejectedQuery)
+        {
+            var ctx = new live::AICompanion.Companion.Brain.Activities.ActionContext(companion, brain.Senses);
+            var profile = companion.Arsenal.ProfileFor(ctx, enemy);
+            Require(profile != null, "the rejected-query arm needs an equipped weapon profile");
+            var attack = new live::AICompanion.Companion.Brain.Infrastructure.Position.PositionRequest(
+                live::AICompanion.Companion.Brain.Infrastructure.Position.RequestKind.Guard, enemy.Center, enemy);
+            var offer = positioner.PrepareOffer(attack, brain.Senses, profile);
+            Require(offer.Destination == null,
+                $"the interposed query must be rejected, or it is not the case under test; destination={offer.Destination}, reason={offer.Reason}");
+        }
+
+        positioner.Resolve(follow, brain.Senses, null);
+        return positioner.ChoiceReason;
     }
 
     /// <summary>Printed and not asserted: what the same walk does on an open floor, where the player could jump past and no

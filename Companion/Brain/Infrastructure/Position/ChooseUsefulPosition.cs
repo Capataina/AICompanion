@@ -101,7 +101,14 @@ public sealed class Positioner
     {
         if (request.Kind is not (RequestKind.Guard or RequestKind.LineOfFire))
             throw new ArgumentException("Only attack-position requests require this admission query.", nameof(request));
+        // lastInterferenceRevision is restored with the rest, and it is the one piece of this state whose
+        // consumption is not idempotent. A new footprint forces exactly one rescore, and Resolve spends that
+        // force by stamping the revision as seen; a rejected query that put back sinceScore but not the stamp
+        // therefore ate the forced rescore on behalf of whoever asked next. Keeping company resolving on the
+        // same tick then saw no change, retained the tile it was standing on, and waited out the cadence in
+        // the player's way — courtesy defeated by a combat query that momentarily won nomination and lost.
         var held = (Chosen, ChosenScore, lastRequest, lastFireProfile, lastTerrainRevision, sinceScore,
+            lastInterferenceRevision,
             ChoiceReason, FollowObjectiveSatisfied, FollowHorizontalGap, FollowVerticalGap,
             FollowObjectiveReason, CandidateCount, ReachableCandidateCount, RejectedCandidateCount,
             EvidenceTick, EvaluatedCandidates, CandidateEvidence, ChosenRevision, Region);
@@ -121,6 +128,7 @@ public sealed class Positioner
             clock = previousClock;
             if (!admitted)
                 (Chosen, ChosenScore, lastRequest, lastFireProfile, lastTerrainRevision, sinceScore,
+                    lastInterferenceRevision,
                     ChoiceReason, FollowObjectiveSatisfied, FollowHorizontalGap, FollowVerticalGap,
                     FollowObjectiveReason, CandidateCount, ReachableCandidateCount, RejectedCandidateCount,
                     // The revision and region come last: restoring Chosen above advances the revision, and a
