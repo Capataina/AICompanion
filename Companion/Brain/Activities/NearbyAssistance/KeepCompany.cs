@@ -100,6 +100,37 @@ public sealed class KeepCompany : CompanionAction
     /// yet been told to do anything. Enter restores it for the same reason.</summary>
     private int pendingTicks = Weights.PositionRescoreTicks;
 
+    /// <summary>
+    /// How strongly the geometry alone asks for reunion, as one continuous curve from the region's
+    /// centre outward. Pure and internal so the contract can be sampled either side of the region's
+    /// edge directly, rather than inferred from a whole-brain walk that would also have to arrange
+    /// sight, regrouping and a stranded body to see it.
+    ///
+    /// <para>Inside, the pull scales with the region's own normalised distance and reaches the
+    /// central-pull weight at the edge. A flat zero inside was the whole of the never-overtakes
+    /// defect: the box had no gradient, so a moving player was not itself a reason to move, the body
+    /// coasted to whichever edge it entered by, and keeping company scored its wander floor where any
+    /// rival offer beat it.</para>
+    ///
+    /// <para>Outside, the slope rises over the same span it always did, but it is measured on how far
+    /// beyond the region's edge the body is rather than on how far it is from the player's body. That
+    /// is what removes the step. Measured body-to-body the slope was already partway up at the
+    /// region's own leading edge, because a companion standing exactly where the region asks is a
+    /// lead plus a half-width from the player — so the curve jumped at the one boundary it had to be
+    /// continuous across, and the size of the jump grew with the lead, which is to say with the
+    /// screen. The two halves now meet at zero-beyond-the-edge, where the inside gradient is at its
+    /// largest, so <c>max</c> of the two is continuous rather than a choice between two regimes; the
+    /// ternary that used to pick between them is gone because there is nothing left to pick.</para>
+    /// </summary>
+    public static float GeometricPull(in FollowPlayerObjective objective, Vector2 feet, bool travelling)
+    {
+        float inner = MathF.Max(objective.HorizontalComfort, objective.VerticalComfort);
+        float outer = MathF.Max(inner + 1f, PlayerIntegration.CompanionPreferences.Current.RecoveryRadius);
+        float central = travelling ? Weights.IntentRegionCentralPull * MathF.Min(1f, objective.Pull(feet)) : 0f;
+        float far = Consideration.Rising(objective.GapBeyond(feet), outer - inner);
+        return MathF.Max(central, far);
+    }
+
     private float CalculateReunionValue(in ActionContext ctx)
     {
         var p = ctx.Senses.Player;
@@ -112,19 +143,7 @@ public sealed class KeepCompany : CompanionAction
         bool seen = global::AICompanion.Companion.Brain.Infrastructure.Observation.LineOfSight.Between(ctx.Npc, ctx.Player);
         bool blocking = p.Interference is Rectangle footprint
             && PlayerSense.BodyTiles(ctx.Npc.Bottom, ctx.Npc.width, ctx.Npc.height).Intersects(footprint);
-        bool inside = !blocking && objective.IsSatisfied(ctx.Npc.Bottom, seen);
-        float inner = MathF.Max(objective.HorizontalComfort, objective.VerticalComfort);
-        float outer = MathF.Max(inner + 1f, PlayerIntegration.CompanionPreferences.Current.RecoveryRadius);
-        // The pull is continuous from the region's own centre outward, and while the player travels
-        // it is never exactly zero inside. A flat zero inside was the whole of the never-overtakes
-        // defect: the box had no gradient, so a moving player was not itself a reason to move, the
-        // body coasted to whichever edge it entered by, and keeping company scored its wander floor
-        // where any rival offer beat it. Outside the region the old far-reunion slope is unchanged;
-        // the two meet at the edge, where the central pull is at its largest, so there is no step
-        // anywhere along the curve.
-        float central = p.IsTravelling ? Weights.IntentRegionCentralPull * MathF.Min(1f, objective.Pull(ctx.Npc.Bottom)) : 0f;
-        float far = Consideration.Rising(ctx.Senses.DistanceToPlayer - inner, outer - inner);
-        float pull = inside ? central : MathF.Max(central, far);
+        float pull = GeometricPull(objective, ctx.Npc.Bottom, p.IsTravelling);
         if (!seen)
             pull = MathF.Max(pull, 0.3f);
         // Occupying a passage the player is walking is not "already with them": the slope from the
