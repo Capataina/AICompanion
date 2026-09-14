@@ -229,10 +229,7 @@ internal static class VerifyAssistanceTrips
         // rows below and the offer itself would read for a reason that has nothing to do with the hop this
         // row is about. It used to be enough to settle it before the preparation alone, when the premise
         // rows ran their own searches.
-        var reachHome = new live::AICompanion.Companion.Brain.Infrastructure.Position.PositionRequest(
-            live::AICompanion.Companion.Brain.Infrastructure.Position.RequestKind.WithPlayer, ctx.Player.Bottom);
-        for (int i = 0; i < 3000 && !brain.Positioner.ReachComplete; i++)
-            brain.Positioner.Resolve(reachHome, brain.Senses, null);
+        VerifyOreWork.ResettleReach(ctx);
         Require(brain.Positioner.ReachComplete, $"this row needs a settled reach region before it asks anything; shelf row {shelfRow}");
         var reach = brain.Senses.Reach;
         var body = ctx.Companion.Motor.State;
@@ -317,10 +314,12 @@ internal static class VerifyAssistanceTrips
                 // every site, which would pass the no-offer half of this pair for the wrong reason.
                 var brain = ctx.Companion.Brain;
                 brain.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Breath);
-                var home = new live::AICompanion.Companion.Brain.Infrastructure.Position.PositionRequest(
-                    live::AICompanion.Companion.Brain.Infrastructure.Position.RequestKind.WithPlayer, ctx.Player.Bottom);
-                for (int i = 0; i < 3000 && !brain.Positioner.ReachComplete; i++)
-                    brain.Positioner.Resolve(home, brain.Senses, null);
+                // Thrown away and flooded again rather than driven to completion: the island and its staircase
+                // were built after the shared setup had already flooded an open floor, and a loop that runs
+                // while the region is incomplete does nothing at all when the stale region is complete. That
+                // is the quietest way a fixture primes nothing and looks primed, and it is why the staircase
+                // half of this pair read the pit as unreturnable with the staircase standing in it.
+                VerifyOreWork.ResettleReach(ctx);
                 var light = new LightUsefulArea();
                 // Prepared until the search resolves, not once. One discovery search asks a bounded number of
                 // sites about their approach, so a single preparation on a scene with many dark tiles measures
@@ -369,6 +368,11 @@ internal static class VerifyAssistanceTrips
                 Point pot = PlacePot(new Point(38, PitFloor - 2));
                 AStar.AllowOneWayDrops = oneWay;
                 ctx.Senses.Loot.Pickups.Clear();
+                // After the one-way rule is set, because the flood is run under it, and after the island is
+                // built, because the shared setup flooded an open floor that this scene has since replaced.
+                // Collection's pot approach reads that region rather than searching, so without this the pit
+                // is judged against a world with no pit in it.
+                VerifyOreWork.ResettleReach(ctx);
                 var collect = new CollectNearbyItems();
                 collect.Prepare(ctx);
                 string ledger = $"staircase={staircase} oneWay={oneWay}: method={collect.Method} value={collect.Score():0.000} offer={collect.Eligibility}/{collect.EligibilityReason} target={collect.ActivityIdentity}";

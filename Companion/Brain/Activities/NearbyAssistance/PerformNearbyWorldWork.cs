@@ -255,6 +255,18 @@ public abstract class PerformNearbyWorldWork : CompanionAction
                 { candidateStand = ctx.Npc.Bottom; jump = true; }
                 else
                 {
+                    // The loop is bounded by the tick's own planning allowance rather than by a count of sites,
+                    // and it is bounded because the reach question becoming free did not make the approach free:
+                    // ranking poses is still a scan of every standable tile in reach of the site, each asking the
+                    // engine for a line to an exposed face. On a floor dark everywhere that is hundreds of sites,
+                    // and with nothing bounding it one preparation measured 25.5 ms against a twelve-millisecond
+                    // tick. The count is the wrong bound now: it was there to ration route searches, and rationing
+                    // by three sites a search is what let three undecided sites hide every site behind them. A
+                    // deadline rations the same cost without an ordering, and a cut scan is an answer that has not
+                    // arrived — reported Unresolved and retried in a rescore, which is what the sites past the cut
+                    // actually are. The general shape, which this file has now met twice: when a cheaper proof
+                    // replaces a dearer one, find what the dearer one's bound was standing in front of.
+                    if (LimitPlanningWork.Expired) { standUnresolved = true; break; }
                     // One question, asked once, of the sense. The approach ranks working poses by geometry and
                     // answers reach from the two-way flood, which is membership rather than a search, so the
                     // answer it gives already means "the body can get to this pose and come home from it" —

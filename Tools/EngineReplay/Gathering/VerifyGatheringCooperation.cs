@@ -237,15 +237,17 @@ internal static class VerifyGatheringCooperation
         }
         // The undecided approach, which the lifted allowances above never reach: mining does not
         // walk at ore its bounded search could not decide, so a bed placed over that ore has
-        // nothing to invalidate. The search is starved of its time budget, as the unproven-approach
-        // fixture in the ore suite does.
+        // nothing to invalidate. The undecided state comes from an unsettled reach region rather than
+        // from a starved A* clock, as the unproven-approach fixture in the ore suite now does: mining's
+        // approach asks the region instead of searching, so `AStar.MsBudget` cannot reach it and a row
+        // still starving it would have gone on passing while testing nothing.
         live::AICompanion.Companion.Brain.Infrastructure.Movement.LimitPlanningWork.Unbounded = false;
         double budget = live::AICompanion.Companion.Brain.Infrastructure.Movement.AStar.MsBudget;
         try
         {
             Point far = new(50, 59);
             var (mine, ctx) = VerifyOreWork.SetUp(WorkPolicy.Opportunistic, TileID.Copper, far);
-            live::AICompanion.Companion.Brain.Infrastructure.Movement.AStar.MsBudget = 0.0001d;
+            VerifyOreWork.EmptyTheReachRegion(ctx);
             Require(VerifyPreparedActivities.PrepareAndScore(mine, ctx) == 0f && mine.Status == "approach unknown",
                 $"the undecided case must not be a plan; status={mine.Status} score={mine.Score()}");
             Require(mine.Execute(ctx).Kind == live::AICompanion.Companion.Brain.Infrastructure.Position.RequestKind.Hold,

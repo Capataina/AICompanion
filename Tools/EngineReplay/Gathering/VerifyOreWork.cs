@@ -1111,11 +1111,28 @@ internal static class VerifyOreWork
     /// would read the region from before its own wall and every row about that wall would be answered by a
     /// world that no longer exists.
     /// </summary>
-    internal static void ResettleReach(ActionContext ctx)
+    internal static void ResettleReach(ActionContext ctx) => ResettleReach(ctx.Companion, ctx.Player);
+
+    /// <summary>The same, for a fixture that holds the companion and the player rather than a context —
+    /// which is the shape a fixture has when it has just moved one of them, the other reason a region goes
+    /// stale. The flood is run from the companion's feet, so moving the body invalidates it exactly as
+    /// moving a wall does.</summary>
+    internal static void ResettleReach(live::AICompanion.Companion.CharacterBody.CompanionNPC companion, Player player)
     {
         AStar.InvalidateEdges();
-        EmptyTheReachRegion(ctx);
-        SettleReach(ctx.Companion, ctx.Player);
+        var sense = companion.Brain.Senses.Reach;
+        var type = typeof(live::AICompanion.Companion.Brain.Infrastructure.Observation.ReachSense);
+        const BindingFlags instance = BindingFlags.Instance | BindingFlags.NonPublic;
+        foreach (string field in new[] { "scored", "returnable", "raw" })
+            type.GetField(field, instance)!.SetValue(sense, null);
+        foreach (string field in new[] { "returnSearch", "rawSearch" })
+        {
+            (type.GetField(field, instance)!.GetValue(sense) as System.IDisposable)?.Dispose();
+            type.GetField(field, instance)!.SetValue(sense, null);
+        }
+        type.GetProperty("Complete")!.GetSetMethod(true)!.Invoke(sense, new object[] { false });
+        type.GetProperty("ScoredComplete")!.GetSetMethod(true)!.Invoke(sense, new object[] { false });
+        SettleReach(companion, player);
     }
 
     /// <summary>
@@ -1508,6 +1525,17 @@ internal static class VerifyOreWork
             live::AICompanion.Companion.Brain.Infrastructure.Position.RequestKind.WithPlayer, player.Bottom);
         for (int i = 0; i < 3000 && !brain.Positioner.ReachComplete; i++)
             brain.Positioner.Resolve(home, brain.Senses, null);
+        // Warming the region is the whole job, so the choice it took to warm it is thrown away. Those
+        // resolves leave the positioner holding a destination, the request kind that produced it and a fresh
+        // rescore clock, and a fixture that then runs the brain gets that destination handed back as a
+        // retained position on its very first tick — the guard row in the safety suite walked to a spot the
+        // ore setup had chosen, eighteen tiles short of the fight, and reported it as guarding's own answer.
+        // A Hold resolve is the production path that clears exactly those three and touches nothing else:
+        // the region it never refreshes stays warm.
+        brain.Positioner.Resolve(
+            new live::AICompanion.Companion.Brain.Infrastructure.Position.PositionRequest(
+                live::AICompanion.Companion.Brain.Infrastructure.Position.RequestKind.Hold, player.Bottom),
+            brain.Senses, null);
     }
 
     private static void ProbeOreLineTarget(Vector2 feet, Point ore)

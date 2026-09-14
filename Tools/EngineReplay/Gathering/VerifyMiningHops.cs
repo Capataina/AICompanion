@@ -253,6 +253,8 @@ internal static class VerifyMiningHops
             for (int y = 58; y <= 59; y++)
                 VerifyOreWork.Place(new Point(x, y), TileID.Dirt);
         LiveTerrainChanges.Reset();
+        // The ledge was built after the ceiling scene flooded, and the take-off this row is about stands on it.
+        VerifyOreWork.ResettleReach(ctx);
         var hop = FindToolAccess.HopApproach(ore, ctx.Companion.Motor.State, ctx.Companion.Brain.Senses.Reach, out Vector2 takeOff);
         Require(hop == LiveReach.Yes && LiveMovementQueries.FeetTile(takeOff).Y == 57,
             $"the only proven take-off must be on the ledge top; hop={hop} take-off={takeOff}");
@@ -332,6 +334,8 @@ internal static class VerifyMiningHops
                 for (int y = 58; y <= 59; y++)
                     VerifyOreWork.Place(new Point(x, y), TileID.Dirt);
             LiveTerrainChanges.Reset();
+            // The top was built after the ceiling scene flooded, and it is the take-off this row is about.
+            VerifyOreWork.ResettleReach(ctx);
             var hop = FindToolAccess.HopApproach(ore, ctx.Companion.Motor.State, ctx.Companion.Brain.Senses.Reach, out Vector2 takeOff);
             if (width == 3)
             {
@@ -422,6 +426,10 @@ internal static class VerifyMiningHops
                 if (new Point(x, y) != ore) VerifyOreWork.Place(new Point(x, y), TileID.Dirt);
         VerifyOreWork.Place(ore, TileID.Copper);
         LiveTerrainChanges.Reset();
+        // The slab went up after the shared setup flooded, so the region describes a world without it. Every
+        // take-off question below reads that region rather than searching, so a stale one answers about the
+        // wrong scene and a never-flooded one answers "not yet known" about every pose.
+        VerifyOreWork.ResettleReach(ctx);
         return ctx;
     }
 
@@ -441,6 +449,9 @@ internal static class VerifyMiningHops
             VerifyOreWork.Place(new Point(pitRight + 1, y), TileID.Dirt);
         }
         LiveTerrainChanges.Reset();
+        // The pit was dug after the ceiling scene flooded, and a pit is exactly the kind of edit the region
+        // has to see: its floor is reachable one way and not the other.
+        VerifyOreWork.ResettleReach(ctx);
         return ctx;
     }
 
