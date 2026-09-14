@@ -40,7 +40,10 @@ public sealed class JumpTraversal : Traversal
         // The take-off each running profile actually reaches out of this node, found once per
         // direction and speed rather than per landing tile, because the run-up branch of Steer
         // reads the take-off tile, the profile speed and the body, and never the landing.
-        var takeOffs = new Dictionary<(int Direction, float StartVx), Launch?>();
+        // Keyed by the profile's nominal speed, which is what the search is asked for, never by the
+        // speed it turns out to deliver: the nominal is the question and the launch is the answer,
+        // and naming this field after the step's old one is how the two get confused again.
+        var takeOffs = new Dictionary<(int Direction, float NominalVx), Launch?>();
         float gravity = BodyMotion.GravityAt(NavGrid.World, BodyState.Standing(fromPose));
         for (int dx = -NavGrid.JumpGapTiles; dx <= NavGrid.JumpGapTiles; dx++)
         {
