@@ -9,15 +9,18 @@ Activities/
 ├─ ClassifyOffersAndAttempts.cs  offer eligibility and attempt outcomes
 ├─ WorkPolicies.cs               mining/chopping mimic vs opportunistic vs off
 ├─ Combat/                       protecting the player and pursuing useful attacks
-│  ├─ Hunting.cs                 pursuit of enemies with a reachable firing stand
-│  └─ Guarding.cs                readiness against companions and protection urgency
+│  ├─ ProtectPlayer.cs           guarding: positioning against a particular threat
+│  ├─ PursueAttackOpportunity.cs hunting: pursuit of an enemy worth approaching
+│  └─ ResolveFiringOpportunity.cs whether a reachable stand can shoot, shared by both
 ├─ Gathering/                    retained ore veins and tree jobs
 │  ├─ MineOre.cs                 ore-only vein work under the chosen policy
-│  └─ ChopTree.cs                trunk-preference work under the chosen policy
+│  ├─ ChopTree.cs                trunk-preference work under the chosen policy
+│  └─ DescribeOreJobEnd.cs       the bounded vein's state at job end, with attribution
 └─ NearbyAssistance/             accompanying the player and useful local help
    ├─ LightUsefulArea.cs         dark-region lighting work
-   ├─ CollectNearbyItems.cs      drops within pickup reach
-   └─ KeepCompany.cs             reunion and nearby movement
+   ├─ CollectNearbyItems.cs      drops priced where they will land
+   ├─ KeepCompany.cs             reunion and nearby movement
+   └─ PerformNearbyWorldWork.cs  the shared pot/torch discovery and interaction adapter
 ```
 
 All seven ordinary activities live in this tree: **Combat** nominates hunting or guarding; **Gathering** nominates mining or chopping; **NearbyAssistance** nominates lighting, collecting or keeping company. Their declared PurposeFamily, not their folder, determines nomination. Nearby assistance also contains the reusable pot/torch interaction adapter; it is not another selectable activity. Safety, recovery, movement, native tools, hands and activity lifecycle retain their existing owners.
@@ -25,6 +28,10 @@ All seven ordinary activities live in this tree: **Combat** nominates hunting or
 ## The shared contract and offer classification
 
 Every activity implements `CompanionAction`: a `Prepare` pass that populates the candidate pool, a `Score` pass that values each candidate, an `Execute` pass that performs the selected work, and a `Place` query that returns the tile or target where the work occurs. `ClassifyOffersAndAttempts.cs` owns the vocabulary of offer eligibility: **usable** if a prepared candidate has a proven working pose or target; **unresolved** at value zero if the approach is still unknown and cannot yet decide; **known-unusable** if the work is inherently impossible here (a reachability veto, a tool that cannot damage the target, or a pick whose material does not exist nearby). Optional work does not nominate unresolved candidates — mining and hunting publish Unknown at value zero rather than walking toward an unanswered search.
+
+**An exhausted bound is not a proven negative, and the vocabulary now separates them everywhere.** Every bounded search under this tree — the stand sweep around a hunt target, the positioner's own candidate shortlist, a lighting site scan cut by the tick's planning deadline — can stop because it ran out rather than because it found nothing. A pass that solved or already remembered a refusal for every candidate reports the absence and is **known-unusable**; a pass that stopped early reports an unfinished search and is **unresolved**, and the chooser must be able to ask which happened without knowing how the search works. Collapsing the two is the defect that vetoed a hunt on the tick a millisecond budget expired and handed the body to keeping company by default. The rule holds however the bounds are tuned, which is why raising any of them was refused as an instance fix: whatever the numbers are, a search can exceed them, and the only question is whether the cut is reported as a cut.
+
+**Every activity's "near the player" radius is measured to the player's intent region, in one place.** `CompanionAction.AllowsTarget` is that place, so mining, chopping, lighting, collection and hunting all inherit the anchor rather than each carrying a copy of the test. Anchored on the player's feet a radius walks backwards as he does: work a few tiles ahead of a travelling player sits at the far edge of a circle centred behind him and drops out of range at the moment he sets off towards it, which is the one moment it is worth anything. Anchored on the region it leads him. The anchor is the region's **centre**, not its leading edge, because each caller subtracts its own comfortable distance and measuring to the boundary would subtract it twice. Threat, safety and protection readers deliberately keep reading his body, because danger to the player is about where the player is and not about where he is going. Two activities also centre their own resource *search* on the region — mining's near-player ore scan and lighting's work radius — which is a separate read from the radius test above, and chopping's has not been moved with them.
 
 ## No activity asks for a route to find out whether a place is reachable
 
@@ -43,4 +50,10 @@ Two consequences are rulings rather than side effects. Mining and chopping ask t
 
 ## Current state — 2026-09-14
 
-The seven activities are in place under three families. Lighting enters as the newest member of NearbyAssistance, a dark-region worker that queries the Light sense and chains discovered sites. All activities read Light and Reach from Observation.Senses rather than computing privately. Mining and hunting correctly publish Unknown at zero and do not nominate on an unanswered search; companionship may still walk toward the player while those work on their answers. The shared offer classification (usable, unresolved, known-unusable) resolves independently in each family.
+The seven activities are in place under three families, and all of them read Light, Reach and now the player's intent region from Observation.Senses rather than computing privately. Two things changed here in the 0.25.0 build and neither is a new activity.
+
+The intent region became the third sense, and `AllowsTarget` became its single consumer for every work radius, so what counts as near the player now leads him instead of trailing him. `MineOre` and `LightUsefulArea` moved their own search centres onto the region with it; `ChopTree` did not, so opportunistic chopping still scans from the player's body while mining scans from the region — an inconsistency recorded rather than repaired, since this folder documents and does not edit code.
+
+And a bounded search that ran out now says so. The three-valued offer vocabulary above is the same rule one layer down from the positioner's own, and it is what stopped a hunt being branded impossible on the tick a budget expired.
+
+Companionship may still walk toward the player while optional work waits on its answers, which is the behaviour to expect rather than debug for the first hundred-odd ticks after any world change.

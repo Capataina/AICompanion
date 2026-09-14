@@ -22,6 +22,19 @@ Recovery flight is an explicit coordinator branch that starts when an activity o
 - Safety and recovery are independent paths that compose rather than replace each other. An environmental escape suspends ordinary work without cancelling recovery; when the escape completes, recovery can still claim the feet if no ordinary offer exists.
 - Recovery starts only when the coordinator has no ordinary activity to execute and compares it as a future option, not as an immediate action. A freshly un-suppressed activity can still win that comparison.
 
+## Both of these measure to the player's body, and the activities do not
+
+The player's intent region — his feet plus a lead of his own observed pace — is the sense every activity's "near the player" test measures to, because work a few tiles ahead of a travelling player is worth reaching and a radius anchored behind him drops it at the moment he sets off towards it. **Safety, recovery, threat and protection deliberately do not read it.** They read his body, and the two are answering different questions:
+
+```
+the question                          measured to        because
+├─ is this work near the player?      the intent region  work is worth reaching where he is going
+└─ is the player in danger here?      his body           danger is about where he is, not
+                                                         where he is heading
+```
+
+A reader who has just learned that the intent region answers "how far from the player" will reach for it here and will be wrong. A change that rewrote this folder to measure to the region would put the companion's danger response a lead-length away from the thing endangering him.
+
 ## Current state — 2026-09-14
 
-Safety runs after observation and can interrupt any activity to escape lava/breath loss or avoid immediate collision. Recovery is a coordinator-level reflex that flies the companion home when it sits beyond the comfort distance and has no ordinary work. Both are separate from the future mastery movement abilities, which would be scoring methods the activities invoke, not systems that own the feet at coordinator level.
+Safety runs after observation and can interrupt any activity to escape lava/breath loss or avoid immediate collision. Recovery is a coordinator-level reflex that flies the companion home when it sits beyond the recovery distance — the same threshold this file names above, not a second one — and has no ordinary work. Both are separate from the future mastery movement abilities, which would be scoring methods the activities invoke, not systems that own the feet at coordinator level.

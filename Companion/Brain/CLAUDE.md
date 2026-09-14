@@ -16,22 +16,15 @@ Brain/
 ├─ SharedBehaviours/           can take the body without winning a family comparison
 │  ├─ Safety/                  escape, collision avoidance, combat space, hit prediction
 │  └─ Recovery/                distant flight home
-└─ Infrastructure/             how those get done
-   ├─ Observation/
-   ├─ Selection/               scoring, family nomination, tunables
-   ├─ Position/
-   ├─ Movement/
-   ├─ Interactions/
-   ├─ Aiming/
-   ├─ Grants/                  one packet for feet and hand; incidentals
-   └─ Diagnostics/
+└─ Infrastructure/             how those get done — observation, scoring, places, movement,
+                              tools, aiming, grants and recording; its own file lists them
 ```
 
 Weapons stay in `Companion/Weapons/`. The brain grants a free hand; the arsenal chooses target and weapon.
 
 ## One tick has one direction of flow
 
-Planning consumers share a soft deadline and retain unfinished work. Survival can supply a safe-state predicate directly to movement when the head needs air; the same controller searches legal controls for ordinary local clearance. Hands still resolve after that movement choice. The coordinator stamps the current engine tick when it runs, so diagnostics distinguish fresh decisions from the stale state intentionally left while the companion itself is downed. Player death no longer suspends its decisions.
+Planning consumers share a soft deadline and retain unfinished work. Shared safety can supply a safe-state predicate directly to movement when the head needs air; the same controller searches legal controls for ordinary local clearance. There is no Survival behaviour: environmental escape, collision avoidance and combat space are all `SharedBehaviours/Safety`, and a folder file or comment still saying "survival" is naming something that was folded into it. Hands still resolve after that movement choice. The coordinator stamps the current engine tick when it runs, so diagnostics distinguish fresh decisions from the stale state intentionally left while the companion itself is downed. Player death no longer suspends its decisions.
 
 ```
 Observation ──► Safety ──► Movement ──► Companion motor
@@ -47,7 +40,7 @@ hands: arsenal fires after movement whenever no work tool owns the arm
 
 Ordinary selection prepares candidates before comparison. The common evaluator supplies their values, each purpose family nominates its best positive-value child, and the parent chooses among those three nominations. An empty family nominates nothing; an entirely empty board has no ordinary activity. Environmental escape and combat spacing run independently through Safety even with no ordinary offers. Keeping company combines reunion and relaxed nearby movement without changing purpose identity between methods. Collection compares known drops with uncertain pot contents as opportunities under one activity. The seven ordinary activities are mining, chopping, hunting, guarding, lighting, collecting and keeping company.
 
-Every branch returns a movement request and hand permission to the common finaliser. Ordinary travel, reflex avoidance, survival escape and recovery flight therefore share one motor application and a retained grant describing its actual AI-phase output. The downed lifecycle enters that finaliser without running ordinary selection. The grant does not certify the subsequently integrated motion or a productive native effect.
+Every branch returns a movement request and hand permission to the common finaliser. Ordinary travel, reflex avoidance, shared safety's environmental escape and recovery flight therefore share one motor application and a retained grant describing its actual AI-phase output. The downed lifecycle enters that finaliser without running ordinary selection. The grant does not certify the subsequently integrated motion or a productive native effect.
 
 Body-progress observation and ordinary-activity observation have separate ownership. The finaliser can observe safety movement while the ordinary activity is suspended; it asks the activity owner to deliver the ordinary outcome callback only when that activity is executing. A retained label cannot charge an interrupted hunt for time spent escaping.
 
@@ -55,7 +48,7 @@ Companionship observation also precedes the early recovery and safety branches. 
 
 The hands are independent of the feet. The arsenal may fire while following, guarding, looting, wandering or avoiding a hit; hunting only asks the feet to approach a firing position. Chopping and mining reserve the hand through coherent work phases, including cooldown gaps, while approaching work leaves it available. The torch fills a free hand in darkness. Downed grants revoke weapon permission. Navigation timing measures control preparation; finalisation timing separately includes motor application, compatible arsenal use and outcome observation.
 
-Distant-follow recovery is an explicit coordinator branch outside the route graph. A selected activity must issue a WithPlayer reunion request with an available hand; proximity of a work or combat destination to the player cannot authorise flight. Beyond the configured recovery distance, the coordinator interrupts the current route and asks the motor for continuous flight until a clear arrival near the live owner. Recovery owns the feet while independent weapon targeting continues; it cannot teach the archive a route. Ordinary following uses separate horizontal and vertical comfort limits; navigation reaching a waypoint alone does not establish that companionship has arrived.
+Distant-follow recovery is an explicit coordinator branch outside the route graph. A selected activity must issue a WithPlayer reunion request with an available hand; proximity of a work or combat destination to the player cannot authorise flight. Beyond the configured recovery distance, the coordinator interrupts the current route and asks the motor for continuous flight until a clear arrival near the live owner. Recovery owns the feet while independent weapon targeting continues; it cannot teach the archive a route. Ordinary following keeps separate horizontal and vertical comfort limits, and they are no longer a box of its own: both are the intent region's two half-sizes, which is why they differ and why they grow with the player's lead. Navigation reaching a waypoint alone does not establish that companionship has arrived — arrival is a settled state, earned from the ground over a rescore, so an airborne tick inside the region is not one.
 
 ## Choice is utility, not a priority chain
 
@@ -65,7 +58,7 @@ Each activity returns a score whose considerations multiply, so any zero vetoes 
 
 `Infrastructure/Movement/` owns simulation, movement abilities, path search, execution, cached terrain facts and the Terraria adapter. The planner and offline replay use the portable core; the live companion uses the Terraria adapter and motor. EngineReplay compares the native adapter against Terraria’s own NPC collision path, including liquid transitions. That is evidence about controlled collision fixtures, while portable replay remains an approximation and gameplay comfort still needs playtest evidence.
 
-The shared public surface is `CoordinateMovement` for requests and `MovementQueries` for geometry and reachability. Reflexes, position selection and behaviours ask it questions or submit intent; none writes controls or reaches into grid, navigator or motor state. The motor applies one resolved control set and tracks what the engine actually did.
+The shared public surface is `CoordinateMovement` for requests and `MovementQueries` for geometry and route search. Reflexes and position selection ask it questions or submit intent; none writes controls or reaches into grid, navigator or motor state. Activities and interactions are narrower still: they may carry a `Reachability.Reach` verdict around but may not run a search to obtain one, because the reach sense already holds the answer, and `Tools/check-navigation-boundary.sh` refuses the search rather than trusting anyone to have read this. The motor applies one resolved control set and tracks what the engine actually did.
 
 ## Traps
 
@@ -77,10 +70,20 @@ The shared public surface is `CoordinateMovement` for requests and `MovementQuer
 
 ## Senses: observation becomes a shared interface
 
-`Observation.Senses` rebuilds once per tick and holds facts every consumer reads: the tile beneath the body, the player's position and threat level, `Light` as a field the torch and lighting job query, and `Reach` as two reachability floods every activity and movement query consult. The two floods are not two ways of moving — they are one region and one exception. The first refuses edges with no way back, so it means everywhere the body can go *and come home from*; the second is a raw flood advanced only to test the single case of a player standing somewhere the body can only drop into. A consumer never computes its own light visibility or reachability; both are observed once and cached for the tick.
+`Observation.Senses` holds the facts every consumer reads rather than derives — the tile beneath the body, the player's position and threat level — and three of those facts are extracted senses that no consumer is allowed to compute for itself:
 
-Both senses answer in three values, and the middle one is the reason the extraction was worth doing: a tile missing from an unfinished flood is *not yet known* rather than absent, and a place the engine has not lit is *unread* rather than bright. Each caller used to rebuild that distinction from a completeness flag and a membership test, and could get it wrong. The reach flood's unit of time is the rescore rather than the game tick, because it is bounded per advance and grows across successive resolves; ageing it on the tick starves it, and a fixture that primes the flood with thousands of resolves and no tick is what caught that. This changed how the lighting activity works — it finds dark air by querying the field rather than by visiting candidates — and how all movement and work decisions score approach feasibility.
+```
+Senses.Light   how bright a place is          a field, queried about somewhere
+Senses.Intent  where the player is going      a region with a gradient
+Senses.Reach   where the body can get to      two floods, one region and one exception
+```
+
+`Senses.Intent` is the newest and it is the one that makes a whole class of question have a single answer: every "how far from the player" measure in the brain reads that one region, and reads to its **centre** rather than to its boundary, because each of those callers already subtracts a comfortable distance of its own and a distance that is zero inside the region subtracts that comfort twice. The region's centre is the player's feet plus a lead of his own observed pace, so the question it answers is where he is going rather than where he was.
+
+Two of the three are rebuilt in `Senses.Update`, at the top of the tick. `Senses.Reach` is not: position selection's resolve refreshes it, because the flood's lava and one-way rules are set per request by the brain tick, so a flood run at the top would answer every consumer under the previous tick's rule. That is why the reach sense's unit of time is the rescore rather than the game tick, and why a consumer asking during a hold gets a region nobody is growing.
+
+Light and reach each answer in three values rather than two, and that middle answer is the reason those two extractions were worth making: a tile missing from an unfinished flood is *not yet known* rather than unreachable, and a place the engine has not lit is *unread* rather than bright. Each caller used to rebuild that distinction from a completeness flag and a membership test, and could get it wrong. The rule that optional work does not start on an unanswered search is expressible in the type instead of reconstructed per caller. `Infrastructure/Observation/CLAUDE.md` derives all three, including the two-floods geometry, the carried-light discount and the refresh circle the first flood of a companion's life arrives through.
 
 ## Current state — 2026-09-14
 
-Three purpose families — Combat (hunting, guarding), Gathering (mining, chopping), NearbyAssistance (lighting, collecting, keeping company) — each nominate their best offer; the parent compares those three. Lighting is a dark-region job that works sites from the player's own darkness and chains them before returning. Light and reach are senses every consumer reads; optional work does not start on an unanswered search (mining and hunting publish Unknown at zero). The reactive floor was deleted because the clearance search beside it had already replaced its output — its two guard conditions were exact complements, so every control it produced was discarded before it reached the motor. The walk no longer raises its own jump either, and **nothing replaced that jump**: a body meeting a shape on a proven walk is a divergence, and the navigator already answered a divergence by pricing the step, counting a strike and replanning from the live state. The jump was a second, private answer sitting in front of that path. The portable movement system remains diagnostic while live play remains the gate.
+Three purpose families — Combat (hunting, guarding), Gathering (mining, chopping), NearbyAssistance (lighting, collecting, keeping company) — each nominate their best offer; the parent compares those three. Lighting is a dark-region job that works sites from the player's own darkness and chains them before returning. Light, the player's intent region and reach are the three senses every consumer reads; optional work does not start on an unanswered search (mining and hunting publish Unknown at zero). The intent region arrived last and replaced a shape rather than adding one: the symmetric follow box on the player's current feet is gone, and with it the missing quantity that made a moving player no reason at all to move. The reactive floor was deleted because the clearance search beside it had already replaced its output — its two guard conditions were exact complements, so every control it produced was discarded before it reached the motor. The walk no longer raises its own jump either, and **nothing replaced that jump**: a body meeting a shape on a proven walk is a divergence, and the navigator already answered a divergence by pricing the step, counting a strike and replanning from the live state. The jump was a second, private answer sitting in front of that path. One change from the same build crosses this whole tree rather than sitting in a folder: the world-global terrain revision counter is gone, and a terrain edit now invalidates a retained search only where that search actually looked. Every system that retains work across ticks — the reach sense's two floods, the route planner's queries — therefore keeps its own sensitivity set, and a player mining a screen away no longer restarts a search that never looked there. The portable movement system remains diagnostic while live play remains the gate.

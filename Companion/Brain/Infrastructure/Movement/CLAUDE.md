@@ -12,7 +12,7 @@ Movement/
 ├─ MovementAbilities/        active abilities and future capability description
 ├─ RoutePlanning/            terrain graph, A*, paths and reachability
 ├─ MovementExecution/        route ownership, local repair and traversal execution
-├─ TerrainModel/             game-free tile interface and text scenario backend
+├─ TerrainModel/             game-free tile interface, text scenario backend, and the record of where the world was recently edited
 └─ TerrariaIntegration/      native terrain, native body simulation and motor adapter
 ```
 
@@ -30,4 +30,4 @@ An unresolved follow objective without a selected standing tile is still a trave
 
 - A route proven in `TextTileWorld` proves only the portable model and captured terrain. It does not establish a live world route.
 - `TraversalExecution` copies the traversal and retained state before a local trial. Reusing active state for a probe mutates the real route while evaluating an alternative.
-- Terrain changes must invalidate cached route facts through the integration surface. Doors are a special case because Terraria’s door helper skips ordinary tile hooks.
+- Terrain changes must invalidate cached route facts through the integration surface, and an announcement carries the tile it happened at, because a retained search asks whether an edit landed where it looked rather than whether one happened at all. Doors are a special case because Terraria’s door helper skips ordinary tile hooks, so the opener announces its own tiles.
