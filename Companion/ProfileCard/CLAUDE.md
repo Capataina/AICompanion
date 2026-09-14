@@ -5,10 +5,10 @@ ProfileCard/
 ├─ CLAUDE.md                     this guide
 ├─ CompanionProfileCardSystem.cs  draggable frame, permanent status tiles and page lifetime
 ├─ DrawCardPrimitives.cs          native panels and shared hard-shadow text
-├─ DrawCompanionStatus.cs         portrait, health and retained action evidence
+├─ DrawCompanionStatus.cs         probe portrait, level, the three bars and retained action evidence
 ├─ BlockCoveredInventoryInput.cs  scoped pointer exclusion around the underlying native layer
-├─ DefineMasteryGraph.cs          authored node coordinates, kinds and directed edges
-└─ PreviewMasteryTree.cs          local preview ranks, weapon subnodes and pan/zoom canvas
+├─ DefineMasteryGraph.cs          the spoke and branch templates the wheel and every diamond's tree are generated from
+└─ PreviewMasteryTree.cs          local preview ranks on the wheel and inside a diamond's tree, and the pan/zoom canvas
 ```
 
 The profile card is the HUD notch's primary click target. Its title bar drags the frame, with a grip on the profile and a back arrow on subpages. Minimise retains the current page and restores the same frame. The position survives closing and reopening during the loaded mod session, but is not character save data. The identity strip remains visible above every page: the companion portrait (the game's Destroyer probe, the orb's placeholder body, one frame of its sheet), the name with the level in gold beside it, then health, mana and experience as three bars each with its reading in the bar's own colour, in the same order and colours as the HUD notch so the two surfaces teach one column, then the selected activity, retained target direction and policy or activity reason. A movement stall or downed state supersedes ordinary work; an active reflex supplements the activity rather than hiding it. Hovering the strip exposes the full explanation when a long name needs truncation. Display code reads the brain's public evidence and never decides behaviour.
@@ -31,4 +31,4 @@ The graph clips to its viewport; its legend and controls sit outside that clip. 
 
 MagicPixel is an atlas. Lines and fills select a one-pixel source rectangle; stretching the complete texture turns a line into a rectangle.
 
-`Tools/EngineReplay --render-ui` renders the production pages with installed Terraria fonts, a representative attached companion and populated inventory through a hidden graphics surface. It exercises native button events, frame lifetime, filters, transfer conservation, path junctions and pan/zoom/reset, including a UI-scale case. The fixture portrait uses the NPC's Guide fallback; live player-rendered portrait animation and the feel of interaction remain playtest acceptance surfaces.
+`Tools/EngineReplay --render-ui` renders the production pages with installed Terraria fonts, a representative attached companion and populated inventory through a hidden graphics surface. It exercises native button events, frame lifetime, filters, transfer conservation, path junctions and pan/zoom/reset, including a UI-scale case. The fixture loads the probe texture the portrait draws, since its service shell cannot request assets; the feel of interaction remains a playtest acceptance surface.

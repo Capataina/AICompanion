@@ -36,7 +36,8 @@ public static class DefineMasteryGraph
     /// one and five, right ranks three and seven, and the tip.
     /// </summary>
     public const int Roles = 19;
-    private static readonly int[] DiamondRoles = { 2, 6, 12, 16, 18 };
+    /// <summary>The mock's rule, which the card fixture holds this table to: left ranks one and five, right ranks three and seven, the tip.</summary>
+    public static readonly int[] DiamondRoles = { 2, 6, 12, 16, 18 };
 
     private static readonly string[][] Names =
     {
@@ -57,12 +58,12 @@ public static class DefineMasteryGraph
 
     /// <summary>
     /// Radius and angular offset per role. The offsets are the mock's eight-spoke ones widened
-    /// threefold, because four spokes at the mock's fork read as a plus sign with empty quadrants
-    /// (rendered and looked at on 15 September 2026 at 1.6 times, still a cross); at three times
-    /// each spoke is a leaf whose paths open to 36 degrees and the four leaves fill the disc.
-    /// Facing paths of neighbouring spokes still keep 18 degrees between them, about 100 units
-    /// at their nearest rank, and the shared node between two spokes sits a short edge from both
-    /// fourth ranks. The fixture proves no two nodes come within a node's width.
+    /// threefold, because four spokes at the mock's fork read as thin bars on a plus sign
+    /// (rendered and looked at on 15 September 2026 at 1.6 times, still bars); at three times
+    /// each spoke is a leaf whose paths open to 36 degrees. The diagonals stay open on purpose:
+    /// the shared node between two spokes sits there, a short edge from both fourth ranks, and
+    /// facing paths of neighbouring spokes keep 18 degrees between them, about 100 units at their
+    /// nearest rank. The fixture proves no two nodes come within a node's width.
     /// </summary>
     private const float OffsetWiden = 3f;
     private static readonly (float R, float Deg)[] Template =
@@ -77,9 +78,8 @@ public static class DefineMasteryGraph
         (-1, 0), (0, 1), (1, 2), (2, 3), (3, 4), (4, 5), (5, 6), (6, 7), (7, 8), (8, 9), (9, 18),
         (1, 10), (10, 11), (11, 12), (12, 13), (13, 14), (14, 15), (15, 16), (16, 17), (17, 18),
     };
+    /// <summary>The label radius is the wheel's reach, which the viewer fits to its viewport.</summary>
     public const float LabelRadius = 910f, JunctionRadius = 495f;
-    /// <summary>The square the whole wheel, labels included, fits in; the viewer fits this to its viewport.</summary>
-    public const float Extent = 2 * (LabelRadius + 70);
 
     public static readonly Node[] Nodes;
     /// <summary>-1 is the free centre. Every edge has the same meaning for drawing and availability.</summary>
@@ -146,7 +146,6 @@ public static class DefineMasteryGraph
     };
     private static readonly (float R, float Deg)[] SubTemplate = { (120, 0), (230, -22), (230, 22), (340, 0) };
     public const float SubJunctionRadius = 230f, SubLabelRadius = 410f;
-    public const float SubExtent = 2 * (SubLabelRadius + 70);
 
     /// <summary>The fifteen nodes of any diamond's tree; the opened diamond's branch colours them.</summary>
     public static readonly Node[] SubNodes;

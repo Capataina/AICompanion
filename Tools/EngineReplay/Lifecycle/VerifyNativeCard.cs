@@ -313,6 +313,27 @@ internal static class VerifyNativeCard
         Require(GraphData.Nodes.Count(n => n.Kind == GraphData.NodeKind.Shared) == GraphData.Branches.Length, "One shared node sits between each pair of neighbouring spokes");
         Require(GraphData.Nodes.Length == GraphData.FirstShared + GraphData.Branches.Length && GraphData.SubNodes.Length == GraphData.FirstSubShared + GraphData.SubLines,
             "The wheel is its spokes' roles then its shared nodes, and a tree is its lines' roles then its shared nodes");
+        // The structure the mock fixes, held rather than printed: a mutation that dropped one of a
+        // shared node's two spokes, or moved a diamond off its role, passed this fixture on
+        // 15 September 2026 because only the counts were written to the console.
+        Require(GraphData.DiamondRoles.SequenceEqual(new[] { 2, 6, 12, 16, 18 }), "Diamonds sit at left ranks one and five, right ranks three and seven, and the tip");
+        for (int i = 0; i < GraphData.FirstShared; i++)
+            Require((GraphData.Nodes[i].Kind == GraphData.NodeKind.Ability) == GraphData.DiamondRoles.Contains(i % GraphData.Roles), $"Node {i} is not the kind its role says");
+        Require(GraphData.Edges.Length == GraphData.Branches.Length * 24, "Each spoke carries twenty edges of its own and four through its shared node");
+        for (int j = GraphData.FirstShared; j < GraphData.Nodes.Length; j++)
+        {
+            var incoming = GraphData.Edges.Where(e => e.To == j).Select(e => e.From / GraphData.Roles).ToArray();
+            var outgoing = GraphData.Edges.Where(e => e.From == j).Select(e => e.To / GraphData.Roles).ToArray();
+            Require(incoming.Length == 2 && incoming[0] != incoming[1] && outgoing.OrderBy(b => b).SequenceEqual(incoming.OrderBy(b => b)),
+                $"Shared node {j} must open from two neighbouring spokes and continue into both");
+        }
+        Require(GraphData.SubEdges.Length == GraphData.SubLines * 5 + GraphData.SubLines * 2, "A tree's lines carry five edges each and every shared circle two");
+        for (int j = GraphData.FirstSubShared; j < GraphData.SubNodes.Length; j++)
+        {
+            var incoming = GraphData.SubEdges.Where(e => e.To == j).Select(e => e.From / GraphData.SubRoles).ToArray();
+            Require(incoming.Length == 2 && incoming[0] != incoming[1] && !GraphData.SubEdges.Any(e => e.From == j),
+                $"Tree shared node {j} must open from two neighbouring lines and lead nowhere");
+        }
         // The layout's own proof: no two nodes of either graph closer than a node's width, in graph units.
         float nearest = GraphData.Nodes.SelectMany((a, i) => GraphData.Nodes.Skip(i + 1).Select(b => Vector2.Distance(a.Position, b.Position))).Min();
         float nearestSub = GraphData.SubNodes.SelectMany((a, i) => GraphData.SubNodes.Skip(i + 1).Select(b => Vector2.Distance(a.Position, b.Position))).Min();

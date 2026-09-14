@@ -76,14 +76,18 @@ public sealed class PreviewMasteryTree : UIElement
     }
 
     /// <summary>
-    /// Both graphs are round with their labels, so the fit is the smaller axis against the graph's
-    /// own extent, less the height of a label's text, which is drawn at screen scale rather than
-    /// graph scale and would otherwise hang off the bottom at a small fit.
+    /// Both graphs are round, so the fit is half the smaller axis against the graph's reach, its
+    /// label radius, less a label's text height and a margin, because text is drawn at screen
+    /// scale rather than graph scale and would otherwise hang off the edge at a small fit. The
+    /// floor is low enough that a canvas a hundred pixels tall still holds the whole wheel: a
+    /// floor of a tenth put the tip nodes outside the 640x480 fixture's canvas, which the card
+    /// fixture caught and the render's truncated output had hidden.
     /// </summary>
     private void FitTree()
     {
         pan = Vector2.Zero;
-        zoom = Math.Max(.1f, (Math.Min(Canvas.Width, Canvas.Height) - 2 * LabelTextHeight) / (InTree ? SubExtent : Extent));
+        float halfAxis = Math.Min(Canvas.Width, Canvas.Height) / 2f;
+        zoom = Math.Max(.03f, (halfAxis - LabelTextHeight - 4) / (InTree ? SubLabelRadius : LabelRadius));
     }
 
     private const float LabelScale = .65f;

@@ -85,7 +85,11 @@ internal static class RenderNativeInterface
             Main.GameViewMatrix = new Terraria.Graphics.SpriteViewMatrix(graphics);
             VerifyWorldLine(graphics, batch);
             VerifyInspectorDrawsNoSolver();
-            string output = Path.Combine(Path.GetTempPath(), "aic-native-ui"); Directory.CreateDirectory(output);
+            // The folder is emptied first, because a run that dies part-way leaves the previous
+            // run's images beside its own and a reader cannot tell which page a file documents.
+            string output = Path.Combine(Path.GetTempPath(), "aic-native-ui");
+            if (Directory.Exists(output)) Directory.Delete(output, recursive: true);
+            Directory.CreateDirectory(output);
             foreach (var view in new[] { (new Point(1280, 720), 1f), (new Point(960, 540), 1f), (new Point(800, 600), 1f), (new Point(640, 480), 1f), (new Point(1600, 1000), 1.5f) })
             {
                 var (size, scale) = view;
