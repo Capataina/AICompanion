@@ -29,11 +29,14 @@ internal static class VerifyOfferValidity
 {
     public static int Run()
     {
+        TheShotWindowIsTheTripsOwnLength();
         ACutSearchIsUndecidedAndTheIncumbentSurvives();
         AnExhaustedSearchIsAProvenNegative();
+        AnExhaustedSearchIsProvableWhileTheBodyWalks();
         AStandWhoseShotClosesBeforeArrivalIsRefused();
+        AMovedTargetIsAskedAboutAgain();
         PartialProgressNeverNamesTheTileTheBodyStandsOn();
-        Console.WriteLine("offer validity: cut searches stay undecided, exhausted ones prove a negative, arrival-time shots and the partial-progress fixed point pass");
+        Console.WriteLine("offer validity: the shot window is the trip's length, cut searches stay undecided, exhausted ones prove a negative while the body walks, arrival-time shots and the partial-progress fixed point pass");
         return 0;
     }
 
@@ -41,6 +44,134 @@ internal static class VerifyOfferValidity
     private const int ShaftLeft = 49, ShaftRight = 53, ShaftFloorY = 86;
 
     // ---- rows -----------------------------------------------------------------------------------------
+
+    /// <summary>
+    /// The window a firing stand's arc must hold for is the trip's own length, bounded — asked of the rule
+    /// directly, because the rule is arithmetic and a scene is the wrong instrument for arithmetic.
+    ///
+    /// <para>Two things are under test and the first one has no scene that could show it cheaply. A trip shorter
+    /// than one sample interval used to be sampled <b>nowhere</b>: the loop began at one whole interval, so any
+    /// trip under it ran no iterations and the stand was accepted on the arrival solve alone. A short walk is
+    /// still a walk and the shot still has to survive it, so that is the case the samples exist for, silently
+    /// skipped. The second is that the trip was read backwards — it chose between one sample and two, while the
+    /// requirement itself was a fixed twenty or forty ticks after arrival however long the walk was, so a long
+    /// trip was held to a middling trip's window.</para>
+    ///
+    /// <para>The expected sets are written out rather than recomputed from the constants, because a table derived
+    /// from the same expression it is checking passes whatever that expression does.</para>
+    /// </summary>
+    private static void TheShotWindowIsTheTripsOwnLength()
+    {
+        int interval = live::AICompanion.Companion.Brain.Infrastructure.Selection.Weights.ShotWindowSampleTicks;
+        int cap = live::AICompanion.Companion.Brain.Infrastructure.Selection.Weights.ShotWindowCapTicks;
+        Require(interval == 20 && cap == 40, FormattableString.Invariant(
+            $"the table below is written for a 20-tick interval and a 40-tick cap; they now read {interval} and {cap}, so rewrite the expected sets rather than deriving them from the constants they are checking"));
+        (float Trip, int[] Expected, string Why)[] table =
+        {
+            (0f,   new int[0],        "a stand already underfoot has no walk to survive"),
+            (1f,   new[] { 1 },       "a one-tick trip is still a trip and used to be sampled nowhere"),
+            (5f,   new[] { 5 },       "shorter than one interval: the window's own end is the only sample"),
+            (19f,  new[] { 19 },      "one tick under the interval, the old rule's blind spot at its widest"),
+            (20f,  new[] { 20 },      "exactly one interval, which the interval lands on"),
+            (30f,  new[] { 20, 30 },  "the interval, then the window's end, which the interval does not divide"),
+            (40f,  new[] { 20, 40 },  "two intervals, both landed on"),
+            (200f, new[] { 20, 40 },  "past the cap: the window stops, and a long walk is not asked for an eternal arc"),
+        };
+        foreach (var (trip, expected, why) in table)
+        {
+            int[] actual = live::AICompanion.Companion.Brain.Infrastructure.Position.Positioner
+                .ShotWindowOffsets(trip).ToArray();
+            int window = live::AICompanion.Companion.Brain.Infrastructure.Position.Positioner.ShotWindow(trip);
+            Require(actual.SequenceEqual(expected), FormattableString.Invariant(
+                $"a trip of {trip} must be sampled at [{string.Join(",", expected)}] ({why}); it was sampled at [{string.Join(",", actual)}]"));
+            Require(window == (int)MathF.Min(trip, cap), FormattableString.Invariant(
+                $"a trip of {trip} must measure a window of {MathF.Min(trip, cap)}; it measured {window}"));
+            // The window's end is always asked about, whatever the interval does. That is the property the
+            // sampling exists for, and the one a loop starting at a whole interval cannot hold.
+            if (window > 0)
+            {
+                string last = actual.Length == 0 ? "none at all" : actual[^1].ToString();
+                Require(actual.Length > 0 && actual[^1] == window, FormattableString.Invariant(
+                    $"a trip of {trip} must be asked about at the end of its own window ({window}); last sample was {last}"));
+            }
+        }
+        Console.WriteLine(FormattableString.Invariant(
+            $"offer validity: shot windows sampled at interval {interval} to a cap of {cap} — trip 5 -> [5], 19 -> [19], 30 -> [20,30], 200 -> [20,40]"));
+    }
+
+    /// <summary>
+    /// The same proven absence as the row above, with the body walking the whole time. This is the one the
+    /// stationary row cannot reach, and the defect it holds is invisible from a scene where nothing moves.
+    ///
+    /// <para>A refusal is remembered against where the body was standing, because a stand can be refused for the
+    /// length of the walk to it and that is a fact about where the walk starts. The exhaustion count was keyed the
+    /// same way, and those are different questions: whether a verdict may be reused is about the body, while
+    /// whether the sweep has been all the way round is about the stands and the target. Keyed together, a body
+    /// that changed bucket — which a following companion does every few rescores — made the whole memory stop
+    /// counting, so the shortlist re-cut in the same place every pass and the stands past the cut were never
+    /// reached. The search stayed permanently unfinished for as long as the companion was moving, which is most
+    /// of the time a hunt matters.</para>
+    /// </summary>
+    private static void AnExhaustedSearchIsProvableWhileTheBodyWalks()
+    {
+        var (companion, enemy, profile, _) = PitScene();
+        // Filled rather than capped, for the same reason the stationary row fills it: a cap leaves the shaft floor
+        // standable with a clear line to the enemy beside it, and choosing that pocket is correct behaviour and the
+        // wrong scene. Filled, every candidate is open floor with rock in the way and the only question left is
+        // whether the shortlist can finish.
+        for (int x = ShaftLeft; x <= ShaftRight; x++)
+            for (int y = FloorY; y < ShaftFloorY; y++)
+                Solid(x, y);
+        live::AICompanion.Companion.Brain.Infrastructure.Movement.TerrainChanges.Reset();
+        var positioner = companion.Brain.Positioner;
+        var request = new PositionRequest(RequestKind.LineOfFire, enemy.Center, enemy);
+
+        var settle = new PositionRequest(RequestKind.WithPlayer, Main.player[0].Bottom);
+        for (int i = 0; i < 1200 && !positioner.ReachComplete; i++)
+            positioner.Resolve(settle, companion.Brain.Senses, null);
+        Require(positioner.ReachComplete, "the walking row needs a settled reachable region before it counts candidates");
+
+        // The body walks a few tiles back and forth along the floor while the search runs. The refusal memory's
+        // bucket is four tiles wide, so this crosses it repeatedly rather than incidentally — and it stays near
+        // enough that the reach flood is not being re-rooted across the world instead.
+        // A triangle wave one whole bucket a pass across sixteen tiles, so the body is in a different bucket on
+        // every pass the search runs. That rate is deliberate and it is not a stand-in for a walking speed: the
+        // sweep finishes in single-figure passes, and how many it takes varies with how warm the suite is, so a
+        // rate slow enough to be typical makes the number of crossings before exhaustion depend on JIT — which is
+        // how the first version of this row passed alone and failed inside the full suite at three crossings. The
+        // key moves on the stride rather than on the speed, so pinning the crossing rate to one per pass makes the
+        // premise hold however many passes the sweep needs.
+        const int Home = 30, Swing = 8, Period = 4, Stride = 4;
+        int buckets = 0, previousBucket = int.MinValue;
+        string reason = "";
+        int settledAt = -1;
+        for (int tick = 0; tick < 600; tick++)
+        {
+            int phase = tick % Period;
+            int column = Home - Swing + Stride * (phase <= Period / 2 ? phase : Period - phase);
+            companion.NPC.position = new Vector2(column * 16f, FloorY * 16f - companion.NPC.height);
+            companion.NPC.velocity = Vector2.Zero;
+            companion.Brain.Senses.Update(companion.NPC, Main.player[0], companion.Breath);
+            int bucket = MovementQueries.FeetTile(companion.NPC.Bottom).X >> 2;
+            if (bucket != previousBucket) { buckets++; previousBucket = bucket; }
+            positioner.Resolve(request, companion.Brain.Senses, profile);
+            if (tick == 0)
+                // The same premise the stationary row makes: more candidates than one pass may solve, or the
+                // shortlist fits inside its budget and there is no unfinished search to finish.
+                Require(positioner.ReachableCandidateCount > 8, FormattableString.Invariant(
+                    $"the sealed scene must offer more candidates than one pass can solve; reachable={positioner.ReachableCandidateCount}"));
+            reason = positioner.ChoiceReason;
+            if (reason == PositionReasons.NoUsableDestination) { settledAt = tick; break; }
+        }
+        Console.WriteLine(FormattableString.Invariant(
+            $"offer validity: a sealed enemy became a proven absence on pass {settledAt + 1} with the body walking through {buckets} refusal buckets"));
+        // The premise: the body really did move across the memory's own scoping stride. Without that this row is
+        // the stationary one with extra steps, and would pass against the code it exists to reject.
+        Require(buckets >= 3 && buckets >= settledAt, FormattableString.Invariant(
+            $"the body must be in a different bucket on every pass, or this row is the stationary one with drift; buckets entered={buckets} over {settledAt + 1} passes"));
+        Require(settledAt >= 0, FormattableString.Invariant(
+            $"a sealed enemy must become a proven absence while the body walks, not stay undecided for ever; last reason={reason} after 600 passes"));
+    }
 
     /// <summary>
     /// A hunt whose shortlist is larger than its solve budget must report that the search did not finish, never
@@ -237,6 +368,56 @@ internal static class VerifyOfferValidity
                 .Solve(MuzzleAt(stand), enemy, profile.Value, (int)MathF.Min(180f, trip)) != null,
             $"the chosen stand cannot shoot the target at its forecast arrival, so the shot was solved against a "
             + $"position the target will have left; stand={stand.X},{stand.Y}, trip={trip:0.0}, evidence={positioner.CandidateEvidence}");
+    }
+
+    /// <summary>
+    /// An answer about where a target can be shot from goes stale when the target moves, not only when the body
+    /// does — and `ResolveFiringOpportunity` was scoped to one end of that line.
+    ///
+    /// <para>Both of its stores carried the companion's position and the terrain revision and neither carried the
+    /// target's. The cache therefore served a verdict taken while the enemy was behind a pillar for the whole of
+    /// its tick window after the enemy had walked out from behind it, and the sweep accumulated its examined count
+    /// across scans while the stands themselves are rebuilt around the enemy's own feet every scan — so the count
+    /// could reach the set's size having asked only about stands around places the enemy had left. That returns a
+    /// proven absence of any firing position, which guarding reads as a threat it cannot shoot and hunting as a
+    /// target not worth approaching. It is the same exhausted-bound-reported-as-a-fact defect this class already
+    /// closed once, arriving through the target's motion instead of through the budget.</para>
+    ///
+    /// <para>The row moves the enemy from behind the pillar to the companion's own feet without advancing a tick,
+    /// so the only thing that has changed is the one thing the key was missing.</para>
+    /// </summary>
+    private static void AMovedTargetIsAskedAboutAgain()
+    {
+        var (companion, enemy, _) = PillarScene();
+        var ctx = new C(companion, companion.Brain.Senses);
+        var firing = new live::AICompanion.Companion.Brain.Activities.Combat.ResolveFiringOpportunity();
+
+        // Settle the flood, or the first verdicts are measuring how far it has grown rather than the geometry.
+        var settle = new PositionRequest(RequestKind.WithPlayer, Main.player[0].Bottom);
+        for (int i = 0; i < 1200 && !companion.Brain.Positioner.ReachComplete; i++)
+            companion.Brain.Positioner.Resolve(settle, companion.Brain.Senses, null);
+
+        // Behind the pillar, well out of a shot from where the body stands.
+        enemy.Bottom = new Vector2((PillarRight + 6) * 16f + 8f, FloorY * 16f);
+        companion.Brain.Senses.Update(companion.NPC, Main.player[0], companion.Breath);
+        var (behind, _) = firing.Resolve(ctx, enemy);
+        Require(behind != live::AICompanion.Companion.Brain.Activities.Combat.FiringAccess.FromHere, FormattableString.Invariant(
+            $"the premise fails: the enemy behind the pillar must not already be shootable from where the body stands, or moving it proves nothing; verdict={behind}"));
+
+        // Now beside the companion, in the open, on the same tick. Nothing about the body or the world has
+        // changed — only the target — so an answer that does not move is an answer keyed on the wrong things.
+        enemy.Bottom = companion.NPC.Bottom + new Vector2(32f, 0f);
+        float moved = Vector2.Distance(enemy.Center, companion.NPC.Center);
+        companion.Brain.Senses.Update(companion.NPC, Main.player[0], companion.Breath);
+        var (beside, _) = firing.Resolve(ctx, enemy);
+        Console.WriteLine(FormattableString.Invariant(
+            $"offer validity: a target behind the pillar read {behind}; walked to {moved:F0}px from the muzzle on the same tick it reads {beside}"));
+        Require(beside == live::AICompanion.Companion.Brain.Activities.Combat.FiringAccess.FromHere, FormattableString.Invariant(
+            $"a target that has walked into the open must be asked about again rather than answered from where it was; it read {beside}, and behind the pillar it read {behind}"));
+        // And the absence in particular must never be the stale one, because a proven absence is the verdict the
+        // rest of combat is entitled to act on.
+        Require(beside != live::AICompanion.Companion.Brain.Activities.Combat.FiringAccess.None,
+            $"a moved target must never be reported as a proven absence of firing positions on evidence gathered about where it used to be; verdict={beside}");
     }
 
     /// <summary>

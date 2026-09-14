@@ -468,6 +468,26 @@ public static class Weights
     public const float DropMaxFallSpeed = 7f;
     public const float DropWetGravity = .08f;
     public const float DropWetMaxFallSpeed = 5f;
+
+    /// <summary>
+    /// Honey's and shimmer's own figures, from the same ladder in <c>Item.UpdateItem</c> that supplies the water
+    /// pair above. They are separate constants rather than water's reused because the game separates them, and an
+    /// item in honey falls at half water's acceleration to a third of its cap.
+    /// </summary>
+    public const float DropHoneyGravity = .05f;
+    public const float DropHoneyMaxFallSpeed = 3f;
+    public const float DropShimmerGravity = .065f;
+    public const float DropShimmerMaxFallSpeed = 4f;
+
+    /// <summary>
+    /// The share of its velocity a submerged item actually moves by each tick. <c>Item.UpdateItem</c> keeps a
+    /// separate <c>wetVelocity</c> and steps the position by that instead of by the velocity whenever the item is
+    /// wet, so a liquid slows an item twice over: once through the gravity and cap above, and again here. Omitting
+    /// this is not a small error — it doubles the distance covered in water and quadruples it in honey.
+    /// </summary>
+    public const float DropWaterVelocityShare = .5f;
+    public const float DropHoneyVelocityShare = .25f;
+    public const float DropShimmerVelocityShare = .375f;
     /// <summary>Item horizontal damping per tick, and the speed below which the game zeroes it.</summary>
     public const float DropHorizontalDamping = .95f;
     public const float DropHorizontalFloor = .1f;
@@ -500,4 +520,13 @@ public static class Weights
     /// target has not moved enough to have changed the answer".
     /// </summary>
     public const float FiringHoldTargetSlackPx = 48f;
+
+    /// <summary>
+    /// The longest window a firing stand's arc is required to hold for, past the estimated arrival. The requirement
+    /// itself is the trip's own length — a shot has to survive the walk to the stand and no longer — and this only
+    /// stops a walk across the world from asking for an arc that holds indefinitely, which is a question the
+    /// forecast cannot answer anyway at that range. Raising it asks for more solves on long trips; lowering it stops
+    /// distinguishing a middling trip from a long one.
+    /// </summary>
+    public const int ShotWindowCapTicks = 2 * ShotWindowSampleTicks;
 }

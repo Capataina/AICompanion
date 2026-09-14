@@ -202,16 +202,42 @@ public sealed class CollectNearbyItems : PerformNearbyWorldWork
         // which row counts as the floor: the bottom sits on the top edge of the supporting row.
         if (item.velocity.Y == 0f && MovementQueries.IsSupport((int)MathF.Floor(bottom.X / 16f), (int)MathF.Floor(bottom.Y / 16f)))
             return bottom;
-        float gravity = item.wet ? Weights.DropWetGravity : Weights.DropGravity;
-        float maxFall = item.wet ? Weights.DropWetMaxFallSpeed : Weights.DropMaxFallSpeed;
+        // The liquid ladder is the game's own, in its own order: shimmer, then honey, then water, each supplying a
+        // gravity, a fall cap and the share of its velocity a submerged item actually moves by. The share is a
+        // separate quantity from the gravity and it is the one that was missing — a liquid slows an item twice
+        // over, and modelling only the gravity leaves the forecast covering twice the distance in water and four
+        // times in honey. Whether the position step uses the share at all is gated on `wet` alone, exactly as the
+        // game gates it, rather than on whichever liquid chose the gravity.
+        float gravity = Weights.DropGravity, maxFall = Weights.DropMaxFallSpeed;
+        float share = Weights.DropWaterVelocityShare;
+        if (item.shimmerWet)
+        {
+            gravity = Weights.DropShimmerGravity; maxFall = Weights.DropShimmerMaxFallSpeed;
+            share = Weights.DropShimmerVelocityShare;
+        }
+        else if (item.honeyWet)
+        {
+            gravity = Weights.DropHoneyGravity; maxFall = Weights.DropHoneyMaxFallSpeed;
+            share = Weights.DropHoneyVelocityShare;
+        }
+        else if (item.wet)
+        {
+            gravity = Weights.DropWetGravity; maxFall = Weights.DropWetMaxFallSpeed;
+        }
         Vector2 velocity = item.velocity;
         for (int tick = 0; tick < Weights.DropForecastTicks; tick++)
         {
+            // The wet step is taken from the velocity as it stood at the top of the tick, before this tick's
+            // gravity, because the game captures it there and applies gravity afterwards. That one-tick lag is
+            // small per tick and compounds over a fall, so a forecast that steps by the updated velocity lands
+            // a submerged drop short of where the game puts it even with the share applied.
+            Vector2 step = item.wet ? velocity * share : Vector2.Zero;
             velocity.Y = MathF.Min(velocity.Y + gravity, maxFall);
             velocity.X *= Weights.DropHorizontalDamping;
             if (MathF.Abs(velocity.X) < Weights.DropHorizontalFloor) velocity.X = 0f;
-            Vector2 next = bottom + velocity;
-            if (velocity.Y > 0f)
+            if (!item.wet) step = velocity;
+            Vector2 next = bottom + step;
+            if (step.Y > 0f)
             {
                 // Every row the bottom crosses this tick, so a fast item cannot pass through a floor
                 // between two samples — at the capped fall speed it covers most of a tile a tick.

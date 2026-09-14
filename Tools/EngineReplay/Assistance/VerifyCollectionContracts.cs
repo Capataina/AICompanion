@@ -58,6 +58,7 @@ internal static class VerifyCollectionContracts
         Each("D1 a reachable drop behind refused drops is offered", AReachableDropBehindRefusedDropsIsOffered);
         Each("D2 a drop merged into another world drop", ADropMergedIntoAnotherWorldDropIsNotAPurposeThatWentAway);
         Each("D3 a drop released in the air is offered at its forecast landing", ADropStillFallingIsOfferedAtItsForecastLanding);
+        Each("D3b a drop falling through liquid is offered where the liquid will put it", ADropFallingThroughLiquidIsOfferedWhereTheLiquidWillPutIt);
         // Timings under the production allowances, printed and never asserted: they describe this machine.
         foreach (bool warmUp in new[] { true, false })
             foreach (bool pit in new[] { false, true })
@@ -336,6 +337,104 @@ internal static class VerifyCollectionContracts
         var landed = collect.Execute(ctx);
         Require(landed.Kind == RequestKind.Exact && MathF.Abs(landed.Anchor.X - drop.Bottom.X) <= 3 * 16,
             $"the pose must still be the landed drop's own once it has landed; request={landed} drop={drop.Bottom}");
+    }
+
+    /// <summary>
+    /// The same contract for a drop falling through liquid, where the game moves an item by a share of its
+    /// velocity rather than by all of it.
+    ///
+    /// <para><c>Item.UpdateItem</c> keeps a separate <c>wetVelocity</c> and steps the position by that instead of
+    /// the velocity whenever the item is wet — half in water, three eighths in shimmer, a quarter in honey — and
+    /// it captures that share from the velocity as it stood at the top of the tick, before the tick's gravity.
+    /// The forecast took the wet gravity and then stepped the whole velocity, so it covered twice the ground in
+    /// water and four times in honey, and honey's and shimmer's own gravities were not modelled at all. The
+    /// landing row survived that because a drop falling straight down still lands on the same floor; the landing
+    /// <b>X</b> did not, and X is what decides which tile the companion walks to.</para>
+    ///
+    /// <para>The fixture steps the item itself, transcribing the decompiled arithmetic in the game's own order
+    /// rather than calling the production forecast, and requires the forecast to have agreed the whole way down:
+    /// the moved-drop guard holds the body on any tick the item is more than a tile from where it was proven, so
+    /// a forecast with the wrong share reports holds. This isolates the liquid step and not liquid detection —
+    /// the wet flags are set directly, because whether the game would call this tile wet is a different question
+    /// with a different owner.</para>
+    /// </summary>
+    private static void ADropFallingThroughLiquidIsOfferedWhereTheLiquidWillPutIt()
+    {
+        // The release height is per liquid and it is a constraint rather than a preference. A liquid slows the
+        // descent by its gravity, its cap and its velocity share together, so honey moves an item down about a
+        // fifth as fast as air does — and a twelve-tile fall in honey genuinely does not resolve inside the
+        // forecast's horizon, which the offer reports as `drop-landing-undecided`. That is the middle answer
+        // working, not a defect, and it is worth knowing before anyone reads an undecided honey drop as a bug:
+        // each fall here is sized to land well inside the horizon so that the row is about the arithmetic.
+        foreach (var (name, releaseRow, gravity, maxFall, share, setWet) in new (string, int, float, float, float, Action<Item>)[]
+        {
+            ("water", 48, 0.08f, 5f, 0.5f, (Item i) => i.wet = true),
+            ("honey", 56, 0.05f, 3f, 0.25f, (Item i) => { i.wet = true; i.honeyWet = true; }),
+            ("shimmer", 54, 0.065f, 4f, 0.375f, (Item i) => { i.wet = true; i.shimmerWet = true; }),
+        })
+        {
+            var ctx = SetUpFloor();
+            var collect = new CollectNearbyItems();
+            Item drop = Drop(ItemID.CopperOre, 5, new Vector2(26 * 16 + 8, releaseRow * 16));
+            // Fast enough sideways that a quarter of it is still a visible drift, since honey's share is the
+            // smallest and the premise below has to hold for every liquid in the table.
+            drop.velocity = new Vector2(3f, -2f);
+            setWet(drop);
+            Vector2 released = drop.Bottom;
+            Observe(ctx, drop);
+            collect.Prepare(ctx);
+            Require(collect.Method == "known-drop" && collect.Eligibility == OfferEligibility.Usable,
+                $"a drop falling through {name} must be a usable offer at its forecast landing; method={collect.Method} offer={collect.Eligibility}/{collect.EligibilityReason}");
+            collect.BeginAttempt();
+            collect.Execute(ctx);
+            // The forecast taken at release, which is the whole point: the offer's target is the landing the
+            // drop was priced at, and it is the only moment the whole remaining fall is being predicted rather
+            // than observed. Comparing the pose after the drop has landed proves nothing, because by then the
+            // forecast has nothing left to forecast.
+            Vector2 forecast = collect.ActivityTarget ?? throw new InvalidOperationException(
+                $"a usable {name} drop offer must name the landing it was priced at");
+
+            int holds = 0;
+            for (int tick = 0; tick < 480 && drop.velocity.Y != 0f; tick++)
+            {
+                // Vanilla's order, and the capture before the gravity is the part that matters: wetVelocity is
+                // taken at the top of UpdateItem, MoveInWorld then updates the velocity, and the position step
+                // at the bottom uses the captured value.
+                Vector2 wetVelocity = drop.velocity * share;
+                drop.velocity.Y = MathF.Min(drop.velocity.Y + gravity, maxFall);
+                drop.velocity.X *= 0.95f;
+                if (MathF.Abs(drop.velocity.X) < 0.1f) drop.velocity.X = 0f;
+                Vector2 next = drop.Bottom + wetVelocity;
+                if (wetVelocity.Y > 0f && next.Y >= 60 * 16f)
+                {
+                    drop.Bottom = new Vector2(next.X, 60 * 16f);
+                    drop.velocity = Vector2.Zero;
+                }
+                else drop.Bottom = next;
+                Observe(ctx, drop);
+                collect.Prepare(ctx);
+                if (collect.Execute(ctx).Kind == RequestKind.Hold) holds++;
+            }
+            Require(drop.velocity == Vector2.Zero, $"the fixture's own {name} drop must land; bottom={drop.Bottom} velocity={drop.velocity}");
+            // The premise that makes this a test of the share at all: the liquid must have carried the drop a
+            // visibly shorter way sideways than a dry fall would, or every arithmetic lands in the same column
+            // and the row cannot tell a modelled share from an unmodelled one.
+            float drift = MathF.Abs(drop.Bottom.X - released.X);
+            float error = MathF.Abs(forecast.X - drop.Bottom.X);
+            Console.WriteLine(FormattableString.Invariant(
+                $"collection: a drop released at {released.X:F0} fell through {name} to {drop.Bottom.X:F0} ({drift:F0}px of drift); forecast at release said {forecast.X:F0}, out by {error:F0}px, holds={holds}"));
+            Require(drift > 8f, FormattableString.Invariant(
+                $"the {name} scene must drift sideways, or landing X is the same wherever the share goes; drift={drift:F0}px"));
+            // Landing X, asserted against the fall the fixture actually stepped. A tile of slack, which is
+            // generous given both sides run the same arithmetic — and far tighter than the error an unmodelled
+            // velocity share produces, which is the whole remaining drift over again.
+            Require(error <= 16f, FormattableString.Invariant(
+                $"the {name} forecast must land the drop where the liquid actually puts it: it said X={forecast.X:F0}, the drop came to rest at X={drop.Bottom.X:F0}, out by {error:F0}px against {drift:F0}px of true drift"));
+            Require(holds == 0, $"a drop falling through {name} exactly as forecast must not hold the body on the way down; holds={holds}");
+            var landed = collect.Execute(ctx);
+            Require(landed.Kind == RequestKind.Exact && MathF.Abs(landed.Anchor.X - drop.Bottom.X) <= 3 * 16,
+                $"the pose must be at the {name} drop's own landing column once it has landed; request={landed} drop={drop.Bottom}");
+        }
     }
 
     /// <summary>A drop prepared on the floor rolls fourteen tiles before execution. Execution must not walk to where it was, and

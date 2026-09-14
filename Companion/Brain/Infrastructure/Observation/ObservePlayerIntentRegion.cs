@@ -71,6 +71,22 @@ public readonly record struct PlayerIntentRegion(Vector2 Centre, Vector2 HalfSiz
         => MathF.Abs(feet.X - Centre.X) <= MathF.Max(0f, HalfSize.X - arrivalSlack)
             && MathF.Abs(feet.Y - Centre.Y) <= MathF.Max(0f, HalfSize.Y - arrivalSlack);
 
+    /// <summary>
+    /// How far outside the region this place is, in pixels, and exactly zero anywhere inside it. The
+    /// larger of the two axes' overshoots rather than a radial distance, for the same reason
+    /// <see cref="Pull"/> is Chebyshev: the axes are deliberately different sizes.
+    ///
+    /// <para>This is what an outside-the-region slope is measured on, and the distinction from a
+    /// distance to the player's body is the whole of it. A slope measured body-to-body is already
+    /// large at the region's own leading edge — the companion standing exactly where the region asks
+    /// it to be is a lead plus a half-width away from the player — so it reports a demand at the one
+    /// place the region says there is nothing left to want, and the curve steps there. Measured to
+    /// the region the slope starts at zero where the region ends, which is where the inside gradient
+    /// is at its largest, so the two meet.</para>
+    /// </summary>
+    public float GapBeyond(Vector2 feet) => MathF.Max(0f, MathF.Max(
+        MathF.Abs(feet.X - Centre.X) - HalfSize.X,
+        MathF.Abs(feet.Y - Centre.Y) - HalfSize.Y));
 }
 
 /// <summary>

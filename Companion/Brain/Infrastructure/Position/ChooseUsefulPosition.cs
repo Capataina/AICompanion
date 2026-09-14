@@ -101,7 +101,14 @@ public sealed class Positioner
     {
         if (request.Kind is not (RequestKind.Guard or RequestKind.LineOfFire))
             throw new ArgumentException("Only attack-position requests require this admission query.", nameof(request));
+        // lastInterferenceRevision is restored with the rest, and it is the one piece of this state whose
+        // consumption is not idempotent. A new footprint forces exactly one rescore, and Resolve spends that
+        // force by stamping the revision as seen; a rejected query that put back sinceScore but not the stamp
+        // therefore ate the forced rescore on behalf of whoever asked next. Keeping company resolving on the
+        // same tick then saw no change, retained the tile it was standing on, and waited out the cadence in
+        // the player's way — courtesy defeated by a combat query that momentarily won nomination and lost.
         var held = (Chosen, ChosenScore, lastRequest, lastFireProfile, lastTerrainRevision, sinceScore,
+            lastInterferenceRevision,
             ChoiceReason, FollowObjectiveSatisfied, FollowHorizontalGap, FollowVerticalGap,
             FollowObjectiveReason, CandidateCount, ReachableCandidateCount, RejectedCandidateCount,
             EvidenceTick, EvaluatedCandidates, CandidateEvidence, ChosenRevision, Region);
@@ -121,6 +128,7 @@ public sealed class Positioner
             clock = previousClock;
             if (!admitted)
                 (Chosen, ChosenScore, lastRequest, lastFireProfile, lastTerrainRevision, sinceScore,
+                    lastInterferenceRevision,
                     ChoiceReason, FollowObjectiveSatisfied, FollowHorizontalGap, FollowVerticalGap,
                     FollowObjectiveReason, CandidateCount, ReachableCandidateCount, RejectedCandidateCount,
                     // The revision and region come last: restoring Chosen above advances the revision, and a
@@ -143,6 +151,7 @@ public sealed class Positioner
             // reset to a previous value when a world is rebuilt, and a stale refusal whose stamp happens to match
             // reads as a fact about terrain that no longer exists, writing off stands nothing ever solved against.
             refused.Clear();
+            refusalOrder.Clear();
         }
         // New interference evidence reconsiders a held destination once. Waiting out the rescore cadence would let the
         // placement or the walk that produced it finish first, and rescoring every tick while it lasts would buy nothing.
@@ -308,7 +317,8 @@ public sealed class Positioner
                 var held = SolveShotAtArrival(spot + new Vector2(0f, -30f), spot, enemy, profile, senses);
                 if (!held.Solved)
                 {
-                    RememberRefusal(tile, enemy, BodyBucket(senses.Companion.Bottom));
+                    RememberRefusal(tile, enemy, BodyBucket(senses.Companion.Bottom),
+                        held.Reason.StartsWith(PositionReasons.ShotWindowShorterThanTrip, StringComparison.Ordinal));
                     return false;
                 }
                 ChoiceReason = PositionReasons.Retained;
@@ -499,12 +509,79 @@ public sealed class Positioner
         }
         if (TrajectoryAimer.Solve(eye, target, profile, arrival) == null)
             return new(false, "no-arc", arrival);
-        int required = (int)MathF.Min(trip, 2 * Weights.ShotWindowSampleTicks);
-        for (int held = Weights.ShotWindowSampleTicks; held <= required; held += Weights.ShotWindowSampleTicks)
+        // The window is the trip's own length, bounded above so a walk across the world does not ask
+        // for a shot that holds for ever. The rule as it stood read the other way round: it took the
+        // trip only to choose between one sample and two, and then required the arc to hold for a
+        // fixed twenty or forty ticks *after* arrival however long the trip was — so a long trip was
+        // held to the same short window as a middling one, and a trip shorter than one sample interval
+        // was never tested at all, because the loop started at the interval and any trip under it made
+        // the body never execute. A quick step to a stand was therefore accepted on the arrival solve
+        // alone, which is exactly the case the samples exist for: the shot has to survive the walk,
+        // and a short walk is still a walk.
+        int window = ShotWindow(trip);
+        foreach (int held in ShotWindowOffsets(trip))
             if (TrajectoryAimer.Solve(eye, target, profile, Math.Min(180, arrival + held)) == null)
-                return new(false, PositionReasons.ShotWindowShorterThanTrip, arrival);
+                return new(false, WindowRefusal(window), arrival);
         return new(true, "clear-arc", arrival);
     }
+
+    /// <summary>
+    /// How long past the estimated arrival a stand's arc has to hold: the trip's own length, bounded. A shot has to
+    /// survive the walk to the stand, and nothing beyond that is the stand's business.
+    /// </summary>
+    public static int ShotWindow(float trip) => (int)MathF.Min(MathF.Max(0f, trip), Weights.ShotWindowCapTicks);
+
+    /// <summary>
+    /// Which ticks past arrival the arc is actually asked about, as a pure function of the trip, so the sampling
+    /// rule can be read off directly rather than inferred from a scene that happens to have the right geometry.
+    ///
+    /// <para>Every sample interval up to the window, and then the window's own end whenever the interval does not
+    /// land on it. That last clause is the one the rule was missing and it is not an edge case: the loop it replaces
+    /// began at one whole interval, so <b>any trip shorter than an interval produced no samples at all</b> and a
+    /// short walk to a stand was accepted on the arrival solve alone — which is the case the samples exist for,
+    /// since a short walk is still a walk and the shot still has to survive it. The same clause covers every window
+    /// the interval does not divide, where sampling only the multiples leaves the last stretch unasked.</para>
+    ///
+    /// <para>The old rule also read the trip backwards. It took <c>min(trip, 2 x interval)</c> as a *requirement*
+    /// the arc had to hold for after arrival, so a long trip was held to the same short window as a middling one;
+    /// the trip only ever chose between one sample and two. The trip is the window now, and the cap only stops a
+    /// walk across the world asking for an arc that holds indefinitely — a question the forecast cannot answer at
+    /// that range anyway.</para>
+    /// </summary>
+    public static IEnumerable<int> ShotWindowOffsets(float trip)
+    {
+        int window = ShotWindow(trip);
+        int last = 0;
+        for (int held = Weights.ShotWindowSampleTicks; held <= window; held += Weights.ShotWindowSampleTicks)
+        {
+            last = held;
+            yield return held;
+        }
+        if (window > last) yield return window;
+    }
+
+    /// <summary>The refusal, carrying the window it was measured over. A refusal that names only itself cannot be
+    /// read back against the trip it was about, and the window is the whole of what the rule now asserts; the token
+    /// stays the leading part of the string so anything matching on the name keeps matching.</summary>
+    /// <summary>
+    /// Whether every candidate from <paramref name="from"/> onward has already been asked about this target, so a
+    /// pass that stops here has an answer for the whole shortlist even though it did not reach the end of it.
+    ///
+    /// <para>This is what lets a search finish while the body is walking. The stop itself is not the question — a
+    /// budget always runs out somewhere — and the only thing that matters is whether anything is left unasked
+    /// behind it. Reading the stop as an unfinished search regardless is what made an undecided answer permanent
+    /// for a moving companion, because the memory stopped counting each time the body changed bucket and the cut
+    /// fell in the same place every pass.</para>
+    /// </summary>
+    private bool EveryRemainingAsked(List<(Vector2 feet, Vector2 eye, float baseScore)> candidates, int from, NPC target)
+    {
+        for (int i = from; i < candidates.Count; i++)
+            if (!EverAsked(MovementQueries.FeetTile(candidates[i].feet), target)) return false;
+        return true;
+    }
+
+    private static string WindowRefusal(int window)
+        => FormattableString.Invariant($"{PositionReasons.ShotWindowShorterThanTrip}={window}");
 
     // Stands a real solve refused, scoped to the conditions the refusal was a fact under: this terrain, this target
     // generation standing about here, and a body standing about here. A refusal is a fact and may be remembered; an
@@ -527,7 +604,7 @@ public sealed class Positioner
     // discard every refusal the last few passes established and restart the shortlist from the top on each of
     // them. The search would then never exhaust while the body moved, which is the case this memory exists to
     // stop. Whether some stand can shoot an enemy does not change from one tile of travel.
-    private readonly Dictionary<(Point tile, int slot, int generation), (int terrain, Vector2 target, Point from)> refused = new();
+    private readonly Dictionary<(Point tile, int slot, int generation), (int terrain, Vector2 target, Point from, bool aboutTheTrip)> refused = new();
 
     /// <summary>Where the body is standing, in the strides the refusal memory is scoped by.</summary>
     private static Point BodyBucket(Vector2 bottom)
@@ -536,18 +613,97 @@ public sealed class Positioner
         return new Point(feet.X >> 2, feet.Y >> 2);
     }
 
-    private void RememberRefusal(Point tile, NPC target, Point from)
+    /// <summary>When each target was first refused anything, so the cap evicts a whole target rather than everybody.</summary>
+    private readonly Dictionary<(int slot, int generation), int> refusalOrder = new();
+    private readonly List<(Point tile, int slot, int generation)> evicting = new();
+    private int refusalStamp;
+
+    /// <summary>
+    /// How many refusals are kept before the oldest target's are dropped. A cap is needed because the memory is
+    /// keyed per target and a long fight produces targets; what it must not be is a flush.
+    /// </summary>
+    private const int RefusalCapacity = 512;
+
+    private void RememberRefusal(Point tile, NPC target, Point from, bool aboutTheTrip)
     {
-        if (refused.Count > 512) refused.Clear();
-        refused[(tile, target.whoAmI, HostileAttackSources.Generation(target))] = (TerrainChanges.Revision, target.Center, from);
+        var owner = (target.whoAmI, HostileAttackSources.Generation(target));
+        if (!refusalOrder.ContainsKey(owner)) refusalOrder[owner] = refusalStamp++;
+        // Evict the target that has been in the memory longest, entries and all, rather than clearing everything.
+        // The cap used to flush the whole dictionary, which is an unscoped reset of the one structure that makes a
+        // bounded search terminate: every target's exhaustion restarted at once, at a moment decided by an unrelated
+        // target's entries arriving. A blood moon with several unshootable enemies in it reaches the cap easily, and
+        // each time it did, every sweep in progress went back to its first stand. Evicting one target's entries costs
+        // that target its progress, which is the smallest thing that can be lost and still make room.
+        //
+        // Known and deliberate: where the only target in the memory is the one being refused, nothing is evicted and
+        // that target's entries grow past the cap. The alternative is evicting the owner's own entries, which restarts
+        // the sweep that is running right now — the exact unscoped reset this eviction replaced, narrowed to one
+        // target. The growth is bounded by the distinct stands around one target under one terrain revision, and the
+        // whole memory is thrown away on a revision change, so a long fight against a mobile boss accumulates dead
+        // marks for positions it has left (they fail the slack test and are re-solved) rather than growing without
+        // limit. No fixture exercises this path: the scenes here hold one target and about 29 stands.
+        while (refused.Count > RefusalCapacity && refusalOrder.Count > 1)
+        {
+            (int slot, int generation) oldest = default;
+            int oldestStamp = int.MaxValue;
+            foreach (var entry in refusalOrder)
+                if (entry.Value < oldestStamp) { oldestStamp = entry.Value; oldest = entry.Key; }
+            // The target being refused right now is never the one evicted: dropping it would throw away the
+            // entry about to be written along with everything the current sweep has established.
+            if (oldest == owner) break;
+            evicting.Clear();
+            foreach (var key in refused.Keys)
+                if (key.slot == oldest.slot && key.generation == oldest.generation) evicting.Add(key);
+            foreach (var key in evicting) refused.Remove(key);
+            refusalOrder.Remove(oldest);
+        }
+        refused[(tile, owner.Item1, owner.Item2)] = (TerrainChanges.Revision, target.Center, from, aboutTheTrip);
     }
 
+    /// <summary>
+    /// Whether a real solve refused this stand against this target in a way that still holds, so the verdict may be
+    /// reused instead of paying for the solve again.
+    ///
+    /// <para>Which refusals survive the body moving is decided by what each one was about, and that distinction is
+    /// the whole of it. A stand with no arc is a fact about the line between the stand and the target: the body's
+    /// position is not in that question at all, so the refusal holds from anywhere and is reused from anywhere. A
+    /// stand refused because the shot would close before the body could walk there is a fact about the trip, so it
+    /// holds only from where that trip started and is re-asked once the body has moved, which is when the answer
+    /// can differ.</para>
+    ///
+    /// <para>Scoping every refusal to the body was what stopped a moving companion's search from ever finishing,
+    /// and not by the route it looks like. A remembered refusal is skipped without spending a solve, which is what
+    /// lets a pass walk deeper than its budget; when the body moved, nothing was skipped, so all eight solves went
+    /// to the top of the shortlist and the pass never reached the stands below however many passes ran. The count
+    /// was never the binding constraint — the skipping was.</para>
+    /// </summary>
     private bool AlreadyRefused(Point tile, NPC target, Point from)
+        => RefusalMark(tile, target) is { } mark && (!mark.aboutTheTrip || mark.from == from);
+
+    /// <summary>
+    /// Whether this stand has been asked about at all for this target, wherever the body was standing at the time.
+    /// This is the exhaustion question and it is deliberately a different question from the one above: "has the
+    /// sweep been all the way round" is about the stands and the target, never about the body.
+    ///
+    /// <para>Keying exhaustion on the body's bucket as well is why a search could not finish while the body walked.
+    /// A following body changes bucket every few rescores, and every change made the whole memory stop counting, so
+    /// the shortlist re-cut at the same place and the stands past the cut were never reached — the search stayed
+    /// permanently unfinished for as long as the companion was moving, which is most of the time a hunt matters.</para>
+    ///
+    /// <para>What this costs is worth naming rather than discovering. A stand refused because the shot would close
+    /// before the body could walk there from somewhere else still counts as asked, so a sweep can complete on a
+    /// refusal that a shorter walk might now beat. It is not lost: the stand is re-solved as soon as the budget
+    /// reaches it from the new bucket, because the verdict above no longer matches. What the exhaustion flag claims
+    /// is that every stand has an answer under this terrain and this target's position, and that is true.</para>
+    /// </summary>
+    private bool EverAsked(Point tile, NPC target) => RefusalMark(tile, target) != null;
+
+    private (int terrain, Vector2 target, Point from, bool aboutTheTrip)? RefusalMark(Point tile, NPC target)
         => refused.TryGetValue((tile, target.whoAmI, HostileAttackSources.Generation(target)), out var mark)
             && mark.terrain == TerrainChanges.Revision
-            && mark.from == from
             && Vector2.DistanceSquared(mark.target, target.Center)
-                <= Weights.FiringHoldTargetSlackPx * Weights.FiringHoldTargetSlackPx;
+                <= Weights.FiringHoldTargetSlackPx * Weights.FiringHoldTargetSlackPx
+            ? mark : null;
 
     private Vector2? Best(in PositionRequest request, Senses.Senses senses, WeaponProfile? fireProfile)
     {
@@ -675,12 +831,14 @@ public sealed class Positioner
                     continue;
                 }
                 if (solved > 0 && Infrastructure.Movement.LimitPlanningWork.Spent(solveClock, Weights.PositionAimingMilliseconds))
-                { everyCandidateAnswered = false; break; }
+                { everyCandidateAnswered = EveryRemainingAsked(candidates, i, request.Target!); break; }
                 if (solved >= solves)
-                { everyCandidateAnswered = false; break; } // unsolved candidates cannot beat a solved one above them
+                { everyCandidateAnswered = EveryRemainingAsked(candidates, i, request.Target!); break; } // unsolved candidates cannot beat a solved one above them
                 solved++;
                 var verdict = SolveShotAtArrival(eye, feet, request.Target!, fireProfile!.Value, senses);
-                if (!verdict.Solved) RememberRefusal(tile, request.Target!, bodyTile);
+                if (!verdict.Solved)
+                    RememberRefusal(tile, request.Target!, bodyTile,
+                        verdict.Reason.StartsWith(PositionReasons.ShotWindowShorterThanTrip, StringComparison.Ordinal));
                 shot = verdict.Reason;
                 score = ScoreSpot(request, feet, eye, playerBottom, senses, bandNear, bandFar, verdict.Solved ? 1f : 0f, reach);
             }

@@ -45,6 +45,11 @@ public readonly record struct FollowPlayerObjective(PlayerIntentRegion Region, V
     /// <summary>How far outside the region this place is, zero inside. What a reunion pull is priced on.</summary>
     public float Pull(Vector2 feet) => Region.Pull(feet);
 
+    /// <summary>How far beyond the region's edge this place is, in pixels, zero inside. An
+    /// outside-the-region slope measures on this rather than on a distance to the player's body, so
+    /// that it starts where the inside gradient finishes; the region's own paragraph carries why.</summary>
+    public float GapBeyond(Vector2 feet) => Region.GapBeyond(feet);
+
     /// <summary>
     /// A standing destination is useful inside the region, less the navigator's stopping radius.
     /// The reservation is not optional: a candidate on the boundary is legal while the body stops
