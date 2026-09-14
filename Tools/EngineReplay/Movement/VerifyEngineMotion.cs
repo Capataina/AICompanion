@@ -21,7 +21,7 @@ internal static class VerifyEngineMotion
             tile.TileType = 1;
         }
         Main.tileSolid[19] = Main.tileSolidTop[19] = true;
-        if (lifecycleOnly) return VerifyCompanionLifecycle.Run() + VerifyDowningAndRevival.Run();
+        if (lifecycleOnly) return VerifyCompanionLifecycle.Run() + VerifyDowningAndRevival.Run() + VerifyStatMirroring.Run();
         if (escapeOnly) return VerifyCapturedEscape.Run();
         if (workOnly) return VerifyOreWork.Run() + VerifyCompanionPreferences.Run() + VerifyCompanionActivities.Run() + VerifyUsefulAssistance.Run()
             + VerifyMiningHops.Run() + VerifyGatheringCooperation.Run() + VerifyWorkAccounting.Run() + VerifyCollectionContracts.Run()
@@ -128,6 +128,7 @@ internal static class VerifyEngineMotion
         failed += VerifyDoorPassage.Run();
         failed += VerifyCourtesy.Run();
         failed += VerifyDowningAndRevival.Run();
+        failed += VerifyStatMirroring.Run();
         failed += VerifyTravelEpisodes.Run();
         return failed == 0 ? 0 : 1;
     }
