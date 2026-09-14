@@ -99,6 +99,9 @@ internal static class WorldRunEntry
         ScoreTheRun.RecordedTrackDivergence(suite, route, first, worldNote);
         ScoreTheRun.Checkpoints(suite, route, first, CheckpointCadence);
 
+        if (Value(args, "--explore=") is { } budget)
+            ExploreWithoutTheTrack.Run(suite, route, int.Parse(budget, CultureInfo.InvariantCulture));
+
         foreach (LedgerRow row in EmitLedgerRows.Emitted)
             Console.WriteLine($"{row.Verdict.ToUpperInvariant()} {row.Case}"
                 + (row.Value is { } value ? $" = {value.ToString("0.###", CultureInfo.InvariantCulture)} {row.Unit}" : "")

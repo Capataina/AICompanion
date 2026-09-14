@@ -133,6 +133,28 @@ cat "$engine_log"
 rm -f "$engine_log"
 record_exit "engine-replay" "$engine_status"
 
+# world-run — the whole brain and the native body in a real saved world, behind the player track a
+# recording holds. Both of its inputs live outside the repository on purpose: Telemetry/ is
+# gitignored and a .wld is never committed, so neither can be discovered from a clone. They are
+# named by environment with this machine's usual locations as the default, and an absent one makes
+# the instrument file a skip carrying its reason rather than fail — a fresh checkout has neither,
+# and an error row there would disqualify every run in the store as a baseline.
+#
+# It plays a slice rather than a whole capture. A full 22,473-tick recording is about five minutes
+# once the determinism row has run it twice, which is not a cost this script can carry; the whole
+# capture is a command run on purpose, and Tools/WorldRun/CLAUDE.md carries it.
+world_run_route="${AIC_WORLD_RUN_ROUTE:-$(ls -1t Telemetry/*.tsv 2>/dev/null | head -1)}"
+world_run_world="${AIC_WORLD_RUN_WORLD:-$(ls -1t "$HOME/Library/Application Support/Terraria/tModLoader/Worlds"/*.wld 2>/dev/null | head -1)}"
+world_run_log=$(mktemp)
+dotnet run --project Tools/WorldRun -- \
+  --route="$world_run_route" --world="$world_run_world" \
+  --from-tick="${AIC_WORLD_RUN_FROM:-1}" --ticks="${AIC_WORLD_RUN_TICKS:-600}" \
+  --suite="recorded route" >"$world_run_log" 2>&1
+world_run_status=$?
+cat "$world_run_log"
+rm -f "$world_run_log"
+record_exit "world-run" "$world_run_status"
+
 # Rerunning a red is how one observation becomes a claim about a rate. A case that fails once and
 # passes once at the same commit is flaky by observation rather than by suspicion, which is the
 # only definition a ledger can supply — and the arithmetic for how many runs a claim needs is in
