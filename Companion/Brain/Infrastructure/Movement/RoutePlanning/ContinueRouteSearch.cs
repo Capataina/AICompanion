@@ -50,8 +50,18 @@ public sealed class ContinueRouteSearch : IDisposable
     private bool invalidated;
     private readonly Func<int, int, bool> readAnythingAt;
 
-    /// <summary>The box of tiles this query has reached, for a diagnostic and for the fixture that
-    /// pins the invalidation margin to the scan reach it is derived from.</summary>
+    // Every tile this query's answer stands on, which is deliberately a superset of Reached rather than
+    // the same set. A route adopted from route memory is a run of steps this search never expanded — it
+    // joins the frontier at the remembered route's head and the goal is then dequeued and returns Found
+    // before any of those tiles is reached — so a query can hand back a path across ground that is in
+    // neither Reached nor the box drawn from it. Under a world-global compare that cost nothing, because
+    // an edit anywhere invalidated everything; under a spatial one it is a path priced from terrain that
+    // may since have changed, and the failure would surface downstream as the live proof refusing the
+    // step, which reads as a physical fault rather than as stale knowledge.
+    private readonly HashSet<Point> read = new();
+
+    /// <summary>The box of tiles this query's answer depends on, for a diagnostic and for the fixture
+    /// that pins the invalidation margin to the scan reach it is derived from.</summary>
     public Rectangle ExploredBounds => new(exploredMinX, exploredMinY,
         exploredMaxX - exploredMinX + 1, exploredMaxY - exploredMinY + 1);
 
@@ -102,18 +112,26 @@ public sealed class ContinueRouteSearch : IDisposable
     {
         if (x < exploredMinX - AStar.EdgeReachX || x > exploredMaxX + AStar.EdgeReachX) return false;
         if (y < exploredMinY - AStar.EdgeReachUp || y > exploredMaxY + AStar.EdgeReachDown) return false;
-        foreach (Point tile in Reached)
+        foreach (Point tile in read)
             if (AStar.ScanReaches(tile.X, tile.Y, x, y)) return true;
         return false;
     }
 
-    private void Touch(Point tile)
+    /// <summary>Record that this query's answer now depends on the terrain at this tile, without
+    /// claiming the tile as reached: a remembered route's own steps are depended on and were never
+    /// expanded, and <see cref="Reached"/> is read as a region by the goal-less owners.</summary>
+    private void Note(Point tile)
     {
-        if (!Reached.Add(tile)) return;
+        if (!read.Add(tile)) return;
         if (tile.X < exploredMinX) exploredMinX = tile.X;
         if (tile.X > exploredMaxX) exploredMaxX = tile.X;
         if (tile.Y < exploredMinY) exploredMinY = tile.Y;
         if (tile.Y > exploredMaxY) exploredMaxY = tile.Y;
+    }
+
+    private void Touch(Point tile)
+    {
+        if (Reached.Add(tile)) Note(tile);
     }
     /// <summary>Both directions have been generated under this query's traversal policy.
     /// A nearby coordinate alone cannot establish this across a one-way drop.</summary>
@@ -187,6 +205,14 @@ public sealed class ContinueRouteSearch : IDisposable
                         {
                             costs[destination] = routeCost; parents[destination] = (expanding, suffix);
                             Enqueue(destination, routeCost, reused: true); ExperienceRoutesUsed++;
+                            // The suffix's own ground is depended on from here, and the search will never
+                            // expand it: the goal is dequeued and returns Found with these tiles unreached.
+                            // Each step's landing tile is the next step's departure, and the first departs
+                            // from the tile being expanded, so the landings plus the end cover the run; the
+                            // step's own From is not read, because it is default on some kinds and noting
+                            // the origin tile would stretch the pre-filter box across the whole world.
+                            foreach (NavStep step in suffix) Note(step.Tile);
+                            Note(end);
                         }
                     }
                     edges = AStar.NeighbourWork(expanding, !oneWay, expanding == start ? pose : null).GetEnumerator();
