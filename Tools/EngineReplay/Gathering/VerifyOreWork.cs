@@ -166,8 +166,13 @@ internal static class VerifyOreWork
                 live::AICompanion.Companion.Brain.Infrastructure.Position.RequestKind.WithPlayer, ctx.Player.Bottom);
             Point from = live::AICompanion.Companion.Brain.Infrastructure.Movement.NavGrid.FeetTile(ctx.Npc.Bottom);
             Point to = live::AICompanion.Companion.Brain.Infrastructure.Movement.NavGrid.FeetTile(ctx.Player.Bottom);
-            // Prime to completion rather than to first contact: a cost-ordered flood can first reach the
-            // player's tile the long way round and lower its ticks later along the short route.
+            // Throw the region away and flood it again, to completion rather than to first contact: a
+            // cost-ordered flood can first reach the player's tile the long way round and lower its ticks
+            // later along the short route. Thrown away rather than merely driven, because the upper floor
+            // this row stands the player on was built after the setup had already flooded a world without
+            // it, and a loop conditioned on the region being complete does nothing at all when the stale
+            // region is complete — which is the quietest way a fixture can prime nothing and look primed.
+            ResettleReach(ctx);
             for (int i = 0; i < 3000 && !brain.Positioner.ReachComplete; i++)
                 brain.Positioner.Resolve(home, brain.Senses, null);
             if (brain.Positioner.EstimatedTravelTicks(from, to) == null)
@@ -340,7 +345,7 @@ internal static class VerifyOreWork
         Vector2 feet = ctx.Npc.Bottom;
         Require(FindToolAccess.InReach(feet, ore),
             "the current-pose fixture must already satisfy actual tool range and exposed access");
-        var reach = FindToolAccess.Approach(ore, feet, out Vector2 stand);
+        var reach = FindToolAccess.Approach(ore, feet, ctx.Companion.Brain.Senses.Reach, out Vector2 stand);
         Require(reach == Reachability.Reach.Yes && stand == feet,
             $"a usable current pose needs no approach; got {reach} at {stand} instead of {feet}");
     }
@@ -508,8 +513,10 @@ internal static class VerifyOreWork
                 body => FindToolAccess.InReach(body.Feet, ore));
             Console.WriteLine($"lip initial-pose ground-jump proof={jumpProven}");
             AStar.MsBudget = 0;
-            var approach = FindToolAccess.Approach(ore, ctx.Npc.Bottom, out Vector2 stand);
-            Console.WriteLine($"lip approach without wall-time limit={approach} stand={stand}; expansion bound remains {Reachability.WalkerBudget}");
+            var approach = FindToolAccess.Approach(ore, ctx.Npc.Bottom, ctx.Companion.Brain.Senses.Reach, out Vector2 stand);
+            // The wall-time limit is lifted here for the rest of the block; the approach itself no longer reads
+            // one, because it ranks poses by geometry and answers reach from the flood rather than by searching.
+            Console.WriteLine($"lip approach={approach} stand={stand}; answered from the reach flood, not a bounded search");
             for (int x = 22; x <= 28; x++)
                 for (int y = floor - 4; y < floor; y++)
                 {
@@ -634,6 +641,10 @@ internal static class VerifyOreWork
         trunk.TileType = TileID.Trees;
         Main.tileAxe[TileID.Trees] = true;
         live::AICompanion.Companion.Brain.Infrastructure.Movement.TerrainChanges.Reset();
+        // The wall went up after the setup flooded, so the region has to be flooded again before anything
+        // asks about the far side of it; otherwise the tree reads reachable because the world it was proven
+        // in had no wall.
+        ResettleReach(ctx);
         var chop = new live::AICompanion.Companion.Brain.Activities.Gathering.ChopTree();
         var tree = new live::AICompanion.Companion.Brain.Infrastructure.Interactions.Chopping.TreeFinder.ChoppableTree(
             new Point(40, 59), new Vector2(38 * 16 + 8, 60 * 16), 1);
@@ -879,13 +890,17 @@ internal static class VerifyOreWork
             tile.TileType = TileID.Copper;
         }
         AStar.InvalidateEdges();
+        // The sealing wall went up after the setup flooded, so without this the region still describes an
+        // open floor and every one of the twenty-five pairs reads reachable — which the row's own closing
+        // requirement catches, because a comparison with no unreachable case in it compares nothing.
+        ResettleReach(ctx);
         int compared = 0, reachable = 0;
         foreach (Point ore in ores)
         foreach (float x in feet)
         {
             Vector2 from = new(x * 16 + 8, 90 * 16);
-            var actual = FindToolAccess.Approach(ore, from, out Vector2 actualStand);
-            var expected = ExhaustiveApproach(ore, from, out Vector2 expectedStand);
+            var actual = FindToolAccess.Approach(ore, from, ctx.Companion.Brain.Senses.Reach, out Vector2 actualStand);
+            var expected = ExhaustiveApproach(ore, from, ctx.Companion.Brain.Senses.Reach, out Vector2 expectedStand);
             Require(actual == expected && actualStand == expectedStand,
                 $"nearest-first approach diverged from the exhaustive scan: ore={ore} from={from} actual={actual}@{actualStand} expected={expected}@{expectedStand}");
             compared++;
@@ -895,11 +910,14 @@ internal static class VerifyOreWork
             $"the comparison must include reachable and unreachable approaches to mean anything; reachable={reachable}/{compared}");
     }
 
-    private static Reachability.Reach ExhaustiveApproach(Point tile, Vector2 fromFeet, out Vector2 stand)
+    /// <summary>The previous algorithm verbatim except for its oracle: it asks the same reach sense the
+    /// production call asks, because this row measures the scan order rather than the reach question. Left on
+    /// the walker search it would compare two different questions and report the difference as a divergence.</summary>
+    private static Reachability.Reach ExhaustiveApproach(Point tile, Vector2 fromFeet,
+        live::AICompanion.Companion.Brain.Infrastructure.Observation.ReachSense sense, out Vector2 stand)
     {
         if (FindToolAccess.InReach(fromFeet, tile)) { stand = fromFeet; return Reachability.Reach.Yes; }
         Vector2 eye = new(0f, -30f), tileCentre = tile.ToWorldCoordinates(8f, 8f);
-        Point from = live::AICompanion.Companion.Brain.Infrastructure.Movement.MovementQueries.FeetTile(fromFeet);
         Vector2? best = null;
         bool unknown = false;
         float bestDist = float.MaxValue;
@@ -911,7 +929,12 @@ internal static class VerifyOreWork
                 Vector2 feet = live::AICompanion.Companion.Brain.Infrastructure.Movement.MovementQueries.FeetWorld(new Point(x, y));
                 if (!FindToolAccess.InReach(feet, tile) || !FindToolAccess.InReach(feet + new Vector2(-8, 0), tile) || !FindToolAccess.InReach(feet + new Vector2(8, 0), tile)) continue;
                 float d = Vector2.DistanceSquared(feet + eye, tileCentre);
-                var reach = live::AICompanion.Companion.Brain.Infrastructure.Movement.MovementQueries.WalkerReach(from, new Point(x, y));
+                var reach = sense.Reachable(new Point(x, y)) switch
+                {
+                    live::AICompanion.Companion.Brain.Infrastructure.Observation.ReachVerdict.Reachable => Reachability.Reach.Yes,
+                    live::AICompanion.Companion.Brain.Infrastructure.Observation.ReachVerdict.NotYet => Reachability.Reach.Unknown,
+                    _ => Reachability.Reach.No,
+                };
                 if (reach == Reachability.Reach.Unknown) unknown = true;
                 if (d < bestDist && reach == Reachability.Reach.Yes) { bestDist = d; best = feet; }
             }
@@ -1021,36 +1044,78 @@ internal static class VerifyOreWork
         => SetUp(policy, tileType, ore, null);
 
     /// <summary>
-    /// An approach the bounded search cannot decide is not a plan. Walking at it was how 0.22.44
+    /// An approach the evidence cannot decide is not a plan. Walking at it was how 0.22.44
     /// spent 1,583 ticks of the 13:45 session on one unreachable pocket: the search declined to
     /// answer, mining treated that as an investigation, and covering any 32 px reset the stall
-    /// clock so the vein was never refused. The search is starved of its time budget here rather
-    /// than buried under distance, because a spent budget is exactly what produces Unknown.
+    /// clock so the vein was never refused.
+    ///
+    /// <para>The undecided state is now produced by an unsettled reach flood rather than by a starved A*
+    /// clock, and the change of instrument is the point rather than an incidental. Mining's approach no
+    /// longer runs a search, so <c>AStar.MsBudget</c> cannot reach it: left as it was, this row would have
+    /// gone on passing while testing nothing, because the flood is empty in a fixture that never resolves
+    /// and Unknown would have arrived for a reason the row does not name. Emptying the region is the
+    /// mechanism that actually produces Unknown here, so that is what the row does, out loud.</para>
     /// </summary>
     private static void AnUnprovenApproachIsNotAPlan()
     {
-        // Far enough along the floor that the approach search has real work to do. Ore beside the
-        // companion resolves through the start-equals-goal shortcut before any budget is consulted,
-        // so a near fixture cannot reach the undecided state at all.
+        // Far enough along the floor that no pose is in reach from where the body stands, so the answer has
+        // to come from the region. Ore beside the companion resolves through the in-reach shortcut before
+        // the region is consulted at all, so a near fixture cannot reach the undecided state.
         var (action, ctx) = SetUp(WorkPolicy.Opportunistic, TileID.Copper, new Point(50, 59));
-        double budget = AStar.MsBudget;
-        try
+        // An unflooded region: every tile is "not yet known" and nothing is proven either way. This is the
+        // state the live brain is in for its first rescores after a world change.
+        EmptyTheReachRegion(ctx);
+        float score = VerifyPreparedActivities.PrepareAndScore(action, ctx);
+        Require(action.Status == "approach unknown",
+            $"the fixture must actually reach an undecided approach, or it tests nothing; status={action.Status}");
+        Require(score == 0f,
+            $"ore whose approach the evidence could not decide scored {score}, so mining would still win the tick; status={action.Status}");
+        Require(action.TargetTile == null && action.ActivityTarget == null,
+            "an undecided approach must not publish a plan target");
+        Require(action.Execute(ctx).Kind == live::AICompanion.Companion.Brain.Infrastructure.Position.RequestKind.Hold,
+            "an undecided approach must not walk at the ore");
+    }
+
+    /// <summary>
+    /// Put the reach sense back into the state it is in before its first flood: nothing claimed and nothing
+    /// exhausted, so every tile answers NotYet. Both fields are written because the verdict reads both — a
+    /// tile is Unreachable only where the set it was looked up in ran out of region, and leaving
+    /// <c>Complete</c> true would turn every unclaimed tile into a proven No, which is the opposite state.
+    /// </summary>
+    internal static void EmptyTheReachRegion(ActionContext ctx)
+    {
+        var sense = ctx.Senses.Reach;
+        var type = typeof(live::AICompanion.Companion.Brain.Infrastructure.Observation.ReachSense);
+        const BindingFlags instance = BindingFlags.Instance | BindingFlags.NonPublic;
+        // `scored` as well as `returnable`, because a non-null `scored` is what tells Refresh the region is
+        // young enough to serve: leaving it set makes the next resolve hand back the region from before
+        // whatever the caller just changed. The two searches go with them, and that is the part that is easy
+        // to miss — Refresh reuses a live ContinueRouteSearch whenever it is valid and starts from the same
+        // feet, and a reused one hands back the tiles it had already expanded into, so emptying only the
+        // result sets refills them from a search that walked through the wall before the wall existed.
+        foreach (string field in new[] { "scored", "returnable", "raw" })
+            type.GetField(field, instance)!.SetValue(sense, null);
+        foreach (string field in new[] { "returnSearch", "rawSearch" })
         {
-            AStar.MsBudget = 0.0001d;
-            float score = VerifyPreparedActivities.PrepareAndScore(action, ctx);
-            Require(action.Status == "approach unknown",
-                $"the fixture must actually reach an undecided approach, or it tests nothing; status={action.Status}");
-            Require(score == 0f,
-                $"ore whose approach the search could not decide scored {score}, so mining would still win the tick; status={action.Status}");
-            Require(action.TargetTile == null && action.ActivityTarget == null,
-                "an undecided approach must not publish a plan target");
-            Require(action.Execute(ctx).Kind == live::AICompanion.Companion.Brain.Infrastructure.Position.RequestKind.Hold,
-                "an undecided approach must not walk at the ore");
+            (type.GetField(field, instance)!.GetValue(sense) as System.IDisposable)?.Dispose();
+            type.GetField(field, instance)!.SetValue(sense, null);
         }
-        finally
-        {
-            AStar.MsBudget = budget;
-        }
+        type.GetProperty("Complete")!.GetSetMethod(true)!.Invoke(sense, new object[] { false });
+        type.GetProperty("ScoredComplete")!.GetSetMethod(true)!.Invoke(sense, new object[] { false });
+    }
+
+    /// <summary>
+    /// Throw the region away and flood it again, for a fixture that edits terrain after its setup. The live
+    /// brain gets this for nothing: a terrain revision forces a reflood inside the sense, and the next
+    /// resolve pays for it. A fixture that edits the world and then prepares directly never resolves, so it
+    /// would read the region from before its own wall and every row about that wall would be answered by a
+    /// world that no longer exists.
+    /// </summary>
+    internal static void ResettleReach(ActionContext ctx)
+    {
+        AStar.InvalidateEdges();
+        EmptyTheReachRegion(ctx);
+        SettleReach(ctx.Companion, ctx.Player);
     }
 
     /// <summary>
@@ -1069,19 +1134,19 @@ internal static class VerifyOreWork
             wall.TileType = TileID.Dirt;
         }
         live::AICompanion.Companion.Brain.Infrastructure.Movement.TerrainChanges.Reset();
-        double budget = AStar.MsBudget;
-        try
-        {
-            AStar.MsBudget = 0.0001d;
-            Require(FindToolAccess.Approach(sealedOre, ctx.Npc.Bottom, out _) == Reachability.Reach.No,
-                "the nearby ore must have no exposed working face, independently of the search deadline");
-            float score = VerifyPreparedActivities.PrepareAndScore(action, ctx);
-            Require(score == 0f && action.TargetTile == null,
-                $"neither the sealed ore nor the unfinished search may become a plan; status={action.Status} score={score} target={action.TargetTile}");
-            Require(action.Status == "approach unknown",
-                $"the farther ore must remain the discovery's unresolved candidate, not be replaced by the sealed neighbour; status={action.Status}");
-        }
-        finally { AStar.MsBudget = budget; }
+        // The two verdicts this row needs side by side come from two different places, which is what makes it
+        // worth keeping now that one flood answers every reach question. The sealed ore is No on geometry —
+        // it has no exposed face, so the pose scan finds nothing to rank and never consults the region at
+        // all — while the far ore is Unknown because the region has not settled. An unsettled region cannot
+        // prove anything No, so a row needing both answers at once has to get one of them from geometry.
+        EmptyTheReachRegion(ctx);
+        Require(FindToolAccess.Approach(sealedOre, ctx.Npc.Bottom, ctx.Companion.Brain.Senses.Reach, out _) == Reachability.Reach.No,
+            "the nearby ore must have no exposed working face, and must answer so from geometry rather than from the region");
+        float score = VerifyPreparedActivities.PrepareAndScore(action, ctx);
+        Require(score == 0f && action.TargetTile == null,
+            $"neither the sealed ore nor the unsettled region may become a plan; status={action.Status} score={score} target={action.TargetTile}");
+        Require(action.Status == "approach unknown",
+            $"the farther ore must remain the discovery's unresolved candidate, not be replaced by the sealed neighbour; status={action.Status}");
     }
 
     /// <summary>
@@ -1112,11 +1177,14 @@ internal static class VerifyOreWork
             foreach (Point wall in walls) Place(wall, TileID.Dirt);
             Place(blocked, TileID.Copper);
             TerrainChanges.Reset();
+            // The chamber was built after the setup flooded, so the region has to be flooded again before the
+            // rows below ask whether the body can stand inside it.
+            ResettleReach(ctx);
             string shape = pocket ? "chambered" : "sealed";
             Require(Vector2.DistanceSquared(ctx.Npc.Bottom, blocked.ToWorldCoordinates()) < Vector2.DistanceSquared(ctx.Npc.Bottom, usable.ToWorldCoordinates()),
                 $"the {shape} ore must be the nearer one, or the fixture tests nothing");
-            var standing = FindToolAccess.Approach(blocked, ctx.Npc.Bottom, out _);
-            var hop = FindToolAccess.HopApproach(blocked, ctx.Npc.Bottom, ctx.Companion.Motor.State, out _);
+            var standing = FindToolAccess.Approach(blocked, ctx.Npc.Bottom, ctx.Companion.Brain.Senses.Reach, out _);
+            var hop = FindToolAccess.HopApproach(blocked, ctx.Companion.Motor.State, ctx.Companion.Brain.Senses.Reach, out _);
             Require(standing != Reachability.Reach.Yes && hop != Reachability.Reach.Yes,
                 $"the {shape} ore must have no usable approach, standing or hopping; got {standing}/{hop}");
             var mine = ctx.Companion.Brain.Chooser.Actions.OfType<MineOre>().Single();
@@ -1199,8 +1267,8 @@ internal static class VerifyOreWork
             Place(ore, TileID.Copper);
             TerrainChanges.Reset();
             Vector2 standingFeet = ctx.Npc.Bottom;
-            var standing = FindToolAccess.Approach(ore, standingFeet, out _);
-            var hop = FindToolAccess.HopApproach(ore, standingFeet, ctx.Companion.Motor.State, out Vector2 takeOff);
+            var standing = FindToolAccess.Approach(ore, standingFeet, ctx.Companion.Brain.Senses.Reach, out _);
+            var hop = FindToolAccess.HopApproach(ore, ctx.Companion.Motor.State, ctx.Companion.Brain.Senses.Reach, out Vector2 takeOff);
             Require(standing != Reachability.Reach.Yes, $"ore row {oreRow} must be out of standing reach, or this is not a ceiling case; got {standing}");
             var mine = ctx.Companion.Brain.Chooser.Actions.OfType<MineOre>().Single();
             if (!reachable)
@@ -1318,7 +1386,7 @@ internal static class VerifyOreWork
             && !Collision.CanHitLine(besideFeet + new Vector2(0f, -30f), 1, 1, opened.ToWorldCoordinates(8f, 8f), 1, 1),
             "the notch fixture must be one the wide native beam refuses and a swing reaches, or it does not test the face-access walk");
         var run = RunBrainUntilBroken(ctx, ore, 900);
-        var approachNow = FindToolAccess.Approach(ore, ctx.Npc.Bottom, out Vector2 standNow);
+        var approachNow = FindToolAccess.Approach(ore, ctx.Npc.Bottom, ctx.Companion.Brain.Senses.Reach, out Vector2 standNow);
         bool standableBeside = live::AICompanion.Companion.Brain.Infrastructure.Movement.MovementQueries.IsStandable(23, 59);
         Require(run.Broken, $"reopening one face must let the same ore be mined; feet={ctx.Npc.Bottom} status={mine.Status} "
             + $"offer={mine.Eligibility}/{mine.EligibilityReason} action={ctx.Companion.Brain.LastAction?.Name} approach-now={approachNow}@{standNow} "
@@ -1421,7 +1489,25 @@ internal static class VerifyOreWork
                 .KillTile(hit.X, hit.Y, tileType, ref fail, ref effectOnly, ref noItem);
         }
         companion.Brain.Senses.Update(companion.NPC, player, companion.Breath);
+        SettleReach(companion, player);
         return (new MineOre(), new ActionContext(companion, companion.Brain.Senses));
+    }
+
+    /// <summary>
+    /// Drive the reach flood to completion before any fixture prepares. Mining asks its approach question of
+    /// the reach sense rather than of a search of its own, so a scene whose flood has never been advanced
+    /// answers "not yet known" about every pose and no ore is offered anywhere — which is the correct answer
+    /// to a question nobody has asked, and nothing to do with the ore each row is about. The live game has
+    /// been flooding since the companion spawned; a fixture that calls Prepare directly has not, and this is
+    /// the difference rather than a behaviour being arranged.
+    /// </summary>
+    internal static void SettleReach(live::AICompanion.Companion.CharacterBody.CompanionNPC companion, Player player)
+    {
+        var brain = companion.Brain;
+        var home = new live::AICompanion.Companion.Brain.Infrastructure.Position.PositionRequest(
+            live::AICompanion.Companion.Brain.Infrastructure.Position.RequestKind.WithPlayer, player.Bottom);
+        for (int i = 0; i < 3000 && !brain.Positioner.ReachComplete; i++)
+            brain.Positioner.Resolve(home, brain.Senses, null);
     }
 
     private static void ProbeOreLineTarget(Vector2 feet, Point ore)

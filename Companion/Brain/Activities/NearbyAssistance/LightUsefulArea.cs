@@ -214,22 +214,15 @@ public sealed class LightUsefulArea : PerformNearbyWorldWork
     }
 
     /// <summary>
-    /// The reach sense answers first, and a route search runs only for the tile this has already chosen.
-    /// Asking the sense is free — one flood already answered it for the whole region — where the per-tile
-    /// walker query behind the approach is a fresh bounded search each time.
+    /// Lighting's two names for a site it walked past. The approach has already asked the reach sense, so
+    /// this only has to say which of lighting's four exits the verdict was: an unsettled flood is an
+    /// unanswered search that must not start a walk, and a flood that ran out of region is work that exists
+    /// and cannot be had. Reporting both as one refusal is what the split of these exits undid.
     /// </summary>
-    protected override Reachability.Reach? StandReachable(in ActionContext ctx, Point stand)
-    {
-        switch (ctx.Senses.Reach.Reachable(stand))
-        {
-            case ReachVerdict.Reachable: return Reachability.Reach.Yes;
-            // Not yet known is an unfinished flood, which is why it maps to Unknown and never to No: the
-            // executor re-asks an Unknown site and permanently defers a No one, and a site written off
-            // because the flood had not reached it yet would stay written off for the deferral's whole life.
-            case ReachVerdict.NotYet: refusal = "dark-region-tile-not-yet-known-reachable"; return Reachability.Reach.Unknown;
-            default: refusal = "interaction-site-has-no-return"; return Reachability.Reach.No;
-        }
-    }
+    protected override void NoteApproach(in ActionContext ctx, Reachability.Reach verdict)
+        => refusal = verdict == Reachability.Reach.Unknown
+            ? "dark-region-tile-not-yet-known-reachable"
+            : "interaction-site-has-no-return";
 
     protected override bool Perform(in ActionContext ctx, Point tile)
     {

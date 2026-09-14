@@ -223,23 +223,27 @@ internal static class VerifyAssistanceTrips
         TerrainChanges.Reset();
         AStar.InvalidateEdges();
         ctx.Companion.Brain.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Breath);
-        var body = ctx.Companion.Motor.State;
-        Require(FindToolAccess.Approach(interaction, ctx.Npc.Bottom, out _) == Reach.No
-            && !live::AICompanion.Companion.Brain.Infrastructure.Movement.ProveInteractionJump.CanReach(
-                live::AICompanion.Companion.Brain.Infrastructure.Movement.NavGrid.World, body, b => FindToolAccess.InReach(b.Feet, interaction)),
-            $"the shelf must be out of standing reach from every floor pose and out of a jump from where the companion starts; shelf row {shelfRow}");
-        var hop = FindToolAccess.HopApproach(interaction, ctx.Npc.Bottom, body, out Vector2 takeOff);
-        Require(hop == (reachable ? Reach.Yes : Reach.No),
-            $"the premise needs a take-off exactly when the shelf is low; shelf row {shelfRow} hop={hop} take-off={takeOff}");
-
         var brain = ctx.Companion.Brain;
-        // Lighting reads the reach region rather than proving a round trip per site, so it must have settled
-        // before this preparation: an unfinished flood answers "not yet known" for the take-off and the
-        // shelf would read as unoffered for a reason that has nothing to do with the hop this row is about.
+        // The flood has to have settled before anything asks an access question, because every one of them
+        // now reads it: an unfinished flood answers "not yet known" for the take-off and both the premise
+        // rows below and the offer itself would read for a reason that has nothing to do with the hop this
+        // row is about. It used to be enough to settle it before the preparation alone, when the premise
+        // rows ran their own searches.
         var reachHome = new live::AICompanion.Companion.Brain.Infrastructure.Position.PositionRequest(
             live::AICompanion.Companion.Brain.Infrastructure.Position.RequestKind.WithPlayer, ctx.Player.Bottom);
         for (int i = 0; i < 3000 && !brain.Positioner.ReachComplete; i++)
             brain.Positioner.Resolve(reachHome, brain.Senses, null);
+        Require(brain.Positioner.ReachComplete, $"this row needs a settled reach region before it asks anything; shelf row {shelfRow}");
+        var reach = brain.Senses.Reach;
+        var body = ctx.Companion.Motor.State;
+        Require(FindToolAccess.Approach(interaction, ctx.Npc.Bottom, reach, out _) == Reach.No
+            && !live::AICompanion.Companion.Brain.Infrastructure.Movement.ProveInteractionJump.CanReach(
+                live::AICompanion.Companion.Brain.Infrastructure.Movement.NavGrid.World, body, b => FindToolAccess.InReach(b.Feet, interaction)),
+            $"the shelf must be out of standing reach from every floor pose and out of a jump from where the companion starts; shelf row {shelfRow}");
+        var hop = FindToolAccess.HopApproach(interaction, body, reach, out Vector2 takeOff);
+        Require(hop == (reachable ? Reach.Yes : Reach.No),
+            $"the premise needs a take-off exactly when the shelf is low; shelf row {shelfRow} hop={hop} take-off={takeOff}");
+
         string methodName = lighting ? "place-torches" : "collect";
         brain.Chooser.Actions.RemoveAll(a => a.Name != methodName && a.Name != "keep-company");
         var method = brain.Chooser.Actions.OfType<live::AICompanion.Companion.Brain.Activities.NearbyAssistance.PerformNearbyWorldWork>().Single();
@@ -253,7 +257,7 @@ internal static class VerifyAssistanceTrips
         Require(score > 0 && method.ActivityIdentity is Point, $"a site reached by a hop from a take-off the walker reaches must be offered; {offer}");
         Point target = (Point)method.ActivityIdentity!;
         // A site on top of the shelf or beside it on the shelf's own row; what matters is that no standing pose reaches it.
-        Require(FindToolAccess.Approach(target, ctx.Npc.Bottom, out _) == Reach.No && target.Y <= shelfRow,
+        Require(FindToolAccess.Approach(target, ctx.Npc.Bottom, reach, out _) == Reach.No && target.Y <= shelfRow,
             $"the offered target must be a shelf site with no standing pose; target={target}; {offer}");
 
         // The pot is done when any tile of its footprint is gone: headless KillTile removes the tile struck, which is also what the

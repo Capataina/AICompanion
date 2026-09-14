@@ -49,7 +49,8 @@ public static class TreeFinder
     /// excluding <paramref name="exclude"/> and requiring tool access from <paramref name="actorFeet"/>.
     /// The admission predicate receives the trunk before any route query runs.
     /// </summary>
-    public static ChoppableTree? FindNearest(Vector2 from, Vector2 actorFeet, int radiusTiles, Point? exclude, System.Func<Point, bool>? accept = null)
+    public static ChoppableTree? FindNearest(Vector2 from, Vector2 actorFeet, Observation.ReachSense reach, int radiusTiles,
+        Point? exclude, System.Func<Point, bool>? accept = null)
     {
         int cx = (int)(from.X / 16f), cy = (int)(from.Y / 16f);
         ChoppableTree? best = null;
@@ -69,7 +70,7 @@ public static class TreeFinder
                 float d = Vector2.DistanceSquared(from, bottom.ToWorldCoordinates());
                 if (d >= bestDist) continue;
                 if (accept != null && !accept(bottom)) continue;
-                if (FindToolAccess.Approach(bottom, actorFeet, out Vector2 stand)
+                if (FindToolAccess.Approach(bottom, actorFeet, reach, out Vector2 stand)
                     != Infrastructure.Movement.Reachability.Reach.Yes) continue;
                 bestDist = d;
                 best = new ChoppableTree(bottom, stand, bottom.X * 16f + 8f >= stand.X ? 1 : -1);

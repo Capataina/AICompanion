@@ -71,19 +71,19 @@ public static class OreFinder
     /// With a <paramref name="body"/>, a tile no standing pose reaches may still be selected through
     /// a proven hop from a reachable take-off; without one, only standing work is considered.
     /// </summary>
-    public static SearchResult FindNearest(Vector2 fromFeet, Vector2 near, int radiusTiles, int preferredType = -1,
-        System.Func<Point, bool>? accept = null, BodyState? body = null)
+    public static SearchResult FindNearest(Vector2 fromFeet, Vector2 near, Observation.ReachSense reach, int radiusTiles,
+        int preferredType = -1, System.Func<Point, bool>? accept = null, BodyState? body = null)
     {
         Point? unknown = null;
-        OreTarget? preferred = Nearest(fromFeet, near, radiusTiles, preferredType, accept, body, ref unknown);
+        OreTarget? preferred = Nearest(fromFeet, near, reach, radiusTiles, preferredType, accept, body, ref unknown);
         if (preferred != null || preferredType < 0)
             return new SearchResult(preferred, unknown);
-        OreTarget? any = Nearest(fromFeet, near, radiusTiles, -1, accept, body, ref unknown);
+        OreTarget? any = Nearest(fromFeet, near, reach, radiusTiles, -1, accept, body, ref unknown);
         return new SearchResult(any, unknown);
     }
 
-    private static OreTarget? Nearest(Vector2 fromFeet, Vector2 near, int radiusTiles, int type, System.Func<Point, bool>? accept,
-        BodyState? body, ref Point? unresolvedTile)
+    private static OreTarget? Nearest(Vector2 fromFeet, Vector2 near, Observation.ReachSense reach, int radiusTiles, int type,
+        System.Func<Point, bool>? accept, BodyState? body, ref Point? unresolvedTile)
     {
         int cx = (int)(near.X / 16f), cy = (int)(near.Y / 16f);
         OreTarget? best = null;
@@ -100,7 +100,7 @@ public static class OreFinder
                 float d = Vector2.DistanceSquared(fromFeet, tile.ToWorldCoordinates());
                 if (d >= bestDist)
                     continue;
-                Reachability.Reach approach = FindToolAccess.Approach(tile, fromFeet, out Vector2 stand);
+                Reachability.Reach approach = FindToolAccess.Approach(tile, fromFeet, reach, out Vector2 stand);
                 bool hop = false;
                 // A hop answers "no standing pose exists", so it is asked only after the standing search
                 // proved that. An undecided standing search usually stopped at its deadline, and the hop's
@@ -108,7 +108,7 @@ public static class OreFinder
                 // back undecided too; the tile is asked again once the standing answer resolves.
                 if (approach == Reachability.Reach.No && body is BodyState template)
                 {
-                    Reachability.Reach hopReach = FindToolAccess.HopApproach(tile, fromFeet, template, out Vector2 takeOff);
+                    Reachability.Reach hopReach = FindToolAccess.HopApproach(tile, template, reach, out Vector2 takeOff);
                     if (hopReach == Reachability.Reach.Yes) { approach = hopReach; stand = takeOff; hop = true; }
                     else if (hopReach == Reachability.Reach.Unknown) approach = Reachability.Reach.Unknown;
                 }

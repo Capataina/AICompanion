@@ -350,20 +350,6 @@ public static class Weights
     /// </summary>
     public const int HopTakeOffRetryTicks = 600;
 
-    /// <summary>
-    /// Collection: how many nearby drops one preparation may put to the walker search, nearest first. Each question is a
-    /// fresh bounded search from the companion's feet plus, when it says yes, the return questions, so a floor strewn with
-    /// unreachable drops costs at most this many per preparation and the rest wait for a later one.
-    /// </summary>
-    public const int CollectionReachCandidates = 3;
-
-    /// <summary>
-    /// Collection: how long a drop's reach and return verdicts are reused while its contact pose and the terrain revision are
-    /// unchanged. A companion walking toward a drop would otherwise ask the same searches on every tile it crosses; a terrain
-    /// edit or a drop that moved to another pose asks again at once.
-    /// </summary>
-    public const int CollectionReachRecheckTicks = 60;
-
     // P08 — purposeful combat and combined safety. Proposal 1's P08 tunables sit together at the end of
     // the class so parallel lanes adding their own blocks collide on nothing but position.
 
@@ -389,13 +375,6 @@ public static class Weights
     public const float EncounterPressureTicks = 300f;
 
     // ---- P10: useful assistance without endless detours ----
-
-    /// <summary>
-    /// Lighting and pots: how many remote working poses one discovery search may put to the round-trip query, nearest first.
-    /// Each question is two fresh route searches, outward and back, so a window full of sites with no way back costs at most
-    /// this many per search and the rest wait for the next one.
-    /// </summary>
-    public const int NearbyWorkTripChecks = 3;
 
     /// <summary>
     /// Lighting and pots: how long a site whose trip was proven to have no way back, or not enough breath, stays out of

@@ -70,10 +70,17 @@ internal static class VerifyCollectionContracts
     }
 
     /// <summary>
-    /// Four drops at the bottom of a sealed pit beside the companion, nearer than one reachable drop on the open floor, with
-    /// more refused drops than one preparation may put to a fresh walker search. The budget bounds searches, so drops whose
-    /// verdicts are already known cost nothing and the farther drop must be reached within a bounded number of preparations.
-    /// The first preparation must not already offer it, or the budget is not being exercised at all.
+    /// Four drops at the bottom of a sealed pit beside the companion, every one of them nearer than a single reachable drop
+    /// on the open floor. All five are asked about on one preparation and the floor drop is offered on that preparation,
+    /// because the reach question is membership of a flood already run rather than a search that has to be rationed.
+    ///
+    /// <para>This row used to assert something weaker and it is worth saying why, because the weaker property is what the
+    /// starvation looked like from inside. Collection could put only three drops per preparation to a fresh walker search,
+    /// so the first preparation spent itself on pit drops and the floor drop arrived some preparations later; the row
+    /// asserted a bound on how many, and required the first preparation *not* to offer it, which made the delay part of
+    /// the contract. The delay is gone rather than shortened, so the row now asserts its absence. A regression that
+    /// reintroduces a per-preparation bound fails here on the first preparation rather than on an arithmetic bound
+    /// somebody has to re-derive.</para>
     /// </summary>
     private static void AReachableDropBehindRefusedDropsIsOffered()
     {
@@ -84,31 +91,37 @@ internal static class VerifyCollectionContracts
         var pit = new List<Item>();
         for (int i = 0; i < 4; i++) pit.Add(Drop(ItemID.CopperOre, 5, new Vector2((43 + i) * 16 + 8, 75 * 16), Slot + i));
         Item far = Drop(ItemID.CopperOre, 5, new Vector2(12 * 16 + 8, 60 * 16), Slot + 4);
-        int budget = live::AICompanion.Companion.Brain.Infrastructure.Selection.Weights.CollectionReachCandidates;
         float Distance(Item item) => Vector2.Distance(ctx.Npc.Center, item.Center);
-        Require(pit.All(drop => Distance(drop) < Distance(far)) && pit.Count > budget,
-            $"premise: every pit drop must be nearer than the floor drop, and there must be more of them than the budget ({budget}); far={Distance(far):0} pit={string.Join(",", pit.Select(d => Distance(d).ToString("0")))}");
+        Require(pit.All(drop => Distance(drop) < Distance(far)) && pit.Count >= 4,
+            $"premise: every pit drop must be nearer than the floor drop, and there must be several of them; "
+            + $"far={Distance(far):0} pit={string.Join(",", pit.Select(d => Distance(d).ToString("0")))}");
         {
             var alone = new CollectNearbyItems();
             ObserveAll(ctx, far);
+            Settle(ctx);
             alone.Prepare(ctx);
             Require(alone.Method == "known-drop" && ReferenceEquals(alone.ActivityIdentity, far),
                 $"premise: the floor drop must be a usable offer on its own; offer={alone.Eligibility}/{alone.EligibilityReason}");
         }
         var collect = new CollectNearbyItems();
         ObserveAll(ctx, pit.Append(far).ToArray());
+        Settle(ctx);
         collect.Prepare(ctx);
-        Require(!ReferenceEquals(collect.ActivityIdentity, far) && collect.Eligibility == OfferEligibility.KnownUnusable,
-            $"premise: the first preparation asks only about the nearest pit drops and finds them unusable; offer={collect.Eligibility}/{collect.EligibilityReason} target={collect.ActivityTarget}");
-        int bound = (pit.Count + 1 + budget - 1) / budget;
-        int preparations = 1;
-        while (!ReferenceEquals(collect.ActivityIdentity, far) && preparations < 4 * bound)
-        {
-            collect.Prepare(ctx);
-            preparations++;
-        }
-        Require(ReferenceEquals(collect.ActivityIdentity, far) && collect.Method == "known-drop" && preparations <= bound,
-            $"a reachable drop behind refused ones must be offered within {bound} preparations, because known verdicts cost no search; offered={ReferenceEquals(collect.ActivityIdentity, far)} after {preparations} preparations, offer={collect.Eligibility}/{collect.EligibilityReason}");
+        Require(ReferenceEquals(collect.ActivityIdentity, far) && collect.Method == "known-drop",
+            "a reachable drop must be offered on the first preparation however many refused drops lie nearer, because "
+            + $"nothing rations the reach question any more; target={collect.ActivityIdentity} "
+            + $"offer={collect.Eligibility}/{collect.EligibilityReason}");
+    }
+
+    /// <summary>Drive the reach flood to completion, because every access question in collection now reads it and an
+    /// unfinished flood answers "not yet known" for tiles it simply has not got to yet.</summary>
+    private static void Settle(ActionContext ctx)
+    {
+        var brain = ctx.Companion.Brain;
+        var home = new live::AICompanion.Companion.Brain.Infrastructure.Position.PositionRequest(RequestKind.WithPlayer, ctx.Player.Bottom);
+        for (int i = 0; i < 3000 && !brain.Positioner.ReachComplete; i++)
+            brain.Positioner.Resolve(home, brain.Senses, null);
+        Require(brain.Positioner.ReachComplete, "these rows need a settled reach region before preparing");
     }
 
     /// <summary>

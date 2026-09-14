@@ -69,7 +69,7 @@ internal static class VerifyMiningHops
         var ctx = BuildPitScene(ore, pitLeft: 21, pitRight: 26);
         ctx.Npc.Bottom = new Vector2(12 * 16 + 8, 60 * 16);
         LiveTerrainChanges.Reset();
-        var hop = FindToolAccess.HopApproach(ore, ctx.Npc.Bottom, ctx.Companion.Motor.State, out Vector2 takeOff);
+        var hop = FindToolAccess.HopApproach(ore, ctx.Companion.Motor.State, ctx.Companion.Brain.Senses.Reach, out Vector2 takeOff);
         Require(hop == LiveReach.Yes, $"the pit scene's ceiling ore must still have a proven take-off; got {hop}");
         foreach (float arrival in new[] { BodyPhysics.WalkSpeed, -BodyPhysics.WalkSpeed })
         {
@@ -189,11 +189,13 @@ internal static class VerifyMiningHops
     {
         Point ore = new(25, 52);
         var ctx = BuildCeilingScene(ore, slabTop: 51);
-        var reachable = FindToolAccess.HopApproach(ore, ctx.Npc.Bottom, ctx.Companion.Motor.State, out Vector2 takeOff);
+        var reachable = FindToolAccess.HopApproach(ore, ctx.Companion.Motor.State, ctx.Companion.Brain.Senses.Reach, out Vector2 takeOff);
         Require(reachable == LiveReach.Yes, $"the deadline fixture needs a proven take-off; got {reachable}");
-        Require(FindToolAccess.HopApproach(ore, takeOff, ctx.Companion.Motor.State, out _) == LiveReach.Yes,
-            "standing on the take-off, the unbounded scan must prove it");
-        Require(WithExpiredDeadline(() => FindToolAccess.HopApproach(ore, takeOff, ctx.Companion.Motor.State, out _)) == LiveReach.Unknown,
+        // The row that asked the same question again standing on the take-off is gone rather than converted. It
+        // tested the walker leg's dependence on where the body was asking from, and the scan no longer has one:
+        // the flood it reads was run from the companion's feet, so a "from" argument was a parameter nothing read
+        // and it went with the search that needed it. What survives is the deadline, which is the body proof's.
+        Require(WithExpiredDeadline(() => FindToolAccess.HopApproach(ore, ctx.Companion.Motor.State, ctx.Companion.Brain.Senses.Reach, out _)) == LiveReach.Unknown,
             "a scan whose deadline passed before any proof ran has established nothing and must be Unknown, not Yes");
         // Ore above the floor's eye, so hop poses exist and each needs a body proof, under a low ceiling that stops
         // every jump at the head: the unbounded scan proves every pose and answers No.
@@ -201,9 +203,9 @@ internal static class VerifyMiningHops
         var blockedCtx = BuildCeilingScene(blocked, slabTop: 48);
         for (int x = 5; x < 45; x++) VerifyOreWork.Place(new Point(x, 56), TileID.Dirt);
         LiveTerrainChanges.Reset();
-        Require(FindToolAccess.HopApproach(blocked, blockedCtx.Npc.Bottom, blockedCtx.Companion.Motor.State, out _) == LiveReach.No,
+        Require(FindToolAccess.HopApproach(blocked, blockedCtx.Companion.Motor.State, blockedCtx.Companion.Brain.Senses.Reach, out _) == LiveReach.No,
             "ore whose every jump is stopped by a low ceiling must be proven unreachable by an unbounded scan");
-        Require(WithExpiredDeadline(() => FindToolAccess.HopApproach(blocked, blockedCtx.Npc.Bottom, blockedCtx.Companion.Motor.State, out _)) == LiveReach.Unknown,
+        Require(WithExpiredDeadline(() => FindToolAccess.HopApproach(blocked, blockedCtx.Companion.Motor.State, blockedCtx.Companion.Brain.Senses.Reach, out _)) == LiveReach.Unknown,
             "a scan cut short by the deadline must never report No for poses it never proved");
     }
 
@@ -229,8 +231,8 @@ internal static class VerifyMiningHops
         Point ore = new(25, 46);
         var ctx = BuildCeilingScene(ore, slabTop: 45);
         Vector2 standingFeet = ctx.Npc.Bottom;
-        Require(FindToolAccess.Approach(ore, standingFeet, out _) != LiveReach.Yes, "the tall ceiling ore must be out of standing reach");
-        var hop = FindToolAccess.HopApproach(ore, standingFeet, ctx.Companion.Motor.State, out Vector2 takeOff);
+        Require(FindToolAccess.Approach(ore, standingFeet, ctx.Companion.Brain.Senses.Reach, out _) != LiveReach.Yes, "the tall ceiling ore must be out of standing reach");
+        var hop = FindToolAccess.HopApproach(ore, ctx.Companion.Motor.State, ctx.Companion.Brain.Senses.Reach, out Vector2 takeOff);
         Point takeOffTile = LiveMovementQueries.FeetTile(takeOff);
         Require(hop == LiveReach.Yes && takeOffTile.Y - ore.Y > Player.tileRangeY + 6,
             $"the tall ceiling ore must be proven only from a take-off more than six rows below standing reach; hop={hop} take-off tile={takeOffTile}");
@@ -251,7 +253,7 @@ internal static class VerifyMiningHops
             for (int y = 58; y <= 59; y++)
                 VerifyOreWork.Place(new Point(x, y), TileID.Dirt);
         LiveTerrainChanges.Reset();
-        var hop = FindToolAccess.HopApproach(ore, ctx.Npc.Bottom, ctx.Companion.Motor.State, out Vector2 takeOff);
+        var hop = FindToolAccess.HopApproach(ore, ctx.Companion.Motor.State, ctx.Companion.Brain.Senses.Reach, out Vector2 takeOff);
         Require(hop == LiveReach.Yes && LiveMovementQueries.FeetTile(takeOff).Y == 57,
             $"the only proven take-off must be on the ledge top; hop={hop} take-off={takeOff}");
         var mine = ctx.Companion.Brain.Chooser.Actions.OfType<MineOre>().Single();
@@ -330,7 +332,7 @@ internal static class VerifyMiningHops
                 for (int y = 58; y <= 59; y++)
                     VerifyOreWork.Place(new Point(x, y), TileID.Dirt);
             LiveTerrainChanges.Reset();
-            var hop = FindToolAccess.HopApproach(ore, ctx.Npc.Bottom, ctx.Companion.Motor.State, out Vector2 takeOff);
+            var hop = FindToolAccess.HopApproach(ore, ctx.Companion.Motor.State, ctx.Companion.Brain.Senses.Reach, out Vector2 takeOff);
             if (width == 3)
             {
                 Require(hop == LiveReach.Yes && LiveMovementQueries.FeetTile(takeOff).Y == 57,

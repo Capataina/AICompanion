@@ -226,10 +226,10 @@ public sealed class MineOre : CompanionAction
                 if (keepHop) { }
                 else if (FindToolAccess.InReach(ctx.Npc.Bottom, held.Tile))
                     target = held with { StandPosition = ctx.Npc.Bottom, Hop = false };
-                else if (FindToolAccess.Approach(held.Tile, ctx.Npc.Bottom, out Vector2 restand) is var standing && standing == Reachability.Reach.Yes)
+                else if (FindToolAccess.Approach(held.Tile, ctx.Npc.Bottom, ctx.Senses.Reach, out Vector2 restand) is var standing && standing == Reachability.Reach.Yes)
                     target = held with { StandPosition = restand, Hop = false };
                 else if (standing == Reachability.Reach.No
-                    && FindToolAccess.HopApproach(held.Tile, ctx.Npc.Bottom, ctx.Companion.Motor.State, out Vector2 takeOff) == Reachability.Reach.Yes)
+                    && FindToolAccess.HopApproach(held.Tile, ctx.Companion.Motor.State, ctx.Senses.Reach, out Vector2 takeOff) == Reachability.Reach.Yes)
                     target = held with { StandPosition = takeOff, Hop = true };
                 else
                     target = null;
@@ -309,12 +309,12 @@ public sealed class MineOre : CompanionAction
         if (WorkPolicies.Mining == WorkPolicy.Mimic)
         {
             if (playerHit is (Point hit, int type))
-                result = OreFinder.FindNearest(ctx.Npc.Bottom, ctx.Player.Bottom, SearchRadiusTiles, type, Mineable, body);
+                result = OreFinder.FindNearest(ctx.Npc.Bottom, ctx.Player.Bottom, ctx.Senses.Reach, SearchRadiusTiles, type, Mineable, body);
         }
         else
         {
-            OreFinder.SearchResult byPlayer = OreFinder.FindNearest(ctx.Npc.Bottom, ctx.Player.Bottom, SearchRadiusTiles, accept: Mineable, body: body);
-            OreFinder.SearchResult byCompanion = OreFinder.FindNearest(ctx.Npc.Bottom, ctx.Npc.Bottom, SearchRadiusTiles, accept: Mineable, body: body);
+            OreFinder.SearchResult byPlayer = OreFinder.FindNearest(ctx.Npc.Bottom, ctx.Player.Bottom, ctx.Senses.Reach, SearchRadiusTiles, accept: Mineable, body: body);
+            OreFinder.SearchResult byCompanion = OreFinder.FindNearest(ctx.Npc.Bottom, ctx.Npc.Bottom, ctx.Senses.Reach, SearchRadiusTiles, accept: Mineable, body: body);
             result = new OreFinder.SearchResult(Nearest(ctx.Npc.Bottom, byPlayer.Target, byCompanion.Target),
                 NearestTile(ctx.Npc.Bottom, byPlayer.UnresolvedTile, byCompanion.UnresolvedTile));
         }
@@ -340,8 +340,8 @@ public sealed class MineOre : CompanionAction
             // unmineable ore was paying for a label. Ceiling ore the pick cannot damage therefore
             // reads as no reachable ore rather than no mineable ore.
             OreFinder.SearchResult anyOre = WorkPolicies.Mining == WorkPolicy.Mimic && playerHit is (Point _, int anyType)
-                ? OreFinder.FindNearest(ctx.Npc.Bottom, ctx.Player.Bottom, SearchRadiusTiles, anyType)
-                : OreFinder.FindNearest(ctx.Npc.Bottom, ctx.Npc.Bottom, SearchRadiusTiles);
+                ? OreFinder.FindNearest(ctx.Npc.Bottom, ctx.Player.Bottom, ctx.Senses.Reach, SearchRadiusTiles, anyType)
+                : OreFinder.FindNearest(ctx.Npc.Bottom, ctx.Npc.Bottom, ctx.Senses.Reach, SearchRadiusTiles);
             status = anyOre.Target != null ? "no mineable ore" : anyOre.ApproachUnknown ? "no eligible approach" : "no reachable ore";
         }
     }
@@ -489,7 +489,7 @@ public sealed class MineOre : CompanionAction
         noStandingPose.Clear();
         foreach (Point p in patch)
         {
-            var approach = FindToolAccess.Approach(p, ctx.Npc.Bottom, out Vector2 stand);
+            var approach = FindToolAccess.Approach(p, ctx.Npc.Bottom, ctx.Senses.Reach, out Vector2 stand);
             if (approach == Reachability.Reach.Yes)
             {
                 status = "relocating";
@@ -508,7 +508,7 @@ public sealed class MineOre : CompanionAction
         foreach (Point p in noStandingPose)
         {
             if (HopDeferred(p)) { skippedDeferred = true; continue; }
-            var hop = FindToolAccess.HopApproach(p, ctx.Npc.Bottom, body, out Vector2 takeOff);
+            var hop = FindToolAccess.HopApproach(p, body, ctx.Senses.Reach, out Vector2 takeOff);
             if (hop == Reachability.Reach.Yes)
             {
                 status = "relocating to take-off";

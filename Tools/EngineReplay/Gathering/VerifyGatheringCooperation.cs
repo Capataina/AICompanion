@@ -442,7 +442,7 @@ internal static class VerifyGatheringCooperation
         float chopWalk = chop.ForecastTicks() - chop.RemainingWork!.Value.Ticks;
         float expectedMine = Vector2.Distance(ctx.Npc.Bottom, mine.TargetStandPosition!.Value) / walkSpeed;
         // The trunk's working pose from the same shared query and the same feet that chopping's discovery asks.
-        Require(FindToolAccess.Approach(trunk, ctx.Npc.Bottom, out Vector2 chopStand) == live::AICompanion.Companion.Brain.Infrastructure.Movement.Reachability.Reach.Yes,
+        Require(FindToolAccess.Approach(trunk, ctx.Npc.Bottom, ctx.Companion.Brain.Senses.Reach, out Vector2 chopStand) == live::AICompanion.Companion.Brain.Infrastructure.Movement.Reachability.Reach.Yes,
             "the unit fixture needs a proven working pose for the trunk");
         float expectedChop = Vector2.Distance(ctx.Npc.Bottom, chopStand) / walkSpeed;
         Require(MathF.Abs(mineWalk - expectedMine) < 0.01f && MathF.Abs(chopWalk - expectedChop) < 0.01f && chopWalk > 0 && mineWalk > 0,
