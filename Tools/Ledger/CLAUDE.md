@@ -36,6 +36,14 @@ That last rule is the one most likely to be undone by somebody trying to be help
 - **The emitter writes nothing unless `AIC_LEDGER_RUN` names a file**, and prints regardless. A tool run by hand behaves exactly as it did before the ledger existed; the recording is an addition, never a replacement for the output a person reads.
 - **A run over a recorded capture stores under the capture's own `source_revision`, not under the checkout.** `Tools/backfill-capture.sh` reads it from the preamble. Without that, comparing two captures compares two afternoons rather than two builds, and a capture recorded before the ledger existed could never be benchmarked at all.
 
+## The first thing it measured
+
+The raised-lip ore-work fixture has been "three of five" and "thirteen of fifteen" in this repository's notes for days, neither of which bounds anything. Twelve runs of it at one commit through `../measure-flake.sh`, on a machine carrying three concurrent dotnet processes, give **9 of 12 = 75% (95% CI 46.8–91.1%)** — intermittent by observation rather than by suspicion, because it passed and failed at one commit within one batch.
+
+Two readings follow from that and both are worth keeping. It settles attribution cheaply: a red on that fixture inside a change that touches no mod code is the flake, and the batch proves it at the change's own commit rather than by checking out the parent. And the native-collision case in the same batch went 12 of 12, which reads as certainty and is not — its interval is 75.7% to 100%, so twelve green runs bound the failure rate only below about a quarter. That is the whole reason the interval is printed rather than the rate.
+
+The plan's pass line is thirty consecutive idle runs, which bounds failure below ten percent. It has not been taken: three other lanes were building throughout, and a batch taken under load measures the load rather than the fixture, which is the hypothesis under test.
+
 ## What is not established
 
 The Wilson arithmetic here reproduces two of the three figures the verification plan quotes from it — the 12-to-77 band for three of five, and thirty runs bounding failure below ten percent — and not the third: five green runs bound the failure rate below 32.6%, where the plan says "about 43 percent". Standard Wilson at z = 1.96 is what is implemented and the two agreeing figures are strong evidence it is the intended formula, so the plan's 43 is the suspect number. It is not settled.

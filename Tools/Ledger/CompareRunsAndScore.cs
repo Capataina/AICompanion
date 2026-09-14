@@ -210,6 +210,32 @@ public static class Scoreboard
             text.AppendLine($"  unchanged {changes.Count(c => c.Change == Change.Unchanged)}");
         }
 
+        // A case that ran more than once inside this run file is a repeat batch, and it is the only
+        // shape that can say anything about a rate. It is reported whether or not a baseline
+        // resolved, because a flake batch deliberately has no baseline: the question it asks is
+        // about this commit against itself, and the interval is the answer.
+        var repeated = after.Rows
+            .Where(r => r.Verdict is "pass" or "fail" or "error")
+            .GroupBy(r => $"{r.Instrument}/{r.Suite}/{r.Case}")
+            .Where(g => g.Count() > 1)
+            .ToArray();
+        if (repeated.Length > 0)
+        {
+            text.AppendLine();
+            text.AppendLine($"  repeats in this run ({repeated.Length})");
+            foreach (var group in repeated)
+            {
+                int passes = group.Count(r => r.Verdict == "pass");
+                Wilson rate = Wilson.Of(passes, group.Count());
+                bool flaky = passes > 0 && passes < group.Count();
+                text.AppendLine($"    {(flaky ? "FLAKY" : "     ")} {group.Key}");
+                text.AppendLine($"      {rate}");
+                if (flaky)
+                    text.AppendLine($"      passed and failed at one commit, so this is intermittent by observation rather than by suspicion; "
+                        + $"the interval is what the batch of {group.Count()} actually bounds, and narrowing it costs more runs rather than more argument");
+            }
+        }
+
         if (unkilled > 0)
             text.AppendLine($"  unkilled  {unkilled} passing case(s) carry no killed_by, so nothing records which rival rule they reject");
         if (skips > 0)

@@ -70,6 +70,18 @@ switch (args[0])
         Console.WriteLine($"{baseline.Header.Commit}  {baseline.Path}");
         return 0;
     }
+    case "reds":
+    {
+        // The red case names, one per line, for a rerun to iterate. It lives here rather than as a
+        // grep in the shell because the run file is JSON and a shell that parses JSON with grep is
+        // one clearer message away from selecting nothing and reporting that as no reds.
+        if (args.Length < 2) { Usage(); return 2; }
+        Run? run = RunStore.Read(args[1]);
+        if (run == null) { Console.Error.WriteLine($"ledger: {args[1]} is not a readable run file"); return 2; }
+        foreach (string name in run.Rows.Where(r => r.Verdict is "fail" or "error").Select(r => r.Case).Distinct(StringComparer.Ordinal))
+            Console.WriteLine(name);
+        return 0;
+    }
     case "list":
     {
         var runs = args.Length > 1 ? RunStore.At(root, args[1]) : RunStore.All(root);
@@ -123,5 +135,6 @@ void Usage() => Console.Error.WriteLine(
       scoreboard <run.jsonl> [--baseline <commit|file>]   score a run against its baseline
       compare <A> <B>                                     two commits or two run files
       baseline [<commit>]                                 nearest ancestor with a clean run
+      reds <run.jsonl>                                    the red case names, one per line
       list [<commit>]                                     every run in the store
     """);

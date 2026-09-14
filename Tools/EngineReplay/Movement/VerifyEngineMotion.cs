@@ -1,5 +1,6 @@
 using System.Reflection;
 using AICompanion.Companion.Brain.Infrastructure.Movement;
+using AICompanion.Tools.Ledger;
 using Microsoft.Xna.Framework;
 using Terraria;
 
@@ -92,46 +93,80 @@ internal static class VerifyEngineMotion
             }
         }
         Console.WriteLine($"engine motion: {checkedCases - failed}/{checkedCases} matched native NPC collision; {failed} mismatches; Collision scratch preserved");
-        failed += VerifyObservedMotion.Run();
-        failed += VerifyGodsEyeEvents.Run();
-        failed += VerifyPreparedActivities.Run();
-        failed += VerifyFamilyOffers.Run();
-        failed += VerifyRoutes();
-        failed += VerifyProjectileMotion.Run();
-        failed += VerifyPersonalDanger.Run();
-        failed += VerifyCompanionLifecycle.Run();
-        failed += VerifyThreatAnticipation.Run();
-        failed += VerifyCapturedEscape.Run();
-        failed += VerifyResponsiveFollowing.Run();
-        failed += VerifyFollowRecoveryAndProtection.Run();
-        failed += VerifyOreWork.Run();
-        failed += VerifyMiningHops.Run();
-        failed += VerifyGatheringCooperation.Run();
-        failed += VerifyWorkAccounting.Run();
-        failed += VerifyCollectionContracts.Run();
-        failed += VerifyCompanionPreferences.Run();
-        failed += VerifyCompanionActivities.Run();
-        failed += VerifyUsefulAssistance.Run();
-        failed += VerifyObservationLifecycle.Run();
-        failed += VerifyHuntProgress.Run();
-        failed += VerifyFiringPosition.Run();
-        failed += VerifyHuntAdmissibility.Run();
-        failed += VerifyAttackOutcomes.Run();
-        failed += VerifyMovementFailures.Run();
-        failed += VerifyRoundTripEvidence.Run();
-        failed += VerifyCombatPurpose.Run();
-        failed += VerifySafetyAftermath.Run();
-        failed += VerifyAssistanceTrips.Run();
-        failed += VerifyLightAndReachSenses.Run();
-        failed += VerifyCompanyLocalMotion.Run();
-        failed += VerifyCapabilityRevision.Run();
-        failed += VerifyDoorPassage.Run();
-        failed += VerifyCourtesy.Run();
-        failed += VerifyDowningAndRevival.Run();
-        failed += VerifyStatMirroring.Run();
-        failed += VerifyTravelEpisodes.Run();
+        EmitLedgerRows.Row(new LedgerRow(Instrument, "Movement", "the portable body matches native NPC collision on every shape, liquid and control",
+            failed == 0 ? "pass" : "fail", Message: $"{checkedCases - failed} of {checkedCases} cases matched"));
+        EmitLedgerRows.Measure(Instrument, "Movement", "native-collision-cases-matched", checkedCases - failed, "cases", "up",
+            message: $"out of {checkedCases} shape, liquid, entry and control combinations");
+
+        // Every fixture below used to be a term in one `failed += Verify*.Run()` sum, and the sum
+        // was an abort dressed as a total: assertions here throw, so the first fixture to fail took
+        // the whole chain with it and every fixture after it never ran at all. VerifyOreWork sat
+        // thirteenth of thirty-five, and its raised-lip case is the known intermittent one — so on
+        // the runs where the flake fired, twenty-two later fixtures reported nothing, and the run
+        // printed one exit code that could not tell that from their passing.
+        //
+        // As a table, each fixture is a named case that reports its own verdict and cannot reach
+        // its neighbours. The sum is unchanged, so the suite's exit code means exactly what it
+        // meant before; what changes is that a red now names one case and the other thirty-four
+        // still say what they found.
+        foreach ((string name, Func<int> body) in DefaultCases())
+            failed += EmitLedgerRows.Case(Instrument, "EngineReplay", name, body);
         return failed == 0 ? 0 : 1;
     }
+
+    internal const string Instrument = "engine-replay";
+
+    /// <summary>
+    /// The default suite, one named case per fixture. The name is the question the fixture answers,
+    /// written as the sentence a person would say, because it is what the scoreboard prints and
+    /// what <c>--case</c> matches against.
+    ///
+    /// Case granularity is the fixture file rather than the assertion. The plan's full migration
+    /// wants a case per assertion site, about 1,180 of them across thirty-nine files, and most of
+    /// those files belong to other lanes; this is the granularity reachable from here, and it is
+    /// already enough for per-case selection, rerun-red and a scoreboard that names what moved.
+    /// </summary>
+    private static IEnumerable<(string Name, Func<int> Body)> DefaultCases() => new (string, Func<int>)[]
+    {
+        ("the motor's observed motion is what the engine actually did", VerifyObservedMotion.Run),
+        ("the god's-eye occurrence stream records what it claims", VerifyGodsEyeEvents.Run),
+        ("a prepared comparison preserves its numbers", VerifyPreparedActivities.Run),
+        ("each purpose family nominates its best child", VerifyFamilyOffers.Run),
+        ("planned routes reach their goals", VerifyRoutes),
+        ("a projectile flies the arc the solver predicted", VerifyProjectileMotion.Run),
+        ("the threat sense reads danger from sealed chambers correctly", VerifyPersonalDanger.Run),
+        ("the companion spawns, lives and is attached both ways", VerifyCompanionLifecycle.Run),
+        ("a threat is anticipated from how it actually arrives", VerifyThreatAnticipation.Run),
+        ("a captured escape gets the body out", VerifyCapturedEscape.Run),
+        ("following responds to a player who departs", VerifyResponsiveFollowing.Run),
+        ("recovery flight and protection admit only what may start them", VerifyFollowRecoveryAndProtection.Run),
+        ("ore work breaks ore without excavating ordinary terrain", VerifyOreWork.Run),
+        ("mining hops reach the vein", VerifyMiningHops.Run),
+        ("gathering beside the player is cooperative rather than competing", VerifyGatheringCooperation.Run),
+        ("remaining work is accounted to whoever did it", VerifyWorkAccounting.Run),
+        ("a collected drop is claimed only for what arrived", VerifyCollectionContracts.Run),
+        ("per-character preferences reach the brain", VerifyCompanionPreferences.Run),
+        ("the seven activities are offered and chosen", VerifyCompanionActivities.Run),
+        ("assistance is useful rather than merely nearby", VerifyUsefulAssistance.Run),
+        ("the senses' lifecycle restores what it changed", VerifyObservationLifecycle.Run),
+        ("a hunt makes progress toward its target", VerifyHuntProgress.Run),
+        ("a firing position is one a shot actually solves from", VerifyFiringPosition.Run),
+        ("a hunt is admitted only where it can be executed", VerifyHuntAdmissibility.Run),
+        ("an attack's outcome is the one the arsenal forecast", VerifyAttackOutcomes.Run),
+        ("a movement failure is classified as what it was", VerifyMovementFailures.Run),
+        ("a route proves it can come home as well as go", VerifyRoundTripEvidence.Run),
+        ("combat keeps its purpose across a substituted enemy", VerifyCombatPurpose.Run),
+        ("safety releases the body after the danger passes", VerifySafetyAftermath.Run),
+        ("an assistance trip goes and returns", VerifyAssistanceTrips.Run),
+        ("the light and reach senses answer in three values", VerifyLightAndReachSenses.Run),
+        ("keeping company strolls without walking into hazards", VerifyCompanyLocalMotion.Run),
+        ("a capability change invalidates what depended on it", VerifyCapabilityRevision.Run),
+        ("a closed door is opened rather than treated as a wall", VerifyDoorPassage.Run),
+        ("courtesy stillness does not depend on what ran before", VerifyCourtesy.Run),
+        ("downing and revival keep life on the NPC", VerifyDowningAndRevival.Run),
+        ("the companion's stats mirror the player's", VerifyStatMirroring.Run),
+        ("a whole journey is recorded against its proven ticks", VerifyTravelEpisodes.Run),
+    };
 
     internal static BodyState RunEngine(BodyState state, Controls controls)
     {
