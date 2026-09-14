@@ -37,6 +37,19 @@ var auditTotal = new CompareJumpPaths.Audit();
 // The sideways speed the body carried into the recorded entry; a plan dump's npcbox records the
 // rectangle and not the velocity, so it is supplied rather than guessed at.
 float entryVx = 0f;
+BodyState? entryState = null;
+
+static BodyState? ParseEntryState(string text)
+{
+    string[] parts = text.Split(',');
+    if (parts.Length is < 3 or > 4) return null;
+    if (!float.TryParse(parts[0], NumberStyles.Float, CultureInfo.InvariantCulture, out float left)
+        || !float.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out float bottom)
+        || !float.TryParse(parts[2], NumberStyles.Float, CultureInfo.InvariantCulture, out float vx))
+        return null;
+    bool ground = parts.Length < 4 || parts[3] is not ("0" or "false" or "False");
+    return new BodyState(left, bottom, vx, 0f, ground, Capabilities: MovementCapabilities.Basic);
+}
 Point? edgesFrom = null, traceWalkFrom = null;
 int traceWalkDir = 1;
 // The ticks of a follow run whose state is printed as it happens (--follow-ticks A,B); none by default.
@@ -71,6 +84,14 @@ for (int i = 0; i < args.Length; i++)
     else if (arg == "--entry-vx" && i + 1 < args.Length && float.TryParse(args[i + 1], NumberStyles.Float, CultureInfo.InvariantCulture, out float evx))
     {
         entryVx = evx;
+        i++;
+    }
+    // --entry-state LEFT,BOTTOM,VX[,GROUND]: the body the rejection was recorded against, in
+    // full. A Rejection record in an events file carries exactly this, so a refusal seen in play
+    // is replayable offline without a window whose body happens to stand in the right place.
+    else if (arg == "--entry-state" && i + 1 < args.Length && ParseEntryState(args[i + 1]) is BodyState parsed)
+    {
+        entryState = parsed;
         i++;
     }
     else if (arg == "--no-cache")
@@ -152,7 +173,7 @@ foreach (string file in files)
             Console.WriteLine($"edges from {Fmt(node)} in {name}: {(here is BodyPhysics.Pose hp ? $"pose left {hp.Left} bottom {hp.Bottom}" : "no pose (not a node)")}");
             foreach (Traversal traversal in Traversal.Planning)
                 foreach (NavEdge edge in traversal.Candidates(NavNode.At(node), here, false))
-                    Console.WriteLine($"   {edge.Step.Kind,-11} -> {Fmt(edge.Step.Tile)}  cost {edge.Move:F2} fall {edge.Fall} ticks {edge.Step.Ticks} scale {edge.Step.JumpScale:F2} startVx {edge.Step.StartVx:F2} steerX {edge.Step.SteerX:F1}");
+                    Console.WriteLine($"   {edge.Step.Kind,-11} -> {Fmt(edge.Step.Tile)}  cost {edge.Move:F2} fall {edge.Fall} ticks {edge.Step.Ticks} scale {edge.Step.JumpScale:F2} launchVx {edge.Step.LaunchVx:F2} back {edge.Step.RunUpBack:F0} steerX {edge.Step.SteerX:F1}");
             skipped++;
             continue;
         }
@@ -175,10 +196,16 @@ foreach (string file in files)
         // dump carries one, so a recorded failure is replayed from the body the game actually had.
         if (compareJump is (Point cfrom, Point cto))
         {
-            BodyState? liveEntry = HeaderPose(header) is BodyPhysics.Pose lp
-                ? new BodyState(lp.Left, lp.Bottom, entryVx, 0f, true, Capabilities: MovementCapabilities.Basic)
-                : null;
-            switch (CompareJumpPaths.Compare(world, name, cfrom, cto, liveEntry, compareVerbose))
+            // An explicit entry outranks the block's own body, and it is used wherever the body
+            // stands rather than only on the edge's take-off tile. A rejection recorded in play
+            // names the state the macro proof refused, and that state is usually a tile short of
+            // the take-off with the body still moving — which is precisely the case worth
+            // replaying and precisely the one the header pose could never express.
+            BodyState? liveEntry = entryState
+                ?? (HeaderPose(header) is BodyPhysics.Pose lp
+                    ? new BodyState(lp.Left, lp.Bottom, entryVx, 0f, true, Capabilities: MovementCapabilities.Basic)
+                    : null);
+            switch (CompareJumpPaths.Compare(world, name, cfrom, cto, liveEntry, compareVerbose, entryState != null))
             {
                 case true: passed++; break;
                 case false: failed++; break;
@@ -508,7 +535,7 @@ static string Signature(Point from, Point goal)
     var sb = new System.Text.StringBuilder(path.Partial ? "partial " : "");
     foreach (NavStep step in path.Steps)
         sb.Append(step.Kind.ToString()[0]).Append(Fmt(step.Tile)).Append('<').Append(Fmt(step.From))
-          .Append('/').Append(step.JumpScale.ToString("0.##")).Append('/').Append(step.StartVx.ToString("0.##")).Append('/').Append(step.SteerX.ToString("0.#"))
+          .Append('/').Append(step.JumpScale.ToString("0.##")).Append('/').Append(step.LaunchVx.ToString("0.##")).Append('/').Append(step.RunUpBack.ToString("0.#")).Append('/').Append(step.SteerX.ToString("0.#"))
           .Append('/').Append(step.Ticks).Append(step.FromRest ? "/rest" : "/run")
           .Append('/').Append(step.Mobility.AirJumpsLeft).Append(step.Mobility.Latched ? "L" : "-").Append(step.Mobility.DashCooldown)
           .Append(' ');

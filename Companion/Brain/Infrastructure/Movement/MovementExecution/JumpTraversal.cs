@@ -40,7 +40,10 @@ public sealed class JumpTraversal : Traversal
         // The take-off each running profile actually reaches out of this node, found once per
         // direction and speed rather than per landing tile, because the run-up branch of Steer
         // reads the take-off tile, the profile speed and the body, and never the landing.
-        var takeOffs = new Dictionary<(int Direction, float StartVx), BodyState?>();
+        // Keyed by the profile's nominal speed, which is what the search is asked for, never by the
+        // speed it turns out to deliver: the nominal is the question and the launch is the answer,
+        // and naming this field after the step's old one is how the two get confused again.
+        var takeOffs = new Dictionary<(int Direction, float NominalVx), Launch?>();
         float gravity = BodyMotion.GravityAt(NavGrid.World, BodyState.Standing(fromPose));
         for (int dx = -NavGrid.JumpGapTiles; dx <= NavGrid.JumpGapTiles; dx++)
         {
@@ -71,36 +74,53 @@ public sealed class JumpTraversal : Traversal
                     // leaves the take-off is a fact about the floor behind it; simulating the arc
                     // at a speed the floor cannot deliver proves a jump the body never makes.
                     BodyPhysics.Pose launch = fromPose;
-                    float launchVx = startVx;
+                    float launchVx = 0f, back = 0f, alongAtLaunch = 0f, launchRise = 0f;
                     if (startVx != 0f)
                     {
                         var key = (Math.Sign(dx), startVx);
-                        if (!takeOffs.TryGetValue(key, out BodyState? reached))
+                        if (!takeOffs.TryGetValue(key, out Launch? reached))
                             takeOffs[key] = reached = TakeOff(NavGrid.World, t, fromPose, new Point(nx, ny), scale, startVx);
-                        // No take-off at all: the run-up never settles on its mark or never
-                        // crosses back over the tile, so this profile does not exist from here.
-                        if (reached is not BodyState entry)
+                        // No take-off at all: the run-up never settles on its mark, never crosses
+                        // back over the tile, or never agrees with its own throttle, so this
+                        // profile does not exist from here.
+                        if (reached is not Launch entry)
                             continue;
-                        launch = entry.Pose;
-                        launchVx = entry.Vx;
+                        launch = entry.Entry.Pose;
+                        launchVx = entry.Entry.Vx;
+                        back = entry.Back;
+                        alongAtLaunch = entry.Along;
+                        // Measured against the take-off tile's own canonical stand rather than
+                        // against the pose this expansion happened to start from, because the
+                        // live navigator expands its first node from the body's actual pose and
+                        // the performer can only ever ask the grid. A rise recorded against one
+                        // reference and read against another is a band no body can satisfy.
+                        launchRise = entry.Entry.Bottom - ReferenceBottom(t, lava, fromPose.Bottom);
                     }
                     if (BodyPhysics.SimulateJump(NavGrid.World, launch, scale, launchVx, nx, ny, MaxJumpTicks, out int flight) is not BodyPhysics.Pose landing)
                         continue;
                     var landed = new Point((int)Math.Floor(landing.CentreX / 16f), BodyPhysics.FeetRow(landing.Bottom));
                     if (landed != target)
                         continue;
-                    yield return new NavEdge(new NavStep(target, MoveKind.Jump, t, scale, startVx, Ticks: flight), MovementCost(new NavStep(target, MoveKind.Jump, t, Ticks: flight)), 0, true);
+                    // The edge records the state the arc was flown from and nothing else. The
+                    // profile's nominal speed dies here on purpose: it was an input to finding the
+                    // take-off, never a description of one, and every reader that inherited it
+                    // meant a body the floor behind this tile cannot produce.
+                    yield return new NavEdge(new NavStep(target, MoveKind.Jump, t, scale, launchVx, Ticks: flight, RunUpBack: back, LaunchAlong: alongAtLaunch, LaunchRise: launchRise), MovementCost(new NavStep(target, MoveKind.Jump, t, Ticks: flight)), 0, true);
                     break;
                 }
             }
         }
     }
 
+    /// <summary>The take-off a run-up reaches: the body on the tick it asks for the jump, how far behind the take-off that run-up started, and where its pose sat relative to the node's — along the jump's direction and in pixels below it.</summary>
+    internal readonly record struct Launch(BodyState Entry, float Back, float Along, float Rise);
+
     /// <summary>
     /// The state the performer is in on the tick it asks for the jump, found by driving this
     /// traversal's own <see cref="Steer"/> from rest at the node's pose through the body's tick
     /// rule until it returns a jump. Null when no take-off is reached inside
-    /// <see cref="RunUpTicks"/>, or when the run-up leaves the ground or wedges in a shape.
+    /// <see cref="RunUpTicks"/>, when the run-up leaves the ground or wedges in a shape, or when
+    /// the throttle and the speed it produces never agree.
     ///
     /// This is the proof's answer to a question the profile table cannot answer: a running
     /// profile names a speed, and whether the body ever carries that speed over the take-off
@@ -109,28 +129,75 @@ public sealed class JumpTraversal : Traversal
     /// over the runway length is a second rule and the two would drift, which is the defect this
     /// whole class exists to prevent.
     ///
-    /// The run-up branch of <see cref="Steer"/> reads the take-off tile, the profile speed and
+    /// It iterates because the step the performer is handed carries the *proven* launch speed and
+    /// nothing else, and that speed is also the run-up's throttle, so the answer is an input to
+    /// the question. One pass at the profile's nominal speed says what the floor delivers; the
+    /// next asks the same floor for exactly that, which is the run-up the performer will make.
+    /// The two agree in one step wherever the body's horizontal rule is
+    /// <see cref="BodyPhysics.StepVelocity"/> alone — it accelerates by a fixed step and clamps at
+    /// the target, so throttling at the speed a full-throttle ramp reached climbs the identical
+    /// ramp — and the loop exists for the cases where it is not alone, a run-up that meets a shape
+    /// or crosses liquid. A profile that has not converged in <see cref="TakeOffPasses"/> is
+    /// refused rather than offered at whichever pass ran last, because an edge nobody can
+    /// reproduce is the defect, not a rounding error.
+    ///
+    /// The run-up branch of <see cref="Steer"/> reads the take-off tile, the proven speed and
     /// the body alone, never the landing, which is what lets one result serve every landing tile
     /// in a direction; <c>VerifyMovementContracts</c> asserts that independence so the caching
     /// cannot quietly become a lie.
     /// </summary>
-    internal static BodyState? TakeOff(ITileWorld world, Point from, BodyPhysics.Pose pose, Point toward, float scale, float startVx)
+    internal static Launch? TakeOff(ITileWorld world, Point from, BodyPhysics.Pose pose, Point toward, float scale, float nominalVx)
+    {
+        int jd = MathF.Sign(nominalVx);
+        // The mark is sized once, from the profile the planner asked for, and then carried through
+        // every pass and onto the step. Letting it move with the throttle would put it in the
+        // fixed point too, and the run-in distance is the one thing that must not change between
+        // the pass that proves the arc and the performance that repeats it.
+        float back = Runway(from, MathF.Abs(nominalVx), jd);
+        float throttle = nominalVx;
+        for (int pass = 0; pass < TakeOffPasses; pass++)
+        {
+            if (RunUp(world, from, pose, toward, scale, throttle, back) is not Launch reached)
+                return null;
+            if (MathF.Abs(reached.Entry.Vx - throttle) <= SpeedSlack)
+                return reached;
+            throttle = reached.Entry.Vx;
+        }
+        return null;
+    }
+
+    /// <summary>One run-up: the performer driven from rest at the node's pose with a step carrying this throttle and this mark, to the tick it asks for the jump.</summary>
+    private static Launch? RunUp(ITileWorld world, Point from, BodyPhysics.Pose pose, Point toward, float scale, float throttle, float back)
     {
         var performer = new JumpTraversal();
-        var step = new NavStep(toward, MoveKind.Jump, from, scale, startVx);
+        // NaN is the "not proven yet" mark on the launch point, and it is what tells Steer to
+        // commit where the body first crosses the take-off at whatever speed it has rather than
+        // where a proof says it should. Gating discovery on the speed band would refuse every
+        // profile whose floor cannot deliver the nominal — which is exactly the set this pass
+        // exists to measure.
+        var step = new NavStep(toward, MoveKind.Jump, from, scale, throttle, RunUpBack: back, LaunchAlong: float.NaN);
         performer.Begin(step);
         BodyState state = BodyState.Standing(pose);
+        int jd = Direction(step);
+        float takeoffX = NavGrid.FeetWorld(from).X;
         for (int tick = 1; tick <= RunUpTicks; tick++)
         {
             Controls controls = performer.Steer(state, step, null);
             if (controls.Jump)
-                return state;
+                return new Launch(state, back, (state.CentreX - takeoffX) * jd, state.Bottom - pose.Bottom);
             state = BodyMotion.Step(world, state, controls);
             if (state.Stuck || !state.OnGround)
                 return null;
         }
         return null;
     }
+
+    /// <summary>
+    /// How many run-ups a profile may need before its throttle and the speed that throttle
+    /// produces agree. Two is the expected answer and the third is slack for a run-up whose
+    /// velocity is not <see cref="BodyPhysics.StepVelocity"/> alone.
+    /// </summary>
+    private const int TakeOffPasses = 3;
 
     /// <summary>
     /// How long a run-up may take before the profile counts as unreachable. Backing away along a
@@ -254,56 +321,123 @@ public sealed class JumpTraversal : Traversal
         }
 
         Vector2 takeoff = NavGrid.FeetWorld(step.From);
-        float need = step.StartVx;
+        float need = step.LaunchVx;
         float vx = live.Vx;
-        if (need == 0f)
-        {
-            float off = takeoff.X - live.CentreX;
-            if (MathF.Abs(off) > 6f)
-                return new Controls(BodyPhysics.SteerToward(takeoff.X, live.CentreX, vx));
-            // A same-column hop (ceiling ore) still waits to rest so the proven standing arc holds.
-            // A hop that also moves sideways is a follow jump: keep the run-up instead of braking to 0.6.
-            if (step.Tile.X != step.From.X || MathF.Abs(vx) < RestSpeed)
-                return Jump(step, landing, live);
-            return new Controls(BodyPhysics.SteerToward(takeoff.X, live.CentreX, vx));
-        }
+        int jd = Direction(step);
+        float along = Along(live, step, jd, takeoff);
 
-        int jd = MathF.Sign(need);
-        float along = (live.CentreX - takeoff.X) * jd; // positive once past the take-off toward the landing
-        bool fastEnough = vx * jd >= MathF.Abs(need) - SpeedSlack;
-        float runway = Runway(step, jd);
-        float mark = takeoff.X - jd * runway;
-        if (backingOff)
+        // A body already carrying the proven speed has nothing to gain from a run-up: it is
+        // already in the state the run-up exists to reach. Sending it back to the mark anyway is
+        // not merely wasteful, it is dangerous — reversing from the walk speed costs eighteen
+        // ticks and about thirty pixels of forward coast, and a take-off is very often the lip of
+        // the gap being jumped, so the body walks off the edge it was standing on and falls. That
+        // is a physical limit rather than a hole to close here: no control sequence rescues a body
+        // that close to a lip, which is why the walk before a jump now delivers the proven speed
+        // and this exemption keeps it. The latch is deliberately not set for it, so a body knocked
+        // out of the band a tick later still gets its run-up.
+        bool speedInBand = !float.IsNaN(step.LaunchAlong) && MathF.Abs(vx - need) <= SpeedSlack;
+
+        // The run-up, which is the whole of the entry and belongs to this traversal alone. A
+        // second owner for it is what the local prefix search was, and it answered a different
+        // question — "does some short control sequence make this move work" rather than
+        // "reproduce the state the proof used" — so its answer was never the proof's.
+        if (step.RunUpBack > 0f && jd != 0 && !ranUp && !speedInBand)
         {
-            // Coast onto the runway mark with the jump's own steering rule rather than walking
-            // through it: a reversal from the walk speed takes about two tiles to stop, and when
-            // the runway is capped by the floor the mark is the last standable tile behind.
-            if (MathF.Abs(live.CentreX - mark) <= 6f && MathF.Abs(vx) < RestSpeed)
+            float mark = takeoff.X - jd * step.RunUpBack;
+            // At the mark or further from the take-off than it, which is the side any extra floor
+            // sits on. One-sided on purpose: running in from further back only means the throttle
+            // clamp holds the body at the proven speed for longer, while starting nearer the
+            // take-off is the one error that arrives under the proven speed.
+            if ((mark - live.CentreX) * jd >= -MarkSlack && MathF.Abs(vx) < RestSpeed)
             {
                 backingOff = false;
                 ranUp = true;
+                return new Controls(need);
             }
-            else
-                return new Controls(BodyPhysics.SteerToward(mark, live.CentreX, vx));
-        }
-        if (along >= -2f && (fastEnough || ranUp))
-            return Jump(step, landing, live);
-        if (along >= -2f)
-        {
-            // At or past the take-off, too slow, and not run up yet: back away if there is
-            // anywhere to. Past the take-off counts too, because a fresh plan can start with the
-            // body a few pixels beyond the pose centre and a jump from there at no speed is a
-            // strike, while backing away is a move away from the edge.
-            if (runway < 12f)
-                return Jump(step, landing, live);
+            // Coast onto the mark with the jump's own steering rule rather than walking through
+            // it: a reversal from the walk speed takes about two tiles to stop, and when the
+            // runway is capped by the floor the mark is the last standable tile behind.
             backingOff = true;
             return new Controls(BodyPhysics.SteerToward(mark, live.CentreX, vx));
         }
-        // Behind the take-off: run in at the profile's own speed, not the walk speed, because the
-        // arc was simulated at that speed and a faster body flies a longer arc into the overhang
-        // the profile was chosen to clear.
-        return new Controls(jd * MathF.Abs(need));
+
+        // Running in. The commit is the first grounded tick at or past the take-off and nothing
+        // else, which is the rule the proof committed on, because the proof *is* this code driven
+        // from rest at the node's pose. Making the commit conditional on the proven state instead
+        // moves it to a different tick from the proof's — the run-in crosses the take-off on one
+        // tick and enters the band on another, and one acceleration step before the clamp is a
+        // tick early — and two ticks apart is two launch states apart, which is a misland however
+        // tight the band is. So the band is never the trigger; it is the guard, and it lives in
+        // <see cref="Check"/>, where a body arriving in the wrong state ends the step instead of
+        // flying an arc nobody proved.
+        if (step.RunUpBack > 0f && jd != 0)
+        {
+            if (along < -CommitCross)
+                return new Controls(need);
+            return Jump(step, landing, live);
+        }
+
+        // No run-up in the proof: it launched from rest where the body stands. This is the case a
+        // running profile with no floor behind its take-off lands in — the arc is a standing arc
+        // filed under a running profile — and it is where the body used to jump the instant it
+        // touched the take-off at whatever speed it had arrived with, which is how a body walking
+        // on at 1.7 px/tick took off from a state proven at rest 390 times in one session without
+        // ever leaving the ground. Now it settles onto the state first, and the allowance's
+        // Timeout owns a body that never manages to.
+        if (MathF.Abs(along) > MarkSlack || !InLaunchBand(live, step, jd, takeoff))
+            return new Controls(BodyPhysics.SteerToward(takeoff.X, live.CentreX, vx));
+        return Jump(step, landing, live);
     }
+
+    /// <summary>How far past the take-off centre the body's centre sits, along the jump's heading; zero for a hop straight up, which has no along-axis.</summary>
+    private static float Along(BodyState live, NavStep step, int jd, Vector2 takeoff)
+        => jd == 0 ? 0f : (live.CentreX - takeoff.X) * jd;
+
+    /// <summary>
+    /// The body is in the state the arc was flown from, within the slack each part of that state
+    /// is worth. A discovery pass has no proven launch to compare against and is always in band
+    /// by construction: it is the run that decides what the band will be.
+    /// </summary>
+    private static bool InLaunchBand(BodyState live, NavStep step, int jd, Vector2 takeoff)
+    {
+        if (float.IsNaN(step.LaunchAlong))
+            return true;
+        if (MathF.Abs(live.Vx - step.LaunchVx) > SpeedSlack)
+            return false;
+        // The height the proof took off from, which a run-in over a kerb or up a slope changes and
+        // the take-off tile cannot say. Without it a body that climbed differently on the way in
+        // flies an arc starting a tile above or below the proven one and lands accordingly.
+        if (MathF.Abs(live.Bottom - ReferenceBottom(step.From, AStar.AllowLava, live.Bottom) - step.LaunchRise) > PoseSlack)
+            return false;
+        float along = Along(live, step, jd, takeoff);
+        // A launch with no run-up behind it was proven standing on the take-off, so the band round
+        // it is symmetric: the body has to be where the proof stood, either side. Using the run-in
+        // rule here instead leaves a body resting a couple of pixels short of the take-off outside
+        // a band it can never re-enter — the steer that would close the gap has its own two-pixel
+        // tolerance and stops inside it — so it pushes back and forth across the line until the
+        // allowance runs out, which is a park rather than a jump.
+        if (jd == 0 || step.RunUpBack <= 0f)
+            return MathF.Abs(along - step.LaunchAlong) <= PoseSlack
+                && MathF.Abs(live.CentreX - takeoff.X) <= MarkSlack;
+        // A run-in commits on the first tick at or past the take-off, so its lower bound is that
+        // crossing line and deliberately not the proven point less a slack: a bound below the line
+        // admits a tick the proof's own rule refused — one acceleration step before the clamp,
+        // which is a launch a tick early and a landing a tile out. The upper allowance is one tick
+        // of travel, because the tick that crosses the line can overshoot the proof's point by the
+        // distance the body covers in a tick, and that residue is irreducible at this granularity.
+        return along >= -CommitCross
+            && along <= step.LaunchAlong + PoseSlack + MathF.Abs(step.LaunchVx);
+    }
+
+    /// <summary>How far behind the take-off centre still counts as having crossed it, in pixels; the run-in is sampled once a tick and a tick of travel straddles the line.</summary>
+    private const float CommitCross = 2f;
+
+    /// <summary>The bottom a launch rise is measured from: the take-off tile's own stand, so the recorder and the reader use one reference whatever pose the expansion began at.</summary>
+    private static float ReferenceBottom(Point tile, bool lava, float fallback)
+        => NavGrid.StandAt(tile.X, tile.Y, lava)?.Bottom ?? fallback;
+
+    /// <summary>The jump's heading: the sign of the sideways move it makes, and zero for a hop straight up, which has no run-up and no along-axis.</summary>
+    private static int Direction(NavStep step) => Math.Sign(step.Tile.X - step.From.X);
 
     /// <summary>The jump tick: the impulse at the step's scale, steering toward the landing from where the body stands, as the simulation's first tick did.</summary>
     private Controls Jump(NavStep step, Vector2 landing, BodyState live)
@@ -335,6 +469,26 @@ public sealed class JumpTraversal : Traversal
     {
         if ((jumped || fell) && LandedElsewhere(live, step))
             return TraversalFault.Misland;
+        // The run-up is finished, the body has reached the take-off, and it is not in the state
+        // the arc was proven from. That is the third outcome this class exists to remove: the
+        // body neither performs the move as proven nor fails, it takes off anyway on an arc
+        // nobody simulated and lands where the plan never promised. Refusing it here ends the
+        // step with a fault the navigator prices and strikes, so the next plan goes another way,
+        // rather than leaving the macro proof to reject the same edge every tick for ever while
+        // the body stands still. It is reported as a misland because that is what the arc from
+        // this state does: the landing is wrong, and it is wrong before the body leaves the
+        // ground, which is the cheapest moment to know it.
+        // It fires only where Steer has nothing left to try. A step whose proof had no run-up is
+        // still braking onto its launch and owns the Timeout instead; a body with a run-up it has
+        // not made is still going to make it. What is left is a body that has run up, or arrived
+        // already at the proven speed, and crossed the take-off anyway in the wrong state.
+        int jd = Direction(step);
+        Vector2 takeoff = NavGrid.FeetWorld(step.From);
+        if (!jumped && !fell && live.OnGround && step.RunUpBack > 0f && jd != 0
+            && (ranUp || MathF.Abs(live.Vx - step.LaunchVx) <= SpeedSlack)
+            && Along(live, step, jd, takeoff) >= -CommitCross
+            && !InLaunchBand(live, step, jd, takeoff))
+            return TraversalFault.Misland;
         return base.Check(live, step, ticksOnStep);
     }
 
@@ -347,24 +501,38 @@ public sealed class JumpTraversal : Traversal
     /// (MidMove) made reachable: before it, the replan cut the preparation short instead.
     /// </summary>
     protected override int Allowance(NavStep step)
-        => base.Allowance(step) + (step.StartVx == 0f ? 0 : (int)(2f * MathF.Abs(step.StartVx) / BodyPhysics.Acceleration));
+        => base.Allowance(step)
+           // The run-up is a round trip over the mark, so the back-off and the run-in are each
+           // that distance, and the motor needs its ramp at each end. Priced from the distance
+           // the step actually carries rather than from a profile speed, because a take-off with
+           // no floor behind it makes no round trip and must not be given time for one.
+           + (int)(4f * step.RunUpBack / BodyPhysics.WalkSpeed)
+           + (int)(2f * MathF.Abs(step.LaunchVx) / BodyPhysics.Acceleration);
 
     /// <summary>
-    /// How far behind a jump's take-off the body can back up along the take-off row, in pixels:
-    /// the distance the motor needs to reach the profile's speed from rest, plus a tile to turn
-    /// in, capped by the standable tiles actually there.
+    /// How far behind a jump's take-off the body backs up along the take-off row, in pixels: the
+    /// distance the motor needs to reach the profile's speed from rest, plus a tile to turn in,
+    /// capped by the standable tiles actually there. Sized once, from the profile the planner
+    /// asked for, and then carried on the step; the performer never recomputes it, because a
+    /// distance derived twice is two rules for one move.
     /// </summary>
-    private static float Runway(NavStep step, int direction)
-        => MathF.Min(RunwayNeeded(MathF.Abs(step.StartVx)) + 16f, RunwayPixels(step.From, -direction));
+    private static float Runway(Point from, float nominalMagnitude, int direction)
+        => MathF.Min(RunwayNeeded(nominalMagnitude) + 16f, RunwayPixels(from, -direction));
 
     /// <summary>
-    /// How far under the profile's speed a body may cross the take-off and still commit to the
-    /// jump. This is the performer's tolerance and only the performer's: the planner no longer
-    /// approximates it, because it proves the arc from the take-off <see cref="TakeOff"/>
-    /// reaches by running this same steering, so whatever slack is accepted here is inherited
-    /// rather than restated.
+    /// How far from the proven launch speed a body may be and still be in the state the arc was
+    /// flown from. It is a band rather than a floor: a body faster than the proof flies further
+    /// than the proof, which mislands exactly as surely as one that is slower. It also decides
+    /// when a take-off's throttle has agreed with the speed it produces, because those are the
+    /// same question asked at the two ends of one move.
     /// </summary>
     private const float SpeedSlack = 0.4f;
+
+    /// <summary>How far from the proven launch point the body's centre may be, in pixels; a few, because the arc's shape depends on where it starts as well as how fast.</summary>
+    private const float PoseSlack = 3f;
+
+    /// <summary>How near the runway mark counts as standing on it, in pixels.</summary>
+    private const float MarkSlack = 6f;
 
     /// <summary>
     /// The distance the motor needs to reach a speed from rest, from its own acceleration: v²

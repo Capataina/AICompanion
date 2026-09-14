@@ -337,7 +337,12 @@ internal static class VerifyMovementFailures
             var run = new Drive(start);
             var nav = run.Movement.Navigator;
             int refusals = 0, struckRefusals = 0, remembered = 0;
-            PlanLocalMovement.PreparationMsBudget = .000001;
+            // Starved by work rather than by the clock. The allowance is counted in simulated body
+            // ticks now, because a wall-clock bound made a physical verdict depend on how busy the
+            // frame was, and a starved verdict is exempt from the strike its refusal earned — so a
+            // bound that a normal frame could hit turned every jump refusal into a free one.
+            int prepareWorkBound = PlanLocalMovement.PrepareWorkTicks;
+            PlanLocalMovement.PrepareWorkTicks = 1;
             try
             {
                 while (run.Tick < 300 && !run.Arrived)
@@ -352,7 +357,10 @@ internal static class VerifyMovementFailures
                     if (nav.LastRejection is { } rejection && nav.EntryRejected(rejection.Step, rejection.Entry)) remembered++;
                 }
             }
-            finally { PlanLocalMovement.PreparationMsBudget = 0; }
+            // Restored to whatever the bound was on entry rather than to a literal: a literal here
+            // runs every fixture after this one under the old default the day the default changes,
+            // and a suite that quietly starves itself reports a red nobody can attribute.
+            finally { PlanLocalMovement.PrepareWorkTicks = prepareWorkBound; }
             var seen = run.SeenText;
             bool absent = run.Seen.Contains(MovementFailure.AbsentTransition);
             bool starvedArrival = run.Arrived;

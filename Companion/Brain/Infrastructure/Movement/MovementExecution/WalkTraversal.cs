@@ -183,7 +183,12 @@ public sealed class WalkTraversal : Traversal
         // that speed and a faster body flies a longer one (the harness on the fourth run's
         // pocket, where a half-speed jump taken at the walk speed reached the pool).
         float speed = next is NavStep n && StartsFromRest(n) ? BodyPhysics.SteerToward(stepWorld.X, live.CentreX, live.Vx)
-            : next is NavStep j && j.Kind == MoveKind.Jump ? dir * MathF.Abs(j.StartVx)
+            // The step before a running jump arrives at the speed that jump's arc was proven from,
+            // which is the speed the floor behind its take-off actually delivers and not the one
+            // its profile is named after. Handing the body the nominal put it over the take-off
+            // half again too fast on a short runway, and the run-up then had to shed what the walk
+            // had just spent ticks building.
+            : next is NavStep j && j.Kind == MoveKind.Jump ? dir * MathF.Abs(j.LaunchVx)
             : dir * BodyPhysics.WalkSpeed;
         return new Controls(speed);
     }

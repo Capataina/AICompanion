@@ -93,21 +93,23 @@ internal static class VerifyMovementContracts
         var immobile = new CountingStillWorld();
         var rejectedExecution = new TraversalExecution(new WalkTraversal(), step, null);
         local = new PlanLocalMovement();
-        Require(!local.TryExecute(immobile, rejectedExecution, live, null, out _, out _), "an immobile macro must fail its proof");
+        Require(!local.TryExecute(immobile, rejectedExecution, live, null, out _, out TraversalFault refusedFault), "an immobile macro must fail its proof");
+        Require(refusedFault != TraversalFault.None,
+            "a macro refused on physics reports the fault that refused it, because that fault is the whole of what the strike and the rejection memory read");
+        // A refused entry is re-proven rather than answered from a cache of refused states. That
+        // cache was a real saving and it was also what made the failure permanent: a refusal
+        // leaves the body with no controls, so it does not move, so the next tick's state is
+        // bit-identical, so the cached answer comes back — and it comes back without simulating,
+        // which means without the evidence anything downstream could act on. The property is
+        // asserted rather than merely allowed, because the cheap version of this is the one that
+        // gets rebuilt.
         int simulations = immobile.Simulations;
         local.TryExecute(immobile, rejectedExecution, live, null, out _, out _);
-        Require(immobile.Simulations == simulations, "an identical failed physical proof must not rerun every frame");
-        local.TryExecute(immobile, new TraversalExecution(new WalkTraversal(), step, null), live, null, out _, out _);
-        Require(immobile.Simulations == simulations, "a new route object must not erase identical failed entry evidence");
+        Require(immobile.Simulations > simulations,
+            "a refused entry is proven again on the next tick, never answered from a cache: a cached refusal of a body that cannot move is a refusal that never ends");
         Require(!local.TryPrepare(immobile, rejectedExecution, live, null, out _), "standing still is not preparation when it cannot enable the move");
-        immobile.Revision++;
-        local.TryExecute(immobile, rejectedExecution, live, null, out _, out _);
-        Require(immobile.Simulations > simulations, "terrain change invalidates a failed proof");
-
-        PlanLocalMovement.PreparationMsBudget = .000001;
-        Require(!local.TryPrepare(immobile, rejectedExecution, live, null, out _) && local.PreparationResult == "search-budget-exhausted",
-            "preparation deadline reports incomplete search rather than physical impossibility");
-        PlanLocalMovement.PreparationMsBudget = 0;
+        Require(local.PreparationResult != "search-budget-exhausted",
+            $"a preparation search over an immobile body must reach a verdict rather than run out, because a refusal that runs out is exempt from its own strike; it reported {local.PreparationResult}");
 
         NavGrid.World = immobile;
         navigator = new Navigator();
@@ -170,9 +172,9 @@ internal static class VerifyMovementContracts
 
         // The run-up is cached per direction and speed, which is only sound while it is a function
         // of the take-off, the profile and the body. Two different landings, one answer.
-        BodyState? toNear = JumpTraversal.TakeOff(world, takeOff, pose, new Point(3496, 600), 1f, BodyPhysics.WalkSpeed * .5f);
-        BodyState? toFar = JumpTraversal.TakeOff(world, takeOff, pose, new Point(3497, 599), 1f, BodyPhysics.WalkSpeed * .5f);
-        Require(toNear is BodyState near && toFar is BodyState far && near == far,
+        JumpTraversal.Launch? toNear = JumpTraversal.TakeOff(world, takeOff, pose, new Point(3496, 600), 1f, BodyPhysics.WalkSpeed * .5f);
+        JumpTraversal.Launch? toFar = JumpTraversal.TakeOff(world, takeOff, pose, new Point(3497, 599), 1f, BodyPhysics.WalkSpeed * .5f);
+        Require(toNear is JumpTraversal.Launch near && toFar is JumpTraversal.Launch far && near == far,
             "a running profile's take-off must not depend on the tile it lands on, because the proof caches it per direction");
 
         // Every jump the window proves, run through the performer. A landing the shared arrival
@@ -209,9 +211,19 @@ internal static class VerifyMovementContracts
         var destination = new Vector2(goal.CentreX, goal.Bottom);
         bool raised = false;
         NavStep lastStep = default;
+        bool struckOnTheFaultingTick = false;
         for (int tick = 0; tick < 400 && navigator.FaultCount == 0; tick++)
         {
+            int strikesBefore = navigator.StuckStrikes, faultsBefore = navigator.FaultCount;
             Controls input = navigator.MoveTo(live, destination);
+            // The strike has to land on the tick the refusal is found. It used to be able to
+            // arrive forty ticks later instead, through the stall monitor noticing a body that
+            // had not moved, because a spent preparation allowance suppressed the strike the
+            // refusal itself earned. Forty ticks of a companion standing at a take-off is the
+            // symptom this fixture exists to keep out, and a fault count that rises without a
+            // strike beside it is how it comes back.
+            if (navigator.FaultCount > faultsBefore)
+                struckOnTheFaultingTick = navigator.StuckStrikes > strikesBefore;
             live = BodyMotion.Step(world, live, input);
             // The moment the body stands on the lip with the jump as its next move, close the
             // landing. The held step still names a tile that is now inside rock.
@@ -229,6 +241,8 @@ internal static class VerifyMovementContracts
             $"closing the landing must produce a misland, not {navigator.LastFault}");
         Require(navigator.StuckStrikes > 0,
             "a step the macro proof rejects before its first tick must price its tile, or the planner re-offers it for ever");
+        Require(struckOnTheFaultingTick,
+            "the strike must land on the tick the refusal is found, not forty ticks later when a stall monitor notices the body has not moved");
     }
 
     /// <summary>
@@ -416,16 +430,31 @@ internal static class VerifyMovementContracts
         var navigator = new Navigator();
         var goal = NavGrid.StandAt(3722, 541, false)!.Value;
         int stationary = 0, worstStationary = 0;
+        string firstFault = "none";
         for (int tick = 0; tick < 250 && !navigator.Arrived; tick++)
         {
+            int faultsBefore = navigator.FaultCount;
             Controls input = navigator.MoveTo(live, new Vector2(goal.CentreX, goal.Bottom));
+            if (navigator.FaultCount > faultsBefore && firstFault == "none")
+                firstFault = $"tick {tick}: {navigator.LastFault} on {navigator.LastEdge} because {navigator.LastFailure?.Reason ?? "-"}";
             BodyState next = BodyMotion.Step(world, live, input);
             stationary = Vector2.DistanceSquared(live.Feet, next.Feet) < .01f ? stationary + 1 : 0;
             worstStationary = Math.Max(worstStationary, stationary);
             live = next;
         }
-        Require(navigator.Arrived && navigator.FaultCount == 0, "the recorded cave entry must complete without the original stall fault");
-        Require(worstStationary < 10, "the recorded entry must not consume a stationary preparation allowance");
+        // The goal is still delivered, and it is delivered through one priced refusal rather than
+        // through none. The body starts at a sub-tile offset the descent out of 3740,528 was not
+        // proven from; the local prefix search used to find a short sequence that made the macro
+        // simulate clean from there, and with that search deleted the macro proof refuses the step
+        // from the live body instead. That refusal is the designed path: it prices the tile,
+        // strikes, and the next plan is expanded from the body's own pose, which is a descent
+        // proven from where the body actually is rather than one nudged toward where it was not.
+        // The bound is deliberately one refusal and not zero — zero would only be true again if
+        // something searched for the entry, and two would mean the replan is not learning.
+        Require(navigator.Arrived, $"the recorded cave entry must still be delivered; faults={navigator.FaultCount} first fault {firstFault}");
+        Require(navigator.FaultCount <= 1,
+            $"a sub-tile entry the edge was not proven from may cost one priced refusal and a replan, never a run of them; faults={navigator.FaultCount} first fault {firstFault}");
+        Require(worstStationary < 10, "the recorded entry must not stand the body still while it decides");
     }
 
     private class FloorWorld : ITileWorld

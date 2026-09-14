@@ -44,16 +44,16 @@ internal static class CompareJumpPaths
     }
 
     /// <summary>
-    /// The proof path: exactly the call <see cref="JumpTraversal.Candidates"/> makes, from a
-    /// standing pose at the profile's nominal start speed, with its tick trace kept.
+    /// The proof path: exactly the call <see cref="JumpTraversal.Candidates"/> makes, from a pose
+    /// at the speed the step names as its launch, with its tick trace kept.
     /// </summary>
     internal static Trace Proof(ITileWorld world, BodyPhysics.Pose entry, NavStep step)
     {
         var trace = new Trace { Name = "proof", Preparation = 0 };
-        trace.Entry = new BodyState(entry.Left, entry.Bottom, step.StartVx, 0f, true);
+        trace.Entry = new BodyState(entry.Left, entry.Bottom, step.LaunchVx, 0f, true);
         trace.TakeOff = trace.Entry;
         trace.Final = trace.Entry;
-        BodyPhysics.Pose? landing = BodyPhysics.SimulateJump(world, entry, step.JumpScale, step.StartVx,
+        BodyPhysics.Pose? landing = BodyPhysics.SimulateJump(world, entry, step.JumpScale, step.LaunchVx,
             step.Tile.X, step.Tile.Y, JumpTraversal.MaxJumpTicks, out int ticks, tick =>
             {
                 // The controls are not handed back by the trace, so they are reconstructed from the
@@ -131,51 +131,62 @@ internal static class CompareJumpPaths
     /// aligned on their take-off ticks. Returns true when every execution run reached the edge's
     /// tile, false when any of them did not, and null when the planner proves no such edge.
     /// </summary>
-    internal static bool? Compare(ITileWorld world, string name, Point from, Point to, BodyState? live, bool verbose)
+    internal static bool? Compare(ITileWorld world, string name, Point from, Point to, BodyState? live, bool verbose, bool entryIsExplicit = false)
     {
         if (NavGrid.StandAt(from.X, from.Y, AStar.AllowLava) is not BodyPhysics.Pose node)
         {
             Console.WriteLine($"compare-jump {Fmt(from)} -> {Fmt(to)} in {name}: no pose at the take-off tile");
             return null;
         }
-        NavStep? proven = ProvenEdge(node, from, to);
+        // An explicit entry proves the edge from its own pose as well as from the grid's. The live
+        // navigator expands its first node from the body's actual pose rather than from the
+        // representative one, so an edge the game planned can be one this tool finds no trace of:
+        // a jump three across and seven up existed in play out of 3386,636 and is proven from no
+        // node pose in any window of that session's plans file. Reading "the planner proves no
+        // jump edge" as "the body could never have been offered it" is the reading to avoid.
+        BodyPhysics.Pose provingPose = entryIsExplicit && live is BodyState explicitEntry ? explicitEntry.Pose : node;
+        NavStep? proven = ProvenEdge(provingPose, from, to) ?? ProvenEdge(node, from, to);
         if (proven is not NavStep step)
         {
-            Console.WriteLine($"compare-jump {Fmt(from)} -> {Fmt(to)} in {name}: the planner proves no jump edge between those tiles");
+            string where = entryIsExplicit
+                ? $"neither the node pose nor the supplied entry pose (left {provingPose.Left:F1} bottom {provingPose.Bottom:F1}) proves a jump edge between those tiles"
+                : "the planner proves no jump edge between those tiles";
+            Console.WriteLine($"compare-jump {Fmt(from)} -> {Fmt(to)} in {name}: {where}; the pair is {Math.Abs(to.X - from.X)} across and {from.Y - to.Y} up, against a jump box {NavGrid.JumpGapTiles} wide and {NavGrid.JumpHeightTiles} tall, so {(Math.Abs(to.X - from.X) <= NavGrid.JumpGapTiles && from.Y - to.Y <= NavGrid.JumpHeightTiles ? "the generator offered it and every profile was refused by simulation" : "the generator never proposed it, whatever the arc could do")}");
             return null;
         }
         Console.WriteLine($"compare-jump {Fmt(from)} -> {Fmt(to)} in {name}");
-        Console.WriteLine($"  edge as proven   scale {step.JumpScale:F2} startVx {step.StartVx:F2} flight {step.Ticks} ticks");
+        Console.WriteLine($"  edge as proven   scale {step.JumpScale:F2} launchVx {step.LaunchVx:F2} runUpBack {step.RunUpBack:F0} px launchAlong {step.LaunchAlong:F1} px flight {step.Ticks} ticks");
         Console.WriteLine($"  node pose        left {node.Left:F1} bottom {node.Bottom:F1}   (the representative pose Candidates proved from)");
         Console.WriteLine($"  runway behind    {RunwayReport(from, node, step)}");
         // A recorded entry belongs to this edge only where the body stands on its take-off tile.
         // The dump's npcbox is whatever the body was doing at the tick the window was written, and
         // reading it as the entry for a jump somewhere else prints a misland that means nothing.
-        if (live is BodyState offEdge && offEdge.FeetTile != from)
+        if (live is BodyState offEdge && offEdge.FeetTile != from && !entryIsExplicit)
         {
-            Console.WriteLine($"  live entry       ignored: the recorded body stands on {Fmt(offEdge.FeetTile)}, not this edge's take-off");
+            Console.WriteLine($"  live entry       ignored: the recorded body stands on {Fmt(offEdge.FeetTile)}, not this edge's take-off; supply it with --entry-state to replay it anyway");
             live = null;
         }
         else if (live is BodyState entry)
             Console.WriteLine($"  live entry       left {entry.Left:F1} bottom {entry.Bottom:F1} vx {entry.Vx:F2} ground {entry.OnGround}");
 
-        // The take-off the run-up actually reaches, which is the entry Candidates now proves the
-        // arc from. The nominal-speed proof is kept beside it because the gap between the two is
-        // the defect class this instrument exists to name, and a reader has to see both to
-        // recognise it coming back.
-        BodyState? reached = step.StartVx == 0f
-            ? BodyState.Standing(node)
-            : JumpTraversal.TakeOff(world, from, node, to, step.JumpScale, step.StartVx);
+        // The launch the edge names, reconstructed from the step alone: the node pose shifted
+        // along the jump's heading by the launch point the proof committed at, carrying the
+        // proven speed. Reconstructing it rather than re-deriving it is the point — the step is
+        // the only thing the performer is handed, so an arc that does not fly from what the step
+        // says is an edge nobody can reproduce, and that is the defect class this instrument
+        // exists to name. It used to print the profile's nominal speed beside the reached one;
+        // there is no nominal on a step any more, and the gap it showed is now the gap between
+        // this reconstructed launch and where the performer from rest actually arrives.
+        int jd = Math.Sign(to.X - from.X);
+        var launchPose = new BodyPhysics.Pose(node.Left + jd * step.LaunchAlong, node.Bottom);
         var runs = new List<Trace>
         {
-            Named(Proof(world, node, step), "proof  x node pose, at the nominal speed"),
+            Named(Proof(world, launchPose, step), "proof  x the launch the edge names"),
+            Named(Execution(world, BodyState.Standing(node), step), "exec   x node pose, at rest"),
         };
-        if (reached is BodyState launch)
-            runs.Add(Named(Proof(world, launch.Pose, step with { StartVx = launch.Vx }), "proof  x the take-off the run-up reaches"));
-        runs.Add(Named(Execution(world, BodyState.Standing(node), step), "exec   x node pose, at rest"));
         if (live is BodyState liveEntry)
         {
-            runs.Add(Named(Proof(world, liveEntry.Pose, step), "proof  x live entry, at the nominal speed"));
+            runs.Add(Named(Proof(world, liveEntry.Pose, step), "proof  x live entry, at the proven speed"));
             runs.Add(Named(Execution(world, liveEntry, step), "exec   x live entry"));
         }
 
@@ -185,10 +196,9 @@ internal static class CompareJumpPaths
             Console.WriteLine($"  {run.Name,-41} {(run.Preparation < 0 ? "  -" : run.Preparation.ToString().PadLeft(3))}  " +
                 $"{run.TakeOff.Left,8:F1} {run.TakeOff.Bottom,8:F1} {run.TakeOff.Vx,6:F2}   {run.Outcome}");
 
-        // The run the others are read against is the one the planner's edge now rests on: the arc
-        // from the take-off the performer reaches. Where there is no run-up at all it is the
-        // nominal proof, which is the same thing for a standing jump.
-        Trace reference = runs.Count > 1 && reached != null ? runs[1] : runs[0];
+        // Everything is read against the arc the edge claims, because that is what the planner
+        // priced the route with and what the performer is asked to reproduce.
+        Trace reference = runs[0];
         foreach (Trace run in runs)
         {
             if (ReferenceEquals(run, reference)) continue;
@@ -249,7 +259,7 @@ internal static class CompareJumpPaths
                     else
                     {
                         unflyable++;
-                        offender?.Invoke($"{x},{y} -> {Fmt(edge.Step.Tile)} scale {edge.Step.JumpScale:F2} startVx {edge.Step.StartVx:F2}: {run.Outcome}");
+                        offender?.Invoke($"{x},{y} -> {Fmt(edge.Step.Tile)} scale {edge.Step.JumpScale:F2} launchVx {edge.Step.LaunchVx:F2}: {run.Outcome}");
                     }
                 }
             }
@@ -272,22 +282,21 @@ internal static class CompareJumpPaths
     }
 
     /// <summary>
-    /// What the take-off row actually offers a run-up, beside what the profile's speed needs. The
-    /// two are printed together because a profile admitted on a runway shorter than its speed
-    /// requires is a proof of an arc the performer cannot enter.
+    /// What the take-off row offers a run-up, beside the distance the proven launch speed needs
+    /// and the mark the step actually carries. The three are printed together because a mark
+    /// shorter than the ramp the speed requires is a step whose launch the performer arrives
+    /// under, which is the one direction of error the entry band turns into a fault.
     /// </summary>
     private static string RunwayReport(Point from, BodyPhysics.Pose pose, NavStep step)
     {
-        if (step.StartVx == 0f)
-            return "not needed, this is a standing jump";
-        int behind = -Math.Sign(step.StartVx);
+        if (step.LaunchVx == 0f)
+            return "not needed, this arc was proven from rest";
+        int behind = -Math.Sign(step.Tile.X - from.X);
         int tiles = 0;
         while (tiles < 8 && NavGrid.IsStandable(from.X + behind * (tiles + 1), from.Y))
             tiles++;
-        float need = step.StartVx * step.StartVx / (2f * BodyPhysics.Acceleration);
-        BodyState? reached = JumpTraversal.TakeOff(NavGrid.World, from, pose, step.Tile, step.JumpScale, step.StartVx);
-        string got = reached is BodyState r ? $"the run-up reaches {MathF.Abs(r.Vx):F2}" : "the run-up never reaches a take-off";
-        return $"{tiles} standable tiles ({tiles * 16f:F0} px); reaching {MathF.Abs(step.StartVx):F2} from rest needs {need:F1} px; {got}";
+        float need = step.LaunchVx * step.LaunchVx / (2f * BodyPhysics.Acceleration);
+        return $"{tiles} standable tiles ({tiles * 16f:F0} px); the step's run-up starts {step.RunUpBack:F0} px back; reaching {MathF.Abs(step.LaunchVx):F2} from rest needs {need:F1} px";
     }
 
     /// <summary>

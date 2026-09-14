@@ -804,21 +804,34 @@ public sealed class Navigator
             // answers rather than the absence of the ordinary path's own precondition.
             bool physicallyImpossible = fault != TraversalFault.None;
             bool atEntry = execution!.Ticks == 0;
+            // Counted before anything decides what to do about it, and counted whether or not the
+            // refusal goes on to strike, because the count exists to make the refusals visible at
+            // all. An exempted refusal is exactly the one nothing else records.
+            if (physicallyImpossible && atEntry)
+                BehaviourCensus.Refused(step, fault);
             // The direct proof refuses from the exact state; preparation is what asks whether a short
             // run-in, stop or alignment makes the move. A preparation search that ran out of its allowance
             // has not answered that, so the refusal is neither remembered nor struck, whatever the direct
-            // proof said. Both used to follow the direct proof alone: a body knocked toward a ledge faster
-            // than it walks mislands going straight off and is rescued by shedding speed first, and with the
-            // allowance starved every such refusal was remembered and struck, three to eight per approach,
-            // which is two strikes and a spot ban for a goal the body then reached. A preparation refusal is
-            // only ever made at entry, because preparation declines an attempt that has begun.
+            // proof said — a body knocked toward a ledge faster than it walks mislands going straight off
+            // and is rescued by shedding speed first, and striking every such refusal cost three to eight
+            // strikes per approach, which is two strikes and a spot ban for a goal the body then reached.
+            //
+            // What that exemption may not be is reachable by ordinary running, and for a wall-clock
+            // allowance it was: two milliseconds against a search that re-simulates a whole macro per
+            // candidate prefix meant the budget was spent on essentially every jump refusal, so a refused
+            // entry earned no strike, no memory and no controls, the body did not move, and the plan
+            // returned the same edge for ever. The 09:28 capture of 14 September holds 684 such rejections
+            // against a single jump fault, 390 of them bit-identical on one edge. The allowance is
+            // counted in simulated body ticks now and sized to cover the whole search, so exhausting it
+            // is a rare and reproducible fact about the move rather than a report on how busy the frame
+            // was — which is what makes this exemption safe to keep.
             bool preparationSpent = local.PreparationResult == "search-budget-exhausted";
             if (physicallyImpossible && atEntry && !preparationSpent)
                 RememberRejectedEntry(step, live);
-            // Which contract refused the step. A preparation search that ran out of its allowance
-            // has not shown the entry impossible, whatever the direct proof said; a refusal with no
-            // physical fault came from the threat forecast; a physical fault before the first tick is
-            // the refused entry, and after it the attempt's own observations decide.
+            // Which contract refused the step: a preparation search that ran out has not shown the
+            // entry impossible, whatever the direct proof said; a refusal with no physical fault
+            // came from the threat forecast; a physical fault before the first tick is the refused
+            // entry, and after it the attempt's own observations decide.
             var (ending, failure, reason) = preparationSpent
                 ? (AttemptEnding.Cancelled, MovementFailure.UnfinishedSearch, "preparation-budget")
                 : !physicallyImpossible ? (AttemptEnding.Preempted, MovementFailure.Preempted, "unsafe-forecast")
@@ -862,17 +875,15 @@ public sealed class Navigator
         controls = Controls.None;
         if (!live.OnGround) return false;
         var candidates = new System.Collections.Generic.List<NavStep>();
-        if (step.Kind == MoveKind.Jump)
-        {
-            int rise = (int)Math.Ceiling((live.Bottom - NavGrid.FeetWorld(step.Tile).Y) / 16f);
-            foreach (var profile in JumpTraversal.JumpProfiles(rise, Math.Sign(step.Tile.X - live.FeetTile.X), BodyMotion.GravityAt(NavGrid.World, live)))
-                candidates.Add(step with { JumpScale = profile.scale, StartVx = profile.startVx });
-        }
-        else
-        {
-            foreach (var edge in For(step.Kind).Candidates(new NavNode(live.FeetTile, live.Mobility), live.Pose, AStar.AllowLava))
-                if (edge.Step.Tile == step.Tile) candidates.Add(edge.Step);
-        }
+        // Every kind refines the same way: ask the traversal for the edges it can prove out of the
+        // body's own tile and pose, and keep the ones that reach this step's tile. A jump used to
+        // be the exception here, pairing the step with each entry from the profile table directly,
+        // which made this a second producer of jump edges — and the only one that never ran the
+        // take-off, so the steps it built carried a nominal speed with no run-up mark and no
+        // proven launch point behind it. The refinement is exactly the place a step must be
+        // proven hardest, because it exists to answer a proof that has already failed once.
+        foreach (var edge in For(step.Kind).Candidates(new NavNode(live.FeetTile, live.Mobility), live.Pose, AStar.AllowLava))
+            if (edge.Step.Tile == step.Tile) candidates.Add(edge.Step);
         foreach (NavStep candidate in candidates)
         {
             if (candidate == step) continue;

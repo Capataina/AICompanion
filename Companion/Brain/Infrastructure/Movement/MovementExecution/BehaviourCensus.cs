@@ -50,6 +50,18 @@ public static class BehaviourCensus
     private static readonly int[,] faults = new int[Kinds, Enum.GetValues<TraversalFault>().Length];
 
     /// <summary>
+    /// Steps the macro proof refused before the attempt ever began, per kind and per reason the
+    /// proof gave. They are counted apart from faults because they are not faults and cannot
+    /// become them: a refusal happens before the first tick, so nothing is begun, nothing is
+    /// finished, and every column above it stays at zero. The 09:28 capture of 14 September is
+    /// what this is for — 684 physical-fault refusals against a census reporting one jump fault,
+    /// with the difference visible nowhere at all. A move refused hundreds of times and a move
+    /// that failed once are opposite findings, and a census that can only show the second reports
+    /// the companion as almost never failing to move while it stands still.
+    /// </summary>
+    private static readonly int[,] refused = new int[Kinds, Enum.GetValues<TraversalFault>().Length];
+
+    /// <summary>
     /// Walks split by which way they go, because "it does not like walking down slopes" is a claim
     /// about one third of the walk rows and the record could not answer it. A walk edge is offered
     /// for the same row, one row up (a kerb the step-up lifts over) or one row down (a slope or a
@@ -77,6 +89,7 @@ public static class BehaviourCensus
         Array.Clear(interrupted);
         Array.Clear(endings);
         Array.Clear(faults);
+        Array.Clear(refused);
         Array.Clear(walkPlanned);
         Array.Clear(walkBegun);
         Array.Clear(walkCompleted);
@@ -112,6 +125,14 @@ public static class BehaviourCensus
     }
 
     /// <summary>The step ended, either done (<see cref="TraversalFault.None"/>) or faulted with a reason, and <paramref name="ending"/> says who ended it.</summary>
+    /// <summary>A step the macro proof refused from the live body before the attempt began, with the fault the proof predicted.</summary>
+    public static void Refused(NavStep step, TraversalFault predicted)
+    {
+        int k = (int)step.Kind;
+        if (k >= 0 && k < Kinds && (int)predicted >= 0 && (int)predicted < refused.GetLength(1))
+            refused[k, (int)predicted]++;
+    }
+
     public static void Finished(NavStep step, TraversalFault outcome, AttemptEnding ending)
     {
         int kind = (int)step.Kind;
@@ -190,6 +211,25 @@ public static class BehaviourCensus
                     reasons.Add($"{(TraversalFault)f} {faults[k, f]:n0}");
             sb.AppendLine($"  {((MoveKind)k).ToString(),-14}{planned[k],8:n0} {begun[k],8:n0} {completed[k],8:n0} {faulted[k],8:n0} {interrupted[k],11:n0}   {(reasons.Count == 0 ? "-" : string.Join(", ", reasons))}");
         }
+        sb.AppendLine();
+        sb.AppendLine("  steps refused before they began, which never reach the columns above");
+        bool anyRefusal = false;
+        for (int k = 0; k < Kinds; k++)
+        {
+            var reasons = new List<string>();
+            int total = 0;
+            for (int f = 1; f < refused.GetLength(1); f++)
+                if (refused[k, f] > 0)
+                {
+                    reasons.Add($"{(TraversalFault)f} {refused[k, f]:n0}");
+                    total += refused[k, f];
+                }
+            if (total == 0) continue;
+            anyRefusal = true;
+            sb.AppendLine($"  {((MoveKind)k).ToString(),-14}{total,8:n0}   {string.Join(", ", reasons)}");
+        }
+        if (!anyRefusal)
+            sb.AppendLine("    none, which means every step the planner offered was one the proof accepted from the live body");
         sb.AppendLine();
         sb.AppendLine("  attempts by who ended them, because a move another owner took is not a move that failed");
         sb.AppendLine("  move           completed physical-failure pre-empted  cancelled");
