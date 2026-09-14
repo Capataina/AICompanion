@@ -71,14 +71,6 @@ public readonly record struct PlayerIntentRegion(Vector2 Centre, Vector2 HalfSiz
         => MathF.Abs(feet.X - Centre.X) <= MathF.Max(0f, HalfSize.X - arrivalSlack)
             && MathF.Abs(feet.Y - Centre.Y) <= MathF.Max(0f, HalfSize.Y - arrivalSlack);
 
-    /// <summary>How far this place is from the region, in px, or zero inside it. The distance every
-    /// "near the player" radius is now measured with.</summary>
-    public float DistanceFrom(Vector2 point)
-    {
-        float dx = MathF.Max(0f, MathF.Abs(point.X - Centre.X) - HalfSize.X);
-        float dy = MathF.Max(0f, MathF.Abs(point.Y - Centre.Y) - HalfSize.Y);
-        return MathF.Sqrt(dx * dx + dy * dy);
-    }
 }
 
 /// <summary>
