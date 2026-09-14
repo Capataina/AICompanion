@@ -56,7 +56,7 @@ public sealed class BrainTelemetry : ModSystem
     // declaration below is a hand-maintained parallel to the header builder and that omission is what it
     // costs; SessionReport now unions its own known-textual set with whatever a capture declares, so an
     // already-written capture is read correctly rather than only the next one.
-    private const string Schema = "0.32.0";
+    private const string Schema = "0.33.0";
     // The cost of the previous row's Record call: a row cannot contain the time spent writing itself, so each row carries
     // the one before it and the first row of a session carries none.
     private static readonly Stopwatch recordClock = new();
