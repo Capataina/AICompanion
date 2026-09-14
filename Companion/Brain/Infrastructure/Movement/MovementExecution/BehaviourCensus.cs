@@ -133,8 +133,7 @@ public static class BehaviourCensus
             walkBegun[Vertical(step)]++;
     }
 
-    /// <summary>The step ended, either done (<see cref="TraversalFault.None"/>) or faulted with a reason, and <paramref name="ending"/> says who ended it.</summary>
-    /// <summary>A voluntary release arrived while this step was committed and was held until it landed.</summary>
+    /// <summary>A voluntary release arrived while this step was committed and was held until it landed; counted once per step.</summary>
     public static void ReleaseDeferred(NavStep step)
     {
         int k = (int)step.Kind;
@@ -149,6 +148,7 @@ public static class BehaviourCensus
             refused[k, (int)predicted]++;
     }
 
+    /// <summary>The step ended, either done (<see cref="TraversalFault.None"/>) or faulted with a reason, and <paramref name="ending"/> says who ended it.</summary>
     public static void Finished(NavStep step, TraversalFault outcome, AttemptEnding ending)
     {
         int kind = (int)step.Kind;

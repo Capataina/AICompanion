@@ -144,6 +144,10 @@ public static class TravelEpisodes
             "travel" or "seeking-destination" => brain.LastRequest.Kind.ToString(),
             // A Hold request is the ordinary way an episode ends, and the census treats it the same way.
             "hold" => null,
+            // A release the navigator is holding until the move in hand lands is the same journey
+            // still being walked; the episode closes when the release applies and the source
+            // becomes a plain hold.
+            "travel-committed" => episodeKind,
             // Safety, recovery and downing leave the episode open: an ask does not stop being one because something else
             // took the body for a moment, and an episode interrupted by a dodge is one episode. What the census does with
             // those ticks is not a precedent here, though — it counts asks, and this counts time, so a boundary rule that

@@ -202,6 +202,7 @@ public sealed class Navigator
     // (safety, downing, recovery) still takes the body at once, because those owners supply
     // their own controls; only a release that would leave the body with none is deferred.
     private string? pendingRelease;
+    private NavStep? deferredStep;
     private Vector2 lastTargetFeet;
     /// <summary>A voluntary release is waiting for the committed move in hand to land.</summary>
     public bool ReleasePending => pendingRelease != null;
@@ -240,28 +241,40 @@ public sealed class Navigator
     {
         if (pendingRelease is not string cause) return Controls.None;
         if (Committed(live)) return Tick(live, lastTargetFeet);
-        // The move has landed. A step whose Done is true is reported completed before the
-        // release drops the path, or the census would read the landing as a cancellation, which
-        // is the very row this deferral exists to empty.
-        if (onStep is NavStep landed && execution?.IsDone(live) == true)
-        {
-            Report(landed, ticksOnStep, TraversalFault.None, AttemptEnding.Completed);
-            onStep = null;
-            execution = null;
-        }
         pendingRelease = null;
         Interrupt(live, AttemptEnding.Cancelled, cause);
         return Controls.None;
     }
 
     /// <summary>
-    /// A body is committed while it is airborne, or while its step is in the part of a move a fresh
-    /// plan would undo (a jump's back-off and run-in, a validated preparation prefix). A grounded
-    /// walk is not: it can stop on any tick, and a release stops it at once.
+    /// A body is committed while it is in flight, or while its step is in the part of a move a
+    /// fresh plan would undo (a jump's back-off and run-in, a validated preparation prefix). A
+    /// grounded walk is not: it can stop on any tick, and a release stops it at once. "In flight"
+    /// is not merely "not on the ground": the ground flag is the engine's vertical velocity being
+    /// zero, and a pinned body accumulates gravity without moving, so it reads as airborne for as
+    /// long as it is held; the stuck and planning gates already exempt that body through
+    /// CannotAct, and a commitment that did not would hold a release for the whole pin.
     /// </summary>
     private bool Committed(BodyState live)
         => Path is { Finished: false } && onStep != null
-            && (!live.OnGround || local.Preparing || (execution?.MidMove ?? false));
+            && ((!live.OnGround && !live.CannotAct) || local.Preparing || (execution?.MidMove ?? false));
+
+    /// <summary>
+    /// A step whose Done is already true is reported completed before anything drops the path.
+    /// Interrupt is called by the coordinator on every tick a request is held, including the tick
+    /// the deferred move lands, and on that tick the body is grounded and no longer committed, so
+    /// without this the landing the deferral protected was filed as a cancellation and never
+    /// learned into route memory, which only records completed steps.
+    /// </summary>
+    private void SettleLandedStep(BodyState live)
+    {
+        if (onStep is NavStep landed && execution?.IsDone(live) == true)
+        {
+            Report(landed, ticksOnStep, TraversalFault.None, AttemptEnding.Completed);
+            onStep = null;
+            execution = null;
+        }
+    }
 
     private Controls Tick(BodyState live, Vector2 targetFeet)
     {
@@ -430,8 +443,11 @@ public sealed class Navigator
         // a committed move never legitimately does. A stale search under a committed move is safe
         // to leave until the move lands: the macro proof re-validates its retained controls against
         // the terrain revision every tick, so a step the edit actually broke faults and replans
-        // from there rather than being trusted.
-        bool replan = goalMoved ? !midMove || stuck : stale && (!midMove || stuck);
+        // from there rather than being trusted. A policy change is not a terrain revision and the
+        // proof does not re-check it (lava permission follows the body's life, one-way drops the
+        // request kind), so it replans a grounded run-up at once; an airborne body is still
+        // planned only from the ground by the gate below, so the exposure is one flight.
+        bool replan = goalMoved ? !midMove || stuck : stale && (!midMove || stuck || policyChanged);
         if (search != null && !goalMoved && !forceReplan && !policyChanged && search.Valid
             && (!search.Finished || search.Stop == AStar.SearchStopReason.Found && (Path == null || Path.Partial)))
         {
@@ -530,11 +546,15 @@ public sealed class Navigator
         // owner is about to supply the body's controls itself.
         if (!preempted && Committed(live))
         {
-            if (pendingRelease == null) { DeferredReleases++; BehaviourCensus.ReleaseDeferred(onStep!.Value); }
+            // Counted once per step, not once per deferral: a request that flickers between
+            // WithPlayer and Hold across one flight defers on every Hold tick, and a count per
+            // deferral would read one jump as several.
+            if (deferredStep != onStep) { DeferredReleases++; BehaviourCensus.ReleaseDeferred(onStep!.Value); deferredStep = onStep; }
             pendingRelease = cause;
             return;
         }
         pendingRelease = null;
+        if (!preempted) SettleLandedStep(live);
         Status = ExecutionStatus.Idle;
         if (onStep is NavStep step)
             Report(step, ticksOnStep, TraversalFault.Interrupted, preempted ? AttemptEnding.Preempted : AttemptEnding.Cancelled,

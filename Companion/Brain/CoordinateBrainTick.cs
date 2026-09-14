@@ -349,16 +349,27 @@ public sealed class Brain
             var objective = new FollowPlayerObjective(Senses.Player.Bottom, LastRequest.Anchor);
             BehaviourCensus.RequestBegan(LastRequest.Kind.ToString());
             owner = "seeking-destination";
-            return Movement.SeekDestination(companion.Motor.State, LastRequest.Anchor,
+            Controls seeking = Movement.SeekDestination(companion.Motor.State, LastRequest.Anchor,
                 state => state.OnGround && objective.IsSatisfied(state.Feet,
                     Terraria.Collision.CanHitLine(new Vector2(state.Left, state.Bottom - BodyPhysics.Height),
                         BodyPhysics.Width, BodyPhysics.Height, Senses.PlayerEntity.position,
                         Senses.PlayerEntity.width, Senses.PlayerEntity.height)));
+            if (Navigator.ReleasePending) owner = "travel-committed";
+            return seeking;
         }
         else
         {
             owner = "hold";
             Controls controls = Movement.Hold(companion.Motor.State, LastRequest.JumpScale);
+            // A release the navigator held until the move in hand lands is still that move's
+            // travel: the record names it apart from a hold, so a body steered through a deferral
+            // does not read as one holding still, and the ask it was walking stays open until the
+            // release actually applies.
+            if (Navigator.ReleasePending)
+            {
+                owner = "travel-committed";
+                return controls;
+            }
             // Nothing is being asked for, so whatever was being asked for is over: reached if the
             // navigator got there, abandoned otherwise. A Hold request is the ordinary way an
             // episode ends, which is why this is not treated as a failure.

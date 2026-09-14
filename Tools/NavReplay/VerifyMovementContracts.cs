@@ -472,11 +472,16 @@ internal static class VerifyMovementContracts
         NavGrid.World = world;
         AStar.InvalidateEdges();
         AStar.AllowLava = false;
-        var nav = new Navigator();
+        // Driven through the coordinator and not the navigator, because the coordinator is the
+        // production seam: its Hold calls Interrupt on every held tick, including the tick the
+        // deferred move lands, and the first version of this test (driving the navigator directly)
+        // passed while that seam filed every landing under a held release as a cancellation.
+        var move = new CoordinateMovement();
+        Navigator nav = move.Navigator;
         var live = new BodyState(6 * 16, 10 * 16, 0, 0, true);
         var target = new Vector2(24 * 16 + 8, 8 * 16);
         int completedBefore = nav.CompletedAttempts, cancelledBefore = nav.CancelledAttempts;
-        bool released = false; int airborneTicks = 0, ticks = 0; NavStep? jump = null;
+        bool released = false; int airborneTicks = 0, ticks = 0, heldTicks = 0; NavStep? jump = null;
         for (; ticks < 1200 && !nav.Arrived; ticks++)
         {
             Controls controls;
@@ -484,35 +489,40 @@ internal static class VerifyMovementContracts
             {
                 // The brain withdraws its request one tick into the flight, as keep-company did.
                 jump = path.Current;
-                nav.Interrupt(live, AttemptEnding.Cancelled, "released");
+                controls = move.Hold(live);
                 released = true;
                 Require(nav.ReleasePending, "a release issued in the air must be deferred, not applied");
                 Require(nav.Path is { Finished: false }, "a deferred release must leave the path in hand");
-                controls = nav.ContinueCommitted(live);
                 Require(controls != Controls.None, "a body in the air keeps its in-flight steer while the release waits");
             }
             else if (released && nav.ReleasePending)
-                controls = nav.ContinueCommitted(live);
+            {
+                // Every later tick the brain still asks to hold, as it does in play.
+                controls = move.Hold(live);
+                heldTicks++;
+            }
             else if (released)
                 break;
             else
-                controls = nav.MoveTo(live, target);
+                controls = move.MoveTo(live, target);
             if (!live.OnGround) airborneTicks++;
             live = BodyMotion.Step(world, live, controls, nav.Capabilities);
         }
         Require(released, $"the route onto the ledge must contain a jump the body flies, or this measures nothing (ticks={ticks}, status={nav.Status})");
         Require(!nav.ReleasePending && nav.Path == null && nav.Status == Navigator.ExecutionStatus.Idle,
             $"the deferred release must apply once the jump lands (pending={nav.ReleasePending}, status={nav.Status})");
-        Require(nav.CompletedAttempts >= completedBefore + 1,
-            $"the jump must complete before the release is applied (completed +{nav.CompletedAttempts - completedBefore}, cancelled +{nav.CancelledAttempts - cancelledBefore})");
+        Require(nav.LastEdge is { Kind: MoveKind.Jump, Outcome: TraversalFault.None } && nav.LastEnding == AttemptEnding.Completed,
+            $"the landed jump must be the last edge reported and reported completed (last={nav.LastEdge}, ending={nav.LastEnding})");
         Require(nav.CancelledAttempts == cancelledBefore,
             $"a release deferred to the landing must not add a cancelled step to the census (cancelled +{nav.CancelledAttempts - cancelledBefore})");
-        Require(nav.DeferredReleases == 1, $"one release was deferred, and the count reads {nav.DeferredReleases}");
+        Require(nav.DeferredReleases == 1, $"one step's release was deferred however many ticks it was held, and the count reads {nav.DeferredReleases}");
         Require(live.OnGround && live.Bottom <= 8 * 16 + 1, $"the body must land on the ledge rather than fall short (bottom={live.Bottom})");
-        Console.WriteLine($"   committed move survives release: jump {jump?.From.X},{jump?.From.Y}->{jump?.Tile.X},{jump?.Tile.Y} released in the air, {airborneTicks} airborne ticks, landed at bottom={live.Bottom} after {ticks} ticks; completed +{nav.CompletedAttempts - completedBefore}, cancelled +{nav.CancelledAttempts - cancelledBefore}, deferred {nav.DeferredReleases}");
+        Console.WriteLine($"   committed move survives release: jump {jump?.From.X},{jump?.From.Y}->{jump?.Tile.X},{jump?.Tile.Y} released in the air and held for {heldTicks} more ticks, {airborneTicks} airborne ticks, landed at bottom={live.Bottom} after {ticks} ticks; last edge {nav.LastEdge?.Kind} {nav.LastEnding}, cancelled +{nav.CancelledAttempts - cancelledBefore}, completed +{nav.CompletedAttempts - completedBefore}, deferred {nav.DeferredReleases}");
 
-        // The counterpart: a release on a grounded walk applies at once, and a pre-emption in the
-        // air applies at once, because the pre-empting owner supplies the body's controls itself.
+        // The counterparts: a release on a grounded walk applies at once; a pre-emption in the air
+        // applies at once, because the pre-empting owner supplies the body's controls itself; and
+        // a pinned body, which the engine reports as airborne because its vertical velocity is
+        // not zero while it does not move, is not in flight and does not hold a release either.
         var walker = new Navigator();
         var onFloor = new BodyState(6 * 16, 10 * 16, 0, 0, true);
         Controls first = walker.MoveTo(onFloor, new Vector2(12 * 16, 10 * 16));
@@ -524,6 +534,10 @@ internal static class VerifyMovementContracts
         walker.MoveTo(onFloor, new Vector2(12 * 16, 10 * 16));
         walker.Interrupt(airborne, AttemptEnding.Preempted, "state-search");
         Require(!walker.ReleasePending && walker.Path == null, "a pre-emption is never deferred");
+        var pinned = onFloor with { OnGround = false, Vy = 0.3f, Pinned = true };
+        walker.MoveTo(onFloor, new Vector2(12 * 16, 10 * 16));
+        walker.Interrupt(pinned, AttemptEnding.Cancelled, "released");
+        Require(!walker.ReleasePending && walker.Path == null, "a pinned body is not in flight, so a release on it is applied at once");
     }
 
     /// <summary>A floor at row 10 with a two-tile-high ledge from column 20 onward, so a route east holds one jump.</summary>
