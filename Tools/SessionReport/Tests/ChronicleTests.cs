@@ -448,6 +448,20 @@ public static class ChronicleTests
             "zero-tick metadata or lifecycle callback evidence is missing from the recorder contract");
         Require(telemetry.Contains("RecordLifecycle", StringComparison.Ordinal) && telemetry.Contains("outer-load=unobservable", StringComparison.Ordinal),
             "lifecycle evidence no longer states the boundary between this callback and Terraria's outer load");
+
+        // The preamble's world and capability lines, pinned as producer literals because nothing in
+        // this suite executes them. No fixture opens a recorder session — they reach in and call
+        // Close — so WriteMetadata never runs headless, and a green suite says nothing about
+        // whether these two lines are written. What a pin does catch is the likelier failure by far:
+        // somebody renaming or dropping a line that a reader downstream is about to depend on.
+        // What it cannot catch is the behaviour, and that is a real gap, closed only by a playtest
+        // or by a fixture that opens a session.
+        Require(telemetry.Contains("# capabilities=", StringComparison.Ordinal) && telemetry.Contains("# world=", StringComparison.Ordinal),
+            "the capture no longer declares which world and which movement kits produced it, so an old capture replayed against a mined-through world reads as a regression in everything");
+        Require(telemetry.Contains("MovementCapabilities.Basic", StringComparison.Ordinal) && telemetry.Contains("rocketBoots", StringComparison.Ordinal),
+            "the capability line no longer reads both kits from their own sources, and an inferred ability is a heuristic running underneath the thing being measured");
+        Require(!telemetry.Contains("identity.GetHashCode()", StringComparison.Ordinal) && telemetry.Contains("14695981039346656037UL", StringComparison.Ordinal),
+            "the world hash is no longer FNV-1a: string.GetHashCode() is randomised per process, so a hash taken from it differs between two captures of one world and agrees with nothing, including itself tomorrow");
     }
 
     /// <summary>
