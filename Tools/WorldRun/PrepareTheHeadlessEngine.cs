@@ -45,13 +45,67 @@ internal static class PrepareTheHeadlessEngine
     /// or cleared *after* the world is loaded, because a grid built against an empty tilemap
     /// answers every question about a world it has never seen.
     /// </summary>
+    /// <summary>
+    /// Every per-slot entity array the engine dereferences without checking for null, filled with
+    /// fresh inactive instances.
+    ///
+    /// The authority is <c>Main.Initialize_Entities</c>, which is what a launched game runs and
+    /// which nothing here runs: it allocates the arrays *and* an object in every slot, and the
+    /// engine's own code then reads <c>Main.gore[i].active</c> or <c>Main.dust[i].type</c> with no
+    /// guard, because in a real process there is always something there. Any slot left null is a
+    /// null reference thrown from deep inside a game path, thousands of ticks into a run, the first
+    /// time a behaviour reaches an effect nobody thought about.
+    ///
+    /// That is not hypothetical, and how the list was arrived at is the part worth keeping. Five of
+    /// these seven were filled one at a time as each crash was met during construction, which makes
+    /// a list only as complete as the code paths that happened to run. Gore was found by the first
+    /// whole-capture run — chopping a tree reaches
+    /// <c>WorldGen.KillTile → ShakeTree → TreeGrowFX → Gore.NewGore</c>, which walks all 601 slots
+    /// looking for a free one, and no window short enough for the verify script had ever let the
+    /// companion finish a tree. Player was found by the run after that, and it is the more useful
+    /// of the two: it had been excluded on purpose and with a reason — the stand-in is built by
+    /// hand and 256 real players are expensive — and the reasoning was simply wrong, because
+    /// <c>Player.FindClosest</c> walks the whole array and <c>WorldGen.KillTile_DropBait</c> reaches
+    /// it on any tile break. Reasoning about which slots the engine touches is what failed twice,
+    /// so the method ends by walking every array and naming any null slot rather than waiting for a
+    /// stack trace to.
+    ///
+    /// The fill is a reset rather than a top-up, because it runs once per attached companion and an
+    /// excursion that inherited the last one's live projectiles would not be the run it claims. The
+    /// players are the exception and are topped up, for the reason given at that line.
+    /// </summary>
+    private static void FillEveryEntitySlotTheEngineDereferences()
+    {
+        for (int i = 0; i < Main.npc.Length; i++) Main.npc[i] = new NPC { whoAmI = i, active = false };
+        for (int i = 0; i < Main.projectile.Length; i++) Main.projectile[i] = new Projectile { whoAmI = i, active = false };
+        for (int i = 0; i < Main.item.Length; i++) Main.item[i] = new Item { whoAmI = i, active = false };
+        for (int i = 0; i < Main.dust.Length; i++) Main.dust[i] = new Dust { dustIndex = i, active = false };
+        for (int i = 0; i < Main.gore.Length; i++) Main.gore[i] = new Gore { active = true };
+        // Every slot taken, so a native strike's damage popup finds none free and returns rather
+        // than measuring text with fonts nothing here loads.
+        for (int i = 0; i < Main.combatText.Length; i++) Main.combatText[i] = new CombatText { active = true };
+        // All 256 players exist because Player.FindClosest walks the whole array and reads .active
+        // off every element, which WorldGen.KillTile_DropBait reaches on any tile break that could
+        // drop bait — slot zero is then replaced by the stand-in the caller builds. These are a
+        // top-up rather than a reset, unlike everything above: nothing in this host ever makes a
+        // second player active, so an inactive slot cannot carry state into a later run, and a
+        // Player is an expensive object to allocate 256 of on every excursion.
+        for (int i = 0; i < Main.player.Length; i++) Main.player[i] ??= new Player { whoAmI = i, active = false };
+
+        foreach ((string name, System.Collections.IList slots) in new (string, System.Collections.IList)[]
+                 { ("npc", Main.npc), ("projectile", Main.projectile), ("item", Main.item),
+                   ("dust", Main.dust), ("gore", Main.gore), ("combatText", Main.combatText),
+                   ("player", Main.player) })
+            for (int i = 0; i < slots.Count; i++)
+                if (slots[i] == null)
+                    throw new InvalidOperationException($"Main.{name}[{i}] is null after the headless fill; "
+                        + "the engine dereferences these slots without a guard, so a run would throw from inside a game path");
+    }
+
     public static CompanionNPC AttachCompanion(Vector2 feet, Vector2 playerFeet)
     {
         Main.myPlayer = 0;
-        // Native strikes look for a cosmetic damage slot even headless, and would otherwise measure
-        // a damage popup with fonts nothing here loads.
-        for (int i = 0; i < Main.combatText.Length; i++) Main.combatText[i] ??= new CombatText { active = true };
-        for (int i = 0; i < Main.dust.Length; i++) Main.dust[i] ??= new Dust();
+        FillEveryEntitySlotTheEngineDereferences();
         foreach (int item in new[] { ItemID.WoodenBow, ItemID.WoodenArrow, ItemID.ThrowingKnife, ItemID.CopperPickaxe, ItemID.CopperAxe })
         {
             var sample = new Item();
@@ -76,10 +130,6 @@ internal static class PrepareTheHeadlessEngine
             .SetValue(companionPlayer, Main.player[0]);
         typeof(Player).GetField("modPlayers", BindingFlags.Instance | BindingFlags.NonPublic)!
             .SetValue(Main.player[0], new ModPlayer[] { companionPlayer });
-
-        for (int i = 0; i < Main.npc.Length; i++) Main.npc[i] = new NPC { whoAmI = i, active = false };
-        for (int i = 0; i < Main.projectile.Length; i++) Main.projectile[i] = new Projectile { whoAmI = i, active = false };
-        for (int i = 0; i < Main.item.Length; i++) Main.item[i] = new Item { whoAmI = i, active = false };
 
         // No recorder is attached and none is started. That is deliberate rather than an omission:
         // a world run reports through ledger rows, and a recorder left running would drop a
@@ -196,6 +246,33 @@ internal static class PrepareTheHeadlessEngine
     /// The brain keys caches on this counter, so a run that never moved it would let every
     /// tick-aged answer live forever — which reads as a brain that never rethinks anything.
     /// </summary>
+    /// <summary>
+    /// Puts the world clock at a stated tick, which every pass does before its first tick.
+    ///
+    /// Without it the clock only ever counts up, so a second pass in the same process begins its
+    /// route thousands of ticks later in world time than the first did — and the brain has a family
+    /// of guards shaped `Main.GameUpdateCount - someStoredTick &lt; N` whose stored tick is zero in a
+    /// freshly attached brain. At a clock near zero that arithmetic reads "this happened just now";
+    /// at a clock in the tens of thousands the same zero reads "this happened long ago", so the two
+    /// passes take different branches from state that is otherwise identical.
+    ///
+    /// That is what the first whole-capture determinism row caught: two passes of the 13:27 capture
+    /// disagreed at step 2640, walking opposite directions from positions 0.3 px apart, and the
+    /// whole disagreement reproduced exactly across two separate processes — which is what rules
+    /// out the wall clock and names carried process state instead. Every window before it agreed
+    /// because none was long enough to reach a guard of that shape.
+    ///
+    /// The clock starts at the capture's own first tick rather than at zero, so world time in the
+    /// run means the same thing as the tick column in the recording.
+    /// </summary>
+    public static void StartTheWorldClockAt(ulong tick)
+    {
+        FieldInfo field = typeof(Main).GetField("GameUpdateCount", BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic)
+            ?? typeof(Main).GetField("_gameUpdateCount", BindingFlags.Static | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("Terraria's game-update counter cannot be reached, so two passes could not be started at one world time");
+        field.SetValue(null, field.FieldType == typeof(uint) ? (object)(uint)tick : tick);
+    }
+
     public static void AdvanceTheWorldClock()
     {
         FieldInfo field = typeof(Main).GetField("GameUpdateCount", BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic)

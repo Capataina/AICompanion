@@ -186,25 +186,66 @@ internal static class ScoreTheRun
             return;
         }
 
-        if (route.Kits.PlayerCanLeaveTheGround)
+        string[] beyond = AbilitiesThePlayerHadAndTheCompanionDoesNot(route.Kits);
+        if (beyond.Length > 0)
         {
             EmitLedgerRows.Skipped(Instrument, suite, "every unreached checkpoint is outside the companion's kit or a real miss",
-                $"the player carried {route.Kits.Raw}; every unreached checkpoint is filtered because a kit that leaves "
-                + "the ground can reach places the companion's declared kit cannot express",
+                $"the player carried {string.Join(" and ", beyond)} and the companion's declared kit does not "
+                + $"({DescribeTheCompanionsDeclaredKit()}); every unreached checkpoint is filtered, because nothing "
+                + "says which checkpoint needed the ability and the plan refuses inferring that from the track. "
+                + $"The capture's line was {route.Kits.Raw}",
                 tags: new[] { "outside-the-envelope" });
             return;
         }
 
         if (missed == 0)
             EmitLedgerRows.Pass(Instrument, suite, "every unreached checkpoint is outside the companion's kit or a real miss",
-                $"the player walked ({route.Kits.Raw}) and the body reached all {total} checkpoints",
+                $"the player reached every checkpoint with a kit the companion's own declaration covers "
+                + $"({route.Kits.Raw}), and the body reached all {total} checkpoints",
                 mode: "unbounded-allowances",
                 killedBy: "counting a checkpoint as reached on the tick the player stood there rather than at any point in the run");
         else
             EmitLedgerRows.Fail(Instrument, suite, "every unreached checkpoint is outside the companion's kit or a real miss",
-                $"the player reached {total} checkpoints on foot ({route.Kits.Raw}) and the body missed {missed} of them; "
+                $"the player reached {total} checkpoints with nothing the companion's kit lacks ({route.Kits.Raw}) "
+                + $"and the body missed {missed} of them; "
                 + $"the planner called {plannerSaidNo} unreachable and had not finished flooding {plannerUnfinished}",
                 mode: "unbounded-allowances");
+    }
+
+    /// <summary>
+    /// The abilities the recorded player carried that the companion's own declaration does not
+    /// claim — which is what "filtered" means, rather than "the player left the ground".
+    ///
+    /// The comparison is against <c>MovementCapabilities.Basic</c>, the mod's declaration of the
+    /// shipping kit and the same value the recorder writes into the capture's companion half. That
+    /// is what makes the filter narrow on its own: the day flight lands in that record, a capture
+    /// of a flying player stops being filtered here and starts being graded, with nothing in this
+    /// file edited. Reading the companion's half out of the capture instead would compare this
+    /// build against a kit some older build declared, which is the one comparison the row must
+    /// never make.
+    ///
+    /// Each player flag maps to the companion ability that would answer it: anything that carries
+    /// a body through air — a mount, wings, rocket boots — is answered by flight, and a dash by a
+    /// dash. Swimming has no player flag to read, so it is not compared; a capture of a player who
+    /// swam somewhere the companion cannot is a gap this row does not close, and the counts above
+    /// are what a reader has instead.
+    /// </summary>
+    private static string[] AbilitiesThePlayerHadAndTheCompanionDoesNot(ReadRecordedRoute.Kits kits)
+    {
+        var companion = live::AICompanion.Companion.Brain.Infrastructure.Movement.MovementCapabilities.Basic;
+        var beyond = new List<string>();
+        if (kits.PlayerCanLeaveTheGround && !companion.CanFly)
+            beyond.Add("a kit that leaves the ground (" + string.Join(", ",
+                new[] { kits.PlayerMount ? "mount" : null, kits.PlayerWings ? "wings" : null, kits.PlayerRocketBoots ? "rocket boots" : null }
+                    .Where(p => p != null)) + ")");
+        if (kits.PlayerDash && !companion.CanDash) beyond.Add("a dash");
+        return beyond.ToArray();
+    }
+
+    private static string DescribeTheCompanionsDeclaredKit()
+    {
+        var kit = live::AICompanion.Companion.Brain.Infrastructure.Movement.MovementCapabilities.Basic;
+        return $"air-jumps={kit.AirJumpCount}, dash={kit.CanDash}, swim={kit.CanSwim}, fly={kit.CanFly}";
     }
 
     private static int FirstDisagreement(IReadOnlyList<string> first, IReadOnlyList<string> second)

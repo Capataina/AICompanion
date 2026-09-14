@@ -1,3 +1,4 @@
+extern alias live;
 using System.Diagnostics;
 using System.Globalization;
 using System.Reflection;
@@ -5,6 +6,9 @@ using Terraria;
 using Terraria.ID;
 using Terraria.IO;
 using Terraria.ModLoader;
+using Terraria.DataStructures;
+using Terraria.GameContent;
+using Terraria.ObjectData;
 
 /// <summary>
 /// Puts a real saved world into <see cref="Main.tile"/>, so the native body walks the terrain the
@@ -207,6 +211,27 @@ internal static class LoadTheSavedWorld
         // The torch colour table, which the light scanner reads for every light-emitting tile in
         // the world it scans. A real world has torches in it; the fixture scenes never did.
         TorchID.Initialize();
+
+        // The rest of the data-table half of Main.Initialize, in the game's own order, because
+        // discovering these one at a time is discovering them one crash at a time and each crash
+        // costs a whole-capture run to find. The engine's destruction path alone reaches three of
+        // them — WorldGen.KillTile asks TileObjectData for the struck tile's shape, Framing for
+        // what the neighbours become and Chest for what a broken container held — and none of it
+        // is guarded, because in a launched game all of it ran at startup.
+        //
+        // What is deliberately not here is the other half of that method: the bestiary, the drop
+        // database, the shop helper and the pylon system, which are large builds nothing this
+        // instrument does has ever reached, and the render-target and UI work, which needs a
+        // graphics device. Anything from that half that a run turns out to need belongs here with
+        // the same reasoning rather than in a catch.
+        TileObjectData.Initialize();
+        Animation.Initialize();
+        Chest.Initialize();
+        Wiring.Initialize();
+        Framing.Initialize();
+        TileEntity.InitializeAll();
+        Projectile.InitializeStaticThings();
+
         foreach (string name in new[] { "Initialize_TileAndNPCData1", "Initialize_TileAndNPCData2" })
             (typeof(Main).GetMethod(name, BindingFlags.Static | BindingFlags.NonPublic)
                 ?? throw new MissingMethodException($"Main.{name} is gone; the vanilla tile tables are built somewhere else now"))
@@ -266,6 +291,52 @@ internal static class LoadTheSavedWorld
         }
         if (filled == 0)
             throw new InvalidOperationException("no loader hook arrays were filled; tModLoader's loader shape has moved and the first engine path into a loader will crash instead");
+
+        WireTheModsOwnTerrainTracker();
+    }
+
+    /// <summary>
+    /// Puts the mod's own <c>TrackTerrainChanges</c> into the tile loader's hook arrays, because an
+    /// empty hook array is the right default for every other loader and the wrong one for this.
+    ///
+    /// The sweep above gives every unfilled hook array a length of zero, which is the honest state
+    /// for a host with no mods loaded — except that this host *is* running a mod, and one of its
+    /// global tiles is the only route by which a broken or placed tile reaches the planner.
+    /// `TerrainChanges.Changed` bumps the terrain revision and invalidates the affected A* edges,
+    /// and nothing else calls it for an ordinary tile: the chopper and the miner go through
+    /// `WorldGen.KillTile`, which announces through `TileLoader` and through nothing else.
+    ///
+    /// Left unwired, the failure is silent and survives every check in this instrument: the
+    /// companion mines a wall, the wall is gone from `Main.tile`, and the navigator goes on proving
+    /// routes against edges cached when the wall was there. It is deterministic, so two passes
+    /// agree perfectly and the determinism row stays green while the brain behaves unlike the live
+    /// game — which is the one failure mode a harness must not have. The fixture suites never met
+    /// it because they call the watcher's method directly rather than letting the engine dispatch.
+    ///
+    /// Only the four hooks that announce a terrain change are bound. Drawing and animation hooks
+    /// stay empty on purpose: a headless run has nothing to draw, and a hook bound here would be
+    /// this file deciding that the mod's drawing code should run with no graphics device.
+    /// </summary>
+    private static void WireTheModsOwnTerrainTracker()
+    {
+        var tracker = new live::AICompanion.Companion.Brain.Infrastructure.Movement.TrackTerrainChanges();
+        (string hook, string method)[] wanted =
+        {
+            ("HookKillTile", nameof(tracker.KillTile)),
+            ("HookPlaceInWorld", nameof(tracker.PlaceInWorld)),
+            ("HookSlope", nameof(tracker.Slope)),
+            ("HookHitWire", nameof(tracker.HitWire)),
+        };
+
+        foreach ((string hook, string method) in wanted)
+        {
+            FieldInfo field = typeof(TileLoader).GetField(hook, BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public)
+                ?? throw new MissingFieldException($"TileLoader.{hook} is gone; the companion's own tile edits would stop reaching the planner silently");
+            Type element = field.FieldType.GetElementType()!;
+            Array bound = Array.CreateInstance(element, 1);
+            bound.SetValue(Delegate.CreateDelegate(element, tracker, method), 0);
+            field.SetValue(null, bound);
+        }
     }
 
     /// <summary>

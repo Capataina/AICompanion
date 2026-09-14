@@ -75,10 +75,32 @@ internal static class WorldRunEntry
         // Two passes, each starting from a world that has been forgotten, because route memory, the
         // terrain revision and the edge cache are process-wide and a second pass that inherited
         // them would agree with the first for reasons unconnected to determinism.
-        PrepareTheHeadlessEngine.ForgetEverythingLearnedAboutTheWorld();
-        var first = RunTheWorld.Play(route, worldNote, seed: 1);
-        PrepareTheHeadlessEngine.ForgetEverythingLearnedAboutTheWorld();
-        var second = RunTheWorld.Play(route, worldNote, seed: 1);
+        //
+        // The tiles are reloaded between them as well, and that is not belt-and-braces. The brain
+        // mines and places torches, so a pass can leave the world it ran in a different world from
+        // the one it started in — and the second pass would then read a real difference as
+        // nondeterminism, in a row whose whole job is to tell those two apart. Reloading is cheap
+        // next to the run itself, so the check costs a fraction of a second and closes the class.
+        //
+        // More than two passes is a diagnostic rather than the row. When two passes disagree, the
+        // question that separates the two possible causes is whether the *third* agrees with the
+        // second: a one-time first-pass effect — a lazily built table, a sample mutated once, a
+        // cache warmed — makes passes two and three identical to each other and different from
+        // one, while state that keeps growing makes all three differ. That distinction decides
+        // where to look, and asking it any other way costs a day.
+        var passes = new List<RunTheWorld.Outcome>();
+        double reloadSeconds = 0;
+        for (int pass = 0; pass < Math.Max(2, Int(args, "--passes=", 2)); pass++)
+        {
+            if (pass > 0) reloadSeconds = LoadTheSavedWorld.Load(world).Seconds;
+            PrepareTheHeadlessEngine.ForgetEverythingLearnedAboutTheWorld();
+            passes.Add(RunTheWorld.Play(route, worldNote, seed: 1));
+        }
+        RunTheWorld.Outcome first = passes[0], second = passes[1];
+        Console.WriteLine($"WORLD reloaded between passes in {reloadSeconds:0.0}s, "
+            + $"so an edit a pass made to the tiles cannot read as nondeterminism");
+        if (passes.Count > 2)
+            Console.WriteLine("PASSES " + string.Join(", ", passes.Select((p, i) => $"{i + 1}:{p.TraceHash}")));
 
         Console.WriteLine($"RUN {first.Ticks} ticks in {first.Seconds:0.0}s and {second.Seconds:0.0}s "
             + $"({first.Seconds / Math.Max(1, first.Ticks) * 1000:0.0} ms/tick); trace {first.TraceHash} and {second.TraceHash}");
@@ -154,7 +176,7 @@ internal static class WorldRunEntry
               --route=<capture.tsv>   the recording whose player track is replayed
               --world=<world.wld>     the saved world it is replayed in
               --from-tick=N           seed both bodies at this recorded tick instead of the first
-              --ticks=N               how many ticks to play (default 600)
+              --ticks=N               how many ticks to play (default 600; 0 plays the whole capture)
               --suite=<name>          the ledger suite these rows belong to
 
             The world is never committed and Telemetry/ is gitignored, so both paths are named rather

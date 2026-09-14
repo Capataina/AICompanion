@@ -143,13 +143,20 @@ record_exit "engine-replay" "$engine_status"
 # It plays a slice rather than a whole capture. A full 22,473-tick recording is about five minutes
 # once the determinism row has run it twice, which is not a cost this script can carry; the whole
 # capture is a command run on purpose, and Tools/WorldRun/CLAUDE.md carries it.
+#
+# The suite name carries the capture and the tick it starts from, because the route is discovered
+# rather than fixed: the newest recording is a different route every playtest, and a fixed suite
+# name would make the same case name mean a different journey from one run to the next, so every
+# measure would read as "changed" when what changed was the input. Naming the input means a new
+# capture opens new rows and "unchanged" keeps meaning what it says.
 world_run_route="${AIC_WORLD_RUN_ROUTE:-$(ls -1t Telemetry/*.tsv 2>/dev/null | head -1)}"
 world_run_world="${AIC_WORLD_RUN_WORLD:-$(ls -1t "$HOME/Library/Application Support/Terraria/tModLoader/Worlds"/*.wld 2>/dev/null | head -1)}"
+world_run_from="${AIC_WORLD_RUN_FROM:-1}"
 world_run_log=$(mktemp)
 dotnet run --project Tools/WorldRun -- \
   --route="$world_run_route" --world="$world_run_world" \
-  --from-tick="${AIC_WORLD_RUN_FROM:-1}" --ticks="${AIC_WORLD_RUN_TICKS:-600}" \
-  --suite="recorded route" >"$world_run_log" 2>&1
+  --from-tick="$world_run_from" --ticks="${AIC_WORLD_RUN_TICKS:-600}" \
+  --suite="recorded route $(basename "$world_run_route" .tsv)@$world_run_from" >"$world_run_log" 2>&1
 world_run_status=$?
 cat "$world_run_log"
 rm -f "$world_run_log"

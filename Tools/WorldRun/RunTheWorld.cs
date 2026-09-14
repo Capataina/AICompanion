@@ -109,6 +109,9 @@ internal static class RunTheWorld
         // own movement plus every pass before it.
         live::AICompanion.Companion.Brain.Infrastructure.Movement.BehaviourCensus.Reset();
         PrepareTheHeadlessEngine.PinEveryRandomSource(seed);
+        // Before anything reads the clock, including the light warm-up: a pass that started its
+        // route at a different world time from the pass before it is not a repeat of it.
+        PrepareTheHeadlessEngine.StartTheWorldClockAt((ulong)opening.Tick);
         PrepareTheHeadlessEngine.PrepareLightServices();
 
         // The companion starts where the recording had it, which is what makes a run from a later
@@ -145,8 +148,24 @@ internal static class RunTheWorld
             PrepareTheHeadlessEngine.AdvanceTheWorldClock();
             if (DriveLight) PrepareTheHeadlessEngine.DriveLightOnce(player.Bottom.ToTileCoordinates(), LightHalfWidth, LightHalfHeight);
 
-            companion.AI();
-            PrepareTheHeadlessEngine.AdvanceTheNativeBody(companion);
+            // A throw from inside a game path — and the engine throws from several, because this
+            // host runs none of the game's startup — arrives as a stack trace with no tick on it,
+            // and finding the tick costs another whole-capture run. Naming it here turns the next
+            // round into `--from-tick=<tick minus a few hundred> --ticks=400`, which is seconds.
+            try
+            {
+                companion.AI();
+                PrepareTheHeadlessEngine.AdvanceTheNativeBody(companion);
+            }
+            catch (Exception failure)
+            {
+                var b = companion.Brain;
+                throw new InvalidOperationException(
+                    $"the run threw at recorded tick {step.Tick} (step {index} of {route.Count}), "
+                    + $"last action {b.LastAction?.Name ?? "-"}, request {b.LastRequest.Kind}, "
+                    + $"navigator {b.Navigator.Status}, body at {companion.NPC.position.X:0},{companion.NPC.position.Y:0}, "
+                    + $"player at {player.Bottom.X:0},{player.Bottom.Y:0}", failure);
+            }
 
             feet.Add(companion.NPC.Bottom);
             var brain = companion.Brain;
