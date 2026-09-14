@@ -18,7 +18,8 @@ if (args.Contains("--doors")) return VerifyDoorPassage.Run() == 0 ? 0 : 1;
 if (args.Contains("--courtesy")) return VerifyCourtesy.Run() == 0 ? 0 : 1;
 if (args.Contains("--render-ui")) return RenderNativeInterface.Run(root);
 if (args.FirstOrDefault(a => a.StartsWith("--replay-water=")) is string capture)
-    return ReplayRecordedWater.Run(capture[15..], int.Parse(args.Single(a => a.StartsWith("--tick="))[7..]));
+    return ReplayRecordedWater.Run(capture[15..], int.Parse(args.Single(a => a.StartsWith("--tick="))[7..]),
+        args.FirstOrDefault(a => a.StartsWith("--movement-ticks=")) is string span ? int.Parse(span[17..]) : null);
 if (args.Contains("--ore-work")) return VerifyEngineMotion.Run(workOnly: true);
 if (args.Contains("--mining-baseline")) return VerifyEngineMotion.Run(miningBaselineOnly: true);
 if (args.Contains("--follow")) return VerifyEngineMotion.Run(followOnly: true);

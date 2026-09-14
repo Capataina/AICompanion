@@ -1606,10 +1606,12 @@ internal static class VerifyOreWork
             "native CanHit must reject the solid ore destination but accept its exposed adjacent face");
     }
 
-    private static void InitialiseVanillaTileHooks()
+    internal static void InitialiseVanillaTileHooks()
     {
         // Mod loading normally creates these arrays. This no-mod fixture still runs actual
         // native permission, placement and destruction operations, with no registered mod hooks.
+        // Shared with the captured-window replay, whose reconstructed terrain holds ore the brain's
+        // mining search asks WorldGen.CanKillTile about; without these arrays that ask dereferences null.
         foreach (FieldInfo field in typeof(TileLoader).GetFields(BindingFlags.Static | BindingFlags.NonPublic))
             if (field.Name.StartsWith("Hook") && field.FieldType.IsArray && field.GetValue(null) == null)
                 field.SetValue(null, Array.CreateInstance(field.FieldType.GetElementType()!, 0));

@@ -10,7 +10,10 @@ using AICompanion.Companion.Brain.Infrastructure.Movement;
 /// tiles are closed boundaries; reaching them is reduced coverage, never proof of no route.</summary>
 internal static class ReplayRecordedWater
 {
-    public static int Run(string path, int tick)
+    /// <param name="movementTicks">When set, the replay runs this many ticks regardless of breathing and prints the
+    /// navigator's verdict whenever it changes, so a captured hold can be asked why on the native body — the one
+    /// question the portable compare-jump cannot answer, because both of its halves are portable.</param>
+    public static int Run(string path, int tick, int? movementTicks = null)
     {
         var lines = File.ReadLines(path).Where(l => l.Length > 0 && !l.StartsWith('#')).GetEnumerator();
         if (!lines.MoveNext()) throw new InvalidDataException("Capture has no TSV header");
@@ -34,6 +37,9 @@ internal static class ReplayRecordedWater
         Vector2 offset = new(ox * 16, oy * 16);
         typeof(Terraria.Program).GetField("SavePath", BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic)!.SetValue(null, Path.GetTempPath());
         Main.dedServ = true; Main.maxTilesX = Main.maxTilesY = side; Main.worldSurface = 0;
+        // The reconstructed window carries whatever the capture held, ore included, and the full brain's
+        // mining search asks the loader's tile hooks about it; headless those arrays are null until built.
+        VerifyOreWork.InitialiseVanillaTileHooks();
         Main.tile = (Tilemap)Activator.CreateInstance(typeof(Tilemap), BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public, null, new object[] { (ushort)side, (ushort)side }, null)!;
         Main.tileSolid[1] = true; Main.tileSolid[19] = Main.tileSolidTop[19] = true;
         var known = new bool[side, side];
@@ -101,7 +107,8 @@ internal static class ReplayRecordedWater
         Console.WriteLine($"COVERAGE static snapshot replay; uncaptured terrain is closed; {legacySnapshots} snapshots lack exact material state; moving liquids and other entities are not reconstructed; NPC body, full brain and native collision are active.");
         int dry = 0;
         var timings = new List<double>();
-        for (int step = 0; step < 1500; step++)
+        string lastMovement = "";
+        for (int step = 0; step < (movementTicks ?? 1500); step++)
         {
             VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
             companion.AI(); VerifyResponsiveFollowing.AdvanceNative(companion);
@@ -111,6 +118,24 @@ internal static class ReplayRecordedWater
             { Console.WriteLine("INCOMPLETE replay reached uncaptured terrain"); return 2; }
             dry = !Collision.DrownCollision(companion.NPC.position, companion.NPC.width, companion.NPC.height, 1f) ? dry + 1 : 0;
             if (step % 120 == 0) Console.WriteLine($"tick+{step}: world-feet={companion.NPC.Bottom + offset}; breath={companion.Breath.Breath}; action={companion.Brain.LastAction?.Name}; controls={companion.Motor.AppliedControls}");
+            if (movementTicks is not null)
+            {
+                var nav = companion.Brain.Navigator;
+                var rejection = nav.LastRejection;
+                string movement = $"status={nav.Status}; failure={nav.Failure}; preparation={nav.PreparationResult}; "
+                    + $"rejection={(rejection is null ? "none" : $"{rejection.Value.Step.Kind} {rejection.Value.Step.From.X},{rejection.Value.Step.From.Y}->{rejection.Value.Step.Tile.X},{rejection.Value.Step.Tile.Y} launchVx={rejection.Value.Step.LaunchVx:0.00} reason={rejection.Value.Reason}")}";
+                if (movement != lastMovement)
+                {
+                    Console.WriteLine($"MOVEMENT tick+{step}: world-feet={companion.NPC.Bottom + offset}; vx={companion.NPC.velocity.X:0.00}; action={companion.Brain.LastAction?.Name}; controls={companion.Motor.AppliedControls}; {movement}");
+                    lastMovement = movement;
+                }
+                if (step == movementTicks - 1)
+                {
+                    Console.WriteLine($"MOVEMENT end after {movementTicks} ticks: world-feet={companion.NPC.Bottom + offset}");
+                    return 0;
+                }
+                continue;
+            }
             if (dry >= 60)
             {
                 Console.WriteLine($"PASS recorded water: sustained breathing at +{step}, breath={companion.Breath.Breath}");
