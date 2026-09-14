@@ -12,7 +12,7 @@ Tools/
 ├─ decompile.sh                      Terraria source lookup helper
 ├─ Ledger/                           one row per named case per run, committed, diffed against the nearest ancestor with a clean run
 ├─ EngineReplay/                     native collision and whole-brain fixtures, grouped by Combat, Gathering, Assistance, Movement, Observation and Lifecycle
-├─ NavReplay/                        portable movement replay — three sources, stays flat
+├─ NavReplay/                        portable movement replay, and the corpus tools: reflect a scenario, reduce a failing one, cut a new one out of a recording
 ├─ SessionReport/                    telemetry reader, grouped by Read, Checks, Write and Tests
 ├─ WorldWindow/                      reshapes old plan windows from saved-world tile shapes
 └─ Scenarios/                        committed movement cases
