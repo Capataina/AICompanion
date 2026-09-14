@@ -52,12 +52,21 @@
  *     between neighbouring spokes. The template's radii and offsets are
  *     chosen so that no two nodes can come within a node's width of
  *     each other, and the page computes that nearest distance from the
- *     node table. A weapon is a diamond with a mark inside;
- *     selecting one offers to open it, and opening it swaps the wheel
- *     for that weapon's own small tree — the weapon at the centre, its
- *     damage, rate, tier and one special line as branches. The node
- *     table below is the proposal for DefineMasteryGraph.cs; every
- *     weapon and upgrade name here is a placeholder for the closed kit;
+ *     node table. A weapon is a diamond with a mark inside. Every
+ *     diamond opens: the first click selects it and asks whether to put
+ *     a point there, the second click on the same diamond swaps the
+ *     wheel for that diamond's own tree, which is the wheel's shape at
+ *     fifteen points — the opened diamond filled at the centre, three
+ *     branches of circle, an unconnected pair of circles, and a diamond
+ *     at the tip, with a shared circle in each gap joining one branch's
+ *     pair to the next branch's pair. A carried weapon clicked again on
+ *     the Weapons page opens the same tree, and back returns to
+ *     Weapons. Edges stop at each node's boundary rather than passing
+ *     through it, and a node is hit anywhere inside its shape, never
+ *     only on its stroke, so a press inside a node cannot start a pan.
+ *     The node table below is the proposal for DefineMasteryGraph.cs;
+ *     every weapon and upgrade name here is a placeholder for the
+ *     closed kit;
  *   - the pair the companion carries shows as two chips under the
  *     action line, each the weapon's name in its rarity colour, and a
  *     chip opens the Weapons page: a row is a tier and a column is a
@@ -407,8 +416,8 @@ body{font-family:var(--ui);color:var(--ink);text-shadow:2px 2px 0 #000;font-weig
         <svg id="graphsvg" preserveAspectRatio="none" font-family="inherit" font-weight="bold"></svg>
       </div>
       <div class="legend s80" id="mastlegend">Circle: stat &nbsp; Diamond: ability &nbsp; Marked diamond: weapon &nbsp; Filled circle: shared</div>
-      <div class="legend2 s75" id="mastline">Select a node. A weapon opens into its own upgrades.</div>
-      <div id="open" class="pill s85">Open weapon</div>
+      <div class="legend2 s75" id="mastline">Select a node. Click a selected diamond again to open its upgrades.</div>
+      <div id="open" class="pill s85">Open upgrades</div>
     </div>
   </div>
 </div>
@@ -475,7 +484,7 @@ function show(p) {
 $$('.tile').forEach(t => t.addEventListener('click', () => show(t.dataset.page)));
 $$('#bench [data-page]').forEach(b => b.addEventListener('click', () => show(b.dataset.page)));
 back.addEventListener('click', () => {
-  if (page === 'mast' && opened) { closeWeapon(); return; }
+  if (page === 'mast' && opened) { closeSubtree(); return; }
   if (frame.classList.contains('full')) show('overview');
 });
 $('#close').addEventListener('click', () => frame.classList.add('hidden'));
@@ -508,8 +517,19 @@ let picks = [{t: 1, c: 1, at: ++pickSerial}, {t: 1, c: 2, at: ++pickSerial}];
 const isLocked = t => t >= unlockedTiers;
 const pickIndex = (t, c) => picks.findIndex(p => p.t === t && p.c === c);
 
+// A carried weapon clicked again opens its upgrades: the same tree the wheel opens for that
+// weapon's diamond, reached from here without visiting the wheel. Class column to wheel spoke,
+// and tier row to the spoke's diamonds read outward — left rank one, right rank three, left rank
+// five, right rank seven, the tip.
+const CLASS_BRANCH = [7, 1, 3, 5];
+const TIER_ROLE = [2, 12, 6, 16, 18];
+function openFromWeapons(t, c) {
+  show('mast');
+  openSubtree(wheel.nodes[CLASS_BRANCH[c] * ROLES + TIER_ROLE[t]], 'wpn');
+}
 function equip(t, c) {
-  if (isLocked(t) || pickIndex(t, c) >= 0) return;
+  if (isLocked(t)) return;
+  if (pickIndex(t, c) >= 0) { openFromWeapons(t, c); return; }
   if (picks.length < 2) picks.push({t, c, at: ++pickSerial});
   else {
     const oldest = picks.reduce((a, b) => a.at < b.at ? a : b);
@@ -520,7 +540,8 @@ function equip(t, c) {
 
 function weaponHint(t, c) {
   const [name, effect] = KIT[t][c];
-  return isLocked(t) ? `${name} · ${effect} · locked: ${CLASSES[c]} ${UNLOCK_NODE[t]} on the wheel` : `${name} · ${effect}`;
+  return isLocked(t) ? `${name} · ${effect} · locked: ${CLASSES[c]} ${UNLOCK_NODE[t]} on the wheel`
+       : pickIndex(t, c) >= 0 ? `${name} · ${effect} · carried · click again for its upgrades` : `${name} · ${effect}`;
 }
 
 function renderWeapons() {
@@ -549,7 +570,7 @@ function renderWeapons() {
   $('#wpnhint').textContent = defaultWeaponHint();
   $('#wpnline').textContent = `${ordered.map(p => KIT[p.t][p.c][0]).join(' and ')} · ${20 - unlockedTiers * 4} of 20 locked`;
 }
-function defaultWeaponHint() { return 'Click a weapon to carry it. A third pick replaces the one picked longest ago. A dimmed weapon is locked until its diamond on the wheel is bought.'; }
+function defaultWeaponHint() { return 'Click a weapon to carry it, and a carried weapon again for its upgrades. A third pick replaces the one picked longest ago. A dimmed weapon is locked until its diamond on the wheel is bought.'; }
 $$('#loadout .chip').forEach(chip => chip.addEventListener('click', () => show('wpn')));
 renderWeapons();
 
@@ -758,72 +779,130 @@ wheel.extent = 2 * (LABEL_R + 70);
 wheel.nearest = Math.min(...wheel.nodes.flatMap((a, i) => wheel.nodes.slice(i + 1).map(b => Math.hypot(a.x - b.x, a.y - b.y))));
 $('#masttilecount').textContent = '0/' + wheel.nodes.length;
 
-// ---------------------------------------------------------------- mastery: one weapon's tree
-// Opening a weapon replaces the wheel with the weapon at the centre and four short branches: the
-// damage line, the rate line, the tier line, and one special line that depends on the branch.
-// These are the upgrade families the owner named; the names and counts are placeholders.
+// ---------------------------------------------------------------- mastery: one diamond's tree
+// Opening a diamond replaces the wheel with that diamond's own tree, drawn in the wheel's own
+// grammar so the two read as one system at two scales: the opened diamond filled at the centre
+// where the wheel has its root, three branches at 120 degrees, each a circle that forks into an
+// unconnected pair of circles which meet again at a diamond at the tip, and a shared circle in
+// each of the three gaps joining one branch's pair to the next branch's pair — fifteen points
+// around the centre. The three lines are the upgrade families the owner named for a weapon, and
+// a generic trio for an ability; every name and count is a placeholder.
 const SPECIAL = {1: ['Pierces one more', 'Pierces two more'], 3: ['Cheaper cast', 'Wider bolt'], 5: ['Bounces once more', 'Returns faster'], 7: ['Wider swing', 'Longer reach']};
-function weaponTree(node) {
-  const t = {nodes: [{x: 0, y: 0, b: node.b, kind: 'weapon', name: node.name}], edges: [], labels: [], extent: 620};
-  const lines = [['Damage', ['Damage I', 'Damage II', 'Damage III'], -90], ['Rate', ['Rate I', 'Rate II', 'Rate III'], 90],
-    ['Tier', ['Tier II', 'Tier III'], 0], ['Special', SPECIAL[node.b] || ['Special I', 'Special II'], 180]];
-  lines.forEach(([label, names, deg], li) => {
-    let prev = 0;
-    names.forEach((name, i) => {
-      const p = polar(90 + i * 70, deg + (i % 2 ? 9 : -9) * (li % 2 ? -1 : 1));
-      t.nodes.push({x: p.x, y: p.y, b: node.b, kind: label === 'Tier' ? 'ability' : 'stat', name});
-      t.edges.push([prev, t.nodes.length - 1]); prev = t.nodes.length - 1;
+// [radius, angular offset] per role, read as the wheel's template is: rank one on the axis, the
+// pair either side of it, the tip on the axis. The pair sits 22 degrees off the axis at radius 230,
+// which is 172 units apart; the shared circle sits at the same radius exactly between two branches,
+// 38 degrees and 150 units from the nearest pair node. Nodes are 32 units across.
+const SUB_TEMPLATE = [[120, 0], [230, -22], [230, 22], [340, 0]];
+const SUB_ROLES = SUB_TEMPLATE.length, SUB_JUNCTION_R = 230, SUB_LABEL_R = 410;
+function subtree(node) {
+  const lines = node.kind === 'weapon'
+    ? [['Damage', ['Damage I', 'Damage II', 'Crit chance', 'Damage mastery']],
+       ['Rate', ['Rate I', 'Rate II', 'Quick swap', 'Rate mastery']],
+       ['Special', ['Special I', ...(SPECIAL[node.b] || ['Special II', 'Special III']), 'Special mastery']]]
+    : [['Strength', ['Strength I', 'Strength II', 'Efficiency', 'Strength mastery']],
+       ['Speed', ['Speed I', 'Speed II', 'Recovery', 'Speed mastery']],
+       ['Reach', ['Reach I', 'Reach II', 'Control', 'Reach mastery']]];
+  const t = {nodes: [], edges: [], labels: [], extent: 2 * (SUB_LABEL_R + 70), root: {b: node.b, kind: node.kind}};
+  lines.forEach(([label, names], li) => {
+    const base = li * 120 - 90, first = t.nodes.length;
+    SUB_TEMPLATE.forEach(([r, d], n) => {
+      const p = polar(r, base + d);
+      t.nodes.push({x: p.x, y: p.y, b: node.b, kind: n === 3 ? 'ability' : 'stat', name: names[n]});
     });
-    const p = polar(120 + names.length * 70, deg);
+    // the centre to rank one, rank one to each of the pair, each of the pair to the tip; the
+    // pair is deliberately not joined to itself
+    t.edges.push([-1, first], [first, first + 1], [first, first + 2], [first + 1, first + 3], [first + 2, first + 3]);
+    const p = polar(SUB_LABEL_R, base);
     t.labels.push({x: p.x, y: p.y + 10, text: label, b: node.b});
   });
+  for (let i = 0; i < 3; i++) {
+    // a shared circle between branch i and branch i+1, joined to the clockwise node of i's pair
+    // and the counter-clockwise node of i+1's pair
+    const a = i * SUB_ROLES, c = ((i + 1) % 3) * SUB_ROLES, j = t.nodes.length;
+    const p = polar(SUB_JUNCTION_R, i * 120 - 90 + 60);
+    t.nodes.push({x: p.x, y: p.y, b: node.b, kind: 'junction', name: 'Shared ' + lines[i][0].toLowerCase() + ' and ' + lines[(i + 1) % 3][0].toLowerCase()});
+    t.edges.push([a + 2, j], [c + 1, j]);
+  }
+  t.nearest = Math.min(...t.nodes.flatMap((a, i) => t.nodes.slice(i + 1).map(b => Math.hypot(a.x - b.x, a.y - b.y))));
   return t;
 }
 
 // ---------------------------------------------------------------- mastery: drawing either
 const svg = $('#graphsvg'), NS = 'http://www.w3.org/2000/svg';
 const el = (t, a) => { const e = document.createElementNS(NS, t); for (const k in a) e.setAttribute(k, a[k]); return e; };
-let current = wheel, opened = null, selectedNode = null;
+let current = wheel, opened = null, openedFrom = null, selectedNode = null;
+const isDiamond = n => n.kind === 'ability' || n.kind === 'weapon';
+// How far a node's boundary sits from its centre along a direction, so an edge can stop at the
+// side of the shape rather than run through to the centre. A circle is its radius everywhere; a
+// diamond is a square of half-side R turned 45 degrees, whose vertices sit R*sqrt(2) out along the
+// axes and whose sides pass R from the centre, and the distance along an angle a is
+// R*sqrt(2) / (|cos a| + |sin a|).
+const boundary = (kind, a) => (kind === 'ability' || kind === 'weapon' || kind === 'root')
+  ? NODE_R * Math.SQRT2 / (Math.abs(Math.cos(a)) + Math.abs(Math.sin(a)))
+  : NODE_R;
 function draw(g) {
   current = g; selectedNode = null; $('#open').classList.remove('show');
   svg.innerHTML = '';
   const defs = el('defs', {}), filter = el('filter', {id: 'hard', x: '-10%', y: '-10%', width: '130%', height: '130%'});
   filter.appendChild(el('feDropShadow', {dx: 3, dy: 3, stdDeviation: 0, 'flood-color': '#000'}));
   defs.appendChild(filter); svg.appendChild(defs);
-  const at = i => i < 0 ? {x: 0, y: 0, b: -1} : g.nodes[i];
+  const at = i => i < 0 ? {x: 0, y: 0, b: -1, kind: 'root'} : g.nodes[i];
+  // edges first so every node draws over them, each shortened to the boundary at both ends so the
+  // line joins the sides and never shows inside a shape; an edge never takes a click
   g.edges.forEach(([f, t]) => { const a = at(f), q = at(t);
-    svg.appendChild(el('line', {x1: a.x, y1: a.y, x2: q.x, y2: q.y, stroke: COLORS[q.b], 'stroke-width': 2.5, opacity: .85})); });
+    const ang = Math.atan2(q.y - a.y, q.x - a.x), sa = boundary(a.kind, ang), sq = boundary(q.kind, ang);
+    svg.appendChild(el('line', {x1: a.x + sa * Math.cos(ang), y1: a.y + sa * Math.sin(ang), x2: q.x - sq * Math.cos(ang), y2: q.y - sq * Math.sin(ang),
+      stroke: COLORS[q.b], 'stroke-width': 2.5, opacity: .85, 'pointer-events': 'none'})); });
   const R = NODE_R;
   g.nodes.forEach(n => {
     const c = COLORS[n.b]; let e;
-    if (n.kind === 'ability' || n.kind === 'weapon') e = el('rect', {x: n.x - R, y: n.y - R, width: 2 * R, height: 2 * R, fill: 'none', stroke: c, 'stroke-width': 3.5, transform: `rotate(45 ${n.x} ${n.y})`});
-    else e = el('circle', {cx: n.x, cy: n.y, r: R, fill: n.kind === 'junction' ? 'rgba(255,255,255,.12)' : 'none', stroke: c, 'stroke-width': 3.5});
+    // a transparent fill rather than none: SVG hit-tests painted area only, and an unfilled shape
+    // was clickable on its stroke alone while a press inside it fell through to the pan
+    if (isDiamond(n)) e = el('rect', {x: n.x - R, y: n.y - R, width: 2 * R, height: 2 * R, fill: 'transparent', stroke: c, 'stroke-width': 3.5, transform: `rotate(45 ${n.x} ${n.y})`});
+    else e = el('circle', {cx: n.x, cy: n.y, r: R, fill: n.kind === 'junction' ? 'rgba(255,255,255,.12)' : 'transparent', stroke: c, 'stroke-width': 3.5});
     e.classList.add('node'); svg.appendChild(e);
     if (n.kind === 'weapon') svg.appendChild(el('rect', {x: n.x - 5, y: n.y - 5, width: 10, height: 10, fill: c, transform: `rotate(45 ${n.x} ${n.y})`, 'pointer-events': 'none'}));
-    e.addEventListener('click', ev => { ev.stopPropagation(); svg.querySelectorAll('.node').forEach(x => x.classList.remove('sel')); e.classList.add('sel'); selectedNode = n;
-      $('#mastline').textContent = n.name + ' · ' + (n.kind === 'weapon' ? (opened ? 'this weapon' : 'weapon · open it for its upgrades') : n.kind === 'ability' ? 'ability preview' : n.kind === 'stat' ? 'repeatable stat, rank 0 of 5' : 'shared node, opens from either path');
-      $('#open').classList.toggle('show', n.kind === 'weapon' && !opened); });
+    e.addEventListener('click', ev => {
+      ev.stopPropagation();
+      // the second click on an already selected diamond of the wheel opens its tree; the first
+      // click on anything selects it and says what putting a point there would mean
+      if (selectedNode === n && isDiamond(n) && !opened) { openSubtree(n, 'mast'); return; }
+      svg.querySelectorAll('.node').forEach(x => x.classList.remove('sel')); e.classList.add('sel'); selectedNode = n;
+      $('#mastline').textContent = n.name + ' · ' + (
+        opened ? (isDiamond(n) ? 'mastery · put a point here?' : n.kind === 'junction' ? 'shared, opens from either line · put a point here?' : 'upgrade rank 0 of 5 · put a point here?')
+               : (n.kind === 'weapon' ? 'weapon · put a point here? · click again for its upgrades'
+                : n.kind === 'ability' ? 'ability · put a point here? · click again for its upgrades'
+                : n.kind === 'stat' ? 'repeatable stat, rank 0 of 5 · put a point here?' : 'shared node, opens from either path · put a point here?'));
+      $('#open').classList.toggle('show', isDiamond(n) && !opened); });
   });
-  if (g === wheel) svg.appendChild(el('rect', {x: -16, y: -16, width: 32, height: 32, fill: '#ffe066', stroke: '#ffe066', transform: 'rotate(45 0 0)'}));
-  g.labels.forEach(l => { const t = el('text', {x: l.x, y: l.y, fill: COLORS[l.b], 'text-anchor': 'middle', 'font-size': g === wheel ? 40 : 24, filter: 'url(#hard)'});
+  // the centre: the wheel's root in gold, or the opened diamond filled in its branch colour, with
+  // the weapon mark kept so an opened weapon still reads as one
+  const rootColor = g === wheel ? '#ffe066' : COLORS[g.root.b];
+  svg.appendChild(el('rect', {x: -16, y: -16, width: 32, height: 32, fill: rootColor, stroke: rootColor, transform: 'rotate(45 0 0)'}));
+  if (g !== wheel && g.root.kind === 'weapon') svg.appendChild(el('rect', {x: -5, y: -5, width: 10, height: 10, fill: '#1a1d55', transform: 'rotate(45 0 0)', 'pointer-events': 'none'}));
+  g.labels.forEach(l => { const t = el('text', {x: l.x, y: l.y, fill: COLORS[l.b], 'text-anchor': 'middle', 'font-size': g === wheel ? 40 : 28, filter: 'url(#hard)'});
     t.textContent = l.text; svg.appendChild(t); });
   fitGraph();
 }
-function openWeapon(n) {
-  opened = n; draw(weaponTree(n));
+// Opening a diamond's tree, from the wheel or from the Weapons page. Where it was opened from is
+// where back returns to, because a player who came from choosing a weapon has not been to the
+// wheel and should not land on it.
+function openSubtree(n, from) {
+  opened = n; openedFrom = from; draw(subtree(n));
   titleName.textContent = 'Mastery · ' + n.name;
-  $('#masthint').textContent = n.name + ' · its own upgrades · back returns to the tree';
-  $('#mastlegend').textContent = 'Circle: upgrade rank   Diamond: tier';
-  $('#mastline').textContent = 'Select an upgrade.';
+  $('#masthint').textContent = n.name + ' · its own upgrades · back returns to ' + (from === 'wpn' ? 'Weapons' : 'the wheel');
+  $('#mastlegend').innerHTML = 'Circle: upgrade rank &nbsp; Diamond: mastery &nbsp; Filled circle: shared';
+  $('#mastline').textContent = 'Select an upgrade. Click a diamond once to select it; nothing is spent here.';
 }
-function closeWeapon() {
-  opened = null; draw(wheel);
+function closeSubtree() {
+  const from = openedFrom; opened = null; openedFrom = null; draw(wheel);
   titleName.textContent = names.mast;
   $('#masthint').textContent = 'Preview · drag to pan · wheel to zoom · nothing is spent';
   $('#mastlegend').innerHTML = 'Circle: stat &nbsp; Diamond: ability &nbsp; Marked diamond: weapon &nbsp; Filled circle: shared';
-  $('#mastline').textContent = 'Select a node. A weapon opens into its own upgrades.';
+  $('#mastline').textContent = 'Select a node. Click a selected diamond again to open its upgrades.';
+  if (from === 'wpn') show('wpn');
 }
-$('#open').addEventListener('click', () => { if (selectedNode && selectedNode.kind === 'weapon') openWeapon(selectedNode); });
+$('#open').addEventListener('click', () => { if (selectedNode && isDiamond(selectedNode) && !opened) openSubtree(selectedNode, 'mast'); });
 
 // pan and zoom as the game does them: wheel 1.12 / 0.89 about the pointer, buttons 1.15 / 0.85
 // about the canvas centre, reset fits the current graph's extent
@@ -847,7 +926,10 @@ $('#zin').addEventListener('click', () => zoomAt(1.15, graph.clientWidth / 2, gr
 $('#zout').addEventListener('click', () => zoomAt(0.85, graph.clientWidth / 2, graph.clientHeight / 2));
 $('#zreset').addEventListener('click', fitGraph);
 let pan = null;
-graph.addEventListener('pointerdown', e => { pan = {x: e.clientX, y: e.clientY, vx: view.x, vy: view.y}; graph.classList.add('dragging'); graph.setPointerCapture(e.pointerId); });
+graph.addEventListener('pointerdown', e => {
+  // a press that begins on a node is a click on that node, never the start of a pan
+  if (e.target.classList && e.target.classList.contains('node')) return;
+  pan = {x: e.clientX, y: e.clientY, vx: view.x, vy: view.y}; graph.classList.add('dragging'); graph.setPointerCapture(e.pointerId); });
 graph.addEventListener('pointermove', e => {
   if (!pan) return;
   view.x = pan.vx - (e.clientX - pan.x) / z() * (view.w / graph.clientWidth);
