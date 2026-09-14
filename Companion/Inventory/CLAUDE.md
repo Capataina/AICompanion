@@ -1,23 +1,40 @@
-# Inventory — cargo that persists with the player
+# Inventory — cargo the companion fills, and the gear the player hands it
 
 ```
 Inventory/
 ├─ CLAUDE.md               this guide
-├─ CompanionInventory.cs   storage and acceptance rules
-├─ CompanionBagSystem.cs   pickup routing and state bridge
-└─ CompanionBagUI.cs       filtered fixed-size grid, item details and native transfers
+├─ CompanionGear.cs        the four gear slots, what each accepts and why, the tool powers, save and load
+├─ CompanionInventory.cs   cargo storage and its acceptance rule
+├─ CompanionBagSystem.cs   pickup routing and the right-click entry into the card
+└─ CompanionBagUI.cs       the gear row and the filtered cargo grid, native slots and transfers
 ```
 
-The bag stores collected cargo, not companion equipment. It persists through `../PlayerIntegration/CompanionPlayer`, so it survives world changes and a downed NPC. The NPC exposes the same bag as a pass-through for touched-item pickup; gathering scores a full bag as unable to accept more.
+Two things live here and they are opposites. The bag is cargo: what the companion picked up, for the player to empty. The gear is equipment: what the player put on the companion, for it to fight and work with. Nothing moves between them. A weapon never consumes a bag slot and cargo is never fired, and the ruling of 14 September 2026 fixes the gear at four slots — two weapons, a pickaxe, an axe — with no armour, no accessory, no ammo and no mount, because a fifth slot turns the companion into a second character sheet.
+
+## The gear is read, never run, and the slot is where that is decided
+
+`CompanionGear` holds four items indexed by `GearSlot` and answers one question, `Accepts(slot, item, out reason)`. The predicate is the whole of the companion's opinion about an item: the arsenal (`../Weapons/`) fires or swings whatever passes it, re-checking the predicate when it enumerates so an item that stopped passing after it was saved is refused there too, and the interactions gate tiles with `PickPower` and `AxePower` exactly as `Player.PickTile` gates them for the player, zero with no tool in the slot. A weapon slot accepts what the companion's two mechanisms can express: a projectile it can spawn itself (the item shoots something, and its ammo class has a free default), or a swing it can perform itself (the game's swing use style with nothing shot and `noMelee` off). It refuses, with the reason shown to the player: yoyos; projectiles whose AI style is flail, spear, yoyo or whip, or that are in the game's whip set, because those are held things steered by the player's own update; summon weapons, by identity with the summon class or inheritance from it, which is how whips' own class reads; tools, because a tool's home is its tool slot; a modded channelled item that overrides `ModItem.Shoot`, because its firing is code the companion cannot read; a projectile the game has no sample for; and an ammo-using weapon whose class has no free default. The pickaxe slot wants pick power and the axe slot axe power.
+
+The free ammo is the game's own fallback. `Player.PickAmmo` uses `ContentSamples.ItemsByType[useAmmo]` when no ammo need be held, guarded by that sample being an ammo of the same class, and every vanilla ammo class's id is its first ammo's item id; `DefaultAmmo` is that lookup and a modded class with no such sample refuses the weapon.
+
+The summon test asks `GetEffectInheritance` rather than `CountsAsClass`, because `CountsAsClass` indexes a cache the loader builds after mods load and the headless fixtures never run the loader; the relation is the one the cache is built from. The custom-firing tell cannot see a `GlobalItem` shoot hook and has no modded item to be tested against headless; both limits are stated where the tell lives.
+
+`Signature` hashes type, prefix and stack per slot and changes whenever any slot's item changes; it is what tells the arsenal to re-enumerate and the UI to relayout. Save writes one `ItemIO` entry per occupied slot under the `gear` key beside the bag in `../PlayerIntegration/PersistCompanionState.cs`; load re-runs each slot's predicate and drops what fails, so an unloaded mod's placeholder item is not carried into the arsenal.
+
+## The bag
+
+The bag stores collected cargo. It persists through `../PlayerIntegration/CompanionPlayer`, so it survives world changes and a downed NPC. The NPC exposes the same bag as a pass-through for touched-item pickup; gathering scores a full bag as unable to accept more.
 
 Acceptance is one rule. `AcceptableQuantity` counts what a pickup would take now by the routes `Collect` uses, a coin through the player's own pickup path, otherwise player stacks of the item with room, then bag stacks of it with room and empty bag slots, and `CanAccept` is that count above zero. Collection prices a drop by it, because a partly full cargo takes part of a stack and leaves the rest lying. `Collect` is the only transfer path, contact pickup during any activity included, and it records each accepted pickup in a small ring of recent transfers keyed by the world item object under a monotonic sequence. A purpose marks the sequence when it begins and asks later what it received from that item since the mark, which is how collection tells its own completion from a drop the player picked up or one that despawned. The ring can only undercount for a purpose that outlives more transfers than it holds, never credit one it did not see.
 
-Weapons are capability equipment under `../Weapons/` and never consume bag slots. The UI embeds into the profile card's Inventory page without creating, resizing or relocating the outer panel. Its slots keep a fixed size while the column count follows available width. The viewport initially fits complete rows; a native scrollbar exposes every slot. All/Ore/Wood/Loot filters preserve the original backing indices and never rearrange items. Ore uses the native ore tile classification; Wood uses Terraria's Any Wood recipe group, including additions made by other mods. Hovering an occupied slot selects its detail view, which uses the item's rarity colour and the native ore tile texture for the in-wall example. The sample tile is illustrative, not a captured world frame.
+## The drawn page
+
+`CompanionBagUI` is the one element the profile card embeds for its Inventory page, so both the gear and the cargo appear there with no change to the card. The gear is a row of four native bank-context slots between the filter buttons and the cargo grid, each asking the predicate before the game's slot handling may swap the cursor's item in: a refused item never reaches the handler, stays on the cursor, and the slot dims while the caption beside the row says why. Empty slots show a W, P or A. The details panel spans the gear row and the grid, so a gear item is inspected where cargo is.
+
+The cargo grid embeds without creating, resizing or relocating the outer panel. Its slots keep a fixed size while the column count follows available width; the viewport initially fits complete rows and a native scrollbar exposes every slot. All/Ore/Wood/Loot filters preserve the original backing indices and never rearrange items. Ore uses the native ore tile classification; Wood uses Terraria's Any Wood recipe group, including additions made by other mods. Hovering an occupied slot selects its detail view, which uses the item's rarity colour and the native ore tile texture for the in-wall example; the sample tile is illustrative, not a captured world frame.
 
 Native bank handling owns cursor transfers and stack splitting. Hand everything over uses `Player.GetItem` and leaves any remainder in its original bag slot; it refuses while a cursor stack is held. This uses the game's stacking and item hooks rather than a second transfer algorithm. The native icon renderer preserves item drawing hooks, but the blue slot background is selected explicitly: bank context uses brown art, and player-inventory context stamps a hotbar shortcut on the single-item overload. Both looked wrong in populated offscreen renders. Inventory scale is restored in a finally block so a drawing failure cannot affect the rest of Terraria's inventory.
 
-Transfer feedback takes the ore thumbnail's space when the detail panel is short, so a held cursor stack or full player inventory still produces a visible explanation at the smallest supported viewport.
+Transfer feedback takes the ore thumbnail's space when the detail panel is short, so a held cursor stack or full player inventory still produces a visible explanation at the smallest supported viewport. The transient recent-pickup summary captures the item name before clearing a world item and reports the accepted quantity; it is reset when storage loads and never written to character saves.
 
-The transient recent-pickup summary captures the item name before clearing a world item and reports the accepted quantity. It is reset when storage loads and never written to character saves. The profile tile distinguishes occupied slots from item counts. Collection's existing sort and save semantics remain the storage owner's responsibility.
-
-The native UI renderer checks a full, partly available and empty player inventory through the real hand-over button, preserving total item counts. It also renders populated slots and verifies filtering and column changes. Keyboard/gamepad navigation through this custom grid is not covered by those mouse-event checks.
+The native UI renderer checks a full, partly available and empty player inventory through the real hand-over button, preserving total item counts, and renders populated slots and verifies filtering and column changes. The gear row's refusal and dimming are not covered by an offscreen render; the predicate behind them is, in `Tools/EngineReplay/Combat/VerifyHandedGear.cs`, item by item. Keyboard and gamepad navigation through this custom grid is not covered.

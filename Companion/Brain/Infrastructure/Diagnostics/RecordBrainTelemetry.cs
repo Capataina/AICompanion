@@ -846,7 +846,7 @@ public sealed class BrainTelemetry : ModSystem
             if (t.CanReachEither && t.Npc != null && t.Npc.active)
                 nearest = MathF.Min(nearest, t.DistanceToCompanion);
         sb.Append('\t').Append(nearest == float.MaxValue ? "-" : (nearest / 16f).ToString("0.0", CultureInfo.InvariantCulture));
-        sb.Append('\t').Append((MathF.Max(companion.Arsenal.Primary.Reach, companion.Arsenal.Secondary.Reach) / 16f).ToString("0.0", CultureInfo.InvariantCulture));
+        sb.Append('\t').Append((companion.Arsenal.MaxReach / 16f).ToString("0.0", CultureInfo.InvariantCulture));
         // What the hands are shooting at, which is now independent of what the feet were told, so
         // "it was following me and not attacking" is a row where engage reads "-" beside threats.
         sb.Append('\t').Append(brain.EngageTarget is NPC eng && eng.active ? eng.TypeName : "-");

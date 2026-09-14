@@ -142,7 +142,7 @@ public sealed class ResolveFiringOpportunity
 
         Point feet = Infrastructure.Movement.MovementQueries.FeetTile(ctx.Npc.Bottom);
         var positioner = ctx.Companion.Brain.Positioner;
-        float reach = MathF.Max(arsenal.Primary.Profile.Reach, arsenal.Secondary.Profile.Reach);
+        float reach = arsenal.MaxReach;
         int radius = Math.Min(FiringSampleRadiusTiles, (int)(reach / 16f));
         Point centre = Infrastructure.Movement.MovementQueries.FeetTile(enemy.Bottom);
         var stands = new List<(float Distance, Point Tile, Vector2 Eye)>();

@@ -11,7 +11,7 @@ using SuccessRegionKind = live::AICompanion.Companion.Brain.Infrastructure.Posit
 using Navigator = live::AICompanion.Companion.Brain.Infrastructure.Movement.Navigator;
 using MovementQueries = live::AICompanion.Companion.Brain.Infrastructure.Movement.MovementQueries;
 using CompanionNPC = live::AICompanion.Companion.CharacterBody.CompanionNPC;
-using WeaponProfile = live::AICompanion.Companion.Brain.Infrastructure.Aiming.WeaponProfile;
+using FlightModel = live::AICompanion.Companion.Brain.Infrastructure.Aiming.FlightModel;
 using T = live::AICompanion.Companion.Brain.Infrastructure.Observation.ThreatRecord;
 using C = live::AICompanion.Companion.Brain.Activities.ActionContext;
 
@@ -484,7 +484,7 @@ internal static class VerifyOfferValidity
     /// shared motion track accumulates error samples and its forecast carries measured confidence: without that
     /// the solve correctly declines to judge on a guess and falls back to the current position.
     /// </summary>
-    private static (CompanionNPC Companion, NPC Enemy, WeaponProfile? Profile) PillarScene()
+    private static (CompanionNPC Companion, NPC Enemy, FlightModel? Profile) PillarScene()
     {
         BuildFlatWorldWithPillar();
         var companion = VerifyCompanionLifecycle.Create();
@@ -569,7 +569,7 @@ internal static class VerifyOfferValidity
         live::AICompanion.Companion.Brain.Infrastructure.Movement.NavGrid.World = new live::AICompanion.Companion.Brain.Infrastructure.Movement.GameTileWorld();
     }
 
-    private static (CompanionNPC Companion, NPC Enemy, WeaponProfile? Profile, C Ctx) PitScene()
+    private static (CompanionNPC Companion, NPC Enemy, FlightModel? Profile, C Ctx) PitScene()
     {
         BuildPitWorld();
         var companion = VerifyCompanionLifecycle.Create();

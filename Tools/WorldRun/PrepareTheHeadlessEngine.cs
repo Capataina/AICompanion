@@ -134,6 +134,7 @@ internal static class PrepareTheHeadlessEngine
         // The gear the world run's companion holds: the arsenal and the tools read their weapons and
         // power from these slots, so an empty gear would run a whole world with nothing in its hands.
         companionPlayer.Gear.Slots[0].SetDefaults(ItemID.WoodenBow);
+        companionPlayer.Gear.Slots[1].SetDefaults(ItemID.ThrowingKnife);
         companionPlayer.Gear.Slots[2].SetDefaults(ItemID.CopperPickaxe);
         companionPlayer.Gear.Slots[3].SetDefaults(ItemID.CopperAxe);
 

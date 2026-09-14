@@ -47,8 +47,12 @@ internal static class VerifyCompanionLifecycle
             .SetValue(Main.player[0], new ModPlayer[] { companionPlayer });
         // The gear a fresh companion holds in every fixture: the arsenal enumerates weapons from these
         // slots and the tools read their power from them, so an empty gear would leave every combat
-        // and work fixture testing a companion with nothing in its hands.
+        // and work fixture testing a companion with nothing in its hands. The two weapons are the two
+        // items the authored kit read, because the combat scenes were calibrated against that pair's
+        // speeds — a reposition priced at the edge of the evaluation window is inside it for the knife
+        // and outside it for the bow alone.
         companionPlayer.Gear.Slots[0].SetDefaults(Terraria.ID.ItemID.WoodenBow);
+        companionPlayer.Gear.Slots[1].SetDefaults(Terraria.ID.ItemID.ThrowingKnife);
         companionPlayer.Gear.Slots[2].SetDefaults(Terraria.ID.ItemID.CopperPickaxe);
         companionPlayer.Gear.Slots[3].SetDefaults(Terraria.ID.ItemID.CopperAxe);
         for (int i = 0; i < Main.npc.Length; i++) Main.npc[i] = new NPC { whoAmI = i, active = false };

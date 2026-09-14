@@ -33,7 +33,10 @@ internal static class VerifyCombatActorMatrix
     // length/(removal + access). This life puts removal a little past the length on starting weapons, so the
     // walk around the pillar is a few percent of the whole rather than a rounding error; the premise checks
     // below fail by name if weapons or walk pricing move it back inside.
-    private const int GuardedLife = 600;
+    // Sized so removal with the handed bow's own damage sits past the useful length with the walk's
+    // share still a clear margin: at 600 the authored bow's doubled damage gave about a 4% share, and
+    // the item-backed bow's honest nine damage gave 1.8%, under the 2% floor the pair requires.
+    private const int GuardedLife = 400;
 
     private readonly record struct Row(string Actor, bool Blocked, float PlayerDanger, float CompanionDanger,
         Dictionary<int, (bool CanEngage, string Verdict, float Access, float Value)> Enemies, int Aim, float Guard,
@@ -141,6 +144,11 @@ internal static class VerifyCombatActorMatrix
         var companion = VerifyCompanionLifecycle.Create();
         live::AICompanion.Companion.Brain.Infrastructure.Movement.AStar.MsBudget = 0;
         Player player = Main.player[0];
+        // The bow alone. The premise of every blocked row is that the pillar decides whether the near
+        // zombie can be shot from here, and a thrown knife lobs over a three-tile pillar onto a body five
+        // tiles away within the arsenal's trace — which is a correct answer, and not the one this matrix
+        // varies. With an arrow's slow drop no lob both clears the pillar and lands that close.
+        player.GetModPlayer<live::AICompanion.Companion.PlayerIntegration.CompanionPlayer>().Gear.Slots[1] = new Item();
         player.dead = false;
         player.statLife = player.statLifeMax2;
         player.DefenseEffectiveness = MultipliableFloat.One * .5f;
