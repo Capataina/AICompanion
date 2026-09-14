@@ -63,15 +63,8 @@ public static class Weights
     public const float MeetingAnchorLerp = .08f;
     /// <summary>While travelling, prefer a meeting place at least this far ahead so the ahead-box sits off the player's toes.</summary>
     public const float MeetingMinLeadTicks = 20f;
-    /// <summary>The ahead comfort box grows with how far the meeting place sits from the player, from none beside them up to this extra share at MeetingBoxGrowthDistance.</summary>
-    public const float MeetingBoxGrowth = .15f;
-    /// <summary>Distance at which the ahead-box reaches its full extra size, in px. The meeting ladder's far step at walk speed.</summary>
-    public const float MeetingBoxGrowthDistance = 840f;
     public const int MeetingRerootTicks = 30;
     public const double MeetingSearchMilliseconds = 1d;
-    // Until a finished flood prices a place, reunion aims at the player's travel continued this far: the
-    // bounded continuation it used before meeting places existed, clamped by the intent history.
-    public const int MeetingFallbackLeadTicks = 45;
     // Lighting reads only light the engine computed. One tile of open air is dark below this brightness,
     // and that single threshold is what both carrying and placing light mean by the word, so the companion
     // cannot hold a torch where it would not place one or the reverse. Surface daylight reads near 1, a
