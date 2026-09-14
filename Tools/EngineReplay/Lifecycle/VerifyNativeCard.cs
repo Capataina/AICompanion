@@ -265,7 +265,12 @@ internal static class VerifyNativeCard
         Console.WriteLine("native mastery viewport: pan, zoom, reset and all authored nodes fit");
     }
 
-    public static void OpenWeaponPage(UIState card)
+    /// <summary>
+    /// Opens a diamond's own tree both ways the card offers, the second click and the button,
+    /// and drives its ranks through the real Preview rank button; the diamond is the first
+    /// spoke's first, whatever the lanes are named.
+    /// </summary>
+    public static void OpenDiamondTree(UIState card)
     {
         var tree = Descendants(card).OfType<Mastery>().Single();
         var viewport = (UIElement)Field(tree, "viewport");
@@ -277,28 +282,46 @@ internal static class VerifyNativeCard
             Main.mouseLeft = false; viewport.LeftMouseUp(new UIMouseEvent(viewport, at));
             tree.Update(new GameTime());
         }
-        Select(GraphData.Nodes[14].Position);
-        Require((int)Field(tree, "selected") == 14, "Clicking the weapon diamond did not select it");
-        Click(Descendants(tree).OfType<UITextPanel<string>>().Single(b => b.Text == "Weapon details"));
-        Require((int)Field(tree, "weaponBranch") == 1, "Weapon details did not open the ranged subtree");
-        Select(new Vector2(-35, -40));
+        int diamond = Enumerable.Range(0, GraphData.Nodes.Length).First(i => GraphData.Nodes[i].Kind == GraphData.NodeKind.Ability);
+        Select(GraphData.Nodes[diamond].Position);
+        Require((int)Field(tree, "selected") == diamond, "Clicking a diamond did not select it");
+        Require((int)Field(tree, "opened") == -1, "A first click on a diamond opened its tree");
+        Select(GraphData.Nodes[diamond].Position);
+        Require((int)Field(tree, "opened") == diamond, "A second click on the selected diamond did not open its tree");
+        Click(Descendants(tree).OfType<UITextPanel<string>>().Single(b => b.Text == "Back to wheel"));
+        Require((int)Field(tree, "opened") == -1, "Back to wheel did not close the tree");
+        Select(GraphData.Nodes[diamond].Position);
+        Click(Descendants(tree).OfType<UITextPanel<string>>().Single(b => b.Text == "Open upgrades"));
+        Require((int)Field(tree, "opened") == diamond, "Open upgrades did not open the selected diamond's tree");
+        Select(GraphData.SubNodes[1].Position);
         int before = Main.LocalPlayer.GetModPlayer<live::AICompanion.Companion.PlayerIntegration.CompanionPlayer>().Bag.Items.Sum(item => item.stack);
         Click(Descendants(tree).OfType<UITextPanel<string>>().Single(b => b.Text == "Preview rank"));
-        Require(((int[,])Field(tree, "weaponTiers"))[1, 1] == 0, "The nested weapon rank bypassed its incoming path");
-        Select(GraphData.WeaponPositions[0]);
+        Require(((int[,])Field(tree, "subTiers"))[diamond, 1] == 0, "A tree rank bypassed its incoming path");
+        Select(GraphData.SubNodes[0].Position);
         Click(Descendants(tree).OfType<UITextPanel<string>>().Single(b => b.Text == "Preview rank"));
-        Select(GraphData.WeaponPositions[1]);
+        Select(GraphData.SubNodes[1].Position);
         Click(Descendants(tree).OfType<UITextPanel<string>>().Single(b => b.Text == "Preview rank"));
-        Require(((int[,])Field(tree, "weaponTiers"))[1, 1] == 1, "The nested weapon rank did not respond to its real button");
-        Require(Main.LocalPlayer.GetModPlayer<live::AICompanion.Companion.PlayerIntegration.CompanionPlayer>().Bag.Items.Sum(item => item.stack) == before, "A weapon preview consumed inventory");
+        Require(((int[,])Field(tree, "subTiers"))[diamond, 1] == 1, "A tree rank did not respond to its real button");
+        Require(Main.LocalPlayer.GetModPlayer<live::AICompanion.Companion.PlayerIntegration.CompanionPlayer>().Bag.Items.Sum(item => item.stack) == before, "A tree preview consumed inventory");
         Main.mouseX = Main.mouseY = -100;
-        Console.WriteLine("nested weapon preview: diamond selection, subtree navigation and incoming paths govern ranks without consuming inventory");
+        Console.WriteLine("diamond tree preview: second click and button both open, back closes, and incoming paths govern ranks without consuming inventory");
     }
 
     public static void VerifyMastery()
     {
-        Require(GraphData.Branches.Length == 8, "The eight mastery branches must survive");
-        Require(GraphData.Nodes.Count(n => n.Kind == GraphData.NodeKind.Filler) == 40, "The authored graph must include the path ranks and shared junctions");
+        Require(GraphData.Branches.Length == 4, "The four lanes the orb can grow must be the wheel's spokes");
+        Require(GraphData.Nodes.Count(n => n.Kind == GraphData.NodeKind.Shared) == GraphData.Branches.Length, "One shared node sits between each pair of neighbouring spokes");
+        Require(GraphData.Nodes.Length == GraphData.FirstShared + GraphData.Branches.Length && GraphData.SubNodes.Length == GraphData.FirstSubShared + GraphData.SubLines,
+            "The wheel is its spokes' roles then its shared nodes, and a tree is its lines' roles then its shared nodes");
+        // The layout's own proof: no two nodes of either graph closer than a node's width, in graph units.
+        float nearest = GraphData.Nodes.SelectMany((a, i) => GraphData.Nodes.Skip(i + 1).Select(b => Vector2.Distance(a.Position, b.Position))).Min();
+        float nearestSub = GraphData.SubNodes.SelectMany((a, i) => GraphData.SubNodes.Skip(i + 1).Select(b => Vector2.Distance(a.Position, b.Position))).Min();
+        Require(nearest >= 32 && nearestSub >= 32, $"nodes come within a node's width: wheel {nearest:0}, tree {nearestSub:0}");
+        var subReachable = new HashSet<int> { -1 };
+        for (int pass = 0; pass < GraphData.SubNodes.Length; pass++)
+            foreach (var edge in GraphData.SubEdges)
+                if (subReachable.Contains(edge.From)) subReachable.Add(edge.To);
+        Require(subReachable.Count == GraphData.SubNodes.Length + 1, "A tree node is disconnected from its diamond");
         var reachable = new HashSet<int> { -1 };
         for (int pass = 0; pass < GraphData.Nodes.Length; pass++)
             foreach (var edge in GraphData.Edges)
@@ -320,9 +343,11 @@ internal static class VerifyNativeCard
             }
         }
         Array.Clear(tiers);
-        tree.GetType().GetField("selected", Private)!.SetValue(tree, 80);
-        Call(tree, "PreviewRank"); Require(tiers[80] == 0, "An unopened path previewed a locked node");
-        tiers[3] = 1; Call(tree, "PreviewRank"); Require(tiers[80] == 1, "A single incoming path did not enable a shared rank");
-        Console.WriteLine($"authored mastery: {GraphData.Nodes.Length} reachable nodes, {GraphData.Edges.Length} directed edges, every convergence accepts each incoming path independently");
+        int shared = GraphData.FirstShared;
+        tree.GetType().GetField("selected", Private)!.SetValue(tree, shared);
+        Call(tree, "PreviewRank"); Require(tiers[shared] == 0, "An unopened path previewed a locked node");
+        // the first shared node opens from the first spoke's left path at its fourth rank, role 5
+        tiers[5] = 1; Call(tree, "PreviewRank"); Require(tiers[shared] == 1, "A single incoming path did not enable a shared rank");
+        Console.WriteLine($"generated mastery: {GraphData.Nodes.Length} reachable nodes, {GraphData.Edges.Length} directed edges, nearest pair {nearest:0} units, every convergence accepts each incoming path independently");
     }
 }

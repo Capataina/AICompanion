@@ -104,12 +104,12 @@ internal static class RenderNativeInterface
                 VerifyCardNavigation(card);
                 VerifyNativeCard.VerifyInventoryOcclusion(card, owner, ui, graphics, target);
                 Rectangle? frameBounds = null;
-                foreach (string page in new[] { "ShowOverview", "ShowInventory", "ShowMastery", "ShowMasteryWeapon" })
+                foreach (string page in new[] { "ShowOverview", "ShowInventory", "ShowMastery", "ShowMasteryTree" })
                 {
-                    string method = page == "ShowMasteryWeapon" ? "ShowMastery" : page;
+                    string method = page == "ShowMasteryTree" ? "ShowMastery" : page;
                     type.GetMethod(method, BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public)!.Invoke(card, null); card.Recalculate();
                     card.Update(new GameTime());
-                    if (page == "ShowMasteryWeapon") VerifyNativeCard.OpenWeaponPage(card);
+                    if (page == "ShowMasteryTree") VerifyNativeCard.OpenDiamondTree(card);
                     Rectangle frame = ((UIElement)type.GetField("frame", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(card)!).GetDimensions().ToRectangle();
                     if (frameBounds is { } previous && previous != frame) throw new InvalidOperationException("Page navigation changed the card's frame");
                     frameBounds = frame;

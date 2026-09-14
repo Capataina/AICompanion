@@ -13,8 +13,9 @@
  *
  *   - the overview is short: a 720x284 card holding the title bar, the
  *     identity strip and three tiles. The strip carries the portrait,
- *     name and level, a health bar and an experience bar each with its
- *     reading, and the current action on the left; on the right the
+ *     name and level, then health, mana and experience bars each with
+ *     its reading in the bar's own colour, the same column and colours
+ *     as the HUD notch, and the current action on the left; on the right the
  *     three controls that survive — mining and chopping at
  *     Off/Mimic/Auto, torches at Off/On — each an icon with a joined
  *     segment control beside it. Hunting and pot breaking are not
@@ -42,40 +43,38 @@
  *     buttons above it — Loot All, Deposit All, Quick Stack, Restock —
  *     and no filters, no detail panel; the bag sorts itself after every
  *     transfer, so there is no Sort button either;
- *   - the Mastery graph is authored round and holds twice the notable
- *     nodes of the native table with no small path ranks: eight spokes
- *     from the centre, each a trunk that forks into two paths of eight
+ *   - the Mastery graph is authored round and holds no small path
+ *     ranks: four spokes from the centre, the lanes the orb can grow
+ *     since the orb pivot of 2026-09-14 — Guarding, Movement, Survival,
+ *     Gathering — each a trunk that forks into two paths of eight
  *     whose diamonds alternate sides rank by rank with a circle-circle
  *     rank between each, meeting at the branch's fifth diamond at the
- *     tip — five diamonds a branch, one per weapon on the weapon
- *     branches — with shared junctions
- *     between neighbouring spokes. The template's radii and offsets are
- *     chosen so that no two nodes can come within a node's width of
- *     each other, and the page computes that nearest distance from the
- *     node table. A weapon is a diamond with a mark inside. Every
- *     diamond opens: the first click selects it and asks whether to put
- *     a point there, the second click on the same diamond swaps the
- *     wheel for that diamond's own tree, which is the wheel's shape at
- *     fifteen points — the opened diamond filled at the centre, three
- *     branches of circle, an unconnected pair of circles, and a diamond
- *     at the tip, with a shared circle in each gap joining one branch's
- *     pair to the next branch's pair. A carried weapon clicked again on
- *     the Weapons page opens the same tree, and back returns to
- *     Weapons. Edges stop at each node's boundary rather than passing
- *     through it, and a node is hit anywhere inside its shape, never
- *     only on its stroke, so a press inside a node cannot start a pan.
- *     The node table below is the proposal for DefineMasteryGraph.cs;
- *     every weapon and upgrade name here is a placeholder for the
- *     closed kit;
- *   - the pair the companion carries shows as two chips under the
- *     action line, each the weapon's name in its rarity colour, and a
- *     chip opens the Weapons page: a row is a tier and a column is a
- *     class, twenty cells for the closed kit, a locked weapon dimmed and
- *     never hidden, and a third pick replacing the one picked longest
- *     ago. Chips rather than item slots because slots do not fit under
- *     the action line without growing the overview, and a chip carries
- *     the name an icon never teaches. Added 2026-09-14, when the owner
- *     noticed the card had no way to change weapons at all;
+ *     tip, with a shared junction between neighbouring spokes. The
+ *     four weapon-class lanes went with the authored weapon kit. The
+ *     template's radii and offsets are chosen so that no two nodes can
+ *     come within a node's width of each other, and the page computes
+ *     that nearest distance from the node table; at a quarter turn the
+ *     eight-spoke fork read as a plus sign, so the offsets are widened
+ *     threefold and each spoke is a leaf. Every diamond opens: the
+ *     first click selects it and asks whether to put a point there, the
+ *     second click on the same diamond swaps the wheel for that
+ *     diamond's own tree, which is the wheel's shape at fifteen points
+ *     — the opened diamond filled at the centre, three branches of
+ *     circle, an unconnected pair of circles, and a diamond at the tip,
+ *     with a shared circle in each gap joining one branch's pair to the
+ *     next branch's pair. Edges stop at each node's boundary rather than
+ *     passing through it, and a node is hit anywhere inside its shape,
+ *     never only on its stroke, so a press inside a node cannot start a
+ *     pan. The node table below is what DefineMasteryGraph.cs generates;
+ *     every name here is a placeholder;
+ *   - the Inventory page gains four gear slots above the bag — two
+ *     weapons, a pickaxe, an axe — each a game item slot that accepts
+ *     only what the companion can use and dims the rest; a handed item
+ *     is chosen by putting it in the slot, the way every other equipment
+ *     choice in the game is made. They replaced, on 2026-09-14, the
+ *     carried pair's chips and the Weapons page of the twenty-weapon
+ *     kit, which died with the kit. The native build carries them; this
+ *     page does not yet draw them;
  *   - there is no minimise button.
  *
  * Every size is the logical pixel the C# layout will use:
@@ -106,6 +105,7 @@
   --green:#66dd74;
   --red:#ff6b6b;
   --hp:#8cf08c;
+  --mana:#6aa8ff;
   --xp:#ffd24a;
   --ui:"Trebuchet MS","Lucida Grande",Verdana,sans-serif;
   --z:1;
@@ -158,18 +158,15 @@ body{font-family:var(--ui);color:var(--ink);text-shadow:2px 2px 0 #000;font-weig
 #lvl{position:absolute;left:130px;top:5px;color:var(--gold)}
 .meter{position:absolute;left:80px;width:220px;height:8px;background:var(--bar-bg)}
 .meter i{display:block;height:100%}
-#hpbar{top:31px}#hpbar i{background:var(--hp)}
-#xpbar{top:47px}#xpbar i{background:var(--xp)}
+/* health, mana and experience stacked in the notch's order, a 12px row step, each reading in its bar's colour */
+#hpbar{top:27px}#hpbar i{background:var(--hp)}
+#mpbar{top:39px}#mpbar i{background:var(--mana)}
+#xpbar{top:51px}#xpbar i{background:var(--xp)}
 .reading{position:absolute;left:308px;width:112px;text-align:left;line-height:1}
-#hp{top:28px;color:var(--hp)}
-#xp{top:44px;color:var(--xp)}
-#action{position:absolute;left:80px;width:340px;top:58px;line-height:1.35}
-/* the pair it carries, as two chips under the action line; a chip is the name in its rarity colour, and clicking one opens the Weapons page */
-#loadout{position:absolute;left:80px;top:78px;display:flex;gap:10px}
-.chip{height:22px;padding:0 10px;border:2px solid var(--edge);border-radius:11px;background:var(--panel-solid);display:flex;align-items:center;gap:6px;cursor:pointer;line-height:1;white-space:nowrap}
-.chip:hover{border-color:var(--gold)}
-.chip .mk{color:var(--muted)}
-.chip.empty{color:var(--muted)}
+#hp{top:24px;color:var(--hp)}
+#mp{top:36px;color:var(--mana)}
+#xp{top:48px;color:var(--xp)}
+#action{position:absolute;left:80px;width:340px;top:64px;line-height:1.35}
 #frame.full #identity,#frame.full #footer{display:none}
 
 /* three controls: a 26px icon and a joined segment control, 26 tall with 8 between */
@@ -247,25 +244,7 @@ body{font-family:var(--ui);color:var(--ink);text-shadow:2px 2px 0 #000;font-weig
 #orenote{position:absolute;left:456px;right:0;top:272px;color:var(--muted);line-height:1.4}
 #orecount{position:absolute;left:0;bottom:0;height:24px;line-height:24px;color:var(--muted)}
 
-/* ---- weapons: a row is a tier and a column is a class; the pair is chosen here ---- */
-#wpnhead{position:absolute;left:82px;top:0;height:24px;display:grid;grid-template-columns:repeat(4,150px);color:var(--muted);text-align:center}
-#wpngrid{position:absolute;left:0;top:36px}
-.wrow{display:flex;height:68px;margin-bottom:6px}
-.wrow .tl{width:82px;line-height:48px;color:var(--muted)}
-/* a cell is the slot with the name under it, so a long name has the cell's whole width and stays on one line; what the weapon does is the hover hint */
-.wcell{width:150px;display:flex;flex-direction:column;align-items:center;gap:4px;cursor:pointer}
-.wcell .slot{flex:none}
-.wcell .nm{line-height:1;white-space:nowrap;text-align:center}
-.wcell.locked{opacity:.45}
-.wcell.locked:hover{opacity:.7}
-.wcell:hover .slot{border-color:var(--gold)}
-.wcell.on .slot{border-color:var(--gold);background:var(--selected)}
-.slot .badge{position:absolute;left:5px;top:2px;color:var(--gold)}
-.slot .mk{position:absolute;inset:0;display:grid;place-items:center;font-size:20px;line-height:1}
-#wpnhint{position:absolute;left:0;right:0;top:412px;color:var(--muted);line-height:1.4}
-#wpnline{position:absolute;left:0;bottom:0;height:24px;line-height:24px;color:var(--muted)}
-
-/* ---- mastery: the whole card; the wheel, or one weapon's own tree ---- */
+/* ---- mastery: the whole card; the wheel, or one diamond's own tree ---- */
 #mast .hint{position:absolute;left:0;top:10px;color:var(--muted)}
 #mast .zoom{position:absolute;right:0;top:0;height:34px;display:flex;gap:8px;align-items:flex-start}
 #graph{position:absolute;left:0;right:0;top:46px;bottom:70px;overflow:hidden;cursor:grab}
@@ -314,10 +293,11 @@ body{font-family:var(--ui);color:var(--ink);text-shadow:2px 2px 0 #000;font-weig
     <div id="lvl" class="s80">Level 12</div>
     <div id="hpbar" class="meter"><i style="width:100%"></i></div>
     <div id="hp" class="reading s66">400 / 400 HP</div>
+    <div id="mpbar" class="meter"><i style="width:65%"></i></div>
+    <div id="mp" class="reading s66">78 / 120 MP</div>
     <div id="xpbar" class="meter"><i style="width:62%"></i></div>
     <div id="xp" class="reading s66">1,240 / 2,000 XP</div>
     <div id="action" class="s75">Mining · Copper vein · 12 tiles below · opportunistic</div>
-    <div id="loadout"><div class="chip s66" data-pick="0"></div><div class="chip s66" data-pick="1"></div></div>
 
     <div id="controls" class="s68">
       <!-- the three controls that survive, each an item icon in the game's own pixel style and a joined segment control -->
@@ -399,23 +379,15 @@ body{font-family:var(--ui);color:var(--ink);text-shadow:2px 2px 0 #000;font-weig
       <div id="orecount" class="s80"></div>
     </div>
 
-    <!-- Weapons page: the pair is chosen here -->
-    <div id="wpn" class="page">
-      <div id="wpnhead" class="s75"></div>
-      <div id="wpngrid" class="s68"></div>
-      <div id="wpnhint" class="s68"></div>
-      <div id="wpnline" class="s80"></div>
-    </div>
-
     <!-- Mastery page -->
     <div id="mast" class="page">
       <div class="hint s75" id="masthint">Preview · drag to pan · wheel to zoom · nothing is spent</div>
       <div class="zoom s80"><div class="rb" id="zout">-</div><div class="rb" id="zin">+</div><div class="pill" id="zreset">Reset view</div></div>
       <div id="graph">
-        <!-- the wheel, or one weapon's tree; both generated below -->
+        <!-- the wheel, or one diamond's tree; both generated below -->
         <svg id="graphsvg" preserveAspectRatio="none" font-family="inherit" font-weight="bold"></svg>
       </div>
-      <div class="legend s80" id="mastlegend">Circle: stat &nbsp; Diamond: ability &nbsp; Marked diamond: weapon &nbsp; Filled circle: shared</div>
+      <div class="legend s80" id="mastlegend">Circle: stat &nbsp; Diamond: ability &nbsp; Filled circle: shared</div>
       <div class="legend2 s75" id="mastline">Select a node. Click a selected diamond again to open its upgrades.</div>
       <div id="open" class="pill s85">Open upgrades</div>
     </div>
@@ -466,8 +438,8 @@ title.addEventListener('pointerup', () => { drag = null; title.classList.remove(
 // ---------------------------------------------------------------- pages
 // The overview is the short card; each tile turns the whole card into its page, with back and
 // close the only buttons left in the title bar. Inside Mastery, back first leaves an opened
-// weapon, then leaves the page.
-const names = {overview: 'Companion', inv: 'Inventory', mast: 'Mastery', ore: 'Mining list', wpn: 'Weapons'};
+// diamond's tree, then leaves the page.
+const names = {overview: 'Companion', inv: 'Inventory', mast: 'Mastery', ore: 'Mining list'};
 const back = $('#back'), titleName = $('#title .name');
 let page = 'overview';
 function show(p) {
@@ -489,90 +461,6 @@ back.addEventListener('click', () => {
 });
 $('#close').addEventListener('click', () => frame.classList.add('hidden'));
 $('#reopen').addEventListener('click', () => { frame.classList.remove('hidden'); place(); });
-
-// ---------------------------------------------------------------- weapons: the pair, and the kit
-// The companion carries two weapons of the twenty. The strip shows the pair as two chips under the
-// action line and the Weapons page is where the pair is chosen: a row is a tier and a column is a
-// class, the design matrix from ../WeaponExperiments/ drawn directly, so the progression reads at
-// a glance. A locked weapon is dimmed and never hidden, because the wheel already shows every
-// weapon; a third pick replaces the one picked longest ago rather than refusing the click, so a
-// swap is one action. Names, effects, tier labels and lock states are mock; the tier names will be
-// the kit's own stage names.
-const CLASSES = ['Melee', 'Ranged', 'Magic', 'Throwing'];
-const CLASS_MARK = ['⚔', '➶', '✦', '✴'];
-const TIERS = ['Tier 1', 'Tier 2', 'Tier 3', 'Tier 4', 'Tier 5'];
-// Terraria's own rarity ladder by tier: white, blue, lime, yellow, cyan.
-const RARITY = ['#ffffff', '#9696ff', '#96ff0a', '#ffff0a', '#05c8ff'];
-const KIT = [
-  [['Copper Shortsword', 'close swings'], ['Wooden Bow', 'plain arrows'], ['Amber Wand', 'one slow bolt'], ['Shuriken Pouch', 'returns to the hand']],
-  [['Iron Broadsword', 'wide swings'], ['Iron Bow', 'faster arrows'], ['Ember Staff', 'bolts light what they pass'], ['Throwing Knives', 'three at once']],
-  [['Flame Sabre', 'swings leave fire'], ['Coral Repeater', 'a burst of three'], ['Wall Lance', 'pierces walls'], ['Boomerang Trio', 'seeks the nearest']],
-  [['Cobalt Cleaver', 'hits everything in the arc'], ['Phase Bow', 'shots pass through blocks'], ['Crystal Storm', 'a spray that bounces'], ['Star Darts', 'seek enemies']],
-  [['Terra Edge', 'a beam on every swing'], ['Tsunami Line', 'five arrows in a fan'], ['Nebula Arcanum', 'seeks, then splits'], ['Vampire Fan', 'heals on hit']],
-];
-const UNLOCK_NODE = ['I', 'II', 'III', 'IV', 'V'];
-const unlockedTiers = 3;  // mock: tiers 1–3 unlocked, 4–5 locked behind their class's mastery diamonds
-let pickSerial = 0;
-let picks = [{t: 1, c: 1, at: ++pickSerial}, {t: 1, c: 2, at: ++pickSerial}];
-const isLocked = t => t >= unlockedTiers;
-const pickIndex = (t, c) => picks.findIndex(p => p.t === t && p.c === c);
-
-// A carried weapon clicked again opens its upgrades: the same tree the wheel opens for that
-// weapon's diamond, reached from here without visiting the wheel. Class column to wheel spoke,
-// and tier row to the spoke's diamonds read outward — left rank one, right rank three, left rank
-// five, right rank seven, the tip.
-const CLASS_BRANCH = [7, 1, 3, 5];
-const TIER_ROLE = [2, 12, 6, 16, 18];
-function openFromWeapons(t, c) {
-  show('mast');
-  openSubtree(wheel.nodes[CLASS_BRANCH[c] * ROLES + TIER_ROLE[t]], 'wpn');
-}
-function equip(t, c) {
-  if (isLocked(t)) return;
-  if (pickIndex(t, c) >= 0) { openFromWeapons(t, c); return; }
-  if (picks.length < 2) picks.push({t, c, at: ++pickSerial});
-  else {
-    const oldest = picks.reduce((a, b) => a.at < b.at ? a : b);
-    oldest.t = t; oldest.c = c; oldest.at = ++pickSerial;
-  }
-  renderWeapons();
-}
-
-function weaponHint(t, c) {
-  const [name, effect] = KIT[t][c];
-  return isLocked(t) ? `${name} · ${effect} · locked: ${CLASSES[c]} ${UNLOCK_NODE[t]} on the wheel`
-       : pickIndex(t, c) >= 0 ? `${name} · ${effect} · carried · click again for its upgrades` : `${name} · ${effect}`;
-}
-
-function renderWeapons() {
-  // the chips, in pick order so the badges on the page and the chips agree
-  const ordered = [...picks].sort((a, b) => a.at - b.at);
-  $$('#loadout .chip').forEach((chip, i) => {
-    const p = ordered[i];
-    chip.classList.toggle('empty', !p);
-    chip.innerHTML = p ? `<span class="mk">${CLASS_MARK[p.c]}</span><span style="color:${RARITY[p.t]}">${KIT[p.t][p.c][0]}</span>` : '<span class="mk">–</span><span>Empty</span>';
-  });
-  $('#wpnhead').innerHTML = CLASSES.map(c => `<div>${c}</div>`).join('');
-  $('#wpngrid').innerHTML = KIT.map((row, t) => `<div class="wrow"><div class="tl">${TIERS[t]}</div>${row.map(([name, effect], c) => {
-    const pi = pickIndex(t, c);
-    const badge = pi >= 0 ? `<span class="badge s66">${ordered.indexOf(picks[pi]) + 1}</span>` : '';
-    return `<div class="wcell${isLocked(t) ? ' locked' : ''}${pi >= 0 ? ' on' : ''}" data-t="${t}" data-c="${c}">
-      <div class="slot">${badge}<span class="mk" style="color:${RARITY[t]}">${CLASS_MARK[c]}</span></div>
-      <div class="nm s75" style="color:${RARITY[t]}">${name}</div>
-    </div>`;
-  }).join('')}</div>`).join('');
-  $$('#wpngrid .wcell').forEach(cell => {
-    const t = +cell.dataset.t, c = +cell.dataset.c;
-    cell.addEventListener('click', () => equip(t, c));
-    cell.addEventListener('mouseenter', () => { $('#wpnhint').textContent = weaponHint(t, c); });
-    cell.addEventListener('mouseleave', () => { $('#wpnhint').textContent = defaultWeaponHint(); });
-  });
-  $('#wpnhint').textContent = defaultWeaponHint();
-  $('#wpnline').textContent = `${ordered.map(p => KIT[p.t][p.c][0]).join(' and ')} · ${20 - unlockedTiers * 4} of 20 locked`;
-}
-function defaultWeaponHint() { return 'Click a weapon to carry it, and a carried weapon again for its upgrades. A third pick replaces the one picked longest ago. A dimmed weapon is locked until its diamond on the wheel is bought.'; }
-$$('#loadout .chip').forEach(chip => chip.addEventListener('click', () => show('wpn')));
-renderWeapons();
 
 // ---------------------------------------------------------------- scrollers
 // A viewport clips an inner block; the wheel and the thumb move it. The thumb's size is the
@@ -706,44 +594,38 @@ $$('#chest .pill').forEach(p => p.addEventListener('click', () => { const msg = 
 sortBag(); drawBag();
 
 // ---------------------------------------------------------------- mastery: the wheel
-// Eight spokes 45 degrees apart with Tools at the top and the rest clockwise. Each spoke has
-// twenty roles: a trunk stat, a fork stat, a stat side of four stats and an ability, a second
-// side of five weapons (on the three weapon branches) or abilities, the branch's mastery cap
-// where the sides meet, and seven small path ranks between them. Every role has one [radius,
-// angular offset] in the template; the offsets are scaled per spoke and the radii wobbled per
-// spoke so no two spokes are the same shape, and the offsets stay under a quarter of the spoke
-// spacing so neighbouring spokes never touch. Shared junctions sit between neighbouring spokes.
-// The geometry is the proposal for the native node table; every name is a placeholder.
-// Eight lanes, clockwise from the top. Four are the weapon classes, and five diamonds on each
-// of those is the twenty-weapon kit; Movement, Survival, Gathering and Guarding hold abilities.
-// Gathering is all tool use (mining, chopping, reach, the torch hat and its light, the bag);
-// Guarding is the companion's protection duties (reach, threat awareness, revival, cleansing).
-const BRANCHES = ["Guarding","Ranged","Movement","Magic","Survival","Throwing","Gathering","Melee"];
-const COLORS = ['rgb(233,180,103)','rgb(138,205,109)','rgb(104,213,220)','rgb(182,144,240)','rgb(237,132,146)','rgb(231,217,137)','rgb(109,201,178)','rgb(236,151,99)'];
-const WEAPON_BRANCH = [false, true, false, true, false, true, false, true];
-// Nineteen roles per spoke: the trunk and the fork (both stats), then two paths of eight read
-// rank by rank — diamond left and circle right, circles both sides, circle left and diamond
-// right, circles both sides, and again — and the fifth diamond at the tip where the paths meet.
-// So the diamonds alternate sides with a circle-circle rank between each, four in the paths and
-// one at the very end: five per branch, one per weapon on the weapon branches and abilities
-// elsewhere. There are no small path ranks. Names in role order: [trunk, fork, left x8, right x8, tip].
+// Four spokes a quarter turn apart with Guarding at the top and the rest clockwise: the lanes the
+// orb can grow since the orb pivot of 2026-09-14. Each spoke has nineteen roles: a trunk stat, a
+// fork stat, two paths of eight ranks whose diamonds alternate sides with a circle-circle rank
+// between each, and the branch's fifth diamond at the tip where the paths meet. Every role has
+// one [radius, angular offset] in the template, the same for every spoke, so the wheel is
+// fourfold symmetric. Shared junctions sit between neighbouring spokes. The geometry is what the
+// native DefineMasteryGraph.cs generates; every name is a placeholder.
+// Movement is speed, acceleration and the dash (no jumps and no flight rank, the orb already
+// flies); Survival is life, armour, regen, resistances and the water and lava immunities as
+// diamonds in that order; Gathering is all tool use (the drill, its reach and light, the pickup
+// and the bag); Guarding is the companion's protection duties (reach, threat awareness, revival,
+// cleansing). The four weapon-class lanes went with the authored weapon kit.
+const BRANCHES = ["Guarding","Movement","Survival","Gathering"];
+const COLORS = ['rgb(233,180,103)','rgb(104,213,220)','rgb(237,132,146)','rgb(109,201,178)'];
+const SPACING = 360 / BRANCHES.length;
+// Names in role order: [trunk, fork, left x8, right x8, tip].
 const NAMES = [
   // Guarding is effects, never behaviours: a share of the player's damage taken instead, less damage for both the
   // closer they stand, a share of the companion's damage healing the player, its hits cleansing burns and poisons
   ["Protection reach","Threat awareness","Shared pain","Revival speed","Vigilance","Guard endurance","Close guard","Steadfast","Cover","Watchful","Calm","Mending","Lifelink","Quick revive","Resolve","Bulwark","Cleanse","Guardian","Sanctuary"],
-  ["Ranged damage","Ranged rate","Short bow","Projectile speed","Ranged reach","Projectile resistance","Long bow","Steady aim","Reload speed","Recoil control","Sharp eye","Quick draw","Pistol","Ammo pouch","Lead the target","Critical eye","Rifle","Cover fire","Launcher"],
-  ["Movement speed","Jump height","Double jump","Fall control","Sure footing","Swim speed","Dash","Sprint","Air control","Glide","Climb speed","Hover","Triple jump","Ledge grab","Soft landing","Quick turn","Flight","Wall kick","Long flight"],
-  ["Magic damage","Mana reserve","Wand","Mana recovery","Cast speed","Spell reach","Tome","Focus","Mana efficiency","Arcane guard","Overcharge","Regen aura","Staff","Ward","Spell haste","Mana shield","Orb","Channel","Grimoire"],
-  ["Maximum life","Defence","Quick respawn","Life regen","Armour","Breath reserve","Second wind","Fall resistance","Thick skin","Endurance","Knockback resistance","Poison resistance","Burn resistance","Chill resistance","Steady feet","Iron will","Last stand","Bounce back","Resilience"],
-  ["Throw damage","Throw rate","Shuriken","Throw reach","Quick recover","Steady arm","Javelin","Spin up","Ricochet","Pouch size","Arc control","Precision","Throwing knife","Volley","Retrieve","Follow-through","Boomerang","Fan throw","Bomb"],
+  ["Speed","Acceleration","Dash","Top speed","Sharp turn","Sustained pace","Chain dash","Quick stop","Drift control","Burst","Momentum","Steady climb","Slipstream","Recovery speed","Overtake","Dash cooldown","Phase dash","Cruise","Flight mastery"],
+  ["Maximum life","Defence","Quick respawn","Life regen","Armour","Thick skin","Water immunity","Knockback resistance","Poison resistance","Iron will","Steady hull","Burn resistance","Second wind","Chill resistance","Bounce back","Last stand","Lava immunity","Endurance","Resilience"],
   ["Mining speed","Chopping speed","Torch hat","Tool reach","Careful work","Vein reach","Brighter hat","Pickup reach","Bag capacity","Coin sense","Search reach","Keen eye","Wide beam","Ore sense","Wood sense","Quick hands","Night sight","Sorting","Auto torch"],
-  ["Melee damage","Attack speed","Short sword","Melee reach","Hit resistance","Knockback","Spear","Stamina","Riposte","Guard","Cleave","Fury","Broadsword","Parry","Lunge","Brace","Flail","Whirl","Greatsword"],
 ];
-// [radius, angular offset in degrees] per role. Consecutive nodes on a path are 70 apart; the two
-// paths sit at least 2 x 0.7 x 10 degrees apart at radius 250, which is 61 units; neighbouring
-// spokes keep 45 - 2 x 12 = 21 degrees between their facing paths, which is 92 units at the
-// innermost path radius; the tip sits 80 beyond the last rank. Nodes are 32 units across, so
-// no two can touch at any zoom, and the page computes the nearest pair to prove it.
+// [radius, angular offset in degrees] per role, the eight-spoke offsets widened threefold: at a
+// quarter turn the original fork read as a plus sign with empty quadrants, and at three times
+// each spoke is a leaf whose paths open to 36 degrees so the four leaves fill the disc.
+// Consecutive nodes on a path are 70 apart; neighbouring spokes keep 90 - 2 x 36 = 18 degrees
+// between their facing paths, about 100 units at the innermost path radius; the tip sits 80
+// beyond the last rank. Nodes are 32 units across, so no two can touch at any zoom, and the
+// page computes the nearest pair to prove it.
+const OFFSET_WIDEN = 3;
 const TEMPLATE = [[100,0],[180,2],
   [250,10],[320,12],[390,12],[460,11],[530,10],[600,9],[670,8],[740,7],
   [250,-10],[320,-12],[390,-12],[460,-11],[530,-10],[600,-9],[670,-8],[740,-7],
@@ -755,25 +637,25 @@ const LABEL_R = 910, JUNCTION_R = 495, ROLES = TEMPLATE.length, NODE_R = 16;
 const rad = d => d * Math.PI / 180;
 const polar = (r, deg) => ({x: Math.round(r * Math.cos(rad(deg))), y: Math.round(r * Math.sin(rad(deg)))});
 const wheel = {nodes: [], edges: [], labels: []};
-for (let b = 0; b < 8; b++) {
-  // every spoke is the template rotated by its own multiple of 45 degrees and nothing else, so the
-  // wheel is eightfold symmetric: any spoke turned onto any other lands node for node
-  const base = b * 45 - 90;
+for (let b = 0; b < BRANCHES.length; b++) {
+  // every spoke is the template rotated by its own multiple of the spacing and nothing else, so the
+  // wheel is fourfold symmetric: any spoke turned onto any other lands node for node
+  const base = b * SPACING - 90;
   TEMPLATE.forEach(([r, d], n) => {
-    const p = polar(r, base + d);
+    const p = polar(r, base + d * OFFSET_WIDEN);
     const kind = ROLE_KIND(n);
-    wheel.nodes.push({x: p.x, y: p.y, b, kind: kind === 'side' ? (WEAPON_BRANCH[b] ? 'weapon' : 'ability') : kind, name: NAMES[b][n]});
+    wheel.nodes.push({x: p.x, y: p.y, b, kind: kind === 'side' ? 'ability' : kind, name: NAMES[b][n]});
   });
   EDGES_PER_SPOKE.forEach(([f, t]) => wheel.edges.push([f < 0 ? -1 : b * ROLES + f, b * ROLES + t]));
 }
-for (let i = 0; i < 8; i++) {
+for (let i = 0; i < BRANCHES.length; i++) {
   // a junction joins spoke i's left path to spoke i+1's right path at their fourth rank, and opens the fifth rank of each
-  const a = i * ROLES, c = ((i + 1) % 8) * ROLES, j = wheel.nodes.length;
-  const p = polar(JUNCTION_R, i * 45 - 90 + 22.5);
+  const a = i * ROLES, c = ((i + 1) % BRANCHES.length) * ROLES, j = wheel.nodes.length;
+  const p = polar(JUNCTION_R, i * SPACING - 90 + SPACING / 2);
   wheel.nodes.push({x: p.x, y: p.y, b: i, kind: 'junction', name: 'Shared ' + NAMES[i][0].toLowerCase()});
   wheel.edges.push([a + 5, j], [c + 13, j], [j, a + 6], [j, c + 14]);
 }
-BRANCHES.forEach((_, b) => { const p = polar(LABEL_R, b * 45 - 90); wheel.labels.push({x: p.x, y: p.y + 12, text: BRANCHES[b], b}); });
+BRANCHES.forEach((_, b) => { const p = polar(LABEL_R, b * SPACING - 90); wheel.labels.push({x: p.x, y: p.y + 12, text: BRANCHES[b], b}); });
 wheel.extent = 2 * (LABEL_R + 70);
 // the layout's own proof: the nearest two nodes, in graph units, against the node diameter
 wheel.nearest = Math.min(...wheel.nodes.flatMap((a, i) => wheel.nodes.slice(i + 1).map(b => Math.hypot(a.x - b.x, a.y - b.y))));
@@ -785,9 +667,8 @@ $('#masttilecount').textContent = '0/' + wheel.nodes.length;
 // where the wheel has its root, three branches at 120 degrees, each a circle that forks into an
 // unconnected pair of circles which meet again at a diamond at the tip, and a shared circle in
 // each of the three gaps joining one branch's pair to the next branch's pair — fifteen points
-// around the centre. The three lines are the upgrade families the owner named for a weapon, and
-// a generic trio for an ability; every name and count is a placeholder.
-const SPECIAL = {1: ['Pierces one more', 'Pierces two more'], 3: ['Cheaper cast', 'Wider bolt'], 5: ['Bounces once more', 'Returns faster'], 7: ['Wider swing', 'Longer reach']};
+// around the centre. The three lines are a generic trio for an ability; every name and count is
+// a placeholder.
 // [radius, angular offset] per role, read as the wheel's template is: rank one on the axis, the
 // pair either side of it, the tip on the axis. The pair sits 22 degrees off the axis at radius 230,
 // which is 172 units apart; the shared circle sits at the same radius exactly between two branches,
@@ -795,11 +676,7 @@ const SPECIAL = {1: ['Pierces one more', 'Pierces two more'], 3: ['Cheaper cast'
 const SUB_TEMPLATE = [[120, 0], [230, -22], [230, 22], [340, 0]];
 const SUB_ROLES = SUB_TEMPLATE.length, SUB_JUNCTION_R = 230, SUB_LABEL_R = 410;
 function subtree(node) {
-  const lines = node.kind === 'weapon'
-    ? [['Damage', ['Damage I', 'Damage II', 'Crit chance', 'Damage mastery']],
-       ['Rate', ['Rate I', 'Rate II', 'Quick swap', 'Rate mastery']],
-       ['Special', ['Special I', ...(SPECIAL[node.b] || ['Special II', 'Special III']), 'Special mastery']]]
-    : [['Strength', ['Strength I', 'Strength II', 'Efficiency', 'Strength mastery']],
+  const lines = [['Strength', ['Strength I', 'Strength II', 'Efficiency', 'Strength mastery']],
        ['Speed', ['Speed I', 'Speed II', 'Recovery', 'Speed mastery']],
        ['Reach', ['Reach I', 'Reach II', 'Control', 'Reach mastery']]];
   const t = {nodes: [], edges: [], labels: [], extent: 2 * (SUB_LABEL_R + 70), root: {b: node.b, kind: node.kind}};
@@ -831,13 +708,13 @@ function subtree(node) {
 const svg = $('#graphsvg'), NS = 'http://www.w3.org/2000/svg';
 const el = (t, a) => { const e = document.createElementNS(NS, t); for (const k in a) e.setAttribute(k, a[k]); return e; };
 let current = wheel, opened = null, openedFrom = null, selectedNode = null;
-const isDiamond = n => n.kind === 'ability' || n.kind === 'weapon';
+const isDiamond = n => n.kind === 'ability';
 // How far a node's boundary sits from its centre along a direction, so an edge can stop at the
 // side of the shape rather than run through to the centre. A circle is its radius everywhere; a
 // diamond is a square of half-side R turned 45 degrees, whose vertices sit R*sqrt(2) out along the
 // axes and whose sides pass R from the centre, and the distance along an angle a is
 // R*sqrt(2) / (|cos a| + |sin a|).
-const boundary = (kind, a) => (kind === 'ability' || kind === 'weapon' || kind === 'root')
+const boundary = (kind, a) => (kind === 'ability' || kind === 'root')
   ? NODE_R * Math.SQRT2 / (Math.abs(Math.cos(a)) + Math.abs(Math.sin(a)))
   : NODE_R;
 function draw(g) {
@@ -861,7 +738,6 @@ function draw(g) {
     if (isDiamond(n)) e = el('rect', {x: n.x - R, y: n.y - R, width: 2 * R, height: 2 * R, fill: 'transparent', stroke: c, 'stroke-width': 3.5, transform: `rotate(45 ${n.x} ${n.y})`});
     else e = el('circle', {cx: n.x, cy: n.y, r: R, fill: n.kind === 'junction' ? 'rgba(255,255,255,.12)' : 'transparent', stroke: c, 'stroke-width': 3.5});
     e.classList.add('node'); svg.appendChild(e);
-    if (n.kind === 'weapon') svg.appendChild(el('rect', {x: n.x - 5, y: n.y - 5, width: 10, height: 10, fill: c, transform: `rotate(45 ${n.x} ${n.y})`, 'pointer-events': 'none'}));
     e.addEventListener('click', ev => {
       ev.stopPropagation();
       // the second click on an already selected diamond of the wheel opens its tree; the first
@@ -870,27 +746,22 @@ function draw(g) {
       svg.querySelectorAll('.node').forEach(x => x.classList.remove('sel')); e.classList.add('sel'); selectedNode = n;
       $('#mastline').textContent = n.name + ' · ' + (
         opened ? (isDiamond(n) ? 'mastery · put a point here?' : n.kind === 'junction' ? 'shared, opens from either line · put a point here?' : 'upgrade rank 0 of 5 · put a point here?')
-               : (n.kind === 'weapon' ? 'weapon · put a point here? · click again for its upgrades'
-                : n.kind === 'ability' ? 'ability · put a point here? · click again for its upgrades'
+               : (n.kind === 'ability' ? 'ability · put a point here? · click again for its upgrades'
                 : n.kind === 'stat' ? 'repeatable stat, rank 0 of 5 · put a point here?' : 'shared node, opens from either path · put a point here?'));
       $('#open').classList.toggle('show', isDiamond(n) && !opened); });
   });
-  // the centre: the wheel's root in gold, or the opened diamond filled in its branch colour, with
-  // the weapon mark kept so an opened weapon still reads as one
+  // the centre: the wheel's root in gold, or the opened diamond filled in its branch colour
   const rootColor = g === wheel ? '#ffe066' : COLORS[g.root.b];
   svg.appendChild(el('rect', {x: -16, y: -16, width: 32, height: 32, fill: rootColor, stroke: rootColor, transform: 'rotate(45 0 0)'}));
-  if (g !== wheel && g.root.kind === 'weapon') svg.appendChild(el('rect', {x: -5, y: -5, width: 10, height: 10, fill: '#1a1d55', transform: 'rotate(45 0 0)', 'pointer-events': 'none'}));
   g.labels.forEach(l => { const t = el('text', {x: l.x, y: l.y, fill: COLORS[l.b], 'text-anchor': 'middle', 'font-size': g === wheel ? 40 : 28, filter: 'url(#hard)'});
     t.textContent = l.text; svg.appendChild(t); });
   fitGraph();
 }
-// Opening a diamond's tree, from the wheel or from the Weapons page. Where it was opened from is
-// where back returns to, because a player who came from choosing a weapon has not been to the
-// wheel and should not land on it.
+// Opening a diamond's tree from the wheel; back returns to the wheel.
 function openSubtree(n, from) {
   opened = n; openedFrom = from; draw(subtree(n));
   titleName.textContent = 'Mastery · ' + n.name;
-  $('#masthint').textContent = n.name + ' · its own upgrades · back returns to ' + (from === 'wpn' ? 'Weapons' : 'the wheel');
+  $('#masthint').textContent = n.name + ' · its own upgrades · back returns to the wheel';
   $('#mastlegend').innerHTML = 'Circle: upgrade rank &nbsp; Diamond: mastery &nbsp; Filled circle: shared';
   $('#mastline').textContent = 'Select an upgrade. Click a diamond once to select it; nothing is spent here.';
 }
@@ -898,9 +769,8 @@ function closeSubtree() {
   const from = openedFrom; opened = null; openedFrom = null; draw(wheel);
   titleName.textContent = names.mast;
   $('#masthint').textContent = 'Preview · drag to pan · wheel to zoom · nothing is spent';
-  $('#mastlegend').innerHTML = 'Circle: stat &nbsp; Diamond: ability &nbsp; Marked diamond: weapon &nbsp; Filled circle: shared';
+  $('#mastlegend').innerHTML = 'Circle: stat &nbsp; Diamond: ability &nbsp; Filled circle: shared';
   $('#mastline').textContent = 'Select a node. Click a selected diamond again to open its upgrades.';
-  if (from === 'wpn') show('wpn');
 }
 $('#open').addEventListener('click', () => { if (selectedNode && isDiamond(selectedNode) && !opened) openSubtree(selectedNode, 'mast'); });
 
