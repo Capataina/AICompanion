@@ -49,6 +49,7 @@ internal static class VerifyOreWork
             PreparedToolsRejectReplacementMaterial();
             AxeEligibilityAloneDoesNotMakeATree();
             AnUnprovenApproachIsNotAPlan();
+            AColdFloodDoesNotLeaveTheBrainResting();
             AnUnknownApproachDoesNotSubstituteASealedNeighbour();
             AReachableOreProducesANativeBreak();
             AUsefulCurrentPoseNeedsNoApproach();
@@ -874,7 +875,16 @@ internal static class VerifyOreWork
     /// The nearest-first approach must return exactly what the exhaustive scan returned: the same
     /// verdict and the same stand, ties included. The reference below is the previous algorithm
     /// verbatim, run on the same native terrain after the production call so both see warm caches.
-    /// Geometry varies the ore's height, the body's side and distance, and a wall that seals poses.
+    /// Geometry varies the ore's height and a wall that seals poses.
+    ///
+    /// <para>The five <c>from</c> positions vary less than they look, and the row is worth reading with that
+    /// in mind. They used to vary the search origin, because each pose's verdict came from a walker search
+    /// starting at those feet; the verdict now comes from a flood run from the companion's own feet, which do
+    /// not move across the twenty-five pairs, and the pose ranking measures each candidate stand against the
+    /// ore rather than against <c>from</c>. So what <c>from</c> still varies is the <see cref="FindToolAccess.InReach"/>
+    /// early return — whether the query answers before any pose is ranked at all. That is a real fork and the
+    /// row keeps it; it is simply not the sweep of origins the five values suggest. The closing requirement is
+    /// what keeps the row honest either way: a comparison holding no unreachable case compares nothing.</para>
     /// </summary>
     private static void TheNearestFirstApproachMatchesTheExhaustiveScan()
     {
@@ -1074,6 +1084,48 @@ internal static class VerifyOreWork
             "an undecided approach must not publish a plan target");
         Require(action.Execute(ctx).Kind == live::AICompanion.Companion.Brain.Infrastructure.Position.RequestKind.Hold,
             "an undecided approach must not walk at the ore");
+    }
+
+    /// <summary>
+    /// The only row in this suite that runs the whole brain from a flood nobody has run, and it exists because
+    /// every other row's setup warms one. That warming is honest — the live game has been flooding since the
+    /// companion spawned — but it means the suite says nothing about the state the live game is actually in at
+    /// spawn and after every world edit, which is a region that is null rather than merely stale.
+    ///
+    /// <para>What makes that state worth a row of its own is that nothing an idle companion does is obliged to
+    /// leave it. Work reads the sense, so with a null region every ore answers NotYet and every work activity
+    /// offers zero; keeping company wins by default; and <c>Resolve</c>'s <c>Hold</c> branch returns before it
+    /// reaches <c>Refresh</c>, so a resting tick ages the flood without growing it. The one thing that breaks
+    /// the circle is that a stroll is an <c>Exact</c> request and <c>Exact</c> refreshes — and the stroll is
+    /// chosen by a die roll rather than by anything that knows the region is empty. This row is the standing
+    /// check that the circle stays broken; a change that makes an idle companion hold still would close it,
+    /// and no other fixture here could tell.</para>
+    ///
+    /// <para>The ore sits fourteen tiles out, past both tool reach and the band a stroll picks goals in, so it
+    /// cannot be reached by a stroll wandering into range: the only route to a break is the region growing,
+    /// mining offering usable work and winning the tick. Whether a given idle window strolls or rests is a die
+    /// roll, and the row needs no die of its own for that: every setup here goes through
+    /// <c>VerifyCompanionLifecycle.Create</c>, which seeds <c>Main.rand</c>, so each row starts from the same
+    /// rolls however many the rows before it took.</para>
+    /// </summary>
+    private static void AColdFloodDoesNotLeaveTheBrainResting()
+    {
+        Point ore = new(34, 59);
+        var (mine, ctx) = SetUp(WorkPolicy.Opportunistic, TileID.Copper, ore);
+        EmptyTheReachRegion(ctx);
+        // The row must start in the cold state rather than assume it: a setup that warmed the region, or an
+        // ore near enough to resolve through the in-reach shortcut, would make the run below prove nothing
+        // about a cold flood while passing exactly as it does now.
+        float cold = VerifyPreparedActivities.PrepareAndScore(mine, ctx);
+        Require(cold == 0f && mine.Status == "approach unknown",
+            $"the row must begin with mining unable to answer, or the run proves nothing about a cold flood; "
+            + $"score={cold} status={mine.Status}");
+        var run = RunBrainUntilBroken(ctx, ore, 900);
+        Require(run.Broken,
+            $"a companion that spawns beside its player with a cold reach flood must still start the ore fourteen "
+            + $"tiles away; feet={ctx.Npc.Bottom} offer={mine.Eligibility}/{mine.EligibilityReason} "
+            + $"status={mine.Status} action={ctx.Companion.Brain.LastAction?.Name} "
+            + $"reach-complete={ctx.Companion.Brain.Positioner.ReachComplete} strikes={run.StrikeFeet.Count}");
     }
 
     /// <summary>
