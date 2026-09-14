@@ -11,9 +11,18 @@ NavReplay/
 ├─ CLAUDE.md          this operating contract
 ├─ NavReplay.csproj   compiles every shared-movement source except TerrariaIntegration
 ├─ VerifyMovementContracts.cs  state, safety, retention and policy-isolation tests
+├─ VerifyMirrorAndShrink.cs  the corpus tools checking themselves: the reflection is exact and a reduction keeps its failure
 ├─ CompareJumpPaths.cs  one jump edge through both of the paths that claim to perform it
+├─ ReplayOneBlock.cs   one block evaluated once — reset, plan, flood, trail, follow — and the signature a reduction must preserve
+├─ MirrorScenarioWorlds.cs  a block reflected left to right: tiles, glyph pairs, actors, trail and the recorded body box
+├─ ShrinkFailingScenario.cs  delta debugging over tile-shaped reductions, down to the smallest window that still fails the same way
+├─ ExtractScenarioFromCapture.cs  a recorded tick's terrain cut out of a capture into a committed-format scenario
 └─ Program.cs          parses blocks, runs planning/replay modes and renders the result
 ```
+
+**`NavReplay.csproj` lists its own sources**, because `EnableDefaultCompileItems` is off: a file added
+to this folder and not added there does not fail to build, it is simply absent, and whatever mode it
+carried reports nothing.
 
 Run from the repository root:
 
@@ -33,6 +42,9 @@ dotnet run --project Tools/NavReplay -- --trace-walk X,Y,DIR <scenario.txt>
 dotnet run --project Tools/NavReplay -- --follow-ticks A,B <scenario.txt>
 dotnet run --project Tools/NavReplay -- --compare-jump FROMX,FROMY,TOX,TOY [--compare-ticks] [--entry-vx V] [--entry-state LEFT,BOTTOM,VX[,GROUND]] <scenario.txt>
 dotnet run --project Tools/NavReplay -- --audit-jumps <scenario.txt | folder>
+dotnet run --project Tools/NavReplay -- --mirror Tools/Scenarios
+dotnet run --project Tools/NavReplay -- --shrink <scenario.txt> [--follow] [--shrink-budget N]
+dotnet run --project Tools/NavReplay -- --extract-scenario <capture.tsv> <tick> [--size WxH]
 ```
 
 The plain run establishes a route verdict. `--follow` establishes whether the same navigator
@@ -40,6 +52,84 @@ can execute that route under the body simulation. `--no-cache` must agree with t
 and `--churn` must report no stale plans after it breaks each route tile. `--edges` and the two
 trace modes are focused instruments: use them before changing a traversal whose failure is in
 one section of a scenario.
+
+## Every replay mode runs with the millisecond allowances lifted, and the self-test does not
+
+`AStar.Find` and `AStar.Region` both turn their budget into a wall-clock deadline, so a search under
+load reaches less of the world than the same search on an idle machine. Every mode that replays a
+scenario therefore lifts the allowance before it starts, leaving each query's work-count limit as
+the only bound: that is what makes a corpus verdict an oracle rather than a measurement of how busy
+the machine was, and it is the precondition for the mirror relation meaning anything at all. It used
+to hold only by the accident that nothing here set the static budget, which any later caller could
+have left behind.
+
+The self-test is deliberately outside that: some of its fixtures exist to tell an unfinished search
+from exhausted terrain, and lifting the deadline under them makes the distinction they check
+impossible to express. A deadline fixture is one of the few things that legitimately reads a clock.
+
+## Three ways a scenario becomes evidence: reflected, reduced, or cut out of a recording
+
+**`--mirror` runs every block twice, as captured and reflected left to right, and the row is that the
+two agree.** Nothing about a tile world prefers a direction, so a route proven one way must be proven
+the other, and a block that answers differently is an asymmetry in our own code rather than a fact
+about terrain. The relation is checked rather than the verdict: a block model-closed both ways
+satisfies it, which is what lets the mirror run inside `verify.sh` when the plain corpus — red for
+months by design — cannot, because a run carrying a failure can never be a baseline. It runs on this
+corpus and not on the native suite, because the one mirror relation implemented there is the
+intermittent fixture and a relation checked against an oracle that disagrees with itself under load
+tests the oracle.
+
+Three things make the reflection exact and each is invisible once wrong. The axis is the window's
+own span taken from the rows rather than from the header's declared bounds, since the parser sizes
+the world from its longest row. A short row is padded with solid on the right before it is reversed,
+or the reflection quietly moves that wall to the other side of the window. And a body is a box
+rather than a point, so its left edge reflects through its own width — without it the body lands a
+box to the side, which on a companion is a tile and a bit. The double reflection is required to be
+the identity over every committed block, beside a check that at least one block actually changed,
+because a transform that returned its input would satisfy an identity perfectly.
+
+**`--shrink` reduces a failing scenario to the smallest window that still fails the same way**, by
+delta debugging (Zeller and Hildebrandt's ddmin) over reductions shaped like the thing being reduced
+(Regehr et al.): rows emptied, rows walled, single tiles emptied, the trail cut to a prefix, and the
+window trimmed from its edges. The signature is computed once from the original and every candidate
+is equality against it — the verdict class, which region the model closed around, the follow outcome,
+the first physical fault's kind and the first trail tile the grid refused. **A reduction that changes
+the signature found a second finding rather than a smaller one**, and the distinction is not
+academic: the first version's signature omitted which region closed, and the reducer duly turned a
+body sealed into a pocket into a goal sealed into one and reported the failure preserved.
+
+Two transforms are deliberately absent and both would look reasonable. Nothing fills a tile with
+support that was not there, because the corpus's own rule is that a fixture is never altered to make
+a move succeed. And an interior column is never deleted, only edge-trimmed: deleting one renumbers
+every tile to its right, so the reduced file's coordinates would stop naming the places the capture
+named, and a fixture whose tiles cannot be pointed at in the world is one nobody can check against
+the world.
+
+Two properties of the passes were learned by running them. **The walling pass may only touch rows the
+emptying pass could not empty**: run over every row, it refilled with solid the rows just emptied, so
+the two passes undid each other and the output was larger than the input — a reduction that can
+reverse another reduction is not one. And **the interior passes may spend only part of the call
+budget**, because the trim is last and is the reduction a reader actually feels; without a reserve the
+rows and tiles consumed every call and the window came back its original size.
+
+A passing scenario is refused rather than minimised: with no failure to preserve, ddmin would reduce
+until the answer changed for a reason nobody asked about. The reduced file is written beside its
+original carrying the original's name, the transforms applied and the signature — at the *end* of the
+header line, because every recorded key is found by its first occurrence and provenance carrying the
+word "goal" ahead of the real one would become the goal.
+
+**`--extract-scenario` cuts the terrain around the companion at a recorded tick out of a capture's
+own `terrain-snapshot` events**, with the recorded body, the destination the brain asked for on that
+tick, the player's feet and their trail. It is how a failure the player can feel becomes a block the
+tool replays without waiting for one of the recorder's detectors to have imagined it. **A tile no
+snapshot covered is written solid and counted in the reported coverage, never left as air**: the
+glyph alphabet reads anything outside it as air, so missing terrain would become open sky and a
+window with holes in it would read as a window with an easy route. Snapshots are joined to the row on
+the recorder's own stopwatch rather than on the tick, because the two streams have different
+producers and only the elapsed millisecond means the same thing in both. Which recorded columns are
+pixels and which are tiles is read off the column and never inferred from the text — `npc_px` writes
+its pixels without a decimal point, so a parser deciding by punctuation would cut the window fifty
+thousand columns from anywhere anyone has been.
 
 ## Reading a jump that the planner proves and the body cannot make
 

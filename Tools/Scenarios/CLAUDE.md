@@ -26,6 +26,32 @@ Scenarios/
 └─ shaft-two-wide-descended-from-the-lip.txt narrow-shaft entry and body clearance
 ```
 
+## A scenario arrives three ways now, and two of them are written by a tool
+
+A fixture used to exist only where somebody cut one by hand or where one of the recorder's detectors
+fired, so a failure nobody had thought to threshold produced no fixture at all. Two commands close
+that gap and both write into this folder.
+
+`NavReplay --extract-scenario <capture> <tick>` cuts the terrain around the companion at a recorded
+tick out of the capture's own terrain snapshots, with the recorded body box, the destination the
+brain asked for, the player's feet and their trail. **Its header carries what the snapshots did not
+cover**, because a tile no snapshot reached is written solid — unknown is closed, the same rule the
+native water replay states — and a fixture at low coverage is a fixture whose sealed verdict is
+about the recording rather than about the world. Read the coverage before reading the verdict.
+
+`NavReplay --shrink <scenario>` writes a reduced copy beside the original, named for it, carrying in
+its header the transforms applied and the signature the reduction preserved. **A reduced file is a
+diagnostic artefact and not automatically a fixture**: whether one is worth committing is a judgement
+for whoever is investigating that failure, because every committed red enlarges what the corpus
+reports as broken. The reduction never adds support to a fixture and never deletes an interior
+column, so a reduced file's tiles still name the places the original named.
+
+Every block is also run reflected left to right by `NavReplay --mirror`, which is a property of the
+corpus rather than a file in it: a route proven one way must be proven the other, so the reflection
+doubles this folder for the cost of a transform and a block that answers differently is an asymmetry
+in our code. A fixture cut by hand is therefore two cases, and a left-right symmetric fixture is
+still worth having because it exercises the transform end to end.
+
 Run `dotnet run --project Tools/NavReplay -- --follow Tools/Scenarios` from the repository root for the full corpus. The corpus contains known incomplete and model-closed cases; its non-zero exit is classified per case, never replaced with a green claim. A comparison must check every previously arriving case, not merely an improved aggregate count. `dotnet run --project Tools/EngineReplay -- --escape` exercises production survival selection, its normal search budget and native collision on the captured pool, then mirrored synthetic awnings.
 
 Preserve the capture's body box and tile offset when translating into a native fixture. Actor glyphs represent air, so marker metadata must carry an actor standing over a slope or half block without erasing support. Reshaping from a saved world can introduce terrain edited after the failure; raw shape-aware captures avoid that ambiguity. Do not alter a fixture to make a proposed movement succeed. Missing terrain or unsupported liquid fidelity is missing coverage and belongs in the result.
