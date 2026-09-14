@@ -448,6 +448,20 @@ public static class ChronicleTests
             "zero-tick metadata or lifecycle callback evidence is missing from the recorder contract");
         Require(telemetry.Contains("RecordLifecycle", StringComparison.Ordinal) && telemetry.Contains("outer-load=unobservable", StringComparison.Ordinal),
             "lifecycle evidence no longer states the boundary between this callback and Terraria's outer load");
+
+        // The preamble's world and capability lines, pinned as producer literals because nothing in
+        // this suite executes them. No fixture opens a recorder session — they reach in and call
+        // Close — so WriteMetadata never runs headless, and a green suite says nothing about
+        // whether these two lines are written. What a pin does catch is the likelier failure by far:
+        // somebody renaming or dropping a line that a reader downstream is about to depend on.
+        // What it cannot catch is the behaviour, and that is a real gap, closed only by a playtest
+        // or by a fixture that opens a session.
+        Require(telemetry.Contains("# capabilities=", StringComparison.Ordinal) && telemetry.Contains("# world=", StringComparison.Ordinal),
+            "the capture no longer declares which world and which movement kits produced it, so an old capture replayed against a mined-through world reads as a regression in everything");
+        Require(telemetry.Contains("MovementCapabilities.Basic", StringComparison.Ordinal) && telemetry.Contains("rocketBoots", StringComparison.Ordinal),
+            "the capability line no longer reads both kits from their own sources, and an inferred ability is a heuristic running underneath the thing being measured");
+        Require(!telemetry.Contains("identity.GetHashCode()", StringComparison.Ordinal) && telemetry.Contains("14695981039346656037UL", StringComparison.Ordinal),
+            "the world hash is no longer FNV-1a: string.GetHashCode() is randomised per process, so a hash taken from it differs between two captures of one world and agrees with nothing, including itself tomorrow");
     }
 
     /// <summary>
@@ -486,7 +500,14 @@ public static class ChronicleTests
                 return Session.Load(file);
             }
 
-            bool Fires(Session s) => new PersistentRejectionsAreFindings().Run(s).Any();
+            // A park is the Definitive finding. The check also emits an Oddity stating how many
+            // refusals it saw when it found no park, because after the freshness rule a zero is far
+            // more often the sensitivity limit than a clean run — and "no park" and "nothing was
+            // measured" are the two things this tool exists to keep apart. Testing for Any() would
+            // fold them back together, which is what this predicate used to do.
+            bool Fires(Session s) => new PersistentRejectionsAreFindings().Run(s).Any(f => f.Severity == Severity.Definitive);
+            bool StatesCoverage(Session s) => new PersistentRejectionsAreFindings().Run(s)
+                .Any(f => f.Severity == Severity.Oddity && f.Title.Contains("were issued", StringComparison.Ordinal));
 
             Require(Fires(Write(("Rejection { Step = A }", 50.0), ("Rejection { Step = A }", 50.0), ("Rejection { Step = A }", 50.0))),
                 "three samples of one refusal at one pixel is a body parked on a refused step and must be reported");
@@ -498,6 +519,18 @@ public static class ChronicleTests
                 "a body refused a different step each sample is being replanned for, however still it is");
             Require(!Fires(Write(("", 50.0), ("", 50.0), ("", 50.0), ("", 50.0))),
                 "a session with no refusal at all must produce no finding, which is the case no capture on this machine can demonstrate");
+            Require(new PersistentRejectionsAreFindings().Run(Write(("", 50.0), ("", 50.0))).Any() == false,
+                "a session with no refusal at all must say nothing, not even a coverage line, because there was no refusal to have a park");
+
+            // A retained refusal standing over a still body is the defect this check had: the field
+            // is sticky, so a body that stopped beside a refusal it walked away from reads exactly
+            // like one frozen at the take-off of it. The refusal is issued once, the body then
+            // moves, and the same text follows it — which must open nothing at the new pixel.
+            Require(!Fires(Write(("Rejection { Step = A }", 50.0), ("Rejection { Step = A }", 62.0),
+                                 ("Rejection { Step = A }", 62.0), ("Rejection { Step = A }", 62.0))),
+                "a refusal the body walked away from must not become a park at wherever it stopped: the field is retained, so the text following the body is a stale reading and not a refusal being issued there");
+            Require(StatesCoverage(Write(("Rejection { Step = A }", 50.0), ("Rejection { Step = A }", 62.0))),
+                "a capture holding refusals and no park must say how many refusals it saw, because zero findings and zero coverage are otherwise the same output");
         }
         finally
         {

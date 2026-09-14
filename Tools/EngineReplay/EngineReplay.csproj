@@ -23,6 +23,9 @@
     <Compile Include="../../Companion/Brain/Infrastructure/Diagnostics/ObserveTerrainChanges.cs" />
     <Compile Include="../../Companion/Brain/Infrastructure/Selection/BehaviourWeights.cs" />
     <Compile Include="../../Companion/PlayerIntegration/ObservePlayerEvents.cs" />
+    <!-- The ledger's row writer, as a source file: every case here reports through it and through
+         nothing else, so the suite's verdicts survive the process that produced them. -->
+    <Compile Include="../Ledger/EmitLedgerRows.cs" />
     <Reference Include="tModLoader"><HintPath>$(TModLoaderRoot)/tModLoader.dll</HintPath></Reference>
     <Reference Include="FNA"><HintPath>$(TModLoaderRoot)/Libraries/FNA/1.0.0/FNA.dll</HintPath></Reference>
     <Reference Include="ReLogic"><HintPath>$(TModLoaderRoot)/Libraries/ReLogic/1.0.0/ReLogic.dll</HintPath></Reference>

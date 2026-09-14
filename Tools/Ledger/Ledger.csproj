@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    The ledger: the harness's memory. Every instrument writes one row per named case through
+    EmitLedgerRows.cs, which this project owns and the other Tools projects include as a source
+    file rather than reference as an assembly — they are separate executables with different
+    game-assembly needs, and a shared source file costs one line in each .csproj where a shared
+    library would cost a reference graph.
+
+    It compiles nothing from the mod tree and references no game assembly: a run file is text.
+    Run from the repository root:  dotnet run - -project Tools/Ledger - - scoreboard <run.jsonl>
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <RootNamespace>AICompanion.Tools.Ledger</RootNamespace>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+</Project>

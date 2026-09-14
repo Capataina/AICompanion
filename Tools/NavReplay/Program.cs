@@ -8,6 +8,7 @@ using System.Linq;
 using System.Text;
 using Microsoft.Xna.Framework;
 using AICompanion.Companion.Brain.Infrastructure.Movement;
+using AICompanion.Tools.Ledger;
 
 // Replays navigation scenarios off-game: for every file given, load its tile window, ask the
 // mod's own planner for the path the game asked for (S to G, the recorded plan) and, when the
@@ -20,7 +21,9 @@ using AICompanion.Companion.Brain.Infrastructure.Movement;
 // Exit code: 0 when every executed scenario passed and nothing was skipped or missing, 1
 // otherwise; the counts are in the last line, never in the status, which wraps at 256.
 
-if (args.Length == 1 && args[0] == "--self-test") return VerifyMovementContracts.Run();
+if (args.Length == 1 && args[0] == "--self-test")
+    return EmitLedgerRows.Case("nav-replay", "NavReplay", "the portable movement core keeps its state, safety, retention and policy contracts",
+        VerifyMovementContracts.Run);
 
 int failed = 0, passed = 0, sealedCount = 0, skipped = 0, missing = 0;
 int churnTiles = 0, churnWrong = 0;
@@ -402,6 +405,35 @@ Console.WriteLine($"{passed}/{passed + failed} passed, {sealedCount} model-close
     + (churn ? $"; churn: {churnTiles} tiles broken, {churnWrong} stale plans" : "")
     + (follow ? $"; follow: {followPassed} walked, {followPartial} to a partial plan's end, {followFailed} not" : "")
     + (auditJumps ? $"; jump proofs: {auditTotal.Proven} proven, {auditTotal.Flown} flown to their tile, {auditTotal.SatisfiedAtEntry} satisfied at entry, {auditTotal.CompletedBySlack} closed by the arrival slack elsewhere, {auditTotal.Unflyable} unflyable ({auditTotal.FlownShare * 100:F1}% flown)" : ""));
+// The corpus as rows. A pass count and a sealed count are two different facts and the ledger keeps
+// them apart: model-closed is a search that proved nothing, never a proof of impossibility, so it
+// is its own verdict rather than a failure or a pass. The counts go in as measures beside them,
+// because "how many scenarios passed" is the number that moves when the planner changes and one
+// exit code cannot carry it.
+if (passed + failed + sealedCount > 0)
+{
+    EmitLedgerRows.Measure("nav-replay", "corpus", "scenarios-passed", passed, "scenarios", "up",
+        message: $"out of {passed + failed} executed, with {sealedCount} model-closed and {skipped} skipped");
+    EmitLedgerRows.Measure("nav-replay", "corpus", "scenarios-model-closed", sealedCount, "scenarios", "down",
+        message: "searches that closed against the model without proving the move impossible");
+    if (failed > 0)
+        EmitLedgerRows.Fail("nav-replay", "corpus", "every corpus scenario reaches its recorded goal", $"{failed} scenario(s) did not reach their goal");
+    else if (passed > 0)
+        EmitLedgerRows.Pass("nav-replay", "corpus", "every corpus scenario reaches its recorded goal", $"{passed} scenario(s)");
+}
+if (follow)
+    EmitLedgerRows.Measure("nav-replay", "corpus", "follow-walked", followPassed, "scenarios", "up",
+        message: $"{followPartial} reached a budget-cut plan's end and {followFailed} did not walk at all");
+if (auditJumps)
+{
+    // The one property the audit can genuinely fail, as a number rather than a verdict, because a
+    // red on a counted residue is a triage list and a number that moves — not a stop.
+    EmitLedgerRows.Measure("nav-replay", "corpus", "jump-proofs-unflyable", auditTotal.Unflyable, "edges", "down",
+        message: $"jumps the planner proved that the performer refuses, out of {auditTotal.Proven} proven and {auditTotal.Flown} flown");
+    EmitLedgerRows.Measure("nav-replay", "corpus", "jump-proofs-flown-share", auditTotal.FlownShare * 100, "%", "up",
+        message: "share of proven jump edges the performer actually flew to their tile");
+}
+
 // The audit carries its own verdict, because it runs no plan cases at all: every scenario is
 // skipped and the pass count is zero by construction, so the ordinary condition below reports a
 // failure for doing exactly what the mode is for. What the audit can genuinely fail is its one

@@ -45,12 +45,29 @@ public sealed class PersistentRejectionsAreFindings : ICheck, ICheckCoverage
         GodsEyeEventLog log = ReadGodsEyeEvents.Read(session.Path);
         var held = new List<GodsEyeEvent>();
         string key = "";
+        // The rejection this check last saw, which is what turns a retained field into an event.
+        string previous = "";
+        int issuedCount = 0;
         var findings = new List<Finding>();
 
         foreach (GodsEyeEvent e in log.Events)
         {
             if (e.kind != "movement-state") continue;
             string rejection = Rejection(e.detail);
+            // A refusal *issued* on this sample, as opposed to one still standing in the field from
+            // some earlier tick. The navigator's last rejection is retained until another replaces
+            // it, so a body that stops beside a refusal it walked away from minutes ago reads
+            // exactly like a body frozen at the take-off of one — and this check could not tell
+            // them apart, which is why it raised 23 stretches against the census's 4 refusals.
+            //
+            // Freshness is the *change* of the field. Nothing new had to be recorded to get it:
+            // the sample already carries the value, and two consecutive samples carrying different
+            // values is the only evidence a refusal happened between them. A stretch may therefore
+            // open only where the text changed, and a stale field standing over a still body opens
+            // nothing however long it stands.
+            bool issued = rejection.Length > 0 && rejection != previous;
+            previous = rejection;
+            if (issued) issuedCount++;
             // The position is part of the key on purpose. The navigator's last rejection is a
             // sticky property — it stands until another one replaces it — so the same text
             // repeating while the body walks away is a stale reading rather than a stuck body,
@@ -65,10 +82,36 @@ public sealed class PersistentRejectionsAreFindings : ICheck, ICheckCoverage
             }
             Close(findings, held);
             held.Clear();
-            key = current;
-            if (current.Length > 0) held.Add(e);
+            // Only a freshly issued refusal starts a stretch. The other way to arrive here is the
+            // body having moved while the field stood unchanged, which ends the stretch it was in
+            // and must not begin another: the refusal it names was answered by walking away from
+            // it, and that is the designed path rather than a park.
+            key = issued ? current : "";
+            if (issued) held.Add(e);
         }
         Close(findings, held);
+        // Zero findings and zero coverage are the two things this whole tool exists to keep apart,
+        // and after the freshness rule they look identical here. So the check says what it saw: a
+        // capture in which refusals were issued and none of them held the body is a clean result
+        // about a question that was actually asked, where silence would be a reader's guess.
+        //
+        // It also states the sensitivity this check does not have, because that is now the more
+        // likely reason for a zero. A `movement-state` sample is written when the navigator's
+        // verdict *changes*, so a body frozen re-refusing one step writes its refusal once and then
+        // nothing — the samples that would prove it persisted are never taken. This check can
+        // therefore only catch a park whose opening refusal is followed by further samples at the
+        // same pixel, and the plan's own remedy for the rest is a refusal occurrence carrying its
+        // own tick, which is a recorder change and not this one.
+        if (findings.Count == 0 && issuedCount > 0)
+            findings.Add(new Finding(Severity.Oddity, Name,
+                $"{issuedCount:n0} refusal(s) were issued and none of them held the body",
+                "A refusal counts from the sample on which the navigator's last rejection changed, because that field is retained "
+                    + "and a stale one standing over a still body is not a refusal happening. None of these was followed by further "
+                    + "samples at an unchanged pixel, so nothing was parked on a refused step. Read the zero with this check's own limit "
+                    + "beside it: a movement-state sample is written when the verdict changes, so a body re-refusing one step writes it "
+                    + "once and the samples that would show it persisting are never taken. Proving a park of that shape needs a refusal "
+                    + "occurrence carrying its own tick.",
+                0, 0, issuedCount));
         return findings;
     }
 

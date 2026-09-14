@@ -21,6 +21,15 @@ Telemetry/
 # megabytes each, so an accidental `git add -A` would push one to a public repo
 runs/
 
+# The one exception, and it needs both lines: the pattern above has no leading slash, so
+# git matches a directory named `runs` at every depth, and the ledger's committed run files
+# sat under it silently — `git add` reported nothing and said nothing, which is the failure
+# mode a gitignored ledger was refused for in the first place. A parent directory that is
+# excluded cannot have its contents re-included, so the directory is un-ignored first and
+# its contents second.
+!Tools/Ledger/runs/
+!Tools/Ledger/runs/**
+
 # Decompiled game source written by Tools/decompile.sh; regenerated on demand from the
 # installed tModLoader.dll, so committing a copy would drift from whatever version is
 # actually installed

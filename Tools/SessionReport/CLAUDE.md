@@ -21,9 +21,14 @@ SessionReport/
 ├─ Finding.cs             severities, the check contract, and the coverage contract
 ├─ Read/                  parser, stretches, God's Eye, attempt joins, chronicle, session description
 ├─ Checks/                one file per question the record can answer
+├─ Measures/              the numbers a play holds, emitted as ledger rows and never graded here
 ├─ Write/                 HTML timeline and multi-run provenance
-└─ Tests/                 ChronicleTests — synthetic records through the real parser
+└─ Tests/                 ChronicleTests on synthetic records, PlayMeasureTests on a real capture
 ```
+
+**A check decides and a measure does not, and the split is load-bearing.** A check knows a rule the producer guarantees and reports a record that breaks it, which is why it can be Definitive with no threshold in it. A measure says the companion trailed the travelling player by more than three tiles on 71.5% of rows and stops there; whether that is bad is a question about the design, so the pass line lives in the verification plan and travels as a tag on the row. Folding the two together is how a number nobody declared becomes a pass line by accident. `Measures/CLAUDE.md` owns the reading conventions, each of which was a way to get the arithmetic wrong.
+
+`dotnet run --project Tools/SessionReport -- --measures <capture>` runs the measures alone; the ordinary report runs them above the findings. With `AIC_LEDGER_RUN` naming a run file the rows are recorded as well as printed, which is what `../backfill-capture.sh` uses to store a recording under the revision that wrote it.
 `dotnet run --project Tools/SessionReport` is unchanged. Each child folder lists its files.
 
 ## The operating manual

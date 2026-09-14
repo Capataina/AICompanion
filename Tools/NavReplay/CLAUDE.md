@@ -22,7 +22,7 @@ The self-test exercises tiny retained-search slices, minimum progress under an a
 Endpoint-certified clearance is checked with an impossible goal and an improving distance heuristic across multiple search slices: no movement may be returned solely because that heuristic improves. Historical partial endpoints are checked separately from full arrival; remaining at a partial end does not establish that the requested destination was reached.
 
 ```
-dotnet run --project Tools/NavReplay -- --self-test
+dotnet run --project Tools/NavReplay -- --self-test   one ledger row: the whole contract suite, pass or fail
 dotnet run --project Tools/NavReplay -- Tools/Scenarios
 dotnet run --project Tools/NavReplay -- --follow Tools/Scenarios
 dotnet run --project Tools/NavReplay -- --no-cache Tools/Scenarios
