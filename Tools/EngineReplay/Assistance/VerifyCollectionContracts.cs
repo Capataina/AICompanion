@@ -57,6 +57,7 @@ internal static class VerifyCollectionContracts
         Each("a drop below a ledge is not a contact pose on the ledge", ADropBelowALedgeIsNotAContactPoseOnTheLedge);
         Each("D1 a reachable drop behind refused drops is offered", AReachableDropBehindRefusedDropsIsOffered);
         Each("D2 a drop merged into another world drop", ADropMergedIntoAnotherWorldDropIsNotAPurposeThatWentAway);
+        Each("D3 a drop released in the air is offered at its forecast landing", ADropStillFallingIsOfferedAtItsForecastLanding);
         // Timings under the production allowances, printed and never asserted: they describe this machine.
         foreach (bool warmUp in new[] { true, false })
             foreach (bool pit in new[] { false, true })
@@ -284,6 +285,57 @@ internal static class VerifyCollectionContracts
             Require(collect.Method == "known-drop" && collect.Eligibility == OfferEligibility.Usable && ReferenceEquals(collect.ActivityIdentity, floorDrop),
                 $"oneWay={oneWay}: a drop on the open floor must remain a usable offer; method={collect.Method} offer={collect.Eligibility}/{collect.EligibilityReason}");
         }
+    }
+
+    /// <summary>
+    /// A drop released in mid-air over a floor. The walk must begin before it lands: the pose is proven at the forecast
+    /// landing, the offer is usable on the first preparation, and execution asks for the walk rather than a hold on every
+    /// tick of the fall. Before the forecast, the pose search ran around the item's instantaneous bottom with a tolerance
+    /// of one tile, so a falling drop had no pose at all — 431 rows of the 2026-09-14 capture were refused as
+    /// drop-has-no-contact-pose — and the moved-drop guard then held the body every tick, because an item in free fall has
+    /// always moved more than a tile since it was proven. The fixture also steps the drop with the game's own arithmetic
+    /// and requires the forecast to have named where it actually stopped, so the arc is checked rather than assumed.
+    /// </summary>
+    private static void ADropStillFallingIsOfferedAtItsForecastLanding()
+    {
+        var ctx = SetUpFloor();
+        var collect = new CollectNearbyItems();
+        // Twelve tiles above the floor the ore fixtures build at row 60, four tiles to the companion's side,
+        // with a sideways velocity so the landing is not the column it was released in.
+        Item drop = Drop(ItemID.CopperOre, 5, new Vector2(26 * 16 + 8, 48 * 16));
+        drop.velocity = new Vector2(1.5f, -2f);
+        Observe(ctx, drop);
+        collect.Prepare(ctx);
+        Require(collect.Method == "known-drop" && collect.Eligibility == OfferEligibility.Usable,
+            $"a drop still falling must be a usable offer at its forecast landing; method={collect.Method} offer={collect.Eligibility}/{collect.EligibilityReason}");
+        collect.BeginAttempt();
+        var request = collect.Execute(ctx);
+        Require(request.Kind == RequestKind.Exact,
+            $"the walk must begin before the drop lands rather than holding for every tick of the fall; request={request}");
+
+        // Step the item the way the game does, and hold it to the walk on every tick of the fall.
+        int holds = 0;
+        for (int tick = 0; tick < 240 && drop.velocity.Y != 0f; tick++)
+        {
+            drop.velocity.Y = MathF.Min(drop.velocity.Y + 0.1f, 7f);
+            drop.velocity.X *= 0.95f;
+            if (MathF.Abs(drop.velocity.X) < 0.1f) drop.velocity.X = 0f;
+            Vector2 next = drop.Bottom + drop.velocity;
+            if (drop.velocity.Y > 0f && next.Y >= 60 * 16f)
+            {
+                drop.Bottom = new Vector2(next.X, 60 * 16f);
+                drop.velocity = Vector2.Zero;
+            }
+            else drop.Bottom = next;
+            Observe(ctx, drop);
+            collect.Prepare(ctx);
+            if (collect.Execute(ctx).Kind == RequestKind.Hold) holds++;
+        }
+        Require(drop.velocity == Vector2.Zero, $"the fixture's own drop must land; bottom={drop.Bottom} velocity={drop.velocity}");
+        Require(holds == 0, $"a drop falling exactly as forecast must not hold the body once on the way down; holds={holds}");
+        var landed = collect.Execute(ctx);
+        Require(landed.Kind == RequestKind.Exact && MathF.Abs(landed.Anchor.X - drop.Bottom.X) <= 3 * 16,
+            $"the pose must still be the landed drop's own once it has landed; request={landed} drop={drop.Bottom}");
     }
 
     /// <summary>A drop prepared on the floor rolls fourteen tiles before execution. Execution must not walk to where it was, and

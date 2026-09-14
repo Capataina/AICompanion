@@ -305,15 +305,19 @@ public sealed class MineOre : CompanionAction
             && !Infrastructure.Interactions.WorldProtection.ProtectCompanionHomes.IsProtected(tile)
             && !HopDeferred(tile);
         OreFinder.SearchResult result = default;
+        // "Ore near the player" is measured from his intent region rather than his feet, for the
+        // reason every work radius now is: a vein a few tiles ahead of a walking player is behind
+        // the search centre the moment he starts walking towards it.
+        Vector2 nearPlayer = ctx.Senses.Intent.Region.Centre;
         BodyState body = ctx.Companion.Motor.State;
         if (WorkPolicies.Mining == WorkPolicy.Mimic)
         {
             if (playerHit is (Point hit, int type))
-                result = OreFinder.FindNearest(ctx.Npc.Bottom, ctx.Player.Bottom, ctx.Senses.Reach, SearchRadiusTiles, type, Mineable, body);
+                result = OreFinder.FindNearest(ctx.Npc.Bottom, nearPlayer, ctx.Senses.Reach, SearchRadiusTiles, type, Mineable, body);
         }
         else
         {
-            OreFinder.SearchResult byPlayer = OreFinder.FindNearest(ctx.Npc.Bottom, ctx.Player.Bottom, ctx.Senses.Reach, SearchRadiusTiles, accept: Mineable, body: body);
+            OreFinder.SearchResult byPlayer = OreFinder.FindNearest(ctx.Npc.Bottom, nearPlayer, ctx.Senses.Reach, SearchRadiusTiles, accept: Mineable, body: body);
             OreFinder.SearchResult byCompanion = OreFinder.FindNearest(ctx.Npc.Bottom, ctx.Npc.Bottom, ctx.Senses.Reach, SearchRadiusTiles, accept: Mineable, body: body);
             result = new OreFinder.SearchResult(Nearest(ctx.Npc.Bottom, byPlayer.Target, byCompanion.Target),
                 NearestTile(ctx.Npc.Bottom, byPlayer.UnresolvedTile, byCompanion.UnresolvedTile));
@@ -340,7 +344,7 @@ public sealed class MineOre : CompanionAction
             // unmineable ore was paying for a label. Ceiling ore the pick cannot damage therefore
             // reads as no reachable ore rather than no mineable ore.
             OreFinder.SearchResult anyOre = WorkPolicies.Mining == WorkPolicy.Mimic && playerHit is (Point _, int anyType)
-                ? OreFinder.FindNearest(ctx.Npc.Bottom, ctx.Player.Bottom, ctx.Senses.Reach, SearchRadiusTiles, anyType)
+                ? OreFinder.FindNearest(ctx.Npc.Bottom, nearPlayer, ctx.Senses.Reach, SearchRadiusTiles, anyType)
                 : OreFinder.FindNearest(ctx.Npc.Bottom, ctx.Npc.Bottom, ctx.Senses.Reach, SearchRadiusTiles);
             status = anyOre.Target != null ? "no mineable ore" : anyOre.ApproachUnknown ? "no eligible approach" : "no reachable ore";
         }

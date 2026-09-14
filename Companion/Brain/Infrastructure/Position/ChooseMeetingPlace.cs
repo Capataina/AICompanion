@@ -70,7 +70,15 @@ public sealed class ChooseMeetingPlace
         Reason = "not-reuniting";
     }
 
-    public Vector2 Resolve(Vector2 companionFeet, PlayerSense player, ulong tick)
+    /// <summary>
+    /// Where reunion aims. <paramref name="region"/> is the player's intent region, and it is now the
+    /// anchor whenever nothing has been priced — which, measured on the 2026-09-14 capture, is very
+    /// nearly always: a place is decided only on a finished flood, the flood does not finish while
+    /// the player moves, and the priced place therefore decided 3 rows out of 22,473. So the
+    /// region's leading edge is the anchor in the ordinary case and the priced place is the
+    /// route-aware refinement of it when one exists, rather than the other way round.
+    /// </summary>
+    public Vector2 Resolve(Vector2 companionFeet, PlayerSense player, PlayerIntentRegion region, ulong tick)
     {
         resolvedAt = tick;
         candidates.Clear();
@@ -87,7 +95,10 @@ public sealed class ChooseMeetingPlace
             Priced = 0;
             PlayerTicks = CompanionTicks = float.NaN;
             Reason = player.IsDead ? "player-dead" : "player-not-travelling";
-            Vector2 home = player.Bottom;
+            // A player who has stopped is met at the region's centre, which is his feet plus whatever
+            // lead has not yet drifted out of the filter. Aiming at his feet directly would undo the
+            // drift the filter exists for and snap the destination back in one tick.
+            Vector2 home = region.Centre;
             Destination = home;
             Anchor = player.IsDead || Vector2.DistanceSquared(Anchor, home) < 64f
                 ? home
@@ -166,6 +177,23 @@ public sealed class ChooseMeetingPlace
             target = MovementQueries.FeetWorld(place.Tile);
             PlayerTicks = place.PlayerTicks;
             CompanionTicks = place.CompanionTicks ?? float.NaN;
+            // A priced place refines the region; it does not compete with it. The pricing minimises
+            // the cost of meeting, and the cheapest meeting with a walking player is the one that
+            // happens where he already is — so on open ground the ladder reliably names a tile at
+            // about his feet, which is outside the region a lead has carried forward, and aiming
+            // there is what kept the companion level with him at his own speed and never in front.
+            // Measured on the authored straight walk with the priced place as the anchor: a steady
+            // 42 px behind and ahead on 1.9% of moving rows. So the region decides the
+            // neighbourhood and the flood decides the tile inside it; a place the region does not
+            // contain is not a refinement of it and loses to its leading edge. The route-awareness
+            // the pricing buys is kept exactly where it points somewhere the companion is going,
+            // which is the parallel-routes case it was built for.
+            if (region.IsTravelling && !region.Contains(target))
+            {
+                target = region.LeadingEdge;
+                chosen = null;
+                Reason = "meeting-place-outside-intent-region";
+            }
         }
         else
         {
@@ -173,7 +201,12 @@ public sealed class ChooseMeetingPlace
             // aiming at the player's current feet instead trailed a travelling player for as long as a large
             // cave's flood took to finish, which was most of the time.
             chosen = null;
-            target = player.Predict(Weights.MeetingFallbackLeadTicks);
+            // The region's leading edge, not a fresh extrapolation of its own. The old fallback ran
+            // a second, shorter lead beside the one the region already carries, so two places in the
+            // brain claimed to be "where the player is going" and they disagreed by the difference
+            // between their two lead times; the region is the one that is filtered, clamped and
+            // grown, and a second copy of it could only ever be a worse version.
+            target = region.LeadingEdge;
             Reason = settled && best == null ? "no-reachable-meeting-place" : "meeting-undecided";
         }
         Destination = target;

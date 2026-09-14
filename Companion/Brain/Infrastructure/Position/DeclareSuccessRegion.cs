@@ -38,11 +38,14 @@ public readonly record struct SuccessRegion(SuccessRegionKind Kind, int Admitted
     public static SuccessRegion Unscored(SuccessRegionKind kind, Vector2 anchor, int tick, int terrainRevision)
         => new(kind, tick, terrainRevision, anchor);
 
+    /// <summary>The region a follow destination was admitted against: the intent region's own centre and
+    /// half-extents at the moment of admission, snapshotted because judging an arrival against a region
+    /// that has since led further would blame the destination for the player walking on. The anchor is
+    /// kept beside it as evidence of what the request was aiming at, and no longer as a second box: the
+    /// anchor stopped widening acceptance when the region gained its own growth.</summary>
     public static SuccessRegion Follow(in FollowPlayerObjective objective, int tick, int terrainRevision)
-        => new(SuccessRegionKind.FollowComfort, tick, terrainRevision, objective.PredictedFeet, objective.PlayerFeet,
-            new Vector2(objective.HorizontalComfort, objective.VerticalComfort),
-            ReachX: (int)MathF.Round(objective.AnchorHorizontalComfort),
-            ReachY: (int)MathF.Round(objective.AnchorVerticalComfort));
+        => new(SuccessRegionKind.FollowComfort, tick, terrainRevision, objective.Anchor, objective.Centre,
+            new Vector2(objective.HorizontalComfort, objective.VerticalComfort));
 
     public static SuccessRegion ToolStand(Vector2 stand, Point tile, int tick, int terrainRevision)
         => new(SuccessRegionKind.ToolReach, tick, terrainRevision, stand, WorkTile: tile,
@@ -54,7 +57,10 @@ public readonly record struct SuccessRegion(SuccessRegionKind Kind, int Admitted
     /// reach, and a pose inside it can still lack a line to an exposed face.</summary>
     public bool? Contains(Vector2 feet) => Kind switch
     {
-        SuccessRegionKind.FollowComfort => Near(feet, PlayerFeet) || Near(feet, Anchor, ReachX > 0 ? ReachX : Comfort.X, ReachY > 0 ? ReachY : Comfort.Y),
+        // One box now, because there is one region. PlayerFeet carries the intent region's centre at
+        // admission; the anchor is evidence rather than a second acceptance box, so an arrival beside
+        // a far-off meeting place is outside the region it was admitted to, which it always was.
+        SuccessRegionKind.FollowComfort => Near(feet, PlayerFeet),
         SuccessRegionKind.ToolReach => WorkTile is Point tile && FindToolAccess.InReachBox(feet, tile, ReachX, ReachY),
         _ => null,
     };

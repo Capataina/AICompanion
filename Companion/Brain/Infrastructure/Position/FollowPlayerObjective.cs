@@ -2,57 +2,76 @@
 
 using System;
 using Microsoft.Xna.Framework;
-using AICompanion.Companion.Brain.Infrastructure.Selection;
+using AICompanion.Companion.Brain.Infrastructure.Observation;
 
 namespace AICompanion.Companion.Brain.Infrastructure.Position;
 
 /// <summary>
-/// The destination region that counts as being with the player. Following is complete only when
-/// both axes are comfortable: a point on a nearby but different cave floor cannot satisfy the
-/// same circular distance band. <paramref name="PredictedFeet"/> is the request's anchor: for reunion
-/// that is the meeting place `ChooseMeetingPlace` priced on the player's journey, which may lie well
-/// ahead of the player or on a route the companion reaches differently, while arrival is still
-/// judged against the player's current body.
+/// What counts as being with the player, read off the player's intent region rather than computed
+/// here. This type is now a view over <see cref="PlayerIntentRegion"/> plus the two things a region
+/// cannot know: which anchor this particular request is refining towards, and whether the body has
+/// been grounded inside long enough for arrival to mean anything.
+///
+/// <para><paramref name="Anchor"/> is a preference and no longer a second acceptance box. It is the
+/// request's own aim — a priced meeting place, the leading edge — and it decides which of the
+/// acceptable tiles is preferred, never which tiles are acceptable. It used to widen the region by a
+/// growth factor of its own, which made a far-off meeting place enlarge the arrival test it was
+/// supposed to be aiming inside, so the body could satisfy following by standing anywhere along a
+/// line to a place it had not reached.</para>
+///
+/// <para><paramref name="Settled"/> comes from the sense, because it is a streak and a struct rebuilt
+/// nine times a tick cannot hold one. Requiring it is what stops an airborne tick reading as an
+/// arrival.</para>
 /// </summary>
-public readonly record struct FollowPlayerObjective(Vector2 PlayerFeet, Vector2 PredictedFeet)
+public readonly record struct FollowPlayerObjective(PlayerIntentRegion Region, Vector2 Anchor, bool Settled)
 {
-    public float HorizontalComfort => Weights.FollowHorizontalComfort * PlayerIntegration.CompanionPreferences.Current.FollowComfortScale;
-    public float VerticalComfort => Weights.FollowVerticalComfort * PlayerIntegration.CompanionPreferences.Current.FollowComfortScale;
-    /// <summary>The ahead-box grows with how far the meeting place sits from the player, from none beside them up to MeetingBoxGrowth at MeetingBoxGrowthDistance.</summary>
-    public float AheadGrowth => 1f + Weights.MeetingBoxGrowth * MathF.Min(1f,
-        Vector2.Distance(PlayerFeet, PredictedFeet) / MathF.Max(1f, Weights.MeetingBoxGrowthDistance));
-    public float AnchorHorizontalComfort => HorizontalComfort * AheadGrowth;
-    public float AnchorVerticalComfort => VerticalComfort * AheadGrowth;
+    /// <summary>The same objective aimed at a different place. Every consumer starts from the sense's
+    /// own objective and refines it, so there is one region and one settled streak in the brain.</summary>
+    public FollowPlayerObjective At(Vector2 anchor) => this with { Anchor = anchor };
 
-    public float HorizontalGap(Vector2 feet) => MathF.Abs(feet.X - PlayerFeet.X);
-    public float VerticalGap(Vector2 feet) => MathF.Abs(feet.Y - PlayerFeet.Y);
+    public Vector2 Centre => Region.Centre;
+    public float HorizontalComfort => Region.HalfSize.X;
+    public float VerticalComfort => Region.HalfSize.Y;
+
+    /// <summary>The gap on each axis, measured to the region's centre rather than to the player's
+    /// feet: the whole point of the region is that "how far from the player" is one question with
+    /// one answer, and it is asked about where he is going.</summary>
+    public float HorizontalGap(Vector2 feet) => MathF.Abs(feet.X - Region.Centre.X);
+    public float VerticalGap(Vector2 feet) => MathF.Abs(feet.Y - Region.Centre.Y);
+
+    /// <summary>How far outside the region this place is, zero inside. What a reunion pull is priced on.</summary>
+    public float Pull(Vector2 feet) => Region.Pull(feet);
 
     /// <summary>
-    /// A standing destination is useful inside either the predicted local region or the player's
-    /// current local region. Prediction leads sustained motion; retaining the current region keeps
-    /// a one-tick climb, fall or collision correction from moving every viable floor into a wall.
+    /// A standing destination is useful inside the region, less the navigator's stopping radius.
+    /// The reservation is not optional: a candidate on the boundary is legal while the body stops
+    /// just outside it, and following would then never satisfy at a destination it had reached.
     /// </summary>
     public bool AcceptsDestination(Vector2 feet, bool locallyConnected)
-    {
-        // Navigator accepts any grounded pose in its arrival radius. Reserve that radius here
-        // so reaching a legal destination cannot leave the original follow request unsatisfied.
-        float horizontal = MathF.Max(0f, HorizontalComfort - Infrastructure.Movement.Navigator.ArriveDistance);
-        float vertical = MathF.Max(0f, VerticalComfort - Infrastructure.Movement.Navigator.ArriveDistance);
-        float aheadH = MathF.Max(0f, AnchorHorizontalComfort - Infrastructure.Movement.Navigator.ArriveDistance);
-        float aheadV = MathF.Max(0f, AnchorVerticalComfort - Infrastructure.Movement.Navigator.ArriveDistance);
-        bool nearPrediction = MathF.Abs(feet.X - PredictedFeet.X) <= aheadH
-            && MathF.Abs(feet.Y - PredictedFeet.Y) <= aheadV;
-        bool nearPlayer = HorizontalGap(feet) <= horizontal && VerticalGap(feet) <= vertical;
-        return locallyConnected && (nearPrediction || nearPlayer);
-    }
+        => locallyConnected && Region.Accepts(feet, Movement.Navigator.ArriveDistance);
 
-    /// <summary>Arrival is measured against the player's current body, not an old route waypoint.</summary>
+    /// <summary>
+    /// How much this destination is preferred among the acceptable ones: one at the anchor, falling
+    /// with distance from it across the region's own width. A preference and never a veto, so a
+    /// travelling player's leading edge pulls the choice forward without making the tiles behind it
+    /// unusable on ground where the leading edge has no floor.
+    /// </summary>
+    public float Preference(Vector2 feet)
+        => 1f / (1f + Vector2.Distance(feet, Anchor) / MathF.Max(1f, Region.HalfSize.X));
+
+    /// <summary>
+    /// Arrival: the body is in the region, has been on the ground in it for a rescore, and is
+    /// locally connected to it. The grounded streak is what the symmetric box was missing — two
+    /// bodies passing each other in mid-air are momentarily a few pixels apart and neither has
+    /// arrived anywhere.
+    /// </summary>
     public bool IsSatisfied(Vector2 feet, bool locallyConnected)
-        => HorizontalGap(feet) <= HorizontalComfort && VerticalGap(feet) <= VerticalComfort && locallyConnected;
+        => Settled && Region.Contains(feet) && locallyConnected;
 
     public string Reason(Vector2 feet, bool locallyConnected)
         => IsSatisfied(feet, locallyConnected) ? "follow-objective-satisfied"
             : VerticalGap(feet) > VerticalComfort ? "follow-vertical-gap"
             : HorizontalGap(feet) > HorizontalComfort ? "follow-horizontal-gap"
-            : "follow-local-connection";
+            : !locallyConnected ? "follow-local-connection"
+            : "follow-airborne-deferred";
 }

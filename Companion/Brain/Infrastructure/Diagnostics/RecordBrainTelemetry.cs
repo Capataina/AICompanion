@@ -545,7 +545,7 @@ public sealed class BrainTelemetry : ModSystem
 
         if (!headerWritten)
         {
-            var textColumns = new StringBuilder("# text_columns=state,action,reflex,top_threat,target,request,anchor,spot,next_kind,npc_tile,npc_px,npc_vel,held,weapon,fire,engage,torch,player_tile,edge_kind,edge_from,edge_to,edge_outcome,spot_home,diverge_invalid_reason,sample_phase,player_px,player_vel,player_liquid,player_hit,npc_hit,player_state,player_activity,player_support,npc_support,control,control_source,observed_vel,observed_mobility,predicted_vel,predicted_mobility,follow_reason,recovery_reason,guard_reason,mine_policy,mine_status,mine_target,target_evidence,nav_status,position_reason,escape_stage,escape_target,hunt_reason,hand_grant,control_request_owner,safety_kind,safety_reason,safety_last_end,collection_method,mine_end_reason,attempt_end_activity,attempt_end_family,attempt_end_status,attempt_end_cause,attempt_end_attribution,pursuit_target,pursuit_evidence,aim_target,landed_hit_target,landed_hit_aimed,encounter_source,torch_reason,lighting_sites");
+            var textColumns = new StringBuilder("# text_columns=state,action,reflex,top_threat,target,request,anchor,spot,next_kind,npc_tile,npc_px,npc_vel,held,weapon,fire,engage,torch,player_tile,edge_kind,edge_from,edge_to,edge_outcome,spot_home,diverge_invalid_reason,sample_phase,player_px,player_vel,player_liquid,player_hit,npc_hit,player_state,player_activity,player_support,npc_support,control,control_source,observed_vel,observed_mobility,predicted_vel,predicted_mobility,follow_reason,recovery_reason,guard_reason,mine_policy,mine_status,mine_target,target_evidence,nav_status,position_reason,escape_stage,escape_target,hunt_reason,hand_grant,control_request_owner,safety_kind,safety_reason,safety_last_end,collection_method,mine_end_reason,attempt_end_activity,attempt_end_family,attempt_end_status,attempt_end_cause,attempt_end_attribution,pursuit_target,pursuit_evidence,aim_target,landed_hit_target,landed_hit_aimed,encounter_source,torch_reason,lighting_sites,intent_region");
             // Offer columns are named from the registered activities, like the raw/final pairs, so
             // the declaration and the header cannot disagree about which activities exist.
             foreach (var a in brain.Chooser.Actions) textColumns.Append(',').Append(a.Name).Append("_offer");
@@ -621,6 +621,13 @@ public sealed class BrainTelemetry : ModSystem
             // refusals or a flood that had not settled. The ledger is capped and the count is not, so the two
             // together read as "the first few of this many" rather than as the whole search.
             h.Append("\tlighting_sites\tlighting_sites_asked");
+            // Lane C, appended at the end of the row so the other lanes' columns keep their index.
+            // `follow_dx`/`follow_dy` change meaning rather than position in this version: they are
+            // the offsets to the intent region's centre, not to the player's feet, and a check built
+            // on their old meaning reads a lead as a following error. `intent_region` is the region
+            // itself so a replay can redraw it; `intent_pull` is what keeping company priced its
+            // reunion on, which is the number the never-overtakes defect was a flat zero of.
+            h.Append("\tintent_region\tintent_pull");
             writer.WriteLine(h.ToString());
             headerWritten = true;
         }
@@ -1004,6 +1011,10 @@ public sealed class BrainTelemetry : ModSystem
         var lighting = brain.Chooser.Actions.OfType<Activities.NearbyAssistance.LightUsefulArea>().FirstOrDefault();
         sb.Append('\t').Append(string.IsNullOrEmpty(lighting?.LastSearchSites) ? "-" : lighting!.LastSearchSites)
             .Append('\t').Append(lighting?.LastSearchAsked ?? 0);
+        var intent = senses.Intent.Region;
+        sb.Append('\t').Append(FormattableString.Invariant(
+                $"{intent.Centre.X:0},{intent.Centre.Y:0};{intent.HalfSize.X:0},{intent.HalfSize.Y:0}"))
+            .Append('\t').Append(intent.Pull(companion.NPC.Bottom).ToString("0.000", CultureInfo.InvariantCulture));
 
         // A write that fails (disk full, a stream the OS closed) must not escape the NPC's AI
         // and take the companion with it; the record stops and the game goes on.

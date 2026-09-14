@@ -294,7 +294,7 @@ internal static class VerifyCompanyLocalMotion
             VerifyOreWork.AdvanceBrain(ctx);
             if (brain.LastAction?.Name != "keep-company") otherActivity++;
             askedForReunion |= brain.LastRequest.Kind == RequestKind.WithPlayer;
-            if (!walking && new FollowPlayerObjective(player.Bottom, player.Bottom).IsSatisfied(ctx.Npc.Bottom,
+            if (!walking && brain.Senses.Intent.Objective.IsSatisfied(ctx.Npc.Bottom,
                     Collision.CanHitLine(ctx.Npc.position, ctx.Npc.width, ctx.Npc.height, player.position, player.width, player.height)))
                 arrivedAt = tick;
         }

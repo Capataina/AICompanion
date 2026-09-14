@@ -251,7 +251,7 @@ public sealed class Positioner
             : ChoiceReason == "partial-progress-candidate"
                 ? SuccessRegion.Unscored(SuccessRegionKind.Undeclared, request.Anchor, senses.Tick, TerrainChanges.Revision)
             : request.Kind == RequestKind.WithPlayer
-                ? SuccessRegion.Follow(new FollowPlayerObjective(senses.Player.Bottom, request.Anchor), senses.Tick, TerrainChanges.Revision)
+                ? SuccessRegion.Follow(senses.Intent.Objective.At(request.Anchor), senses.Tick, TerrainChanges.Revision)
                 : SuccessRegion.Unscored(SuccessRegionKind.FiringPosition, request.Anchor, senses.Tick, TerrainChanges.Revision);
         return Chosen;
     }
@@ -274,7 +274,7 @@ public sealed class Positioner
             FollowObjectiveReason = "not-following";
             return;
         }
-        var objective = new FollowPlayerObjective(senses.Player.Bottom, request.Anchor);
+        var objective = senses.Intent.Objective.At(request.Anchor);
         bool connected = CanSeePlayer(senses.Companion.Bottom + new Vector2(0f, -30f), senses);
         FollowObjectiveSatisfied = objective.IsSatisfied(senses.Companion.Bottom, connected);
         FollowHorizontalGap = objective.HorizontalGap(senses.Companion.Bottom);
@@ -384,7 +384,7 @@ public sealed class Positioner
         // changed — which the navigator then read as a new goal and replanned for.
         Vector2? held = Chosen;
         FollowPlayerObjective? followObjective = request.Kind == RequestKind.WithPlayer
-            ? new FollowPlayerObjective(senses.Player.Bottom, request.Anchor) : null;
+            ? senses.Intent.Objective.At(request.Anchor) : null;
         Point centre = MovementQueries.FeetTile(request.Anchor);
         Vector2 playerBottom = senses.Player.Bottom;
         bool threatened = !senses.Threats.PlayerIsSafe;

@@ -28,7 +28,14 @@ public sealed class KeepCompany : CompanionAction
     private int ticksLeft = 1;
     private Vector2 goal;
 
-    public override void Enter(in ActionContext ctx) => ResetLocalMovement();
+    public override void Enter(in ActionContext ctx)
+    {
+        ResetLocalMovement();
+        // A freshly entered activity has no method in flight to protect, so its first preparation
+        // adopts whatever the geometry asks for rather than holding the last run's method for a
+        // rescore first.
+        pendingTicks = Weights.PositionRescoreTicks;
+    }
 
     /// <summary>A meeting place belongs to an ongoing reunion; leaving company must not leave its flood
     /// and reason standing as if another activity were still heading for the player.</summary>
@@ -42,7 +49,7 @@ public sealed class KeepCompany : CompanionAction
     {
         float reunionValue = CalculateReunionValue(ctx);
         float localValue = ctx.Senses.Player.IsDead ? 0f : ctx.Stranded ? Weights.StrandedWander : Weights.WanderFloor;
-        reunite = reunionValue > localValue;
+        reunite = ChooseMethod(ctx, reunionValue > localValue);
         preparedValue = MathF.Max(reunionValue, localValue);
         if (ctx.Senses.Player.IsDead) Classify(OfferEligibility.NoOpportunity, "player-dead");
         else Classify(OfferEligibility.Usable, reunite ? "reunion-method" : ctx.Stranded ? "sealed-pocket-local-method" : "local-company-method");
@@ -54,14 +61,51 @@ public sealed class KeepCompany : CompanionAction
     public override AttemptConclusion ConcludeAttempt(int productiveEffects)
         => new(AttemptStatus.Executed, reunite ? "reunion-method-executed" : "local-company-method-executed");
 
+    /// <summary>
+    /// Whether the method changes, as opposed to whether it would. A method change is a change of
+    /// request kind, and a change of request kind cancels whatever the body is doing — at tick 8128
+    /// of the 2026-09-14 capture the flip from reunion to local turned a WithPlayer into a Hold, and
+    /// the Hold reached the navigator one tick after take-off and cut the jump. So a regime that
+    /// wants the other method has to hold for a rescore, and it has to be asked for from the ground:
+    /// a body in the air is passing through, and nothing it is passing through is a reason to change
+    /// what it is doing. Entering the new method costs that wait; there is no wait on the wanted
+    /// regime going back to the one in force, because then nothing changes.
+    /// </summary>
+    private bool ChooseMethod(in ActionContext ctx, bool wantsReunion)
+    {
+        if (ctx.Senses.Player.IsDead) { pendingTicks = 0; return reunite = wantsReunion; }
+        if (wantsReunion == reunite) { pendingTicks = 0; return reunite; }
+        // The wait guards a body that is already where it is meant to be. Outside the region there
+        // is nothing to protect — a companion that has lost the player, or has just spawned and is
+        // still falling, has no business waiting a rescore per tick it stays in the air before it
+        // is allowed to go after him — so a change takes effect at once there. Inside, and only
+        // inside, the airborne tick is refused: that is where tick 8127's false arrival happened.
+        if (!ctx.Senses.Intent.Region.Contains(ctx.Npc.Bottom)) { pendingTicks = 0; return reunite = wantsReunion; }
+        // Standing in the tiles the player is asking for is the other case with nothing to protect:
+        // the body is in his way now, and a wait measured in rescores is a wait he spends walking
+        // into it. The wait exists to keep a move in flight from being cancelled, and a body being
+        // asked to move is not a move in flight.
+        if (ctx.Senses.Player.Interference is Rectangle asked
+            && PlayerSense.BodyTiles(ctx.Npc.Bottom, ctx.Npc.width, ctx.Npc.height).Intersects(asked))
+        { pendingTicks = 0; return reunite = wantsReunion; }
+        // The motor's own grounded test, on the same body: velocity.Y exactly zero.
+        if (ctx.Npc.velocity.Y != 0f) { pendingTicks = 0; return reunite; }
+        if (++pendingTicks < Weights.PositionRescoreTicks) return reunite;
+        pendingTicks = 0;
+        return reunite = wantsReunion;
+    }
+
+    /// <summary>Starts satisfied, because before the first preparation there is no method in flight to
+    /// protect: an activity whose very first tick had to wait a rescore would hold a body that had not
+    /// yet been told to do anything. Enter restores it for the same reason.</summary>
+    private int pendingTicks = Weights.PositionRescoreTicks;
+
     private float CalculateReunionValue(in ActionContext ctx)
     {
         var p = ctx.Senses.Player;
         if (p.IsDead)
             return 0f;
-        Vector2 ahead = ctx.Companion.Brain.Meeting.Anchor;
-        if (ahead == Vector2.Zero) ahead = p.Bottom;
-        var objective = new FollowPlayerObjective(p.Bottom, ahead);
+        var objective = ctx.Senses.Intent.Objective;
         float hardLeash = Consideration.Step(ctx.Senses.DistanceToPlayer > Weights.LeashHard, 1f, 0f);
         float stranded = ctx.Stranded ? Weights.StrandedFollowDiscount : 1f;
         float regroup = ctx.Companion.Brain.Chooser.RegroupUrgency;
@@ -71,7 +115,16 @@ public sealed class KeepCompany : CompanionAction
         bool inside = !blocking && objective.IsSatisfied(ctx.Npc.Bottom, seen);
         float inner = MathF.Max(objective.HorizontalComfort, objective.VerticalComfort);
         float outer = MathF.Max(inner + 1f, PlayerIntegration.CompanionPreferences.Current.RecoveryRadius);
-        float pull = inside ? 0f : Consideration.Rising(ctx.Senses.DistanceToPlayer - inner, outer - inner);
+        // The pull is continuous from the region's own centre outward, and while the player travels
+        // it is never exactly zero inside. A flat zero inside was the whole of the never-overtakes
+        // defect: the box had no gradient, so a moving player was not itself a reason to move, the
+        // body coasted to whichever edge it entered by, and keeping company scored its wander floor
+        // where any rival offer beat it. Outside the region the old far-reunion slope is unchanged;
+        // the two meet at the edge, where the central pull is at its largest, so there is no step
+        // anywhere along the curve.
+        float central = p.IsTravelling ? Weights.IntentRegionCentralPull * MathF.Min(1f, objective.Pull(ctx.Npc.Bottom)) : 0f;
+        float far = Consideration.Rising(ctx.Senses.DistanceToPlayer - inner, outer - inner);
+        float pull = inside ? central : MathF.Max(central, far);
         if (!seen)
             pull = MathF.Max(pull, 0.3f);
         // Occupying a passage the player is walking is not "already with them": the slope from the
@@ -95,7 +148,7 @@ public sealed class KeepCompany : CompanionAction
             // routes reach, not at a point extrapolated from velocity; a paused or working player
             // is met where they stand.
             var meeting = ctx.Companion.Brain.Meeting;
-            meeting.Resolve(ctx.Npc.Bottom, p, Main.GameUpdateCount);
+            meeting.Resolve(ctx.Npc.Bottom, p, ctx.Senses.Intent.Region, Main.GameUpdateCount);
             return new PositionRequest(RequestKind.WithPlayer, meeting.Destination, MeetingPlace: meeting.HasPlace);
         }
         ctx.Companion.Brain.Meeting.Release();

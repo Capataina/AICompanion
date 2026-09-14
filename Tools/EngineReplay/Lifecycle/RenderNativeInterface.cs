@@ -251,7 +251,10 @@ internal static class RenderNativeInterface
             var tile = new Point(20, 20);
             var tool = live::AICompanion.Companion.Brain.Infrastructure.Position.SuccessRegion.ToolStand(new Vector2(20 * 16 + 8, 23 * 16), tile, 100, 1);
             var follow = live::AICompanion.Companion.Brain.Infrastructure.Position.SuccessRegion.Follow(
-                new live::AICompanion.Companion.Brain.Infrastructure.Position.FollowPlayerObjective(new Vector2(600, 400), new Vector2(900, 400)), 100, 1);
+                new live::AICompanion.Companion.Brain.Infrastructure.Position.FollowPlayerObjective(
+                    new live::AICompanion.Companion.Brain.Infrastructure.Observation.PlayerIntentRegion(
+                        new Vector2(600, 400), new Vector2(240, 96), Vector2.Zero, IsTravelling: false),
+                    new Vector2(900, 400), Settled: true), 100, 1);
             int judged = 0, outside = 0;
             foreach (var region in new[] { tool, follow })
             {
