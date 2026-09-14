@@ -153,7 +153,16 @@ public sealed class ReachSense
         var clock = System.Diagnostics.Stopwatch.StartNew();
         // Reuse needs generated connectivity in both directions, not a distance allowance.
         // A body can cross a one-way boundary while moving only one tile.
-        if (returnSearch == null || !returnSearch.Valid || floodLava != AStar.AllowLava || !returnSearch.CanReuseFrom(feet.Value))
+        // The raw flood's validity is asked here as well as the two-way one's, and under a spatial rule that
+        // is load-bearing rather than belt-and-braces. The two searches are created together and share a
+        // revision, but they no longer share a region: the raw one allows edges with no way back, so on a
+        // one-way tick it explores ground the two-way flood never reaches, and an edit landing in exactly
+        // that extra ground invalidates the raw search alone. Reusing it then would run Advance on an invalid
+        // search, which marks it finished without expanding, and the union below would fold its pre-edit
+        // tiles into the scored region as though they had been proven. Under the world-global compare the two
+        // could not disagree, so this is a way for the pair to come apart that the counter never had.
+        if (returnSearch == null || !returnSearch.Valid || rawSearch?.Valid == false
+            || floodLava != AStar.AllowLava || !returnSearch.CanReuseFrom(feet.Value))
         {
             floodLava = AStar.AllowLava;
             Refloods++;
