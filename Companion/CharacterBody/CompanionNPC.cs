@@ -241,7 +241,13 @@ public class CompanionNPC : ModNPC
     public void SetAimRotation(Vector2 launch)
         => itemRotation = MathF.Atan2(launch.Y * NPC.direction, launch.X * NPC.direction);
 
-    // ---- health ----
+    // ---- health and mana ----
+
+    /// <summary>
+    /// The companion's mana pool, mirrored from the player like life and defence and spent by the
+    /// weapons; the notch reads its fraction. Session state, not saved.
+    /// </summary>
+    public Weapons.CompanionMana Mana { get; } = new();
 
     private void MirrorStats(Player player)
     {
@@ -252,6 +258,8 @@ public class CompanionNPC : ModNPC
             NPC.lifeMax = newMax;
         }
         NPC.defense = player.statDefense;
+        Mana.Sync(player);
+        Mana.Tick();
     }
 
     private void EnterDowned()

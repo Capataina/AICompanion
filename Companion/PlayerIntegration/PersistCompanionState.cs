@@ -32,7 +32,8 @@ public partial class CompanionPlayer : ModPlayer
     /// <summary>The saved choices currently backing <see cref="CompanionPreferences.Current"/>.</summary>
     public CompanionPreferences Preferences { get; private set; } = new();
 
-
+    /// <summary>What the companion has earned by its own completed work; the notch draws its level.</summary>
+    public Progression.CompanionExperience Experience { get; private set; } = new();
 
     public override void SaveData(TagCompound tag)
     {
@@ -40,6 +41,7 @@ public partial class CompanionPlayer : ModPlayer
         if (HealthBarPosition is Vector2 p)
             tag["healthBar"] = p;
         tag["bag"] = Bag.Save();
+        tag["experience"] = Experience.Save();
         var preferences = new TagCompound();
         Preferences.Save(preferences);
         tag["preferences"] = preferences;
@@ -55,6 +57,9 @@ public partial class CompanionPlayer : ModPlayer
         Bag = new CompanionInventory();
         if (tag.ContainsKey("bag"))
             Bag.Load(tag.GetCompound("bag"));
+        Experience = tag.ContainsKey("experience")
+            ? Progression.CompanionExperience.Load(tag.GetCompound("experience"))
+            : new Progression.CompanionExperience();
         try
         {
             Preferences = tag.ContainsKey("preferences")
