@@ -89,6 +89,7 @@ internal static class VerifyResponsiveFollowing
         VerifyTheReunionCurveHasNoStepAtTheRegionsEdge();
         VerifyTheCompanionLeadsATravellingPlayer();
         VerifyAClimbingPlayerGrowsTheRegionUpwards();
+        VerifyAGroundedTickOnSlopedGroundEntersSatisfaction();
         Console.WriteLine("responsive following: vertical intent, two-axis arrival, live brain follow selection, activity-dependent meeting places, route-priced reunion, retained meeting floods, dropped meeting places, leading a travelling player, a reunion curve with no step at the region's edge, a settled companion keeping up with a travelling player, a region that grows up a hill, grounded satisfaction and a settling stop passed");
         return 0;
     }
@@ -831,6 +832,78 @@ internal static class VerifyResponsiveFollowing
     }
 
     /// <summary>
+    /// A body standing on real sloped ground must be able to arrive.
+    ///
+    /// <para>Arrival needs a grounded streak and the grounded test is `velocity.Y == 0f`, which is the motor's own
+    /// expression on the same body — deliberately one definition, so the brain and the motor cannot disagree about
+    /// whether a body is standing. That test had never been asked on a slope. Every scene that exercised it stood
+    /// the body on flat ground, where the question is trivial, while the root guide records that `Collision.StepUp`
+    /// writes position without touching `velocity.Y` — which is exactly the kind of thing that leaves a resting
+    /// body carrying vertical velocity it is not using. A companion that could never read as settled on a hillside
+    /// would never satisfy following there, and the region's own growth on the vertical axis exists precisely so
+    /// that a companion on the slope below counts as being with the player.</para>
+    ///
+    /// <para>The engine rests a body on a slope's diagonal rather than on a tile's top edge, so the hill is built
+    /// from the game's own slope shapes and not from a staircase of full blocks, and the row asserts that it is
+    /// standing on one before it reads anything. It deliberately does not walk the slope: a 1:1 slope walk still
+    /// times out (AIC-212), and a row that required the climb would be red for a defect this lane does not own.</para>
+    /// </summary>
+    private static void VerifyAGroundedTickOnSlopedGroundEntersSatisfaction()
+    {
+        BuildSlopedHill();
+        var companion = VerifyCompanionLifecycle.Create();
+        var brain = companion.Brain;
+        Player player = Main.player[0];
+        player.dead = false;
+        // Both on the hill, two columns apart, the companion downslope of the player.
+        const int PlayerColumn = 47, CompanionColumn = 45;
+        player.Bottom = new Vector2(PlayerColumn * 16f + 8f, (80 - (PlayerColumn - HillLeft)) * 16f);
+        player.velocity = Vector2.Zero;
+        companion.NPC.Bottom = new Vector2(CompanionColumn * 16f + 8f, (80 - (CompanionColumn - HillLeft)) * 16f - 8f);
+        companion.NPC.velocity = Vector2.Zero;
+
+        // Let native collision settle the body onto the diagonal. Nothing is asserted about how long that takes;
+        // what matters is the state it comes to rest in.
+        for (int tick = 0; tick < 60; tick++)
+        {
+            VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
+            AdvanceNative(companion);
+        }
+        Point feet = live::AICompanion.Companion.Brain.Infrastructure.Movement.MovementQueries.FeetTile(companion.NPC.Bottom);
+        var shape = live::AICompanion.Companion.Brain.Infrastructure.Movement.NavGrid.World.Shape(feet.X, feet.Y + 1);
+        Console.WriteLine(FormattableString.Invariant(
+            $"sloped ground: body rests at {companion.NPC.Bottom} on tile {feet.X},{feet.Y} over a {shape} with vy={companion.NPC.velocity.Y}"));
+        // The premise, in two parts. The ground under the body has to be an actual slope, or this is the flat row
+        // again; and the body has to have come to rest on it rather than still be falling past it.
+        Require(shape is live::AICompanion.Companion.Brain.Infrastructure.Movement.TileShape.SolidLowerLeft
+                or live::AICompanion.Companion.Brain.Infrastructure.Movement.TileShape.SolidLowerRight,
+            FormattableString.Invariant($"the body must come to rest over a sloped tile, or the row is the flat one again; tile under the feet is {shape}"));
+        Require(companion.NPC.velocity.Y == 0f, FormattableString.Invariant(
+            $"a body at rest on a slope must read as grounded, and the whole brain's arrival depends on it: vy={companion.NPC.velocity.Y} at {companion.NPC.Bottom} over a {shape}"));
+
+        // Now the streak, which is the thing arrival actually reads. The body is left alone on the slope and the
+        // senses are rebuilt each tick, exactly as a resting companion's would be.
+        int rescore = live::AICompanion.Companion.Brain.Infrastructure.Selection.Weights.PositionRescoreTicks;
+        for (int tick = 0; tick < rescore + 4; tick++)
+        {
+            VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
+            AdvanceNative(companion);
+            brain.Senses.Update(companion.NPC, player, companion.Breath);
+        }
+        Console.WriteLine(FormattableString.Invariant(
+            $"sloped ground: grounded={brain.Senses.Intent.Grounded} streak={brain.Senses.Intent.GroundedInsideTicks} settled={brain.Senses.Intent.Settled}"));
+        Require(brain.Senses.Intent.Grounded, FormattableString.Invariant(
+            $"the sense must read a body resting on a slope as grounded: vy={companion.NPC.velocity.Y}"));
+        Require(brain.Senses.Intent.Settled, FormattableString.Invariant(
+            $"a body standing still on a slope inside the region must enter satisfaction, or it can never arrive on a hillside; streak={brain.Senses.Intent.GroundedInsideTicks} of {rescore}"));
+
+        // And the objective itself, which is what keeping company and the positioner both read.
+        var objective = brain.Senses.Intent.Objective;
+        Require(objective.IsSatisfied(companion.NPC.Bottom, true), FormattableString.Invariant(
+            $"following must read as satisfied on the slope: reason={objective.Reason(companion.NPC.Bottom, true)}, companion={companion.NPC.Bottom}, player={player.Bottom}"));
+    }
+
+    /// <summary>
     /// Ticks 8127 and 8128 of the 2026-09-14 capture, as geometry. Both bodies are in the air and
     /// the companion's feet sit inside the region, which the old symmetric box read as satisfied;
     /// keeping company then flipped to its local method and issued a Hold that cancelled the jump
@@ -985,6 +1058,30 @@ internal static class VerifyResponsiveFollowing
         live::AICompanion.Companion.Brain.Infrastructure.Movement.TerrainChanges.Reset();
         live::AICompanion.Companion.Brain.Infrastructure.Movement.NavGrid.World = new live::AICompanion.Companion.Brain.Infrastructure.Movement.GameTileWorld();
     }
+
+    /// <summary>
+    /// A hill of real sloped tiles rising one row per column, the game's own slope shapes rather than a staircase
+    /// of full blocks. The distinction is the whole point of the row that uses it: the engine rests a body on a
+    /// slope's diagonal rather than on a tile's top edge, and whether that body reads as standing is what the
+    /// grounded test asserts and no fixture had asked.
+    /// </summary>
+    private static void BuildSlopedHill()
+    {
+        BuildFloor();
+        for (int x = HillLeft; x <= HillRight; x++)
+        {
+            int top = 80 - (x - HillLeft);
+            for (int y = top; y <= 84; y++) Solid(x, y);
+            // Held in a local before the field is written: Tile is a view returned by value from the tile map's
+            // indexer, so assigning through the indexer expression writes to a copy.
+            Tile step = Main.tile[x, top];
+            step.Slope = (Terraria.ID.SlopeType)2;
+        }
+        live::AICompanion.Companion.Brain.Infrastructure.Movement.TerrainChanges.Reset();
+        live::AICompanion.Companion.Brain.Infrastructure.Movement.NavGrid.World = new live::AICompanion.Companion.Brain.Infrastructure.Movement.GameTileWorld();
+    }
+
+    private const int HillLeft = 40, HillRight = 52;
 
     private static void BuildCturn()
     {

@@ -134,25 +134,32 @@ internal static class VerifyOfferValidity
         // The body walks a few tiles back and forth along the floor while the search runs. The refusal memory's
         // bucket is four tiles wide, so this crosses it repeatedly rather than incidentally — and it stays near
         // enough that the reach flood is not being re-rooted across the world instead.
-        // A triangle wave two tiles a pass across sixteen, which crosses the four-tile bucket every other pass.
-        // The pace is brisk for a body on foot and deliberately so: the sweep finishes in under twenty passes, so
-        // a walk slow enough to be typical would cross the stride once or twice in that time and a row built on it
-        // would be the stationary row with a little drift. What is under test is the key, and the key moves on the
-        // stride rather than on the speed.
-        const int Home = 30, Swing = 8, Period = 16;
+        // A triangle wave one whole bucket a pass across sixteen tiles, so the body is in a different bucket on
+        // every pass the search runs. That rate is deliberate and it is not a stand-in for a walking speed: the
+        // sweep finishes in single-figure passes, and how many it takes varies with how warm the suite is, so a
+        // rate slow enough to be typical makes the number of crossings before exhaustion depend on JIT — which is
+        // how the first version of this row passed alone and failed inside the full suite at three crossings. The
+        // key moves on the stride rather than on the speed, so pinning the crossing rate to one per pass makes the
+        // premise hold however many passes the sweep needs.
+        const int Home = 30, Swing = 8, Period = 4, Stride = 4;
         int buckets = 0, previousBucket = int.MinValue;
         string reason = "";
         int settledAt = -1;
         for (int tick = 0; tick < 600; tick++)
         {
             int phase = tick % Period;
-            int column = Home - Swing + 2 * (phase <= Period / 2 ? phase : Period - phase);
+            int column = Home - Swing + Stride * (phase <= Period / 2 ? phase : Period - phase);
             companion.NPC.position = new Vector2(column * 16f, FloorY * 16f - companion.NPC.height);
             companion.NPC.velocity = Vector2.Zero;
             companion.Brain.Senses.Update(companion.NPC, Main.player[0], companion.Breath);
             int bucket = MovementQueries.FeetTile(companion.NPC.Bottom).X >> 2;
             if (bucket != previousBucket) { buckets++; previousBucket = bucket; }
             positioner.Resolve(request, companion.Brain.Senses, profile);
+            if (tick == 0)
+                // The same premise the stationary row makes: more candidates than one pass may solve, or the
+                // shortlist fits inside its budget and there is no unfinished search to finish.
+                Require(positioner.ReachableCandidateCount > 8, FormattableString.Invariant(
+                    $"the sealed scene must offer more candidates than one pass can solve; reachable={positioner.ReachableCandidateCount}"));
             reason = positioner.ChoiceReason;
             if (reason == PositionReasons.NoUsableDestination) { settledAt = tick; break; }
         }
@@ -160,8 +167,8 @@ internal static class VerifyOfferValidity
             $"offer validity: a sealed enemy became a proven absence on pass {settledAt + 1} with the body walking through {buckets} refusal buckets"));
         // The premise: the body really did move across the memory's own scoping stride. Without that this row is
         // the stationary one with extra steps, and would pass against the code it exists to reject.
-        Require(buckets > 4, FormattableString.Invariant(
-            $"the body must cross the refusal memory's bucket repeatedly, or this row is the stationary one; buckets entered={buckets}"));
+        Require(buckets >= 3 && buckets >= settledAt, FormattableString.Invariant(
+            $"the body must be in a different bucket on every pass, or this row is the stationary one with drift; buckets entered={buckets} over {settledAt + 1} passes"));
         Require(settledAt >= 0, FormattableString.Invariant(
             $"a sealed enemy must become a proven absence while the body walks, not stay undecided for ever; last reason={reason} after 600 passes"));
     }
