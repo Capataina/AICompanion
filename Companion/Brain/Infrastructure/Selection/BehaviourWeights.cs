@@ -500,4 +500,13 @@ public static class Weights
     /// target has not moved enough to have changed the answer".
     /// </summary>
     public const float FiringHoldTargetSlackPx = 48f;
+
+    /// <summary>
+    /// The longest window a firing stand's arc is required to hold for, past the estimated arrival. The requirement
+    /// itself is the trip's own length — a shot has to survive the walk to the stand and no longer — and this only
+    /// stops a walk across the world from asking for an arc that holds indefinitely, which is a question the
+    /// forecast cannot answer anyway at that range. Raising it asks for more solves on long trips; lowering it stops
+    /// distinguishing a middling trip from a long one.
+    /// </summary>
+    public const int ShotWindowCapTicks = 2 * ShotWindowSampleTicks;
 }
