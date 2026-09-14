@@ -154,7 +154,8 @@ The 13:27 capture (22,473 rows, schema 0.32.0, source 3d8b75e) is the first play
 symptom                                   what the record shows                                          class
 never overtakes, stops at the box edge    on the 7,901 rows where the player moves faster than          R1  a zero-gradient follow box: satisfaction is a
                                           1.2 px/tick the companion is behind by more than three            symmetric 240 x 96 px predicate on the player's
-                                          tiles on 71.5% and ahead by more than four on 4.7%, median         current feet with no velocity term, and inside it
+                                          tiles on 71.5%, ahead by more than four on 10.8% and by more        current feet with no velocity term, and inside it
+                                          than eight on 4.7% (the ledger's ahead-share row), median
                                           181 px behind; on 33% of sustained travel it is resting or          the reunion pull is exactly zero, so keep-company
                                           strolling; the priced lead fired on 3 rows because a place          scores its wander floor and any rival wins; the
                                           is decided only on a finished flood and the flood is                one lead mechanism exists and is starved by R2
@@ -196,7 +197,10 @@ ceiling slimes it cannot reach            was already invalid on 129 (hunt 64, g
                                           met terrain                                                          the world blocks is a separate open question
 (not named) arrives at its own tile and   partial-progress-candidate on 328 rows at one spot with       R6  a destination with no exit condition: the fallback
 holds with the player twenty tiles up     nav Arrived and follow-vertical-gap, flood complete, no             compares tile-quantised positions while arrival is
-                                          state search, 22 sibling stretches; the native replay                12 px, so it can name the tile the body is already
+                                          state search; one trace claimed 22 siblings and the ledger's         12 px, so it can name the tile the body is already
+                                          arrived-with-follow-gap row finds exactly one under the
+                                          state definition (the 23 the report raised were I1's
+                                          stale rejection field); the native replay
                                           reproduces the hold for 200 ticks with no rejection                  arrived at, and it declares no success region
                                                                                                                (the quantisation arithmetic is inferred, untested)
 (not named) the chosen stand churns       the success-region revision changes 1,017 times, once every  R8  no commitment at the destination layer either:
@@ -220,7 +224,7 @@ Where the three traces converged and where they did not, because the divergence 
 
 Each class closes by construction, and each has its harness row:
 
-- **R1** The follow box becomes the player's intent region, a sense every consumer reads: its centre is the player's feet plus a lead of velocity times a lead time, low-pass filtered and clamped at the screen edge; it grows with the lead, vertically too; the pull is continuous from the centre outward and never exactly zero while the player travels; satisfaction is judged from the ground, never on an airborne tick; reunion, the work radius, the light search centre and the collect radius all measure to the box. Row: a route with an authored straight walk, signed offset along the player's travel direction on moving rows, ahead-rows greater than behind-rows; the 13:27 track replayed, the same statistic, with 4.7% ahead-by-four-tiles as the baseline.
+- **R1** The follow box becomes the player's intent region, a sense every consumer reads: its centre is the player's feet plus a lead of velocity times a lead time, low-pass filtered and clamped at the screen edge; it grows with the lead, vertically too; the pull is continuous from the centre outward and never exactly zero while the player travels; satisfaction is judged from the ground, never on an airborne tick; reunion, the work radius, the light search centre and the collect radius all measure to the box. Row: a route with an authored straight walk, signed offset along the player's travel direction on moving rows, ahead-rows greater than behind-rows; the 13:27 track replayed, the same statistic, with 10.8% ahead-by-four-tiles (64 px) as the baseline; the 4.7% first written here was the eight-tile figure, and the ledger's ahead-share row is the number from now on.
 - **R2** Knowledge is invalidated where it happened: a terrain revision carries its tile, a retained search or flood is restarted only if its explored region contains that tile, and the flood advances on the tick rather than only on a resolve. Row: the 13:27 track replayed, reach-complete share above 90 percent; a fixture that edits a tile outside a flood's region and asserts the flood is untouched; the revision counter recorded per row so the edit rate is a number.
 - **R3** One motion forecaster for every moving thing (the player, hostiles and drops through the same observed-motion track), and collection proves its pose at the forecast landing. Row: a drop released mid-air, the walk begins before it lands; drop-has-no-contact-pose at zero on the replayed track.
 - **R4** A move in flight is atomic: a voluntary release (Hold, a method change, a new goal) lands the body first and takes effect at the landing; only a pre-empting owner (safety, downing, recovery) takes an airborne body, through the same navigator. Row: the census's cancelled-in-flight count at zero on every route; airborne-no-sideways-speed stops at zero; jump completion above the 0.23.0 rate; the corpus follow pass unchanged.
