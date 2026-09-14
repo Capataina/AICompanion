@@ -54,15 +54,6 @@ public readonly record struct FollowPlayerObjective(PlayerIntentRegion Region, V
         => locallyConnected && Region.Accepts(feet, Movement.Navigator.ArriveDistance);
 
     /// <summary>
-    /// How much this destination is preferred among the acceptable ones: one at the anchor, falling
-    /// with distance from it across the region's own width. A preference and never a veto, so a
-    /// travelling player's leading edge pulls the choice forward without making the tiles behind it
-    /// unusable on ground where the leading edge has no floor.
-    /// </summary>
-    public float Preference(Vector2 feet)
-        => 1f / (1f + Vector2.Distance(feet, Anchor) / MathF.Max(1f, Region.HalfSize.X));
-
-    /// <summary>
     /// Arrival: the body is in the region, has been on the ground in it for a rescore, and is
     /// locally connected to it. The grounded streak is what the symmetric box was missing — two
     /// bodies passing each other in mid-air are momentarily a few pixels apart and neither has
