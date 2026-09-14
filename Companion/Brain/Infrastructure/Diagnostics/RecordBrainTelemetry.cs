@@ -621,6 +621,14 @@ public sealed class BrainTelemetry : ModSystem
             // refusals or a flood that had not settled. The ledger is capped and the count is not, so the two
             // together read as "the first few of this many" rather than as the whole search.
             h.Append("\tlighting_sites\tlighting_sites_asked");
+            // How many terrain edits the world has announced since it loaded. It is a running count
+            // rather than a per-tick flag, so a reader takes differences: the edit *rate* is what
+            // decides how often retained search work is discarded, and until this column existed no
+            // capture could say what that rate was — the 426 terrain-snapshot records of the
+            // 2026-09-14 session were captures on a cadence and were briefly read as edits. Appended
+            // at the end with the schema left where it is, because nothing before it moved and every
+            // reader addresses columns by name.
+            h.Append("\tterrain_revision");
             writer.WriteLine(h.ToString());
             headerWritten = true;
         }
@@ -1004,6 +1012,7 @@ public sealed class BrainTelemetry : ModSystem
         var lighting = brain.Chooser.Actions.OfType<Activities.NearbyAssistance.LightUsefulArea>().FirstOrDefault();
         sb.Append('\t').Append(string.IsNullOrEmpty(lighting?.LastSearchSites) ? "-" : lighting!.LastSearchSites)
             .Append('\t').Append(lighting?.LastSearchAsked ?? 0);
+        sb.Append('\t').Append(Movement.TerrainChanges.Revision);
 
         // A write that fails (disk full, a stream the OS closed) must not escape the NPC's AI
         // and take the companion with it; the record stops and the game goes on.
