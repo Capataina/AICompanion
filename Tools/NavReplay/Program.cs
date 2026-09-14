@@ -192,7 +192,8 @@ if (extract is (string capturePath, int captureTick))
         ExtractScenarioFromCapture.Extract cut = ExtractScenarioFromCapture.Run(capturePath, captureTick, extractWidth, extractHeight, null, Console.WriteLine);
         Console.WriteLine($"extracted {cut.Width}x{cut.Height} around {ReplayOneBlock.Fmt(cut.Start)} at tick {cut.Tick}: "
             + $"goal {ReplayOneBlock.Fmt(cut.Goal)}, player {ReplayOneBlock.Fmt(cut.Player)}, {cut.TrailLength} trail tiles, "
-            + $"{cut.Snapshots} snapshots covering {cut.Known} of {cut.Width * cut.Height} tiles ({cut.Coverage:F1}%), the rest closed");
+            + $"{cut.Snapshots} snapshots covering {cut.Known} of {cut.Width * cut.Height} tiles ({cut.Coverage:F1}%) as last written, the rest closed, "
+            + $"oldest contributing snapshot {cut.OldestAgeSeconds:F1}s before the tick");
         EmitLedgerRows.Measure("nav-replay", "corpus", "extracted-window-coverage", cut.Coverage, "%", "up",
             mode: "unbounded-allowances", message: $"{Path.GetFileName(cut.Path)}: {cut.Known} of {cut.Width * cut.Height} tiles carried by {cut.Snapshots} snapshots");
         return 0;
@@ -417,6 +418,33 @@ foreach (string file in files)
                 + (result.FirstRefusedTrail is { } t ? $"; first refused as captured {t}" : "")
                 + (reflected.FirstRefusedTrail is { } rt ? $"; first refused reflected {rt}" : "");
             Console.WriteLine($"     mirror:        {(agrees ? "AGREES" : "DISAGREES")}, {detail}");
+            // A disagreement prints both sides' root and both floods, because the relation says only
+            // that the two answers differ and the next question is always which half differs. The
+            // root separates two findings with different owners: `Ground` ends in `NearestStandable`,
+            // whose neighbourhood order is not itself mirror-symmetric, so a reflected start can
+            // settle on a tile that is not the reflection of the original's — and then the asymmetry
+            // is in how a root is chosen rather than in what the flood did from it. With the roots
+            // agreeing, the region sizes are the finding, and a reflection reaching two orders of
+            // magnitude more tiles from the mirror image of the same root is a direction-dependent
+            // traversal rule rather than anything about the terrain.
+            if (!agrees)
+            {
+                Console.WriteLine($"       as captured  root {(result.From is Point of ? ReplayOneBlock.Fmt(of) : "none")}, {result.Region.Count} tiles, {(result.RegionComplete ? "complete" : "budget spent")}, goal {result.GoalIn}{result.PlayerIn}{result.Pocket}");
+                Console.WriteLine($"       reflected    root {(reflected.From is Point rfr ? ReplayOneBlock.Fmt(rfr) : "none")}, {reflected.Region.Count} tiles, {(reflected.RegionComplete ? "complete" : "budget spent")}, goal {reflected.GoalIn}{reflected.PlayerIn}{reflected.Pocket}");
+                Console.WriteLine($"       roots agree:  {(result.From is Point a && reflected.From is Point b && MirrorScenarioWorlds.MirrorTile(a.X, result.World.OriginX, result.World.Width) == b.X && a.Y == b.Y ? "yes, the reflected run is rooted in the reflection of the original's tile" : "NO — the two runs are rooted in tiles that are not reflections of each other, so the asymmetry is in how a root is chosen rather than in the verdict")}");
+                // The reflected block is written out so the disagreement is reachable by the focused
+                // instruments. Without it the reflection exists only inside this loop, and the next
+                // reader can see that the two floods differ but cannot ask --edges which edges
+                // either one was offered. It goes to the temp directory rather than beside the
+                // original, because a reflected block is a diagnostic and a file in Tools/Scenarios
+                // is a fixture the whole corpus then replays.
+                string reflectedPath = Path.Combine(Path.GetTempPath(),
+                    // The block index is part of the identity and is kept: a file carrying only the
+                    // scenario's name would be overwritten by the next disagreeing block in it.
+                    $"mirrored-{name.Replace('#', '-').Replace(Path.DirectorySeparatorChar, '-')}.txt");
+                File.WriteAllLines(reflectedPath, MirrorScenarioWorlds.Mirror(block));
+                Console.WriteLine($"       reflected block written to {reflectedPath} — replay it, or point --edges at its root, to see which edges each flood was offered");
+            }
             if (agrees) mirrorAgreed++; else mirrorDisagreed++;
             string @case = $"{name} answers the same reflected left to right";
             const string Killer = "reflecting the tiles without flipping a slope glyph, or about the wrong column";

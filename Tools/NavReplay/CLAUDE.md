@@ -88,6 +88,24 @@ box to the side, which on a companion is a tile and a bit. The double reflection
 the identity over every committed block, beside a check that at least one block actually changed,
 because a transform that returned its input would satisfy an identity perfectly.
 
+**A disagreement prints both roots, both flood sizes and whether the roots are reflections of each
+other, and writes the reflected block to the temp directory**, because the relation only ever says
+that two answers differ and every reader's next question is which half differs. The root line
+separates two findings with different owners: `Ground` ends in `NearestStandable`, whose
+neighbourhood order is not mirror-symmetric, so a reflected start can settle somewhere that is not
+the reflection of the original's, and then the asymmetry is in choosing a root rather than in
+flooding from one. The written block is what makes the other half reachable — without a file on disk
+the reflection exists only inside the mirror loop, and `--edges` cannot be pointed at it. It is
+written to the temp directory rather than beside the original on purpose: a reflected block is a
+diagnostic, and a file in `Tools/Scenarios` is a fixture the whole corpus then replays.
+
+**Reflecting the body cannot preserve its sub-tile offset, and this is arithmetic rather than a
+defect to fix.** The body is wider than a tile, so reflecting its box about a tile boundary maps an
+offset `o` within its tile to `(1 - boxTiles - o)` — exact in pixels, and a different fraction of a
+tile. Anything diagnosing a mirror disagreement checks that before blaming the evaluator, by giving
+the original the reflection's offset and re-running: if the verdict does not move, the offset was
+not the cause.
+
 **`--shrink` reduces a failing scenario to the smallest window that still fails the same way**, by
 delta debugging (Zeller and Hildebrandt's ddmin) over reductions shaped like the thing being reduced
 (Regehr et al.): rows emptied, rows walled, single tiles emptied, the trail cut to a prefix, and the
@@ -126,7 +144,12 @@ snapshot covered is written solid and counted in the reported coverage, never le
 glyph alphabet reads anything outside it as air, so missing terrain would become open sky and a
 window with holes in it would read as a window with an easy route. Snapshots are joined to the row on
 the recorder's own stopwatch rather than on the tick, because the two streams have different
-producers and only the elapsed millisecond means the same thing in both. Which recorded columns are
+producers and only the elapsed millisecond means the same thing in both. **Coverage is coverage as
+*last written*, not as it stood at the tick**, because the recorder writes a chunk only when it has
+changed since it last wrote one: a chunk nobody was near keeps the shape it had when a snapshot last
+reached it, and a fully covered window can still describe terrain that was mined afterwards. The
+header therefore carries how far behind the tick the oldest contributing snapshot was, and that is
+the number that prices a full-coverage window rather than the percentage. Which recorded columns are
 pixels and which are tiles is read off the column and never inferred from the text — `npc_px` writes
 its pixels without a decimal point, so a parser deciding by punctuation would cut the window fifty
 thousand columns from anywhere anyone has been.

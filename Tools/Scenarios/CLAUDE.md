@@ -37,7 +37,11 @@ tick out of the capture's own terrain snapshots, with the recorded body box, the
 brain asked for, the player's feet and their trail. **Its header carries what the snapshots did not
 cover**, because a tile no snapshot reached is written solid — unknown is closed, the same rule the
 native water replay states — and a fixture at low coverage is a fixture whose sealed verdict is
-about the recording rather than about the world. Read the coverage before reading the verdict.
+about the recording rather than about the world. Read the coverage before reading the verdict — and
+read the snapshot age beside it, because coverage counts tiles a snapshot reached at some point and
+not tiles the recording knew were current. The recorder writes a chunk only when it changed, so a
+fully covered window can still be describing terrain mined a minute earlier, and the header names
+how far behind the tick its oldest contributing snapshot was.
 
 `NavReplay --shrink <scenario>` writes a reduced copy beside the original, named for it, carrying in
 its header the transforms applied and the signature the reduction preserved. **A reduced file is a

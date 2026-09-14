@@ -25,11 +25,15 @@ using AICompanion.Companion.Brain.Infrastructure.Movement;
 /// happy to route through — a window that is missing terrain would then read as a window with an
 /// easy route. The native water replay states the same rule for the same reason: unknown is closed,
 /// and reaching it is reduced coverage rather than proof of a route. The coverage figure in the
-/// header is how a reader prices the fixture before trusting its verdict.
+/// header is how a reader prices the fixture before trusting its verdict — and it is coverage as
+/// *last written*, because the recorder writes a chunk only when it changed, so a tile counted as
+/// known carries the shape it had when a snapshot last reached it. The header therefore also names
+/// how far behind the tick the oldest contributing snapshot was: a window built from chunks minutes
+/// old is one whose terrain may have been mined since, and full coverage does not say otherwise.
 /// </summary>
 internal static class ExtractScenarioFromCapture
 {
-    internal readonly record struct Extract(string Path, int Tick, int Width, int Height, int Known, int Snapshots, int TrailLength, Point Start, Point Goal, Point Player)
+    internal readonly record struct Extract(string Path, int Tick, int Width, int Height, int Known, int Snapshots, int TrailLength, double OldestAgeSeconds, Point Start, Point Goal, Point Player)
     {
         public double Coverage => Width * Height == 0 ? 0 : 100.0 * Known / (Width * Height);
     }
@@ -96,6 +100,12 @@ internal static class ExtractScenarioFromCapture
         if (!File.Exists(events))
             throw new FileNotFoundException($"the capture's terrain lives in {Path.GetFileName(events)}, which is not beside it");
         int snapshots = 0;
+        // The age of the oldest snapshot that contributed a tile, because coverage says every tile
+        // is *known* and not that every tile is *current*: the recorder writes a chunk only when it
+        // changed since it last wrote it, so a chunk mined while nobody was near it keeps the shape
+        // it had when it was last seen. A window whose oldest contributing chunk is minutes behind
+        // the tick is a window that may be describing terrain that no longer existed.
+        double oldestMs = double.MaxValue, newestMs = double.MinValue;
         foreach (string line in File.ReadLines(events))
         {
             // The cheap string test before the parse: the events file runs to tens of megabytes and
@@ -108,7 +118,8 @@ internal static class ExtractScenarioFromCapture
             // Joined on the recorder's own stopwatch rather than on the tick, the way the native
             // water replay joins it: the two streams are written by different producers and only the
             // elapsed millisecond is guaranteed to mean the same thing in both.
-            if (e.GetProperty("wall_elapsed_ms").GetDouble() > elapsed) continue;
+            double snapshotMs = e.GetProperty("wall_elapsed_ms").GetDouble();
+            if (snapshotMs > elapsed) continue;
             int cx = (int)(e.GetProperty("pos_x").GetSingle() / 16) - originX;
             int cy = (int)(e.GetProperty("pos_y").GetSingle() / 16) - originY;
             var fields = e.GetProperty("detail").GetString()!.Split(';').Select(p => p.Split('=', 2))
@@ -119,6 +130,8 @@ internal static class ExtractScenarioFromCapture
             if (tiles.Length != sw * sh) throw new InvalidDataException("a terrain snapshot's dimensions disagree with its payload");
             if (cx >= width || cy >= height || cx + sw <= 0 || cy + sh <= 0) continue;
             snapshots++;
+            oldestMs = Math.Min(oldestMs, snapshotMs);
+            newestMs = Math.Max(newestMs, snapshotMs);
             for (int i = 0; i < tiles.Length; i++)
             {
                 int x = cx + i % sw, y = cy + i / sw;
@@ -151,7 +164,8 @@ internal static class ExtractScenarioFromCapture
                 + $" npcbox {left.ToString("0.0", CultureInfo.InvariantCulture)},{bottom.ToString("0.0", CultureInfo.InvariantCulture)},{boxWidth:0},{boxHeight:0}"
                 + $" window x {originX}..{originX + width - 1} y {originY}..{originY + height - 1}"
                 + $" || from {Path.GetFileName(capture)} || {snapshots} snapshots covered {knownTiles} of {width * height} tiles"
-                + $" ({100.0 * knownTiles / (width * height):F1}%), the rest written closed",
+                + $" ({100.0 * knownTiles / (width * height):F1}%) as last written, the rest closed"
+                + $", oldest contributing snapshot {(elapsed - oldestMs) / 1000.0:F1}s before the tick and newest {(elapsed - newestMs) / 1000.0:F1}s",
             // Every position named outright rather than drawn over the grid, because a marker glyph
             // written onto a half block or a slope erases the support the body is standing on.
             $"markers S {start.X},{start.Y} G {goal.X},{goal.Y} N {start.X},{start.Y} P {player.X},{player.Y}",
@@ -168,7 +182,7 @@ internal static class ExtractScenarioFromCapture
         Directory.CreateDirectory(Path.GetDirectoryName(name)!);
         File.WriteAllLines(name, lines);
         say($"extract: {name}");
-        return new Extract(name, tick, width, height, knownTiles, snapshots, trailInWindow.Count, start, goal, player);
+        return new Extract(name, tick, width, height, knownTiles, snapshots, trailInWindow.Count, (elapsed - oldestMs) / 1000.0, start, goal, player);
     }
 
     private static string Cell(string[] header, string[] cells, string key)
