@@ -460,6 +460,26 @@ public static class AStar
     /// </summary>
     public static readonly int EdgeReachX = 1 + NavGrid.OpenSpanReach + (int)Math.Ceiling(Traversal.FallTicks(NavGrid.MaxDropTiles) * BodyPhysics.WalkSpeed / 16f) + 2;
 
+    /// <summary>How far above a tile that tile's scans read: a jump's rise plus the body's own
+    /// height, and a row either side for the shape tests around a landing.</summary>
+    public const int EdgeReachUp = NavGrid.JumpHeightTiles + NavGrid.BodyHeightTiles + 2;
+
+    /// <summary>How far below a tile that tile's scans read: the deepest drop, plus the row the
+    /// body lands on.</summary>
+    public const int EdgeReachDown = NavGrid.MaxDropTiles + 1;
+
+    /// <summary>
+    /// Whether the geometry of the tile at <paramref name="tileX"/>, <paramref name="tileY"/> could
+    /// have been read from an edit at <paramref name="editX"/>, <paramref name="editY"/>. This is
+    /// the one statement of the box, because two things now draw it: the edge cache drops the
+    /// entries a change could have falsified, and a retained search asks whether a change landed on
+    /// anything it has already expanded. A retained search's frontier reads fresh edges either way —
+    /// the cache dropped them — so what a search has to defend is its closed set, which is exactly
+    /// this box.
+    /// </summary>
+    public static bool ScanReaches(int tileX, int tileY, int editX, int editY)
+        => Math.Abs(tileX - editX) <= EdgeReachX && editY >= tileY - EdgeReachUp && editY <= tileY + EdgeReachDown;
+
     /// <summary>
     /// A tile at (<paramref name="x"/>, <paramref name="y"/>) is no longer what it was: drop the
     /// cached edges of every tile whose scans could have read it. A tile's edges look down as
@@ -477,13 +497,11 @@ public static class AStar
         oneWay.Clear();
         if (edgeCache.Count == 0)
             return;
-        int minY = y - NavGrid.MaxDropTiles - 1;
-        int maxY = y + NavGrid.JumpHeightTiles + NavGrid.BodyHeightTiles + 2;
         var stale = new List<(NavNode, bool)>();
         foreach ((NavNode, bool) key in edgeCache.Keys)
         {
             Point t = key.Item1.Tile;
-            if (Math.Abs(t.X - x) <= EdgeReachX && t.Y >= minY && t.Y <= maxY)
+            if (ScanReaches(t.X, t.Y, x, y))
                 stale.Add(key);
         }
         foreach ((NavNode, bool) key in stale)

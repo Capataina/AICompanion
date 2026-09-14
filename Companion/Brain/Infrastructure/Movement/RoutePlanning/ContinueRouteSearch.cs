@@ -8,12 +8,12 @@ using Microsoft.Xna.Framework;
 namespace AICompanion.Companion.Brain.Infrastructure.Movement;
 
 /// <summary>A query owns its frontier and the suspended edge generator. Yielding spends no
-/// search knowledge; terrain changes invalidate the query explicitly. Only the main thread
-/// advances it because the terrain adapter may call native collision.</summary>
+/// search knowledge; a terrain change inside the region it has explored invalidates the query
+/// explicitly, and one outside that region leaves it alone. Only the main thread advances it
+/// because the terrain adapter may call native collision.</summary>
 public sealed class ContinueRouteSearch : IDisposable
 {
     private readonly ITileWorld world;
-    private readonly int revision;
     private readonly bool lava, oneWay;
     private readonly NavNode start;
     private readonly BodyPhysics.Pose? pose;
@@ -39,7 +39,100 @@ public sealed class ContinueRouteSearch : IDisposable
     public HashSet<Point> Reached { get; } = new();
     public Dictionary<Point, float> TravelCosts { get; } = new();
     public Dictionary<Point, float> TravelTicks { get; } = new();
-    public bool Valid => world == NavGrid.World && revision == world.Revision;
+    // What the query has read, as the bounding box of every tile it has reached, and the revision it
+    // was last found clean at. The revision advances on every clean answer rather than staying at
+    // the query's birth, which is what keeps the record's window covering the gap between two checks
+    // instead of the query's whole life: without it a query that survives a window's worth of edits
+    // anywhere in the world falls off the back of the record and restarts on the global edit count,
+    // which is the cadence this whole mechanism exists to remove.
+    private int exploredMinX, exploredMinY, exploredMaxX, exploredMaxY;
+    private int checkedRevision;
+    private bool invalidated;
+    private readonly Func<int, int, bool> readAnythingAt;
+
+    // Every tile this query's answer stands on, which is deliberately a superset of Reached rather than
+    // the same set. A route adopted from route memory is a run of steps this search never expanded — it
+    // joins the frontier at the remembered route's head and the goal is then dequeued and returns Found
+    // before any of those tiles is reached — so a query can hand back a path across ground that is in
+    // neither Reached nor the box drawn from it. Under a world-global compare that cost nothing, because
+    // an edit anywhere invalidated everything; under a spatial one it is a path priced from terrain that
+    // may since have changed, and the failure would surface downstream as the live proof refusing the
+    // step, which reads as a physical fault rather than as stale knowledge.
+    private readonly HashSet<Point> read = new();
+
+    /// <summary>The box of tiles this query's answer depends on, for a diagnostic and for the fixture
+    /// that pins the invalidation margin to the scan reach it is derived from.</summary>
+    public Rectangle ExploredBounds => new(exploredMinX, exploredMinY,
+        exploredMaxX - exploredMinX + 1, exploredMaxY - exploredMinY + 1);
+
+    /// <summary>
+    /// Still answering about the world it was started in, and nothing announced since has landed
+    /// anywhere it read. The second half used to be a compare of one world-global counter, so a
+    /// player breaking a tile on the far side of the loaded world discarded a frontier that had
+    /// never looked there; it is now the question the counter was standing in for.
+    ///
+    /// <para>Cost per call is the number of edits announced since the last call, which is nothing on
+    /// the overwhelming majority of them: an unchanged counter returns on one integer compare, and a
+    /// clean answer moves this query's own revision up so the same edits are never walked twice.
+    /// Each edit walked costs a box test and, only if that box holds it, a scan of the reached set.
+    /// Invalidity is remembered, because a query can never become valid again.</para>
+    /// </summary>
+    public bool Valid
+    {
+        get
+        {
+            if (invalidated) return false;
+            if (world != NavGrid.World) { invalidated = true; return false; }
+            int now = world.Revision;
+            if (now == checkedRevision) return true;
+            if (world.ChangedSince(checkedRevision, readAnythingAt) != TerrainEditVerdict.Unchanged)
+            {
+                invalidated = true;
+                return false;
+            }
+            checkedRevision = now;
+            return true;
+        }
+    }
+
+    /// <summary>
+    /// Whether an edit here could have changed an edge this query has already priced. The bounding
+    /// box is a pre-filter that rejects a distant edit on four compares; a box hit then asks the
+    /// reached set itself, because a region is rarely rectangular and the box around a corridor
+    /// holds a great deal of world the corridor never read.
+    ///
+    /// <para>The margin is <see cref="AStar.ScanReaches"/> rather than a tile or two, and that is
+    /// load-bearing. A tile's edges are generated by scanning outward — a drop steers sideways for
+    /// as long as the deepest fall takes — so an edit two dozen columns from a tile the query has
+    /// closed can change what that tile's drop does, and a margin drawn from the body's own size
+    /// would leave that stale. It is the same box the edge cache drops entries in, which is the
+    /// point: one statement of how far a scan reads, read by the two things that depend on it.</para>
+    /// </summary>
+    private bool ReadAnythingAt(int x, int y)
+    {
+        if (x < exploredMinX - AStar.EdgeReachX || x > exploredMaxX + AStar.EdgeReachX) return false;
+        if (y < exploredMinY - AStar.EdgeReachUp || y > exploredMaxY + AStar.EdgeReachDown) return false;
+        foreach (Point tile in read)
+            if (AStar.ScanReaches(tile.X, tile.Y, x, y)) return true;
+        return false;
+    }
+
+    /// <summary>Record that this query's answer now depends on the terrain at this tile, without
+    /// claiming the tile as reached: a remembered route's own steps are depended on and were never
+    /// expanded, and <see cref="Reached"/> is read as a region by the goal-less owners.</summary>
+    private void Note(Point tile)
+    {
+        if (!read.Add(tile)) return;
+        if (tile.X < exploredMinX) exploredMinX = tile.X;
+        if (tile.X > exploredMaxX) exploredMaxX = tile.X;
+        if (tile.Y < exploredMinY) exploredMinY = tile.Y;
+        if (tile.Y > exploredMaxY) exploredMaxY = tile.Y;
+    }
+
+    private void Touch(Point tile)
+    {
+        if (Reached.Add(tile)) Note(tile);
+    }
     /// <summary>Both directions have been generated under this query's traversal policy.
     /// A nearby coordinate alone cannot establish this across a one-way drop.</summary>
     public bool CanReuseFrom(Point feet) => Valid && canReturn.Contains(NavNode.At(feet));
@@ -51,13 +144,16 @@ public sealed class ContinueRouteSearch : IDisposable
     public ContinueRouteSearch(Point from, Point? goal, bool allowLava, bool allowOneWay,
         BodyPhysics.Pose? actualPose = null, Func<NavStep, bool>? acceptFirstStep = null)
     {
-        world = NavGrid.World; revision = world.Revision; lava = allowLava; oneWay = allowOneWay;
+        world = NavGrid.World; lava = allowLava; oneWay = allowOneWay;
         start = NavNode.At(from); Goal = goal; pose = actualPose; acceptFirst = acceptFirstStep;
         suffixes = goal is Point destination ? RememberExecutedRoutes.World.Suffixes(world, destination, allowLava,
             AStar.PriceRememberedStep, allowOneWay ? null : AStar.RememberedStepHasReturn) : new();
         best = start; bestH = Distance(from);
         avoidance = AStar.Avoid.ToArray();
-        costs[start] = 0; Enqueue(start, Distance(from)); Reached.Add(from); TravelCosts[from] = 0;
+        checkedRevision = world.Revision;
+        readAnythingAt = ReadAnythingAt;
+        exploredMinX = exploredMaxX = from.X; exploredMinY = exploredMaxY = from.Y;
+        costs[start] = 0; Enqueue(start, Distance(from)); Touch(from); TravelCosts[from] = 0;
         TravelTicks[from] = 0;
         canReturn.Add(start);
     }
@@ -109,6 +205,14 @@ public sealed class ContinueRouteSearch : IDisposable
                         {
                             costs[destination] = routeCost; parents[destination] = (expanding, suffix);
                             Enqueue(destination, routeCost, reused: true); ExperienceRoutesUsed++;
+                            // The suffix's own ground is depended on from here, and the search will never
+                            // expand it: the goal is dequeued and returns Found with these tiles unreached.
+                            // Each step's landing tile is the next step's departure, and the first departs
+                            // from the tile being expanded, so the landings plus the end cover the run; the
+                            // step's own From is not read, because it is default on some kinds and noting
+                            // the origin tile would stretch the pre-filter box across the whole world.
+                            foreach (NavStep step in suffix) Note(step.Tile);
+                            Note(end);
                         }
                     }
                     edges = AStar.NeighbourWork(expanding, !oneWay, expanding == start ? pose : null).GetEnumerator();
@@ -124,7 +228,7 @@ public sealed class ContinueRouteSearch : IDisposable
                 if (costs.TryGetValue(next, out float old) && old <= cost) continue;
                 costs[next] = cost; parents[next] = (expanding, new List<NavStep> { edge.Step });
                 closed.Remove(next); Enqueue(next, cost + Distance(next.Tile));
-                Reached.Add(next.Tile);
+                Touch(next.Tile);
                 if (!TravelCosts.TryGetValue(next.Tile, out float known) || cost < known) TravelCosts[next.Tile] = cost;
                 float ticks = TravelTicks.GetValueOrDefault(expanding.Tile) + Math.Max(1, edge.Step.Ticks);
                 if (!TravelTicks.TryGetValue(next.Tile, out float knownTicks) || ticks < knownTicks) TravelTicks[next.Tile] = ticks;

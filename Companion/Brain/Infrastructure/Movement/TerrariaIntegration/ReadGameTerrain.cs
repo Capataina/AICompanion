@@ -8,6 +8,8 @@ namespace AICompanion.Companion.Brain.Infrastructure.Movement;
 public sealed class GameTileWorld : ITileWorld, IBodySimulationWorld
 {
     public int Revision => TerrainChanges.Revision;
+    public TerrainEditVerdict ChangedSince(int since, System.Func<int, int, bool> sensitive)
+        => TerrainChanges.Edits.ChangedSince(since, sensitive);
     public bool InWorld(int x, int y) => WorldGen.InWorld(x, y, 5);
     public bool PassThrough(int x, int y)
     {

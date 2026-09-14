@@ -38,6 +38,21 @@ public interface ITileWorld
 {
     /// <summary>Changes whenever announced movement geometry changes; immutable fixtures use zero.</summary>
     int Revision => 0;
+
+    /// <summary>
+    /// Has an announced change since <paramref name="since"/> landed on a tile <paramref
+    /// name="sensitive"/> accepts? This is the spatial form of the revision compare above: a
+    /// consumer that knows which tiles it read can keep retained work across an edit somewhere else
+    /// instead of restarting on every edit anywhere in the world.
+    ///
+    /// <para>The default is the answer a world with no record of where can honestly give — any
+    /// difference in the counter is a change — so a world that does not implement this behaves
+    /// exactly as everything did before the record existed, and an immutable fixture at revision
+    /// zero answers Unchanged for ever. The safe direction is Changed, always: a world that
+    /// wrongly answers Unchanged serves a consumer terrain from before a dig it cannot see.</para>
+    /// </summary>
+    TerrainEditVerdict ChangedSince(int since, System.Func<int, int, bool> sensitive)
+        => since == Revision ? TerrainEditVerdict.Unchanged : TerrainEditVerdict.Changed;
     /// <summary>Inside the world with a margin; outside counts as solid.</summary>
     bool InWorld(int x, int y);
 

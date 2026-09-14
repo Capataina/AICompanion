@@ -9,15 +9,22 @@ namespace AICompanion.Companion.Brain.Infrastructure.Movement;
 /// <summary>One invalidation entry point for engine hooks and explicit world interactions.</summary>
 public static class TerrainChanges
 {
-    public static int Revision { get; private set; }
+    /// <summary>Where the world was edited, beside how many times. Every announcement carries its
+    /// tile, so a consumer holding retained work can ask whether an edit landed anywhere it read
+    /// rather than restarting on a counter that moves for the whole loaded world. Doors announce
+    /// through <see cref="Changed"/> like everything else, which is why the game's door helper
+    /// skipping the ordinary tile hooks costs nothing here.</summary>
+    public static readonly TerrainEditLog Edits = new();
+
+    public static int Revision => Edits.Revision;
     public static void Changed(int x, int y)
     {
-        Revision++;
+        Edits.Record(x, y);
         AStar.TileChanged(x, y);
     }
     public static void Reset()
     {
-        Revision++;
+        Edits.Reset();
         AStar.InvalidateEdges();
     }
 }
