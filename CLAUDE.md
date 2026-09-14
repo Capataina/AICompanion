@@ -1,6 +1,8 @@
 # AICompanion — “Multi... Player?”
 
-This singleplayer tModLoader mod makes an NPC companion that behaves as a second presence in Terraria: it keeps roughly with the player, fights, collects nearby drops, helps with work already underway, and lights dark places. It is deliberately neither a second player nor a pet. The companion’s abilities are a closed set rather than calls into real item use, so each ability is reliable and must be written explicitly.
+This singleplayer tModLoader mod makes an NPC companion that behaves as a second presence in Terraria: it keeps roughly with the player, fights, collects nearby drops, helps with work already underway, and lights dark places. It is deliberately neither a second player nor a pet. **Since the night of 14 September 2026 its body is a flying orb**, twenty pixels across, that plans over free space and is handed two weapons, a pickaxe and an axe by the player; the player-shaped walking body, its tile-graph route search and its authored weapon kit were retired that night after six negative captures whose every defect was a route the planner proved and the body then did not perform (the Slate Record carries the decision and what lost). The companion's *mechanisms* are a closed set rather than calls into real item use — it fires a handed weapon's projectile itself, swings a handed sword in its own arc, drills with a handed pickaxe's power — so each is reliable and written explicitly; the *items* those mechanisms read are open, any weapon or tool whose use is aiming and releasing.
+
+The tree is mid-rebuild around that body. Until the lanes land, folder guides under `Companion/Brain/Infrastructure/Movement/` and the harness guides under `Tools/` describe the walker; the orb's own description is in the Slate Architecture field and in README's Expected Behaviour, which were rewritten first on purpose so that every lane builds to one target.
 
 **What the companion is supposed to do lives in `README.md`, and reading it is the first move on any behaviour work.** That file carries four things in the order they have to be read: Expected Behaviour, a half-hour of play written as a story with no reference to any system; Current Behaviour, what it actually does, sourced only from named telemetry sessions; The System In Place, the machinery read from source; and a table of named responsibilities carrying all three per row. Each section opens with its own rules for maintaining it. This guide describes how the code is arranged; that file describes what it is for, and the two disagree only when one of them is stale.
 
@@ -34,9 +36,11 @@ Both senses answer in three values rather than two, and the middle one is the re
 
 - This is singleplayer only: use `Main.LocalPlayer`; do not add netcode, server branches, `netUpdate`, or player iteration.
 - The companion is an NPC. Its temporary stand-in player exists only while hostile AI runs so enemies can target it; life, death and movement belong to the NPC.
-- It never teleports. Ordinary following can start continuous recovery flight when far from the live player; combat, work and downing cannot start it. A nearby sealed companion still uses ordinary movement and sealed-pocket handling. Recovery is outside route memory and separate from mastery flight.
-- Decisions use multiplicative utility scoring, never priority branches or scenario-specific rules. This ruling describes what is built and is deliberately open for re-argument as of 2026-09-11: whether utility scoring is the right brain at all, and whether A* over a tile graph is the right route search, are both questions the owner has opened rather than settled ones. Treat it as the current design to work against, not as a boundary on what may be proposed.
-- Reuse a decompiled Terraria path when it is not gated on the local player. The mod reads game item numbers but never runs companion abilities through `Player.ItemCheck`.
+- It never teleports. Ordinary following can start continuous recovery flight when far from the live player; combat, work and downing cannot start it. Recovery ignores terrain and is the one exception to ordinary contact.
+- The body is an orb and nothing plans as if it stood. A route is a corridor of free space wider than the body; reach is a flood over free cells; the ceiling above the player's feet is a positioning rule, never a wall the body meets; water and lava are walls to the flood until a mastery immunity opens them, and they hurt on touch. Slopes are full tiles to it and platforms are passable. There is one body: the orb's contact with terrain is the mod's own circle-against-tiles test, run identically in the mod and in every headless tool, with the engine's box collision switched off for it.
+- Decisions use multiplicative utility scoring, never priority branches or scenario-specific rules. Whether utility scoring is the right brain at all is a question the owner has opened rather than settled; the route-search question closed on 2026-09-14 with the orb, whose search is A* over free cells with a clearance cost.
+- Reuse a decompiled Terraria path when it is not gated on the local player. The mod reads game item numbers but never runs companion abilities through `Player.ItemCheck`; a handed weapon or tool is read for its facts and used by the companion's own mechanisms, and an item those mechanisms cannot express is refused by its slot.
+- Four slots and no more: two weapons, a pickaxe and an axe. No armour, no accessories, no ammo slot; ammo is free, mana mirrors the player's and tires magic rather than stopping it.
 
 ## Map
 
@@ -73,8 +77,9 @@ AICompanion/
 │  │     ├─ Aiming/         projectile trajectory solver
 │  │     ├─ Grants/         one packet for feet and hand
 │  │     └─ Diagnostics/    overlay layers, cost strip, telemetry, scenario capture
-│  ├─ Weapons/               companion equipment and arsenal choice
-│  ├─ Inventory/             persistent cargo bag and panel
+│  ├─ Weapons/               the arsenal's target-and-weapon choice, the item-backed weapon, and the mana pool
+│  ├─ Progression/           the experience total and level curve the notch draws and the tree will spend
+│  ├─ Inventory/             persistent cargo bag, the four gear slots, and their panel
 │  ├─ PlayerIntegration/     persistence, input, player events and /companion
 │  ├─ ProfileCard/           native behaviour controls, inventory and mastery pages
 │  ├─ DiagnosticsConfiguration/ native inspector and recording switches
@@ -182,6 +187,8 @@ Read a playtest with `dotnet run --project Tools/SessionReport -- Telemetry`; re
 
 
 ## Current state — 2026-09-14
+
+**The night of 14 September 2026 retired the walking body.** The second play of 0.25.0 showed the statue ledge still unreached and the companion looping in a water pocket, and the diagnosis that evening found the run-up jump existed for the body (scale 0.94, half walk speed, landing at 3387,609) and was never proposed because the generator scans four tiles across; that is the seventh fix to one class, and the owner called the class rather than the fix. The companion becomes a twenty-pixel flying orb with its own circle contact, a free-space flood and momentum steering, handed two weapons, a pickaxe and an axe; the doctrine, the story, the fields and the board were rewritten first, the mana pool and experience ledger were committed as the seams the lanes share, and three lanes build the body and navigation, the gear, and the notch's three bars in worktrees off that base. Everything below this paragraph describes the walker as it stood when it was retired, and stays until the lanes' folder guides replace it, because a history of what the walker learned is what stops the orb re-learning it.
 
 The week since `9ca5ae4` did four things, and they are worth separating because only one of them is a feature:
 
