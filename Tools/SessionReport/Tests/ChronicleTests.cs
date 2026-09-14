@@ -49,7 +49,10 @@ public static class ChronicleTests
             ADamagedCaptureReducesCoverageAndInventsNoContradiction();
             IdentityRulesStillMatchTheProducer();
             TravelIsReadPerJourneyAndSkippedByNameOnAnOlderCapture();
-            Console.WriteLine("Chronicle self-tests passed (31 assertion groups).");
+            // Last, because it writes a chronicle and an events sibling into the temp directory and
+            // the multi-run cases above read that directory for runs to join.
+            ARefusalOnlyCountsWhileTheBodyIsNotLeavingIt();
+            Console.WriteLine("Chronicle self-tests passed (32 assertion groups).");
             return 0;
         }
         catch (Exception error)
@@ -445,6 +448,62 @@ public static class ChronicleTests
             "zero-tick metadata or lifecycle callback evidence is missing from the recorder contract");
         Require(telemetry.Contains("RecordLifecycle", StringComparison.Ordinal) && telemetry.Contains("outer-load=unobservable", StringComparison.Ordinal),
             "lifecycle evidence no longer states the boundary between this callback and Terraria's outer load");
+    }
+
+    /// <summary>
+    /// The four corners of the refused-step check. A refusal repeating at one pixel is the body
+    /// parked on a step the plan keeps offering; the same refusal while the body walks away is the
+    /// navigator's last-rejection property being sticky rather than the refusal being live, and
+    /// reading the first as the second is the whole reason the position is in the key. The
+    /// silence cases matter more than the firing one here, because every capture on this machine
+    /// fires — the defect predates the recording that prompted the check — so nothing in the
+    /// Telemetry folder can show that the check is capable of staying quiet.
+    /// </summary>
+    private static void ARefusalOnlyCountsWhileTheBodyIsNotLeavingIt()
+    {
+        string file = Path.GetTempFileName();
+        string events = Path.ChangeExtension(file, null) + "-events.jsonl";
+        try
+        {
+            File.WriteAllText(file, "# text_columns=edge_kind\ntick\twall_elapsed_ms\tedge_kind\n0\t0\tWalk\n");
+
+            Session Write(params (string Rejection, double X)[] samples)
+            {
+                var lines = new System.Collections.Generic.List<string>
+                {
+                    System.Text.Json.JsonSerializer.Serialize(new { v = 1, seq = 0, tick = 0, wall_elapsed_ms = 0.0, kind = "session", subject = 0, related = "", label = "", channel = "", pos_x = 0.0, pos_y = 0.0, vel_x = 0.0, vel_y = 0.0, expected_x = 0.0, expected_y = 0.0, amount = 0, detail = "" }),
+                };
+                for (int i = 0; i < samples.Length; i++)
+                    lines.Add(System.Text.Json.JsonSerializer.Serialize(new
+                    {
+                        v = 1, seq = i + 1, tick = i + 1, wall_elapsed_ms = (i + 1) * 16.0, kind = "movement-state",
+                        subject = 1, related = "", label = "none", channel = "", pos_x = samples[i].X, pos_y = 100.0,
+                        vel_x = 0.0, vel_y = 0.0, expected_x = 0.0, expected_y = 0.0, amount = 0,
+                        detail = $"status=Executable;last-rejection={samples[i].Rejection};failure=None",
+                    }));
+                lines.Add(System.Text.Json.JsonSerializer.Serialize(new { v = 1, seq = samples.Length + 1, tick = 999, wall_elapsed_ms = 9000.0, kind = "session-end", subject = 0, related = "", label = "", channel = "", pos_x = 0.0, pos_y = 0.0, vel_x = 0.0, vel_y = 0.0, expected_x = 0.0, expected_y = 0.0, amount = 0, detail = "" }));
+                File.WriteAllLines(events, lines);
+                return Session.Load(file);
+            }
+
+            bool Fires(Session s) => new PersistentRejectionsAreFindings().Run(s).Any();
+
+            Require(Fires(Write(("Rejection { Step = A }", 50.0), ("Rejection { Step = A }", 50.0), ("Rejection { Step = A }", 50.0))),
+                "three samples of one refusal at one pixel is a body parked on a refused step and must be reported");
+            Require(!Fires(Write(("Rejection { Step = A }", 50.0), ("Rejection { Step = A }", 50.0))),
+                "two samples is a refusal being replanned around, which is the designed path and not a finding");
+            Require(!Fires(Write(("Rejection { Step = A }", 50.0), ("Rejection { Step = A }", 62.0), ("Rejection { Step = A }", 74.0))),
+                "the last rejection is a sticky property, so the same text while the body walks away is a stale reading rather than a stuck body");
+            Require(!Fires(Write(("Rejection { Step = A }", 50.0), ("Rejection { Step = B }", 50.0), ("Rejection { Step = C }", 50.0))),
+                "a body refused a different step each sample is being replanned for, however still it is");
+            Require(!Fires(Write(("", 50.0), ("", 50.0), ("", 50.0), ("", 50.0))),
+                "a session with no refusal at all must produce no finding, which is the case no capture on this machine can demonstrate");
+        }
+        finally
+        {
+            File.Delete(file);
+            File.Delete(events);
+        }
     }
 
     private static void EventSiblingReportsCountsAndCorruption()

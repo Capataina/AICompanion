@@ -57,6 +57,11 @@ public static class Program
         new TheBodyMovesWhenDriven(),
         new EveryMoveOfferedGetsMade(),
         new ProvenMovesTakeTheirProvenTime(),
+        // A refused step sits before the fault checks because a refusal is not a fault: it happens
+        // before the attempt's first tick, so it raises none, and a body parked on one is invisible
+        // to every check that reads outcomes. It is read from the god's-eye samples rather than the
+        // chronicle because the chronicle cannot see it at all.
+        new PersistentRejectionsAreFindings(),
         // One move against its proven ticks, then the whole journey against its proven ticks and against the player's
         // own: every move inside a journey can land inside its price while the journey costs four times as much,
         // because the time goes into the gaps between the moves, and the stops are where those gaps are.

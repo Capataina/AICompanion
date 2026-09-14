@@ -804,6 +804,11 @@ public sealed class Navigator
             // answers rather than the absence of the ordinary path's own precondition.
             bool physicallyImpossible = fault != TraversalFault.None;
             bool atEntry = execution!.Ticks == 0;
+            // Counted before anything decides what to do about it, and counted whether or not the
+            // refusal goes on to strike, because the count exists to make the refusals visible at
+            // all. An exempted refusal is exactly the one nothing else records.
+            if (physicallyImpossible && atEntry)
+                BehaviourCensus.Refused(step, fault);
             // The direct proof refuses from the exact state; preparation is what asks whether a short
             // run-in, stop or alignment makes the move. A preparation search that ran out of its allowance
             // has not answered that, so the refusal is neither remembered nor struck, whatever the direct

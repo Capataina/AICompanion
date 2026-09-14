@@ -138,10 +138,20 @@ internal static class CompareJumpPaths
             Console.WriteLine($"compare-jump {Fmt(from)} -> {Fmt(to)} in {name}: no pose at the take-off tile");
             return null;
         }
-        NavStep? proven = ProvenEdge(node, from, to);
+        // An explicit entry proves the edge from its own pose as well as from the grid's. The live
+        // navigator expands its first node from the body's actual pose rather than from the
+        // representative one, so an edge the game planned can be one this tool finds no trace of:
+        // a jump three across and seven up existed in play out of 3386,636 and is proven from no
+        // node pose in any window of that session's plans file. Reading "the planner proves no
+        // jump edge" as "the body could never have been offered it" is the reading to avoid.
+        BodyPhysics.Pose provingPose = entryIsExplicit && live is BodyState explicitEntry ? explicitEntry.Pose : node;
+        NavStep? proven = ProvenEdge(provingPose, from, to) ?? ProvenEdge(node, from, to);
         if (proven is not NavStep step)
         {
-            Console.WriteLine($"compare-jump {Fmt(from)} -> {Fmt(to)} in {name}: the planner proves no jump edge between those tiles");
+            string where = entryIsExplicit
+                ? $"neither the node pose nor the supplied entry pose (left {provingPose.Left:F1} bottom {provingPose.Bottom:F1}) proves a jump edge between those tiles"
+                : "the planner proves no jump edge between those tiles";
+            Console.WriteLine($"compare-jump {Fmt(from)} -> {Fmt(to)} in {name}: {where}; the pair is {Math.Abs(to.X - from.X)} across and {from.Y - to.Y} up, against a jump box {NavGrid.JumpGapTiles} wide and {NavGrid.JumpHeightTiles} tall, so {(Math.Abs(to.X - from.X) <= NavGrid.JumpGapTiles && from.Y - to.Y <= NavGrid.JumpHeightTiles ? "the generator offered it and every profile was refused by simulation" : "the generator never proposed it, whatever the arc could do")}");
             return null;
         }
         Console.WriteLine($"compare-jump {Fmt(from)} -> {Fmt(to)} in {name}");
