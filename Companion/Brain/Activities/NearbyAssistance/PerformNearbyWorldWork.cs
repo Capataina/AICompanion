@@ -19,14 +19,15 @@ public abstract class PerformNearbyWorldWork : CompanionAction
     private Vector2 stand;
     private ulong nextSearch, retryAfter;
     private bool eligibleLastObservation;
-    private bool searchBudgetSpent;
+    /// <summary>Whether this search passed over a site because the reach flood had not settled on its working
+    /// pose yet, as opposed to having proven anything about it.</summary>
+    private bool standUnresolved;
 
-    /// <summary>The refusal for a search that stopped because it had asked as many sites about their approach
-    /// as one search may, rather than because it ran out of sites. It lives here rather than in a subclass
-    /// because the budget is this class's, and it is reported ahead of every subclass reason for the same
-    /// reason: the sites past the cut were never asked, so this is an answer that has not arrived rather than
-    /// an answer of "no".</summary>
-    private const string BudgetSpentReason = "site-budget-spent-before-an-answer";
+    /// <summary>The shared name for a search that reached the end of its sites with nothing proven and at
+    /// least one pose the flood had not claimed yet. A subclass that can say which of its own exits this was
+    /// says so through <see cref="SearchRefusal"/>; this is what a subclass with no opinion reports, and it is
+    /// an answer that has not arrived rather than an answer of "no".</summary>
+    private const string StandUnresolvedReason = "interaction-stand-not-yet-known-reachable";
     private bool needsJump, jumped;
     private ulong jumpStarted;
     // Tiles whose approach was tried and did not arrive, with the tick they may be offered again.
@@ -54,13 +55,15 @@ public abstract class PerformNearbyWorldWork : CompanionAction
     /// <summary>Why this search found no site, where the subclass knows something more specific than "nothing
     /// in the window". Null keeps the shared answer.</summary>
     protected virtual (OfferEligibility Eligibility, string Reason)? SearchRefusal(in ActionContext ctx) => null;
-    /// <summary>Whether the body can reach and return from this stand tile, answered from the reach sense
-    /// rather than by a pair of fresh route searches. Null means the subclass has no opinion and the shared
-    /// round-trip proof runs instead. The three answers are not two: <c>No</c> is proven and is remembered
-    /// like any other proven refusal, so the next bounded search advances past this site, while
-    /// <c>Unknown</c> is a flood that has not settled and must be re-asked rather than written off. Collapsing
-    /// them into one false made every bounded search re-ask the same nearest sites and never advance.</summary>
-    protected virtual Reachability.Reach? StandReachable(in ActionContext ctx, Point stand) => null;
+    /// <summary>
+    /// What the approach query answered about a site this search then passed over, for a subclass that names
+    /// its exits more precisely than the shared ones. It is called with <c>No</c> or <c>Unknown</c> only, and
+    /// the two are a real distinction rather than a shade of one: a proven <c>No</c> is remembered, so the
+    /// next search advances past the site, while an <c>Unknown</c> is a flood that has not settled and must be
+    /// re-asked. Writing an unsettled flood off as a refusal is what kept every search on the same nearest
+    /// sites, and it is the failure this whole path exists to have removed.
+    /// </summary>
+    protected virtual void NoteApproach(in ActionContext ctx, Reachability.Reach verdict) { }
     /// <summary>The classification for a method its enabling conditions currently refuse; the
     /// subclass knows whether that refusal is a player setting, missing supplies or the world.</summary>
     protected virtual (OfferEligibility Eligibility, string Reason) DisabledOffer(in ActionContext ctx)
@@ -113,39 +116,50 @@ public abstract class PerformNearbyWorldWork : CompanionAction
     /// cannot outlive the evidence.</summary>
     private (OfferEligibility Eligibility, string Reason)? provenRefusal;
 
-    /// <summary>
-    /// Whether the companion can walk to a remote working pose and come back to where it stands, with breath for both legs.
-    /// Reaching a pose is not a certificate of leaving it, and the walker search behind <see cref="FindToolAccess.Approach"/>
-    /// runs under whichever one-way rule the previous tick's request left set: after a reunion tick it certified a site
-    /// reached only by a drop, which the Exact request then refused to plan, so the trip stalled until its progress window
-    /// deferred it. The round trip asks both legs under one rule of its own, so the answer does not depend on the last request.
-    /// A proven No is deferred until the terrain changes or the wait passes; an undecided return is only skipped for this search.
-    /// </summary>
-    private bool TripReturns(in ActionContext ctx, Point tile, Vector2 pose)
-    {
-        var breath = ctx.Companion.Breath;
-        var envelope = new Reachability.BreathEnvelope(breath.TicksLeft,
-            CharacterBody.CompanionBreath.BreathMax * CharacterBody.CompanionBreath.BreathCDMax,
-            CharacterBody.CompanionBreath.RecoverPerTick * CharacterBody.CompanionBreath.BreathCDMax);
-        // The round trip holds the per-search allowance unlimited for both of its legs, so on its own it would run to whatever is
-        // left of the tick's planning deadline; one trip is given what one navigator route search is given.
-        using var allowance = LimitPlanningWork.Narrow(Infrastructure.Selection.Weights.RouteSearchMilliseconds);
-        var trip = MovementQueries.RoundTrip(MovementQueries.FeetTile(ctx.Npc.Bottom), MovementQueries.FeetTile(pose), envelope);
-        if (trip.Outward == Reachability.Reach.Yes && trip.Return == Reachability.Reach.Yes && trip.Breath == Reachability.Reach.Yes)
-            return true;
-        if (trip.Return == Reachability.Reach.No || trip.Breath == Reachability.Reach.No)
-            DeferRefusedTrip(tile, trip.Return == Reachability.Reach.No ? "interaction-site-has-no-return" : "interaction-trip-exceeds-breath");
-        else tripRefusal ??= (OfferEligibility.Unresolved, "interaction-trip-undecided");
-        return false;
-    }
+    /// <summary>The shared name for a site the body cannot get to and come home from. It was the round trip's
+    /// name for the same fact and it is kept, because the fact did not change when the evidence for it did.</summary>
+    private const string NoReturnReason = "interaction-site-has-no-return";
 
-    /// <summary>Keep a site whose trip was proven impossible (no way back, no breath, or no take-off for the only hop that could
+    /// <summary>
+    /// What the last discovery search asked and what came back, as <c>x,y=verdict</c> joined by semicolons,
+    /// for the telemetry. The offer alone says a search found nothing and cannot say whether it looked at two
+    /// sites or two hundred, or whether the answers were refusals or an unsettled flood — which is exactly
+    /// the distinction the starvation hid for a whole session, and the reason a reader of the 2026-09-14
+    /// capture could see only that the question was never finished. Empty on a preparation that ran no search.
+    /// </summary>
+    public string LastSearchSites { get; private set; } = "";
+    /// <summary>How many sites that search put to the approach query, which is the figure the string is a
+    /// sample of: the string is capped and this is not, so a capped string still carries an honest count.</summary>
+    public int LastSearchAsked { get; private set; }
+    /// <summary>How many entries the ledger keeps. A row is read in a terminal and a search over a wholly dark
+    /// floor can ask hundreds; the count beside it carries the rest.</summary>
+    private const int LedgerEntries = 12;
+    private readonly System.Text.StringBuilder ledger = new();
+
+    /// <summary>Keep a site whose trip was proven impossible (no way back, or no take-off for the only hop that could
     /// reach it) out of discovery until the terrain changes or the wait passes. A named reason also becomes the offer's refusal.</summary>
     private void DeferRefusedTrip(Point tile, string? reason)
     {
         if (noReturn.Count > 64) { noReturn.Clear(); provenRefusal = null; }
         noReturn[tile] = (TerrainChanges.Revision, Main.GameUpdateCount + (ulong)Infrastructure.Selection.Weights.NearbyWorkNoReturnRetryTicks);
         if (reason != null) tripRefusal = provenRefusal = (OfferEligibility.KnownUnusable, reason);
+    }
+
+    /// <summary>Add one asked site and its verdict to the ledger. The count always advances; the text stops at
+    /// <see cref="LedgerEntries"/>, so a row stays readable and the two together say "these are the first
+    /// twelve of this many" rather than quietly presenting a sample as the whole search.</summary>
+    private void RecordAsked(Point tile, Reachability.Reach verdict)
+    {
+        LastSearchAsked++;
+        if (LastSearchAsked > LedgerEntries) return;
+        if (ledger.Length > 0) ledger.Append(';');
+        ledger.Append(tile.X).Append(',').Append(tile.Y).Append('=').Append(
+            verdict switch
+            {
+                Reachability.Reach.Yes => "reachable",
+                Reachability.Reach.No => "unreachable",
+                _ => "not-yet-known",
+            });
     }
 
     private bool NoReturnDeferred(Point tile)
@@ -168,13 +182,15 @@ public abstract class PerformNearbyWorldWork : CompanionAction
         preparedValue = DiscoverValue(ctx);
         preparedTarget = target?.ToWorldCoordinates();
         if (!enabledAtPreparation) { var (eligibility, reason) = DisabledOffer(ctx); Classify(eligibility, reason); }
-        // A spent budget outranks a refusal proven earlier in the same search, because it happened later and
-        // it describes the search rather than one site: proving site one unreachable and then running out of
-        // budget over sites two to four is not "the companion cannot come back from there", it is "the
-        // question was not finished". Reported the other way round, the offer and the telemetry both name a
-        // proven impossibility for a search that simply stopped, which is the one reading that would stop
-        // anyone looking again.
-        else if (target == null && searchBudgetSpent) Classify(OfferEligibility.Unresolved, BudgetSpentReason);
+        // An unsettled flood outranks a refusal proven earlier in the same search, because proving site one
+        // unreachable and then meeting a site the flood has not claimed is not "the companion cannot come back
+        // from there", it is "the question is not finished". Reported the other way round, the offer and the
+        // telemetry both name a proven impossibility for a search that has more to learn, which is the one
+        // reading that would stop anyone looking again. A subclass naming its own unresolved exit wins, because
+        // it knows which of its exits this was; the shared name is what a subclass with no opinion reports.
+        else if (target == null && standUnresolved)
+            Classify(OfferEligibility.Unresolved,
+                SearchRefusal(ctx) is { Eligibility: OfferEligibility.Unresolved } named ? named.Reason : StandUnresolvedReason);
         else if (target == null && tripRefusal is { } refusal) Classify(refusal.Eligibility, refusal.Reason);
         // A search that reached the end of its list and found nothing, where every site it could find was
         // proven unusable on an earlier search and is still deferred. Without this the offer reports the scan's
@@ -250,15 +266,20 @@ public abstract class PerformNearbyWorldWork : CompanionAction
         {
             nextSearch = Main.GameUpdateCount + 90;
             tripRefusal = null;
-            // Nearest first by the method's own cost, stopping at the first site whose whole trip is proven. This picks the same
-            // site the earlier improve-on-best scan picked (ties keep scan order), and it lets the trip proof below be bounded:
-            // each RoundTrip is two fresh route searches, so only a few are asked per search. A hop with no take-off is
-            // deferred without spending that bound.
+            // Nearest first by the method's own cost, stopping at the first site whose access is proven. Every site in
+            // the list is asked, and that is the change: the question behind the approach is now membership of a flood
+            // one sense has already run, so there is nothing left to ration. While it was a fresh bounded A* per pose
+            // this loop stopped after three sites, and because an A* that runs out of expansions answers Unknown rather
+            // than No, and an Unknown was passed over without being remembered, the same three nearest sites were asked
+            // every retry and the search never advanced. On the 2026-09-14 capture that exit — the budget spent before
+            // an answer — was 79% of the lighting offers, and 7,003 of those rows had a finished flood sitting beside
+            // them with the answer already in it.
             ordered.Clear();
-            searchBudgetSpent = false;
+            standUnresolved = false;
+            ledger.Clear();
+            LastSearchAsked = 0;
             GatherSearchTiles(ctx, ordered);
             ordered.Sort(static (a, b) => a.Cost != b.Cost ? a.Cost.CompareTo(b.Cost) : a.Order.CompareTo(b.Order));
-            int tripsAsked = 0;
             foreach (var (_, _, p) in ordered)
             {
                 if (!AllowsTarget(ctx, p.ToWorldCoordinates(), p) || !Candidate(ctx, p)) continue;
@@ -269,58 +290,52 @@ public abstract class PerformNearbyWorldWork : CompanionAction
                 { candidateStand = ctx.Npc.Bottom; jump = true; }
                 else
                 {
-                    // The bound sits on the approach query, which is the expensive half and the one both
-                    // proof routes pay. It used to sit on the round trip, and opting lighting into the reach
-                    // sense therefore removed the only thing bounding this loop: a sensed site skipped the
-                    // counter entirely, so a screen dark everywhere put every candidate through a fresh
-                    // bounded A* and one preparation measured 37.6 ms against a twelve-millisecond tick.
-                    // Charging the approach rather than the proof bounds both routes by what they actually
-                    // cost, and it deliberately tightens the round-trip route too: a site whose approach
-                    // cannot be searched was never going to have its trip proven either.
-                    if (tripsAsked++ >= Infrastructure.Selection.Weights.NearbyWorkTripChecks) { searchBudgetSpent = true; break; }
-                    var standing = FindToolAccess.Approach(p, ctx.Npc.Bottom, out candidateStand);
-                    if (standing == Reachability.Reach.Unknown) continue;
-                    // Only a site no standing pose reaches is hopped to, from a take-off the walker reaches: the same order and
+                    // The loop is bounded by the tick's own planning allowance rather than by a count of sites,
+                    // and it is bounded because the reach question becoming free did not make the approach free:
+                    // ranking poses is still a scan of every standable tile in reach of the site, each asking the
+                    // engine for a line to an exposed face. On a floor dark everywhere that is hundreds of sites,
+                    // and with nothing bounding it one preparation measured 25.5 ms against a twelve-millisecond
+                    // tick. The count is the wrong bound now: it was there to ration route searches, and rationing
+                    // by three sites a search is what let three undecided sites hide every site behind them. A
+                    // deadline rations the same cost without an ordering, and a cut scan is an answer that has not
+                    // arrived — reported Unresolved and retried in a rescore, which is what the sites past the cut
+                    // actually are. The general shape, which this file has now met twice: when a cheaper proof
+                    // replaces a dearer one, find what the dearer one's bound was standing in front of.
+                    if (LimitPlanningWork.Expired) { standUnresolved = true; break; }
+                    // One question, asked once, of the sense. The approach ranks working poses by geometry and
+                    // answers reach from the two-way flood, which is membership rather than a search, so the
+                    // answer it gives already means "the body can get to this pose and come home from it" —
+                    // exactly what the round trip that used to run here proved, per site, with two fresh route
+                    // searches. There is no second check after it because there is nothing left to check: a
+                    // stand the flood claimed is in the flood.
+                    var standing = FindToolAccess.Approach(p, ctx.Npc.Bottom, ctx.Senses.Reach, out candidateStand);
+                    // Only a site no standing pose reaches is hopped to, from a take-off the flood claims: the same order and
                     // the same query mining uses for ceiling ore, so a take-off is admitted here exactly when it would be there.
-                    if (standing == Reachability.Reach.No && !AllowJump) continue;
-                    if (standing == Reachability.Reach.No)
+                    if (standing == Reachability.Reach.No && AllowJump)
                     {
-                        var hop = FindToolAccess.HopApproach(p, ctx.Npc.Bottom, ctx.Companion.Motor.State, out candidateStand);
-                        if (hop == Reachability.Reach.No) DeferRefusedTrip(p, null);
-                        if (hop != Reachability.Reach.Yes) continue;
-                        jump = true;
+                        standing = FindToolAccess.HopApproach(p, ctx.Companion.Motor.State, ctx.Senses.Reach, out candidateStand);
+                        jump = standing == Reachability.Reach.Yes;
                     }
-                    // RoundTrip is what the bound is for: two fresh route searches. A hop that never
-                    // finds a take-off is deferred without spending it, so a wall of unreachable air
-                    // cannot hide a proven pit whose refusal is the named one-way drop.
-                    // The reach sense answers the round trip where a subclass opts into it: membership of the
-                    // two-way region is what returnable means in this project — everywhere the body can go
-                    // and come home from — and one flood has already answered it for every candidate, where
-                    // RoundTrip is two fresh route searches per site and is bounded for exactly that reason.
-                    // A subclass that has not opted in keeps the route searches, so this is not a change to
-                    // pot collection dressed as a change to lighting.
-                    if (StandReachable(ctx, MovementQueries.FeetTile(candidateStand)) is Reachability.Reach sensed)
+                    RecordAsked(p, standing);
+                    if (standing != Reachability.Reach.Yes)
                     {
-                        // A proven refusal is remembered exactly as a refused round trip is, with the reason
-                        // left to the subclass that knows which refusal it was. Without this the search is
-                        // bounded and forgetful at once, which is worse than either: each search spends its
-                        // whole budget on the same nearest sites and the answer never arrives.
-                        if (sensed == Reachability.Reach.No)
+                        NoteApproach(ctx, standing);
+                        // A proven No is remembered and an Unknown is not, and that asymmetry is the whole
+                        // correctness of a search over a flood that grows. Remembering an Unknown writes a site
+                        // off for the deferral's whole life on the strength of a flood that had not finished;
+                        // forgetting a No leaves the nearest refused sites in front of every later search.
+                        if (standing == Reachability.Reach.No)
                         {
-                            // The subclass owns which refusal this was, and the fact has to outlive the scan
-                            // that found it: once the site is deferred the next scan never builds it, so its
-                            // reason would decay into "the placer accepted nothing" — an absence, where a
-                            // proven no-return is knowledge. tripRefusal is the sticky home the round-trip
-                            // route already uses for the same fact.
+                            // The reason has to outlive the scan that found it: once the site is deferred the next
+                            // scan never builds it, so an unnamed refusal decays into "the placer accepted nothing"
+                            // — an absence, where a proven no-return is knowledge. A subclass that names it more
+                            // precisely wins; one that does not gets the shared name rather than silence, which is
+                            // what pot collection used to get.
+                            DeferRefusedTrip(p, NoReturnReason);
                             if (SearchRefusal(ctx) is { } proven) tripRefusal = provenRefusal = proven;
-                            DeferRefusedTrip(p, null);
-                            continue;
                         }
-                        if (sensed != Reachability.Reach.Yes) continue;
-                    }
-                    else
-                    {
-                        if (!TripReturns(ctx, p, candidateStand)) continue;
+                        else standUnresolved = true;
+                        continue;
                     }
                 }
                 target = p; stand = candidateStand; needsJump = jump; jumped = false;
@@ -334,13 +349,12 @@ public abstract class PerformNearbyWorldWork : CompanionAction
             // after one refuse on "not yet known" while the body keeps moving. Waiting the full cadence
             // then re-asks from wherever the companion has since wandered, which is how a proven site a few
             // tiles away becomes a different, worse site by the time anyone can prove anything about it.
-            // A loop that left on its own site budget is the fourth exit and it is an unanswered search, not a
-            // refusal: the sites past the cut were never asked about. It reaches here from a spent planning
-            // deadline as readily as from a crowded scene, because every approach query answers Unknown once
-            // the deadline is gone and every Unknown now charges the budget, so treating it as "nothing here"
-            // would re-ask the full cadence later from wherever the body has since walked. That is exactly the
-            // failure that turned the J08 lighting trip's site into the wrong one.
-            if (target == null && (searchBudgetSpent || SearchRefusal(ctx) is { Eligibility: OfferEligibility.Unresolved }))
+            // A search that passed over a site on an unsettled flood is the same kind of result and retries the
+            // same way, whether the subclass has a name for it or not. Waiting the full cadence on it re-asks
+            // from wherever the body has since walked, which is the failure that turned the J08 lighting trip's
+            // site into the wrong one: the scene moves while the evidence is being gathered.
+            LastSearchSites = ledger.ToString();
+            if (target == null && (standUnresolved || SearchRefusal(ctx) is { Eligibility: OfferEligibility.Unresolved }))
                 nextSearch = Main.GameUpdateCount + (ulong)Infrastructure.Selection.Weights.NearbyWorkUnresolvedRetryTicks;
         }
         if (deferred.Count > 0)

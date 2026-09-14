@@ -3,6 +3,7 @@
 using Microsoft.Xna.Framework;
 using Terraria;
 using AICompanion.Companion.Brain.Infrastructure.Movement;
+using AICompanion.Companion.Brain.Infrastructure.Observation;
 
 namespace AICompanion.Companion.Brain.Infrastructure.Interactions;
 
@@ -10,6 +11,24 @@ namespace AICompanion.Companion.Brain.Infrastructure.Interactions;
 /// Native material and mutation permission remain owned by the individual tool.</summary>
 public static class FindToolAccess
 {
+    /// <summary>
+    /// Whether the body can get to this feet tile and come home from it, read from the reach sense and
+    /// never from a search of this query's own. One flood has already answered it for every tile in the
+    /// region, where the walker query this replaced was a fresh bounded A* per pose: a tile whose poses
+    /// numbered in the hundreds cost hundreds of searches, each one able to answer Unknown on its
+    /// expansion budget, and a caller that could not remember an Unknown re-asked the same nearest
+    /// sites until nothing was ever decided. The three answers survive the translation because they are
+    /// the same three: in the region is Yes, an unfinished flood is Unknown and must be re-asked, and a
+    /// flood that ran out of region is No and may be remembered.
+    /// </summary>
+    private static Reachability.Reach Sensed(ReachSense reach, Point feetTile)
+        => reach.Reachable(feetTile) switch
+        {
+            ReachVerdict.Reachable => Reachability.Reach.Yes,
+            ReachVerdict.NotYet => Reachability.Reach.Unknown,
+            _ => Reachability.Reach.No,
+        };
+
     /// <summary>The player's own reach (the game keeps it as a static set from the local player each frame), so accessories that extend it extend the companion's.</summary>
     public static int ReachX => Player.tileRangeX;
     public static int ReachY => Player.tileRangeY;
@@ -21,10 +40,12 @@ public static class FindToolAccess
     public static (int X, int Y) Reach => (ReachX, ReachY);
 
     /// <summary>
-    /// A standable feet tile within reach of the tile whose eye has a line to it and that the
-    /// walker can reach from <paramref name="fromFeet"/>, nearest to the tile first.
+    /// A standable feet tile within reach of the tile whose eye has a line to it and that the body can
+    /// get to and come home from, nearest to the tile first. <paramref name="fromFeet"/> is still the
+    /// body's own pose, because the pose that already reaches needs no journey at all; every other pose
+    /// is answered by <paramref name="reach"/>, whose flood was run from those same feet.
     /// </summary>
-    public static Reachability.Reach Approach(Point tile, Vector2 fromFeet, out Vector2 stand)
+    public static Reachability.Reach Approach(Point tile, Vector2 fromFeet, ReachSense reach, out Vector2 stand)
     {
         // Tool access at the actual pose needs no route to a representative standing node.
         // Requiring that route can reject usable reach or move the body out of a working pose.
@@ -34,14 +55,12 @@ public static class FindToolAccess
             return Reachability.Reach.Yes;
         }
         Vector2 tileCentre = tile.ToWorldCoordinates(8f, 8f);
-        Point from = MovementQueries.FeetTile(fromFeet);
-        // Rank every geometrically usable pose before asking whether the walker can reach it, then
-        // ask nearest first and stop at the first yes. Each reach question is a fresh bounded A*
-        // search, and asking all of them to keep the nearest yes cost the whole planning allowance
-        // on the 2026-09-13 brain-cost scene. The answer is identical: the first yes in ascending
-        // distance is the nearest yes, and equal distances keep the scan order the exhaustive loop
-        // broke ties with. Only when no pose is reachable does the full scan still run, because
-        // "unknown" versus "no" needs every answer.
+        // Rank every geometrically usable pose, then ask the sense nearest first and stop at the first
+        // yes. The early stop is kept from when each of these questions was a fresh bounded A*: the
+        // answer is identical, since the first yes in ascending distance is the nearest yes and equal
+        // distances keep the scan order the exhaustive loop broke ties with. It is now a membership
+        // test rather than a search, so the whole scan is cheap even when no pose is reachable — which
+        // is the case that matters, because "unknown" versus "no" needs every answer.
         poses.Clear();
         for (int dx = -ReachX; dx <= ReachX; dx++)
         {
@@ -60,13 +79,13 @@ public static class FindToolAccess
         bool unknown = false;
         foreach (var pose in poses)
         {
-            Reachability.Reach reach = MovementQueries.WalkerReach(from, pose.Tile);
-            if (reach == Reachability.Reach.Yes)
+            Reachability.Reach sensed = Sensed(reach, pose.Tile);
+            if (sensed == Reachability.Reach.Yes)
             {
                 stand = pose.Feet;
                 return Reachability.Reach.Yes;
             }
-            unknown |= reach == Reachability.Reach.Unknown;
+            unknown |= sensed == Reachability.Reach.Unknown;
         }
         stand = default;
         return unknown ? Reachability.Reach.Unknown : Reachability.Reach.No;
@@ -76,19 +95,27 @@ public static class FindToolAccess
     /// A tile no standing pose can swing at, reached the way a player reaches a ceiling: walk to a
     /// take-off pose, jump, and swing while the rising body's reach covers the tile. A pose counts
     /// only when the shared body model proves a dry ground jump from rest there brings the tile into
-    /// reach and lands back beside the take-off, and only then is the walker asked whether it can get
-    /// there, nearest pose first with the same early stop as <see cref="Approach"/>. The
-    /// <paramref name="body"/> supplies everything about the companion except where it stands, so a
-    /// capability that changes the jump changes the proof.
+    /// reach and lands back beside the take-off, nearest pose first with the same early stop as
+    /// <see cref="Approach"/>. The <paramref name="body"/> supplies everything about the companion
+    /// except where it stands, so a capability that changes the jump changes the proof.
+    ///
+    /// <para>The order of the two tests is reversed from what it was: the sense is asked before the body
+    /// simulation rather than after, because a pose the body cannot walk to is not a take-off however
+    /// well it jumps, and the simulation is now the expensive half of the pair. When the walker question
+    /// was a bounded A* the opposite order was right for exactly the same reason.</para>
+    ///
+    /// <para>There is no "from" pose any more. The old walker query needed one and this took the body's
+    /// feet for it; the sense floods from those same feet and is asked about the take-off alone, so a
+    /// second origin would have been a parameter nothing read. A caller that wants the question asked
+    /// from somewhere else is asking for a different flood, not a different argument here.</para>
     /// </summary>
-    public static Reachability.Reach HopApproach(Point tile, Vector2 fromFeet, BodyState body, out Vector2 stand)
+    public static Reachability.Reach HopApproach(Point tile, BodyState body, ReachSense reach, out Vector2 stand)
     {
         stand = default;
         // A tile with no open neighbour has no face a line can reach from any height.
         if (!HasOpenFace(tile))
             return Reachability.Reach.No;
         Vector2 tileCentre = tile.ToWorldCoordinates(8f, 8f);
-        Point from = MovementQueries.FeetTile(fromFeet);
         poses.Clear();
         for (int dx = -ReachX; dx <= ReachX; dx++)
         {
@@ -120,6 +147,14 @@ public static class FindToolAccess
             // and only if it is dry, because the proof is a dry jump and a wet body cannot make it.
             if (!SupportedThroughArrivalSlide(pose.Feet.X, pose.Tile.Y) || MovementQueries.IsLiquid(pose.Tile.X, pose.Tile.Y))
                 continue;
+            // A take-off the body cannot walk to is not a take-off, so the free question is asked before
+            // the costly one. An unfinished flood is carried the same way a cut scan is: Unknown, never No.
+            Reachability.Reach sensed = Sensed(reach, pose.Tile);
+            if (sensed != Reachability.Reach.Yes)
+            {
+                unknown |= sensed == Reachability.Reach.Unknown;
+                continue;
+            }
             // The body simulation does not watch the planning deadline. A scan cut short has established
             // nothing about the poses it never reached, so it is Unknown and never No.
             if (LimitPlanningWork.Expired)
@@ -134,13 +169,8 @@ public static class FindToolAccess
             };
             if (!ProveInteractionJump.CanReach(NavGrid.World, rest, rising => InReach(rising.Feet, tile)))
                 continue;
-            Reachability.Reach reach = MovementQueries.WalkerReach(from, pose.Tile);
-            if (reach == Reachability.Reach.Yes)
-            {
-                stand = pose.Feet;
-                return Reachability.Reach.Yes;
-            }
-            unknown |= reach == Reachability.Reach.Unknown;
+            stand = pose.Feet;
+            return Reachability.Reach.Yes;
         }
         return unknown ? Reachability.Reach.Unknown : Reachability.Reach.No;
     }

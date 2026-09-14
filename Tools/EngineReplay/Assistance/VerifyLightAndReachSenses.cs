@@ -92,6 +92,7 @@ internal static class VerifyLightAndReachSenses
             () => ACarriedLightNeverMakesAPassageReadLit("light pet", .45f, .75f, .95f));
         Each("a: two hundred dust lights cost nothing", ManyWeakLightsCostNothing);
         Each("b: a dark wing away from a lit body is offered with a Reachable site", ADarkWingIsOfferedWithAReachableSite);
+        Each("b: nearer darkness the body cannot reach does not hide the darkness it can", NearerUnreachableDarknessDoesNotHideAReachableSite);
         Each("c: two sites in one dark region are worked without going back to the player", TwoSitesAreWorkedWithoutReturning);
         Each("c: the same dark floor priced under the production allowances", MeasureTheRegionScanUnderProductionAllowances);
         Each("d: a player no candidate can stand beside still gets a gap-closing destination declaring no region", APlayerNoCandidateReachesStillGetsProgress);
@@ -490,6 +491,90 @@ internal static class VerifyLightAndReachSenses
             $"the lighting destination must be a tile the reach sense calls Reachable; destination={destination} "
             + $"verdict={(destination is { } d ? brain.Senses.Reach.Reachable(MovementQueries.FeetTile(d)).ToString() : "none")} "
             + $"complete={brain.Senses.Reach.Complete}");
+    }
+
+    // ---- (b) nearer darkness nobody can reach does not hide the darkness somebody can ------------------
+
+    /// <summary>
+    /// The acceptance row for the defect this whole lane exists to remove. A sealed chamber of dark air sits
+    /// ten tiles from the companion, and the only darkness it can actually work is nearly thirty tiles further
+    /// on. Lighting must offer the far one, on the first search, and it must do it without ever having been
+    /// told how many sites it is allowed to ask about.
+    ///
+    /// <para>Before the reach sense answered the approach, each of those questions was a fresh bounded A* per
+    /// working pose, so the search could afford three sites a rescore. Three sites nearest-first are three
+    /// chamber sites; a bounded A* that runs out of expansions answers Unknown rather than No; and an Unknown
+    /// is correctly not remembered, because remembering one writes a site off on the strength of a search that
+    /// never finished. So the same three were asked every retry, the answer never arrived, and the offer read
+    /// <c>site-budget-spent-before-an-answer</c> — on 11,880 of the 15,105 rows of the 2026-09-14 capture, with
+    /// a settled flood sitting beside 7,003 of them holding the answer. The companion stood beside dark
+    /// reachable passages and lit none of them.</para>
+    ///
+    /// <para>The row asserts the offer string rather than only the score, because "something was offered" is
+    /// satisfied by any of the four exits and the distinction between them is the entire finding.</para>
+    /// </summary>
+    private static void NearerUnreachableDarknessDoesNotHideAReachableSite()
+    {
+        // A cavity carved inside a block of rock under the walking floor, and darkness again out past the far
+        // column. Sealed rock rather than a pit in the floor, deliberately: a pit is also a hole in the only
+        // path to the far darkness, and the row would then assert that an unreachable site is skipped while
+        // quietly making the reachable one unreachable too — a premise that passes for the wrong reason.
+        const int CaveLeft = 30, CaveRight = 41, CaveTop = 64, CaveBottom = 76, FarDark = 52;
+        var ctx = Scene((x, y) =>
+            (x >= CaveLeft && x <= CaveRight && y >= CaveTop && y <= CaveBottom) || x >= FarDark ? .02f : .8f);
+        GiveTorches(ctx);
+        // Solid ground from just under the floor down past the cavity, then the cavity carved out of it. The
+        // rock around it is what makes the row work at all: a site is refused unless its whole neighbourhood
+        // reads dark, and a neighbourhood is a mean over *open air* only, so rock is excluded while open lit
+        // air a few tiles away is not. A first attempt hung a thin-shelled chamber in open air, and every
+        // site inside it read lit through its own shell — the search asked one site, the far one, and the row
+        // passed while proving nothing about hiding.
+        for (int x = CaveLeft - 6; x <= CaveRight + 6; x++)
+            for (int y = FloorRow + 1; y <= CaveBottom + 6; y++)
+                VerifyOreWork.Place(new Point(x, y), TileID.Dirt);
+        for (int x = CaveLeft; x <= CaveRight; x++)
+            for (int y = CaveTop; y <= CaveBottom; y++)
+                Main.tile[x, y].ClearEverything();
+        TerrainChanges.Reset();
+        // Thrown away and flooded again: the shell went up after the scene's own setup had flooded an open
+        // floor, and a loop that runs while the region is incomplete does nothing when the stale region is
+        // complete.
+        VerifyOreWork.ResettleReach(ctx);
+        ForceRefresh(ctx);
+
+        // The premise, asserted rather than assumed, because every claim this row makes rests on it: the
+        // chamber is nearer, the chamber is proven unreachable, and the far floor is proven reachable. A
+        // scene that failed any of these would let the row pass while testing nothing.
+        var reach = ctx.Companion.Brain.Senses.Reach;
+        Point insideChamber = new((CaveLeft + CaveRight) / 2, CaveBottom - 1);
+        Point farStand = new(FarDark + 10, StandRow);
+        Require(reach.Complete, "this row needs a settled region, or unreachable and not-yet-known read alike");
+        Require(reach.Reachable(insideChamber) == ReachVerdict.Unreachable,
+            $"premise: the cavity must be proven unreachable, not merely unvisited; got {reach.Reachable(insideChamber)}");
+        Require(reach.Reachable(farStand) == ReachVerdict.Reachable,
+            $"premise: the far floor must be reachable, or there is no right answer to offer; got {reach.Reachable(farStand)}");
+        float toChamber = Vector2.Distance(ctx.Npc.Bottom, insideChamber.ToWorldCoordinates());
+        float toFar = Vector2.Distance(ctx.Npc.Bottom, farStand.ToWorldCoordinates());
+        Require(toChamber < toFar,
+            $"premise: the unreachable darkness must be the nearer one, or nothing is being hidden; chamber={toChamber:0} far={toFar:0}");
+
+        var action = new LightUsefulArea();
+        float score = VerifyPreparedActivities.PrepareAndScore(action, ctx);
+        string offer = $"score={score:0.000} offer={action.Eligibility}/{action.EligibilityReason} target={action.ActivityTarget}";
+        Require(action.Eligibility == Offer.Usable && action.EligibilityReason == "reachable-interaction",
+            $"the first search must reach a site it can work rather than stopping on an unfinished question; {offer}");
+        Require(score > 0 && action.ActivityTarget is not null, $"a usable lighting offer must carry a value and a target; {offer}");
+        Point site = action.ActivityTarget!.Value.ToTileCoordinates();
+        Require(site.X >= FarDark,
+            $"the offered site must be the reachable darkness, not a chamber tile the body cannot get to; site={site}; {offer}");
+        Require(reach.Reachable(MovementQueries.FeetTile(ctx.Companion.Brain.Positioner.Resolve(action.Execute(ctx), ctx.Companion.Brain.Senses, null)
+                ?? ctx.Npc.Bottom)) == ReachVerdict.Reachable,
+            $"the destination lighting resolves for that site must itself be reachable; {offer}");
+        // The ledger the recorder writes must name what was asked, or the next capture is as unreadable as the
+        // last one. Every chamber site asked has to appear as unreachable: a ledger that only recorded the
+        // site finally chosen would say nothing about the ones that were skipped, which is the whole question.
+        Require(action.LastSearchAsked > 0 && action.LastSearchSites.Contains("unreachable"),
+            $"the search ledger must record the refused sites it walked past; asked={action.LastSearchAsked} sites={action.LastSearchSites}");
     }
 
     // ---- (c) the region is worked, not visited ---------------------------------------------------------

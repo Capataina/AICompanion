@@ -223,23 +223,24 @@ internal static class VerifyAssistanceTrips
         TerrainChanges.Reset();
         AStar.InvalidateEdges();
         ctx.Companion.Brain.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Breath);
+        var brain = ctx.Companion.Brain;
+        // The flood has to have settled before anything asks an access question, because every one of them
+        // now reads it: an unfinished flood answers "not yet known" for the take-off and both the premise
+        // rows below and the offer itself would read for a reason that has nothing to do with the hop this
+        // row is about. It used to be enough to settle it before the preparation alone, when the premise
+        // rows ran their own searches.
+        VerifyOreWork.ResettleReach(ctx);
+        Require(brain.Positioner.ReachComplete, $"this row needs a settled reach region before it asks anything; shelf row {shelfRow}");
+        var reach = brain.Senses.Reach;
         var body = ctx.Companion.Motor.State;
-        Require(FindToolAccess.Approach(interaction, ctx.Npc.Bottom, out _) == Reach.No
+        Require(FindToolAccess.Approach(interaction, ctx.Npc.Bottom, reach, out _) == Reach.No
             && !live::AICompanion.Companion.Brain.Infrastructure.Movement.ProveInteractionJump.CanReach(
                 live::AICompanion.Companion.Brain.Infrastructure.Movement.NavGrid.World, body, b => FindToolAccess.InReach(b.Feet, interaction)),
             $"the shelf must be out of standing reach from every floor pose and out of a jump from where the companion starts; shelf row {shelfRow}");
-        var hop = FindToolAccess.HopApproach(interaction, ctx.Npc.Bottom, body, out Vector2 takeOff);
+        var hop = FindToolAccess.HopApproach(interaction, body, reach, out Vector2 takeOff);
         Require(hop == (reachable ? Reach.Yes : Reach.No),
             $"the premise needs a take-off exactly when the shelf is low; shelf row {shelfRow} hop={hop} take-off={takeOff}");
 
-        var brain = ctx.Companion.Brain;
-        // Lighting reads the reach region rather than proving a round trip per site, so it must have settled
-        // before this preparation: an unfinished flood answers "not yet known" for the take-off and the
-        // shelf would read as unoffered for a reason that has nothing to do with the hop this row is about.
-        var reachHome = new live::AICompanion.Companion.Brain.Infrastructure.Position.PositionRequest(
-            live::AICompanion.Companion.Brain.Infrastructure.Position.RequestKind.WithPlayer, ctx.Player.Bottom);
-        for (int i = 0; i < 3000 && !brain.Positioner.ReachComplete; i++)
-            brain.Positioner.Resolve(reachHome, brain.Senses, null);
         string methodName = lighting ? "place-torches" : "collect";
         brain.Chooser.Actions.RemoveAll(a => a.Name != methodName && a.Name != "keep-company");
         var method = brain.Chooser.Actions.OfType<live::AICompanion.Companion.Brain.Activities.NearbyAssistance.PerformNearbyWorldWork>().Single();
@@ -253,7 +254,7 @@ internal static class VerifyAssistanceTrips
         Require(score > 0 && method.ActivityIdentity is Point, $"a site reached by a hop from a take-off the walker reaches must be offered; {offer}");
         Point target = (Point)method.ActivityIdentity!;
         // A site on top of the shelf or beside it on the shelf's own row; what matters is that no standing pose reaches it.
-        Require(FindToolAccess.Approach(target, ctx.Npc.Bottom, out _) == Reach.No && target.Y <= shelfRow,
+        Require(FindToolAccess.Approach(target, ctx.Npc.Bottom, reach, out _) == Reach.No && target.Y <= shelfRow,
             $"the offered target must be a shelf site with no standing pose; target={target}; {offer}");
 
         // The pot is done when any tile of its footprint is gone: headless KillTile removes the tile struck, which is also what the
@@ -313,10 +314,12 @@ internal static class VerifyAssistanceTrips
                 // every site, which would pass the no-offer half of this pair for the wrong reason.
                 var brain = ctx.Companion.Brain;
                 brain.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Breath);
-                var home = new live::AICompanion.Companion.Brain.Infrastructure.Position.PositionRequest(
-                    live::AICompanion.Companion.Brain.Infrastructure.Position.RequestKind.WithPlayer, ctx.Player.Bottom);
-                for (int i = 0; i < 3000 && !brain.Positioner.ReachComplete; i++)
-                    brain.Positioner.Resolve(home, brain.Senses, null);
+                // Thrown away and flooded again rather than driven to completion: the island and its staircase
+                // were built after the shared setup had already flooded an open floor, and a loop that runs
+                // while the region is incomplete does nothing at all when the stale region is complete. That
+                // is the quietest way a fixture primes nothing and looks primed, and it is why the staircase
+                // half of this pair read the pit as unreturnable with the staircase standing in it.
+                VerifyOreWork.ResettleReach(ctx);
                 var light = new LightUsefulArea();
                 // Prepared until the search resolves, not once. One discovery search asks a bounded number of
                 // sites about their approach, so a single preparation on a scene with many dark tiles measures
@@ -365,6 +368,11 @@ internal static class VerifyAssistanceTrips
                 Point pot = PlacePot(new Point(38, PitFloor - 2));
                 AStar.AllowOneWayDrops = oneWay;
                 ctx.Senses.Loot.Pickups.Clear();
+                // After the one-way rule is set, because the flood is run under it, and after the island is
+                // built, because the shared setup flooded an open floor that this scene has since replaced.
+                // Collection's pot approach reads that region rather than searching, so without this the pit
+                // is judged against a world with no pit in it.
+                VerifyOreWork.ResettleReach(ctx);
                 var collect = new CollectNearbyItems();
                 collect.Prepare(ctx);
                 string ledger = $"staircase={staircase} oneWay={oneWay}: method={collect.Method} value={collect.Score():0.000} offer={collect.Eligibility}/{collect.EligibilityReason} target={collect.ActivityIdentity}";

@@ -109,7 +109,6 @@ public sealed class CollectNearbyItems : PerformNearbyWorldWork
         // companion can walk there, and walking there does not cut it off from a player it can reach now. One full,
         // unreachable or stranding drop must not block the next. A standable tile beside a drop proves none of this, and
         // mining's reach to the ore the drop fell from says nothing about the pit it fell into.
-        int asked = 0;
         foreach (var pickup in ctx.Senses.Loot.Pickups)
         {
             Item item = pickup.Item;
@@ -130,21 +129,16 @@ public sealed class CollectNearbyItems : PerformNearbyWorldWork
                     Refuse(OfferEligibility.KnownUnusable, "drop-has-no-contact-pose");
                     continue;
                 }
-                // Each reach question is a fresh bounded search, so one preparation asks a bounded number of new questions. A
-                // verdict still held for this drop's pose costs no search and spends none of that budget: spending it on held
-                // verdicts let the nearest refused drops hide every farther drop for as long as their verdicts stayed fresh.
-                // The budget stops the walk rather than skipping ahead, so a farther drop with a held verdict is never offered
-                // before a nearer one has been asked about; each preparation proves the next drops in distance order.
-                if (!KnownExcursion(item, contact, out var verdict))
-                {
-                    if (asked >= Weights.CollectionReachCandidates) break;
-                    asked++;
-                    verdict = ProveExcursion(ctx, item, contact);
-                }
-                var (reach, back) = verdict;
+                // Every drop is asked, in distance order, because the question costs a hash lookup rather than a
+                // search. The walk used to stop at a bound instead of skipping ahead, so that a farther drop was
+                // never offered before a nearer one had been asked about; with nothing to ration, every drop is
+                // asked about and the ordering property holds for free.
+                Reachability.Reach reach = Excursion(ctx, contact);
                 if (reach == Reachability.Reach.Unknown) { Refuse(OfferEligibility.Unresolved, "drop-approach-undecided"); continue; }
+                // One name, because the two-way region proves one thing: a drop outside it is either one the body
+                // cannot get to or one it could not come home from, and the flood does not distinguish them. The
+                // separate `drop-would-strand-return` was the marginal proof's name and went with that proof.
                 if (reach == Reachability.Reach.No) { Refuse(OfferEligibility.KnownUnusable, "drop-unreachable"); continue; }
-                if (back == Reachability.Reach.No) { Refuse(OfferEligibility.KnownUnusable, "drop-would-strand-return"); continue; }
                 pose = MovementQueries.FeetWorld(contact);
             }
             float near = Consideration.Inverse(pickup.DistanceToCompanion, Weights.LootReach);
@@ -194,42 +188,27 @@ public sealed class CollectNearbyItems : PerformNearbyWorldWork
         return best;
     }
 
-    // Reach and return verdicts reused while a drop's contact pose and the terrain revision are unchanged, for a bounded time,
-    // so a companion walking toward a drop does not ask the same two searches again on every tile it crosses.
-    private readonly Dictionary<Item, (Point Pose, int Revision, ulong Tick, Reachability.Reach Reach, Reachability.Reach Return)> excursions
-        = new(ReferenceEqualityComparer.Instance);
-
-    /// <summary>The reach and return verdicts still held for this drop at this contact pose, which cost no search.</summary>
-    private bool KnownExcursion(Item item, Point pose, out (Reachability.Reach Reach, Reachability.Reach Return) verdict)
-    {
-        verdict = default;
-        if (!excursions.TryGetValue(item, out var known) || known.Pose != pose || known.Revision != TerrainChanges.Revision
-            || Main.GameUpdateCount - known.Tick >= (ulong)Weights.CollectionReachRecheckTicks)
-            return false;
-        verdict = (known.Reach, known.Return);
-        return true;
-    }
-
-    /// <summary>Fresh walker searches for a drop's reach and marginal return, recorded for reuse.</summary>
-    private (Reachability.Reach Reach, Reachability.Reach Return) ProveExcursion(in ActionContext ctx, Item item, Point pose)
-    {
-        Point feet = MovementQueries.FeetTile(ctx.Npc.Bottom);
-        Reachability.Reach reach = MovementQueries.WalkerReach(feet, pose);
-        Reachability.Reach back = Reachability.Reach.Yes;
-        if (reach == Reachability.Reach.Yes)
+    /// <summary>
+    /// Whether the body can walk to this contact pose and come home from it, read from the reach sense. It
+    /// replaces a pair of fresh walker searches per drop, and with them everything those searches needed:
+    /// a per-drop verdict cache keyed on pose, terrain revision and a recheck interval, and a bound on how
+    /// many new questions one preparation could ask. A cache exists to make an expensive answer reusable and
+    /// a bound exists to ration an expensive answer; membership of a flood already run is neither.
+    ///
+    /// <para>What the two-way region does not carry is the marginal return the old proof had — the drop was
+    /// refused only where the companion could reach the player from where it stood and could not from the
+    /// drop, so a companion already cut off from the player was not called stranded by going one step
+    /// further. The region asks the absolute question instead: can the body come back at all. A companion in
+    /// a sealed pocket therefore refuses drops inside that pocket, which the marginal rule allowed. That is
+    /// the ruling rather than an oversight, and the sealed-pocket case is the one it costs.</para>
+    /// </summary>
+    private static Reachability.Reach Excursion(in ActionContext ctx, Point pose)
+        => ctx.Senses.Reach.Reachable(pose) switch
         {
-            // Marginal return: refused only when the companion can reach the player from where it stands and could not from
-            // the drop. A companion already cut off from the player is not stranded further by collecting, and a player in
-            // mid-air with no standable tile under them is not a proof that the return is gone.
-            Point player = MovementQueries.FeetTile(ctx.Player.Bottom);
-            if (MovementQueries.WalkerReach(pose, player) == Reachability.Reach.No
-                && MovementQueries.WalkerReach(feet, player) != Reachability.Reach.No)
-                back = Reachability.Reach.No;
-        }
-        if (excursions.Count > 32) excursions.Clear();
-        excursions[item] = (pose, TerrainChanges.Revision, Main.GameUpdateCount, reach, back);
-        return (reach, back);
-    }
+            ReachVerdict.Reachable => Reachability.Reach.Yes,
+            ReachVerdict.NotYet => Reachability.Reach.Unknown,
+            _ => Reachability.Reach.No,
+        };
 
     public override float Score()
         => preparedValue;

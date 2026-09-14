@@ -2,6 +2,10 @@
 
 Each question the record can answer is one class implementing `ICheck`. `Program.cs` registers them; a missing schema column skips the check as reduced coverage via `ICheckCoverage`.
 
+**`TheReachFloodSettles` asks whether the reach flood ever finishes, and it exists because nothing else in the report would say so.** Every optional activity asks the flood rather than searching for itself, and an unsettled flood is the one answer that correctly stops work from starting — so a flood that stays unsettled stops all of it while every offer on every row says the honest thing. Nothing shouts, which is why a check has to ask. It is graded Potential rather than Definitive: an unsettled flood is a state the design has a correct answer for, not a contradiction. It allows a gap of thirty rows inside a stretch, because the flood flickers by design — it finishes, a dig raises the terrain revision, it starts again — and a run broken by those single settled rows is several stretches that each fall under the threshold, which is how a stall hides from its own check. On the 2026-09-14 capture it reports 6,478 rows in one stretch from tick 1.
+
+**`ColumnsHoldWhatTheyClaim` unions its own set of known-textual columns with whatever a capture declares, rather than letting the declaration replace it.** The writer's `# text_columns=` line is a hand-maintained string beside the header builder, so every new textual column is two places to remember and the second is the one that gets forgotten; `torch_reason` was forgotten in schema 0.31.0, and because the declaration replaced this set outright, every capture carrying it reported all of its rows as cells that failed to parse as numbers. A curated set can only ever mark a column textual, never numeric, so the union cannot hide a real fault, and it reads an already-written capture correctly instead of only the next one.
+
 ```
 Checks/
 ├─ CheckDecisionContracts.cs          selected activity offer must exist and be usable

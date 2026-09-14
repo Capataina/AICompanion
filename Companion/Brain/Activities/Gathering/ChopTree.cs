@@ -151,7 +151,7 @@ public sealed class ChopTree : CompanionAction
                 bool newTree = lastSearchedFor != p.ChoppedTree;
                 if (tree == null && (newTree || sinceSearch >= SearchEveryTicks))
                 {
-                    tree = TreeFinder.FindNearest(ctx.Npc.Center, ctx.Npc.Bottom, SearchRadiusTiles, p.ChoppedTree, Accept);
+                    tree = TreeFinder.FindNearest(ctx.Npc.Center, ctx.Npc.Bottom, ctx.Senses.Reach, SearchRadiusTiles, p.ChoppedTree, Accept);
                     lastSearchedFor = p.ChoppedTree;
                     sinceSearch = 0;
                 }
@@ -186,8 +186,8 @@ public sealed class ChopTree : CompanionAction
             {
                 TreeFinder.ChoppableTree? Find(Point? exclude)
                     => Nearest(context.Npc.Center,
-                        TreeFinder.FindNearest(context.Npc.Center, context.Npc.Bottom, SearchRadiusTiles, exclude, Accept),
-                        TreeFinder.FindNearest(context.Player.Center, context.Npc.Bottom, SearchRadiusTiles, exclude, Accept));
+                        TreeFinder.FindNearest(context.Npc.Center, context.Npc.Bottom, context.Senses.Reach, SearchRadiusTiles, exclude, Accept),
+                        TreeFinder.FindNearest(context.Player.Center, context.Npc.Bottom, context.Senses.Reach, SearchRadiusTiles, exclude, Accept));
                 tree = Find(p.ChoppedTree);
                 if (tree == null && p.ChoppedTree != null) tree = Find(null);
                 sinceSearch = 0;
@@ -214,7 +214,7 @@ public sealed class ChopTree : CompanionAction
         }
         else if (reachKey != key || sinceReach >= SearchEveryTicks)
         {
-            approachReach = FindToolAccess.Approach(tree.Value.Bottom, ctx.Npc.Bottom, out Vector2 stand);
+            approachReach = FindToolAccess.Approach(tree.Value.Bottom, ctx.Npc.Bottom, ctx.Senses.Reach, out Vector2 stand);
             if (approachReach == Reachability.Reach.Yes)
                 tree = tree.Value with { StandPosition = stand };
             reachKey = key;

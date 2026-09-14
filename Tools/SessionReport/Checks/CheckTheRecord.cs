@@ -149,6 +149,66 @@ public sealed class ReturnableFitsInsideReach : ICheck
 }
 
 /// <summary>
+/// Whether the reach flood ever settles. Every optional activity now asks the flood rather than searching for
+/// itself, and an unsettled flood is the one answer that correctly stops work from starting — so a flood that
+/// stays unsettled stops all of it, silently and for as long as it lasts. The offers say the honest thing
+/// ("not yet known") on every one of those rows, which is exactly why nothing in the record shouts.
+///
+/// <para>The flood is bounded per rescore and grows across successive ones, and the region in a cave is small,
+/// so settling takes a handful of rescores after a world change and a terrain edit restarts it. A stretch
+/// longer than that is not the flood working, it is the flood not finishing: a region too large for the
+/// budget, an edit on every tick restarting it, or a body that never resolves because whatever won the tick
+/// asked for a hold.</para>
+/// </summary>
+public sealed class TheReachFloodSettles : ICheck
+{
+    public string Name => "does the reach flood ever finish";
+    public string[] Needs => new[] { "reach_complete" };
+
+    /// <summary>How many consecutive unsettled rows stop reading as a flood in progress. The flood's own unit
+    /// is the rescore rather than the tick and the positioner rescores on its own interval, so this is a few
+    /// seconds of play rather than a few rescores; short enough to catch a stall, long enough that ordinary
+    /// settling after a dig never reaches it.</summary>
+    private const int Unsettled = 600;
+
+    public IEnumerable<Finding> Run(Session session)
+    {
+        Column complete = session["reach_complete"];
+        // A gap is allowed because the flood flickers by design: it finishes, a dig raises the terrain
+        // revision, and it starts again. A run broken by those single settled rows is several stretches that
+        // each fall under the threshold, which is how a stall hides from the check written to find it.
+        var stalled = FindStretches.Where(session.Count, i => complete.Number[i] < 0.5, Unsettled, allowGap: 30);
+        if (stalled.Count == 0)
+            yield break;
+
+        int rows = 0;
+        foreach (var stretch in stalled)
+            rows += stretch.Length;
+        yield return new Finding(
+            Severity.Potential,
+            Name,
+            $"the reach flood stayed unfinished for {rows} row(s)",
+            $"{rows} row(s) across {stalled.Count} stretch(es) of at least {Unsettled}, the longest "
+                + $"{Longest(stalled)} rows. Until the flood finishes, a tile it has not claimed is not-yet-known "
+                + "rather than unreachable, and every activity that asks about a place it cannot already see is "
+                + "correctly refusing to start on an unanswered search — so lighting, collecting, mining and "
+                + "chopping are all held by this, and each of them reports only its own honest 'not yet'. Look "
+                + "for a region larger than the flood's per-rescore budget, a terrain edit on nearly every tick "
+                + "restarting it, or a companion that spends the stretch holding, since the flood is advanced by "
+                + "the positioner's resolve and a hold returns before it refreshes.",
+            session.Tick(stalled[0].Start), session.Tick(stalled[^1].End), rows);
+    }
+
+    private static int Longest(System.Collections.Generic.IReadOnlyList<Stretch> stretches)
+    {
+        int longest = 0;
+        foreach (var stretch in stretches)
+            if (stretch.Length > longest) longest = stretch.Length;
+        return longest;
+    }
+}
+
+/// <summary>
 /// Whether any column the writer produced failed to parse where the reader expected a number. This
 /// is the check that catches the writer changing a cell's shape — packing a letter into a column
 /// that used to be plain, or writing a name where a count belonged — before a check built on that
@@ -170,12 +230,23 @@ public sealed class ColumnsHoldWhatTheyClaim : ICheck
         "player_state", "player_activity", "player_support", "npc_support", "control", "control_source",
         "observed_vel", "observed_mobility", "predicted_vel", "predicted_mobility",
         "follow_reason", "recovery_reason", "guard_reason", "mine_policy", "mine_status", "mine_target", "target_evidence",
+        "torch_reason", "lighting_sites",
     };
 
     public IEnumerable<Finding> Run(Session session)
     {
-        var textColumns = session.Metadata.TryGetValue("text_columns", out string? declared)
-            ? new HashSet<string>(declared.Split(','), System.StringComparer.Ordinal) : Wordy;
+        // The declaration and this set are unioned rather than the declaration replacing it, and the
+        // difference is not cosmetic: the writer's `text_columns` line is a hand-maintained string sitting
+        // beside the header builder, so a new textual column is two places to remember and the second one is
+        // the one that gets forgotten. `torch_reason` was forgotten in exactly that way, and because a
+        // declared list replaced this set outright, every capture carrying it reported all 15,105 of its
+        // cells as failing to parse as numbers — a finding about the reader, printed against the writer,
+        // that no amount of correcting this set could have cleared for a capture already written. A curated
+        // set can only ever mark a column textual, never numeric, so the union cannot hide a real fault: a
+        // genuinely numeric column named here would be a mistake in this list and nowhere else.
+        var textColumns = new HashSet<string>(Wordy, System.StringComparer.Ordinal);
+        if (session.Metadata.TryGetValue("text_columns", out string? declared))
+            textColumns.UnionWith(declared.Split(','));
         if (session.Ragged > 0)
             yield return new Finding(
                 Severity.Potential,
