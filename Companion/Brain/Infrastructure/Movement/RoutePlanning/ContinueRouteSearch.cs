@@ -50,6 +50,13 @@ public sealed class ContinueRouteSearch : IDisposable
     private bool invalidated;
     private readonly Func<int, int, bool> readAnythingAt;
 
+    // The revision the suffix dictionary below was copied out of route memory at, which is deliberately
+    // not `checkedRevision` and cannot be folded into it. `checkedRevision` moves forward on every clean
+    // answer, which is what keeps the record's window covering the gap between two checks — and it moves
+    // forward *past the very edits this field exists to catch*, because those edits land on suffix tiles
+    // the query has not adopted and so does not yet read. Two questions, two revisions.
+    private readonly int snapshotRevision;
+
     // Every tile this query's answer stands on, which is deliberately a superset of Reached rather than
     // the same set. A route adopted from route memory is a run of steps this search never expanded — it
     // joins the frontier at the remembered route's head and the goal is then dequeued and returns Found
@@ -133,6 +140,47 @@ public sealed class ContinueRouteSearch : IDisposable
     {
         if (Reached.Add(tile)) Note(tile);
     }
+
+    /// <summary>
+    /// Is this remembered suffix still standing on the terrain it was copied out of route memory over?
+    ///
+    /// <para>The suffixes were snapshotted into a private dictionary when this query was born, each one
+    /// fingerprint-checked against the world at that moment. An edit landing on one of them afterwards
+    /// retires the archive's own entry through <see cref="RememberExecutedRoutes.TileChanged"/> and does
+    /// not touch this copy, and — this is the part that makes it a hole rather than a race —
+    /// <see cref="Valid"/> cannot see it either. Valid walks <see cref="read"/>, which does not hold the
+    /// suffix's tiles because the suffix has not been adopted, answers Unchanged, and advances
+    /// <see cref="checkedRevision"/> past the edit. Adoption then hands the navigator a route priced from
+    /// terrain that no longer exists, and the failure arrives downstream as the live proof refusing a
+    /// step, which reads as a physical fault rather than as stale knowledge.</para>
+    ///
+    /// <para>So the suffix is tested against everything announced since the snapshot rather than since
+    /// this query's last clean answer. The margin is <see cref="AStar.ScanReaches"/> around each landing
+    /// and the destination, which is exactly the margin <see cref="Note"/> commits to for those same
+    /// tiles one line after adoption: a narrower rule before adoption than after it would be two rules
+    /// for one piece of terrain, and the wider one covers a jump's arc, whose apex is inside the box
+    /// above the take-off that the expanding tile already carries.</para>
+    ///
+    /// <para>Cost is nothing in the ordinary case — with no edit since the snapshot the record returns on
+    /// one integer compare, which is why the compare is made before the closure is built. Otherwise it is
+    /// the edits announced since the snapshot times this one suffix's own length, and only for a suffix
+    /// actually being adopted. Noting every candidate suffix at construction was the alternative and is
+    /// the worse trade: its cost is bounded by the suffix count rather than by the adopted suffix, and,
+    /// far more expensively, it makes the query sensitive to every remembered route to the goal including
+    /// the ones it never takes, which is the world-global restart this whole mechanism replaced wearing a
+    /// smaller box.</para>
+    /// </summary>
+    private bool SuffixStandsOnUnchangedGround(List<NavStep> suffix, Point destination)
+    {
+        if (snapshotRevision == world.Revision) return true;
+        return world.ChangedSince(snapshotRevision, (x, y) =>
+        {
+            if (AStar.ScanReaches(destination.X, destination.Y, x, y)) return true;
+            foreach (NavStep step in suffix)
+                if (AStar.ScanReaches(step.Tile.X, step.Tile.Y, x, y)) return true;
+            return false;
+        }) == TerrainEditVerdict.Unchanged;
+    }
     /// <summary>Both directions have been generated under this query's traversal policy.
     /// A nearby coordinate alone cannot establish this across a one-way drop.</summary>
     public bool CanReuseFrom(Point feet) => Valid && canReturn.Contains(NavNode.At(feet));
@@ -146,11 +194,13 @@ public sealed class ContinueRouteSearch : IDisposable
     {
         world = NavGrid.World; lava = allowLava; oneWay = allowOneWay;
         start = NavNode.At(from); Goal = goal; pose = actualPose; acceptFirst = acceptFirstStep;
+        // Read before the snapshot is taken rather than after it, so the revision this query will test
+        // its suffixes against is one the copy below cannot be newer than.
+        checkedRevision = snapshotRevision = world.Revision;
         suffixes = goal is Point destination ? RememberExecutedRoutes.World.Suffixes(world, destination, allowLava,
             AStar.PriceRememberedStep, allowOneWay ? null : AStar.RememberedStepHasReturn) : new();
         best = start; bestH = Distance(from);
         avoidance = AStar.Avoid.ToArray();
-        checkedRevision = world.Revision;
         readAnythingAt = ReadAnythingAt;
         exploredMinX = exploredMaxX = from.X; exploredMinY = exploredMaxY = from.Y;
         costs[start] = 0; Enqueue(start, Distance(from)); Touch(from); TravelCosts[from] = 0;
@@ -191,7 +241,8 @@ public sealed class ContinueRouteSearch : IDisposable
                     if (h < bestH && NavGrid.LavaTilesAt(expanding.Tile.X, expanding.Tile.Y) == 0)
                     { best = expanding; bestH = h; }
                     if (expanding.Mobility == default && Goal is Point end && suffixes.TryGetValue(expanding.Tile, out var suffix)
-                        && (expanding != start || acceptFirst == null || acceptFirst(suffix[0])))
+                        && (expanding != start || acceptFirst == null || acceptFirst(suffix[0]))
+                        && SuffixStandsOnUnchangedGround(suffix, end))
                     {
                         var destination = NavNode.At(end);
                         float routeCost = costs[expanding];
