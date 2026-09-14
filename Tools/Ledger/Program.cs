@@ -136,9 +136,10 @@ switch (args[0])
     // clean run at the commit it was taken on rather than against an ancestor of a tree nobody
     // can reconstruct.
     string from = after.Header.Dirty && after.Header.RanAt.Length > 0 ? after.Header.RanAt : after.Header.Commit;
-    Run? baseline = RunStore.Baseline(root, from);
-    // The run being scored is never its own baseline.
-    if (baseline != null && baseline.Path == after.Path) baseline = null;
+    // The run being scored is never its own baseline, and the exclusion goes into the walk rather
+    // than onto its answer: nulling a self-match afterwards abandons the search at the first
+    // ancestor instead of continuing past it.
+    Run? baseline = RunStore.Baseline(root, from, excluding: after.Path);
     return (baseline, baseline == null ? Array.Empty<Run>() : RunStore.At(root, baseline.Header.Commit));
 }
 

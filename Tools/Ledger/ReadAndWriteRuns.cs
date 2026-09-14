@@ -220,7 +220,14 @@ public static class RunStore
     /// baseline. A run whose commit git does not know — a capture's own source revision on a
     /// machine that never fetched it, say — is skipped rather than guessed at.
     /// </summary>
-    public static Run? Baseline(string repositoryRoot, string commit)
+    /// <param name="excluding">
+    /// The run being scored, which is never its own baseline. It is excluded here, inside the walk,
+    /// rather than by the caller nulling the answer afterwards — that shape resolved the run to
+    /// itself, threw the match away and reported "no baseline", so a clean run at a new commit was
+    /// compared against nothing while its parent's run sat in the store. Excluding and continuing
+    /// are different operations and only one of them answers the question.
+    /// </param>
+    public static Run? Baseline(string repositoryRoot, string commit, string? excluding = null)
     {
         string[] ancestry = Git.Ancestry(repositoryRoot, commit);
         var runs = All(repositoryRoot);
@@ -228,6 +235,7 @@ public static class RunStore
         {
             Run? clean = runs.FirstOrDefault(run => !run.Header.Dirty
                 && !run.Header.Filtered
+                && (excluding == null || !string.Equals(run.Path, excluding, StringComparison.Ordinal))
                 && Git.Same(run.Header.Commit, ancestor)
                 && run.Clean);
             if (clean != null) return clean;

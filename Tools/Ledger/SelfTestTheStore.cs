@@ -89,9 +89,23 @@ public static class SelfTestTheStore
             if (RunStore.Baseline(root, commit) != null)
                 return Failed("a run taken under --case became a baseline, so every case the filter excluded would read as a case that disappeared");
 
-            Write(root, new RunHeader(commit, false, "2026-01-01T00:03:00Z", "test", 1, 1), Pass());
+            string newestPath = Write(root, new RunHeader(commit, false, "2026-01-01T00:03:00Z", "test", 1, 1), Pass());
             Run? resolved = RunStore.Baseline(root, commit);
             if (resolved == null) return Failed("a clean, unfiltered, non-dirty run at the commit itself did not resolve as its baseline");
+
+            // The run being scored is excluded inside the walk, which has to *continue* past it. A
+            // guard that instead nulls a self-match afterwards abandons the search at the first
+            // ancestor, so a clean run at a new commit is compared against nothing while its
+            // parent's run sits in the store — which is what happened, and it made the whole
+            // comparison work only for dirty runs.
+            string olderPath = Write(root, new RunHeader(commit, false, "2026-01-01T00:02:30Z", "test", 1, 1), Pass());
+            Run? excluded = RunStore.Baseline(root, commit, excluding: newestPath);
+            if (excluded == null)
+                return Failed("excluding the run being scored abandoned the search instead of continuing it, so a clean run would be compared against nothing");
+            if (excluded.Path == newestPath)
+                return Failed("the excluded run was returned as its own baseline");
+            if (excluded.Path != olderPath)
+                return Failed($"expected the next clean run back, and got {Path.GetFileName(excluded.Path)}");
 
             // A skip is missing coverage rather than a verdict, and refusing a run for holding one
             // would leave this repository with no baseline at all: its captures are gitignored, so
