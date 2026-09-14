@@ -146,6 +146,55 @@ Two schema additions: the player's ability flags per tick, and the world's name 
 
 No duration is attached, because the log holds no comparable unit to price a tooling project of this shape from.
 
+## The 0.24.0 play of 14 September, read as classes, and how each is proven by this harness
+
+The 13:27 capture (22,473 rows, schema 0.32.0, source 3d8b75e) is the first play of the two root fixes, and the owner's report of it names five symptoms. The record supports four of them, refutes the mechanism he guessed for the fifth, and adds three he did not name. Every one traces to a class rather than a place, and every class has a row in this harness that would have gone red before he played.
+
+```
+symptom                                   what the record shows                                          class
+never overtakes, stops at the box edge    while the player moves, the companion is behind by more than   R1  the follow objective is a box around the player,
+                                          three tiles on 4,142 rows and ahead on none; horizontal             not a relation to the player's motion; inside the
+                                          comfort is 240 px and the pull inside the box is zero              box the pull is zero, so a moving player is followed
+                                                                                                             from fifteen tiles behind by construction
+the jump onto the platform fails,         149 jumps begun, 72 completed, 70 interrupted (68 cancelled       R4  a committed move is not atomic: a replan or a new
+stops mid-air and falls                   by a replan or a new request), 5 mislands, 4 refusals; both           request cancels a body in flight and its in-air
+                                          refused edges land offline from their recorded entry states           steer stops; drops lose 39 of 72 the same way
+does not know it can reach some places    reach flood unfinished on 9,812 of 22,473 rows (44%); 426        R2  one world-global clock: any tile edit anywhere
+                                          terrain edits in six minutes, each restarting the whole flood         restarts every retained search and the whole reach
+                                          and every retained search                                            flood, and the flood only advances on a resolve
+slow to go for a torch site or a drop     the same 44%: optional work refuses on an unfinished flood;      R2, R3  a drop is read at rest, never forecast: the
+until it lands                            a drop's contact pose needs a standable floor within a tile           contact pose needs a floor the falling item has
+                                          of the item, which a falling item has not got                        not reached, though every other moving thing is
+                                                                                                               forecast
+(not named) a behaviour every 90 ticks    250 switches, 128 combat attempts replaced before acting,        R5  re-election without commitment: no hysteresis on
+                                          guard held 27 ticks on average                                       a winner's margin; the decision rows already carry
+                                                                                                               every activity's score, so the margin is computable
+(not named) the gun is silent             fire reads no-target on 20,220 rows; 72 ticks fired in six       R7  feet and hands disagree on what is shootable: the
+                                          minutes; 1,226 ticks with a reachable hostile and no target           hunt walks to a firing position the arsenal never
+                                                                                                               accepts, and R5 replaces it before it arrives
+(not named) arrives at its own tile and   the navigator arrives at a stand the positioner chose while     R6  the fallback stand when the player is unreachable
+holds with the player twenty tiles up     the follow objective stays unsatisfied for 329 ticks; the            is the body's own tile, and arrival there ends the
+                                          native replay reproduces the hold with no rejection at all           request instead of naming the missing route
+```
+
+The owner's own hypothesis for the platform jump was a planner reading the world wrong. It is refuted on his jump: NavReplay lands both refused edges from the exact entry states the record holds, and the native replay of the held tick shows no refusal, so the plan is right and the flight is cut short by whoever replaces the request while the body is in the air. The four refusals the census counts are the residue of the class the movement lane closed (684 in the 09:28 capture); the 23 "held body" stretches the report raised are the persistent-rejection check reading a retained last-rejection field beside a body holding for R6's reason, which is a false-positive class in that check (I1 below).
+
+Each class closes by construction, and each has its harness row:
+
+- **R1** The follow objective becomes a function of the player's motion state, one definition read by satisfaction, destination acceptance and the reunion value: for a travelling player the target is the leading edge of the heading box and "with the player" means on the heading side; for a standing player it is the box as now. Row: a route with an authored straight walk, the companion ahead of the player for more than half the walk; the 13:27 recorded track, ahead-rows greater than behind-rows.
+- **R2** Knowledge is invalidated where it happened: a terrain revision carries its tile, a retained search or flood is restarted only if its explored region contains that tile, and the flood advances on the tick rather than only on a resolve. Row: the 13:27 track replayed, reach-complete share above 90 percent; a fixture that edits a tile outside a flood's region and asserts the flood is untouched.
+- **R3** One motion forecaster for every moving thing (the player, hostiles and drops through the same observed-motion track), and collection walks to the forecast landing. Row: a drop released mid-air, the walk begins before it lands.
+- **R4** A move in flight is atomic: a replan or a changed request lands the body first and re-plans from the landing; only safety may pre-empt an airborne body, and it does so through the same navigator. Row: the census's cancelled-in-flight count at zero on every route; the corpus follow pass unchanged.
+- **R5** Commitment is a rule with a margin: an incumbent is replaced only when the challenger's value exceeds it by a band, or after its own attempt concludes, and the decision row carries winner, runner-up and margin so the scoreboard can read it. Row: switches per minute and attempts replaced before acting, from the recorded tracks, with a declared ceiling.
+- **R6** A stand that does not satisfy the request is not an arrival: the positioner returns the missing-route class with the request open, and the navigator's failure names it. Row: follow-vertical-gap with status Arrived never co-occurs.
+- **R7** One shootability answer, from one solver, read by the hunt when it prices a firing position and by the arsenal when it aims; a position the arsenal would refuse is not a firing position. Row: fired ticks over ticks with a reachable hostile in range, with a floor.
+
+Instrument findings from the same read, which the harness plan absorbs:
+
+- **I1** `CheckPersistentRejections` reads the retained last-rejection beside a still body and cannot tell a refusal issued this sample from one issued minutes ago; the census counted 4 refusals where the check raised 23 stretches. A refusal event must carry its own tick, and the check reads that.
+- **I2** `--replay-water` had no tile hooks and no movement trace (fixed at 6379e27) and has no player track: a follow decision cannot be reproduced without the recorded player, which is the world run's recorded-track mode and not optional.
+- **I3** The decision rows already hold every activity's score per comparison; the flip check should compute the margin from them rather than asking a reader to.
+
 ## Sources this plan rests on
 
 Luo, Hariri, Eloussi, Marinov, "An Empirical Analysis of Flaky Tests", FSE 2014. Lam, Oei, Shi, Marinov, Xie, "iDFlakies", ICST 2019. Shi, Lam, Oei, Xie, Marinov, "iFixFlakies", ESEC/FSE 2019. Micco, "Flaky Tests at Google and How We Mitigate Them", Google Testing Blog, 2016. Petrović and Ivanković, "State of Mutation Testing at Google", ICSE-SEIP 2018. Stryker.NET documentation, 2026. Zeller and Hildebrandt, "Simplifying and Isolating Failure-Inducing Input", TSE 2002. Regehr et al., "Test-Case Reduction for C Compiler Bugs", PLDI 2012. MacIver and Donaldson, "Test-Case Reduction via Test-Case Generation", ECOOP 2020 (abstract only). MET-MAPF, TOSEM 2024 (abstract only). Pettersson, "Execution monitoring in robotics: A survey", RAS 2005 (abstract only). Mawhorter and Smith, "Automated Testing in Super Metroid with Abstraction-Guided Exploration", FDG 2023. Ecoffet et al., "First return, then explore", Nature 2021. Zhan, Aytemiz, Smith, "Taking the Scenic Route", KEG 2019. Georges, Buytaert, Eeckhout, "Statistically Rigorous Java Performance Evaluation", OOPSLA 2007. Cleland-Huang et al., "Software Traceability: Trends and Future Directions", FOSE 2014. OpenFastTrace. The Ubisoft voxel-versus-navmesh validation paper (arXiv 2605.21397) and the La Forge Go-Explore reachability paper (arXiv 2209.00570) from the earlier industry survey. Not retrieved and cited bibliographically only: Jia and Harman (TSE 2011), McKeeman (DTJ 1998), Chen et al. (CSUR 2018), Chen, Cheung and Yiu (HKUST 1998), Kalibera and Jones (ISMM 2013). The most costly miss is Shi et al., "Mitigating the effects of flaky tests on mutation testing", ISSTA 2019, which is the exact intersection of this suite's two problems and was not reachable.
