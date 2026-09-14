@@ -21,9 +21,12 @@ namespace AICompanion.Companion.Brain.Infrastructure.Position;
 ///
 /// <para><paramref name="Settled"/> comes from the sense, because it is a streak and a struct rebuilt
 /// nine times a tick cannot hold one. Requiring it is what stops an airborne tick reading as an
-/// arrival.</para>
+/// arrival. <paramref name="Grounded"/> comes from the same place and changes no decision: it exists
+/// so <see cref="Reason"/> can say which kind of unsettled tick this is, since a body in the air and
+/// a body standing out its first ticks of a streak are the same geometry and different situations,
+/// and the recorder's column is read to tell one from the other.</para>
 /// </summary>
-public readonly record struct FollowPlayerObjective(PlayerIntentRegion Region, Vector2 Anchor, bool Settled)
+public readonly record struct FollowPlayerObjective(PlayerIntentRegion Region, Vector2 Anchor, bool Settled, bool Grounded)
 {
     /// <summary>The same objective aimed at a different place. Every consumer starts from the sense's
     /// own objective and refines it, so there is one region and one settled streak in the brain.</summary>
@@ -73,5 +76,10 @@ public readonly record struct FollowPlayerObjective(PlayerIntentRegion Region, V
             : VerticalGap(feet) > VerticalComfort ? "follow-vertical-gap"
             : HorizontalGap(feet) > HorizontalComfort ? "follow-horizontal-gap"
             : !locallyConnected ? "follow-local-connection"
-            : "follow-airborne-deferred";
+            // Inside the region, connected, and not satisfied: the streak is what is missing, and the
+            // two ways to be missing it are not one fact. Airborne is the capture's own case — a body
+            // passing through on a jump arc, which must never read as arrival — while grounded is a
+            // body that has arrived and is standing out the rescore before anyone may act on it.
+            : !Grounded ? "follow-airborne-deferred"
+            : "follow-settling";
 }

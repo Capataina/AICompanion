@@ -95,28 +95,33 @@ public sealed class PlayerIntentRegionSense
     /// the recorder can say why a tick that looks satisfied is not.</summary>
     public int GroundedInsideTicks { get; private set; }
 
-    /// <summary>True on a tick the geometry would have satisfied following and the body was airborne:
-    /// the thing the old box could not distinguish, recorded so it can be counted.</summary>
-    public bool AirborneDeferred { get; private set; }
+    /// <summary>Whether the companion was on the ground on this tick. Published beside the streak
+    /// rather than derived by each reader, because the streak already computes it and a second
+    /// grounded test elsewhere is the disagreement the one expression below exists to prevent. It
+    /// changes no decision; it is what lets the follow reason name an airborne tick apart from a
+    /// grounded one that is still standing out its rescore.</summary>
+    public bool Grounded { get; private set; }
 
     private Vector2 lead;
 
     /// <summary>The follow objective every consumer shares, anchored on the region's own centre.
     /// A caller with an anchor of its own — a priced meeting place, a request's anchor — refines it
     /// with <see cref="FollowPlayerObjective.At"/> rather than building a second objective.</summary>
-    public Position.FollowPlayerObjective Objective => new(Region, Region.Centre, Settled);
+    public Position.FollowPlayerObjective Objective => new(Region, Region.Centre, Settled, Grounded);
 
     public void Update(NPC companion, PlayerSense player)
     {
-        // A live interference footprint is the player asking the companion to vacate tiles — the one
-        // he is aiming a block at, or the stretch of passage he is walking down into it — and those
-        // are exactly the tiles a lead would carry the companion into. So while it is live the region
-        // leads nowhere and sits back on his feet. Without this the companion led him down a
-        // one-body-tall passage, reached the spot ahead of him and stood still in it, which is the
-        // courtesy contract's own failure ("a passage is given back") arriving through the region
-        // rather than through anything in the courtesy rules. It drifts to zero through the filter
-        // rather than snapping, like every other change of intent.
-        Vector2 target = player.Interference != null ? Vector2.Zero : player.Intent * Weights.IntentRegionLeadTicks;
+        // A live interference footprint deliberately does not suppress the lead, and that was
+        // measured rather than assumed. Suppressing it was tried, on the hypothesis that a lead
+        // carries the companion into the very tiles the player is asking it to vacate; the courtesy
+        // contract stayed red with it in and went green without it, because what was actually
+        // holding the body in the passage was keeping company waiting a rescore before it could
+        // change method. With that wait exempted for an overlapped footprint, the suppression's only
+        // measured effect was on the open-floor walk, where it made courtesy worse — 44 stationary
+        // ticks in the player's way against 28 — since a region pulled back onto his feet is a region
+        // that asks the companion to stand where he is walking. Courtesy is a positioning problem and
+        // is answered in the positioner's occupancy share, not by blinding the region.
+        Vector2 target = player.Intent * Weights.IntentRegionLeadTicks;
         // The same discontinuities that clear the intent history clear the lead: a death, a
         // teleport or an unobserved interval leaves a filtered lead pointing at where the player
         // was going before he stopped being there, and a companion sent towards a corpse.
@@ -155,7 +160,7 @@ public sealed class PlayerIntentRegionSense
         // is standing, which is the disagreement this rule exists to settle.
         bool grounded = companion.velocity.Y == 0f;
         bool inside = Region.Contains(companion.Bottom);
-        AirborneDeferred = inside && !grounded;
+        Grounded = grounded;
         GroundedInsideTicks = grounded && inside ? GroundedInsideTicks + 1 : 0;
         Settled = GroundedInsideTicks >= Weights.PositionRescoreTicks;
     }

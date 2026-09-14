@@ -145,14 +145,14 @@ internal static class VerifyResponsiveFollowing
     /// <summary>A settled objective over a region centred where the test wants it, so the geometry rules
     /// can be exercised without driving a body for a rescore first. Settled is what an airborne body does
     /// not have, and the fixture that cares about that says so by asking for it false.</summary>
-    private static FollowPlayerObjective ObjectiveAt(Vector2 centre, Vector2 anchor, bool settled = true)
+    private static FollowPlayerObjective ObjectiveAt(Vector2 centre, Vector2 anchor, bool settled = true, bool grounded = true)
     {
         float scale = live::AICompanion.Companion.PlayerIntegration.CompanionPreferences.Current.FollowComfortScale;
         var region = new live::AICompanion.Companion.Brain.Infrastructure.Observation.PlayerIntentRegion(centre,
             new Vector2(live::AICompanion.Companion.Brain.Infrastructure.Selection.Weights.FollowHorizontalComfort * scale,
                 live::AICompanion.Companion.Brain.Infrastructure.Selection.Weights.FollowVerticalComfort * scale),
             Vector2.Zero, IsTravelling: false);
-        return new FollowPlayerObjective(region, anchor, settled);
+        return new FollowPlayerObjective(region, anchor, settled, grounded);
     }
 
     private static void VerifyTwoAxisObjective()
@@ -637,6 +637,10 @@ internal static class VerifyResponsiveFollowing
         brain.Positioner.Resolve(request, brain.Senses, null);
         Require(!brain.Positioner.FollowObjectiveSatisfied, FormattableString.Invariant(
             $"an airborne body must not read as having arrived with the player: companion={companion.NPC.Bottom} vy={companion.NPC.velocity.Y} player={player.Bottom} vy={player.velocity.Y} reason={brain.Positioner.FollowObjectiveReason}"));
+        // The record has to say which kind of unsettled tick this was, because the grounded body
+        // standing out its first ticks of the streak is the same geometry and a different situation.
+        Require(brain.Positioner.FollowObjectiveReason == "follow-airborne-deferred", FormattableString.Invariant(
+            $"an airborne deferral must name itself in the record: reason={brain.Positioner.FollowObjectiveReason} vy={companion.NPC.velocity.Y}"));
         var company = brain.Chooser.Actions.OfType<live::AICompanion.Companion.Brain.Activities.NearbyAssistance.KeepCompany>().Single();
         var context = new live::AICompanion.Companion.Brain.Activities.ActionContext(companion, brain.Senses);
         company.Prepare(context);
@@ -679,11 +683,17 @@ internal static class VerifyResponsiveFollowing
         player.velocity = Vector2.Zero;
         string method = "";
         int changes = 0;
+        int mislabelled = 0;
         for (int tick = 0; tick < 600; tick++)
         {
             VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
             companion.AI();
             AdvanceNative(companion);
+            // The other half of the airborne fixture's assertion, and the half a grounded body can
+            // check: a settling tick on the floor must never be filed as an airborne deferral, or the
+            // column sends whoever reads it looking for a jump that never happened.
+            if (companion.NPC.velocity.Y == 0f
+                && brain.Positioner.FollowObjectiveReason == "follow-airborne-deferred") mislabelled++;
             company.Prepare(context);
             if (company.EligibilityReason != method)
             {
@@ -691,6 +701,8 @@ internal static class VerifyResponsiveFollowing
                 method = company.EligibilityReason;
             }
         }
+        Require(mislabelled == 0, FormattableString.Invariant(
+            $"a grounded settling tick must not be recorded as an airborne deferral: {mislabelled} of 600 ticks"));
         const int SettleChangeCeiling = 1;
         Require(changes <= SettleChangeCeiling, FormattableString.Invariant(
             $"a stopped player must let the method settle: {changes} method changes over 600 ticks, ceiling {SettleChangeCeiling}, ending {method}"));
