@@ -14,6 +14,7 @@ Tools/
 ├─ EngineReplay/                     native collision and whole-brain fixtures, grouped by Combat, Gathering, Assistance, Movement, Observation and Lifecycle
 ├─ NavReplay/                        portable movement replay, and the corpus tools: reflect a scenario, reduce a failing one, cut a new one out of a recording
 ├─ SessionReport/                    telemetry reader, grouped by Read, Checks, Write and Tests
+├─ WorldRun/                         the whole brain and the native body in a real saved world, behind a recorded player track
 ├─ WorldWindow/                      reshapes old plan windows from saved-world tile shapes
 └─ Scenarios/                        committed movement cases
 ```

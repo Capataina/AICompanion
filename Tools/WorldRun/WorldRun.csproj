@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <TModLoaderRoot>$(HOME)/Library/Application Support/Steam/steamapps/common/tModLoader</TModLoaderRoot>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- The whole mod under the `live` alias, exactly as EngineReplay takes it: the brain this
+         instrument runs must be the shipping brain, not a second copy compiled from the same
+         files. The per-file Compile list below is the movement core's second compilation, which
+         exists because a fixture that sets this copy's LimitPlanningWork would otherwise measure
+         a static the live code never reads. Keep the two lists in step: a new file that one of
+         these calls must be added here too, because the mod's own build compiles everything and
+         passes while this project fails with the name missing. -->
+    <ProjectReference Include="../../AICompanion.csproj" Aliases="live" AdditionalProperties="BuildMod=false" />
+    <Compile Include="../Ledger/EmitLedgerRows.cs" />
+    <Reference Include="tModLoader"><HintPath>$(TModLoaderRoot)/tModLoader.dll</HintPath></Reference>
+    <Reference Include="FNA"><HintPath>$(TModLoaderRoot)/Libraries/FNA/1.0.0/FNA.dll</HintPath></Reference>
+    <Reference Include="ReLogic"><HintPath>$(TModLoaderRoot)/Libraries/ReLogic/1.0.0/ReLogic.dll</HintPath></Reference>
+    <Reference Include="log4net"><HintPath>$(TModLoaderRoot)/Libraries/log4net/2.0.8.0/log4net.dll</HintPath></Reference>
+  </ItemGroup>
+</Project>
