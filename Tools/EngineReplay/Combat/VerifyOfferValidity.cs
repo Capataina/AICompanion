@@ -34,6 +34,7 @@ internal static class VerifyOfferValidity
         AnExhaustedSearchIsAProvenNegative();
         AnExhaustedSearchIsProvableWhileTheBodyWalks();
         AStandWhoseShotClosesBeforeArrivalIsRefused();
+        AMovedTargetIsAskedAboutAgain();
         PartialProgressNeverNamesTheTileTheBodyStandsOn();
         Console.WriteLine("offer validity: the shot window is the trip's length, cut searches stay undecided, exhausted ones prove a negative while the body walks, arrival-time shots and the partial-progress fixed point pass");
         return 0;
@@ -360,6 +361,56 @@ internal static class VerifyOfferValidity
                 .Solve(MuzzleAt(stand), enemy, profile.Value, (int)MathF.Min(180f, trip)) != null,
             $"the chosen stand cannot shoot the target at its forecast arrival, so the shot was solved against a "
             + $"position the target will have left; stand={stand.X},{stand.Y}, trip={trip:0.0}, evidence={positioner.CandidateEvidence}");
+    }
+
+    /// <summary>
+    /// An answer about where a target can be shot from goes stale when the target moves, not only when the body
+    /// does — and `ResolveFiringOpportunity` was scoped to one end of that line.
+    ///
+    /// <para>Both of its stores carried the companion's position and the terrain revision and neither carried the
+    /// target's. The cache therefore served a verdict taken while the enemy was behind a pillar for the whole of
+    /// its tick window after the enemy had walked out from behind it, and the sweep accumulated its examined count
+    /// across scans while the stands themselves are rebuilt around the enemy's own feet every scan — so the count
+    /// could reach the set's size having asked only about stands around places the enemy had left. That returns a
+    /// proven absence of any firing position, which guarding reads as a threat it cannot shoot and hunting as a
+    /// target not worth approaching. It is the same exhausted-bound-reported-as-a-fact defect this class already
+    /// closed once, arriving through the target's motion instead of through the budget.</para>
+    ///
+    /// <para>The row moves the enemy from behind the pillar to the companion's own feet without advancing a tick,
+    /// so the only thing that has changed is the one thing the key was missing.</para>
+    /// </summary>
+    private static void AMovedTargetIsAskedAboutAgain()
+    {
+        var (companion, enemy, _) = PillarScene();
+        var ctx = new C(companion, companion.Brain.Senses);
+        var firing = new live::AICompanion.Companion.Brain.Activities.Combat.ResolveFiringOpportunity();
+
+        // Settle the flood, or the first verdicts are measuring how far it has grown rather than the geometry.
+        var settle = new PositionRequest(RequestKind.WithPlayer, Main.player[0].Bottom);
+        for (int i = 0; i < 1200 && !companion.Brain.Positioner.ReachComplete; i++)
+            companion.Brain.Positioner.Resolve(settle, companion.Brain.Senses, null);
+
+        // Behind the pillar, well out of a shot from where the body stands.
+        enemy.Bottom = new Vector2((PillarRight + 6) * 16f + 8f, FloorY * 16f);
+        companion.Brain.Senses.Update(companion.NPC, Main.player[0], companion.Breath);
+        var (behind, _) = firing.Resolve(ctx, enemy);
+        Require(behind != live::AICompanion.Companion.Brain.Activities.Combat.FiringAccess.FromHere, FormattableString.Invariant(
+            $"the premise fails: the enemy behind the pillar must not already be shootable from where the body stands, or moving it proves nothing; verdict={behind}"));
+
+        // Now beside the companion, in the open, on the same tick. Nothing about the body or the world has
+        // changed — only the target — so an answer that does not move is an answer keyed on the wrong things.
+        enemy.Bottom = companion.NPC.Bottom + new Vector2(32f, 0f);
+        float moved = Vector2.Distance(enemy.Center, companion.NPC.Center);
+        companion.Brain.Senses.Update(companion.NPC, Main.player[0], companion.Breath);
+        var (beside, _) = firing.Resolve(ctx, enemy);
+        Console.WriteLine(FormattableString.Invariant(
+            $"offer validity: a target behind the pillar read {behind}; walked to {moved:F0}px from the muzzle on the same tick it reads {beside}"));
+        Require(beside == live::AICompanion.Companion.Brain.Activities.Combat.FiringAccess.FromHere, FormattableString.Invariant(
+            $"a target that has walked into the open must be asked about again rather than answered from where it was; it read {beside}, and behind the pillar it read {behind}"));
+        // And the absence in particular must never be the stale one, because a proven absence is the verdict the
+        // rest of combat is entitled to act on.
+        Require(beside != live::AICompanion.Companion.Brain.Activities.Combat.FiringAccess.None,
+            $"a moved target must never be reported as a proven absence of firing positions on evidence gathered about where it used to be; verdict={beside}");
     }
 
     /// <summary>

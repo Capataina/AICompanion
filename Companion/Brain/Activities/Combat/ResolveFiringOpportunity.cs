@@ -55,7 +55,17 @@ public sealed class ResolveFiringOpportunity
     // sighted tile can only make the answer more cautious.
     private const int FiringSampleStride = 2;
 
-    private readonly Dictionary<(int slot, int generation), (int at, Point origin, int terrain, FiringAccess verdict, float access, float value)> cache = new();
+    private readonly Dictionary<(int slot, int generation), (int at, Point origin, int terrain, Vector2 target, FiringAccess verdict, float access, float value)> cache = new();
+
+    /// <summary>
+    /// How far a target may have moved before an answer about it stops being an answer. It is the positioner's own
+    /// firing-hold slack, read rather than copied, because the two are the same question — whether the thing is
+    /// still where the verdict was taken about it — and a second number here would drift from that one silently.
+    /// </summary>
+    private static float TargetSlackPx => Infrastructure.Selection.Weights.FiringHoldTargetSlackPx;
+
+    private static bool StillAbout(Vector2 remembered, NPC enemy)
+        => Vector2.DistanceSquared(remembered, enemy.Center) <= TargetSlackPx * TargetSlackPx;
 
     /// <summary>Arsenal outcome value at the best solved pose of the last <see cref="Resolve"/>.</summary>
     public float LastShotValue { get; private set; }
@@ -77,7 +87,12 @@ public sealed class ResolveFiringOpportunity
         Point feet = Infrastructure.Movement.MovementQueries.FeetTile(ctx.Npc.Bottom);
         var origin = new Point(feet.X >> 2, feet.Y >> 2);
         int terrain = Infrastructure.Movement.TerrainChanges.Revision;
+        // Where the target stood when the answer was taken is part of the key, for the same reason the body's own
+        // position is. The verdict is about a line between two places, so it goes stale when either end moves; the
+        // key carried only the companion's end, so a target that walked out from behind its rock kept the answer
+        // taken while it was behind it for the whole of the tick window.
         if (cache.TryGetValue(key, out var cached) && cached.origin == origin && cached.terrain == terrain
+            && StillAbout(cached.target, enemy)
             && unchecked(ctx.Senses.Tick - cached.at) < FiringCacheTicks)
         {
             LastShotValue = cached.value;
@@ -85,7 +100,7 @@ public sealed class ResolveFiringOpportunity
         }
 
         var answer = Scan(ctx, enemy);
-        cache[key] = (ctx.Senses.Tick, origin, terrain, answer.Verdict, answer.AccessTicks, answer.Value);
+        cache[key] = (ctx.Senses.Tick, origin, terrain, enemy.Center, answer.Verdict, answer.AccessTicks, answer.Value);
         LastShotValue = answer.Value;
         return (answer.Verdict, answer.AccessTicks);
     }
@@ -104,7 +119,19 @@ public sealed class ResolveFiringOpportunity
     /// advances a scan's worth each time the answer stays unsettled and wraps, so a sweep completes across
     /// rescores — and only a completed sweep with nothing solved earns <see cref="FiringAccess.None"/>.
     /// </summary>
-    private readonly Dictionary<(int slot, int generation), (int cursor, int terrain, int examined)> sweep = new();
+    /// <summary>
+    /// The sweep's progress per target, scoped to where that target was standing while the progress was made.
+    ///
+    /// <para>The stands are rebuilt around the enemy's own feet on every scan, so a target that has walked is a
+    /// different set of stands — while the examined count accumulated across scans with nothing tying it to the
+    /// target's position. So the count could reach the set's size having asked only about stands around places the
+    /// enemy has left, and the answer was <see cref="FiringAccess.None"/>: a proven absence of any firing position,
+    /// which protection reads as a threat it cannot shoot and hunting as a target not worth approaching. That is the
+    /// same exhausted-bound-reported-as-a-fact defect this class already closed one way, surviving through the
+    /// target's motion instead of through the budget. The positioner's own refusal memory scopes on the target's
+    /// centre for exactly this; this sibling did not.</para>
+    /// </summary>
+    private readonly Dictionary<(int slot, int generation), (int cursor, int terrain, Vector2 target, int examined)> sweep = new();
 
     private (FiringAccess Verdict, float AccessTicks, float Value) Scan(in ActionContext ctx, NPC enemy)
     {
@@ -140,9 +167,16 @@ public sealed class ResolveFiringOpportunity
         int solves = 0;
         int terrain = Infrastructure.Movement.TerrainChanges.Revision;
         var sweepKey = (enemy.whoAmI, HostileAttackSources.Generation(enemy));
-        bool resumed = sweep.TryGetValue(sweepKey, out var mark) && mark.terrain == terrain;
+        bool resumed = sweep.TryGetValue(sweepKey, out var mark) && mark.terrain == terrain
+            && StillAbout(mark.target, enemy);
         int start = resumed && mark.cursor < stands.Count ? mark.cursor : 0;
         int examined = resumed ? mark.examined : 0;
+        // The anchor is where the target stood when this sweep began, carried forward unchanged, never where it
+        // stands on the scan writing the mark. Re-anchoring each scan would let a walking enemy drift as far as it
+        // liked in slack-sized steps while every step stayed inside the slack, and the sweep would report having
+        // asked about stands around a place the enemy left long ago — which is the defect, reassembled out of
+        // several small moves instead of one large one.
+        Vector2 anchor = resumed ? mark.target : enemy.Center;
         if (!resumed) { start = 0; examined = 0; }
         for (int offset = 0; offset < stands.Count && solves < MaxStandSolvesPerTarget; offset++)
         {
@@ -150,7 +184,7 @@ public sealed class ResolveFiringOpportunity
             var stand = stands[index];
             solves++;
             examined++;
-            sweep[sweepKey] = ((index + 1) % stands.Count, terrain, examined);
+            sweep[sweepKey] = ((index + 1) % stands.Count, terrain, anchor, examined);
             if (!arsenal.ShotSolves(ctx, stand.Eye, enemy)) continue;
             float value = arsenal.BestShotValueFrom(ctx, stand.Eye, enemy);
             if (value > bestValue) bestValue = value;
