@@ -148,52 +148,96 @@ No duration is attached, because the log holds no comparable unit to price a too
 
 ## The 0.24.0 play of 14 September, read as classes, and how each is proven by this harness
 
-The 13:27 capture (22,473 rows, schema 0.32.0, source 3d8b75e) is the first play of the two root fixes, and the owner's report of it names five symptoms. The record supports four of them, refutes the mechanism he guessed for the fifth, and adds three he did not name. Every one traces to a class rather than a place, and every class has a row in this harness that would have gone red before he played.
+The 13:27 capture (22,473 rows, schema 0.32.0, source 3d8b75e) is the first play of the two root fixes. The owner's report names six symptoms and three things that now work. Three independent traces were run on the record and the source without seeing each other or this section (the evidence pack carried the report verbatim, the tools and the paths, and no hypotheses), and the section below is their convergence plus the main thread's own measurements, with every number re-derived from the TSV and the events rather than taken from a return. Two numbers in the first version of this section were wrong and are corrected here: the companion was not "ahead on none" of the moving rows, and the 426 events counted as terrain edits are terrain-snapshot captures.
 
 ```
 symptom                                   what the record shows                                          class
-never overtakes, stops at the box edge    while the player moves, the companion is behind by more than   R1  the follow objective is a box around the player,
-                                          three tiles on 4,142 rows and ahead on none; horizontal             not a relation to the player's motion; inside the
-                                          comfort is 240 px and the pull inside the box is zero              box the pull is zero, so a moving player is followed
-                                                                                                             from fifteen tiles behind by construction
-the jump onto the platform fails,         149 jumps begun, 72 completed, 70 interrupted (68 cancelled       R4  a committed move is not atomic: a replan or a new
-stops mid-air and falls                   by a replan or a new request), 5 mislands, 4 refusals; both           request cancels a body in flight and its in-air
-                                          refused edges land offline from their recorded entry states           steer stops; drops lose 39 of 72 the same way
-does not know it can reach some places    reach flood unfinished on 9,812 of 22,473 rows (44%); 426        R2  one world-global clock: any tile edit anywhere
-                                          terrain edits in six minutes, each restarting the whole flood         restarts every retained search and the whole reach
-                                          and every retained search                                            flood, and the flood only advances on a resolve
-slow to go for a torch site or a drop     the same 44%: optional work refuses on an unfinished flood;      R2, R3  a drop is read at rest, never forecast: the
-until it lands                            a drop's contact pose needs a standable floor within a tile           contact pose needs a floor the falling item has
-                                          of the item, which a falling item has not got                        not reached, though every other moving thing is
-                                                                                                               forecast
-(not named) a behaviour every 90 ticks    250 switches, 128 combat attempts replaced before acting,        R5  re-election without commitment: no hysteresis on
-                                          guard held 27 ticks on average                                       a winner's margin; the decision rows already carry
-                                                                                                               every activity's score, so the margin is computable
-(not named) the gun is silent             fire reads no-target on 20,220 rows; 72 ticks fired in six       R7  feet and hands disagree on what is shootable: the
-                                          minutes; 1,226 ticks with a reachable hostile and no target           hunt walks to a firing position the arsenal never
-                                                                                                               accepts, and R5 replaces it before it arrives
-(not named) arrives at its own tile and   the navigator arrives at a stand the positioner chose while     R6  the fallback stand when the player is unreachable
-holds with the player twenty tiles up     the follow objective stays unsatisfied for 329 ticks; the            is the body's own tile, and arrival there ends the
-                                          native replay reproduces the hold with no rejection at all           request instead of naming the missing route
+never overtakes, stops at the box edge    on the 7,901 rows where the player moves faster than          R1  a zero-gradient follow box: satisfaction is a
+                                          1.2 px/tick the companion is behind by more than three            symmetric 240 x 96 px predicate on the player's
+                                          tiles on 71.5% and ahead by more than four on 4.7%, median         current feet with no velocity term, and inside it
+                                          181 px behind; on 33% of sustained travel it is resting or          the reunion pull is exactly zero, so keep-company
+                                          strolling; the priced lead fired on 3 rows because a place          scores its wander floor and any rival wins; the
+                                          is decided only on a finished flood and the flood is                one lead mechanism exists and is starved by R2
+                                          "meeting-undecided" on 2,835 of the moving rows
+the jump onto the platform fails,         149 jumps begun, 72 completed, 70 interrupted (68 cancelled,   R4  no commitment window between chooser and motor:
+stops mid-air and falls                   2 pre-empted), 5 mislands, 4 refusals; 36 cancellations were       a voluntary Hold or a method change reaches
+                                          in the air with the navigator left Idle, and 27 of those were       Navigator.Interrupt with no ground or mid-move
+                                          keep-company's own request going WithPlayer to Hold on a             gate, the path and step are nulled and the motor
+                                          tick the box read as satisfied while both bodies were               gets no controls mid-arc; the airborne stops are
+                                          airborne (ticks 8127 to 8128 are the whole mechanism);               the record's 30 "airborne-no-sideways-speed"
+                                          15 were grounded route replacements; drops lose 39 of 72;            stops; the cadence replan's mid-move guard covers
+                                          both refused edges land offline from their recorded states           one of the two ways a plan starts, and that path
+                                                                                                               is ground-gated, so it is the minority
+the same jump, over and over              the objective is unsatisfied again the moment the cut body     R1 + R4 as one loop: satisfied in the air, held,
+                                          lands outside the box, reunion wins, the same edge is                fallen, unsatisfied, replanned; the proof was
+                                          replanned; NavReplay lands the edge 10 of 10 from its own              never wrong
+                                          poses; that edge needs 120 ticks of uninterrupted ownership
+                                          (77 of them run-up) against a median activity run of 18 ticks
+does not know it can reach some places    reach flood unfinished on 9,812 of 22,473 rows (44%);          R2  one world-global clock: ObserveReach refloods
+                                          the two-way region averages 177 tiles and is within 1.5% of        from nothing and ContinueRouteSearch invalidates
+                                          the raw region, so the return requirement is not what binds;        on any change to TerrainChanges.Revision, which
+                                          the edit rate itself is not in the record (the revision              any tile anywhere bumps; the flood advances only
+                                          counter is not a column; the 426 are snapshot captures)              on a resolve, 400 tiles per advance
+slow to go for a torch site or a drop     lighting is Usable on 255 rows (1.1%) and "not yet known       R2, R3  a drop is read at rest: the contact pose needs
+until it lands                            reachable" on 75% of the rest; collect refuses 431 rows as            a standable floor within 16 px of the item's
+                                          drop-has-no-contact-pose and holds every tick a proven drop           current bottom, and execution holds while the
+                                          has moved more than 16 px, which a falling drop always has            item has moved a tile since its proof
+a slime arrives and it stops; hunts       250 switches; on the flip tick the incumbent's own offer      R5  two mechanisms, one pair: hunt loses because its
+ceiling slimes it cannot reach            was already invalid on 129 (hunt 64, guard 53, collect 9,           bounded stand search (8 solves or 2 ms) ran out
+                                          torches 3) and outscored on 121 (keep-company 101, hunt            and the cut is reported as KnownUnusable, the
+                                          20); keep-company and hunt swap on 120 of the 250; hunt is        label for a proven impossibility; keep-company
+                                          KnownUnusable on 303 of 624 decisions, 50 of its 84 losses         loses because inside the box it scores the floor
+                                          are "no usable destination established"; the median winner        (R1); the incumbent bonus is 1.15 against a
+                                          to incumbent ratio on outscored flips is about 3.85                 median 3.85, so no margin would hold it
+(not named) the gun is silent             fired on 72 ticks; no-target on 20,220; by activity, keep-     R7  the feet are never sent: with hunt chosen the
+                                          company reads no-target on 98% of 16,600 rows while hunt            hands fire or cool on 43% of ticks, with keep-
+                                          fires or cools on 43% of 3,385; the positioner and the               company they have a target on 2%; the hands are
+                                          arsenal share one trajectory solver, and 50 of 82 arrows             not the defect, R5 is; the solver accepting arcs
+                                          met terrain                                                          the world blocks is a separate open question
+(not named) arrives at its own tile and   partial-progress-candidate on 328 rows at one spot with       R6  a destination with no exit condition: the fallback
+holds with the player twenty tiles up     nav Arrived and follow-vertical-gap, flood complete, no             compares tile-quantised positions while arrival is
+                                          state search, 22 sibling stretches; the native replay                12 px, so it can name the tile the body is already
+                                          reproduces the hold for 200 ticks with no rejection                  arrived at, and it declares no success region
+                                                                                                               (the quantisation arithmetic is inferred, untested)
+(not named) the chosen stand churns       the success-region revision changes 1,017 times, once every  R8  no commitment at the destination layer either:
+under an unchanged request                ~22 ticks; WithPlayer journeys asked 222, reached 13,               a lattice re-sampled around a moving anchor with
+                                          abandoned 209; 287 walks cancelled, about 120 of them                24 px of slack, and every method change is a
+                                          keep-company's own method flipping WithPlayer/Exact/Hold             cancellation of the move in hand (R4's class)
+(not named) stops inside walk steps       316 stops, 215 of them inside-walk-step (1,396 ticks) on a    R9  per-step entry costs on a chain of steps: a from-
+                                          grounded body with the step unchanged; 76 a minute                  rest step makes the step before coast to a stop;
+                                                                                                               the underground slowness he felt; open, not this
+                                                                                                               round's
+(not named) jumps regressed from 0.23.0   0.23.0: 69 begun, 39 completed (56.5%); 0.24.0: 149 begun,    the movement lane closed refusals (684 to 4), so
+                                          72 completed (48.3%), cancellations 36% to 46% of begun            twice the jumps are offered and R4 cancels them
+(not named) no gathering evidence         chop is PolicyForbidden (mimic-awaiting-player-tree-contact)   the in-game Mimic setting, not a defect; mining is
+                                          on every row; gathering produced zero attempts                     R2-starved; "spends most of its time following"
+                                                                                                             is partly configuration
 ```
 
-The owner's own hypothesis for the platform jump was a planner reading the world wrong. It is refuted on his jump: NavReplay lands both refused edges from the exact entry states the record holds, and the native replay of the held tick shows no refusal, so the plan is right and the flight is cut short by whoever replaces the request while the body is in the air. The four refusals the census counts are the residue of the class the movement lane closed (684 in the 09:28 capture); the 23 "held body" stretches the report raised are the persistent-rejection check reading a retained last-rejection field beside a body holding for R6's reason, which is a false-positive class in that check (I1 below).
+The owner's two hypotheses come out differently. The platform jump was not the planner reading the world wrong: NavReplay lands the edge from every captured pose and the native replay of the held tick shows no refusal, so the plan is right and the flight is cut by keep-company's own Hold. The hunt flicker was, as he said, hunting being invalid at the moment of the flip, and the mechanism is the bounded stand search's budget cut being consumed as a proven absence; the chooser-level commitment margin proposed before that measurement is withdrawn, because it would hold an offer that cannot be executed, which is the ceiling-slime case exactly, and Path 2's own note warns that activity and local retention combine into stubbornness.
+
+Where the three traces converged and where they did not, because the divergence is the finding: all three, independently, landed on the ungated Interrupt with no commitment window, on the budget cut reported as KnownUnusable, on the zero-gradient box, on the world-global revision and on the drop read at rest. One trace put the jump death on the cadence replan's stale branch skipping the mid-move guard; that mechanism is real at source and ground-gated, so it accounts for the 15 grounded replacements and not the 36 airborne stops. One trace split the flips 203 chooser to 47 validity; the same flips measured on the incumbent's own offer at the flip tick split 121 to 129, matching the third trace, so the first split read the score a tick early. One trace proposed the hands asking position selection for a stand with a shot; refused, because it makes the arsenal a second owner of "where to stand" and the cross-tab says the gun works whenever the feet are at a stand. One trace read the meeting place's "player-not-travelling" as a broken travel test; 4,540 of its 5,459 rows are on still rows, and the moving rows are dominated by "meeting-undecided", which is R2.
 
 Each class closes by construction, and each has its harness row:
 
-- **R1** The follow objective becomes a function of the player's motion state, one definition read by satisfaction, destination acceptance and the reunion value: for a travelling player the target is the leading edge of the heading box and "with the player" means on the heading side; for a standing player it is the box as now. Row: a route with an authored straight walk, the companion ahead of the player for more than half the walk; the 13:27 recorded track, ahead-rows greater than behind-rows.
-- **R2** Knowledge is invalidated where it happened: a terrain revision carries its tile, a retained search or flood is restarted only if its explored region contains that tile, and the flood advances on the tick rather than only on a resolve. Row: the 13:27 track replayed, reach-complete share above 90 percent; a fixture that edits a tile outside a flood's region and asserts the flood is untouched.
-- **R3** One motion forecaster for every moving thing (the player, hostiles and drops through the same observed-motion track), and collection walks to the forecast landing. Row: a drop released mid-air, the walk begins before it lands.
-- **R4** A move in flight is atomic: a replan or a changed request lands the body first and re-plans from the landing; only safety may pre-empt an airborne body, and it does so through the same navigator. Row: the census's cancelled-in-flight count at zero on every route; the corpus follow pass unchanged.
-- **R5** Commitment is a rule with a margin: an incumbent is replaced only when the challenger's value exceeds it by a band, or after its own attempt concludes, and the decision row carries winner, runner-up and margin so the scoreboard can read it. Row: switches per minute and attempts replaced before acting, from the recorded tracks, with a declared ceiling.
-- **R6** A stand that does not satisfy the request is not an arrival: the positioner returns the missing-route class with the request open, and the navigator's failure names it. Row: follow-vertical-gap with status Arrived never co-occurs.
-- **R7** One shootability answer, from one solver, read by the hunt when it prices a firing position and by the arsenal when it aims; a position the arsenal would refuse is not a firing position. Row: fired ticks over ticks with a reachable hostile in range, with a floor.
+- **R1** The follow box becomes the player's intent region, a sense every consumer reads: its centre is the player's feet plus a lead of velocity times a lead time, low-pass filtered and clamped at the screen edge; it grows with the lead, vertically too; the pull is continuous from the centre outward and never exactly zero while the player travels; satisfaction is judged from the ground, never on an airborne tick; reunion, the work radius, the light search centre and the collect radius all measure to the box. Row: a route with an authored straight walk, signed offset along the player's travel direction on moving rows, ahead-rows greater than behind-rows; the 13:27 track replayed, the same statistic, with 4.7% ahead-by-four-tiles as the baseline.
+- **R2** Knowledge is invalidated where it happened: a terrain revision carries its tile, a retained search or flood is restarted only if its explored region contains that tile, and the flood advances on the tick rather than only on a resolve. Row: the 13:27 track replayed, reach-complete share above 90 percent; a fixture that edits a tile outside a flood's region and asserts the flood is untouched; the revision counter recorded per row so the edit rate is a number.
+- **R3** One motion forecaster for every moving thing (the player, hostiles and drops through the same observed-motion track), and collection proves its pose at the forecast landing. Row: a drop released mid-air, the walk begins before it lands; drop-has-no-contact-pose at zero on the replayed track.
+- **R4** A move in flight is atomic: a voluntary release (Hold, a method change, a new goal) lands the body first and takes effect at the landing; only a pre-empting owner (safety, downing, recovery) takes an airborne body, through the same navigator. Row: the census's cancelled-in-flight count at zero on every route; airborne-no-sideways-speed stops at zero; jump completion above the 0.23.0 rate; the corpus follow pass unchanged.
+- **R5** Offer validity is three-valued and time-aware: a stand search that ran out of solves or time returns Unresolved and the incumbent keeps its destination; only a search that solved every candidate returns KnownUnusable; the shot is solved against the target's forecast over a short window, and no stand is offered whose shot window is shorter than the trip. Row: validity-driven switches from the recorded tracks with a declared ceiling; hunt's KnownUnusable share; the decision row carries winner, runner-up and margin.
+- **R6** A stand that does not satisfy the request is not an arrival: the partial-progress fallback must beat the navigator's arrival radius from the body's actual feet and must declare its region, or return nothing and hand the request to the state search. Row: follow-vertical-gap with status Arrived never co-occurs.
+- **R7** Folded into R5: a firing position exists whenever the arsenal's solver would accept it, and the feet are sent there. Row: fired ticks over ticks with a reachable hostile in range, with a floor; hands-by-activity cross-tab.
+- **R8** A chosen destination holds until reached, invalidated or released, and a method change inside one purpose is not a cancellation of the step in hand. Row: journeys reached over asked, per request kind, with a floor.
+- **R9** Open and named: the walk chain's entry costs. Row: inside-walk-step stops per minute, recorded now, ceiling declared when the fix is designed.
 
 Instrument findings from the same read, which the harness plan absorbs:
 
 - **I1** `CheckPersistentRejections` reads the retained last-rejection beside a still body and cannot tell a refusal issued this sample from one issued minutes ago; the census counted 4 refusals where the check raised 23 stretches. A refusal event must carry its own tick, and the check reads that.
 - **I2** `--replay-water` had no tile hooks and no movement trace (fixed at 6379e27) and has no player track: a follow decision cannot be reproduced without the recorded player, which is the world run's recorded-track mode and not optional.
-- **I3** The decision rows already hold every activity's score per comparison; the flip check should compute the margin from them rather than asking a reader to.
+- **I3** The decision rows already hold every activity's score per comparison; the flip check should compute the margin from them rather than asking a reader to, and the 624 decision events are coalesced records, not a cadence: the chooser runs every tick (choice_id changes 22,240 times).
+- **I4** `TerrainChanges.Revision` is not recorded, so the one number R2's whole argument rests on, the edit rate, cannot be read from a capture. The recorder gains it per row.
+- **I5** `--compare-jump 3409,627,3411,622` proves no edge over any captured window while the live navigator held a step for that pair with a 27-tick flight; either the windows postdate the live terrain or the generator and the macro proof disagree at that pose. Open; the native replay at tick 17174 is the first check.
+- **I6** The first version of this section's "ahead on none" came from a reader's own filter, not from an instrument. The recorded-track row defines "ahead" as the signed offset along the player's travel direction on rows where the player moves, so the number is produced by the harness and not by whoever last opened the file.
 
 ## Sources this plan rests on
 
