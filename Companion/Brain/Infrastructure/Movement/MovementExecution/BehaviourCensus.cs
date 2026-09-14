@@ -73,6 +73,14 @@ public static class BehaviourCensus
     private static readonly int[] walkBegun = new int[3];
     private static readonly int[] walkCompleted = new int[3];
 
+    /// <summary>
+    /// Voluntary releases the navigator held until the move in hand landed, per kind of move that
+    /// was in hand. These are the cancellations that used to cut a jump or a drop in the air (36
+    /// jumps and 8 drops in the 13:27 capture of 14 September); counted apart so the cancelled
+    /// column above dropping is readable as this row rising, and not as the brain asking less.
+    /// </summary>
+    private static readonly int[] releasesDeferred = new int[Kinds];
+
     private static readonly Dictionary<string, (int asked, int reached)> requests = new(StringComparer.Ordinal);
     private static string? episode;
     private static bool episodeReached;
@@ -93,6 +101,7 @@ public static class BehaviourCensus
         Array.Clear(walkPlanned);
         Array.Clear(walkBegun);
         Array.Clear(walkCompleted);
+        Array.Clear(releasesDeferred);
         requests.Clear();
         episode = null;
         episodeReached = false;
@@ -125,6 +134,13 @@ public static class BehaviourCensus
     }
 
     /// <summary>The step ended, either done (<see cref="TraversalFault.None"/>) or faulted with a reason, and <paramref name="ending"/> says who ended it.</summary>
+    /// <summary>A voluntary release arrived while this step was committed and was held until it landed.</summary>
+    public static void ReleaseDeferred(NavStep step)
+    {
+        int k = (int)step.Kind;
+        if (k >= 0 && k < Kinds) releasesDeferred[k]++;
+    }
+
     /// <summary>A step the macro proof refused from the live body before the attempt began, with the fault the proof predicted.</summary>
     public static void Refused(NavStep step, TraversalFault predicted)
     {
@@ -235,6 +251,17 @@ public static class BehaviourCensus
         sb.AppendLine("  move           completed physical-failure pre-empted  cancelled");
         for (int k = 0; k < Kinds; k++)
             sb.AppendLine($"  {((MoveKind)k).ToString(),-14}{endings[k, (int)AttemptEnding.Completed],10:n0} {endings[k, (int)AttemptEnding.PhysicalFailure],16:n0} {endings[k, (int)AttemptEnding.Preempted],10:n0} {endings[k, (int)AttemptEnding.Cancelled],10:n0}");
+        sb.AppendLine();
+        sb.AppendLine("  releases held until the move in hand landed, which used to be cancellations in the air");
+        bool anyDeferred = false;
+        for (int k = 0; k < Kinds; k++)
+        {
+            if (releasesDeferred[k] == 0) continue;
+            anyDeferred = true;
+            sb.AppendLine($"  {((MoveKind)k).ToString(),-14}{releasesDeferred[k],8:n0}");
+        }
+        if (!anyDeferred)
+            sb.AppendLine("    none, which means no request was withdrawn while the body was committed to a move");
         sb.AppendLine();
         sb.AppendLine("  walks by direction, because a descent refused and a descent failed are different defects");
         string[] labels = { "up (a kerb)", "flat", "down (a slope or lip)" };

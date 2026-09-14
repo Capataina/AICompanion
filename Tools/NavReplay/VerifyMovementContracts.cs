@@ -133,12 +133,13 @@ internal static class VerifyMovementContracts
         VerifyRetainedSearchAndExperience();
         VerifyProvenJumpsAreFlyable();
         VerifyEntryRejectionIsLearned();
+        VerifyCommittedMoveSurvivesRelease();
         Require(new WalkTraversal().EntryDependsOnNext && !new DropTraversal().EntryDependsOnNext,
             "successor-sensitive walks cannot be excluded before their successor is known");
         Require(!new JumpTraversal().EntryDependsOnNext,
             "a jump's steering, arrival and fault tests never read the next step, so its entry failure can exclude the edge");
 
-        Console.WriteLine("movement contracts: unsafe controls, retained threats, capability chains, liquid exit, macro isolation, walk stalls, search limits, interruption outcomes, flyable jump proofs and learned entry rejections passed");
+        Console.WriteLine("movement contracts: unsafe controls, retained threats, capability chains, liquid exit, macro isolation, walk stalls, search limits, interruption outcomes, flyable jump proofs, learned entry rejections and releases deferred to a landing passed");
         return 0;
     }
 
@@ -455,6 +456,84 @@ internal static class VerifyMovementContracts
         Require(navigator.FaultCount <= 1,
             $"a sub-tile entry the edge was not proven from may cost one priced refusal and a replan, never a run of them; faults={navigator.FaultCount} first fault {firstFault}");
         Require(worstStationary < 10, "the recorded entry must not stand the body still while it decides");
+    }
+
+    /// <summary>
+    /// A voluntary release (a Hold, a method change) issued while the body is committed to a move
+    /// waits for the move to land; a pre-emption does not. The 13:27 capture of 14 September is
+    /// the case: keep-company read its follow box as satisfied one tick after take-off, handed
+    /// movement a Hold, and the navigator dropped the jump in the air, so the body fell short and
+    /// replanned the same jump for ever. The world here is a floor with a two-tile ledge, which a
+    /// walk cannot climb and a jump can, so the route holds exactly one jump.
+    /// </summary>
+    private static void VerifyCommittedMoveSurvivesRelease()
+    {
+        var world = new LedgeWorld();
+        NavGrid.World = world;
+        AStar.InvalidateEdges();
+        AStar.AllowLava = false;
+        var nav = new Navigator();
+        var live = new BodyState(6 * 16, 10 * 16, 0, 0, true);
+        var target = new Vector2(24 * 16 + 8, 8 * 16);
+        int completedBefore = nav.CompletedAttempts, cancelledBefore = nav.CancelledAttempts;
+        bool released = false; int airborneTicks = 0, ticks = 0; NavStep? jump = null;
+        for (; ticks < 1200 && !nav.Arrived; ticks++)
+        {
+            Controls controls;
+            if (!released && nav.Path is { Finished: false } path && path.Current.Kind == MoveKind.Jump && !live.OnGround)
+            {
+                // The brain withdraws its request one tick into the flight, as keep-company did.
+                jump = path.Current;
+                nav.Interrupt(live, AttemptEnding.Cancelled, "released");
+                released = true;
+                Require(nav.ReleasePending, "a release issued in the air must be deferred, not applied");
+                Require(nav.Path is { Finished: false }, "a deferred release must leave the path in hand");
+                controls = nav.ContinueCommitted(live);
+                Require(controls != Controls.None, "a body in the air keeps its in-flight steer while the release waits");
+            }
+            else if (released && nav.ReleasePending)
+                controls = nav.ContinueCommitted(live);
+            else if (released)
+                break;
+            else
+                controls = nav.MoveTo(live, target);
+            if (!live.OnGround) airborneTicks++;
+            live = BodyMotion.Step(world, live, controls, nav.Capabilities);
+        }
+        Require(released, $"the route onto the ledge must contain a jump the body flies, or this measures nothing (ticks={ticks}, status={nav.Status})");
+        Require(!nav.ReleasePending && nav.Path == null && nav.Status == Navigator.ExecutionStatus.Idle,
+            $"the deferred release must apply once the jump lands (pending={nav.ReleasePending}, status={nav.Status})");
+        Require(nav.CompletedAttempts >= completedBefore + 1,
+            $"the jump must complete before the release is applied (completed +{nav.CompletedAttempts - completedBefore}, cancelled +{nav.CancelledAttempts - cancelledBefore})");
+        Require(nav.CancelledAttempts == cancelledBefore,
+            $"a release deferred to the landing must not add a cancelled step to the census (cancelled +{nav.CancelledAttempts - cancelledBefore})");
+        Require(nav.DeferredReleases == 1, $"one release was deferred, and the count reads {nav.DeferredReleases}");
+        Require(live.OnGround && live.Bottom <= 8 * 16 + 1, $"the body must land on the ledge rather than fall short (bottom={live.Bottom})");
+        Console.WriteLine($"   committed move survives release: jump {jump?.From.X},{jump?.From.Y}->{jump?.Tile.X},{jump?.Tile.Y} released in the air, {airborneTicks} airborne ticks, landed at bottom={live.Bottom} after {ticks} ticks; completed +{nav.CompletedAttempts - completedBefore}, cancelled +{nav.CancelledAttempts - cancelledBefore}, deferred {nav.DeferredReleases}");
+
+        // The counterpart: a release on a grounded walk applies at once, and a pre-emption in the
+        // air applies at once, because the pre-empting owner supplies the body's controls itself.
+        var walker = new Navigator();
+        var onFloor = new BodyState(6 * 16, 10 * 16, 0, 0, true);
+        Controls first = walker.MoveTo(onFloor, new Vector2(12 * 16, 10 * 16));
+        onFloor = BodyMotion.Step(world, onFloor, first, walker.Capabilities);
+        walker.MoveTo(onFloor, new Vector2(12 * 16, 10 * 16));
+        walker.Interrupt(onFloor, AttemptEnding.Cancelled, "released");
+        Require(!walker.ReleasePending && walker.Path == null, "a release on a grounded walk is applied at once");
+        var airborne = onFloor with { OnGround = false, Vy = -6f };
+        walker.MoveTo(onFloor, new Vector2(12 * 16, 10 * 16));
+        walker.Interrupt(airborne, AttemptEnding.Preempted, "state-search");
+        Require(!walker.ReleasePending && walker.Path == null, "a pre-emption is never deferred");
+    }
+
+    /// <summary>A floor at row 10 with a two-tile-high ledge from column 20 onward, so a route east holds one jump.</summary>
+    private sealed class LedgeWorld : ITileWorld
+    {
+        public bool InWorld(int x, int y) => x >= 0 && x < 60 && y >= 0 && y < 40;
+        public TileShape Shape(int x, int y) => (x >= 20 ? y >= 8 : y >= 10) ? TileShape.Solid : TileShape.Air;
+        public bool PassThrough(int x, int y) => false;
+        public bool Water(int x, int y) => false;
+        public bool Lava(int x, int y) => false;
     }
 
     private class FloorWorld : ITileWorld

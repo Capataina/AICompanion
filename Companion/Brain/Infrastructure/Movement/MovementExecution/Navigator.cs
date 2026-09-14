@@ -190,6 +190,23 @@ public sealed class Navigator
     private TraversalExecution? execution;
     private int ticksOnStep;
     private bool stepFaulted;
+    // A voluntary release that arrived while the body was committed to a move (airborne, or inside
+    // a jump's back-off and run-in) is held here until the move lands, because the executor and
+    // not the activity supplies the boundary at which an airborne manoeuvre can stop. The 13:27
+    // capture of 14 September holds the case that made this necessary: keep-company read its
+    // follow box as satisfied one tick after take-off, because the player was passing overhead
+    // mid-jump, handed movement a Hold, and the navigator dropped the step in the air; the body's
+    // horizontal steer went to zero while it was still rising, it fell short of the platform,
+    // landed outside the box, and the same jump was replanned — 36 of 65 cancelled jumps and all
+    // 8 cancelled drops in that play ended airborne with the navigator left Idle. A pre-emption
+    // (safety, downing, recovery) still takes the body at once, because those owners supply
+    // their own controls; only a release that would leave the body with none is deferred.
+    private string? pendingRelease;
+    private Vector2 lastTargetFeet;
+    /// <summary>A voluntary release is waiting for the committed move in hand to land.</summary>
+    public bool ReleasePending => pendingRelease != null;
+    /// <summary>Releases deferred to a landing, counted once per deferral rather than per tick held.</summary>
+    public int DeferredReleases { get; private set; }
     private BodyState observed, entryState;
     private BodyState? expectedBody;
     private bool attemptContinuous;
@@ -207,6 +224,46 @@ public sealed class Navigator
 
     /// <summary>The controls that move the body toward <paramref name="targetFeet"/> this tick; <see cref="Arrived"/> says whether it is there.</summary>
     public Controls MoveTo(BodyState live, Vector2 targetFeet)
+    {
+        // A live request again: whatever release was waiting is withdrawn, not applied.
+        pendingRelease = null;
+        lastTargetFeet = targetFeet;
+        return Tick(live, targetFeet);
+    }
+
+    /// <summary>
+    /// Steers the committed move a deferred release is waiting on, toward the goal it was asked
+    /// for, and applies the release on the first tick the body is no longer committed. The caller
+    /// asks this instead of returning no controls, so a body in the air keeps its in-flight steer.
+    /// </summary>
+    public Controls ContinueCommitted(BodyState live)
+    {
+        if (pendingRelease is not string cause) return Controls.None;
+        if (Committed(live)) return Tick(live, lastTargetFeet);
+        // The move has landed. A step whose Done is true is reported completed before the
+        // release drops the path, or the census would read the landing as a cancellation, which
+        // is the very row this deferral exists to empty.
+        if (onStep is NavStep landed && execution?.IsDone(live) == true)
+        {
+            Report(landed, ticksOnStep, TraversalFault.None, AttemptEnding.Completed);
+            onStep = null;
+            execution = null;
+        }
+        pendingRelease = null;
+        Interrupt(live, AttemptEnding.Cancelled, cause);
+        return Controls.None;
+    }
+
+    /// <summary>
+    /// A body is committed while it is airborne, or while its step is in the part of a move a fresh
+    /// plan would undo (a jump's back-off and run-in, a validated preparation prefix). A grounded
+    /// walk is not: it can stop on any tick, and a release stops it at once.
+    /// </summary>
+    private bool Committed(BodyState live)
+        => Path is { Finished: false } && onStep != null
+            && (!live.OnGround || local.Preparing || (execution?.MidMove ?? false));
+
+    private Controls Tick(BodyState live, Vector2 targetFeet)
     {
         clock++;
         if (expectedBody is BodyState expected && !PlanLocalMovement.Matches(expected, live))
@@ -257,6 +314,7 @@ public sealed class Navigator
             answerWaitTicks = 0;
             Arrived = true;
             Status = ExecutionStatus.Arrived;
+            pendingRelease = null;
             search?.Dispose(); search = null; SearchPending = false;
             BehaviourCensus.RequestReached();
             return Controls.None;
@@ -362,12 +420,18 @@ public sealed class Navigator
             forceReplan = true;
             stale = true;
         }
-        // A moved goal waits for the run-up the same way the cadence does. It did not, and the
-        // consequence was that a replan could land in the middle of a jump backing away to its
-        // runway mark: the fresh plan offered the mirror jump from the same take-off, the body
-        // turned round, and it circled between two jumps with nothing ever faulting. The mid-move
-        // guard exists for exactly that and was applied to one of the two ways a plan starts.
-        bool replan = goalMoved ? !midMove || stuck : stale;
+        // Both ways a plan starts wait for the run-up. A moved goal did not, and the consequence was
+        // that a replan could land in the middle of a jump backing away to its runway mark: the
+        // fresh plan offered the mirror jump from the same take-off, the body turned round, and it
+        // circled between two jumps with nothing ever faulting. The stale branch did not either,
+        // and a terrain revision anywhere in the world (the counter is global) replaced a grounded
+        // run-up with a fresh plan; the 13:27 capture of 14 September holds 15 jumps replaced on
+        // the ground that way. A stuck body still replans, because standing still is the one thing
+        // a committed move never legitimately does. A stale search under a committed move is safe
+        // to leave until the move lands: the macro proof re-validates its retained controls against
+        // the terrain revision every tick, so a step the edit actually broke faults and replans
+        // from there rather than being trusted.
+        bool replan = goalMoved ? !midMove || stuck : stale && (!midMove || stuck);
         if (search != null && !goalMoved && !forceReplan && !policyChanged && search.Valid
             && (!search.Finished || search.Stop == AStar.SearchStopReason.Found && (Path == null || Path.Partial)))
         {
@@ -458,8 +522,20 @@ public sealed class Navigator
     /// </summary>
     public void Interrupt(BodyState live, AttemptEnding ending = AttemptEnding.Cancelled, string cause = "released")
     {
-        Status = ExecutionStatus.Idle;
         bool preempted = ending == AttemptEnding.Preempted;
+        // A voluntary release cannot stop a move in the air or inside its run-up: it is held until
+        // the move lands and applied by ContinueCommitted, which keeps steering meanwhile. The
+        // caller reads ReleasePending to know it must ask for those controls. A pre-emption is
+        // never deferred, and it withdraws any release that was waiting, because the pre-empting
+        // owner is about to supply the body's controls itself.
+        if (!preempted && Committed(live))
+        {
+            if (pendingRelease == null) { DeferredReleases++; BehaviourCensus.ReleaseDeferred(onStep!.Value); }
+            pendingRelease = cause;
+            return;
+        }
+        pendingRelease = null;
+        Status = ExecutionStatus.Idle;
         if (onStep is NavStep step)
             Report(step, ticksOnStep, TraversalFault.Interrupted, preempted ? AttemptEnding.Preempted : AttemptEnding.Cancelled,
                 preempted ? MovementFailure.Preempted : MovementFailure.None, cause);
@@ -947,6 +1023,7 @@ public sealed class Navigator
     public void Clear()
     {
         Status = ExecutionStatus.Idle;
+        pendingRelease = null;
         if (onStep is NavStep step)
             Report(step, ticksOnStep, TraversalFault.Interrupted, AttemptEnding.Cancelled, reason: "cleared");
         LastFailure = null;

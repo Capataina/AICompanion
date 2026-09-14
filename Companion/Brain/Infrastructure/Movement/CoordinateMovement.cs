@@ -52,6 +52,10 @@ public sealed class CoordinateMovement
         // Releasing the movement request interrupts the retained route explicitly, including
         // its census outcome. Survival can request a ground jump through the same body rules.
         Navigator.Interrupt(live, preemptedBy == null ? AttemptEnding.Cancelled : AttemptEnding.Preempted, preemptedBy ?? "released");
+        // A release the navigator deferred (the body is mid-move) keeps its in-flight steer until
+        // the move lands; returning no controls here is what cut jumps short in the air.
+        if (Navigator.ReleasePending)
+            return AddRequestedJump(Navigator.ContinueCommitted(live), requestedJump);
         return AddRequestedJump(Controls.None, requestedJump);
     }
 
@@ -66,8 +70,13 @@ public sealed class CoordinateMovement
         }
         seekingDestination = true;
         Vector2 target = unresolvedGoal.Value;
-        // The same purpose changing method (route to state search) is a voluntary cancellation.
+        // The same purpose changing method (route to state search) is a voluntary cancellation,
+        // and like any voluntary cancellation it waits for a committed move to land: this is
+        // called on every tick a destination is unresolved, so without the wait it cut the same
+        // moves the Hold above did.
         Navigator.Interrupt(live, AttemptEnding.Cancelled, "method-change");
+        if (Navigator.ReleasePending)
+            return Navigator.ContinueCommitted(live);
         stateSearch.TryChoose(NavGrid.World, live, arrived,
             state => Vector2.Distance(state.Feet, target), Navigator.Capabilities,
             Infrastructure.Selection.Weights.EscapeSearchWork, Infrastructure.Selection.Weights.EscapeSearchMilliseconds,
