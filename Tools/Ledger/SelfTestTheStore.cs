@@ -33,12 +33,105 @@ public static class SelfTestTheStore
             "a baseline is the nearest clean, unfiltered, non-dirty ancestor run", BaselineRules);
         failed += EmitLedgerRows.Case(Instrument, Suite,
             "a run file round-trips its header, including the case filter it ran under", HeaderRoundTrip);
+        failed += EmitLedgerRows.Case(Instrument, Suite,
+            "the interval figures quoted about this suite are the ones the arithmetic returns", QuotedIntervals);
+        failed += EmitLedgerRows.Case(Instrument, Suite,
+            "a narrower run is never the baseline for a wider one", CoverageRules);
+        failed += EmitLedgerRows.Case(Instrument, Suite,
+            "a deliberately red case can be produced on demand, so the rerun loop can be exercised", ForcedRed);
         // The last line is what verify.sh shows for this instrument, and a self-test that prints
         // nothing when it passes reads exactly like one that ran nothing.
         Console.WriteLine(failed == 0
-            ? "ledger self-test passed: commit widths, the four baseline refusals and the header round trip."
-            : $"ledger self-test: {failed} of 3 store properties failed.");
+            ? "ledger self-test passed: commit widths, the baseline refusals, coverage eligibility, the header round trip and the quoted intervals."
+            : $"ledger self-test: {failed} of 6 store properties failed.");
         return failed;
+    }
+
+    /// <summary>
+    /// Every interval this repository quotes about itself, checked against what <see cref="Wilson.Of"/>
+    /// actually returns rather than left standing in prose.
+    ///
+    /// It exists because the prose was wrong in two places at once while the arithmetic was right:
+    /// the folder file said five green runs bound the failure rate below 32.6 percent and named the
+    /// verification plan's "about 43 percent" as the suspect figure, when 43.45 is what Wilson
+    /// returns and 32.6 is not a bound on anything — it is the half-width of the three-of-five
+    /// interval, which is the neighbouring sentence's number. Two quoted figures, one transposition,
+    /// and both survived because a number in a comment is checked by nobody. These are checked now.
+    /// </summary>
+    private static int QuotedIntervals()
+    {
+        int failed = 0;
+        failed += Near("three green of five bounds the pass rate", Wilson.Of(3, 5).Low * 100, 23.1);
+        failed += Near("three green of five bounds the pass rate", Wilson.Of(3, 5).High * 100, 88.2);
+        failed += Near("five green bound the failure rate", (1 - Wilson.Of(5, 5).Low) * 100, 43.45);
+        failed += Near("thirty green bound the failure rate", (1 - Wilson.Of(30, 30).Low) * 100, 11.4);
+        failed += Near("a hundred green bound the failure rate", (1 - Wilson.Of(100, 100).Low) * 100, 3.7);
+        // Zero width at the boundary is the normal approximation's failure and the reason Wilson is
+        // used at all: without this row, swapping the formula back would leave every sentence above
+        // reading as proof.
+        if (Wilson.Of(5, 5).Low >= 1)
+            { Console.WriteLine("a perfect batch must still carry a real interval, or green reads as proof"); failed++; }
+        return failed;
+    }
+
+    private static int Near(string what, double got, double expected)
+    {
+        if (Math.Abs(got - expected) <= 0.05) return 0;
+        Console.WriteLine($"{what}: the arithmetic says {got:0.##}% where the quoted figure is {expected:0.##}%");
+        return 1;
+    }
+
+    /// <summary>
+    /// The two coverage rules that decide whether a past run is a fair yardstick, each written from
+    /// a run that actually reached the scoreboard rather than from a worry.
+    /// </summary>
+    private static int CoverageRules()
+    {
+        int failed = 0;
+        Run wide = Synthetic(("a", "pass"), ("b", "pass"), ("c", "pass"));
+        // measure-flake.sh: one case run many times, every other case skipped, no header filter.
+        Run flakeBatch = Synthetic(("a", "pass"), ("b", "skipped"), ("c", "skipped"));
+        // backfill-capture.sh: play measures over a capture and no fixtures at all.
+        Run backfill = Synthetic(("x", "measure"), ("y", "measure"));
+
+        if (wide.CoversRunsOf(flakeBatch))
+            { Console.WriteLine("a run that skipped what the new run measured was accepted as its baseline"); failed++; }
+        if (wide.CoversRunsOf(backfill))
+            { Console.WriteLine("a run measuring cases the new run never reports was accepted as its baseline"); failed++; }
+        if (!wide.CoversRunsOf(Synthetic(("a", "pass"), ("b", "pass"))))
+            { Console.WriteLine("a baseline covering fewer cases than the new run adds must still be eligible, or no case can ever be added"); failed++; }
+        if (!wide.CoversRunsOf(wide))
+            { Console.WriteLine("a run of identical coverage must be eligible"); failed++; }
+        return failed;
+    }
+
+    private static Run Synthetic(params (string Case, string Verdict)[] rows)
+        => new("synthetic", RunHeader.Now("0000000", false, "0000000", "", ""),
+            rows.Select(r => new LedgerRow("i", "s", r.Case, r.Verdict,
+                Value: r.Verdict == "measure" ? 1 : null)).ToArray(), 0);
+
+    /// <summary>
+    /// A red on demand, and only on demand: this case passes unless <c>AIC_LEDGER_FORCE_RED</c> is
+    /// set in the environment.
+    ///
+    /// It is here because <c>--rerun-red</c> shipped with its loop never once executed — the reds
+    /// list was empty on every run it was asked on, so the dispatch-by-instrument it depends on was
+    /// verified by reading rather than by running, which is the same evidence as none. A harness
+    /// whose failure path can only be exercised by breaking something real is a harness whose
+    /// failure path stays unexercised, so the switch stays rather than being deleted after one use:
+    /// the next change to the rerun machinery can be tested the same way, in one command, without
+    /// anybody having to find a genuinely broken fixture first.
+    /// </summary>
+    private static int ForcedRed()
+    {
+        if (Environment.GetEnvironmentVariable("AIC_LEDGER_FORCE_RED") is not { Length: > 0 } mode) return 0;
+        // "flaky" fails only on the first process of a batch, so a rerun of it grades as flaky
+        // rather than as red — which is the other half of what the rerun loop has to be able to say.
+        if (mode == "flaky" && Environment.GetEnvironmentVariable(EmitLedgerRows.RunPathVariable) is { Length: > 0 } path
+            && File.ReadAllText(path).Contains("\"case\":\"a deliberately red case", StringComparison.Ordinal))
+            return 0;
+        EmitLedgerRows.Detail($"AIC_LEDGER_FORCE_RED={mode} asked this case to fail, and it did");
+        return 1;
     }
 
     /// <summary>The defect itself: two hash widths, compared one way, matching nothing.</summary>

@@ -170,7 +170,7 @@ internal static class VerifyObservedMotion
     private static int Require(bool condition, string detail)
     {
         if (condition) return 0;
-        Console.WriteLine("FAIL observed motion: " + detail);
+        AICompanion.Tools.Ledger.EmitLedgerRows.Detail("observed motion: " + detail);
         return 1;
     }
 

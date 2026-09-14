@@ -54,7 +54,7 @@ internal static class VerifyNativeCard
         Click(minimise); Require(frame.GetDimensions().Height == 54, "Minimise did not collapse to the title bar");
         Click(minimise); Require(frame.GetDimensions().ToRectangle() == moved, "Restore changed the panel frame");
         Main.mouseX = Main.mouseY = -100;
-        Console.WriteLine("PASS native card navigation: title drag, two persistent tiles, back, minimise and restore preserve the panel");
+        Console.WriteLine("native card navigation: title drag, two persistent tiles, back, minimise and restore preserve the panel");
     }
 
     public static void VerifyPage(UIState card, string page)
@@ -71,7 +71,7 @@ internal static class VerifyNativeCard
             var note = body.Children.Last();
             Require(list.OverflowHidden && list.GetDimensions().ToRectangle().Bottom + 8 <= note.GetDimensions().Y,
                 "Scrolling behaviour rows touch the fixed explanatory note");
-            Console.WriteLine("PASS behaviour list: clipped rows leave a clear gap before the fixed note");
+            Console.WriteLine("behaviour list: clipped rows leave a clear gap before the fixed note");
             // A distance is a value and a work policy is a mode, so they must not wear the same
             // control (449a79b). Nothing about a screenshot says which row is which kind, which is
             // how three identical segments reached the rendered card in the first place.
@@ -80,7 +80,7 @@ internal static class VerifyNativeCard
             Require(segments.Length == 0, "The distance stops render as mode segments instead of a stepper");
             var arrows = Descendants(list).OfType<UITextPanel<string>>().Where(b => b.Text is "<" or ">").ToArray();
             Require(arrows.Length == 2, "The distance row lost its stepper arrows");
-            Console.WriteLine("PASS behaviour controls: the distance value steps, and only the mode rows use segments");
+            Console.WriteLine("behaviour controls: the distance value steps, and only the mode rows use segments");
         }
         if (page == "ShowInventory")
         {
@@ -100,7 +100,7 @@ internal static class VerifyNativeCard
             Require(grid.Children.Count() == 20, "Loot filter must exclude ore and wood");
             Click(buttons.Single(b => b.Text == "All")); bag.Update(new GameTime());
             VerifyTransfers(bag, buttons.Single(b => b.Text == "Hand everything over"));
-            Console.WriteLine($"PASS native inventory: 100 fixed 48px slots; {positions.Count(r => r.Y == positions[0].Y)} columns; Ore/Wood/Loot filters preserve slots");
+            Console.WriteLine($"native inventory: 100 fixed 48px slots; {positions.Count(r => r.Y == positions[0].Y)} columns; Ore/Wood/Loot filters preserve slots");
         }
         if (page == "ShowMastery") VerifyCanvas(Descendants(card).OfType<Mastery>().Single());
     }
@@ -135,7 +135,7 @@ internal static class VerifyNativeCard
             page.GetType().GetField("transferMessage", Private)!.SetValue(page, "");
             page.Recalculate();
         }
-        Console.WriteLine("PASS native hand-over: full, partial and empty player inventories preserve item totals");
+        Console.WriteLine("native hand-over: full, partial and empty player inventories preserve item totals");
     }
 
     public static void VerifyInventoryOcclusion(UIState card, live::AICompanion.Companion.ProfileCard.CompanionProfileCardSystem owner, UserInterface ui, GraphicsDevice graphics, RenderTarget2D target)
@@ -225,7 +225,7 @@ internal static class VerifyNativeCard
             foreach (var layer in layers) Require(layer.Draw(), "An interface layer failed for uncovered inventory");
             Require(hits == 1 && player.inventory[0].IsAir && Main.mouseItem.type == Terraria.ID.ItemID.DirtBlock,
                 "The card blocked the uncovered player inventory");
-            Console.WriteLine("PASS interface-layer input: covered slots receive no press on every page, visible bag receives one, uncovered inventory works, pointer and owned inventory mode restored");
+            Console.WriteLine("interface-layer input: covered slots receive no press on every page, visible bag receives one, uncovered inventory works, pointer and owned inventory mode restored");
         }
         finally
         {
@@ -262,7 +262,7 @@ internal static class VerifyNativeCard
             Require(canvas.Contains(point.ToPoint()), "An authored mastery node starts outside its fitted viewport");
         }
         Main.mouseX = Main.mouseY = -100;
-        Console.WriteLine("PASS native mastery viewport: pan, zoom, reset and all authored nodes fit");
+        Console.WriteLine("native mastery viewport: pan, zoom, reset and all authored nodes fit");
     }
 
     public static void OpenWeaponPage(UIState card)
@@ -292,7 +292,7 @@ internal static class VerifyNativeCard
         Require(((int[,])Field(tree, "weaponTiers"))[1, 1] == 1, "The nested weapon rank did not respond to its real button");
         Require(Main.LocalPlayer.GetModPlayer<live::AICompanion.Companion.PlayerIntegration.CompanionPlayer>().Bag.Items.Sum(item => item.stack) == before, "A weapon preview consumed inventory");
         Main.mouseX = Main.mouseY = -100;
-        Console.WriteLine("PASS nested weapon preview: diamond selection, subtree navigation and incoming paths govern ranks without consuming inventory");
+        Console.WriteLine("nested weapon preview: diamond selection, subtree navigation and incoming paths govern ranks without consuming inventory");
     }
 
     public static void VerifyMastery()
@@ -323,6 +323,6 @@ internal static class VerifyNativeCard
         tree.GetType().GetField("selected", Private)!.SetValue(tree, 80);
         Call(tree, "PreviewRank"); Require(tiers[80] == 0, "An unopened path previewed a locked node");
         tiers[3] = 1; Call(tree, "PreviewRank"); Require(tiers[80] == 1, "A single incoming path did not enable a shared rank");
-        Console.WriteLine($"PASS authored mastery: {GraphData.Nodes.Length} reachable nodes, {GraphData.Edges.Length} directed edges, every convergence accepts each incoming path independently");
+        Console.WriteLine($"authored mastery: {GraphData.Nodes.Length} reachable nodes, {GraphData.Edges.Length} directed edges, every convergence accepts each incoming path independently");
     }
 }

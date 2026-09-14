@@ -25,6 +25,11 @@ internal static class VerifyMovementFailures
         LimitPlanningWork.End();
         Navigator.PlanMsBudget = 0;
         PlanLocalMovement.PreparationMsBudget = 0;
+        // The suite-wide lift is in force by the time a case body runs, and a millisecond budget set
+        // under it does nothing at all: Deadline returns zero while Unbounded holds, so a row that
+        // starves the planner by the clock starves nothing. StarveTheClock is how the three rows
+        // that are about a deadline get one, and each restores the regime it found rather than a
+        // literal, because the literal is the current default written down a second time.
         int failed = 0;
         try
         {
@@ -53,12 +58,12 @@ internal static class VerifyMovementFailures
         try
         {
             test();
-            Console.WriteLine($"PASS {family} {name}");
+            Console.WriteLine($"{family} {name}");
             return 0;
         }
         catch (InvalidOperationException error)
         {
-            Console.WriteLine($"FAIL {family} {name}: {error.Message}");
+            AICompanion.Tools.Ledger.EmitLedgerRows.Detail($"{family} {name}: {error.Message}");
             return 1;
         }
     }
@@ -78,6 +83,7 @@ internal static class VerifyMovementFailures
         {
             BuildCorridor(sealGoal: false);
             var run = new Drive(new Point(22, 89));
+            bool liftedOpen = StarveTheClock(starved);
             Navigator.PlanMsBudget = starved ? .000001 : 0;
             try
             {
@@ -102,10 +108,11 @@ internal static class VerifyMovementFailures
                 Require(!run.Seen.Contains(MovementFailure.AbsentTransition), $"starved={starved}: a reachable goal was called absent");
                 Require(!starved || unfinishedTicks > 0, "the starved run finished its search in one tick, so it proves nothing about deadlines");
             }
-            finally { Navigator.PlanMsBudget = 0; }
+            finally { Navigator.PlanMsBudget = 0; LimitPlanningWork.Unbounded = liftedOpen; }
 
             BuildCorridor(sealGoal: true);
             var sealedRun = new Drive(new Point(22, 89));
+            bool liftedSealed = StarveTheClock(starved);
             Navigator.PlanMsBudget = starved ? .000001 : 0;
             try
             {
@@ -151,7 +158,7 @@ internal static class VerifyMovementFailures
                 Console.WriteLine($"   deadline sealed starved={starved}: absent answered from the body's tile at {answeredAt - firstAbsentAt} ticks after the first held on search {answeredSearch} for 30 ticks");
                 Require(sealedRun.Movement.Navigator.FailedAttempts == 0, $"starved={starved}: a closed model is not a physical failure");
             }
-            finally { Navigator.PlanMsBudget = 0; }
+            finally { Navigator.PlanMsBudget = 0; LimitPlanningWork.Unbounded = liftedSealed; }
         }
     }
 
@@ -172,6 +179,7 @@ internal static class VerifyMovementFailures
             BuildCorridor(sealGoal);
             Point goal = sealGoal ? new Point(44, 89) : new Point(40, 89);
             var run = new Drive(new Point(22, 89));
+            bool liftedChurn = StarveTheClock(true);
             Navigator.PlanMsBudget = .000001;
             try
             {
@@ -205,8 +213,20 @@ internal static class VerifyMovementFailures
                 else
                     Require(run.Arrived, $"churn must not stop delivery of an open goal; last {run.Describe()}");
             }
-            finally { Navigator.PlanMsBudget = 0; }
+            finally { Navigator.PlanMsBudget = 0; LimitPlanningWork.Unbounded = liftedChurn; }
         }
+    }
+
+    /// <summary>
+    /// Put the wall clock back in force for a row whose subject is the deadline, and return the
+    /// regime that was in force so the caller's <c>finally</c> can restore it rather than a literal.
+    /// A row that is not starving anything is left exactly as the suite set it.
+    /// </summary>
+    private static bool StarveTheClock(bool starved)
+    {
+        bool lifted = LimitPlanningWork.Unbounded;
+        if (starved) LimitPlanningWork.Unbounded = false;
+        return lifted;
     }
 
     /// <summary>

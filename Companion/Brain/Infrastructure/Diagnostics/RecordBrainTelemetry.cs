@@ -335,9 +335,16 @@ public sealed class BrainTelemetry : ModSystem
     /// Which world this is, so two captures of one world can be compared and two captures of
     /// different worlds cannot be mistaken for one.
     ///
-    /// Without it, replaying an old capture against a world he has since mined through is a false
-    /// positive nobody would catch: the route is the same, the terrain is not, and every
-    /// unreachable answer reads as a regression.
+    /// What it distinguishes is worlds, and only worlds: without it, replaying a capture against a
+    /// different world entirely is a false positive nobody would catch, because the route is the
+    /// same, the terrain is not, and every unreachable answer reads as a regression.
+    ///
+    /// It deliberately does not distinguish one world from itself later. The hash is taken over the
+    /// world's identity and seed, both of which survive every tile the player ever breaks, so a
+    /// capture replayed against the same world after a night of mining matches on this field and is
+    /// still being replayed against terrain that has moved. Catching that needs something derived
+    /// from the tiles, which this is not, and a reader who takes the match as proof the terrain is
+    /// unchanged has been told so by this comment rather than by the code.
     ///
     /// The hash is FNV-1a over the world's unique id and its generation seed, written out by hand
     /// for one reason that is easy to get wrong: <see cref="string.GetHashCode()"/> is randomised

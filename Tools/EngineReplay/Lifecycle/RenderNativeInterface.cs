@@ -182,7 +182,7 @@ internal static class RenderNativeInterface
         string status = live::AICompanion.Companion.ProfileCard.DrawCompanionStatus.Describe(companion);
         if (!status.Contains("12 tiles below") || !status.Contains("opportunistic"))
             throw new InvalidOperationException("Action explanation lost retained target or work policy: " + status);
-        Console.WriteLine("PASS retained mining evidence: " + status);
+        Console.WriteLine("retained mining evidence: " + status);
         VerifyNativeCard.VerifyMastery();
         SeedExecutionEvidence(companion, mine, target);
         return companion;
@@ -234,7 +234,7 @@ internal static class RenderNativeInterface
                 if (source.Contains(call, StringComparison.Ordinal))
                     throw new InvalidOperationException($"{file} calls {call}, so drawing the inspector would compute an answer instead of showing a retained one");
         }
-        Console.WriteLine("PASS inspector drawing calls no positioner, planner, aimer or reach test");
+        Console.WriteLine("inspector drawing calls no positioner, planner, aimer or reach test");
     }
 
     /// <summary>
@@ -306,7 +306,7 @@ internal static class RenderNativeInterface
                         if (Painted(x, y)) cornerPaint++;
             if (covered != perimeter || strays != 0 || cornerPaint != 0)
                 throw new InvalidOperationException($"the drawn reach box painted {covered} of its {perimeter} perimeter pixels, {strays} outside it and {cornerPaint} inside its corners");
-            Console.WriteLine($"PASS success region layer: {judged} edge samples agree with the region test and the reach arithmetic ({outside} outside); the drawn reach box paints all {perimeter} perimeter pixels and nothing outside or in its corners");
+            Console.WriteLine($"success region layer: {judged} edge samples agree with the region test and the reach arithmetic ({outside} outside); the drawn reach box paints all {perimeter} perimeter pixels and nothing outside or in its corners");
         }
         finally { Player.tileRangeX = reachX; Player.tileRangeY = reachY; }
     }
@@ -366,7 +366,7 @@ internal static class RenderNativeInterface
                 || (panel.Right + 10 < size.X && panel.Bottom + 10 < size.Y && !Near(At(panel.Right + 10, panel.Bottom + 10), background)))
                 throw new InvalidOperationException($"the rendered Execution page at {suffix} lacks its gold heading ({gold}), its highlighted tab, or an untouched background outside the panel");
         }
-        Console.WriteLine($"PASS inspector execution page {suffix}: {lines.Count} retained evidence lines, {visible} visible inside the panel{(scale == 1f ? ", heading, tab and background pixels as drawn" : "")}");
+        Console.WriteLine($"inspector execution page {suffix}: {lines.Count} retained evidence lines, {visible} visible inside the panel{(scale == 1f ? ", heading, tab and background pixels as drawn" : "")}");
     }
 
     private static void VerifyCardNavigation(UIState card) => VerifyNativeCard.VerifyNavigation(card);
@@ -385,7 +385,7 @@ internal static class RenderNativeInterface
         int drawn = pixels.Count(p => p.A != 0);
         if (drawn < 80 || drawn > 400)
             throw new InvalidOperationException($"A 100-pixel debug line painted {drawn} pixels; expected a thin segment");
-        Console.WriteLine($"PASS native debug line: {drawn} painted pixels for a 100-pixel segment");
+        Console.WriteLine($"native debug line: {drawn} painted pixels for a 100-pixel segment");
     }
 
     private static void VerifyProfileControls(UIElement card)
@@ -410,7 +410,7 @@ internal static class RenderNativeInterface
             if (bounds.Width < 20 || bounds.Height < 20)
                 throw new InvalidOperationException($"Native control {button.Text} has unusable bounds {bounds}");
         }
-        Console.WriteLine("PASS native profile controls: Off/Auto events change the live policy, button bounds remain usable");
+        Console.WriteLine("native profile controls: Off/Auto events change the live policy, button bounds remain usable");
     }
 
     private sealed class GraphicsService(GraphicsDevice device) : IGraphicsDeviceService

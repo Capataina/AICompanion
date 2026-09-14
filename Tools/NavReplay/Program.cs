@@ -21,6 +21,25 @@ using AICompanion.Tools.Ledger;
 // Exit code: 0 when every executed scenario passed and nothing was skipped or missing, 1
 // otherwise; the counts are in the last line, never in the status, which wraps at 256.
 
+// The portable tier's reset. It is smaller than the engine tier's because this process holds no
+// game: what a case here can leave behind is the shared planning allowance, the search's own
+// policy switches, the edge cache, the executed-route archive and the census. The allowances are
+// lifted for every case, so the wall clock cannot decide how far a search got — the rows that are
+// about a deadline turn it back on around themselves and put it back, because the regime belongs to
+// the case and the deadline belongs to the row.
+EmitLedgerRows.ResetBeforeCase = keepProductionAllowances =>
+{
+    LimitPlanningWork.Unbounded = !keepProductionAllowances;
+    LimitPlanningWork.End();
+    AStar.AllowLava = false;
+    AStar.AllowOneWayDrops = true;
+    AStar.MsBudget = 0;
+    AStar.TraceClosed = null;
+    AStar.InvalidateEdges();
+    RememberExecutedRoutes.World.Clear();
+    BehaviourCensus.Reset();
+};
+
 if (args.Length == 1 && args[0] == "--self-test")
     return EmitLedgerRows.Case("nav-replay", "NavReplay", "the portable movement core keeps its state, safety, retention and policy contracts",
         VerifyMovementContracts.Run);

@@ -91,6 +91,43 @@ public static class EmitLedgerRows
         => CaseFilter is not { } filter || name.Contains(filter, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
+    /// A case that must keep the production wall-clock allowances in force, because the allowance is
+    /// the thing it exercises. Tagging is the whole mechanism: every other case runs with the
+    /// allowances lifted, so a fixture cannot end up timing the machine by omission.
+    /// </summary>
+    public const string ProductionAllowancesTag = "production-allowances";
+
+    /// <summary>
+    /// What an instrument does to the process before each case: put every static a case can reach
+    /// back to a known state, and set the wall-clock allowances for the regime this case asked for
+    /// (the argument is true where the case keeps the production allowances).
+    ///
+    /// It is a delegate rather than a call because this file is compiled into every Tools project
+    /// and only some of them can name the mod's statics at all — NavReplay has no Terraria in it.
+    /// So the hook lives here, where every case already passes through, and the body lives in the
+    /// instrument that knows what its own process holds. The alternative, each fixture resetting
+    /// what it remembers to reset, is what produced a suite where the courtesy fixture's stillness
+    /// depended on which fixtures ran before it.
+    /// </summary>
+    public static Action<bool>? ResetBeforeCase;
+
+    /// <summary>
+    /// A line a fixture wants a person to read, which is also the reason a red row exists.
+    ///
+    /// Before this, a fixture printed its own reason to stdout and returned a failure count, so the
+    /// ledger row said "3 failure(s) reported by the fixture" and the only copy of what actually
+    /// went wrong was in a terminal nobody kept. The detail is printed exactly as it was and also
+    /// folded into the row, so the run file can be read months later without the console beside it.
+    /// </summary>
+    public static void Detail(string line)
+    {
+        Console.WriteLine(line);
+        details.Add(line);
+    }
+
+    private static readonly List<string> details = new();
+
+    /// <summary>
     /// Keep recording rows in memory but write none to the run file.
     ///
     /// It exists for one case and the case matters. A self-test that runs the play measures over a
@@ -162,6 +199,13 @@ public static class EmitLedgerRows
             Skipped(instrument, suite, name, $"not selected by --case {CaseFilter}", tags);
             return 0;
         }
+        // The regime is stamped rather than passed, because the suite's own rule is that a row is
+        // comparable only to one taken the same way, and a mode a caller had to remember to write
+        // is a mode that will disagree with what the process was actually doing.
+        bool keepProductionAllowances = tags?.Contains(ProductionAllowancesTag) == true;
+        mode = $"{mode}; {(keepProductionAllowances ? "production-allowances" : "unbounded-allowances")}";
+        details.Clear();
+        ResetBeforeCase?.Invoke(keepProductionAllowances);
         var clock = Stopwatch.StartNew();
         try
         {
@@ -170,17 +214,24 @@ public static class EmitLedgerRows
             if (failures == 0)
                 Pass(instrument, suite, name, durationMs: clock.Elapsed.TotalMilliseconds, mode: mode, tags: tags, killedBy: killedBy);
             else
-                Fail(instrument, suite, name, $"{failures} failure(s) reported by the fixture", clock.Elapsed.TotalMilliseconds, mode, tags, killedBy);
+                Fail(instrument, suite, name, Reason($"{failures} failure(s) reported by the fixture"), clock.Elapsed.TotalMilliseconds, mode, tags, killedBy);
             return failures;
         }
         catch (Exception e)
         {
             clock.Stop();
-            Console.WriteLine($"FAIL {name}: {e.GetType().Name}: {e.Message}");
-            Fail(instrument, suite, name, $"{e.GetType().Name}: {Flatten(e.Message)}", clock.Elapsed.TotalMilliseconds, mode, tags, killedBy);
+            Console.WriteLine($"{name} failed: {e.GetType().Name}: {e.Message}");
+            Fail(instrument, suite, name, Reason($"{e.GetType().Name}: {Flatten(e.Message)}"), clock.Elapsed.TotalMilliseconds, mode, tags, killedBy);
             return 1;
         }
     }
+
+    /// <summary>The failure headline with whatever the fixture said on its way there, capped so one
+    /// noisy case cannot make a run file unreadable.</summary>
+    private static string Reason(string headline)
+        => details.Count == 0 ? headline
+            : headline + " — " + string.Join(" | ", details.Take(8).Select(Flatten))
+              + (details.Count > 8 ? $" (+{details.Count - 8} more on the console)" : "");
 
     private static string Flatten(string message)
         => message.Replace('\n', ' ').Replace('\r', ' ').Trim();

@@ -40,7 +40,7 @@ internal static class VerifyObservationLifecycle
         }
         catch (Exception error)
         {
-            Console.WriteLine("FAIL observation lifecycle: " + error);
+            AICompanion.Tools.Ledger.EmitLedgerRows.Detail("observation lifecycle: " + error);
             return 1;
         }
         finally

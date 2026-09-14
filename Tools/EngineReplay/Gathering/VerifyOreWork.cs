@@ -138,6 +138,11 @@ internal static class VerifyOreWork
         // Route floods advance under millisecond slices; every edge on the mound runs a body simulation,
         // so a wall-clock slice would decide how far the route home is priced. Lifting the allowances
         // keeps each flood's work count as the only bound.
+        // Restores what it found rather than false: false is the suite's old default written down a
+        // second time, and the suite now lifts the allowances for every case, so putting a literal
+        // back would hand every row ordered after this one a regime it never asked for. This row
+        // happens to run last in the fixture, which is the only reason the literal cost nothing.
+        bool lifted = live::AICompanion.Companion.Brain.Infrastructure.Movement.LimitPlanningWork.Unbounded;
         live::AICompanion.Companion.Brain.Infrastructure.Movement.LimitPlanningWork.Unbounded = true;
         try
         {
@@ -197,7 +202,7 @@ internal static class VerifyOreWork
                 brain.Positioner.EstimatedTravelTicks(from, to) ?? -1f);
         }
         }
-        finally { live::AICompanion.Companion.Brain.Infrastructure.Movement.LimitPlanningWork.Unbounded = false; }
+        finally { live::AICompanion.Companion.Brain.Infrastructure.Movement.LimitPlanningWork.Unbounded = lifted; }
         string ledger = string.Join("; ", seen.Select(s =>
             $"{(s.Key.Speed == 0 ? "stationary" : $"departing {s.Key.Speed}px")}/{(s.Key.FarRoute ? "far-route" : "near-route")}/{(s.Key.NearlyDone ? "one-hit" : "fresh")}: "
             + $"{s.Value.Selected} mine={s.Value.Mine:0.000} delay={s.Value.Delay:0.00000} return={s.Value.Return:0} route={s.Value.Route:0}"));

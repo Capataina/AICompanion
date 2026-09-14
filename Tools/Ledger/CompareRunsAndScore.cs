@@ -17,11 +17,15 @@ namespace AICompanion.Tools.Ledger;
 /// zero failures it produces an interval of zero width, so five green runs would read as proof
 /// rather than as the weak evidence they are. Wilson keeps a real interval at the boundaries.
 ///
-/// What it buys, in this suite's own numbers: three green runs of five is consistent with a true
-/// pass rate anywhere from 12 to 77 percent, so the flake trap's "three of five" said almost
-/// nothing; five green runs bound the failure rate only below about a third; thirty bound it below
-/// ten percent and a hundred below three. That is the arithmetic behind the batch size any claim
-/// about an intermittent fixture has to carry.
+/// What it buys, in this suite's own numbers, every one of them what <see cref="Of"/> returns for
+/// the stated counts rather than a figure quoted from anywhere: three green runs of five bounds the
+/// true pass rate only to 23.1–88.2 percent, so the flake trap's "three of five" said almost
+/// nothing; five green runs bound the failure rate below 43.45 percent; thirty bound it below 11.4
+/// and a hundred below 3.7 — the verification plan's own "thirty below ten, a hundred below three"
+/// is a little more generous than the arithmetic allows, while its "about 43 percent" is right.
+/// That is the arithmetic behind the batch size any claim about an
+/// intermittent fixture has to carry, and <c>SelfTestTheStore</c> pins all four so a change to the
+/// formula moves the sentence rather than leaving it standing as prose nobody rechecks.
 /// </summary>
 public readonly record struct Wilson(double Low, double High, int Successes, int Trials)
 {
@@ -68,7 +72,17 @@ public readonly record struct NoiseBand(bool Known, double Mean, double HalfWidt
 }
 
 /// <summary>How one case's verdict differs between two runs.</summary>
-public enum Change { NewRed, Fixed, Gone, New, Flaky, MeasureDrift, Unchanged }
+/// <summary>
+/// What one case did between two runs.
+///
+/// <see cref="StoppedReporting"/> and <see cref="NowReporting"/> exist because a verdict moving to
+/// or from <c>skipped</c> used to be counted as unchanged, and that is the one transition a
+/// scoreboard must never fold away: a case that reported a pass yesterday and is skipped today has
+/// stopped measuring, which looks in every total exactly like a case that measured and passed. The
+/// play measures make it concrete rather than hypothetical — <c>Telemetry/</c> is gitignored, so
+/// every fresh checkout skips them, and the diff said "unchanged".
+/// </summary>
+public enum Change { NewRed, Fixed, Gone, StoppedReporting, NowReporting, New, Flaky, MeasureDrift, Unchanged }
 
 public sealed record CaseChange(Change Change, string Key, string Before, string After, string Detail);
 
@@ -106,6 +120,20 @@ public static class Scoreboard
             string nowVerdict = Summarise(rows);
             string wasVerdict = was.Length == 0 ? "-" : Summarise(was);
 
+            // A verdict that moves to or from "skipped" is its own answer and never "unchanged".
+            // It is decided before the measure branch, because a measure that was skipped at the
+            // baseline carries no number and Drift has nothing to average — the crash this ordering
+            // removes, and not a hypothetical one: the recorder writes terrain_revision at schema
+            // 0.33.0 and the case that reads it is skipped in every run taken before it existed.
+            bool wasSkipped = was.Length > 0 && Summarise(was) == "skipped";
+            bool nowSkipped = nowVerdict == "skipped";
+            if (was.Length > 0 && wasSkipped != nowSkipped)
+            {
+                changes.Add(nowSkipped
+                    ? new CaseChange(Change.StoppedReporting, key, Summarise(was), "skipped", rows[^1].Message)
+                    : new CaseChange(Change.NowReporting, key, "skipped", rows[0].Verdict == "measure" ? Value(rows) : nowVerdict, was[^1].Message));
+                continue;
+            }
             if (rows[0].Verdict == "measure")
             {
                 if (was.Length == 0) { changes.Add(new CaseChange(Change.New, key, "-", Value(rows), "first measurement")); continue; }
@@ -126,32 +154,48 @@ public static class Scoreboard
 
     private static CaseChange Drift(string key, LedgerRow[] was, LedgerRow[] now, IReadOnlyList<Run> repeats, Func<LedgerRow, string> key0)
     {
-        double before = was.Where(r => r.Value is not null).Average(r => r.Value!.Value);
-        double after = now.Where(r => r.Value is not null).Average(r => r.Value!.Value);
+        // Either side can carry no number at all — a row filed as a measure whose value never
+        // arrived, or a baseline that holds this case as something other than a measurement. An
+        // average over nothing throws, and a scoreboard that dies has told the reader less than one
+        // that says which side it could not read, so a missing side is reported rather than fatal.
+        double? before = Mean(was), after = Mean(now);
         string unit = now[0].Unit ?? "";
+        if (before is null || after is null)
+            return new CaseChange(Change.MeasureDrift, key,
+                before is { } b ? Format(b, unit) : "no number",
+                after is { } a ? Format(a, unit) : "no number",
+                "one side carries no value, so there is no drift to read");
+        double wasValue = before.Value, nowValue = after.Value;
         NoiseBand band = NoiseBand.From(repeats
             .SelectMany(run => run.Rows)
             .Where(row => key0(row) == key && row.Value is not null)
             .Select(row => row.Value!.Value)
             .ToArray());
         string reading = band.Known
-            ? band.Covers(after)
+            ? band.Covers(nowValue)
                 ? $"inside the noise band (±{band.HalfWidth:0.###} over {band.Repeats} repeats), so no conclusion"
                 : $"outside the noise band (±{band.HalfWidth:0.###} over {band.Repeats} repeats)"
             : $"no noise band: {band.Repeats} repeat(s) at the baseline commit, and a band needs three";
         string way = now[0].Direction switch
         {
-            "up" => after > before ? "better" : after < before ? "worse" : "unchanged",
-            "down" => after < before ? "better" : after > before ? "worse" : "unchanged",
+            "up" => nowValue > wasValue ? "better" : nowValue < wasValue ? "worse" : "unchanged",
+            "down" => nowValue < wasValue ? "better" : nowValue > wasValue ? "worse" : "unchanged",
             _ => "neither way is declared good",
         };
-        if (Math.Abs(after - before) < 1e-9)
-            return new CaseChange(Change.Unchanged, key, Format(before, unit), Format(after, unit), "");
-        return new CaseChange(Change.MeasureDrift, key, Format(before, unit), Format(after, unit), $"{way}; {reading}");
+        if (Math.Abs(nowValue - wasValue) < 1e-9)
+            return new CaseChange(Change.Unchanged, key, Format(wasValue, unit), Format(nowValue, unit), "");
+        return new CaseChange(Change.MeasureDrift, key, Format(wasValue, unit), Format(nowValue, unit), $"{way}; {reading}");
+    }
+
+    /// <summary>The mean of whatever numbers a case's rows actually carry, or null where none does.</summary>
+    private static double? Mean(LedgerRow[] rows)
+    {
+        double[] values = rows.Where(r => r.Value is not null).Select(r => r.Value!.Value).ToArray();
+        return values.Length == 0 ? null : values.Average();
     }
 
     private static string Format(double value, string unit) => $"{value.ToString("0.###", CultureInfo.InvariantCulture)}{(unit.Length > 0 ? " " + unit : "")}";
-    private static string Value(LedgerRow[] rows) => Format(rows.Where(r => r.Value is not null).Average(r => r.Value!.Value), rows[0].Unit ?? "");
+    private static string Value(LedgerRow[] rows) => Mean(rows) is { } mean ? Format(mean, rows[0].Unit ?? "") : "no number";
 
     /// <summary>
     /// One word for what a case did across however many times it ran in one file. Mixed pass and
@@ -184,6 +228,14 @@ public static class Scoreboard
             + $"  load {after.Header.Load:0.##}, {after.Header.ConcurrentDotnet} dotnet process(es)");
         text.AppendLine($"        {after.Rows.Count} rows: {after.Rows.Count(r => r.Verdict == "pass")} pass, {reds} red, {skips} skipped, {measures} measure, {after.Rows.Count(r => r.Verdict == "sealed")} sealed");
 
+        // Counted outside the comparison block so the closing line can carry them. A run that
+        // stopped measuring things its baseline measured is not a clean run with a footnote: it is
+        // a run whose coverage fell, and "nothing red" printed on its own is how that gets read as
+        // health. The exit code still comes from this run's own red rows, because coverage falling
+        // is not the same event as a check failing and conflating them would make one unfixable
+        // without the other.
+        int stoppedReporting = 0, gone = 0;
+
         if (before == null)
         {
             text.AppendLine("        no baseline: no ancestor commit has a clean run in the store, so nothing here is a comparison");
@@ -192,7 +244,9 @@ public static class Scoreboard
         {
             text.AppendLine($"        against {before.Name} at {before.Header.Commit}");
             var changes = Compare(before, after, beforeRepeats);
-            foreach (Change kind in new[] { Change.NewRed, Change.Flaky, Change.Fixed, Change.MeasureDrift, Change.New, Change.Gone })
+            stoppedReporting = changes.Count(c => c.Change == Change.StoppedReporting);
+            gone = changes.Count(c => c.Change == Change.Gone);
+            foreach (Change kind in new[] { Change.NewRed, Change.StoppedReporting, Change.Gone, Change.Flaky, Change.Fixed, Change.MeasureDrift, Change.NowReporting, Change.New })
             {
                 var group = changes.Where(c => c.Change == kind).ToArray();
                 if (group.Length == 0) continue;
@@ -246,10 +300,14 @@ public static class Scoreboard
         // before the baseline is still red and a scoreboard that exits 0 on it would make "green"
         // mean "no worse than yesterday".
         int exit = reds == 0 ? 0 : 1;
+        string coverage = stoppedReporting + gone == 0
+            ? ""
+            : $", and {stoppedReporting + gone} case(s) that reported at the baseline did not report here"
+              + " — this run measured less than the run it is being read against";
         text.AppendLine();
         text.AppendLine(exit == 0
-            ? $"ledger: {after.Rows.Count} rows, nothing red"
-            : $"ledger: {reds} red row(s)");
+            ? $"ledger: {after.Rows.Count} rows, nothing red{coverage}"
+            : $"ledger: {reds} red row(s){coverage}");
         return (text.ToString(), exit);
     }
 
@@ -258,7 +316,9 @@ public static class Scoreboard
         Change.NewRed => "NEW RED",
         Change.Fixed => "fixed",
         Change.Flaky => "flaky",
-        Change.Gone => "gone",
+        Change.Gone => "gone — filed no row at all this run",
+        Change.StoppedReporting => "STOPPED REPORTING — reported at the baseline, skipped now",
+        Change.NowReporting => "now reporting — skipped at the baseline",
         Change.New => "new",
         Change.MeasureDrift => "measures that moved",
         _ => "unchanged",
