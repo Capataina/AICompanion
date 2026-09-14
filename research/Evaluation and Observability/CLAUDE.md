@@ -12,7 +12,8 @@ Evaluation and Observability/
 ├─ Proposal 1 Implementation Ledger.md            fixture evidence and remaining acceptance milestones
 ├─ Behavioural Acceptance Matrix.md               positive and countercases for all README responsibilities
 ├─ Question Answers and Remaining Evidence.md    dispositions for all 140 research questions
-└─ Research Scope and Verification.md             obligations, checks, corrections and reproducibility limits
+├─ Research Scope and Verification.md             obligations, checks, corrections and reproducibility limits
+└─ God's View Verification Plan.md                the one-piece plan for the harness: kit, ledger, three instruments, refusals, sources
 ```
 
 A sampled activity name is not a fresh decision, a route status is not a physical outcome, a tool call is not productive work, and a retained failure is not a new failure on every row. Count events by identity and state changes by transition. Interpret each timestamp against its producer's clock. Experiments must fix these meanings before they compare architectures, because a wrong measuring rule can make a working mechanism look broken and a broken one look successful.
