@@ -50,7 +50,13 @@ public sealed class BrainTelemetry : ModSystem
     // lighting activity nominated, `reach_n`/`returnable_n` become `reach_any`/`reach_two_way` after the reach sense
     // that now owns them with `reach_complete` beside them so an unfinished flood and a small one stop reading alike,
     // and the row ends with the travel rates while the route-episode and stop occurrences land beside them.
-    private const string Schema = "0.31.0";
+    // 0.32.0 appends what lighting's discovery search asked and what the reach sense answered
+    // (`lighting_sites`, `lighting_sites_asked`), and declares `torch_reason` textual — which 0.31.0 wrote
+    // and never declared, so every one of its rows read as a column that failed to parse as a number. The
+    // declaration below is a hand-maintained parallel to the header builder and that omission is what it
+    // costs; SessionReport now unions its own known-textual set with whatever a capture declares, so an
+    // already-written capture is read correctly rather than only the next one.
+    private const string Schema = "0.32.0";
     // The cost of the previous row's Record call: a row cannot contain the time spent writing itself, so each row carries
     // the one before it and the first row of a session carries none.
     private static readonly Stopwatch recordClock = new();
@@ -539,7 +545,7 @@ public sealed class BrainTelemetry : ModSystem
 
         if (!headerWritten)
         {
-            var textColumns = new StringBuilder("# text_columns=state,action,reflex,top_threat,target,request,anchor,spot,next_kind,npc_tile,npc_px,npc_vel,held,weapon,fire,engage,torch,player_tile,edge_kind,edge_from,edge_to,edge_outcome,spot_home,diverge_invalid_reason,sample_phase,player_px,player_vel,player_liquid,player_hit,npc_hit,player_state,player_activity,player_support,npc_support,control,control_source,observed_vel,observed_mobility,predicted_vel,predicted_mobility,follow_reason,recovery_reason,guard_reason,mine_policy,mine_status,mine_target,target_evidence,nav_status,position_reason,escape_stage,escape_target,hunt_reason,hand_grant,control_request_owner,safety_kind,safety_reason,safety_last_end,collection_method,mine_end_reason,attempt_end_activity,attempt_end_family,attempt_end_status,attempt_end_cause,attempt_end_attribution,pursuit_target,pursuit_evidence,aim_target,landed_hit_target,landed_hit_aimed,encounter_source");
+            var textColumns = new StringBuilder("# text_columns=state,action,reflex,top_threat,target,request,anchor,spot,next_kind,npc_tile,npc_px,npc_vel,held,weapon,fire,engage,torch,player_tile,edge_kind,edge_from,edge_to,edge_outcome,spot_home,diverge_invalid_reason,sample_phase,player_px,player_vel,player_liquid,player_hit,npc_hit,player_state,player_activity,player_support,npc_support,control,control_source,observed_vel,observed_mobility,predicted_vel,predicted_mobility,follow_reason,recovery_reason,guard_reason,mine_policy,mine_status,mine_target,target_evidence,nav_status,position_reason,escape_stage,escape_target,hunt_reason,hand_grant,control_request_owner,safety_kind,safety_reason,safety_last_end,collection_method,mine_end_reason,attempt_end_activity,attempt_end_family,attempt_end_status,attempt_end_cause,attempt_end_attribution,pursuit_target,pursuit_evidence,aim_target,landed_hit_target,landed_hit_aimed,encounter_source,torch_reason,lighting_sites");
             // Offer columns are named from the registered activities, like the raw/final pairs, so
             // the declaration and the header cannot disagree about which activities exist.
             foreach (var a in brain.Chooser.Actions) textColumns.Append(',').Append(a.Name).Append("_offer");
@@ -607,6 +613,14 @@ public sealed class BrainTelemetry : ModSystem
             // describes is otherwise invisible in a capture: a companion that walks a lit-looking passage
             // beside a torch-carrying player and places nothing looks exactly like one with nothing to do.
             h.Append("\ttransient_lights");
+            // What lighting's last discovery search actually asked and what the reach sense answered, as
+            // `x,y=verdict` pairs, beside the number of sites it put to the query. Without them a starved
+            // search and a search over a genuinely sealed screen produce the same offer string, which is how
+            // 79% of the 2026-09-14 session could read "the question was not finished" with no way to tell
+            // from the record whether three sites had been asked or three hundred, or whether the answers were
+            // refusals or a flood that had not settled. The ledger is capped and the count is not, so the two
+            // together read as "the first few of this many" rather than as the whole search.
+            h.Append("\tlighting_sites\tlighting_sites_asked");
             writer.WriteLine(h.ToString());
             headerWritten = true;
         }
@@ -987,6 +1001,9 @@ public sealed class BrainTelemetry : ModSystem
         sb.Append('\t').Append(TravelEpisodes.StopsPerMinute.ToString("0.00", CultureInfo.InvariantCulture))
             .Append('\t').Append(TravelEpisodes.RouteSpeedMean.ToString("0.00", CultureInfo.InvariantCulture));
         sb.Append('\t').Append(Observation.TransientLights.Count);
+        var lighting = brain.Chooser.Actions.OfType<Activities.NearbyAssistance.LightUsefulArea>().FirstOrDefault();
+        sb.Append('\t').Append(string.IsNullOrEmpty(lighting?.LastSearchSites) ? "-" : lighting!.LastSearchSites)
+            .Append('\t').Append(lighting?.LastSearchAsked ?? 0);
 
         // A write that fails (disk full, a stream the OS closed) must not escape the NPC's AI
         // and take the companion with it; the record stops and the game goes on.

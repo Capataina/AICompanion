@@ -120,6 +120,22 @@ public abstract class PerformNearbyWorldWork : CompanionAction
     /// name for the same fact and it is kept, because the fact did not change when the evidence for it did.</summary>
     private const string NoReturnReason = "interaction-site-has-no-return";
 
+    /// <summary>
+    /// What the last discovery search asked and what came back, as <c>x,y=verdict</c> joined by semicolons,
+    /// for the telemetry. The offer alone says a search found nothing and cannot say whether it looked at two
+    /// sites or two hundred, or whether the answers were refusals or an unsettled flood — which is exactly
+    /// the distinction the starvation hid for a whole session, and the reason a reader of the 2026-09-14
+    /// capture could see only that the question was never finished. Empty on a preparation that ran no search.
+    /// </summary>
+    public string LastSearchSites { get; private set; } = "";
+    /// <summary>How many sites that search put to the approach query, which is the figure the string is a
+    /// sample of: the string is capped and this is not, so a capped string still carries an honest count.</summary>
+    public int LastSearchAsked { get; private set; }
+    /// <summary>How many entries the ledger keeps. A row is read in a terminal and a search over a wholly dark
+    /// floor can ask hundreds; the count beside it carries the rest.</summary>
+    private const int LedgerEntries = 12;
+    private readonly System.Text.StringBuilder ledger = new();
+
     /// <summary>Keep a site whose trip was proven impossible (no way back, or no take-off for the only hop that could
     /// reach it) out of discovery until the terrain changes or the wait passes. A named reason also becomes the offer's refusal.</summary>
     private void DeferRefusedTrip(Point tile, string? reason)
@@ -127,6 +143,23 @@ public abstract class PerformNearbyWorldWork : CompanionAction
         if (noReturn.Count > 64) { noReturn.Clear(); provenRefusal = null; }
         noReturn[tile] = (TerrainChanges.Revision, Main.GameUpdateCount + (ulong)Infrastructure.Selection.Weights.NearbyWorkNoReturnRetryTicks);
         if (reason != null) tripRefusal = provenRefusal = (OfferEligibility.KnownUnusable, reason);
+    }
+
+    /// <summary>Add one asked site and its verdict to the ledger. The count always advances; the text stops at
+    /// <see cref="LedgerEntries"/>, so a row stays readable and the two together say "these are the first
+    /// twelve of this many" rather than quietly presenting a sample as the whole search.</summary>
+    private void RecordAsked(Point tile, Reachability.Reach verdict)
+    {
+        LastSearchAsked++;
+        if (LastSearchAsked > LedgerEntries) return;
+        if (ledger.Length > 0) ledger.Append(';');
+        ledger.Append(tile.X).Append(',').Append(tile.Y).Append('=').Append(
+            verdict switch
+            {
+                Reachability.Reach.Yes => "reachable",
+                Reachability.Reach.No => "unreachable",
+                _ => "not-yet-known",
+            });
     }
 
     private bool NoReturnDeferred(Point tile)
@@ -243,6 +276,8 @@ public abstract class PerformNearbyWorldWork : CompanionAction
             // them with the answer already in it.
             ordered.Clear();
             standUnresolved = false;
+            ledger.Clear();
+            LastSearchAsked = 0;
             GatherSearchTiles(ctx, ordered);
             ordered.Sort(static (a, b) => a.Cost != b.Cost ? a.Cost.CompareTo(b.Cost) : a.Order.CompareTo(b.Order));
             foreach (var (_, _, p) in ordered)
@@ -281,6 +316,7 @@ public abstract class PerformNearbyWorldWork : CompanionAction
                         standing = FindToolAccess.HopApproach(p, ctx.Companion.Motor.State, ctx.Senses.Reach, out candidateStand);
                         jump = standing == Reachability.Reach.Yes;
                     }
+                    RecordAsked(p, standing);
                     if (standing != Reachability.Reach.Yes)
                     {
                         NoteApproach(ctx, standing);
@@ -317,6 +353,7 @@ public abstract class PerformNearbyWorldWork : CompanionAction
             // same way, whether the subclass has a name for it or not. Waiting the full cadence on it re-asks
             // from wherever the body has since walked, which is the failure that turned the J08 lighting trip's
             // site into the wrong one: the scene moves while the evidence is being gathered.
+            LastSearchSites = ledger.ToString();
             if (target == null && (standUnresolved || SearchRefusal(ctx) is { Eligibility: OfferEligibility.Unresolved }))
                 nextSearch = Main.GameUpdateCount + (ulong)Infrastructure.Selection.Weights.NearbyWorkUnresolvedRetryTicks;
         }

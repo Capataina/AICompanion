@@ -34,6 +34,7 @@ public static class Program
         // The instrument first: a finding here means the rest of the file is not yet evidence.
         new TicksAdvance(),
         new ReturnableFitsInsideReach(),
+        new TheReachFloodSettles(),
         new ColumnsHoldWhatTheyClaim(),
         new TheCaptureWasClosed(),
         new NoOccurrenceWasDropped(),
