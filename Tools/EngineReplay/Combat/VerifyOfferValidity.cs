@@ -104,11 +104,18 @@ internal static class VerifyOfferValidity
         var request = new PositionRequest(RequestKind.LineOfFire, enemy.Center, enemy);
         var positioner = companion.Brain.Positioner;
 
-        // The reasons are read from the first rescore after sealing, deliberately. Settling the flood first would
-        // itself walk the whole shortlist and remember every refusal, so by the time the region was complete the
-        // search would already be exhausted and the cut this row exists to observe would have happened unwatched —
-        // which is what the first version of this row did, and it passed while proving nothing.
-        //
+        // The flood is settled first, and it is settled with a following request rather than this one. Settling
+        // with the firing request would walk the shortlist and remember every refusal, so the search would already
+        // be exhausted before observation began; not settling at all makes the row depend on the machine, because
+        // how far the flood grows per resolve is bounded by a millisecond budget and a warm suite reaches a
+        // different set from a cold standalone run — which showed up as four surviving candidates in the suite
+        // against twenty-nine alone, and four cannot exceed a budget of eight. A following request refreshes the
+        // same sense and spends no solves, so the region is complete and the shortlist untouched.
+        var settle = new PositionRequest(RequestKind.WithPlayer, Main.player[0].Bottom);
+        for (int i = 0; i < 1200 && !positioner.ReachComplete; i++)
+            positioner.Resolve(settle, companion.Brain.Senses, null);
+        Require(positioner.ReachComplete, "the exhaustion row needs a settled reachable region before it counts candidates");
+
         // This is where a cut is forced by construction: there are far more standable candidates around the sealed
         // shaft than the eight solves a rescore may pay for, and not one of them has an arc. The old code answered
         // "no usable destination established" on the very first pass and the chooser branded the hunt impossible on
@@ -124,6 +131,12 @@ internal static class VerifyOfferValidity
         {
             chosen = positioner.Resolve(request, companion.Brain.Senses, profile);
             reasons.Add(positioner.ChoiceReason);
+            if (tick == 0)
+                // The scene must present more candidates than a pass may solve, or there is no cut to observe and
+                // a green result would mean only that the shortlist happened to fit inside its budget.
+                Require(positioner.ReachableCandidateCount > 8,
+                    $"the sealed scene must offer more candidates than one pass can solve; sampled "
+                    + $"{positioner.CandidateCount}, reachable {positioner.ReachableCandidateCount}, answered {positioner.EvaluatedCandidates}");
             if (positioner.ChoiceReason == PositionReasons.SearchUnfinished && !undecidedOffer)
             {
                 // Read one undecided pass exactly as the chooser reads it: no destination, and an offer that says
@@ -185,8 +198,13 @@ internal static class VerifyOfferValidity
             $"the pillar scene must offer a stand whose shot closes before arrival; now={behindNow}, later={behindLater}");
         Require(beyondLater, "the pillar scene must leave somewhere that can still shoot on arrival, or refusing is the only answer");
 
-        for (int i = 0; i < 400 && !positioner.ReachComplete; i++)
-            positioner.Resolve(request, companion.Brain.Senses, profile);
+        // Settled with a following request for the same reason the exhaustion row is: a firing request spends
+        // solves and remembers refusals while it waits, and an unsettled region leaves a handful of candidates
+        // that differ between a warm suite and a cold run.
+        var settle = new PositionRequest(RequestKind.WithPlayer, Main.player[0].Bottom);
+        for (int i = 0; i < 1200 && !positioner.ReachComplete; i++)
+            positioner.Resolve(settle, companion.Brain.Senses, null);
+        Require(positioner.ReachComplete, "the pillar row needs a settled reachable region before it chooses a stand");
         // Resolve until the search settles rather than a fixed number of times. How deep one pass gets is bounded
         // by a millisecond budget, so a warm suite and a cold standalone run cut the shortlist in different places
         // and a fixed count makes this row depend on the machine. Waiting for the undecided state to clear is not

@@ -292,6 +292,7 @@ public sealed class Positioner
                 var objective = new FollowPlayerObjective(senses.Player.Bottom, request.Anchor);
                 if (!objective.AcceptsDestination(spot, CanSeePlayer(spot + new Vector2(0f, -30f), senses)))
                     return false;
+                if (StandsInPlayersWay(spot, senses)) return false;
                 ChoiceReason = PositionReasons.Retained;
                 Region = SuccessRegion.Follow(objective, senses.Tick, TerrainChanges.Revision);
                 return true;
@@ -307,7 +308,7 @@ public sealed class Positioner
                 var held = SolveShotAtArrival(spot + new Vector2(0f, -30f), spot, enemy, profile, senses);
                 if (!held.Solved)
                 {
-                    RememberRefusal(tile, enemy, held);
+                    RememberRefusal(tile, enemy, BodyBucket(senses.Companion.Bottom));
                     return false;
                 }
                 ChoiceReason = PositionReasons.Retained;
@@ -316,8 +317,13 @@ public sealed class Positioner
                 return true;
             case SuccessRegionKind.PartialProgress:
                 if (request.Kind != RequestKind.WithPlayer) return false;
+                // The tile exists only because nothing satisfied the objective, so a body that now satisfies it has
+                // no reason to walk anywhere: retaining on the gap alone would send it on to a tile whose only
+                // merit is a smaller gap than one already small enough. This flag is computed above, on this tick.
+                if (FollowObjectiveSatisfied) return false;
                 if (!ImprovesOnStandingHere(new FollowPlayerObjective(senses.Player.Bottom, request.Anchor), senses.Companion.Bottom, spot))
                     return false;
+                if (StandsInPlayersWay(spot, senses)) return false;
                 ChoiceReason = "partial-progress-candidate";
                 Region = SuccessRegion.Partial(spot, senses.Tick, TerrainChanges.Revision);
                 return true;
@@ -464,7 +470,7 @@ public sealed class Positioner
     /// <summary>What one stand's trajectory solve established, including whether the refusal is a fact about the
     /// geometry or only about the wait: a stand with no arc now has none whatever the trip, while a stand whose arc
     /// closes before the body could arrive is refused for this trip and may be fine from closer.</summary>
-    private readonly record struct ShotVerdict(bool Solved, string Reason, bool GeometricRefusal, int TripTicks);
+    private readonly record struct ShotVerdict(bool Solved, string Reason, int TripTicks);
 
     /// <summary>
     /// Whether this stand can shoot the target once the body has walked to it. The stand's arc used to be solved
@@ -489,36 +495,57 @@ public sealed class Positioner
         if (!forecastUsable || arrival <= 0)
         {
             bool now = TrajectoryAimer.Solve(eye, target, profile) != null;
-            return new(now, now ? (forecastUsable ? "clear-arc" : "clear-arc-unforecast") : "no-arc", true, arrival);
+            return new(now, now ? (forecastUsable ? "clear-arc" : "clear-arc-unforecast") : "no-arc", arrival);
         }
         if (TrajectoryAimer.Solve(eye, target, profile, arrival) == null)
-            // A refusal at arrival is only a fact about the geometry when the trip is short enough that the
-            // forecast has barely moved the target; over a long walk it is a fact about this trip alone, and
-            // remembering it would write off a stand that is fine once the body is standing nearer.
-            return new(false, "no-arc", arrival <= Weights.ShotWindowSampleTicks, arrival);
+            return new(false, "no-arc", arrival);
         int required = (int)MathF.Min(trip, 2 * Weights.ShotWindowSampleTicks);
         for (int held = Weights.ShotWindowSampleTicks; held <= required; held += Weights.ShotWindowSampleTicks)
             if (TrajectoryAimer.Solve(eye, target, profile, Math.Min(180, arrival + held)) == null)
-                return new(false, PositionReasons.ShotWindowShorterThanTrip, false, arrival);
-        return new(true, "clear-arc", false, arrival);
+                return new(false, PositionReasons.ShotWindowShorterThanTrip, arrival);
+        return new(true, "clear-arc", arrival);
     }
 
-    // Stands a real solve refused on geometry, per target generation and terrain revision. A refusal is a fact and
-    // may be remembered; an unfinished search is not, which is why nothing records a candidate that was never asked.
-    // Without this the shortlist cuts at the same place every rescore while body, target and terrain hold still, so
-    // an undecided answer would be permanent in a static scene and the stand past the cut would never be reached.
-    private readonly Dictionary<(Point tile, int slot, int generation), (int terrain, Vector2 target)> refused = new();
+    // Stands a real solve refused, scoped to the conditions the refusal was a fact under: this terrain, this target
+    // generation standing about here, and a body standing about here. A refusal is a fact and may be remembered; an
+    // unfinished search is not, which is why nothing records a candidate that was never asked. Without this the
+    // shortlist cuts at the same place every rescore while body, target and terrain hold still, so an undecided
+    // answer would be permanent in a static scene and the stand past the cut would never be reached.
+    //
+    // The body's position is part of the scope rather than a refinement of it. A stand can be refused because the
+    // shot would close before the body could walk there, which is a fact about the trip and therefore about where
+    // the body is standing — and the first version of this memory excluded those refusals for exactly that reason,
+    // which turned out to break the property the memory exists for: a handful of trip-refused stands ranked at the
+    // top of the shortlist are re-solved every pass for ever, nothing below them is ever reached, and the search
+    // stays undecided permanently. Scoping the memory to where the body stands keeps every refusal honest and lets
+    // the search finish, at the cost of re-asking once the body has moved, which is when the answer can differ.
+    //
+    // "Where the body stands" is a coarse bucket rather than its exact tile, and the coarseness is what makes the
+    // scope usable at all rather than a refinement of it. The exact tile changes on almost every tick a walking
+    // body is asked — `ResolveFiringOpportunity` keys its own cache in the same strides for the same reason — and
+    // a hunt is challenged through `PrepareOffer` while some other activity walks the body, so an exact key would
+    // discard every refusal the last few passes established and restart the shortlist from the top on each of
+    // them. The search would then never exhaust while the body moved, which is the case this memory exists to
+    // stop. Whether some stand can shoot an enemy does not change from one tile of travel.
+    private readonly Dictionary<(Point tile, int slot, int generation), (int terrain, Vector2 target, Point from)> refused = new();
 
-    private void RememberRefusal(Point tile, NPC target, in ShotVerdict verdict)
+    /// <summary>Where the body is standing, in the strides the refusal memory is scoped by.</summary>
+    private static Point BodyBucket(Vector2 bottom)
     {
-        if (!verdict.GeometricRefusal) return;
-        if (refused.Count > 512) refused.Clear();
-        refused[(tile, target.whoAmI, HostileAttackSources.Generation(target))] = (TerrainChanges.Revision, target.Center);
+        Point feet = MovementQueries.FeetTile(bottom);
+        return new Point(feet.X >> 2, feet.Y >> 2);
     }
 
-    private bool AlreadyRefused(Point tile, NPC target)
+    private void RememberRefusal(Point tile, NPC target, Point from)
+    {
+        if (refused.Count > 512) refused.Clear();
+        refused[(tile, target.whoAmI, HostileAttackSources.Generation(target))] = (TerrainChanges.Revision, target.Center, from);
+    }
+
+    private bool AlreadyRefused(Point tile, NPC target, Point from)
         => refused.TryGetValue((tile, target.whoAmI, HostileAttackSources.Generation(target)), out var mark)
             && mark.terrain == TerrainChanges.Revision
+            && mark.from == from
             && Vector2.DistanceSquared(mark.target, target.Center)
                 <= Weights.FiringHoldTargetSlackPx * Weights.FiringHoldTargetSlackPx;
 
@@ -623,6 +650,9 @@ public sealed class Positioner
         // never reached is not, and the difference is the whole of what the offer's third value means.
         bool everyCandidateAnswered = true;
         int solved = 0;
+        // Where the body stands scopes every remembered refusal, because a stand refused for the length of the walk
+        // to it is refused from here and may be fine from somewhere else; the stride is set by BodyBucket.
+        Point bodyTile = BodyBucket(senses.Companion.Bottom);
         var solveClock = System.Diagnostics.Stopwatch.StartNew();
         for (int i = 0; i < candidates.Count; i++)
         {
@@ -632,7 +662,7 @@ public sealed class Positioner
             if (needsFire)
             {
                 Point tile = MovementQueries.FeetTile(feet);
-                if (AlreadyRefused(tile, request.Target!))
+                if (AlreadyRefused(tile, request.Target!, bodyTile))
                 {
                     // Counted as evaluated because it is answered: a real solve refused it, under this terrain
                     // revision and against a target that has not moved since. The count means "candidates this
@@ -650,7 +680,7 @@ public sealed class Positioner
                 { everyCandidateAnswered = false; break; } // unsolved candidates cannot beat a solved one above them
                 solved++;
                 var verdict = SolveShotAtArrival(eye, feet, request.Target!, fireProfile!.Value, senses);
-                if (!verdict.Solved) RememberRefusal(tile, request.Target!, verdict);
+                if (!verdict.Solved) RememberRefusal(tile, request.Target!, bodyTile);
                 shot = verdict.Reason;
                 score = ScoreSpot(request, feet, eye, playerBottom, senses, bandNear, bandFar, verdict.Solved ? 1f : 0f, reach);
             }
@@ -728,9 +758,20 @@ public sealed class Positioner
     /// positions do not read it, because protection is not priced against courtesy.
     /// </summary>
     private static float CourtesyShare(Vector2 feet, Senses.Senses senses)
+        => StandsInPlayersWay(feet, senses) ? Weights.CourtesyOccupancyShare : 1f;
+
+    /// <summary>
+    /// Whether a body standing here would overlap the player's interference footprint. Retention of a follow
+    /// destination asks this as well as the objective, because the objective is about being near the player and
+    /// says nothing about being in the way: a spot the player is now walking through no longer belongs to the
+    /// region it was admitted against, whatever its distance says. Without this the footprint's forced rescore
+    /// above becomes a rescore that retains, which is no rescore at all, and the companion holds the tile the
+    /// player is trying to walk down. Releasing it is not a veto — the scored pass that follows prices courtesy
+    /// as a share, so the spot is chosen again where it is the only usable one.
+    /// </summary>
+    private static bool StandsInPlayersWay(Vector2 feet, Senses.Senses senses)
         => senses.Player.Interference is Rectangle footprint
-            && PlayerSense.BodyTiles(feet, BodyPhysics.Width, BodyPhysics.Height).Intersects(footprint)
-            ? Weights.CourtesyOccupancyShare : 1f;
+            && PlayerSense.BodyTiles(feet, BodyPhysics.Width, BodyPhysics.Height).Intersects(footprint);
 
     private static bool CanSeePlayer(Vector2 eye, Senses.Senses senses)
         => Collision.CanHitLine(eye, 1, 1, senses.PlayerEntity.position, senses.PlayerEntity.width, senses.PlayerEntity.height);
