@@ -69,7 +69,7 @@ internal static class RecordEvidenceScenes
     {
         ActionContext ctx;
         try { ctx = build(); }
-        catch (Exception error) { Console.WriteLine($"FAIL {name}: scene did not build: {error.Message}"); return 1; }
+        catch (Exception error) { AICompanion.Tools.Ledger.EmitLedgerRows.Detail($"{name}: scene did not build: {error.Message}"); return 1; }
         var recorder = new BrainTelemetry();
         VerifyObservationLifecycle.Attach(recorder);
         recorder.OnWorldLoad();

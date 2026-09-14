@@ -150,7 +150,7 @@ internal static class VerifyCompanionHud
         Main.mouseRight = Main.mouseRightRelease = true; draw.Invoke(hud, null);
         Require(save.HealthBarPosition == null, "right-click must restore docking");
         Main.mouseRight = false; Main.mouseX = Main.mouseY = -100;
-        Console.WriteLine("PASS native HUD input: icon click, drag containment and redocking");
+        Console.WriteLine("native HUD input: icon click, drag containment and redocking");
     }
 
     private static void Require(bool condition, string message)

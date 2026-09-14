@@ -8,20 +8,18 @@ internal static class VerifyEngineMotion
 {
     public static int Run(bool lifecycleOnly = false, bool escapeOnly = false, bool workOnly = false, bool followOnly = false, bool protectionOnly = false, bool miningBaselineOnly = false, bool brainCostOnly = false, bool combatCostOnly = false, bool combatPurposeOnly = false, bool safetyAftermathOnly = false, bool dodgeReproOnly = false)
     {
-        typeof(Terraria.Program).GetField("SavePath", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)!.SetValue(null, Path.GetTempPath());
-        Main.dedServ = true;
-        Main.maxTilesX = 100;
-        Main.maxTilesY = 100;
-        Main.worldSurface = 50;
-        Main.tile = (Tilemap)Activator.CreateInstance(typeof(Tilemap), BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public, null, new object[] { (ushort)100, (ushort)100 }, null)!;
-        Main.tileSolid[1] = true;
+        // The engine containers, the miniature world's dimensions and its tile map now belong to
+        // ResetProcessState, which the entry point calls before dispatching any flag — they were
+        // here, and so every flag that returns before this method skipped them. This call keeps the
+        // default suite working when Run is reached some other way; it is idempotent.
+        ResetProcessState.PrepareProcess();
+        // The floor is this suite's own scene rather than process setup, so it stays here.
         for (int x = 5; x < 95; x++)
         {
             Tile tile = Main.tile[x, 60];
             tile.HasTile = true;
             tile.TileType = 1;
         }
-        Main.tileSolid[19] = Main.tileSolidTop[19] = true;
         if (lifecycleOnly) return VerifyCompanionLifecycle.Run() + VerifyDowningAndRevival.Run() + VerifyStatMirroring.Run();
         if (escapeOnly) return VerifyCapturedEscape.Run();
         if (workOnly) return VerifyOreWork.Run() + VerifyCompanionPreferences.Run() + VerifyCompanionActivities.Run() + VerifyUsefulAssistance.Run()
@@ -35,6 +33,30 @@ internal static class VerifyEngineMotion
         if (combatPurposeOnly) return VerifyCombatPurpose.Run();
         if (safetyAftermathOnly) return VerifySafetyAftermath.Run();
         if (dodgeReproOnly) return VerifySafetyAftermath.ReproduceDodgeOnDryFloor();
+        int failed = 0;
+        // The collision matrix is a case like every other one, which it was not: it emitted its row
+        // through Row and Measure directly, so it ran all 2,536 comparisons on a --case run that had
+        // excluded it and then filed a pass for a case the filter said not to run. Its suite stays
+        // "Movement" so the row keeps the key its history is under.
+        failed += EmitLedgerRows.Case(Instrument, "Movement",
+            "the portable body matches native NPC collision on every shape, liquid and control", MatchNativeCollision);
+
+        // Every fixture below used to be a term in one `failed += Verify*.Run()` sum, and the sum was
+        // an abort dressed as a total: assertions here throw, so the first fixture to fail took the
+        // whole chain with it. As a table, each fixture is a named case that reports its own verdict
+        // and cannot reach its neighbours, and the emitter's own reset runs between them so a case
+        // cannot inherit the world its predecessor left either.
+        foreach ((string name, Func<int> body) in DefaultCases())
+            failed += EmitLedgerRows.Case(Instrument, "EngineReplay", name, body);
+        return failed == 0 ? 0 : 1;
+    }
+
+    /// <summary>
+    /// Every shape, liquid, entry pose and control the portable body claims to reproduce, against
+    /// Terraria's own NPC collision on the same tiles, plus the liquid-transition grid.
+    /// </summary>
+    private static int MatchNativeCollision()
+    {
         int checkedCases = 0, failed = 0;
         foreach (int altitude in new[] { 0, 30 })
         foreach (int shape in Enumerable.Range(0, 7))
@@ -69,7 +91,7 @@ internal static class VerifyEngineMotion
                 || predicted.LiquidKind != actual.LiquidKind || predicted.StairFall != actual.StairFall
                 || predicted.OnGround != actual.OnGround || predicted.CollideX != actual.CollideX)
             {
-                if (failed++ < 12) Console.WriteLine($"FAIL shape={shape} liquid={liquid} entry={state} controls={controls}\n predicted={predicted}\n engine={actual}");
+                if (failed++ < 12) EmitLedgerRows.Detail($"mismatch shape={shape} liquid={liquid} entry={state} controls={controls}; predicted={predicted}; engine={actual}");
             }
         }
         foreach (int previous in Enumerable.Range(0, 4))
@@ -89,29 +111,13 @@ internal static class VerifyEngineMotion
             if (predicted != actual)
             {
                 failed++;
-                Console.WriteLine($"FAIL liquid transition {previous}->{current}: predicted={predicted} engine={actual}");
+                EmitLedgerRows.Detail($"liquid transition {previous}->{current} mismatch: predicted={predicted} engine={actual}");
             }
         }
         Console.WriteLine($"engine motion: {checkedCases - failed}/{checkedCases} matched native NPC collision; {failed} mismatches; Collision scratch preserved");
-        EmitLedgerRows.Row(new LedgerRow(Instrument, "Movement", "the portable body matches native NPC collision on every shape, liquid and control",
-            failed == 0 ? "pass" : "fail", Message: $"{checkedCases - failed} of {checkedCases} cases matched"));
         EmitLedgerRows.Measure(Instrument, "Movement", "native-collision-cases-matched", checkedCases - failed, "cases", "up",
             message: $"out of {checkedCases} shape, liquid, entry and control combinations");
-
-        // Every fixture below used to be a term in one `failed += Verify*.Run()` sum, and the sum
-        // was an abort dressed as a total: assertions here throw, so the first fixture to fail took
-        // the whole chain with it and every fixture after it never ran at all. VerifyOreWork sat
-        // thirteenth of thirty-five, and its raised-lip case is the known intermittent one — so on
-        // the runs where the flake fired, twenty-two later fixtures reported nothing, and the run
-        // printed one exit code that could not tell that from their passing.
-        //
-        // As a table, each fixture is a named case that reports its own verdict and cannot reach
-        // its neighbours. The sum is unchanged, so the suite's exit code means exactly what it
-        // meant before; what changes is that a red now names one case and the other thirty-four
-        // still say what they found.
-        foreach ((string name, Func<int> body) in DefaultCases())
-            failed += EmitLedgerRows.Case(Instrument, "EngineReplay", name, body);
-        return failed == 0 ? 0 : 1;
+        return failed;
     }
 
     internal const string Instrument = "engine-replay";
@@ -232,7 +238,7 @@ internal static class VerifyEngineMotion
             TerrainChanges.Reset();
             NavGrid.World = new GameTileWorld();
             BodyPhysics.Pose? pose = NavGrid.StandAt(from.X, from.Y, false);
-            if (pose == null) { Console.WriteLine($"FAIL native route {name}: no start pose"); failed++; continue; }
+            if (pose == null) { EmitLedgerRows.Detail($"native route {name}: no start pose"); failed++; continue; }
             BodyState live = BodyState.Standing(pose.Value);
             var movement = new CoordinateMovement();
             int tick;

@@ -139,7 +139,7 @@ switch (args[0])
     // The run being scored is never its own baseline, and the exclusion goes into the walk rather
     // than onto its answer: nulling a self-match afterwards abandons the search at the first
     // ancestor instead of continuing past it.
-    Run? baseline = RunStore.Baseline(root, from, excluding: after.Path);
+    Run? baseline = RunStore.Baseline(root, from, excluding: after.Path, scoring: after);
     return (baseline, baseline == null ? Array.Empty<Run>() : RunStore.At(root, baseline.Header.Commit));
 }
 

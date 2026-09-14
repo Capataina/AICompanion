@@ -29,7 +29,7 @@ internal static class VerifyProjectileMotion
         var target = new NPC { active = true, width = 10, height = 10, position = new Vector2(306f, 495f), velocity = Vector2.Zero, noGravity = true };
         if (!TrajectoryAimer.TryTrace(muzzle, launch, target, profile, out _))
         {
-            Console.WriteLine("FAIL projectile sweep: clear trace did not reach its target");
+            AICompanion.Tools.Ledger.EmitLedgerRows.Detail("projectile sweep: clear trace did not reach its target");
             return 1;
         }
 
@@ -44,10 +44,10 @@ internal static class VerifyProjectileMotion
         bool noisyStillSafe = !TrajectoryAimer.TryTrace(muzzle, launch.RotatedBy(MathHelper.ToRadians(4f)), target, profile, out _);
         if (!blocked || !reopened || !noisyStillSafe)
         {
-            Console.WriteLine($"FAIL projectile sweep: blocked={blocked} reopened={reopened} noisy-rejected={noisyStillSafe}");
+            AICompanion.Tools.Ledger.EmitLedgerRows.Detail($"projectile sweep: blocked={blocked} reopened={reopened} noisy-rejected={noisyStillSafe}");
             return 1;
         }
-        Console.WriteLine("PASS projectile sweep: thin wall blocks, its removal reopens, and an accuracy rotation is rejected when it misses");
+        Console.WriteLine("projectile sweep:thin wall blocks, its removal reopens, and an accuracy rotation is rejected when it misses");
         return 0;
     }
 
@@ -64,7 +64,7 @@ internal static class VerifyProjectileMotion
 
         if (native.width != profile.HitboxSize || native.height != profile.HitboxSize)
         {
-            Console.WriteLine($"FAIL projectile {name}: native box {native.width}x{native.height}, profile {profile.HitboxSize}x{profile.HitboxSize}");
+            AICompanion.Tools.Ledger.EmitLedgerRows.Detail($"projectile {name}: native box {native.width}x{native.height}, profile {profile.HitboxSize}x{profile.HitboxSize}");
             return 1;
         }
 
@@ -75,11 +75,11 @@ internal static class VerifyProjectileMotion
             ProjectileFlight.Advance(ref modelPosition, ref modelVelocity, profile, ref phase);
             if (Vector2.Distance(native.position, modelPosition) > .001f || Vector2.Distance(native.velocity, modelVelocity) > .001f)
             {
-                Console.WriteLine($"FAIL projectile {name} tick {tick}: native pos={native.position} vel={native.velocity}; model pos={modelPosition} vel={modelVelocity}");
+                AICompanion.Tools.Ledger.EmitLedgerRows.Detail($"projectile {name} tick {tick}: native pos={native.position} vel={native.velocity}; model pos={modelPosition} vel={modelVelocity}");
                 return 1;
             }
         }
-        Console.WriteLine($"PASS projectile {name}: {ticks} native free-flight ticks, {profile.HitboxSize}x{profile.HitboxSize} box, phase/gravity/drag/cap matched");
+        Console.WriteLine($"projectile {name}: {ticks} native free-flight ticks, {profile.HitboxSize}x{profile.HitboxSize} box, phase/gravity/drag/cap matched");
         return 0;
     }
 }

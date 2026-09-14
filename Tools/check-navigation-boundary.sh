@@ -70,3 +70,34 @@ if [ -n "$reach_hits" ]; then
   exit 1
 fi
 echo "reach boundary holds: activities and interactions read the reach sense, never a route search"
+
+# The verdict boundary: pass and fail are decided by the ledger's emitter and nowhere else.
+#
+# It is checked rather than remembered because the thing it prevents is invisible. A fixture that
+# prints its own PASS or FAIL looks, in a terminal, exactly like a fixture that reported — and a
+# case whose verdict lives only in a print is a case the ledger never saw, so it cannot be compared
+# against a baseline, cannot be selected by --case, cannot be rerun by --rerun-red and cannot go
+# "gone" when it stops running. Every one of those is a silence that reads as health, which is the
+# failure the whole ledger exists to remove.
+#
+# What a fixture does instead: return a failure count, throw, or call EmitLedgerRows.Detail for a
+# line a person should see. Detail prints exactly what the old line printed and also folds it into
+# the row, so the reason survives in the run file rather than only in a console nobody kept.
+#
+# Tools/Ledger is exempt because it is the emitter.
+verdict_pattern='WriteLine\((\$?)"(PASS|FAIL)[ "]'
+if command -v rg >/dev/null 2>&1; then
+  verdict_found=$(rg -n "$verdict_pattern" Tools -g '*.cs' -g '!Ledger/**')
+elif command -v grep >/dev/null 2>&1; then
+  verdict_found=$(grep -rnE "$verdict_pattern" --include='*.cs' Tools | grep -v '^Tools/Ledger/')
+else
+  echo 'verdict boundary NOT checked: neither ripgrep nor grep is available'; exit 2
+fi
+verdict_hits=$(printf '%s\n' "$verdict_found" | grep -v -E '^[^:]*:[0-9]+:[[:space:]]*(///|//)')
+if [ -n "$verdict_hits" ]; then
+  echo "a fixture decides its own verdict in a print, where the ledger cannot see it:"
+  echo "$verdict_hits"
+  echo "return a failure count, throw, or call EmitLedgerRows.Detail — the emitter owns pass and fail."
+  exit 1
+fi
+echo "verdict boundary holds: no fixture outside Tools/Ledger prints its own PASS or FAIL"

@@ -34,7 +34,7 @@ internal static class VerifyHuntProgress
         VerifyChurnDoesNotDefeatTheGuard(companion);
         VerifyIndependentHandsDoNotRenewPursuit();
         VerifySuspensionDoesNotConsumePursuitBudget();
-        Console.WriteLine("PASS hunt progress: ineffective target deferred, moving target reconsidered, travelling hunt retained, alternating targets still defer");
+        Console.WriteLine("hunt progress: ineffective target deferred, moving target reconsidered, travelling hunt retained, alternating targets still defer");
         return 0;
     }
 
