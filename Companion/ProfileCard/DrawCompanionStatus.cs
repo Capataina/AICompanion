@@ -69,27 +69,51 @@ public sealed class DrawCompanionStatus : UIElement
         var companion = CompanionNPC.Instance;
         Rectangle portrait = new(r.X + 2, r.Y + 3, 72, r.Height - 8);
         DrawCardPrimitives.Fill(sb, portrait, new Color(37, 41, 122) * .75f);
-        if (companion != null && companion.Body.UsesPlayerRenderer && Main.MapPlayerRenderer != null)
-            Main.MapPlayerRenderer.DrawPlayerHead(Main.Camera, companion.Body.Player, portrait.Center.ToVector2(), 1f, 1.8f, Color.White);
-        else if (TextureAssets.Npc[NPCID.Guide]?.IsLoaded == true)
+        // The portrait is the game's Destroyer probe, the texture the orb itself is drawn with
+        // until its own art exists, so the card shows the thing that is actually in the world.
+        // One frame of the sheet, never the sheet.
+        Main.instance?.LoadNPC(NPCID.Probe);
+        if (TextureAssets.Npc[NPCID.Probe]?.IsLoaded == true)
         {
-            // The NPC already uses the Guide as its fallback. Draw one frame, never the sheet.
-            Texture2D texture = TextureAssets.Npc[NPCID.Guide].Value;
-            var source = new Rectangle(0, 0, texture.Width, texture.Height / 25);
-            float scale = Math.Min((portrait.Width - 12f) / source.Width, (portrait.Height - 8f) / source.Height);
+            Texture2D texture = TextureAssets.Npc[NPCID.Probe].Value;
+            var source = new Rectangle(0, 0, texture.Width, texture.Height / Math.Max(1, Main.npcFrameCount[NPCID.Probe]));
+            float scale = Math.Min((portrait.Width - 16f) / source.Width, (portrait.Height - 16f) / source.Height);
             sb.Draw(texture, portrait.Center.ToVector2(), source, Color.White, 0, source.Size() / 2, scale, SpriteEffects.None, 0);
         }
         int x = r.X + 88;
         string name = companion == null || string.IsNullOrWhiteSpace(companion.NPC.GivenName) ? "Companion" : companion.NPC.GivenName;
-        string hp = companion == null ? "Unavailable" : $"{companion.NPC.life} / {companion.NPC.lifeMax} HP";
-        Vector2 hpSize = FontAssets.MouseText.Value.MeasureString(hp) * .75f;
-        DrawCardPrimitives.WrappedText(sb, name, new Rectangle(x, r.Y + 3, r.Right - (int)hpSize.X - x - 20, 26), Color.White, 1f);
-        DrawCardPrimitives.Text(sb, hp, new Vector2(r.Right - hpSize.X - 6, r.Y + 7), Color.LightGreen, .75f);
-        Rectangle bar = new(x, r.Y + 31, r.Right - x - 6, 8);
-        DrawCardPrimitives.Fill(sb, bar, new Color(22, 24, 69));
-        bar.Width = companion == null ? 0 : (int)(bar.Width * Math.Clamp((float)companion.NPC.life / Math.Max(1, companion.NPC.lifeMax), 0, 1));
-        DrawCardPrimitives.Fill(sb, bar, new Color(102, 221, 116));
-        DrawCardPrimitives.WrappedText(sb, companion == null ? "No companion is present." : Describe(companion), new Rectangle(x, r.Y + 48, r.Right - x - 8, r.Height - 48), Color.White, .75f);
+        var save = Main.LocalPlayer.GetModPlayer<CompanionPlayer>();
+        string level = companion == null ? "" : $"Level {save.Experience.Level}";
+        Vector2 levelSize = FontAssets.MouseText.Value.MeasureString(level) * .8f;
+        DrawCardPrimitives.WrappedText(sb, name, new Rectangle(x, r.Y + 3, r.Right - (int)levelSize.X - x - 20, 26), Color.White, 1f);
+        DrawCardPrimitives.Text(sb, level, new Vector2(r.Right - levelSize.X - 6, r.Y + 6), Gold, .8f);
+
+        // Health, mana and experience stacked in the notch's order, each a bar with its reading
+        // beside it in the bar's own colour, so the strip and the notch teach one column.
+        int readingW = 112, barY = r.Y + 27, rowStep = 12;
+        Rectangle bar = new(x, barY, r.Right - x - readingW - 6, 7);
+        (float Fraction, string Reading, Color Fill)[] rows = companion == null
+            ? new[] { (0f, "Unavailable", HealthFill) }
+            : new[]
+            {
+                (Math.Clamp((float)companion.NPC.life / Math.Max(1, companion.NPC.lifeMax), 0, 1), $"{companion.NPC.life} / {companion.NPC.lifeMax} HP", HealthFill),
+                (companion.Mana.Fraction, $"{(int)MathF.Round(companion.Mana.Current)} / {companion.Mana.Max} MP", ManaFill),
+                (save.Experience.Fraction, $"{save.Experience.IntoLevel} / {save.Experience.NeededNow} XP", ExperienceFill),
+            };
+        foreach (var (fraction, reading, fill) in rows)
+        {
+            DrawCardPrimitives.Fill(sb, bar, new Color(22, 24, 69));
+            DrawCardPrimitives.Fill(sb, bar with { Width = (int)(bar.Width * fraction) }, fill);
+            DrawCardPrimitives.Text(sb, reading, new Vector2(bar.Right + 8, bar.Y - 3), fill, .66f);
+            bar.Y += rowStep;
+        }
+        DrawCardPrimitives.WrappedText(sb, companion == null ? "No companion is present." : Describe(companion), new Rectangle(x, r.Y + 64, r.Right - x - 8, r.Height - 64), Color.White, .75f);
         DrawCardPrimitives.Fill(sb, new Rectangle(r.X, r.Bottom, r.Width, 1), DrawCardPrimitives.Edge * .6f);
     }
+
+    private static readonly Color Gold = new(255, 224, 102);
+    private static readonly Color HealthFill = new(102, 221, 116);
+    /// <summary>The game's own mana-star blue and the mock's experience gold; the notch draws the same two.</summary>
+    private static readonly Color ManaFill = new(106, 168, 255);
+    private static readonly Color ExperienceFill = new(255, 210, 74);
 }

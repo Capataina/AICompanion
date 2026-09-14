@@ -55,6 +55,19 @@ internal static class VerifyCompanionHud
         Vector2? savedPosition = save.HealthBarPosition;
         bool menu = Main.gameMenu;
         var property = companion.Brain.GetType().GetProperty("Presentation")!;
+        // The mana and experience bars are pinned at fractions the pixels can be counted
+        // against: a half pool and a quarter of the second level. Both live on private setters,
+        // so the fixture writes them the way it writes the presentation, and restores them.
+        var mana = companion.Mana;
+        var manaCurrent = mana.GetType().GetProperty("Current")!;
+        float originalMana = (float)manaCurrent.GetValue(mana)!;
+        var experience = save.Experience;
+        var experienceTotal = experience.GetType().GetProperty("Total")!;
+        int originalExperience = (int)experienceTotal.GetValue(experience)!;
+        manaCurrent.SetValue(mana, mana.Max / 2f);
+        experienceTotal.SetValue(experience, 150);
+        Require(Math.Abs(mana.Fraction - 0.5f) < 0.001f && experience.Level == 2 && Math.Abs(experience.Fraction - 0.25f) < 0.001f,
+            "the pinned mana and experience fractions must be what the bars are asked to draw");
         var hud = new Hud();
         var draw = typeof(Hud).GetMethod("Draw", BindingFlags.Instance | BindingFlags.NonPublic)!;
         var states = Activities.Select(pair => Active(pair.Family, pair.Activity)).ToList();
@@ -77,16 +90,25 @@ internal static class VerifyCompanionHud
             graphics.SetRenderTarget(target); graphics.Clear(new Color(18, 27, 40));
             batch.Begin(SpriteSortMode.Deferred, BlendState.AlphaBlend, SamplerState.PointClamp,
                 DepthStencilState.None, RasterizerState.CullNone, null, Matrix.Identity);
+            Rectangle pinned = default;
             for (int i = 0; i < states.Count; i++)
             {
                 property.SetValue(companion.Brain, states[i]);
                 companion.GetType().GetProperty("IsDowned")!.SetValue(companion, states[i].Downed);
                 companion.NPC.life = states[i].Downed ? 1 : i == 2 ? 37 : originalLife;
-                save.HealthBarPosition = i == 0 ? null : new Vector2((size.X - 232 * scale) / 2, i * 39 * scale);
+                // The docked state hangs from the top edge; the rest fill two columns under it,
+                // because a notch three bars tall stacked eleven deep no longer fits a 480 screen.
+                save.HealthBarPosition = i == 0 ? null : new Vector2(i % 2 == 1 ? 0 : size.X, (1 + (i - 1) / 2) * 66 * scale);
                 Rectangle health = Hud.HealthBounds(save), left = Hud.IconBounds(health, true, scale), right = Hud.IconBounds(health, false, scale);
                 Require(left.Right < health.Left && right.Left > health.Right && left.Center.Y == right.Center.Y
                     && Hud.Bounds(save).Left < left.Left && Hud.Bounds(save).Right > right.Right
                     && Hud.Bounds(save).Contains(left) && Hud.Bounds(save).Contains(right), "family/health/activity geometry must be ordered, padded and captured");
+                var bars = Hud.Bars(health, scale);
+                Require(health.Contains(bars.Health) && health.Contains(bars.Mana) && health.Contains(bars.Experience)
+                    && bars.Health.Bottom < bars.Mana.Top && bars.Mana.Top == bars.Experience.Top && bars.Mana.Right < bars.Experience.Left
+                    && bars.Health.Left == bars.Mana.Left && bars.Health.Right == bars.Experience.Right,
+                    "health must sit above mana on the left and experience on the right, all inside the notch");
+                if (i == 1) pinned = health;
                 paintedSlots.Add(left); paintedSlots.Add(right);
                 draw.Invoke(hud, null);
             }
@@ -96,6 +118,21 @@ internal static class VerifyCompanionHud
                 Require(Enumerable.Range(slot.Top, slot.Height).Any(y => Enumerable.Range(slot.Left, slot.Width)
                     .Any(x => pixels[y * size.X + x].R > 60 && pixels[y * size.X + x].G > 60
                         && pixels[y * size.X + x].B > 60)), "a HUD symbol was not actually painted above the dark notch body");
+            // The pinned fractions, read back off the pixels along each small pill's centre row:
+            // the mana fill is the game's mana blue and the experience fill the card's gold, and
+            // a fill drawn at the wrong fraction, or the wrong colour, or not at all, counts wrong.
+            var pinnedBars = Hud.Bars(pinned, scale);
+            int Painted(Rectangle track, Func<Color, bool> isFill)
+                => Enumerable.Range(track.Left, track.Width).Count(x => isFill(pixels[track.Center.Y * size.X + x]));
+            int manaPainted = Painted(pinnedBars.Mana, c => c.B > 200 && c.R < 160);
+            int experiencePainted = Painted(pinnedBars.Experience, c => c.R > 200 && c.G > 160 && c.B < 130);
+            int manaExpected = (int)(pinnedBars.Mana.Width * 0.5f), experienceExpected = (int)(pinnedBars.Experience.Width * 0.25f);
+            // A rounded fill's two end pixels blend into the track and fail the colour test, so a
+            // correct fill counts up to two short; three is the slack, and a fill at the wrong
+            // fraction is many pixels off at every viewport.
+            Require(Math.Abs(manaPainted - manaExpected) <= 3, $"the mana bar painted {manaPainted} blue pixels where a half pool is {manaExpected}");
+            Require(Math.Abs(experiencePainted - experienceExpected) <= 3, $"the experience bar painted {experiencePainted} gold pixels where a quarter level is {experienceExpected}");
+            Console.WriteLine($"native HUD bars: mana {manaPainted}/{pinnedBars.Mana.Width} px at a half pool, experience {experiencePainted}/{pinnedBars.Experience.Width} px at a quarter level");
             string file = Path.Combine(output, "Hud-" + suffix + ".png");
             using (var stream = File.Create(file)) target.SaveAsPng(stream, size.X, size.Y);
             Console.WriteLine("RENDER " + file);
@@ -109,6 +146,8 @@ internal static class VerifyCompanionHud
             property.SetValue(companion.Brain, original); save.HealthBarPosition = savedPosition; Main.gameMenu = menu;
             companion.GetType().GetProperty("IsDowned")!.SetValue(companion, wasDowned);
             companion.NPC.life = originalLife;
+            manaCurrent.SetValue(mana, originalMana);
+            experienceTotal.SetValue(experience, originalExperience);
             // The fixture owns the hidden graphics device. Release production's cached masks
             // before that device is disposed; the live mod uses its main-thread unload queue.
             var masks = (System.Collections.IDictionary)typeof(Hud).GetField("masks", BindingFlags.Static | BindingFlags.NonPublic)!.GetValue(null)!;

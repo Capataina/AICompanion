@@ -85,7 +85,6 @@ internal static class RenderNativeInterface
             Main.GameViewMatrix = new Terraria.Graphics.SpriteViewMatrix(graphics);
             VerifyWorldLine(graphics, batch);
             VerifyInspectorDrawsNoSolver();
-            VerifySuccessRegionLayer(graphics, batch);
             string output = Path.Combine(Path.GetTempPath(), "aic-native-ui"); Directory.CreateDirectory(output);
             foreach (var view in new[] { (new Point(1280, 720), 1f), (new Point(960, 540), 1f), (new Point(800, 600), 1f), (new Point(640, 480), 1f), (new Point(1600, 1000), 1.5f) })
             {
@@ -136,6 +135,10 @@ internal static class RenderNativeInterface
                 RenderExecutionPage(graphics, batch, rasterizer, size, scale, output, suffix, seeded);
                 VerifyCompanionHud.Render(graphics, batch, size, scale, output, suffix);
             }
+            // The overlay's region-box check runs last, after every page and the notch have been
+            // rendered and saved, so a throw here leaves the images to look at rather than hiding
+            // every render behind the first unrelated failure.
+            VerifySuccessRegionLayer(graphics, batch);
             return 0;
         }
         finally { SDL_DestroyWindow(window); SDL_Quit(); }
@@ -173,6 +176,9 @@ internal static class RenderNativeInterface
             TextureAssets.Item[entry.Item1] = assets.Request<Texture2D>("Images/Item_" + entry.Item1, AssetRequestMode.ImmediateLoad);
         }
         TextureAssets.Tile[Terraria.ID.TileID.Copper] = assets.Request<Texture2D>("Images/Tiles_" + Terraria.ID.TileID.Copper, AssetRequestMode.ImmediateLoad);
+        // The card's portrait is the Destroyer probe, the orb's placeholder body; the live game
+        // requests it through Main.instance.LoadNPC, which this uninitialised service shell cannot run.
+        TextureAssets.Npc[Terraria.ID.NPCID.Probe] = assets.Request<Texture2D>("Images/NPC_" + Terraria.ID.NPCID.Probe, AssetRequestMode.ImmediateLoad);
         for (int i = 0; i < 62; i++)
         {
             int type = i % 3 == 0 ? Terraria.ID.ItemID.CopperOre : i % 3 == 1 ? Terraria.ID.ItemID.Wood : Terraria.ID.ItemID.Gel;

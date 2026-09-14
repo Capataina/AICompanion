@@ -16,10 +16,10 @@ NPC attach, downing and revival, doors, HUD icons, the native card and offscreen
 
 The inspector's evidence views are checked: **No solver call** (neither DrawBrainOverlay nor DescribeExecutionEvidence may call the positioner, a route search, the local planner or the aimer); **Box geometry** (points half a pixel inside and one pixel outside every edge must agree with region's containment test); **Box pixels** (drawn reach box must paint every perimeter pixel, nothing outside and nothing in corner interiors).
 
-The HUD sheet invokes the actual notch drawing for all seven family/activity pairs, suspended mining, recovery, no activity and downing. It checks ordered family/health/activity geometry and screen-edge containment at multiple viewports. `VerifyNativeCard` drives title dragging, permanent bottom tiles, back navigation, minimising and restoration.
+The HUD sheet invokes the actual notch drawing for all seven family/activity pairs, suspended mining, recovery, no activity and downing, the docked state at the top edge and the rest in two columns under it. It checks ordered family/health/activity geometry and screen-edge containment at multiple viewports, and that the three bars sit health above mana-left and experience-right inside the notch through the notch's own geometry function. It pins the mana pool at half and the experience at a quarter of the second level through their private setters, restored afterwards, and counts the blue and gold pixels along each small pill's centre row against the pinned fraction; a rounded fill loses its two blended end pixels, which is the slack the count allows. `VerifyNativeCard` drives title dragging, permanent bottom tiles, back navigation, minimising and restoration.
+
+The overlay's success-region box check runs after every page and the notch have been rendered and saved, so its throw leaves the images to look at; as of 15 September 2026 it throws on the follow-comfort region, whose drawn boxes and containment test disagree at one probe point, a defect of the intent-region positioning that the orb's positioning rewrite replaces.
 
 ## Input composition
 
 The input-composition fixture passes a native inventory probe and the actual card through production `ModifyInterfaceLayers`, then calls each real `GameInterfaceLayer.Draw` in order. The underlying probe uses the native inventory's slot bounds and mouse predicate with its real `ItemSlot.LeftClick`; the card draws and handles its own real slot. It reaches an overlapping pair, verifies that only the visible bag slot receives the press, and checks raw/UI pointer restoration and ownership of player-inventory open/close state.
-
-Co-Authored-By: Claude Haiku 4.5 <noreply@anthropic.com>

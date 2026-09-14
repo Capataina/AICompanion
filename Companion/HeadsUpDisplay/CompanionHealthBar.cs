@@ -15,12 +15,21 @@ using AICompanion.Companion.ProfileCard;
 namespace AICompanion.Companion.HeadsUpDisplay;
 
 /// <summary>
-/// The companion's health as a notch on the HUD. Docked at top-centre it hangs from the
-/// screen edge like a laptop notch: square top corners flush with the edge, rounded
-/// bottom corners, and two concave fillets outside the top corners that make it read as
-/// lodged in rather than laid on. Dragged anywhere else it keeps the same body as a
-/// free rounded card with a border, and the fillets go. Right-click docks it again. The
+/// The companion's health, mana and experience as a notch on the HUD. Docked at top-centre
+/// it hangs from the screen edge like a laptop notch: square top corners flush with the
+/// edge, rounded bottom corners, and two concave fillets outside the top corners that make
+/// it read as lodged in rather than laid on. Dragged anywhere else it keeps the same body as
+/// a free rounded card with a border, and the fillets go. Right-click docks it again. The
 /// position is saved per character through <see cref="CompanionPlayer"/>.
+///
+/// Health is the hero, a full-width pill under the name and reading; under it mana and
+/// experience share a row as two half-width pills, each with its own reading above it, so
+/// the notch reads as one thing the companion can lose above two things that tire and grow.
+/// Mana's hover reading says what the pool does to a cast, because a bar that only ever
+/// drains would read as something the companion runs out of, and it never does (see
+/// <see cref="Weapons.CompanionMana"/>). Experience reads the level beside the fraction
+/// toward the next, the owner's "level and experience with a slash". Nothing animates:
+/// a bar snaps, as the notch always has.
 ///
 /// Shapes are runtime-built alpha masks (a rounded rectangle and a fillet), tinted
 /// when drawn and cached per pixel size, because the HUD has no rounded primitives.
@@ -29,12 +38,26 @@ namespace AICompanion.Companion.HeadsUpDisplay;
 public class CompanionHealthBar : ModSystem
 {
     private const int BaseWidth = 232;
-    private const int BaseHeight = 34;
+    private const int BaseHeight = 60;
     private const int BaseRadius = 12;
     private const int BaseFillet = 10;
     private const int IconSide = 22;
     private const int IconGap = 8;
     private const int IconPadding = 8;
+
+    /// <summary>
+    /// The rows inside the notch, in base pixels from its top: the name reading, the health
+    /// pill, the two small readings, the two small pills. The bottom pad under the last pill is
+    /// what closes the height to <see cref="BaseHeight"/>. The card's identity strip stacks the
+    /// same three bars in the same order, so a player learns the column once.
+    /// </summary>
+    private const int ReadingRow = 3;
+    private const int HealthRow = 20;
+    private const int HealthPillHeight = 8;
+    private const int SmallReadingRow = 31;
+    private const int SmallRow = 45;
+    private const int SmallPillHeight = 6;
+    private const int SidePad = 8;
 
     private static readonly Color Body = new(18, 18, 21);
     private static readonly Color Border = new(112, 112, 122);
@@ -42,6 +65,11 @@ public class CompanionHealthBar : ModSystem
     private static readonly Color Healthy = new(52, 199, 89);
     private static readonly Color Hurt = new(255, 69, 58);
     private static readonly Color Downed = new(142, 142, 147);
+    /// <summary>The game's own mana-star blue, so the bar says "mana" to anyone who has played Terraria.</summary>
+    private static readonly Color Mana = new(106, 168, 255);
+    /// <summary>The card mock's experience gold, shared with the card's identity strip.</summary>
+    private static readonly Color Experience = new(255, 210, 74);
+    private static readonly Color Ink = new(235, 235, 240);
 
     /// <summary>A press has to travel this far (UI-scaled) before it is a drag; released before that, it is a click.</summary>
     private const float DragThreshold = 6f;
@@ -75,6 +103,22 @@ public class CompanionHealthBar : ModSystem
         int side = (int)(IconSide * scale), gap = (int)(IconGap * scale);
         return new Rectangle(family ? health.X - gap - side : health.Right + gap,
             health.Center.Y - side / 2, side, side);
+    }
+
+    /// <summary>
+    /// The three pill tracks inside the notch body: health full width, then mana on the left
+    /// half and experience on the right, a side pad apart. The drawing and the headless
+    /// fixture both read this, so the fixture's geometry is the drawing's by construction.
+    /// </summary>
+    public static (Rectangle Health, Rectangle Mana, Rectangle Experience) Bars(Rectangle box, float scale)
+    {
+        int pad = (int)(SidePad * scale);
+        int healthH = Math.Max(4, (int)(HealthPillHeight * scale));
+        int smallH = Math.Max(3, (int)(SmallPillHeight * scale));
+        int halfW = (box.Width - 3 * pad) / 2;
+        return (new Rectangle(box.X + pad, box.Y + (int)(HealthRow * scale), box.Width - 2 * pad, healthH),
+            new Rectangle(box.X + pad, box.Y + (int)(SmallRow * scale), halfW, smallH),
+            new Rectangle(box.Right - pad - halfW, box.Y + (int)(SmallRow * scale), halfW, smallH));
     }
 
     /// <summary>Consume the opening press before item use, including a cursor entering this tick.</summary>
@@ -171,7 +215,7 @@ public class CompanionHealthBar : ModSystem
         }
 
         bool docked = save.HealthBarPosition == null;
-        DrawNotch(box, docked, npc, companion, scale);
+        DrawNotch(box, docked, npc, companion, save, scale);
         DrawActivityIcons(box, companion, scale);
         return true;
     }
@@ -195,7 +239,7 @@ public class CompanionHealthBar : ModSystem
         if (slot.Contains(Main.mouseX, Main.mouseY)) Main.instance.MouseText(icon.Name);
     }
 
-    private static void DrawNotch(Rectangle box, bool docked, NPC npc, CompanionNPC companion, float scale)
+    private static void DrawNotch(Rectangle box, bool docked, NPC npc, CompanionNPC companion, CompanionPlayer save, float scale)
     {
         SpriteBatch sb = Main.spriteBatch;
         int radius = Math.Max(4, (int)(BaseRadius * scale));
@@ -230,29 +274,56 @@ public class CompanionHealthBar : ModSystem
         }
 
         box = health;
-        // The pill occupies the centre; the two icon wings share the enclosing body.
-        int pad = (int)(8 * scale);
-        int pillH = Math.Max(4, (int)(8 * scale));
-        Rectangle track = new(box.X + pad, box.Bottom - pad - pillH, box.Width - 2 * pad, pillH);
-        sb.Draw(RoundedMask(track.Width, track.Height, track.Height / 2, corners: 0b1111), track, Track);
+        // The pills occupy the centre; the two icon wings share the enclosing body.
+        var bars = Bars(box, scale);
         float fraction = companion.IsDowned
             ? MathHelper.Clamp(companion.RevivePercent / 100f, 0f, 1f)
             : npc.lifeMax > 0 ? MathHelper.Clamp(npc.life / (float)npc.lifeMax, 0f, 1f) : 0f;
-        int fillW = (int)(track.Width * fraction);
-        if (fillW >= pillH)
-        {
-            Color fill = companion.IsDowned ? Downed : Color.Lerp(Hurt, Healthy, fraction);
-            sb.Draw(RoundedMask(fillW, track.Height, track.Height / 2, corners: 0b1111), new Rectangle(track.X, track.Y, fillW, track.Height), fill);
-        }
+        DrawPill(sb, bars.Health, fraction, companion.IsDowned ? Downed : Color.Lerp(Hurt, Healthy, fraction));
 
         string label = companion.IsDowned
             ? $"Companion   downed {companion.RevivePercent}%"
             : $"Companion   {npc.life} / {npc.lifeMax}";
         float textScale = 0.72f * scale;
         Vector2 size = FontAssets.MouseText.Value.MeasureString(label) * textScale;
-        Vector2 textPos = new(box.Center.X - size.X / 2f, box.Y + (int)(3 * scale));
-        Utils.DrawBorderStringFourWay(sb, FontAssets.MouseText.Value, label, textPos.X, textPos.Y, new Color(235, 235, 240), Body, Vector2.Zero, textScale);
+        DrawReading(sb, label, new Vector2(box.Center.X - size.X / 2f, box.Y + (int)(ReadingRow * scale)), Ink, textScale);
+
+        // Mana and experience: a reading over each half-width pill, the mana reading flush
+        // left and the experience reading flush right, so the two readings frame the row the
+        // way the name and the health reading frame the row above.
+        Weapons.CompanionMana mana = companion.Mana;
+        Progression.CompanionExperience experience = save.Experience;
+        DrawPill(sb, bars.Mana, mana.Fraction, Mana);
+        DrawPill(sb, bars.Experience, experience.Fraction, Experience);
+        float smallScale = 0.6f * scale;
+        int readingY = box.Y + (int)(SmallReadingRow * scale);
+        string manaReading = $"Mana {(int)MathF.Round(mana.Current)} / {mana.Max}";
+        string experienceReading = $"Lv {experience.Level}   {experience.IntoLevel} / {experience.NeededNow}";
+        DrawReading(sb, manaReading, new Vector2(bars.Mana.X, readingY), Mana, smallScale);
+        float experienceW = FontAssets.MouseText.Value.MeasureString(experienceReading).X * smallScale;
+        DrawReading(sb, experienceReading, new Vector2(bars.Experience.Right - experienceW, readingY), Experience, smallScale);
+
+        // Hovering either small bar, or its reading, says what the number does: the pool's
+        // effect on a cast, and how far the level is from the next.
+        Rectangle manaHover = new(bars.Mana.X, readingY, bars.Mana.Width, bars.Mana.Bottom - readingY);
+        Rectangle experienceHover = new(bars.Experience.X, readingY, bars.Experience.Width, bars.Experience.Bottom - readingY);
+        if (manaHover.Contains(Main.mouseX, Main.mouseY))
+            Main.instance.MouseText($"Mana {(int)MathF.Round(mana.Current)} / {mana.Max} · spells land at {mana.DamageFactor:P0}");
+        else if (experienceHover.Contains(Main.mouseX, Main.mouseY))
+            Main.instance.MouseText($"Level {experience.Level} · {experience.IntoLevel} / {experience.NeededNow} to level {experience.Level + 1}");
     }
+
+    /// <summary>A rounded track with a rounded fill of the given fraction; a fill narrower than the pill's own height is not drawn, because the mask cannot round it.</summary>
+    private static void DrawPill(SpriteBatch sb, Rectangle track, float fraction, Color fill)
+    {
+        sb.Draw(RoundedMask(track.Width, track.Height, track.Height / 2, corners: 0b1111), track, Track);
+        int fillW = (int)(track.Width * MathHelper.Clamp(fraction, 0f, 1f));
+        if (fillW >= track.Height)
+            sb.Draw(RoundedMask(fillW, track.Height, track.Height / 2, corners: 0b1111), new Rectangle(track.X, track.Y, fillW, track.Height), fill);
+    }
+
+    private static void DrawReading(SpriteBatch sb, string text, Vector2 at, Color colour, float textScale)
+        => Utils.DrawBorderStringFourWay(sb, FontAssets.MouseText.Value, text, at.X, at.Y, colour, Body, Vector2.Zero, textScale);
 
     /// <summary>A white alpha mask of a rectangle with the chosen corners rounded (bits: 1 top-left, 2 top-right, 4 bottom-left, 8 bottom-right).</summary>
     private static Texture2D RoundedMask(int w, int h, int r, int corners)
