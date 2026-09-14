@@ -29,7 +29,11 @@ internal static class VerifyResponsiveFollowing
         VerifyMeetingPlacesFollowTheCompanionsOwnRoutes();
         VerifyAnUnfinishedMeetingFloodKeepsItsProgress();
         VerifyADroppedMeetingPlaceIsNotWalkedTo();
-        Console.WriteLine("responsive following: vertical intent, two-axis arrival, live brain follow selection, activity-dependent meeting places, route-priced reunion, retained meeting floods and dropped meeting places passed");
+        VerifyAnAirborneTickCannotSatisfyFollowing();
+        VerifyAStoppedPlayerDoesNotOscillateTheMethod();
+        VerifyTheCompanionLeadsATravellingPlayer();
+        VerifyAClimbingPlayerGrowsTheRegionUpwards();
+        Console.WriteLine("responsive following: vertical intent, two-axis arrival, live brain follow selection, activity-dependent meeting places, route-priced reunion, retained meeting floods, dropped meeting places, leading a travelling player, a region that grows up a hill, grounded satisfaction and a settling stop passed");
         return 0;
     }
 
@@ -138,9 +142,22 @@ internal static class VerifyResponsiveFollowing
         Require(travel.Samples == 0, "an unobserved interval cannot become a traversed path");
     }
 
+    /// <summary>A settled objective over a region centred where the test wants it, so the geometry rules
+    /// can be exercised without driving a body for a rescore first. Settled is what an airborne body does
+    /// not have, and the fixture that cares about that says so by asking for it false.</summary>
+    private static FollowPlayerObjective ObjectiveAt(Vector2 centre, Vector2 anchor, bool settled = true, bool grounded = true)
+    {
+        float scale = live::AICompanion.Companion.PlayerIntegration.CompanionPreferences.Current.FollowComfortScale;
+        var region = new live::AICompanion.Companion.Brain.Infrastructure.Observation.PlayerIntentRegion(centre,
+            new Vector2(live::AICompanion.Companion.Brain.Infrastructure.Selection.Weights.FollowHorizontalComfort * scale,
+                live::AICompanion.Companion.Brain.Infrastructure.Selection.Weights.FollowVerticalComfort * scale),
+            Vector2.Zero, IsTravelling: false);
+        return new FollowPlayerObjective(region, anchor, settled, grounded);
+    }
+
     private static void VerifyTwoAxisObjective()
     {
-        var objective = new FollowPlayerObjective(new Vector2(480, 800), new Vector2(480, 752));
+        var objective = ObjectiveAt(new Vector2(480, 800), new Vector2(480, 752));
         Require(!objective.IsSatisfied(new Vector2(480, 1120), locallyConnected: true),
             "a companion directly below the player on another floor must not satisfy following");
         Require(!objective.AcceptsDestination(new Vector2(480, 1120), locallyConnected: true),
@@ -149,13 +166,16 @@ internal static class VerifyResponsiveFollowing
             "a nearby standable point in the predicted player region remains a valid following destination");
         Require(!objective.IsSatisfied(new Vector2(480, 800), locallyConnected: false),
             "a nearby but sealed floor must not satisfy following without a local connection");
+        Require(!ObjectiveAt(new Vector2(480, 800), new Vector2(480, 752), settled: false)
+                .IsSatisfied(new Vector2(480, 800), locallyConnected: true),
+            "a body standing at the region's own centre must not satisfy following before it has settled there");
     }
 
     private static void VerifyArrivalSlackCannotStrandFollowing()
     {
         // A destination inside the comfort box but inside the navigator's stopping radius of its
         // edge must not be admitted, or the body stops short and following never satisfies.
-        var objective = new FollowPlayerObjective(new Vector2(500, 1280), new Vector2(500, 1280));
+        var objective = ObjectiveAt(new Vector2(500, 1280), new Vector2(500, 1280));
         Require(!objective.AcceptsDestination(new Vector2(500 + objective.HorizontalComfort - 6f, 1280), true),
             "follow destination must reserve the navigator's stopping radius");
         BuildFloor();
@@ -234,7 +254,9 @@ internal static class VerifyResponsiveFollowing
             AdvanceNative(companion);
             // Selection may already yield to idle after arrival, clearing the positioner's
             // request-scoped flag. The contract is the actual body reaching the usable floor.
-            arrived = new FollowPlayerObjective(player.Bottom, player.Bottom).IsSatisfied(companion.NPC.Bottom,
+            // The live sense's own objective, so the fixture judges arrival by exactly what the brain
+            // judges it by — including the grounded settle, which is the point of the change.
+            arrived = companion.Brain.Senses.Intent.Objective.IsSatisfied(companion.NPC.Bottom,
                 Collision.CanHitLine(companion.NPC.position, companion.NPC.width, companion.NPC.height,
                     player.position, player.width, player.height));
             if (arrived)
@@ -291,7 +313,13 @@ internal static class VerifyResponsiveFollowing
             .Select(s => $"{s.Item1}: reason={s.Item2.Reason} anchorX={s.Item2.Anchor.X / 16:0.0} playerX={s.Item2.PlayerX / 16:0.0}"));
         Require(new[] { travel, torches, brief, backtrack }.All(s => MathF.Abs(s.PlayerX - 40 * 16) < 2f),
             $"every scene must end with the player on the same tile, or the pairs compare positions rather than activity; {ledger}");
-        Require(travel.Reason == "meeting-ahead-priced" && travel.Anchor.X >= travel.PlayerX + 3 * 16,
+        // The property is that the anchor lies ahead on the journey; which of the two mechanisms put
+        // it there is not the contract. A priced place that does not reach at least as far along the
+        // travel direction as the intent region's centre now loses to the region's leading edge, which
+        // is further ahead rather than less far, so both answers satisfy the scene and the fixture
+        // names the property instead of the winner.
+        Require(travel.Reason is "meeting-ahead-priced" or "meeting-place-outside-intent-region"
+                && travel.Anchor.X >= travel.PlayerX + 3 * 16,
             $"a player walking towards the companion is met on the journey ahead; {ledger}");
         Require(torches.Reason == "player-not-travelling" && MathF.Abs(torches.Anchor.X - torches.PlayerX) < 16f,
             $"a player placing torches in place is met where they stand; {ledger}");
@@ -328,7 +356,7 @@ internal static class VerifyResponsiveFollowing
         // The observation is frozen here; later calls only let the companion's flood settle.
         for (int i = 0; i < 60; i++)
         {
-            meeting.Resolve(companion.NPC.Bottom, companion.Brain.Senses.Player, Main.GameUpdateCount + (ulong)i);
+            meeting.Resolve(companion.NPC.Bottom, companion.Brain.Senses.Player, companion.Brain.Senses.Intent.Region, Main.GameUpdateCount + (ulong)i);
             if (meeting.Reason is not ("meeting-undecided" or "retained-while-undecided")) break;
         }
         return (meeting.Destination, meeting.Reason, player.Bottom.X);
@@ -385,7 +413,7 @@ internal static class VerifyResponsiveFollowing
                     anchorX = meeting.Destination.X; playerX = player.Bottom.X; startX = companion.NPC.Bottom.X;
                 }
                 if (decidedAt >= 0 && tick == decidedAt + 60) moved = companion.NPC.Bottom.X - startX;
-                arrived = new FollowPlayerObjective(player.Bottom, player.Bottom).IsSatisfied(companion.NPC.Bottom,
+                arrived = companion.Brain.Senses.Intent.Objective.IsSatisfied(companion.NPC.Bottom,
                     Collision.CanHitLine(companion.NPC.position, companion.NPC.width, companion.NPC.height,
                         player.position, player.width, player.height));
                 if (arrived && decidedAt >= 0 && tick > decidedAt + 60) break;
@@ -437,16 +465,23 @@ internal static class VerifyResponsiveFollowing
             var sense = companion.Brain.Senses.Player;
             ulong start = Main.GameUpdateCount + 1;
             int cadence = live::AICompanion.Companion.Brain.Infrastructure.Selection.Weights.MeetingRerootTicks;
-            Vector2 first = meeting.Resolve(companion.NPC.Bottom, sense, start);
-            Vector2 continuation = sense.Predict(live::AICompanion.Companion.Brain.Infrastructure.Selection.Weights.MeetingFallbackLeadTicks);
+            var region = companion.Brain.Senses.Intent.Region;
+            Vector2 first = meeting.Resolve(companion.NPC.Bottom, sense, region, start);
+            // The undecided anchor is the intent region's leading edge now, not a second extrapolation
+            // of the player's velocity with a lead time of its own.
+            Vector2 continuation = region.LeadingEdge;
             Require(meeting.Reason == "meeting-undecided",
                 $"one slice must not finish the flood, or nothing about retaining its progress is tested; reason={meeting.Reason} flood={meeting.FloodState}");
             Require(Vector2.Distance(first, continuation) < 1f && MathF.Abs(first.X - sense.Bottom.X) >= 16f,
                 $"an undecided meeting place must aim at the player's continued travel, not the feet they have left; anchor={first} continuation={continuation} feet={sense.Bottom}");
             int calls = 1;
             for (; calls < 200 && meeting.Reason == "meeting-undecided"; calls++)
-                meeting.Resolve(companion.NPC.Bottom + new Vector2(calls % 2 * 16, 0), sense, start + (ulong)(calls * (cadence + 1)));
-            Require(meeting.Reason is "meeting-ahead-priced" or "player-position-priced",
+                meeting.Resolve(companion.NPC.Bottom + new Vector2(calls % 2 * 16, 0), sense, region, start + (ulong)(calls * (cadence + 1)));
+            // The property is that the flood finished and a place was decided from it. Every one of
+            // these three reasons is only reachable after a decision was taken, the third being a
+            // decision the intent region then overruled because the priced tile lay outside it, so
+            // all three are evidence that the progress was kept across the slices.
+            Require(meeting.Reason is "meeting-ahead-priced" or "player-position-priced" or "meeting-place-outside-intent-region",
                 $"an unfinished flood must keep its progress while the body stays in the region it can return from; reason={meeting.Reason} after {calls} slices, flood={meeting.FloodState}");
             Console.WriteLine($"meeting flood: {meeting.Reason} after {calls} slices, each past the re-root cadence with the body moved; flood {meeting.FloodState}");
         }
@@ -480,6 +515,201 @@ internal static class VerifyResponsiveFollowing
             $"a dropped meeting place must not remain the destination until the next rescore; chosen={positioner.Chosen} reason={positioner.ChoiceReason} place={place}");
     }
 
+    /// <summary>
+    /// The row the owner looks at first. On an authored straight walk the signed offset along the
+    /// player's travel direction is measured on every tick the player actually moves, and the
+    /// companion must be ahead on more than half of them. A follow region centred on the player's
+    /// current feet cannot pass this at any comfort size: its gradient inside is zero, so the body
+    /// coasts to whatever edge it entered by and stays there, which on the 2026-09-14 capture left
+    /// it behind by more than three tiles on 71.5% of moving rows and ahead by four on 4.7%.
+    /// </summary>
+    private static void VerifyTheCompanionLeadsATravellingPlayer()
+    {
+        // A long floor, because the margin is real and small: the companion walks at the player's own
+        // run speed times CompanionWalkPace, so it closes a gap at a fraction of a pixel a tick and a
+        // short walk measures the catch-up rather than the lead. The player travels below his own top
+        // speed, which is what walking across a cave looks like; a player sprinting at exactly his cap
+        // is the one case a body a tenth faster can only just stay level with.
+        BuildLongFloor();
+        var companion = VerifyCompanionLifecycle.Create();
+        Player player = Main.player[0];
+        player.dead = false;
+        player.Bottom = new Vector2(240f, 1280f);
+        player.velocity = Vector2.Zero;
+        companion.NPC.Bottom = new Vector2(240f, 1280f);
+        companion.NPC.velocity = Vector2.Zero;
+        const float PlayerSpeed = 2.4f;
+        int ahead = 0, moving = 0;
+        float worstBehind = 0f, total = 0f;
+        for (int tick = 0; tick < 1200; tick++)
+        {
+            player.velocity = new Vector2(PlayerSpeed, 0f);
+            player.Bottom += player.velocity;
+            VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
+            companion.AI();
+            AdvanceNative(companion);
+            // The first ticks are the intent history filling: the player has not yet been observed
+            // travelling, so there is nothing to lead. Measure once travel is established.
+            if (!companion.Brain.Senses.Player.IsTravelling) continue;
+            float signed = (companion.NPC.Bottom.X - player.Bottom.X) * MathF.Sign(PlayerSpeed);
+            moving++;
+            total += signed;
+            if (signed > 0f) ahead++;
+            if (signed < worstBehind) worstBehind = signed;
+        }
+        float share = moving == 0 ? 0f : ahead / (float)moving;
+        // Printed rather than only asserted, because the number is the row the owner reads and a pass
+        // that says only "passed" cannot be compared with the capture it was measured against.
+        Console.WriteLine(FormattableString.Invariant(
+            $"leading a travelling player: ahead on {ahead}/{moving} moving rows ({share:P1}), mean signed offset {total / MathF.Max(1, moving):F1}px, worst behind {worstBehind:F1}px"));
+        Require(moving > 200, $"the walk must establish travel for most of its length: travelling rows={moving}");
+        Require(share > 0.5f, FormattableString.Invariant(
+            $"the companion must lead a travelling player on more than half the moving rows: ahead={ahead}/{moving} ({share:P1}), mean signed offset={total / MathF.Max(1, moving):F1}px, worst behind={worstBehind:F1}px"));
+    }
+
+    /// <summary>
+    /// A player climbing a hill. The region leads upwards as well as along, and it grows on both axes
+    /// with the lead, which is what lets a companion on the slope below count as being with him instead
+    /// of reading a vertical gap and abandoning whatever it was doing. Growth is capped, so the test is
+    /// that the region is taller and higher than a still player's and by no more than the cap.
+    ///
+    /// <para>What this deliberately does not assert is that the companion walks up the slope. Walking a
+    /// 1:1 slope still times out — AIC-212 — and the native company fixtures keep their rising-slope
+    /// scenes out of the suite for exactly that reason; a fixture here that required the climb would be
+    /// red for a defect this lane does not own and would say nothing about the region.</para>
+    /// </summary>
+    private static void VerifyAClimbingPlayerGrowsTheRegionUpwards()
+    {
+        BuildFloor();
+        var companion = VerifyCompanionLifecycle.Create();
+        Player player = Main.player[0];
+        player.dead = false;
+        player.Bottom = new Vector2(600f, 1280f);
+        player.velocity = Vector2.Zero;
+        companion.NPC.Bottom = new Vector2(600f, 1280f);
+        companion.NPC.velocity = Vector2.Zero;
+        VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
+        companion.Brain.Senses.Update(companion.NPC, player, companion.Breath);
+        var still = companion.Brain.Senses.Intent.Region;
+        for (int tick = 0; tick < 240; tick++)
+        {
+            // A diagonal climb, which is what a hill is: along and up together.
+            player.velocity = new Vector2(2f, -1.5f);
+            player.Bottom += player.velocity;
+            VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
+            companion.Brain.Senses.Update(companion.NPC, player, companion.Breath);
+        }
+        var climbing = companion.Brain.Senses.Intent.Region;
+        float cap = 1f + live::AICompanion.Companion.Brain.Infrastructure.Selection.Weights.IntentRegionGrowthCap;
+        Require(climbing.Lead.Y < -16f && climbing.Centre.Y < player.Bottom.Y - 16f, FormattableString.Invariant(
+            $"a climbing player's region must lead above his feet: lead={climbing.Lead} centre={climbing.Centre} feet={player.Bottom}"));
+        Require(climbing.HalfSize.Y > still.HalfSize.Y && climbing.HalfSize.X > still.HalfSize.X, FormattableString.Invariant(
+            $"the region must grow on both axes with the lead, not only along it: still={still.HalfSize} climbing={climbing.HalfSize}"));
+        Require(climbing.HalfSize.Y <= still.HalfSize.Y * cap + 0.01f && climbing.HalfSize.X <= still.HalfSize.X * cap + 0.01f,
+            FormattableString.Invariant($"growth must stop at the cap: still={still.HalfSize} climbing={climbing.HalfSize} cap={cap}"));
+        Require(climbing.LeadingEdge.Y < climbing.Centre.Y, FormattableString.Invariant(
+            $"the leading edge must be on the climb's own side of the region: edge={climbing.LeadingEdge} centre={climbing.Centre}"));
+    }
+
+    /// <summary>
+    /// Ticks 8127 and 8128 of the 2026-09-14 capture, as geometry. Both bodies are in the air and
+    /// the companion's feet sit inside the region, which the old symmetric box read as satisfied;
+    /// keeping company then flipped to its local method and issued a Hold that cancelled the jump
+    /// one tick after take-off. Satisfaction is judged from the ground, so an airborne tick cannot
+    /// enter it however close the two bodies are, and the method cannot change on that tick.
+    /// </summary>
+    private static void VerifyAnAirborneTickCannotSatisfyFollowing()
+    {
+        BuildFloor();
+        var companion = VerifyCompanionLifecycle.Create();
+        var brain = companion.Brain;
+        Player player = Main.player[0];
+        player.dead = false;
+        // Both bodies rising, a third of a tile apart horizontally: well inside any comfort box.
+        player.Bottom = new Vector2(600f, 1230f);
+        player.velocity = new Vector2(0f, -6.4f);
+        companion.NPC.Bottom = new Vector2(620f, 1226f);
+        companion.NPC.velocity = new Vector2(2f, -6.4f);
+        VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
+        brain.Senses.Update(companion.NPC, player, companion.Breath);
+        var request = new live::AICompanion.Companion.Brain.Infrastructure.Position.PositionRequest(
+            RequestKind.WithPlayer, player.Bottom);
+        brain.Positioner.Resolve(request, brain.Senses, null);
+        Require(!brain.Positioner.FollowObjectiveSatisfied, FormattableString.Invariant(
+            $"an airborne body must not read as having arrived with the player: companion={companion.NPC.Bottom} vy={companion.NPC.velocity.Y} player={player.Bottom} vy={player.velocity.Y} reason={brain.Positioner.FollowObjectiveReason}"));
+        // The record has to say which kind of unsettled tick this was, because the grounded body
+        // standing out its first ticks of the streak is the same geometry and a different situation.
+        Require(brain.Positioner.FollowObjectiveReason == "follow-airborne-deferred", FormattableString.Invariant(
+            $"an airborne deferral must name itself in the record: reason={brain.Positioner.FollowObjectiveReason} vy={companion.NPC.velocity.Y}"));
+        var company = brain.Chooser.Actions.OfType<live::AICompanion.Companion.Brain.Activities.NearbyAssistance.KeepCompany>().Single();
+        var context = new live::AICompanion.Companion.Brain.Activities.ActionContext(companion, brain.Senses);
+        company.Prepare(context);
+        string airborneMethod = company.EligibilityReason;
+        companion.NPC.velocity = new Vector2(2f, -6.0f);
+        companion.NPC.Bottom += new Vector2(2f, -6.0f);
+        VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
+        brain.Senses.Update(companion.NPC, player, companion.Breath);
+        company.Prepare(context);
+        Require(company.EligibilityReason == airborneMethod, FormattableString.Invariant(
+            $"keeping company must not change method on an airborne tick: {airborneMethod} became {company.EligibilityReason}"));
+    }
+
+    /// <summary>
+    /// The other end of the same rule. A player who stops leaves a region that drifts back over the
+    /// filter's time constant rather than snapping, and the companion must settle inside it without
+    /// the method flickering while it does. The ceiling is declared here rather than discovered: a
+    /// settle is allowed one change into the local method and nothing after it.
+    /// </summary>
+    private static void VerifyAStoppedPlayerDoesNotOscillateTheMethod()
+    {
+        BuildFloor();
+        var companion = VerifyCompanionLifecycle.Create();
+        var brain = companion.Brain;
+        Player player = Main.player[0];
+        player.dead = false;
+        player.Bottom = new Vector2(400f, 1280f);
+        companion.NPC.Bottom = new Vector2(400f, 1280f);
+        companion.NPC.velocity = Vector2.Zero;
+        var company = brain.Chooser.Actions.OfType<live::AICompanion.Companion.Brain.Activities.NearbyAssistance.KeepCompany>().Single();
+        var context = new live::AICompanion.Companion.Brain.Activities.ActionContext(companion, brain.Senses);
+        for (int tick = 0; tick < 240; tick++)
+        {
+            player.velocity = new Vector2(3f, 0f);
+            player.Bottom += player.velocity;
+            VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
+            companion.AI();
+            AdvanceNative(companion);
+        }
+        player.velocity = Vector2.Zero;
+        string method = "";
+        int changes = 0;
+        int mislabelled = 0;
+        for (int tick = 0; tick < 600; tick++)
+        {
+            VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
+            companion.AI();
+            AdvanceNative(companion);
+            // The other half of the airborne fixture's assertion, and the half a grounded body can
+            // check: a settling tick on the floor must never be filed as an airborne deferral, or the
+            // column sends whoever reads it looking for a jump that never happened.
+            if (companion.NPC.velocity.Y == 0f
+                && brain.Positioner.FollowObjectiveReason == "follow-airborne-deferred") mislabelled++;
+            company.Prepare(context);
+            if (company.EligibilityReason != method)
+            {
+                if (method.Length > 0) changes++;
+                method = company.EligibilityReason;
+            }
+        }
+        Require(mislabelled == 0, FormattableString.Invariant(
+            $"a grounded settling tick must not be recorded as an airborne deferral: {mislabelled} of 600 ticks"));
+        const int SettleChangeCeiling = 1;
+        Require(changes <= SettleChangeCeiling, FormattableString.Invariant(
+            $"a stopped player must let the method settle: {changes} method changes over 600 ticks, ceiling {SettleChangeCeiling}, ending {method}"));
+        Require(Vector2.Distance(companion.NPC.Bottom, player.Bottom) < live::AICompanion.Companion.Brain.Infrastructure.Selection.Weights.FollowHorizontalComfort,
+            FormattableString.Invariant($"the companion must settle beside a stopped player: companion={companion.NPC.Bottom} player={player.Bottom}"));
+    }
+
     private static void BuildParallelRoutes(int gapAt)
     {
         BuildFloor();
@@ -495,6 +725,27 @@ internal static class VerifyResponsiveFollowing
                 for (int y = 80; y <= 89; y++) Clear(x, y);
                 Solid(x, 90);
             }
+        live::AICompanion.Companion.Brain.Infrastructure.Movement.TerrainChanges.Reset();
+        live::AICompanion.Companion.Brain.Infrastructure.Movement.NavGrid.World = new live::AICompanion.Companion.Brain.Infrastructure.Movement.GameTileWorld();
+    }
+
+    /// <summary>One flat floor across a world wide enough for a walk of a thousand ticks, so a fixture
+    /// measuring what the companion does while travelling is not measuring what it does when it reaches
+    /// the end of the ground.</summary>
+    private static void BuildLongFloor()
+    {
+        Main.maxTilesX = 400;
+        Main.maxTilesY = 100;
+        Main.worldSurface = 50;
+        Main.tile = (Tilemap)Activator.CreateInstance(typeof(Tilemap), BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public,
+            null, new object[] { (ushort)400, (ushort)100 }, null)!;
+        Main.tileSolid[1] = true;
+        for (int x = 5; x < 395; x++)
+        {
+            Tile tile = Main.tile[x, 80];
+            tile.HasTile = true;
+            tile.TileType = 1;
+        }
         live::AICompanion.Companion.Brain.Infrastructure.Movement.TerrainChanges.Reset();
         live::AICompanion.Companion.Brain.Infrastructure.Movement.NavGrid.World = new live::AICompanion.Companion.Brain.Infrastructure.Movement.GameTileWorld();
     }

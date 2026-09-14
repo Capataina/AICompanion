@@ -299,7 +299,7 @@ public sealed class Brain
         }
         bool wantsTravel = Safety.Active
             || (LastRequest.Kind == RequestKind.WithPlayer
-            ? !new FollowPlayerObjective(Senses.Player.Bottom, Senses.Player.Bottom).IsSatisfied(companion.NPC.Bottom,
+            ? !Senses.Intent.Objective.IsSatisfied(companion.NPC.Bottom,
                 LineOfSight.Between(companion.NPC, Senses.PlayerEntity))
             : LastRequest.Kind != RequestKind.Hold && (Positioner.Chosen is not Vector2 spot
                 || Vector2.DistanceSquared(spot, companion.NPC.Bottom) > 16f * 16f));
@@ -346,7 +346,7 @@ public sealed class Brain
         }
         else if (LastRequest.Kind == RequestKind.WithPlayer && !Positioner.FollowObjectiveSatisfied)
         {
-            var objective = new FollowPlayerObjective(Senses.Player.Bottom, LastRequest.Anchor);
+            var objective = Senses.Intent.Objective.At(LastRequest.Anchor);
             BehaviourCensus.RequestBegan(LastRequest.Kind.ToString());
             owner = "seeking-destination";
             Controls seeking = Movement.SeekDestination(companion.Motor.State, LastRequest.Anchor,

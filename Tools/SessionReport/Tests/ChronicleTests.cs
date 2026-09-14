@@ -1155,8 +1155,14 @@ public static class ChronicleTests
             string access = Source("Companion", "Brain", "Infrastructure", "Interactions", "FindToolAccess.cs");
             string region = Source("Companion", "Brain", "Infrastructure", "Position", "DeclareSuccessRegion.cs");
             string telemetry = Source("Companion", "Brain", "Infrastructure", "Diagnostics", "RecordBrainTelemetry.cs");
+            // The reservation moved when following became a view over the player's intent region: the
+            // objective hands the navigator's radius to the region and the region subtracts it from
+            // both half-extents. Two literals rather than one, because either half alone can be true
+            // while the slack is not actually reserved — an objective that passes the radius to a
+            // region that ignores it reserves nothing.
             Require(navigator.Contains($"ArriveDistance = {ClaimedArrivalsStayInsideTheirSuccessRegion.ArriveDistance:0}f", StringComparison.Ordinal)
-                    && Source("Companion", "Brain", "Infrastructure", "Position", "FollowPlayerObjective.cs").Contains("HorizontalComfort - Infrastructure.Movement.Navigator.ArriveDistance", StringComparison.Ordinal),
+                    && Source("Companion", "Brain", "Infrastructure", "Position", "FollowPlayerObjective.cs").Contains("Region.Accepts(feet, Movement.Navigator.ArriveDistance)", StringComparison.Ordinal)
+                    && Source("Companion", "Brain", "Infrastructure", "Observation", "ObservePlayerIntentRegion.cs").Contains("HalfSize.X - arrivalSlack", StringComparison.Ordinal),
                 "the navigator's arrival radius, or follow acceptance reserving it, no longer matches what the follow rule assumes");
             Require(access.Contains($"Eye = new(0f, -{ClaimedArrivalsStayInsideTheirSuccessRegion.EyeHeight:0}f)", StringComparison.Ordinal)
                     && access.Contains("reachX * 16f + 8f", StringComparison.Ordinal) && access.Contains("reachY * 16f + 8f", StringComparison.Ordinal),

@@ -57,7 +57,7 @@ public sealed class Chooser
 
     public void ObserveCompanionship(in ActionContext ctx)
     {
-        var objective = new Infrastructure.Position.FollowPlayerObjective(ctx.Senses.Player.Bottom, ctx.Senses.Player.Bottom);
+        var objective = ctx.Senses.Intent.Objective;
         Reunion.Observe(Terraria.Main.GameUpdateCount,
             objective.IsSatisfied(ctx.Npc.Bottom, ctx.Senses.Player.CompanionCanSeePlayer), ctx.Senses.Player.IsDead);
     }
@@ -80,11 +80,15 @@ public sealed class Chooser
     {
         ObserveCompanionship(ctx);
         LastScores.Clear();
-        var delta = ctx.Senses.Player.Bottom - ctx.Npc.Bottom;
+        // Reunion, excursion and return cost are all "how far from the player", and they measure to
+        // the intent region's centre: a companion pricing its way back to where the player was
+        // standing prices a trip that is already out of date on a player who is walking.
+        var region = ctx.Senses.Intent.Region;
+        var delta = region.Centre - ctx.Npc.Bottom;
         EstimatedReturnTicks = (MathF.Abs(delta.X) + MathF.Abs(delta.Y)) / Infrastructure.Movement.BodyPhysics.WalkSpeed;
         var navigator = ctx.Companion.Brain.Navigator;
         if (ctx.Companion.Brain.Positioner.EstimatedTravelTicks(Infrastructure.Movement.NavGrid.FeetTile(ctx.Npc.Bottom),
-            Infrastructure.Movement.NavGrid.FeetTile(ctx.Senses.Player.Bottom)) is float knownTravel)
+            Infrastructure.Movement.NavGrid.FeetTile(region.Centre)) is float knownTravel)
             EstimatedReturnTicks = MathF.Max(EstimatedReturnTicks, knownTravel);
         if (ctx.Companion.Brain.LastRequest.Kind is Infrastructure.Position.RequestKind.WithPlayer or Infrastructure.Position.RequestKind.Guard
             && navigator.Path is { Finished: false } route)
@@ -96,12 +100,17 @@ public sealed class Chooser
         float movingAway = delta.LengthSquared() > 1f ? Microsoft.Xna.Framework.Vector2.Dot(ctx.Senses.Player.Intent, Microsoft.Xna.Framework.Vector2.Normalize(delta)) : 0f;
         Reunion.Evaluate(movingAway, EstimatedReturnTicks, ctx.Senses.Player.IsDead, ctx.Stranded);
         RegroupUrgency = ctx.Senses.Player.IsDead ? 0f : Infrastructure.Observation.CalculateRegroupUrgency.Evaluate(
-            ctx.Senses.DistanceToPlayer, EstimatedReturnTicks, movingAway, navigator.StuckTicks,
+            // Centre to centre, as before, with the player's centre moved along by the region's lead:
+            // the urgency curve subtracts the comfortable distance itself, so handing it a distance
+            // that is already zero inside the region would subtract the comfort twice and leave a
+            // companion a whole comfort width outside the box with no return pressure at all.
+            Microsoft.Xna.Framework.Vector2.Distance(ctx.Npc.Center, region.Centre + (ctx.Senses.Player.Position - ctx.Senses.Player.Bottom)),
+            EstimatedReturnTicks, movingAway, navigator.StuckTicks,
             Weights.FollowHorizontalComfort * PlayerIntegration.CompanionPreferences.Current.FollowComfortScale,
             Weights.RegroupFullDistance, Weights.RegroupFreeReturnTicks, Weights.RegroupFullReturnTicks);
         Microsoft.Xna.Framework.Vector2 followAnchor = ctx.Companion.Brain.Meeting.Anchor;
-        if (followAnchor == Microsoft.Xna.Framework.Vector2.Zero) followAnchor = ctx.Senses.Player.Bottom;
-        var follow = new Infrastructure.Position.FollowPlayerObjective(ctx.Senses.Player.Bottom, followAnchor);
+        if (followAnchor == Microsoft.Xna.Framework.Vector2.Zero) followAnchor = region.LeadingEdge;
+        var follow = ctx.Senses.Intent.Objective.At(followAnchor);
         bool arrived = follow.IsSatisfied(ctx.Npc.Bottom, Infrastructure.Observation.LineOfSight.Between(ctx.Npc, ctx.Player));
         if (arrived) RegroupUrgency = 0f;
         if (!ctx.Senses.Player.IsDead && !arrived)
@@ -197,6 +206,9 @@ public sealed class Chooser
     public ActivityComparisonContext ComparisonContext(in ActionContext ctx)
         => new(ctx.Senses.Threats.ProtectionUrgency, ctx.Stranded,
             ctx.Senses.Threats.Horizon, Weights.InterruptibleActionTicks, Weights.HorizonOverrunToZero, Weights.Commitment,
-            ctx.Senses.DistanceToPlayer <= PlayerIntegration.CompanionPreferences.Current.ActiveActivityRadius,
+            // To the region's centre, not the player's body: a radius anchored on where he is
+            // standing shrinks the ground in front of him as he walks into it.
+            Microsoft.Xna.Framework.Vector2.Distance(ctx.Npc.Bottom, ctx.Senses.Intent.Region.Centre)
+                <= PlayerIntegration.CompanionPreferences.Current.ActiveActivityRadius,
             Weights.FollowDuringUsefulWork, Reunion.DelayCostPerTick, ctx.Senses.Encounter.Intensity);
 }

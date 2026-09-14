@@ -16,6 +16,9 @@ public sealed class Senses
     public readonly ThreatSense Threats = new();
     public readonly LootSense Loot = new();
     public readonly LightSense Light = new();
+    /// <summary>Where the player is going, as a place. Every "how far from the player" question in the
+    /// brain measures to this, so work near him is work near where he will be rather than where he was.</summary>
+    public readonly PlayerIntentRegionSense Intent = new();
     /// <summary>Where the body can walk to. Refreshed by the positioner's resolve rather than by
     /// <see cref="Update"/>, because the flood's lava and one-way rules are set per request.</summary>
     public readonly ReachSense Reach = new();
@@ -38,6 +41,9 @@ public sealed class Senses
         Companion = companion;
         PlayerEntity = player;
         Player.Update(player, companion);
+        // Straight after the player, because it reads his freshly observed intent and every later
+        // sense and every consumer this tick must see one region rather than two.
+        Intent.Update(companion, Player);
         Threats.Update(player, companion);
         Encounter.Update(player, Threats);
         Projectiles.Update(companion);

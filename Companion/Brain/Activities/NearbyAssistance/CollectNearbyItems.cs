@@ -119,12 +119,23 @@ public sealed class CollectNearbyItems : PerformNearbyWorldWork
                 capacityRefused = true;
                 continue;
             }
+            // Where the drop will be, not where it is. A drop released in the air had its contact pose
+            // searched around its instantaneous bottom with a tolerance of one tile, so a falling item
+            // had no pose at all until it landed — 431 rows of the 2026-09-14 capture were refused as
+            // drop-has-no-contact-pose — and the moved-drop guard then held the body on every tick of a
+            // fall, because a falling drop has always moved more than a tile since it was proven. Both
+            // are the same mistake: an item in flight was priced as an object at rest.
+            if (ForecastLanding(item) is not Vector2 landing)
+            {
+                Refuse(OfferEligibility.Unresolved, "drop-landing-undecided");
+                continue;
+            }
             Vector2 pose;
             if (TouchesDrop(ctx.Npc.Hitbox, item, ProvePickupReach))
                 pose = ctx.Npc.Bottom;
             else
             {
-                if (ContactPose(item) is not Point contact)
+                if (ContactPose(item, landing) is not Point contact)
                 {
                     Refuse(OfferEligibility.KnownUnusable, "drop-has-no-contact-pose");
                     continue;
@@ -148,7 +159,10 @@ public sealed class CollectNearbyItems : PerformNearbyWorldWork
             float fits = whole > 0 ? LootSense.ValueOf(item, acceptable) / whole : 1f;
             // The same unit mining and chopping price their walk in: pixels to the working pose over walking speed.
             float trip = Vector2.Distance(ctx.Npc.Bottom, pose) / Companion.CompanionMotor.WalkSpeed;
-            candidate = new(item, item.type, item.Bottom, pose, Consideration.AtLeast(near, 0.2f), pickup.Value * fits, trip);
+            // The candidate records the landing the pose was proven at, not the drop's live bottom, so
+            // the guard in Execute asks whether the *forecast* moved. A drop falling exactly as
+            // predicted keeps one landing all the way down and is walked to without a single hold.
+            candidate = new(item, item.type, landing, pose, Consideration.AtLeast(near, 0.2f), pickup.Value * fits, trip);
             return;
         }
     }
@@ -156,18 +170,71 @@ public sealed class CollectNearbyItems : PerformNearbyWorldWork
     private static Rectangle BodyAt(Vector2 feet)
         => new((int)(feet.X - BodyPhysics.Width / 2f), (int)(feet.Y - BodyPhysics.Height), BodyPhysics.Width, BodyPhysics.Height);
 
-    private static bool TouchesDrop(Rectangle body, Item item, float reach)
+    private static bool TouchesDrop(Rectangle body, Item item, float reach) => Touches(body, item.Hitbox, reach);
+
+    private static bool Touches(Rectangle body, Rectangle drop, float reach)
     {
         body.Inflate((int)reach, (int)reach);
-        return body.Intersects(item.Hitbox);
+        return body.Intersects(drop);
+    }
+
+    /// <summary>
+    /// Where a drop will come to rest, or none if it is still falling past the horizon. The arc is the
+    /// game's own, from <c>Item.UpdateItem</c> and <c>MoveInWorld</c>: gravity added per tick and capped
+    /// at a maximum fall speed, horizontal velocity damped and zeroed below a floor, with the wet
+    /// figures when the item is in liquid. Stepping it is what makes a falling drop answerable — an item
+    /// in the air is not a place, and a collection that prices one where it currently hangs either finds
+    /// no pose at all or walks to a pose the drop has already left.
+    ///
+    /// <para>The floor is asked of the tile world rather than of <c>tileSolid</c>, because a slope or a
+    /// half block is not the surface its solidity suggests; the forecast lands the item on the top of
+    /// the first supporting row its track enters, which is where the game's own collision leaves it on
+    /// flat ground and an approximation of a tile on a slope.</para>
+    ///
+    /// <para>It never runs a route search, and it must not: this is an activity, and the navigation
+    /// boundary refuses one here. It reads tiles and the item's own numbers and nothing else.</para>
+    /// </summary>
+    private static Vector2? ForecastLanding(Item item)
+    {
+        Vector2 bottom = item.Bottom;
+        // Already at rest on something: the landing is where it is.
+        // The same row arithmetic the loop below uses, so a resting item and a landing item agree about
+        // which row counts as the floor: the bottom sits on the top edge of the supporting row.
+        if (item.velocity.Y == 0f && MovementQueries.IsSupport((int)MathF.Floor(bottom.X / 16f), (int)MathF.Floor(bottom.Y / 16f)))
+            return bottom;
+        float gravity = item.wet ? Weights.DropWetGravity : Weights.DropGravity;
+        float maxFall = item.wet ? Weights.DropWetMaxFallSpeed : Weights.DropMaxFallSpeed;
+        Vector2 velocity = item.velocity;
+        for (int tick = 0; tick < Weights.DropForecastTicks; tick++)
+        {
+            velocity.Y = MathF.Min(velocity.Y + gravity, maxFall);
+            velocity.X *= Weights.DropHorizontalDamping;
+            if (MathF.Abs(velocity.X) < Weights.DropHorizontalFloor) velocity.X = 0f;
+            Vector2 next = bottom + velocity;
+            if (velocity.Y > 0f)
+            {
+                // Every row the bottom crosses this tick, so a fast item cannot pass through a floor
+                // between two samples — at the capped fall speed it covers most of a tile a tick.
+                int column = (int)MathF.Floor(next.X / 16f);
+                for (int row = (int)MathF.Floor(bottom.Y / 16f); row <= (int)MathF.Floor(next.Y / 16f); row++)
+                    if (MovementQueries.IsSupport(column, row))
+                        return new Vector2(next.X, row * 16f);
+            }
+            bottom = next;
+        }
+        return null;
     }
 
     /// <summary>The standable pose nearest the drop from which a body that has arrived still picks it up, or none.
     /// Nearest-to-companion among tiles that merely graze was the pose with the least overlap: arrival slack and a
     /// slope then missed, and the navigator reported Arrived so the body froze on the ledge above the gel.</summary>
-    private static Point? ContactPose(Item item)
+    private static Point? ContactPose(Item item, Vector2 landing)
     {
-        Point around = MovementQueries.FeetTile(item.Bottom);
+        // Every geometric question below is asked about the landing rather than the live bottom: an
+        // item still in the air is going to be somewhere else by the time a body walks to it, and a
+        // pose proven against where it currently hangs is proven against a place it will not be.
+        Point around = MovementQueries.FeetTile(landing);
+        Rectangle drop = new((int)(landing.X - item.width / 2f), (int)(landing.Y - item.height), item.width, item.height);
         Point? best = null;
         float bestDistance = float.MaxValue;
         for (int dx = -ContactSearchTiles; dx <= ContactSearchTiles; dx++)
@@ -178,9 +245,9 @@ public sealed class CollectNearbyItems : PerformNearbyWorldWork
                 Vector2 feet = MovementQueries.FeetWorld(tile);
                 // A floor more than a tile above the drop is a cliff, not a pickup: the inflated AABB can
                 // graze an item on the slope below while the live body never takes it.
-                if (item.Bottom.Y - feet.Y > 16f || feet.Y - item.Bottom.Y > 16f) continue;
-                if (!TouchesDrop(BodyAt(feet), item, ProvePickupReach)) continue;
-                float distance = Vector2.DistanceSquared(feet, item.Bottom);
+                if (landing.Y - feet.Y > 16f || feet.Y - landing.Y > 16f) continue;
+                if (!Touches(BodyAt(feet), drop, ProvePickupReach)) continue;
+                float distance = Vector2.DistanceSquared(feet, landing);
                 if (distance >= bestDistance) continue;
                 best = tile;
                 bestDistance = distance;
@@ -229,7 +296,13 @@ public sealed class CollectNearbyItems : PerformNearbyWorldWork
         // world drops that could have absorbed it.
         if (dropAttempt is { } walking && ReferenceEquals(walking.Item, prepared.Item))
             dropAttempt = walking with { LastCentre = prepared.Item.Center };
-        if (Vector2.DistanceSquared(prepared.Item.Bottom, prepared.Position) > MovedDropPixels * MovedDropPixels)
+        // The guard is on the forecast, not on the live position. A falling drop has always moved more
+        // than a tile since it was proven, so comparing live positions held the body on every tick of
+        // every fall; what actually invalidates the walk is the *landing* moving — the item bouncing
+        // off a slope, being knocked sideways, or landing somewhere the forecast did not expect. A
+        // landing that can no longer be forecast at all is a hold for the same reason.
+        if (ForecastLanding(prepared.Item) is not Vector2 landing
+            || Vector2.DistanceSquared(landing, prepared.Position) > MovedDropPixels * MovedDropPixels)
             return PositionRequest.Hold;
         if (dropAttempt is not { } open || !ReferenceEquals(open.Item, prepared.Item))
             dropAttempt = new(prepared.Item, prepared.Type, prepared.Item.stack, ctx.Companion.Bag, ctx.Companion.Bag.TransferSequence, prepared.Item.Center);

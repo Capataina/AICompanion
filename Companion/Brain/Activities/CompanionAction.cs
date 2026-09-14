@@ -45,8 +45,16 @@ public abstract class CompanionAction
         bool sameJob = admittedIdentity != null && Equals(admittedIdentity, identity ?? ActivityIdentity);
         bool collectingWork = Name == "collect" && identity is Terraria.Item && ctx.Companion.Brain.Chooser.IsCollectingWork(target);
         float radius = sameJob || collectingWork ? preferences.ActiveActivityRadius : preferences.NewActivityRadius;
-        bool allowed = Microsoft.Xna.Framework.Vector2.DistanceSquared(target, ctx.Player.Bottom) <= radius * radius
-            && Microsoft.Xna.Framework.Vector2.DistanceSquared(ctx.Npc.Bottom, ctx.Player.Bottom) <= radius * radius;
+        // The work radius is measured to the player's intent region rather than to his body, and this
+        // is the one place every activity's "near the player" test lives, so mining, chopping,
+        // lighting, collection and hunting all inherit it from here. Anchored on his feet the radius
+        // walks backwards as he does: a vein or a dark region a few tiles ahead of a travelling
+        // player is at the far edge of a circle centred behind him, and it drops out of range at the
+        // moment he starts walking towards it. Anchored on the region it leads him, so work he is
+        // heading into comes into range before he arrives at it.
+        Microsoft.Xna.Framework.Vector2 anchor = ctx.Senses.Intent.Region.Centre;
+        bool allowed = Microsoft.Xna.Framework.Vector2.DistanceSquared(target, anchor) <= radius * radius
+            && Microsoft.Xna.Framework.Vector2.DistanceSquared(ctx.Npc.Bottom, anchor) <= radius * radius;
         return allowed;
     }
 

@@ -411,4 +411,88 @@ public static class Weights
     /// above that, or a slow answer is struck as a stall and its retained frontier is thrown away.
     /// </summary>
     public const int RouteAnswerWaitTicks = 300;
+
+    // ---- Lane C: the player's intent region ----
+
+    /// <summary>
+    /// How far ahead in time the region is carried. The lead is a duration rather than a distance
+    /// on purpose: multiplied by the player's own observed pace it lengthens for free when he puts
+    /// on Hermes boots and shortens when he picks his way across a cave, where a fixed pixel lead
+    /// would be a guess tuned to one walking speed. Two seconds is the property being approximated
+    /// — about how far ahead a person walking beside someone looks — and it is what decides how far
+    /// in front of a travelling player the companion tries to be.
+    /// </summary>
+    public const int IntentRegionLeadTicks = 120;
+
+    /// <summary>
+    /// The time constant of the one-pole filter on the lead, so the region drifts rather than snaps.
+    /// It exists for the stop, not the start: a player who halts leaves a region a second's worth of
+    /// travel ahead of him, and without the filter it would jump back onto his feet in one tick and
+    /// take the companion's destination with it. Shortening this makes a stop snap; lengthening it
+    /// leaves the companion committed to somewhere the player has stopped walking towards.
+    /// </summary>
+    public const int IntentRegionFilterTicks = 60;
+
+    /// <summary>
+    /// The most the region grows with its own lead, as a share. A leading region is also a wider one
+    /// — a player crossing broken ground is somewhere in a band rather than at a point, and a taller
+    /// region is what lets the companion count as "with him" while he climbs a hill. Capped low
+    /// because growth is slack in the arrival test, and an arrival test that grows without bound
+    /// stops being an arrival test.
+    /// </summary>
+    public const float IntentRegionGrowthCap = .15f;
+
+    /// <summary>
+    /// The lead at which the region is fully grown. It is the region's own half-width rather than a
+    /// fitted number: once the region has led by as much as it is wide, it has left the player's own
+    /// neighbourhood, which is exactly when the extra slack is worth having. Drifts if
+    /// <see cref="FollowHorizontalComfort"/> changes, which is the intent.
+    /// </summary>
+    public const float IntentRegionFullGrowthLead = FollowHorizontalComfort;
+
+    /// <summary>
+    /// The smallest half-extent the screen clamp may impose, in px, for each axis. The clamp is
+    /// half the screen so the region never drifts out of the player's own view, and headless there
+    /// is no screen at all: <c>Main.screenWidth</c> is zero, so an unguarded clamp would pin the
+    /// region to the player's feet and every fixture would pass for the reason the change exists to
+    /// remove. The same guard, and the same reason, as the light field's window minimum.
+    /// </summary>
+    public const float IntentRegionMinimumClampX = 640f;
+    public const float IntentRegionMinimumClampY = 360f;
+
+    /// <summary>
+    /// The pull keeping company reads while the companion is inside the region and the player is
+    /// travelling, at the region's edge; it scales to nothing at the centre. It is the gradient the
+    /// old box did not have: a flat zero inside meant a moving player was never a reason to move,
+    /// so the body coasted to whichever edge it entered by and any rival offer won. It sits above
+    /// <see cref="WanderFloor"/>, or a travelling player would be strolled beside rather than kept
+    /// up with, and well below <see cref="KeepCompanyFarCap"/> and any proven job's value, so
+    /// walking with a moving player still loses to work worth stopping for.
+    /// </summary>
+    public const float IntentRegionCentralPull = .25f;
+
+    /// <summary>
+    /// How long the body must be grounded inside the region before following reads as satisfied, and
+    /// how long a new keep-company regime must hold before the method changes. Leaving is immediate
+    /// both times: this is a floor on entering a state, never a delay on leaving one. The authority
+    /// is <c>ChooseUsefulPosition.RescoreInterval</c>, which is one rescore of the positioner; if the
+    /// two drift the hold is no longer one rescore and the method can change inside a single scoring
+    /// pass, which is the flicker it exists to stop.
+    /// </summary>
+    public const int PositionRescoreTicks = 12;
+
+    /// <summary>Item physics, from the game's own <c>Item.UpdateItem</c>: gravity per tick and the fall
+    /// speed it is capped at, dry and wet. A drop is forecast to its landing with these, so a falling
+    /// item is priced where it will be rather than where it is; if the game changes them the forecast
+    /// lands short and collection walks to the wrong tile.</summary>
+    public const float DropGravity = .1f;
+    public const float DropMaxFallSpeed = 7f;
+    public const float DropWetGravity = .08f;
+    public const float DropWetMaxFallSpeed = 5f;
+    /// <summary>Item horizontal damping per tick, and the speed below which the game zeroes it.</summary>
+    public const float DropHorizontalDamping = .95f;
+    public const float DropHorizontalFloor = .1f;
+    /// <summary>How far ahead a drop's fall is forecast before the answer is given up as unknown. A drop
+    /// still falling after this long is going somewhere the companion should not be committing to.</summary>
+    public const int DropForecastTicks = 240;
 }

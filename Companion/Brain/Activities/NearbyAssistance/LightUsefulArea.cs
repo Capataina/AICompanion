@@ -78,7 +78,14 @@ public sealed class LightUsefulArea : PerformNearbyWorldWork
             refusal = ctx.Senses.Light.MeasuredSamples == 0 ? "no-light-measured-in-range" : "no-dark-region-in-range";
             return;
         }
-        Point player = MovementQueries.FeetTile(ctx.Player.Bottom);
+        // The work radius is measured from the player's intent region, not from his body. A dark
+        // stretch of passage a few tiles ahead of a walking player sits at the far edge of a circle
+        // centred behind him and drops out of range the moment he sets off towards it, which is the
+        // one moment lighting it is worth anything; anchored on the region the radius leads him, so
+        // the passage he is walking into is in range before he gets there. The nearest-first
+        // ordering below still starts from the companion's own feet, because that is about which
+        // darkness it can walk to rather than which darkness is worth lighting.
+        Point player = MovementQueries.FeetTile(ctx.Senses.Intent.Region.Centre);
         int work = (int)(Weights.FollowWorkRadius / 16f);
         Vector2 fromFeet = ctx.Npc.Bottom;
         int span = Weights.LightPlacementSearchTiles;

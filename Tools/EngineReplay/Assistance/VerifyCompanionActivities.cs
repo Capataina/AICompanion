@@ -266,6 +266,12 @@ internal static class VerifyCompanionActivities
     private static void ContinuingTargetsKeepTheirIdentity()
     {
         var (_, ctx) = VerifyOreWork.SetUp(Policy.Opportunistic, TileID.Copper, new Point(25, 59));
+        // The work radius is measured to the player's intent region, so a fixture that moves the player
+        // directly must let the sense see the move or it is measuring against where he used to be. A
+        // still player carries no lead, so a refreshed region sits exactly on his feet and the
+        // distances below mean what they meant when they were written.
+        void SeeThePlayer() => ctx.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Breath);
+        SeeThePlayer();
         var activity = new ActivityProbe { Target = ctx.Player.Bottom + new Vector2(500, 0) };
         Require(activity.Allows(ctx), "new target within acquisition radius must be admitted");
         activity.AdmitActivity();
@@ -278,6 +284,7 @@ internal static class VerifyCompanionActivities
         activity.Target = ctx.Player.Bottom + new Vector2(Preferences.Current.NewActivityRadius + 100, 0);
         Require(!activity.Allows(ctx), "completed ordinary excursion must release its allowance");
         ctx.Player.Bottom = new Vector2(80, 960);
+        SeeThePlayer();
         activity.Target = ctx.Player.Bottom + new Vector2(Preferences.Current.NewActivityRadius + 100, 0);
         ctx.Companion.Brain.Chooser.RecordWork(activity.Target);
         var loot = new live::AICompanion.Companion.Brain.Activities.NearbyAssistance.CollectNearbyItems();
@@ -597,9 +604,19 @@ internal static class VerifyCompanionActivities
             ctx.Player.Bottom = ctx.Npc.Bottom + new Vector2(192 * Preferences.Current.FollowComfortScale - 1, 0);
             Require(Collision.CanHitLine(ctx.Npc.position, ctx.Npc.width, ctx.Npc.height, ctx.Player.position, ctx.Player.width, ctx.Player.height),
                 "comfortable-follow fixture must have a clear local connection");
-            ctx.Companion.Brain.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Breath);
+            // Arrival is a settled state now, not an instantaneous one: the body must have been on the
+            // ground inside the region for a rescore before following reads as satisfied, because two
+            // bodies passing in mid-air are momentarily a few pixels apart and neither has arrived.
+            // So the fixture stands the body still for that long rather than asking on the first tick,
+            // which is the same thing a companion standing beside the player does.
+            for (int tick = 0; tick <= live::AICompanion.Companion.Brain.Infrastructure.Selection.Weights.PositionRescoreTicks; tick++)
+            {
+                VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
+                ctx.Companion.Brain.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Breath);
+            }
             ctx.Companion.Brain.Chooser.Choose(ctx);
-            Require(ctx.Companion.Brain.Chooser.RegroupUrgency == 0, $"{mode} comfortable following must not request regrouping");
+            Require(ctx.Companion.Brain.Chooser.RegroupUrgency == 0,
+                $"{mode} comfortable following must not request regrouping; settled={ctx.Companion.Brain.Senses.Intent.Settled} groundedInside={ctx.Companion.Brain.Senses.Intent.GroundedInsideTicks}");
         }
         Preferences.Current.DistanceMode = live::AICompanion.Companion.PlayerIntegration.CompanionDistanceMode.Standard;
     }
