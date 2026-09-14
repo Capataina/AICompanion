@@ -31,7 +31,7 @@ internal static class VerifyAttackOutcomes
         var repeated = new E.Attack(0, 0, 60, 1, new[] { new E.Hit(0, 15), new E.Hit(0, 15), new E.Hit(0, 15) });
         var repeatedOutcome = E.Evaluate(repeated, new[] { repeated }, slimes, 0, 60);
         Require(repeatedOutcome.Damage == 20 && repeatedOutcome.Kills == 1, "multiple pellets cannot earn the same kill twice");
-        Console.WriteLine("PASS attack outcomes: crowd hits, urgent finishing, useful damage, rapid retargeting and cooldown");
+        Console.WriteLine("attack outcomes: crowd hits, urgent finishing, useful damage, rapid retargeting and cooldown");
         return 0;
     }
 

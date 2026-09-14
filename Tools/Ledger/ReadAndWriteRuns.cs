@@ -110,9 +110,49 @@ public sealed record Run(string Path, RunHeader Header, IReadOnlyList<LedgerRow>
     /// <summary>
     /// A run is clean when nothing in it failed or errored. Skips do not make a run dirty, because
     /// a skip is missing coverage rather than a verdict, and a baseline that refused every run with
-    /// a skip in it would never resolve on a repository whose captures are gitignored.
+    /// a skip in it would never resolve on a repository whose captures are gitignored. A red row
+    /// tagged <c>known-limitation</c> does not make a run dirty either: it is a defect the suite
+    /// found and the board carries (the corpus mirror's one asymmetric block, AIC-260, is the first),
+    /// and a repository that could never have a clean baseline while one such defect stood open
+    /// would lose every comparison for as long as the defect took to fix. The tag comes off with
+    /// the fix, at which point the row is an ordinary red again; the scoreboard still prints it.
     /// </summary>
-    public bool Clean => Rows.All(r => r.Verdict is not ("fail" or "error"));
+    public bool Clean => Rows.All(r => r.Verdict is not ("fail" or "error") || (r.Tags?.Contains("known-limitation") ?? false));
+
+    /// <summary>The cases this run actually measured: every case carrying at least one row that is
+    /// not a skip. A skip is the absence of a measurement, so it belongs in <see cref="SkippedOnly"/>
+    /// and never here.</summary>
+    public IReadOnlySet<string> Reporting => reporting ??= Rows.Where(r => r.Verdict != "skipped")
+        .Select(Key).ToHashSet(StringComparer.Ordinal);
+    private HashSet<string>? reporting;
+
+    /// <summary>Cases this run holds only as skips — asked for and not answered.</summary>
+    public IReadOnlySet<string> SkippedOnly => skippedOnly ??= Rows.Select(Key).ToHashSet(StringComparer.Ordinal)
+        .Except(Reporting).ToHashSet(StringComparer.Ordinal);
+    private HashSet<string>? skippedOnly;
+
+    /// <summary>
+    /// Whether this run is a fair yardstick for <paramref name="candidate"/>, which is a question
+    /// about coverage and not about verdicts.
+    ///
+    /// Two rules, and each was written from a run that actually reached the scoreboard. A baseline
+    /// must not hold as a skip anything the new run measured: <c>measure-flake.sh</c> opens a run
+    /// with no <c>--filter</c> and drives every repeat under <c>AIC_LEDGER_CASE</c>, so its file
+    /// carries one real case and forty-odd skips, and without this rule it resolved as the baseline
+    /// for the next full run — observed, not supposed. And a baseline must not measure cases the new
+    /// run does not: <c>backfill-capture.sh</c> opens a run over a recorded capture whose rows are
+    /// play measures and no fixtures at all, and comparing a full run against it printed "new 41,
+    /// gone 46, nothing red" at exit 0. Neither producer is filtered by the header, so the header's
+    /// own flag cannot catch either; what separates them is what they covered, which the rows say.
+    ///
+    /// Cases the new run measures and the baseline never held are not covered by either rule, and
+    /// deliberately: that is a case being added, which must stay possible without disqualifying
+    /// every ancestor in the store.
+    /// </summary>
+    public bool CoversRunsOf(Run candidate)
+        => !candidate.SkippedOnly.Overlaps(Reporting) && candidate.Reporting.IsSubsetOf(Reporting);
+
+    internal static string Key(LedgerRow row) => $"{row.Instrument}/{row.Suite}/{row.Case}";
 }
 
 /// <summary>
@@ -227,7 +267,13 @@ public static class RunStore
     /// compared against nothing while its parent's run sat in the store. Excluding and continuing
     /// are different operations and only one of them answers the question.
     /// </param>
-    public static Run? Baseline(string repositoryRoot, string commit, string? excluding = null)
+    /// <param name="scoring">
+    /// The run being scored, when there is one. Its coverage decides which candidates are fair
+    /// yardsticks — see <see cref="Run.CoversRunsOf"/> — because the header's filter flag cannot
+    /// catch a partial run that never declared itself one, and two of this repository's own scripts
+    /// produce exactly that.
+    /// </param>
+    public static Run? Baseline(string repositoryRoot, string commit, string? excluding = null, Run? scoring = null)
     {
         string[] ancestry = Git.Ancestry(repositoryRoot, commit);
         var runs = All(repositoryRoot);
@@ -237,6 +283,7 @@ public static class RunStore
                 && !run.Header.Filtered
                 && (excluding == null || !string.Equals(run.Path, excluding, StringComparison.Ordinal))
                 && Git.Same(run.Header.Commit, ancestor)
+                && (scoring == null || scoring.CoversRunsOf(run))
                 && run.Clean);
             if (clean != null) return clean;
         }

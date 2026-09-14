@@ -138,14 +138,14 @@ internal static class ReplayRecordedWater
             }
             if (dry >= 60)
             {
-                Console.WriteLine($"PASS recorded water: sustained breathing at +{step}, breath={companion.Breath.Breath}");
+                Console.WriteLine($"recorded water: sustained breathing at +{step}, breath={companion.Breath.Breath}");
                 timings.Sort();
                 Console.WriteLine($"BRAIN TIMING {timings.Count} ticks: median={timings[timings.Count / 2]:0.000}ms p95={timings[(int)((timings.Count - 1) * .95)]:0.000}ms max={timings[^1]:0.000}ms; includes cold initialisation, excludes other game systems");
                 return 0;
             }
             if (companion.IsDowned) break;
         }
-        Console.WriteLine($"FAIL recorded water: no sustained breathing, world-feet={companion.NPC.Bottom + offset}, breath={companion.Breath.Breath}, action={companion.Brain.LastAction?.Name}");
+        AICompanion.Tools.Ledger.EmitLedgerRows.Detail($"recorded water: no sustained breathing, world-feet={companion.NPC.Bottom + offset}, breath={companion.Breath.Breath}, action={companion.Brain.LastAction?.Name}");
         return 1;
     }
 }

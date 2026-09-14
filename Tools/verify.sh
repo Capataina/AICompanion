@@ -133,6 +133,31 @@ cat "$engine_log"
 rm -f "$engine_log"
 record_exit "engine-replay" "$engine_status"
 
+# corpus
+#
+# Every committed scenario run twice, once as captured and once reflected left to right, with the
+# two verdicts required to agree. Nothing about a tile world prefers a direction, so this doubles the
+# corpus for the cost of a transform and every disagreement is an asymmetry in our own code.
+#
+# What runs here is the mirror relation and not the corpus's own verdict, and that distinction is
+# why this block can exist at all. The plain corpus carries known incomplete and model-closed cases
+# — it has been red for months by design — so running it here would put a permanent failure into
+# every run, and a run carrying a failure can never be a baseline: the ledger would lose its memory
+# to report something nobody learns from. The relation is a different claim, and a block that is
+# model-closed both ways satisfies it.
+#
+# It runs only on this corpus. The plan refuses mirroring the native suite until the wall-clock rule
+# has landed there, because the one mirror relation implemented over there is the intermittent
+# fixture, and a metamorphic relation checked against an oracle that disagrees with itself under
+# load is a test of the oracle rather than of the world.
+mirror_log=$(mktemp)
+dotnet run --project Tools/NavReplay -- --mirror Tools/Scenarios >"$mirror_log" 2>&1
+mirror_status=$?
+tail -n 1 "$mirror_log"
+[ $mirror_status -ne 0 ] && grep "DISAGREES" "$mirror_log"
+rm -f "$mirror_log"
+record_exit "nav-replay" "$mirror_status"
+
 # Rerunning a red is how one observation becomes a claim about a rate. A case that fails once and
 # passes once at the same commit is flaky by observation rather than by suspicion, which is the
 # only definition a ledger can supply — and the arithmetic for how many runs a claim needs is in

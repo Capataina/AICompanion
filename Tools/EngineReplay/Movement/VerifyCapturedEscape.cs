@@ -58,11 +58,11 @@ internal static class VerifyCapturedEscape
             if (companion.IsDowned || companion.NPC.life <= 0) break;
             if (dry >= 30)
             {
-                Console.WriteLine($"PASS full-brain captured pool emptyOffers={emptyOffers}: sustained air at {tick}, life={companion.NPC.life}, breath={companion.Breath.Breath}");
+                Console.WriteLine($"full-brain captured pool emptyOffers={emptyOffers}: sustained air at {tick}, life={companion.NPC.life}, breath={companion.Breath.Breath}");
                 return 0;
             }
         }
-        Console.WriteLine($"FAIL full-brain captured pool emptyOffers={emptyOffers}: feet={companion.NPC.Bottom}, life={companion.NPC.life}, breath={companion.Breath.Breath}, action={companion.Brain.LastAction?.Name}");
+        AICompanion.Tools.Ledger.EmitLedgerRows.Detail($"full-brain captured pool emptyOffers={emptyOffers}: feet={companion.NPC.Bottom}, life={companion.NPC.life}, breath={companion.Breath.Breath}, action={companion.Brain.LastAction?.Name}");
         return 1;
     }
 
@@ -94,12 +94,12 @@ internal static class VerifyCapturedEscape
             dryTicks = !companion.NPC.wet ? dryTicks + 1 : 0;
             if (dryTicks >= 60 && !companion.Brain.Safety.Active)
             {
-                Console.WriteLine($"PASS full-brain wet awning mirrored={mirrored} breath={breath}: stable dry exit at {tick}, action={companion.Brain.LastAction?.Name}");
+                Console.WriteLine($"full-brain wet awning mirrored={mirrored} breath={breath}: stable dry exit at {tick}, action={companion.Brain.LastAction?.Name}");
                 return 0;
             }
             if (companion.IsDowned) break;
         }
-        Console.WriteLine($"FAIL full-brain wet awning mirrored={mirrored} breath={breath}: {companion.NPC.Bottom}, action={companion.Brain.LastAction?.Name}, goal={companion.Brain.Positioner.Chosen}, status={companion.Brain.Navigator.Status}, controls={companion.Motor.AppliedControls}");
+        AICompanion.Tools.Ledger.EmitLedgerRows.Detail($"full-brain wet awning mirrored={mirrored} breath={breath}: {companion.NPC.Bottom}, action={companion.Brain.LastAction?.Name}, goal={companion.Brain.Positioner.Chosen}, status={companion.Brain.Navigator.Status}, controls={companion.Motor.AppliedControls}");
         return 1;
     }
 
@@ -166,11 +166,11 @@ internal static class VerifyCapturedEscape
             live = VerifyEngineMotion.RunEngine(live, controls);
             if (HeadDry(live) && companion.NPC.life > 0)
             {
-                Console.WriteLine($"PASS production captured-pool escape: head dry after {tick + 1} ticks, breath {companion.Breath.Breath}, final {live.Feet}");
+                Console.WriteLine($"production captured-pool escape: head dry after {tick + 1} ticks, breath {companion.Breath.Breath}, final {live.Feet}");
                 return 0;
             }
         }
-        Console.WriteLine($"FAIL captured-pool escape: no living escape before the native breath/life allowance expired, final {live}; air target {survival.AirTarget}");
+        AICompanion.Tools.Ledger.EmitLedgerRows.Detail($"captured-pool escape: no living escape before the native breath/life allowance expired, final {live}; air target {survival.AirTarget}");
         DumpNativeControls(live);
         return 1;
     }
@@ -219,17 +219,17 @@ internal static class VerifyCapturedEscape
             if (!search.TryChoose(NavGrid.World, live, escaped, heuristic,
                     MovementCapabilities.Basic, Weights.EscapeSearchWork, 0d, out Controls controls))
             {
-                Console.WriteLine($"FAIL native escape {name}: no certified control at tick {tick}, state {live}");
+                AICompanion.Tools.Ledger.EmitLedgerRows.Detail($"native escape {name}: no certified control at tick {tick}, state {live}");
                 return 1;
             }
             live = VerifyEngineMotion.RunEngine(live, controls);
             if (escaped(live))
             {
-                Console.WriteLine($"PASS native escape {name}: dry after {tick + 1} ticks, final {live.Feet}");
+                Console.WriteLine($"native escape {name}: dry after {tick + 1} ticks, final {live.Feet}");
                 return 0;
             }
         }
-        Console.WriteLine($"FAIL native escape {name}: still wet after 240 ticks, final {live}");
+        AICompanion.Tools.Ledger.EmitLedgerRows.Detail($"native escape {name}: still wet after 240 ticks, final {live}");
         return 1;
     }
 

@@ -236,7 +236,7 @@ public sealed class MeasureHuntKnownUnusableShare : IMeasure
     public IEnumerable<LedgerRow> Rows(Session session)
     {
         GodsEyeEventLog log = ReadGodsEyeEvents.Read(session.Path);
-        int decisions = 0, knownUnusable = 0, unreadable = 0;
+        int decisions = 0, knownUnusable = 0, unresolved = 0, unreadable = 0;
         foreach (GodsEyeEvent e in log.Events)
         {
             if (e.kind != "decision") continue;
@@ -245,10 +245,24 @@ public sealed class MeasureHuntKnownUnusableShare : IMeasure
             if (factors.Length == 0) { unreadable++; continue; }
             string offer = MeasureCancelledInFlight.Between(factors, "offer:", ",");
             if (offer.Length == 0) { unreadable++; continue; }
-            if (offer.Split('/')[0] == "KnownUnusable") knownUnusable++;
+            switch (offer.Split('/')[0])
+            {
+                case "KnownUnusable": knownUnusable++; break;
+                case "Unresolved": unresolved++; break;
+            }
         }
         yield return PlayRow.Share($"{Name}/share", knownUnusable, decisions, "down",
-            "comparisons in which hunting reported a proven absence of any firing position; a bounded stand search that ran out of solves reports the same word, so this counts both",
+            "comparisons in which hunting reported a proven absence of any firing position",
+            "R5");
+        // The two shares are reported side by side because the word moved under them, not the
+        // behaviour. On the 13:27 capture a stand search that ran out of solves reported
+        // KnownUnusable — the same word as a proven absence — so that capture's share counts both
+        // and is pinned as such. R5 split them: a cut search now reports Unresolved. So the
+        // KnownUnusable share on the next capture falls partly because searches were relabelled and
+        // not because fewer of them ran out, and only the sum of these two rows is comparable across
+        // that change. A single row here would read as a large improvement that nobody made.
+        yield return PlayRow.Share($"{Name}/unresolved-share", unresolved, decisions, "down",
+            "comparisons in which hunting's stand search ran out of solves or time rather than proving anything; zero on any capture recorded before R5 split this from the row above, where it was counted there",
             "R5");
         if (unreadable > 0)
             yield return PlayRow.Count($"{Name}/unreadable", unreadable, "comparisons", "down",

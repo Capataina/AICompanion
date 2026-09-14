@@ -8,6 +8,14 @@ AssemblyLoadContext.Default.Resolving += (context, name) =>
     string? path = libraries.FirstOrDefault(p => Path.GetFileNameWithoutExtension(p).Equals(name.Name, StringComparison.OrdinalIgnoreCase));
     return path == null ? null : context.LoadFromAssemblyPath(path);
 };
+// Before any flag is dispatched, because every flag below is an early return: the process setup
+// used to sit at the head of VerifyEngineMotion.Run, which only the default suite reaches, so each
+// of these entry points ran against a Main nobody had prepared. --observation died there with a
+// null reference and passed inside the suite, on the same code, because a fixture ahead of it in
+// the table had filled the slots it needed.
+ResetProcessState.PrepareProcess();
+ResetProcessState.Register();
+
 if (args.Contains("--route-persistence")) return VerifyRoutePersistence.Run();
 if (args.Contains("--attack-outcomes")) return VerifyAttackOutcomes.Run();
 if (args.Contains("--offer-validity")) return VerifyOfferValidity.Run();

@@ -66,10 +66,25 @@ internal static class VerifyMovementContracts
         AStar.MsBudget = 0;
         AStar.Find(new Point(6, 9), new Point(80, 9), 0, out _, out var stop);
         Require(stop == AStar.SearchStopReason.ExpansionBudget, "a spent search budget is not exhausted terrain");
-        AStar.MsBudget = .000001;
-        AStar.Find(new Point(6, 9), new Point(80, 9), 10000, out _, out stop);
-        Require(stop == AStar.SearchStopReason.Deadline, "a search deadline is not exhausted terrain");
-        AStar.MsBudget = 0;
+        // The millisecond row holds the wall clock while the case around it runs lifted, because the
+        // stop reason it asserts is the deadline itself: with the allowances lifted there is no
+        // deadline to reach, the search stops for some other reason, and the row goes red saying the
+        // opposite of what is wrong. The expansion-budget row above needs none of this — a work
+        // count is not a clock and the lift leaves it alone, which is the whole distinction the
+        // suite-wide rule rests on.
+        bool lifted = LimitPlanningWork.Unbounded;
+        LimitPlanningWork.Unbounded = false;
+        try
+        {
+            AStar.MsBudget = .000001;
+            AStar.Find(new Point(6, 9), new Point(80, 9), 10000, out _, out stop);
+            Require(stop == AStar.SearchStopReason.Deadline, "a search deadline is not exhausted terrain");
+        }
+        finally
+        {
+            LimitPlanningWork.Unbounded = lifted;
+            AStar.MsBudget = 0;
+        }
 
         var navigator = new Navigator();
         live = new BodyState(100, 160, 0, 0, true);
@@ -328,10 +343,23 @@ internal static class VerifyMovementContracts
         }
         using (var starved = new ContinueRouteSearch(start, goal, false, true))
         {
-            LimitPlanningWork.Begin(-1);
-            starved.Advance(10);
-            LimitPlanningWork.End();
-            Require(starved.WorkUnits > 0, "upstream work cannot starve a retained query forever");
+            // This row is about the deadline, so it holds the wall clock while the case around it
+            // runs with the allowances lifted. Without the save-and-restore it would pass for the
+            // wrong reason: Begin on a lifted allowance sets no deadline at all, so nothing would
+            // be starved and the query would do work because it was never stopped.
+            bool lifted = LimitPlanningWork.Unbounded;
+            LimitPlanningWork.Unbounded = false;
+            try
+            {
+                LimitPlanningWork.Begin(-1);
+                // Asserted before End, because End clears the deadline and Expired reads false
+                // afterwards — the premise has to be taken while it still holds.
+                Require(LimitPlanningWork.Expired, "the allowance must already be spent, or this row starves nothing");
+                starved.Advance(10);
+                LimitPlanningWork.End();
+                Require(starved.WorkUnits > 0, "upstream work cannot starve a retained query forever");
+            }
+            finally { LimitPlanningWork.Unbounded = lifted; }
         }
 
         // Learn from an actually executed route, never from the query result alone.

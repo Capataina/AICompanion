@@ -151,7 +151,7 @@ internal static class VerifyGodsEyeEvents
         Event? match = events.SingleOrDefault(record => record.Kind == kind && record.Subject == subject);
         if (match != null) return match.Value;
         failures++;
-        Console.WriteLine($"FAIL GodsEye events: missing {kind} for {subject}");
+        AICompanion.Tools.Ledger.EmitLedgerRows.Detail($"GodsEye events: missing {kind} for {subject}");
         return default;
     }
 
@@ -179,7 +179,7 @@ internal static class VerifyGodsEyeEvents
     private static int Require(bool condition, string detail)
     {
         if (condition) return 0;
-        Console.WriteLine("FAIL GodsEye events: " + detail);
+        AICompanion.Tools.Ledger.EmitLedgerRows.Detail("GodsEye events: " + detail);
         return 1;
     }
 

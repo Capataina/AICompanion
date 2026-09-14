@@ -30,9 +30,23 @@ A baseline is the nearest ancestor commit with a run that ran everything and cam
 
 That last rule is the one most likely to be undone by somebody trying to be helpful. A measure that decides pass or fail from a threshold nobody declared collapses "ever green" into "green now" and cannot separate a flake from a regression, which is why the plan refuses per-instrument thresholds outright.
 
+## A baseline must have measured at least what the run being scored measured
+
+Two rules decide it, and both were written from runs that actually reached the scoreboard rather than from a worry. A candidate is refused when it holds as a *skip* anything the new run measured, and when it measures cases the new run does not report at all. The header's own `Filter` flag cannot catch either, because neither producer sets it: `measure-flake.sh` opens a run with no filter and drives every repeat under `AIC_LEDGER_CASE`, so its file carries one real case and forty-odd skips, and `backfill-capture.sh` opens a run over a capture whose rows are play measures and no fixtures. Both are clean and non-dirty, so both resolved as baselines — the first observed doing it during this lane's own work, the second measured by the sentinel at `new 41, gone 46, nothing red`, exit 0.
+
+A case the new run measures and the baseline never held is deliberately not covered by either rule: that is a case being added, which has to stay possible without disqualifying every ancestor in the store.
+
+## A verdict moving to or from `skipped` is never `unchanged`
+
+It used to be, and it is the one transition a diff must not fold away, because a case that passed yesterday and is skipped today has stopped measuring while looking in every total exactly like a case that measured and passed. `Telemetry/` is gitignored, so the play measures skip in every fresh checkout and the diff said "unchanged 47" over a case that had gone from twenty-four reproduced numbers to none. They are `STOPPED REPORTING` and `now reporting` now, each in its own block, and the closing line carries the count so "nothing red" is never printed alone on a run whose coverage fell.
+
+The exit code still comes from this run's own red rows and not from coverage. That is deliberate: a fresh clone with no capture would otherwise be red for having no gitignored file, which punishes the clone for the store's shape. Coverage falling is a different event from a check failing, and conflating them would make neither fixable on its own.
+
+**A red is a stop whatever the reruns show.** A case that fails once and then passes four times prints `FLAKY` with its interval and still exits 1, because the original fail row is a row and the scoreboard's verdict is the run's rows. Measured: `AIC_LEDGER_FORCE_RED=flaky sh Tools/verify.sh --rerun-red 4 --case "deliberately red"` gives `4/5 = 80% (95% CI 37.6–96.4%)`, `FLAKY`, exit 1. Whether an intermittent case should stop a run is a question for the verification plan's owner rather than a behaviour to change here.
+
 ## Two rules from the research live in the scoreboard rather than in prose
 
-**A pass rate is printed with its interval, never as a point.** The arithmetic is Wilson's score interval at 95 percent, chosen over the normal approximation because that one is wrong exactly where this suite lives: at zero failures it has zero width, so five green runs would read as proof. What it buys is the batch size any claim about an intermittent fixture has to carry — three green of five is consistent with a true rate anywhere from 12 to 77 percent, and thirty green bound the failure rate below about ten.
+**A pass rate is printed with its interval, never as a point.** The arithmetic is Wilson's score interval at 95 percent, chosen over the normal approximation because that one is wrong exactly where this suite lives: at zero failures it has zero width, so five green runs would read as proof. What it buys is the batch size any claim about an intermittent fixture has to carry — three green of five bounds the true rate only to 23.1–88.2 percent, five green bound the failure rate below 43.45, thirty below 11.4 and a hundred below 3.7. Every one of those figures is pinned by `SelfTestTheStore.QuotedIntervals` against what `Wilson.Of` returns, so a sentence here that drifts from the arithmetic turns a case red instead of standing as prose nobody rechecks.
 
 **A measure's delta is judged against a band computed from repeats of one commit**, and fewer than three repeats prints no band rather than a fake one, because a band from two points is a line through two points. Where the delta sits inside the band there is no conclusion to draw, and the scoreboard says so rather than calling it an improvement.
 
@@ -54,10 +68,21 @@ The raised-lip ore-work fixture has been "three of five" and "thirteen of fiftee
 
 Two readings follow from that and both are worth keeping. It settles attribution cheaply: a red on that fixture inside a change that touches no mod code is the flake, and the batch proves it at the change's own commit rather than by checking out the parent. And the native-collision case in the same batch went 12 of 12, which reads as certainty and is not — its interval is 75.7% to 100%, so twelve green runs bound the failure rate only below about a quarter. That is the whole reason the interval is printed rather than the rate.
 
-The plan's pass line is thirty consecutive idle runs, which bounds failure below ten percent. It has not been taken: three other lanes were building throughout, and a batch taken under load measures the load rather than the fixture, which is the hypothesis under test.
+The plan's pass line is thirty consecutive idle runs, which bounds failure below 11.4 percent rather than the ten the plan names. It has not been taken: other lanes were building throughout every batch so far, and a batch taken under load measures the load rather than the fixture, which is the hypothesis under test.
+
+The next pair of batches is the one to read carefully, because it is the one that looks like an answer and is not. Taken either side of lifting the wall-clock allowances across the suite, on 2026-09-14 at `1a64ef0`, ten runs each:
+
+```
+before the lift, load 2.74    10/10 = 100% (95% CI 72.2–100%)
+after  the lift, load 3.58    10/10 = 100%, rows recording mode "in-suite; unbounded-allowances"
+```
+
+The fixture did not fail once in twenty runs, so **neither batch tested the load hypothesis at all** — there was nothing to attribute. Ten green runs bound the failure rate only below 27.8 percent, which does not separate a fixture failing one run in four from one that never fails. The earlier twelve-run batch found 9 of 12 on a machine carrying three concurrent builds; this session's machine carried two and produced twenty green. That is consistent with a load effect and equally consistent with the twelve-run batch having been unlucky, and a ledger that reported the second reading as progress would be doing the thing this whole tool exists to stop.
 
 ## What is not established
 
-The Wilson arithmetic here reproduces two of the three figures the verification plan quotes from it — the 12-to-77 band for three of five, and thirty runs bounding failure below ten percent — and not the third: five green runs bound the failure rate below 32.6%, where the plan says "about 43 percent". Standard Wilson at z = 1.96 is what is implemented and the two agreeing figures are strong evidence it is the intended formula, so the plan's 43 is the suspect number. It is not settled.
+The paragraph that stood here called the verification plan's "about 43 percent" the suspect number and put this file's own 32.6 against it. It had that backwards, and the correction is worth keeping because it is the exact failure this tool exists to make impossible: a number nobody rechecked, standing in prose, contradicting working code. `Wilson.Of(5, 5)` returns a pass rate of 56.55 to 100 percent, so five green runs bound the failure rate below **43.45** and the plan was right. 32.6 is not a bound on anything — it is the half-width of the three-of-five interval, which is the neighbouring sentence's subject, so two wrong figures were one transposition. The docstring's "12 to 77 percent for three of five" was wrong the same way: that band is `Of(2, 5)`, and three of five is 23.1 to 88.2.
+
+Every figure this file and that docstring quote is now pinned by `SelfTestTheStore.QuotedIntervals` against what `Wilson.Of` returns, so a sentence that drifts turns a case red. The pin caught its own author on its first run, red on 43.5 where the arithmetic says 43.45.
 
 A scoreboard establishes that a case's verdict or a measure's value moved between two runs. It establishes nothing about why, and with one repeat per commit it cannot yet separate a move from run-to-run variation at all.

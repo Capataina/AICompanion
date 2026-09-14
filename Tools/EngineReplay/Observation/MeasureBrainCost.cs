@@ -54,13 +54,13 @@ internal static class MeasureBrainCost
                 int deterministic = FirstMismatch(first, repeat);
                 if (deterministic >= 0)
                 {
-                    Console.WriteLine($"FAIL brain cost: with wall-clock allowances lifted the scenario is still not deterministic, so process state leaks between runs; first mismatch at tick {deterministic}:\n  {first.Trace[deterministic]}\n  {repeat.Trace[deterministic]}");
+                    AICompanion.Tools.Ledger.EmitLedgerRows.Detail($"brain cost: with wall-clock allowances lifted the scenario is still not deterministic, so process state leaks between runs; first mismatch at tick {deterministic}:\n  {first.Trace[deterministic]}\n  {repeat.Trace[deterministic]}");
                     return 1;
                 }
                 int changed = FirstMismatch(repeat, recorded);
                 if (changed >= 0)
                 {
-                    Console.WriteLine($"FAIL brain cost: recording changed the companion's behaviour; first mismatch at tick {changed}:\n  off {repeat.Trace[changed]}\n  on  {recorded.Trace[changed]}");
+                    AICompanion.Tools.Ledger.EmitLedgerRows.Detail($"brain cost: recording changed the companion's behaviour; first mismatch at tick {changed}:\n  off {repeat.Trace[changed]}\n  on  {recorded.Trace[changed]}");
                     return 1;
                 }
                 int budgeted = FirstMismatch(repeat, off);
