@@ -62,6 +62,7 @@ internal static class WorldRunEntry
         }
 
         Main.dedServ = true;
+        RunTheWorld.DriveLight = !args.Contains("--no-light");
         var route = ReadRecordedRoute.Read(capture, fromTick, ticks);
         var loaded = LoadTheSavedWorld.Load(world);
         string worldNote = DescribeWorldMatch(route, loaded);
@@ -86,6 +87,13 @@ internal static class WorldRunEntry
         // refused — and it is the only place the question "did this build finish that jump" has an
         // answer that is not inferred from a position graph. It is reset before the second pass, so
         // what it holds now describes that pass alone rather than both of them summed.
+        // What the light sense made of the world, printed because driving the light engine is a
+        // claim this instrument makes and an inert engine looks exactly like a dark world from
+        // outside. MeasuredSamples is the discriminator: zero means the sense read nothing the
+        // engine presented, whatever the brightness figures say.
+        Console.WriteLine($"LIGHT sense readTick={second.LightReadTick?.ToString(CultureInfo.InvariantCulture) ?? "never"} "
+            + $"measuredSamples={second.LightMeasuredSamples} atCompanion={second.LightAtCompanion:0.000} atPlayer={second.LightAtPlayer:0.000}");
+
         Console.WriteLine("CENSUS of the second pass");
         Console.WriteLine(live::AICompanion.Companion.Brain.Infrastructure.Movement.BehaviourCensus.Report());
 

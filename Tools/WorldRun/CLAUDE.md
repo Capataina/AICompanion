@@ -48,6 +48,10 @@ Loader hook arrays, which mod loading builds and the loaders dereference uncheck
 
 Two of the four phases are not lighting, and both have to survive or the cycle never reaches the blur, which is why the minimap and the scene metrics are built here at all.
 
+**The engine reaches the sense, and in every window measured so far it changes no decision.** `--no-light` exists to establish which of those two statements is failing when a light-dependent behaviour misbehaves, because from outside an inert engine and a dark world look identical. Measured from tick 1 of the 13:27 capture, 300 ticks, at the surface: with the engine driven the light sense holds 180 measured samples and reads 0.829 at the companion and 0.754 at the player; with `--no-light` it holds 0 samples and 0.000 at both. The sample count is the discriminator — a brightness of zero is a legitimate answer underground, a sample count of zero never is.
+
+Against that, the run's trace hash is **identical with and without light** in all three windows tried, including the surface one. That is not the engine failing to arrive; it is lighting never winning the comparison in those windows, which is what the 0.24.0 play reported too. The cost of driving it is real and worth knowing: about 2.1 ms a tick against 1.1 underground, and near-nothing where the tick is already dominated by route search.
+
 ## Determinism needed three things and the third is invisible
 
 Two passes of one route must produce one run, and the comparison is on the trace rather than on position alone: two runs can stand in the same place for a hundred ticks while disagreeing about what they are doing, and the disagreement is what makes every later row unrepeatable.
@@ -87,7 +91,7 @@ One number in the same run is worth keeping for a different reason: the body sto
 ```
 dotnet run --project Tools/WorldRun -- --route=Telemetry/<stamp>.tsv --world=<path>.wld
                                        [--from-tick=N] [--ticks=N] [--suite=<name>]
-                                       [--print-trace] [--explore=<tick budget>]
+                                       [--print-trace] [--explore=<tick budget>] [--no-light]
 ```
 
 Both inputs live outside the repository — `Telemetry/` is gitignored and a `.wld` is never committed — so both are named rather than discovered, and an absent one is a skipped row rather than a failure. `sh Tools/verify.sh` runs a slice with this machine's usual locations as defaults, overridable through `AIC_WORLD_RUN_ROUTE`, `AIC_WORLD_RUN_WORLD`, `AIC_WORLD_RUN_FROM` and `AIC_WORLD_RUN_TICKS`.

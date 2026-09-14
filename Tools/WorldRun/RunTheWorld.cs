@@ -45,7 +45,17 @@ internal static class RunTheWorld
         IReadOnlyList<live::AICompanion.Companion.Brain.Infrastructure.Observation.ReachVerdict> PlannerClaim,
         int Ticks,
         double Seconds,
-        string WorldSource)
+        string WorldSource,
+        /// <summary>
+        /// What the light sense held at the end of the run. It is carried out of the loop because
+        /// driving the light engine is a claim this instrument makes, and an engine that reaches
+        /// nothing is indistinguishable from a dark world unless the sense's own sample count is
+        /// read: zero samples means the sense never read anything the engine presented.
+        /// </summary>
+        ulong? LightReadTick,
+        int LightMeasuredSamples,
+        float LightAtCompanion,
+        float LightAtPlayer)
     {
         /// <summary>
         /// One number standing for the whole run's decisions and positions, so two runs can be
@@ -63,6 +73,16 @@ internal static class RunTheWorld
             }
         }
     }
+
+    /// <summary>
+    /// Whether the light engine is driven at all.
+    ///
+    /// It exists to be turned off, which is the only way to find out whether driving it changes any
+    /// decision in a given window. A run with it off whose trace is identical to a run with it on
+    /// has proved that lighting reached nothing there — which is a fact about the window rather
+    /// than a fault, and one worth being able to establish rather than assume.
+    /// </summary>
+    public static bool DriveLight { get; set; } = true;
 
     public static Outcome Play(ReadRecordedRoute.Route route, string worldSource, int seed)
     {
@@ -103,7 +123,7 @@ internal static class RunTheWorld
         companion.NPC.Bottom = new Vector2(opening.CompanionLeftBottom.X + companion.NPC.width / 2f, opening.CompanionLeftBottom.Y);
 
         Player player = Main.player[0];
-        PrepareTheHeadlessEngine.WarmTheLightEngine(player.Bottom.ToTileCoordinates(), LightHalfWidth, LightHalfHeight);
+        if (DriveLight) PrepareTheHeadlessEngine.WarmTheLightEngine(player.Bottom.ToTileCoordinates(), LightHalfWidth, LightHalfHeight);
 
         var feet = new List<Vector2>(route.Count);
         var trace = new List<string>(route.Count);
@@ -123,7 +143,7 @@ internal static class RunTheWorld
             player.dead = false;
 
             PrepareTheHeadlessEngine.AdvanceTheWorldClock();
-            PrepareTheHeadlessEngine.DriveLightOnce(player.Bottom.ToTileCoordinates(), LightHalfWidth, LightHalfHeight);
+            if (DriveLight) PrepareTheHeadlessEngine.DriveLightOnce(player.Bottom.ToTileCoordinates(), LightHalfWidth, LightHalfHeight);
 
             companion.AI();
             PrepareTheHeadlessEngine.AdvanceTheNativeBody(companion);
@@ -139,6 +159,8 @@ internal static class RunTheWorld
         }
 
         clock.Stop();
-        return new Outcome(feet, trace, claims, route.Count, clock.Elapsed.TotalSeconds, worldSource);
+        var light = companion.Brain.Senses.Light;
+        return new Outcome(feet, trace, claims, route.Count, clock.Elapsed.TotalSeconds, worldSource,
+            light.ReadTick, light.MeasuredSamples, light.AtCompanion, light.AtPlayer);
     }
 }
