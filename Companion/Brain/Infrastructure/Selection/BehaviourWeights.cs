@@ -16,6 +16,15 @@ public static class Weights
     public const double PositionAimingMilliseconds = 2d;
     public const double EscapeSearchMilliseconds = 2d;
     public const int EscapeSearchWork = 120;
+    // The orb's pace is the player's, read live, times these: the cap is twice his maximum run
+    // speed after accessories (the owner's ruling, so a companion at the cap overtakes a running
+    // player), and the acceleration a multiple of his run acceleration chosen so the body reaches
+    // the cap in well under a second and still reads as a thrown thing rather than a snap. The
+    // fallbacks are for a player whose numbers are not finite, which a fixture can produce.
+    public const float OrbSpeedPerRunSpeed = 2f;
+    public const float OrbAccelerationPerRunAcceleration = 3f;
+    public const float OrbFallbackSpeed = 6f;
+    public const float OrbFallbackAcceleration = 0.24f;
     public const int HuntRetryTicks = 180;
     // Useful damage remains valuable across the forecast window. Timely threat
     // removal earns extra value without letting kill count dominate healthy targets.

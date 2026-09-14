@@ -126,7 +126,7 @@ internal static class VerifyResponsiveFollowing
         Require(!brain.Chooser.Actions.Any(a => a.Name is "walk-with" or "wander"), "obsolete companionship candidates remain registered");
         brain.Chooser.Actions.RemoveAll(a => !ReferenceEquals(a, company));
         var context = new live::AICompanion.Companion.Brain.Activities.ActionContext(companion, brain.Senses);
-        brain.Senses.Update(companion.NPC, player, companion.Breath);
+        brain.Senses.Update(companion.NPC, player, companion.Motor);
         Require(brain.Chooser.Choose(context) == company && company.Score() > 0, "company must be a positive ordinary offer while nearby");
         long identity = brain.Chooser.Activity.Id;
         bool rested = false, strolled = false;
@@ -149,7 +149,7 @@ internal static class VerifyResponsiveFollowing
         Require(rested && strolled, $"company must preserve both resting and nearby movement methods; rested={rested} strolled={strolled} "
             + $"returnable={brain.Positioner.ReturnableCount} reach={brain.Positioner.ReachCount} complete={brain.Positioner.ReachComplete}");
         player.Bottom += new Vector2(480, 0);
-        brain.Senses.Update(companion.NPC, player, companion.Breath);
+        brain.Senses.Update(companion.NPC, player, companion.Motor);
         Require(brain.Chooser.Choose(context) == company && company.Execute(context).Kind == RequestKind.WithPlayer,
             "departure must switch the same company activity to reunion");
         Require(brain.Chooser.Activity.Id == identity, "a company method change must not create a new purpose");
@@ -405,7 +405,7 @@ internal static class VerifyResponsiveFollowing
                 player.position += player.velocity;
                 player.itemAnimation = placingTorches ? 10 : 0;
                 VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
-                companion.Brain.Senses.Update(companion.NPC, player, companion.Breath);
+                companion.Brain.Senses.Update(companion.NPC, player, companion.Motor);
             }
         player.itemAnimation = 0;
         held.TurnToAir();
@@ -449,7 +449,7 @@ internal static class VerifyResponsiveFollowing
                 player.velocity = new Vector2(3f, 0f);
                 player.position += player.velocity;
                 VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
-                companion.Brain.Senses.Update(companion.NPC, player, companion.Breath);
+                companion.Brain.Senses.Update(companion.NPC, player, companion.Motor);
             }
             int decidedAt = -1, lastTick = 0;
             string decision = "";
@@ -516,7 +516,7 @@ internal static class VerifyResponsiveFollowing
                 player.velocity = new Vector2(3f, 0f);
                 player.position += player.velocity;
                 VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
-                companion.Brain.Senses.Update(companion.NPC, player, companion.Breath);
+                companion.Brain.Senses.Update(companion.NPC, player, companion.Motor);
             }
             var meeting = companion.Brain.Meeting;
             var sense = companion.Brain.Senses.Player;
@@ -559,7 +559,7 @@ internal static class VerifyResponsiveFollowing
         player.dead = false;
         player.position = new Vector2(30 * 16 - player.width / 2f, 80 * 16 - player.height);
         companion.NPC.position = new Vector2(40 * 16 - companion.NPC.width / 2f, 80 * 16 - companion.NPC.height);
-        companion.Brain.Senses.Update(companion.NPC, player, companion.Breath);
+        companion.Brain.Senses.Update(companion.NPC, player, companion.Motor);
         var positioner = companion.Brain.Positioner;
         Vector2 place = live::AICompanion.Companion.Brain.Infrastructure.Movement.MovementQueries.FeetWorld(new Point(80, 79));
         positioner.Resolve(new live::AICompanion.Companion.Brain.Infrastructure.Position.PositionRequest(RequestKind.WithPlayer, place, MeetingPlace: true),
@@ -677,7 +677,7 @@ internal static class VerifyResponsiveFollowing
             player.velocity = new Vector2(RunningSpeed, 0f);
             player.Bottom += player.velocity;
             VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
-            companion.Brain.Senses.Update(companion.NPC, player, companion.Breath);
+            companion.Brain.Senses.Update(companion.NPC, player, companion.Motor);
         }
         var objective = companion.Brain.Senses.Intent.Objective;
         var region = companion.Brain.Senses.Intent.Region;
@@ -766,7 +766,7 @@ internal static class VerifyResponsiveFollowing
             var region = brain.Senses.Intent.Region;
             companion.NPC.Bottom = new Vector2(region.Centre.X - region.HalfSize.X * Share, 1280f);
             companion.NPC.velocity = Vector2.Zero;
-            brain.Senses.Update(companion.NPC, player, companion.Breath);
+            brain.Senses.Update(companion.NPC, player, companion.Motor);
             pull = brain.Senses.Intent.Region.Pull(companion.NPC.Bottom);
         }
         Require(brain.Senses.Player.IsTravelling, "the player must read as travelling, or the central pull is zero by definition");
@@ -809,7 +809,7 @@ internal static class VerifyResponsiveFollowing
         companion.NPC.Bottom = new Vector2(600f, 1280f);
         companion.NPC.velocity = Vector2.Zero;
         VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
-        companion.Brain.Senses.Update(companion.NPC, player, companion.Breath);
+        companion.Brain.Senses.Update(companion.NPC, player, companion.Motor);
         var still = companion.Brain.Senses.Intent.Region;
         for (int tick = 0; tick < 240; tick++)
         {
@@ -817,7 +817,7 @@ internal static class VerifyResponsiveFollowing
             player.velocity = new Vector2(2f, -1.5f);
             player.Bottom += player.velocity;
             VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
-            companion.Brain.Senses.Update(companion.NPC, player, companion.Breath);
+            companion.Brain.Senses.Update(companion.NPC, player, companion.Motor);
         }
         var climbing = companion.Brain.Senses.Intent.Region;
         float cap = 1f + live::AICompanion.Companion.Brain.Infrastructure.Selection.Weights.IntentRegionGrowthCap;
@@ -888,7 +888,7 @@ internal static class VerifyResponsiveFollowing
         {
             VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
             AdvanceNative(companion);
-            brain.Senses.Update(companion.NPC, player, companion.Breath);
+            brain.Senses.Update(companion.NPC, player, companion.Motor);
         }
         Console.WriteLine(FormattableString.Invariant(
             $"sloped ground: grounded={brain.Senses.Intent.Grounded} streak={brain.Senses.Intent.GroundedInsideTicks} settled={brain.Senses.Intent.Settled}"));
@@ -923,7 +923,7 @@ internal static class VerifyResponsiveFollowing
         companion.NPC.Bottom = new Vector2(620f, 1226f);
         companion.NPC.velocity = new Vector2(2f, -6.4f);
         VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
-        brain.Senses.Update(companion.NPC, player, companion.Breath);
+        brain.Senses.Update(companion.NPC, player, companion.Motor);
         var request = new live::AICompanion.Companion.Brain.Infrastructure.Position.PositionRequest(
             RequestKind.WithPlayer, player.Bottom);
         brain.Positioner.Resolve(request, brain.Senses, null);
@@ -940,7 +940,7 @@ internal static class VerifyResponsiveFollowing
         companion.NPC.velocity = new Vector2(2f, -6.0f);
         companion.NPC.Bottom += new Vector2(2f, -6.0f);
         VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
-        brain.Senses.Update(companion.NPC, player, companion.Breath);
+        brain.Senses.Update(companion.NPC, player, companion.Motor);
         company.Prepare(context);
         Require(company.EligibilityReason == airborneMethod, FormattableString.Invariant(
             $"keeping company must not change method on an airborne tick: {airborneMethod} became {company.EligibilityReason}"));
@@ -1099,16 +1099,12 @@ internal static class VerifyResponsiveFollowing
 
     internal static void AdvanceNative(live::AICompanion.Companion.CharacterBody.CompanionNPC companion)
     {
-        // The production motor has already applied MovementAbilities and StepUp/StepDown. Calling
-        // VerifyEngineMotion.RunEngine here would apply the same controls a second time, so finish
-        // this tick with Terraria's own gravity and collision phases only.
+        // The engine finishes a no-gravity, no-tile-collide NPC's tick by adding its velocity to
+        // its position and nothing else (NPC.UpdateNPC_Inner skips UpdateCollision for it); the
+        // motor has already resolved contact on that displacement.
         NPC npc = companion.NPC;
-        // Suppress the splash visual, whose dust/audio services do not exist headless.
-        // Native wet detection, velocity changes and collision still run.
-        npc.wetCount = 2;
-        Invoke(npc, "UpdateNPC_UpdateGravity");
-        npc.velocity.Y = MathF.Min(npc.velocity.Y + npc.gravity, npc.maxFallSpeed);
-        Invoke(npc, "UpdateCollision");
+        npc.oldPosition = npc.position;
+        npc.position += npc.velocity;
     }
 
     private static void Clear(int x, int y) => Main.tile[x, y].ClearEverything();

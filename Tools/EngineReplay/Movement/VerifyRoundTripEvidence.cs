@@ -5,7 +5,6 @@ using AICompanion.Companion.Brain.Infrastructure.Movement;
 using Microsoft.Xna.Framework;
 using Terraria;
 
-using CompanionBreath = live::AICompanion.Companion.CharacterBody.CompanionBreath;
 
 /// <summary>
 /// P07's outward/return and resource-consuming-return contract. The shared round-trip query must
@@ -18,10 +17,8 @@ using CompanionBreath = live::AICompanion.Companion.CharacterBody.CompanionBreat
 internal static class VerifyRoundTripEvidence
 {
     /// <summary>The companion's breathing rule in the query's units, built from the rule's own constants.</summary>
-    private static Reachability.BreathEnvelope FullBreath => new(
-        CompanionBreath.BreathMax * CompanionBreath.BreathCDMax,
-        CompanionBreath.BreathMax * CompanionBreath.BreathCDMax,
-        CompanionBreath.RecoverPerTick * CompanionBreath.BreathCDMax);
+    // The walker's breath figures, kept as literals until this fixture is deleted with the walker.
+    private static Reachability.BreathEnvelope FullBreath => new(200 * 7, 200 * 7, 3 * 7);
 
     public static int Run()
     {

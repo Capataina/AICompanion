@@ -250,7 +250,6 @@ internal static class VerifyObservationLifecycle
         for (int x = 18; x <= 22; x++)
         for (int y = 84; y <= 89; y++) Main.tile[x, y].LiquidAmount = byte.MaxValue;
         companion.NPC.wet = true;
-        typeof(live::AICompanion.Companion.CharacterBody.CompanionBreath).GetProperty("Breath")!.SetValue(companion.Breath, 20);
         live::AICompanion.Companion.Brain.Infrastructure.Movement.TerrainChanges.Reset();
         VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
         VerifyCompanionLifecycle.TickWithOneControlGrant(companion);

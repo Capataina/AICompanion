@@ -156,7 +156,6 @@ internal static class RenderNativeInterface
         var npc = new NPC { active = true, life = 400, lifeMax = 400, position = new Vector2(320, 320), width = 20, height = 42, GivenName = "Aria" };
         typeof(Terraria.ModLoader.ModNPC).GetProperty("Entity", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)!.SetValue(companion, npc);
         typeof(NPC).GetProperty("ModNPC")!.SetValue(npc, companion);
-        typeof(live::AICompanion.Companion.CharacterBody.CompanionBody).GetField("rendererFailed", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(companion.Body, true);
         Main.npc[0] = npc;
         var mine = new live::AICompanion.Companion.Brain.Activities.Gathering.MineOre();
         var target = new Point(20, 33);

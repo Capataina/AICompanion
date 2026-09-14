@@ -12,7 +12,7 @@ internal static class VerifyHuntProgress
         var companion = VerifyCompanionLifecycle.Create();
         Main.LocalPlayer.dead = false;
         Main.LocalPlayer.Bottom = companion.NPC.Bottom;
-        companion.Brain.Senses.Update(companion.NPC, Main.LocalPlayer, companion.Breath);
+        companion.Brain.Senses.Update(companion.NPC, Main.LocalPlayer, companion.Motor);
         var target = new NPC(); target.SetDefaults(Terraria.ID.NPCID.Zombie);
         target.whoAmI = 12; target.active = true; target.Bottom = companion.NPC.Bottom + new Vector2(160, 0);
         Main.npc[12] = target;
@@ -46,7 +46,7 @@ internal static class VerifyHuntProgress
             var companion = VerifyCompanionLifecycle.Create();
             Main.LocalPlayer.dead = false;
             Main.LocalPlayer.Bottom = companion.NPC.Bottom;
-            companion.Brain.Senses.Update(companion.NPC, Main.LocalPlayer, companion.Breath);
+            companion.Brain.Senses.Update(companion.NPC, Main.LocalPlayer, companion.Motor);
             var target = new NPC(); target.SetDefaults(Terraria.ID.NPCID.Zombie);
             target.whoAmI = 12; target.active = true;
             target.Bottom = companion.NPC.Bottom + new Vector2(160, 0);
@@ -77,7 +77,7 @@ internal static class VerifyHuntProgress
         var companion = VerifyCompanionLifecycle.Create();
         Main.LocalPlayer.dead = false;
         Main.LocalPlayer.Bottom = companion.NPC.Bottom;
-        companion.Brain.Senses.Update(companion.NPC, Main.LocalPlayer, companion.Breath);
+        companion.Brain.Senses.Update(companion.NPC, Main.LocalPlayer, companion.Motor);
         var target = new NPC(); target.SetDefaults(Terraria.ID.NPCID.Zombie);
         target.whoAmI = 12; target.active = true;
         target.Bottom = companion.NPC.Bottom + new Vector2(160, 0);
@@ -118,7 +118,7 @@ internal static class VerifyHuntProgress
     {
         Main.LocalPlayer.dead = false;
         Main.LocalPlayer.Bottom = companion.NPC.Bottom;
-        companion.Brain.Senses.Update(companion.NPC, Main.LocalPlayer, companion.Breath);
+        companion.Brain.Senses.Update(companion.NPC, Main.LocalPlayer, companion.Motor);
         var threats = companion.Brain.Senses.Threats.Threats;
         threats.Clear();
         // Equidistant on opposite sides, so neither the distance term nor urgency separates them

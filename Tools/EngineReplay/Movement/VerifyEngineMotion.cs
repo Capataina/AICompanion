@@ -134,6 +134,9 @@ internal static class VerifyEngineMotion
     /// </summary>
     private static IEnumerable<(string Name, Func<int> Body)> DefaultCases() => new (string, Func<int>)[]
     {
+        ("the orb fits every two-by-two gap and no one-by-one gap in any direction", VerifyOrbContact.SizeRule),
+        ("the orb passes a one-tile diagonal step without ever overlapping a wall", VerifyOrbContact.DiagonalStep),
+        ("contact pushes the orb out of a wall, kills the velocity into it and keeps the slide", VerifyOrbContact.PushOutAndSlide),
         ("the motor's observed motion is what the engine actually did", VerifyObservedMotion.Run),
         ("the god's-eye occurrence stream records what it claims", VerifyGodsEyeEvents.Run),
         ("a prepared comparison preserves its numbers", VerifyPreparedActivities.Run),

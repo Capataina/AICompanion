@@ -217,7 +217,7 @@ public sealed class LightUsefulArea : PerformNearbyWorldWork
         // patches this has to resolve. Unmeasured is refused with lit: a place nobody has read is not a
         // proven dark place, and a torch spent on it is a torch spent on a guess.
         if (!SiteIsDark(ctx, tile)) return false;
-        return RecommendTorchPlacement.Accepts(tile, torch, ctx.Companion.Body.Player);
+        return RecommendTorchPlacement.Accepts(tile, torch, ctx.Companion.StandIn.Player);
     }
 
     /// <summary>

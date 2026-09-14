@@ -102,7 +102,6 @@ internal static class ReplayRecordedWater
         companion.NPC.wet = Collision.WetCollision(companion.NPC.position, companion.NPC.width, companion.NPC.height);
         string breath = row["breath"].TrimEnd('u');
         int remaining = (int)MathF.Round(float.Parse(breath, CultureInfo.InvariantCulture) * 200);
-        typeof(live::AICompanion.Companion.CharacterBody.CompanionBreath).GetProperty("Breath")!.SetValue(companion.Breath, remaining);
         Console.WriteLine($"CAPTURE {Path.GetFileName(path)} tick={tick}; {snapshots} snapshots from ticks {oldest}..{newest}; offset={ox},{oy}; breath={remaining}");
         Console.WriteLine($"COVERAGE static snapshot replay; uncaptured terrain is closed; {legacySnapshots} snapshots lack exact material state; moving liquids and other entities are not reconstructed; NPC body, full brain and native collision are active.");
         int dry = 0;
@@ -117,7 +116,7 @@ internal static class ReplayRecordedWater
             if (feet.X < 2 || feet.Y < 3 || feet.X >= side - 2 || feet.Y >= side - 2 || !known[feet.X, feet.Y - 1])
             { Console.WriteLine("INCOMPLETE replay reached uncaptured terrain"); return 2; }
             dry = !Collision.DrownCollision(companion.NPC.position, companion.NPC.width, companion.NPC.height, 1f) ? dry + 1 : 0;
-            if (step % 120 == 0) Console.WriteLine($"tick+{step}: world-feet={companion.NPC.Bottom + offset}; breath={companion.Breath.Breath}; action={companion.Brain.LastAction?.Name}; controls={companion.Motor.AppliedControls}");
+            if (step % 120 == 0) Console.WriteLine($"tick+{step}: world-feet={companion.NPC.Bottom + offset}; breath={companion.Motor.LiquidContactTicks}; action={companion.Brain.LastAction?.Name}; controls={companion.Motor.AppliedControls}");
             if (movementTicks is not null)
             {
                 var nav = companion.Brain.Navigator;
@@ -138,14 +137,14 @@ internal static class ReplayRecordedWater
             }
             if (dry >= 60)
             {
-                Console.WriteLine($"recorded water: sustained breathing at +{step}, breath={companion.Breath.Breath}");
+                Console.WriteLine($"recorded water: sustained breathing at +{step}, breath={companion.Motor.LiquidContactTicks}");
                 timings.Sort();
                 Console.WriteLine($"BRAIN TIMING {timings.Count} ticks: median={timings[timings.Count / 2]:0.000}ms p95={timings[(int)((timings.Count - 1) * .95)]:0.000}ms max={timings[^1]:0.000}ms; includes cold initialisation, excludes other game systems");
                 return 0;
             }
             if (companion.IsDowned) break;
         }
-        AICompanion.Tools.Ledger.EmitLedgerRows.Detail($"recorded water: no sustained breathing, world-feet={companion.NPC.Bottom + offset}, breath={companion.Breath.Breath}, action={companion.Brain.LastAction?.Name}");
+        AICompanion.Tools.Ledger.EmitLedgerRows.Detail($"recorded water: no sustained breathing, world-feet={companion.NPC.Bottom + offset}, breath={companion.Motor.LiquidContactTicks}, action={companion.Brain.LastAction?.Name}");
         return 1;
     }
 }

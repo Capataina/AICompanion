@@ -205,7 +205,7 @@ internal static class VerifyCapabilityRevision
         // capability these rows actually vary, is not what either sense holds, so priming here cannot hide
         // the very-next-preparation behaviour the rows are checking.
         var brain = ctx.Companion.Brain;
-        brain.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Breath);
+        brain.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Motor);
         var home = new live::AICompanion.Companion.Brain.Infrastructure.Position.PositionRequest(
             live::AICompanion.Companion.Brain.Infrastructure.Position.RequestKind.WithPlayer, ctx.Player.Bottom);
         for (int i = 0; i < 3000 && !brain.Positioner.ReachComplete; i++)
@@ -284,7 +284,7 @@ internal static class VerifyCapabilityRevision
             ctx.Senses.Loot.Pickups.Clear();
             // With drops refused the walker never reaches the pit floor, and the pot is an ordinary absence rather than a refusal.
             AStar.AllowOneWayDrops = true;
-            ctx.Companion.Brain.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Breath);
+            ctx.Companion.Brain.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Motor);
             return ctx;
         }
 

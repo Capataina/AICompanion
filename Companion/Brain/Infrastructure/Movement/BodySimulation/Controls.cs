@@ -31,4 +31,8 @@ public readonly record struct Controls(float MoveX, bool Jump = false, float Jum
 
     /// <summary>Ask for nothing while a descent is in hand, so the kerb rules still know the body is going down.</summary>
     public static readonly Controls NoneDescending = new(0f, Descend: true);
+
+    /// <summary>Bridge to the orb's motor while the walker's planner still emits these: the horizontal
+    /// speed asked for, and a jump read as an upward speed. Deleted with the walker's planner.</summary>
+    public Microsoft.Xna.Framework.Vector2 Desired => new(MoveX, Jump ? -BodyPhysics.JumpVelocity * JumpScale : 0f);
 }

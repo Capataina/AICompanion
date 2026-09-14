@@ -55,7 +55,7 @@ internal static class VerifyCombatPurpose
         Hostile(30, 200f);
         Hostile(31, 110f);
         live::AICompanion.Companion.Weapons.TrackLandedHits.Clear();
-        ctx.Companion.Brain.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Breath);
+        ctx.Companion.Brain.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Motor);
         var arsenal = ctx.Companion.Arsenal;
         NPC? aimed = arsenal.BestTarget(ctx);
         Require(aimed != null, "the identity scene needs the arsenal to choose a target");
@@ -131,7 +131,7 @@ internal static class VerifyCombatPurpose
             enemy.whoAmI = 30; enemy.active = true; enemy.velocity = Vector2.Zero;
             enemy.Bottom = ctx.Npc.Bottom + new Vector2(200, 0);
             live::AICompanion.Companion.Weapons.TrackLandedHits.Clear();
-            ctx.Companion.Brain.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Breath);
+            ctx.Companion.Brain.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Motor);
             NPC? aimed = ctx.Companion.Arsenal.BestTarget(ctx);
             Require(aimed != null && ctx.Companion.Arsenal.TryFire(ctx, aimed), "the recorded identity scene needs a real shot");
             Projectile shot = Main.projectile.First(p => p.active);
@@ -209,7 +209,7 @@ internal static class VerifyCombatPurpose
         if (life > 0) { enemy.lifeMax = life; enemy.life = life; }
         enemy.Bottom = ctx.Player.Bottom - new Vector2(48, 0);
         var brain = ctx.Companion.Brain;
-        brain.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Breath);
+        brain.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Motor);
         var threat = brain.Senses.Threats.Threats.Find(t => t.Npc == enemy);
         Require(threat != null && threat.CanReachPlayer && threat.Urgency > 0f,
             $"the guard scene's hostile (type {type}) must threaten the player before protection is read; urgency={threat?.Urgency}");
@@ -314,7 +314,7 @@ internal static class VerifyCombatPurpose
         hidden.Bottom = new Vector2(HiddenX * 16f + 8f, ShaftFloorY * 16f);
 
         var brain = companion.Brain;
-        brain.Senses.Update(companion.NPC, player, companion.Breath);
+        brain.Senses.Update(companion.NPC, player, companion.Motor);
         var ctx = new live::AICompanion.Companion.Brain.Activities.ActionContext(companion, brain.Senses);
         var threat = brain.Senses.Threats.Threats.Find(t => t.Npc == hidden);
         Require(threat != null && threat.CanReachPlayer && threat.Urgency > 0f,
@@ -452,7 +452,7 @@ internal static class VerifyCombatPurpose
         visible.Bottom = new Vector2((companionX - 3) * 16f + 8f, PitFloorY * 16f);
 
         var brain = companion.Brain;
-        brain.Senses.Update(companion.NPC, player, companion.Breath);
+        brain.Senses.Update(companion.NPC, player, companion.Motor);
         var ctx = new live::AICompanion.Companion.Brain.Activities.ActionContext(companion, brain.Senses);
         var hiddenThreat = brain.Senses.Threats.Threats.Find(t => t.Npc == hidden);
         var visibleThreat = brain.Senses.Threats.Threats.Find(t => t.Npc == visible);
@@ -561,7 +561,7 @@ internal static class VerifyCombatPurpose
         enemy.SetDefaults(NPCID.Zombie);
         enemy.whoAmI = 30; enemy.active = true; enemy.velocity = Vector2.Zero;
         enemy.Bottom = ctx.Npc.Bottom - new Vector2(48, 0);
-        ctx.Companion.Brain.Senses.Update(ctx.Npc, player, ctx.Companion.Breath);
+        ctx.Companion.Brain.Senses.Update(ctx.Npc, player, ctx.Companion.Motor);
         var threats = ctx.Companion.Brain.Senses.Threats;
         Require(threats.Threats.Count == 1 && threats.Threats[0].CanReachPlayer && threats.Threats[0].CanReachCompanion,
             $"the consequence scene must hold one zombie that can reach both actors; threats={threats.Threats.Count}");

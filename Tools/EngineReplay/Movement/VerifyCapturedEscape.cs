@@ -48,7 +48,6 @@ internal static class VerifyCapturedEscape
         Main.player[0].Bottom = new Vector2(2024, 1376);
         companion.NPC.position = new Vector2(1356, 2016 - companion.NPC.height);
         companion.NPC.velocity = Vector2.Zero; companion.NPC.wet = true; companion.NPC.active = true;
-        typeof(live::AICompanion.Companion.CharacterBody.CompanionBreath).GetProperty("Breath")!.SetValue(companion.Breath, 40);
         int dry = 0;
         for (int tick = 0; tick < 630; tick++)
         {
@@ -58,11 +57,11 @@ internal static class VerifyCapturedEscape
             if (companion.IsDowned || companion.NPC.life <= 0) break;
             if (dry >= 30)
             {
-                Console.WriteLine($"full-brain captured pool emptyOffers={emptyOffers}: sustained air at {tick}, life={companion.NPC.life}, breath={companion.Breath.Breath}");
+                Console.WriteLine($"full-brain captured pool emptyOffers={emptyOffers}: sustained air at {tick}, life={companion.NPC.life}, breath={companion.Motor.LiquidContactTicks}");
                 return 0;
             }
         }
-        AICompanion.Tools.Ledger.EmitLedgerRows.Detail($"full-brain captured pool emptyOffers={emptyOffers}: feet={companion.NPC.Bottom}, life={companion.NPC.life}, breath={companion.Breath.Breath}, action={companion.Brain.LastAction?.Name}");
+        AICompanion.Tools.Ledger.EmitLedgerRows.Detail($"full-brain captured pool emptyOffers={emptyOffers}: feet={companion.NPC.Bottom}, life={companion.NPC.life}, breath={companion.Motor.LiquidContactTicks}, action={companion.Brain.LastAction?.Name}");
         return 1;
     }
 
@@ -76,7 +75,6 @@ internal static class VerifyCapturedEscape
         companion.NPC.position = new Vector2((mirrored ? 45 : 54) * 16, 70 * 16 - companion.NPC.height);
         companion.NPC.velocity = Vector2.Zero;
         companion.NPC.wet = true;
-        typeof(live::AICompanion.Companion.CharacterBody.CompanionBreath).GetProperty("Breath")!.SetValue(companion.Breath, breath);
         int dryTicks = 0;
         long landingResponse = -1;
         for (int tick = 0; tick < 720; tick++)
@@ -90,7 +88,7 @@ internal static class VerifyCapturedEscape
                 throw new InvalidOperationException("a retained landing response restarted its breathing jump after re-submersion");
             VerifyResponsiveFollowing.AdvanceNative(companion);
             if (Environment.GetEnvironmentVariable("AIC_TRACE_SHARED_SAFETY") == "1" && mirrored && tick % 15 == 0)
-                Console.WriteLine($"SAFETY tick={tick} feet={companion.NPC.Bottom} velocity={companion.NPC.velocity} life={companion.NPC.life} breath={companion.Breath.Breath} headWet={companion.Brain.Senses.Self.HeadUnderwater} grounded={companion.Motor.State.OnGround} kind={companion.Brain.Safety.Kind} reason={companion.Brain.Safety.Reason} stage={companion.Brain.Safety.Escape.EscapeStage} target={companion.Brain.Safety.Escape.AirTarget} retained={companion.Brain.Movement.StateSearchRetainedTicks} pending={companion.Brain.Movement.StateSearchPending}");
+                Console.WriteLine($"SAFETY tick={tick} feet={companion.NPC.Bottom} velocity={companion.NPC.velocity} life={companion.NPC.life} breath={companion.Motor.LiquidContactTicks} headWet={companion.Brain.Senses.Self.HeadUnderwater} grounded={companion.Motor.State.OnGround} kind={companion.Brain.Safety.Kind} reason={companion.Brain.Safety.Reason} stage={companion.Brain.Safety.Escape.EscapeStage} target={companion.Brain.Safety.Escape.AirTarget} retained={companion.Brain.Movement.StateSearchRetainedTicks} pending={companion.Brain.Movement.StateSearchPending}");
             dryTicks = !companion.NPC.wet ? dryTicks + 1 : 0;
             if (dryTicks >= 60 && !companion.Brain.Safety.Active)
             {
@@ -118,7 +116,6 @@ internal static class VerifyCapturedEscape
         // The captured row has 0.20 of the native 200-unit breath bar remaining.
         // Surviving the escape is the contract; damage-free escape from a late
         // rescue is not guaranteed, and a one-cell dry-head test was insufficient.
-        typeof(live::AICompanion.Companion.CharacterBody.CompanionBreath).GetProperty("Breath")!.SetValue(companion.Breath, 40);
         var survival = new live::AICompanion.Companion.Brain.SharedBehaviours.Safety.ReachEnvironmentalSafety();
         if (Environment.GetEnvironmentVariable("AIC_TRACE_POOL") == "1")
         {
@@ -157,8 +154,7 @@ internal static class VerifyCapturedEscape
             companion.NPC.collideX = live.CollideX;
             companion.NPC.stairFall = live.StairFall;
             companion.Motor.Track();
-            companion.Breath.Update(companion.NPC);
-            companion.Brain.Senses.Update(companion.NPC, Main.player[0], companion.Breath);
+            companion.Brain.Senses.Update(companion.NPC, Main.player[0], companion.Motor);
             var context = new live::AICompanion.Companion.Brain.Activities.ActionContext(companion, companion.Brain.Senses);
             bool chosen = survival.TryEscape(context, out var input, out bool pending);
             if (!chosen && !pending) throw new InvalidOperationException($"production escape has no control or pending work at {tick}");
@@ -166,7 +162,7 @@ internal static class VerifyCapturedEscape
             live = VerifyEngineMotion.RunEngine(live, controls);
             if (HeadDry(live) && companion.NPC.life > 0)
             {
-                Console.WriteLine($"production captured-pool escape: head dry after {tick + 1} ticks, breath {companion.Breath.Breath}, final {live.Feet}");
+                Console.WriteLine($"production captured-pool escape: head dry after {tick + 1} ticks, breath {companion.Motor.LiquidContactTicks}, final {live.Feet}");
                 return 0;
             }
         }

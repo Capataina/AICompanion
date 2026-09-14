@@ -16,6 +16,7 @@ AssemblyLoadContext.Default.Resolving += (context, name) =>
 ResetProcessState.PrepareProcess();
 ResetProcessState.Register();
 
+if (args.Contains("--orb-contact")) return VerifyOrbContact.SizeRule() + VerifyOrbContact.DiagonalStep() + VerifyOrbContact.PushOutAndSlide();
 if (args.Contains("--route-persistence")) return VerifyRoutePersistence.Run();
 if (args.Contains("--attack-outcomes")) return VerifyAttackOutcomes.Run();
 if (args.Contains("--offer-validity")) return VerifyOfferValidity.Run();

@@ -225,7 +225,7 @@ internal static class VerifyHuntAdmissibility
         enemy.Bottom = new Vector2(enemyTileX * 16f + 8f, enemyTileY * 16f);
         Main.npc[25] = enemy;
 
-        companion.Brain.Senses.Update(companion.NPC, player, companion.Breath);
+        companion.Brain.Senses.Update(companion.NPC, player, companion.Motor);
         var threats = companion.Brain.Senses.Threats.Threats;
         threats.Clear();
         threats.Add(new T

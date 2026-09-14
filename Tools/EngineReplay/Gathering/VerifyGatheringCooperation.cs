@@ -177,7 +177,7 @@ internal static class VerifyGatheringCooperation
                 ctx.Player.velocity = new Vector2(4, 0);
                 ctx.Player.position += ctx.Player.velocity;
                 VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
-                brain.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Breath);
+                brain.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Motor);
                 workClock.PostUpdateEverything();
             }
             Item axe = TileChopper.AxeFor(ctx.Player);

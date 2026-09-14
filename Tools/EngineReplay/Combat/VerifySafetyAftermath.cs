@@ -215,7 +215,6 @@ internal static class VerifySafetyAftermath
         Main.player[0].Bottom = new Vector2(2024, 1376);
         companion.NPC.position = new Vector2(1356, 2016 - companion.NPC.height);
         companion.NPC.velocity = Vector2.Zero; companion.NPC.wet = true; companion.NPC.active = true;
-        typeof(live::AICompanion.Companion.CharacterBody.CompanionBreath).GetProperty("Breath")!.SetValue(companion.Breath, 40);
         if (shotAt is Vector2 at) HostileShot(at, Vector2.Zero);
         var kinds = new SortedSet<string>();
         int dry = 0;
@@ -228,10 +227,10 @@ internal static class VerifySafetyAftermath
             bool air = !Collision.DrownCollision(companion.NPC.position, companion.NPC.width, companion.NPC.height, 1f);
             if (air && dry == 0) firstAir = companion.NPC.Center;
             dry = air ? dry + 1 : 0;
-            if (companion.IsDowned || companion.NPC.life <= 0) return (-1, companion.NPC.life, companion.Breath.Breath, firstAir, string.Join(",", kinds));
-            if (dry >= 30) return (tick, companion.NPC.life, companion.Breath.Breath, firstAir, string.Join(",", kinds));
+            if (companion.IsDowned || companion.NPC.life <= 0) return (-1, companion.NPC.life, companion.Motor.LiquidContactTicks, firstAir, string.Join(",", kinds));
+            if (dry >= 30) return (tick, companion.NPC.life, companion.Motor.LiquidContactTicks, firstAir, string.Join(",", kinds));
         }
-        return (-1, companion.NPC.life, companion.Breath.Breath, firstAir, string.Join(",", kinds));
+        return (-1, companion.NPC.life, companion.Motor.LiquidContactTicks, firstAir, string.Join(",", kinds));
     }
 
     /// <summary>

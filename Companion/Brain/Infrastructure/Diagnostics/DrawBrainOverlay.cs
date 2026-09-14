@@ -458,7 +458,7 @@ public sealed class BrainOverlay : ModSystem
     {
         string text = "";
         if (ShowSenses)
-            text = $"breath {brain.Senses.Self.BreathFraction:0.00}  pressure {brain.Senses.Encounter.PressureTicks}";
+            text = $"wet {brain.Senses.Self.LiquidContactTicks}  pressure {brain.Senses.Encounter.PressureTicks}";
         if (ShowSafety && brain.Safety.Active)
             text = (text.Length > 0 ? text + "  " : "")
                 + $"{brain.Safety.Kind}: {(brain.Safety.Escape.EscapeActive ? brain.Safety.Escape.EscapeStage : brain.Safety.Reason)}";

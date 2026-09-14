@@ -151,7 +151,7 @@ internal static class VerifyOfferValidity
             int column = Home - Swing + Stride * (phase <= Period / 2 ? phase : Period - phase);
             companion.NPC.position = new Vector2(column * 16f, FloorY * 16f - companion.NPC.height);
             companion.NPC.velocity = Vector2.Zero;
-            companion.Brain.Senses.Update(companion.NPC, Main.player[0], companion.Breath);
+            companion.Brain.Senses.Update(companion.NPC, Main.player[0], companion.Motor);
             int bucket = MovementQueries.FeetTile(companion.NPC.Bottom).X >> 2;
             if (bucket != previousBucket) { buckets++; previousBucket = bucket; }
             positioner.Resolve(request, companion.Brain.Senses, profile);
@@ -399,7 +399,7 @@ internal static class VerifyOfferValidity
 
         // Behind the pillar, well out of a shot from where the body stands.
         enemy.Bottom = new Vector2((PillarRight + 6) * 16f + 8f, FloorY * 16f);
-        companion.Brain.Senses.Update(companion.NPC, Main.player[0], companion.Breath);
+        companion.Brain.Senses.Update(companion.NPC, Main.player[0], companion.Motor);
         var (behind, _) = firing.Resolve(ctx, enemy);
         Require(behind != live::AICompanion.Companion.Brain.Activities.Combat.FiringAccess.FromHere, FormattableString.Invariant(
             $"the premise fails: the enemy behind the pillar must not already be shootable from where the body stands, or moving it proves nothing; verdict={behind}"));
@@ -408,7 +408,7 @@ internal static class VerifyOfferValidity
         // changed — only the target — so an answer that does not move is an answer keyed on the wrong things.
         enemy.Bottom = companion.NPC.Bottom + new Vector2(32f, 0f);
         float moved = Vector2.Distance(enemy.Center, companion.NPC.Center);
-        companion.Brain.Senses.Update(companion.NPC, Main.player[0], companion.Breath);
+        companion.Brain.Senses.Update(companion.NPC, Main.player[0], companion.Motor);
         var (beside, _) = firing.Resolve(ctx, enemy);
         Console.WriteLine(FormattableString.Invariant(
             $"offer validity: a target behind the pillar read {behind}; walked to {moved:F0}px from the muzzle on the same tick it reads {beside}"));
@@ -434,7 +434,7 @@ internal static class VerifyOfferValidity
         // answer is the fallback's. The shelf is above the sealed ceiling of the world's floor slab.
         player.position = new Vector2(60 * 16f, (FloorY - 20) * 16f - player.height);
         player.velocity = Vector2.Zero;
-        companion.Brain.Senses.Update(companion.NPC, player, companion.Breath);
+        companion.Brain.Senses.Update(companion.NPC, player, companion.Motor);
 
         var request = new PositionRequest(RequestKind.WithPlayer, player.Bottom);
         Vector2? chosen = null;
@@ -453,7 +453,7 @@ internal static class VerifyOfferValidity
         {
             companion.NPC.Bottom = chosen!.Value;
             companion.NPC.velocity = Vector2.Zero;
-            companion.Brain.Senses.Update(companion.NPC, player, companion.Breath);
+            companion.Brain.Senses.Update(companion.NPC, player, companion.Motor);
             Vector2 feet = companion.NPC.Bottom;
             Vector2? next = null;
             for (int tick = 0; tick < 24; tick++)
@@ -531,7 +531,7 @@ internal static class VerifyOfferValidity
             live::AICompanion.Companion.Brain.Infrastructure.Observation.PredictObservedMotion.Observe(enemy);
         }
 
-        companion.Brain.Senses.Update(companion.NPC, player, companion.Breath);
+        companion.Brain.Senses.Update(companion.NPC, player, companion.Motor);
         var threats = companion.Brain.Senses.Threats.Threats;
         threats.Clear();
         threats.Add(new T
@@ -588,7 +588,7 @@ internal static class VerifyOfferValidity
         enemy.Bottom = new Vector2(51 * 16f + 8f, ShaftFloorY * 16f);
         Main.npc[30] = enemy;
 
-        companion.Brain.Senses.Update(companion.NPC, player, companion.Breath);
+        companion.Brain.Senses.Update(companion.NPC, player, companion.Motor);
         var threats = companion.Brain.Senses.Threats.Threats;
         threats.Clear();
         threats.Add(new T

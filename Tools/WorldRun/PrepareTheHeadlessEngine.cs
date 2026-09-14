@@ -144,9 +144,8 @@ internal static class PrepareTheHeadlessEngine
         companion.SetDefaults();
         npc.Bottom = feet;
         npc.velocity = Vector2.Zero;
-        // Rendering and first-tick logging want loader and graphics services this host does not have.
+        // First-tick logging wants loader services this host does not have.
         Set(companion, "loggedFirstTick", true);
-        Set(companion.Body, "rendererFailed", true);
 
         ForgetEverythingLearnedAboutTheWorld();
         return companion;
@@ -283,32 +282,18 @@ internal static class PrepareTheHeadlessEngine
     }
 
     /// <summary>
-    /// Finishes a tick with the engine's own gravity and collision, after the brain and motor have
-    /// already applied their controls.
-    ///
-    /// This is <c>VerifyResponsiveFollowing.AdvanceNative</c>'s body, and the reason it is not
-    /// <c>NPC.UpdateNPC</c> is the reason that fixture gives: the production motor has already
-    /// applied the movement abilities and the step helpers, so a full engine update would apply the
-    /// same controls a second time. What remains — the engine's own gravity setup, its own fall
-    /// clamp and its own <c>UpdateCollision</c> — is the part this repository treats as its
-    /// independent oracle, and it is the same path every native collision fixture is checked
-    /// against.
+    /// Finishes a tick the way the engine finishes it for a no-gravity, no-tile-collide NPC, after
+    /// the brain and motor have already applied their controls: <c>NPC.UpdateNPC_Inner</c> skips
+    /// gravity and <c>UpdateCollision</c> for such a body and adds the velocity to the position,
+    /// nothing else. The motor has already resolved contact on that displacement, so this is the
+    /// whole of what the engine contributes to the orb's motion, in the mod and here alike.
     /// </summary>
     public static void AdvanceTheNativeBody(CompanionNPC companion)
     {
         NPC npc = companion.NPC;
-        // Suppresses the splash visual, whose dust and audio services do not exist headless; native
-        // wet detection, velocity changes and collision all still run.
-        npc.wetCount = 2;
-        Invoke(npc, "UpdateNPC_UpdateGravity");
-        npc.velocity.Y = MathF.Min(npc.velocity.Y + npc.gravity, npc.maxFallSpeed);
-        Invoke(npc, "UpdateCollision");
+        npc.oldPosition = npc.position;
+        npc.position += npc.velocity;
     }
-
-    private static void Invoke(NPC npc, string method)
-        => (typeof(NPC).GetMethod(method, BindingFlags.Instance | BindingFlags.NonPublic)
-            ?? throw new MissingMethodException($"NPC.{method} is gone; the native body can no longer be advanced the way every collision fixture advances it"))
-           .Invoke(npc, null);
 
     private static void Set(object target, string field, object value)
         => (target.GetType().GetField(field, BindingFlags.Instance | BindingFlags.NonPublic)

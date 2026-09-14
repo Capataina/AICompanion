@@ -67,8 +67,8 @@ public sealed class ReachEnvironmentalSafety
         // water travel remains possible while breath reserve is healthy and this bound fits.
         EstimatedEscapeTicks = dry is Point target
             ? Vector2.Distance(MovementQueries.FeetWorld(from), MovementQueries.FeetWorld(target)) / (BodyPhysics.WalkSpeed * .5f)
-            : self.BreathTicksLeft;
-        NeedsResponse |= self.SelfDanger > 0f || EstimatedEscapeTicks >= self.BreathTicksLeft;
+            : float.PositiveInfinity;
+        NeedsResponse |= self.SelfDanger > 0f;
     }
 
     /// <summary>

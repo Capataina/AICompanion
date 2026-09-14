@@ -171,7 +171,7 @@ internal static class VerifyCombatActorMatrix
         }
 
         var brain = companion.Brain;
-        brain.Senses.Update(companion.NPC, player, companion.Breath);
+        brain.Senses.Update(companion.NPC, player, companion.Motor);
         var ctx = new ActionContext(companion, brain.Senses);
         foreach (NPC npc in placed)
         {

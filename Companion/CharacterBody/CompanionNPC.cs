@@ -9,6 +9,7 @@ using Terraria.ModLoader;
 using AICompanion.Companion.Weapons;
 using AICompanion.Companion.Inventory;
 using AICompanion.Companion.PlayerIntegration;
+using AICompanion.Companion.Brain.Infrastructure.Movement;
 using AICompanion.Companion.Brain.Infrastructure.Interactions.Chopping;
 using AICompanion.Companion.Brain.Infrastructure.Interactions.Doors;
 using AICompanion.Companion.Brain.Infrastructure.Interactions.Mining;
@@ -17,15 +18,16 @@ using AICompanion.Companion.Brain.Infrastructure.Interactions.Torch;
 namespace AICompanion.Companion.CharacterBody;
 
 /// <summary>
-/// The companion: a friendly NPC with a custom AI (aiStyle -1) whose every decision
-/// is made by <see cref="Brain.Brain"/>. This class owns what the brain needs a body
-/// for: health that mirrors the player, the downed state, the held item and its
-/// animation, the motor, the weapons, the chopper, the bag, and drawing through the
-/// game's own player renderer with the Guide sheet as the fallback.
+/// The companion: a friendly NPC with a custom AI (aiStyle -1) whose every decision is made by
+/// <see cref="Brain.Brain"/>. Its body is a twenty-pixel flying orb: the engine's gravity and tile
+/// collision are switched off for it, and the motor moves it through the mod's own circle contact.
+/// The engine's box still exists and is what enemies and projectiles hit, so it is targeted, takes
+/// damage, is downed and dodges exactly as any NPC. This class owns what the brain needs a body for:
+/// health that mirrors the player, the downed state, the presentation snapshot the renderer reads,
+/// the motor, the weapons, the tools, the bag, and the stand-in player hostiles aim at.
 ///
-/// It never dies. At zero life it is downed: after clearing any interrupted recovery flight
-/// from solid terrain, it lies still and takes no damage until
-/// the player has stood within reach for <see cref="ReviveTicks"/> ticks.
+/// It never dies. At zero life it is downed: it sinks to rest, lies still and takes no damage until
+/// the player has stood within reach for <see cref="ReviveTicks"/> ticks or <see cref="SelfReviveTicks"/> pass.
 /// </summary>
 public class CompanionNPC : ModNPC
 {
@@ -42,24 +44,45 @@ public class CompanionNPC : ModNPC
     private const int SelfReviveTicks = 600;
     private const float PickupReach = 28f;
 
+    /// <summary>How long the drill beam stays drawn after a swing, so it holds through the cadence of the cuts.</summary>
+    private const int BeamHoldTicks = 24;
+
+    /// <summary>A liquid's hurt on contact: this much, every this many ticks of contact.</summary>
+    public readonly record struct LiquidHurt(int Damage, int IntervalTicks);
+
+    /// <summary>
+    /// The two hurts, the one place they live. Water is gentle enough that a few tiles of crossing
+    /// is survivable on a starter life pool: two life a third of a second is six a second, so a
+    /// three-second crossing costs under a fifth of a hundred. Lava is lethal within a few seconds
+    /// whatever the pool: twenty-five every tenth of a second, after defence, empties four hundred
+    /// life in under two seconds.
+    /// </summary>
+    public static readonly LiquidHurt WaterHurt = new(2, 20);
+    public static readonly LiquidHurt LavaHurt = new(25, 6);
+
     public Brain.Brain Brain { get; private set; } = new();
     public CompanionMotor Motor { get; private set; } = null!;
     public Arsenal Arsenal { get; } = new();
     public TileChopper Chopper { get; } = new();
     public TileMiner Miner { get; }
     public TorchBearer Torch { get; } = new();
-    public CompanionBreath Breath { get; } = new();
     public DoorOpener Doors { get; } = new();
     public CompanionInventory Bag => Main.LocalPlayer.GetModPlayer<CompanionPlayer>().Bag;
 
-    /// <summary>The drawing-only body; the map layer draws its head.</summary>
-    public CompanionBody Body => body;
+    /// <summary>The player hostiles aim at; also what the game's own pick routine runs on.</summary>
+    public HostileTargetStandIn StandIn { get; } = new();
 
-    private readonly CompanionBody body = new();
+    /// <summary>When true the matching liquid is neither a wall to the planner nor a hurt to the body. The mastery tree flips them.</summary>
+    public bool ImmuneToWater { get; set; }
+    public bool ImmuneToLava { get; set; }
+
+    /// <summary>Scale the player-derived speed cap and acceleration; the mastery tree drives them, one is the body as handed over.</summary>
+    public float SpeedMultiplier { get; set; } = 1f;
+    public float AccelerationMultiplier { get; set; } = 1f;
 
     public CompanionNPC()
     {
-        Miner = new TileMiner(body.Player);
+        Miner = new TileMiner(StandIn.Player);
     }
 
     public bool IsDowned { get; private set; }
@@ -73,9 +96,11 @@ public class CompanionNPC : ModNPC
     private int heldItemType;
     private int itemAnimation;
     private int itemAnimationMax;
-    private float itemRotation;
+    private float aimRotation;
+    private Vector2? beamTarget;
+    private int beamHold;
 
-    public override string Texture => "Terraria/Images/NPC_" + NPCID.Guide;
+    public override string Texture => "Terraria/Images/NPC_" + NPCID.Probe;
 
     /// <summary>The one live companion, or null.</summary>
     public static NPC? Find()
@@ -89,26 +114,23 @@ public class CompanionNPC : ModNPC
 
     public static CompanionNPC? Instance => Find()?.ModNPC as CompanionNPC;
 
-    /// <summary>Spawn a companion at the player's feet; returns the NPC slot, or Main.maxNPCs if none was free.</summary>
+    /// <summary>Spawn a companion in the air a couple of tiles above the player's head; returns the NPC slot, or Main.maxNPCs if none was free.</summary>
     public static int Spawn(Player player)
-        => NPC.NewNPC(player.GetSource_Misc("companion"), (int)player.Center.X, (int)player.Bottom.Y, ModContent.NPCType<CompanionNPC>());
+        => NPC.NewNPC(player.GetSource_Misc("companion"), (int)player.Center.X, (int)(player.position.Y - 32f), ModContent.NPCType<CompanionNPC>());
 
     public override void SetStaticDefaults()
     {
-        Main.npcFrameCount[Type] = Main.npcFrameCount[NPCID.Guide];
+        Main.npcFrameCount[Type] = 1;
         NPCID.Sets.NPCBestiaryDrawModifiers hide = new() { Hide = true };
         NPCID.Sets.NPCBestiaryDrawOffset.Add(Type, hide);
     }
 
     public override void SetDefaults()
     {
-        // The player's own hitbox (Player.defaultWidth and defaultHeight), because the
-        // companion is drawn as a player and is meant to fit wherever the player fits.
-        // BodyPhysics.Width and Height are the same two numbers and must stay equal to
-        // these: the planner proves every move against that box and the game moves this
-        // one, so changing either alone plans routes the body cannot walk.
-        NPC.width = 20;
-        NPC.height = 42;
+        // The engine's box is the contact circle's diameter on both sides: it is what enemies and
+        // projectiles hit, and a box a different size from the circle is hit where the body is not.
+        NPC.width = (int)CircleContact.Diameter;
+        NPC.height = (int)CircleContact.Diameter;
         NPC.aiStyle = -1;
         NPC.friendly = true;
         NPC.damage = 0;
@@ -118,31 +140,21 @@ public class CompanionNPC : ModNPC
         // 1 is full knockback and 0 is immunity in this game; a light walker like a zombie is 0.5.
         NPC.knockBackResist = 0.75f;
         NPC.dontTakeDamage = false;
-        NPC.HitSound = SoundID.NPCHit1;
-        NPC.DeathSound = SoundID.NPCDeath1;
+        NPC.HitSound = SoundID.NPCHit4;
+        NPC.DeathSound = SoundID.NPCDeath14;
         NPC.value = 0f;
-        // SimulateTerrariaBody previews these ordinary NPC liquid multipliers. Keep the
-        // companion's defaults explicit so an inherited NPC type cannot change its physics.
-        NPC.waterMovementSpeed = NPC.lavaMovementSpeed = 0.5f;
-        NPC.honeyMovementSpeed = 0.25f;
-        NPC.shimmerMovementSpeed = 0.375f;
-        Motor = new CompanionMotor(NPC);
+        // The engine leaves the body to the motor: no gravity, and no tile collision, which also
+        // switches off the engine's own liquid detection and liquid slowdown for this body. The
+        // motor does all three through the circle contact. The liquid speed factors are set to one
+        // so that, should any engine path still read them, nothing is slowed twice.
+        NPC.noGravity = true;
+        NPC.noTileCollide = true;
+        NPC.waterMovementSpeed = NPC.lavaMovementSpeed = NPC.honeyMovementSpeed = NPC.shimmerMovementSpeed = 1f;
+        Motor = new CompanionMotor(this);
     }
 
     /// <summary>Never culled for being far from players; the companion manages its own distance.</summary>
     public override bool CheckActive() => false;
-
-    /// <summary>
-    /// The body passes through the platform it stands on only on a tick the navigator asked
-    /// for it (a fall-through step of the path), the way a player presses down; the flag is
-    /// cleared here so a request never outlives its tick.
-    /// </summary>
-    public override bool? CanFallThroughPlatforms()
-    {
-        bool wants = Motor.WantsFallThrough;
-        Motor.WantsFallThrough = false;
-        return wants ? true : null;
-    }
 
     /// <summary>Zero life downs the companion instead of killing it.</summary>
     public override bool CheckDead()
@@ -173,11 +185,11 @@ public class CompanionNPC : ModNPC
         // recomputed at `Torch.Update` below; the paths that never reach it hide explicitly.
         if (itemAnimation > 0)
             itemAnimation--;
+        if (beamHold > 0 && --beamHold == 0)
+            beamTarget = null;
         Miner.Tick();
         // What the engine did with the last tick, read before anything acts on this one: whether
-        // the body is being held in place, and how far the offline motion rule's prediction of
-        // where it would be missed. Both describe the tick before, because the engine's collision
-        // and its position += velocity run after AI returns.
+        // the body is being held in place against the move it was handed.
         Motor.Track();
 
         if (IsDowned)
@@ -189,28 +201,22 @@ public class CompanionNPC : ModNPC
         }
         else
         {
-            // Breath before the brain, so the senses read this tick's value; a drowning strike
-            // here can down the companion, and the downed branch takes over next tick.
-            Breath.Update(NPC);
-            if (IsDowned)
-                UpdateDowned(player);
-            else
-                Brain.Tick(this, player);
-            // After the steps, because the direction the door swings is the direction the brain
-            // asked the motor for this tick, and before anything reads the tiles again: a door the
-            // body just opened is an opening the rest of the tick can use.
+            Brain.Tick(this, player);
+            // A liquid strike inside the motor can down the companion mid-tick; the downed branch
+            // takes over next tick, and this tick's remaining work is skipped.
             if (!IsDowned)
             {
+                // After the steps, because the direction the door swings is the direction the brain
+                // asked the motor for this tick, and before anything reads the tiles again: a door
+                // the body just opened is an opening the rest of the tick can use.
                 Doors.Tick(NPC);
                 CollectTouchedItems(player);
+                // The torch takes the hand only when no action claimed it this tick: a tool or a
+                // weapon held by chop, mine, hunt or guard always wins, and a torch that is not
+                // in the hand gives no light and reveals nothing.
+                Torch.Update(Brain.Senses.Light, NPC, heldItemType == ItemID.None,
+                    Brain.Senses.Player.Predict(global::AICompanion.Companion.Brain.Infrastructure.Selection.Weights.TorchHeadingLeadTicks));
             }
-            // The torch takes the hand only when no action claimed it this tick: a tool or a
-            // weapon held by chop, mine, hunt or guard always wins, and a torch that is not
-            // in the hand gives no light and reveals nothing.
-            if (!IsDowned) Torch.Update(Brain.Senses.Light, NPC, heldItemType == ItemID.None,
-                Brain.Senses.Player.Predict(global::AICompanion.Companion.Brain.Infrastructure.Selection.Weights.TorchHeadingLeadTicks));
-            // Downed inside this branch — a drowning strike during Breath.Update reaches here — so the
-            // torch is cleared on the one path through the tick that does not recompute it.
             else Torch.Hide();
             if (Torch.Shown)
                 heldItemType = ItemID.Torch;
@@ -221,15 +227,30 @@ public class CompanionNPC : ModNPC
             }
         }
 
-        body.Sync(NPC, player, heldItemType, itemAnimation, itemAnimationMax, itemRotation, IsDowned);
+        UpdateFacing();
+        StandIn.Sync(NPC, IsDowned);
         global::AICompanion.Companion.Brain.Infrastructure.Diagnostics.BrainTelemetry.Record(this);
     }
+
+    // ---- presentation: what the renderer draws, recorded by whoever acts ----
 
     /// <summary>What the hand holds this tick, for the telemetry and the HUD.</summary>
     public int HeldItemType => heldItemType;
 
-    // ---- what the brain and its actions call ----
+    /// <summary>The angle the sprite faces, in radians: the direction of travel while moving, the last one while still.</summary>
+    public float Facing { get; private set; }
 
+    /// <summary>The angle of the last aimed shot, recorded for the presentation; nothing draws it yet.</summary>
+    public float AimRotation => aimRotation;
+
+    /// <summary>The tile the drill beam is drawn to while tool work is running, or null.</summary>
+    public Vector2? BeamTarget => beamTarget;
+
+    /// <summary>Record the held item into the presentation snapshot. Nothing draws it yet: the owner
+    /// wants held-weapon-versus-projectiles-only tested later, so the API stays and the drawing waits.</summary>
+    public void SetHeldItem(int itemType) => heldItemType = itemType;
+
+    /// <summary>The name the activities already call; the same recording as <see cref="SetHeldItem"/>.</summary>
     public void HoldItem(int itemType) => heldItemType = itemType;
 
     public void StartAnimation(int itemType, int ticks)
@@ -239,7 +260,21 @@ public class CompanionNPC : ModNPC
     }
 
     public void SetAimRotation(Vector2 launch)
-        => itemRotation = MathF.Atan2(launch.Y * NPC.direction, launch.X * NPC.direction);
+        => aimRotation = MathF.Atan2(launch.Y, launch.X);
+
+    /// <summary>Draw the beam to a worked tile for a short hold; each swing refreshes it.</summary>
+    public void ShowBeam(Vector2 worldPoint)
+    {
+        beamTarget = worldPoint;
+        beamHold = BeamHoldTicks;
+    }
+
+    private void UpdateFacing()
+    {
+        Vector2 velocity = NPC.velocity;
+        if (velocity.LengthSquared() > 0.25f)
+            Facing = MathF.Atan2(velocity.Y, velocity.X);
+    }
 
     // ---- health and mana ----
 
@@ -268,11 +303,12 @@ public class CompanionNPC : ModNPC
         NPC.life = 1;
         NPC.dontTakeDamage = true;
         Motor.EnterDowned();
-        Brain.FollowRecovery.Update(false, true, false, NPC.Bottom, NPC.Bottom, false);
+        Brain.FollowRecovery.Update(false, true, false, NPC.Center, NPC.Center, false);
         reviveProgress = 0;
         downedTicks = 0;
         heldItemType = ItemID.None;
         itemAnimation = 0;
+        beamTarget = null;
         Brain.Movement.Hold(Motor.State, preemptedBy: "downed");
     }
 
@@ -286,7 +322,7 @@ public class CompanionNPC : ModNPC
         IsDowned = false;
         NPC.life = NPC.lifeMax;
         NPC.dontTakeDamage = false;
-        Breath.Reset();
+        Motor.LeaveDowned();
         reviveProgress = 0;
         downedTicks = 0;
     }
@@ -320,31 +356,7 @@ public class CompanionNPC : ModNPC
 
     public override bool PreDraw(SpriteBatch spriteBatch, Vector2 screenPos, Color drawColor)
     {
-        if (!body.UsesPlayerRenderer)
-            return true; // Guide sprite fallback
-        float rotation = IsDowned ? NPC.direction * MathHelper.PiOver2 : 0f;
-
-        // The player renderer writes to the device directly and expects a closed batch, which is
-        // how vanilla calls it; drawing inside the open NPC batch puts the body behind everything
-        // queued in it. Close, draw, then reopen with the NPC batch's own state.
-        spriteBatch.End();
-        body.Draw(rotation);
-        spriteBatch.Begin(SpriteSortMode.Deferred, BlendState.AlphaBlend, Main.DefaultSamplerState,
-            DepthStencilState.None, Main.Rasterizer, null, Main.Transform);
-        return !body.UsesPlayerRenderer;
-    }
-
-    public override void FindFrame(int frameHeight)
-    {
-        bool walking = MathF.Abs(NPC.velocity.X) > 0.2f && NPC.velocity.Y == 0f;
-        if (!walking)
-        {
-            NPC.frameCounter = 0;
-            NPC.frame.Y = 0;
-            return;
-        }
-        NPC.frameCounter += 1.0 + MathF.Abs(NPC.velocity.X) * 0.5;
-        int index = 2 + (int)(NPC.frameCounter / 6) % 14;
-        NPC.frame.Y = frameHeight * index;
+        DrawTheOrb.Draw(spriteBatch, screenPos, drawColor, this);
+        return false;
     }
 }

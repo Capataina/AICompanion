@@ -54,7 +54,7 @@ internal static class VerifyCompanionActivities
     {
         var (_, ctx) = VerifyOreWork.SetUp(Policy.Opportunistic, TileID.Copper, new Point(25, 59));
         ctx.Player.Bottom = new Vector2(50 * 16, 60 * 16);
-        ctx.Companion.Brain.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Breath);
+        ctx.Companion.Brain.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Motor);
         var chosen = ctx.Companion.Brain.Chooser.Choose(ctx);
         Require(chosen?.Name == "mine", $"reachable ore at 480px separation must beat ordinary following; got {chosen?.Name ?? "none"}");
     }
@@ -270,7 +270,7 @@ internal static class VerifyCompanionActivities
         // directly must let the sense see the move or it is measuring against where he used to be. A
         // still player carries no lead, so a refreshed region sits exactly on his feet and the
         // distances below mean what they meant when they were written.
-        void SeeThePlayer() => ctx.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Breath);
+        void SeeThePlayer() => ctx.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Motor);
         SeeThePlayer();
         var activity = new ActivityProbe { Target = ctx.Player.Bottom + new Vector2(500, 0) };
         Require(activity.Allows(ctx), "new target within acquisition radius must be admitted");
@@ -528,7 +528,7 @@ internal static class VerifyCompanionActivities
                 if (scene.Player) Hostile(30, ctx.Player.Bottom - new Vector2(64, 0), attackable: false);
                 if (scene.Companion) Hostile(31, ctx.Npc.Bottom - new Vector2(64, 0), attackable: false);
                 var brain = ctx.Companion.Brain;
-                brain.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Breath);
+                brain.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Motor);
                 brain.Senses.SetInterventionEstimate(ctx.Companion.Arsenal.EstimateInterventionTicks(ctx));
                 // The light field must describe the frame this scene presented, not one measured before it.
                 Require(brain.Senses.Light.MeasuredSamples > 0,
@@ -612,7 +612,7 @@ internal static class VerifyCompanionActivities
             for (int tick = 0; tick <= live::AICompanion.Companion.Brain.Infrastructure.Selection.Weights.PositionRescoreTicks; tick++)
             {
                 VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
-                ctx.Companion.Brain.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Breath);
+                ctx.Companion.Brain.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Motor);
             }
             ctx.Companion.Brain.Chooser.Choose(ctx);
             Require(ctx.Companion.Brain.Chooser.RegroupUrgency == 0,
@@ -644,7 +644,7 @@ internal static class VerifyCompanionActivities
         int window = live::AICompanion.Companion.Brain.Infrastructure.Selection.Weights.ObjectiveProgressWindowTicks;
         Vector2 origin = ctx.Npc.Bottom;
         ctx.Player.Bottom = origin + new Vector2(500, 0);
-        brain.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Breath);
+        brain.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Motor);
         void Tick(RequestKind kind, float offset = 0)
         {
             ctx.Npc.Bottom = origin + new Vector2(offset, 0);
@@ -684,7 +684,7 @@ internal static class VerifyCompanionActivities
         // Place the next vein beyond the old job's continuation envelope from the new player.
         ctx.Player.Bottom = new Vector2(2000, 60 * 16);
         Tile ore = Main.tile[84, 59]; ore.HasTile = true; ore.TileType = TileID.Copper;
-        ctx.Companion.Brain.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Breath);
+        ctx.Companion.Brain.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Motor);
         for (int i = 0; i < 61; i++) VerifyPreparedActivities.PrepareAndScore(mine, ctx);
         Require(mine.JobId != oldJob && mine.TargetTile == new Point(84, 59), "an obsolete retained vein must not prevent discovering reachable local ore");
     }
@@ -710,7 +710,7 @@ internal static class VerifyCompanionActivities
         Require(VerifyPreparedActivities.PrepareAndScore(mine, ctx) > 0, "fixture must discover a mining job");
         mine.AdmitActivity();
         ctx.Npc.Bottom = ctx.Player.Bottom + new Vector2(Preferences.Current.ActiveActivityRadius + 1, 0);
-        ctx.Companion.Brain.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Breath);
+        ctx.Companion.Brain.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Motor);
         Require(VerifyPreparedActivities.PrepareAndScore(mine, ctx) == 0 && mine.RemainingTiles == 0,
             "retained ore near the player must not keep a companion outside the active range in mining mode");
     }

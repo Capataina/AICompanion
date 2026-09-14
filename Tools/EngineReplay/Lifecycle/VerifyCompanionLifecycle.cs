@@ -58,7 +58,6 @@ internal static class VerifyCompanionLifecycle
         // Rendering and first-tick logging require the loader/graphics services; the real AI,
         // breath, observations, chooser and motor remain active in this headless fixture.
         Set(companion, "loggedFirstTick", true);
-        Set(companion.Body, "rendererFailed", true);
         return companion;
     }
 

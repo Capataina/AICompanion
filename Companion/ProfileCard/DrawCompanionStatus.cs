@@ -69,16 +69,15 @@ public sealed class DrawCompanionStatus : UIElement
         var companion = CompanionNPC.Instance;
         Rectangle portrait = new(r.X + 2, r.Y + 3, 72, r.Height - 8);
         DrawCardPrimitives.Fill(sb, portrait, new Color(37, 41, 122) * .75f);
-        if (companion != null && companion.Body.UsesPlayerRenderer && Main.MapPlayerRenderer != null)
-            Main.MapPlayerRenderer.DrawPlayerHead(Main.Camera, companion.Body.Player, portrait.Center.ToVector2(), 1f, 1.8f, Color.White);
-        else if (TextureAssets.Npc[NPCID.Guide]?.IsLoaded == true)
+        if (TextureAssets.Npc[NPCID.Probe]?.IsLoaded == true)
         {
-            // The NPC already uses the Guide as its fallback. Draw one frame, never the sheet.
-            Texture2D texture = TextureAssets.Npc[NPCID.Guide].Value;
-            var source = new Rectangle(0, 0, texture.Width, texture.Height / 25);
+            // The orb is drawn as the game's probe until its own art exists; one frame, never the sheet.
+            Texture2D texture = TextureAssets.Npc[NPCID.Probe].Value;
+            var source = new Rectangle(0, 0, texture.Width, texture.Height / Math.Max(1, Main.npcFrameCount[NPCID.Probe]));
             float scale = Math.Min((portrait.Width - 12f) / source.Width, (portrait.Height - 8f) / source.Height);
             sb.Draw(texture, portrait.Center.ToVector2(), source, Color.White, 0, source.Size() / 2, scale, SpriteEffects.None, 0);
         }
+        else Main.instance.LoadNPC(NPCID.Probe);
         int x = r.X + 88;
         string name = companion == null || string.IsNullOrWhiteSpace(companion.NPC.GivenName) ? "Companion" : companion.NPC.GivenName;
         string hp = companion == null ? "Unavailable" : $"{companion.NPC.life} / {companion.NPC.lifeMax} HP";

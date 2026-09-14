@@ -149,7 +149,7 @@ internal static class VerifyCourtesy
         enemy.Bottom = new Vector2(72 * 16f + 8f, (FloorRow + 4) * 16f);
         Main.npc[44] = enemy;
 
-        brain.Senses.Update(companion.NPC, player, companion.Breath);
+        brain.Senses.Update(companion.NPC, player, companion.Motor);
         // Settle the flood, then resolve until the resolver is actually retaining. Retention only shows itself on
         // a rescore tick — between them the resolve returns the held destination without touching the reason — so
         // the scene has to be left standing on one, or the arms would differ by where in the cadence they landed
@@ -177,7 +177,7 @@ internal static class VerifyCourtesy
         player.velocity = Vector2.Zero;
         follow = new live::AICompanion.Companion.Brain.Infrastructure.Position.PositionRequest(
             live::AICompanion.Companion.Brain.Infrastructure.Position.RequestKind.WithPlayer, player.Bottom);
-        brain.Senses.Update(companion.NPC, player, companion.Breath);
+        brain.Senses.Update(companion.NPC, player, companion.Motor);
         for (int i = 0; i < 40 && positioner.ChoiceReason != retained; i++)
             positioner.Resolve(follow, brain.Senses, null);
         Require(positioner.ChoiceReason == retained,
@@ -193,7 +193,7 @@ internal static class VerifyCourtesy
         player.itemAnimation = 0;
         Player.tileTargetX = (int)(companion.NPC.Bottom.X / 16f);
         Player.tileTargetY = FloorRow - 1;
-        brain.Senses.Update(companion.NPC, player, companion.Breath);
+        brain.Senses.Update(companion.NPC, player, companion.Motor);
         Require(brain.Senses.Player.Interference is Rectangle asked
                 && live::AICompanion.Companion.Brain.Infrastructure.Observation.PlayerSense
                     .BodyTiles(positioner.Chosen!.Value, companion.NPC.width, companion.NPC.height).Intersects(asked),

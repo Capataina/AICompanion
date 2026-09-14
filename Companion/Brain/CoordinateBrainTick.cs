@@ -159,7 +159,7 @@ public sealed class Brain
     private ActivityControlRequest TickPhases(CompanionNPC companion, Terraria.Player player)
     {
         phase.Restart();
-        Senses.Update(companion.NPC, player, companion.Breath);
+        Senses.Update(companion.NPC, player, companion.Motor);
         ProtectCompanionHomes.Refresh(player.Bottom, companion.NPC.Bottom);
         companion.Arsenal.Tick();
         companion.Chopper.Tick();

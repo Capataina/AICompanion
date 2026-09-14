@@ -388,7 +388,7 @@ internal static class VerifyCompanyLocalMotion
         terrain?.Invoke();
         TerrainChanges.Reset();
         AStar.InvalidateEdges();
-        ctx.Companion.Brain.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Breath);
+        ctx.Companion.Brain.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Motor);
         if (hazards)
         {
             Require(MovementQueries.IsLava(LavaLeft + 1, FloorRow) && MovementQueries.IsStandable(LavaLeft - 1, FloorRow - 1),
