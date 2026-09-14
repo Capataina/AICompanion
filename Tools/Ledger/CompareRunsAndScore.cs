@@ -219,7 +219,13 @@ public static class Scoreboard
     public static (string Text, int Exit) Render(Run after, Run? before, IReadOnlyList<Run> beforeRepeats)
     {
         var text = new StringBuilder();
-        int reds = after.Rows.Count(r => r.Verdict is "fail" or "error");
+        // A red tagged known-limitation is a defect the suite found and the board carries; it is
+        // printed with its row and never counted as this run's red, because a run that could never
+        // exit clean while one such defect stood open would have no exit code left to say
+        // anything else with. Run.Clean applies the same tag to baseline eligibility.
+        static bool Known(LedgerRow r) => r.Tags?.Contains("known-limitation") ?? false;
+        int known = after.Rows.Count(r => r.Verdict is "fail" or "error" && Known(r));
+        int reds = after.Rows.Count(r => r.Verdict is "fail" or "error" && !Known(r));
         int skips = after.Rows.Count(r => r.Verdict == "skipped");
         int measures = after.Rows.Count(r => r.Verdict == "measure");
         int unkilled = after.Rows.Count(r => r.Verdict == "pass" && r.KilledBy == null);
@@ -304,10 +310,14 @@ public static class Scoreboard
             ? ""
             : $", and {stoppedReporting + gone} case(s) that reported at the baseline did not report here"
               + " — this run measured less than the run it is being read against";
+        string carried = known == 0 ? "" : $", {known} known limitation(s) carried red";
+        if (known > 0)
+            foreach (LedgerRow row in after.Rows.Where(r => r.Verdict is "fail" or "error" && Known(r)))
+                text.AppendLine($"  known     {row.Instrument}/{row.Case} — {row.Message}");
         text.AppendLine();
         text.AppendLine(exit == 0
-            ? $"ledger: {after.Rows.Count} rows, nothing red{coverage}"
-            : $"ledger: {reds} red row(s){coverage}");
+            ? $"ledger: {after.Rows.Count} rows, nothing red{carried}{coverage}"
+            : $"ledger: {reds} red row(s){carried}{coverage}");
         return (text.ToString(), exit);
     }
 

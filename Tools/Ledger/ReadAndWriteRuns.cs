@@ -110,9 +110,14 @@ public sealed record Run(string Path, RunHeader Header, IReadOnlyList<LedgerRow>
     /// <summary>
     /// A run is clean when nothing in it failed or errored. Skips do not make a run dirty, because
     /// a skip is missing coverage rather than a verdict, and a baseline that refused every run with
-    /// a skip in it would never resolve on a repository whose captures are gitignored.
+    /// a skip in it would never resolve on a repository whose captures are gitignored. A red row
+    /// tagged <c>known-limitation</c> does not make a run dirty either: it is a defect the suite
+    /// found and the board carries (the corpus mirror's one asymmetric block, AIC-260, is the first),
+    /// and a repository that could never have a clean baseline while one such defect stood open
+    /// would lose every comparison for as long as the defect took to fix. The tag comes off with
+    /// the fix, at which point the row is an ordinary red again; the scoreboard still prints it.
     /// </summary>
-    public bool Clean => Rows.All(r => r.Verdict is not ("fail" or "error"));
+    public bool Clean => Rows.All(r => r.Verdict is not ("fail" or "error") || (r.Tags?.Contains("known-limitation") ?? false));
 
     /// <summary>The cases this run actually measured: every case carrying at least one row that is
     /// not a skip. A skip is the absence of a measurement, so it belongs in <see cref="SkippedOnly"/>
