@@ -106,13 +106,14 @@ internal static class PrepareTheHeadlessEngine
     {
         Main.myPlayer = 0;
         FillEveryEntitySlotTheEngineDereferences();
-        foreach (int item in new[] { ItemID.WoodenBow, ItemID.WoodenArrow, ItemID.ThrowingKnife, ItemID.CopperPickaxe, ItemID.CopperAxe })
+        foreach (int item in new[] { ItemID.WoodenBow, ItemID.WoodenArrow, ItemID.ThrowingKnife, ItemID.CopperPickaxe, ItemID.CopperAxe,
+            ItemID.CopperBroadsword, ItemID.WandofSparking, ItemID.FlintlockPistol, ItemID.MusketBall, ItemID.WoodYoyo, ItemID.GoldPickaxe })
         {
             var sample = new Item();
             sample.SetDefaults(item);
             ContentSamples.ItemsByType[item] = sample;
         }
-        foreach (int type in new[] { ProjectileID.WoodenArrowFriendly, ProjectileID.ThrowingKnife })
+        foreach (int type in new[] { ProjectileID.WoodenArrowFriendly, ProjectileID.ThrowingKnife, ProjectileID.Bullet, ProjectileID.WandOfSparkingSpark, ProjectileID.WoodYoyo })
         {
             var sample = new Projectile();
             sample.SetDefaults(type);
@@ -130,6 +131,11 @@ internal static class PrepareTheHeadlessEngine
             .SetValue(companionPlayer, Main.player[0]);
         typeof(Player).GetField("modPlayers", BindingFlags.Instance | BindingFlags.NonPublic)!
             .SetValue(Main.player[0], new ModPlayer[] { companionPlayer });
+        // The gear the world run's companion holds: the arsenal and the tools read their weapons and
+        // power from these slots, so an empty gear would run a whole world with nothing in its hands.
+        companionPlayer.Gear.Slots[0].SetDefaults(ItemID.WoodenBow);
+        companionPlayer.Gear.Slots[2].SetDefaults(ItemID.CopperPickaxe);
+        companionPlayer.Gear.Slots[3].SetDefaults(ItemID.CopperAxe);
 
         // No recorder is attached and none is started. That is deliberate rather than an omission:
         // a world run reports through ledger rows, and a recorder left running would drop a

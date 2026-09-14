@@ -160,6 +160,7 @@ internal static class VerifyEngineMotion
         ("a bounded stand search that ran out says so, and a stand is proved against the target's forecast", VerifyOfferValidity.Run),
         ("a hunt is admitted only where it can be executed", VerifyHuntAdmissibility.Run),
         ("an attack's outcome is the one the arsenal forecast", VerifyAttackOutcomes.Run),
+        ("handed gear fits its slots and the tool power it reads is the game's own gate", VerifyHandedGear.Run),
         ("a movement failure is classified as what it was", VerifyMovementFailures.Run),
         ("a route proves it can come home as well as go", VerifyRoundTripEvidence.Run),
         ("combat keeps its purpose across a substituted enemy", VerifyCombatPurpose.Run),
