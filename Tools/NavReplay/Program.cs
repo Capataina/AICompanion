@@ -41,13 +41,40 @@ EmitLedgerRows.ResetBeforeCase = keepProductionAllowances =>
 };
 
 if (args.Length == 1 && args[0] == "--self-test")
+    // Neither case names an allowance mode, because neither lifts one: the deadline switch below is
+    // set for the replay modes and not for the self-test, whose own fixtures include the ones that
+    // exist to tell an unfinished search from exhausted terrain.
     return EmitLedgerRows.Case("nav-replay", "NavReplay", "the portable movement core keeps its state, safety, retention and policy contracts",
-        VerifyMovementContracts.Run);
+            VerifyMovementContracts.Run)
+        + EmitLedgerRows.Case("nav-replay", "NavReplay", "the corpus mirror is exact and a reduction preserves the failure it shrank",
+            VerifyMirrorAndShrink.Run,
+            killedBy: "a reflection about the wrong column, an unpadded short row, or a reduction that keeps the file small and loses the failure");
+
+// Every millisecond allowance in the planning core is lifted for the replay modes below, and that
+// is what makes the corpus an oracle rather than a measurement of the machine. `AStar.Find` and
+// `AStar.Region` both turn their budget into a wall-clock deadline through `LimitPlanningWork`, so
+// without this a search under load reaches less of the world than the same search on an idle
+// machine — and a mirror relation checked against an oracle that disagrees with itself is a test of
+// the oracle. It held before only by the accident that nothing in this tool ever set
+// `AStar.MsBudget`, which is a static any future caller could leave behind; now it is a property of
+// the modes that need it. The work-count limits each query carries are untouched, so a search still
+// stops, deterministically.
+//
+// It is set here rather than at the top of the file, and that placement is load-bearing: the
+// contract suite above owns fixtures that exist to tell an unfinished search from exhausted
+// terrain, and lifting the deadline under them makes the distinction they check impossible to
+// express. A deadline fixture is one of the few things that legitimately reads a clock.
+LimitPlanningWork.Unbounded = true;
 
 int failed = 0, passed = 0, sealedCount = 0, skipped = 0, missing = 0;
 int churnTiles = 0, churnWrong = 0;
 int followPassed = 0, followPartial = 0, followFailed = 0;
+int mirrorAgreed = 0, mirrorDisagreed = 0;
 bool traceJump = false, churn = false, follow = false;
+// --mirror: every block run twice, once as captured and once reflected left to right, with the two
+// verdicts required to agree. Nothing about the world prefers a direction, so a disagreement is an
+// asymmetry in our own code and is a row rather than a coincidence somebody notices.
+bool mirror = false;
 // --compare-jump FROMX,FROMY,TOX,TOY: the take-off tile and the landing tile of one jump edge,
 // and --compare-ticks prints every tick of every run rather than the summary alone.
 (Point from, Point to)? compareJump = null;
@@ -56,6 +83,13 @@ bool compareVerbose = false;
 // share that survives is the offline twin of the game census's jump completion rate.
 bool auditJumps = false;
 var auditTotal = new CompareJumpPaths.Audit();
+// --shrink <scenario>: delta debugging over the tiles, keeping the failure's signature.
+string? shrink = null;
+int shrinkBudget = 3000;
+// --extract-scenario <capture.tsv> <tick>: a window around the companion at that tick, cut from the
+// capture's own terrain snapshots into a committed-format scenario.
+(string capture, int tick)? extract = null;
+int extractWidth = 48, extractHeight = 32;
 // The sideways speed the body carried into the recorded entry; a plan dump's npcbox records the
 // rectangle and not the velocity, so it is supplied rather than guessed at.
 float entryVx = 0f;
@@ -103,6 +137,29 @@ for (int i = 0; i < args.Length; i++)
         compareVerbose = true;
     else if (arg == "--audit-jumps")
         auditJumps = true;
+    else if (arg == "--mirror")
+        mirror = true;
+    else if (arg == "--shrink" && i + 1 < args.Length)
+    {
+        shrink = args[i + 1];
+        i++;
+    }
+    else if (arg == "--shrink-budget" && i + 1 < args.Length && int.TryParse(args[i + 1], out int budget))
+    {
+        shrinkBudget = budget;
+        i++;
+    }
+    else if (arg == "--extract-scenario" && i + 2 < args.Length && int.TryParse(args[i + 2], out int extractTick))
+    {
+        extract = (args[i + 1], extractTick);
+        i += 2;
+    }
+    else if (arg == "--size" && i + 1 < args.Length && args[i + 1].Split('x') is [var sw, var sh] && int.TryParse(sw, out int swi) && int.TryParse(sh, out int shi))
+    {
+        extractWidth = swi;
+        extractHeight = shi;
+        i++;
+    }
     else if (arg == "--entry-vx" && i + 1 < args.Length && float.TryParse(args[i + 1], NumberStyles.Float, CultureInfo.InvariantCulture, out float evx))
     {
         entryVx = evx;
@@ -138,6 +195,66 @@ for (int i = 0; i < args.Length; i++)
         missing++;
     }
 }
+
+// --extract-scenario runs before the file list is consulted, because its input is a capture rather
+// than a scenario and its output is the scenario everything else takes for granted.
+if (extract is (string capturePath, int captureTick))
+{
+    if (!File.Exists(capturePath))
+    {
+        Console.Error.WriteLine($"no such capture: {capturePath}");
+        EmitLedgerRows.Error("nav-replay", "corpus", "a capture becomes a scenario", $"no such capture: {capturePath}");
+        return 2;
+    }
+    try
+    {
+        ExtractScenarioFromCapture.Extract cut = ExtractScenarioFromCapture.Run(capturePath, captureTick, extractWidth, extractHeight, null, Console.WriteLine);
+        Console.WriteLine($"extracted {cut.Width}x{cut.Height} around {ReplayOneBlock.Fmt(cut.Start)} at tick {cut.Tick}: "
+            + $"goal {ReplayOneBlock.Fmt(cut.Goal)}, player {ReplayOneBlock.Fmt(cut.Player)}, {cut.TrailLength} trail tiles, "
+            + $"{cut.Snapshots} snapshots covering {cut.Known} of {cut.Width * cut.Height} tiles ({cut.Coverage:F1}%) as last written, the rest closed, "
+            + $"oldest contributing snapshot {cut.OldestAgeSeconds:F1}s before the tick");
+        EmitLedgerRows.Measure("nav-replay", "corpus", "extracted-window-coverage", cut.Coverage, "%", "up",
+            mode: "unbounded-allowances", message: $"{Path.GetFileName(cut.Path)}: {cut.Known} of {cut.Width * cut.Height} tiles carried by {cut.Snapshots} snapshots");
+        return 0;
+    }
+    catch (Exception e) when (e is IOException or InvalidDataException or KeyNotFoundException)
+    {
+        Console.Error.WriteLine($"extract-scenario: {e.Message}");
+        EmitLedgerRows.Error("nav-replay", "corpus", "a capture becomes a scenario", e.Message);
+        return 1;
+    }
+}
+
+if (shrink is string shrinkPath)
+{
+    if (!File.Exists(shrinkPath))
+    {
+        Console.Error.WriteLine($"no such scenario: {shrinkPath}");
+        return 2;
+    }
+    ShrinkFailingScenario.Result? reduced = ShrinkFailingScenario.Run(shrinkPath, follow, shrinkBudget, Console.WriteLine);
+    if (reduced is not ShrinkFailingScenario.Result done)
+    {
+        // A passing scenario is refused rather than minimised. Delta debugging needs a failure to
+        // preserve, and reducing until the answer changes would produce a file that fails for a
+        // reason the original never had.
+        Console.WriteLine($"shrink {Path.GetFileName(shrinkPath)}: every block reaches its goal, so there is no failure to reduce");
+        EmitLedgerRows.Skipped("nav-replay", "corpus", $"reduce {Path.GetFileName(shrinkPath)} to its smallest failing window",
+            "no block in the file fails, and a passing scenario has no signature to preserve");
+        return 0;
+    }
+    Console.WriteLine($"shrink {Path.GetFileName(shrinkPath)} -> {done.Path}");
+    Console.WriteLine($"     signature:  {done.Signature}");
+    Console.WriteLine($"     window:     {done.BeforeWidth}x{done.BeforeHeight} -> {done.AfterWidth}x{done.AfterHeight}");
+    Console.WriteLine($"     tiles:      {done.BeforeTiles} -> {done.AfterTiles}");
+    Console.WriteLine($"     trail:      {done.BeforeTrail} -> {done.AfterTrail}");
+    Console.WriteLine($"     transforms: {done.Transforms}");
+    Console.WriteLine($"     oracle:     {done.OracleCalls} calls{(done.BudgetSpent ? $", budget of {shrinkBudget} spent — the result is 1-minimal for the reductions it reached and no further" : "")}");
+    EmitLedgerRows.Measure("nav-replay", "corpus", $"shrunk-tiles-{Path.GetFileNameWithoutExtension(shrinkPath)}", done.AfterTiles, "tiles", "down",
+        mode: "unbounded-allowances", message: $"reduced from {done.BeforeTiles} keeping the signature {done.Signature} in {done.OracleCalls} oracle calls");
+    return 0;
+}
+
 if (files.Count == 0)
 {
     Console.Error.WriteLine("usage: NavReplay <scenario.txt | folder> ...");
@@ -147,246 +264,129 @@ files.Sort(StringComparer.Ordinal);
 
 foreach (string file in files)
 {
-    foreach ((int index, List<string> block) in Blocks(File.ReadAllLines(file)))
+    foreach ((int index, List<string> block) in ReplayOneBlock.Blocks(File.ReadAllLines(file)))
     {
-        var world = TextTileWorld.Parse(block, out string header, out List<string> extras);
-        NavGrid.World = world;
-        RememberExecutedRoutes.World.Clear();
-        // Every block is its own world, and the edge cache remembers the last one's tiles.
-        AStar.InvalidateEdges();
-        AStar.AllowLava = false;
-        AStar.Avoid.Clear();
         string name = $"{Path.GetFileName(file)}#{index}";
 
-        Point? start = world.Markers.TryGetValue('S', out Point s) ? s : world.Markers.TryGetValue('N', out Point n0) ? n0 : null;
-        Point? goal = world.Markers.TryGetValue('G', out Point g) ? g : null;
-        Point? player = world.Markers.TryGetValue('P', out Point p) ? p : null;
-        // The header carries the recorded request in full; the grid only carries what the window
-        // captured and what no other marker hid. A goal the header names but the window does not
-        // hold is untestable, never a pass to the player's tile instead.
-        Point? headerGoal = HeaderPoint(header, "goal");
-        Point? headerStart = HeaderPoint(header, "start");
-        goal ??= headerGoal ?? (headerStart == null && player != null ? player : null);
-        start ??= headerStart;
-        // After the goal is settled, deliberately: the header's player must not become a goal for a
-        // block that names no start, which is what the line above uses the marker player for. A
-        // hand-cut fixture whose player stands on the goal tile can carry only one glyph there, so
-        // its player exists in the header alone, and the flood lines below need him or the block
-        // reads as having no player at all.
-        player ??= HeaderPoint(header, "player");
-        if (start == null || goal == null)
+        // --edges, --audit-jumps and the two traces are focused instruments that answer about one
+        // tile or one edge rather than about the block's route, so each parses the world itself and
+        // leaves before the plan runs.
+        if (edgesFrom != null || auditJumps || compareJump != null || traceJump || traceWalkFrom != null)
         {
-            Console.WriteLine($"SKIP {name}: no start or goal ({header})");
-            skipped++;
-            continue;
-        }
-        if (!world.InWorld(goal.Value.X, goal.Value.Y))
-        {
-            Console.WriteLine($"SKIP {name}: recorded goal {Fmt(goal.Value)} is outside the captured window ({header})");
-            skipped++;
-            continue;
-        }
-
-        // --edges X,Y: every edge each traversal proves out of that tile in this block's world,
-        // which is the planner's own answer to "what can the body do from here".
-        if (edgesFrom is Point node)
-        {
-            BodyPhysics.Pose? here = NavGrid.StandAt(node.X, node.Y, false);
-            Console.WriteLine($"edges from {Fmt(node)} in {name}: {(here is BodyPhysics.Pose hp ? $"pose left {hp.Left} bottom {hp.Bottom}" : "no pose (not a node)")}");
-            foreach (Traversal traversal in Traversal.Planning)
-                foreach (NavEdge edge in traversal.Candidates(NavNode.At(node), here, false))
-                    Console.WriteLine($"   {edge.Step.Kind,-11} -> {Fmt(edge.Step.Tile)}  cost {edge.Move:F2} fall {edge.Fall} ticks {edge.Step.Ticks} scale {edge.Step.JumpScale:F2} launchVx {edge.Step.LaunchVx:F2} back {edge.Step.RunUpBack:F0} steerX {edge.Step.SteerX:F1}");
-            skipped++;
-            continue;
-        }
-
-        if (auditJumps)
-        {
-            var offenders = new List<string>();
-            CompareJumpPaths.Audit audit = CompareJumpPaths.AuditWindow(world, world.OriginX, world.OriginY, world.Width, world.Height, offenders.Add);
-            auditTotal += audit;
-            Console.WriteLine($"audit {name}: {audit.Proven} jumps proven, {audit.Flown} flown to their tile, {audit.SatisfiedAtEntry} satisfied at entry, {audit.CompletedBySlack} closed by the arrival slack elsewhere, {audit.Unflyable} unflyable ({audit.FlownShare * 100:F1}% flown)");
-            foreach (string line in offenders)
-                Console.WriteLine($"   unflyable {line}");
-            skipped++;
-            continue;
-        }
-
-        // --compare-jump A,B,C,D: the proof path and the execution path over the one jump edge
-        // between those tiles, aligned on their take-off ticks. A proven edge the execution path
-        // cannot fly is the defect this reads; the block's npcbox supplies the live entry when the
-        // dump carries one, so a recorded failure is replayed from the body the game actually had.
-        if (compareJump is (Point cfrom, Point cto))
-        {
-            // An explicit entry outranks the block's own body, and it is used wherever the body
-            // stands rather than only on the edge's take-off tile. A rejection recorded in play
-            // names the state the macro proof refused, and that state is usually a tile short of
-            // the take-off with the body still moving — which is precisely the case worth
-            // replaying and precisely the one the header pose could never express.
-            BodyState? liveEntry = entryState
-                ?? (HeaderPose(header) is BodyPhysics.Pose lp
-                    ? new BodyState(lp.Left, lp.Bottom, entryVx, 0f, true, Capabilities: MovementCapabilities.Basic)
-                    : null);
-            switch (CompareJumpPaths.Compare(world, name, cfrom, cto, liveEntry, compareVerbose, entryState != null))
-            {
-                case true: passed++; break;
-                case false: failed++; break;
-                case null: skipped++; break;
-            }
-            continue;
-        }
-
-        // --trace-jump: the simulated jump from S to G, tick by tick, from standing and from a
-        // run-up, so a jump the planner refuses can be read as the arc the body would fly.
-        if (traceJump)
-        {
-            // A trace passes when either start lands on the goal tile, fails when neither does,
-            // and skips when there is no pose to jump from, so the exit code means the same thing
-            // it means for a replay.
-            switch (TraceJump(start.Value, goal.Value))
-            {
-                case true: passed++; break;
-                case false: failed++; break;
-                case null: skipped++; break;
-            }
-            continue;
-        }
-
-        // --trace-walk X,Y,DIR: the body driven from that tile's pose that way at the walk speed
-        // through its own tick, as the walk traversal proves its edges, so a walk the planner
-        // refuses can be read as the ticks the body took. Given as a tile and not as a marker,
-        // because a marker glyph written into the map replaces the tile's shape.
-        if (traceWalkFrom is Point walkFrom)
-        {
-            TraceWalk(walkFrom, traceWalkDir);
-            skipped++;
-            continue;
-        }
-
-        Point? from = Ground(world, start.Value);
-        Search main = Run(from, goal.Value);
-        Search toPlayer = player is Point pl && pl != goal ? Run(from, pl) : main;
-        bool pass = main.Pass;
-
-        // The positioner's own question, with the positioner's own budget: is the goal inside the
-        // region the companion can flood to from its feet? "out" with a complete region is a goal
-        // that can never be reached; "out" with the budget spent is a goal the flood did not get to.
-        // It is answered before the first line prints, because the first line is the verdict.
-        HashSet<Point> region = new();
-        bool complete = false, sealedBlock = false;
-        string goalIn = "", playerIn = "", pocket = "", homeIn = "";
-        if (from is Point f)
-        {
-            // The sealed verdicts read whether a flood ever touched the window's edge, and a
-            // flood served from the edge cache never reads the world at all; each flood that
-            // answers that question starts from an empty cache.
+            var probeWorld = TextTileWorld.Parse(block, out string probeHeader, out _);
+            NavGrid.World = probeWorld;
+            RememberExecutedRoutes.World.Clear();
             AStar.InvalidateEdges();
-            world.AskedOutside = false;
-            region = AStar.Region(f, AICompanion.Companion.Brain.Infrastructure.Selection.Weights.ReachFloodBudget, out complete);
-            bool startClipped = world.AskedOutside;
-            goalIn = region.Contains(goal.Value) ? "in" : "out";
-            playerIn = player is Point pl3 ? (region.Contains(pl3) ? ", player in" : ", player out") : "";
-            // The same flood again with the edges that have no way back refused, which is the one
-            // the positioner actually scores against: a tile in the first region and not this one
-            // is somewhere the body can get to and not come home from, so it is offered only when
-            // nothing returnable is left. Reported beside the raw region rather than replacing it,
-            // because SEALED still has to mean what it has always meant, a region the world itself
-            // closes, and a region that closes only because its exit is one-way is a different fact.
-            HashSet<Point> returnable = AStar.Region(f, AICompanion.Companion.Brain.Infrastructure.Selection.Weights.ReachFloodBudget, out _, refuseOneWay: true);
-            // And the positioner's own escape hatch, modelled here or this line reports a region the
-            // positioner does not use: a returnable region that does not hold the player is the wrong
-            // map, because being stuck is having no way to the player and not having no way back, so
-            // the positioner floods again without the refusal. Printed as "player only via a one-way
-            // drop" because that is the whole reason the returnable region was discarded.
-            bool playerOut = player is Point pl4 && region.Contains(pl4) && !returnable.Contains(pl4);
-            homeIn = playerOut ? "; the player is reachable only through an edge with no way back, so the positioner floods without the refusal and scores the raw region"
-                : returnable.Count == region.Count ? ""
-                : $"; {returnable.Count} of them returnable, goal {(returnable.Contains(goal.Value) ? "in" : "out")}";
-            // A complete region with the goal out is one of three things, and the window's edge
-            // tells them apart. The flood records whether it ever read a tile outside the window
-            // (the edge is a wall only to the tool), so a flood that never asked is a region the
-            // world itself closes. Closed around the start it is a pocket with no way out, which
-            // is a rescue's job and not the planner's (Caner, 2026-09-08: a pit too deep to jump
-            // out of is not a pathfinding failure); closed around the goal it is a spot the
-            // positioner should never have offered (AIC-135's finding); clipped on both sides it
-            // is undecidable as cut and wants reshape.py --pad.
-            if (!pass && complete && goalIn == "out")
-            {
-                AStar.InvalidateEdges();
-                world.AskedOutside = false;
-                HashSet<Point> goalRegion = Ground(world, goal.Value) is Point goalFeet
-                    ? AStar.Region(goalFeet, AICompanion.Companion.Brain.Infrastructure.Selection.Weights.ReachFloodBudget, out _)
-                    : new HashSet<Point>();
-                bool goalClipped = world.AskedOutside;
-                pocket = !startClipped ? "; SEALED START IN MODEL: the graph closes inside the capture; physical impossibility is not established"
-                    : !goalClipped ? $"; SEALED GOAL IN MODEL: the goal's region ({goalRegion.Count} tiles) closes inside the capture; inspect terrain and movement coverage"
-                    : "; both regions reach the window's edge: undecidable as cut, widen it with reshape.py --pad";
-                // A sealed block is a verdict, not a failure: the planner answered "no route" and
-                // the world agrees, so it counts on its own and does not fail the run.
-                sealedBlock = !startClipped || !goalClipped;
-            }
-        }
-        if (pass) passed++; else if (sealedBlock) sealedCount++; else failed++;
+            AStar.AllowLava = false;
+            AStar.Avoid.Clear();
 
-        Console.WriteLine($"{(pass ? "PASS" : sealedBlock ? "SEALED" : "FAIL")} {name}: {header}");
-        Console.WriteLine($"     recorded goal: start {Fmt(start.Value)} -> {(from == null ? "no standable tile" : Fmt(from.Value))}, goal {Fmt(goal.Value)}, {Describe(main)}");
-        if (player is Point pl2 && pl2 != goal)
-            Console.WriteLine($"     player:        {(toPlayer.Pass ? "reached" : "NOT reached")} at {Fmt(pl2)}, {Describe(toPlayer)}");
-        if (from != null)
-        {
-            Console.WriteLine($"     reach flood:   {region.Count} tiles, {(complete ? "complete" : "budget spent")}, goal {goalIn}{playerIn}{homeIn}{pocket}");
-            // The player's trail is the design's own pass line: every tile the player's feet were
-            // in is a tile the companion must be able to stand in and get to. The first tile the
-            // grid refuses names the missing link; a tile outside a complete region is refused too.
-            foreach (string extra in extras)
+            if (edgesFrom is Point node)
             {
-                if (!extra.StartsWith("trail "))
-                    continue;
-                int inWindow = 0, total = 0, unknown = 0, malformed = 0;
-                string? refused = null;
-                foreach (string pair in extra[6..].Split(' ', StringSplitOptions.RemoveEmptyEntries))
+                BodyPhysics.Pose? here = NavGrid.StandAt(node.X, node.Y, false);
+                Console.WriteLine($"edges from {ReplayOneBlock.Fmt(node)} in {name}: {(here is BodyPhysics.Pose hp ? $"pose left {hp.Left} bottom {hp.Bottom}" : "no pose (not a node)")}");
+                foreach (Traversal traversal in Traversal.Planning)
+                    foreach (NavEdge edge in traversal.Candidates(NavNode.At(node), here, false))
+                        Console.WriteLine($"   {edge.Step.Kind,-11} -> {ReplayOneBlock.Fmt(edge.Step.Tile)}  cost {edge.Move:F2} fall {edge.Fall} ticks {edge.Step.Ticks} scale {edge.Step.JumpScale:F2} launchVx {edge.Step.LaunchVx:F2} back {edge.Step.RunUpBack:F0} steerX {edge.Step.SteerX:F1}");
+                skipped++;
+                continue;
+            }
+
+            if (auditJumps)
+            {
+                var offenders = new List<string>();
+                CompareJumpPaths.Audit audit = CompareJumpPaths.AuditWindow(probeWorld, probeWorld.OriginX, probeWorld.OriginY, probeWorld.Width, probeWorld.Height, offenders.Add);
+                auditTotal += audit;
+                Console.WriteLine($"audit {name}: {audit.Proven} jumps proven, {audit.Flown} flown to their tile, {audit.SatisfiedAtEntry} satisfied at entry, {audit.CompletedBySlack} closed by the arrival slack elsewhere, {audit.Unflyable} unflyable ({audit.FlownShare * 100:F1}% flown)");
+                foreach (string line in offenders)
+                    Console.WriteLine($"   unflyable {line}");
+                skipped++;
+                continue;
+            }
+
+            // --compare-jump A,B,C,D: the proof path and the execution path over the one jump edge
+            // between those tiles, aligned on their take-off ticks. A proven edge the execution path
+            // cannot fly is the defect this reads; the block's npcbox supplies the live entry when the
+            // dump carries one, so a recorded failure is replayed from the body the game actually had.
+            if (compareJump is (Point cfrom, Point cto))
+            {
+                // An explicit entry outranks the block's own body, and it is used wherever the body
+                // stands rather than only on the edge's take-off tile. A rejection recorded in play
+                // names the state the macro proof refused, and that state is usually a tile short of
+                // the take-off with the body still moving — which is precisely the case worth
+                // replaying and precisely the one the header pose could never express.
+                BodyState? liveEntry = entryState
+                    ?? (ReplayOneBlock.HeaderPose(probeHeader) is BodyPhysics.Pose lp
+                        ? new BodyState(lp.Left, lp.Bottom, entryVx, 0f, true, Capabilities: MovementCapabilities.Basic)
+                        : null);
+                switch (CompareJumpPaths.Compare(probeWorld, name, cfrom, cto, liveEntry, compareVerbose, entryState != null))
                 {
-                    string[] xy = pair.Split(',');
-                    if (xy.Length != 2 || !int.TryParse(xy[0], out int tx) || !int.TryParse(xy[1], out int ty))
-                    {
-                        malformed++;
-                        continue;
-                    }
-                    var tile = new Point(tx, ty);
-                    total++;
-                    if (!world.InWorld(tile.X, tile.Y))
-                        continue;
-                    inWindow++;
-                    if (refused != null)
-                        continue;
-                    if (!NavGrid.IsStandable(tile.X, tile.Y))
-                        refused = $"{Fmt(tile)} not standable";
-                    else if (complete && !region.Contains(tile))
-                        refused = $"{Fmt(tile)} unreachable from the start";
-                    else if (!complete && !region.Contains(tile))
-                        unknown++;
+                    case true: passed++; break;
+                    case false: failed++; break;
+                    case null: skipped++; break;
                 }
-                string verdict = refused != null ? "first refused " + refused
-                    : inWindow == 0 ? "nothing to check"
-                    : unknown > 0 ? $"every one standable, {unknown} beyond the flood's budget so unchecked for reach"
-                    : "every one standable and reachable";
-                Console.WriteLine($"     trail:         {inWindow} of {total} tiles in the window, {verdict}{(malformed > 0 ? $"; {malformed} malformed pair(s) ignored" : "")}");
+                continue;
             }
-        }
-        Console.WriteLine(Draw(world, main.Path, start.Value, goal.Value, pass ? null : main.Closed));
 
-        // --follow: the path is walked. The real navigator is run tick by tick over the body's
-        // own motion rule from the start pose, its controls applied by BodyMotion.Step, until it
-        // arrives, a step faults, the body is stuck, or the allowance runs out; every step it
-        // performs is printed with what was proven against what happened. A block that plans and
-        // does not follow is the class of defect the traversals exist to end, and this is the
-        // line that shows it without a game running.
-        if (follow && from is Point followFrom && main.Path != null)
+            // --trace-jump: the simulated jump from S to G, tick by tick, from standing and from a
+            // run-up, so a jump the planner refuses can be read as the arc the body would fly.
+            if (traceJump)
+            {
+                Point? traceStart = probeWorld.Markers.TryGetValue('S', out Point ts) ? ts
+                    : probeWorld.Markers.TryGetValue('N', out Point tn) ? tn : ReplayOneBlock.HeaderPoint(probeHeader, "start");
+                Point? traceGoal = probeWorld.Markers.TryGetValue('G', out Point tg) ? tg : ReplayOneBlock.HeaderPoint(probeHeader, "goal");
+                if (traceStart == null || traceGoal == null)
+                {
+                    Console.WriteLine($"SKIP {name}: no start or goal ({probeHeader})");
+                    skipped++;
+                    continue;
+                }
+                // A trace passes when either start lands on the goal tile, fails when neither does,
+                // and skips when there is no pose to jump from, so the exit code means the same thing
+                // it means for a replay.
+                switch (TraceJump(traceStart.Value, traceGoal.Value))
+                {
+                    case true: passed++; break;
+                    case false: failed++; break;
+                    case null: skipped++; break;
+                }
+                continue;
+            }
+
+            // --trace-walk X,Y,DIR: the body driven from that tile's pose that way at the walk speed
+            // through its own tick, as the walk traversal proves its edges, so a walk the planner
+            // refuses can be read as the ticks the body took. Given as a tile and not as a marker,
+            // because a marker glyph written into the map replaces the tile's shape.
+            TraceWalk(traceWalkFrom!.Value, traceWalkDir);
+            skipped++;
+            continue;
+        }
+
+        ReplayOneBlock.Outcome result = ReplayOneBlock.Evaluate(block, name, follow, followTickWindow);
+        if (result.Skipped)
         {
-            (FollowOutcome outcome, string verdict, List<string> edges) = FollowPath(world, followFrom, goal.Value, followTickWindow, main.Path.Partial ? main.Path.Goal : null, HeaderPose(header));
+            Console.WriteLine($"SKIP {name}: {result.Skip}");
+            skipped++;
+            continue;
+        }
+        if (result.Passed) passed++; else if (result.Sealed) sealedCount++; else failed++;
+
+        Console.WriteLine($"{result.Class} {name}: {result.Header}");
+        Console.WriteLine($"     recorded goal: start {ReplayOneBlock.Fmt(result.Start)} -> {(result.From == null ? "no standable tile" : ReplayOneBlock.Fmt(result.From.Value))}, goal {ReplayOneBlock.Fmt(result.Goal)}, {ReplayOneBlock.Describe(result.Main)}");
+        if (result.Player is Point pl2 && pl2 != result.Goal)
+            Console.WriteLine($"     player:        {(result.ToPlayer.Pass ? "reached" : "NOT reached")} at {ReplayOneBlock.Fmt(pl2)}, {ReplayOneBlock.Describe(result.ToPlayer)}");
+        if (result.From != null)
+        {
+            Console.WriteLine($"     reach flood:   {result.Region.Count} tiles, {(result.RegionComplete ? "complete" : "budget spent")}, goal {result.GoalIn}{result.PlayerIn}{result.HomeIn}{result.Pocket}");
+            foreach (string trail in result.TrailLines)
+                Console.WriteLine($"     trail:         {trail}");
+        }
+        Console.WriteLine(ReplayOneBlock.Draw(result.World, result.Main.Path, result.Start, result.Goal, result.Passed ? null : result.Main.Closed));
+
+        if (result.Follow is FollowOutcome outcome)
+        {
             if (outcome == FollowOutcome.Walked) followPassed++; else if (outcome == FollowOutcome.PartialEnd) followPartial++; else followFailed++;
-            Console.WriteLine($"     follow:        {outcome switch { FollowOutcome.Walked => "PASS", FollowOutcome.PartialEnd => "PARTIAL", _ => "FAIL" }}, {verdict}");
-            foreach (string line in edges)
+            Console.WriteLine($"     follow:        {outcome switch { FollowOutcome.Walked => "PASS", FollowOutcome.PartialEnd => "PARTIAL", _ => "FAIL" }}, {result.FollowVerdict}");
+            foreach (string line in result.FollowEdges)
                 Console.WriteLine($"       {line}");
         }
 
@@ -396,40 +396,108 @@ foreach (string file in files)
         // broken in turn, the planner is told the way the game tells it, and the plan served
         // from the warm cache must equal the plan from an empty one; a difference is an edge the
         // box kept that the broken tile should have taken with it.
-        if (churn && from is Point cf && main.Path is NavPath found)
+        if (churn && result.From is Point cf && result.Main.Path is NavPath found)
         {
             foreach (Point tile in ChurnTiles(found))
             {
-                if (!world.InWorld(tile.X, tile.Y))
+                if (!result.World.InWorld(tile.X, tile.Y))
                     continue;
-                char was = world.Glyph(tile.X, tile.Y);
-                world.Set(tile.X, tile.Y, '.');
+                char was = result.World.Glyph(tile.X, tile.Y);
+                result.World.Set(tile.X, tile.Y, '.');
                 AStar.TileChanged(tile.X, tile.Y);
-                string warm = Signature(cf, goal.Value);
+                string warm = Signature(cf, result.Goal);
                 AStar.InvalidateEdges();
-                string cold = Signature(cf, goal.Value);
-                world.Set(tile.X, tile.Y, was);
+                string cold = Signature(cf, result.Goal);
+                result.World.Set(tile.X, tile.Y, was);
                 AStar.TileChanged(tile.X, tile.Y);
                 churnTiles++;
                 if (warm != cold)
                 {
                     churnWrong++;
-                    Console.WriteLine($"     CHURN {name}: breaking {Fmt(tile)} ('{was}') left a stale edge: warm {warm} vs cold {cold}");
+                    Console.WriteLine($"     CHURN {name}: breaking {ReplayOneBlock.Fmt(tile)} ('{was}') left a stale edge: warm {warm} vs cold {cold}");
                 }
             }
+        }
+
+        // --mirror: the same block reflected left to right and run again, on a world rebuilt from
+        // scratch. The row is the relation rather than the reflection's own verdict: a SEALED block
+        // that is sealed both ways is the corpus behaving, and a block that walks one way and not
+        // the other is the finding, whichever way round it is.
+        //
+        // It runs last in the block, after churn, because evaluating the reflection repoints the
+        // grid and the edge cache at the mirrored world: anything below it that still meant the
+        // captured world would silently be asking about the reflection.
+        if (mirror)
+        {
+            ReplayOneBlock.Outcome reflected = ReplayOneBlock.Evaluate(MirrorScenarioWorlds.Mirror(block), name + " mirrored", follow, (0, -1));
+            bool sameClass = result.Class == reflected.Class;
+            bool sameFollow = result.Follow == reflected.Follow;
+            bool agrees = sameClass && sameFollow;
+            string detail = $"{result.Class}{(result.Follow is { } fo ? $"/{fo}" : "")} as captured against {reflected.Class}{(reflected.Follow is { } rf ? $"/{rf}" : "")} reflected"
+                + (result.FirstRefusedTrail is { } t ? $"; first refused as captured {t}" : "")
+                + (reflected.FirstRefusedTrail is { } rt ? $"; first refused reflected {rt}" : "");
+            Console.WriteLine($"     mirror:        {(agrees ? "AGREES" : "DISAGREES")}, {detail}");
+            // A disagreement prints both sides' root and both floods, because the relation says only
+            // that the two answers differ and the next question is always which half differs. The
+            // root separates two findings with different owners: `Ground` ends in `NearestStandable`,
+            // whose neighbourhood order is not itself mirror-symmetric, so a reflected start can
+            // settle on a tile that is not the reflection of the original's — and then the asymmetry
+            // is in how a root is chosen rather than in what the flood did from it. With the roots
+            // agreeing, the region sizes are the finding, and a reflection reaching two orders of
+            // magnitude more tiles from the mirror image of the same root is a direction-dependent
+            // traversal rule rather than anything about the terrain.
+            if (!agrees)
+            {
+                Console.WriteLine($"       as captured  root {(result.From is Point of ? ReplayOneBlock.Fmt(of) : "none")}, {result.Region.Count} tiles, {(result.RegionComplete ? "complete" : "budget spent")}, goal {result.GoalIn}{result.PlayerIn}{result.Pocket}");
+                Console.WriteLine($"       reflected    root {(reflected.From is Point rfr ? ReplayOneBlock.Fmt(rfr) : "none")}, {reflected.Region.Count} tiles, {(reflected.RegionComplete ? "complete" : "budget spent")}, goal {reflected.GoalIn}{reflected.PlayerIn}{reflected.Pocket}");
+                Console.WriteLine($"       roots agree:  {(result.From is Point a && reflected.From is Point b && MirrorScenarioWorlds.MirrorTile(a.X, result.World.OriginX, result.World.Width) == b.X && a.Y == b.Y ? "yes, the reflected run is rooted in the reflection of the original's tile" : "NO — the two runs are rooted in tiles that are not reflections of each other, so the asymmetry is in how a root is chosen rather than in the verdict")}");
+                // The reflected block is written out so the disagreement is reachable by the focused
+                // instruments. Without it the reflection exists only inside this loop, and the next
+                // reader can see that the two floods differ but cannot ask --edges which edges
+                // either one was offered. It goes to the temp directory rather than beside the
+                // original, because a reflected block is a diagnostic and a file in Tools/Scenarios
+                // is a fixture the whole corpus then replays.
+                string reflectedPath = Path.Combine(Path.GetTempPath(),
+                    // The block index is part of the identity and is kept: a file carrying only the
+                    // scenario's name would be overwritten by the next disagreeing block in it.
+                    $"mirrored-{name.Replace('#', '-').Replace(Path.DirectorySeparatorChar, '-')}.txt");
+                File.WriteAllLines(reflectedPath, MirrorScenarioWorlds.Mirror(block));
+                Console.WriteLine($"       reflected block written to {reflectedPath} — replay it, or point --edges at its root, to see which edges each flood was offered");
+            }
+            if (agrees) mirrorAgreed++; else mirrorDisagreed++;
+            string @case = $"{name} answers the same reflected left to right";
+            const string Killer = "reflecting the tiles without flipping a slope glyph, or about the wrong column";
+            if (agrees)
+                EmitLedgerRows.Pass("nav-replay", "corpus-mirror", @case, detail, mode: "unbounded-allowances", killedBy: Killer);
+            else
+                // Tagged as a known limitation because it is one: the relation found a real
+                // asymmetry on the day it was built, and the tag is what a baseline exemption would
+                // key on if the ledger grows one. Until it does, a disagreement is an ordinary red
+                // and every run carrying it is disqualified as a baseline — which is the honest
+                // cost of the corpus having a defect, and is recorded here rather than hidden by
+                // grading the relation as a measure nobody can fail.
+                EmitLedgerRows.Fail("nav-replay", "corpus-mirror", @case, detail, mode: "unbounded-allowances",
+                    tags: new[] { "known-limitation" }, killedBy: Killer);
         }
     }
 }
 Console.WriteLine($"{passed}/{passed + failed} passed, {sealedCount} model-closed (not proof of physical impossibility), {skipped} skipped, {missing} missing inputs, planner {Timing.PlannerMs:F0} ms in total"
     + (churn ? $"; churn: {churnTiles} tiles broken, {churnWrong} stale plans" : "")
     + (follow ? $"; follow: {followPassed} walked, {followPartial} to a partial plan's end, {followFailed} not" : "")
+    + (mirror ? $"; mirror: {mirrorAgreed} blocks answer the same both ways, {mirrorDisagreed} do not" : "")
     + (auditJumps ? $"; jump proofs: {auditTotal.Proven} proven, {auditTotal.Flown} flown to their tile, {auditTotal.SatisfiedAtEntry} satisfied at entry, {auditTotal.CompletedBySlack} closed by the arrival slack elsewhere, {auditTotal.Unflyable} unflyable ({auditTotal.FlownShare * 100:F1}% flown)" : ""));
 // The corpus as rows. A pass count and a sealed count are two different facts and the ledger keeps
 // them apart: model-closed is a search that proved nothing, never a proof of impossibility, so it
 // is its own verdict rather than a failure or a pass. The counts go in as measures beside them,
 // because "how many scenarios passed" is the number that moves when the planner changes and one
 // exit code cannot carry it.
-if (passed + failed + sealedCount > 0)
+//
+// In mirror mode the aggregate verdict row is deliberately absent. The mirror run's claim is the
+// relation — the same answer both ways — and it already has a row per block; emitting the corpus's
+// own long-standing red beside it would put a permanent `fail` into every run that asks for the
+// mirror, and a run carrying a fail can never be a baseline, which would cost the ledger its whole
+// memory to say something the plain run already says.
+if (passed + failed + sealedCount > 0 && !mirror)
 {
     EmitLedgerRows.Measure("nav-replay", "corpus", "scenarios-passed", passed, "scenarios", "up",
         message: $"out of {passed + failed} executed, with {sealedCount} model-closed and {skipped} skipped");
@@ -440,9 +508,13 @@ if (passed + failed + sealedCount > 0)
     else if (passed > 0)
         EmitLedgerRows.Pass("nav-replay", "corpus", "every corpus scenario reaches its recorded goal", $"{passed} scenario(s)");
 }
-if (follow)
+if (follow && !mirror)
     EmitLedgerRows.Measure("nav-replay", "corpus", "follow-walked", followPassed, "scenarios", "up",
         message: $"{followPartial} reached a budget-cut plan's end and {followFailed} did not walk at all");
+if (mirror)
+    EmitLedgerRows.Measure("nav-replay", "corpus-mirror", "mirror-disagreements", mirrorDisagreed, "scenarios", "down",
+        mode: "unbounded-allowances",
+        message: $"blocks whose verdict changed when the world was reflected, out of {mirrorAgreed + mirrorDisagreed}");
 if (auditJumps)
 {
     // The one property the audit can genuinely fail, as a number rather than a verdict, because a
@@ -460,98 +532,12 @@ if (auditJumps)
 // exists to count, and it is red today with 152 of those outstanding across the corpus.
 if (auditJumps)
     return auditTotal.Unflyable == 0 && missing == 0 ? 0 : 1;
+// The mirror run exits on its own relation for the same reason: the corpus's known incomplete and
+// model-closed cases are its inheritance, and a mode asking "does it answer the same both ways"
+// would otherwise report every one of them as its own failure.
+if (mirror)
+    return mirrorDisagreed == 0 && missing == 0 ? 0 : 1;
 return failed == 0 && skipped == 0 && missing == 0 && passed > 0 && churnWrong == 0 && followFailed == 0 ? 0 : 1;
-
-// The navigator run over the simulated body from a standing start at `from` toward the goal's
-// feet, the way the game runs it: one MoveTo per tick, its controls stepped by BodyMotion. The
-// allowance is generous (a minute of ticks plus a second per planned step), because a slow
-// arrival is a pass and a parked body is the failure. A plan the search cut at its budget
-// promises only its last tile, so a body that ends within a tile of that (standing on it,
-// or on the tile its feet rest in) with no path left has walked what it was given, and is
-// its own outcome rather than a park: the stall is the search's budget (AIC-143), never the
-// follower's.
-static (FollowOutcome, string, List<string>) FollowPath(TextTileWorld world, Point from, Point goal, (int from, int to) window, Point? partialEnd, BodyPhysics.Pose? recorded)
-{
-    var edges = new List<string>();
-    // The recorded pose wins over the proven one whenever the dump carries it. This is the whole
-    // reason a fall-through that hung in play replayed clean for three attempts: StandAt returns
-    // the first of nine sub-tile offsets that fits, so it hands the follower the pose the grid
-    // proved the move from, while the game's body was at whatever offset it drifted to. Starting
-    // from the tile rather than the box measured the planner and never the body.
-    BodyPhysics.Pose? standing = NavGrid.StandAt(from.X, from.Y, false);
-    if ((recorded ?? standing) is not BodyPhysics.Pose pose)
-        return (FollowOutcome.Parked, $"no pose at {Fmt(from)} to start from", edges);
-    if (recorded is BodyPhysics.Pose r && standing is BodyPhysics.Pose sp && MathF.Abs(r.Left - sp.Left) > BodyPhysics.Touch)
-        edges.Add($"start pose: recorded left {r.Left:F1} bottom {r.Bottom:F1}, the grid would have proven from left {sp.Left:F1} — {r.Left - sp.Left:+0.0;-0.0} px apart");
-    Point? to = NavGrid.NearestStandable(goal, 3);
-    if (to == null)
-        return (FollowOutcome.Parked, "no standable goal", edges);
-    Vector2 target = NavGrid.FeetWorld(to.Value);
-    var navigator = new Navigator();
-    BodyState body = BodyState.Standing(pose);
-    int reported = 0, faults = 0;
-    string? firstFault = null;
-    // The last ticks before the first fault, printed with it: the body and what it was asked,
-    // which is the instrument a misland is read from instead of argued about.
-    var recent = new Queue<string>();
-    // Sized once, from the first plan the navigator makes: a minute of ticks plus a second a
-    // step, which an arrival never needs and a parked body always exhausts.
-    int allowance = 3600;
-    bool sized = false;
-    for (int tick = 1; tick <= allowance; tick++)
-    {
-        Controls controls = navigator.MoveTo(body, target);
-        if (tick == 1 && navigator.LastRejection is { } rejection)
-            edges.Add($"initial proof rejected: {rejection.Reason} {rejection.Fault} at predicted tick {rejection.Tick}, entry {rejection.Entry}, predicted {rejection.Predicted}; preparation {navigator.PreparationResult}");
-        if (navigator.EdgeCount > reported && navigator.LastEdge is EdgeReport e)
-        {
-            reported = navigator.EdgeCount;
-            edges.Add($"t{tick,5} {e.Kind,-11} {Fmt(e.From)} -> {Fmt(e.Tile)}  proven {e.Expected,3} ticks, took {e.Actual,3}  {(e.Outcome == TraversalFault.None ? "ok" : e.Outcome.ToString().ToUpperInvariant())}");
-            if (e.Outcome is not (TraversalFault.None or TraversalFault.Interrupted))
-            {
-                faults++;
-                if (firstFault == null)
-                {
-                    firstFault = $"{e.Outcome} on {e.Kind} {Fmt(e.From)} -> {Fmt(e.Tile)} at tick {tick}";
-                    foreach (string line in recent)
-                        edges.Add("   " + line);
-                }
-            }
-        }
-        // In the game two strikes make the brain ask for another spot; here the goal is fixed,
-        // so a third fault is the verdict and not a loop of plans.
-        if (faults >= 3)
-            return (FollowOutcome.Parked, $"faulted three times by tick {tick}, the feet at {Fmt(body.FeetTile)} (first: {firstFault})", edges);
-        // Standing, not merely near: the navigator's own Arrived is a distance to the target, which
-        // a body flying past the goal satisfies in mid-air with steps still unperformed, so it is
-        // not a verdict that every move was made as proven (Codex review of 7525a1b).
-        if (navigator.Arrived && body.OnGround)
-            return (FollowOutcome.Walked, $"arrived in {tick} ticks, {reported} steps performed, {faults} faults{(firstFault != null ? $" (first: {firstFault})" : "")}", edges);
-        if (!sized && navigator.Path is NavPath planned)
-        {
-            allowance += planned.Steps.Count * 60;
-            sized = true;
-        }
-        string stateLine = $"t{tick,5} feet {Fmt(body.FeetTile),-9} left {body.Left,8:F1} bottom {body.Bottom,8:F1} vx {body.Vx,5:F2} vy {body.Vy,5:F2} {(body.OnGround ? "ground" : "air   ")}{(body.CollideX ? " wall" : "")}  ask move {controls.MoveX,5:F2}{(controls.Jump ? $" JUMP x{controls.JumpScale:F2}" : "")}{(controls.FallThrough ? " PRESS" : "")}";
-        if (tick >= window.from && tick <= window.to)
-            Console.WriteLine($"          {stateLine}  step {(navigator.Path is NavPath cur && !cur.Finished ? $"{cur.Current.Kind} {Fmt(cur.Current.From)} -> {Fmt(cur.Current.Tile)}" : "none")}");
-        recent.Enqueue(stateLine);
-        if (tick >= window.from && tick <= window.to)
-            Console.WriteLine($"          attempts: {navigator.EdgeCount} outcomes, {navigator.FaultCount} faults, {navigator.StuckStrikes} strikes, last {navigator.LastFault}, planned {navigator.PlannedThisTick}, plan_ms {navigator.LastPlanMs:F2}");
-        if (recent.Count > 24)
-            recent.Dequeue();
-        body = BodyMotion.Step(world, body, controls);
-        if (body.Stuck)
-            return (FollowOutcome.Parked, $"the body is stuck inside a shape at feet {Fmt(body.FeetTile)} on tick {tick}", edges);
-    }
-    bool pathless = navigator.Path is not NavPath p || p.Finished;
-    if (pathless && partialEnd is Point end && Math.Abs(body.FeetTile.X - end.X) <= 1 && Math.Abs(body.FeetTile.Y - end.Y) <= 1)
-        return (FollowOutcome.PartialEnd, $"walked the partial plan to its end at {Fmt(end)}, the feet at {Fmt(body.FeetTile)} after {reported} steps, {faults} faults{(firstFault != null ? $" (first: {firstFault})" : "")}; the goal lies past the search's budget", edges);
-    string where = pathless
-        ? "with no path"
-        : $"on step {navigator.Path!.Index + 1}/{navigator.Path.Steps.Count}, a {navigator.Path.Current.Kind} {Fmt(navigator.Path.Current.From)} -> {Fmt(navigator.Path.Current.Tile)}";
-    return (FollowOutcome.Parked, $"never arrived: after {allowance} ticks the feet are at {Fmt(body.FeetTile)} {where}, {faults} faults{(firstFault != null ? $" (first: {firstFault})" : "")}", edges);
-}
 
 // The tiles a path depends on: every step's tile and the tile under it (the support the
 // step stands on), which is what a pickaxe following the route would break.
@@ -585,7 +571,7 @@ static string Signature(Point from, Point goal)
         return "none";
     var sb = new System.Text.StringBuilder(path.Partial ? "partial " : "");
     foreach (NavStep step in path.Steps)
-        sb.Append(step.Kind.ToString()[0]).Append(Fmt(step.Tile)).Append('<').Append(Fmt(step.From))
+        sb.Append(step.Kind.ToString()[0]).Append(ReplayOneBlock.Fmt(step.Tile)).Append('<').Append(ReplayOneBlock.Fmt(step.From))
           .Append('/').Append(step.JumpScale.ToString("0.##")).Append('/').Append(step.LaunchVx.ToString("0.##")).Append('/').Append(step.RunUpBack.ToString("0.#")).Append('/').Append(step.SteerX.ToString("0.#"))
           .Append('/').Append(step.Ticks).Append(step.FromRest ? "/rest" : "/run")
           .Append('/').Append(step.Mobility.AirJumpsLeft).Append(step.Mobility.Latched ? "L" : "-").Append(step.Mobility.DashCooldown)
@@ -593,13 +579,11 @@ static string Signature(Point from, Point goal)
     return sb.ToString().TrimEnd();
 }
 
-static string Fmt(Point p) => $"{p.X},{p.Y}";
-
 static bool? TraceJump(Point start, Point goal)
 {
     if (NavGrid.StandAt(start.X, start.Y, false) is not BodyPhysics.Pose from)
     {
-        Console.WriteLine($"trace-jump: no pose at {Fmt(start)}");
+        Console.WriteLine($"trace-jump: no pose at {ReplayOneBlock.Fmt(start)}");
         return null;
     }
     // Every profile the planner tries, in its order: the rise between the two poses' bottoms in
@@ -610,14 +594,14 @@ static bool? TraceJump(Point start, Point goal)
     bool landedOnGoal = false;
     foreach ((float scale, float startVx) in JumpTraversal.JumpProfiles(rise, Math.Sign(goal.X - start.X)))
     {
-        Console.WriteLine($"trace-jump {Fmt(start)} -> {Fmt(goal)} rise {rise} scale {scale:F2} startVx {startVx:F2}: pose left {from.Left} bottom {from.Bottom}");
+        Console.WriteLine($"trace-jump {ReplayOneBlock.Fmt(start)} -> {ReplayOneBlock.Fmt(goal)} rise {rise} scale {scale:F2} startVx {startVx:F2}: pose left {from.Left} bottom {from.Bottom}");
         BodyPhysics.Pose? landing = BodyPhysics.SimulateJump(NavGrid.World, from, scale, startVx, goal.X, goal.Y, 120, out int ticks, tick =>
             Console.WriteLine($"   t{tick.Tick,3} left {tick.Left,7:F1} bottom {tick.Bottom,7:F1} vx {tick.Vx,5:F2} vy {tick.Vy,5:F2} feet {tick.FeetColumn},{tick.FeetRow}"));
         if (landing is BodyPhysics.Pose l)
         {
             var tile = new Point((int)Math.Floor(l.CentreX / 16f), BodyPhysics.FeetRow(l.Bottom));
             landedOnGoal |= tile == goal;
-            Console.WriteLine($"   landed after {ticks} ticks at left {l.Left:F1} bottom {l.Bottom:F1}, feet tile {Fmt(tile)}{(tile == goal ? " (the goal)" : "")}");
+            Console.WriteLine($"   landed after {ticks} ticks at left {l.Left:F1} bottom {l.Bottom:F1}, feet tile {ReplayOneBlock.Fmt(tile)}{(tile == goal ? " (the goal)" : "")}");
         }
         else
             Console.WriteLine($"   never landed within {Math.Min(ticks, 120)} ticks, or fell past the goal row");
@@ -631,16 +615,16 @@ static void TraceWalk(Point start, int dir)
 {
     if (NavGrid.StandAt(start.X, start.Y, false) is not BodyPhysics.Pose from)
     {
-        Console.WriteLine($"trace-walk: no pose at {Fmt(start)}");
+        Console.WriteLine($"trace-walk: no pose at {ReplayOneBlock.Fmt(start)}");
         return;
     }
-    Console.WriteLine($"trace-walk from {Fmt(start)} dir {dir}: pose left {from.Left} bottom {from.Bottom}");
+    Console.WriteLine($"trace-walk from {ReplayOneBlock.Fmt(start)} dir {dir}: pose left {from.Left} bottom {from.Bottom}");
     BodyState state = BodyState.Standing(from);
     var controls = new Controls(dir * BodyPhysics.WalkSpeed);
     for (int tick = 1; tick <= 60; tick++)
     {
         state = BodyMotion.Step(NavGrid.World, state, controls);
-        Console.WriteLine($"   t{tick,3} left {state.Left,7:F1} bottom {state.Bottom,7:F1} vx {state.Vx,5:F2} vy {state.Vy,5:F2} feet {Fmt(state.FeetTile)} {(state.OnGround ? "ground" : "air")}{(state.CollideX ? " wall" : "")}{(state.Stuck ? " STUCK" : "")}");
+        Console.WriteLine($"   t{tick,3} left {state.Left,7:F1} bottom {state.Bottom,7:F1} vx {state.Vx,5:F2} vy {state.Vy,5:F2} feet {ReplayOneBlock.Fmt(state.FeetTile)} {(state.OnGround ? "ground" : "air")}{(state.CollideX ? " wall" : "")}{(state.Stuck ? " STUCK" : "")}");
         if (state.Stuck || state.CollideX)
         {
             Console.WriteLine($"   ended: {(state.Stuck ? "stuck in a shape" : "met a shape sideways")} after {tick} ticks");
@@ -649,144 +633,9 @@ static void TraceWalk(Point start, int dir)
         if (state.OnGround && dir * (state.FeetTile.X - (start.X + dir)) >= 0)
         {
             bool node = NavGrid.StandAt(state.FeetTile.X, state.FeetTile.Y, false) != null;
-            Console.WriteLine($"   stands in the next column after {tick} ticks at feet tile {Fmt(state.FeetTile)}{(node ? "" : " (not a node)")}");
+            Console.WriteLine($"   stands in the next column after {tick} ticks at feet tile {ReplayOneBlock.Fmt(state.FeetTile)}{(node ? "" : " (not a node)")}");
             return;
         }
     }
     Console.WriteLine("   never stood in the next column within 60 ticks");
 }
-
-static string Describe(Search s)
-    => $"{(s.Path == null ? "no path" : $"{s.Path.Steps.Count} steps{(s.Path.Partial ? $", partial, ends {Fmt(s.Path.Goal)}" : "")}")}, {s.Used} expansions, {s.Closed.Count} tiles reached, {s.Ms:F1} ms";
-
-// "npcbox 55795.0,5808.0,20,42" out of a dump header: the companion's own rectangle at the tick
-// the window was written, as the pose the follower starts from. Null for any dump older than the
-// column, which keeps every committed scenario replayable and makes those blocks measure the
-// planner alone, the way they always did.
-static BodyPhysics.Pose? HeaderPose(string header)
-{
-    const string Key = "npcbox ";
-    int at = header.IndexOf(Key, StringComparison.Ordinal);
-    if (at < 0)
-        return null;
-    string[] parts = header[(at + Key.Length)..].Split(' ', 2)[0].Split(',');
-    return parts.Length >= 2
-        && float.TryParse(parts[0], NumberStyles.Float, CultureInfo.InvariantCulture, out float left)
-        && float.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out float bottom)
-            ? new BodyPhysics.Pose(left, bottom)
-            : null;
-}
-
-// "goal 3526,480" out of a dump header; null when the header does not carry that key.
-static Point? HeaderPoint(string header, string key)
-{
-    int at = header.IndexOf(key + " ", StringComparison.Ordinal);
-    if (at < 0)
-        return null;
-    string[] xy = header[(at + key.Length + 1)..].Split(' ', 2)[0].Split(',');
-    return xy.Length == 2 && int.TryParse(xy[0], out int x) && int.TryParse(xy[1], out int y) ? new Point(x, y) : null;
-}
-
-// A start captured mid-jump lands first: the game plans only from the ground now, so the
-// question is what the body can do from where it comes down. The fall runs to the bottom of
-// the captured window; below it the world is unknown and the start stays unstandable.
-static Point? Ground(TextTileWorld world, Point start)
-{
-    Point grounded = start;
-    while (grounded.Y < world.OriginY + world.Height && !NavGrid.IsBlock(grounded.X, grounded.Y + 1) && !NavGrid.IsStandable(grounded.X, grounded.Y))
-        grounded.Y++;
-    return NavGrid.NearestStandable(grounded, 2);
-}
-
-// Each search keeps its own closed set: the recorded-goal search and the player search share
-// the planner's trace slot, and the drawing must show the tiles the search it explains reached.
-static Search Run(Point? from, Point goal)
-{
-    Point? to = NavGrid.NearestStandable(goal, 3);
-    AStar.TraceClosed = new HashSet<Point>();
-    int used = 0;
-    var clock = System.Diagnostics.Stopwatch.StartNew();
-    NavPath? path = from == null || to == null ? null : AStar.Find(from.Value, to.Value, 20000, out used);
-    double ms = clock.Elapsed.TotalMilliseconds;
-    Timing.PlannerMs += ms;
-    return new Search(path, used, new HashSet<Point>(AStar.TraceClosed), path != null && !path.Partial, ms);
-}
-
-// A plans file holds many dumps separated by blank lines; a scenario file holds one.
-static IEnumerable<(int, List<string>)> Blocks(string[] lines)
-{
-    var block = new List<string>();
-    int index = 0;
-    bool inRows = false;
-    foreach (string line in lines)
-    {
-        if (line.Length == 0)
-        {
-            if (inRows && block.Count > 0)
-            {
-                yield return (index++, block);
-                block = new List<string>();
-                inRows = false;
-            }
-            continue;
-        }
-        block.Add(line);
-        if (!line.StartsWith("tick ") && !line.StartsWith("scenario ") && !line.StartsWith("companion ") && !line.StartsWith("player ") && !line.StartsWith("threat ") && !line.StartsWith("trail ") && !line.StartsWith("markers "))
-            inRows = true;
-    }
-    if (block.Count > 0)
-        yield return (index, block);
-}
-
-// Path steps as w j d f; on a failure, every tile the search closed as c, so "no path" reads
-// as "it got this far and no edge left from here".
-static string Draw(TextTileWorld world, NavPath? path, Point start, Point goal, HashSet<Point>? reached)
-{
-    var overlay = new Dictionary<Point, char>();
-    if (reached != null)
-        foreach (Point t in reached)
-            overlay[t] = 'c';
-    if (path != null)
-        foreach (NavStep step in path.Steps)
-            overlay[step.Tile] = step.Kind switch { MoveKind.Walk => 'w', MoveKind.Jump => 'j', MoveKind.Drop => 'd', _ => 'f' };
-    overlay[start] = 'N';
-    overlay[goal] = 'G';
-    if (world.Markers.TryGetValue('P', out Point p) && p != goal)
-        overlay[p] = 'P';
-    var sb = new StringBuilder();
-    for (int y = world.OriginY; y < world.OriginY + world.Height; y++)
-    {
-        sb.Append("     ");
-        for (int x = world.OriginX; x < world.OriginX + world.Width; x++)
-        {
-            var t = new Point(x, y);
-            if (overlay.TryGetValue(t, out char c)) sb.Append(c);
-            else
-            {
-                char g = world.Glyph(x, y);
-                sb.Append(g == '.' && NavGrid.IsStandable(x, y) ? 'o' : g);
-            }
-        }
-        sb.Append('\n');
-    }
-    return sb.ToString();
-}
-
-/// <summary>Planner wall-clock over the run, because the simulated jump is the first edge whose cost is a number worth watching.</summary>
-static class Timing
-{
-    public static double PlannerMs;
-}
-
-/// <summary>
-/// One search's answer with its own closed set, so two searches in one scenario never share a
-/// drawing. <paramref name="Ms"/> is that one search's own wall clock, printed per route because
-/// the run total cannot say whether a change spread its cost evenly or built one expensive route:
-/// a graph that multiplies nodes is judged on the worst route, not the mean. Read it beside
-/// <paramref name="Used"/> rather than instead of it — expansions are deterministic and the
-/// milliseconds are this machine on this run.
-/// </summary>
-record Search(NavPath? Path, int Used, HashSet<Point> Closed, bool Pass, double Ms);
-
-/// <summary>What the follow harness read: the plan walked to the goal, walked to the end a budget-cut plan promised, or a body that parked, faulted out or was lost.</summary>
-enum FollowOutcome { Walked, PartialEnd, Parked }
