@@ -139,7 +139,7 @@ internal static class VerifyEngineMotion
         ("a prepared comparison preserves its numbers", VerifyPreparedActivities.Run),
         ("each purpose family nominates its best child", VerifyFamilyOffers.Run),
         ("planned routes reach their goals", VerifyRoutes),
-        ("a projectile's prior arc is the game's own, and a learned arc never spawns an unproved shot", VerifyArcLearning.Run),
+        ("a projectile's prior arc is the game's own, an unknown arc is learned from the companion's shots, and no learned arc spawns an unproved shot", VerifyArcLearning.Run),
         ("the threat sense reads danger from sealed chambers correctly", VerifyPersonalDanger.Run),
         ("the companion spawns, lives and is attached both ways", VerifyCompanionLifecycle.Run),
         ("a threat is anticipated from how it actually arrives", VerifyThreatAnticipation.Run),
