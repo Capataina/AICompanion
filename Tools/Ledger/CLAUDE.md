@@ -68,7 +68,7 @@ The raised-lip ore-work fixture has been "three of five" and "thirteen of fiftee
 
 Two readings follow from that and both are worth keeping. It settles attribution cheaply: a red on that fixture inside a change that touches no mod code is the flake, and the batch proves it at the change's own commit rather than by checking out the parent. And the native-collision case in the same batch went 12 of 12, which reads as certainty and is not — its interval is 75.7% to 100%, so twelve green runs bound the failure rate only below about a quarter. That is the whole reason the interval is printed rather than the rate.
 
-The plan's pass line is thirty consecutive idle runs, which bounds failure below 11.4 percent rather than the ten the plan names. It has not been taken: other lanes were building throughout every batch so far, and a batch taken under load measures the load rather than the fixture, which is the hypothesis under test.
+The plan's pass line is thirty consecutive idle runs, which bounds failure below 11.4 percent rather than the ten the plan names. It was taken on 2026-09-14 at `ca69344`, with one dotnet process on the machine: 30 of 30, 95% CI 88.6–100%, in `runs/ca69344-20260914-193027.jsonl`. Every batch before it ran beside other lanes' builds, and a batch taken under load measures the load rather than the fixture, which is the hypothesis under test; the idle batch bounds the rate and leaves the cause where it was.
 
 The next pair of batches is the one to read carefully, because it is the one that looks like an answer and is not. Taken either side of lifting the wall-clock allowances across the suite, on 2026-09-14 at `1a64ef0`, ten runs each:
 
