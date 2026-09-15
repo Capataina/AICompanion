@@ -72,8 +72,62 @@ internal static class VerifyThreatAnticipation
         Require(live::AICompanion.Companion.Brain.Infrastructure.Observation.PredictObservedMotion.ErrorSamples(hazard) == 0,
             "a recycled NPC slot must not inherit the previous occupant's confidence");
         VerifyAttackability();
-        Console.WriteLine("threat anticipation: harmful nonchaseable hazards, player-death isolation and measured forecast confidence pass");
+        AWalkerBelowAHoveringOrbReachesItOnlyInsideItsJump();
+        Console.WriteLine("threat anticipation: harmful nonchaseable hazards, player-death isolation, measured forecast confidence and the walker's jump envelope pass");
         return 0;
+    }
+
+    /// <summary>
+    /// A walking enemy on a floor under a hovering orb reaches it only inside its own height plus the fighter AI's highest
+    /// jump, in three matched arms that differ only in how high the orb hovers. Low, the walker reaches it. High, it does not,
+    /// and the orb reads no danger from it — which is the direction the first play of the orb got wrong, reading danger at nine
+    /// tenths and more with zombies underneath while it took no hit, and the direction no row guarded: an envelope that always
+    /// answered yes left the whole native suite green. The middle arm sits above the fighter AI's ordinary jump and inside its
+    /// tallest-step jump, so it fails if the envelope is ever put back to the ordinary hop, which under-read a walker at the foot
+    /// of a tall step.
+    /// </summary>
+    private static void AWalkerBelowAHoveringOrbReachesItOnlyInsideItsJump()
+    {
+        const int floorRow = 80;
+        Main.tileSolid[Terraria.ID.TileID.Stone] = true;
+        for (int x = 0; x < 100; x++)
+        {
+            Tile tile = Main.tile[x, floorRow];
+            tile.HasTile = true;
+            tile.TileType = Terraria.ID.TileID.Stone;
+        }
+        float floorTop = floorRow * 16f;
+        const float walkerHeight = 40f, orbX = 800f;
+
+        (bool Reaches, float Danger) Arm(float orbBottomAboveFloor)
+        {
+            for (int i = 0; i < Main.npc.Length; i++) Main.npc[i] = new NPC { whoAmI = i, active = false };
+            var player = new Player { active = true, statLifeMax2 = 100, position = new Vector2(200, floorTop - 42) };
+            Main.player[0] = player;
+            var companion = new NPC { active = true, whoAmI = 0, width = 20, height = 20, life = 100, lifeMax = 100,
+                position = new Vector2(orbX - 10, floorTop - orbBottomAboveFloor - 20) };
+            var walker = new NPC { active = true, whoAmI = 1, width = 18, height = (int)walkerHeight, damage = 20, life = 50, lifeMax = 50,
+                friendly = false, position = new Vector2(orbX + 24, floorTop - walkerHeight) };
+            Main.npc[1] = walker;
+            var sense = new live::AICompanion.Companion.Brain.Infrastructure.Observation.ThreatSense();
+            VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
+            sense.Update(player, companion);
+            var record = sense.Threats.Find(t => t.Npc == walker);
+            Require(record != null, $"premise: the walker must be observed as a threat at every height; none at {orbBottomAboveFloor} px");
+            return (record!.CanReachCompanion, sense.CompanionDanger);
+        }
+
+        // Heights of the orb's bottom above the floor, against the walker's 40 px body plus a jump apex: 107 px for the fighter
+        // AI's ordinary -8 jump, 202 px for its tallest-step -11 jump.
+        var low = Arm(20f);
+        var middle = Arm(40f + 150f);
+        var high = Arm(40f + 400f);
+        Require(low.Reaches && low.Danger > 0f,
+            $"a walker beside an orb hovering just above its floor must reach it and read as danger to it; reaches={low.Reaches} danger={low.Danger}");
+        Require(middle.Reaches,
+            $"a walker must reach an orb above its ordinary jump but inside its tallest-step jump; reaches={middle.Reaches} danger={middle.Danger}");
+        Require(!high.Reaches && high.Danger == 0f,
+            $"a walker must not reach an orb hovering far above its highest jump, and the orb must read no danger from it; reaches={high.Reaches} danger={high.Danger}");
     }
 
     private static void VerifyAttackability()

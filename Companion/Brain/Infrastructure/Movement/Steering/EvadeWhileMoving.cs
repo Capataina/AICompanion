@@ -19,8 +19,11 @@ namespace AICompanion.Companion.Brain.Infrastructure.Movement;
 /// forward through <see cref="OrbPace.Step"/> and the contact, so a heading into a wall that would stop the
 /// body under a falling shot reads as dangerous as a heading into the shot. Interest is agreement with where
 /// the job was going, so of the headings that stay clear the one that keeps doing the job wins, and the
-/// body curves around a hit rather than breaking off. A stop is the last candidate and wins only on
-/// strictly less danger, because the owner asked that the orb never simply stand still.</para>
+/// body curves around a hit rather than breaking off. A stop is the last candidate and wins only when it is
+/// safer than every moving heading by more than the danger tolerance, because the owner asked that the orb
+/// never simply stand still. Water and lava the body is not immune to count as danger exactly as a hit does:
+/// the contact the simulation runs pushes out of solid tiles only, and a dodge scored against it alone flew a
+/// body squeezed between two shots twenty-five pixels into lava.</para>
 ///
 /// <para>This replaced two things that took the body away from the job: combat spacing, a search for a
 /// low-exposure cell that suspended the activity and, in the first play of the orb, parked it beside
@@ -83,10 +86,11 @@ public static class EvadeWhileMoving
         return new Controls(desires[best], Burst: true);
     }
 
-    /// <summary>How many ticks the body stays clear of the predicate when it asks for <paramref name="desired"/> every tick.</summary>
+    /// <summary>How many ticks the body stays clear of the predicate, and of any liquid that hurts it, when it asks for <paramref name="desired"/> every tick.</summary>
     private static int SafeTicks(OrbState live, Vector2 desired, bool burst, Func<OrbState, int, bool> unsafeAtTick, ITileWorld world, int horizon)
     {
         Vector2 centre = live.Centre, velocity = live.Velocity;
+        LiquidImmunity immunity = OrbTerrain.Immunity;
         for (int tick = 1; tick <= horizon; tick++)
         {
             velocity = OrbPace.Step(velocity, desired, burst);
@@ -94,6 +98,7 @@ public static class EvadeWhileMoving
             CircleContact.Resolve(world, ref next, ref velocity);
             centre = next;
             if (unsafeAtTick(new OrbState(centre, velocity), tick)) return tick - 1;
+            if (CircleContact.Touches(centre, (x, y) => OrbTerrain.WetWall(world, x, y, immunity))) return tick - 1;
         }
         return horizon;
     }

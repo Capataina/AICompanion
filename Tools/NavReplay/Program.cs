@@ -34,6 +34,9 @@ if (args.Length == 1 && args[0] == "--self-test")
         + EmitLedgerRows.Case("nav-replay", "NavReplay", "a body the navigator has called arrived stays arrived, on one search, and comes to rest",
             VerifyArrivalHolds.Run,
             killedBy: "steering that brakes too late for the arrival radius, or an arrival that coasts out and replans")
+        + EmitLedgerRows.Case("nav-replay", "NavReplay", "a hover anchor never pulls the body back behind a wall, and a dodge never flies it into lava",
+            VerifyAnchorsAndEvade.Run,
+            killedBy: "a wait anchor that outlives its goal or survives the body being carried across a wall, or an evade simulation that runs the solid contact without asking about liquid")
         + EmitLedgerRows.Case("nav-replay", "NavReplay", "the corpus mirror is exact",
             VerifyMirrorExactness.Run,
             killedBy: "a reflection about the wrong column, an unpadded short row, or a dropped glyph flip");

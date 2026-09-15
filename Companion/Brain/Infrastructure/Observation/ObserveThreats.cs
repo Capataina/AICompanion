@@ -208,12 +208,16 @@ public sealed class ThreatSense
     }
 
     /// <summary>
-    /// How high above its floor a walking enemy can reach: the highest ordinary jump of the game's fighter AI,
-    /// <c>velocity.Y = -8f</c> in <c>NPC.AI_003_Fighters</c>, under the NPC default gravity of 0.3
-    /// (<c>vanillaGravity = 0.3f</c>), peaks v²/2g above where it left the floor. Read off the decompiled game
-    /// rather than tuned; a modded walker that jumps higher is under-read by the difference.
+    /// How high above its floor a walking enemy can reach: the highest jump of the game's fighter AI, under the NPC
+    /// default gravity of 0.3 (<c>vanillaGravity = 0.3f</c>), which peaks v²/2g above where it left the floor.
+    /// <c>NPC.AI_003_Fighters</c> jumps at -8 for an ordinary step and steps up through -8.8, -10, -10.3 and -10.6
+    /// to -11 for the tallest obstacle it will climb, so the highest is taken: the first envelope used -8, a 107 px
+    /// apex, and a walker at the foot of a tall step could then reach an orb the sense had called safe. Read off the
+    /// decompiled game rather than tuned, and it errs toward reading danger. Still under-read, and named rather than
+    /// guessed at: a walker in water (gravity 0.2) or in the low gravity near space, and a modded walker that jumps
+    /// higher than the fighter AI.
     /// </summary>
-    private const float WalkerJumpApexPixels = 8f * 8f / (2f * 0.3f);
+    private const float WalkerJumpApexPixels = 11f * 11f / (2f * 0.3f);
 
     /// <summary>
     /// Whether a walking enemy on the floor under the orb could touch it at all: the orb's circle has to come

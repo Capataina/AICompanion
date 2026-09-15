@@ -104,6 +104,8 @@ public sealed class Navigator
             Path = null;
             search = null;
             Arrived = false;
+            // A wait anchor belongs to the goal that could not be reached, and dies with it.
+            waitAnchor = null;
             StuckTicks = 0;
             progressOrigin = live.Centre;
             progressTicks = 0;
@@ -172,6 +174,10 @@ public sealed class Navigator
             // long as a follow anchor stayed unplannable — measured in VerifySafetyAftermath's enemy-beside row, fourteen
             // ticks at zero with the player walking away — and the stuck strikes and the positioner's bans, not a stop,
             // are what find another place.
+            // An anchor the body has no clear line to is not a place to drift around: hovering at it pins the body against
+            // whatever lies between. The first build kept a wait anchor across an interrupted wait, and the next unreachable
+            // goal pulled the body 230 px back to it and held it at zero against a wall.
+            if (waitAnchor is Vector2 w && !CircleContact.SweptClear(world, live.Centre, w, OrbTerrain.Wall)) waitAnchor = null;
             waitAnchor ??= live.Centre;
             controls = Hover.Around(live, waitAnchor.Value, world);
             Lookahead = live.Centre;
@@ -266,6 +272,7 @@ public sealed class Navigator
     /// <summary>End the held goal and its route, scoring the attempt by who ended it.</summary>
     public void Interrupt(OrbState live, AttemptEnding ending = AttemptEnding.Cancelled, string cause = "released")
     {
+        waitAnchor = null;
         if (Goal == null && Path == null && search == null) return;
         if (attemptOpen && !Arrived) EndAttempt(ending);
         Goal = null;
@@ -292,7 +299,7 @@ public sealed class Navigator
 
     public void Clear()
     {
-        Goal = null; Path = null; search = null; Arrived = false; attemptOpen = false;
+        Goal = null; Path = null; search = null; Arrived = false; attemptOpen = false; waitAnchor = null;
         Status = ExecutionStatus.Idle; ProgressReason = "idle"; StuckStrikes = 0; StuckTicks = 0;
     }
 }

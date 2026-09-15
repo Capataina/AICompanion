@@ -81,8 +81,7 @@ public sealed class CoordinateMovement
     {
         CancelStateSearch();
         Navigator.Interrupt(live, AttemptEnding.Cancelled, "released");
-        holdAnchor ??= live.Centre;
-        return Navigator.Hover.Around(live, holdAnchor.Value, MovementQueries.World);
+        return Navigator.Hover.Around(live, HoldAnchor(live), MovementQueries.World);
     }
 
     /// <summary>A missing chosen place does not cancel a travel intention: aim at the anchor itself until <paramref name="arrived"/> says the body is there, and hover once it is.</summary>
@@ -95,8 +94,7 @@ public sealed class CoordinateMovement
             Navigator.Interrupt(live, AttemptEnding.Completed, "objective-satisfied");
             // Anchored once, where the objective was first met: an anchor taken from the body every tick moves with the
             // body, and the drift around it becomes a slow wander away from the place it arrived.
-            holdAnchor ??= live.Centre;
-            return Navigator.Hover.Around(live, holdAnchor.Value, MovementQueries.World);
+            return Navigator.Hover.Around(live, HoldAnchor(live), MovementQueries.World);
         }
         holdAnchor = null;
         return Navigator.MoveTo(live, anchor);
@@ -114,6 +112,20 @@ public sealed class CoordinateMovement
     }
 
     private Vector2? holdAnchor;
+
+    /// <summary>
+    /// The place a hold drifts around: taken once, where the hold began, and replaced by the body's own centre whenever the body
+    /// has no clear line to it. Every anchor in movement follows the same two rules — it dies with the request that made it, and it
+    /// is never somewhere the body cannot fly straight to — because a hover pulled toward a place behind a wall is a body pinned
+    /// still against that wall, which is the one thing the orb is ruled never to be.
+    /// </summary>
+    private Vector2 HoldAnchor(OrbState live)
+    {
+        if (holdAnchor is Vector2 held && !CircleContact.SweptClear(MovementQueries.World, live.Centre, held, OrbTerrain.Wall))
+            holdAnchor = null;
+        holdAnchor ??= live.Centre;
+        return holdAnchor.Value;
+    }
 
     /// <summary>The terrain rules every search runs under this tick: which liquids are not walls.</summary>
     public void Configure(LiquidImmunity immunity) => OrbTerrain.Immunity = immunity;
