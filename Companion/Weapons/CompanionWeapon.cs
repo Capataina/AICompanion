@@ -52,6 +52,15 @@ public abstract class CompanionWeapon
     /// <summary>Damage of one hit before the player's class bonuses and the companion's own factors.</summary>
     public abstract int BaseDamage { get; }
 
+    /// <summary>The knockback one hit hands the game's strike, before the enemy's resistance and the game's falloff.</summary>
+    public abstract float Knockback { get; }
+
+    /// <summary>
+    /// Whether the game pushes this weapon's hits away from their owner, the player, rather than along the flight or the
+    /// swing. <see cref="WeaponEffects.PushesAwayFromOwner"/> holds the game's list.
+    /// </summary>
+    public abstract bool PushesAwayFromOwner { get; }
+
     /// <summary>Multiplier on use time; 2 is the launch nerf, the tree lowers it.</summary>
     public float FireRateFactor = 2f;
 

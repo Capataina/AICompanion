@@ -1,5 +1,6 @@
 #nullable enable
 
+using Microsoft.Xna.Framework;
 using Terraria;
 using Terraria.DataStructures;
 using Terraria.ModLoader;
@@ -23,7 +24,8 @@ namespace AICompanion.Companion.Weapons;
 /// </summary>
 public static class TrackLandedHits
 {
-    public readonly record struct Shot(int AimSlot, int AimGeneration, ulong FiredTick);
+    /// <summary>A registered shot: the target it was aimed at, when, and the item that fired it, which is what the weapon-effects table is keyed by.</summary>
+    public readonly record struct Shot(int AimSlot, int AimGeneration, ulong FiredTick, int ItemType);
 
     /// <summary>One landed hit: the NPC struck and its spawn generation, the target the shot was aimed at,
     /// the effective damage the game reported and when.</summary>
@@ -40,10 +42,45 @@ public static class TrackLandedHits
     /// <summary>Landed hits attributed to companion shots since the ledger was last cleared.</summary>
     public static int Count { get; private set; }
 
-    public static void Register(int projectileSlot, NPC? aimed)
+    public static void Register(int projectileSlot, NPC? aimed, int itemType)
     {
         if ((uint)projectileSlot >= (uint)shots.Length) return;
-        shots[projectileSlot] = new Shot(aimed?.whoAmI ?? -1, aimed == null ? 0 : HostileAttackSources.Generation(aimed), Main.GameUpdateCount);
+        shots[projectileSlot] = new Shot(aimed?.whoAmI ?? -1, aimed == null ? 0 : HostileAttackSources.Generation(aimed), Main.GameUpdateCount, itemType);
+    }
+
+    // The velocity each NPC had just before a registered companion projectile struck it, and which projectile slot (plus
+    // one, so zero is none) took it. Per NPC rather than per projectile because a piercing shot strikes several bodies in
+    // one update, and each strike's modify hook runs directly before its own strike.
+    private static readonly Vector2[] preStrikeVelocity = new Vector2[Main.maxNPCs + 1];
+    private static readonly int[] preStrikeBy = new int[Main.maxNPCs + 1];
+
+    /// <summary>
+    /// A registered companion projectile is about to strike this NPC: keep its velocity. Called from the NPC modify hook,
+    /// which <c>Projectile.Damage</c> runs through <c>CombinedHooks.ModifyHitNPCWithProj</c> before <c>StrikeNPC</c> writes
+    /// the knockback, so the velocity here is the one the push is added to.
+    /// </summary>
+    public static void BeforeStrike(NPC npc, Projectile projectile)
+    {
+        if ((uint)projectile.whoAmI >= (uint)shots.Length || shots[projectile.whoAmI] == null) return;
+        if ((uint)npc.whoAmI >= (uint)preStrikeBy.Length) return;
+        preStrikeVelocity[npc.whoAmI] = npc.velocity;
+        preStrikeBy[npc.whoAmI] = projectile.whoAmI + 1;
+    }
+
+    /// <summary>
+    /// The strike landed: teach the weapon-effects table what it did, against the velocity kept just before it. The prior's
+    /// direction is the projectile's own <c>direction</c>, which is what <c>Projectile.Damage</c> hands the modifiers, or
+    /// away from the owner for the types the game overrides.
+    /// </summary>
+    public static void AfterStrike(NPC npc, Projectile projectile, NPC.HitInfo hit, int damageDone)
+    {
+        if ((uint)npc.whoAmI >= (uint)preStrikeBy.Length || preStrikeBy[npc.whoAmI] != projectile.whoAmI + 1) return;
+        preStrikeBy[npc.whoAmI] = 0;
+        if (shots[projectile.whoAmI] is not { } shot) return;
+        bool awayFromOwner = WeaponEffects.PushesAwayFromOwner(projectile.type);
+        int direction = WeaponEffects.PriorDirection(awayFromOwner, projectile.direction, npc.Center.X, Main.player[projectile.owner].Center.X);
+        WeaponEffects.ObserveHit(shot.ItemType, npc, preStrikeVelocity[npc.whoAmI], npc.velocity, projectile.knockBack, direction,
+            projectile.damage, damageDone, hit.Crit || hit.InstantKill);
     }
 
     public static void Forget(int projectileSlot)
@@ -62,6 +99,7 @@ public static class TrackLandedHits
     public static void Clear()
     {
         System.Array.Clear(shots);
+        System.Array.Clear(preStrikeBy);
         Last = null;
         Count = 0;
     }
@@ -87,9 +125,18 @@ public sealed class ForgetReusedShotSlots : GlobalProjectile
     public override void OnKill(Projectile projectile, int timeLeft) => ProjectileArcs.Retire(projectile.whoAmI);
 }
 
-/// <summary>Attributes a native projectile hit to the companion shot registered in that slot, if any.</summary>
+/// <summary>
+/// Attributes a native projectile hit to the companion shot registered in that slot, if any, and feeds the weapon-effects
+/// table the velocity the hit was added to and the velocity it left.
+/// </summary>
 public sealed class ObserveLandedCompanionHits : GlobalNPC
 {
+    public override void ModifyHitByProjectile(NPC npc, Projectile projectile, ref NPC.HitModifiers modifiers)
+        => TrackLandedHits.BeforeStrike(npc, projectile);
+
     public override void OnHitByProjectile(NPC npc, Projectile projectile, NPC.HitInfo hit, int damageDone)
-        => TrackLandedHits.ObserveHit(npc, projectile, damageDone);
+    {
+        TrackLandedHits.ObserveHit(npc, projectile, damageDone);
+        TrackLandedHits.AfterStrike(npc, projectile, hit, damageDone);
+    }
 }

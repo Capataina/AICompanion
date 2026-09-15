@@ -12,6 +12,7 @@
     <Compile Include="../../Companion/Brain/Infrastructure/Aiming/**/*.cs" />
     <Compile Include="../../Companion/Brain/Infrastructure/Observation/PredictObservedMotion.cs" />
     <Compile Include="../../Companion/Brain/Infrastructure/Observation/ObserveThreats.cs" />
+    <Compile Include="../../Companion/Brain/Infrastructure/Observation/WeighThreatUrgency.cs" />
     <Compile Include="../../Companion/Brain/Infrastructure/Observation/EstimateEffectiveDamage.cs" />
     <Compile Include="../../Companion/Brain/Infrastructure/Observation/ObserveHostileAttackSources.cs" />
     <Compile Include="../../Companion/Brain/Infrastructure/Observation/ThreatRecord.cs" />

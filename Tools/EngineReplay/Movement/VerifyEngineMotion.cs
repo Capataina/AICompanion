@@ -108,6 +108,7 @@ internal static class VerifyEngineMotion
         ("an attack's outcome is the one the arsenal forecast", VerifyAttackOutcomes.Run),
         ("handed gear fits its slots and the tool power it reads is the game's own gate", VerifyHandedGear.Run),
         ("the item in a weapon slot fires or swings through the arsenal with the item's own numbers", VerifyItemWeapon.Run),
+        ("a hit's push is the game's until the companion learns it, is charged for the danger it adds, and the stand prefers the player's side", VerifyKnockbackAwareness.Run),
         ("combat keeps its purpose across a substituted enemy", VerifyCombatPurpose.Run),
         ("safety releases the body after the danger passes", VerifySafetyAftermath.Run),
         ("an assistance trip goes and returns", VerifyAssistanceTrips.Run),

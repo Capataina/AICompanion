@@ -322,6 +322,8 @@ public sealed class Arsenal
             {
                 CompanionWeapon weapon = weapons[w];
                 int flight = Math.Max(1, (int)(Vector2.Distance(muzzle, target.Center) / MathF.Max(1f, weapon.Model.Speed)));
+                // No push is charged on an assumed attack: its muzzle is a stand nobody has chosen yet, so which side the
+                // push would carry the target to is unknown, and the positioner's side preference prices that at the stand.
                 var assumed = new EvaluateAttackOutcomes.Attack(w, target.whoAmI, weapon.UseTime, flight,
                     new[] { new EvaluateAttackOutcomes.Hit(target.whoAmI, PerHit(ctx, weapon, target)) });
                 firsts.Add(assumed);
@@ -357,7 +359,10 @@ public sealed class Arsenal
         int crossed = weapon.Hits(muzzle, solution.LaunchVelocity, hostiles, pierced);
         var hits = new List<EvaluateAttackOutcomes.Hit>();
         for (int i = 0; i < Math.Min(crossed, weapon.Pierce); i++)
-            hits.Add(new(pierced[i].whoAmI, PerHit(ctx, weapon, pierced[i])));
+        {
+            float perHit = PerHit(ctx, weapon, pierced[i]);
+            hits.Add(new(pierced[i].whoAmI, perHit, InducedDanger(ctx, weapon, pierced[i], muzzle, solution.LaunchVelocity, perHit)));
+        }
         rejection = hits.Count == 0 ? "no-damageable-intercept" : "accepted";
         return hits.Count == 0 ? null : new(slot, target.whoAmI, weapon.UseTime, solution.ImpactTick, hits.ToArray());
     }
@@ -396,6 +401,69 @@ public sealed class Arsenal
         return best;
     }
 
+    /// <summary>
+    /// The danger one hit's push adds, as the threat sense would weigh it: the target is displaced by the push the
+    /// weapon-effects table expects in the direction the game will push it, and its urgency to the player and to the orb
+    /// is re-weighed at the displaced centre by <see cref="ThreatUrgency"/>, the rule the threat sense itself uses. The orb
+    /// is weighed as standing at <paramref name="muzzle"/>, because a forecast is asked about candidate stands as well as
+    /// about the live body, and a push toward the stand the orb would be firing from is the push that comes back at it; its
+    /// life and its sight stay the live body's, which are the same wherever it hovers. Only an
+    /// increase is charged, per body, times what one of that enemy's hits takes off that body — so a push away from both
+    /// bodies costs nothing, and the danger the enemy already carried is never charged, since both sides of the difference
+    /// hold its speed, its sight and its reach as the sense decided them this tick. A body the enemy cannot reach, and a
+    /// dead player, are not charged at all. An enemy the threat sense does not list carries no urgency to add to.
+    ///
+    /// Sight is held at what the sense measured, which under-charges a push that brings an enemy into a sight line it
+    /// lacked; the alternative is a line-of-sight test per hit per forecast.
+    /// </summary>
+    public static float InducedDanger(in ActionContext ctx, CompanionWeapon weapon, NPC target, Vector2 muzzle, Vector2 launch, float perHit)
+    {
+        ThreatRecord? threat = null;
+        foreach (ThreatRecord t in ctx.Senses.Threats.Threats)
+            if (ReferenceEquals(t.Npc, target)) { threat = t; break; }
+        if (threat == null) return 0f;
+        Player player = ctx.Player;
+        int direction = WeaponEffects.PriorDirection(weapon.PushesAwayFromOwner, launch.X, target.Center.X, player.Center.X);
+        float shift = WeaponEffects.SettledPush(weapon.ItemType, target, weapon.Knockback, perHit, direction);
+        if (shift == 0f) return 0f;
+        Vector2 pushed = target.Center + new Vector2(shift, 0f);
+        float charge = 0f;
+        if (!player.dead && threat.CanReachPlayer)
+        {
+            float before = ThreatUrgency.ToPlayer(threat.EffectiveDamageToPlayer, player.statLife, threat.IsBoss,
+                threat.TicksToPlayer, threat.Shoots, threat.HasSightOnPlayer);
+            float after = ThreatUrgency.ToPlayer(threat.EffectiveDamageToPlayer, player.statLife, threat.IsBoss,
+                Vector2.Distance(pushed, player.Center) / threat.ObservedSpeed, threat.Shoots, threat.HasSightOnPlayer);
+            charge += MathF.Max(0f, after - before) * threat.EffectiveDamageToPlayer;
+        }
+        if (threat.CanReachCompanion)
+        {
+            NPC body = ctx.Npc;
+            float before = ThreatUrgency.ToCompanion(threat.EffectiveDamageToCompanion, body.life, threat.IsBoss,
+                Vector2.Distance(target.Center, muzzle) / threat.ObservedSpeed, threat.Shoots, threat.HasSightOnCompanion);
+            float after = ThreatUrgency.ToCompanion(threat.EffectiveDamageToCompanion, body.life, threat.IsBoss,
+                Vector2.Distance(pushed, muzzle) / threat.ObservedSpeed, threat.Shoots, threat.HasSightOnCompanion);
+            charge += MathF.Max(0f, after - before) * threat.EffectiveDamageToCompanion;
+        }
+        return charge;
+    }
+
+    /// <summary>
+    /// The settled horizontal push, px and signed, that the weapon the arsenal last chose would give this target from this
+    /// muzzle — the one push question position selection asks, so it can prefer a stand whose shot pushes the target away
+    /// from the player and the orb. Zero with no weapon chosen. The damage is the weapon's base damage after armour rather
+    /// than the player-modified hit, because this is asked without a context and only decides which of the game's two
+    /// knockback branches applies.
+    /// </summary>
+    public float ExpectedPushFrom(Vector2 muzzle, NPC target, Player player)
+    {
+        CompanionWeapon? weapon = LastChosen;
+        if (weapon == null || !target.active) return 0f;
+        int direction = WeaponEffects.PriorDirection(weapon.PushesAwayFromOwner, target.Center.X - muzzle.X, target.Center.X, player.Center.X);
+        return WeaponEffects.SettledPush(weapon.ItemType, target, weapon.Knockback,
+            WeaponEffects.PriorDamage(weapon.BaseDamage, target) * WeaponEffects.DamageFactor(weapon.ItemType, target.type), direction);
+    }
+
     /// <summary>The muzzle a shot would leave from at a candidate hover: the orb's centre there, the same point <see cref="Muzzle"/> reads off the live body.</summary>
     public static Vector2 MuzzleAt(Vector2 hoverCentre) => hoverCentre;
 
@@ -410,7 +478,7 @@ public sealed class Arsenal
 
     private static int CombatStamp(in ActionContext ctx)
     {
-        var hash = new HashCode(); hash.Add(Muzzle(ctx.Npc)); hash.Add(TerrainChanges.Revision);
+        var hash = new HashCode(); hash.Add(Muzzle(ctx.Npc)); hash.Add(TerrainChanges.Revision); hash.Add(WeaponEffects.Revision);
         foreach (var t in ctx.Senses.Threats.Threats)
         {
             hash.Add(t.Npc.whoAmI); hash.Add(HostileAttackSources.Generation(t.Npc)); hash.Add(t.Npc.life);
@@ -428,10 +496,13 @@ public sealed class Arsenal
     /// it is subtracted rather than scaled: a defence of 6 costs a 6-damage hit its whole value and
     /// an 18-damage hit a sixth of it, so ignoring it silently favours the weapon that throws many
     /// small hits at exactly the enemies it is worst against. Crit is absent for the reason the
-    /// weapon gives: the companion's spawn path carries none.
+    /// weapon gives: the companion's spawn path carries none. The prior is then scaled by what this
+    /// weapon's hits have actually landed on this enemy type, which is where a resistance applied in a
+    /// mod's hook shows up; the scaled value keeps the floor of one, because a hit always takes at least
+    /// that and the removal estimates divide by it.
     /// </summary>
     private static float PerHit(in ActionContext ctx, CompanionWeapon weapon, NPC target)
-        => MathF.Max(1f, weapon.DamagePerHit(ctx) - target.defense / 2f);
+        => MathF.Max(1f, WeaponEffects.PriorDamage(weapon.DamagePerHit(ctx), target) * WeaponEffects.DamageFactor(weapon.ItemType, target.type));
 
     /// <summary>How long a target is kept before the candidates are scored again.</summary>
     private const int TargetHoldTicks = 15;
@@ -635,7 +706,7 @@ public sealed class Arsenal
         GodsEyeEvents.RecordShot(ctx.Npc, target, result.ProjectileSlot, muzzle, launch, finalShot.ExpectedImpact, weapon.Name, finalShot.ImpactTick, LastAttackValue, LastExpectedKills, LastPreventedHarm);
         if (result.IsShot)
         {
-            TrackLandedHits.Register(result.ProjectileSlot, target);
+            TrackLandedHits.Register(result.ProjectileSlot, target, weapon.ItemType);
             ProjectileArcs.Register(result.ProjectileSlot, weapon.ProjectileType, launch);
         }
         cooldown = weapon.UseTime;

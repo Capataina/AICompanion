@@ -660,4 +660,49 @@ public static class Weights
     /// distinguishing a middling trip from a long one.
     /// </summary>
     public const int ShotWindowCapTicks = 2 * ShotWindowSampleTicks;
+
+    // Lane D — knockback, the danger a hit's push adds, and credit for wounding a dangerous enemy.
+
+    /// <summary>
+    /// How many ticks a hit's added horizontal speed is held when weighing where the push leaves an enemy. A walker keeps
+    /// the speed a hit gave it until its own AI turns it round, which takes on the order of this many ticks, so the push is
+    /// a speed held for a window rather than a flight. Integrating the airtime under gravity was the first shape considered
+    /// and was rejected on paper before it was built: a zombie's pop from an ordinary bow is airborne for a couple of ticks,
+    /// so every push would read as a pixel and the preference it drives would be blind to the pushes the owner watched
+    /// carry enemies into him.
+    /// </summary>
+    public const int KnockbackSettleTicks = 12;
+
+    /// <summary>
+    /// How much a hit's value is charged per unit of danger its push adds, where danger is the added urgency to a body
+    /// times what one of that enemy's hits takes off that body. It is on the scale of the prevented-harm credit on
+    /// purpose, because the charge and that credit measure the same thing in opposite directions: harm to the player or
+    /// the orb that the shot makes likelier rather than less likely. Before this there was no charge at all, and a shot
+    /// that pushed a zombie into the player won on its damage alone, which is the behaviour the owner reported; no other
+    /// value of this weight has been played.
+    /// </summary>
+    public const float KnockbackInducedDangerWeight = AttackPreventedHarmWeight;
+
+    /// <summary>
+    /// The share of prevented-harm credit a non-lethal hit earns, per unit of the enemy's remaining life it removes. Below
+    /// one so the kill still stands out: two half-life hits earn this share on the first and the full kill credit on the
+    /// second. Crediting harm only on a kill, which it replaced, valued wounding a zombie beside the player exactly like
+    /// wounding a harmless slime.
+    /// </summary>
+    public const float AttackPartialHarmShare = .5f;
+
+    /// <summary>
+    /// The share of its score a firing spot keeps when the weapon's push from there carries the target toward the player
+    /// or toward the spot itself, at full push. A floor rather than a veto, like every other factor: a spot on the wrong
+    /// side is still the answer when it is the only one with a shot. Lower, and a guard would give up a clear shot to stand
+    /// on the player's side behind a wall; higher, and a push of any size changes nothing about where the orb stands.
+    /// </summary>
+    public const float KnockbackSideFloor = .5f;
+
+    /// <summary>
+    /// The settled push, px, at which the side preference is at full strength; a smaller push scales it down linearly and
+    /// no push at all is no preference. About three tiles, which is the distance that takes a zombie from beside the player
+    /// into contact with him.
+    /// </summary>
+    public const float KnockbackSideFullPushPx = 48f;
 }
