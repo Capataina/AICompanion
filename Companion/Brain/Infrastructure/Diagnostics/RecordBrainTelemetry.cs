@@ -19,11 +19,11 @@ namespace AICompanion.Companion.Brain.Infrastructure.Diagnostics;
 /// The record of what the brain did, one tab-separated line per companion tick, written
 /// to a file under the mod's own source folder so a session is diagnosed from the record
 /// instead of from memory. It writes what the overlay shows and more: every action's raw
-/// and final score, the reflex, danger and horizon, the request and the spot, the path
-/// and its next step, the body's position, velocity, ground, wet and collision state, what
-/// is in the hand, the light, and where the player is and what they are doing. A jump is
-/// readable as a tick where the body left the ground with upward velocity; a stuck
-/// companion is a run of ticks with the same tile, a path and no progress.
+/// and final score, the reflex, danger and horizon, the request and the spot, the route
+/// and its lookahead, the body's centre, velocity, clearance, wall contact and liquid, what
+/// is in the hand, the light, and where the player is and what they are doing. A pinned
+/// companion is a run of ticks holding a velocity without moving; a stuck one is a run of
+/// ticks with the same tile, a route and no progress.
 ///
 /// One file per world session, named by the clock, opened on world load and closed on
 /// world unload or mod unload; the folder is ignored by git and by the mod packager. At
@@ -56,7 +56,12 @@ public sealed class BrainTelemetry : ModSystem
     // declaration below is a hand-maintained parallel to the header builder and that omission is what it
     // costs; SessionReport now unions its own known-textual set with whatever a capture declares, so an
     // already-written capture is read correctly rather than only the next one.
-    private const string Schema = "0.33.0";
+    // 0.34.0 is the orb's schema: the walker's ground, press, descend, divergence, breath, edge and
+    // observed/predicted body columns are gone, and the body row carries its wall contact and
+    // normal, liquid, clearance, desired velocity and the route's lookahead instead. Columns are
+    // addressed by name and the reader skips a check whose columns are absent, so an older capture
+    // reads as reduced coverage rather than as a misread column.
+    private const string Schema = "0.34.0";
     // The cost of the previous row's Record call: a row cannot contain the time spent writing itself, so each row carries
     // the one before it and the first row of a session carries none.
     private static readonly Stopwatch recordClock = new();
@@ -480,8 +485,10 @@ public sealed class BrainTelemetry : ModSystem
             sb.Append($"tick {Main.GameUpdateCount} {why}: start {start.X},{start.Y} goal {goal.X},{goal.Y}");
             if (partialEnd is Point e) sb.Append($" partial-end {e.X},{e.Y}");
             sb.Append($" expansions {expansions} npc {n.X},{n.Y}");
+            // The orb's centre in pixels, which is the whole of the body: the contact is a circle about
+            // this point, so a replay that starts the body here starts it where the game had it.
             if (npc != null)
-                sb.Append($" npcbox {boxLeft.ToString("0.0", CultureInfo.InvariantCulture)},{(boxTop + boxH).ToString("0.0", CultureInfo.InvariantCulture)},{boxW},{boxH}");
+                sb.Append($" orb {npc.Center.X.ToString("0.0", CultureInfo.InvariantCulture)},{npc.Center.Y.ToString("0.0", CultureInfo.InvariantCulture)}");
             sb.Append($" player {p.X},{p.Y} window x {x0}..{x1} y {y0}..{y1}\n");
             sb.Append($"markers S {start.X},{start.Y} G {goal.X},{goal.Y} N {n.X},{n.Y} P {p.X},{p.Y}");
             if (partialEnd is Point pe) sb.Append($" E {pe.X},{pe.Y}");
@@ -616,7 +623,7 @@ public sealed class BrainTelemetry : ModSystem
             brain.Positioner.CandidateCount, brain.Positioner.ReachableCandidateCount, brain.Positioner.RejectedCandidateCount, brain.Positioner.ChoiceReason,
             senses.Threats.InterventionTicks, senses.Threats.ProtectionUrgency,
             senses.Threats.MostUrgent?.PredictionConfidence ?? 0f, senses.Threats.MostUrgent?.PredictionSamples ?? 0,
-            $"route-completed-steps={brain.Navigator.Path?.Index ?? 0};route-remaining-estimated-ticks={brain.Navigator.RemainingEstimatedRouteTicks:0.000};follow-objective-valid={brain.Positioner.FollowObjectiveSatisfied};follow-horizontal-gap={brain.Positioner.FollowHorizontalGap:0.000};follow-vertical-gap={brain.Positioner.FollowVerticalGap:0.000};follow-objective={brain.Positioner.FollowObjectiveReason};recovery-active={brain.FollowRecovery.Active};recovery-reason={brain.FollowRecovery.Reason};recovery-flights={brain.FollowRecovery.Flights};guard-threat={guard?.ProtectedThreatId ?? -1};guard-pressure={(guard?.RetainedPressure ?? 0f).ToString("0.000", CultureInfo.InvariantCulture)};guard-reason={guard?.CommitmentReason ?? "unavailable"};mine-job={mine?.JobId ?? 0};mine-policy={mine?.Policy.ToString() ?? "unavailable"};mine-status={mine?.Status ?? "unavailable"};mine-remaining={mine?.RemainingTiles ?? 0};mine-target={mine?.TargetTile?.ToString() ?? "-"};control-source={companion.Motor.ControlSource};state-search-pending={brain.Movement.StateSearchPending};retained-control-ticks={brain.Movement.StateSearchRetainedTicks};air-target={survival.AirTarget};safety-response-id={brain.Safety.Id};safety-active={brain.Safety.Active};safety-kind={brain.Safety.Kind};safety-reason={brain.Safety.Reason};safety-last-end={brain.Safety.LastEndReason};breath-ticks-left={companion.Motor.LiquidContactTicks};position-evidence-tick={brain.Positioner.EvidenceTick};positions-evaluated={brain.Positioner.EvaluatedCandidates};reach-complete={senses.Reach.Complete};position-alternatives={brain.Positioner.CandidateEvidence};target-evidence-tick={companion.Arsenal.TargetEvidenceTick};target-evidence-age={senses.Tick - companion.Arsenal.TargetEvidenceTick};target-alternatives={companion.Arsenal.TargetEvidence}");
+            $"route-completed-steps={brain.Navigator.Path?.Index ?? 0};route-remaining-estimated-ticks={brain.Navigator.RemainingEstimatedRouteTicks:0.000};follow-objective-valid={brain.Positioner.FollowObjectiveSatisfied};follow-horizontal-gap={brain.Positioner.FollowHorizontalGap:0.000};follow-vertical-gap={brain.Positioner.FollowVerticalGap:0.000};follow-objective={brain.Positioner.FollowObjectiveReason};recovery-active={brain.FollowRecovery.Active};recovery-reason={brain.FollowRecovery.Reason};recovery-flights={brain.FollowRecovery.Flights};guard-threat={guard?.ProtectedThreatId ?? -1};guard-pressure={(guard?.RetainedPressure ?? 0f).ToString("0.000", CultureInfo.InvariantCulture)};guard-reason={guard?.CommitmentReason ?? "unavailable"};mine-job={mine?.JobId ?? 0};mine-policy={mine?.Policy.ToString() ?? "unavailable"};mine-status={mine?.Status ?? "unavailable"};mine-remaining={mine?.RemainingTiles ?? 0};mine-target={mine?.TargetTile?.ToString() ?? "-"};control-source={companion.Motor.ControlSource};state-search-pending={brain.Movement.StateSearchPending};retained-control-ticks={brain.Movement.StateSearchRetainedTicks};air-target={survival.AirTarget};safety-response-id={brain.Safety.Id};safety-active={brain.Safety.Active};safety-kind={brain.Safety.Kind};safety-reason={brain.Safety.Reason};safety-last-end={brain.Safety.LastEndReason};liquid-ticks={companion.Motor.LiquidContactTicks};position-evidence-tick={brain.Positioner.EvidenceTick};positions-evaluated={brain.Positioner.EvaluatedCandidates};reach-complete={senses.Reach.Complete};position-alternatives={brain.Positioner.CandidateEvidence};target-evidence-tick={companion.Arsenal.TargetEvidenceTick};target-evidence-age={senses.Tick - companion.Arsenal.TargetEvidenceTick};target-alternatives={companion.Arsenal.TargetEvidence}");
         SessionMap.Watch(
             MovementQueries.Tile(npc.Center),
             MovementQueries.Tile(senses.Player.Bottom),
@@ -625,7 +632,7 @@ public sealed class BrainTelemetry : ModSystem
 
         if (!headerWritten)
         {
-            var textColumns = new StringBuilder("# text_columns=state,action,reflex,top_threat,target,request,anchor,spot,next_kind,npc_tile,npc_px,npc_vel,held,weapon,fire,engage,torch,player_tile,edge_kind,edge_from,edge_to,edge_outcome,spot_home,diverge_invalid_reason,sample_phase,player_px,player_vel,player_liquid,player_hit,npc_hit,player_state,player_activity,player_support,npc_support,control,control_source,observed_vel,observed_mobility,predicted_vel,predicted_mobility,follow_reason,recovery_reason,guard_reason,mine_policy,mine_status,mine_target,target_evidence,nav_status,position_reason,escape_stage,escape_target,hunt_reason,hand_grant,control_request_owner,safety_kind,safety_reason,safety_last_end,collection_method,mine_end_reason,attempt_end_activity,attempt_end_family,attempt_end_status,attempt_end_cause,attempt_end_attribution,pursuit_target,pursuit_evidence,aim_target,landed_hit_target,landed_hit_aimed,encounter_source,torch_reason,lighting_sites,intent_region");
+            var textColumns = new StringBuilder("# text_columns=state,action,reflex,top_threat,target,request,anchor,spot,lookahead,npc_tile,npc_px,npc_vel,wall_normal,liquid,held,weapon,fire,engage,torch,player_tile,spot_home,sample_phase,player_px,player_vel,player_liquid,player_hit,npc_hit,player_state,player_activity,player_support,control,control_source,desired_vel,follow_reason,recovery_reason,guard_reason,mine_policy,mine_status,mine_target,target_evidence,nav_status,position_reason,escape_stage,escape_target,hunt_reason,hand_grant,control_request_owner,safety_kind,safety_reason,safety_last_end,collection_method,mine_end_reason,attempt_end_activity,attempt_end_family,attempt_end_status,attempt_end_cause,attempt_end_attribution,pursuit_target,pursuit_evidence,aim_target,landed_hit_target,landed_hit_aimed,encounter_source,torch_reason,lighting_sites,intent_region");
             // Offer columns are named from the registered activities, like the raw/final pairs, so
             // the declaration and the header cannot disagree about which activities exist.
             foreach (var a in brain.Chooser.Actions) textColumns.Append(',').Append(a.Name).Append("_offer");
@@ -640,20 +647,28 @@ public sealed class BrainTelemetry : ModSystem
             foreach (var a in brain.Chooser.Actions)
                 h.Append('\t').Append(a.Name).Append("_raw\t").Append(a.Name).Append("_fin");
             h.Append("\tdanger\tself_threat\thorizon\tthreats\treachable\ttop_threat\ttarget\tloot");
-            h.Append("\trequest\tanchor\tspot\tspot_score\tfollow_objective_valid\tfollow_dx\tfollow_dy\tfollow_reason\trecovery_active\trecovery_reason\trecovery_flights\tpath_steps\tpath_at\troute_search_id\troute_attempt_id\troute_remaining_ticks\tnext_kind\tplan_failed\texpansions");
-            h.Append("\tnpc_tile\tnpc_px\tnpc_vel\tground\twet\tcollide_x\tcollide_y\tmoved\tvel_cut\tpress\tdescend\tpinned\tdiverge\tdiverge_valid\tdiverge_invalid_reason\tdir\tlife\tbreath\tself_danger\theld\tweapon\tshot\tfire\texp_bow\texp_knife\texp_target\tnear_threat\tweapon_reach\tengage\ttorch\tdark_near\tdark_ahead\ttorch_reason\tlight_samples\tlight_read_tick\tlight_region");
+            // The route as the navigator holds it: how many points it has, which segment the body is on,
+            // the length left to fly and where the steering is aiming this tick. A route that shrinks
+            // while the body does not move is a body pinned on a route it cannot keep.
+            h.Append("\trequest\tanchor\tspot\tspot_score\tfollow_objective_valid\tfollow_dx\tfollow_dy\tfollow_reason\trecovery_active\trecovery_reason\trecovery_flights\troute_points\troute_index\troute_search_id\troute_attempt_id\troute_remaining_ticks\troute_remaining_px\tlookahead\tplan_failed\texpansions");
+            // The body: its centre and velocity, whether the contact pushed it off a wall this tick and
+            // along which normal, the liquid it touches and whether that liquid hurts it, how far it is
+            // from the nearest wall, the engine's own displacement, and how long it has held a velocity
+            // without moving. There is one body and one contact, so there is no second body to diverge
+            // from and no ground to stand on: those columns went with the walker.
+            h.Append("\tnpc_tile\tnpc_px\tnpc_vel\ttouched_wall\twall_normal\twet\tliquid\thurting\tclearance\tmoved\tpinned\tdir\tlife\tliquid_ticks\tself_danger\theld\tweapon\tshot\tfire\texp_bow\texp_knife\texp_target\tnear_threat\tweapon_reach\tengage\ttorch\tdark_near\tdark_ahead\ttorch_reason\tlight_samples\tlight_read_tick\tlight_region");
             h.Append("\tplayer_tile\tplayer_intent\tplayer_dead\tplayer_attacking\tplayer_chopping\tplayer_mining");
-            h.Append("\tplan_ms\tflood_ms\tsenses_ms\treflex_ms\tdecide_ms\tposition_ms\tnavigate_ms\tbrain_ms\tedge_cache\tstranded");
+            h.Append("\tplan_ms\tflood_ms\tsenses_ms\treflex_ms\tdecide_ms\tposition_ms\tnavigate_ms\tbrain_ms\tclearance_builds\tstranded");
             // The reachability tier, which is where the companion decides whether to enter somewhere
             // it cannot leave and the one decision no offline pass can watch: how many tiles it can
             // reach, how many of those it can come home from, whether the spot it picked is one of
             // them, and whether the refusing flood was discarded because the player was outside it.
             h.Append("\treach_any\treach_two_way\treach_complete\tspot_home\tplayer_one_way");
-            h.Append("\tedge_n\tedge_kind\tedge_from\tedge_to\tedge_proven\tedge_took\tedge_outcome");
             h.Append("\tguard_threat\tguard_pressure\tguard_reason\tmine_job\tmine_policy\tmine_status\tmine_remaining\tmine_target\ttarget_evidence_tick\ttarget_evidence_age\ttarget_evidence");
-            h.Append("\twall_elapsed_ms\tsample_phase\tplayer_px\tplayer_vel\tplayer_ground\tplayer_liquid\tplayer_life\tplayer_hit\tnpc_hit\tplayer_state\tplayer_activity\tplayer_support\tnpc_support\tcontrol\tcontrol_source\tbrain_fresh");
-            h.Append("\tobserved_left\tobserved_bottom\tobserved_vel\tobserved_ground\tobserved_wet\tobserved_mobility\tpredicted_left\tpredicted_bottom\tpredicted_vel\tpredicted_ground\tpredicted_wet\tpredicted_mobility\tnpc_width\tnpc_height");
-            h.Append("\tnav_status\tposition_reason\tmovement_stalled\tescape_active\tescape_stage\tescape_target\tstate_search_pending\tstate_search_retained\thead_submerged\tbreath_ticks\tattack_value\tattack_kills\tattack_harm\tweapon_cooldown\thunt_idle_ticks\thunt_reason");
+            // `control` is what the motor applied this tick and `desired_vel` the velocity it accelerated
+            // toward after capping; the two differ where the request exceeded the cap.
+            h.Append("\twall_elapsed_ms\tsample_phase\tplayer_px\tplayer_vel\tplayer_ground\tplayer_liquid\tplayer_life\tplayer_hit\tnpc_hit\tplayer_state\tplayer_activity\tplayer_support\tcontrol\tcontrol_source\tbrain_fresh\tdesired_vel");
+            h.Append("\tnav_status\tposition_reason\tmovement_stalled\tescape_active\tescape_stage\tescape_target\tstate_search_pending\tstate_search_retained\tattack_value\tattack_kills\tattack_harm\tweapon_cooldown\thunt_idle_ticks\thunt_reason");
             h.Append("\tchoice_fresh\tchoice_id\tchoice_tick");
             h.Append("\tcontrol_grant_fresh\tcontrol_grant_id\tcontrol_grant_tick\thand_grant\tcontrol_request_owner\tcontrol_motor_applications\tfinalise_ms");
             h.Append("\tsafety_response_id\tsafety_active\tsafety_kind\tsafety_reason\tsafety_last_end");
@@ -767,59 +782,37 @@ public sealed class BrainTelemetry : ModSystem
         sb.Append('\t').Append(path?.Count ?? 0).Append('\t').Append(path?.Index ?? 0);
         sb.Append('\t').Append(brain.Navigator.SearchId).Append('\t').Append(brain.Navigator.AttemptId);
         sb.Append('\t').Append(brain.Navigator.RemainingEstimatedRouteTicks.ToString("0.00", CultureInfo.InvariantCulture));
-        sb.Append('\t').Append(path != null ? "fly" : "-");
+        sb.Append('\t').Append((path?.RemainingLength(npc.Center) ?? 0f).ToString("0.0", CultureInfo.InvariantCulture));
+        sb.Append('\t').Append(path != null ? Pair(brain.Navigator.Lookahead) : "-");
         sb.Append('\t').Append(brain.Navigator.LastPlanFailed ? 1 : 0).Append('\t').Append(brain.Navigator.LastExpansions);
 
         sb.Append('\t').Append(Tile(npc.Center));
         sb.Append('\t').Append((int)npc.Center.X).Append(',').Append((int)npc.Center.Y);
         sb.Append('\t').Append(npc.velocity.X.ToString("0.00")).Append(',').Append(npc.velocity.Y.ToString("0.00"));
+        // The contact's own account of the last application: whether it pushed the body off a wall
+        // and along which normal. The engine's collide flags are always clear for a body it does not
+        // collide, so this is the only wall contact the record has.
         sb.Append('\t').Append(companion.Motor.TouchedWall ? 1 : 0);
+        sb.Append('\t').Append(companion.Motor.TouchedWall ? Pair(companion.Motor.WallNormal) : "-");
         sb.Append('\t').Append(npc.wet ? 1 : 0);
-        sb.Append('\t').Append(npc.collideX ? 1 : 0).Append('\t').Append(npc.collideY ? 1 : 0);
-        // What the engine did with the last tick's request, which is the one thing this record has
-        // never held. Record runs inside AI, before the engine's collision and its position += velocity,
-        // so every number on this line describes the tick before — and three attempts at the platform
-        // freeze were argued from position and collision values nobody had established were a tick
-        // apart. `moved` is the engine's own displacement (position - oldPosition) and `vel_cut` is
-        // what its collision took off the velocity it was handed (velocity - oldVelocity). A body
-        // frozen with moved 0,0 and vel_cut 0,0 is not being blocked, it is not being integrated,
-        // and those two cells say which without anyone reading twenty rows to infer it.
+        sb.Append('\t').Append(LiquidName(companion.Motor.LiquidKind));
+        sb.Append('\t').Append(companion.Motor.InHurtingLiquid ? 1 : 0);
+        // How far the body's edge is from the nearest wall, in pixels, from the same circle test the
+        // contact runs; zero is a body overlapping terrain, which recovery clearance exists for.
+        sb.Append('\t').Append(CircleContact.Clearance(MovementQueries.World, npc.Center).ToString("0.0", CultureInfo.InvariantCulture));
+        // What the engine did with the last tick's request. Record runs inside AI, before the engine's
+        // position += velocity, so every number on this line describes the tick before. `moved` is
+        // the engine's own displacement (position - oldPosition); a body with a velocity and moved
+        // 0,0 is not being integrated, which is what `pinned` counts across ticks.
         sb.Append('\t').Append((npc.position.X - npc.oldPosition.X).ToString("0.00", CultureInfo.InvariantCulture))
           .Append(',').Append((npc.position.Y - npc.oldPosition.Y).ToString("0.00", CultureInfo.InvariantCulture));
-        sb.Append('\t').Append((npc.velocity.X - npc.oldVelocity.X).ToString("0.00", CultureInfo.InvariantCulture))
-          .Append(',').Append((npc.velocity.Y - npc.oldVelocity.Y).ToString("0.00", CultureInfo.InvariantCulture));
-        // Whether the body asked to pass its platform this tick. It is written here because the
-        // game reads and clears the flag in UpdateCollision, which runs after this line, and
-        // because two attempts at the fall-through defect were spent inferring this column's value
-        // from velocity and ground: a press that is not held shows as a three-tick fall and a
-        // catch, and with the column present that reads directly instead of being reconstructed.
-        sb.Append('\t').Append(0);
-        // Whether the move in hand is going down, which is what decides whether the motor may lift
-        // the body onto a platform at its knee. It sits beside `press` because the two are
-        // different questions that looked like one: a press is this tick's request to pass the
-        // platform underfoot, and this is the whole descent's intent, held for the ticks after the
-        // press is released — which are exactly the ticks the body is falling past platforms it
-        // must not catch. Hard-coding the permission on was the shaft freeze.
-        sb.Append('\t').Append(0);
         // How long the body has held a velocity while not moving. The engine cannot do that to a
         // body it is integrating, so any run above a tick or two means something wrote the
-        // position back during the AI phase, where `moved` cannot see it. During the 2026-09-09
-        // freeze this would have read a rising count for 265 ticks while `ground` read 0 and both
-        // collide flags read clear, which is the state that had to be inferred across twenty rows.
+        // position back during the AI phase, where `moved` cannot see it.
         sb.Append('\t').Append(companion.Motor.PinnedTicks);
-        // How far the offline motion rule's prediction of this tick missed, in pixels: the rule
-        // every planned move is proven with, run on last tick's state and controls, against where
-        // the engine actually put the body. It is the divergence check for the boundary that has
-        // cost this project the most, because a move proved by one rule and performed by another
-        // is a body standing still holding a valid path — and it is measured continuously on the
-        // real world rather than by replaying a recording, which only ever covers the tiles the
-        // recording happened to visit.
-        sb.Append('\t').Append("0.00");
-        sb.Append('\t').Append(0);
-        sb.Append('\t').Append("orb-no-second-body");
         sb.Append('\t').Append(npc.direction);
         sb.Append('\t').Append(npc.life).Append('/').Append(npc.lifeMax);
-        sb.Append('\t').Append(senses.Self.LiquidContactTicks.ToString(CultureInfo.InvariantCulture)).Append(senses.Self.HeadUnderwater ? "u" : "");
+        sb.Append('\t').Append(senses.Self.LiquidContactTicks.ToString(CultureInfo.InvariantCulture));
         sb.Append('\t').Append(senses.Self.SelfDanger.ToString("0.00")).Append(senses.Self.InLava ? "L" : senses.Self.OnFire ? "f" : "");
         sb.Append('\t').Append(companion.HeldItemType == 0 ? "-" : Lang.GetItemNameValue(companion.HeldItemType));
         sb.Append('\t').Append(companion.Arsenal.LastChosen?.Name ?? "-");
@@ -889,11 +882,6 @@ public sealed class BrainTelemetry : ModSystem
           .Append('\t').Append(brain.Positioner.ReachComplete ? 1 : 0)
           .Append('\t').Append(brain.Positioner.ChosenReturnable ? 1 : 0)
           .Append('\t').Append(brain.Positioner.PlayerOnlyOneWay ? 1 : 0);
-        // The last step the follower finished or faulted, sticky until the next: the move, the
-        // ticks it was proven to take against the ticks it took, and how it ended. Read against
-        // the replay's --follow on the same block, this is where the body model and the game's
-        // engine disagree per kind of move; the count column says when a new one has landed.
-        sb.Append("\t0\t-\t-\t-\t0\t0\t-");
 
         sb.Append('\t').Append(guard?.ProtectedThreatId ?? -1);
         sb.Append('\t').Append((guard?.RetainedPressure ?? 0f).ToString("0.000", CultureInfo.InvariantCulture));
@@ -909,10 +897,9 @@ public sealed class BrainTelemetry : ModSystem
 
         Player player = Main.LocalPlayer;
         sb.Append('\t').Append(sessionClock.Elapsed.TotalMilliseconds.ToString("0.000", CultureInfo.InvariantCulture));
-        // The three phases are deliberately named together: the motor sampled ObservedState at
-        // AI entry, then built PredictedState from that observation and this tick's controls, and
-        // the legacy npc_px below was sampled after AI helpers such as StepUp may have moved it.
-        sb.Append("\tobserved_before_ai;request_after_ai;npc_px_after_helpers");
+        // When in the tick this row was sampled, named so a reader never has to infer it: inside the
+        // AI phase, after the brain and the motor's own contact, before the engine's position += velocity.
+        sb.Append("\tin_ai_after_contact_before_engine_move");
         sb.Append('\t').Append(Pair(player.Bottom));
         sb.Append('\t').Append(Pair(player.velocity));
         sb.Append('\t').Append(player.velocity.Y == 0f ? 1 : 0);
@@ -927,19 +914,14 @@ public sealed class BrainTelemetry : ModSystem
         sb.Append('\t').Append(player.dead ? "dead" : "alive");
         sb.Append('\t').Append(PlayerActivity(player, senses));
         sb.Append('\t').Append(SupportAt(player.Bottom));
-        OrbState observed = companion.Motor.State;
-        sb.Append('\t').Append(SupportAt(observed.Centre));
         sb.Append('\t').Append(DescribeControls(companion.Motor.AppliedControls));
         sb.Append('\t').Append(companion.Motor.ControlSource);
         sb.Append('\t').Append(brainExecuted ? 1 : 0);
-        AppendState(sb, observed);
-        AppendState(sb, null);
-        sb.Append('\t').Append(npc.width).Append('\t').Append(npc.height);
+        sb.Append('\t').Append(Pair(companion.Motor.DesiredVelocity));
         sb.Append('\t').Append(brain.Navigator.Status).Append('\t').Append(brain.Positioner.ChoiceReason);
         sb.Append('\t').Append(brain.MovementStalled ? 1 : 0).Append('\t').Append(survival?.EscapeActive == true ? 1 : 0);
         sb.Append('\t').Append(survival?.EscapeStage ?? "inactive").Append('\t').Append(survival?.AirTarget?.ToString() ?? "-");
         sb.Append('\t').Append(brain.Movement.StateSearchPending ? 1 : 0).Append('\t').Append(brain.Movement.StateSearchRetainedTicks);
-        sb.Append('\t').Append(senses.Self.HeadUnderwater ? 1 : 0).Append('\t').Append(companion.Motor.LiquidContactTicks);
         sb.Append('\t').Append(companion.Arsenal.LastAttackValue.ToString("0.000", CultureInfo.InvariantCulture));
         sb.Append('\t').Append(companion.Arsenal.LastExpectedKills).Append('\t').Append(companion.Arsenal.LastPreventedHarm.ToString("0.000", CultureInfo.InvariantCulture));
         sb.Append('\t').Append(companion.Arsenal.CooldownTicks).Append('\t').Append(hunt?.NoProgressTicks ?? 0).Append('\t').Append(hunt?.LastRejection ?? "unavailable");
@@ -1069,10 +1051,10 @@ public sealed class BrainTelemetry : ModSystem
         var region = brain.Positioner.Region;
         // A claimed arrival is the navigator reporting Arrived on a tick the ordinary branch asked it to travel;
         // any other owner leaves the status from an earlier MoveTo, which is not a claim about this tick.
-        // The feet are the entry body the navigator judged, not the after-helper npc_px.
+        // The body judged is the orb's centre, the one point the navigator and the region both measure.
         bool arrivalClaimed = brain.Navigator.Status == Infrastructure.Movement.Navigator.ExecutionStatus.Arrived
             && controlGrant?.RequestedOwner == "travel";
-        bool? inside = arrivalClaimed ? region.Contains(observed.Centre) : null;
+        bool? inside = arrivalClaimed ? region.Contains(npc.Center) : null;
         sb.Append('\t').Append(region.Name)
             .Append('\t').Append(brain.Positioner.ChosenRevision)
             .Append('\t').Append(region.AdmittedTick)
@@ -1162,18 +1144,6 @@ public sealed class BrainTelemetry : ModSystem
     internal static string DescribeControls(Controls controls)
         => $"desired={controls.Desired.X.ToString("0.00", CultureInfo.InvariantCulture)},{controls.Desired.Y.ToString("0.00", CultureInfo.InvariantCulture)}";
 
-    private static void AppendState(StringBuilder sb, OrbState? state)
-    {
-        if (state is not OrbState body)
-        {
-            sb.Append("\t-\t-\t-\t-\t-\t-");
-            return;
-        }
-        sb.Append('\t').Append(body.Centre.X.ToString("0.00", CultureInfo.InvariantCulture));
-        sb.Append('\t').Append(body.Centre.Y.ToString("0.00", CultureInfo.InvariantCulture));
-        sb.Append('\t').Append(body.Velocity.X.ToString("0.00", CultureInfo.InvariantCulture)).Append(',').Append(body.Velocity.Y.ToString("0.00", CultureInfo.InvariantCulture));
-        sb.Append('\t').Append(body.Pinned ? 1 : 0);
-        sb.Append('\t').Append(body.Dry ? 0 : 1);
-        sb.Append('\t').Append($"liquid={body.LiquidKind}");
-    }
+    /// <summary>The motor's liquid kind by name, in the game's own numbering: water, lava, honey, shimmer; -1 is dry.</summary>
+    private static string LiquidName(int kind) => kind switch { 0 => "water", 1 => "lava", 2 => "honey", 3 => "shimmer", _ => "dry" };
 }

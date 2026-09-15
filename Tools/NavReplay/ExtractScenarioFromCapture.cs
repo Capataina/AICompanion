@@ -67,10 +67,11 @@ internal static class ExtractScenarioFromCapture
         if (row == null)
             throw new InvalidDataException($"no complete sample at tick {tick} in {Path.GetFileName(capture)}");
 
-        float left = Single(row, "observed_left"), bottom = Single(row, "observed_bottom");
-        float boxWidth = row.TryGetValue("npc_width", out string? w) && float.TryParse(w, NumberStyles.Float, CultureInfo.InvariantCulture, out float bw) ? bw : 0f;
-        float boxHeight = row.TryGetValue("npc_height", out string? h) && float.TryParse(h, NumberStyles.Float, CultureInfo.InvariantCulture, out float bh) ? bh : 0f;
-        Point start = new((int)MathF.Floor((left + boxWidth / 2f) / 16f), (int)MathF.Floor((bottom - boxHeight / 2f) / 16f));
+        // The body is its centre: `npc_px` is the orb's centre in whole pixels, sampled inside the AI
+        // phase after the motor's contact, so it is where the game's own circle test last left it.
+        string centrePx = row.GetValueOrDefault("npc_px", "");
+        Point start = PixelTile(centrePx) ?? throw new InvalidDataException($"tick {tick} has no npc_px centre to start the body from");
+        float[] centre = centrePx.Split(',').Select(s => float.Parse(s, NumberStyles.Float, CultureInfo.InvariantCulture)).ToArray();
         Point player = PixelTile(row.GetValueOrDefault("player_px", "")) ?? start;
         // The destination the brain had actually asked for on that tick, which is what makes the
         // fixture a replay of the ask rather than of a goal invented afterwards. Without one the
@@ -161,7 +162,7 @@ internal static class ExtractScenarioFromCapture
             // of the real goal would become the goal.
             $"tick {tick} cut from a recording: start {start.X},{start.Y} goal {goal.X},{goal.Y} expansions 0"
                 + $" npc {start.X},{start.Y} player {player.X},{player.Y}"
-                + $" npcbox {left.ToString("0.0", CultureInfo.InvariantCulture)},{bottom.ToString("0.0", CultureInfo.InvariantCulture)},{boxWidth:0},{boxHeight:0}"
+                + $" orb {centre[0].ToString("0.0", CultureInfo.InvariantCulture)},{centre[1].ToString("0.0", CultureInfo.InvariantCulture)}"
                 + $" window x {originX}..{originX + width - 1} y {originY}..{originY + height - 1}"
                 + $" || from {Path.GetFileName(capture)} || {snapshots} snapshots covered {knownTiles} of {width * height} tiles"
                 + $" ({100.0 * knownTiles / (width * height):F1}%) as last written, the rest closed"
