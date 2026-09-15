@@ -32,7 +32,9 @@ public sealed class TorchesGoWhereHisCursorWould : ICheck
     public IEnumerable<Finding> Run(Session session)
     {
         Column action = session["action"], tile = session["torch_reference"], dark = session["torch_reference_dark"], stage = session["torch_reference_stage"];
-        bool Holds(int i) => action.Text[i] == "keep-company" && tile.Text[i] != "-" && dark.Text[i] is "dark" or "carried";
+        // Only a tile known to be dark. A carried tile, one a light somebody is carrying outshines and the sense never read
+        // without it, is not a torch site under the placement rule, and a sky tile never is; neither staying unlit is a miss.
+        bool Holds(int i) => action.Text[i] == "keep-company" && tile.Text[i] != "-" && dark.Text[i] == "dark";
         foreach (Stretch stretch in FindStretches.Where(session.Count, Holds, MinTicks, AllowGap))
         {
             // One tile at a time: the cursor offering the same dark tile throughout is that tile staying unlit, and a stretch

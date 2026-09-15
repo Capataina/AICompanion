@@ -46,8 +46,18 @@ internal static class VerifyCompanionExperience
             failed += RunOneRow.Case("the boss that set the anchor fills 15% again, a weaker boss moves nothing, a stronger one resets to 15%", BossAnchorFillsFifteenPercent, "experience");
             failed += RunOneRow.Case("each anchor's bar grows 5% a level since it was set, and a new anchor never lowers the requirement", GrowthAndNeverLower, "experience");
             failed += RunOneRow.Case("a boss of several bodies is credited once, at its whole life, when its last body dies", MultiBodyFightsCreditOnce, "experience");
+            failed += RunOneRow.Case("the Eater of Worlds credits every segment's life whichever end dies first", EaterOfWorldsIsOrderFree, "experience");
+            failed += RunOneRow.Case("a fight's life is every part that has to die: the Brain's creepers and Golem's head and fists count, a respawning probe and an unhurtable hook do not", EveryPartThatMustDieCounts, "experience");
+            failed += RunOneRow.Case("a boss nobody finished goes to whoever of the companion or the player struck it last, and to nobody if neither did", ABossNobodyFinishedGoesToTheLastStriker, "experience");
+            failed += RunOneRow.Case("two bodies leaving on the same tick credit the latest striker, whichever body the fight saw first", TwoBodiesLeavingOnOneTick, "experience");
+            failed += RunOneRow.Case("a boss whose death refused its loot and whose slot was refilled before the sweep still ends a credited fight", ARefilledSlotIsStillADeath, "experience");
+            failed += RunOneRow.Case("the player's direct strikes (dash, stomp, touch) credit him, and never take a strike the companion's swing or shot already took", PlayerDirectStrikesAreHis, "experience");
+            failed += RunOneRow.Case("a first kill weaker than the green slime moves no anchor, and the bar keeps growing from the slime", AWeakKillNeverFlattensTheBar, "experience");
+            failed += RunOneRow.Case("a character takes the same kills per level in a world of another difficulty, the level in progress included", KillsPerLevelSurviveAChangeOfWorld, "experience");
+            failed += RunOneRow.Case("a save written in its world's own terms loads and is converted by the first world that reads it", AWorldTermsSaveIsConvertedOnce, "experience");
             failed += RunOneRow.Case("levels the anchor-setting kill completes are priced at the old anchor", FirstKillFillsAtTheOldPrice, "experience");
             failed += RunOneRow.Case("1,000 companion ore breaks make a level and 2,000 of the player's, from their native calls", WorkMakesALevel, "experience");
+            failed += RunOneRow.Case("a torch tile is paid once, by either earner, across a reload of the world", ATorchTileIsPaidOnce, "experience");
             failed += RunOneRow.Case("critters, town NPCs, statue spawns, dummies, boss company and others' kills credit nothing", ExcludedKillsCreditNothing, "experience");
             failed += RunOneRow.Case("a registered companion shot is the companion's, the player's projectile his, a trap's and a town NPC's nobody's", StrikersAreNamedByTheShot, "experience");
             failed += RunOneRow.Case("save and load round-trip every field, and a placeholder save loads at level 1", SaveAndLoadRoundTrip, "experience");
@@ -56,6 +66,7 @@ internal static class VerifyCompanionExperience
         {
             Main.GameMode = mode;
             Experience.DefaultEnemyLife = Experience.GreenSlimeLifeInThisWorld;
+            Experience.NormalEnemyLife = () => Experience.GreenSlimeLife(GameModeData.NormalMode);
             Credit.Reset();
         }
         Console.WriteLine(failed == 0
@@ -72,6 +83,15 @@ internal static class VerifyCompanionExperience
         ExperienceProperty.SetValue(Save(), ledger);
         Credit.Reset();
         return ledger;
+    }
+
+    /// <summary>An empty NPC table, at the top of every fight row: a boss or a part left standing by an earlier row — one whose
+    /// assertion aborted it halfway, above all — would hold the next row's fight open or join it, and the next row would then
+    /// fail for the earlier row's reason rather than its own.</summary>
+    private static void ClearArena()
+    {
+        for (int i = 0; i < Main.maxNPCs; i++) Main.npc[i] = new NPC { whoAmI = i };
+        Credit.Reset();
     }
 
     private static NPC Spawn(int slot, int type, GameModeData mode, IEntitySource? source = null)
@@ -238,6 +258,7 @@ internal static class VerifyCompanionExperience
 
     private static void MultiBodyFightsCreditOnce()
     {
+        ClearArena();
         Main.GameMode = GameModeID.Normal;
         Experience.DefaultEnemyLife = () => 14;
         GameModeData normal = GameModeData.NormalMode;
@@ -246,7 +267,7 @@ internal static class VerifyCompanionExperience
         NPC retinazer = Spawn(50, NPCID.Retinazer, normal), spazmatism = Spawn(51, NPCID.Spazmatism, normal);
         long whole = retinazer.lifeMax + spazmatism.lifeMax;
         Credit.Sweep(1);
-        Require(Credit.FightBodies == 2, $"the Twins must be one fight of two bodies; bodies {Credit.FightBodies}");
+        Require(Credit.FightMembers == 2, $"the Twins must be one fight of two bodies; bodies {Credit.FightMembers}");
         StrikeWithoutHitEffect(retinazer, Striker.Player);
         Require(!retinazer.active, "premise: the game's death must end Retinazer");
         Credit.Sweep(2);
@@ -266,14 +287,14 @@ internal static class VerifyCompanionExperience
         Credit.Sweep(5);
         eye.active = false;                                                   // flew away at dawn: no death
         Credit.Sweep(6);
-        Require(ledger.BossAnchorLife == 0 && ledger.Into == 0 && Credit.FightBodies == 0, "a boss that left alive is a despawn and credits nothing");
+        Require(ledger.BossAnchorLife == 0 && ledger.Into == 0 && Credit.FightMembers == 0, "a boss that left alive is a despawn and credits nothing");
 
         ledger = Fresh();
         NPC head = Spawn(60, NPCID.TheDestroyer, normal), segment = Spawn(61, NPCID.TheDestroyerBody, normal);
         segment.realLife = head.whoAmI;
         segment.lifeMax = segment.life = head.lifeMax;
         Credit.Sweep(7);
-        Require(Credit.FightBodies == 1, $"the Destroyer's segments hold no life of their own and are not bodies; bodies {Credit.FightBodies}");
+        Require(Credit.FightMembers == 1, $"the Destroyer's segments hold no life of their own and are not bodies; bodies {Credit.FightMembers}");
         StrikeWithoutHitEffect(segment, Striker.Player);
         Require(!head.active, "premise: a killing strike on a segment ends the head");
         Credit.Sweep(8);
@@ -292,6 +313,382 @@ internal static class VerifyCompanionExperience
         Require(ledger.EnemyAnchorLife == wyvern.lifeMax && ledger.Level == worm.Level && Near(ledger.Into, worm.Into),
             $"a worm counts once at its head's life {wyvern.lifeMax}; anchor {ledger.EnemyAnchorLife}");
         Console.WriteLine($"  Twins credited once at {whole}, a despawned eye at nothing, Destroyer at {head.lifeMax}, a wyvern once at {wyvern.lifeMax}");
+    }
+
+    /// <summary>A death with nobody's strike around it: the life taken from outside a strike, a debuff's last tick, and the
+    /// game's own checkDead under the same client allowance the strikes use, so loot returns and the NPC still deactivates.</summary>
+    private static void DebuffDeath(NPC npc)
+    {
+        int netMode = Main.netMode;
+        Main.netMode = 1;
+        try { npc.life = 0; npc.checkDead(); }
+        finally { Main.netMode = netMode; }
+        Require(!npc.active, $"premise: a debuff's last tick must end NPC type {npc.type}");
+    }
+
+    /// <summary>What a fresh ledger reads after crediting one whole fight, for comparing a fight's credit by hand.</summary>
+    private static Experience Reference(long wholeLife, bool byCompanion)
+    {
+        var reference = new Experience();
+        reference.CreditBossFight(wholeLife, byCompanion);
+        return reference;
+    }
+
+    private static bool Matches(Experience ledger, Experience reference)
+        => ledger.BossAnchorLife == reference.BossAnchorLife && ledger.Level == reference.Level && Near(ledger.Into, reference.Into);
+
+    /// <summary>
+    /// The worm of twenty segments each holding its own 150 life. The game makes the segment behind a dying one a head by
+    /// changing its type in place, with no spawn, and only a head carries the boss set, so a fight that counted only boss
+    /// bodies paid 3000 when the head died first and every next head joined, and 150 when the tail died first and the one
+    /// head was all it ever saw. Both orders must credit every segment.
+    /// </summary>
+    private static void EaterOfWorldsIsOrderFree()
+    {
+        ClearArena();
+        Main.GameMode = GameModeID.Normal;
+        Experience.DefaultEnemyLife = () => 14;
+        GameModeData normal = GameModeData.NormalMode;
+        const int Segments = 20;
+        var paid = new List<string>();
+        foreach (bool headFirst in new[] { true, false })
+        {
+            Experience ledger = Fresh();
+            NPC head = Spawn(100, NPCID.EaterofWorldsHead, normal);
+            var worm = new List<NPC> { head };
+            for (int i = 1; i < Segments; i++)
+                worm.Add(Spawn(100 + i, i == Segments - 1 ? NPCID.EaterofWorldsTail : NPCID.EaterofWorldsBody, normal, new EntitySource_Parent(head)));
+            long whole = worm.Sum(s => (long)s.lifeMax);
+            Credit.Sweep(20);
+            ulong tick = 21;
+            for (int k = 0; k < Segments; k++)
+            {
+                int index = headFirst ? k : Segments - 1 - k;
+                StrikeWithoutHitEffect(worm[index], Striker.Companion);
+                Require(!worm[index].active, $"premise: segment {index} must die");
+                if (headFirst && index + 1 < Segments) worm[index + 1].type = NPCID.EaterofWorldsHead;  // the next segment leads
+                Credit.Sweep(tick++);
+            }
+            Experience reference = Reference(whole, true);
+            paid.Add($"{(headFirst ? "head first" : "tail first")} {ledger.BossAnchorLife}");
+            Require(Matches(ledger, reference),
+                $"the worm must credit its whole life {whole} in either order; {string.Join(", ", paid)}");
+        }
+        Console.WriteLine($"  Eater of Worlds of {Segments} segments: {string.Join(", ", paid)}");
+    }
+
+    private static void EveryPartThatMustDieCounts()
+    {
+        ClearArena();
+        Main.GameMode = GameModeID.Normal;
+        Experience.DefaultEnemyLife = () => 14;
+        GameModeData normal = GameModeData.NormalMode;
+        var lines = new List<string>();
+
+        Experience ledger = Fresh();
+        NPC brain = Spawn(110, NPCID.BrainofCthulhu, normal);
+        var creepers = Enumerable.Range(0, 20).Select(i => Spawn(111 + i, NPCID.Creeper, normal, new EntitySource_Parent(brain))).ToList();
+        long brainWhole = brain.lifeMax + creepers.Sum(c => (long)c.lifeMax);
+        Credit.Sweep(30);
+        Require(brain.dontTakeDamage, "premise: the game makes the brain unhurtable while its creepers live");
+        foreach (NPC creeper in creepers) StrikeWithoutHitEffect(creeper, Striker.Player);
+        Credit.Sweep(31);
+        brain.dontTakeDamage = false;                                         // what the brain's AI does once its creepers are gone
+        StrikeWithoutHitEffect(brain, Striker.Companion);
+        Credit.Sweep(32);
+        Require(Matches(ledger, Reference(brainWhole, true)),
+            $"the Brain of Cthulhu must credit the brain and its creepers, {brainWhole}; anchor {ledger.BossAnchorLife}");
+        lines.Add($"Brain of Cthulhu {ledger.BossAnchorLife}");
+
+        ledger = Fresh();
+        NPC golem = Spawn(140, NPCID.Golem, normal);
+        var parts = new[] { NPCID.GolemHead, NPCID.GolemFistLeft, NPCID.GolemFistRight }
+            .Select((type, i) => Spawn(141 + i, type, normal, new EntitySource_Parent(golem))).ToList();
+        foreach (NPC part in parts) part.dontTakeDamage = false;             // the body's AI lets them be hurt; nothing headless runs it
+        long golemWhole = golem.lifeMax + parts.Sum(p => (long)p.lifeMax);
+        Credit.Sweep(40);
+        foreach (NPC part in parts) StrikeWithoutHitEffect(part, Striker.Companion);
+        StrikeWithoutHitEffect(golem, Striker.Companion);
+        Credit.Sweep(41);
+        Require(Matches(ledger, Reference(golemWhole, true)),
+            $"Golem must credit its body, head and fists, {golemWhole}; anchor {ledger.BossAnchorLife}");
+        lines.Add($"Golem {ledger.BossAnchorLife} (body {golem.lifeMax}, head {parts[0].lifeMax})");
+
+        ledger = Fresh();
+        NPC destroyer = Spawn(150, NPCID.TheDestroyer, normal);
+        NPC probe = Spawn(151, NPCID.Probe, normal, new EntitySource_Parent(destroyer));
+        Credit.Sweep(50);
+        StrikeWithoutHitEffect(probe, Striker.Companion);
+        Credit.Sweep(51);
+        NPC again = Spawn(151, NPCID.Probe, normal, new EntitySource_Parent(destroyer));   // launched again after one died
+        Credit.Sweep(52);
+        StrikeWithoutHitEffect(again, Striker.Companion);
+        StrikeWithoutHitEffect(destroyer, Striker.Companion);
+        Credit.Sweep(53);
+        Require(Matches(ledger, Reference(destroyer.lifeMax, true)),
+            $"a probe launched again after one died is endless and must add nothing to the Destroyer's {destroyer.lifeMax}; anchor {ledger.BossAnchorLife}");
+        lines.Add($"Destroyer with probes {ledger.BossAnchorLife}");
+
+        ledger = Fresh();
+        NPC plantera = Spawn(160, NPCID.Plantera, normal);
+        NPC hook = Spawn(161, NPCID.PlanterasHook, normal, new EntitySource_Parent(plantera));
+        hook.dontTakeDamage = true;
+        Credit.Sweep(60);
+        StrikeWithoutHitEffect(plantera, Striker.Companion);
+        Credit.Sweep(61);
+        Require(Matches(ledger, Reference(plantera.lifeMax, true)),
+            $"a hook nothing can hurt does not have to die and must add nothing to Plantera's {plantera.lifeMax}; anchor {ledger.BossAnchorLife}");
+        lines.Add($"Plantera with an unhurtable hook {ledger.BossAnchorLife}");
+        Console.WriteLine("  " + string.Join("; ", lines));
+    }
+
+    private static void ABossNobodyFinishedGoesToTheLastStriker()
+    {
+        ClearArena();
+        Main.GameMode = GameModeID.Normal;
+        Experience.DefaultEnemyLife = () => 14;
+        GameModeData normal = GameModeData.NormalMode;
+
+        Experience ledger = Fresh();
+        NPC eye = Spawn(52, NPCID.EyeofCthulhu, normal);
+        eye.lifeMax = eye.life = 100_000_000;
+        Credit.Sweep(70);
+        Strike(eye, Striker.Player);
+        Require(eye.active, "premise: the player's strike must not kill the eye");
+        DebuffDeath(eye);
+        Credit.Sweep(71);
+        Require(Matches(ledger, Reference(eye.lifeMax, false)), $"a boss the player struck last and a debuff finished pays him half; anchor {ledger.BossAnchorLife}, into {ledger.Into / Unit}");
+
+        ledger = Fresh();
+        eye = Spawn(52, NPCID.EyeofCthulhu, normal);
+        Credit.Sweep(72);
+        DebuffDeath(eye);
+        Credit.Sweep(73);
+        Require(ledger.BossAnchorLife == 0 && ledger.Into == 0 && ledger.Level == 1, $"a boss neither ever struck pays nobody; anchor {ledger.BossAnchorLife}, into {ledger.Into / Unit}");
+
+        ledger = Fresh();
+        eye = Spawn(52, NPCID.EyeofCthulhu, normal);
+        eye.lifeMax = eye.life = 100_000_000;
+        Credit.Sweep(74);
+        Strike(eye, Striker.Companion);
+        eye.life = 1;
+        StrikeWithoutHitEffect(eye, Striker.Other);                           // a trap lands the last blow
+        Require(!eye.active, "premise: the trap's blow must end the eye");
+        Credit.Sweep(75);
+        Require(Matches(ledger, Reference(eye.lifeMax, true)), $"a trap's last blow after the companion's strike pays the companion in full; anchor {ledger.BossAnchorLife}");
+        Console.WriteLine("  a debuff after the player's strike paid him half, a boss nobody struck paid nothing, a trap after the companion paid the companion");
+    }
+
+    /// <summary>
+    /// The Twins dying in one tick, Spazmatism to the companion first and Retinazer to the player after it. The fight joined
+    /// Retinazer first, so a rule that picks a body by the order the fight saw them rather than by the order of the strikes
+    /// hands the credit to the wrong one; the last strike was the player's, and the credit is his half.
+    /// </summary>
+    private static void TwoBodiesLeavingOnOneTick()
+    {
+        ClearArena();
+        Main.GameMode = GameModeID.Normal;
+        Experience.DefaultEnemyLife = () => 14;
+        GameModeData normal = GameModeData.NormalMode;
+        foreach ((Striker first, Striker second) in new[] { (Striker.Companion, Striker.Player), (Striker.Player, Striker.Companion) })
+        {
+            Experience ledger = Fresh();
+            NPC retinazer = Spawn(50, NPCID.Retinazer, normal), spazmatism = Spawn(51, NPCID.Spazmatism, normal);
+            long whole = retinazer.lifeMax + spazmatism.lifeMax;
+            Credit.Sweep(80);
+            StrikeWithoutHitEffect(spazmatism, first);
+            StrikeWithoutHitEffect(retinazer, second);
+            Credit.Sweep(81);
+            Require(Matches(ledger, Reference(whole, second == Striker.Companion)),
+                $"both twins leaving on one tick must credit the latest striker, {second}; anchor {ledger.BossAnchorLife}, into {ledger.Into / Unit}, level {ledger.Level}");
+        }
+        Console.WriteLine("  the Twins dying on one tick credited the later striker in both orders");
+    }
+
+    /// <summary>
+    /// A boss dies to a debuff after the player's strike. A modded boss's PreKill refusing leaves exactly this state — the
+    /// NPC deactivated with no life and no OnKill — and before the next sweep the slot is handed to a new spawn. A fight
+    /// that read the slot saw a different NPC and dropped the boss as a despawn; the boss's own object still says it died.
+    /// </summary>
+    private static void ARefilledSlotIsStillADeath()
+    {
+        ClearArena();
+        Main.GameMode = GameModeID.Normal;
+        Experience.DefaultEnemyLife = () => 14;
+        GameModeData normal = GameModeData.NormalMode;
+        Experience ledger = Fresh();
+        NPC eye = Spawn(52, NPCID.EyeofCthulhu, normal);
+        eye.lifeMax = eye.life = 100_000_000;
+        Credit.Sweep(90);
+        Strike(eye, Striker.Player);
+        DebuffDeath(eye);
+        NPC refill = Spawn(52, NPCID.Zombie, normal);
+        Require(Main.npc[52] == refill && refill.active, "premise: the boss's slot must hold a new NPC before the sweep");
+        Credit.Sweep(91);
+        Require(Matches(ledger, Reference(eye.lifeMax, false)) && Credit.FightMembers == 0,
+            $"a boss whose slot was refilled before the sweep must still end a credited fight; anchor {ledger.BossAnchorLife}, into {ledger.Into / Unit}, members {Credit.FightMembers}");
+        Console.WriteLine("  a boss whose slot a zombie took before the sweep was credited to the player's half");
+    }
+
+    /// <summary>
+    /// The player's own hooks see every strike he lands. These drive the calls in the order tModLoader makes them — the
+    /// NPC's projectile hook before the player's, the companion's own swing bracket around the game's strike — because the
+    /// harness loads no hooks. A direct strike (a dash, a stomp, a touch) is his; the companion's swing and the companion's
+    /// shot pass through the same player hooks, owned by the local player, and stay the companion's.
+    /// </summary>
+    private static void PlayerDirectStrikesAreHis()
+    {
+        ClearArena();
+        Main.GameMode = GameModeID.Normal;
+        Experience.DefaultEnemyLife = () => 14;
+        GameModeData normal = GameModeData.NormalMode;
+        Player player = Main.player[Main.myPlayer];
+        int zombieLife = new NPCProbe(NPCID.Zombie, normal).LifeMax;
+
+        void GameStrike(NPC target)
+        {
+            bool paused = Main.gamePaused;
+            int netMode = Main.netMode;
+            Main.gamePaused = true;
+            Main.netMode = 1;
+            try { target.StrikeNPC(target.CalculateHitInfo(10_000_000, 1)); }
+            finally { Main.gamePaused = paused; Main.netMode = netMode; }
+        }
+
+        Experience ledger = Fresh();
+        NPC dashed = Spawn(40, NPCID.Zombie, normal);
+        Credit.BeforePlayerStrike(player, dashed);                            // PlayerLoader.ModifyHitNPC, from ApplyDamageToNPC
+        GameStrike(dashed);
+        Credit.AfterStrike(dashed);                                          // PlayerLoader.OnHitNPC, from StrikeNPCDirect
+        var half = new Experience();
+        half.CreditEnemyKill(zombieLife, false);
+        Require(!dashed.active && ledger.EnemyAnchorLife == zombieLife && Near(ledger.Into, half.Into),
+            $"a zombie the player dashed through must earn him half its life; into {ledger.Into / Unit}, anchor {ledger.EnemyAnchorLife}");
+
+        var full = new Experience();
+        full.CreditEnemyKill(zombieLife, true);
+        ledger = Fresh();
+        NPC swung = Spawn(40, NPCID.Zombie, normal);
+        Credit.BeforeStrike(swung, Striker.Companion);                        // ItemWeapon's own bracket
+        Credit.BeforePlayerStrike(player, swung);                            // the player hook inside ApplyDamageToNPC
+        GameStrike(swung);
+        Credit.AfterStrike(swung);                                           // the player hook inside StrikeNPCDirect
+        Credit.AfterStrike(swung);                                           // ItemWeapon's own bracket
+        Require(!swung.active && Near(ledger.Into, full.Into),
+            $"the companion's swing passes through the player's hooks and must stay the companion's; into {ledger.Into / Unit} against {full.Into / Unit}");
+
+        ledger = Fresh();
+        NPC shot = Spawn(40, NPCID.Zombie, normal);
+        var projectile = new Projectile { whoAmI = 20, active = true, friendly = true, owner = Main.myPlayer };
+        Main.projectile[20] = projectile;
+        live::AICompanion.Companion.Weapons.TrackLandedHits.Register(20, null, ItemID.WoodenBow);
+        try
+        {
+            Credit.BeforeStrike(shot, Credit.StrikerOf(projectile));          // NPCLoader.ModifyHitByProjectile
+            Credit.BeforePlayerStrike(player, shot);                         // PlayerLoader.ModifyHitNPCWithProj, which calls ModifyHitNPC
+            GameStrike(shot);
+            Credit.AfterStrike(shot);
+            Credit.AfterStrike(shot);
+        }
+        finally { live::AICompanion.Companion.Weapons.TrackLandedHits.Clear(); }
+        Require(!shot.active && Near(ledger.Into, full.Into),
+            $"the companion's shot passes through the player's hooks and must stay the companion's; into {ledger.Into / Unit} against {full.Into / Unit}");
+
+        const BindingFlags Declared = BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly;
+        Type hooks = typeof(live::AICompanion.Companion.Progression.ObservePlayerStrikesForExperience);
+        Require(hooks.GetMethod("ModifyHitNPC", Declared) != null && hooks.GetMethod("OnHitNPC", Declared) != null,
+            "the player's strike hooks must be overridden, or no direct strike reaches the ledger in the game");
+        Console.WriteLine("  a dash kill paid the player half; the companion's swing and shot through the player's hooks paid the companion");
+    }
+
+    /// <summary>
+    /// A one-life first kill. Anchored at its own life it priced 200 lives a bar against the slime's 2800, the never-lower
+    /// rule held the bar at 2800, and the bar then stayed flat for every level: four levels on it read 2800 where the slime's
+    /// own growth reads 2800 × 1.05⁴. The slime is a floor, so the kill anchors nothing and growth continues.
+    /// </summary>
+    private static void AWeakKillNeverFlattensTheBar()
+    {
+        Experience.DefaultEnemyLife = () => 14;
+        Experience.NormalEnemyLife = () => 14;
+        Experience ledger = Fresh();
+        ledger.CreditEnemyKill(1, true);
+        Require(ledger.EnemyAnchorLife == 0, $"a kill weaker than the green slime must not anchor; anchor {ledger.EnemyAnchorLife}@{ledger.EnemyAnchorLevel}");
+        while (ledger.Level < 3) ledger.CreditWork(true);
+        ledger.CreditEnemyKill(5, true);                                      // a second weak kill, later, restarts nothing either
+        while (ledger.Level < 5) ledger.CreditWork(true);
+        double grown = 200 * 14 * Unit * Math.Pow(1.05, 4);
+        Require(Near(ledger.Required, grown),
+            $"four levels on, the bar must be the slime's own 2800 × 1.05^4 = {grown / Unit:0.##}; read {ledger.Required / Unit:0.##}, anchor {ledger.EnemyAnchorLife}@{ledger.EnemyAnchorLevel}");
+        Console.WriteLine($"  a 1-life first kill and a 5-life kill at level 3 left the level 5 bar at {ledger.Required / Unit:0.#}, the slime's own growth");
+    }
+
+    /// <summary>
+    /// A character levelled in a Master world, carried into a Normal one. The enemies in Normal have a third of Master's life,
+    /// so a ledger kept in the terms of the world it was played in asks three times the kills in Normal — for the level in
+    /// progress, and for every level after, through the anchor it brought. Counted by crediting each world's own zombie until
+    /// the level turns, twice, from the same saved character.
+    /// </summary>
+    private static void KillsPerLevelSurviveAChangeOfWorld()
+    {
+        double masterSlime = Experience.GreenSlimeLife(GameModeData.MasterMode), normalSlime = Experience.GreenSlimeLife(GameModeData.NormalMode);
+        int masterZombie = new NPCProbe(NPCID.Zombie, GameModeData.MasterMode).LifeMax, normalZombie = new NPCProbe(NPCID.Zombie, GameModeData.NormalMode).LifeMax;
+        Require(masterSlime == 3 * normalSlime && masterZombie == 3 * normalZombie,
+            $"premise: Master triples the slime and the zombie; slime {masterSlime}/{normalSlime}, zombie {masterZombie}/{normalZombie}");
+        Experience.NormalEnemyLife = () => normalSlime;
+        Experience.DefaultEnemyLife = () => masterSlime;
+        Experience played = Fresh();
+        for (int i = 0; i < 350; i++) played.CreditEnemyKill(masterZombie, true);
+        Require(played.Level == 2 && played.Into > 0, $"premise: the character is part way into level 2; level {played.Level}");
+        TagCompound saved = played.Save();
+
+        (int ToFinish, int ForTheNext) Count(double slime, int zombie)
+        {
+            Experience.DefaultEnemyLife = () => slime;
+            Experience ledger = Experience.Load(saved);
+            int start = ledger.Level, finish = 0, next = 0;
+            while (ledger.Level == start && finish < 100_000) { ledger.CreditEnemyKill(zombie, true); finish++; }
+            while (ledger.Level == start + 1 && next < 100_000) { ledger.CreditEnemyKill(zombie, true); next++; }
+            return (finish, next);
+        }
+        var inMaster = Count(masterSlime, masterZombie);
+        var inNormal = Count(normalSlime, normalZombie);
+        Require(inMaster == inNormal,
+            $"the kills to finish the level in progress and to make the next must not depend on the world's difficulty; Master {inMaster}, Normal {inNormal}");
+        Console.WriteLine($"  from the same Master character: {inMaster.ToFinish} kills to finish level 2 and {inMaster.ForTheNext} for level 3 in Master, {inNormal.ToFinish} and {inNormal.ForTheNext} in Normal");
+    }
+
+    /// <summary>
+    /// A character saved before the ledger kept Normal terms, in an Expert world: its values are Expert's. At the menu nothing
+    /// is converted, because no world is there to say which terms they were; in the Expert world it was played in, the bar
+    /// it shows is the bar it saved, and its anchor is the Normal zombie's life.
+    /// </summary>
+    private static void AWorldTermsSaveIsConvertedOnce()
+    {
+        double normalSlime = Experience.GreenSlimeLife(GameModeData.NormalMode), expertSlime = Experience.GreenSlimeLife(GameModeData.ExpertMode);
+        int expertZombie = new NPCProbe(NPCID.Zombie, GameModeData.ExpertMode).LifeMax, normalZombie = new NPCProbe(NPCID.Zombie, GameModeData.NormalMode).LifeMax;
+        Experience.NormalEnemyLife = () => normalSlime;
+        Experience.DefaultEnemyLife = () => expertSlime;
+        var old = new TagCompound
+        {
+            ["level"] = 3, ["into"] = 5000 * Unit, ["required"] = 200 * expertZombie * Unit * 1.05 * 1.05,
+            ["enemyAnchorLife"] = (double)expertZombie, ["enemyAnchorLevel"] = 1, ["bossAnchorLife"] = 0.0, ["bossAnchorLevel"] = 1,
+        };
+        bool menu = Main.gameMenu;
+        try
+        {
+            Main.gameMenu = true;
+            Experience loaded = Experience.Load(old);
+            Require(loaded.Save().GetString("units") != "normal-life" && loaded.Save().GetDouble("enemyAnchorLife") == expertZombie,
+                "a save loaded at the menu must be kept exactly as it was until a world reads it");
+            Main.gameMenu = false;
+            int shown = loaded.NeededNow, into = loaded.IntoLevel;
+            Require(loaded.EnemyAnchorLife == normalZombie && shown == (int)Math.Round(200 * expertZombie * 1.05 * 1.05) && into == 5000,
+                $"in its Expert world the old save must show the bar and fill it saved, with its anchor in Normal terms; anchor {loaded.EnemyAnchorLife}, {into}/{shown}");
+            double anchor = loaded.EnemyAnchorLife;
+            Require(loaded.EnemyAnchorLife == anchor && loaded.Save().GetString("units") == "normal-life", "the conversion must happen once, and the next save is in Normal terms");
+            Console.WriteLine($"  an Expert save of {into}/{shown} with a {expertZombie}-life anchor loaded as the same bar with a {anchor}-life Normal anchor");
+        }
+        finally { Main.gameMenu = menu; }
     }
 
     private static void FirstKillFillsAtTheOldPrice()
@@ -382,6 +779,49 @@ internal static class VerifyCompanionExperience
         Console.WriteLine("  a native companion ore break filled 0.1% and the player's 0.05%; 1000 and 2000 breaks each made one level");
     }
 
+    /// <summary>
+    /// A torch placed, broken and placed again on one tile was a torch's credit each time, and the companion's torches are
+    /// free, so the loop was experience for nothing. The tile is paid once, whoever places the torch and whenever — the
+    /// player's own torch on a tile the companion was paid for earns nothing, and neither does a reload — while a torch on a
+    /// new tile is paid as before.
+    /// </summary>
+    private static void ATorchTileIsPaidOnce()
+    {
+        Experience.DefaultEnemyLife = () => 14;
+        Experience.NormalEnemyLife = () => 14;
+        Experience ledger = Fresh();
+        Work.ForgetPaidTorches();
+        double share = ledger.Required * 0.001;
+        var tile = new Point(50, 30);
+        Work.CompanionPlacedTorch(tile);
+        Require(Near(ledger.Into, share), $"premise: the first torch on a tile is paid a thousandth of the bar; into {ledger.Into / Unit}");
+        Work.CompanionPlacedTorch(tile);
+        Require(Near(ledger.Into, share), $"the same tile's torch placed again must not be paid again; into {ledger.Into / Unit}");
+
+        bool menu = Main.gameMenu;
+        Tile t = Main.tile[tile.X, tile.Y];
+        try
+        {
+            Main.gameMenu = false;
+            t.ClearEverything();
+            t.HasTile = true;
+            t.TileType = TileID.Torches;
+            Work.PlayerPlaced(tile.X, tile.Y, TileID.Torches);
+            Require(Near(ledger.Into, share), $"the player's torch on a tile already paid for must not be paid; into {ledger.Into / Unit}");
+        }
+        finally { Main.gameMenu = menu; t.ClearEverything(); }
+
+        var saved = new TagCompound();
+        Work.SavePaidTorches(saved);
+        Work.ForgetPaidTorches();
+        Work.LoadPaidTorches(saved);
+        Work.CompanionPlacedTorch(tile);
+        Require(Near(ledger.Into, share), $"a reload must not make a paid tile payable again; into {ledger.Into / Unit}");
+        Work.CompanionPlacedTorch(new Point(tile.X + 1, tile.Y));
+        Require(Near(ledger.Into, 2 * share), $"a torch on a new tile is paid; into {ledger.Into / Unit}");
+        Console.WriteLine("  one tile's torch was paid once across a second placement, the player's own torch and a reload; the next tile was paid");
+    }
+
     private static void ExcludedKillsCreditNothing()
     {
         Main.GameMode = GameModeID.Normal;
@@ -391,8 +831,8 @@ internal static class VerifyCompanionExperience
         void Nothing(string what)
         {
             Credit.Sweep(9);
-            Require(ledger.Level == 1 && ledger.Into == 0 && ledger.EnemyAnchorLife == 0 && ledger.BossAnchorLife == 0 && Credit.FightBodies == 0,
-                $"{what} must credit nothing and move no anchor; level {ledger.Level}, into {ledger.Into / Unit}, enemy {ledger.EnemyAnchorLife}, boss {ledger.BossAnchorLife}, fight bodies {Credit.FightBodies}");
+            Require(ledger.Level == 1 && ledger.Into == 0 && ledger.EnemyAnchorLife == 0 && ledger.BossAnchorLife == 0 && Credit.FightMembers == 0,
+                $"{what} must credit nothing and move no anchor; level {ledger.Level}, into {ledger.Into / Unit}, enemy {ledger.EnemyAnchorLife}, boss {ledger.BossAnchorLife}, fight bodies {Credit.FightMembers}");
         }
 
         KillEnemy(NPCID.Bunny, normal, Striker.Companion, withHitEffect: false); Nothing("a critter");

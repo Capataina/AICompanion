@@ -38,6 +38,7 @@ public static class PlaceTorches
     public static bool Candidate(Point tile)
     {
         if (!WorldGen.InWorld(tile.X, tile.Y, 6) || WorldProtection.ProtectCompanionHomes.IsProtected(tile)) return false;
+        if (CompanionTorches.Refuses(tile)) return false;                     // he cleared a companion torch within the spacing
         Tile t = Main.tile[tile.X, tile.Y];
         if (t.HasTile || t.LiquidAmount > 0) return false;
         return true; // Smart Cursor owns attachment geometry; this gate owns our no-edit policy.
@@ -57,7 +58,15 @@ public static class PlaceTorches
         WorldGen.PlaceTile(tile.X, tile.Y, item.createTile, mute: false, forced: false, plr: player.whoAmI, style: item.placeStyle);
         Tile placed = Main.tile[tile.X, tile.Y];
         bool landed = placed.HasTile && placed.TileType == item.createTile;
-        if (landed) Progression.CreditWork.CompanionPlacedTorch(tile);
-        return landed;
+        if (!landed) return false;
+        // WorldGen.PlaceTile runs no tile hook (the player's PlaceInWorld belongs to Player.PlaceThing), so nothing announces
+        // this edit unless it is announced here, and the light sense's memory of dark tiles is forgotten only by announced
+        // edits: an unannounced torch leaves the tiles it lights remembered dark under a carried light.
+        Movement.TerrainChanges.Changed(tile.X, tile.Y);
+        CompanionTorches.NotePlaced(tile);
+        // Nor does it call TileLoader.PlaceInWorld for other mods, deliberately: that hook's contract is a player placing an
+        // item from his inventory, and a mod reading it would credit him, or consume from him, for the companion's free torch.
+        Progression.CreditWork.CompanionPlacedTorch(tile);
+        return true;
     }
 }

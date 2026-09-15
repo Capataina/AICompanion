@@ -46,13 +46,15 @@ public sealed class LightUsefulArea : PerformNearbyWorldWork, ICandidateFunnelSo
     private const string StageOutsideWorkArea = "outside-work-area";
     private const string StageOccupied = "occupied-or-protected";
     private const string StageUnread = "light-unread";
+    private const string StageCarried = "light-carried-unknown";
+    private const string StageSky = "open-to-daylight";
     private const string StageLit = "lit";
     private const string StagePlacerRefused = "placer-refused";
 
     /// <summary>What the last search did with each tile it looked at. Lit and unread tiles are recorded by the gathering
     /// scan, which is where they are refused; the rest by the executor.</summary>
     public CandidateFunnel Funnel { get; } = new(FunnelEntries,
-        StageAllowance, StageOccupied, StageUnread, StageLit, StagePlacerRefused,
+        StageAllowance, StageOccupied, StageUnread, StageCarried, StageSky, StageLit, StagePlacerRefused,
         StageSearchCut, StageStandNotYetKnown, StageStandBeyondKnownRadius, StageStandUnreachable, CandidateFunnel.Offered);
     private const int FunnelEntries = 6;
     protected override CandidateFunnel? SearchFunnel => Funnel;
@@ -147,9 +149,10 @@ public sealed class LightUsefulArea : PerformNearbyWorldWork, ICandidateFunnelSo
                 float cost = CandidateCost(fromFeet, p);
                 if (!reading.IsDark)
                 {
-                    if (reading.Light == LightSense.PlacementLight.Unread) unread++; else lit++;
-                    Funnel.Add("tile", p, cost, StageOccupied,
-                        reading.Light == LightSense.PlacementLight.Unread ? StageUnread : StageLit, Readings(reading));
+                    // A tile a carried light hides is as unanswered as one the engine never computed: the search that saw
+                    // only such tiles has not proven there is no dark tile, so both count toward the unmeasured refusal.
+                    if (reading.Light is LightSense.PlacementLight.Unread or LightSense.PlacementLight.Carried) unread++; else lit++;
+                    Funnel.Add("tile", p, cost, StageOccupied, LightStage(reading), Readings(reading));
                     continue;
                 }
                 into.Add((cost, into.Count, p));
@@ -213,10 +216,18 @@ public sealed class LightUsefulArea : PerformNearbyWorldWork, ICandidateFunnelSo
         Item torch = PlaceTorches.TorchToPlace(ctx.Companion.Bag.Items, ctx.Player.inventory);
         if (!PlaceTorches.Candidate(tile)) return StageOccupied;
         var reading = ctx.Senses.Light.ReadForPlacement(tile, searchCoverage ?? LightSense.Coverage.Current());
-        if (reading.Light == LightSense.PlacementLight.Unread) return StageUnread;
-        if (!reading.IsDark) return StageLit;
+        if (!reading.IsDark) return LightStage(reading);
         return RecommendTorchPlacement.Accepts(tile, torch, ctx.Companion.StandIn.Player) ? null : StagePlacerRefused;
     }
+
+    /// <summary>The stage that refuses a tile whose own light does not make it a target.</summary>
+    private static string LightStage(LightSense.PlacementReading reading) => reading.Light switch
+    {
+        LightSense.PlacementLight.Unread => StageUnread,
+        LightSense.PlacementLight.Carried => StageCarried,
+        LightSense.PlacementLight.Sky => StageSky,
+        _ => StageLit,
+    };
 
     protected override string CandidateReadings(in ActionContext ctx, Point tile)
         => Readings(ctx.Senses.Light.ReadForPlacement(tile, searchCoverage ?? LightSense.Coverage.Current()));
@@ -225,6 +236,8 @@ public sealed class LightUsefulArea : PerformNearbyWorldWork, ICandidateFunnelSo
     {
         LightSense.PlacementLight.Unread => "light=unread",
         LightSense.PlacementLight.Carried => FormattableString.Invariant($"light=carried:{reading.Brightness:0.000}"),
+        LightSense.PlacementLight.Dark when reading.Remembered => FormattableString.Invariant($"light=dark-remembered:{reading.Brightness:0.000}"),
+        LightSense.PlacementLight.Sky => FormattableString.Invariant($"light=sky:{reading.Brightness:0.000}"),
         _ => FormattableString.Invariant($"light={reading.Brightness:0.000}"),
     };
 

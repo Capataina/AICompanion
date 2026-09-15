@@ -18,6 +18,15 @@ namespace AICompanion.Companion.Progression;
 ///
 /// What is credited, and who earned it, is decided in <see cref="CreditKillsAndFights"/> and <see cref="CreditWork"/>; this
 /// class is only the arithmetic, so every rule of the pricing can be tested without a world.
+///
+/// <para>Every value it keeps — the experience into the level, the level's requirement and both anchors — is in Normal
+/// difficulty terms: a credit is divided by this world's life multiplier as it arrives, and a number is multiplied back
+/// only where it is shown. The owner ruled on 15 September 2026 that a level takes the same kills in any world a character
+/// enters, and a character carries its ledger between worlds of different difficulty; a ledger kept in the terms of the
+/// world it was last played in would make a Master-levelled character in a Normal world pay three times the kills for the
+/// level in progress and for every anchor it brought. The multiplier is the game's own: the green slime's maximum life in
+/// this world over its maximum life in Normal, so Expert, Master, Journey's strength and any mod that scales enemy life
+/// through the game's difficulty all move it.</para>
 /// </summary>
 public sealed class CompanionExperience
 {
@@ -53,33 +62,56 @@ public sealed class CompanionExperience
 
     public int Level { get; private set; } = 1;
 
-    /// <summary>Experience into the current level, in the ruling's unit.</summary>
-    public double Into { get; private set; }
+    /// <summary>Experience into the current level, in the ruling's unit, in Normal terms.</summary>
+    public double Into
+    {
+        get { Normalise(); return into; }
+        private set => into = value;
+    }
+    private double into;
 
-    // Zero until the first read prices it. Priced on read rather than at load, because a character loads at the menu, before
-    // any world has a difficulty to price from; saved raw for the same reason, so saving at the menu stores no menu price.
+    // Zero until the first read prices it. Priced on read rather than at load, because a character loads at the menu, and
+    // saved raw for the same reason, so saving at the menu stores no menu price.
     private double required;
 
-    /// <summary>What the current level needs in full, in the ruling's unit, priced from the anchors on first read.</summary>
+    /// <summary>What the current level needs in full, in the ruling's unit, in Normal terms, priced from the anchors on first read.</summary>
     public double Required
     {
-        get { EnsurePriced(); return required; }
+        get { Normalise(); EnsurePriced(); return required; }
         private set => required = value;
     }
 
-    /// <summary>The largest maximum life of any counting non-boss kill so far, zero before the first.</summary>
-    public double EnemyAnchorLife { get; private set; }
+    /// <summary>The largest maximum life, in Normal terms, of any counting non-boss kill that outgrew the green slime; zero before one.</summary>
+    public double EnemyAnchorLife
+    {
+        get { Normalise(); return enemyAnchorLife; }
+        private set => enemyAnchorLife = value;
+    }
+    private double enemyAnchorLife;
     public int EnemyAnchorLevel { get; private set; } = 1;
 
-    /// <summary>The largest whole-fight life of any boss fight killed so far, zero before the first.</summary>
-    public double BossAnchorLife { get; private set; }
+    /// <summary>The largest whole-fight life, in Normal terms, of any boss fight killed so far, zero before the first.</summary>
+    public double BossAnchorLife
+    {
+        get { Normalise(); return bossAnchorLife; }
+        private set => bossAnchorLife = value;
+    }
+    private double bossAnchorLife;
     public int BossAnchorLevel { get; private set; } = 1;
 
+    // A ledger saved before its values were kept in Normal terms holds the terms of whatever world it was last saved in,
+    // which no save recorded. It is converted by the first world that reads it, on the reading that the world it is loaded
+    // into is the world it was played in — true of every character saved before this change, which had one world to play.
+    private bool savedInWorldTerms;
+
     /// <summary>
-    /// Where the default enemy anchor comes from: the green slime's maximum life in the current world. A seam rather than a
-    /// constant so a fixture can price a difficulty it names; the game's reading is the default.
+    /// The green slime's maximum life in the current world. A seam rather than a constant so a fixture can price a difficulty
+    /// it names; the game's reading is the default. With <see cref="NormalEnemyLife"/> it is also this world's life multiplier.
     /// </summary>
     public static Func<double> DefaultEnemyLife = GreenSlimeLifeInThisWorld;
+
+    /// <summary>The green slime's maximum life in Normal: the floor under the enemy anchor, and the Normal half of the multiplier.</summary>
+    public static Func<double> NormalEnemyLife = () => GreenSlimeLife(GameModeData.NormalMode);
 
     /// <summary>The green slime's maximum life as this world's difficulty scales it, Journey's strength slider included.</summary>
     public static double GreenSlimeLifeInThisWorld() => GreenSlimeLife(Main.GameModeInfo);
@@ -91,14 +123,33 @@ public sealed class CompanionExperience
         return slime.lifeMax;
     }
 
-    /// <summary>Experience earned into the level, rounded, for the notch's and the card's "x".</summary>
-    public int IntoLevel => ToDisplay(Into);
+    // The multiplier is read by every drawn number, every frame, and reading it builds two NPCs, so it is kept for the tick
+    // it was read in, for the difficulty it was read under and for the readings it was read from.
+    private static (ulong Tick, int Mode, Func<double> World, Func<double> Normal, double Value)? multiplier;
 
-    /// <summary>What the level needs, rounded, for "y". Saturates at <see cref="int.MaxValue"/>, which a bar priced from a
-    /// modpack's late enemies can pass: the ledger keeps the true value and only the drawn number stops.</summary>
-    public int NeededNow => Math.Max(1, ToDisplay(Required));
+    /// <summary>This world's enemy life over Normal's, by the game's own green slime; one when either reading is unusable.</summary>
+    public static double LifeMultiplier()
+    {
+        if (multiplier is { } kept && kept.Tick == Main.GameUpdateCount && kept.Mode == Main.GameMode
+            && ReferenceEquals(kept.World, DefaultEnemyLife) && ReferenceEquals(kept.Normal, NormalEnemyLife))
+            return kept.Value;
+        double world = DefaultEnemyLife(), normal = NormalEnemyLife();
+        double value = world > 0 && normal > 0 && double.IsFinite(world / normal) ? world / normal : 1;
+        multiplier = (Main.GameUpdateCount, Main.GameMode, DefaultEnemyLife, NormalEnemyLife, value);
+        return value;
+    }
 
-    /// <summary>Full is 1; the notch draws this.</summary>
+    /// <summary>A value this ledger keeps, in the terms of the world being played: what the record and the display show.</summary>
+    public double InWorldTerms(double normal) => normal * LifeMultiplier();
+
+    /// <summary>Experience earned into the level, rounded, in this world's terms, for the notch's and the card's "x".</summary>
+    public int IntoLevel => ToDisplay(InWorldTerms(Into));
+
+    /// <summary>What the level needs, rounded, in this world's terms, for "y". Saturates at <see cref="int.MaxValue"/>, which a
+    /// bar priced from a modpack's late enemies can pass: the ledger keeps the true value and only the drawn number stops.</summary>
+    public int NeededNow => Math.Max(1, ToDisplay(InWorldTerms(Required)));
+
+    /// <summary>Full is 1; the notch draws this. A ratio, so the same in every world's terms.</summary>
     public float Fraction
     {
         get
@@ -108,17 +159,40 @@ public sealed class CompanionExperience
         }
     }
 
+    /// <summary>Converts a ledger saved in a world's own terms, once, by the first world that reads it.</summary>
+    private void Normalise()
+    {
+        if (!savedInWorldTerms || Main.gameMenu) return;
+        savedInWorldTerms = false;
+        double m = LifeMultiplier();
+        into /= m;
+        required /= m;
+        enemyAnchorLife /= m;
+        bossAnchorLife /= m;
+    }
+
     private static int ToDisplay(double ruled)
     {
         double life = Math.Round(ruled / ExperiencePerLife);
         return life >= int.MaxValue ? int.MaxValue : (int)Math.Max(0, life);
     }
 
-    /// <summary>The bar the pricing formula gives a level from the anchors as they stand: the larger of the bars that exist.</summary>
+    /// <summary>
+    /// The enemy anchor the pricing reads, in Normal terms: the strongest kill if it outgrew the green slime, else the green
+    /// slime set at level 1. The slime is a floor and not only a default, because a weaker first kill — a one-life critter-like
+    /// enemy, of which the game has several — anchored at its own life priced a bar far below the one it replaced, and the
+    /// never-lower rule then held the bar flat for every level until a stronger kill came along.
+    /// </summary>
+    private (double Life, int Level) EnemyPrice()
+    {
+        double floor = NormalEnemyLife();
+        return EnemyAnchorLife > floor ? (EnemyAnchorLife, EnemyAnchorLevel) : (floor, 1);
+    }
+
+    /// <summary>The bar the pricing formula gives a level from the anchors as they stand, in Normal terms: the larger of the bars that exist.</summary>
     public double FormulaFor(int level)
     {
-        double enemyLife = EnemyAnchorLife > 0 ? EnemyAnchorLife : DefaultEnemyLife();
-        int enemyLevel = EnemyAnchorLife > 0 ? EnemyAnchorLevel : 1;
+        (double enemyLife, int enemyLevel) = EnemyPrice();
         double bar = KillsOfStrongestEnemyPerBar * enemyLife * ExperiencePerLife * Math.Pow(GrowthPerLevel, level - enemyLevel);
         if (BossAnchorLife > 0)
             bar = Math.Max(bar, BossAnchorLife * ExperiencePerLife / StrongestBossShareOfBar * Math.Pow(GrowthPerLevel, level - BossAnchorLevel));
@@ -130,18 +204,20 @@ public sealed class CompanionExperience
         if (required <= 0 || !double.IsFinite(required)) required = FormulaFor(Level);
     }
 
-    /// <summary>What one credit did, for the record.</summary>
+    /// <summary>What one credit did, for the record; <see cref="Earned"/> is in Normal terms.</summary>
     public readonly record struct Credit(double Earned, int LevelBefore, int LevelAfter, bool EnemyAnchorChanged, bool BossAnchorChanged);
 
-    /// <summary>A counting non-boss enemy died to the companion's killing blow or the player's.</summary>
+    /// <summary>A counting non-boss enemy died to the companion's killing blow or the player's; <paramref name="lifeMax"/> is
+    /// its maximum life as this world set it.</summary>
     public Credit CreditEnemyKill(double lifeMax, bool byCompanion)
     {
         int before = Level;
-        double earned = Earn(lifeMax * ExperiencePerLife * Share(byCompanion));
+        double life = lifeMax / LifeMultiplier();
+        double earned = Earn(life * ExperiencePerLife * Share(byCompanion));
         bool anchored = false;
-        if (lifeMax > 0 && (EnemyAnchorLife <= 0 || lifeMax > EnemyAnchorLife))
+        if (life > EnemyPrice().Life)
         {
-            EnemyAnchorLife = lifeMax;
+            EnemyAnchorLife = life;
             EnemyAnchorLevel = Level;
             Reprice();
             anchored = true;
@@ -149,10 +225,12 @@ public sealed class CompanionExperience
         return new Credit(earned, before, Level, anchored, false);
     }
 
-    /// <summary>A boss fight ended with its bodies killed; <paramref name="wholeLife"/> is the fight's total maximum life.</summary>
+    /// <summary>A boss fight ended with its bodies killed; <paramref name="wholeLife"/> is the fight's total maximum life as
+    /// this world set it.</summary>
     public Credit CreditBossFight(double wholeLife, bool byCompanion)
     {
         int before = Level;
+        wholeLife /= LifeMultiplier();
         double earned = Earn(wholeLife * ExperiencePerLife * Share(byCompanion));
         bool anchored = false;
         if (wholeLife > BossAnchorLife)
@@ -196,21 +274,28 @@ public sealed class CompanionExperience
     /// <summary>A new anchor reprices the level in progress, never below what it already needed.</summary>
     private void Reprice() => Required = Math.Max(Required, FormulaFor(Level));
 
+    /// <summary>The save key naming the terms the values are in; a save without it was written in its world's own terms.</summary>
+    private const string UnitsKey = "units", NormalUnits = "normal-life";
+
+    // Written through the fields rather than the properties, so a ledger saved at the menu before any world converted it is
+    // saved exactly as it was loaded, still marked as in its world's terms.
     public TagCompound Save() => new()
     {
+        [UnitsKey] = savedInWorldTerms ? "world-life" : NormalUnits,
         ["level"] = Level,
-        ["into"] = Into,
+        ["into"] = into,
         ["required"] = required,
-        ["enemyAnchorLife"] = EnemyAnchorLife,
+        ["enemyAnchorLife"] = enemyAnchorLife,
         ["enemyAnchorLevel"] = EnemyAnchorLevel,
-        ["bossAnchorLife"] = BossAnchorLife,
+        ["bossAnchorLife"] = bossAnchorLife,
         ["bossAnchorLevel"] = BossAnchorLevel,
     };
 
     /// <summary>
     /// A save without a "level" is the placeholder curve's, which stored an integer "total" that bought nothing; it loads as
-    /// a fresh level 1 and the "total" key is ignored, which the owner accepted. A value that is not a finite number in its
-    /// range loads as the fresh value rather than refusing the character.
+    /// a fresh level 1 and the "total" key is ignored, which the owner accepted. A save with a level but not in Normal terms
+    /// is converted by the first world that reads it. A value that is not a finite number in its range loads as the fresh
+    /// value rather than refusing the character.
     /// </summary>
     public static CompanionExperience Load(TagCompound tag)
     {
@@ -219,12 +304,13 @@ public sealed class CompanionExperience
         static double NonNegative(double value) => double.IsFinite(value) && value > 0 ? value : 0;
         int level = Math.Max(1, tag.GetInt("level"));
         experience.Level = level;
-        experience.Into = NonNegative(tag.GetDouble("into"));
+        experience.into = NonNegative(tag.GetDouble("into"));
         experience.required = NonNegative(tag.GetDouble("required"));
-        experience.EnemyAnchorLife = NonNegative(tag.GetDouble("enemyAnchorLife"));
+        experience.enemyAnchorLife = NonNegative(tag.GetDouble("enemyAnchorLife"));
         experience.EnemyAnchorLevel = Math.Clamp(tag.GetInt("enemyAnchorLevel"), 1, level);
-        experience.BossAnchorLife = NonNegative(tag.GetDouble("bossAnchorLife"));
+        experience.bossAnchorLife = NonNegative(tag.GetDouble("bossAnchorLife"));
         experience.BossAnchorLevel = Math.Clamp(tag.GetInt("bossAnchorLevel"), 1, level);
+        experience.savedInWorldTerms = tag.GetString(UnitsKey) != NormalUnits;
         return experience;
     }
 }

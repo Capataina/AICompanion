@@ -322,6 +322,15 @@ internal static class VerifyLightAndReachSenses
         GiveTorches(ctx);
         Settle(ctx);
         var brain = ctx.Companion.Brain;
+        // The upper band of air read before the torch is up, as the engine reads the screen before a light reaches it;
+        // the lower band is left unread, so under the torch the row can tell remembered darkness from a guess.
+        Point start = ctx.Npc.Center.ToTileCoordinates();
+        var readBeforeTheTorch = new HashSet<Point>();
+        for (int x = start.X - 24; x <= start.X + 24; x++)
+            for (int y = start.Y - 6; y <= start.Y - 4; y++)
+                if (brain.Senses.Light.ReadForPlacement(new Point(x, y), LightSense.Coverage.Current()).IsDark)
+                    readBeforeTheTorch.Add(new Point(x, y));
+        Require(readBeforeTheTorch.Count > 20, $"premise: the dark band above the body reads dark before the torch; {readBeforeTheTorch.Count} tiles");
         // Keeping company only, so the hand stays free and nothing places a torch while we wait for one to
         // come up; lighting is prepared directly afterwards.
         brain.Chooser.Actions.RemoveAll(a => a.Name != "keep-company");
@@ -353,17 +362,29 @@ internal static class VerifyLightAndReachSenses
         // pocket wide enough to raise the torch at all is wider than the glow, so its edge is offered either
         // way. The end-to-end wiring of this into the placement predicate is covered by the J08 pair in
         // VerifyAssistanceTrips, which was red before the flag and green after; this row covers the sense's
-        // own two answers, which is where the asymmetry lives.
+        // own answers. Under the torch the world's own light cannot be read, so the placing question has two honest
+        // answers there and never a guess: a tile read dark before the torch came up is still dark, and a tile never
+        // read is unknown — not dark, which offered torches in every lit room a carried light crossed.
         Point body = ctx.Npc.Center.ToTileCoordinates();
-        Point nearHand = new(body.X + 2, body.Y - 2);
-        float? holding = brain.Senses.Light.MeasuredBrightnessAt(nearHand);
-        var placing = brain.Senses.Light.ReadForPlacement(nearHand, LightSense.Coverage.Current());
-        Require(holding is null,
-            $"the premise is a tile the companion's own torch accounts for, which the hold decision must refuse to read; "
-            + $"read {holding} at {nearHand}");
-        Require(placing.Light == LightSense.PlacementLight.Carried && placing.IsDark,
-            $"the same tile must read dark when the question is whether to leave a torch behind, because the light in it "
-            + $"is the light that leaves with the companion; {placing} at {nearHand}");
+        Point? remembered = null, neverRead = null;
+        for (int x = body.X - 6; x <= body.X + 6 && (remembered is null || neverRead is null); x++)
+            for (int y = body.Y - 6; y <= body.Y - 1; y++)
+            {
+                Point tile = new(x, y);
+                if (!LightSense.IsOpenAir(x, y) || brain.Senses.Light.MeasuredBrightnessAt(tile) is not null) continue;
+                if (readBeforeTheTorch.Contains(tile)) remembered ??= tile;
+                else neverRead ??= tile;
+            }
+        Require(remembered is Point && neverRead is Point,
+            $"the premise is a tile the torch accounts for in each band, which the hold decision must refuse to read; "
+            + $"remembered {remembered} never read {neverRead} around {body}");
+        var fromMemory = brain.Senses.Light.ReadForPlacement(remembered!.Value, LightSense.Coverage.Current());
+        var guessed = brain.Senses.Light.ReadForPlacement(neverRead!.Value, LightSense.Coverage.Current());
+        Require(fromMemory.IsDark && fromMemory.Remembered,
+            $"a tile read dark before the torch came up must still read dark under it, or a companion holding a torch never "
+            + $"leaves one behind; {fromMemory} at {remembered}");
+        Require(guessed.Light == LightSense.PlacementLight.Carried && !guessed.IsDark,
+            $"a tile the torch lit before anything read it is unknown to placing, never dark; {guessed} at {neverRead}");
     }
 
     // ---- every carried light is discounted, not only the companion's own --------------------------------

@@ -194,6 +194,9 @@ internal static class VerifyCandidateFunnel
         VerifyTorchPlacementRule.BuildSealedRoom();
         Item torch = VerifyTorchPlacementRule.GiveTorches(ctx, held: true);
         VerifyTorchPlacementRule.Settle(ctx);
+        // Read dark before his torch lights it, as the engine reads the screen ahead of him in play: under his torch the
+        // world's own light cannot be read, and only a tile already read dark is known to be dark there.
+        VerifyTorchPlacementRule.ReadTheRoomBeforeHisLightArrives(ctx, new Vector3(.02f), placed: null);
         VerifyTorchPlacementRule.PresentEngineLight((_, _) => new Vector3(.02f), VerifyTorchPlacementRule.GameGlobalBrightness, placed: null,
             (ctx.Player.Center.ToTileCoordinates(), VerifyTorchPlacementRule.TorchColour()));
         VerifyTorchPlacementRule.ForceRefresh(ctx);
@@ -266,6 +269,8 @@ internal static class VerifyCandidateFunnel
         VerifyTorchPlacementRule.BuildSealedRoom();
         VerifyTorchPlacementRule.GiveTorches(ctx, held: true);
         VerifyTorchPlacementRule.Settle(ctx);
+        // Read dark before his torch lights it; see HisCursorsTileIsTheReference.
+        VerifyTorchPlacementRule.ReadTheRoomBeforeHisLightArrives(ctx, new Vector3(.02f), placed: null);
         VerifyTorchPlacementRule.PresentEngineLight((_, _) => new Vector3(.02f), VerifyTorchPlacementRule.GameGlobalBrightness, placed: null,
             (ctx.Player.Center.ToTileCoordinates(), VerifyTorchPlacementRule.TorchColour()));
         VerifyTorchPlacementRule.ForceRefresh(ctx);
