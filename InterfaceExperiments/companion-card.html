@@ -11,20 +11,22 @@
  * native card (Tools/EngineReplay --render-ui, 2026-09-13); rounds of the
  * owner's review produced this shape. The 2026-09-15 revisions:
  *
- *   - the page opens on the HUD notch, not on the card. The notch is the
- *     name, the level and health, mana and experience stacked as three
- *     bars with their readings beside them, and nothing else: no family
- *     icon and no behaviour icon either side, because what the companion
- *     is doing belongs to the card's action line, not the HUD. Clicking
- *     the notch opens the card; dragging frees it from the edge;
- *     right-clicking docks it again;
+ *   - the page opens on the HUD notch, not on the card. The notch is
+ *     health, mana and experience as three stacked bars and nothing
+ *     else: no name, no level, no numbers, no icons; the numbers live on
+ *     the card. Clicking the notch opens the card; dragging frees it from
+ *     the edge; right-clicking docks it again;
  *   - the companion is called Lumen in the mock (the name is a proposal)
- *     and is pictured as the drone, a rough symmetrical pixel disc drawn
- *     from Assets/, in the card's portrait and on the Inventory page;
- *   - the Inventory page's gear row is four weapon slots, a pickaxe and
- *     an axe; the first weapon slot is open and each other one is locked
- *     behind the Combat diamond it names. This is a proposal: the game
- *     today has two weapon slots;
+ *     and the card's portrait is the drone, a rough symmetrical pixel
+ *     disc drawn from Assets/. The overview has no action line: the strip
+ *     is the portrait, the name and level, and the three bars made large
+ *     with their readings. Each tile is its bar, its count and its name,
+ *     because a sentence under a tile only repeated the count;
+ *   - the Inventory page's top row is two bordered sections spanning the
+ *     page, Weapons with four slots and Tools with two, and nothing else:
+ *     no picture of the companion and no hover text. The first weapon
+ *     slot is open and the other three are locked behind Combat's
+ *     diamonds, a proposal, since the game today has two weapon slots;
  *   - the mastery wheel is one flat tree. Its lanes are Combat, Movement,
  *     Survival and Gathering, ten nodes each: a circle, a circle, then a
  *     split whose ranks alternate — diamond on the left and circle on the
@@ -32,25 +34,29 @@
  *     meeting at a third diamond and ending on a circle. A diamond unlocks
  *     something and opens nothing; there are no trees inside diamonds. A
  *     shared circle sits between neighbouring lanes;
- *   - the Mastery page is simple by the owner's ruling: the tree fills the
- *     left side; the panel shows a node's name and what it does, a Learn
- *     button and, under it, a level bar in the joined-segment shape with
- *     one segment per level. No Unlearn, no hint line, no legend, no
+ *   - the Mastery page is simple by the owner's ruling: with nothing picked
+ *     the tree fills the page, centred; picking a node opens a panel on the
+ *     right with its name and what it does, and Learn and a level bar in the
+ *     joined-segment shape at the panel's foot; a click on empty background
+ *     closes it, a pan does not. No Unlearn, no hint line, no legend, no
  *     status line. The same rule trims explanatory copy on every page;
+ *   - a page's actions live in the title bar, right-aligned before the X:
+ *     the chest buttons, the Mining list's mode, and −, + and Reset view;
  *   - magnitudes are deliberately modest: a fully learned lane is worth
  *     about one or two good accessories, not a new character. Every name
  *     and number is a draft for the owner to edit.
  *
  * Kept from earlier rounds: the overview is short (title bar, identity
- * strip, three tiles); each tile turns the whole card into its page with
- * back and close only; one 12px rhythm separates every stacked region;
+ * strip, three tiles); each tile turns the whole card into its page;
+ * one 12px rhythm separates every stacked region;
  * the Mining list is the only allow/deny control; the Inventory page has
  * Terraria's chest buttons and a self-sorting bag; there is no minimise.
  *
  * Every size is the logical pixel the C# layout will use:
- *   notch 232x60, overview 720x284, full pages 720x580, padding 10,
- *   title bar 34, rhythm 12, identity 100, tiles 100, joined segments 22
- *   tall, buttons 30 tall, pills 34 tall, slots 48 with 4 gap.
+ *   notch 232x50, overview 720x244, full pages 720x580, padding 10,
+ *   title bar 34, rhythm 12, identity 100, tiles 60, joined segments 22
+ *   tall, buttons 30 tall, pills 34 tall (30 in the title bar), slots 48
+ *   with 4 gap.
  *
  * Terraria's interface language: every string has a hard black drop
  * shadow, panels are saturated blue-violet at 86%, slots are a lighter
@@ -98,24 +104,21 @@ body{font-family:var(--ui);color:var(--ink);text-shadow:2px 2px 0 #000;font-weig
   background:linear-gradient(#1b2a4a 0 55%,#3a2c22 55% 100%)}
 
 /* ---- the HUD notch: name, level and three bars; docked it hangs from the top edge with fillets ---- */
-#notch{zoom:var(--z);position:absolute;width:232px;height:60px;background:var(--notch);border-radius:0 0 12px 12px;
+#notch{zoom:var(--z);position:absolute;width:232px;height:50px;background:var(--notch);border-radius:0 0 12px 12px;
   cursor:pointer;z-index:5;color:#ebebf0}
 #notch::before,#notch::after{content:"";position:absolute;top:0;width:10px;height:10px}
 #notch::before{left:-10px;background:radial-gradient(circle at 0 100%,transparent 10px,var(--notch) 10.5px)}
 #notch::after{right:-10px;background:radial-gradient(circle at 100% 100%,transparent 10px,var(--notch) 10.5px)}
 #notch.free{border-radius:12px;outline:1px solid var(--notch-edge)}
 #notch.free::before,#notch.free::after{display:none}
-#notch .nname{position:absolute;left:8px;top:3px;font-size:12px;line-height:14px}
-#notch .nlvl{position:absolute;right:8px;top:3px;font-size:11px;line-height:14px;color:var(--xp)}
-#notch .nbar{position:absolute;left:8px;width:150px;height:6px;background:var(--notch-track);border-radius:3px;overflow:hidden}
-#notch .nbar i{display:block;height:100%;border-radius:3px}
-#nhp{top:22px}#nhp i{background:var(--notch-hp)}
-#nmp{top:35px}#nmp i{background:var(--mana)}
-#nxp{top:48px}#nxp i{background:var(--xp)}
-#notch .nread{position:absolute;left:164px;font-size:10px;line-height:10px;white-space:nowrap}
-#nhpr{top:20px;color:var(--notch-hp)}#nmpr{top:33px;color:var(--mana)}#nxpr{top:46px;color:var(--xp)}
+/* three bars and nothing else, 8px padding round them and 5px between */
+#notch .nbar{position:absolute;left:10px;right:10px;height:8px;background:var(--notch-track);border-radius:4px;overflow:hidden}
+#notch .nbar i{display:block;height:100%;border-radius:4px}
+#nhp{top:8px}#nhp i{background:var(--notch-hp)}
+#nmp{top:21px}#nmp i{background:var(--mana)}
+#nxp{top:34px}#nxp i{background:var(--xp)}
 
-#frame{zoom:var(--z);width:720px;height:284px;position:absolute;left:0;top:0;z-index:4;
+#frame{zoom:var(--z);width:720px;height:244px;position:absolute;left:0;top:0;z-index:4;
   background:var(--panel);border:2px solid var(--edge);border-radius:9px;padding:10px}
 #frame.full{height:580px}
 #frame.hidden{display:none}
@@ -141,6 +144,12 @@ body{font-family:var(--ui);color:var(--ink);text-shadow:2px 2px 0 #000;font-weig
 #title .name{position:absolute;left:42px;top:3px;pointer-events:none}
 #title .rb{position:absolute;top:0}
 #back{left:0}#close{right:0}
+/* a page's own actions sit in the title bar, right-aligned before the X, at the round buttons' 30px height, so the
+   page below them is only its content; the overview has none */
+#acts{position:absolute;right:42px;top:0;height:30px}
+.acts{display:none;height:30px;gap:6px}.acts.on{display:flex}
+#acts .pill{height:30px;border-radius:15px;padding:0 12px}
+#acts .rb{position:static}
 
 /* the drone, everywhere the companion is pictured: a rough symmetrical pixel disc */
 .drone{image-rendering:pixelated;display:block}
@@ -151,17 +160,16 @@ body{font-family:var(--ui);color:var(--ink);text-shadow:2px 2px 0 #000;font-weig
 #portrait .drone{width:48px;height:48px}
 #who{position:absolute;left:80px;top:1px}
 #lvl{position:absolute;left:150px;top:5px;color:var(--gold)}
-.meter{position:absolute;left:80px;width:220px;height:8px;background:var(--bar-bg)}
+.meter{position:absolute;left:80px;width:220px;height:16px;background:var(--bar-bg)}
 .meter i{display:block;height:100%}
-/* health, mana and experience stacked in the notch's order, a 12px row step, each reading in its bar's colour */
-#hpbar{top:27px}#hpbar i{background:var(--hp)}
-#mpbar{top:39px}#mpbar i{background:var(--mana)}
-#xpbar{top:51px}#xpbar i{background:var(--xp)}
-.reading{position:absolute;left:308px;width:112px;text-align:left;line-height:1}
-#hp{top:24px;color:var(--hp)}
-#mp{top:36px;color:var(--mana)}
-#xp{top:48px;color:var(--xp)}
-#action{position:absolute;left:80px;width:340px;top:64px;line-height:1.35}
+/* health, mana and experience in the notch's order, filling the strip under the name where the action line was, each reading beside its bar in the bar's colour */
+#hpbar{top:32px}#hpbar i{background:var(--hp)}
+#mpbar{top:54px}#mpbar i{background:var(--mana)}
+#xpbar{top:76px}#xpbar i{background:var(--xp)}
+.reading{position:absolute;left:310px;width:112px;text-align:left;line-height:16px}
+#hp{top:32px;color:var(--hp)}
+#mp{top:54px;color:var(--mana)}
+#xp{top:76px;color:var(--xp)}
 #frame.full #identity,#frame.full #footer{display:none}
 
 /* three controls: a 26px icon and a joined segment control, 26 tall with 8 between */
@@ -175,19 +183,18 @@ body{font-family:var(--ui);color:var(--ink);text-shadow:2px 2px 0 #000;font-weig
   cursor:pointer;line-height:1;margin-left:-2px}
 .joined .seg:first-child{margin-left:0;border-radius:11px 0 0 11px}
 .joined .seg:last-child{border-radius:0 11px 11px 0}
+.joined .seg:only-child{border-radius:11px}  /* one segment is both ends, and :last-child alone would square its left */
 .joined .seg:hover{border-color:var(--gold);z-index:1}
 .joined .seg.on{border-color:var(--gold);color:var(--gold);background:var(--selected);z-index:1}
 
 /* ---- tiles: three across, 100 tall, one rhythm under the strip and one above the card's edge ---- */
-#footer{position:absolute;left:10px;right:10px;top:168px;height:100px;display:flex;gap:10px}
+#footer{position:absolute;left:10px;right:10px;top:168px;height:60px;display:flex;gap:10px}
 .tile{flex:1;position:relative;border:2px solid var(--edge);border-radius:9px;background:var(--panel);cursor:pointer}
 .tile:hover{border-color:var(--gold)}
 .tile .bar{position:absolute;left:10px;top:10px;right:64px;height:6px;background:var(--tile-bar-bg)}
 .tile .bar i{display:block;height:100%}
 .tile .count{position:absolute;right:10px;top:4px;color:var(--muted);width:60px;text-align:right}
 .tile .t{position:absolute;left:10px;top:23px}
-.tile .d{position:absolute;left:10px;top:47px;color:var(--muted);white-space:nowrap;overflow:hidden;right:6px}
-.tile .d2{position:absolute;left:10px;top:69px;color:var(--muted);white-space:nowrap;overflow:hidden;right:6px}
 
 /* ---- full pages: one rhythm below the title rule, one above the card's edge ---- */
 #content{position:absolute;left:10px;right:10px;top:56px;bottom:12px;display:none}
@@ -202,20 +209,18 @@ body{font-family:var(--ui);color:var(--ink);text-shadow:2px 2px 0 #000;font-weig
 .sb i:hover{background:#ffffff}
 
 /* ---- inventory: the gear row with the drone, one rhythm, chest buttons, one rhythm, the grid, the count line ---- */
-#dronebox{position:absolute;left:23px;top:0;width:70px;height:66px;background:var(--sunk);display:grid;place-items:center}
-#dronebox .drone{width:48px;height:48px}
-.gearlabel{position:absolute;top:0;color:var(--muted);line-height:14px}
-#gearweapons{left:105px}#geartools{left:329px}
+/* the top row is two bordered sections spanning the page, weapons and tools, slots evenly spaced in each at their fixed size */
+/* no caption: the two boxes and what is in them say which is which, and a caption row only pushed the slots off centre */
+.gearsection{position:absolute;top:0;height:64px;border:2px solid var(--edge);border-radius:9px}
+.gearsection .row{position:absolute;left:0;right:0;top:6px;display:flex;justify-content:space-evenly}
+#gearweapons{left:23px;width:425px}#geartools{left:460px;width:213px}
 .slot{width:48px;height:48px;border:2px solid var(--edge);border-radius:6px;background:var(--panel-solid);position:relative}
 .slot:hover{border-color:var(--gold)}
-.gearslot{position:absolute;top:18px;cursor:pointer}
+.gearslot{cursor:pointer}
 .gearslot svg{position:absolute;left:9px;top:9px;width:26px;height:26px;image-rendering:pixelated}
 .gearslot.locked{background:var(--sunk);border-color:rgba(143,147,240,.35)}
 .gearslot.locked svg{opacity:.55}
-#gearnote{position:absolute;left:445px;right:23px;top:18px;height:48px;color:var(--muted);line-height:1.35;display:flex;align-items:center}
-#chest{position:absolute;left:23px;width:650px;top:78px;height:34px;display:flex;gap:6px}
-#chest .pill{flex:1;padding:0}
-#gridview{left:23px;top:124px;width:620px;bottom:36px}
+#gridview{left:23px;top:76px;width:620px;bottom:36px}
 #grid{display:grid;grid-template-columns:repeat(12,48px);gap:4px}
 .slot .n{position:absolute;left:5px;bottom:3px;color:var(--gold)}
 .slot .it{position:absolute;right:6px;top:6px;width:12px;height:12px}
@@ -223,14 +228,12 @@ body{font-family:var(--ui);color:var(--ink);text-shadow:2px 2px 0 #000;font-weig
 .slot .it.wood{background:#a8703a;box-shadow:0 3px 0 #6b4520 inset}
 .slot .it.gel{background:#4f7fff;border-radius:50%}
 .slot .it.torch{background:#ffb347;box-shadow:0 -4px 0 #7a4a1a inset}
-#invbar{left:653px;top:124px;bottom:36px}
+#invbar{left:653px;top:76px;bottom:36px}
 #invcount{position:absolute;right:23px;bottom:0;height:24px;line-height:24px;color:var(--muted)}
 #invlast{position:absolute;left:23px;bottom:0;height:24px;line-height:24px;color:var(--muted)}
 
-/* ---- mining list: a mode, a scrolling grid of found ores, the hovered ore's wall preview beside it ---- */
-#mode{position:absolute;left:0;top:0;width:280px;height:34px;display:flex;gap:4px}
-#mode .pill{flex:1;padding:0}
-#oreview{left:0;top:46px;width:412px;bottom:36px}
+/* ---- mining list: a scrolling grid of found ores, the hovered ore's wall preview beside it; the mode is in the title bar ---- */
+#oreview{left:0;top:0;width:412px;bottom:0}
 #ores{display:grid;grid-template-columns:repeat(8,48px);gap:4px}
 .oretile{width:48px;height:48px;border:2px solid var(--edge);border-radius:6px;background:var(--panel-solid);position:relative;cursor:pointer}
 .oretile:hover{border-color:var(--gold)}
@@ -239,26 +242,29 @@ body{font-family:var(--ui);color:var(--ink);text-shadow:2px 2px 0 #000;font-weig
 .oretile.off .sw{opacity:.35}
 .oretile.off .mk{color:var(--red)}
 .oretile.on .mk{color:var(--gold)}
-#orebar{left:416px;top:46px;bottom:36px}
-#orepanel{position:absolute;left:456px;right:0;top:46px;height:214px;border:2px solid var(--edge);border-radius:9px;padding:12px}
+#orebar{left:416px;top:0;bottom:0}
+#orepanel{position:absolute;left:456px;right:0;top:0;height:214px;border:2px solid var(--edge);border-radius:9px;padding:12px}
 #orepanel .sw{display:block;width:96px;height:96px;border:2px solid var(--edge);border-radius:6px;image-rendering:pixelated;margin-bottom:12px}
 #orepanel .nm{margin-bottom:6px}
 #orepanel .st{margin-bottom:4px}
-#orecount{position:absolute;left:0;bottom:0;height:24px;line-height:24px;color:var(--muted)}
 
-/* ---- mastery: the graph on the left, the selected node's panel on the right ---- */
-#mast .zoom{position:absolute;right:0;top:0;height:34px;display:flex;gap:8px;align-items:flex-start}
-#graph{position:absolute;left:0;right:232px;top:0;bottom:0;overflow:hidden;cursor:grab}
+/* ---- mastery: the graph fills the page; a picked node's panel takes the right and the graph gives it the room ---- */
+#graph{position:absolute;left:0;right:0;top:0;bottom:0;overflow:hidden;cursor:grab}
+#mast.picked #graph{right:232px}
 #graph.dragging{cursor:grabbing}
 #graph svg{width:100%;height:100%;display:block}
 #graph .node{cursor:pointer}
 #graph .node.sel{stroke-width:6}
-#detail{position:absolute;right:0;width:220px;top:46px;bottom:0;border:2px solid var(--edge);border-radius:9px;padding:12px;
-  display:flex;flex-direction:column;gap:8px;overflow:hidden}
+#detail{position:absolute;right:0;width:220px;top:0;bottom:0;border:2px solid var(--edge);border-radius:9px;padding:12px;
+  display:none;flex-direction:column;gap:8px;overflow:hidden}
+#mast.picked #detail{display:flex}
 #detail .dn{line-height:1.15}
 #detail .de{color:var(--gold);line-height:1.3}
 #detail .sp{flex:1}
 /* the level bar is the joined-segment control's shape used as a display: one segment per level, learned ones selected */
+/* flex:none because the joined control's own flex:1 would, in this column, split the free space with the spacer and
+   lift Learn and the bar off the card's bottom edge */
+#levels{flex:none}
 #levels .seg{cursor:default}
 #levels .seg:hover{border-color:var(--edge)}
 #levels .seg.on:hover{border-color:var(--gold)}
@@ -297,17 +303,25 @@ body{font-family:var(--ui);color:var(--ink);text-shadow:2px 2px 0 #000;font-weig
 
 <div id="stage">
 <div id="notch" title="Click to open the companion card · drag to move · right-click to dock">
-  <div class="nname">Lumen</div>
-  <div class="nlvl">Level 12</div>
-  <div id="nhp" class="nbar"><i style="width:100%"></i></div><div id="nhpr" class="nread">400 / 400</div>
-  <div id="nmp" class="nbar"><i style="width:65%"></i></div><div id="nmpr" class="nread">78 / 120</div>
-  <div id="nxp" class="nbar"><i style="width:62%"></i></div><div id="nxpr" class="nread">1,240 / 2,000</div>
+  <div id="nhp" class="nbar"><i style="width:100%"></i></div>
+  <div id="nmp" class="nbar"><i style="width:65%"></i></div>
+  <div id="nxp" class="nbar"><i style="width:62%"></i></div>
 </div>
 
 <div id="frame" class="hidden">
   <div id="title">
     <div id="back" class="rb s80">+</div>
     <div class="name s100">Companion</div>
+    <div id="acts">
+      <div id="chest" class="acts s75" data-for="inv">
+        <div class="pill" data-op="loot" title="Everything in the bag goes to you">Loot All</div>
+        <div class="pill" data-op="deposit" title="Everything you carry goes into the bag">Deposit All</div>
+        <div class="pill" data-op="quick" title="What you carry that the bag already holds goes into the bag">Quick Stack</div>
+        <div class="pill" data-op="restock" title="What the bag holds that you already carry comes to you">Restock</div>
+      </div>
+      <div id="mode" class="acts s75" data-for="ore"><div class="pill on" data-mode="black">Skip marked</div><div class="pill" data-mode="white">Only marked</div></div>
+      <div class="acts zoom s80" data-for="mast"><div class="rb" id="zout">-</div><div class="rb" id="zin">+</div><div class="pill" id="zreset">Reset view</div></div>
+    </div>
     <div id="close" class="rb s80">X</div>
   </div>
 
@@ -316,12 +330,11 @@ body{font-family:var(--ui);color:var(--ink);text-shadow:2px 2px 0 #000;font-weig
     <div id="who" class="s100">Lumen</div>
     <div id="lvl" class="s80">Level 12</div>
     <div id="hpbar" class="meter"><i style="width:100%"></i></div>
-    <div id="hp" class="reading s66">400 / 400 HP</div>
+    <div id="hp" class="reading s75">400 / 400 HP</div>
     <div id="mpbar" class="meter"><i style="width:65%"></i></div>
-    <div id="mp" class="reading s66">78 / 120 MP</div>
+    <div id="mp" class="reading s75">78 / 120 MP</div>
     <div id="xpbar" class="meter"><i style="width:62%"></i></div>
-    <div id="xp" class="reading s66">1,240 / 2,000 XP</div>
-    <div id="action" class="s75">Mining · Copper vein · 12 tiles below · opportunistic</div>
+    <div id="xp" class="reading s75">1,240 / 2,000 XP</div>
 
     <div id="controls" class="s68">
       <div class="ctlrow" data-hint="Mimic: mine when you do. Auto: find ore nearby on its own.">
@@ -353,39 +366,24 @@ body{font-family:var(--ui);color:var(--ink);text-shadow:2px 2px 0 #000;font-weig
       <div class="bar"><i id="invfill" style="background:var(--hp)"></i></div>
       <div class="count s65" id="invtilecount"></div>
       <div class="t s85">Inventory</div>
-      <div class="d s68" id="invtiledetail"></div>
-      <div class="d2 s64" id="invtilelast">No recent pickup</div>
     </div>
     <div class="tile" data-page="mast">
       <div class="bar"><i id="mastfill" style="width:0;background:var(--gold)"></i></div>
       <div class="count s65" id="masttilecount"></div>
       <div class="t s85">Mastery</div>
-      <div class="d s68" id="masttiledetail">Explore the preview</div>
-      <div class="d2 s64"></div>
     </div>
     <div class="tile" data-page="ore">
       <div class="bar"><i id="orefill" style="background:var(--gold)"></i></div>
       <div class="count s65" id="oretilecount"></div>
       <div class="t s85">Mining list</div>
-      <div class="d s68" id="oretiledetail"></div>
-      <div class="d2 s64" id="oretilemode"></div>
     </div>
   </div>
 
   <div id="content">
     <!-- Inventory page -->
     <div id="inv" class="page">
-      <div id="dronebox"><svg class="drone" viewBox="0 0 16 16"><use href="#drone-art"/></svg></div>
-      <div id="gearweapons" class="gearlabel s64">Weapons</div>
-      <div id="geartools" class="gearlabel s64">Tools</div>
-      <div id="gearslots"></div>
-      <div id="gearnote" class="s68"></div>
-      <div id="chest" class="s80">
-        <div class="pill" data-op="loot" title="Everything in the bag goes to you">Loot All</div>
-        <div class="pill" data-op="deposit" title="Everything you carry goes into the bag">Deposit All</div>
-        <div class="pill" data-op="quick" title="What you carry that the bag already holds goes into the bag">Quick Stack</div>
-        <div class="pill" data-op="restock" title="What the bag holds that you already carry comes to you">Restock</div>
-      </div>
+      <div id="gearweapons" class="gearsection"><div class="row"></div></div>
+      <div id="geartools" class="gearsection"><div class="row"></div></div>
       <div id="gridview" class="viewport"><div class="inner"><div id="grid" class="s75"></div></div></div>
       <div id="invbar" class="sb"><i></i></div>
       <div id="invlast" class="s68"></div>
@@ -394,7 +392,6 @@ body{font-family:var(--ui);color:var(--ink);text-shadow:2px 2px 0 #000;font-weig
 
     <!-- Mining list page -->
     <div id="ore" class="page">
-      <div id="mode" class="s80"><div class="pill on" data-mode="black">Skip marked</div><div class="pill" data-mode="white">Only marked</div></div>
       <div id="oreview" class="viewport"><div class="inner"><div id="ores"></div></div></div>
       <div id="orebar" class="sb"><i></i></div>
       <div id="orepanel">
@@ -402,7 +399,6 @@ body{font-family:var(--ui);color:var(--ink);text-shadow:2px 2px 0 #000;font-weig
         <div class="nm s100"></div>
         <div class="st s80"></div>
       </div>
-      <div id="orecount" class="s80"></div>
     </div>
 
     <!-- Mastery page -->
@@ -410,7 +406,6 @@ body{font-family:var(--ui);color:var(--ink);text-shadow:2px 2px 0 #000;font-weig
       <div id="graph">
         <svg id="graphsvg" preserveAspectRatio="none" font-family="inherit" font-weight="bold"></svg>
       </div>
-      <div class="zoom s80"><div class="rb" id="zout">-</div><div class="rb" id="zin">+</div><div class="pill" id="zreset">Reset view</div></div>
       <div id="detail">
         <div class="dn s100" id="dname"></div>
         <div class="de s75" id="deffect"></div>
@@ -428,7 +423,7 @@ body{font-family:var(--ui);color:var(--ink);text-shadow:2px 2px 0 #000;font-weig
 const $ = s => document.querySelector(s), $$ = s => [...document.querySelectorAll(s)];
 const z = () => Number(getComputedStyle(document.documentElement).getPropertyValue('--z')) || 1;
 const frame = $('#frame'), stage = $('#stage'), notch = $('#notch');
-const W = 720, H_OVERVIEW = 284, H_FULL = 580, NOTCH_W = 232, NOTCH_H = 60, NOTCH_MARGIN = 8;
+const W = 720, H_OVERVIEW = 244, H_FULL = 580, NOTCH_W = 232, NOTCH_H = 50, NOTCH_MARGIN = 8;
 
 // ---------------------------------------------------------------- the notch
 // Docked, the notch sits top-centre flush with the screen edge, as the game draws it when no
@@ -491,7 +486,7 @@ window.addEventListener('resize', place);
 // drag the card by the title bar, never by its buttons
 const title = $('#title'); let drag = null;
 title.addEventListener('pointerdown', e => {
-  if (e.target.classList.contains('rb')) return;
+  if (e.target.closest('.rb, .pill')) return;
   drag = {x: e.clientX, y: e.clientY, ox: framePos.x, oy: framePos.y};
   title.classList.add('dragging'); title.setPointerCapture(e.pointerId);
 });
@@ -514,6 +509,7 @@ function syncBench() {
 function show(p) {
   page = p;
   $$('.page').forEach(x => x.classList.toggle('on', x.id === p));
+  $$('.acts').forEach(x => x.classList.toggle('on', x.dataset.for === p));
   frame.classList.toggle('full', p !== 'overview');
   titleName.textContent = names[p];
   back.textContent = p === 'overview' ? '+' : '<';
@@ -583,10 +579,7 @@ function drawOres() {
     oresEl.appendChild(t);
   });
   const n = ORES.filter(mines).length, found = ORES.length;
-  $('#orecount').textContent = `${found} found · will mine ${n}`;
   $('#oretilecount').textContent = `${n}/${found}`; $('#orefill').style.width = Math.round(100 * n / found) + '%';
-  $('#oretiledetail').textContent = `${found} ores found · will mine ${n}`;
-  $('#oretilemode').textContent = mode === 'black' ? `Skips the ${found - n} marked` : `Mines only the ${n} marked`;
   scrollers.forEach(s => s.layout());
 }
 function describe(o) {
@@ -622,8 +615,7 @@ function drawBag(last) {
   const used = bag.length, pct = Math.round(100 * used / SLOTS);
   $('#invcount').textContent = `${used} / ${SLOTS}`;
   $('#invtilecount').textContent = `${used}/${SLOTS}`; $('#invfill').style.width = pct + '%';
-  $('#invtiledetail').textContent = `${used} of ${SLOTS} slots occupied`;
-  if (last) { $('#invtilelast').textContent = last; $('#invlast').textContent = last; }
+  if (last) $('#invlast').textContent = last;
   $('#yours').textContent = 'you carry: ' + (Object.entries(yours).filter(([, n]) => n > 0).map(([k, n]) => `${KIND[k]} ${n}`).join(' · ') || 'nothing');
   scrollers.forEach(s => s.layout());
 }
@@ -661,25 +653,19 @@ const GEAR = [
   {kind: 'pickaxe', item: 'Gold Pickaxe', icon: 'pick'},
   {kind: 'axe', item: 'Gold Axe', icon: 'axe'},
 ];
-const DEFAULT_GEAR_NOTE = '';
 function slotOpen(g) { return g.lockedBy === undefined || !!learned[SLOT_DIAMONDS[g.lockedBy]]; }
 function drawGear() {
-  const host = $('#gearslots'); host.innerHTML = '';
-  GEAR.forEach((g, i) => {
-    const s = document.createElement('div');
-    const open = slotOpen(g), x = i < 4 ? 105 + i * 52 : 329 + (i - 4) * 52;
+  const weapons = $('#gearweapons .row'), tools = $('#geartools .row');
+  weapons.innerHTML = ''; tools.innerHTML = '';
+  GEAR.forEach(g => {
+    const s = document.createElement('div'), open = slotOpen(g);
     s.className = 'slot gearslot' + (open ? '' : ' locked');
-    s.style.left = x + 'px';
     const icon = open ? (g.icon ? ICON[g.icon] : '') : ICON.lock;
     if (icon) s.innerHTML = `<svg viewBox="0 0 13 13" shape-rendering="crispEdges">${icon}</svg>`;
-    const diamond = g.lockedBy === undefined ? null : wheel.nodes.find(n => n.key === SLOT_DIAMONDS[g.lockedBy]);
-    const note = !open ? `Locked · ${diamond.def.name}` : g.item ? g.item : 'Empty';
-    s.addEventListener('mouseenter', () => $('#gearnote').textContent = note);
-    s.addEventListener('mouseleave', () => $('#gearnote').textContent = DEFAULT_GEAR_NOTE);
-    if (!open) s.addEventListener('click', () => { show('mast'); selectKey(diamond.key); });
-    host.appendChild(s);
+    // a locked slot goes to the diamond that opens it; nothing is written about it anywhere
+    if (!open) s.addEventListener('click', () => { show('mast'); selectKey(SLOT_DIAMONDS[g.lockedBy]); });
+    (g.kind === 'weapon' ? weapons : tools).appendChild(s);
   });
-  $('#gearnote').textContent = DEFAULT_GEAR_NOTE;
 }
 
 // ---------------------------------------------------------------- mastery: content
@@ -769,7 +755,9 @@ const rad = d => d * Math.PI / 180;
 const polar = (r, deg) => ({x: Math.round(r * Math.cos(rad(deg))), y: Math.round(r * Math.sin(rad(deg)))});
 const nearestPair = nodes => Math.min(...nodes.flatMap((a, i) => nodes.slice(i + 1).map(b => Math.hypot(a.x - b.x, a.y - b.y))));
 
-const wheel = {nodes: [], edges: [], labels: [], root: {x: 0, y: 0, b: -1, kind: 'root'}, extent: 2 * (LABEL_R + 140)};  // room for a side lane's label, fitted by the graph's width
+// extent is replaced by the drawn tree's own measured bounds the first time the page is visible (see measureExtent),
+// so a label's real text width, which no constant here knows, is what the fit leaves room for
+const wheel = {nodes: [], edges: [], labels: [], root: {x: 0, y: 0, b: -1, kind: 'root'}, extent: 2 * (LABEL_R + 140)};
 LANES.forEach((lane, b) => {
   const base = b * SPACING - 90;
   TEMPLATE.forEach(([r, d], n) => {
@@ -778,7 +766,12 @@ LANES.forEach((lane, b) => {
       kind: DIAMOND_ROLES.has(n) ? 'unlock' : 'stat', needs: def.needs.map(k => 'w' + (b * ROLES + k))});
   });
   LANE_EDGES.forEach(([f, t]) => wheel.edges.push([f < 0 ? -1 : b * ROLES + f, b * ROLES + t]));
-  const p = polar(LABEL_R, base); wheel.labels.push({x: p.x, y: p.y + 12, text: lane.name, b});
+  // A label stands past its lane's last node. Across a vertical lane the text is short in the lane's direction and can
+  // centre on it; along a horizontal lane it is long, so centred it lay on the last node, and it is anchored at its
+  // near end instead, one node radius and a gap beyond the node.
+  const end = TEMPLATE[ROLES - 1][0], along = Math.cos(rad(base));
+  const side = Math.abs(along) > 0.5, p = polar(side ? end + NODE_R + 24 : LABEL_R, base);
+  wheel.labels.push({x: p.x, y: p.y + 14, text: lane.name, b, anchor: !side ? 'middle' : along > 0 ? 'start' : 'end'});
 });
 JUNCTIONS.forEach((def, i) => {
   // joined to lane i's clockwise first-rank node and lane i+1's counter-clockwise first-rank node
@@ -839,7 +832,7 @@ function draw(keepView) {
   });
   // the centre, in gold
   svg.appendChild(el('rect', {x: -R, y: -R, width: 2 * R, height: 2 * R, fill: '#ffe066', stroke: '#ffe066', 'stroke-width': 3.5, transform: 'rotate(45 0 0)'}));
-  wheel.labels.forEach(l => { const t = el('text', {x: l.x, y: l.y, fill: COLORS[l.b], 'text-anchor': 'middle', 'font-size': 40, filter: 'url(#hard)'});
+  wheel.labels.forEach(l => { const t = el('text', {x: l.x, y: l.y, fill: COLORS[l.b], 'text-anchor': l.anchor, 'font-size': 40, filter: 'url(#hard)'});
     t.textContent = l.text; svg.appendChild(t); });
   if (!keepView) fitGraph();
   refreshStatus();
@@ -848,16 +841,40 @@ function refreshStatus() {
   const have = wheel.nodes.filter(n => learned[n.key]).length;
   $('#masttilecount').textContent = `${spent()} pts`;
   $('#mastfill').style.width = Math.round(100 * have / wheel.nodes.length) + '%';
-  $('#masttiledetail').textContent = `${have} of ${wheel.nodes.length} learned`;
 }
 
 // ---------------------------------------------------------------- mastery: the detail panel
 // The panel says the node's name and what it does and nothing else, because the owner ruled the page must be simple:
 // no kind or rank line, no purpose sentence, no "sized against", no needs, no hint, legend or status line anywhere on
-// the page. Under Learn, the level bar is the joined-segment control's shape with one segment per level, learned levels
-// selected. There is no Unlearn: a learned level stays learned.
+// the page. Learn and the level bar sit at the panel's foot; the bar is the joined-segment control's shape with one
+// segment per level, learned levels selected. There is no Unlearn: a learned level stays learned.
+//
+// The panel exists only while a node is picked. With nothing picked the tree has the whole page and Reset view centres
+// it there; picking a node narrows the graph by the panel's width, and a click on empty background (a press released
+// without dragging) unpicks it. The narrowing keeps the view's left edge and scale, so nothing on screen moves when
+// the panel opens and the tree is centred again when it closes, and a picked node the panel would cover is panned in.
+const mast = $('#mast');
+function setPicked(on) {
+  if (mast.classList.contains('picked') === on) return;
+  const before = graph.clientWidth, s = view.w / (before || 1);
+  mast.classList.toggle('picked', on);
+  const after = graph.clientWidth;
+  if (!before || !after) return;
+  view.w = after * s; applyView();
+}
+function panIntoView(n) {
+  const cw = graph.clientWidth, s = view.w / cw, margin = 2 * NODE_R + 12;
+  if (n.x + margin > view.x + view.w) view.x = n.x + margin - view.w;
+  if (n.x - margin < view.x) view.x = n.x - margin;
+  applyView();
+}
+function deselect() {
+  if (!selectedNode) return;
+  selectedNode = null; setPicked(false); draw(true);
+}
 function select(n) {
   selectedNode = n;
+  setPicked(true); panIntoView(n);
   draw(true);
   const r = rankOf(n);
   $('#dname').textContent = n.def.name; $('#dname').style.color = COLORS[n.b];
@@ -875,8 +892,15 @@ $('#learn').addEventListener('click', () => {
 // about the canvas centre, reset fits the wheel's extent
 const graph = $('#graph'); let view = {x: -600, y: -600, w: 1200, h: 1200};
 function applyView() { svg.setAttribute('viewBox', `${view.x} ${view.y} ${view.w} ${view.h}`); }
+// the tree's bounds as drawn, labels included, as a square about the centre; getBBox reads nothing while the page is
+// hidden, so the last measured value stands until it can
+function measureExtent() {
+  const b = svg.getBBox(); if (!b.width) return;
+  wheel.extent = 2 * Math.max(-b.x, b.x + b.width, -b.y, b.y + b.height) + 40;
+}
 function fitGraph() {
   const cw = graph.clientWidth, ch = graph.clientHeight; if (!cw || !ch) return;
+  measureExtent();
   const s = Math.max(wheel.extent / cw, wheel.extent / ch);
   view = {w: cw * s, h: ch * s, x: -cw * s / 2, y: -ch * s / 2}; applyView();
 }
@@ -895,16 +919,22 @@ $('#zreset').addEventListener('click', fitGraph);
 let pan = null;
 graph.addEventListener('pointerdown', e => {
   if (e.target.classList && e.target.classList.contains('node')) return;
-  pan = {x: e.clientX, y: e.clientY, vx: view.x, vy: view.y}; graph.classList.add('dragging'); graph.setPointerCapture(e.pointerId); });
+  pan = {x: e.clientX, y: e.clientY, vx: view.x, vy: view.y, moved: false}; graph.classList.add('dragging'); graph.setPointerCapture(e.pointerId); });
 graph.addEventListener('pointermove', e => {
   if (!pan) return;
+  // the notch's drag threshold: under six pixels a press is still a click
+  if (Math.hypot(e.clientX - pan.x, e.clientY - pan.y) >= 6) pan.moved = true;
   view.x = pan.vx - (e.clientX - pan.x) / z() * (view.w / graph.clientWidth);
   view.y = pan.vy - (e.clientY - pan.y) / z() * (view.h / graph.clientHeight); applyView();
 });
-graph.addEventListener('pointerup', () => { pan = null; graph.classList.remove('dragging'); });
+graph.addEventListener('pointerup', () => {
+  const clicked = pan && !pan.moved;
+  pan = null; graph.classList.remove('dragging');
+  if (clicked) deselect();  // a click on the background unpicks; a pan never does
+});
 
 // ---------------------------------------------------------------- start: the notch, the card closed
-draw(); select(wheel.nodes[0]); drawGear(); place(); scrollers.forEach(s => s.layout()); syncBench();
+draw(); drawGear(); place(); scrollers.forEach(s => s.layout()); syncBench();
 </script>
 </body>
 </html>
