@@ -57,7 +57,12 @@ public static class PlaceTorches
         WorldGen.PlaceTile(tile.X, tile.Y, item.createTile, mute: false, forced: false, plr: player.whoAmI, style: item.placeStyle);
         Tile placed = Main.tile[tile.X, tile.Y];
         bool landed = placed.HasTile && placed.TileType == item.createTile;
-        if (landed) Progression.CreditWork.CompanionPlacedTorch(tile);
-        return landed;
+        if (!landed) return false;
+        // WorldGen.PlaceTile runs no tile hook (the player's PlaceInWorld belongs to Player.PlaceThing), so nothing announces
+        // this edit unless it is announced here, and the light sense's memory of dark tiles is forgotten only by announced
+        // edits: an unannounced torch leaves the tiles it lights remembered dark under a carried light.
+        Movement.TerrainChanges.Changed(tile.X, tile.Y);
+        Progression.CreditWork.CompanionPlacedTorch(tile);
+        return true;
     }
 }

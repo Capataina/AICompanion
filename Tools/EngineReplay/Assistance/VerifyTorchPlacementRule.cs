@@ -84,6 +84,14 @@ internal static class VerifyTorchPlacementRule
             TheSameRoomLitByAPlacedTorchOffersNothing);
         Each("place: the same room in daylight, with him holding a torch, offers nothing",
             TheSameRoomInDaylightOffersNothing);
+        Each("place: rooms the world lights to 0.30, 0.45 and 0.70 offer nothing, with or without a torch in his hand",
+            MiddleBandRoomsOfferNothing);
+        Each("place: a room a standing torch lights gets no second torch at the game's spacing while he holds a torch beside it",
+            NoSecondTorchAtTheSpacingDistance);
+        Each("place: a lamp-lit room with no bed, crossed by a player holding a torch, is offered nothing anywhere along his way",
+            ALampLitRoomCrossedWithATorchOffersNothing);
+        Each("place: a tile remembered dark is forgotten when the companion's own torch lights it, and is not offered a second",
+            ATorchPlacedBesideARememberedDarkTileForgetsIt);
         Each("search: a search the planning deadline cut says so rather than naming an unsettled stand",
             ACutSearchIsNamedAsCut);
         Each("search: a stand beyond a finished flood's known radius is named, set aside and not re-asked",
@@ -174,6 +182,11 @@ internal static class VerifyTorchPlacementRule
     /// modelled below the engine's own reading of it, so the whole room was kept as world light. The only dark air the
     /// field could see was outside the rock, where no stand exists, and the offer was a proven refusal while the player
     /// stood in the dark with his cursor offering a spot.</para>
+    ///
+    /// <para>The room is read dark once before his torch lights it, as it is in play, where the engine lights the screen
+    /// ahead of him before his own light reaches it. Under his torch the world's light cannot be read at all, so a room
+    /// the sense has never seen without his light is not known to be dark and is not lit; one it has seen dark stays dark
+    /// while he stands in it.</para>
     /// </summary>
     private static void ADarkRoomHisCursorCouldLightIsLit()
     {
@@ -181,6 +194,7 @@ internal static class VerifyTorchPlacementRule
         BuildSealedRoom();
         Item torch = GiveTorches(ctx, held: true);
         Settle(ctx);
+        ReadTheRoomBeforeHisLightArrives(ctx, new Vector3(.02f), placed: null);
         PresentEngineLight((_, _) => new Vector3(.02f), GameGlobalBrightness, placed: null,
             (ctx.Player.Center.ToTileCoordinates(), TorchColour()));
         ForceRefresh(ctx);
@@ -256,6 +270,144 @@ internal static class VerifyTorchPlacementRule
         float score = VerifyPreparedActivities.PrepareAndScore(action, ctx);
         Require(action.Eligibility != Offer.Usable && action.ActivityTarget is null && score == 0f,
             $"a room in daylight needs no torch however many he is carrying; score={score:0.000} offer={action.Eligibility}/{action.EligibilityReason} target={action.ActivityTarget}");
+    }
+
+    /// <summary>
+    /// The frame before his light arrives: the room presented with no carried light and a lighting search run over it, which
+    /// is what reads each candidate tile's own light and lets the sense remember the dark ones.
+    /// </summary>
+    internal static void ReadTheRoomBeforeHisLightArrives(ActionContext ctx, Vector3 world, (Point Tile, Vector3 Colour)[]? placed)
+    {
+        ForgetTransients();
+        PresentEngineLight((_, _) => world, GameGlobalBrightness, placed);
+        ForceRefresh(ctx);
+        VerifyPreparedActivities.PrepareAndScore(new LightUsefulArea(), ctx);
+    }
+
+    private static string OfferText(LightUsefulArea action, float score)
+        => $"score={score:0.000} offer={action.Eligibility}/{action.EligibilityReason} target={action.ActivityTarget}";
+
+    /// <summary>
+    /// The sentinel's rooms: the world's own light at 0.30, 0.45 and 0.70 — every one above the dark level at the game's
+    /// brightness — once with nothing in his hand and once with his torch lighting the room, both as a room he walked into
+    /// already holding it and as one read before he lit it. Counting carried light as darkness offered a torch in every held
+    /// case, because every tile his torch outshone was taken for a dark tile.
+    /// </summary>
+    private static void MiddleBandRoomsOfferNothing()
+    {
+        var offered = new List<string>();
+        foreach (float world in new[] { .30f, .45f, .70f })
+            foreach ((bool held, bool readFirst) in new[] { (false, false), (true, false), (true, true) })
+            {
+                var ctx = Scene();
+                BuildSealedRoom();
+                GiveTorches(ctx, held);
+                Settle(ctx);
+                if (readFirst) ReadTheRoomBeforeHisLightArrives(ctx, new Vector3(world), placed: null);
+                var carried = held ? new[] { (ctx.Player.Center.ToTileCoordinates(), TorchColour()) } : Array.Empty<(Point, Vector3)>();
+                PresentEngineLight((_, _) => new Vector3(world), GameGlobalBrightness, placed: null, carried);
+                ForceRefresh(ctx);
+                Point his = ctx.Player.Center.ToTileCoordinates();
+                Require(Lighting.Brightness(his.X, his.Y + 1) >= Weights.LightDarkBelow || held,
+                    $"premise: a room at world light {world} reads above the dark level; engine {Lighting.Brightness(his.X, his.Y + 1):0.000}");
+                var action = new LightUsefulArea();
+                float score = VerifyPreparedActivities.PrepareAndScore(action, ctx);
+                if (score > 0 || action.ActivityTarget is not null)
+                    offered.Add($"world {world} held={held} readFirst={readFirst}: {OfferText(action, score)}");
+                ForgetTransients();
+            }
+        Require(offered.Count == 0, $"a room the world already lights must not be offered a torch, whatever he holds; {string.Join("; ", offered)}");
+    }
+
+    /// <summary>
+    /// The room a standing torch lights, with the player holding a torch at the far wall beside the tile the game's spacing
+    /// allows a second torch on. The engine reads that tile at about 0.47 of the world's own light, well above the dark
+    /// level, and his torch outshines it: a rule that counts the light he carries as darkness offered the tile.
+    /// </summary>
+    private static void NoSecondTorchAtTheSpacingDistance()
+    {
+        var ctx = Scene();
+        BuildSealedRoom();
+        Item torch = GiveTorches(ctx, held: true);
+        Point standing = new((RoomLeft + RoomRight) / 2, RoomBottom);
+        VerifyOreWork.Place(standing, TileID.Torches);
+        Point spaced = new(RoomLeft, RoomBottom);
+        ctx.Player.position = new Vector2((RoomLeft + 1) * 16, (RoomBottom + 1) * 16 - ctx.Player.height);
+        Settle(ctx);
+        PresentEngineLight((_, _) => new Vector3(.02f), GameGlobalBrightness, placed: new[] { (standing, TorchColour()) });
+        float world = Lighting.Brightness(spaced.X, spaced.Y);
+        PresentEngineLight((_, _) => new Vector3(.02f), GameGlobalBrightness, placed: new[] { (standing, TorchColour()) },
+            (ctx.Player.Center.ToTileCoordinates(), TorchColour()));
+        ForceRefresh(ctx);
+        Require(RecommendTorchPlacement.Accepts(spaced, torch, ctx.Companion.StandIn.Player) && world >= Weights.LightDarkBelow
+            && Lighting.Brightness(spaced.X, spaced.Y) > world,
+            $"premise: the spaced tile is one the game allows, lit by the standing torch, and outshone by his; world {world:0.000}, with his torch {Lighting.Brightness(spaced.X, spaced.Y):0.000}");
+        var action = new LightUsefulArea();
+        float score = VerifyPreparedActivities.PrepareAndScore(action, ctx);
+        var reading = ctx.Companion.Brain.Senses.Light.ReadForPlacement(spaced, LightSense.Coverage.Current());
+        Require(score == 0f && action.ActivityTarget is null && !reading.IsDark,
+            $"a room a standing torch lights must get no second torch at the spacing distance while he holds one there; world {world:0.000}, reading {reading}, {OfferText(action, score)}");
+        Console.WriteLine($"        the spaced tile reads {world:0.000} by the standing torch alone and {reading.Light} beside his torch");
+    }
+
+    /// <summary>
+    /// A room a lamp lights, with no bed in it and so no home protection, crossed wall to wall by a player holding a torch.
+    /// The sense sees the room lit before he enters, and at every step his torch stands over part of it; none of it is
+    /// ever a torch site. Counting carried light as darkness offered a torch at each step along the way.
+    /// </summary>
+    private static void ALampLitRoomCrossedWithATorchOffersNothing()
+    {
+        var ctx = Scene();
+        BuildSealedRoom();
+        GiveTorches(ctx, held: true);
+        Settle(ctx);
+        var lamp = new[] { (new Point((RoomLeft + RoomRight) / 2, RoomTop + 1), new Vector3(1f, .95f, .8f)) };
+        ReadTheRoomBeforeHisLightArrives(ctx, new Vector3(.02f), lamp);
+        var offered = new List<string>();
+        for (int x = RoomLeft + 1; x <= RoomRight - 1; x += 4)
+        {
+            ctx.Player.position = new Vector2(x * 16, (RoomBottom + 1) * 16 - ctx.Player.height);
+            PresentEngineLight((_, _) => new Vector3(.02f), GameGlobalBrightness, lamp, (ctx.Player.Center.ToTileCoordinates(), TorchColour()));
+            ForceRefresh(ctx);
+            var action = new LightUsefulArea();
+            float score = VerifyPreparedActivities.PrepareAndScore(action, ctx);
+            if (score > 0 || action.ActivityTarget is not null) offered.Add($"player at x={x}: {OfferText(action, score)}");
+            ForgetTransients();
+        }
+        Require(offered.Count == 0, $"a lamp-lit room he walks through holding a torch must never be offered one; {string.Join("; ", offered)}");
+    }
+
+    /// <summary>
+    /// The memory's one way of being wrong, closed. The room is read dark, so its tiles are remembered dark; then the
+    /// companion's own torch goes in at the middle of the floor, which lights the far tile the game's spacing still allows
+    /// to about 0.47, while the player's torch stands over that tile so its light cannot be read. A memory kept past the
+    /// placement would call that tile dark and offer the second torch; the placement is an edit within a light's reach of
+    /// the tile, so the tile is forgotten and unknown instead. The placement goes through the companion's own placer,
+    /// because the game's placement runs no tile hook and the placer is what announces the edit.
+    /// </summary>
+    private static void ATorchPlacedBesideARememberedDarkTileForgetsIt()
+    {
+        var ctx = Scene();
+        BuildSealedRoom();
+        GiveTorches(ctx, held: true);
+        Point standing = new((RoomLeft + RoomRight) / 2, RoomBottom);
+        Point spaced = new(RoomLeft, RoomBottom);
+        ctx.Player.position = new Vector2((RoomLeft + 1) * 16, (RoomBottom + 1) * 16 - ctx.Player.height);
+        Settle(ctx);
+        var light = ctx.Companion.Brain.Senses.Light;
+        ReadTheRoomBeforeHisLightArrives(ctx, new Vector3(.02f), placed: null);
+        Require(light.ReadForPlacement(spaced, LightSense.Coverage.Current()).IsDark && light.RememberedDarkTiles > 0,
+            $"premise: the dark room's far tile is read and remembered dark; remembered {light.RememberedDarkTiles}");
+        Require(live::AICompanion.Companion.Brain.Infrastructure.Interactions.Torch.PlaceTorches.Place(standing, ctx.Companion.Bag.Items, ctx.Player, out _),
+            "premise: the companion's placer puts its torch in the middle of the floor");
+        PresentEngineLight((_, _) => new Vector3(.02f), GameGlobalBrightness, placed: new[] { (standing, TorchColour()) },
+            (ctx.Player.Center.ToTileCoordinates(), TorchColour()));
+        ForceRefresh(ctx);
+        var reading = light.ReadForPlacement(spaced, LightSense.Coverage.Current());
+        var action = new LightUsefulArea();
+        float score = VerifyPreparedActivities.PrepareAndScore(action, ctx);
+        Require(!reading.IsDark && score == 0f && action.ActivityTarget is null,
+            $"a tile the companion's own torch now lights must not stay remembered dark under his torch; reading {reading}, {OfferText(action, score)}");
     }
 
     // ---- every exit of the shared search is named for what it is ---------------------------------------------

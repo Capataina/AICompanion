@@ -115,6 +115,7 @@ public sealed class LightSense
             }
         MeasuredSamples = samples.Count;
         ReadTick = Main.GameUpdateCount;
+        ForgetDarkFarFrom(c);
     }
 
     /// <summary>
@@ -287,42 +288,105 @@ public sealed class LightSense
         Unread,
         /// <summary>The world's own light there is at or above the dark level.</summary>
         Lit,
-        /// <summary>The world's own light there is below the dark level.</summary>
+        /// <summary>The world's own light there is known to be below the dark level: read so now, or read so earlier and
+        /// nothing since has been able to say otherwise (<see cref="PlacementReading.Remembered"/>).</summary>
         Dark,
         /// <summary>
-        /// A light somebody is carrying accounts for the reading, so the world's own light there is at most that. To the
-        /// hold question such a tile is unknown, because the world's light lies anywhere between nothing and the carried
-        /// light and guessing either end lets the torch decide itself; to this question it is dark, because the bound runs
-        /// the useful way and the light is about to walk off with its carrier. Reading it as lit here is a deadlock rather
-        /// than caution: a companion holding a torch would never see that the place it lights needs a permanent one. The
-        /// error this can make is a torch where the world already lit the tile to just under the carried level.
+        /// A light somebody is carrying accounts for the reading, so the world's own light there is at most that and could
+        /// be anything below it. To placing, as to holding, such a tile is unknown and is not a target: the world's light
+        /// under a carried light was twice guessed at, and each guess was a defect. Reading it as lit made a dark room beside
+        /// a player holding a torch read lit, so nothing was placed; reading it as dark made every lit room he walked through
+        /// holding a torch take torches, and a room a standing torch already lit take a second one at the game's spacing.
+        /// What escapes the deadlock the first guess fell into is memory rather than a guess: a tile read dark before the
+        /// light arrived stays <see cref="Dark"/> while the light stands over it.
         /// </summary>
         Carried,
     }
 
-    /// <summary>One tile's placement reading and the brightness it read, clamped to 0..1.</summary>
-    public readonly record struct PlacementReading(PlacementLight Light, float Brightness)
+    /// <summary>One tile's placement reading and the brightness it read, clamped to 0..1. <paramref name="Remembered"/> means
+    /// a carried light stands over the tile now and the darkness is the tile's own earlier exact reading.</summary>
+    public readonly record struct PlacementReading(PlacementLight Light, float Brightness, bool Remembered = false)
     {
-        public bool IsDark => Light is PlacementLight.Dark or PlacementLight.Carried;
+        public bool IsDark => Light == PlacementLight.Dark;
     }
 
+    // Tiles whose world light was last read exactly and below the dark level, with that reading, against the terrain edit
+    // revision the memory is current to. A carried light only bounds the world light from above, so it can never contradict
+    // an earlier dark reading; what can is new world light — a torch, a lamp, anything placed — and every such placement is
+    // a tile edit, so an edit within a light's reach of a remembered tile forgets it. A record too old to answer forgets
+    // everything, because an unanswered question about the world is not the answer "unchanged".
+    private readonly Dictionary<Point, float> knownDark = new();
+    private int knownDarkRevision;
+    private readonly List<Point> editsSince = new();
+
     /// <summary>
-    /// Whether one tile wants a torch by its own light: the engine's reading at that tile, with light somebody is carrying
-    /// counted as darkness, below the dark level, and unread where the engine computed nothing. This is the placement
-    /// question the lighting search asks of every tile the player's own smart cursor could place on, and it is a point
-    /// rather than a neighbourhood deliberately: a neighbourhood mean refused a dark tile three tiles of rock away from a
-    /// lit room, because the mean counts the room's air, while the engine's own light there — which already carries
-    /// whatever reaches through the rock — is below the level at which a person would reach for a torch.
-    /// <paramref name="coverage"/> is taken once by a caller asking about many tiles, because reading it is reflection.
+    /// Whether one tile wants a torch by its own light: the engine's reading at that tile below the dark level, unread where
+    /// the engine computed nothing, and unknown where a light somebody is carrying accounts for the reading and the tile was
+    /// never read dark before it arrived. This is the placement question the lighting search asks of every tile the player's
+    /// own smart cursor could place on, and it is a point rather than a neighbourhood deliberately: a neighbourhood mean
+    /// refused a dark tile three tiles of rock away from a lit room, because the mean counts the room's air, while the
+    /// engine's own light there — which already carries whatever reaches through the rock — is below the level at which a
+    /// person would reach for a torch. Every exact reading is remembered or forgotten as it is taken, so this is a read of
+    /// the world that also keeps the sense's memory of it current. <paramref name="coverage"/> is taken once by a caller
+    /// asking about many tiles, because reading it is reflection.
     /// </summary>
     public PlacementReading ReadForPlacement(Point tile, in Coverage coverage)
     {
         if (!IsOpenAir(tile.X, tile.Y) || !coverage.Contains(tile.X, tile.Y)) return new(PlacementLight.Unread, 0f);
+        ForgetDarkTheWorldHasEdited();
         float engine = EngineBrightness(tile.X, tile.Y);
         float lit = Math.Clamp(engine, 0f, 1f);
-        if (TransientLights.Count > 0 && Occluded(engine, tile.X, tile.Y)) return new(PlacementLight.Carried, lit);
-        return new(lit < Weights.LightDarkBelow ? PlacementLight.Dark : PlacementLight.Lit, lit);
+        if (TransientLights.Count > 0 && Occluded(engine, tile.X, tile.Y))
+            return knownDark.TryGetValue(tile, out float remembered)
+                ? new(PlacementLight.Dark, remembered, Remembered: true)
+                : new(PlacementLight.Carried, lit);
+        if (lit < Weights.LightDarkBelow)
+        {
+            knownDark[tile] = lit;
+            return new(PlacementLight.Dark, lit);
+        }
+        knownDark.Remove(tile);
+        return new(PlacementLight.Lit, lit);
     }
+
+    /// <summary>How many tiles the sense remembers as dark, for a fixture proving what an edit forgot.</summary>
+    public int RememberedDarkTiles => knownDark.Count;
+
+    private void ForgetDarkTheWorldHasEdited()
+    {
+        var edits = Movement.TerrainChanges.Edits;
+        if (knownDarkRevision == edits.Revision) return;
+        if (knownDark.Count == 0) { knownDarkRevision = edits.Revision; return; }
+        editsSince.Clear();
+        var verdict = edits.ChangedSince(knownDarkRevision, (x, y) => { editsSince.Add(new Point(x, y)); return false; });
+        knownDarkRevision = edits.Revision;
+        if (verdict != Movement.TerrainEditVerdict.Unchanged) { knownDark.Clear(); return; }
+        int reach = TransientLights.MaxReachTiles;
+        foreach (Point edit in editsSince)
+            ForgetDarkWhere(p => Math.Abs(p.X - edit.X) <= reach && Math.Abs(p.Y - edit.Y) <= reach);
+    }
+
+    private readonly List<Point> forgetting = new();
+
+    private void ForgetDarkWhere(Func<Point, bool> gone)
+    {
+        forgetting.Clear();
+        foreach (Point p in knownDark.Keys) if (gone(p)) forgetting.Add(p);
+        foreach (Point p in forgetting) knownDark.Remove(p);
+    }
+
+    /// <summary>Forgets remembered darkness farther from <paramref name="centre"/> than any search asks about, so the memory
+    /// holds the places the companion is working and not every place it has ever been.</summary>
+    private void ForgetDarkFarFrom(Point centre)
+    {
+        if (knownDark.Count < RememberedDarkPruneAt) return;
+        int keep = Weights.LightRegionSearchTiles + Math.Max(Main.screenWidth / 16, Weights.LightWindowMinimumHalfWidthTiles * 2);
+        ForgetDarkWhere(p => Math.Abs(p.X - centre.X) > keep || Math.Abs(p.Y - centre.Y) > keep);
+    }
+
+    /// <summary>The size at which the memory is pruned: far above what one work area's candidate tiles hold, so pruning is
+    /// the rare case of a companion that has worked across a large part of the world, not a per-refresh cost.</summary>
+    private const int RememberedDarkPruneAt = 8192;
 
     private static float RawBrightness(int x, int y) => MathHelper.Clamp(EngineBrightness(x, y), 0f, 1f);
 
