@@ -74,6 +74,11 @@ public static class EstimateEnemyReach
         return false;
     }
 
+    /// <summary>The standable tile a walking body released at <paramref name="tile"/> comes to rest in, which for
+    /// a hovering orb is the floor cell under it: the threat sense asks walkers about that cell because it holds
+    /// still under a drifting body where the cell the body hovers in does not.</summary>
+    public static Point Landing(ITileWorld world, Point tile) => Land(world, tile);
+
     /// <summary>Where a body released at a tile comes to rest: the first standable tile down its column, within a bound.</summary>
     private static Point Land(ITileWorld world, Point tile)
     {

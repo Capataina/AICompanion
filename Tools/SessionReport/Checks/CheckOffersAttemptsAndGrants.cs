@@ -332,9 +332,13 @@ public sealed class CompletedTransferClaimsWereReceived : ICheck, ICheckCoverage
 ///                        after BeginExecution opened an attempt, so it never carries a suspending
 ///                        owner and never carries attempt zero
 ///   Unavailable hand     only the downed branch issues it, and the downed branch issues nothing else
-///   suspending owners    survival-escape, combat-reflex and combat-spacing (ChooseSafetyResponse),
-///                        follow-recovery-flight and downed (CoordinateBrainTick) all suspend the
-///                        activity before finalising, so they carry attempt zero
+///   suspending owners    survival-escape (ChooseSafetyResponse), follow-recovery-flight and downed
+///                        (CoordinateBrainTick) all suspend the activity before finalising, so they
+///                        carry attempt zero. combat-reflex and combat-spacing suspended it too until
+///                        the orb's safety became a layer on the job on 15 September 2026; they stay in
+///                        the set so a capture recorded before then is still judged by its own rules
+///   evade                an ordinary owner: the job's own controls bent away from a predicted hit
+///                        (CoordinateBrainTick after navigation), so it keeps the job's attempt and hand
 ///   attempt phase        an attempt is open only while the owner's phase is Executing
 ///   one per tick         one NPC update finalises controls once — CompanionNPC.AI takes the downed
 ///                        branch or the brain branch, never both; Terraria's UpdateNPC_Inner calls AI
@@ -346,7 +350,7 @@ public sealed class CompletedTransferClaimsWereReceived : ICheck, ICheckCoverage
 /// </summary>
 public sealed class ControlGrantsAreCompatible : ICheck, ICheckCoverage
 {
-    internal static readonly HashSet<string> OrdinaryOwners = new(StringComparer.Ordinal) { "travel", "seeking-destination", "hold" };
+    internal static readonly HashSet<string> OrdinaryOwners = new(StringComparer.Ordinal) { "travel", "seeking-destination", "hold", "evade" };
     internal static readonly HashSet<string> SuspendingOwners = new(StringComparer.Ordinal) { "survival-escape", "combat-reflex", "combat-spacing", "follow-recovery-flight", "downed" };
 
     public string Name => "could the producer have issued every control grant as recorded";

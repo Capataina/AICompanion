@@ -72,11 +72,9 @@ internal static class VerifyCorridorMiddle
             int ticks = 0;
             while (Vector2.Distance(centre, route.Goal) > Navigator.ArriveDistance && ticks < 2000)
             {
-                Controls controls = SteerAlongRoute.Steer(new OrbState(centre, velocity), route, OrbPace.MaxSpeed, OrbPace.Acceleration, out _);
-                Vector2 change = controls.Desired - velocity;
-                float length = change.Length();
-                if (length > OrbPace.Acceleration) change *= OrbPace.Acceleration / length;
-                velocity += change;
+                Controls controls = SteerAlongRoute.Steer(new OrbState(centre, velocity), route, OrbPace.MaxSpeed, OrbPace.SpeedChange, out _);
+                // The motor's own law, from the one place it is written.
+                velocity = OrbPace.Step(velocity, controls.Desired, controls.Burst);
                 centre += velocity;
                 CircleContact.Resolve(corridor, ref centre, ref velocity);
                 minClearance = MathF.Min(minClearance, CircleContact.Clearance(corridor, centre));

@@ -16,20 +16,46 @@ public static class Weights
     public const double EscapeSearchMilliseconds = 2d;
     public const int EscapeSearchWork = 120;
     // The orb's pace is the player's, read live, times these: the cap is twice his maximum run
-    // speed after accessories (the owner's ruling, so a companion at the cap overtakes a running
-    // player), and the acceleration a multiple of his run acceleration chosen so the body reaches
-    // the cap in a fifth of a second and still reads as a thrown thing rather than a snap. The
-    // acceleration is also the turn authority, because momentum steering changes velocity by at
-    // most this much a tick whichever way: at three times the run acceleration a body at the cap
-    // turned with a radius of nine tiles and sailed past a corridor's last bend into the wall
-    // (Tools/NavReplay --self-test, corridor middle); at six the radius is half that and the bend
-    // slowdown brings it inside the two-tile gaps the body is meant to fit. The fallbacks are for a
-    // player whose numbers are not finite, which a fixture can produce, and mirror a plain
-    // player's run acceleration of 0.08 times the multiple.
+    // speed after accessories (the owner's ruling, so a speed accessory carries over and a
+    // companion at the cap overtakes a running player). The velocity law in Movement/Steering/
+    // OrbPace has two accelerations, each a multiple of his run acceleration. The turn authority
+    // bends the velocity: at three times the run acceleration a body at the cap turned with a
+    // radius of nine tiles and sailed past a corridor's last bend into the wall (Tools/NavReplay
+    // --self-test, corridor middle); at six the radius is half that and the bend slowdown brings
+    // it inside the two-tile gaps the body is meant to fit. The speed change eases the body into
+    // and out of a move, and is two times the run acceleration so the body takes a little over half
+    // a second from rest to the cap, where the single shared acceleration it replaced took a fifth
+    // and read as a snap (the owner's ruling of 15 September 2026: slower acceleration, smoother
+    // slowdown, visible momentum, unchanged top speed). The fallbacks are for a player whose
+    // numbers are not finite, which a fixture can produce, and mirror a plain player's run
+    // acceleration of 0.08 times each multiple.
     public const float OrbSpeedPerRunSpeed = 2f;
-    public const float OrbAccelerationPerRunAcceleration = 6f;
+    public const float OrbTurnPerRunAcceleration = 6f;
+    public const float OrbSpeedChangePerRunAcceleration = 2f;
     public const float OrbFallbackSpeed = 6f;
-    public const float OrbFallbackAcceleration = 0.48f;
+    public const float OrbFallbackTurn = 0.48f;
+    public const float OrbFallbackSpeedChange = 0.16f;
+    // Arriving glides: the speed asked for near a goal is what lets the body slow at this share of
+    // its easing rate, so the motor is never asked for its whole easing rate and the slowdown reads
+    // as a glide rather than a stop at the last moment.
+    public const float OrbArrivalEasingShare = 0.6f;
+    // The drift around a held or reached spot (Movement/Steering/HoverAroundSpot). The radius is
+    // about a tile, the owner's default; the flattening keeps the drift wider than it is tall so
+    // it reads as floating beside a place rather than bobbing on a spring. The hover speed sits
+    // under SettledSpeedPx on purpose, so a hovering body still reads as at rest and arriving
+    // somewhere is still arriving. The turn-rate floor keeps the target moving, so the body is
+    // never exactly still: at the floor and the radius the target moves about half a pixel a tick
+    // even at the flat of the ellipse, which clears the session reader's still threshold with room
+    // for the body's lag behind it. The jitter is the wander's random walk per tick, and the reverse
+    // chance flips the direction of circling now and then.
+    public const float HoverRadiusPixels = 16f;
+    public const float HoverVerticalShare = 0.6f;
+    public const float HoverSpeedPx = 1.2f;
+    public const float HoverGain = 0.08f;
+    public const float HoverTurnRateMinimum = 0.05f;
+    public const float HoverTurnRateMaximum = 0.08f;
+    public const float HoverTurnJitter = 0.004f;
+    public const double HoverReverseChance = 0.004;
     // The route search prices an edge at its length times one plus this over the clearance at its
     // far corner, in tiles, so a corridor's middle is cheaper than its walls without a wall ever
     // being refused: at one, a corner touching a wall costs twice its length and one three tiles
@@ -61,9 +87,15 @@ public static class Weights
     // How far a goal may drift before its route is thrown away and planned afresh: a following
     // anchor moves every tick, and a route re-aimed at a nearby goal is the same route.
     public const float ReplanGoalPixels = 24f;
-    // The steering aims at a point this far ahead of the body's projection on its route. Longer
-    // cuts corners more and settles faster on straights; shorter tracks a winding route tighter.
-    public const float OrbLookaheadPixels = 40f;
+    // The steering aims at a point ahead of the body's projection on its route, as far as the body
+    // travels in this many ticks at its current speed, within a floor and a ceiling. Longer cuts
+    // corners more and settles faster on straights; shorter tracks a winding route tighter. Scaled
+    // by speed so a fast body leans into a bend early and a slow one hugs a winding route, where
+    // the fixed distance it replaced looked seven ticks ahead at the cap and a whole route ahead
+    // when hovering.
+    public const float OrbLookaheadTicks = 8f;
+    public const float OrbLookaheadMinimumPixels = 24f;
+    public const float OrbLookaheadMaximumPixels = 64f;
     // Into a bend the speed cap falls by this share of the turn's fraction of a half-turn, never
     // below the minimum share of the cap, so a hairpin is taken slowly and a gentle curve barely
     // slows the body at all.
@@ -322,18 +354,19 @@ public static class Weights
     /// <summary>Hunt: how far beyond the screen a target is still worth chasing.</summary>
     public const float HuntReach = 1100f;
 
-    /// <summary>Combat-space only starts when a predicted hit overlaps or a proven reach arrives inside this many ticks. Proximity inside ten tiles is not enough.</summary>
-    public const float CombatSpaceConnectTicks = 120f;
-
-    /// <summary>Residual geometric enemy exposure accepted at a stable retreat landing.</summary>
-    public const float CombatSpaceExposure = .1f;
-    /// <summary>Converts geometric exposure into distance-like body-search guidance.</summary>
-    public const float CombatSpaceHeuristicPixels = 320f;
-    /// <summary>A completed unsuccessful spacing search yields ordinary work before retrying.</summary>
-    public const uint CombatSpaceRetryTicks = 30;
-
-    /// <summary>Reflex: a threat whose predicted hitbox meets the companion inside this many ticks triggers a dodge.</summary>
+    /// <summary>How far ahead a predicted hit is looked for: the reflex names an imminent collision inside this many ticks, and
+    /// the evade step runs every candidate heading forward this far through the body's own law and contact.</summary>
     public const int DodgeLookaheadTicks = 20;
+
+    /// <summary>How many evenly spaced headings the evade step scores besides the job's own heading and a stop. Sixteen is
+    /// fine enough that the chosen heading is never more than eleven degrees from the ideal one, which the motor's easing then
+    /// smooths into a curve, and each heading is a twenty-tick simulation, so the count is the evade's whole cost.</summary>
+    public const int EvadeHeadings = 16;
+
+    /// <summary>How much more danger than the least dangerous heading a heading may carry and still be chosen for agreeing with
+    /// the job, as a share of the horizon. Zero would pick by danger alone and break every tie by angle; a little slack lets the
+    /// heading that keeps doing the job win among ones that are clear for nearly as long.</summary>
+    public const float EvadeDangerTolerance = 0.1f;
 
     /// <summary>
     /// Positioner: how many feet tiles the flood from the companion's feet may visit when it asks
@@ -404,16 +437,6 @@ public static class Weights
     /// </summary>
     public const int NearbyWorkNoReturnRetryTicks = 600;
 
-    /// <summary>Keeping company: the nearest a stroll goal may be to the feet, in tiles, so a stroll is a walk rather than a shuffle on the spot.</summary>
-    public const int StrollMinimumTiles = 3;
-
-    /// <summary>Keeping company: how many rows above or below the player's feet a stroll goal may sit, so strolls stay on the floor
-    /// the player is on or a step away from it rather than wandering to another level.</summary>
-    public const int StrollRowsFromPlayer = 4;
-
-    /// <summary>Keeping company: the most predicted enemy exposure a stroll goal may carry, on PredictedExposureAt's scale, where a
-    /// forecast hit is 1 and mere proximity peaks at .6. A stroll exists to be company, never to stand where something is about to arrive.</summary>
-    public const float StrollExposureLimit = .3f;
 
     /// <summary>Incidental interactions: how often the grant boundary scans the tiles in reach for a permitted pot or dark torch site. Each
     /// scan runs every tile in reach through the methods' candidate rules, lighting's among them a light measurement and the native torch

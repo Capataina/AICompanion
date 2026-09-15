@@ -6,19 +6,33 @@ using AICompanion.Companion.Brain.Infrastructure.Movement;
 
 namespace AICompanion.Companion.Brain.SharedBehaviours.Safety;
 
-/// <summary>Retains a physical safety response independently of the ordinary activity offers.
-/// Environmental escape and collision avoidance share the same movement and grant boundary.</summary>
+/// <summary>
+/// The one safety response that still takes the body: leaving water or lava. Everything else that keeps
+/// the orb out of harm rides on the job instead of replacing it — a predicted hit bends the job's own
+/// motion in <see cref="EvadeWhileMoving"/> — because the owner ruled on 15 September 2026 that safety is
+/// applied on top of whatever the companion is doing and is never a job of its own. Leaving a liquid is the
+/// exception for a reason that is not a preference: a body in water or lava is hurt every interval it
+/// stays, and no job's spot is worth that, so escape suspends the activity and owns the feet until the body
+/// is dry.
+///
+/// <para>Collision avoidance and combat spacing were responses here until then, and both suspended the
+/// activity. Spacing searched for a low-exposure cell and, in the first play of the orb, held the body still
+/// beside zombies for thirteen seconds while the player walked away, because its route to a spot was
+/// dropped only when terrain changed under it and never when the spot stopped being safe. The property that
+/// failed was the ownership itself — a response that owns the body makes the job wait on the response's own
+/// ending — so both went rather than being patched, and a design that brings back a safety response for
+/// enemies answers why the job has to stop for it.</para>
+/// </summary>
 public sealed class ChooseSafetyResponse
 {
     public readonly ReachEnvironmentalSafety Escape = new();
-    public readonly CreateCombatSpace CombatSpace = new();
     public long Id { get; private set; }
     public bool Active { get; private set; }
     public string Kind { get; private set; } = "none";
     public string Reason { get; private set; } = "inactive";
     public string LastEndReason { get; private set; } = "none";
 
-    public bool TryChoose(in ActionContext ctx, bool imminentCollision, out ActivityControlRequest request)
+    public bool TryChoose(in ActionContext ctx, out ActivityControlRequest request)
     {
         request = default;
         Escape.Refresh(ctx);
@@ -32,33 +46,6 @@ public sealed class ChooseSafetyResponse
             // erase the very search that needs another time slice.
             request = new ActivityControlRequest(controls, "survival-escape", ObserveProgress: true);
             return true;
-        }
-        // An orb has no landing to wait for: the response lasts exactly as long as a collision is predicted.
-        if (imminentCollision)
-        {
-            Begin(ctx, "collision-avoidance");
-            ctx.Companion.Brain.Chooser.Activity.Suspend(ctx, "combat-reflex");
-            Reason = "predicted-collision";
-            var movement = ctx.Companion.Brain.Movement;
-            Controls controls = movement.AvoidThreats(ctx.Companion.Motor.State,
-                movement.Navigator.UnsafeAtTick ?? ((_, _) => false), ctx.Senses.PlayerEntity.Center);
-            request = new ActivityControlRequest(controls, "combat-reflex");
-            return true;
-        }
-        bool retainSpacing = Active && Kind == "combat-spacing" && !CombatSpace.IsSatisfied(ctx);
-        if (retainSpacing || CombatSpace.NeedsResponse(ctx))
-        {
-            Begin(ctx, "combat-spacing");
-            bool chosen = CombatSpace.TryMove(ctx, out Controls controls);
-            if (chosen || CombatSpace.Pending)
-            {
-                ctx.Companion.Brain.Chooser.Activity.Suspend(ctx, Kind);
-                Reason = chosen ? "reducing-enemy-exposure" : "search-pending";
-                request = new ActivityControlRequest(controls, Kind, ObserveProgress: true);
-                return true;
-            }
-            Cancel(ctx, "combat-spacing-no-safe-prefix");
-            return false;
         }
         if (Active) Cancel(ctx, "safe-state-observed");
         return false;

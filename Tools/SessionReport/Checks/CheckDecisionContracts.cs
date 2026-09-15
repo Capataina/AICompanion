@@ -66,8 +66,11 @@ public sealed class ClaimedArrivalsStayInsideTheirSuccessRegion : ICheck
 {
     /// <summary>Navigator.ArriveDistance; ChronicleTests pins it against the producer.</summary>
     internal const float ArriveDistance = 12f;
-    // On arrival the navigator issues no controls, so a sample that is not held settles on the next tick; half a
-    // second of claimed arrival is a body the navigator has stopped steering, not a landing in progress.
+    /// <summary>Navigator.SettleRadius: the arrival radius plus the hover's radius and a four-pixel margin. An arrived body
+    /// drifts inside it, and follow acceptance reserves it rather than the arrival radius; ChronicleTests pins it.</summary>
+    internal const float SettleRadius = ArriveDistance + 16f + 4f;
+    // On arrival the navigator hovers around the goal inside the settle radius, so a sample that is not held is momentum
+    // still being shed; half a second of claimed arrival is a body hovering where it was sent, not a landing in progress.
     private const int SettledSamples = 30;
     // Centres, anchors and player positions are written to two decimals; half a pixel covers that and nothing a tile
     // decision could turn on.
@@ -105,13 +108,13 @@ public sealed class ClaimedArrivalsStayInsideTheirSuccessRegion : ICheck
         foreach (var span in FindStretches.Where(s.Count, OutsideFollow, 1))
         {
             Pair("region_comfort", span.Start, out float cx, out float cy);
-            bool reserved = Math.Min(cx, cy) >= ArriveDistance;
+            bool reserved = Math.Min(cx, cy) >= SettleRadius;
             yield return new Finding(reserved ? Severity.Definitive : Severity.Potential, Name,
                 "claimed purpose arrival outside its declared success region: following stopped outside the region its destination was admitted against",
                 $"{Span(span)}. Body centre {s["npc_px"].Text[span.Start]}; admitted against region centre {s["region_player_px"].Text[span.Start]} "
                 + $"with comfort {s["region_comfort"].Text[span.Start]}, anchor {s["region_anchor_px"].Text[span.Start]}; destination tile {s["spot"].Text[span.Start]}. "
-                + (reserved ? "Acceptance reserves the navigator's arrival radius inside the region on both axes, so an arrival outside it names a destination that was never admitted, or an arrival the navigator should not have claimed."
-                    : "The comfort is below the navigator's arrival radius, so acceptance could not reserve it and an arrival just outside is possible without a defect.")
+                + (reserved ? "Acceptance reserves the navigator's settle radius, the arrival radius plus the hover's drift, inside the region on both axes, so an arrival outside it names a destination that was never admitted, or an arrival the navigator should not have claimed."
+                    : "The comfort is below the navigator's settle radius, so acceptance could not reserve it and a hovering arrival just outside is possible without a defect.")
                 + " Whether the player has since moved is a separate question, which the follow-objective check answers.", s.Tick(span.Start), s.Tick(span.End), span.Length);
         }
 
@@ -138,7 +141,7 @@ public sealed class ClaimedArrivalsStayInsideTheirSuccessRegion : ICheck
                 "claimed purpose arrival outside its declared success region: the navigator stopped outside the tool's reach box",
                 $"{Span(span)}. Body centre {s["npc_px"].Text[span.Start]}, {bx - sx:0.0},{by - sy:0.0} from the stand {s["region_anchor_px"].Text[span.Start]}, "
                 + $"working tile {s["region_work_tile"].Text[span.Start]}, destination tile {s["spot"].Text[span.Start]}. The first contract that failed is a usable working position: the navigator accepts any pose "
-                + $"within {ArriveDistance:0} pixels of its destination and issues no controls there, while a searched stand is verified only at itself and eight pixels to each side, a stand kept because the body already reached is verified at one pixel, "
+                + $"within {ArriveDistance:0} pixels of its destination and then hovers within {SettleRadius:0} pixels of it, while a searched stand is verified only at itself and eight pixels to each side, a stand kept because the body already reached is verified at one pixel, "
                 + "and the destination is the free cell nearest the stand rather than the stand itself.", s.Tick(span.Start), s.Tick(span.End), span.Length);
         }
 

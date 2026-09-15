@@ -24,13 +24,9 @@ public sealed class KeepCompany : CompanionAction
 
     private float preparedValue;
     private bool reunite;
-    private bool walking;
-    private int ticksLeft = 1;
-    private Vector2 goal;
 
     public override void Enter(in ActionContext ctx)
     {
-        ResetLocalMovement();
         // A freshly entered activity has no method in flight to protect, so its first preparation
         // adopts whatever the geometry asks for rather than holding the last run's method for a
         // rescore first.
@@ -66,10 +62,11 @@ public sealed class KeepCompany : CompanionAction
     /// request kind, and a change of request kind cancels whatever the body is doing — at tick 8128
     /// of the 2026-09-14 capture the flip from reunion to local turned a WithPlayer into a Hold, and
     /// the Hold reached the navigator one tick after take-off and cut the jump. So a regime that
-    /// wants the other method has to hold for a rescore, and it has to be asked for from the ground:
-    /// a body in the air is passing through, and nothing it is passing through is a reason to change
-    /// what it is doing. Entering the new method costs that wait; there is no wait on the wanted
-    /// regime going back to the one in force, because then nothing changes.
+    /// wants the other method has to hold for a rescore. The walker also refused the change while
+    /// its body was in the air; the orb is always in the air and drifts even when holding, so that
+    /// test went on 15 September 2026 — kept, it would have frozen the method for as long as the
+    /// body hovered. Entering the new method costs the wait; there is no wait on the wanted regime
+    /// going back to the one in force, because then nothing changes.
     /// </summary>
     private bool ChooseMethod(in ActionContext ctx, bool wantsReunion)
     {
@@ -88,8 +85,6 @@ public sealed class KeepCompany : CompanionAction
         if (ctx.Senses.Player.Interference is Rectangle asked
             && PlayerSense.BodyTiles(ctx.Npc.Bottom, ctx.Npc.width, ctx.Npc.height).Intersects(asked))
         { pendingTicks = 0; return reunite = wantsReunion; }
-        // The motor's own grounded test, on the same body: velocity.Y exactly zero.
-        if (ctx.Npc.velocity.Y != 0f) { pendingTicks = 0; return reunite; }
         if (++pendingTicks < Weights.PositionRescoreTicks) return reunite;
         pendingTicks = 0;
         return reunite = wantsReunion;
@@ -162,7 +157,6 @@ public sealed class KeepCompany : CompanionAction
         if (p.IsDead) return PositionRequest.Hold;
         if (reunite)
         {
-            ResetLocalMovement();
             // Reunion aims at a place on the player's apparent journey that the companion's own
             // routes reach, not at a point extrapolated from velocity; a paused or working player
             // is met where they stand.
@@ -180,99 +174,16 @@ public sealed class KeepCompany : CompanionAction
         }
         ctx.Companion.Brain.Meeting.Release();
         if (ctx.Stranded) return new PositionRequest(RequestKind.Roam, ctx.Npc.Bottom);
-        // Courtesy. Resting on, or strolling onto, the tiles the player is building on or walking down hands the choice of spot
-        // to ordinary follow selection near the player, which prices spots overlapping that footprint down. Only company yields:
-        // work, protection and safety keep their spot, which is what pricing courtesy against them means, and a rest that
-        // overlaps nothing is left exactly as it was.
+        // Courtesy. A body over the tiles the player is building on or walking down hands the choice of spot to ordinary follow
+        // selection near the player, which prices spots overlapping that footprint down. Only company yields: work and protection
+        // keep their spot, which is what pricing courtesy against them means, and a body that overlaps nothing is left where it is.
         if (p.Interference is Rectangle footprint
-            && (PlayerSense.BodyTiles(ctx.Npc.Bottom, ctx.Npc.width, ctx.Npc.height).Intersects(footprint)
-                || walking && PlayerSense.BodyTiles(goal, ctx.Npc.width, ctx.Npc.height).Intersects(footprint)))
+            && PlayerSense.BodyTiles(ctx.Npc.Bottom, ctx.Npc.width, ctx.Npc.height).Intersects(footprint))
             return new PositionRequest(RequestKind.WithPlayer, p.Bottom);
-        // A held goal stays the goal until its time is up, unless it stops being a place worth standing: the player moved away
-        // from it, or it became unsafe (an enemy's path now crosses it, the terrain changed under it). Re-rolling every tick is
-        // what continuity rules out; keeping a goal that has turned dangerous is what this check rules out.
-        if (walking && (!ctx.Senses.Intent.Region.Contains(goal) || !SafeStrollGoal(ctx, MovementQueries.Tile(goal))))
-            ResetLocalMovement();
-        if (--ticksLeft <= 0) PickLocalMovement(ctx);
-        return walking ? PositionRequest.ExactAt(goal) : PositionRequest.Hold;
-    }
-
-    private void ResetLocalMovement()
-    {
-        walking = false;
-        ticksLeft = 1;
-    }
-
-    /// <summary>
-    /// Rest, or stroll to a goal chosen for being somewhere safe to be. The earlier method walked to the player's feet shifted
-    /// sideways by a random offset, at the player's own height, so the goal could sit over a lava pool, at the bottom of a
-    /// flooded pit or beyond a drop the body cannot climb back from, and it hopped in place at random to look busy. Resting is a
-    /// real choice here, not a failure to find a goal, and a pick that finds no safe goal rests.
-    /// </summary>
-    private void PickLocalMovement(in ActionContext ctx)
-    {
-        ticksLeft = Main.rand.Next(60, 240);
-        if (walking || Main.rand.NextBool(3) || StrollGoal(ctx) is not Vector2 chosen)
-        {
-            walking = false;
-            return;
-        }
-        walking = true;
-        goal = chosen;
-    }
-
-    /// <summary>
-    /// A safe hoverable cell in the player's neighbourhood: every free cell across the calm band either side of the player, within a
-    /// few rows of his feet and at least a short flight away, that passes <see cref="SafeStrollGoal"/>, then one of those at random,
-    /// so strolls vary without any cell being preferred. The walker's version traced a walk along the floor because a stroll could
-    /// not need a jump; an orb strolls to any free cell the reach flood holds, so the candidates are the cells themselves, and the
-    /// flood is what keeps a goal on this side of anything the body cannot come back through.
-    /// </summary>
-    private Vector2? StrollGoal(in ActionContext ctx)
-    {
-        Point player = MovementQueries.FeetTile(ctx.Senses.Player.Bottom);
-        Point body = MovementQueries.Tile(ctx.Npc.Center);
-        int span = (int)(Weights.CalmBandFar * 0.7f / 16f);
-        safe.Clear();
-        for (int x = player.X - span; x <= player.X + span; x++)
-            for (int y = player.Y - Weights.StrollRowsFromPlayer; y <= player.Y + Weights.StrollRowsFromPlayer; y++)
-            {
-                Point tile = new(x, y);
-                // A stroll goal stays inside the player's intent region, because the region is what
-                // says the companion is with him: a goal chosen outside it is unsatisfied the moment
-                // it is reached, reunion outscores the stroll, and the method flips back and forth on
-                // a player who has not moved. The calm band is wider than the region's comfort at
-                // rest, so the band alone let the stroll manufacture the reunion it then answered.
-                if (Math.Abs(x - body.X) >= Weights.StrollMinimumTiles
-                    && ctx.Senses.Intent.Region.Contains(MovementQueries.HoverPoint(tile))
-                    && SafeStrollGoal(ctx, tile))
-                    safe.Add(tile);
-            }
-        return safe.Count == 0 ? null : MovementQueries.HoverPoint(safe[Main.rand.Next(safe.Count)]);
-    }
-
-    private readonly System.Collections.Generic.List<Point> safe = new();
-
-    /// <summary>
-    /// The body hovering at this cell touches no liquid that hurts it. The circle is wider than one tile can promise, so the test is
-    /// the circle's own, not the cell's: a free cell beside a lava pool still puts part of the body over the lava.</summary>
-    private static bool ClearOfLiquidHazards(Point tile)
-    {
-        ITileWorld world = MovementQueries.World;
-        LiquidImmunity rules = OrbTerrain.Immunity;
-        return !CircleContact.Touches(MovementQueries.HoverPoint(tile), (x, y) => OrbTerrain.WetWall(world, x, y, rules));
-    }
-
-    /// <summary>
-    /// Whether hovering at this cell is a safe place to keep company: free for the body, inside the region the body can fly to and
-    /// come home from, clear of liquid that hurts across the body's width, and with predicted enemy exposure within
-    /// <see cref="Weights.StrollExposureLimit"/>. A held goal is checked again each tick, so an enemy arriving or a terrain edit
-    /// under it ends the stroll.
-    /// </summary>
-    private static bool SafeStrollGoal(in ActionContext ctx, Point tile)
-    {
-        if (!MovementQueries.IsHoverable(tile) || !ClearOfLiquidHazards(tile)) return false;
-        if (Infrastructure.Position.Positioner.PredictedExposureAt(MovementQueries.HoverPoint(tile), ctx.Senses) > Weights.StrollExposureLimit) return false;
-        return ctx.Companion.Brain.Positioner.IsReturnable(ctx.Senses, tile);
+        // Local company is a hold, and the brain's hold is a hover: the body drifts around where it is. A stroll picker lived here
+        // until 15 September 2026 — a random safe cell every one to four seconds, a third of the picks a rest, every arrival a
+        // brake to zero — and it went with the owner's ruling that the orb is never strictly standing still, because the hover the
+        // movement system now gives every held spot is the motion the strolls were for, without a destination to reach and stop on.
+        return PositionRequest.Hold;
     }
 }

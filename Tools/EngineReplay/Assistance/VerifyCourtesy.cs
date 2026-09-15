@@ -345,11 +345,9 @@ internal static class VerifyCourtesy
         var brain = companion.Brain;
         var company = brain.Chooser.Actions.OfType<KeepCompany>().Single();
         brain.Chooser.Actions.RemoveAll(a => !ReferenceEquals(a, company));
-        // One tick first: activating the activity calls Enter, which resets its local movement. Then hold the resting method,
-        // so a random stroll cannot move the companion in the reference scene and pass a case for it.
+        // One tick first, so the activity is entered before the scene is read. Keeping company has no random stroll any more:
+        // its local method is a seeded hover around the spot, so the reference scene is deterministic without holding anything.
         Step(companion);
-        Set(company, "walking", false);
-        Set(company, "ticksLeft", 1_000_000);
         return (companion, player);
     }
 

@@ -438,15 +438,15 @@ internal static class VerifyOreWork
             width = 8, height = 8, position = ctx.Npc.Center + new Vector2(28, -4), velocity = new Vector2(-8, 0), timeLeft = 100 };
         VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
         VerifyCompanionLifecycle.TickWithOneControlGrant(ctx.Companion);
+        // Safety rides on the job since 15 September 2026: a shot on a collision course bends the tick's motion
+        // through the evade step and no longer suspends the work, so the mining attempt stays open with its tool
+        // hand still reserved, where it used to close as an interruption and hand the arm to the reflex.
         Require(ctx.Companion.Brain.Senses.Threats.Threats.Count == 0
             && ctx.Companion.Brain.Reflexes.Active == "avoid-collision"
-            && ctx.Companion.Brain.ControlGrants.Last is { AppliedOwner: "combat-reflex", Hand: live::AICompanion.Companion.Brain.Infrastructure.Grants.HandGrant.Available }
-            && ctx.Companion.Brain.Chooser.Activity.Phase == live::AICompanion.Companion.Brain.Infrastructure.Selection.ActivityPhase.Suspended
-            && !mine.HandsBusy && ctx.Companion.Miner.LastOutcome == effect,
-            $"a projectile without an enemy must suspend native work and grant avoidance with a free hand; enemies={ctx.Companion.Brain.Senses.Threats.Threats.Count}; projectiles={ctx.Companion.Brain.Senses.Projectiles.Threats.Count}; reflex={ctx.Companion.Brain.Reflexes.Active}; grant={ctx.Companion.Brain.ControlGrants.Last}; phase={ctx.Companion.Brain.Chooser.Activity.Phase}; busy={mine.HandsBusy}; same-effect={ctx.Companion.Miner.LastOutcome == effect}");
-        Require(ctx.Companion.Brain.Chooser.Activity.LastAttempt is { Status: live::AICompanion.Companion.Brain.Activities.AttemptStatus.Interrupted, Activity: "mine", ProductiveEffects: >= 1 }
-            && !ctx.Companion.Brain.Chooser.Activity.AttemptOpen,
-            $"interrupted productive mining must close as an interruption carrying its credited effect, never a failure; attempt={ctx.Companion.Brain.Chooser.Activity.LastAttempt}");
+            && ctx.Companion.Brain.ControlGrants.Last is { AppliedOwner: "evade", Hand: live::AICompanion.Companion.Brain.Infrastructure.Grants.HandGrant.WorkTool }
+            && ctx.Companion.Brain.Chooser.Activity.Phase == live::AICompanion.Companion.Brain.Infrastructure.Selection.ActivityPhase.Executing
+            && ctx.Companion.Brain.Chooser.Activity.AttemptOpen && mine.HandsBusy,
+            $"a projectile without an enemy must bend the working body's motion and leave the work, its attempt and its tool hand in place; enemies={ctx.Companion.Brain.Senses.Threats.Threats.Count}; projectiles={ctx.Companion.Brain.Senses.Projectiles.Threats.Count}; reflex={ctx.Companion.Brain.Reflexes.Active}; grant={ctx.Companion.Brain.ControlGrants.Last}; phase={ctx.Companion.Brain.Chooser.Activity.Phase}; attempt open={ctx.Companion.Brain.Chooser.Activity.AttemptOpen}; busy={mine.HandsBusy}");
         Main.projectile[0].active = false;
     }
 

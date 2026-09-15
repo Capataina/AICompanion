@@ -65,15 +65,23 @@ public sealed class CompanionMotor
         return float.IsFinite(speed) && speed > 0f ? speed : Weights.OrbFallbackSpeed;
     }
 
-    /// <summary>The player's run acceleration times the orb's acceleration multiple.</summary>
-    public static float Acceleration(float bodyMultiplier)
+    /// <summary>The player's run acceleration times the orb's turn multiple: how hard the body can bend its velocity.</summary>
+    public static float Turn(float bodyMultiplier)
     {
-        float accel = Main.LocalPlayer.runAcceleration * Weights.OrbAccelerationPerRunAcceleration * bodyMultiplier;
-        return float.IsFinite(accel) && accel > 0f ? accel : Weights.OrbFallbackAcceleration;
+        float accel = Main.LocalPlayer.runAcceleration * Weights.OrbTurnPerRunAcceleration * bodyMultiplier;
+        return float.IsFinite(accel) && accel > 0f ? accel : Weights.OrbFallbackTurn;
+    }
+
+    /// <summary>The player's run acceleration times the orb's speed-change multiple: how fast the body eases up to speed and down from it.</summary>
+    public static float SpeedChange(float bodyMultiplier)
+    {
+        float accel = Main.LocalPlayer.runAcceleration * Weights.OrbSpeedChangePerRunAcceleration * bodyMultiplier;
+        return float.IsFinite(accel) && accel > 0f ? accel : Weights.OrbFallbackSpeedChange;
     }
 
     public float LiveMaxSpeed => MaxSpeed(companion.SpeedMultiplier);
-    public float LiveAcceleration => Acceleration(companion.AccelerationMultiplier);
+    public float LiveTurn => Turn(companion.AccelerationMultiplier);
+    public float LiveSpeedChange => SpeedChange(companion.AccelerationMultiplier);
 
     public int PinnedTicks { get; private set; }
     public string ControlSource { get; private set; } = "uninitialised";
@@ -111,18 +119,19 @@ public sealed class CompanionMotor
         PinnedTicks = stationary && appliedDisplacement.LengthSquared() > 0.25f ? PinnedTicks + 1 : 0;
         previousPosition = position;
         OrbPace.MaxSpeed = LiveMaxSpeed;
-        OrbPace.Acceleration = LiveAcceleration;
+        OrbPace.Turn = LiveTurn;
+        OrbPace.SpeedChange = LiveSpeedChange;
     }
 
     /// <summary>Accelerate toward the requested velocity, run contact, read liquid, and hand the engine the move.</summary>
     public void Apply(Controls controls, string source = "navigation")
     {
         AppliedControls = controls;
-        Steer(controls.Desired, source);
+        Steer(controls.Desired, source, controls.Burst);
     }
 
     /// <summary>The same application from a bare desired velocity, which is what a headless instrument drives.</summary>
-    public void Steer(Vector2 desiredVelocity, string source = "navigation")
+    public void Steer(Vector2 desiredVelocity, string source = "navigation", bool burst = false)
     {
         ControlApplications++;
         ControlSource = source;
@@ -144,14 +153,13 @@ public sealed class CompanionMotor
             }
             RecoveryFlight = false;
         }
-        float maxSpeed = LiveMaxSpeed, acceleration = LiveAcceleration;
+        float maxSpeed = LiveMaxSpeed;
         Vector2 desired = downed ? new Vector2(0f, DownedSinkSpeed) : desiredVelocity;
         if (desired.LengthSquared() > maxSpeed * maxSpeed) desired = Vector2.Normalize(desired) * maxSpeed;
         DesiredVelocity = desired;
-        Vector2 change = desired - velocity;
-        if (change.LengthSquared() > acceleration * acceleration) change = Vector2.Normalize(change) * acceleration;
-        velocity += change;
-        if (velocity.LengthSquared() > maxSpeed * maxSpeed) velocity = Vector2.Normalize(velocity) * maxSpeed;
+        // The body's one velocity law, shared with every simulation of it. A downed body sinks under the full turn
+        // authority, because its sink is a lifecycle fact rather than a move that should ease.
+        velocity = OrbPace.Step(velocity, desired, maxSpeed, LiveTurn, LiveSpeedChange, burst || downed);
         if (desired.X != 0f) Face(npc.Center.X + desired.X);
         Commit(velocity, phasing: false);
     }

@@ -51,12 +51,14 @@ public readonly record struct FollowPlayerObjective(PlayerIntentRegion Region, V
     public float GapBeyond(Vector2 feet) => Region.GapBeyond(feet);
 
     /// <summary>
-    /// A hover destination is useful inside the region, less the navigator's stopping radius.
-    /// The reservation is not optional: a candidate on the boundary is legal while the body stops
-    /// just outside it, and following would then never satisfy at a destination it had reached.
+    /// A hover destination is useful inside the region, less the navigator's settle radius. The
+    /// reservation is not optional: a candidate on the boundary is legal while the body drifts around
+    /// it, so a reservation of the arrival radius alone would let the hover carry the body out of the
+    /// region on every orbit, and following would flip between satisfied and not at a destination it
+    /// had reached.
     /// </summary>
     public bool AcceptsDestination(Vector2 centre, bool locallyConnected)
-        => locallyConnected && Region.Accepts(centre, Movement.Navigator.ArriveDistance);
+        => locallyConnected && Region.Accepts(centre, Movement.Navigator.SettleRadius);
 
     /// <summary>
     /// Arrival: the body is in the region, has been at rest in it for a rescore, and is locally

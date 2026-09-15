@@ -188,6 +188,11 @@ public sealed class Positioner
                 lastRequest = request;
                 Chosen = null;
                 Region = SuccessRegion.None;
+                // A hold still roots and replaces the reach flood. Keeping company hovers on a hold, and nothing else runs
+                // while it does: a hold that skipped this left a companion with no flood at all asking for holds for ever,
+                // because work offers nothing on an unanswered search and keeping company wins by default. The walker only
+                // escaped that circle because its stroll's goal test happened to refresh the flood as a side effect.
+                senses.Reach.Refresh(senses);
                 return null;
             case RequestKind.Exact:
                 // Exact means the point itself where the body fits there: a tool stand was proven

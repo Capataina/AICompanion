@@ -1182,8 +1182,12 @@ public static class ChronicleTests
             // both half-extents. Two literals rather than one, because either half alone can be true
             // while the slack is not actually reserved — an objective that passes the radius to a
             // region that ignores it reserves nothing.
+            // Acceptance reserves the settle radius since the orb began hovering around a reached spot, so the pin holds the
+            // navigator's expression for it and the hover radius it adds, beside the arrival radius itself.
             Require(navigator.Contains($"ArriveDistance = {ClaimedArrivalsStayInsideTheirSuccessRegion.ArriveDistance:0}f", StringComparison.Ordinal)
-                    && Source("Companion", "Brain", "Infrastructure", "Position", "FollowPlayerObjective.cs").Contains("Region.Accepts(centre, Movement.Navigator.ArriveDistance)", StringComparison.Ordinal)
+                    && navigator.Contains("SettleRadius = ArriveDistance + Weights.HoverRadiusPixels + 4f", StringComparison.Ordinal)
+                    && Source("Companion", "Brain", "Infrastructure", "Selection", "BehaviourWeights.cs").Contains("HoverRadiusPixels = 16f", StringComparison.Ordinal)
+                    && Source("Companion", "Brain", "Infrastructure", "Position", "FollowPlayerObjective.cs").Contains("Region.Accepts(centre, Movement.Navigator.SettleRadius)", StringComparison.Ordinal)
                     && Source("Companion", "Brain", "Infrastructure", "Observation", "ObservePlayerIntentRegion.cs").Contains("HalfSize.X - arrivalSlack", StringComparison.Ordinal),
                 "the navigator's arrival radius, or follow acceptance reserving it, no longer matches what the follow rule assumes");
             // The eye is the centre for this body, so the tool rule measures the reach box on the centre
@@ -1558,14 +1562,19 @@ public static class ChronicleTests
         string telemetry = Source("Companion", "Brain", "Infrastructure", "Diagnostics", "RecordBrainTelemetry.cs");
         string offers = Source("Companion", "Brain", "Activities", "ClassifyOffersAndAttempts.cs");
         string owner = Source("Companion", "Brain", "Infrastructure", "Selection", "OwnCurrentActivity.cs");
+        // Every ordinary owner is assigned in the coordinator as a literal: Navigate's three as `owner = "…"`, and the evade
+        // step's as `movementOwner = "evade"`, which bends the job's own controls after Navigate returns.
         foreach (string ordinary in ControlGrantsAreCompatible.OrdinaryOwners)
-            Require(tick.Contains($"owner = \"{ordinary}\"", StringComparison.Ordinal), $"the ordinary movement owner '{ordinary}' is no longer issued by the coordinator");
+            Require(tick.Contains($"owner = \"{ordinary}\"", StringComparison.Ordinal) || tick.Contains($"Owner = \"{ordinary}\"", StringComparison.Ordinal),
+                $"the ordinary movement owner '{ordinary}' is no longer issued by the coordinator");
         Require(tick.Contains("\"downed\", HandGrant.Unavailable", StringComparison.Ordinal) && tick.Contains("HandGrant.WorkTool : HandGrant.Available", StringComparison.Ordinal)
                 && tick.Contains("\"follow-recovery-flight\", RecoveryVelocity", StringComparison.Ordinal),
             "the coordinator's downed, work-tool or recovery grant no longer has the shape the grant rules assume");
-        Require(safety.Contains("\"survival-escape\"", StringComparison.Ordinal) && safety.Contains("\"combat-reflex\"", StringComparison.Ordinal)
-                && safety.Contains("Begin(ctx, \"combat-spacing\")", StringComparison.Ordinal),
-            "a safety owner the grant rules classify is no longer issued");
+        // combat-reflex and combat-spacing are still classified, for captures recorded before the orb's safety became a layer on
+        // the job, and are asserted absent from the producer so a revived safety owner has to be classified on purpose.
+        Require(safety.Contains("\"survival-escape\"", StringComparison.Ordinal)
+                && !safety.Contains("\"combat-reflex\"", StringComparison.Ordinal) && !safety.Contains("\"combat-spacing\"", StringComparison.Ordinal),
+            "the safety owners the grant rules classify no longer match what the producer issues");
         Require(events.Contains("grant-id={id};grant-tick={tick};activity-id={activityId};attempt-id={attemptId};activity-phase={activityPhase};requested-owner={requestedOwner}", StringComparison.Ordinal)
                 && events.Contains("attempt={outcome.Attempt};choice-id={choiceId};activity-id={activityId};activity-attempt-id={activityAttemptId}", StringComparison.Ordinal)
                 && new[] { Source("Companion", "Brain", "Activities", "Gathering", "MineOre.cs"), Source("Companion", "Brain", "Activities", "Gathering", "ChopTree.cs") }

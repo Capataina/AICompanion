@@ -25,7 +25,7 @@ internal static class VerifyCompanionActivities
             ContinuingTargetsKeepTheirIdentity();
             CollectionComparesKnownDropsAndPotentialContents();
             CollectionRejectsReplacedWorldSlots();
-            SharedCombatSpacingDoesNotNeedAnOrdinaryOffer();
+            AnEnemyBesideTheBodyNeitherSuspendsTheJobNorTakesTheFeet();
             DangerIsChargedOnceToTheActorItThreatens();
             ConsecutiveJobsEarnTheirOwnAllowance();
             ActivityOwnershipSurvivesInterruption();
@@ -401,7 +401,14 @@ internal static class VerifyCompanionActivities
         finally { Main.item[5] = previous; }
     }
 
-    private static void SharedCombatSpacingDoesNotNeedAnOrdinaryOffer()
+    /// <summary>
+    /// Safety rides on the job. A heavy hitter beside the body used to start combat spacing, which suspended the ordinary activity
+    /// and searched for a low-exposure cell; since 15 September 2026 nothing but a hurting liquid takes the body, so the same scene
+    /// must leave the probe activity executing on every tick with the hands granted, and with no ordinary offer at all no safety
+    /// response may start either. The zombie stands still and is never on a collision course, so the evade step has nothing to bend
+    /// here; the reflex rows in VerifySafetyAftermath are where a bent tick is asserted.
+    /// </summary>
+    private static void AnEnemyBesideTheBodyNeitherSuspendsTheJobNorTakesTheFeet()
     {
         foreach (bool emptyOffers in new[] { false, true })
         {
@@ -418,32 +425,18 @@ internal static class VerifyCompanionActivities
             var chooser = ctx.Companion.Brain.Chooser;
             chooser.Actions.Clear();
             if (!emptyOffers) { chooser.Actions.Add(activity); chooser.Activity.Select(activity, ctx); chooser.Activity.BeginExecution(); }
-            bool observedSpacing = false, observedRelease = false;
-            float initialGap = Vector2.Distance(ctx.Npc.Bottom, enemy.Bottom);
+            int safetyTicks = 0, suspendedTicks = 0, handsWithheld = 0;
             for (int tick = 0; tick < 300; tick++)
             {
                 VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
                 VerifyCompanionLifecycle.TickWithOneControlGrant(ctx.Companion);
-                var safety = ctx.Companion.Brain.Safety;
-                if (safety.Active && safety.Kind == "combat-spacing")
-                {
-                    observedSpacing = true;
-                    Require(ctx.Companion.Brain.ControlGrants.Last!.Value.Hand
-                        == live::AICompanion.Companion.Brain.Infrastructure.Grants.HandGrant.Available,
-                        "shared spacing must leave compatible shooting available");
-                    Require(emptyOffers ? chooser.Current == null
-                        : chooser.Activity.Phase == live::AICompanion.Companion.Brain.Infrastructure.Selection.ActivityPhase.Suspended,
-                        "spacing must operate without an offer or suspend the ordinary activity");
-                }
+                if (ctx.Companion.Brain.Safety.Active) safetyTicks++;
+                if (!emptyOffers && chooser.Activity.Phase == live::AICompanion.Companion.Brain.Infrastructure.Selection.ActivityPhase.Suspended) suspendedTicks++;
+                if (ctx.Companion.Brain.ControlGrants.Last!.Value.Hand != live::AICompanion.Companion.Brain.Infrastructure.Grants.HandGrant.Available) handsWithheld++;
                 VerifyResponsiveFollowing.AdvanceNative(ctx.Companion);
-                if (observedSpacing && !safety.Active && ctx.Companion.Motor.ClearOfTerrain)
-                { observedRelease = true; break; }
             }
-            Require(observedSpacing && observedRelease
-                && Vector2.Distance(ctx.Npc.Bottom, enemy.Bottom) > initialGap
-                && ctx.Companion.Brain.Safety.LastEndReason == "safe-state-observed"
-                && ctx.Companion.Brain.Safety.CombatSpace.IsSatisfied(ctx),
-                $"shared spacing must produce and release a stable retreat, emptyOffers={emptyOffers}, started={observedSpacing}, released={observedRelease}, gap={Vector2.Distance(ctx.Npc.Bottom, enemy.Bottom)}, reason={ctx.Companion.Brain.Safety.Reason}");
+            Require(safetyTicks == 0 && suspendedTicks == 0 && handsWithheld == 0,
+                $"an enemy beside the body must neither start a safety response, nor suspend the job, nor withhold the hands; emptyOffers={emptyOffers}, safety ticks={safetyTicks}, suspended ticks={suspendedTicks}, hands withheld={handsWithheld}");
             Require(!new live::AICompanion.Companion.Brain.Infrastructure.Selection.Chooser().Actions.Any(a => a.Name == "kite"),
                 "kiting must not remain an ordinary family candidate");
         }

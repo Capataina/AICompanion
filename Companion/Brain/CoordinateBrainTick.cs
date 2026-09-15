@@ -175,10 +175,12 @@ public sealed class Brain
 
         if (FollowRecovery.Active && TryFollowRecovery(companion, player, false, out var initialRecovery)) return initialRecovery;
 
-        bool taken = Reflexes.TryAssess(companion.NPC, Senses, companion.Motor.State, out var unsafeAtTick);
+        // The reflex no longer takes the body: it names an imminent hit for the record and supplies the
+        // predicate that the evade step bends the job's own controls against after navigation.
+        Reflexes.TryAssess(companion.NPC, Senses, companion.Motor.State, out var unsafeAtTick);
         Navigator.UnsafeAtTick = Senses.Threats.Threats.Count == 0 && Senses.Projectiles.Threats.Count == 0 ? null : unsafeAtTick;
         ReflexMs = Lap();
-        if (Safety.TryChoose(ctx, taken, out var safetyRequest))
+        if (Safety.TryChoose(ctx, out var safetyRequest))
         {
             LastRequest = PositionRequest.Hold;
             ReflexMs += Lap();
@@ -213,6 +215,11 @@ public sealed class Brain
         try
         {
             movement = Navigate(companion, spot, out movementOwner);
+            // Safety on top of the job: whatever the job asked for, bent away from a predicted hit when following it
+            // would meet one. The job keeps running and keeps its attempt and its hands; only the tick's direction
+            // changes, and the grant names the tick so the record can tell a bent tick from an ordinary one.
+            movement = Movement.Evade(companion.Motor.State, movement, Navigator.UnsafeAtTick, out bool bent);
+            if (bent) movementOwner = "evade";
         }
         finally
         {
@@ -298,7 +305,7 @@ public sealed class Brain
             || (LastRequest.Kind == RequestKind.WithPlayer
             ? !Senses.Intent.Objective.IsSatisfied(centre, LineOfSight.Between(companion.NPC, Senses.PlayerEntity))
             : LastRequest.Kind != RequestKind.Hold && (Positioner.Chosen is not Vector2 spot
-                || Vector2.DistanceSquared(spot, centre) > 16f * 16f));
+                || Vector2.DistanceSquared(spot, centre) > Navigator.SettleRadius * Navigator.SettleRadius));
         if (!wantsTravel)
         {
             progressOrigin = centre; progressTicks = 0; MovementStalled = false;
@@ -354,7 +361,10 @@ public sealed class Brain
         else
         {
             owner = "hold";
-            Controls controls = Movement.Hold(companion.Motor.State);
+            // The brain's hold is a hover around where the hold began, never a brake: the orb is never strictly
+            // standing still. Downing and recovery flight still ask Movement.Hold for nothing, because they own the
+            // body for reasons that are not a place to be.
+            Controls controls = Movement.HoverHere(companion.Motor.State);
             // Nothing is being asked for, so whatever was being asked for is over: reached if the
             // navigator got there, abandoned otherwise. A Hold request is the ordinary way an
             // episode ends, which is why this is not treated as a failure.

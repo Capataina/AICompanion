@@ -39,6 +39,9 @@ public sealed class CoordinateMovement
         int workBudget, bool throughLiquid, out Controls controls, out bool pending)
     {
         Navigator.Interrupt(live, AttemptEnding.Preempted, "state-search");
+        // A hold's anchor does not survive another owner moving the body: the escape takes the body out of the pool the
+        // hold began in, and a hover that kept the anchor would float it straight back in the moment the escape let go.
+        holdAnchor = null;
         seek ??= new StateSeek(live, safe, heuristic, throughLiquid);
         bool chosen = seek.Continue(live, workBudget, out controls);
         pending = seek.Pending;
@@ -49,20 +52,40 @@ public sealed class CoordinateMovement
     public Controls MoveTo(OrbState live, Vector2 goal)
     {
         CancelStateSearch();
+        holdAnchor = null;
         return Navigator.MoveTo(live, goal);
     }
 
+    /// <summary>
+    /// Stop wanting anything, and ask the motor for nothing. This is for owners that take the body away from
+    /// the brain — downing, recovery flight — and for nothing the brain chooses: a brain that holds hovers
+    /// (<see cref="HoverHere"/>), because the orb is never strictly standing still.
+    /// </summary>
     /// <param name="preemptedBy">Null when the brain released the request itself; otherwise the owner
     /// that took the body (downing, recovery flight), so the interrupted attempt is scored as
     /// pre-empted rather than cancelled.</param>
     public Controls Hold(OrbState live, string? preemptedBy = null)
     {
         CancelStateSearch();
+        holdAnchor = null;
         Navigator.Interrupt(live, preemptedBy == null ? AttemptEnding.Cancelled : AttemptEnding.Preempted, preemptedBy ?? "released");
         return Controls.None;
     }
 
-    /// <summary>A missing chosen place does not cancel a travel intention: aim at the anchor itself until <paramref name="arrived"/> says the body is there.</summary>
+    /// <summary>
+    /// The brain's hold: release whatever route was held and drift around the place the hold began. The
+    /// place is taken once, when the hold starts, so a body still carrying momentum glides back to where it
+    /// was told to stay rather than anchoring wherever the momentum has taken it by now.
+    /// </summary>
+    public Controls HoverHere(OrbState live)
+    {
+        CancelStateSearch();
+        Navigator.Interrupt(live, AttemptEnding.Cancelled, "released");
+        holdAnchor ??= live.Centre;
+        return Navigator.Hover.Around(live, holdAnchor.Value, MovementQueries.World);
+    }
+
+    /// <summary>A missing chosen place does not cancel a travel intention: aim at the anchor itself until <paramref name="arrived"/> says the body is there, and hover once it is.</summary>
     public Controls SeekDestination(OrbState live, Vector2 anchor, Func<Vector2, bool> arrived)
     {
         seek = null;
@@ -70,16 +93,27 @@ public sealed class CoordinateMovement
         if (arrived(live.Centre))
         {
             Navigator.Interrupt(live, AttemptEnding.Completed, "objective-satisfied");
-            return Controls.None;
+            // Anchored once, where the objective was first met: an anchor taken from the body every tick moves with the
+            // body, and the drift around it becomes a slow wander away from the place it arrived.
+            holdAnchor ??= live.Centre;
+            return Navigator.Hover.Around(live, holdAnchor.Value, MovementQueries.World);
         }
+        holdAnchor = null;
         return Navigator.MoveTo(live, anchor);
     }
 
-    public Controls AvoidThreats(OrbState live, Func<OrbState, int, bool> unsafeAtTick, Vector2 goal)
+    /// <summary>
+    /// Safety on top of the job: the tick's controls, bent away from a predicted hit when following them would
+    /// meet one. <paramref name="bent"/> says whether they were, so the record can name the tick.
+    /// </summary>
+    public Controls Evade(OrbState live, Controls wanted, Func<OrbState, int, bool>? unsafeAtTick, out bool bent)
     {
-        CancelStateSearch();
-        return Navigator.AvoidThreats(live, unsafeAtTick, goal);
+        bent = false;
+        if (unsafeAtTick == null) return wanted;
+        return EvadeWhileMoving.Bend(live, wanted, unsafeAtTick, MovementQueries.World, out bent);
     }
+
+    private Vector2? holdAnchor;
 
     /// <summary>The terrain rules every search runs under this tick: which liquids are not walls.</summary>
     public void Configure(LiquidImmunity immunity) => OrbTerrain.Immunity = immunity;
@@ -152,7 +186,7 @@ public sealed class CoordinateMovement
                 }
             }
             Pending = false;
-            controls = SteerAlongRoute.Steer(live, route, OrbPace.MaxSpeed, OrbPace.Acceleration, out _);
+            controls = SteerAlongRoute.Steer(live, route, OrbPace.MaxSpeed, OrbPace.SpeedChange, out _);
             return true;
         }
     }

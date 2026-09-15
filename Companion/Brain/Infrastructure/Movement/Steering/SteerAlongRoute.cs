@@ -23,7 +23,7 @@ public static class SteerAlongRoute
     /// steered at the lookahead from its projection, which pulls it back onto the route rather
     /// than back to the point it left it at.
     /// </summary>
-    public static Controls Steer(OrbState live, Route route, float maxSpeed, float acceleration, out Vector2 lookahead)
+    public static Controls Steer(OrbState live, Route route, float maxSpeed, float speedChange, out Vector2 lookahead)
     {
         Vector2 centre = live.Centre;
         // Project onto the current and the next few segments; take the nearest, and advance.
@@ -41,8 +41,11 @@ public static class SteerAlongRoute
         }
         route.Index = best;
 
-        // The lookahead point: a fixed distance along the route from the projection, or the goal.
-        float remaining = Weights.OrbLookaheadPixels;
+        // The lookahead point: a distance along the route from the projection that grows with the body's
+        // speed, or the goal. A slow body tracks a winding route closely; a fast one looks far enough
+        // ahead to lean into the bend it is about to meet rather than reacting to it at the corner.
+        float remaining = Math.Clamp(live.Velocity.Length() * Weights.OrbLookaheadTicks,
+            Weights.OrbLookaheadMinimumPixels, Weights.OrbLookaheadMaximumPixels);
         Vector2 cursor = bestProjection;
         int segment = best;
         while (segment < route.Points.Count - 1)
@@ -66,7 +69,7 @@ public static class SteerAlongRoute
         // projects onto the goal itself, reads no route left, and would otherwise be told to stop
         // where it is rather than come back the few pixels it sailed past.
         float remainingRoute = MathF.Max(route.RemainingLength(centre), Vector2.Distance(centre, route.Goal));
-        float brake = MathF.Sqrt(2f * acceleration * MathF.Max(0f, remainingRoute - Navigator.ArriveDistance * 0.5f));
+        float brake = OrbPace.ArrivalSpeed(remainingRoute);
         // Bend: at the next waypoint within braking distance, the turn between the segment
         // arriving and the one leaving; the cap through it falls with the turn's sharpness, and
         // the speed now is what lets the body slow to that cap by the time it gets there.
@@ -82,7 +85,7 @@ public static class SteerAlongRoute
             if (arriving.LengthSquared() < 1e-6f || leaving.LengthSquared() < 1e-6f) continue;
             float turn = MathF.Acos(Math.Clamp(Vector2.Dot(Vector2.Normalize(arriving), Vector2.Normalize(leaving)), -1f, 1f));
             float capThrough = maxSpeed * MathF.Max(Weights.OrbBendMinimumShare, 1f - Weights.OrbBendSlowdown * turn / MathF.PI);
-            float allowedNow = MathF.Sqrt(capThrough * capThrough + 2f * acceleration * distanceToBend);
+            float allowedNow = MathF.Sqrt(capThrough * capThrough + 2f * speedChange * distanceToBend);
             bend = MathF.Min(bend, allowedNow);
         }
         float speed = MathF.Min(maxSpeed, MathF.Min(brake, bend));

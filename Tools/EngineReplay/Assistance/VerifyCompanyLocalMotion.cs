@@ -41,11 +41,11 @@ internal static class VerifyCompanyLocalMotion
             catch (Exception e) { red++; Console.WriteLine($"RED {name}: {e.Message}"); }
             finally { LimitPlanningWork.Unbounded = false; }
         }
-        Each("J06/X01 stroll goals avoid lava and deep water", StrollGoalsAvoidHazards);
-        Each("J06 an idle window neither collapses to one method nor stops strolling", IdleCompanyNeitherHopsNorFreezes);
+        Each("J06/X01 hovering company never touches lava or deep water", HoveringCompanyNeverTouchesAHazard);
+        Each("J06 an idle window keeps company without ever standing still", IdleCompanyNeverStandsStill);
         Each("J06 an idle window on a 1:1 block staircase keeps the flat floor's envelope", () => IdleCompanyOnStairs(StairStyle.Blocks));
         Each("empty-world reunion: nothing on offer and the player walks away", AnEmptyWorldReunitesWithAWalkingPlayer);
-        if (red == 0) Console.WriteLine("company local motion: hazard-free reachable stroll goals and bounded idle movement pass");
+        if (red == 0) Console.WriteLine("company local motion: hovering company keeps clear of hazards, never stands still, and meets a walking player where he stops");
         return red;
     }
 
@@ -53,36 +53,32 @@ internal static class VerifyCompanyLocalMotion
     // Hazard footprints, in tile columns, both inside the calm band either side of the player. Lava sits before the water pit, and
     // both are walls to every flood this body runs as well as damage on contact, so a goal beyond one of them is reached around it.
     private const int LavaLeft = 45, LavaRight = 47, WaterLeft = 51, WaterRight = 57;
+    // "Still" is the session reader's own threshold, and a run this long is the stop the owner saw in play.
+    private const float StillSpeed = 0.3f;
+    private const int StillRunTicks = 10;
 
     /// <summary>
-    /// A floor with two hazards within stroll range of a standing player: a lava pool two rows deep and a water pit three rows deep.
-    /// Over a long seeded run with keeping company the only activity, no stroll goal it holds, no destination the positioner resolves
-    /// for it and no place the body reaches may lie inside a hazard or outside the region it can come back from, the body must never
-    /// read as touching a liquid that hurts it, and nothing it does may earn productive-work credit. The scene asserts each hazard is
-    /// what it claims before the run.
+    /// A floor with two hazards beside a standing player: a lava pool two rows deep and a water pit three rows deep. Keeping company
+    /// used to stroll between random safe cells here, and the row asked that no stroll goal lay in a hazard; since 15 September 2026
+    /// company hovers around where it holds instead, so the row asks the same of everything the hover can reach. Over a long seeded run
+    /// with keeping company the only activity, no destination the positioner resolves may lie inside a hazard or outside the region the
+    /// body can come back from, the body must never read as touching a liquid that hurts it — the hover's target is kept on this side of
+    /// every liquid wall, which is what this row holds it to — and nothing it does may earn productive-work credit. The scene asserts each
+    /// hazard is what it claims before the run.
     /// </summary>
-    private static void StrollGoalsAvoidHazards()
+    private static void HoveringCompanyNeverTouchesAHazard()
     {
         var ctx = BuildNeighbourhood(hazards: true);
         var brain = ctx.Companion.Brain;
         brain.Chooser.Actions.RemoveAll(a => a.Name != "keep-company");
-        var company = brain.Chooser.Actions.OfType<KeepCompany>().Single();
         var violations = new List<string>();
         var counts = new SortedDictionary<string, int>();
         void Count(string what) => counts[what] = counts.TryGetValue(what, out int n) ? n + 1 : 1;
-        var goals = new HashSet<Point>();
-        int restTicks = 0;
         const int Ticks = 6000;
         for (int tick = 0; tick < Ticks; tick++)
         {
             VerifyOreWork.AdvanceBrain(ctx);
-            if (brain.LastRequest.Kind == RequestKind.Hold) restTicks++;
-            if (Walking(company) is Point goal)
-            {
-                goals.Add(goal);
-                if (Hazard(goal) is string why) { Note(violations, $"t{tick} held goal {goal} {why}"); Count($"goal {why}"); }
-            }
-            if (brain.LastRequest.Kind == RequestKind.Exact && brain.Positioner.Chosen is Vector2 chosen)
+            if (brain.Positioner.Chosen is Vector2 chosen)
             {
                 Point tile = MovementQueries.Tile(chosen);
                 if (Hazard(tile) is string why) { Note(violations, $"t{tick} resolved destination {tile} {why}"); Count($"destination {why}"); }
@@ -94,50 +90,46 @@ internal static class VerifyCompanyLocalMotion
             if (ctx.Companion.Motor.InHurtingLiquid) { Note(violations, $"t{tick} body touching {(ctx.Companion.Motor.LiquidKind == 1 ? "lava" : "water")} at {centre}"); Count("body in a hurting liquid"); }
             if (brain.Chooser.IsCollectingWork(centre)) { Note(violations, $"t{tick} movement recorded as productive work"); Count("productive credit"); }
         }
-        string ledger = $"distinct goals={goals.Count} rest share={restTicks / (float)Ticks:0.00}; violation ticks by kind: "
-            + $"{string.Join(", ", counts.Select(c => $"{c.Key}={c.Value}"))}; first violations: {string.Join("; ", violations)}";
-        Require(violations.Count == 0, $"keeping company must never choose, resolve or reach a hazard or a place it cannot come back from; {ledger}");
-        Require(goals.Count >= 3, $"a safe neighbourhood must still be strolled, not only rested in; {ledger}");
-        Console.WriteLine($"stroll hazards: {goals.Count} distinct goals over {Ticks} ticks, rest share {restTicks / (float)Ticks:0.00}, no hazard chosen, resolved or reached");
+        string ledger = $"violation ticks by kind: {string.Join(", ", counts.Select(c => $"{c.Key}={c.Value}"))}; first violations: {string.Join("; ", violations)}";
+        Require(violations.Count == 0, $"keeping company must never resolve or reach a hazard or a place it cannot come back from; {ledger}");
+        Console.WriteLine($"hovering hazards: no hazard resolved or reached over {Ticks} ticks");
     }
 
     /// <summary>
     /// A flat, empty world with a standing player and every activity registered: no ore, no drops, no pots, light unmeasured, no
-    /// enemies. The bound is chosen before the run, from what the behaviour is for rather than from what the code does. Keeping
-    /// company must start no jump at all, because nothing on a flat floor needs one and a hop in place is movement for show; it must
-    /// rest for between a quarter and three quarters of the window, a sanity envelope around the one-in-three rest picks of the local
-    /// method that fails only if it collapses to always walking or always standing; it must hold more than one goal; and no other
-    /// activity may be chosen, which is the premise that the world offers nothing else. The window is three game minutes: the local
-    /// method's earlier random hop fired on one rest pick in twenty and one stroll pick in twelve, about six hops expected over this
-    /// window, while a one-minute window drew none on this seed and could not tell a rule with no hop from a rule that was lucky.
+    /// enemies. The bound is chosen before the run, from what the behaviour is for rather than from what the code does. Keeping company
+    /// must be the only activity chosen, which is the premise that the world offers nothing else; the body must never sit under the still
+    /// threshold for ten ticks running, which is the owner's ruling that the orb is never strictly standing still; and its mean speed must
+    /// stay under the settled threshold, so the motion is a drift around where it keeps company rather than travel. The window is three
+    /// game minutes, long enough for the wander's random walk and its reversals to have happened many times.
     /// </summary>
-    private static void IdleCompanyNeitherHopsNorFreezes()
+    private static void IdleCompanyNeverStandsStill()
         => IdleEnvelope(BuildNeighbourhood(hazards: false), "a flat floor");
 
     /// <summary>The idle window's envelope, on whatever floor <paramref name="ctx"/> stands over: keeping company the only activity
-    /// chosen, a rest share between a quarter and three quarters, and more than one goal. The walker's "no jump started" row is gone
-    /// with the jump; the body drifts and brakes, and there is no impulse left that could be movement for show.</summary>
+    /// chosen, no still run of ten ticks, and a mean speed that reads as a drift. The walker's rest share and stroll-goal count went
+    /// with the stroll picker; a companion that hovers has no rests to count and no goals to reach.</summary>
     private static void IdleEnvelope(ActionContext ctx, string floor)
     {
         VerifyUsefulAssistance.ClearMeasuredLight();
         var brain = ctx.Companion.Brain;
-        var company = brain.Chooser.Actions.OfType<KeepCompany>().Single();
-        int restTicks = 0, otherActivity = 0;
-        var goals = new HashSet<Point>();
+        int otherActivity = 0, stillRun = 0, longestStill = 0;
+        double speedSum = 0;
         const int Ticks = 10800;
         for (int tick = 0; tick < Ticks; tick++)
         {
             VerifyOreWork.AdvanceBrain(ctx);
             if (brain.LastAction?.Name != "keep-company") otherActivity++;
-            if (brain.LastRequest.Kind == RequestKind.Hold) restTicks++;
-            if (Walking(company) is Point goal) goals.Add(goal);
-            if (StrollTrace && tick % 600 == 0) Console.WriteLine($"  TRACE {floor} t{tick}: {DescribeStrollCandidates(ctx)}");
+            float speed = ctx.Companion.Motor.State.Velocity.Length();
+            speedSum += speed;
+            stillRun = speed < StillSpeed ? stillRun + 1 : 0;
+            longestStill = Math.Max(longestStill, stillRun);
         }
-        float rest = restTicks / (float)Ticks;
-        string ledger = $"rest share={rest:0.00} distinct goals={goals.Count} ticks not keeping company={otherActivity}";
+        float mean = (float)(speedSum / Ticks);
+        string ledger = $"longest still run={longestStill} mean speed={mean:0.00} px/tick ticks not keeping company={otherActivity}";
         Require(otherActivity == 0, $"the idle premise needs keeping company to be the only activity chosen on {floor}; {ledger}");
-        Require(rest is >= .25f and <= .75f, $"idle company on {floor} must neither always travel nor always hold; {ledger}");
-        Require(goals.Count >= 2, $"idle company on {floor} must still stroll; {ledger}");
+        Require(longestStill < StillRunTicks, $"idle company on {floor} must never stand still for {StillRunTicks} ticks; {ledger}");
+        Require(mean <= Weights.SettledSpeedPx, $"idle company on {floor} must drift rather than travel; {ledger}");
         Console.WriteLine($"idle company on {floor}: {ledger}");
     }
 
@@ -176,7 +168,9 @@ internal static class VerifyCompanyLocalMotion
                 }
             }
         });
-        for (int x = PlayerColumn - Weights.StrollRowsFromPlayer; x <= PlayerColumn + Weights.StrollRowsFromPlayer; x++)
+        // The premise columns either side of the player, the span the retired stroll picker's row bound once covered.
+        const int PremiseColumns = 4;
+        for (int x = PlayerColumn - PremiseColumns; x <= PlayerColumn + PremiseColumns; x++)
         {
             int top = SurfaceRow(x);
             // Somewhere in this column the body fits, above the step's own tile: a rising floor of full blocks is a
@@ -222,44 +216,6 @@ internal static class VerifyCompanyLocalMotion
         Require(otherActivity == 0, $"with nothing on offer keeping company must be the only activity; {ledger}");
         Require(askedForReunion && arrivedAt >= 0, $"a player walking away in an empty world must be met where they stop; {ledger}");
         Console.WriteLine($"empty-world reunion: {ledger}");
-    }
-
-    /// <summary>Probe switch: every six hundred ticks of an idle window, prints why each tile the walk from the feet reaches is or is not a
-    /// stroll goal, by the production predicates, so a companion that rests with goals apparently available can be read.</summary>
-    private static readonly bool StrollTrace = Environment.GetEnvironmentVariable("AIC_STROLL_TRACE") == "1";
-
-    private static string DescribeStrollCandidates(ActionContext ctx)
-    {
-        const BindingFlags Static = BindingFlags.NonPublic | BindingFlags.Static;
-        var clearOfLiquid = typeof(KeepCompany).GetMethod("ClearOfLiquidHazards", Static)!;
-        Point player = MovementQueries.Tile(ctx.Senses.Player.Bottom), body = MovementQueries.Tile(ctx.Npc.Center);
-        int span = (int)(Weights.CalmBandFar * 0.7f / 16f);
-        var parts = new List<string> { $"body={body} player={player} request={ctx.Companion.Brain.LastRequest.Kind} clear={ctx.Companion.Motor.ClearOfTerrain}" };
-        foreach (int direction in new[] { -1, 1 })
-        {
-            var line = new System.Text.StringBuilder(direction < 0 ? " left:" : " right:");
-            for (int x = body.X + direction; Math.Abs(x - player.X) <= span; x += direction)
-            {
-                Point tile = new(x, body.Y);
-                string verdict = Math.Abs(x - body.X) < Weights.StrollMinimumTiles ? "near"
-                    : Math.Abs(tile.Y - player.Y) > Weights.StrollRowsFromPlayer ? "rows"
-                    : !MovementQueries.IsHoverable(tile) ? "no-fit"
-                    : !(bool)clearOfLiquid.Invoke(null, new object[] { tile })! ? "liquid"
-                    : live::AICompanion.Companion.Brain.Infrastructure.Position.Positioner.PredictedExposureAt(MovementQueries.HoverPoint(tile), ctx.Senses) > Weights.StrollExposureLimit ? "exposed"
-                    : !ctx.Companion.Brain.Positioner.IsReturnable(ctx.Senses, tile) ? "unreturnable"
-                    : "OK";
-                line.Append($" {x},{tile.Y}:{verdict}");
-            }
-            parts.Add(line.ToString());
-        }
-        return string.Join(";", parts);
-    }
-
-    private static Point? Walking(KeepCompany company)
-    {
-        const BindingFlags Field = BindingFlags.NonPublic | BindingFlags.Instance;
-        bool walking = (bool)typeof(KeepCompany).GetField("walking", Field)!.GetValue(company)!;
-        return walking ? MovementQueries.Tile((Vector2)typeof(KeepCompany).GetField("goal", Field)!.GetValue(company)!) : null;
     }
 
     /// <summary>What is wrong with hovering in this tile, by the scene's own geometry: no room for the body, or inside a hazard's

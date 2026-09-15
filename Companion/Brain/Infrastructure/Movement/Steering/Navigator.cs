@@ -31,8 +31,18 @@ public sealed class Navigator
 {
     public enum ExecutionStatus { Idle, Arrived, Executable, Pending, Unreachable, Direct }
 
-    /// <summary>How close to the goal counts as there, in pixels; positioning reserves this inside its regions.</summary>
+    /// <summary>How close to the goal counts as having arrived, in pixels.</summary>
     public const float ArriveDistance = 12f;
+
+    /// <summary>How far from its goal an arrived body may drift before it has left: the arrival radius plus
+    /// the hover's reach and a margin for the momentum the drift carries, so hovering around a spot never
+    /// undoes the arrival and restarts the attempt every orbit. Positioning reserves this inside its regions,
+    /// so a body drifting around a spot on a region's boundary is still inside the region.</summary>
+    public const float SettleRadius = ArriveDistance + Weights.HoverRadiusPixels + 4f;
+
+    /// <summary>The drift every reached or held spot gets. One instance, so arriving and holding share one
+    /// wander and a hold that follows an arrival carries on circling rather than starting over.</summary>
+    public HoverAroundSpot Hover { get; } = new();
 
     /// <summary>The telemetry's plan dump, attached by the brain; the replay tool leaves it unset.
     /// Arguments: the body's tile, the goal's tile, the held goal's tile if any, the expansions spent, and why.</summary>
@@ -77,6 +87,8 @@ public sealed class Navigator
     private Vector2 progressOrigin;
     private int progressTicks;
     private bool attemptOpen;
+    // Where a body with no route and no clear line began waiting, so its drift circles one place instead of following itself.
+    private Vector2? waitAnchor;
 
     /// <summary>Steer toward a goal, planning or re-planning as needed.</summary>
     public Controls MoveTo(OrbState live, Vector2 goal)
@@ -106,7 +118,10 @@ public sealed class Navigator
         }
 
         float distanceToGoal = Vector2.Distance(live.Centre, goal);
-        if (distanceToGoal <= ArriveDistance)
+        // Arriving is reaching the arrival radius; staying arrived is staying inside the settle radius,
+        // which is wider by the hover's reach. Inside it the body drifts around the goal rather than
+        // stopping on it, because the orb is never strictly standing still.
+        if (distanceToGoal <= (Arrived ? SettleRadius : ArriveDistance))
         {
             if (!Arrived)
             {
@@ -118,7 +133,7 @@ public sealed class Navigator
             ProgressReason = "arrived";
             Path = null;
             search = null;
-            return Controls.None;
+            return Hover.Around(live, goal, world);
         }
         Arrived = false;
 
@@ -136,27 +151,33 @@ public sealed class Navigator
         if (Path != null)
         {
             Status = search is { Finished: false } ? ExecutionStatus.Pending : ExecutionStatus.Executable;
-            controls = SteerAlongRoute.Steer(live, Path, OrbPace.MaxSpeed, OrbPace.Acceleration, out Vector2 ahead);
+            controls = SteerAlongRoute.Steer(live, Path, OrbPace.MaxSpeed, OrbPace.SpeedChange, out Vector2 ahead);
             Lookahead = ahead;
             ProgressReason = Status == ExecutionStatus.Pending ? "following-while-replanning" : "following";
         }
         else if (CircleContact.SweptClear(world, live.Centre, goal, OrbTerrain.Wall))
         {
-            // No route yet and a clear straight line: go, braking for the goal.
+            // No route yet and a clear straight line: go, easing down into the goal.
             Status = search is { Finished: false } ? ExecutionStatus.Pending : ExecutionStatus.Direct;
             Vector2 direction = (goal - live.Centre) / distanceToGoal;
-            float brake = MathF.Sqrt(2f * OrbPace.Acceleration * MathF.Max(0f, distanceToGoal - ArriveDistance * 0.5f));
-            controls = new Controls(direction * MathF.Min(OrbPace.MaxSpeed, brake));
+            controls = new Controls(direction * OrbPace.ArrivalSpeed(distanceToGoal));
             Lookahead = goal;
             ProgressReason = "direct";
         }
         else
         {
             Status = search is { Finished: false } ? ExecutionStatus.Pending : ExecutionStatus.Unreachable;
-            controls = Controls.None;
+            // Nothing to fly along and no clear line to the goal: drift around where this began rather than ask for
+            // nothing, because the orb is never strictly standing still. Asking for nothing here parked the body for as
+            // long as a follow anchor stayed unplannable — measured in VerifySafetyAftermath's enemy-beside row, fourteen
+            // ticks at zero with the player walking away — and the stuck strikes and the positioner's bans, not a stop,
+            // are what find another place.
+            waitAnchor ??= live.Centre;
+            controls = Hover.Around(live, waitAnchor.Value, world);
             Lookahead = live.Centre;
             ProgressReason = Status == ExecutionStatus.Pending ? "waiting-for-route" : "no-route";
         }
+        if (Status is not (ExecutionStatus.Pending or ExecutionStatus.Unreachable)) waitAnchor = null;
         WatchProgress(live);
         return controls;
     }
@@ -241,53 +262,6 @@ public sealed class Navigator
     }
 
     public void ResetStrikes() => StuckStrikes = 0;
-
-    /// <summary>
-    /// Choose a velocity that keeps the body out of predicted collisions for the next few ticks:
-    /// each of eight headings and a stop is run forward through the contact, and the one that
-    /// stays safe longest wins, ties broken by progress toward the goal. Off the line, for a thing
-    /// that flies, is usually up or down rather than back.
-    /// </summary>
-    public Controls AvoidThreats(OrbState live, Func<OrbState, int, bool> unsafeAtTick, Vector2 goal)
-    {
-        Interrupt(live, AttemptEnding.Preempted, "avoid-threats");
-        ITileWorld world = MovementQueries.World;
-        float speed = OrbPace.MaxSpeed;
-        Vector2 bestVelocity = Vector2.Zero;
-        int bestSafeTicks = -1;
-        float bestProgress = float.NegativeInfinity;
-        var candidates = new List<Vector2> { Vector2.Zero };
-        for (int i = 0; i < 8; i++)
-        {
-            float angle = i * MathF.PI / 4f;
-            candidates.Add(new Vector2(MathF.Cos(angle), MathF.Sin(angle)) * speed);
-        }
-        foreach (Vector2 candidate in candidates)
-        {
-            Vector2 centre = live.Centre, velocity = live.Velocity;
-            int safeTicks = Weights.DodgeLookaheadTicks;
-            for (int tick = 1; tick <= Weights.DodgeLookaheadTicks; tick++)
-            {
-                Vector2 change = candidate - velocity;
-                if (change.LengthSquared() > OrbPace.Acceleration * OrbPace.Acceleration) change = Vector2.Normalize(change) * OrbPace.Acceleration;
-                velocity += change;
-                Vector2 next = centre + velocity;
-                CircleContact.Resolve(world, ref next, ref velocity);
-                centre = next;
-                if (unsafeAtTick(new OrbState(centre, velocity), tick)) { safeTicks = tick - 1; break; }
-            }
-            float progress = -Vector2.Distance(centre, goal);
-            if (safeTicks > bestSafeTicks || (safeTicks == bestSafeTicks && progress > bestProgress))
-            {
-                bestSafeTicks = safeTicks;
-                bestProgress = progress;
-                bestVelocity = candidate;
-            }
-        }
-        Status = ExecutionStatus.Direct;
-        ProgressReason = "avoiding";
-        return new Controls(bestVelocity);
-    }
 
     /// <summary>End the held goal and its route, scoring the attempt by who ended it.</summary>
     public void Interrupt(OrbState live, AttemptEnding ending = AttemptEnding.Cancelled, string cause = "released")

@@ -37,7 +37,7 @@ internal static class VerifyCombatPurpose
         // at this body since the change, and two of which turned out to be carrying walker-era defects of their
         // own once they could be seen. A row that cannot pass until somebody changes the brain goes last, so
         // that what it is waiting on is the only thing it hides.
-        TheSameSmallAttackIsIgnoredAtFullHealthAndEscapedAtLowHealth();
+        TheSameSmallAttackWeighsMoreAtLowHealthWithoutTakingTheBody();
         Console.WriteLine("combat purpose: effective damage and remaining life decide threat consequence, low health turns a tolerable attack into an escape, pursuit weighs a reposition against the shots it delays, protection is worth only the harm an intervention can remove, pursuit, aim and landed-hit identities are recorded apart, and a boss or world event stops optional work only where it reaches, once, from native facts or observed pressure");
         return 0;
     }
@@ -681,15 +681,17 @@ internal static class VerifyCombatPurpose
     }
 
     /// <summary>
-    /// J13: a small attack during nothing in particular must not send a healthy companion running, but the
-    /// same attack at low health must. Only the companion's life differs between the two runs; the slime,
-    /// its damage, the terrain and the absent ordinary offers are identical, and it cannot be damaged, so
-    /// the arsenal cannot end the scene by killing it.
+    /// J13, restated for the orb. A small attack beside a healthy companion and the same attack beside one at
+    /// twelve life must both leave the body to its job, because since 15 September 2026 no enemy starts a
+    /// safety response: neither run may show one. What the wound still changes is how dangerous the companion
+    /// reads, which hunting's own-skin term consumes, so the wounded run must read more danger than the healthy
+    /// one. Only the companion's life differs between the runs; the slime cannot be damaged, so the arsenal
+    /// cannot end the scene by killing it.
     /// </summary>
-    private static void TheSameSmallAttackIsIgnoredAtFullHealthAndEscapedAtLowHealth()
+    private static void TheSameSmallAttackWeighsMoreAtLowHealthWithoutTakingTheBody()
     {
         string gate = "";
-        bool Spaces(int life, out float danger)
+        bool Responds(int life, out float danger)
         {
             var (_, ctx) = VerifyOreWork.SetUp(Policy.Disabled, TileID.Copper, new Point(25, 89));
             Main.tile[25, 89].ClearEverything();
@@ -701,9 +703,9 @@ internal static class VerifyCombatPurpose
             slime.Bottom = ctx.Npc.Bottom + new Vector2(64, 0);
             VerifyResponsiveFollowing.AdvanceNative(ctx.Companion);
             ctx.Companion.Brain.Chooser.Actions.Clear();
-            bool spaced = false;
+            bool responded = false;
             danger = 0f;
-            for (int tick = 0; tick < 60 && !spaced; tick++)
+            for (int tick = 0; tick < 60; tick++)
             {
                 VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
                 VerifyCompanionLifecycle.TickWithOneControlGrant(ctx.Companion);
@@ -711,12 +713,10 @@ internal static class VerifyCombatPurpose
                 Require(senses.Threats.Threats.Count == 1 && senses.Threats.PlayerDanger == 0f,
                     "the small-attack scene must threaten the companion alone");
                 danger = MathF.Max(danger, senses.Threats.CompanionDanger);
-                spaced = ctx.Companion.Brain.Safety.Active && ctx.Companion.Brain.Safety.Kind == "combat-spacing";
-                if (tick == 0 || spaced)
+                responded |= ctx.Companion.Brain.Safety.Active;
+                if (tick == 0 || ctx.Companion.Brain.Safety.Active)
                 {
                     var threat = senses.Threats.Threats[0];
-                    float connectWindow = live::AICompanion.Companion.Brain.Infrastructure.Selection.Weights.CombatSpaceConnectTicks;
-                    float exposureGate = live::AICompanion.Companion.Brain.Infrastructure.Selection.Weights.CombatSpaceExposure;
                     float exposure = live::AICompanion.Companion.Brain.Infrastructure.Position.Positioner.PredictedExposureAt(ctx.Npc.Center, senses);
                     bool sees = live::AICompanion.Companion.Brain.Infrastructure.Observation.LineOfSight.Between(slime, ctx.Npc);
                     var rows = new System.Text.StringBuilder();
@@ -727,16 +727,19 @@ internal static class VerifyCombatPurpose
                             rows.Append(live::AICompanion.Companion.Brain.Infrastructure.Movement.MovementQueries.IsBlock(x, y) ? '#' : '.');
                     }
                     gate = FormattableString.Invariant(
-                        $"life={life} inTrouble={senses.Threats.CompanionInTrouble} danger={senses.Threats.CompanionDanger:0.000} canReach={threat.CanReachCompanion} ticksToCompanion={threat.TicksToCompanion:0.0} sees={sees} orb={ctx.Npc.Center} slime={slime.Center} rows={rows} connectWindow={connectWindow} exposure={exposure:0.000} exposureGate={exposureGate} safety={ctx.Companion.Brain.Safety.Active}/{ctx.Companion.Brain.Safety.Kind}/{ctx.Companion.Brain.Safety.Reason}");
+                        $"life={life} inTrouble={senses.Threats.CompanionInTrouble} danger={senses.Threats.CompanionDanger:0.000} canReach={threat.CanReachCompanion} ticksToCompanion={threat.TicksToCompanion:0.0} sees={sees} orb={ctx.Npc.Center} slime={slime.Center} rows={rows} exposure={exposure:0.000} safety={ctx.Companion.Brain.Safety.Active}/{ctx.Companion.Brain.Safety.Kind}/{ctx.Companion.Brain.Safety.Reason}");
                 }
                 VerifyResponsiveFollowing.AdvanceNative(ctx.Companion);
             }
-            return spaced;
+            return responded;
         }
-        bool healthy = Spaces(100, out float healthyDanger);
-        bool wounded = Spaces(12, out float woundedDanger);
-        Require(!healthy, $"a three-damage slime must not make a full-health companion abandon work; danger={healthyDanger}");
-        Require(wounded, $"the same slime must make a companion at twelve life create space; danger={woundedDanger}; gate: {gate}");
+        bool healthy = Responds(100, out float healthyDanger);
+        string healthyGate = gate;
+        bool wounded = Responds(12, out float woundedDanger);
+        Require(!healthy && !wounded,
+            $"no enemy may start a safety response, at full health or at twelve life; healthy={healthy} wounded={wounded}; healthy gate: {healthyGate}; wounded gate: {gate}");
+        Require(woundedDanger > healthyDanger,
+            $"the same slime must read as more dangerous to a companion at twelve life; healthy danger={healthyDanger} wounded danger={woundedDanger}; healthy gate: {healthyGate}; wounded gate: {gate}");
     }
 
     private static void Require(bool condition, string message)

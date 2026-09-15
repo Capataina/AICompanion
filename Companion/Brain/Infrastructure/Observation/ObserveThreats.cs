@@ -117,7 +117,11 @@ public sealed class ThreatSense
 
             Point from = cls == MovementClass.Walker ? MovementQueries.FeetTile(npc.Bottom) : npc.Center.ToTileCoordinates();
             Point playerTarget = cls == MovementClass.Walker ? playerFeet : player.Center.ToTileCoordinates();
-            Point companionTarget = cls == MovementClass.Walker ? companionFeet : companion.Center.ToTileCoordinates();
+            // A walker is asked about the floor under the orb, not the cell the orb hovers in. The cell changes with
+            // every few pixels of drift, and a changed target reads reachable until the next budgeted refresh, so a
+            // drifting body read as reachable by every walker on almost every tick; the floor under it holds still.
+            Point companionTarget = cls == MovementClass.Walker
+                ? EstimateEnemyReach.Landing(MovementQueries.World, companionFeet) : companion.Center.ToTileCoordinates();
             bool sourceChanged = mem.From != from || mem.World != MovementQueries.World
                 || mem.Revision != MovementQueries.World.Revision || mem.Class != cls;
             // A negative result only describes the positions and terrain that were searched.
@@ -147,7 +151,7 @@ public sealed class ThreatSense
                 Npc = npc,
                 Class = cls,
                 CanReachPlayer = cls == MovementClass.Phaser || mem.CanReachPlayer,
-                CanReachCompanion = cls == MovementClass.Phaser || mem.CanReachCompanion,
+                CanReachCompanion = cls == MovementClass.Phaser || (mem.CanReachCompanion && WithinJump(cls, npc, companion, companionTarget)),
                 Shoots = projectileDamage > 0,
                 ExpectedDamage = Math.Max(npc.damage, projectileDamage),
                 IsBoss = npc.boss,
@@ -201,6 +205,31 @@ public sealed class ThreatSense
                 : MathHelper.Clamp((intervention - arrival + Weights.ProtectionLeadTicks) / Weights.ProtectionLeadTicks, 0f, 1f);
             ProtectionUrgency = MathF.Max(ProtectionUrgency, threat.Urgency * urgency);
         }
+    }
+
+    /// <summary>
+    /// How high above its floor a walking enemy can reach: the highest ordinary jump of the game's fighter AI,
+    /// <c>velocity.Y = -8f</c> in <c>NPC.AI_003_Fighters</c>, under the NPC default gravity of 0.3
+    /// (<c>vanillaGravity = 0.3f</c>), peaks v²/2g above where it left the floor. Read off the decompiled game
+    /// rather than tuned; a modded walker that jumps higher is under-read by the difference.
+    /// </summary>
+    private const float WalkerJumpApexPixels = 8f * 8f / (2f * 0.3f);
+
+    /// <summary>
+    /// Whether a walking enemy on the floor under the orb could touch it at all: the orb's circle has to come
+    /// within the walker's own height plus its highest jump above that floor. A hovering orb out of that reach
+    /// cannot be hit by a walker however near it stands, which is what the danger reading got wrong in the
+    /// first play of the orb, reading 0.92 to 0.97 with zombies below while the orb took no hit in 83 seconds.
+    /// Everything that is not a walker is not asked. The jump is measured from the floor under the orb or from where the
+    /// walker already stands, whichever is higher, because a walker on a ledge level with the orb, or already in the air
+    /// beside it, does not have to come down to the orb's floor before it can touch it.
+    /// </summary>
+    private static bool WithinJump(MovementClass cls, NPC npc, NPC companion, Point floorCell)
+    {
+        if (cls != MovementClass.Walker) return true;
+        float floorSurface = (floorCell.Y + 1) * 16f;
+        float highestReach = MathF.Min(floorSurface - npc.height, npc.position.Y) - WalkerJumpApexPixels;
+        return companion.Center.Y + CircleContact.Radius >= highestReach;
     }
 
     /// <summary>

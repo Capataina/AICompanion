@@ -137,24 +137,20 @@ internal static class VerifyResponsiveFollowing
         brain.Senses.Update(companion.NPC, player, companion.Motor);
         Require(brain.Chooser.Choose(context) == company && company.Score() > 0, "company must be a positive ordinary offer while nearby");
         long identity = brain.Chooser.Activity.Id;
-        bool rested = false, strolled = false;
-        var random = Main.rand;
-        Main.rand = new Terraria.Utilities.UnifiedRandom(1729);
-        try
+        // Company beside a resting player holds, and the body hovers on that hold; there is no stroll to request. The hold must
+        // still grow the reach region to completion, because a companion whose only request is a hold is otherwise a companion
+        // with no flood, and every optional job refuses to start on an unanswered search.
+        bool onlyHeld = true;
+        for (int tick = 0; tick < 2400; tick++)
         {
-            for (int tick = 0; tick < 2400; tick++)
-            {
-                var request = company.Execute(context);
-                // Resolved every tick as the brain does: a stroll goal must lie in the positioner's returnable region, and that
-                // region grows only on the resolver's own cadence, so executing without resolving leaves it at its first slice.
-                brain.Positioner.Resolve(request, brain.Senses, null);
-                rested |= request.Kind == RequestKind.Hold;
-                strolled |= request.Kind == RequestKind.Exact;
-                Require(request.Kind != RequestKind.WithPlayer, "calm co-location should not keep requesting reunion");
-            }
+            var request = company.Execute(context);
+            // Resolved every tick as the brain does, because the region is rooted and replaced on the resolver's own cadence.
+            brain.Positioner.Resolve(request, brain.Senses, null);
+            onlyHeld &= request.Kind == RequestKind.Hold;
+            Require(request.Kind != RequestKind.WithPlayer, "calm co-location should not keep requesting reunion");
         }
-        finally { Main.rand = random; }
-        Require(rested && strolled, $"company must preserve both resting and nearby movement methods; rested={rested} strolled={strolled} "
+        Require(onlyHeld && brain.Positioner.ReachComplete,
+            $"company beside a resting player must hold, and holding must still complete the reach region; onlyHeld={onlyHeld} "
             + $"returnable={brain.Positioner.ReturnableCount} reach={brain.Positioner.ReachCount} complete={brain.Positioner.ReachComplete}");
         player.Bottom += new Vector2(480, 0);
         brain.Senses.Update(companion.NPC, player, companion.Motor);
