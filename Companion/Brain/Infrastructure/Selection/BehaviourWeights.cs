@@ -42,6 +42,17 @@ public static class Weights
     // swept tests each — and a screen-sized window is a few thousand corners, so this closes one
     // in a handful of resolves rather than the walker's several seconds.
     public const int ReachFloodExpansions = 1500;
+    /// <summary>
+    /// How far from the reach flood's root, in straight-line tiles, the sense gives a verdict at all. Inside
+    /// it a tile the finished flood never claimed is proven unreachable; beyond it the answer is not yet,
+    /// never unreachable, because the flood was not asked to go that far. The flood itself is bounded by
+    /// travel cost at twice this distance, so "unreachable within the radius" means no route of less than
+    /// twice the straight line exists, a detour the reunion charge would refuse anyway. It sits above every
+    /// distance a consumer asks about from the body: the hunt reach and an on-screen enemy beyond it, the
+    /// work radius around the intent region, the loot reach. The flood is rerooted once the body has
+    /// travelled half this distance from the root, so the verdict is always good for at least half of it.
+    /// </summary>
+    public const int ReachKnownRadiusTiles = 72;
     // How many corners a route search may close per tick; a search that runs out keeps its
     // frontier and continues next tick while the body follows what it already had.
     public const int RouteSearchExpansions = 2500;

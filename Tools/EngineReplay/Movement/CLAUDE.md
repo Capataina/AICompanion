@@ -1,6 +1,6 @@
 # Movement fixtures — the contact, the free space, the route and the body that flies it
 
-Everything about getting the orb from where it is to where it was asked to be, proved against Terraria's own tiles. `VerifyEngineMotion.cs` is also the default suite's entry point: it holds the forty-two-case table and the flag dispatch, which the parent guide describes.
+Everything about getting the orb from where it is to where it was asked to be, proved against Terraria's own tiles. `VerifyEngineMotion.cs` is also the default suite's entry point: it holds the forty-five-case table and the flag dispatch, which the parent guide describes.
 
 ```
 Movement/

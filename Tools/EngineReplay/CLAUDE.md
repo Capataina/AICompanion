@@ -25,7 +25,7 @@ Each child folder's own `CLAUDE.md` owns its fixtures. This file owns what is tr
 
 `VerifyEngineMotion.Run` once ended in thirty-eight terms of `failed += Verify*.Run()`. Assertions here throw, so that expression was never a total: the first fixture to fail took every fixture after it with it, and the suite returned one exit code that could not distinguish twenty-two unrun fixtures from twenty-two passing ones.
 
-It is a table now — forty-two entries in `DefaultCases()`, one named case per fixture, each run through `EmitLedgerRows.Case` with its own verdict and unable to reach its neighbours. The emitter's reset runs between them, so a case cannot inherit the world its predecessor left. The summed exit code is unchanged, so the suite means what it meant; what changed is that a red names one case and the other forty-one still say what they found.
+It is a table now — forty-five entries in `DefaultCases()`, one named case per fixture, each run through `EmitLedgerRows.Case` with its own verdict and unable to reach its neighbours. The emitter's reset runs between them, so a case cannot inherit the world its predecessor left. The summed exit code is unchanged, so the suite means what it meant; what changed is that a red names one case and the other forty-four still say what they found.
 
 The case name is the question the fixture answers, written as a sentence, because it is what the scoreboard prints and what `--case` matches. `AIC_LEDGER_CASE` selects by substring and `AIC_LEDGER_RUN` names the run file; a case not selected writes a skip carrying its reason, never silence.
 
@@ -53,9 +53,9 @@ The standalone flags are the fourth row's cause and it is structural rather than
 ## The flag table
 
 ```
-(no flag)              the default suite: forty-two cases, exit 0 when none went red
+(no flag)              the default suite: forty-five cases, exit 0 when none went red
 --orb-contact          the circle contact's size rule, diagonal step, push-out and slide
---free-space           corridor widths, liquids as walls, and that the flood finishes
+--free-space           corridor widths, liquids as walls, that the flood finishes, and that a bounded flood exhausts inside its ball
 --route-endings        pending against unreachable, and what an exhausted budget means
 --attack-outcomes      the arsenal's forecast against what landed
 --offer-validity       shot windows, cut searches, proven absences while the body walks

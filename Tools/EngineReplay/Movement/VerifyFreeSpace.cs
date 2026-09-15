@@ -130,6 +130,43 @@ internal static class VerifyFreeSpace
         }
     }
 
+    /// <summary>
+    /// A bounded flood exhausts inside its travel radius and nowhere else. The reach sense depends on
+    /// this: a flood over an open world once ran to the search's node limit, which finishes without
+    /// exhausting, so the sense could never say "unreachable" for the life of a session. The corridor
+    /// is far longer than the radius, and the count is exact because a goalless unpriced search closes
+    /// corners in cost order: twenty tiles each way along the start's row, nineteen along the row a
+    /// diagonal step away. Without the bound the flood closes the whole corridor and the count fails.
+    /// </summary>
+    public static int FloodBounded()
+    {
+        LimitPlanningWork.Unbounded = true;
+        try
+        {
+            var corridor = Corridor(400, 3);
+            FreeSpaceSearch.WorldOverride = corridor;
+            ClearanceField.Shared.Invalidate();
+            const float radius = 20f * 16f;
+            var flood = new FreeSpaceSearch(corridor, new Point(200, 2), null, priceClearance: false, radius: radius);
+            flood.Advance(int.MaxValue);
+            Require(flood.Stop == FreeSpaceSearch.StopReason.Exhausted, $"a bounded flood must exhaust inside its radius: {flood.Stop}");
+            int furthest = flood.Reached.Max(c => Math.Abs(c.X - 200));
+            Require(furthest == 20, $"the flood must reach exactly twenty tiles along the corridor; it reached {furthest}");
+            Require(flood.Reached.Contains(new Point(220, 2)) && !flood.Reached.Contains(new Point(221, 2)),
+                "the corner at the radius is closed and the one past it is not");
+            Require(flood.Reached.Count == 41 + 39, $"a twenty-tile ball in a three-row corridor holds eighty corners; the flood closed {flood.Reached.Count}");
+            Require(flood.CostTo(new Point(220, 2)) is float cost && Math.Abs(cost - radius) < 0.01f,
+                "an unpriced flood's cost is the path length in pixels, so the radius corner costs the radius");
+            return 0;
+        }
+        finally
+        {
+            LimitPlanningWork.Unbounded = false;
+            FreeSpaceSearch.WorldOverride = null;
+            ClearanceField.Shared.Invalidate();
+        }
+    }
+
     private static FreeSpaceSearch Flood(TextTileWorld world, Point start)
     {
         FreeSpaceSearch.WorldOverride = world;

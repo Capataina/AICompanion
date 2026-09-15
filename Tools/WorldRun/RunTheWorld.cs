@@ -36,10 +36,13 @@ internal static class RunTheWorld
         IReadOnlyList<Vector2> CompanionCentres,
         IReadOnlyList<string> Trace,
         /// <summary>
-        /// What the planner said about the tile the player was standing on, on the tick they stood
-        /// there. This is the "planner claim" half of the checkpoint matrix, and it is taken here
-        /// rather than recomputed afterwards for two reasons: it is free, because the flood it
-        /// reads has already been run for this tick's decisions, and it is the claim the brain
+        /// What the reach sense said about the tile the player's body occupied, on the tick he stood
+        /// there. The tile of his body and not the tile under his feet: a standing player's feet rest
+        /// on a solid tile, which has no usable corner by construction and so can never be in a flood
+        /// of free space, and asking about it printed "not yet" on nineteen of twenty checkpoints
+        /// whatever the run did. This is the "planner claim" half of the checkpoint matrix, and it is
+        /// taken here rather than recomputed afterwards for two reasons: it is free, because the flood
+        /// it reads has already been run for this tick's decisions, and it is the claim the brain
         /// actually held at the time rather than one reconstructed from a later state.
         /// </summary>
         IReadOnlyList<live::AICompanion.Companion.Brain.Infrastructure.Observation.ReachVerdict> PlannerClaim,
@@ -55,7 +58,14 @@ internal static class RunTheWorld
         ulong? LightReadTick,
         int LightMeasuredSamples,
         float LightAtCompanion,
-        float LightAtPlayer)
+        float LightAtPlayer,
+        /// <summary>
+        /// The orb's liquid immunities, read off the live body inside the run because the body is
+        /// gone by the time the scorer runs: `CompanionNPC.Find()` answered null on every checkpoint
+        /// of the only instrument that asked it, so a rule reading the flags there was reading a default.
+        /// </summary>
+        bool ImmuneToWater,
+        bool ImmuneToLava)
     {
         /// <summary>
         /// One number standing for the whole run's decisions and positions, so two runs can be
@@ -168,7 +178,7 @@ internal static class RunTheWorld
             // Asked after the tick's resolve, because the reach flood is advanced by the
             // positioner's resolve rather than by the senses' own update, so asking before it would
             // read the previous tick's region under the previous tick's rules.
-            claims.Add(brain.Senses.Reach.Reachable(player.Bottom.ToTileCoordinates()));
+            claims.Add(brain.Senses.Reach.Reachable(player.Center.ToTileCoordinates()));
             trace.Add(string.Create(CultureInfo.InvariantCulture,
                 $"{step.Tick}|{brain.LastAction?.Name ?? "-"}|{brain.LastRequest.Kind}|{companion.Motor.AppliedControls}|{brain.Navigator.Status}|{companion.NPC.position.X:R},{companion.NPC.position.Y:R}"));
         }
@@ -176,6 +186,7 @@ internal static class RunTheWorld
         clock.Stop();
         var light = companion.Brain.Senses.Light;
         return new Outcome(centres, trace, claims, route.Count, clock.Elapsed.TotalSeconds, worldSource,
-            light.ReadTick, light.MeasuredSamples, light.AtCompanion, light.AtPlayer);
+            light.ReadTick, light.MeasuredSamples, light.AtCompanion, light.AtPlayer,
+            companion.ImmuneToWater, companion.ImmuneToLava);
     }
 }

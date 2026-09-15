@@ -41,8 +41,14 @@ public sealed class FreeSpaceSearch
 {
     public enum StopReason { ExpansionBudget, Deadline, Exhausted, Found, NodeLimit }
 
-    /// <summary>The most corners one search may close; a flood over a whole loaded world would otherwise grow without bound.</summary>
-    public const int NodeLimit = 40000;
+    /// <summary>
+    /// The most corners one search may close, a backstop rather than a bound the design relies on. A flood
+    /// that stops here has not exhausted anything: it finishes without proving an absence, and a reach sense
+    /// that sat on such a flood could never say "unreachable" again. The reach flood is bounded by
+    /// <see cref="Radius"/> instead, and this limit only has to sit above the corners a travel ball of that
+    /// radius can hold in fully open air, which for the sense's radius is about sixty-five thousand.
+    /// </summary>
+    public const int NodeLimit = 80000;
 
     private readonly ITileWorld world;
     private readonly LiquidImmunity immunity;
@@ -87,16 +93,32 @@ public sealed class FreeSpaceSearch
     /// <summary>The corners closed so far; for the flood this is the reachable region.</summary>
     public IReadOnlySet<Point> Reached => closed;
 
+    /// <summary>
+    /// The travel cost beyond which a flood does not reach, in the search's own cost units (world pixels
+    /// when clearance is not priced). A goalless search closes corners in cost order, so when its queue
+    /// empties every corner whose cheapest path costs no more than this is closed, and <c>Exhausted</c>
+    /// then means "exhausted within the radius": a sound proven absence for everything inside the ball,
+    /// which a rectangular window could not give, because a corner inside a box whose only route loops
+    /// outside it would read as absent. It is only meaningful without a goal and without a preference,
+    /// since either reorders the queue away from cost order; a route search leaves it infinite.
+    /// </summary>
+    public float Radius { get; }
+
     /// <param name="rules">The immunities this search runs under; the process-wide ones unless a caller
     /// needs to search through liquid the body is already in.</param>
     /// <param name="priceClearance">Whether edges carry the corridor-middle price; a search for the nearest
     /// safe corner wants the nearest and not the widest.</param>
-    public FreeSpaceSearch(ITileWorld world, Point start, Point? goal, LiquidImmunity? rules = null, bool priceClearance = true)
+    /// <param name="radius">See <see cref="Radius"/>; infinite unless the caller bounds a flood.</param>
+    public FreeSpaceSearch(ITileWorld world, Point start, Point? goal, LiquidImmunity? rules = null, bool priceClearance = true,
+        float radius = float.PositiveInfinity)
     {
+        if (goal != null && !float.IsPositiveInfinity(radius))
+            throw new ArgumentException("a radius bounds a flood, and a search with a goal is not in cost order", nameof(radius));
         this.world = world;
         immunity = rules ?? OrbTerrain.Immunity;
         immunityOverridden = rules != null;
         this.priceClearance = priceClearance;
+        Radius = radius;
         revisionAtStart = world.Revision;
         Start = start;
         Goal = goal;
@@ -165,6 +187,9 @@ public sealed class FreeSpaceSearch
                 float edge = priceClearance ? CornerGraph.EdgeCost(world, node, next) : Vector2.Distance(CornerGraph.ToWorld(node), CornerGraph.ToWorld(next));
                 if (Avoid.Count > 0) edge *= AvoidancePenalty(next);
                 float tentative = here + edge;
+                // Beyond the radius is never queued, so the queue empties exactly when every corner
+                // inside the ball is closed and Exhausted is proven for the ball rather than the world.
+                if (tentative > Radius) continue;
                 if (cost.TryGetValue(next, out float known) && known <= tentative) continue;
                 cost[next] = tentative;
                 parent[next] = node;

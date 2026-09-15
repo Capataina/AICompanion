@@ -202,7 +202,7 @@ public sealed class Positioner
                 Point around = MovementQueries.Tile(request.Anchor);
                 Point? beside = MovementQueries.NearestUsableCorner(request.Anchor, 1, requireSweep: false);
                 bool fits = !CircleContact.Overlaps(MovementQueries.World, request.Anchor) && Allowed(around)
-                    && !(ReachComplete && (beside is not Point b || !reachSense.ReachesCorner(b)));
+                    && !(beside is Point b ? ProvenUnreachable(b) : ReachComplete);
                 if (fits)
                     Chosen = request.Anchor;
                 else
@@ -354,7 +354,11 @@ public sealed class Positioner
     /// A missing corner in an unfinished flood is unknown, not unreachable. Following may therefore begin toward a
     /// useful spot while the bounded flood is still expanding; only an exhausted region can reject it as absent.
     /// </summary>
-    private bool ProvenUnreachable(Point corner) => ReachComplete && !ReachesCorner(corner);
+    /// <summary>A corner the finished flood never claimed inside its known radius; beyond that radius nothing is proven.</summary>
+    private bool ProvenUnreachable(Point corner) => reachSense?.ProvenUnreachableCorner(corner) ?? false;
+
+    /// <summary>A tile the reach sense has proven absent, for a caller deciding whether an unreached stand is a proven refusal or a not-yet.</summary>
+    public bool ProvenUnreachableTile(Point tile) => reachSense?.Reachable(tile) == ReachVerdict.Unreachable;
 
     private void UpdateFollowObjective(in PositionRequest request, Senses.Senses senses)
     {

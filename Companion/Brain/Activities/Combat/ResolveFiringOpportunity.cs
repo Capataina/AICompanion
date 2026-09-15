@@ -196,7 +196,9 @@ public sealed class ResolveFiringOpportunity
                     ?? Vector2.Distance(ctx.Npc.Center, Infrastructure.Movement.MovementQueries.HoverPoint(stand.Tile)) / Infrastructure.Movement.OrbPace.MaxSpeed;
                 nearestReachable = MathF.Min(nearestReachable, ticks);
             }
-            else if (!positioner.ReachComplete)
+            // A stand the flood has not claimed is only a refusal when the sense has proven it absent; beyond
+            // the sense's known radius, or while the flood is unfinished, it is a stand hunt may still walk toward.
+            else if (!positioner.ProvenUnreachableTile(stand.Tile))
                 solvedUnreachable = true;
         }
 

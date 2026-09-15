@@ -21,11 +21,27 @@ public enum ReachVerdict
 
 /// <summary>
 /// Where the body can fly to: one free-space flood over corner nodes from the corner nearest the
-/// body, read by everyone who needs the answer. Because no cell needs a jump proved, the flood
-/// finishes within a few resolves on a whole window, and "not yet known" is the rare answer rather
-/// than the common one. There is one flood and not two: every edge of the corner graph is
-/// two-way for a body that flies, so "can go" and "can come home from" are the same region, and
-/// the walker's one-way exception for a player standing at the bottom of a drop has no meaning.
+/// body, read by everyone who needs the answer. There is one flood and not two: every edge of the
+/// corner graph is two-way for a body that flies, so "can go" and "can come home from" are the same
+/// region, and the walker's one-way exception for a player standing at the bottom of a drop has no
+/// meaning.
+///
+/// <para>The flood is a ball, not a world. It is bounded by travel cost at twice
+/// <see cref="Weights.ReachKnownRadiusTiles"/>, so in an open world it finishes rather than growing
+/// until the search's node limit stops it unfinished — which is what the first orb tree did, and it
+/// left <see cref="Complete"/> false for the life of every session, so nothing could ever be proven
+/// unreachable and hunting could never prove an absence. A tile within the known radius of the root
+/// that a finished flood never claimed is proven unreachable; a tile beyond it answers not yet,
+/// because the flood was never asked about it. Underground the ball is mostly rock and closes in a
+/// few resolves; in open sky it is the whole disc and takes a few hundred ticks, which is the one
+/// place "not yet" stays the common answer for long.</para>
+///
+/// <para>Once the body has travelled half the known radius from the root, a second flood is grown
+/// there while the first keeps answering, and it replaces the first only when it has finished, so
+/// ordinary travel never empties the region the way a terrain edit does. The flood's costs are
+/// unpriced lengths in pixels rather than the route search's clearance-weighted ones, because a
+/// reach flood is asked "how far" and not "which way", and a travel estimate read off it should be
+/// a distance.</para>
 ///
 /// <para>The sense is refreshed by the positioner's resolve rather than by <see cref="Senses.Update"/>,
 /// and that is deliberate: the immunities are copied into the terrain reading by the brain tick, so
@@ -49,7 +65,16 @@ public sealed class ReachSense
     /// not connected to the region it left, and an unfinished flood would never say so.</summary>
     private const int MissingRootPatience = 3;
 
+    /// <summary>The flood's travel-cost bound, in pixels of unpriced path length: twice the known radius, so a
+    /// tile inside the known radius is proven absent only when no route of less than twice the straight line exists.</summary>
+    private static float TravelRadius => Weights.ReachKnownRadiusTiles * 2f * 16f;
+    /// <summary>How far, in pixels of travel, the body may be from the root before a replacement flood is grown there.</summary>
+    private static float RerootTravel => Weights.ReachKnownRadiusTiles * 16f / 2f;
+
     private FreeSpaceSearch? flood;
+    /// <summary>The replacement flood growing under a body that has travelled far from the root; answers come
+    /// from <see cref="flood"/> until this one has finished, then it becomes the flood.</summary>
+    private FreeSpaceSearch? pending;
     private HashSet<Point>? tiles;
     private int tilesBuiltAt = -1;
     private int sinceFlood = RefloodTicks;
@@ -60,8 +85,23 @@ public sealed class ReachSense
     /// not register: this is the number a terrain edit used to drive from anywhere in the world.</summary>
     public int Refloods { get; private set; }
 
-    /// <summary>Whether the flood ran out of free space before its budget, so a tile outside it is truly absent.</summary>
+    /// <summary>How many times a replacement flood was grown under a travelling body while the old one kept
+    /// answering. Counted apart from <see cref="Refloods"/> because a reroot empties nothing.</summary>
+    public int Reroots { get; private set; }
+
+    /// <summary>Whether the flood ran out of free space inside its travel radius, so a tile inside the known
+    /// radius that it never claimed is truly absent. Says nothing about a tile beyond the known radius.</summary>
     public bool Complete { get; private set; }
+
+    /// <summary>Whether a tile is close enough to the flood's root for the sense to give a verdict about it.</summary>
+    public bool WithinKnownRadius(Point tile)
+        => flood != null && Vector2.Distance(CornerGraph.ToWorld(flood.Start), new Vector2(tile.X * 16f + 8f, tile.Y * 16f + 8f))
+            <= Weights.ReachKnownRadiusTiles * 16f;
+
+    /// <summary>A corner the finished flood never claimed, inside the known radius: proven absent rather than not yet.</summary>
+    public bool ProvenUnreachableCorner(Point corner)
+        => Complete && flood != null && !flood.Reached.Contains(corner)
+            && Vector2.Distance(CornerGraph.ToWorld(flood.Start), CornerGraph.ToWorld(corner)) <= Weights.ReachKnownRadiusTiles * 16f;
 
     /// <summary>The same fact under the name the positioner reads; one flood means one completeness.</summary>
     public bool ScoredComplete => Complete;
@@ -92,10 +132,10 @@ public sealed class ReachSense
     public bool PlayerOnlyOneWay => false;
     public bool ReachableOneWay(Point tile) => Returnable(tile);
 
-    /// <summary>Reachable, not yet known, or proven absent.</summary>
+    /// <summary>Reachable, not yet known, or proven absent; a tile beyond the known radius is never proven absent.</summary>
     public ReachVerdict Reachable(Point tile)
         => Returnable(tile) ? ReachVerdict.Reachable
-            : Complete ? ReachVerdict.Unreachable
+            : Complete && WithinKnownRadius(tile) ? ReachVerdict.Unreachable
             : ReachVerdict.NotYet;
 
     /// <summary>The flood's travel cost to the nearest reached corner of a tile, in ticks at the body's cap; null while unreached.</summary>
@@ -146,6 +186,8 @@ public sealed class ReachSense
     {
         if (flood?.Valid == false)
             sinceFlood = RefloodTicks;
+        if (pending?.Valid == false)
+            pending = null;
         if (flood != null && sinceFlood < RefloodTicks)
             return;
         sinceFlood = 0;
@@ -164,13 +206,42 @@ public sealed class ReachSense
             rooted = true;
         if (!rooted)
         {
+            // The body is outside the region, carried there by recovery or by a flood that never
+            // held it: the old answers are about somewhere else, so they go, and the region is
+            // empty until the new flood has grown — the one case where travel empties it.
             rootMissing = 0;
             Refloods++;
-            flood = new FreeSpaceSearch(world, root.Value, null);
+            flood = Flood(world, root.Value);
+            pending = null;
         }
-        else if (flood!.Reached.Contains(root.Value)) rootMissing = 0;
-        flood.Advance(Weights.ReachFloodExpansions, Weights.PositionReachMilliseconds);
+        else
+        {
+            if (flood!.Reached.Contains(root.Value)) rootMissing = 0;
+            // The body has travelled far from the root of a finished flood: grow the replacement here
+            // while the old one keeps answering, so ordinary travel never reads as an empty region.
+            if (pending == null && flood.Finished && flood.CostTo(root.Value) is float travelled && travelled > RerootTravel)
+            {
+                pending = Flood(world, root.Value);
+                Reroots++;
+            }
+        }
+        if (pending != null)
+        {
+            pending.Advance(Weights.ReachFloodExpansions, Weights.PositionReachMilliseconds);
+            if (pending.Finished)
+            {
+                flood = pending;
+                pending = null;
+                tiles = null;
+            }
+        }
+        else
+            flood.Advance(Weights.ReachFloodExpansions, Weights.PositionReachMilliseconds);
         Complete = flood.Finished && flood.Stop == FreeSpaceSearch.StopReason.Exhausted;
         LastFloodMs = clock.Elapsed.TotalMilliseconds;
     }
+
+    /// <summary>A reach flood: goalless, unpriced so its costs are distances, and bounded by the travel radius.</summary>
+    private static FreeSpaceSearch Flood(ITileWorld world, Point root)
+        => new(world, root, null, priceClearance: false, radius: TravelRadius);
 }

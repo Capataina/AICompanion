@@ -79,6 +79,7 @@ internal static class VerifyEngineMotion
         ("contact pushes the orb out of a wall, kills the velocity into it and keeps the slide", VerifyOrbContact.PushOutAndSlide),
         ("a two-wide corridor is open to the flood, a one-wide is closed, and a liquid is a wall until its immunity", VerifyFreeSpace.CorridorsAndLiquids),
         ("the free-space flood over a screen-sized room finishes in a handful of slices", VerifyFreeSpace.FloodFinishes),
+        ("a flood bounded by travel cost exhausts inside its radius with exactly the corners the ball holds", VerifyFreeSpace.FloodBounded),
         ("an enemy's observed motion is forecast from what it actually did", VerifyObservedMotion.Run),
         ("the god's-eye occurrence stream records what it claims", VerifyGodsEyeEvents.Run),
         ("a prepared comparison preserves its numbers", VerifyPreparedActivities.Run),

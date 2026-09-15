@@ -17,7 +17,7 @@ ResetProcessState.PrepareProcess();
 ResetProcessState.Register();
 
 if (args.Contains("--orb-contact")) return VerifyOrbContact.SizeRule() + VerifyOrbContact.DiagonalStep() + VerifyOrbContact.PushOutAndSlide();
-if (args.Contains("--free-space")) return VerifyFreeSpace.CorridorsAndLiquids() + VerifyFreeSpace.FloodFinishes();
+if (args.Contains("--free-space")) return VerifyFreeSpace.CorridorsAndLiquids() + VerifyFreeSpace.FloodFinishes() + VerifyFreeSpace.FloodBounded();
 if (args.Contains("--route-endings")) return VerifyRouteEndings.Run() == 0 ? 0 : 1;
 if (args.Contains("--attack-outcomes")) return VerifyAttackOutcomes.Run();
 if (args.Contains("--offer-validity")) return VerifyOfferValidity.Run();
