@@ -134,6 +134,18 @@ public static class DescribeSession
             sb.Append("hands     ").Append(string.Join("  ", parts)).Append('\n');
         }
 
+        // Each activity's candidate funnel: the share of rows on which the candidate that got furthest stopped at each
+        // stage, so "why was the lighting never done" opens on a count per stage rather than on a search through offers.
+        foreach (string name in session.Names)
+        {
+            if (!name.EndsWith("_funnel", StringComparison.Ordinal)) continue;
+            var tally = FindStretches.Tally(session[name], whole);
+            var parts = new List<string>();
+            for (int i = 0; i < tally.Count && i < 5; i++)
+                parts.Add($"{tally[i].Key} {100f * tally[i].Value / session.Count:0.0}%");
+            sb.Append("funnel    ").Append(name[..^"_funnel".Length]).Append(": ").Append(string.Join("  ", parts)).Append('\n');
+        }
+
         if (session.Has("brain_ms"))
             sb.Append($"cost      brain {FindStretches.Mean(session["brain_ms"], whole):0.00} ms a tick mean, {FindStretches.Max(session["brain_ms"], whole):0.00} peak, against a 16.67 ms frame\n");
 
