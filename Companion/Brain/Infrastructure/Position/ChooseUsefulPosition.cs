@@ -328,7 +328,6 @@ public sealed class Positioner
         EvaluatedCandidates = 0;
         CandidateCount = ReachableCandidateCount = RejectedCandidateCount = 0;
         var region = senses.Intent.Region;
-        var playerSide = senses.Intent.PlayerSide;
         float inset = Movement.Navigator.SettleRadius;
         Vector2 body = senses.Companion.Center;
         Point low = CornerGraph.NearestCorner(region.Centre - region.HalfSize + new Vector2(inset));
@@ -343,7 +342,7 @@ public sealed class Positioner
                 Vector2 spot = CornerGraph.ToWorld(corner);
                 CandidateCount++;
                 if (!region.Accepts(spot, inset) || !MovementQueries.IsUsableCorner(corner) || !Allowed(MovementQueries.Tile(spot))
-                    || ProvenUnreachable(corner) || (playerSide != null && !playerSide.Contains(corner)) || StandsInPlayersWay(spot, senses))
+                    || ProvenUnreachable(corner) || senses.Intent.ProvenCutOff(corner) || StandsInPlayersWay(spot, senses))
                 {
                     RejectedCandidateCount++;
                     continue;

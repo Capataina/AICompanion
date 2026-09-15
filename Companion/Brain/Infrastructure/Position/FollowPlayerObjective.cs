@@ -28,13 +28,13 @@ namespace AICompanion.Companion.Brain.Infrastructure.Position;
 /// leave and re-enter the region on alternate ticks. Losing sight of the player is not a condition:
 /// a companion behind a pillar inside his region is with him.</para>
 ///
-/// <para><paramref name="Connected"/> also comes from the sense, and it is a fact about the body the sense saw rather than about
+/// <para><paramref name="CutOff"/> also comes from the sense, and it is a fact about the body the sense saw rather than about
 /// any point, which is why every caller asks <see cref="IsSatisfied"/> about the live body. The owner ruled on 15 September
 /// 2026 that being with the player requires the companion can reach him: a body inside the box on the far side of a sealed
-/// wall is outside, so rejoining sends it round. It defaults to true, which is the answer when nothing proves the body cut
-/// off, so an objective built by hand from a region and a latch reads as it always did.</para>
+/// wall is outside, so rejoining sends it round. It is true only for a proof, and it defaults to false, which is the answer while
+/// nothing proves the body cut off, so an objective built by hand from a region and a latch reads as it always did.</para>
 /// </summary>
-public readonly record struct FollowPlayerObjective(PlayerIntentRegion Region, Vector2 Anchor, bool Inside, bool Connected = true)
+public readonly record struct FollowPlayerObjective(PlayerIntentRegion Region, Vector2 Anchor, bool Inside, bool CutOff = false)
 {
     /// <summary>The same objective aimed at a different place. Every consumer starts from the sense's
     /// own objective and refines it, so there is one region and one inside latch in the brain.</summary>
@@ -71,7 +71,7 @@ public readonly record struct FollowPlayerObjective(PlayerIntentRegion Region, V
     /// settle radius beyond its edge for a body that was inside on the tick before.
     /// </summary>
     public bool IsSatisfied(Vector2 centre)
-        => Connected && (Region.Contains(centre) || (Inside && Region.GapBeyond(centre) <= Movement.Navigator.SettleRadius));
+        => !CutOff && (Region.Contains(centre) || (Inside && Region.GapBeyond(centre) <= Movement.Navigator.SettleRadius));
 
     public string Reason(Vector2 centre)
         => IsSatisfied(centre) ? "follow-objective-satisfied"

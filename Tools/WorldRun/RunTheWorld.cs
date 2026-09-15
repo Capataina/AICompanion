@@ -189,7 +189,8 @@ internal static class RunTheWorld
             // read the previous tick's region under the previous tick's rules.
             claims.Add(brain.Senses.Reach.Reachable(player.Center.ToTileCoordinates()));
             inside.Add(brain.Senses.Intent.Region.Contains(companion.NPC.Center));
-            connected.Add(brain.Senses.Intent.Connected);
+            // Connected as the brain decides on it: not proven cut off. An unanswered question does not take the body out of the region.
+            connected.Add(!brain.Senses.Intent.CutOff);
             // The reach sense's verdicts are only given inside its known radius of the flood's root, and
             // the root trails a travelling body; these count the ticks the body itself sat outside that
             // radius, where nothing near it could be proven absent, and the ticks the flood read complete.

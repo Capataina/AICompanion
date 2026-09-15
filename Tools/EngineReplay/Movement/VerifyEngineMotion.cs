@@ -125,6 +125,7 @@ internal static class VerifyEngineMotion
         ("keeping company is the fallback: a slime worth hunting is hunted, a far one is not, rejoining is capped and sight is not distance", VerifyCompanyIsTheFallback.Run),
         ("keeping the player company is moving about his whole region: never still, never trailing, and moving from the first tick", VerifyAccompanyingThePlayer.Run),
         ("being with the player needs a way to him: a body inside his region on the far side of a sealed wall comes round", VerifyWithThePlayerNeedsAWayToHim.Run),
+        ("the way to the player is resumed until it is answered and never read as a proof before it is", VerifyWayToPlayerIsAnsweredInThreeValues.Run),
         ("an immunity change invalidates what depended on it", VerifyCapabilityRevision.Run),
         ("a closed door is opened rather than treated as a wall", VerifyDoorPassage.Run),
         ("courtesy stillness does not depend on what ran before", VerifyCourtesy.Run),
