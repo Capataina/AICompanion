@@ -31,6 +31,9 @@ if (args.Length == 1 && args[0] == "--self-test")
     return EmitLedgerRows.Case("nav-replay", "NavReplay", "the route through a corridor sits nearer its middle than its walls, and the steered body stays there",
             VerifyCorridorMiddle.Run,
             killedBy: "an edge cost that stops pricing clearance, a smoother that skips from one wall-hugging end to the other, or steering that cuts the corner back to the wall")
+        + EmitLedgerRows.Case("nav-replay", "NavReplay", "a body the navigator has called arrived stays arrived, on one search, and comes to rest",
+            VerifyArrivalHolds.Run,
+            killedBy: "steering that brakes too late for the arrival radius, or an arrival that coasts out and replans")
         + EmitLedgerRows.Case("nav-replay", "NavReplay", "the corpus mirror is exact",
             VerifyMirrorExactness.Run,
             killedBy: "a reflection about the wrong column, an unpadded short row, or a dropped glyph flip");

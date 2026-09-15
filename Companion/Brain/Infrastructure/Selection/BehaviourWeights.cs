@@ -480,7 +480,7 @@ public static class Weights
     public const float IntentRegionCentralPull = .25f;
 
     /// <summary>
-    /// How long the body must be grounded inside the region before following reads as satisfied, and
+    /// How long the body must be at rest inside the region before following reads as satisfied, and
     /// how long a new keep-company regime must hold before the method changes. Leaving is immediate
     /// both times: this is a floor on entering a state, never a delay on leaving one. The authority
     /// is <c>ChooseUsefulPosition.RescoreInterval</c>, which is one rescore of the positioner; if the
@@ -488,6 +488,42 @@ public static class Weights
     /// pass, which is the flicker it exists to stop.
     /// </summary>
     public const int PositionRescoreTicks = 12;
+
+    /// <summary>
+    /// The speed, in pixels per tick, under which the orb counts as at rest for the settled streak.
+    /// A body that flies has no ground to stand on, so "has stopped" is the only arrival a streak can
+    /// count, and a body crossing the region at pace must never read as arrived. It sits above the
+    /// motor's braking residue: the steering brakes to the arrival radius and the motor then decays
+    /// the last of the velocity at the acceleration per tick, so a body that has arrived is under
+    /// this within a few ticks and a body tracking a walking player is never under it.
+    /// </summary>
+    public const float SettledSpeedPx = 1.5f;
+
+    /// <summary>
+    /// A positioning rule and never a wall: no scored candidate sits higher than this many tiles above
+    /// the player's feet. The orb can fly anywhere the flood reaches, so without this the openest
+    /// spot in a cavern is its roof and the companion hovers out of the player's sight. Following is
+    /// already bound tighter by the intent region's own vertical half-size; this binds the attack
+    /// requests, whose band is measured to the player and says nothing about height.
+    /// </summary>
+    public const int HoverCeilingTiles = 10;
+
+    /// <summary>
+    /// The clearance, in tiles, at which a candidate's openness factor reaches its full value. The
+    /// factor is the clearance field the route search prices — the same reading, so a spot the scorer
+    /// likes is one the route can reach the middle of — and it saturates here because a body two
+    /// tiles from every wall is as open as it needs to be, and preferring the exact middle of every
+    /// cavern would walk the companion further from the player for nothing.
+    /// </summary>
+    public const float OpennessFullClearanceTiles = 2f;
+
+    /// <summary>
+    /// The share of its score a follow spot keeps at or below the player's feet, rising to the whole
+    /// at his head height and above. An orb beside his feet is in his way and under his aim; one at
+    /// head height or a little over is where a companion that hovers reads as beside him. A share
+    /// rather than a veto, because a low ceiling can leave nothing above the feet at all.
+    /// </summary>
+    public const float HoverBelowHeadShare = .5f;
 
     /// <summary>Item physics, from the game's own <c>Item.UpdateItem</c>: gravity per tick and the fall
     /// speed it is capped at, dry and wet. A drop is forecast to its landing with these, so a falling

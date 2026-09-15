@@ -59,7 +59,7 @@ public sealed class Chooser
     {
         var objective = ctx.Senses.Intent.Objective;
         Reunion.Observe(Terraria.Main.GameUpdateCount,
-            objective.IsSatisfied(ctx.Npc.Bottom, ctx.Senses.Player.CompanionCanSeePlayer), ctx.Senses.Player.IsDead);
+            objective.IsSatisfied(ctx.Npc.Center, ctx.Senses.Player.CompanionCanSeePlayer), ctx.Senses.Player.IsDead);
     }
     private Microsoft.Xna.Framework.Vector2? workSite;
     private ulong workSiteTick;
@@ -107,7 +107,7 @@ public sealed class Chooser
         Microsoft.Xna.Framework.Vector2 followAnchor = ctx.Companion.Brain.Meeting.Anchor;
         if (followAnchor == Microsoft.Xna.Framework.Vector2.Zero) followAnchor = region.LeadingEdge;
         var follow = ctx.Senses.Intent.Objective.At(followAnchor);
-        bool arrived = follow.IsSatisfied(ctx.Npc.Bottom, Infrastructure.Observation.LineOfSight.Between(ctx.Npc, ctx.Player));
+        bool arrived = follow.IsSatisfied(ctx.Npc.Center, Infrastructure.Observation.LineOfSight.Between(ctx.Npc, ctx.Player));
         if (arrived) RegroupUrgency = 0f;
         if (!ctx.Senses.Player.IsDead && !arrived)
         {

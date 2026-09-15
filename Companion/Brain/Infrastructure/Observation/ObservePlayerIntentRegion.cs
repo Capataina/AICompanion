@@ -98,32 +98,34 @@ public sealed class PlayerIntentRegionSense
     public PlayerIntentRegion Region { get; private set; }
 
     /// <summary>
-    /// Whether the body has been on the ground inside the region for a whole rescore. Following
-    /// reads this rather than geometry alone, because a body in the air is passing through: at tick
-    /// 8127 of the 2026-09-14 capture both bodies were mid-jump and momentarily inside the box, the
+    /// Whether the body has been at rest inside the region for a whole rescore. Following reads
+    /// this rather than geometry alone, because a body at pace is passing through: at tick 8127 of
+    /// the 2026-09-14 capture both bodies were mid-jump and momentarily inside the box, the
     /// objective read satisfied, keeping company took that as arrival and issued a Hold, and the
-    /// Hold cancelled the jump one tick after take-off. Entering costs a rescore; leaving is
-    /// immediate, because a body that has left is gone now and not in a rescore's time.
+    /// Hold cancelled the jump one tick after take-off. The walker's test was the ground; an orb has
+    /// no ground, so the test is its speed, and a body crossing the region at the player's pace is
+    /// the same passing-through as a jump arc was. Entering costs a rescore; leaving is immediate,
+    /// because a body that has left is gone now and not in a rescore's time.
     /// </summary>
     public bool Settled { get; private set; }
 
-    /// <summary>How many consecutive ticks the body has been grounded inside the region. Exposed so
+    /// <summary>How many consecutive ticks the body has been at rest inside the region. Exposed so
     /// the recorder can say why a tick that looks satisfied is not.</summary>
-    public int GroundedInsideTicks { get; private set; }
+    public int RestingInsideTicks { get; private set; }
 
-    /// <summary>Whether the companion was on the ground on this tick. Published beside the streak
-    /// rather than derived by each reader, because the streak already computes it and a second
-    /// grounded test elsewhere is the disagreement the one expression below exists to prevent. It
-    /// changes no decision; it is what lets the follow reason name an airborne tick apart from a
-    /// grounded one that is still standing out its rescore.</summary>
-    public bool Grounded { get; private set; }
+    /// <summary>Whether the companion was at rest on this tick. Published beside the streak rather
+    /// than derived by each reader, because the streak already computes it and a second rest test
+    /// elsewhere is the disagreement the one expression below exists to prevent. It changes no
+    /// decision; it is what lets the follow reason name a moving tick apart from a resting one that
+    /// is still standing out its rescore.</summary>
+    public bool AtRest { get; private set; }
 
     private Vector2 lead;
 
     /// <summary>The follow objective every consumer shares, anchored on the region's own centre.
     /// A caller with an anchor of its own — a priced meeting place, a request's anchor — refines it
     /// with <see cref="FollowPlayerObjective.At"/> rather than building a second objective.</summary>
-    public Position.FollowPlayerObjective Objective => new(Region, Region.Centre, Settled, Grounded);
+    public Position.FollowPlayerObjective Objective => new(Region, Region.Centre, Settled, AtRest);
 
     public void Update(NPC companion, PlayerSense player)
     {
@@ -170,14 +172,13 @@ public sealed class PlayerIntentRegionSense
 
         Region = new PlayerIntentRegion(player.Bottom + applied, half, applied, player.IsTravelling);
 
-        // The companion's own grounded test, which is velocity.Y being exactly zero, and it is the
-        // motor's: ApplyControlsToCompanion.OnGround is the same expression on the same body. A
-        // second definition here would let the brain and the motor disagree about whether a body
-        // is standing, which is the disagreement this rule exists to settle.
-        bool grounded = companion.velocity.Y == 0f;
-        bool inside = Region.Contains(companion.Bottom);
-        Grounded = grounded;
-        GroundedInsideTicks = grounded && inside ? GroundedInsideTicks + 1 : 0;
-        Settled = GroundedInsideTicks >= Weights.PositionRescoreTicks;
+        // At rest is the body's speed under the settled threshold, read off the velocity the motor
+        // handed the engine last tick. Inside is the body's centre, because the orb is its centre:
+        // the region is measured to the player's feet and the body is compared as the point it is.
+        bool atRest = companion.velocity.LengthSquared() <= Weights.SettledSpeedPx * Weights.SettledSpeedPx;
+        bool inside = Region.Contains(companion.Center);
+        AtRest = atRest;
+        RestingInsideTicks = atRest && inside ? RestingInsideTicks + 1 : 0;
+        Settled = RestingInsideTicks >= Weights.PositionRescoreTicks;
     }
 }

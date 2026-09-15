@@ -17,13 +17,8 @@ public enum SuccessRegionKind
     ToolReach,
     /// <summary>An attack position admitted with a solved arc; the arc belongs to a moving target, so no box is declared.</summary>
     FiringPosition,
-    /// <summary>A priced meeting place, walked to as a tile without acceptance, so no box is declared.</summary>
+    /// <summary>A priced meeting place, flown to as a point without acceptance, so no box is declared.</summary>
     MeetingPlace,
-    /// <summary>The follow fallback's closest reachable tile: admitted to get the body there and no further, so its
-    /// region is the navigator's own arrival radius around it. It declares one rather than nothing because a
-    /// destination with no region can be arrived at without having achieved anything, which is how the same tile
-    /// was handed back to a body already standing on it for hundreds of ticks.</summary>
-    PartialProgress,
     /// <summary>An exact or roaming destination whose request carries no purpose geometry.</summary>
     Undeclared,
 }
@@ -52,11 +47,6 @@ public readonly record struct SuccessRegion(SuccessRegionKind Kind, int Admitted
         => new(SuccessRegionKind.FollowComfort, tick, terrainRevision, objective.Anchor, objective.Centre,
             new Vector2(objective.HorizontalComfort, objective.VerticalComfort));
 
-    /// <summary>The fallback's own tile, with the navigator's arrival radius as its box: being there is the whole claim.</summary>
-    public static SuccessRegion Partial(Vector2 destination, int tick, int terrainRevision)
-        => new(SuccessRegionKind.PartialProgress, tick, terrainRevision, destination,
-            Comfort: new Vector2(Infrastructure.Movement.Navigator.ArriveDistance, Infrastructure.Movement.Navigator.ArriveDistance));
-
     public static SuccessRegion ToolStand(Vector2 stand, Point tile, int tick, int terrainRevision)
         => new(SuccessRegionKind.ToolReach, tick, terrainRevision, stand, WorkTile: tile,
             ReachX: FindToolAccess.ReachX, ReachY: FindToolAccess.ReachY);
@@ -72,7 +62,6 @@ public readonly record struct SuccessRegion(SuccessRegionKind Kind, int Admitted
         // a far-off meeting place is outside the region it was admitted to, which it always was.
         SuccessRegionKind.FollowComfort => Near(feet, PlayerFeet),
         SuccessRegionKind.ToolReach => WorkTile is Point tile && FindToolAccess.InReachBox(feet, tile, ReachX, ReachY),
-        SuccessRegionKind.PartialProgress => Near(feet, Anchor),
         _ => null,
     };
 
@@ -83,7 +72,6 @@ public readonly record struct SuccessRegion(SuccessRegionKind Kind, int Admitted
         SuccessRegionKind.ToolReach => "tool-reach",
         SuccessRegionKind.FiringPosition => "firing-position",
         SuccessRegionKind.MeetingPlace => "meeting-place",
-        SuccessRegionKind.PartialProgress => "partial-progress",
         SuccessRegionKind.Undeclared => "undeclared",
         _ => "none",
     };

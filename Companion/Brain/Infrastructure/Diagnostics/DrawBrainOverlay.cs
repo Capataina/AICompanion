@@ -412,7 +412,7 @@ public sealed class BrainOverlay : ModSystem
         // on the box, so a body drifting to an edge is visible before it is a complaint.
         Vector2 player = brain.Senses.Player.Bottom;
         var region = brain.Senses.Intent.Region;
-        float pull = MathF.Min(1f, region.Pull(brain.Senses.Companion.Bottom));
+        float pull = MathF.Min(1f, region.Pull(brain.Senses.Companion.Center));
         Color regionTint = Color.Lerp(Color.LightGreen, Color.Orange, pull);
         Box(sb, region.Centre, region.HalfSize, regionTint);
         if (region.Lead.LengthSquared() > 1f)
@@ -421,7 +421,7 @@ public sealed class BrainOverlay : ModSystem
             ScreenRing(sb, Screen(region.LeadingEdge), MeetingRing * .5f, regionTint);
         }
         Label(sb, Screen(region.Centre) - new Vector2(0, region.HalfSize.Y),
-            $"intent {(region.IsTravelling ? "travelling" : "still")} pull {pull:F2} settled {brain.Senses.Intent.GroundedInsideTicks}", regionTint);
+            $"intent {(region.IsTravelling ? "travelling" : "still")} pull {pull:F2} settled {brain.Senses.Intent.RestingInsideTicks}", regionTint);
         DashedBox(sb, brain.LastRequest.Anchor, region.HalfSize * .25f, Color.LightGreen);
         Ring(sb, player, Infrastructure.Selection.Weights.CalmBandNear, Color.LightGreen * .3f);
         Ring(sb, player, Infrastructure.Selection.Weights.CalmBandFar, Color.LightGreen * .3f);

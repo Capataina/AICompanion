@@ -65,7 +65,7 @@ public static class ScenarioCapture
     private static long lastDodgeTick = long.MinValue;
     private static string? lastDodge;
     private static Vector2 lastPosition;
-    private static long followCooldown, stuckCooldown, dodgeCooldown, modeCooldown, faultCooldown, oneWayCooldown, tierCooldown, intentCooldown, pinnedCooldown;
+    private static long followCooldown, stuckCooldown, dodgeCooldown, modeCooldown, oneWayCooldown, tierCooldown, intentCooldown, pinnedCooldown;
 
     private static Point? intentGoal;
     private static int intentTicks;
@@ -79,7 +79,7 @@ public static class ScenarioCapture
         lastLife = -1;
         lastDodgeTick = long.MinValue;
         lastDodge = null;
-        followCooldown = stuckCooldown = dodgeCooldown = modeCooldown = faultCooldown = oneWayCooldown = tierCooldown = intentCooldown = pinnedCooldown = 0;
+        followCooldown = stuckCooldown = dodgeCooldown = modeCooldown = oneWayCooldown = tierCooldown = intentCooldown = pinnedCooldown = 0;
         intentGoal = null;
         intentTicks = 0;
         intentBest = intentTravelled = 0f;

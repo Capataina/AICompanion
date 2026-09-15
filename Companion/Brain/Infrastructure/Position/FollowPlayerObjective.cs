@@ -20,13 +20,13 @@ namespace AICompanion.Companion.Brain.Infrastructure.Position;
 /// line to a place it had not reached.</para>
 ///
 /// <para><paramref name="Settled"/> comes from the sense, because it is a streak and a struct rebuilt
-/// nine times a tick cannot hold one. Requiring it is what stops an airborne tick reading as an
-/// arrival. <paramref name="Grounded"/> comes from the same place and changes no decision: it exists
-/// so <see cref="Reason"/> can say which kind of unsettled tick this is, since a body in the air and
-/// a body standing out its first ticks of a streak are the same geometry and different situations,
-/// and the recorder's column is read to tell one from the other.</para>
+/// nine times a tick cannot hold one. Requiring it is what stops a tick at pace reading as an
+/// arrival. <paramref name="AtRest"/> comes from the same place and changes no decision: it exists
+/// so <see cref="Reason"/> can say which kind of unsettled tick this is, since a body crossing the
+/// region and a body resting out its first ticks of a streak are the same geometry and different
+/// situations, and the recorder's column is read to tell one from the other.</para>
 /// </summary>
-public readonly record struct FollowPlayerObjective(PlayerIntentRegion Region, Vector2 Anchor, bool Settled, bool Grounded)
+public readonly record struct FollowPlayerObjective(PlayerIntentRegion Region, Vector2 Anchor, bool Settled, bool AtRest)
 {
     /// <summary>The same objective aimed at a different place. Every consumer starts from the sense's
     /// own objective and refines it, so there is one region and one settled streak in the brain.</summary>
@@ -51,31 +51,30 @@ public readonly record struct FollowPlayerObjective(PlayerIntentRegion Region, V
     public float GapBeyond(Vector2 feet) => Region.GapBeyond(feet);
 
     /// <summary>
-    /// A standing destination is useful inside the region, less the navigator's stopping radius.
+    /// A hover destination is useful inside the region, less the navigator's stopping radius.
     /// The reservation is not optional: a candidate on the boundary is legal while the body stops
     /// just outside it, and following would then never satisfy at a destination it had reached.
     /// </summary>
-    public bool AcceptsDestination(Vector2 feet, bool locallyConnected)
-        => locallyConnected && Region.Accepts(feet, Movement.Navigator.ArriveDistance);
+    public bool AcceptsDestination(Vector2 centre, bool locallyConnected)
+        => locallyConnected && Region.Accepts(centre, Movement.Navigator.ArriveDistance);
 
     /// <summary>
-    /// Arrival: the body is in the region, has been on the ground in it for a rescore, and is
-    /// locally connected to it. The grounded streak is what the symmetric box was missing — two
-    /// bodies passing each other in mid-air are momentarily a few pixels apart and neither has
-    /// arrived anywhere.
+    /// Arrival: the body is in the region, has been at rest in it for a rescore, and is locally
+    /// connected to it. The rest streak is what the symmetric box was missing — two bodies passing
+    /// each other at pace are momentarily a few pixels apart and neither has arrived anywhere.
     /// </summary>
-    public bool IsSatisfied(Vector2 feet, bool locallyConnected)
-        => Settled && Region.Contains(feet) && locallyConnected;
+    public bool IsSatisfied(Vector2 centre, bool locallyConnected)
+        => Settled && Region.Contains(centre) && locallyConnected;
 
-    public string Reason(Vector2 feet, bool locallyConnected)
-        => IsSatisfied(feet, locallyConnected) ? "follow-objective-satisfied"
-            : VerticalGap(feet) > VerticalComfort ? "follow-vertical-gap"
-            : HorizontalGap(feet) > HorizontalComfort ? "follow-horizontal-gap"
+    public string Reason(Vector2 centre, bool locallyConnected)
+        => IsSatisfied(centre, locallyConnected) ? "follow-objective-satisfied"
+            : VerticalGap(centre) > VerticalComfort ? "follow-vertical-gap"
+            : HorizontalGap(centre) > HorizontalComfort ? "follow-horizontal-gap"
             : !locallyConnected ? "follow-local-connection"
             // Inside the region, connected, and not satisfied: the streak is what is missing, and the
-            // two ways to be missing it are not one fact. Airborne is the capture's own case — a body
-            // passing through on a jump arc, which must never read as arrival — while grounded is a
-            // body that has arrived and is standing out the rescore before anyone may act on it.
-            : !Grounded ? "follow-airborne-deferred"
+            // two ways to be missing it are not one fact. Moving is the capture's own case — a body
+            // passing through at pace, which must never read as arrival — while at rest is a body
+            // that has arrived and is resting out the rescore before anyone may act on it.
+            : !AtRest ? "follow-moving-deferred"
             : "follow-settling";
 }
