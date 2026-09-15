@@ -88,6 +88,21 @@ public sealed class CoordinateMovement
         return Navigator.Hover.Around(live, HoldAnchor(live), MovementQueries.World);
     }
 
+    /// <summary>
+    /// Keeping the player company from inside his region: whatever route was held is released, because inside the region
+    /// there is no place to go, and the body moves about the box the region is — its centre, half-size and lead — by
+    /// <see cref="HoverAroundSpot.Across"/>. Plain numbers and a refusal test rather than the region itself, so the
+    /// movement core keeps no reference to the senses it is fed by.
+    /// </summary>
+    public Controls Accompany(OrbState live, Vector2 centre, Vector2 halfSize, Vector2 lead, Func<Vector2, bool> refused)
+    {
+        CancelStateSearch();
+        holdAnchor = null;
+        Produced(Producer.Accompany);
+        Navigator.Interrupt(live, AttemptEnding.Completed, "accompanying");
+        return Navigator.Hover.Across(live, centre, halfSize, lead, refused, MovementQueries.World);
+    }
+
     /// <summary>A missing chosen place does not cancel a travel intention: aim at the anchor itself until <paramref name="arrived"/> says the body is there, and hover once it is.</summary>
     public Controls SeekDestination(OrbState live, Vector2 anchor, Func<Vector2, bool> arrived)
     {
@@ -131,7 +146,7 @@ public sealed class CoordinateMovement
     // Which request produced this tick's controls, so the evade layer's keep test flies the same steering. Every request
     // method sets it and clears the last verdict, so a tick whose owner never reaches Evade — an escape, a downed body,
     // recovery flight — records no verdict from an earlier tick.
-    private enum Producer { None, Navigator, Hover }
+    private enum Producer { None, Navigator, Hover, Accompany }
     private Producer producer;
 
     private void Produced(Producer by)
@@ -143,14 +158,27 @@ public sealed class CoordinateMovement
     /// <summary>
     /// What the job this tick would ask for from a hypothetical state, for the evade layer to fly forward. It reads the
     /// navigator and the hover and changes neither: a route is steered with its own copy of the segment index, a direct line
-    /// is the same eased ask toward the goal, and a hover pursues the target it last chose, held still for the lookahead.
+    /// is the same eased ask toward the goal, a hover pursues the target it last chose, held still for the lookahead, and
+    /// keeping the player company pursues its walking target carried on by the target's last motion each simulated tick.
     /// Null when nothing forecastable produced the tick, which the layer answers by holding this tick's controls.
     /// </summary>
     private Func<OrbState, Controls>? ForecastJob()
     {
         ITileWorld world = MovementQueries.World;
-        Navigator.Steering steering = producer == Producer.Hover ? Navigator.Steering.Hover : Navigator.LastSteering;
         if (producer == Producer.None) return null;
+        if (producer == Producer.Accompany)
+        {
+            // The accompanying target moves at the region's pace, so it is carried on rather than held still: held still, the
+            // forecast is a body slowing onto a point the real walk has already left, and a hit the walk is flying into reads
+            // as a hit it stops short of. The closure advances once per simulated tick, which is how Bend flies it.
+            Vector2 target = Navigator.Hover.LastTarget, motion = Navigator.Hover.LastTargetMotion;
+            return state =>
+            {
+                target += motion;
+                return new Controls(HoverAroundSpot.PursueAcross(state.Centre, target, motion, world));
+            };
+        }
+        Navigator.Steering steering = producer == Producer.Hover ? Navigator.Steering.Hover : Navigator.LastSteering;
         switch (steering)
         {
             case Navigator.Steering.Route when Navigator.Path is Route route:

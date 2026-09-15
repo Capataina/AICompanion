@@ -159,6 +159,10 @@ public sealed class ReachSense
         return best is float found ? found / System.MathF.Max(0.1f, OrbPace.MaxSpeed) : null;
     }
 
+    /// <summary>The flood's travel cost to one corner, in ticks at the body's cap; null while the flood has not closed it.</summary>
+    public float? TravelTicksToCorner(Point corner)
+        => flood?.CostTo(corner) is float cost ? cost / System.MathF.Max(0.1f, OrbPace.MaxSpeed) : null;
+
     private HashSet<Point> Tiles
     {
         get

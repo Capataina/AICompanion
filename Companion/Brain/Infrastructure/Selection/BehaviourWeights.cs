@@ -43,9 +43,9 @@ public static class Weights
     public const float OrbArrivalEasingShare = 0.6f;
     // The drift around a held or reached spot (Movement/Steering/HoverAroundSpot). The radius is
     // about a tile, the owner's default; the flattening keeps the drift wider than it is tall so
-    // it reads as floating beside a place rather than bobbing on a spring. The hover speed sits
-    // under SettledSpeedPx on purpose, so a hovering body still reads as at rest and arriving
-    // somewhere is still arriving. The turn-rate floor keeps the target moving, so the body is
+    // it reads as floating beside a place rather than bobbing on a spring. The hover speed is a
+    // drift's speed, a little over a pixel a tick, so a body held at a tool stand or a firing spot
+    // floats about it rather than darting. The turn-rate floor keeps the target moving, so the body is
     // never exactly still: at the floor and the radius the target moves about half a pixel a tick
     // even at the flat of the ellipse, which clears the session reader's still threshold with room
     // for the body's lag behind it. The jitter is the wander's random walk per tick, and the reverse
@@ -58,6 +58,25 @@ public static class Weights
     public const float HoverTurnRateMaximum = 0.08f;
     public const float HoverTurnJitter = 0.004f;
     public const double HoverReverseChance = 0.004;
+
+    // Moving about the player's region while keeping him company (Movement/Steering/HoverAroundSpot.Across). The target
+    // walks the region at about half a walking player's pace, so an idle companion crosses the box in a few seconds and a
+    // travelling one's pursuit is the region's own motion plus this; the vertical part is flattened by HoverVerticalShare
+    // for the reason the hover's is. The turn rate is far slower than the hover's and has no floor, for the reason at
+    // TurnRateMaximum below: circling on the spot is not crossing the box. The gain pulls
+    // the body onto the target on top of the target's own motion. While the region leads by more than LeadPixels, the
+    // target may only go RearShare of the way from the centre toward the region's rear, which is what keeps a travelling
+    // player's companion level or ahead rather than trailing as a policy. A region whose centre moved further than the
+    // body could fly in JumpTicks has jumped, and the walk starts again from where the body is.
+    public const float AccompanyWanderSpeedPx = 1.5f;
+    // Signed and floorless, so the heading can run straight: at this cap and the wander speed the tightest loop is about five
+    // hundred pixels across, wider than the box, which is what makes the walk cross it and reflect rather than circle.
+    public const float AccompanyTurnRateMaximum = 0.006f;
+    public const float AccompanyTurnJitter = 0.001f;
+    public const float AccompanyGain = 0.1f;
+    public const float AccompanyLeadPixels = 8f;
+    public const float AccompanyRearShare = 0.2f;
+    public const float AccompanyJumpTicks = 30f;
     // The route search prices an edge at its length times one plus this over the clearance at its
     // far corner, in tiles, so a corridor's middle is cheaper than its walls without a wall ever
     // being refused: at one, a corner touching a wall costs twice its length and one three tiles
@@ -321,12 +340,13 @@ public static class Weights
 
     public const float WanderFloor = 0.05f;
     /// <summary>
-    /// The ceiling of far reunion pull. It sat at 0.8 while the walking body under-acted, so a proven job further
-    /// across the screen could still win; the orb over-acts far from the player instead, so the owner put it back at
-    /// 1 on 15 September 2026, and a companion far enough outside the player's region now wants to rejoin as much as
-    /// any job can be worth. The hard leash at fly-home distance is a separate step and still drops everything.
+    /// The most rejoining the player can be worth short of the hard leash, and the most a job's separation can take from it.
+    /// The owner ruled 0.5 after the third orb play of 15 September 2026, where rejoining at the full value any job can have
+    /// out-bid a slime hunt beside an idle player: keeping company is the fallback for when nothing is worth doing, so on its
+    /// own it never outweighs a job genuinely worth doing, and only the hard leash at fly-home distance, a separate step,
+    /// takes everything.
     /// </summary>
-    public const float KeepCompanyFarCap = 1f;
+    public const float KeepCompanyFarCap = .5f;
     public const float FollowIntentDistance = 140f;
     public const float RegroupFullDistance = 640f;
     public const float RegroupFreeReturnTicks = 60f;
@@ -495,42 +515,20 @@ public static class Weights
     public const int IntentRegionFilterTicks = 60;
 
     /// <summary>
-    /// The most the region grows with its own lead, as a share. A leading region is also a wider one
-    /// — a player crossing broken ground is somewhere in a band rather than at a point, and a taller
-    /// region is what lets the companion count as "with him" while he climbs a hill. Capped low
-    /// because growth is slack in the arrival test, and an arrival test that grows without bound
-    /// stops being an arrival test.
+    /// How much larger the region is than the follow comfort it is built from, with no lead. The owner ruled a quarter larger
+    /// on 15 September 2026: the region stopped being a place the companion arrives at and became the place it lives and moves
+    /// through, and a box sized for arriving is too small to move about in.
     /// </summary>
-    public const float IntentRegionGrowthCap = .15f;
+    public const float IntentRegionBaseScale = 1.25f;
 
     /// <summary>
-    /// The lead at which the region is fully grown. It is the region's own half-width rather than a
-    /// fitted number: once the region has led by as much as it is wide, it has left the player's own
-    /// neighbourhood, which is exactly when the extra slack is worth having. Drifts if
-    /// <see cref="FollowHorizontalComfort"/> changes, which is the intent.
+    /// The most the region grows with its own lead, as a share, reached exactly when the lead is at the clamp that keeps the
+    /// player inside. A leading region is also a larger one — a player crossing broken ground is somewhere in a band rather
+    /// than at a point — and growing with the lead's share of its own limit, rather than with a fixed distance, is what makes
+    /// "fully grown" and "led as far as it may" the same moment. The owner raised it from fifteen to twenty-five percent with
+    /// the base scale.
     /// </summary>
-    public const float IntentRegionFullGrowthLead = FollowHorizontalComfort;
-
-    /// <summary>
-    /// The smallest half-extent the screen clamp may impose, in px, for each axis. The clamp is
-    /// half the screen so the region never drifts out of the player's own view, and headless there
-    /// is no screen at all: <c>Main.screenWidth</c> is zero, so an unguarded clamp would pin the
-    /// region to the player's feet and every fixture would pass for the reason the change exists to
-    /// remove. The same guard, and the same reason, as the light field's window minimum.
-    /// </summary>
-    public const float IntentRegionMinimumClampX = 640f;
-    public const float IntentRegionMinimumClampY = 360f;
-
-    /// <summary>
-    /// The pull keeping company reads while the companion is inside the region and the player is
-    /// travelling, at the region's edge; it scales to nothing at the centre. It is the gradient the
-    /// old box did not have: a flat zero inside meant a moving player was never a reason to move,
-    /// so the body coasted to whichever edge it entered by and any rival offer won. It sits above
-    /// <see cref="WanderFloor"/>, or a travelling player would be strolled beside rather than kept
-    /// up with, and well below <see cref="KeepCompanyFarCap"/> and any proven job's value, so
-    /// walking with a moving player still loses to work worth stopping for.
-    /// </summary>
-    public const float IntentRegionCentralPull = .25f;
+    public const float IntentRegionGrowthCap = .25f;
 
     /// <summary>
     /// How long the body must be at rest inside the region before following reads as satisfied, and
@@ -569,14 +567,6 @@ public static class Weights
     /// cavern would walk the companion further from the player for nothing.
     /// </summary>
     public const float OpennessFullClearanceTiles = 2f;
-
-    /// <summary>
-    /// The share of its score a follow spot keeps at or below the player's feet, rising to the whole
-    /// at his head height and above. An orb beside his feet is in his way and under his aim; one at
-    /// head height or a little over is where a companion that hovers reads as beside him. A share
-    /// rather than a veto, because a low ceiling can leave nothing above the feet at all.
-    /// </summary>
-    public const float HoverBelowHeadShare = .5f;
 
     /// <summary>Item physics, from the game's own <c>Item.UpdateItem</c>: gravity per tick and the fall
     /// speed it is capped at, dry and wet. A drop is forecast to its landing with these, so a falling

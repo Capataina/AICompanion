@@ -95,13 +95,15 @@ public sealed class LightUsefulArea : PerformNearbyWorldWork, ICandidateFunnelSo
         searchCoverage = null;
     }
 
-    /// <summary>The work area, as a tile box: the player's intent region's centre, out to the work radius each way. A
-    /// dark place outside it is somebody else's darkness: the companion is not a lamplighter sent out into the world, it
-    /// lights where the two of them are. Anchored on the region rather than on his body, because a dark passage a few
-    /// tiles ahead of a walking player is the one worth lighting and a box behind him drops it the moment he sets off.</summary>
+    /// <summary>The work area, as a tile box: where the player's intent region says he is going, out to the work radius each
+    /// way. A dark place outside it is somebody else's darkness: the companion is not a lamplighter sent out into the world,
+    /// it lights where the two of them are. Anchored on the region's heading — his centre carried by its lead — rather than on
+    /// his body, because a dark passage a few tiles ahead of a walking player is the one worth lighting and a box behind him
+    /// drops it the moment he sets off; and not on the region's centre, which sits above him by construction, so a box
+    /// centred there would reach further overhead than underfoot for no reason of light.</summary>
     private static Rectangle WorkArea(in ActionContext ctx)
     {
-        Point centre = MovementQueries.Tile(ctx.Senses.Intent.Region.Centre);
+        Point centre = MovementQueries.Tile(ctx.Senses.Intent.Region.Heading);
         int work = (int)(Weights.FollowWorkRadius / 16f);
         return new Rectangle(centre.X - work, centre.Y - work, 2 * work + 1, 2 * work + 1);
     }

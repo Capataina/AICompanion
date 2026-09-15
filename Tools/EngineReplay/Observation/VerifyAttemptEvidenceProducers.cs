@@ -54,12 +54,19 @@ internal static class VerifyAttemptEvidenceProducers
             for (int tick = 0; tick < 900 && live::AICompanion.Companion.Brain.Infrastructure.Observation.LootSense.IsWorldDrop(drop); tick++)
                 VerifyOreWork.AdvanceBrain(ctx);
             for (int tick = 0; tick < 30; tick++) VerifyOreWork.AdvanceBrain(ctx);
-            // Then the player moves fifteen tiles along the floor, well inside ordinary following, so the whole brain
-            // reunites under a follow destination and writes that destination's admitted region. Reunion normally hands
-            // over to local company movement as the body enters the comfort box, before the navigator reports arrival,
-            // because acceptance reserved the arrival radius inside it; so this reads regions, not arrival claims.
-            ctx.Player.position.X = 45 * 16f;
-            for (int tick = 0; tick < 600; tick++) VerifyOreWork.AdvanceBrain(ctx);
+            // Then the player moves along the floor far enough that the companion is outside his region, so the whole brain
+            // rejoins under a follow destination and writes that destination's admitted region. Rejoining hands over to
+            // accompanying as the body enters the region, before the navigator reports arrival, because acceptance reserved
+            // the arrival radius inside it; so this reads regions, not arrival claims.
+            // Column 75, not 45. Restated on 15 September 2026: fifteen tiles was well inside the region once the region
+            // always held the player and grew to a grown half-width of about 375 px, so the companion was already with him,
+            // accompanied him from inside, and no follow destination was ever admitted. The premise below is what keeps the
+            // scene about rejoining.
+            ctx.Player.position.X = 75 * 16f;
+            VerifyOreWork.AdvanceBrain(ctx);
+            Require(!ctx.Companion.Brain.Senses.Intent.Inside,
+                $"the premise: after the player moves the companion must be outside his region, or the scene is accompanying rather than rejoining; body {ctx.Npc.Center} region {ctx.Companion.Brain.Senses.Intent.Region.Centre} half {ctx.Companion.Brain.Senses.Intent.Region.HalfSize}");
+            for (int tick = 1; tick < 600; tick++) VerifyOreWork.AdvanceBrain(ctx);
         }
         finally
         {
@@ -269,7 +276,7 @@ internal static class VerifyAttemptEvidenceProducers
                 .GroupBy(r => $"{capture.Text(r, "action")}|{capture.Text(r, "request")}|{capture.Text(r, "region_kind")}|{capture.Text(r, "nav_status")}|{capture.Text(r, "control_request_owner")}|follow-valid={capture.Text(r, "follow_objective_valid")}")
                 .Select(g => $"{g.Key}×{g.Count()}"));
             int last = capture.Rows.Count - 1;
-            throw new InvalidOperationException("the player moved fifteen tiles off and the recorder wrote no follow-comfort region; "
+            throw new InvalidOperationException("the player moved beyond the companion's region and the recorder wrote no follow-comfort region; "
                 + $"rows by action|request|region|nav|owner: {states}; last row tick {capture.Text(last, "tick")} player {capture.Text(last, "player_px")} body {capture.Text(last, "npc_px")} spot {capture.Text(last, "spot")}");
         }
         Console.WriteLine($"attempt evidence producers: {toolRows} tool-reach row(s) name the scene's ore and a stand inside its box; {followRows} follow-comfort row(s) carry their admission references; {toolClaims} tool and {followClaims} follow arrival verdict(s) match their geometry; {revisions} destination change(s) each advanced the revision");

@@ -8,6 +8,7 @@ using Family = live::AICompanion.Companion.Brain.Infrastructure.Selection.Purpos
 using Candidate = live::AICompanion.Companion.Brain.Infrastructure.Selection.FamilyCandidate;
 using Offer = live::AICompanion.Companion.Brain.Activities.OfferEligibility;
 using AttemptStatus = live::AICompanion.Companion.Brain.Activities.AttemptStatus;
+using Vector2 = Microsoft.Xna.Framework.Vector2;
 
 internal static class VerifyPreparedActivities
 {
@@ -100,21 +101,24 @@ internal static class VerifyPreparedActivities
 
     private static void VerifyReunionCostsAndHistory()
     {
-        var context = new Context(0, false, float.PositiveInfinity, 12, 240, 1.15f, true, .2f, .12f);
-        Prepared[] board = { new(0, "work", .7f, 31, true, true, false, false, Offer.Usable), new(1, "company", 1, 0, false, false, true, false, Offer.Usable) };
-        var longWork = Evaluator.Evaluate(board, context);
-        var shortWork = Evaluator.Evaluate(new[] { board[0] with { ForecastTicks = 1 }, board[1] }, context);
-        Require(longWork[0].Final < longWork[1].Final && shortWork[0].Final > shortWork[1].Final,
-            "the same departure context must distinguish long work from a quick finish");
-        var calm = Evaluator.Evaluate(board, context with { ReunionDelayCostPerTick = 0 });
-        Require(calm[0].Final > calm[1].Final && calm[0].Reunion == 1,
-            "without reunion delay cost, useful work retains its ordinary opportunity");
-        Require(Evaluator.Evaluate(board, context with { ReunionDelayCostPerTick = .24f })[0].Final < longWork[0].Final,
-            "a more costly return must reduce optional work value on the same board");
-        Require(Evaluator.Evaluate(new[] { board[0] with { IsExcursion = false, ServesPlayerDirectly = true } }, context)[0].Reunion == 1,
+        // Separation is the one cost of keeping the companion apart since 15 September 2026: a prepared share, one minus the
+        // capped rejoin pull at the job's stand against the player's region carried along his travel. These rows hold the
+        // evaluator's half — it multiplies exactly that share, for every job somewhere and for nothing that serves the player
+        // directly — and the chooser's half, where the share comes from, is the surface-zombie scene below.
+        var context = new Context(0, false, float.PositiveInfinity, 12, 240, 1.15f, true, .2f);
+        Prepared[] board = { new(0, "work", .7f, 31, true, true, false, false, Offer.Usable), new(1, "company", .3f, 0, false, false, true, false, Offer.Usable) };
+        var together = Evaluator.Evaluate(board, context);
+        var apart = Evaluator.Evaluate(new[] { board[0] with { Separation = .5f }, board[1] }, context);
+        Require(together[0].Reunion == 1 && together[0].Final > together[1].Final,
+            $"a job whose stand is inside the player's region pays nothing for separation (work {together[0].Final:0.000}, company {together[1].Final:0.000})");
+        Require(apart[0].Reunion == .5f && MathF.Abs(apart[0].Final - together[0].Final * .5f) < 1e-5f,
+            $"a job whose stand is outside the region pays exactly its separation share ({apart[0].Final:0.00000} against half of {together[0].Final:0.00000})");
+        Require(Evaluator.Evaluate(new[] { board[0] with { IsExcursion = false, ServesPlayerDirectly = true, Separation = .5f } }, context)[0].Reunion == 1,
             "player protection must not inherit the optional-excursion cost");
-        Require(Evaluator.Evaluate(new[] { board[0] with { IsExcursion = false } }, context)[0].Reunion < 1,
+        Require(Evaluator.Evaluate(new[] { board[0] with { IsExcursion = false, Separation = .5f } }, context)[0].Reunion == .5f,
             "a job somewhere that is not an excursion — a hunt shooting from where the orb hovers — still pays for keeping the companion apart");
+        Require(Evaluator.Evaluate(new[] { board[0] with { Separation = 1.5f } }, context)[0].Error == "invalid-separation",
+            "a separation share outside zero to one is an error, not a bonus");
         VerifyTimeAndOrder();
         var history = new live::AICompanion.Companion.Brain.Infrastructure.Selection.AssessReunionCost();
         history.Observe(1, false, false);
@@ -215,7 +219,7 @@ internal static class VerifyPreparedActivities
     /// </summary>
     private static void VerifyTimeAndOrder()
     {
-        var calm = new Context(0, false, float.PositiveInfinity, 12, 240, 1.15f, true, .2f, 0, 0, TaskWindowTicks: 300);
+        var calm = new Context(0, false, float.PositiveInfinity, 12, 240, 1.15f, true, .2f, 0, TaskWindowTicks: 300);
 
         var fresh = new Prepared(0, "hunt", .4f, 0, true, true, false, false, Offer.Usable, TaskTicks: 400);
         float freshFinal = Evaluator.Evaluate(new[] { fresh }, calm)[0].Final;
@@ -233,20 +237,31 @@ internal static class VerifyPreparedActivities
             && live::AICompanion.Companion.Brain.Infrastructure.Selection.Chooser.FitAt(1300, 1000, 1250) == 0,
             "a job the player's heading takes beyond the started-job radius is worth nothing, and one inside the new-job radius loses nothing");
 
-        // The surface zombie of 15 September 2026: a hunt the orb could shoot from where it hovered, not an excursion,
-        // against a reunion discounted because useful work existed, while the player dropped away and the observed cost of
-        // delaying reunion rose (0.000012 per tick as he set off, 0.0146 a few seconds later, from the capture's own column).
-        // A job somewhere pays that cost whether or not it is an excursion, so the hunt keeps the orb while the player has
-        // barely moved and loses to rejoining once his leaving has made the time apart expensive.
-        Prepared[] leaving =
-        {
-            new(0, "hunt", .63f, 0, false, true, false, true, Offer.Usable, TaskTicks: 250),
-            new(1, "company", 1f, 0, false, false, true, false, Offer.Usable, ServesPlayerDirectly: true),
-        };
-        var settingOff = Evaluator.Evaluate(leaving, calm with { ReunionDelayCostPerTick = .000012f });
-        var gone = Evaluator.Evaluate(leaving, calm with { ReunionDelayCostPerTick = .0146f });
+        // The surface zombie of 15 September 2026: a hunt the orb could shoot from where it hovered, not an excursion, while
+        // the player dropped four hundred pixels into a cave. Both values come from the live geometry rather than being
+        // written in: the region is built where the player is, led by his fall, and the hunt's separation is the rejoin pull
+        // at the orb against that region carried along his fall for the hunt's own duration. So the hunt keeps the orb while
+        // he has only set off, and loses to rejoining once his leaving has put the orb well outside his region.
+        const float slack = 32f;
+        var travelling = new Vector2(0f, 6f);
+        Vector2 top = new(8000f, 4000f), orb = top + new Vector2(0f, -100f);
+        var setOffRegion = live::AICompanion.Companion.Brain.Infrastructure.Observation.PlayerIntentRegion.Around(top, new Vector2(0f, 1.5f * 120f), 1f, true, slack);
+        Vector2 dropped = top + new Vector2(0f, 400f);
+        var goneRegion = live::AICompanion.Companion.Brain.Infrastructure.Observation.PlayerIntentRegion.Around(dropped, travelling * 120f, 1f, true, slack);
+        float setOffSeparation = live::AICompanion.Companion.Brain.Infrastructure.Selection.Chooser.SeparationAt(setOffRegion, new Vector2(0f, 1.5f), orb, 250f);
+        float goneSeparation = live::AICompanion.Companion.Brain.Infrastructure.Selection.Chooser.SeparationAt(goneRegion, travelling, orb, 250f);
+        float setOffRejoin = MathF.Max(live::AICompanion.Companion.Brain.Activities.NearbyAssistance.KeepCompany.RejoinPull(setOffRegion, orb),
+            live::AICompanion.Companion.Brain.Infrastructure.Selection.Weights.WanderFloor);
+        float goneRejoin = MathF.Max(live::AICompanion.Companion.Brain.Activities.NearbyAssistance.KeepCompany.RejoinPull(goneRegion, orb),
+            live::AICompanion.Companion.Brain.Infrastructure.Selection.Weights.WanderFloor);
+        Prepared Hunt(float separation) => new(0, "hunt", .63f, 0, false, true, false, true, Offer.Usable, TaskTicks: 250, Separation: separation);
+        Prepared Company(float value) => new(1, "company", value, 0, false, false, true, false, Offer.Usable, ServesPlayerDirectly: true);
+        var settingOff = Evaluator.Evaluate(new[] { Hunt(setOffSeparation), Company(setOffRejoin) }, calm);
+        var gone = Evaluator.Evaluate(new[] { Hunt(goneSeparation), Company(goneRejoin) }, calm);
+        string zombie = $"setting off: separation {setOffSeparation:0.000}, hunt {settingOff[0].Final:0.000}, company {settingOff[1].Final:0.000}; dropped 400 px: separation {goneSeparation:0.000}, hunt {gone[0].Final:0.000}, company {gone[1].Final:0.000}";
+        Console.WriteLine($"surface zombie through the one separation cost: {zombie}");
         Require(settingOff[0].Final > settingOff[1].Final && gone[1].Final > gone[0].Final,
-            $"a hunt shooting from where the orb hovers keeps it while the player sets off and loses to rejoining once he has gone (setting off hunt {settingOff[0].Final:0.000} company {settingOff[1].Final:0.000}, gone hunt {gone[0].Final:0.000} company {gone[1].Final:0.000})");
+            $"a hunt shooting from where the orb hovers keeps it while the player sets off and loses to rejoining once he has gone; {zombie}");
 
         var chooser = new live::AICompanion.Companion.Brain.Infrastructure.Selection.Chooser();
         foreach (var action in chooser.Actions)

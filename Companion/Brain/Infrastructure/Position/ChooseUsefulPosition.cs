@@ -239,6 +239,21 @@ public sealed class Positioner
                 return Chosen;
         }
 
+        if (request.Kind == RequestKind.WithPlayer && senses.Intent.Inside)
+        {
+            // Inside the player's region there is no place to choose: the brain moves the body about the region itself. The flood
+            // is still refreshed, because that motion reads it to refuse places a finished flood proved out of reach and nothing
+            // else roots it while the companion keeps him company. A destination held from outside is dropped, so the first tick
+            // outside again chooses afresh instead of flying back to a place picked before the body entered.
+            lastRequest = request;
+            senses.Reach.Refresh(senses);
+            Chosen = null;
+            ChosenScore = 0f;
+            ChoiceReason = "accompanying-inside-region";
+            Region = SuccessRegion.None;
+            return null;
+        }
+
         if (request.Kind == RequestKind.WithPlayer && request.MeetingPlace)
         {
             // A priced meeting place is the destination itself. Scoring a region around it picked a
@@ -281,7 +296,7 @@ public sealed class Positioner
         // only where this test fails, which is the only moment a different place is actually needed.
         if (!kindChanged && RetainsHeldDestination(request, senses, fireProfile))
             return Chosen;
-        Chosen = Best(request, senses, fireProfile);
+        Chosen = request.Kind == RequestKind.WithPlayer ? NearestInsideCorner(senses) : Best(request, senses, fireProfile);
         // Every non-null answer from Best passed acceptance against this call's player feet and anchor (the
         // incumbent and every sampled candidate are gated alike), so these are the references it was admitted
         // against even when the value did not change and the revision did not advance. A follow request that
@@ -294,6 +309,63 @@ public sealed class Positioner
                 ? SuccessRegion.Follow(senses.Intent.Objective.At(request.Anchor), senses.Tick, TerrainChanges.Revision)
                 : SuccessRegion.Unscored(SuccessRegionKind.FiringPosition, request.Anchor, senses.Tick, TerrainChanges.Revision);
         return Chosen;
+    }
+
+    /// <summary>
+    /// Where a companion outside the player's region rejoins it: the corner nearest the body, inside the region by the settle
+    /// radius, that the flood holds; failing that, the nearest usable corner inside it the flood has not proven out of reach,
+    /// so the route flies as close as it can while the flood grows. Tiles the player is building on or walking down are passed
+    /// over. Nearest, because inside the region the companion moves about with the region and a place in it is only the way
+    /// back in: scoring places there for band, height and openness was choosing where to arrive and stop, which the owner ruled
+    /// on 15 September 2026 nothing does any more. Sight of the player is not asked, because losing it is not distance. A corner
+    /// the intent sense has proven cut off from the player inside his region is passed over, because arriving there is not
+    /// being with him: the nearest inside corner to a body on the wrong side of a wall is otherwise the one it already hovers at.
+    /// </summary>
+    private Vector2? NearestInsideCorner(Senses.Senses senses)
+    {
+        EvidenceTick = senses.Tick;
+        CandidateEvidence = "";
+        EvaluatedCandidates = 0;
+        CandidateCount = ReachableCandidateCount = RejectedCandidateCount = 0;
+        var region = senses.Intent.Region;
+        var playerSide = senses.Intent.PlayerSide;
+        float inset = Movement.Navigator.SettleRadius;
+        Vector2 body = senses.Companion.Center;
+        Point low = CornerGraph.NearestCorner(region.Centre - region.HalfSize + new Vector2(inset));
+        Point high = CornerGraph.NearestCorner(region.Centre + region.HalfSize - new Vector2(inset));
+        Vector2? reached = null, unproven = null;
+        float reachedDistance = float.MaxValue, unprovenDistance = float.MaxValue;
+        for (int x = low.X; x <= high.X; x++)
+        {
+            for (int y = low.Y; y <= high.Y; y++)
+            {
+                var corner = new Point(x, y);
+                Vector2 spot = CornerGraph.ToWorld(corner);
+                CandidateCount++;
+                if (!region.Accepts(spot, inset) || !MovementQueries.IsUsableCorner(corner) || !Allowed(MovementQueries.Tile(spot))
+                    || ProvenUnreachable(corner) || (playerSide != null && !playerSide.Contains(corner)) || StandsInPlayersWay(spot, senses))
+                {
+                    RejectedCandidateCount++;
+                    continue;
+                }
+                float distance = Vector2.DistanceSquared(spot, body);
+                if (ReachesCorner(corner))
+                {
+                    ReachableCandidateCount++;
+                    if (distance < reachedDistance) { reachedDistance = distance; reached = spot; }
+                }
+                else if (distance < unprovenDistance)
+                {
+                    unprovenDistance = distance;
+                    unproven = spot;
+                }
+            }
+        }
+        ChosenScore = reached != null || unproven != null ? 1f : -1f;
+        ChoiceReason = reached != null ? "nearest-reached-inside-region"
+            : unproven != null ? "nearest-unproven-inside-region"
+            : "no-accepted-candidate";
+        return reached ?? unproven;
     }
 
     /// <summary>Where the target stood when the held firing destination was admitted, so the hold can tell a target that
@@ -380,11 +452,10 @@ public sealed class Positioner
         }
         var objective = senses.Intent.Objective.At(request.Anchor);
         Vector2 centre = senses.Companion.Center;
-        bool connected = CanSeePlayer(centre, senses);
-        FollowObjectiveSatisfied = objective.IsSatisfied(centre, connected);
+        FollowObjectiveSatisfied = objective.IsSatisfied(centre);
         FollowHorizontalGap = objective.HorizontalGap(centre);
         FollowVerticalGap = objective.VerticalGap(centre);
-        FollowObjectiveReason = objective.Reason(centre, connected);
+        FollowObjectiveReason = objective.Reason(centre);
     }
 
     /// <summary>The last flood from the companion's feet holds this tile: the brain reads the player's feet against it to end a stranded count.</summary>
@@ -692,13 +763,14 @@ public sealed class Positioner
         // held destination has just failed its own region — and preferring a place that has stopped working is
         // exactly wrong. The hysteresis this replaces was a 1.15 multiplier fighting a resampled lattice, which
         // is why the chosen spot still changed a thousand times under requests that had not changed.
-        FollowPlayerObjective? followObjective = request.Kind == RequestKind.WithPlayer
-            ? senses.Intent.Objective.At(request.Anchor) : null;
         Point centre = CornerGraph.NearestCorner(request.Anchor);
         Vector2 playerBottom = senses.Player.Bottom;
-        // The ceiling is a rule about where a companion hovers, never a wall: a corner above it is
+        // The ceiling is a rule about where a companion takes a stand, never a wall: a corner above it is
         // not offered, and nothing else about it changes. It is measured from the player's feet
-        // because that is what "above the player" means to him whatever he is standing on.
+        // because that is what "above the player" means to him whatever he is standing on. Following
+        // does not come through here: inside the region the region's own top is the ceiling, because the
+        // region sits mostly above the player by the owner's ruling and a second ceiling under its top
+        // would cut away the part of it he put there.
         float ceiling = playerBottom.Y - Weights.HoverCeilingTiles * 16f;
         bool threatened = !senses.Threats.PlayerIsSafe;
         float bandNear = threatened ? Weights.ThreatBandNear : Weights.CalmBandNear;
@@ -732,8 +804,6 @@ public sealed class Positioner
                 bool reachable = ReachesCorner(corner);
                 if (reachable) ReachableCandidateCount++;
                 if (ProvenUnreachable(corner))
-                    continue;
-                if (followObjective is FollowPlayerObjective objective && !objective.AcceptsDestination(spot, CanSeePlayer(spot, senses)))
                     continue;
                 if (!reachable && anyReachable)
                     continue;
@@ -860,16 +930,12 @@ public sealed class Positioner
         float sight = seesPlayer ? 1f : 0.35f;
         float danger = PredictedExposureAt(spot, senses);
         float open = Openness(spot);
-        float travel = TravelBias(spot, senses);
 
+        // Following is not scored: outside the region the way back in is the nearest place inside it, and inside it the body
+        // moves about the region itself (NearestInsideCorner and HoverAroundSpot.Across). The arm that scored a follow spot for
+        // band, sight, danger, openness, travel, height, a clear way and courtesy went on 15 September 2026 with the spot.
         return request.Kind switch
         {
-            // Getting back to him is a disengage, not a charge: the flight home gained the clear-way
-            // test the firing requests already had, so a route that passes through a zombie is
-            // discounted and the body goes round rather than paying for the shortest line. The
-            // planner already prices reachable enemies on the route; this is the same idea applied
-            // to choosing the destination, so the two agree instead of one undoing the other.
-            RequestKind.WithPlayer => band * sight * (1f - 0.8f * danger) * open * travel * HoverHeight(spot, senses) * ClearWayTo(spot, senses) * CourtesyShare(spot, senses),
             // Guarding him is being able to shoot what is attacking him, which is not the same as
             // hovering where he stands. It carried neither a standoff from the target nor the
             // clear-way test, so the only thing pulling the body anywhere was a band measured to
@@ -958,18 +1024,6 @@ public sealed class Positioner
     }
 
     /// <summary>
-    /// Where beside the player a hovering companion should sit: a spot at or under his feet keeps a share, and the
-    /// share rises to the whole at his head height and above. The band and the region say how far; neither says how
-    /// high, and without this the openest corner near his feet — the one on the floor beside him — wins as often as
-    /// the one at his shoulder. A share rather than a veto, because a low passage can leave nothing above his feet.
-    /// </summary>
-    private static float HoverHeight(Vector2 spot, Senses.Senses senses)
-    {
-        float rise = senses.Player.Bottom.Y - spot.Y;
-        return Weights.HoverBelowHeadShare + (1f - Weights.HoverBelowHeadShare) * Consideration.Rising(rise, senses.PlayerEntity.height);
-    }
-
-    /// <summary>
     /// The share of its score a follow spot keeps when a body standing there would overlap the player's interference footprint
     /// (a block or wall aimed at the companion, or a passage the player is walking down). It is a factor rather than a veto:
     /// among useful spots, one out of the player's way wins, and a spot that is the only usable one stays usable. Attack
@@ -1044,15 +1098,6 @@ public sealed class Positioner
     /// </summary>
     private static float Openness(Vector2 spot)
         => 0.3f + 0.7f * Consideration.Rising(MovementQueries.ClearanceAt(spot), Weights.OpennessFullClearanceTiles);
-
-    private static float TravelBias(Vector2 spot, Senses.Senses senses)
-    {
-        var p = senses.Player;
-        if (!p.IsTravelling)
-            return 1f;
-        float along = (spot.X - p.Bottom.X) * p.TravelDirection;
-        return along >= 0f ? 1f : 0.6f;
-    }
 
     /// <summary>
     /// How good this spot's distance from the thing being shot at is. The band alone was a plateau,

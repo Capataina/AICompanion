@@ -27,7 +27,9 @@
     <Compile Include="VerifyArrivalHolds.cs" />
     <Compile Include="VerifyAnchorsAndEvade.cs" />
     <Compile Include="VerifyEvadeKeepsTheJob.cs" />
+    <Compile Include="VerifyEvadeBendsAccompanying.cs" />
     <Compile Include="VerifyNavigatorKeepsMoving.cs" />
+    <Compile Include="VerifyNavigatorConclusions.cs" />
     <!-- The ledger's row writer, as a source file. It names no game type, so including it here
          does not cross the navigation boundary this project exists on the game-free side of. -->
     <Compile Include="../Ledger/EmitLedgerRows.cs" />
