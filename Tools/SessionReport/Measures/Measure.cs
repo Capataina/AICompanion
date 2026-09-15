@@ -25,10 +25,11 @@ namespace AICompanion.Tools.SessionReport;
 /// travel as tags on the row rather than as comparisons in the code. The scoreboard grades a
 /// measure against the previous run and a noise band; nothing here grades it at all.
 ///
-/// The before-numbers each of these must reproduce are pinned in <c>Tests/PlayMeasureTests.cs</c>
-/// against the 13:27 capture of 14 September, because a measure that has never been run against a
-/// real recording is a function, not an instrument: the defects these exist to track live in the
-/// sparse, hub-shaped shape of a real play and a synthetic row set has none of them.
+/// The before-numbers a measure must reproduce are pinned in <c>Tests/PlayMeasureTests.cs</c> against
+/// a named real capture — at present the first orb play of 15 September, for the stillness and motion
+/// measures — because a measure that has never been run against a real recording is a function, not
+/// an instrument: the defects these exist to track live in the sparse, hub-shaped shape of a real
+/// play and a synthetic row set has none of them.
 /// </summary>
 public interface IMeasure
 {

@@ -1633,7 +1633,11 @@ public static class ChronicleTests
         foreach (string measured in MeasureSafetyShare.SafetyOwners)
             Require(safety.Contains($"\"{measured}\"", StringComparison.Ordinal) && ControlGrantsAreCompatible.SuspendingOwners.Contains(measured),
                 $"the safety measure counts '{measured}', which ChooseSafetyResponse no longer issues or the grant rules no longer call suspending");
-        foreach (System.Text.RegularExpressions.Match issued in System.Text.RegularExpressions.Regex.Matches(safety, "new ActivityControlRequest\\(controls, \"([^\"]+)\""))
+        var issuedOwners = System.Text.RegularExpressions.Regex.Matches(safety, "new ActivityControlRequest\\(controls, \"([^\"]+)\"");
+        // A pattern that matches nothing makes the loop below pass having checked nothing.
+        Require(issuedOwners.Count > 0,
+            "the owner-literal pattern found no control request in ChooseSafetyResponse, so the reverse pin on the safety measure's owner set checks nothing; rewrite the pattern to the file's current shape");
+        foreach (System.Text.RegularExpressions.Match issued in issuedOwners)
             Require(MeasureSafetyShare.SafetyOwners.Contains(issued.Groups[1].Value),
                 $"ChooseSafetyResponse issues '{issued.Groups[1].Value}', which the safety measure does not count; add it to MeasureSafetyShare.SafetyOwners or say why it is not safety");
         Require(events.Contains("grant-id={id};grant-tick={tick};activity-id={activityId};attempt-id={attemptId};activity-phase={activityPhase};requested-owner={requestedOwner}", StringComparison.Ordinal)
