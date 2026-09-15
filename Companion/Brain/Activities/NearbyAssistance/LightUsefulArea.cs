@@ -2,6 +2,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using Microsoft.Xna.Framework;
 using Terraria;
 using Terraria.ID;
@@ -10,23 +11,27 @@ using AICompanion.Companion.Brain.Infrastructure.Selection;
 using AICompanion.Companion.Brain.Infrastructure.Interactions.Torch;
 using AICompanion.Companion.Brain.Infrastructure.Movement;
 using AICompanion.Companion.Brain.Infrastructure.Observation;
+using FindToolAccess = AICompanion.Companion.Brain.Infrastructure.Interactions.FindToolAccess;
 
 namespace AICompanion.Companion.Brain.Activities.NearbyAssistance;
 
 /// <summary>
-/// Lights dark places by walking to them, one region at a time. The light field nominates the nearest
-/// region of dark air to the companion's own feet — not the player's, and not a disc around the body —
-/// the reach sense says whether the body can get there and come home, and the game's own Smart Cursor
-/// placer chooses which tile in that region actually takes a torch.
+/// Lights dark places: any tile the player's own smart cursor could put a torch on, inside the work area around the
+/// player, whose own light is dark. The game's torch step decides which tiles take a torch, the light sense decides
+/// which of those are dark, and the reach sense decides which the body can get to and come home from; the nearest such
+/// tile to the companion is the site.
 ///
-/// <para>Region at a time is the behaviour that matters. Lighting a dark area is not one interaction: a
-/// cave wing takes several torches, and the earlier search picked the nearest dark site on the whole
-/// screen, placed one torch and then went back to whatever else was on offer, so the companion trickled
-/// torches into a cave a visit at a time. This keeps its job after a placement the way mining keeps a
-/// vein, re-nominating from where it now stands, so it works its way through the dark and stops when
-/// there is no dark left in range or something outbids it.</para>
+/// <para>The rule is the owner's own words for it: if his smart cursor can place a torch there and it is dark, the
+/// companion can place one too. It replaced a search that began from the light field's lattice of dark regions and
+/// refused any site whose neighbourhood mean was lit, which could not see a dark passage too narrow for the lattice or
+/// three tiles of rock away from a lit room, and which never saw the tiles the player's cursor was offering him.</para>
+///
+/// <para>Region at a time is still the behaviour that matters. Lighting a dark area is not one interaction: a cave wing
+/// takes several torches, so this keeps its job after a placement the way mining keeps a vein, re-searching from where
+/// it now stands, and works its way through the dark until nothing dark is left in the work area or something outbids
+/// it. The game's own spacing between torches is what stops it filling the place.</para>
 /// </summary>
-public sealed class LightUsefulArea : PerformNearbyWorldWork
+public sealed class LightUsefulArea : PerformNearbyWorldWork, ICandidateFunnelSource
 {
     public override string Name => "place-torches";
     protected override float Utility => value;
@@ -37,10 +42,34 @@ public sealed class LightUsefulArea : PerformNearbyWorldWork
     /// several torches is worked through rather than visited once per search cadence.</summary>
     protected override bool ContinueAfterInteraction => true;
 
+    // Lighting's own candidate stages, in the order a tile meets them.
+    private const string StageNoSupply = "no-torch-supply";
+    private const string StageOutsideWorkArea = "outside-work-area";
+    private const string StageOccupied = "occupied-or-protected";
+    private const string StageUnread = "light-unread";
+    private const string StageLit = "lit";
+    private const string StagePlacerRefused = "placer-refused";
+
+    /// <summary>What the last search did with each tile it looked at. Lit and unread tiles are recorded by the gathering
+    /// scan, which is where they are refused; the rest by the executor.</summary>
+    public CandidateFunnel Funnel { get; } = new(FunnelEntries,
+        StageAllowance, StageNoSupply, StageOccupied, StageUnread, StageLit, StagePlacerRefused,
+        StageSearchCut, StageStandNotYetKnown, StageStandBeyondKnownRadius, StageStandUnreachable, CandidateFunnel.Offered);
+    private const int FunnelEntries = 6;
+    protected override CandidateFunnel? SearchFunnel => Funnel;
+    protected override string CandidateStagePassed => "placer-accepts";
+
     private float value = Weights.LightBaseValue;
     private bool playerCarriesLight;
     private LightSense.DarkRegion? region;
-    private string refusal = "no-dark-region-in-range";
+    private string refusal = NoDarkTile;
+    // The engine's computed bounds for the search in progress, read once because reading them is reflection.
+    private LightSense.Coverage? searchCoverage;
+
+    private const string NoLightMeasured = "no-light-measured-in-range";
+    private const string NoDarkTile = "no-dark-tile-in-range";
+    private const string NoPlaceableTile = "no-tile-the-placer-accepts";
+    private const string ScanCut = "dark-tile-scan-cut-by-planning-deadline";
 
     protected override bool Enabled(in ActionContext ctx)
     {
@@ -60,121 +89,97 @@ public sealed class LightUsefulArea : PerformNearbyWorldWork
             && held.createTile < TileID.Sets.Torch.Length && TileID.Sets.Torch[held.createTile];
     }
 
-    /// <summary>
-    /// The tiles worth asking the placer about: those in and around the nominated dark region, nearest the
-    /// region's centre first. The search window used to be the whole visible screen scanned tile by tile,
-    /// with the darkness test run per candidate; the field has already done that work, so this only has to
-    /// turn one region into placement candidates.
-    /// </summary>
-    protected override void GatherSearchTiles(in ActionContext ctx, List<(float Cost, int Order, Point Tile)> into)
+    public override void Prepare(in ActionContext ctx)
     {
-        Point feet = MovementQueries.Tile(ctx.Npc.Center);
-        var regions = ctx.Senses.Light.DarkRegionsNearest(feet, Weights.LightRegionSearchTiles);
-        region = null;
-        value = Weights.LightBaseValue;
-        if (regions.Count == 0)
-        {
-            refusal = ctx.Senses.Light.MeasuredSamples == 0 ? "no-light-measured-in-range" : "no-dark-region-in-range";
-            return;
-        }
-        // The work radius is measured from the player's intent region, not from his body. A dark
-        // stretch of passage a few tiles ahead of a walking player sits at the far edge of a circle
-        // centred behind him and drops out of range the moment he sets off towards it, which is the
-        // one moment lighting it is worth anything; anchored on the region the radius leads him, so
-        // the passage he is walking into is in range before he gets there. The nearest-first
-        // ordering below still starts from the companion's own feet, because that is about which
-        // darkness it can walk to rather than which darkness is worth lighting.
-        Point player = MovementQueries.Tile(ctx.Senses.Intent.Region.Centre);
+        base.Prepare(ctx);
+        UpdatePlayerReference(ctx);
+        searchCoverage = null;
+    }
+
+    /// <summary>The work area, as a tile box: the player's intent region's centre, out to the work radius each way. A
+    /// dark place outside it is somebody else's darkness: the companion is not a lamplighter sent out into the world, it
+    /// lights where the two of them are. Anchored on the region rather than on his body, because a dark passage a few
+    /// tiles ahead of a walking player is the one worth lighting and a box behind him drops it the moment he sets off.</summary>
+    private static Rectangle WorkArea(in ActionContext ctx)
+    {
+        Point centre = MovementQueries.Tile(ctx.Senses.Intent.Region.Centre);
         int work = (int)(Weights.FollowWorkRadius / 16f);
-        Vector2 fromFeet = ctx.Npc.Center;
-        int span = Weights.LightPlacementSearchTiles;
-        var offered = new HashSet<Point>();
-        var nearest = new List<(float Cost, int Order, Point Tile)>();
-        refusal = "dark-region-outside-work-radius";
-        // Every dark region in range contributes its tiles, and the executor takes the first whose access it
-        // can prove, scanning in cost order from the feet. Offering only the nearest region would let one
-        // unreachable pocket hide every reachable one behind it — dark air under a floor is nearer than a
-        // shelf across the room and sealed away from both of them — and "nearest dark region" is about where
-        // the companion walks, not about which darkness it is allowed to know exists.
-        bool cut = false;
-        foreach (LightSense.DarkRegion found in regions)
-        {
-            // The scan reads the deadline the same way every route and reach query nested under it does, and
-            // for the same reason: it is not a search that answers in bounded time. A screen dark everywhere
-            // nominates one region holding most of the lattice, and the site test is a neighbourhood of engine
-            // reads per candidate tile, so a whole-dark floor measured 37.6 ms of preparation in one tick
-            // against a twelve-millisecond tick — the family's preparation share cannot hold that, because a
-            // share decides whether the next child starts and cannot interrupt one already running. Cutting
-            // here reports the refusal as Unresolved rather than as no opportunity, which is the difference
-            // between an answer that has not arrived and an answer of "no", and it retries in a rescore.
-            if (LimitPlanningWork.Expired) { cut = true; break; }
-            // A region outside the work radius of the player is somebody else's darkness: the companion is
-            // not a lamplighter sent out into the world, it lights where the two of them are.
-            if (Math.Abs(found.Centre.X - player.X) > work || Math.Abs(found.Centre.Y - player.Y) > work)
-                continue;
-            // Every tile in and around the region. Around every member rather than around one representative
-            // point: a torch needs something to attach to, and the wall a large dark region touches can be
-            // at its far end. The span bridges the gaps the lattice leaves between its own samples, so the
-            // scan sees whole tiles rather than only the sampled ones.
-            foreach (Point member in found.Tiles)
-            {
-                // And inside the region too, because one region can hold most of the lattice and a probe
-                // only between regions would never fire on the scene that costs the most.
-                if (LimitPlanningWork.Expired) { cut = true; break; }
-                for (int x = member.X - span; x <= member.X + span; x++)
-                    for (int y = member.Y - span; y <= member.Y + span; y++)
-                    {
-                        Point p = new(x, y);
-                        if (!offered.Add(p) || SearchTileDeferred(p) || !PlaceSuppliedTorches.Candidate(p)) continue;
-                        // The darkness veto runs here rather than only in the executor's own candidate
-                        // check, because the cap below keeps the nearest sites and a lit site that survives
-                        // to be counted takes a place from a dark one further out. Inside a lit bubble every
-                        // one of the nearest tiles is lit, so a cap applied before this test keeps a full
-                        // list of sites that will all be refused and reports no opportunity.
-                        if (!SiteIsDark(ctx, p)) continue;
-                        nearest.Add((CandidateCost(fromFeet, p), nearest.Count, p));
-                    }
-            }
-            if (region != null) continue;
-            // The nearest region that contributed anywhere to put a torch is the one being worked, which is
-            // what the value and the telemetry describe.
-            region = found;
-            value = Math.Min(Weights.LightBaseValue + found.DarkSamples * Weights.LightRegionSampleValue,
-                    Weights.LightBaseValue + Weights.LightRegionValueCap)
-                * (playerCarriesLight ? 1f : Weights.LightPlayerUnlitFactor);
-        }
-        // Every surviving site is handed on, ordered by the executor's own nearest-first scan. Capping the
-        // list to the nearest few was tried and reverted: the placer's own attachment test runs inside the
-        // executor, so a cap applied here fills with open air that has nothing to hold a torch and reports
-        // no opportunity while a usable wall sits just past the cut. Bounding this list means running the
-        // attachment test during the search, which is the expensive half, and that trade has not been
-        // measured yet.
-        foreach (var candidate in nearest)
-            into.Add((candidate.Cost, into.Count, candidate.Tile));
-        if (region != null) refusal = "no-tile-the-placer-accepts";
-        // A cut scan that already found sites hands them on: they are real, and the ones it did not reach were
-        // further away in the same cost order. A cut scan that found none has not answered, and saying "no
-        // opportunity" there would be reporting the deadline as a fact about the world.
-        if (cut && nearest.Count == 0) refusal = "dark-region-scan-cut-by-planning-deadline";
+        return new Rectangle(centre.X - work, centre.Y - work, 2 * work + 1, 2 * work + 1);
     }
 
     /// <summary>
-    /// Whether this spot wants a torch. It is the site's whole neighbourhood rather than the one tile,
-    /// because a torch lights an area: a dark tile pressed against a lit room needs no torch, and a point
-    /// query says it does. Sampled from the engine at its own stride rather than off the field's lattice,
-    /// whose stride is wider than the lit patches this has to resolve. Unmeasured is refused with lit: a
-    /// place nobody has read is not a proven dark place, and a torch spent on it is spent on a guess.
+    /// Every tile in the work area the engine has computed light for that could take a torch and is dark. The torch
+    /// step's own attachment test is too dear to run on every tile of a screen, so a necessary condition of it filters
+    /// here and the step itself runs in the executor, nearest first, on what survives; the light is read here because it
+    /// is cheap and a lit tile is refused before it can take a place in the executor's order.
     /// </summary>
-    private static bool SiteIsDark(in ActionContext ctx, Point tile)
+    protected override void GatherSearchTiles(in ActionContext ctx, List<(float Cost, int Order, Point Tile)> into)
     {
-        // The companion's own carried torch counts as darkness here, which is the opposite of how the torch's
-        // own hold decision reads the same samples and is right for the same reason: a permanent torch exists
-        // so the place stays lit once the carried one walks away. Without this a companion holding a torch
-        // refuses every site within its own glow — it cannot see that the cave it is standing in needs
-        // lighting, because it is the thing lighting it.
-        var site = ctx.Senses.Light.MeasuredAround(tile, Weights.LightSiteRadiusTiles, Weights.LightSiteStrideTiles,
-            carriedCountsAsDark: true);
-        return !site.Unmeasured && site.MeanBrightness < Weights.LightDarkBelow;
+        var light = ctx.Senses.Light;
+        LightSense.Coverage coverage = LightSense.Coverage.Current();
+        searchCoverage = coverage;
+        Rectangle area = WorkArea(ctx);
+        // The engine computes light for the screen and answers nothing outside it, so the scan is clipped to what it
+        // computed rather than paying for tiles that can only read unread.
+        if (!coverage.Legacy)
+            area = Rectangle.Intersect(area, coverage.Area);
+        Point feet = MovementQueries.Tile(ctx.Npc.Center);
+        Vector2 fromFeet = ctx.Npc.Center;
+        NominateRegion(ctx, feet);
+        int placeable = 0, lit = 0, unread = 0;
+        bool cut = false;
+        for (int x = area.Left; x < area.Right && !cut; x++)
+        {
+            // The scan reads the deadline the same way every route and reach query nested under it does, and for the
+            // same reason: a screen of candidate tiles is not a search that answers in bounded time, and a share decides
+            // whether the next child starts and cannot interrupt one already running.
+            if (LimitPlanningWork.Expired) { cut = true; break; }
+            for (int y = area.Top; y < area.Bottom; y++)
+            {
+                if (!WorldGen.InWorld(x, y, 10)) continue;
+                Tile tile = Main.tile[x, y];
+                if (tile.HasTile || tile.LiquidAmount > 0) continue;
+                Point p = new(x, y);
+                if (!RecommendTorchPlacement.MayAccept(p) || !PlaceSuppliedTorches.Candidate(p) || SearchTileDeferred(p)) continue;
+                placeable++;
+                var reading = light.ReadForPlacement(p, coverage);
+                float cost = CandidateCost(fromFeet, p);
+                if (!reading.IsDark)
+                {
+                    if (reading.Light == LightSense.PlacementLight.Unread) unread++; else lit++;
+                    Funnel.Add("tile", p, cost, StageOccupied,
+                        reading.Light == LightSense.PlacementLight.Unread ? StageUnread : StageLit, Readings(reading));
+                    continue;
+                }
+                into.Add((cost, into.Count, p));
+            }
+        }
+        refusal = into.Count > 0 ? NoPlaceableTile
+            : cut ? ScanCut
+            : placeable == 0 && coverage.Area.Width <= 0 ? NoLightMeasured
+            : placeable > 0 && lit == 0 && unread > 0 ? NoLightMeasured
+            : placeable == 0 ? NoPlaceableTile
+            : NoDarkTile;
+    }
+
+    /// <summary>The value this work is worth, from the nearest dark region of the light field inside the work area: a
+    /// larger dark area is worth more, up to a cap, and a player with no light of his own makes it worth more again. The
+    /// region is also what the telemetry names; with no region the base value stands, because a dark tile the lattice
+    /// is too coarse to see is still worth lighting.</summary>
+    private void NominateRegion(in ActionContext ctx, Point feet)
+    {
+        region = null;
+        float player = playerCarriesLight ? 1f : Weights.LightPlayerUnlitFactor;
+        value = Weights.LightBaseValue * player;
+        Rectangle area = WorkArea(ctx);
+        foreach (LightSense.DarkRegion found in ctx.Senses.Light.DarkRegionsNearest(feet, Weights.LightRegionSearchTiles))
+        {
+            if (!area.Contains(found.Centre)) continue;
+            region = found;
+            value = Math.Min(Weights.LightBaseValue + found.DarkSamples * Weights.LightRegionSampleValue,
+                    Weights.LightBaseValue + Weights.LightRegionValueCap) * player;
+            return;
+        }
     }
 
     protected override (OfferEligibility Eligibility, string Reason) DisabledOffer(in ActionContext ctx)
@@ -183,52 +188,46 @@ public sealed class LightUsefulArea : PerformNearbyWorldWork
             : (OfferEligibility.KnownUnusable, "no-torch-supply");
 
     /// <summary>
-    /// Why this search found nothing, split into the four exits that used to share one reason. They are
-    /// not the same fact and they do not imply the same next move: no darkness anywhere is an absence of
-    /// work, a region whose tile the flood has not claimed yet is an unanswered search that must not start
-    /// a walk, a region proven unreachable is work that exists and cannot be had, and a region no placer
-    /// tile accepts is a geometry problem in a place the companion can stand.
+    /// Why the gathering found nothing to ask about. Nothing measured and a scan the deadline cut are unanswered
+    /// searches; no dark tile and no tile the placer accepts are absences. Every exit about a site's stand belongs to
+    /// the executor and carries its shared name.
     /// </summary>
     protected override (OfferEligibility Eligibility, string Reason)? SearchRefusal(in ActionContext ctx)
-        // The site budget is not tested here: it belongs to the executor that owns it, which reports it ahead
-        // of every reason this method can give, so a copy of the test here would be a second home for one fact
-        // and would answer differently the moment the executor's ordering changed.
         => refusal switch
         {
-            "no-light-measured-in-range" => (OfferEligibility.Unresolved, refusal),
-            "dark-region-tile-not-yet-known-reachable" => (OfferEligibility.Unresolved, refusal),
-            "dark-region-scan-cut-by-planning-deadline" => (OfferEligibility.Unresolved, refusal),
-            // The shared name for this condition, not a lighting-specific one: failing the two-way region
-            // is exactly "the body cannot go there and come home", which is what the executor's round-trip
-            // proof called by this name before the reach sense answered the same question more cheaply.
-            "interaction-site-has-no-return" => (OfferEligibility.KnownUnusable, refusal),
+            NoLightMeasured => (OfferEligibility.Unresolved, refusal),
+            ScanCut => (OfferEligibility.Unresolved, refusal),
             _ => (OfferEligibility.NoOpportunity, refusal),
         };
 
-    protected override bool Candidate(in ActionContext ctx, Point tile)
-    {
-        Item? torch = PlaceSuppliedTorches.Supply(ctx.Companion.Bag.Items, ctx.Player.inventory);
-        if (torch == null || !PlaceSuppliedTorches.Candidate(tile)) return false;
-        // The region says where the dark is; this says the torch is not going into a lit corner of it. It
-        // is the site's whole neighbourhood rather than the one tile, because a torch lights an area: a
-        // dark tile pressed against a lit room needs no torch, and a point query says it does. Sampled from
-        // the engine at its own stride, not off the field's lattice, whose stride is wider than the lit
-        // patches this has to resolve. Unmeasured is refused with lit: a place nobody has read is not a
-        // proven dark place, and a torch spent on it is a torch spent on a guess.
-        if (!SiteIsDark(ctx, tile)) return false;
-        return RecommendTorchPlacement.Accepts(tile, torch, ctx.Companion.StandIn.Player);
-    }
+    protected override bool Candidate(in ActionContext ctx, Point tile) => RefusingStage(ctx, tile) == null;
 
     /// <summary>
-    /// Lighting's two names for a site it walked past. The approach has already asked the reach sense, so
-    /// this only has to say which of lighting's four exits the verdict was: an unsettled flood is an
-    /// unanswered search that must not start a walk, and a flood that ran out of region is work that exists
-    /// and cannot be had. Reporting both as one refusal is what the split of these exits undid.
+    /// The stage that refuses a tile, in the order the search meets them: a torch to place, a tile the companion may
+    /// place into, light the engine computed, darkness there by the tile's own light, and the game's own torch step.
+    /// Unread is refused with lit: a place nobody has read is not a proven dark place, and a torch spent on it is spent
+    /// on a guess.
     /// </summary>
-    protected override void NoteApproach(in ActionContext ctx, Reachability.Reach verdict)
-        => refusal = verdict == Reachability.Reach.Unknown
-            ? "dark-region-tile-not-yet-known-reachable"
-            : "interaction-site-has-no-return";
+    protected override string? RefusingStage(in ActionContext ctx, Point tile)
+    {
+        Item? torch = PlaceSuppliedTorches.Supply(ctx.Companion.Bag.Items, ctx.Player.inventory);
+        if (torch == null) return StageNoSupply;
+        if (!PlaceSuppliedTorches.Candidate(tile)) return StageOccupied;
+        var reading = ctx.Senses.Light.ReadForPlacement(tile, searchCoverage ?? LightSense.Coverage.Current());
+        if (reading.Light == LightSense.PlacementLight.Unread) return StageUnread;
+        if (!reading.IsDark) return StageLit;
+        return RecommendTorchPlacement.Accepts(tile, torch, ctx.Companion.StandIn.Player) ? null : StagePlacerRefused;
+    }
+
+    protected override string CandidateReadings(in ActionContext ctx, Point tile)
+        => Readings(ctx.Senses.Light.ReadForPlacement(tile, searchCoverage ?? LightSense.Coverage.Current()));
+
+    private static string Readings(LightSense.PlacementReading reading) => reading.Light switch
+    {
+        LightSense.PlacementLight.Unread => "light=unread",
+        LightSense.PlacementLight.Carried => FormattableString.Invariant($"light=carried:{reading.Brightness:0.000}"),
+        _ => FormattableString.Invariant($"light={reading.Brightness:0.000}"),
+    };
 
     protected override bool Perform(in ActionContext ctx, Point tile)
     {
@@ -239,4 +238,64 @@ public sealed class LightUsefulArea : PerformNearbyWorldWork
 
     /// <summary>The region this activity is working, for the telemetry; absent when nothing is nominated.</summary>
     public LightSense.DarkRegion? NominatedRegion => region;
+
+    // ---- the player's own cursor, as the reference this activity is judged against -------------------------------
+
+    /// <summary>How often the reference is recomputed: the positioner's rescore interval, because the reference is read
+    /// against the search, which re-runs on about that cadence, and a per-tick reference would cost the torch step's scan
+    /// of his whole reach box every tick for an answer that moves when he does.</summary>
+    private const int ReferenceTicks = 12;
+    private ulong nextReference;
+
+    /// <summary>The tile the player's own smart cursor would offer for the torch the companion would place, with the
+    /// cursor at his centre; null when his reach holds none, or there is no torch.</summary>
+    public Point? PlayerReferenceTile { get; private set; }
+
+    /// <summary>What that tile's own light reads to the placement question; null with no tile.</summary>
+    public LightSense.PlacementReading? PlayerReferenceReading { get; private set; }
+
+    /// <summary>The stage at which this activity refuses that tile, <see cref="CandidateFunnel.Offered"/> when it is the
+    /// site, or the reason there is no tile.</summary>
+    public string PlayerReferenceStage { get; private set; } = "-";
+
+    private void UpdatePlayerReference(in ActionContext ctx)
+    {
+        if (Main.GameUpdateCount < nextReference && Main.GameUpdateCount + ReferenceTicks >= nextReference) return;
+        nextReference = Main.GameUpdateCount + ReferenceTicks;
+        PlayerReferenceTile = null;
+        PlayerReferenceReading = null;
+        Item? torch = PlaceSuppliedTorches.Supply(ctx.Companion.Bag.Items, ctx.Player.inventory);
+        if (ctx.Player.dead) { PlayerReferenceStage = "player-dead"; return; }
+        if (torch == null) { PlayerReferenceStage = StageNoSupply; return; }
+        if (RecommendTorchPlacement.PlayerCursorTorch(ctx.Player, torch) is not Point tile)
+        {
+            PlayerReferenceStage = "cursor-offers-nothing";
+            return;
+        }
+        PlayerReferenceTile = tile;
+        PlayerReferenceReading = ctx.Senses.Light.ReadForPlacement(tile, LightSense.Coverage.Current());
+        PlayerReferenceStage = ExplainTile(ctx, tile);
+    }
+
+    /// <summary>
+    /// The stage at which this activity refuses one tile, asked the same way the search asks it and changing nothing:
+    /// the work area, the activity allowance, a refusal remembered from an earlier search, the candidate stages and the
+    /// reach sense's answer for its stand. A tile that passes every stage without being the site says that too, because
+    /// then the answer is the search's order or its cadence rather than a rule.
+    /// </summary>
+    public string ExplainTile(in ActionContext ctx, Point tile)
+    {
+        if (target == tile) return CandidateFunnel.Offered;
+        if (!WorkArea(ctx).Contains(tile)) return StageOutsideWorkArea;
+        if (!AllowsTarget(ctx, tile.ToWorldCoordinates(), tile)) return StageAllowance;
+        if (DeferredStage(tile) is string deferred) return deferred;
+        if (RefusingStage(ctx, tile) is string refused) return refused;
+        if (FindToolAccess.InReach(ctx.Npc.Center, tile)) return StagePassedEveryStage;
+        return FindToolAccess.Approach(tile, ctx.Npc.Center, ctx.Senses.Reach, out _) switch
+        {
+            Reachability.Reach.Yes => StagePassedEveryStage,
+            Reachability.Reach.No => StageStandUnreachable,
+            _ => ctx.Senses.Reach.Complete ? StageStandBeyondKnownRadius : StageStandNotYetKnown,
+        };
+    }
 }

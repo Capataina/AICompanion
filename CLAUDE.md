@@ -200,7 +200,8 @@ the hands       four slots (two weapons, a pickaxe, an axe) holding real items r
                 one item-backed weapon that spawns or swings; free default ammo; mana mirroring the
                 player's on a gradient that never refuses; arcs learned per projectile type from its shots
 the notch       health, mana and experience with the level; the mastery wheel a generated four-lane preview
-the record      schema 0.34.0, the orb's columns; experience credited from attempt outcomes by attribution
+the record      schema 0.35.0, the orb's columns with a candidate funnel per searching activity and the player's own
+                cursor as a reference; experience credited from attempt outcomes by attribution
 ```
 
 Two properties of that shape are the ones a stranger has to know. **Any route with clearance is followable by construction**: the body is holonomic and every edge between two usable corners is swept clear, so there is no proof step between planning and moving and no class of "the planner proved it and the body could not", which is the property every one of the walker's negative captures lacked. And **the orb has one body**: the contact in the motor is the contact in every headless tool, from the same source, so a headless integration is integrating the body the game has and the walker's two-body parity measurement has no subject.

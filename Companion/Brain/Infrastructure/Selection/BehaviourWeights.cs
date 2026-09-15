@@ -190,29 +190,11 @@ public static class Weights
     // further; a larger number was rejected because it lets the companion walk out of the player's area
     // chasing darkness, which is the behaviour recovery flight exists to undo.
     public const int LightRegionSearchTiles = (int)(FollowWorkRadius / 16f);
-    // How far around one candidate torch site its own darkness is read, in tiles. Smaller than the torch
-    // hold radius on purpose: this asks "is this particular spot dark", where the hold radius asks "is this
-    // neighbourhood dark", and a site veto as wide as the hold radius refuses every site in a small dark
-    // pocket beside a lit room.
-    public const int LightSiteRadiusTiles = 5;
-    // How finely that neighbourhood is sampled. Half the light field's own lattice stride, because this
-    // veto has to resolve lit patches the field cannot: a torch's own glow is a few tiles across, and a
-    // sampling step as wide as the field's would step over one entirely.
-    public const int LightSiteStrideTiles = 2;
-    // A site's neighbourhood is judged by its mean brightness against LightDarkBelow, not by a share of
-    // dark samples. The share is the right question for holding a torch — is there dark air near me — and
-    // the wrong one for placing one: beside a lit room a majority of a site's neighbourhood can be dark
-    // while the room's own light already reaches the spot, and a share passes that where a mean refuses it.
     // How long a nearby-work search waits before asking again when it could not answer, as opposed to when
     // it answered that there is nothing. It is a rescore or two, which is what the reach region needs to
     // settle after a world change; longer and the body has wandered somewhere else before the evidence it
     // was waiting for arrives, so the site it then proves is a different and worse one.
     public const int NearbyWorkUnresolvedRetryTicks = 15;
-    // How many tiles around each dark sample in the nominated region are offered to the game's own placer.
-    // It only has to bridge the gaps the light field's lattice leaves between its own samples, because the
-    // scan runs around every member rather than around one point; wider would re-create the screen-wide
-    // search this replaced, and narrower would leave unsampled tiles between members unconsidered.
-    public const int LightPlacementSearchTiles = 3;
     // What one dark sample in the nominated region is worth, and the ceiling that stops a cavern from
     // outbidding everything. A count rather than a flat value because a torch in the larger dark space is
     // worth more, and the ceiling because without it a big enough cave beats protecting the player.

@@ -53,6 +53,35 @@ public static class GodsEyeEvents
         if (disabled) Dropped++;
         return false;
     }
+    // The last funnel written per activity, so an occurrence marks a change in what a search did rather than a tick.
+    private static readonly Dictionary<string, string> lastFunnelEvidence = new();
+
+    /// <summary>
+    /// Whether an activity's candidate funnel differs from the one last written for it, taking the new one as written when
+    /// it does. Coalesced on the counts and the furthest stage rather than on the entries, because a body in flight changes
+    /// every entry's distance each tick while the search's outcome stands still. Separate from the write so a caller builds
+    /// the entries text only on the ticks that write it. This file takes plain values rather than the funnel itself, because
+    /// the headless tools compile it on its own, without the activities.
+    /// </summary>
+    public static bool CandidateFunnelChanged(NPC companion, string activity, string bestStage, string summary)
+    {
+        if (!Accepting()) return false;
+        string key = $"{Stable(npcGenerations, companion.whoAmI)}:{summary}:{bestStage}";
+        if (lastFunnelEvidence.TryGetValue(activity, out string? had) && had == key) return false;
+        lastFunnelEvidence[activity] = key;
+        return true;
+    }
+
+    /// <summary>What an activity's last preparation did with its candidates: how many candidates each stage refused, the stage
+    /// that refused the candidate that got furthest, how many candidates it looked at, and the kept entries with the numbers
+    /// each stage read.</summary>
+    public static void RecordCandidateFunnel(NPC companion, string activity, string bestStage, string summary, int total, string entries)
+    {
+        if (!Accepting()) return;
+        Write("candidate-funnel", Stable(npcGenerations, companion.whoAmI), "", activity, bestStage, companion.Bottom, Vector2.Zero, Vector2.Zero,
+            total, $"counts={summary};entries={entries}");
+    }
+
     public static void RecordWorldInteraction(NPC companion, Point tile, string operation, string detail)
         => Write("world-interaction", companion.whoAmI, "", operation, "", companion.Bottom, Vector2.Zero,
             tile.ToWorldCoordinates(), 0, detail);
@@ -125,6 +154,7 @@ public static class GodsEyeEvents
         lastNavigationEvidence = null;
         lastActivityEvidence = null;
         lastControlEvidence = null;
+        lastFunnelEvidence.Clear();
         lastAttemptRecorded = 0;
         cosmeticContacts = 0;
         disabled = false;

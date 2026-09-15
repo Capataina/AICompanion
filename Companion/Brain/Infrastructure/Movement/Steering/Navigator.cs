@@ -77,7 +77,20 @@ public sealed class Navigator
     public bool PlannedThisTick { get; private set; }
     public FreeSpaceSearch.StopReason LastSearchStop { get; private set; }
     public int LastExpansions { get; private set; }
-    public double LastPlanMs { get; private set; }
+    // Wall-clock spent planning since the recorder last asked, accumulated over every plan call in between.
+    private double planMsUnread;
+
+    /// <summary>
+    /// What planning has cost since the last call, and zero when nothing planned; the recorder calls it once per row, so a
+    /// row carries its own tick's cost. It replaced a last-plan figure that was repeated on every row until the next plan,
+    /// so a sum over a stretch of rows counted one plan once per row and a tick that planned nothing looked like one that did.
+    /// </summary>
+    public double TakePlanMs()
+    {
+        double spent = planMsUnread;
+        planMsUnread = 0;
+        return spent;
+    }
     public long SearchId { get; private set; }
     public long AttemptId { get; private set; }
     public int SearchExpansions => search?.Expansions ?? 0;
@@ -250,7 +263,7 @@ public sealed class Navigator
             search = null;
             if (settledShort != null)
             {
-                LastPlanMs = clock.Elapsed.TotalMilliseconds;
+                planMsUnread += clock.Elapsed.TotalMilliseconds;
                 return;
             }
             if (spent != null)
@@ -265,7 +278,7 @@ public sealed class Navigator
                     LastPlanFailed = LastPlanEmpty = true;
                     LastSearchStop = spent.Stop;
                     LastExpansions = spent.Expansions;
-                    LastPlanMs = clock.Elapsed.TotalMilliseconds;
+                    planMsUnread += clock.Elapsed.TotalMilliseconds;
                     return;
                 }
                 spent = null;
@@ -283,7 +296,7 @@ public sealed class Navigator
                 LastPlanFailed = true;
                 LastSearchStop = FreeSpaceSearch.StopReason.Exhausted;
                 LastExpansions = 0;
-                LastPlanMs = clock.Elapsed.TotalMilliseconds;
+                planMsUnread += clock.Elapsed.TotalMilliseconds;
                 if (start == null) ProgressReason = "no-corner-under-body";
                 return;
             }
@@ -335,7 +348,7 @@ public sealed class Navigator
             if (Path == null || (PathIsPartial && Vector2.Distance(live.Centre, Path.Goal) <= SettleRadius))
                 TakePartialRoute(live, goal, world, search);
         }
-        LastPlanMs = clock.Elapsed.TotalMilliseconds;
+        planMsUnread += clock.Elapsed.TotalMilliseconds;
     }
 
     /// <summary>

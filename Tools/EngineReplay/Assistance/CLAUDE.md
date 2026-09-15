@@ -6,6 +6,8 @@ The nearby-assistance family, plus the two senses every activity in it consumes.
 Assistance/
 ├─ CLAUDE.md
 ├─ VerifyLightAndReachSenses.cs   the acceptance set for light and reach as two senses
+├─ VerifyTorchPlacementRule.cs    torches wherever his smart cursor could place one in the dark, and every search exit named
+├─ VerifyCandidateFunnel.cs       each refusal named with its stage, his cursor's tile as the reference, the recorded factors
 ├─ VerifyCompanionActivities.cs   the seven activities offered and chosen, and danger charged once
 ├─ VerifyUsefulAssistance.cs      assistance that is useful rather than merely nearby
 ├─ VerifyAssistanceTrips.cs       a trip goes and returns; hover sites; incidental pots
@@ -33,7 +35,17 @@ Its `e:` rows are the spatial-invalidation set: a retained search survives an ed
 
 `VerifyAssistanceTrips` drives the real lighting and collection activities through the shared nearby-interaction executor on an island scene: the companion and player stand on a short floor whose own torch sites sit inside a measured lit disc, and the only dark sites and the pot are on the floor of a pit twelve rows below the island edge. Without a way back the pit is a one-way drop, and neither a lighting site nor the pot may be offered under either one-way setting; with drops allowed the lighting refusal must name the missing return. With steps from the pit floor back up, the same pit must offer a site and the pot. The scene asserts its own premise through `MovementQueries.RoundTrip` before any activity is prepared, so a staircase that failed to make a round trip reads as a broken fixture rather than a behaviour result.
 
-The island is built as solid rock with the chamber carved out of it, not as a one-tile shell. A shell let the darkness test's neighbourhood mean reach lit open air outside the chamber, so the site read lit and the row proved nothing.
+The island is built as solid rock with the chamber carved out of it, not as a one-tile shell, so the chamber's air is the only open air near its sites; a shell once let a neighbourhood darkness test read the lit open air outside the chamber, and the row passed while proving nothing.
+
+## The torch rule and the funnel, on light the engine itself presents
+
+`VerifyTorchPlacementRule` and `VerifyCandidateFunnel` present light the way the colour engine's blur state does rather than painting brightness per tile: the world's colour on every tile, solid tiles masked so light decays through them at the engine's solid rate, placed lights merged in the way the tile scan merges a standing torch, carried lights merged by maximum and also announced through `Lighting.AddLight`, then the engine's own `LightMap.Blur`, all at the game's own global brightness. That is not realism for its own sake. Every older lighting row wrote brightness straight into the map at a global brightness of one, the one setting at which no light can exceed one, so a defect living in that difference — a carried torch modelled below the engine's own reading of it — was invisible to all of them while it read a whole cave lit in play.
+
+The rule's rows are split by what they read, and the split is how their reds were taken. `VerifyTorchPlacementRule` reads only surfaces that existed before it did, so each row was run red against the production code of its parent with that code stashed and the fixture left in place: the carried torch in a dark cave, the dark room his cursor could light, the search the deadline cut, the stand beyond the known radius and the refusals past the store's old size. Its lit-room and daylight rows were green there and are held by mutations instead — lighting with its darkness stage removed, and the placement reading with only the model unclamped. `VerifyCandidateFunnel` reads what the lane added, so every row there is held by a mutation named in its commit: a refusal recorded under the wrong stage, the attachment filter without its wall term, the player's cursor centred on his corner, the time factor recorded as one.
+
+**The executor's exits are driven through a fixture method, not through lighting.** `Sites` is the shared executor with a fixed list of sites asked in list order and nothing of its own, and it can expire the planning deadline the moment gathering ends. That is the one deterministic way to reach the cut inside the stand loop rather than inside a gathering scan, and the one way to order a beyond-radius stand ahead of a refused one without depending on a subclass's costs.
+
+What these two families do not establish: the engine's tile scan lighting a placed torch rather than the fixture merging its colour in, legacy lighting, an engine batch the blur consumed while the sense held the previous one, and anything about the reference or the funnel in a played capture.
 
 **The shelf rows are the orb's version of the walker's hop, and they are the clearest example of what the body changed.** A two-tile shelf eleven columns away, whose sites no floor pose reaches, must be offered with a hover beside it and worked from there — the torch placed, the pot broken — with the body's centre recorded at the height it worked from. The walker needed a proven take-off and could lose it; the orb needs a free cell and a clearance.
 

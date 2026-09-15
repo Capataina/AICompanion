@@ -123,7 +123,7 @@ public static class OrderNearbyTasks
             float placed = k == leader
                 ? top
                 : MathF.Min(evaluated[at].Final, top * (bestStart[k] / bestStart[leader]) * (bestStart[k] >= bestStart[leader] ? 0.999f : 1f));
-            result[at] = result[at] with { Final = placed };
+            result[at] = result[at] with { Final = placed, Order = evaluated[at].Final > 0f ? placed / evaluated[at].Final : 1f };
         }
         return new(result, Describe(evaluated, tasks, bestOrder, bestValue),
             runnerValue >= 0f ? Describe(evaluated, tasks, runnerOrder, runnerValue) : "");
