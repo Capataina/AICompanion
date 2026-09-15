@@ -339,6 +339,7 @@ internal static class RenderCompanionCard
         });
         ui.SetState(null);
         Step("escape closes only the card", VerifyEscapeClosesOnlyTheCard.Run);
+        Step("shift-click with the Inventory page open", VerifyShiftClickFillsTheBag.Run);
         if (failures.Count > 0)
             throw new InvalidOperationException($"{failures.Count} card check(s) failed at {suffix}:\n" + string.Join("\n", failures));
     }

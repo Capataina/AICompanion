@@ -7,7 +7,7 @@ PlayerIntegration/
 ├─ ConfigureCompanionPreferences.cs  per-character optional-work and follow-distance choices, and the mining list they carry
 ├─ KeepMiningList.cs         the ores this character has held, the marks on them and what a mark means, saved by name
 ├─ RecordOresHeld.cs         `CompanionPlayer.PostUpdate`: every ore in the inventory joins the list
-├─ HandleCompanionInput.cs   saved inspector keybind, pre-item-use notch/card/bag input, and the Inventory trigger that closes the card
+├─ HandleCompanionInput.cs   saved inspector keybind, pre-item-use notch/card/bag input, the Inventory trigger that closes the card, and shift-click between player and bag
 ├─ ObservePlayerEvents.cs    `CompanionPlayer` authoritative player-event observation
 └─ CompanionCommand.cs       /companion setup and explicit recovery command
 ```

@@ -19,15 +19,20 @@ internal static class VerifyEscapeClosesOnlyTheCard
 {
     private static void Require(bool condition, string message) { if (!condition) throw new InvalidOperationException(message); }
 
-    public static void Run()
+    /// <summary>The card system the game's static entry points reach, registered and loaded once if no fixture has yet.</summary>
+    internal static CardSystem RegisteredSystem()
     {
         var system = ModContent.GetInstance<CardSystem>();
-        if (system == null)
-        {
-            system = new CardSystem();
-            ContentInstance.Register(system);
-            system.Load();
-        }
+        if (system != null) return system;
+        system = new CardSystem();
+        ContentInstance.Register(system);
+        system.Load();
+        return system;
+    }
+
+    public static void Run()
+    {
+        var system = RegisteredSystem();
         Player player = Main.LocalPlayer;
         var save = player.GetModPlayer<CompanionPlayer>();
         KeyboardState keys = Main.keyState;
