@@ -88,12 +88,9 @@ public sealed class CompanionProfileCardSystem : ModSystem
     public override void UpdateUI(GameTime gameTime)
     {
         lastTime = gameTime;
+        // Escape is not read here: this runs before the tick's keyboard is sampled, so a close here came a tick after the
+        // same press had already toggled the inventory. The card closes on the Inventory trigger in CompanionPlayer.SetControls.
         if (!IsOpen) return;
-        if (Main.keyState.IsKeyDown(Microsoft.Xna.Framework.Input.Keys.Escape))
-        {
-            Close();
-            return;
-        }
         ui?.Update(gameTime);
     }
 
@@ -125,8 +122,8 @@ public sealed class CompanionProfileCardSystem : ModSystem
         private UIPanel frame = null!;
         private UIElement titleBar = null!, footer = null!, content = null!;
         private DrawCompanionStatus identity = null!;
-        private UITextPanel<string> back = null!, close = null!;
-        private readonly List<(UITextPanel<string> Button, CardAction Action)> actions = new();
+        private CardButton back = null!, close = null!;
+        private readonly List<(CardButton Button, CardAction Action)> actions = new();
         private readonly PreviewMasteryTree mastery = new();
         private UIElement? pageElement;
         private CardPage page = CardPage.Overview;
@@ -181,6 +178,7 @@ public sealed class CompanionProfileCardSystem : ModSystem
             }
             content = new UIElement();
             content.Top.Set(CardRegions.BodyTop, 0); content.Width.Set(0, 1); content.Height.Set(CardRegions.ContentHeight, 0);
+            // The page's height is decided with its position, in Layout, which ShowOverview calls below.
             ShowOverview();
         }
 
@@ -189,14 +187,16 @@ public sealed class CompanionProfileCardSystem : ModSystem
         private static Vector2 ViewportSize => PlayerInput.OriginalScreenSize / Main.UIScale;
 
         /// <summary>
-        /// Where the card sits. A card never dragged opens centred, a gap below a docked notch; a docked notch owns the
-        /// top of the screen, so the title bar never rises closer to it than the clearance, and on a short screen the
-        /// card's foot runs past the bottom edge instead. The vertical clamp uses the overview's height, not the
-        /// current page's, so opening a tall page grows the card downward and never moves its title bar.
+        /// Where the card sits and how tall a page is. A card never dragged opens centred, a gap below a docked notch; a
+        /// docked notch owns the top of the screen, so the title bar never rises closer to it than the clearance. The
+        /// vertical clamp uses the overview's height, not the current page's, so opening a page grows the card downward and
+        /// never moves its title bar. A page is the mock's height wherever that fits between the title bar and the bottom
+        /// edge; where it does not, the page ends at the bottom edge and its content is shorter, because every page lays
+        /// itself out from its content's height and scrolls what no longer fits, so nothing it offers is left off screen.
+        /// A page is never shorter than the overview.
         /// </summary>
         private void Layout()
         {
-            float height = page == CardPage.Overview ? CardRegions.OverviewHeight : CardRegions.PageHeight;
             Vector2 view = ViewportSize;
             float? notch = DockedNotchBottom();
             float top = notch is float n ? n + CardRegions.NotchClearance : 0;
@@ -204,7 +204,9 @@ public sealed class CompanionProfileCardSystem : ModSystem
             p.X = Math.Clamp(p.X, 0, Math.Max(0, view.X - CardRegions.Width));
             p.Y = Math.Max(top, Math.Min(p.Y, Math.Max(0, view.Y - CardRegions.OverviewHeight)));
             owner.position = p;
-            frame.Width.Set(CardRegions.Width, 0); frame.Height.Set(height, 0);
+            float pageHeight = Math.Min(CardRegions.PageHeight, Math.Max(CardRegions.OverviewHeight, view.Y - p.Y));
+            content.Height.Set(pageHeight - CardRegions.PageOverhead, 0);
+            frame.Width.Set(CardRegions.Width, 0); frame.Height.Set(page == CardPage.Overview ? CardRegions.OverviewHeight : pageHeight, 0);
             frame.Left.Set(p.X, 0); frame.Top.Set(p.Y, 0);
             Recalculate();
         }
@@ -334,19 +336,24 @@ public sealed class CompanionProfileCardSystem : ModSystem
                 DrawCardPrimitives.Text(sb, name, new Vector2(r.X + 10, r.Y + 23), Color.White, .85f);
             }
 
+            /// <summary>One label per tile, rebuilt only when its numbers change, because a tile draws its reading on every frame.</summary>
+            private static readonly NumberLabel bagCount = new(), pointsSpent = new(), oresMined = new();
+
             private static (float Fill, string Count, Color Colour, string Name) Reading(CompanionProfileCard card, CardPage target)
             {
                 switch (target)
                 {
                     case CardPage.Inventory:
-                        var bag = Main.LocalPlayer.GetModPlayer<CompanionPlayer>().Bag;
-                        return (bag.Count / (float)CompanionInventory.Slots, $"{bag.Count}/{CompanionInventory.Slots}", Green, "Inventory");
+                        int held = Main.LocalPlayer.GetModPlayer<CompanionPlayer>().Bag.Count;
+                        return (held / (float)CompanionInventory.Slots, bagCount.Of(held, CompanionInventory.Slots, static (n, total) => $"{n}/{total}"), Green, "Inventory");
                     case CardPage.Mastery:
-                        return (card.mastery.LearnedCount / (float)DefineMasteryGraph.Nodes.Length, $"{card.mastery.Spent} pts", Color.Gold, "Mastery");
+                        return (card.mastery.LearnedCount / (float)DefineMasteryGraph.Nodes.Length, pointsSpent.Of(card.mastery.Spent, 0, static (spent, _) => $"{spent} pts"), Color.Gold, "Mastery");
                     default:
                         var list = CompanionPreferences.Current.MiningList;
-                        int known = list.Known.Count, mined = list.Known.Count(list.Allows);
-                        return (known == 0 ? 0 : mined / (float)known, $"{mined}/{known}", Color.Gold, "Mining list");
+                        int known = list.Known.Count, mined = 0;
+                        for (int i = 0; i < known; i++)
+                            if (list.Allows(list.Known[i])) mined++;
+                        return (known == 0 ? 0 : mined / (float)known, oresMined.Of(mined, known, static (m, k) => $"{m}/{k}"), Color.Gold, "Mining list");
                 }
             }
         }

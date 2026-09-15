@@ -6,6 +6,7 @@ using Terraria;
 using Terraria.GameInput;
 using Terraria.ModLoader;
 using Terraria.ModLoader.IO;
+using Terraria.UI;
 using AICompanion.Companion.Brain.Infrastructure.Diagnostics;
 using AICompanion.Companion.CharacterBody;
 using AICompanion.Companion.Inventory;
@@ -22,6 +23,78 @@ public partial class CompanionPlayer
         {
             BrainOverlay.ToggleMenu();
         }
+    }
+
+    /// <summary>
+    /// The card closes on the game's Inventory trigger, Escape unless the player rebound it, and the press is spent on that.
+    /// This is the one place both halves can happen on the same tick: <c>Player.Update</c> reads the tick's controls, calls
+    /// this hook, and then its own gate calls <c>ToggleInv</c> on a fresh press (Player.cs 23942-23954). Clearing
+    /// <c>releaseInventory</c> is what the gate reads as "already handled"; clearing <c>controlInv</c> instead would re-arm
+    /// the gate and toggle the inventory on the next held tick. The card used to close on a raw Escape in
+    /// <c>UpdateUI</c>, which runs before the tick's keyboard is sampled, so the same press reached <c>ToggleInv</c> a tick
+    /// before the card saw it and one Escape did two things.
+    /// </summary>
+    public override void SetControls() => CloseCardOnInventoryPress(Player.controlInv);
+
+    /// <summary>
+    /// A dead player's tick never reaches <c>SetControls</c>: <c>Player.Update</c> returns into <c>UpdateDead</c> first
+    /// (Player.cs 23636), and there the same press opens the in-game options through the same gate
+    /// (<c>TryOpeningInGameOptionsBasedOnInput</c>, 16011). This hook runs before that method copies the tick's triggers into
+    /// the player (15932 against 16006), so it reads the trigger itself, under the conditions that copy is made on.
+    /// </summary>
+    public override void UpdateDead()
+    {
+        if (Main.drawingPlayerChat || Main.editSign || Main.editChest || Main.blockInput) return;
+        CloseCardOnInventoryPress(PlayerInput.Triggers.Current.Inventory);
+    }
+
+    private void CloseCardOnInventoryPress(bool pressed)
+    {
+        if (!ProfileCard.CompanionProfileCardSystem.IsOpen || !pressed || !Player.releaseInventory) return;
+        ProfileCard.CompanionProfileCardSystem.CloseOpenCard();
+        Player.releaseInventory = false;
+    }
+
+    /// <summary>
+    /// A shift-click while the card's Inventory page is open moves an item between the player and the companion, and never
+    /// falls through to the game's trash. The page looks like a chest, but the game gives a shift-click a destination only
+    /// while a real chest is open (<c>player.chest != -1</c>): with none, a player slot's shift-click picks the item up under
+    /// the default settings and trashes it under the legacy shift-click-trash setting (<c>ItemSlot.LeftClick_SellOrTrash</c>),
+    /// and a bag or gear slot the player has no room for is trashed the same way, a second trash destroying the first.
+    /// <list type="bullet">
+    /// <item>From the player's inventory, the slot is deposited by Deposit All's rule; coins and favourites stay.</item>
+    /// <item>From a bag or gear slot, the item goes to the player through the game's own insertion, the move a chest slot's
+    /// shift-click makes, and what does not fit stays.</item>
+    /// </list>
+    /// Either way the click is claimed, so a click that moves nothing does nothing, and nothing moves while an item is on the
+    /// cursor. A bag slot's item is identified by reference, because the page hands the game its slot as a one-item array.
+    /// The bag is not sorted after a take-out here: the game writes the one-item array back into the slot it came from once
+    /// this returns, and a sort in between would put that write into a slot another item now occupies.
+    /// </summary>
+    public override bool ShiftClickSlot(Item[] inventory, int context, int slot)
+    {
+        if (!ProfileCard.CompanionProfileCardSystem.InventoryOpen) return false;
+        if (inventory == Player.inventory)
+        {
+            if (context is not (ItemSlot.Context.InventoryItem or ItemSlot.Context.InventoryCoin or ItemSlot.Context.InventoryAmmo)) return false;
+            // The game already has a destination for this click: a chest or the piggy bank is open beside the card, or the
+            // hover found a reforge, guide or research slot (cursorOverride 9, ItemSlot.OverrideHover). That destination wins.
+            if (Player.chest != -1 || Main.cursorOverride == 9) return false;
+            if (Main.mouseItem.IsAir) Bag.DepositSlot(Player, slot);
+            return true;
+        }
+        if (context != ItemSlot.Context.BankItem || inventory.Length != 1 || !(HoldsByReference(Bag.Items, inventory[0]) || HoldsByReference(Gear.Slots, inventory[0])))
+            return false;
+        if (Main.mouseItem.IsAir && !inventory[0].IsAir)
+            inventory[0] = Player.GetItem(Player.whoAmI, inventory[0], GetItemSettings.InventoryEntityToPlayerInventorySettings);
+        return true;
+    }
+
+    private static bool HoldsByReference(Item[] items, Item item)
+    {
+        foreach (Item held in items)
+            if (ReferenceEquals(held, item)) return true;
+        return false;
     }
 
     public override void PreUpdate()

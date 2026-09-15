@@ -296,22 +296,38 @@ public sealed class CompanionInventory
     {
         int moved = 0;
         for (int slot = PlayerMainSlots - 1; slot >= HotbarSlots; slot--)
-        {
-            Item from = player.inventory[slot];
-            if (from.IsAir || from.stack <= 0 || from.favorited || from.IsACoin) continue;
-            int before = from.stack;
-            if (from.maxStack > 1)
-                for (int i = 0; i < Slots && from.stack > 0; i++)
-                    if (!Items[i].IsAir && Items[i].stack < Items[i].maxStack && Items[i].netID == from.netID)
-                        ItemLoader.TryStackItems(Items[i], from, out _);
-            if (from.stack > 0)
-                for (int i = 0; i < Slots; i++)
-                    if (Items[i].IsAir) { Items[i] = from.Clone(); from.stack = 0; break; }
-            moved += before - System.Math.Max(0, from.stack);
-            if (from.stack <= 0) player.inventory[slot] = new Item();
-        }
+            moved += DepositFrom(player, slot);
         Sort();
         return moved;
+    }
+
+    /// <summary>
+    /// One player slot into the bag by Deposit All's own rule, what a shift-click on that slot does while the card's Inventory
+    /// page is open: favourites and coins stay, the stack tops up matching bag stacks and then takes an empty slot, and what
+    /// does not fit stays in the player's slot. Any slot may be named, the hotbar and ammo slots included, because a
+    /// shift-click is aimed at one item where Deposit All sweeps. Returns how many items moved.
+    /// </summary>
+    public int DepositSlot(Player player, int slot)
+    {
+        int moved = DepositFrom(player, slot);
+        if (moved > 0) Sort();
+        return moved;
+    }
+
+    private int DepositFrom(Player player, int slot)
+    {
+        Item from = player.inventory[slot];
+        if (from.IsAir || from.stack <= 0 || from.favorited || from.IsACoin) return 0;
+        int before = from.stack;
+        if (from.maxStack > 1)
+            for (int i = 0; i < Slots && from.stack > 0; i++)
+                if (!Items[i].IsAir && Items[i].stack < Items[i].maxStack && Items[i].netID == from.netID)
+                    ItemLoader.TryStackItems(Items[i], from, out _);
+        if (from.stack > 0)
+            for (int i = 0; i < Slots; i++)
+                if (Items[i].IsAir) { Items[i] = from.Clone(); from.stack = 0; break; }
+        if (from.stack <= 0) player.inventory[slot] = new Item();
+        return before - System.Math.Max(0, from.stack);
     }
 
     /// <summary>

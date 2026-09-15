@@ -186,9 +186,9 @@ public class CompanionHealthBar : ModSystem
             // same shape one border wider on the sides and bottom, so a hairline follows the silhouette and the
             // notch reads against a night sky; the top stays flush with no line, because the edge it hangs from
             // is the screen.
-            sb.Draw(DrawCardPrimitives.RoundedMask(sb, box.Width, box.Height, radius, DrawCardPrimitives.BottomCorners), box, Border);
+            DrawCardPrimitives.RoundedFill(sb, box, radius, DrawCardPrimitives.BottomCorners, Border);
             Rectangle inner = new(box.X + border, box.Y, box.Width - 2 * border, box.Height - border);
-            sb.Draw(DrawCardPrimitives.RoundedMask(sb, inner.Width, inner.Height, Math.Max(2, radius - border), DrawCardPrimitives.BottomCorners), inner, Body);
+            DrawCardPrimitives.RoundedFill(sb, inner, Math.Max(2, radius - border), DrawCardPrimitives.BottomCorners, Body);
             // Concave fillets outside the top corners: a square with a quarter circle cut out, so the notch reads
             // as part of the edge. The border fillet has the plain radius and the body fillet a radius one border
             // larger about the same centre, leaving a hairline along the curve that meets the side lines.
@@ -199,9 +199,9 @@ public class CompanionHealthBar : ModSystem
         }
         else
         {
-            sb.Draw(DrawCardPrimitives.RoundedMask(sb, box.Width, box.Height, radius, DrawCardPrimitives.AllCorners), box, Border);
+            DrawCardPrimitives.RoundedFill(sb, box, radius, DrawCardPrimitives.AllCorners, Border);
             Rectangle inner = new(box.X + border, box.Y + border, box.Width - 2 * border, box.Height - 2 * border);
-            sb.Draw(DrawCardPrimitives.RoundedMask(sb, inner.Width, inner.Height, Math.Max(2, radius - border), DrawCardPrimitives.AllCorners), inner, Body);
+            DrawCardPrimitives.RoundedFill(sb, inner, Math.Max(2, radius - border), DrawCardPrimitives.AllCorners, Body);
         }
 
         var bars = Bars(box, scale);
@@ -212,7 +212,8 @@ public class CompanionHealthBar : ModSystem
             : npc.lifeMax > 0 ? MathHelper.Clamp(npc.life / (float)npc.lifeMax, 0f, 1f) : 0f;
         DrawBar(sb, bars.Health, health, companion.IsDowned ? Downed : Color.Lerp(Hurt, Healthy, health));
         DrawBar(sb, bars.Mana, companion.Mana.Fraction, Mana);
-        DrawBar(sb, bars.Experience, save.Experience.Fraction, Experience);    }
+        DrawBar(sb, bars.Experience, save.Experience.Fraction, Experience);
+    }
 
     /// <summary>A rounded track with a rounded fill of the given fraction; a fill narrower than the bar's own height is not drawn, because the mask cannot round it.</summary>
     private static void DrawBar(SpriteBatch sb, Rectangle track, float fraction, Color fill)

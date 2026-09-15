@@ -84,8 +84,12 @@ public sealed class CompanionBagUI : UIState, ICardPage
         foreach (var slot in slots) grid.Append(slot);
     }
 
-    /// <summary>The bottom line's count, what the page draws on the right: occupied slots against the bag's size.</summary>
-    public string CountLine => $"{bag.Count} / {CompanionInventory.Slots}";
+    /// <summary>The bottom line's count, what the page draws on the right: occupied slots against the bag's size, rebuilt only when the count changes.</summary>
+    public string CountLine => countLine.Of(bag.Count, CompanionInventory.Slots, static (held, slots) => $"{held} / {slots}");
+    private readonly NumberLabel countLine = new();
+
+    /// <summary>How many bag slots the last frame drew; a slot wholly outside the grid's scrolled viewport is not drawn.</summary>
+    public int SlotsDrawn { get; private set; }
     public UIElement Grid => grid;
     public UIElement Viewport => viewport;
     public UIScrollbar Scrollbar => scrollbar;
@@ -134,6 +138,8 @@ public sealed class CompanionBagUI : UIState, ICardPage
 
     protected override void DrawSelf(SpriteBatch sb)
     {
+        // The page draws itself before its children, so the slot count starts here for the frame about to be drawn.
+        SlotsDrawn = 0;
         Rectangle r = GetDimensions().ToRectangle();
         int footerY = r.Bottom - (int)FooterHeight;
         string count = CountLine;
@@ -241,6 +247,9 @@ public sealed class CompanionBagUI : UIState, ICardPage
     private sealed class BagSlot : UIElement
     {
         private readonly CompanionBagUI owner;
+        /// <summary>The stack count last drawn and its text: the runtime keeps number strings only below 300, and a stack in play reaches 9999.</summary>
+        private int shownStack = -1;
+        private string stackText = "";
         public int Index { get; }
         public BagSlot(CompanionBagUI owner, int index)
         {
@@ -250,12 +259,16 @@ public sealed class CompanionBagUI : UIState, ICardPage
 
         protected override void DrawSelf(SpriteBatch sb)
         {
+            Rectangle area = GetDimensions().ToRectangle();
+            // A slot scrolled wholly out of the grid's viewport is clipped away entirely, and it cannot be hovered either, since
+            // hovering also asks the viewport, so it is not drawn at all.
+            if (!area.Intersects(owner.viewport.GetDimensions().ToRectangle())) return;
+            owner.SlotsDrawn++;
             Item[] items = owner.bag.Items;
             float previous = Main.inventoryScale;
             try
             {
                 Main.inventoryScale = SlotSize / TextureAssets.InventoryBack.Value.Width;
-                Rectangle area = GetDimensions().ToRectangle();
                 Vector2 mouse = Main.MouseScreen;
                 bool hovering = ContainsPoint(mouse) && owner.viewport.ContainsPoint(mouse) && !PlayerInput.IgnoreMouseInterface;
                 if (hovering)
@@ -271,7 +284,10 @@ public sealed class CompanionBagUI : UIState, ICardPage
                 {
                     ItemSlot.DrawItemIcon(items[Index], ItemSlot.Context.BankItem, sb, area.Center.ToVector2(), Main.inventoryScale, 32f, Color.White);
                     if (items[Index].stack > 1)
-                        DrawCardPrimitives.Text(sb, items[Index].stack.ToString(), area.TopLeft() + new Vector2(10, 26) * Main.inventoryScale, Color.White, Main.inventoryScale, FontAssets.ItemStack.Value);
+                    {
+                        if (items[Index].stack != shownStack) { shownStack = items[Index].stack; stackText = shownStack.ToString(); }
+                        DrawCardPrimitives.Text(sb, stackText, area.TopLeft() + new Vector2(10, 26) * Main.inventoryScale, Color.White, Main.inventoryScale, FontAssets.ItemStack.Value);
+                    }
                 }
                 DrawSlotEdge(sb, area, hovering ? Color.Gold : DrawCardPrimitives.Edge * .75f);
             }

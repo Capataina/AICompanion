@@ -30,8 +30,11 @@ public static class CardRegions
     public const float BodyTop = TitleHeight + Rhythm;
     public const float TilesTop = BodyTop + IdentityHeight + Rhythm;
     public const float OverviewHeight = Padding + TilesTop + TileHeight + 2 + Padding;
+    /// <summary>A page's content at the mock's full height; on a screen too short for it the card gives the content less, never more.</summary>
     public const float ContentHeight = 508;
-    public const float PageHeight = Padding + BodyTop + ContentHeight + 2 + Padding;
+    /// <summary>What a page spends around its content, whatever the content's height: padding, title bar, rhythm and the border allowance.</summary>
+    public const float PageOverhead = Padding + BodyTop + 2 + Padding;
+    public const float PageHeight = PageOverhead + ContentHeight;
 
     public const float RoundButton = 30;
     /// <summary>Space between two title-bar actions, and between the last action and the close button.</summary>
