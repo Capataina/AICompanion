@@ -170,7 +170,10 @@ internal static class VerifyGatheringCooperation
     /// the trunk's native remaining hits changed. A fresh trunk must yield to following and a one-hit trunk must be finished.</summary>
     private static void ChoppingRemainingWorkMeetsADepartingPlayer()
     {
-        foreach (int separation in new[] { 480, 576, 640 })
+        // The same restatement as VerifyOreWork's departure pair, and for the same reason: since 15 September 2026 a new job is
+        // taken within 1000 px rather than 1120, so at 640 the trunk has already left the work radius and both arms read zero.
+        // The gradient between a fresh trunk and a one-hit finish is asked where the trunk is still inside it.
+        foreach (int separation in new[] { 400, 480, 576 })
         foreach (bool nearlyDone in new[] { false, true })
         {
             Point trunk = new(25, 89);
