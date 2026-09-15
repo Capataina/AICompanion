@@ -596,19 +596,14 @@ internal static class VerifyCompanionActivities
             ctx.Player.Bottom = ctx.Npc.Bottom + new Vector2(192 * Preferences.Current.FollowComfortScale - 1, 0);
             Require(Collision.CanHitLine(ctx.Npc.position, ctx.Npc.width, ctx.Npc.height, ctx.Player.position, ctx.Player.width, ctx.Player.height),
                 "comfortable-follow fixture must have a clear local connection");
-            // Arrival is a settled state now, not an instantaneous one: the body must have been on the
-            // ground inside the region for a rescore before following reads as satisfied, because two
-            // bodies passing in mid-air are momentarily a few pixels apart and neither has arrived.
-            // So the fixture stands the body still for that long rather than asking on the first tick,
-            // which is the same thing a companion standing beside the player does.
-            for (int tick = 0; tick <= live::AICompanion.Companion.Brain.Infrastructure.Selection.Weights.PositionRescoreTicks; tick++)
-            {
-                VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
-                ctx.Companion.Brain.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Motor);
-            }
+            // Being with the player is being inside his region, with no rest to stand out first, so one observation is the
+            // whole premise. Restated on 15 September 2026: the row used to stand the body still for a rescore, because
+            // following then read as satisfied only after a settled streak.
+            VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
+            ctx.Companion.Brain.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Motor);
             ctx.Companion.Brain.Chooser.Choose(ctx);
             Require(ctx.Companion.Brain.Chooser.RegroupUrgency == 0,
-                $"{mode} comfortable following must not request regrouping; settled={ctx.Companion.Brain.Senses.Intent.Settled} restingInside={ctx.Companion.Brain.Senses.Intent.RestingInsideTicks}");
+                $"{mode} comfortable following must not request regrouping; inside={ctx.Companion.Brain.Senses.Intent.Inside} gap={ctx.Companion.Brain.Senses.Intent.Region.GapBeyond(ctx.Npc.Center)}");
         }
         Preferences.Current.DistanceMode = live::AICompanion.Companion.PlayerIntegration.CompanionDistanceMode.Standard;
     }

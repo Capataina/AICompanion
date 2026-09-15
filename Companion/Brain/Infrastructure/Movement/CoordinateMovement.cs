@@ -84,6 +84,20 @@ public sealed class CoordinateMovement
         return Navigator.Hover.Around(live, HoldAnchor(live), MovementQueries.World);
     }
 
+    /// <summary>
+    /// Keeping the player company from inside his region: whatever route was held is released, because inside the region
+    /// there is no place to go, and the body moves about the box the region is — its centre, half-size and lead — by
+    /// <see cref="HoverAroundSpot.Across"/>. Plain numbers and a refusal test rather than the region itself, so the
+    /// movement core keeps no reference to the senses it is fed by.
+    /// </summary>
+    public Controls Accompany(OrbState live, Vector2 centre, Vector2 halfSize, Vector2 lead, Func<Vector2, bool> refused)
+    {
+        CancelStateSearch();
+        holdAnchor = null;
+        Navigator.Interrupt(live, AttemptEnding.Completed, "accompanying");
+        return Navigator.Hover.Across(live, centre, halfSize, lead, refused, MovementQueries.World);
+    }
+
     /// <summary>A missing chosen place does not cancel a travel intention: aim at the anchor itself until <paramref name="arrived"/> says the body is there, and hover once it is.</summary>
     public Controls SeekDestination(OrbState live, Vector2 anchor, Func<Vector2, bool> arrived)
     {

@@ -59,7 +59,7 @@ public sealed class Chooser
     {
         var objective = ctx.Senses.Intent.Objective;
         Reunion.Observe(Terraria.Main.GameUpdateCount,
-            objective.IsSatisfied(ctx.Npc.Center, ctx.Senses.Player.CompanionCanSeePlayer), ctx.Senses.Player.IsDead);
+            objective.IsSatisfied(ctx.Npc.Center), ctx.Senses.Player.IsDead);
     }
     private Microsoft.Xna.Framework.Vector2? workSite;
     private ulong workSiteTick;

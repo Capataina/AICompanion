@@ -51,25 +51,6 @@ public readonly record struct PlayerIntentRegion(Vector2 Centre, Vector2 HalfSiz
         MathF.Abs(point.Y - Centre.Y) / MathF.Max(1f, HalfSize.Y));
 
     /// <summary>
-    /// The point on the region's edge in the direction of travel, or the centre while the lead is negligible. What reunion aims
-    /// at when nothing better has been priced.
-    /// </summary>
-    public Vector2 LeadingEdge
-    {
-        get
-        {
-            if (Lead.LengthSquared() < 1f) return Centre;
-            Vector2 unit = Vector2.Normalize(Lead);
-            // The scale that puts the unit vector on the box boundary: the smaller of the two
-            // axis crossings, so the point lies on the edge rather than beyond a corner.
-            float scale = float.PositiveInfinity;
-            if (MathF.Abs(unit.X) > 1e-4f) scale = MathF.Min(scale, HalfSize.X / MathF.Abs(unit.X));
-            if (MathF.Abs(unit.Y) > 1e-4f) scale = MathF.Min(scale, HalfSize.Y / MathF.Abs(unit.Y));
-            return float.IsInfinity(scale) ? Centre : Centre + unit * scale;
-        }
-    }
-
-    /// <summary>
     /// Whether a point is inside the region by at least <paramref name="arrivalSlack"/> on both axes. A destination is admitted
     /// against this rather than <see cref="Contains"/>, because a body hovering around a point on the boundary spends half its
     /// orbit outside the region that admitted it.
@@ -150,59 +131,43 @@ public readonly record struct PlayerIntentRegion(Vector2 Centre, Vector2 HalfSiz
 
 /// <summary>
 /// Rebuilds the region once per brain tick, and owns the one piece of state a region cannot carry:
-/// how long the body has been grounded inside it.
+/// whether the body was inside it last tick.
 /// </summary>
 public sealed class PlayerIntentRegionSense
 {
     public PlayerIntentRegion Region { get; private set; }
 
     /// <summary>
-    /// Whether the body has been at rest inside the region for a whole rescore. Following reads
-    /// this rather than geometry alone, because a body at pace is passing through: at tick 8127 of
-    /// the 2026-09-14 capture both bodies were mid-jump and momentarily inside the box, the
-    /// objective read satisfied, keeping company took that as arrival and issued a Hold, and the
-    /// Hold cancelled the jump one tick after take-off. The walker's test was the ground; an orb has
-    /// no ground, so the test is its speed, and a body crossing the region at the player's pace is
-    /// the same passing-through as a jump arc was. Entering costs a rescore; leaving is immediate,
-    /// because a body that has left is gone now and not in a rescore's time.
+    /// Whether the body is with the player: inside his region, latched so that a body which entered stays
+    /// inside until it is more than the settle radius beyond the edge. This is the one inside-or-outside fact
+    /// the brain decides following on — inside, the companion moves about the region with it; outside, it
+    /// rejoins it — and the owner ruled on 15 September 2026 that there is nothing else to wait for.
+    ///
+    /// <para>It replaced a settled streak (at rest inside for a rescore, latched while inside) and a published
+    /// speed of the region's centre. Both existed because inside was where a body arrived and stopped: a body
+    /// crossing the box at pace, or at rest in a box still sliding back onto a stopped player, was not arrival,
+    /// and at three times the player's speed treating it as one flipped keeping company's method thirty-nine
+    /// times in six hundred ticks — each flip a Hold that cut the move in flight. Nothing arrives now. Inside and
+    /// outside ask for the same kind of request, so there is no Hold at the edge to cut anything, and the width
+    /// the latch gives the edge is the whole of the hysteresis the streak was for.</para>
     /// </summary>
-    public bool Settled { get; private set; }
-
-    /// <summary>How many consecutive ticks the body has been at rest inside the region. Exposed so
-    /// the recorder can say why a tick that looks satisfied is not.</summary>
-    public int RestingInsideTicks { get; private set; }
-
-    /// <summary>Whether the companion was at rest on this tick. Published beside the streak rather
-    /// than derived by each reader, because the streak already computes it and a second rest test
-    /// elsewhere is the disagreement the one expression below exists to prevent. It changes no
-    /// decision; it is what lets the follow reason name a moving tick apart from a resting one that
-    /// is still standing out its rescore.</summary>
-    public bool AtRest { get; private set; }
+    public bool Inside { get; private set; }
 
     private Vector2 lead;
     private bool hasRegion;
 
-    /// <summary>
-    /// How far the region's centre moved on this update, in pixels. A player who stops leaves a region that slides back onto
-    /// him over the lead's filter, and a body can be at rest inside a region that is still leaving it: keeping company reads
-    /// this so it does not call that arrival. Before 15 September 2026 nothing published it, and at three times the player's
-    /// speed the orb settled ahead of a stopped player, held still, was left outside the sliding region a second later and
-    /// was sent back — three method changes in six hundred ticks where one is the settle.
-    /// </summary>
-    public float CentreSpeed { get; private set; }
-
     /// <summary>The follow objective every consumer shares, anchored on the region's own centre.
     /// A caller with an anchor of its own — a priced meeting place, a request's anchor — refines it
     /// with <see cref="FollowPlayerObjective.At"/> rather than building a second objective.</summary>
-    public Position.FollowPlayerObjective Objective => new(Region, Region.Centre, Settled, AtRest);
+    public Position.FollowPlayerObjective Objective => new(Region, Region.Centre, Inside);
 
     public void Update(NPC companion, PlayerSense player)
-        => Update(companion.Center, companion.velocity, player.Position, player.Intent, player.IsTravelling, player.IsDead, player.Activity.Samples);
+        => Update(companion.Center, player.Position, player.Intent, player.IsTravelling, player.IsDead, player.Activity.Samples);
 
     /// <summary>The same update from the numbers it reads, so a recorded player track can be replayed through the real filter
     /// and the real geometry with no game world behind it: a capture's player stands thousands of tiles from anything a
     /// headless tile map holds.</summary>
-    public void Update(Vector2 companionCentre, Vector2 companionVelocity, Vector2 playerCentre, Vector2 intent,
+    public void Update(Vector2 companionCentre, Vector2 playerCentre, Vector2 intent,
         bool travelling, bool dead, int samples)
     {
         // A live interference footprint deliberately does not suppress the lead, and that was
@@ -230,7 +195,7 @@ public sealed class PlayerIntentRegionSense
             // snap back onto him and drag the destination with it.
             lead += (target - lead) / MathF.Max(1f, Weights.IntentRegionFilterTicks);
 
-        Vector2 previousCentre = Region.Centre, previousLead = Region.Lead;
+        Vector2 previousLead = Region.Lead;
         // The slack is the settle radius, the room every destination inside the region reserves, so the player's own
         // position is always a place the companion could be and count as inside.
         Region = PlayerIntentRegion.Around(playerCentre, lead, PlayerIntegration.CompanionPreferences.Current.FollowComfortScale,
@@ -238,21 +203,12 @@ public sealed class PlayerIntentRegionSense
         {
             Velocity = intent + (hasRegion ? Region.Lead - previousLead : Vector2.Zero),
         };
-        CentreSpeed = hasRegion ? Vector2.Distance(previousCentre, Region.Centre) : 0f;
         hasRegion = true;
 
-        // At rest is the body's speed under the settled threshold, read off the velocity the motor
-        // handed the engine last tick. Inside is the body's centre, because the orb is its centre.
-        bool atRest = companionVelocity.LengthSquared() <= Weights.SettledSpeedPx * Weights.SettledSpeedPx;
-        bool inside = Region.Contains(companionCentre);
-        AtRest = atRest;
-        RestingInsideTicks = atRest && inside ? RestingInsideTicks + 1 : 0;
-        // Entering costs a rescore at rest; leaving is immediate; and a body moving about inside a
-        // region it has already settled in is neither, so the state latches while it stays inside.
-        // Without the latch a stroll beside a resting player un-settled the arrival on its first
-        // moving tick, reunion outscored the stroll, the body stopped and settled, strolled again,
-        // and the method flipped eight times in ten seconds beside a player who never moved. The
-        // walker never met this because its rest test was the ground, which a walking stroll keeps.
-        Settled = inside && (Settled || RestingInsideTicks >= Weights.PositionRescoreTicks);
+        // Inside is the body's centre, because the orb is its centre. A body that was inside stays inside until it is
+        // more than the settle radius beyond the edge: that is the width the edge has, and it is what keeps a body the
+        // region carries along its boundary from leaving and re-entering it on alternate ticks.
+        Inside = Region.Contains(companionCentre)
+            || (Inside && Region.GapBeyond(companionCentre) <= Movement.Navigator.SettleRadius);
     }
 }

@@ -207,8 +207,8 @@ internal static class VerifyCompanyLocalMotion
             VerifyOreWork.AdvanceBrain(ctx);
             if (brain.LastAction?.Name != "keep-company") otherActivity++;
             askedForReunion |= brain.LastRequest.Kind == RequestKind.WithPlayer;
-            if (!walking && brain.Senses.Intent.Objective.IsSatisfied(ctx.Npc.Center,
-                    Collision.CanHitLine(ctx.Npc.position, ctx.Npc.width, ctx.Npc.height, player.position, player.width, player.height)))
+            // Met is inside the stopped player's region; sight of him stopped being a condition when losing it stopped being distance.
+            if (!walking && brain.Senses.Intent.Objective.IsSatisfied(ctx.Npc.Center))
                 arrivedAt = tick;
         }
         string ledger = $"player stopped at tick {stoppedAt}, companion arrived at tick {arrivedAt}; centre={ctx.Npc.Center} player={player.Bottom}; "

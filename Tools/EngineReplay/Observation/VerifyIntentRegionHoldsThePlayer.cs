@@ -134,7 +134,7 @@ internal static class VerifyIntentRegionHoldsThePlayer
             Vector2 centre = feet - new Vector2(0f, halfHeight);
             activity.Observe(feet, velocity, false, false, ++tick);
             bool travelling = activity.Travel.LengthSquared() > Weights.PlayerIntentTravelSpeed * Weights.PlayerIntentTravelSpeed;
-            sense.Update(centre, Vector2.Zero, centre, activity.Travel, travelling, false, activity.Samples);
+            sense.Update(centre, centre, activity.Travel, travelling, false, activity.Samples);
             var region = sense.Region;
             rows++;
             bool isFalling = velocity.Y > 4f;

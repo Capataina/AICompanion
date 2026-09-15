@@ -43,9 +43,9 @@ public static class Weights
     public const float OrbArrivalEasingShare = 0.6f;
     // The drift around a held or reached spot (Movement/Steering/HoverAroundSpot). The radius is
     // about a tile, the owner's default; the flattening keeps the drift wider than it is tall so
-    // it reads as floating beside a place rather than bobbing on a spring. The hover speed sits
-    // under SettledSpeedPx on purpose, so a hovering body still reads as at rest and arriving
-    // somewhere is still arriving. The turn-rate floor keeps the target moving, so the body is
+    // it reads as floating beside a place rather than bobbing on a spring. The hover speed is a
+    // drift's speed, a little over a pixel a tick, so a body held at a tool stand or a firing spot
+    // floats about it rather than darting. The turn-rate floor keeps the target moving, so the body is
     // never exactly still: at the floor and the radius the target moves about half a pixel a tick
     // even at the flat of the ellipse, which clears the session reader's still threshold with room
     // for the body's lag behind it. The jitter is the wander's random walk per tick, and the reverse
@@ -58,6 +58,25 @@ public static class Weights
     public const float HoverTurnRateMaximum = 0.08f;
     public const float HoverTurnJitter = 0.004f;
     public const double HoverReverseChance = 0.004;
+
+    // Moving about the player's region while keeping him company (Movement/Steering/HoverAroundSpot.Across). The target
+    // walks the region at about half a walking player's pace, so an idle companion crosses the box in a few seconds and a
+    // travelling one's pursuit is the region's own motion plus this; the vertical part is flattened by HoverVerticalShare
+    // for the reason the hover's is. The turn rate is far slower than the hover's and has no floor, for the reason at
+    // TurnRateMaximum below: circling on the spot is not crossing the box. The gain pulls
+    // the body onto the target on top of the target's own motion. While the region leads by more than LeadPixels, the
+    // target may only go RearShare of the way from the centre toward the region's rear, which is what keeps a travelling
+    // player's companion level or ahead rather than trailing as a policy. A region whose centre moved further than the
+    // body could fly in JumpTicks has jumped, and the walk starts again from where the body is.
+    public const float AccompanyWanderSpeedPx = 1.5f;
+    // Signed and floorless, so the heading can run straight: at this cap and the wander speed the tightest loop is about five
+    // hundred pixels across, wider than the box, which is what makes the walk cross it and reflect rather than circle.
+    public const float AccompanyTurnRateMaximum = 0.006f;
+    public const float AccompanyTurnJitter = 0.001f;
+    public const float AccompanyGain = 0.1f;
+    public const float AccompanyLeadPixels = 8f;
+    public const float AccompanyRearShare = 0.2f;
+    public const float AccompanyJumpTicks = 30f;
     // The route search prices an edge at its length times one plus this over the clearance at its
     // far corner, in tiles, so a corridor's middle is cheaper than its walls without a wall ever
     // being refused: at one, a corner touching a wall costs twice its length and one three tiles
@@ -566,14 +585,6 @@ public static class Weights
     /// cavern would walk the companion further from the player for nothing.
     /// </summary>
     public const float OpennessFullClearanceTiles = 2f;
-
-    /// <summary>
-    /// The share of its score a follow spot keeps at or below the player's feet, rising to the whole
-    /// at his head height and above. An orb beside his feet is in his way and under his aim; one at
-    /// head height or a little over is where a companion that hovers reads as beside him. A share
-    /// rather than a veto, because a low ceiling can leave nothing above the feet at all.
-    /// </summary>
-    public const float HoverBelowHeadShare = .5f;
 
     /// <summary>Item physics, from the game's own <c>Item.UpdateItem</c>: gravity per tick and the fall
     /// speed it is capped at, dry and wet. A drop is forecast to its landing with these, so a falling
