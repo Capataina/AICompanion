@@ -77,7 +77,7 @@ AICompanion/
 │  │     ├─ Aiming/         projectile trajectory solver, and the arc it learns per projectile type from the companion's own shots
 │  │     ├─ Grants/         one packet for feet and hand
 │  │     └─ Diagnostics/    overlay layers, cost strip, telemetry, scenario capture
-│  ├─ Weapons/               the arsenal's target-and-weapon choice, the item-backed weapon, and the mana pool
+│  ├─ Weapons/               the arsenal's target, weapon and aim choice valued by what its shots achieved, the item-backed weapon, and the mana pool
 │  ├─ Progression/           the experience total and level curve the notch draws and the tree will spend
 │  ├─ Inventory/             persistent cargo bag, the four gear slots, and their panel
 │  ├─ PlayerIntegration/     persistence, input, player events and /companion

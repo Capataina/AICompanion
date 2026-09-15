@@ -46,7 +46,7 @@ public sealed class Positioner
     public SuccessRegion Region { get; private set; } = SuccessRegion.None;
     public float ChosenScore { get; private set; }
     private PositionRequest lastRequest;
-    private FlightModel? lastFireProfile;
+    private int lastWeaponSignature;
     private int lastTerrainRevision = -1;
     private int lastInterferenceRevision;
     private int sinceScore = RescoreInterval;
@@ -108,7 +108,7 @@ public sealed class Positioner
         // therefore ate the forced rescore on behalf of whoever asked next. Keeping company resolving on the
         // same tick then saw no change, retained the tile it was standing on, and waited out the cadence in
         // the player's way — courtesy defeated by a combat query that momentarily won nomination and lost.
-        var held = (Chosen, ChosenScore, lastRequest, lastFireProfile, lastTerrainRevision, sinceScore,
+        var held = (Chosen, ChosenScore, lastRequest, lastWeaponSignature, lastTerrainRevision, sinceScore,
             lastInterferenceRevision,
             ChoiceReason, FollowObjectiveSatisfied, FollowHorizontalGap, FollowVerticalGap,
             FollowObjectiveReason, CandidateCount, ReachableCandidateCount, RejectedCandidateCount,
@@ -128,7 +128,7 @@ public sealed class Positioner
             // Querying candidates must not age temporary bans as extra executed ticks.
             clock = previousClock;
             if (!admitted)
-                (Chosen, ChosenScore, lastRequest, lastFireProfile, lastTerrainRevision, sinceScore,
+                (Chosen, ChosenScore, lastRequest, lastWeaponSignature, lastTerrainRevision, sinceScore,
                     lastInterferenceRevision,
                     ChoiceReason, FollowObjectiveSatisfied, FollowHorizontalGap, FollowVerticalGap,
                     FollowObjectiveReason, CandidateCount, ReachableCandidateCount, RejectedCandidateCount,
@@ -262,13 +262,17 @@ public sealed class Positioner
         sinceScore++;
         // A dropped meeting place is a changed request: without this the scored path kept walking to the
         // dropped tile for the rest of the rescore cadence, even once it lay behind the player.
+        // The weapons in hand changing is a changed request, because every firing stand was priced by them. What the arsenal
+        // chose last is not: a stand is priced by every weapon in hand, so a different choice changes nothing about it, and
+        // a learned motion or a learned outcome is re-read at the next rescore rather than forcing one on every shot.
+        int weaponSignature = WeaponSignature(senses, fireProfile);
         bool kindChanged = request.Kind != lastRequest.Kind || request.Target != lastRequest.Target
-            || request.MeetingPlace != lastRequest.MeetingPlace || fireProfile != lastFireProfile;
+            || request.MeetingPlace != lastRequest.MeetingPlace || weaponSignature != lastWeaponSignature;
         if (Chosen != null && !kindChanged && sinceScore < RescoreInterval)
             return Chosen;
 
         lastRequest = request;
-        lastFireProfile = fireProfile;
+        lastWeaponSignature = weaponSignature;
         sinceScore = 0;
         senses.Reach.Refresh(senses);
         // Retention is a rule at the rescore, not a bonus inside the scoring. A destination that still belongs to
@@ -332,7 +336,7 @@ public sealed class Positioner
                 if (Vector2.DistanceSquared(enemy.Center, admittedTargetCentre)
                     > Weights.FiringHoldTargetSlackPx * Weights.FiringHoldTargetSlackPx)
                     return false;
-                var held = SolveShotAtArrival(spot, enemy, profile, senses);
+                var held = SolveShotAtArrivalWithAnyWeapon(spot, enemy, profile, senses, out _);
                 if (!held.Solved)
                 {
                     RememberRefusal(tile, enemy, BodyBucket(senses.Companion.Center),
@@ -699,10 +703,10 @@ public sealed class Positioner
         bool threatened = !senses.Threats.PlayerIsSafe;
         float bandNear = threatened ? Weights.ThreatBandNear : Weights.CalmBandNear;
         float bandFar = threatened ? Weights.ThreatBandFar : Weights.CalmBandFar;
-        // How far the weapon in hand can actually shoot, so the standoff never prefers a spot the
-        // shot cannot arrive from. Without a profile there is nothing to shoot and the standoff is
-        // inert anyway, so the wide default costs nothing.
-        float reach = fireProfile?.Reach ?? Weights.StandoffFar;
+        // How far the weapons in hand can actually shoot, the furthest of them, so the standoff never prefers a spot
+        // no shot can arrive from. Without a profile there is nothing to shoot and the standoff is inert anyway, so
+        // the wide default costs nothing.
+        float reach = WeaponReach(senses, fireProfile);
 
         // Two passes: every candidate gets the cheap factors; only the best few then pay for an
         // aimer solve, which is the expensive one (up to 48 arcs × 150 ticks of tile checks).
@@ -799,13 +803,16 @@ public sealed class Positioner
                 { everyCandidateAnswered = EveryRemainingAsked(candidates, i, request.Target!); break; }
                 if (solved >= solves)
                 { everyCandidateAnswered = EveryRemainingAsked(candidates, i, request.Target!); break; } // unsolved candidates cannot beat a solved one above them
-                solved++;
-                var verdict = SolveShotAtArrival(spot, request.Target!, fireProfile!.Value, senses);
+                var verdict = SolveShotAtArrivalWithAnyWeapon(spot, request.Target!, fireProfile!.Value, senses, out int tried);
+                // Every weapon asked is a solve paid for, so the count the budget reads is the expense rather than the
+                // candidates; counting one per candidate would let two weapons silently double the pass's cost.
+                solved += Math.Max(1, tried);
                 if (!verdict.Solved)
                     RememberRefusal(tile, request.Target!, bodyTile,
                         verdict.Reason.StartsWith(PositionReasons.ShotWindowShorterThanTrip, StringComparison.Ordinal));
                 shot = verdict.Reason;
-                score = ScoreSpot(request, spot, playerBottom, senses, bandNear, bandFar, verdict.Solved ? 1f : 0f, reach);
+                score = ScoreSpot(request, spot, playerBottom, senses, bandNear, bandFar,
+                    verdict.Solved ? FiringStandShare(spot, request.Target!, senses, verdict.TripTicks) : 0f, reach);
             }
             EvaluatedCandidates++;
             evidence.Add((MovementQueries.Tile(spot), score, shot));
@@ -868,38 +875,86 @@ public sealed class Positioner
             // clear-way test, so the only thing pulling the body anywhere was a band measured to
             // the player and the threats are on the player: every guard spot worth having was
             // inside the melee. It now scores the same two factors the line-of-fire request does.
-            RequestKind.Guard => Consideration.Band(toPlayer, Weights.GuardBandNear, Weights.GuardBandFar, 260f) * sight * fire * (1f - 0.7f * danger) * open * StandoffFromTarget(spot, request.Target, reach) * ClearWayTo(spot, senses, request.Target) * KnockbackSideShare(spot, request.Target, senses),
-            RequestKind.LineOfFire => fire * Consideration.AtLeast(band, 0.3f) * (1f - 0.7f * danger) * open * StandoffFromTarget(spot, request.Target, reach) * ClearWayTo(spot, senses, request.Target) * KnockbackSideShare(spot, request.Target, senses),
+            RequestKind.Guard => Consideration.Band(toPlayer, Weights.GuardBandNear, Weights.GuardBandFar, 260f) * sight * fire * (1f - 0.7f * danger) * open * StandoffFromTarget(spot, request.Target, reach) * ClearWayTo(spot, senses, request.Target),
+            RequestKind.LineOfFire => fire * Consideration.AtLeast(band, 0.3f) * (1f - 0.7f * danger) * open * StandoffFromTarget(spot, request.Target, reach) * ClearWayTo(spot, senses, request.Target),
             _ => 0f,
         };
     }
 
     /// <summary>
-    /// The share of its score a firing spot keeps for where its shot would push the target. The game pushes a hit along the
-    /// flight or the swing, so a shot from one horizontal side of the target carries it toward the other side; a spot whose
-    /// push carries the target toward the player, or toward the spot itself, keeps less, scaled by how far the arsenal's
-    /// chosen weapon is expected to push this enemy, and a weapon that pushes nothing keeps everything. Only the horizontal
-    /// side is read, because the push is horizontal and a spot above or below the player is on his side all the same.
+    /// The share of its score a firing stand keeps for what its shot is worth: the best attack any weapon in hand could make
+    /// from the stand against the target as it will be on arrival, as a share of the best those weapons could do with no
+    /// geometry in the way, lifted onto a floor so a stand with a poor shot is still a stand. Both values are the arsenal's
+    /// own evaluator on learned forecasts, so everything a shot's value carries — the push charge toward the player or the
+    /// stand, a pierce through a crowd, a debuff the other weapon set up, what the learner has seen each weapon achieve — is
+    /// priced into the stand without a factor of its own.
     ///
-    /// One rule covers both bodies without a case for either: a shot's push points away from the spot it was fired from, so
-    /// for an ordinary weapon only the player can be pushed into and the rule prefers his side; a weapon the game pushes
-    /// away from its owner, the player, can never push into him, so the same rule prefers his side because the far side is
-    /// where the push comes back at the orb. A floor rather than a veto, like every other factor here.
+    /// This replaced a side preference that read the push of whichever weapon the arsenal had chosen last, which priced a
+    /// stand by one weapon while the other might be the better shot from there: a stand from which only the stronger weapon's
+    /// push went away from the player lost to one from which the weaker weapon was the only safe shot, because the last
+    /// choice happened to be the weaker. A request resolved for a bare NPC that is not the companion has no arsenal and keeps
+    /// its whole score.
     /// </summary>
-    public static float KnockbackSideShare(Vector2 spot, NPC? target, Senses.Senses senses)
+    public static float FiringStandShare(Vector2 stand, NPC? target, Senses.Senses senses, int arrivalTicks)
     {
         if (target == null || senses.Companion?.ModNPC is not global::AICompanion.Companion.CharacterBody.CompanionNPC companion)
             return 1f;
-        Player player = senses.PlayerEntity;
-        float push = companion.Arsenal.ExpectedPushFrom(spot, target, player);
-        if (push == 0f)
+        var ctx = new global::AICompanion.Companion.Brain.Activities.ActionContext(companion, senses);
+        float ideal = companion.Arsenal.IdealShotValue(ctx, target);
+        if (ideal <= 0f)
             return 1f;
-        float strength = MathHelper.Clamp(MathF.Abs(push) / Weights.KnockbackSideFullPushPx, 0f, 1f);
-        float playerSide = player.Center.X - target.Center.X;
-        float spotSide = spot.X - target.Center.X;
-        bool intoPlayer = !player.dead && playerSide != 0f && MathF.Sign(push) == MathF.Sign(playerSide);
-        bool intoSpot = spotSide != 0f && MathF.Sign(push) == MathF.Sign(spotSide);
-        return intoPlayer || intoSpot ? 1f - strength * (1f - Weights.KnockbackSideFloor) : 1f;
+        float value = companion.Arsenal.BestShotValueFrom(ctx, global::AICompanion.Companion.Weapons.Arsenal.MuzzleAt(stand), target, arrivalTicks);
+        return Weights.FiringStandValueFloor + (1f - Weights.FiringStandValueFloor) * MathHelper.Clamp(value / ideal, 0f, 1f);
+    }
+
+    /// <summary>
+    /// Whether a stand has a shot once the body arrives, with any weapon in hand rather than the one chosen last. The first
+    /// weapon that solves answers; with none, the refusal kept is a window refusal if any weapon gave one, because a stand
+    /// refused only for the length of the trip may open from closer and must be remembered as trip-dependent. How many
+    /// weapons were asked is returned so the shortlist budget counts the solves actually paid for. A bare NPC with no arsenal
+    /// is asked about the profile it was handed.
+    /// </summary>
+    private ShotVerdict SolveShotAtArrivalWithAnyWeapon(Vector2 eye, NPC target, FlightModel fallback, Senses.Senses senses, out int tried)
+    {
+        tried = 0;
+        ShotVerdict refusal = new(false, "no-arc", 0);
+        foreach (FlightModel model in HandedModels(senses, fallback))
+        {
+            tried++;
+            ShotVerdict verdict = SolveShotAtArrival(eye, target, model, senses);
+            if (verdict.Solved)
+                return verdict;
+            if (tried == 1 || verdict.Reason.StartsWith(PositionReasons.ShotWindowShorterThanTrip, StringComparison.Ordinal))
+                refusal = verdict;
+        }
+        return refusal;
+    }
+
+    private static IEnumerable<FlightModel> HandedModels(Senses.Senses senses, FlightModel fallback)
+    {
+        if (senses.Companion?.ModNPC is global::AICompanion.Companion.CharacterBody.CompanionNPC companion && companion.Arsenal.Weapons.Count > 0)
+        {
+            foreach (var weapon in companion.Arsenal.Weapons)
+                yield return weapon.Model;
+            yield break;
+        }
+        yield return fallback;
+    }
+
+    /// <summary>What the weapons in hand are, as a number that changes when they do: the gear's signature for the companion, the handed profile for a bare NPC.</summary>
+    private static int WeaponSignature(Senses.Senses senses, FlightModel? fireProfile)
+        => senses.Companion?.ModNPC is global::AICompanion.Companion.CharacterBody.CompanionNPC companion
+            ? companion.Arsenal.GearSignature
+            : fireProfile?.GetHashCode() ?? 0;
+
+    /// <summary>The furthest any weapon in hand shoots, or the handed profile's reach for a bare NPC; the wide default with nothing to shoot.</summary>
+    private static float WeaponReach(Senses.Senses senses, FlightModel? fireProfile)
+    {
+        if (fireProfile is not { } profile)
+            return Weights.StandoffFar;
+        return senses.Companion?.ModNPC is global::AICompanion.Companion.CharacterBody.CompanionNPC companion && companion.Arsenal.MaxReach > 0f
+            ? companion.Arsenal.MaxReach
+            : profile.Reach;
     }
 
     /// <summary>

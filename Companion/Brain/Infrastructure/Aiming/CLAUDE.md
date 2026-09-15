@@ -3,7 +3,7 @@
 ```
 Aiming/
 ├─ CLAUDE.md
-├─ SolveProjectileTrajectory.cs   the flight model, one flight step, solved impact facts and swept terrain/target traces
+├─ SolveProjectileTrajectory.cs   the flight model, one flight step, solved impact facts, swept terrain/target traces and a terrain-only clearance walk
 └─ LearnProjectileArcs.cs         the motion per projectile type: priors for two vanilla styles, then a fit from the companion's own shots
 ```
 
@@ -27,7 +27,7 @@ Two questions are asked of a shot and they are different. `Solve` asks whether t
 
 Where the forecast carries too little measured confidence — no error samples, or a trip long enough that the measured continuation has decayed past its floor — the current position is asked instead and the answer records which was used, because refusing a stand on an unmeasured guess is worse than the staleness it replaces. The limitation is worth knowing rather than rediscovering: **on a long walk the forecast is not confident, so a far stand is still judged on where the target is now**, and the rule therefore bites on short and middling trips only.
 
-`TrySolve` returns a `TrajectorySolution`, including the launch, actual predicted impact point and impact tick. `TryTrace` reuses the same walk after accuracy noise rotates a launch; the arsenal fires only if this concrete rotated launch still reaches the target through clear terrain. This preserves imperfect aim without turning an earlier proof into permission for a different, unsafe trajectory. Target boxes come from `WorldObservation.PredictObservedMotion`, the same terrain-constrained observed-motion forecast used by threat records; projectile aiming does not carry a second enemy-physics model.
+`TrySolve` returns a `TrajectorySolution`, including the launch, actual predicted impact point and impact tick. `TryTrace` reuses the same walk after accuracy noise rotates a launch; the arsenal fires only if this concrete rotated launch still reaches the target through clear terrain. This preserves imperfect aim without turning an earlier proof into permission for a different, unsafe trajectory. `TryClear` is the one walk that never asks about the target: the arsenal aims deliberately off the intercept when its learner says aiming off pays (`../../../Weapons/CLAUDE.md`), and such a launch is held only to flying clear of terrain and the world edge for as long as the intercept's own flight lasted, because whether it reaches the target's box is the question the shot is asking rather than a condition of firing. A clear walk says nothing about hitting anything. Target boxes come from `WorldObservation.PredictObservedMotion`, the same terrain-constrained observed-motion forecast used by threat records; projectile aiming does not carry a second enemy-physics model.
 
 `PathHits` runs over a hostile list the caller supplies rather than scanning every NPC slot, because it is asked once per weapon per target while the brain is deciding, and a scan of the world inside a per-tick flight loop is a few tens of thousands of rectangle tests a frame.
 

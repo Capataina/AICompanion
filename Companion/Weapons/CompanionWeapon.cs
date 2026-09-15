@@ -9,11 +9,18 @@ using AICompanion.Companion.Brain.Infrastructure.Aiming;
 namespace AICompanion.Companion.Weapons;
 
 /// <summary>
+/// One body a swing struck: how much its life fell, and the buffs it carried just before, so the outcome observer can read
+/// what the strike added.
+/// </summary>
+public readonly record struct SwingStrike(NPC Npc, int Dealt, int[] BuffTypesBefore, int[] BuffTimesBefore);
+
+/// <summary>
 /// What one use of a weapon put into the world: the projectile slot the game gave a shot, or the
 /// bodies a swing struck. A swing has no projectile and a shot has struck nothing yet, so the two
-/// numbers are never both meaningful and <see cref="Landed"/> is what a caller asks.
+/// numbers are never both meaningful and <see cref="Landed"/> is what a caller asks. A swing also carries
+/// its strikes, because no hit hook will report them later.
 /// </summary>
-public readonly record struct FireResult(int ProjectileSlot, int Struck)
+public readonly record struct FireResult(int ProjectileSlot, int Struck, IReadOnlyList<SwingStrike>? Strikes = null)
 {
     public static readonly FireResult Nothing = new(-1, 0);
     public bool IsShot => ProjectileSlot >= 0;
