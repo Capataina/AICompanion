@@ -116,6 +116,10 @@ The boundary a split should follow is the last row and then the fifth, in that o
 
 The evidence that the threshold is crossed is the outlier ratio above plus the fact that six of the seven regions are separately describable in one line, which is the tell that a reader seeking one of them reads past five. The reference surface a later session must sweep first: `Positioner` appears in 28 files with 138 member references, and `PredictedExposureAt` alone had 10 call sites at that measurement, one of them the combat-spacing search deleted since, so the public surface must not move even where the code behind it does — every extraction keeps its entry point on `Positioner` as a delegation, for exactly the reason the reach delegations above were kept.
 
+## Planned work — the positioner stops valuing firing stands
+
+`research/Combat System Plan/` phase E makes the combat planner the only valuer of a firing stand. This folder gains `AssessStands` (reach, travel ticks, exposure at the stand and along the travel, membership of Combat's allowance, no route search) and `RequestKind.FireFrom`, which routes to the planner's chosen stand or refuses; `FiringStandShare`, `StandoffFromTarget`, `SolveShotAtArrivalWithAnyWeapon`, `HandedModels`, the `Guard` and `LineOfFire` score arms and request kinds, and the `FlightModel` profile parameters go. File 5 of the plan specifies the seam. Until phase E lands, this guide describes the code as it is.
+
 ## Traps
 
 Destination acceptance must include the navigator's settle radius. A candidate on the comfort boundary can be valid while the body hovers partly outside it, leaving an Arrived navigator and an unsatisfied follow objective forever. Follow candidates leave that slack on both axes. If no candidate exists, the unresolved follow intent reaches movement as a travel intention aimed at the anchor rather than becoming a Hold request.

@@ -31,6 +31,10 @@ Where the forecast carries too little measured confidence — no error samples, 
 
 `PathHits` runs over a hostile list the caller supplies rather than scanning every NPC slot, because it is asked once per weapon per target while the brain is deciding, and a scan of the world inside a per-tick flight loop is a few tens of thousands of rectangle tests a frame.
 
+## Planned work — replaced by learned flight laws
+
+`research/Combat System Plan/` phase C replaces this folder with `Brain/Infrastructure/WeaponKnowledge/`: the four-number motion becomes a closed library of flight terms (gravity with onset, drag, speed change, homing, steering to the aim point, return) fitted by stagewise selection from every watched flight, the player's as well as the companion's, with learned wall, hit and child responses; the swept trace becomes `SimulateUse`; the priors here stay as the default law. File 2 and file 3 of the plan specify it. Until phase C lands, this guide describes the code as it is.
+
 ## What the fixture proves, and what it does not
 
 `Tools/EngineReplay/Combat/VerifyArcLearning.cs` holds both priors against `VanillaAI` tick for tick, shows a bullet's prior straight, keeps the thin-wall and accuracy-rotation refusals, and takes the measure the learner is judged by: hits per shot at a zombie standing still, with a vanilla arrow's prior from the first shot, and for a type the learner is told flies straight — which is what any modded projectile starts as — before learning, after the calibration shots it took, and after. The learned onset, gravity, drag and cap are then held against the game's, so the fit is shown to recover the mechanism and not merely to land. The measured figures are in the commit that landed the learner and in the ledger rows the fixture files. It does not exercise the global projectile hooks themselves, which no loader runs headless, nor a homing or steered modded projectile, where the medians bound the damage a steer does to the fit but nothing measures it.
