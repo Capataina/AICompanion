@@ -165,7 +165,9 @@ public static class AttackLearning
     /// <summary>
     /// The multiplier on a forecast hit's damage for this weapon against this enemy type in this context. Exactly one,
     /// with no draw, while the weapon has no evidence. With <paramref name="explore"/> the coefficients are the tick's
-    /// Thompson draw; without it they are the posterior mean, which is what a decision under real danger uses.
+    /// Thompson draw; without it they are the posterior mean, which the arsenal uses while its exploration gate is closed: a boss, a
+    /// hit that would take a large share of a hurt player's or companion's remaining life, or a close shooter with a clear
+    /// line, and never merely ordinary enemies against a healthy player (Companion/Weapons/CLAUDE.md).
     /// </summary>
     public static float Factor(int itemType, int npcType, ReadOnlySpan<float> x, bool explore, int tick)
     {
