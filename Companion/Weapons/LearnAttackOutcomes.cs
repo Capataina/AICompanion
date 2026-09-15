@@ -39,11 +39,21 @@ namespace AICompanion.Companion.Weapons;
 /// Aim is an input rather than a rule, so a homing weapon whose outcome ignores its aim learns an aim coefficient
 /// near zero and a straight arrow learns a negative one, from the same code.</para>
 ///
-/// <para><b>Each enemy type carries a bias shrunk toward the weapon's own.</b> A type's bias starts at zero — the
-/// weapon's average — with a prior variance, and is updated on the residual the weapon model leaves after its own
-/// update, so a weapon fought against one enemy type puts almost everything into the weapon model and a second type
-/// with a different outcome is carried by its bias. That is the usual two-stage approximation to a hierarchical
-/// model rather than the exact joint posterior, chosen because the exact form needs a feature per enemy type.</para>
+/// <para><b>Whether a weapon lands on an enemy type is that type's own fact; how the context changes what lands is the
+/// weapon's.</b> Each enemy type carries the intercept — the ratio at the contexts that type has been shot in — and the
+/// six context coefficients are shared by every type but learned only from how an outcome moved as the context moved
+/// <i>within</i> one type: each observation is regressed on its context less that type's running mean context, the
+/// fixed-effects (within) form of a panel regression, so the weapon model's bias coefficient is never learned. A type
+/// never shot reads its intercept's prior — the arithmetic, a ratio of one — at the weapon's own mean context. The
+/// first shape of this learner put the intercept in the weapon model and handed a type only the residual, so three
+/// misses against demon eyes left a zombie the bow had never shot at a mean factor of 0.36 and the arsenal found no
+/// target on 37 of 200 decisions where the same amount of evidence as hits found none on 12
+/// (<c>VerifyWeaponLearning.MissesAgainstOneEnemyTypeStayWithThatType</c>). Letting the type absorb the error first, or
+/// giving each type its intercept while the coefficients still learned from raw contexts, left the zombie at about 0.66
+/// and 0.80 on the same evidence when replayed on paper: a type's misses at one context cannot tell "this type is
+/// missed" from "shots here are missed", so any coefficient that learns from them carries them to every type, and only
+/// a deviation within one type carries no type in it. The cost is that a new enemy type borrows nothing from how the
+/// other types went; it pays one shot.</para>
 ///
 /// <para><b>Debuffs are learned as a rate and read as context.</b> For each weapon and enemy type the class counts
 /// how many struck bodies came away carrying a buff they did not have, and for how long. The arsenal's evaluator uses
@@ -79,6 +89,14 @@ public static class AttackLearning
         public int DrawTick = int.MinValue;
         public readonly double[] Draw = new double[FeatureCount];
 
+        /// <summary>The mean context of every observation of this weapon, which an enemy type never shot is read against; the zero context until one arrives.</summary>
+        public readonly double[] Centre = new double[FeatureCount];
+        public int Seen;
+
+        /// <summary>Where a new enemy type's intercept starts, and how sure of it; the arithmetic unless a fixture planted otherwise.</summary>
+        public double TypePriorMean;
+        public double TypePriorVariance = Weights.WeaponLearningEnemyTypeVariance;
+
         public Model()
         {
             for (int i = 0; i < FeatureCount; i++)
@@ -88,11 +106,22 @@ public static class AttackLearning
 
     private sealed class TypeBias
     {
-        public double Precision = 1.0 / Weights.WeaponLearningEnemyTypeVariance;
+        public double Precision;
         public double Weighted;
         public int DrawTick = int.MinValue;
         public double Draw;
         public double Mean => Weighted / Precision;
+
+        /// <summary>The mean context this type has been shot in, and the mean outcome there, which its intercept estimates.</summary>
+        public readonly double[] Centre = new double[FeatureCount];
+        public double MeanOutcome;
+        public int Seen;
+
+        public TypeBias(Model model)
+        {
+            Precision = 1.0 / model.TypePriorVariance;
+            Weighted = model.TypePriorMean * Precision;
+        }
     }
 
     private sealed class DebuffRecord
@@ -142,64 +171,87 @@ public static class AttackLearning
     {
         if (!models.TryGetValue(itemType, out Model? model) || model.Evidence == 0)
             return 1f;
-        double[] theta = explore ? DrawFor(model, tick) : model.Mean;
-        double linear = 1.0;
-        for (int i = 0; i < FeatureCount; i++) linear += theta[i] * x[i];
-        if (model.Types.TryGetValue(npcType, out TypeBias? bias))
-            linear += explore ? DrawFor(bias, tick) : bias.Mean;
-        else if (explore)
+        model.Types.TryGetValue(npcType, out TypeBias? bias);
+        if (bias == null && explore)
         {
             // An enemy type this weapon has never struck is drawn from the prior, and the draw is kept for the tick like
             // every other: a fresh number per call made the aim candidates of one forecast compete against different noise.
-            // The entry holds exactly the prior, so creating it changes nothing Observe will later do with the type.
-            model.Types[npcType] = bias = new TypeBias();
-            linear += DrawFor(bias, tick);
+            // The entry holds exactly the prior and no context, so creating it changes nothing Observe will later do with it.
+            model.Types[npcType] = bias = new TypeBias(model);
         }
+        double[] theta = explore ? DrawFor(model, tick) : model.Mean;
+        double[] centre = bias is { Seen: > 0 } ? bias.Centre : model.Centre;
+        double linear = 1.0;
+        for (int i = 1; i < FeatureCount; i++) linear += theta[i] * (x[i] - centre[i]);
+        linear += bias == null ? model.TypePriorMean : explore ? DrawFor(bias, tick) : bias.Mean;
         float factor = (float)Math.Clamp(linear, 0.0, MaxOutcomeRatio);
         if (explore) LastSampledFactor = factor; else LastMeanFactor = factor;
         return factor;
     }
 
     /// <summary>
-    /// One closed shot: the context it was fired in and its realised yield over the forecast's. The weapon model takes
-    /// the outcome less the enemy type's current bias, then the type's bias takes what the updated weapon model still
-    /// leaves unexplained, so a single enemy type is carried by the weapon model and a second type by its bias.
+    /// One closed shot: the context it was fired in and its realised yield over the forecast's. The context coefficients
+    /// are updated on how far this context and this outcome sit from the enemy type's means so far, scaled by
+    /// <c>√(n/(n+1))</c> after <c>n</c> earlier observations of the type. That scaling is what makes an online update exact
+    /// rather than approximate: summed over a type's observations, the scaled deviations from each running mean give
+    /// exactly the scatter about the final means (the recursion Welford's running variance rests on), so the coefficients
+    /// are the posterior a regression on fully centred data would reach, and the scaled outcome's noise has the unscaled
+    /// variance. On the fixtures the scaling moves the burst bow's learned plain factor by a thousandth (0.626 without it,
+    /// 0.627 with it), so no row proves it matters; it stays because it is the exact form and costs nothing. What did matter
+    /// is centring the outcome as well as the context: a first version regressed the raw outcome less the intercept on
+    /// centred contexts and taught the intercept the residual, which read the burst bow's plain factor at 0.685 against a
+    /// true 0.6 and flipped the debuff-then-burst opening in <c>VerifyWeaponLearning</c>. The type's intercept is the
+    /// precision-weighted mean of its raw outcomes, because the deviations the coefficients explain sum to zero over the
+    /// type. The first observation of a type deviates by
+    /// nothing, so it moves the coefficients not at all and is the type's alone.
     /// </summary>
     public static void Observe(int itemType, int npcType, ReadOnlySpan<float> x, float ratio)
     {
         if (itemType <= 0) return;
         if (!models.TryGetValue(itemType, out Model? model))
             models[itemType] = model = new Model();
+        if (!model.Types.TryGetValue(npcType, out TypeBias? bias))
+            model.Types[npcType] = bias = new TypeBias(model);
         double y = Math.Clamp(ratio, 0f, MaxOutcomeRatio) - 1.0;
-        model.Types.TryGetValue(npcType, out TypeBias? bias);
         double noise = Weights.WeaponLearningNoiseVariance;
 
-        Span<double> px = stackalloc double[FeatureCount];
+        double scale = Math.Sqrt(bias.Seen / (bias.Seen + 1.0));
+        Span<double> z = stackalloc double[FeatureCount];
+        for (int i = 1; i < FeatureCount; i++) z[i] = scale * (x[i] - bias.Centre[i]);
+        double w = scale * (y - bias.MeanOutcome);
+
+        Span<double> pz = stackalloc double[FeatureCount];
         double s = noise, predicted = 0.0;
         for (int i = 0; i < FeatureCount; i++)
         {
             double sum = 0.0;
-            for (int j = 0; j < FeatureCount; j++) sum += model.Covariance[i, j] * x[j];
-            px[i] = sum;
-            s += x[i] * sum;
-            predicted += model.Mean[i] * x[i];
+            for (int j = 0; j < FeatureCount; j++) sum += model.Covariance[i, j] * z[j];
+            pz[i] = sum;
+            s += z[i] * sum;
+            predicted += model.Mean[i] * z[i];
         }
-        double error = y - (bias?.Mean ?? 0.0) - predicted;
+        double error = w - predicted;
         for (int i = 0; i < FeatureCount; i++)
-            model.Mean[i] += px[i] / s * error;
+            model.Mean[i] += pz[i] / s * error;
         for (int i = 0; i < FeatureCount; i++)
             for (int j = 0; j < FeatureCount; j++)
-                model.Covariance[i, j] -= px[i] * px[j] / s;
+                model.Covariance[i, j] -= pz[i] * pz[j] / s;
         model.CholeskyValid = false;
         model.DrawTick = int.MinValue;
         model.Evidence++;
 
-        double after = 0.0;
-        for (int i = 0; i < FeatureCount; i++) after += model.Mean[i] * x[i];
-        if (bias == null) model.Types[npcType] = bias = new TypeBias();
         bias.Precision += 1.0 / noise;
-        bias.Weighted += (y - after) / noise;
+        bias.Weighted += y / noise;
         bias.DrawTick = int.MinValue;
+
+        bias.Seen++;
+        model.Seen++;
+        bias.MeanOutcome += (y - bias.MeanOutcome) / bias.Seen;
+        for (int i = 1; i < FeatureCount; i++)
+        {
+            bias.Centre[i] += (x[i] - bias.Centre[i]) / bias.Seen;
+            model.Centre[i] += (x[i] - model.Centre[i]) / model.Seen;
+        }
         Revision++;
     }
 
@@ -207,23 +259,24 @@ public static class AttackLearning
     public static float Coefficient(int itemType, int feature)
         => models.TryGetValue(itemType, out Model? model) ? (float)model.Mean[feature] : 0f;
 
-    /// <summary>The posterior mean of an enemy type's bias for this weapon, zero where the type has not been struck.</summary>
+    /// <summary>The posterior mean of an enemy type's intercept for this weapon, zero where the type has not been struck.</summary>
     public static float TypeBiasMean(int itemType, int npcType)
         => models.TryGetValue(itemType, out Model? model) && model.Types.TryGetValue(npcType, out TypeBias? bias) ? (float)bias.Mean : 0f;
 
     public static int Evidence(int itemType) => models.TryGetValue(itemType, out Model? model) ? model.Evidence : 0;
 
     /// <summary>
-    /// Take this posterior as learned for a weapon: the given mean and an isotropic variance, counted as evidence. A
-    /// fixture uses it to plant a posterior whose draw and mean disagree, which a stream of outcomes cannot be relied on
-    /// to produce.
+    /// Take this posterior as learned for a weapon, counted as evidence: the context coefficients are the given mean with an
+    /// isotropic variance, read against the zero context, and every enemy type's intercept starts at the given bias with the
+    /// same variance. A fixture uses it to plant a posterior whose draw and mean disagree, which a stream of outcomes cannot
+    /// be relied on to produce.
     /// </summary>
     public static void Assume(int itemType, float[] mean, float variance)
     {
-        var model = new Model();
+        var model = new Model { TypePriorMean = mean[Bias], TypePriorVariance = variance };
         for (int i = 0; i < FeatureCount; i++)
         {
-            model.Mean[i] = mean[i];
+            model.Mean[i] = i == Bias ? 0.0 : mean[i];
             for (int j = 0; j < FeatureCount; j++) model.Covariance[i, j] = i == j ? variance : 0.0;
         }
         model.Evidence = 1;

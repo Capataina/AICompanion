@@ -486,6 +486,56 @@ internal static class VerifyWeaponLearning
     }
 
     /// <summary>
+    /// A weapon's misses against one enemy type stay with that type. The bow is taught three outcomes against demon eyes in a
+    /// flier's context — at range, fast across the line, with the orb moving — and then asked about a zombie it has never
+    /// struck, floating three hundred pixels off. Two arms from one seed: in the first the eye shots all missed, in the control
+    /// they all landed exactly their forecast, so both arms hold the same amount of evidence and draw the same random numbers,
+    /// and only what the evidence said differs. Declared before the run: the misses were learned about the eye (its mean factor
+    /// below three quarters in the miss arm); the zombie's mean factor in the miss arm is within five hundredths of the
+    /// control's; over two hundred decisions the miss arm finds no target no more often than the control, and its mean attack
+    /// value is at least ninety-five percent of the control's. The first review of the learner measured the zombie at 0.139
+    /// and no target on 53 of 200 decisions after three eye misses, because the weapon model took most of every miss and every
+    /// enemy type reads the weapon model.
+    /// </summary>
+    public static int MissesAgainstOneEnemyTypeStayWithThatType()
+    {
+        (float Zombie, float Eye, int NoTarget, float MeanValue) Arm(float eyeRatio)
+        {
+            var scene = Scene(0f, new Vector2(-300f, 0f), floating: true, (GearSlot.FirstWeapon, ItemID.WoodenBow));
+            L.Reset();
+            Arsenal arsenal = scene.Companion.Arsenal;
+            Require(arsenal.Weapons.Count == 1, "premise: the bow is the one weapon in hand");
+            float reach = arsenal.Weapons[0].Reach;
+            float[] eyeContext = L.Context(260f, reach, 0f, 5f, 0, 2f, OrbPace.MaxSpeed, debuffedByOther: false);
+            for (int i = 0; i < 3; i++) L.Observe(ItemID.WoodenBow, NPCID.DemonEye, eyeContext, eyeRatio);
+            float[] zombieContext = L.Context(300f, reach, 0f, 0f, 0, 0f, OrbPace.MaxSpeed, debuffedByOther: false);
+            float zombie = L.Factor(ItemID.WoodenBow, NPCID.Zombie, zombieContext, explore: false, 0);
+            float eye = L.Factor(ItemID.WoodenBow, NPCID.DemonEye, eyeContext, explore: false, 0);
+            int noTarget = 0;
+            float value = 0f;
+            const int Decisions = 200;
+            for (int decision = 0; decision < Decisions; decision++)
+            {
+                for (int i = 0; i < 16; i++) Restate(scene.Companion, scene.Ctx.Player, scene.Threats);
+                if (arsenal.BestTarget(scene.Ctx) == null) noTarget++;
+                value += arsenal.LastAttackValue;
+            }
+            return (zombie, eye, noTarget, value / Decisions);
+        }
+
+        var missed = Arm(0f);
+        var landed = Arm(1f);
+        EmitLedgerRows.Detail(FormattableString.Invariant($"after three demon-eye outcomes, zombie mean factor (higher is better): misses {missed.Zombie:0.000}, control {landed.Zombie:0.000}; eye {missed.Eye:0.000} / {landed.Eye:0.000}; no target on {missed.NoTarget} / {landed.NoTarget} of 200 decisions (lower is better); mean attack value {missed.MeanValue:0.00} / {landed.MeanValue:0.00}"));
+        Require(missed.Eye < .75f, $"premise: the misses were learned about the demon eye; eye factor={missed.Eye}");
+        // Two-sided: a first version required only that the zombie was not cut, and a mutation that spread the eye misses into
+        // the zombie as a raised factor of 1.455 passed it. Evidence about one type moves another type neither way.
+        Require(MathF.Abs(missed.Zombie - landed.Zombie) <= .05f, $"demon-eye outcomes do not move the bow's value against a zombie it never shot; zombie after misses={missed.Zombie} control={landed.Zombie}");
+        Require(missed.NoTarget <= landed.NoTarget, $"misses against demon eyes do not make the arsenal find no zombie to shoot; no target {missed.NoTarget} against control {landed.NoTarget} of 200");
+        Require(missed.MeanValue >= .95f * landed.MeanValue, $"misses against demon eyes do not cut the zombie shot's value; mean value {missed.MeanValue} against control {landed.MeanValue}");
+        return 0;
+    }
+
+    /// <summary>
     /// A shot whose target died to someone else before the shot could land teaches nothing about the weapon. Tested on the
     /// outcome windows directly, because the projectile hooks do not run headless: a window is opened against a zombie with a
     /// forecast landing twenty ticks later, and the zombie is taken out of the world in one of five ways. Declared before the
