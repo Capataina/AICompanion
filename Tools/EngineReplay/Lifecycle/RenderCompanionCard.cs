@@ -391,7 +391,7 @@ internal static class RenderCompanionCard
                 Require(frame.X >= 0 && frame.Right <= view.X + Tolerance, $"{suffix}: at a resolution the game allows, the card must fit the screen's width");
         });
         ui.SetState(null);
-        Step("escape closes only the card", VerifyEscapeClosesOnlyTheCard.Run);
+        Step("escape closes one companion panel and nothing else", VerifyEscapeClosesOneCompanionPanel.Run);
         Step("shift-click with the Inventory page open", VerifyShiftClickFillsTheBag.Run);
         if (failures.Count > 0)
             throw new InvalidOperationException($"{failures.Count} card check(s) failed at {suffix}:\n" + string.Join("\n", failures));

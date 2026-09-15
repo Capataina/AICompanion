@@ -26,15 +26,15 @@ public partial class CompanionPlayer
     }
 
     /// <summary>
-    /// The card closes on the game's Inventory trigger, Escape unless the player rebound it, and the press is spent on that.
-    /// This is the one place both halves can happen on the same tick: <c>Player.Update</c> reads the tick's controls, calls
-    /// this hook, and then its own gate calls <c>ToggleInv</c> on a fresh press (Player.cs 23942-23954). Clearing
-    /// <c>releaseInventory</c> is what the gate reads as "already handled"; clearing <c>controlInv</c> instead would re-arm
-    /// the gate and toggle the inventory on the next held tick. The card used to close on a raw Escape in
-    /// <c>UpdateUI</c>, which runs before the tick's keyboard is sampled, so the same press reached <c>ToggleInv</c> a tick
-    /// before the card saw it and one Escape did two things.
+    /// The game's Inventory trigger, Escape unless the player rebound it, closes the top-most companion panel — the card if it
+    /// is open, otherwise the brain inspector's chooser — and the press is spent on that. This is the one place both halves
+    /// can happen on the same tick: <c>Player.Update</c> reads the tick's controls, calls this hook, and then its own gate
+    /// calls <c>ToggleInv</c> on a fresh press (Player.cs 23942-23954). Clearing <c>releaseInventory</c> is what the gate reads
+    /// as "already handled"; clearing <c>controlInv</c> instead would re-arm the gate and toggle the inventory on the next
+    /// held tick. The card used to close on a raw Escape in <c>UpdateUI</c>, and the inspector on a raw Escape in
+    /// <c>PreUpdate</c>; neither spent the press, so one Escape closed the panel and toggled the inventory as well.
     /// </summary>
-    public override void SetControls() => CloseCardOnInventoryPress(Player.controlInv);
+    public override void SetControls() => CloseTopPanelOnInventoryPress(Player.controlInv);
 
     /// <summary>
     /// A dead player's tick never reaches <c>SetControls</c>: <c>Player.Update</c> returns into <c>UpdateDead</c> first
@@ -45,13 +45,17 @@ public partial class CompanionPlayer
     public override void UpdateDead()
     {
         if (Main.drawingPlayerChat || Main.editSign || Main.editChest || Main.blockInput) return;
-        CloseCardOnInventoryPress(PlayerInput.Triggers.Current.Inventory);
+        CloseTopPanelOnInventoryPress(PlayerInput.Triggers.Current.Inventory);
     }
 
-    private void CloseCardOnInventoryPress(bool pressed)
+    /// <summary>One fresh press closes one panel, the card before the inspector because the card is drawn over it, so a press
+    /// with both open leaves the inspector for the next press rather than dismissing two things at once.</summary>
+    private void CloseTopPanelOnInventoryPress(bool pressed)
     {
-        if (!ProfileCard.CompanionProfileCardSystem.IsOpen || !pressed || !Player.releaseInventory) return;
-        ProfileCard.CompanionProfileCardSystem.CloseOpenCard();
+        if (!pressed || !Player.releaseInventory) return;
+        if (ProfileCard.CompanionProfileCardSystem.IsOpen) ProfileCard.CompanionProfileCardSystem.CloseOpenCard();
+        else if (BrainOverlay.Enabled) BrainOverlay.Close();
+        else return;
         Player.releaseInventory = false;
     }
 

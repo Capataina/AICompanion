@@ -24,7 +24,7 @@ internal static class VerifyShiftClickFillsTheBag
 
     public static void Run()
     {
-        VerifyEscapeClosesOnlyTheCard.RegisteredSystem();
+        VerifyEscapeClosesOneCompanionPanel.RegisteredSystem();
         Player player = Main.LocalPlayer;
         var save = player.GetModPlayer<CompanionPlayer>();
         var bag = save.Bag;
