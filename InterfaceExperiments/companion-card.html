@@ -9,36 +9,35 @@
  * The companion's interface as it should be built next, iterated here
  * before it is built natively. It started as a one-to-one replica of the
  * native card (Tools/EngineReplay --render-ui, 2026-09-13); rounds of the
- * owner's review produced this shape. The 2026-09-15 revision:
+ * owner's review produced this shape. The 2026-09-15 revisions:
  *
- *   - the page opens on the HUD notch, not on the card: a dark body
- *     hanging from the top edge with square top corners, rounded bottom
- *     corners and two concave fillets, the companion's name and level,
- *     and health, mana and experience stacked as three bars, each with
- *     its reading beside it in the bar's own colour, the way the card's
- *     identity strip reads. Clicking the notch opens the card; dragging
- *     it frees it from the edge; right-clicking docks it again;
- *   - the card's portrait and the Inventory page show the drone, a rough
- *     symmetrical pixel disc drawn from Assets/, never the player figure;
+ *   - the page opens on the HUD notch, not on the card. The notch is the
+ *     name, the level and health, mana and experience stacked as three
+ *     bars with their readings beside them, and nothing else: no family
+ *     icon and no behaviour icon either side, because what the companion
+ *     is doing belongs to the card's action line, not the HUD. Clicking
+ *     the notch opens the card; dragging frees it from the edge;
+ *     right-clicking docks it again;
+ *   - the companion is called Lumen in the mock (the name is a proposal)
+ *     and is pictured as the drone, a rough symmetrical pixel disc drawn
+ *     from Assets/, in the card's portrait and on the Inventory page;
  *   - the Inventory page's gear row is four weapon slots, a pickaxe and
- *     an axe. The first weapon slot is open; the other three are locked
- *     and each names the Combat diamond that opens it, and learning that
- *     diamond in the mastery preview unlocks the slot here. This is a
- *     proposal: the game today has two weapon slots;
- *   - the mastery wheel's lanes are Combat (was Guarding), Movement,
- *     Survival and Gathering, and every lane is eight nodes: a circle, a
- *     circle, a split into two paths that each run diamond then circle,
- *     meeting at a third diamond, ending on a circle. A shared circle
- *     sits between neighbouring lanes, opened from either side;
- *   - every wheel diamond opens its own tree in the same eight-node
- *     shape, drawn as one lane rising from the opened diamond; a diamond
- *     inside that tree is a capstone and opens nothing further;
- *   - clicking a node shows what it does in a panel beside the graph:
- *     its effect per rank, what it is for, the nearest thing in Terraria,
- *     Calamity or Thorium it was sized against, and what it needs. Learn
- *     and Unlearn walk the preview along the tree's edges; unlearning
- *     takes back everything that no longer connects. Nothing is saved;
- *   - every node name and number is a draft for the owner to edit.
+ *     an axe; the first weapon slot is open and each other one is locked
+ *     behind the Combat diamond it names. This is a proposal: the game
+ *     today has two weapon slots;
+ *   - the mastery wheel is one flat tree. Its lanes are Combat, Movement,
+ *     Survival and Gathering, ten nodes each: a circle, a circle, then a
+ *     split whose ranks alternate — diamond on the left and circle on the
+ *     right, circle on the left and diamond on the right, two circles —
+ *     meeting at a third diamond and ending on a circle. A diamond unlocks
+ *     something and opens nothing; there are no trees inside diamonds. A
+ *     shared circle sits between neighbouring lanes;
+ *   - clicking a node shows its effect per rank, what it is for, what it
+ *     was sized against in Terraria, Calamity or Thorium, and what it
+ *     needs; Learn and Unlearn walk the preview along the edges;
+ *   - magnitudes are deliberately modest: a fully learned lane is worth
+ *     about one or two good accessories, not a new character. Every name
+ *     and number is a draft for the owner to edit.
  *
  * Kept from earlier rounds: the overview is short (title bar, identity
  * strip, three tiles); each tile turns the whole card into its page with
@@ -96,7 +95,7 @@ body{font-family:var(--ui);color:var(--ink);text-shadow:2px 2px 0 #000;font-weig
 #stage{position:relative;overflow:hidden;
   background:linear-gradient(#1b2a4a 0 55%,#3a2c22 55% 100%)}
 
-/* ---- the HUD notch: docked it hangs from the top edge with fillets; dragged it is a free card ---- */
+/* ---- the HUD notch: name, level and three bars; docked it hangs from the top edge with fillets ---- */
 #notch{zoom:var(--z);position:absolute;width:232px;height:60px;background:var(--notch);border-radius:0 0 12px 12px;
   cursor:pointer;z-index:5;color:#ebebf0}
 #notch::before,#notch::after{content:"";position:absolute;top:0;width:10px;height:10px}
@@ -113,8 +112,6 @@ body{font-family:var(--ui);color:var(--ink);text-shadow:2px 2px 0 #000;font-weig
 #nxp{top:48px}#nxp i{background:var(--xp)}
 #notch .nread{position:absolute;left:164px;font-size:10px;line-height:10px;white-space:nowrap}
 #nhpr{top:20px;color:var(--notch-hp)}#nmpr{top:33px;color:var(--mana)}#nxpr{top:46px;color:var(--xp)}
-#notchicon{position:absolute;right:-30px;top:19px;width:22px;height:22px;border-radius:6px;background:var(--notch);display:grid;place-items:center}
-#notchicon svg{width:16px;height:16px;display:block}
 
 #frame{zoom:var(--z);width:720px;height:284px;position:absolute;left:0;top:0;z-index:4;
   background:var(--panel);border:2px solid var(--edge);border-radius:9px;padding:10px}
@@ -151,7 +148,7 @@ body{font-family:var(--ui);color:var(--ink);text-shadow:2px 2px 0 #000;font-weig
 #portrait{position:absolute;left:2px;top:3px;width:66px;height:92px;background:var(--sunk);display:grid;place-items:center}
 #portrait .drone{width:48px;height:48px}
 #who{position:absolute;left:80px;top:1px}
-#lvl{position:absolute;left:130px;top:5px;color:var(--gold)}
+#lvl{position:absolute;left:150px;top:5px;color:var(--gold)}
 .meter{position:absolute;left:80px;width:220px;height:8px;background:var(--bar-bg)}
 .meter i{display:block;height:100%}
 /* health, mana and experience stacked in the notch's order, a 12px row step, each reading in its bar's colour */
@@ -306,16 +303,11 @@ body{font-family:var(--ui);color:var(--ink);text-shadow:2px 2px 0 #000;font-weig
 
 <div id="stage">
 <div id="notch" title="Click to open the companion card · drag to move · right-click to dock">
-  <div class="nname">Aria</div>
+  <div class="nname">Lumen</div>
   <div class="nlvl">Level 12</div>
   <div id="nhp" class="nbar"><i style="width:100%"></i></div><div id="nhpr" class="nread">400 / 400</div>
   <div id="nmp" class="nbar"><i style="width:65%"></i></div><div id="nmpr" class="nread">78 / 120</div>
   <div id="nxp" class="nbar"><i style="width:62%"></i></div><div id="nxpr" class="nread">1,240 / 2,000</div>
-  <!-- the current activity beside the notch -->
-  <div id="notchicon" title="Mining"><svg viewBox="0 0 13 13" shape-rendering="crispEdges">
-    <rect x="2" y="1" width="8" height="2" fill="#b9b3c9"/><rect x="1" y="2" width="2" height="2" fill="#b9b3c9"/><rect x="9" y="2" width="2" height="3" fill="#b9b3c9"/>
-    <rect x="6" y="3" width="2" height="2" fill="#8a5a2b"/><rect x="5" y="5" width="2" height="2" fill="#8a5a2b"/><rect x="4" y="7" width="2" height="2" fill="#8a5a2b"/><rect x="3" y="9" width="2" height="2" fill="#8a5a2b"/><rect x="2" y="11" width="2" height="1" fill="#8a5a2b"/>
-  </svg></div>
 </div>
 
 <div id="frame" class="hidden">
@@ -327,7 +319,7 @@ body{font-family:var(--ui);color:var(--ink);text-shadow:2px 2px 0 #000;font-weig
 
   <div id="identity">
     <div id="portrait"><svg class="drone" viewBox="0 0 16 16"><use href="#drone-art"/></svg></div>
-    <div id="who" class="s100">Aria</div>
+    <div id="who" class="s100">Lumen</div>
     <div id="lvl" class="s80">Level 12</div>
     <div id="hpbar" class="meter"><i style="width:100%"></i></div>
     <div id="hp" class="reading s66">400 / 400 HP</div>
@@ -352,7 +344,7 @@ body{font-family:var(--ui);color:var(--ink);text-shadow:2px 2px 0 #000;font-weig
         </svg></div>
         <div class="joined"><div class="seg">Off</div><div class="seg">Mimic</div><div class="seg on">Auto</div></div>
       </div>
-      <div class="ctlrow" data-hint="Places torches in dark places, the companion's first, then yours.">
+      <div class="ctlrow" data-hint="Lights dark places with torches of its own; it never uses up yours.">
         <div class="ico" title="Torches"><svg viewBox="0 0 13 13" shape-rendering="crispEdges">
           <rect x="5" y="1" width="3" height="2" fill="#ffe066"/><rect x="4" y="2" width="5" height="3" fill="#ffb347"/><rect x="5" y="4" width="3" height="2" fill="#ff7a3d"/>
           <rect x="5" y="6" width="3" height="6" fill="#8a5a2b"/><rect x="6" y="6" width="1" height="6" fill="#6b4520"/>
@@ -437,7 +429,6 @@ body{font-family:var(--ui);color:var(--ink);text-shadow:2px 2px 0 #000;font-weig
         <div class="dq s64" id="dneeds"></div>
         <div class="sp"></div>
         <div class="row s80"><div class="pill off" id="learn">Learn</div><div class="pill off" id="unlearn">Unlearn</div></div>
-        <div class="pill s80" id="open" style="display:none">Open upgrades</div>
       </div>
       <div class="legend s80" id="mastlegend"></div>
       <div class="legend2 s75" id="mastline"></div>
@@ -451,7 +442,7 @@ body{font-family:var(--ui);color:var(--ink);text-shadow:2px 2px 0 #000;font-weig
 const $ = s => document.querySelector(s), $$ = s => [...document.querySelectorAll(s)];
 const z = () => Number(getComputedStyle(document.documentElement).getPropertyValue('--z')) || 1;
 const frame = $('#frame'), stage = $('#stage'), notch = $('#notch');
-const W = 720, H_OVERVIEW = 284, H_FULL = 580, NOTCH_W = 232, NOTCH_H = 60, NOTCH_MARGIN = 38;
+const W = 720, H_OVERVIEW = 284, H_FULL = 580, NOTCH_W = 232, NOTCH_H = 60, NOTCH_MARGIN = 8;
 
 // ---------------------------------------------------------------- the notch
 // Docked, the notch sits top-centre flush with the screen edge, as the game draws it when no
@@ -544,10 +535,7 @@ function show(p) {
 }
 $$('.tile').forEach(t => t.addEventListener('click', () => show(t.dataset.page)));
 $$('#bench [data-page]').forEach(b => b.addEventListener('click', () => show(b.dataset.page)));
-back.addEventListener('click', () => {
-  if (page === 'mast' && opened) { closeSubtree(); return; }
-  if (frame.classList.contains('full')) show('overview');
-});
+back.addEventListener('click', () => { if (frame.classList.contains('full')) show('overview'); });
 $('#close').addEventListener('click', () => { frame.classList.add('hidden'); syncBench(); });
 $('#reopen').addEventListener('click', toggleCard);
 
@@ -673,15 +661,15 @@ sortBag(); drawBag();
 
 // ---------------------------------------------------------------- inventory: the gear row
 // Four weapon slots, a pickaxe and an axe. The first weapon slot is always open; each of the other
-// three is opened by one of Combat's three diamonds, in the order below, and learning that diamond
-// in the mastery preview unlocks the slot here. Clicking a locked slot goes to the diamond.
+// three is opened by one of Combat's three diamonds, and learning that diamond in the mastery preview
+// unlocks the slot here. Clicking a locked slot goes to the diamond.
 const ICON = {
   bow: '<rect x="3" y="1" width="2" height="2" fill="#cfd8f0"/><rect x="5" y="3" width="2" height="2" fill="#cfd8f0"/><rect x="7" y="5" width="2" height="3" fill="#cfd8f0"/><rect x="5" y="8" width="2" height="2" fill="#cfd8f0"/><rect x="3" y="10" width="2" height="2" fill="#cfd8f0"/><rect x="3" y="3" width="1" height="7" fill="#e8e2c9"/>',
   pick: '<rect x="2" y="1" width="8" height="2" fill="#f2c94c"/><rect x="1" y="2" width="2" height="2" fill="#f2c94c"/><rect x="9" y="2" width="2" height="3" fill="#f2c94c"/><rect x="6" y="3" width="2" height="2" fill="#8a5a2b"/><rect x="5" y="5" width="2" height="2" fill="#8a5a2b"/><rect x="4" y="7" width="2" height="2" fill="#8a5a2b"/><rect x="3" y="9" width="2" height="2" fill="#8a5a2b"/><rect x="2" y="11" width="2" height="1" fill="#8a5a2b"/>',
   axe: '<rect x="7" y="1" width="4" height="2" fill="#f2c94c"/><rect x="6" y="2" width="6" height="3" fill="#f2c94c"/><rect x="8" y="5" width="3" height="1" fill="#f2c94c"/><rect x="6" y="5" width="2" height="2" fill="#8a5a2b"/><rect x="5" y="7" width="2" height="2" fill="#8a5a2b"/><rect x="4" y="9" width="2" height="2" fill="#8a5a2b"/><rect x="3" y="11" width="2" height="1" fill="#8a5a2b"/>',
   lock: '<rect x="4" y="2" width="5" height="1" fill="#c3c6f5"/><rect x="3" y="3" width="1" height="3" fill="#c3c6f5"/><rect x="9" y="3" width="1" height="3" fill="#c3c6f5"/><rect x="2" y="6" width="9" height="6" fill="#c3c6f5"/><rect x="6" y="8" width="1" height="2" fill="#2b3099"/>',
 };
-const SLOT_DIAMONDS = ['w2', 'w3', 'w6'];   // Combat's L1, R1 and tip, in unlock order
+const SLOT_DIAMONDS = ['w2', 'w5', 'w8'];   // Combat's three diamonds, in unlock order
 const GEAR = [
   {kind: 'weapon', item: 'Platinum Bow', icon: 'bow'},
   {kind: 'weapon', lockedBy: 0}, {kind: 'weapon', lockedBy: 1}, {kind: 'weapon', lockedBy: 2},
@@ -705,203 +693,95 @@ function drawGear() {
       : `Empty weapon slot · opened by ${diamond.def.name}. Put a weapon here.`;
     s.addEventListener('mouseenter', () => $('#gearnote').textContent = note);
     s.addEventListener('mouseleave', () => $('#gearnote').textContent = DEFAULT_GEAR_NOTE);
-    if (!open) s.addEventListener('click', () => { show('mast'); if (opened) closeSubtree(); selectKey(diamond.key); });
+    if (!open) s.addEventListener('click', () => { show('mast'); selectKey(diamond.key); });
     host.appendChild(s);
   });
   $('#gearnote').textContent = DEFAULT_GEAR_NOTE;
 }
 
 // ---------------------------------------------------------------- mastery: content
-// Every lane is eight roles: [trunk, fork, left diamond, right diamond, left circle, right circle,
-// tip diamond, end circle]. Every wheel diamond opens a tree with the same eight roles. A circle has
-// ranks; a diamond is learned once. Numbers are drafts sized against the nearest thing in Terraria,
-// Calamity or Thorium, named in each node's reference line; where nothing comparable exists the
-// reference says so rather than borrowing a number.
+// One flat tree. Every lane is ten roles: [trunk, fork, left diamond, right circle, left circle,
+// right diamond, left circle, right circle, tip diamond, end circle], so the split's ranks alternate
+// diamond-circle then circle-diamond before two circles and the meeting diamond. A circle has ranks;
+// a diamond unlocks something once and opens nothing. Magnitudes are kept modest on purpose: a fully
+// learned lane is worth about one or two good accessories. Each node names what it was sized against,
+// or says nothing comparable was found rather than borrowing a number.
 const S = (name, ranks, effect, desc, ref, needs) => ({name, ranks, effect, desc: desc || '', ref: ref || '', needs: needs || []});
 const A = (name, effect, desc, ref, needs) => ({name, ranks: 1, effect, desc: desc || '', ref: ref || '', needs: needs || []});
 const NO_REF = 'Nothing comparable in Terraria, Calamity or Thorium was found; the number is a first guess.';
-
-function weaponSlotTree(slot, d1, d2, d3) {
-  return [
-    S('Fire rate', 3, '+5% attack speed per rank for this slot', `Only the weapon in the ${slot} slot.`, 'Thorium\'s Bard empowerment steps attack speed in 3% tiers; one slot earns a little more per rank.'),
-    S('Damage', 3, '+5% damage per rank for this slot', `Only the weapon in the ${slot} slot.`, 'Accessories give all weapons 8–15%; one slot earns a little more per rank.'),
-    d1, d2,
-    S('Knockback', 2, '+10% knockback per rank', 'Pushes enemies further away from the companion and you.', 'A critical hit adds 40% knockback; a Titan Glove doubles melee knockback.'),
-    S('Mana thrift', 2, '−4% mana cost per rank', 'A magic weapon in this slot tires the companion less.', 'The Mana Flower line gives −8%.'),
-    d3,
-    S('Critical strike', 2, '+3% critical strike chance per rank', `Only the weapon in the ${slot} slot.`, 'A Lucky reforge gives +4% per accessory.'),
-  ];
-}
+const SLOT_NOTE = 'It still fires one weapon at a time, choosing whichever suits the target, so a slot adds choice rather than a second stream of shots.';
 
 const LANES = [
   {name: 'Combat', color: 'rgb(237,132,146)', nodes: [
-    S('Damage', 3, '+4% damage per rank, up to +12%', 'Every weapon it holds hits harder.', 'A Destroyer Emblem-class accessory gives 8–15%; a Wrath Potion gives 10%.'),
-    S('Fire rate', 3, '+3% attack speed per rank, up to +9%', 'Every weapon fires or swings a little more often.', 'Thorium\'s Bard empowerment steps 3/6/9/12%; the Feral Claws line gives 12% melee speed.'),
-    A('Second weapon slot', 'Opens the second weapon slot', 'A second weapon goes in the gear row on the Inventory page. Its own upgrades are inside this diamond.', 'Terraria never gives slots as a percentage: a Pygmy Necklace gives one more minion slot.'),
-    A('Third weapon slot', 'Opens the third weapon slot', 'A third weapon goes in the gear row. Its own upgrades are inside.', 'Calamity\'s Statis\' Blessing gives two minion slots, and was cut down from three.', [2]),
-    S('Critical strike', 2, '+4% critical strike chance per rank', 'More of its hits crit.', 'A Lucky reforge gives 4% per accessory; Eye of the Golem gives 10%.'),
-    S('Velocity', 3, '+10% projectile speed per rank', 'Shots reach moving targets sooner, so fewer miss.', 'A Magic Quiver gives arrows 120% velocity, but velocity is that item\'s whole purpose.'),
-    A('Fourth weapon slot', 'Opens the fourth weapon slot', 'A fourth weapon goes in the gear row. Its own upgrades are inside.', 'Vanilla reaches eleven minion slots from one, always one or two at a time.', [2, 3]),
-    S('Focus fire', 3, '+4% damage per rank to the enemy you hit last', 'It piles onto whatever you are fighting.', NO_REF),
-  ], trees: {
-    2: weaponSlotTree('second',
-      A('Piercing shots', 'Its shots pass through one more enemy', 'A line of slimes takes one shot for two.', NO_REF),
-      A('Split fire', 'Every fourth shot fires one extra projectile slightly to the side', 'Crowds take more hits.', NO_REF),
-      A('Seeking shots', 'Shots bend gently toward their target', 'Fewer misses against fast fliers.', NO_REF)),
-    3: weaponSlotTree('third',
-      A('Ricochet', 'A shot that hits a wall bounces once', 'Useful in tunnels.', NO_REF),
-      A('Overcharge', 'Every fifth shot deals +50% damage', 'A steady rhythm of bigger hits.', NO_REF),
-      A('Lingering', 'Debuffs this weapon applies last 25% longer', 'Pairs with a debuff weapon in another slot.', NO_REF)),
-    6: weaponSlotTree('fourth',
-      A('Volley', 'Fires two projectiles at once, each at 60% damage', 'More total damage, spread wider.', NO_REF),
-      A('Executioner', '+25% damage to enemies below a quarter of their life', 'Finishes fights.', NO_REF),
-      A('Tag team', '+10% damage to enemies another of its weapons hit in the last 2 seconds', 'Rewards mixing weapons.', NO_REF)),
-  }},
+    S('Damage', 3, '+3% damage per rank, up to +9%', 'Every weapon it holds, the first slot included.', 'A Destroyer Emblem-class accessory gives a player 8–15%; a Wrath Potion 10%.'),
+    S('Attack speed', 3, '+3% attack speed per rank, up to +9%', 'Every weapon fires or swings a little more often.', 'Thorium\'s Bard empowerment steps 3/6/9/12%; the Feral Claws line gives 12% melee speed.'),
+    A('Second weapon slot', 'Opens the second weapon slot', SLOT_NOTE, 'Terraria never gives slots as a percentage: a Pygmy Necklace gives one more minion slot.'),
+    S('Piercing', 1, 'Its shots pass through one more enemy', 'A line of slimes takes one shot for two.', NO_REF),
+    S('Extra projectile', 1, 'Each shot fires one more projectile, at half damage', 'Crowds take more hits; a single target takes at most half as much again.', NO_REF),
+    A('Third weapon slot', 'Opens the third weapon slot', SLOT_NOTE, 'Calamity\'s Statis\' Blessing gives two minion slots, and was cut down from three.', [2]),
+    S('Critical strike', 2, '+3% critical strike chance per rank, up to +6%', 'More of its hits crit.', 'A Lucky reforge gives a player 4% per accessory.'),
+    S('Projectile speed', 2, '+10% projectile speed per rank, up to +20%', 'Shots reach moving targets sooner, so fewer miss.', 'A Magic Quiver gives arrows 120% velocity, but velocity is that item\'s whole purpose.'),
+    A('Fourth weapon slot', 'Opens the fourth weapon slot', SLOT_NOTE, 'Vanilla reaches eleven minion slots from one, always one or two at a time.', [2, 5]),
+    S('Damage', 2, '+4% damage per rank, up to +8%', 'With the first Damage node, +17% in all: about one emblem.', 'A Destroyer Emblem-class accessory gives a player 8–15%.'),
+  ]},
   {name: 'Movement', color: 'rgb(104,213,220)', nodes: [
-    S('Top speed', 5, '+3% top speed per rank, up to +15%', 'It keeps up when you sprint.', 'An Aglet gives 5%, an Anklet of the Wind 10%, a Swiftness Potion 25%.'),
-    S('Acceleration', 3, '+6% acceleration per rank', 'It reaches top speed sooner.', 'Terraria does not publish acceleration as a percentage; the number is a first guess.'),
-    A('Dash', 'A burst of about 12 tiles, every 3 seconds', 'It dashes when it needs to be somewhere fast or out of the way of a hit.', 'A Shield of Cthulhu dashes every 0.5 s; Calamity\'s Asgard\'s Valor covers 18 blocks.'),
-    A('Slipstream', '+15% top speed while flying behind you as you move', 'Following you is easier than chasing you.', NO_REF),
-    S('Turning', 3, '+8% turn rate per rank', 'Tighter curves around corners and shots.', NO_REF),
-    S('Homing flight', 3, '+10% speed per rank when flying back from far away', 'It rejoins you sooner after being left behind.', NO_REF),
-    A('Afterburner', 'After 2 seconds without slowing, +20% top speed until it slows', 'Long trips go faster.', 'The Panic! buff gives 100% speed, but only briefly after a hit.'),
-    S('Steady hull', 3, '−10% knockback taken per rank', 'Hits shove it off course less.', 'Calamity\'s Asgard\'s Valor gives full knockback immunity in one item.'),
-  ], trees: {
-    2: [
-      S('Dash distance', 3, '+2 tiles per rank', '', 'Master Ninja Gear dashes about twice as far as a Shield of Cthulhu.'),
-      S('Dash cooldown', 3, '−0.4 seconds per rank', '', 'A Shield of Cthulhu waits 0.5 s; Master Ninja Gear 1 s.'),
-      A('Phase dash', 'Takes no damage while dashing', '', 'A Shield of Cthulhu gives 0.07 s of immunity on its dash.'),
-      A('Ram', 'Deals 30 damage to enemies it dashes through', '', 'A Shield of Cthulhu\'s dash deals 30 damage.'),
-      S('Momentum', 2, 'Keeps +5% speed per rank for 1 second after a dash', '', NO_REF),
-      S('Brake', 2, 'Stops 15% shorter per rank after a dash', '', NO_REF),
-      A('Double dash', 'Two dashes before the cooldown starts', '', NO_REF),
-      S('Afterglow', 2, '+10% speed per rank for 1 second after a dash', '', NO_REF),
-    ],
-    3: [
-      S('Draft', 3, '+3% more slipstream speed per rank', '', NO_REF),
-      S('Wake width', 2, '+2 tiles of slipstream range per rank', '', NO_REF),
-      A('Tow', 'You run 5% faster while it flies in your slipstream', '', 'An Aglet gives a player 5%.'),
-      A('Catch-up', 'Beyond 30 tiles from you, +25% speed', '', 'A Swiftness Potion gives 25%.'),
-      S('Smooth wake', 2, '−10% slipstream lost per rank when you change direction', '', NO_REF),
-      S('Drafting guard', 2, '3% less damage taken per rank while in slipstream', '', NO_REF),
-      A('Wingman', 'Shots fired from your slipstream deal +10% damage', '', NO_REF),
-      S('Long wake', 2, 'Slipstream lasts 1 second longer per rank after you stop', '', NO_REF),
-    ],
-    6: [
-      S('Warm-up', 3, 'Afterburner starts 0.3 seconds sooner per rank', '', NO_REF),
-      S('Thrust', 3, '+4% more afterburner speed per rank', '', NO_REF),
-      A('Sonic wake', 'Enemies it passes at full afterburner are knocked aside', '', NO_REF),
-      A('Hot start', 'Afterburner starts at once after a dash', '', NO_REF),
-      S('Heat shield', 2, '5% less damage taken per rank while afterburning', '', NO_REF),
-      S('Glide', 2, 'Keeps half the bonus for 1 second per rank after slowing', '', NO_REF),
-      A('Comet trail', 'Leaves a streak that deals 15 damage per second', '', NO_REF),
-      S('Fuel', 2, 'Slowing takes 10% more per rank to end the burn', '', NO_REF),
-    ],
-  }},
+    S('Top speed', 3, '+3% top speed per rank, up to +9%', 'It keeps up when you sprint.', 'An Aglet gives a player 5%, an Anklet of the Wind 10%.'),
+    S('Acceleration', 3, '+5% acceleration per rank', 'It reaches top speed sooner.', 'Terraria does not publish acceleration as a percentage; the number is a first guess.'),
+    A('Dash', 'A short burst of about 10 tiles, every 4 seconds', 'It dashes when it needs to be somewhere fast or out of the way of a hit.', 'A Shield of Cthulhu dashes every 0.5 s; Calamity\'s Asgard\'s Valor covers 18 blocks.'),
+    S('Turning', 2, '+8% turn rate per rank', 'Tighter curves around corners and shots.', NO_REF),
+    S('Dash cooldown', 2, 'The dash comes back 0.5 seconds sooner per rank', 'Down to 3 seconds.', 'A Shield of Cthulhu waits 0.5 s and Master Ninja Gear 1 s, both for a player.'),
+    A('Slipstream', '+10% top speed while flying behind you as you move', 'Following you is easier than chasing you.', NO_REF),
+    S('Homing flight', 2, '+10% speed per rank when flying back from far away', 'It rejoins you sooner after being left behind.', NO_REF),
+    S('Steady hull', 2, '−15% knockback taken per rank', 'Hits shove it off course less.', 'Calamity\'s Asgard\'s Valor gives full knockback immunity in one item.'),
+    A('Afterburner', 'After 2 seconds without slowing, +10% top speed until it slows', 'Long trips go faster.', 'The Panic! buff gives a player 100% speed, but only briefly after a hit.'),
+    S('Top speed', 2, '+3% top speed per rank', 'With the first Top speed node, +15% in all.', 'An Aglet gives a player 5%, an Anklet of the Wind 10%.'),
+  ]},
   {name: 'Survival', color: 'rgb(233,180,103)', nodes: [
-    S('Max life', 5, '+20 life per rank, up to +100', 'It survives longer in a fight.', 'A Life Crystal gives a player 20.'),
-    S('Plating', 3, '3% less damage taken per rank, up to 9%', 'Every hit hurts a little less.', 'A Worm Scarf gives 17% and the Chlorophyte set 5%; Terraria keeps unconditional damage reduction small.'),
+    S('Max life', 3, '+20 life per rank, up to +60', 'It survives longer in a fight.', 'A Life Crystal gives a player 20.'),
+    S('Plating', 3, '2% less damage taken per rank, up to 6%', 'Every hit hurts a little less.', 'A Worm Scarf gives 17% and the Chlorophyte set 5%; Terraria keeps unconditional damage reduction small.'),
     A('Waterproof', 'Flies through water and honey and takes no damage', 'Water stops being a wall to its routes.', 'Terraria goes from timed breathing to Neptune\'s Shell, which removes the limit for good.'),
+    S('Regeneration', 2, '+1 life per second per rank', 'It heals between fights.', 'A Band of Regeneration gives a player 1 life per second.'),
+    S('Quick reboot', 3, 'Revives 5 seconds sooner per rank, from 20 down to 5', 'Less time without it after it goes down.', 'Nothing in Terraria shortens respawn: a player waits 10 s, or 15 s in Expert.'),
     A('Magma core', 'Flies through lava and takes no damage', 'Lava stops being a wall to its routes.', 'A Lava Charm gives a player 7 seconds; Calamity\'s Void Striders give full immunity late in the game.'),
-    S('Regeneration', 3, '+1 life per second per rank', 'It heals between fights.', 'A Band of Regeneration gives a player 1 life per second.'),
-    S('Quick reboot', 5, 'Revives 3 seconds sooner per rank, from 20 down to 5', 'Less time without it after it goes down.', 'Nothing in Terraria shortens respawn: a player waits 10 s, or 15 s in Expert.'),
-    A('Guardian link', '10% of the damage you take goes to the companion while it is within 25 tiles', 'It takes part of every hit for you.', 'A Paladin\'s Shield absorbs 25% of a teammate\'s damage within 50 tiles, at most once every 0.67 s.'),
-    S('Last stand', 2, '10% less damage taken per rank while below half life', 'Harder to finish off.', 'A Frozen Turtle Shell gives 25%, but only below half life.'),
-  ], trees: {
-    2: [
-      S('Swim speed', 3, '+10% speed in liquids per rank', '', NO_REF),
-      S('Clear lens', 2, 'Its flashlight reaches 25% further underwater per rank', '', NO_REF),
-      A('Bubble', 'You breathe 50% longer while within 10 tiles of it', '', 'A Gills Potion stops a player\'s breath loss for 4 minutes.'),
-      A('Tidebreaker', 'Moves at full speed in any liquid', '', NO_REF),
-      S('Deep work', 3, '+8% mining speed underwater per rank', '', 'A Mining Potion gives 25% everywhere.'),
-      S('Clean hull', 2, 'Wet and chilled wear off 25% faster per rank', '', NO_REF),
-      A('Fresh air', 'Your breath refills twice as fast within 10 tiles of it', '', NO_REF),
-      S('Pressure hull', 2, '5% less damage taken in liquids per rank', '', NO_REF),
-    ],
-    3: [
-      S('Heat sink', 3, '+10% speed in lava per rank', '', NO_REF),
-      S('Fireproof', 2, 'Burning wears off 25% faster per rank', '', NO_REF),
-      A('Obsidian aura', 'You take 30% less lava damage within 10 tiles of it', '', 'A Lava Charm gives a player 7 seconds of immunity.'),
-      A('Forge beam', 'Mines hellstone and obsidian 25% faster', '', 'A Mining Potion gives 25%.'),
-      S('Ember glow', 2, '+10% flashlight reach per rank in the Underworld', '', NO_REF),
-      S('Cinder plating', 2, '5% less damage from fire per rank', '', NO_REF),
-      A('Kindling', 'Its weapon hits set enemies on fire for 2 seconds', '', NO_REF),
-      S('Heat recovery', 2, '+1 life per second per rank while in lava', '', 'A Band of Regeneration gives 1 life per second.'),
-    ],
-    6: [
-      S('Share', 5, '+3% more of your damage per rank, up to 25% in all', '', 'A Paladin\'s Shield absorbs 25%.'),
-      S('Link range', 3, '+5 tiles of range per rank', '', 'A Paladin\'s Shield reaches 50 tiles.'),
-      A('Mend', '20% of the damage it absorbs comes back to it as healing over 5 seconds', '', NO_REF),
-      A('Rescue', 'Below a quarter of your life, it absorbs 50% for 3 seconds, once a minute', '', 'A Frozen Turtle Shell\'s 25% only works below half life.'),
-      S('Tough link', 3, 'Damage it absorbs is 5% smaller per rank', '', NO_REF),
-      S('Fast link', 2, 'Absorbs 20% more often per rank', '', 'A Paladin\'s Shield absorbs at most once every 0.67 s.'),
-      A('Shared resolve', 'While it is absorbing, you both take 5% less damage', '', NO_REF),
-      S('Heartline', 2, '+1 life per second per rank to you while linked', '', 'A Band of Regeneration gives 1 life per second.'),
-    ],
-  }},
+    S('Last stand', 2, '5% less damage taken per rank while below half life', 'Harder to finish off.', 'A Frozen Turtle Shell gives a player 25%, but only below half life.'),
+    S('Thick hull', 2, 'Debuffs on it wear off 20% faster per rank', 'Poison and fire hold on to it less.', NO_REF),
+    A('Guardian link', '5% of the damage you take goes to the companion while it is within 25 tiles', 'It takes a small part of every hit for you.', 'A Paladin\'s Shield absorbs 25% of a teammate\'s damage within 50 tiles, at most once every 0.67 s.'),
+    S('Link share', 2, '+5% more of your damage per rank, up to 15% in all', 'Stays under a Paladin\'s Shield even when full.', 'A Paladin\'s Shield absorbs 25%.'),
+  ]},
   {name: 'Gathering', color: 'rgb(109,201,178)', nodes: [
-    S('Mining speed', 3, '+8% mining speed per rank, up to +24%', 'Ore comes out faster.', 'A Mining Potion and an Ancient Chisel each give 25%.'),
-    S('Chopping speed', 3, '+8% chopping speed per rank, up to +24%', 'Trees come down faster.', 'Sized like mining speed.'),
-    A('Vein beam', 'Breaking an ore also breaks up to 2 touching tiles of the same ore', 'Veins come out in fewer passes.', 'No Terraria item raises ore per tile; big tools break an area instead, like the Picksaw\'s 3×3.'),
-    A('Tractor field', 'Pulls loot in from 8 tiles away', 'Fewer drops left behind.', 'A Treasure Magnet stretches a player\'s pickup range from about 2.6 to 12 tiles.'),
-    S('Tool reach', 3, '+1 tile of tool reach per rank', 'Works a tile from further away.', NO_REF),
-    S('Bag space', 3, '+10 bag slots per rank', 'Carries more before you empty it.', NO_REF),
-    A('Prospector\'s eye', 'Sees ore through walls within 20 tiles', 'It notices veins it would otherwise fly past.', 'Like a Spelunker Potion, for the companion.'),
-    S('Flashlight reach', 3, '+15% flashlight reach per rank', 'Lights dark places from further away.', 'No published light radius for the Mining Helmet or Shine Potion was found; the number is a first guess.'),
-  ], trees: {
-    2: [
-      S('Longer vein', 3, '+1 tile per vein break per rank', '', NO_REF),
-      S('Beam power', 2, '+5% mining speed on veins per rank', '', 'A Mining Potion gives 25%.'),
-      A('Gem veins', 'Gems count as veins too', '', NO_REF),
-      A('Twin beam', 'Mines two tiles at once when both are in reach', '', 'The Picksaw breaks a 3×3 area.'),
-      S('Dust sweep', 2, 'Picks up vein drops 20% sooner per rank', '', NO_REF),
-      S('Steady beam', 2, '10% less progress lost per rank when a beam is interrupted', '', NO_REF),
-      A('Deep vein', 'Follows a vein up to 8 tiles', '', NO_REF),
-      S('Vein sense', 2, '+2 tiles of vein detection per rank', '', NO_REF),
-    ],
-    3: [
-      S('Field range', 3, '+2 tiles of pull range per rank', '', 'A Treasure Magnet reaches 12 tiles.'),
-      S('Pull speed', 2, '+25% pull speed per rank', '', NO_REF),
-      A('Coin chute', 'Coins it pulls go straight to your wallet', '', NO_REF),
-      A('Heart catcher', 'Hearts and mana stars it pulls go to you', '', NO_REF),
-      S('Bag rows', 3, '+10 bag slots per rank', '', NO_REF),
-      S('Magnet pulse', 2, '+10% pull range per rank for 2 seconds after a kill', '', NO_REF),
-      A('Chest link', 'When you open a chest, its bag quick-stacks into it', '', 'Quick Stack is the game\'s own chest button.'),
-      S('Clean sweep', 2, 'Pulls 1 more item at once per rank', '', NO_REF),
-    ],
-    6: [
-      S('Sight range', 3, '+5 tiles of sight per rank', '', 'A Spelunker Potion shows ore across the screen.'),
-      S('Marker', 2, 'Ore it spots stays marked for you 5 seconds per rank', '', NO_REF),
-      A('Shared sight', 'Ore it spots glows for you too', '', 'A Spelunker Potion makes ore glow for the player.'),
-      A('Treasure sense', 'Pots, chests and life crystals show within range', '', NO_REF),
-      S('Rare focus', 2, '+10% sight range per rank for Hardmode ores', '', NO_REF),
-      S('Quick scan', 2, 'Refreshes 20% faster per rank', '', NO_REF),
-      A('Danger sense', 'Traps show within range', '', 'Like a Dangersense Potion.'),
-      S('Sonar', 2, '+5 tiles of sight per rank through open caves', '', NO_REF),
-    ],
-  }},
+    S('Mining speed', 3, '+5% mining speed per rank, up to +15%', 'Ore comes out faster.', 'A Mining Potion and an Ancient Chisel each give a player 25%.'),
+    S('Chopping speed', 3, '+5% chopping speed per rank, up to +15%', 'Trees come down faster.', 'Sized like mining speed.'),
+    A('Vein beam', 'Breaking an ore also breaks one touching tile of the same ore', 'Veins come out in fewer passes.', 'No Terraria item raises ore per tile; big tools break an area instead, like the Picksaw\'s 3×3.'),
+    S('Tool reach', 2, '+1 tile of tool reach per rank', 'Works a tile from further away.', NO_REF),
+    S('Bag space', 2, '+10 bag slots per rank', 'Carries more before you empty it.', NO_REF),
+    A('Tractor field', 'Pulls loot in from 6 tiles away', 'Fewer drops left behind.', 'A Treasure Magnet stretches a player\'s pickup range from about 2.6 to 12 tiles.'),
+    S('Flashlight reach', 2, '+10% flashlight reach per rank', 'Lights dark places from further away.', 'No published light radius for the Mining Helmet or Shine Potion was found; the number is a first guess.'),
+    S('Pull range', 2, '+2 tiles of pull range per rank', 'The tractor field reaches further.', 'A Treasure Magnet reaches 12 tiles.'),
+    A('Prospector\'s eye', 'Sees ore through walls within 15 tiles', 'It notices veins it would otherwise fly past.', 'Like a Spelunker Potion, for the companion.'),
+    S('Quick hands', 2, '+3% mining and chopping speed per rank', 'With the first two nodes, +21% in all.', 'A Mining Potion gives a player 25%.'),
+  ]},
 ];
-// A shared circle between each pair of neighbouring lanes, opened from either lane's side diamond.
+// A shared circle between each pair of neighbouring lanes, opened from either side.
 const JUNCTIONS = [
-  S('Strafe', 3, '+3% attack speed per rank while flying at top speed', 'Shared by Combat and Movement.', NO_REF),
+  S('Strafe', 2, '+3% attack speed per rank while flying at top speed', 'Shared by Combat and Movement.', NO_REF),
   S('Evasive', 2, '+10% speed per rank for 1 second after a hit misses it', 'Shared by Movement and Survival.', NO_REF),
-  S('Trap sense', 2, '25% less damage from traps per rank', 'Shared by Survival and Gathering.', NO_REF),
-  S('Cutting beam', 2, 'Its mining beam deals 10 damage per second per rank to enemies it crosses', 'Shared by Gathering and Combat.', NO_REF),
+  S('Trap sense', 2, '20% less damage from traps per rank', 'Shared by Survival and Gathering.', NO_REF),
+  S('Cutting beam', 1, 'Its mining beam deals 10 damage per second to enemies it crosses', 'Shared by Gathering and Combat.', NO_REF),
 ];
 const COLORS = LANES.map(l => l.color);
 
 // ---------------------------------------------------------------- mastery: geometry
 // [radius, angular offset in degrees] per role, the same for every lane, so the wheel is fourfold
-// symmetric. The two paths open 15 degrees either side of the lane at radius 250 (129 units apart)
-// and 12 degrees at 340 (141 apart); the closest pairs are the straight steps of 80 units. The shared
-// circle sits at radius 290 halfway between two lanes, about 145 units from the nearest side diamond.
-// Nodes are 44 units across, and the page computes the nearest pair to prove none touch. The lane is
-// kept short against the node on purpose: the first eight-node wheel at radius 590 with 32-unit
-// nodes drew them about six pixels wide beside the detail panel, too small to read or hit.
-const TEMPLATE = [[80, 0], [160, 0], [250, 15], [250, -15], [340, 12], [340, -12], [430, 0], [510, 0]];
-const DIAMOND_ROLES = new Set([2, 3, 6]);
-const LANE_EDGES = [[-1, 0], [0, 1], [1, 2], [1, 3], [2, 4], [3, 5], [4, 6], [5, 6], [6, 7]];
-const ROLES = TEMPLATE.length, NODE_R = 22, LABEL_R = 580, JUNCTION_R = 290, SPACING = 90;
+// symmetric. The paths open 15 degrees either side of the lane at radius 250, 13 at 340 and 11 at 430,
+// so the facing pair at each rank is at least 129 units apart; the closest pairs are the straight
+// steps of 80 units. The shared circle sits at radius 290 halfway between two lanes, about 145 units
+// from the nearest side node. Nodes are 44 units across, and the page computes the nearest pair to prove
+// none touch. The lane is kept short against the node on purpose: an earlier wheel at radius 590 with
+// 32-unit nodes drew them about six pixels wide beside the detail panel, too small to read or hit.
+const TEMPLATE = [[80, 0], [160, 0], [250, 15], [250, -15], [340, 13], [340, -13], [430, 11], [430, -11], [520, 0], [600, 0]];
+const DIAMOND_ROLES = new Set([2, 5, 8]);
+const LANE_EDGES = [[-1, 0], [0, 1], [1, 2], [1, 3], [2, 4], [3, 5], [4, 6], [5, 7], [6, 8], [7, 8], [8, 9]];
+const ROLES = TEMPLATE.length, NODE_R = 22, LABEL_R = 680, JUNCTION_R = 290, SPACING = 90;
 const rad = d => d * Math.PI / 180;
 const polar = (r, deg) => ({x: Math.round(r * Math.cos(rad(deg))), y: Math.round(r * Math.sin(rad(deg)))});
 const nearestPair = nodes => Math.min(...nodes.flatMap((a, i) => nodes.slice(i + 1).map(b => Math.hypot(a.x - b.x, a.y - b.y))));
@@ -912,13 +792,13 @@ LANES.forEach((lane, b) => {
   TEMPLATE.forEach(([r, d], n) => {
     const p = polar(r, base + d), def = lane.nodes[n];
     wheel.nodes.push({x: p.x, y: p.y, b, lane: b, role: n, key: 'w' + (b * ROLES + n), def,
-      kind: DIAMOND_ROLES.has(n) ? 'ability' : 'stat', needs: def.needs.map(k => 'w' + (b * ROLES + k))});
+      kind: DIAMOND_ROLES.has(n) ? 'unlock' : 'stat', needs: def.needs.map(k => 'w' + (b * ROLES + k))});
   });
   LANE_EDGES.forEach(([f, t]) => wheel.edges.push([f < 0 ? -1 : b * ROLES + f, b * ROLES + t]));
   const p = polar(LABEL_R, base); wheel.labels.push({x: p.x, y: p.y + 12, text: lane.name, b});
 });
 JUNCTIONS.forEach((def, i) => {
-  // joined to lane i's clockwise side diamond and lane i+1's counter-clockwise side diamond
+  // joined to lane i's clockwise first-rank node and lane i+1's counter-clockwise first-rank node
   const a = i * ROLES, c = ((i + 1) % LANES.length) * ROLES, j = wheel.nodes.length;
   const p = polar(JUNCTION_R, i * SPACING - 90 + SPACING / 2);
   wheel.nodes.push({x: p.x, y: p.y, b: i, lane: i, role: -1, key: 'w' + j, def, kind: 'junction', needs: [], between: [i, (i + 1) % LANES.length]});
@@ -926,55 +806,25 @@ JUNCTIONS.forEach((def, i) => {
 });
 wheel.nearest = nearestPair(wheel.nodes);
 
-// One diamond's tree: the lane template again, drawn as one lane rising from the opened diamond,
-// which sits filled at the bottom where the wheel has its root.
-const SUB_ROOT_Y = 260;
-const subtrees = {};
-function subtree(node) {
-  if (subtrees[node.key]) return subtrees[node.key];
-  const defs = LANES[node.lane].trees[node.role];
-  const t = {nodes: [], edges: LANE_EDGES.map(e => e.slice()), labels: [], parentKey: node.key, parent: node,
-    root: {x: 0, y: SUB_ROOT_Y, b: node.b, kind: 'ability'}, extent: 720};
-  TEMPLATE.forEach(([r, d], n) => {
-    const p = polar(r, -90 + d);
-    t.nodes.push({x: p.x, y: SUB_ROOT_Y + p.y, b: node.b, lane: node.lane, role: n, key: `s${node.key}:${n}`, def: defs[n],
-      kind: DIAMOND_ROLES.has(n) ? 'capstone' : 'stat', needs: defs[n].needs.map(k => `s${node.key}:${k}`)});
-  });
-  t.labels.push({x: 0, y: SUB_ROOT_Y - 580, text: node.def.name, b: node.b});
-  t.nearest = nearestPair(t.nodes);
-  return subtrees[node.key] = t;
-}
-
 // ---------------------------------------------------------------- mastery: the preview's learning
-// A node can be learned when an edge into it comes from something learned (the wheel's centre is
-// always learned; a tree's centre is its diamond) and everything it names under needs is learned.
-// Unlearning removes one rank and then takes back everything that no longer connects.
+// A node can be learned when an edge into it comes from something learned (the centre always is) and
+// everything it names under needs is learned. Unlearning removes one rank and then takes back
+// everything that no longer connects.
 const learned = {};
 const rankOf = n => learned[n.key] || 0;
-const nameOfKey = key => {
-  const w = wheel.nodes.find(n => n.key === key); if (w) return w.def.name;
-  const parentKey = key.slice(1, key.indexOf(':')), parent = wheel.nodes.find(n => n.key === parentKey);
-  return subtree(parent).nodes.find(n => n.key === key).def.name;
-};
-function parentsLearned(g, i) {
-  return g.edges.some(([f, t]) => t === i && (f < 0 ? (g === wheel || !!learned[g.parentKey]) : !!learned[g.nodes[f].key]));
+const nodeOfKey = key => wheel.nodes.find(n => n.key === key);
+function parentsLearned(i) {
+  return wheel.edges.some(([f, t]) => t === i && (f < 0 || !!learned[wheel.nodes[f].key]));
 }
-function canLearn(g, n) {
-  const i = g.nodes.indexOf(n);
-  return rankOf(n) < n.def.ranks && parentsLearned(g, i) && n.needs.every(k => learned[k]);
+function canLearn(n) {
+  return rankOf(n) < n.def.ranks && parentsLearned(wheel.nodes.indexOf(n)) && n.needs.every(k => learned[k]);
 }
 function prune() {
   let changed = true;
   while (changed) {
     changed = false;
     wheel.nodes.forEach((n, i) => {
-      if (learned[n.key] && !(parentsLearned(wheel, i) && n.needs.every(k => learned[k]))) { delete learned[n.key]; changed = true; }
-    });
-    wheel.nodes.filter(n => n.kind === 'ability').forEach(d => {
-      const t = subtree(d);
-      t.nodes.forEach((n, i) => {
-        if (learned[n.key] && !(parentsLearned(t, i) && n.needs.every(k => learned[k]))) { delete learned[n.key]; changed = true; }
-      });
+      if (learned[n.key] && !(parentsLearned(i) && n.needs.every(k => learned[k]))) { delete learned[n.key]; changed = true; }
     });
   }
 }
@@ -983,97 +833,76 @@ const spent = () => Object.values(learned).reduce((a, b) => a + b, 0);
 // ---------------------------------------------------------------- mastery: drawing
 const svg = $('#graphsvg'), NS = 'http://www.w3.org/2000/svg';
 const el = (t, a) => { const e = document.createElementNS(NS, t); for (const k in a) e.setAttribute(k, a[k]); return e; };
-let current = wheel, opened = null, selectedNode = null;
-const isDiamond = n => n.kind === 'ability' || n.kind === 'capstone';
+let selectedNode = null;
+const isDiamond = n => n.kind === 'unlock' || n.kind === 'root';
 // how far a node's boundary sits from its centre along an angle, so an edge stops at the shape's side
-const boundary = (kind, a) => (kind === 'ability' || kind === 'capstone' || kind === 'root')
+const boundary = (kind, a) => (kind === 'unlock' || kind === 'root')
   ? NODE_R * Math.SQRT2 / (Math.abs(Math.cos(a)) + Math.abs(Math.sin(a)))
   : NODE_R;
-function draw(g, keepView) {
-  current = g;
+function draw(keepView) {
   svg.innerHTML = '';
   const defs = el('defs', {}), filter = el('filter', {id: 'hard', x: '-10%', y: '-10%', width: '130%', height: '130%'});
   filter.appendChild(el('feDropShadow', {dx: 3, dy: 3, stdDeviation: 0, 'flood-color': '#000'}));
   defs.appendChild(filter); svg.appendChild(defs);
-  const at = i => i < 0 ? g.root : g.nodes[i];
-  g.edges.forEach(([f, t]) => { const a = at(f), q = at(t);
+  const at = i => i < 0 ? wheel.root : wheel.nodes[i];
+  wheel.edges.forEach(([f, t]) => { const a = at(f), q = at(t);
     const ang = Math.atan2(q.y - a.y, q.x - a.x), sa = boundary(a.kind, ang), sq = boundary(q.kind, ang);
-    const lit = (f < 0 ? (g === wheel || learned[g.parentKey]) : learned[a.key]) && learned[q.key];
+    const lit = (f < 0 || learned[a.key]) && learned[q.key];
     svg.appendChild(el('line', {x1: a.x + sa * Math.cos(ang), y1: a.y + sa * Math.sin(ang), x2: q.x - sq * Math.cos(ang), y2: q.y - sq * Math.sin(ang),
       stroke: COLORS[q.b], 'stroke-width': lit ? 5 : 2.5, opacity: lit ? 1 : .6, 'pointer-events': 'none'})); });
   const R = NODE_R;
-  g.nodes.forEach((n, i) => {
-    const c = COLORS[n.b], r = rankOf(n), open = r > 0 || canLearn(g, n);
-    const fill = r >= n.def.ranks ? c : r > 0 ? c : n.kind === 'junction' ? 'rgba(255,255,255,.12)' : 'transparent';
+  wheel.nodes.forEach(n => {
+    const c = COLORS[n.b], r = rankOf(n), open = r > 0 || canLearn(n);
+    const fill = r > 0 ? c : n.kind === 'junction' ? 'rgba(255,255,255,.12)' : 'transparent';
     const common = {fill, 'fill-opacity': r > 0 && r < n.def.ranks ? .45 : 1, stroke: c, 'stroke-width': 3.5, opacity: open ? 1 : .45};
     const e = isDiamond(n)
       ? el('rect', {...common, x: n.x - R, y: n.y - R, width: 2 * R, height: 2 * R, transform: `rotate(45 ${n.x} ${n.y})`})
       : el('circle', {...common, cx: n.x, cy: n.y, r: R});
     e.classList.add('node'); if (n === selectedNode) e.classList.add('sel');
     svg.appendChild(e);
-    // rank counts only in a diamond's tree: on the whole wheel they draw too small to read, and the panel carries them
-    if (n.def.ranks > 1 && g !== wheel) {
-      // beside the node rather than under it: the steps are 80 units, so a count below a node sits on the next edge
-      const t = el('text', {x: n.x + R + 10, y: n.y + 8, fill: c, 'text-anchor': 'start', 'font-size': 24, filter: 'url(#hard)', 'pointer-events': 'none', opacity: open ? 1 : .6});
-      t.textContent = `${r}/${n.def.ranks}`; svg.appendChild(t);
-    }
-    e.addEventListener('click', ev => {
-      ev.stopPropagation();
-      if (selectedNode === n && n.kind === 'ability' && !opened) { openSubtree(n); return; }
-      select(n);
-    });
+    e.addEventListener('click', ev => { ev.stopPropagation(); select(n); });
   });
-  // the centre: the wheel's root in gold, or the opened diamond filled in its lane colour
-  const root = g.root, rootColor = g === wheel ? '#ffe066' : COLORS[root.b];
-  const rootLearned = g === wheel || learned[g.parentKey];
-  svg.appendChild(el('rect', {x: root.x - NODE_R, y: root.y - NODE_R, width: 2 * NODE_R, height: 2 * NODE_R, fill: rootColor, 'fill-opacity': rootLearned ? 1 : .35, stroke: rootColor, 'stroke-width': 3.5, transform: `rotate(45 ${root.x} ${root.y})`}));
-  g.labels.forEach(l => { const t = el('text', {x: l.x, y: l.y, fill: COLORS[l.b], 'text-anchor': 'middle', 'font-size': g === wheel ? 40 : 34, filter: 'url(#hard)'});
+  // the centre, in gold
+  svg.appendChild(el('rect', {x: -R, y: -R, width: 2 * R, height: 2 * R, fill: '#ffe066', stroke: '#ffe066', 'stroke-width': 3.5, transform: 'rotate(45 0 0)'}));
+  wheel.labels.forEach(l => { const t = el('text', {x: l.x, y: l.y, fill: COLORS[l.b], 'text-anchor': 'middle', 'font-size': 40, filter: 'url(#hard)'});
     t.textContent = l.text; svg.appendChild(t); });
   if (!keepView) fitGraph();
   refreshStatus();
 }
 function refreshStatus() {
-  const total = wheel.nodes.reduce((a, n) => a + n.def.ranks, 0);
+  const total = wheel.nodes.reduce((a, n) => a + n.def.ranks, 0), have = wheel.nodes.filter(n => learned[n.key]).length;
   $('#masttilecount').textContent = `${spent()} pts`;
-  $('#mastfill').style.width = Math.round(100 * wheel.nodes.filter(n => learned[n.key]).length / wheel.nodes.length) + '%';
-  $('#masttiledetail').textContent = `${wheel.nodes.filter(n => learned[n.key]).length} of ${wheel.nodes.length} nodes · 4 lanes`;
-  $('#masthint').textContent = opened
-    ? `Its own upgrades · ${spent()} points · back returns to the wheel`
-    : `Preview · ${spent()} points · drag to pan · wheel to zoom · nothing is saved`;
-  $('#mastlegend').innerHTML = opened
-    ? 'Circle: upgrade with ranks &nbsp; Diamond: capstone'
-    : 'Circle: stat with ranks &nbsp; Diamond: ability with its own upgrades &nbsp; Shaded: shared';
-  $('#mastline').textContent = `${wheel.nodes.length} nodes, ${total} ranks · nearest pair ${Math.round(current.nearest)} apart, nodes ${2 * NODE_R} wide · all names and numbers are drafts`;
+  $('#mastfill').style.width = Math.round(100 * have / wheel.nodes.length) + '%';
+  $('#masttiledetail').textContent = `${have} of ${wheel.nodes.length} nodes · 4 lanes`;
+  $('#masthint').textContent = `Preview · ${spent()} of ${total} points · drag to pan · wheel to zoom`;
+  $('#mastlegend').innerHTML = 'Circle: upgrade with ranks &nbsp; Diamond: unlock &nbsp; Shaded: shared between lanes';
+  $('#mastline').textContent = `${wheel.nodes.length} nodes, ${total} ranks · nearest pair ${Math.round(wheel.nearest)} apart, nodes ${2 * NODE_R} wide · all names and numbers are drafts`;
 }
 
 // ---------------------------------------------------------------- mastery: the detail panel
 function select(n) {
   selectedNode = n;
-  svg.querySelectorAll('.node').forEach(x => x.classList.remove('sel'));
-  draw(current, true);
-  const g = current, r = rankOf(n), lane = LANES[n.lane];
+  draw(true);
+  const r = rankOf(n), lane = LANES[n.lane];
   $('#dname').textContent = n.def.name; $('#dname').style.color = COLORS[n.b];
-  $('#dkind').textContent = n.kind === 'ability' ? `${lane.name} ability · ${r ? 'learned' : 'not learned'} · opens ${ROLES} upgrades`
-    : n.kind === 'capstone' ? `Capstone in ${opened.def.name} · ${r ? 'learned' : 'not learned'}`
+  $('#dkind').textContent = n.kind === 'unlock' ? `${lane.name} unlock · ${r ? 'learned' : 'not learned'}`
     : n.kind === 'junction' ? `Shared by ${LANES[n.between[0]].name} and ${LANES[n.between[1]].name} · rank ${r} of ${n.def.ranks}`
-    : `${opened ? opened.def.name + ' upgrade' : lane.name + ' stat'} · rank ${r} of ${n.def.ranks}`;
+    : `${lane.name} upgrade · rank ${r} of ${n.def.ranks}`;
   $('#deffect').textContent = n.def.effect;
   $('#ddesc').textContent = n.def.desc;
   $('#dref').textContent = n.def.ref ? 'Sized against: ' + n.def.ref : '';
-  const i = g.nodes.indexOf(n);
-  const from = g.edges.filter(([, t]) => t === i).map(([f]) => f < 0 ? (g === wheel ? null : opened.def.name) : g.nodes[f].def.name).filter(Boolean);
-  const needs = [...new Set([...from.length ? [from.join(' or ')] : [], ...n.needs.map(nameOfKey)])];
-  const ok = canLearn(g, n) || r > 0;
+  const i = wheel.nodes.indexOf(n);
+  const from = wheel.edges.filter(([, t]) => t === i && t >= 0).map(([f]) => f < 0 ? null : wheel.nodes[f].def.name).filter(Boolean);
+  const needs = [...new Set([...(from.length ? [from.join(' or ')] : []), ...n.needs.map(k => nodeOfKey(k).def.name)])];
   $('#dneeds').textContent = needs.length ? 'Needs: ' + needs.join(' and ') : 'Needs: nothing, it starts the lane';
-  $('#dneeds').classList.toggle('bad', !ok);
-  $('#learn').classList.toggle('off', !canLearn(g, n));
+  $('#dneeds').classList.toggle('bad', !(canLearn(n) || r > 0));
+  $('#learn').classList.toggle('off', !canLearn(n));
   $('#learn').textContent = n.def.ranks > 1 && r > 0 ? 'Add a rank' : 'Learn';
   $('#unlearn').classList.toggle('off', r === 0);
-  $('#open').style.display = n.kind === 'ability' && !opened ? 'grid' : 'none';
 }
-function selectKey(key) { const n = current.nodes.find(x => x.key === key); if (n) select(n); }
+function selectKey(key) { const n = nodeOfKey(key); if (n) select(n); }
 $('#learn').addEventListener('click', () => {
-  const n = selectedNode; if (!n || !canLearn(current, n)) return;
+  const n = selectedNode; if (!n || !canLearn(n)) return;
   learned[n.key] = rankOf(n) + 1; select(n); drawGear();
 });
 $('#unlearn').addEventListener('click', () => {
@@ -1081,36 +910,20 @@ $('#unlearn').addEventListener('click', () => {
   if (learned[n.key] > 1) learned[n.key]--; else delete learned[n.key];
   prune(); select(n); drawGear();
 });
-function clearDetail() {
-  selectedNode = null;
-  $('#dname').textContent = opened ? opened.def.name : 'Mastery'; $('#dname').style.color = opened ? COLORS[opened.b] : '';
-  $('#dkind').textContent = opened ? 'Select one of its upgrades.' : 'Select a node to see what it does. Click a diamond twice to open its upgrades.';
-  ['#deffect', '#ddesc', '#dref', '#dneeds'].forEach(s => $(s).textContent = '');
-  $('#learn').classList.add('off'); $('#unlearn').classList.add('off'); $('#open').style.display = 'none';
-}
-function openSubtree(n) {
-  opened = n; clearDetail(); draw(subtree(n));
-  titleName.textContent = 'Mastery · ' + n.def.name;
-}
-function closeSubtree() {
-  const from = opened; opened = null; draw(wheel); titleName.textContent = names.mast;
-  select(from);
-}
-$('#open').addEventListener('click', () => { if (selectedNode && selectedNode.kind === 'ability' && !opened) openSubtree(selectedNode); });
 
 // pan and zoom as the game does them: wheel 1.12 / 0.89 about the pointer, buttons 1.15 / 0.85
-// about the canvas centre, reset fits the current graph's extent
+// about the canvas centre, reset fits the wheel's extent
 const graph = $('#graph'); let view = {x: -600, y: -600, w: 1200, h: 1200};
 function applyView() { svg.setAttribute('viewBox', `${view.x} ${view.y} ${view.w} ${view.h}`); }
 function fitGraph() {
   const cw = graph.clientWidth, ch = graph.clientHeight; if (!cw || !ch) return;
-  const s = Math.max(current.extent / cw, current.extent / ch);
+  const s = Math.max(wheel.extent / cw, wheel.extent / ch);
   view = {w: cw * s, h: ch * s, x: -cw * s / 2, y: -ch * s / 2}; applyView();
 }
 function zoomAt(factor, px, py) {
   const ux = view.x + px / graph.clientWidth * view.w, uy = view.y + py / graph.clientHeight * view.h;
   const nw = view.w / factor;
-  const fit = Math.max(current.extent / graph.clientWidth, current.extent / graph.clientHeight);
+  const fit = Math.max(wheel.extent / graph.clientWidth, wheel.extent / graph.clientHeight);
   const s = Math.min(Math.max(nw / graph.clientWidth, fit * 0.2), fit * 2);
   view = {w: graph.clientWidth * s, h: graph.clientHeight * s, x: ux - px * s, y: uy - py * s};
   applyView();
@@ -1131,7 +944,7 @@ graph.addEventListener('pointermove', e => {
 graph.addEventListener('pointerup', () => { pan = null; graph.classList.remove('dragging'); });
 
 // ---------------------------------------------------------------- start: the notch, the card closed
-clearDetail(); draw(wheel); drawGear(); place(); scrollers.forEach(s => s.layout()); syncBench();
+draw(); drawGear(); place(); scrollers.forEach(s => s.layout()); syncBench();
 </script>
 </body>
 </html>
