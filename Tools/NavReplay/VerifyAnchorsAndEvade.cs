@@ -132,7 +132,10 @@ internal static class VerifyAnchorsAndEvade
 
     /// <summary>
     /// A ceiling, a two-row gap the body fits in, four rows of lava and a floor. Two shots fill the gap's whole height and
-    /// close from either side, so every heading along the gap meets one, and the only direction that avoids both is down.
+    /// close from either side, so every heading along the gap meets one sooner or later and nothing but the lava below is
+    /// out of their way. At three times the player's speed the body outruns one shot to the world's edge and is cornered
+    /// there with the lava a tick later than the shot, which is the case a dodge scoring liquid as one more danger lost:
+    /// it must take the hit.
     /// </summary>
     private static int AnEvadeNeverFliesIntoLava()
     {
@@ -145,8 +148,11 @@ internal static class VerifyAnchorsAndEvade
         float middle = width * 8f;
         Vector2 centre = new(middle, 32f), velocity = Vector2.Zero;
         const float gapTop = 16f, gapBottom = 48f, shotHalf = 8f, shotSpeed = 8f, start = 200f;
-        int bentTicks = 0, lavaTicks = 0;
+        int bentTicks = 0, lavaTicks = 0, firstLava = -1;
         float deepest = 0f;
+        // Every tick's body, ask and bend, printed around the first lava touch on failure: the same instrument the arrival
+        // row prints when its still run trips, because a count of lava ticks says that the dodge went wrong and not how.
+        var trace = new List<string>();
         for (int now = 0; now < 60; now++)
         {
             int at = now;
@@ -161,12 +167,17 @@ internal static class VerifyAnchorsAndEvade
             }
             Controls controls = EvadeWhileMoving.Bend(new OrbState(centre, velocity), Controls.None, Unsafe, world, out bool bent);
             if (bent) bentTicks++;
+            Vector2 before = centre, velocityBefore = velocity;
             velocity = OrbPace.Step(velocity, controls.Desired, controls.Burst);
             centre += velocity;
             CircleContact.Resolve(world, ref centre, ref velocity);
-            if (CircleContact.Touches(centre, (x, y) => OrbTerrain.WetWall(world, x, y, LiquidImmunity.None)))
+            bool wet = CircleContact.Touches(centre, (x, y) => OrbTerrain.WetWall(world, x, y, LiquidImmunity.None));
+            float nearShot = MathF.Min(MathF.Abs(before.X - (middle - start + shotSpeed * now)), MathF.Abs(before.X - (middle + start - shotSpeed * now)));
+            trace.Add($"tick {now,2}: at {before.X:0.0},{before.Y:0.0} v {velocityBefore.X:0.00},{velocityBefore.Y:0.00} asked {controls.Desired.X:0.00},{controls.Desired.Y:0.00}{(controls.Burst ? " burst" : "")}{(bent ? " bent" : "")} -> {centre.X:0.0},{centre.Y:0.0}{(wet ? " LAVA" : "")}, nearest shot {nearShot:0} px");
+            if (wet)
             {
                 lavaTicks++;
+                if (firstLava < 0) firstLava = now;
                 deepest = MathF.Max(deepest, centre.Y + CircleContact.Radius - gapBottom);
             }
         }
@@ -175,7 +186,10 @@ internal static class VerifyAnchorsAndEvade
         if (bentTicks == 0)
             failures += Fail("premise: the closing shots must make the evade bend the body at least once, or this row proves nothing about where a dodge goes");
         if (lavaTicks > 0)
+        {
             failures += Fail($"a dodge flew the body into lava it is not immune to: {lavaTicks} ticks touching it, {deepest:0.0} px below the surface, over {bentTicks} bent ticks");
+            for (int i = Math.Max(0, firstLava - 20); i < Math.Min(trace.Count, firstLava + 6); i++) Console.WriteLine("      " + trace[i]);
+        }
         if (failures == 0)
             Console.WriteLine($"evade: bent {bentTicks} ticks between two closing shots over lava and never touched it");
         return failures;
