@@ -15,9 +15,11 @@ public static class Weights
     public const double PositionAimingMilliseconds = 2d;
     public const double EscapeSearchMilliseconds = 2d;
     public const int EscapeSearchWork = 120;
-    // The orb's pace is the player's, read live, times these: the cap is twice his maximum run
+    // The orb's pace is the player's, read live, times these: the cap is three times his maximum run
     // speed after accessories (the owner's ruling, so a speed accessory carries over and a
-    // companion at the cap overtakes a running player). The velocity law in Movement/Steering/
+    // companion at the cap overtakes a running player; raised from two times on 15 September 2026
+    // after the second orb play, where the gap to the player opened while the companion finished work
+    // and the flight back took too long). The velocity law in Movement/Steering/
     // OrbPace has two accelerations, each a multiple of his run acceleration. The turn authority
     // bends the velocity: at three times the run acceleration a body at the cap turned with a
     // radius of nine tiles and sailed past a corridor's last bend into the wall (Tools/NavReplay
@@ -29,10 +31,10 @@ public static class Weights
     // slowdown, visible momentum, unchanged top speed). The fallbacks are for a player whose
     // numbers are not finite, which a fixture can produce, and mirror a plain player's run
     // acceleration of 0.08 times each multiple.
-    public const float OrbSpeedPerRunSpeed = 2f;
+    public const float OrbSpeedPerRunSpeed = 3f;
     public const float OrbTurnPerRunAcceleration = 6f;
     public const float OrbSpeedChangePerRunAcceleration = 2f;
-    public const float OrbFallbackSpeed = 6f;
+    public const float OrbFallbackSpeed = 9f;
     public const float OrbFallbackTurn = 0.48f;
     public const float OrbFallbackSpeedChange = 0.16f;
     // Arriving glides: the speed asked for near a goal is what lets the body slow at this share of
@@ -226,11 +228,14 @@ public static class Weights
     public const float LightBaseValue = .40f;
     public const float LightPlayerUnlitFactor = 1.4f;
     // How far a new job may sit from the player. Kept independent of fly-home so raising recovery
-    // does not silently enlarge every work allowance past the worlds the fixtures fit in.
-    public const float FollowWorkRadius = 1120f;
+    // does not silently enlarge every work allowance past the worlds the fixtures fit in. A started job keeps
+    // this times ActivityContinuationFactor. Lowered on 15 September 2026 (the owner's ruling after the second orb
+    // play: the companion was doing too much too far from the player), with the continuation factor unchanged.
+    public const float FollowWorkRadius = 1000f;
     // Recovery is a following fallback, not a traversal available to route search or mastery.
-    // 120 tiles: enough room to hunt and work nearby without the far-follow flight cutting it short.
-    public const float FollowRecoveryDistance = 1920f;
+    // 100 tiles: room to hunt and work nearby without the far-follow flight cutting it short, and lowered from 120
+    // with the work radius so that the companion stays closer.
+    public const float FollowRecoveryDistance = 1600f;
     public const float FollowRecoveryArrival = 80f;
     public const float FollowRecoverySpeed = 12f;
     public const float FollowRecoveryAcceleration = 0.45f;
@@ -239,6 +244,29 @@ public static class Weights
     public const int WorkCollectionTicks = 600;
     public const float InterruptibleActionTicks = 12f;
     public const float FollowDuringUsefulWork = .2f;
+
+    // What "soon" means when jobs are compared by time. A job's worth is multiplied by window / (window + the ticks
+    // until it is done, travel included), so a job a whole window away is worth half of the same job at hand, a
+    // nearly finished job is worth nearly all of its value, and a long job is never zero. It is a half-life, not a
+    // cutoff. Five seconds because the owner's examples are about "the best thing to do in the next couple of
+    // seconds"; a longer window blurs the job on the way with the job across the room, a shorter one makes every job
+    // but the nearest nearly worthless.
+    public const float TaskWindowTicks = 300f;
+    // Which jobs are close enough in worth to be put in an order together: every job scoring at least this share
+    // below the best job is left out, because no order makes a clearly worse job the right first step.
+    public const float TaskOrderShare = .4f;
+    // The most jobs ordered together. 5! orders is 120 short sums on a rescore, and the board holds one job per
+    // activity, so five is every job activity the companion has.
+    public const int TaskOrderMaximum = 5;
+    // The time to use a nearby site once there — a torch placed, a pot broken — which the shared executor adds to its
+    // trip. Small on purpose: it only has to stop an interaction at the body's own feet reading as free.
+    public const float NearbyInteractionTicks = 20f;
+    // The kill time charged when no weapon in the slots can say how fast it hurts: three seconds, a middling fight,
+    // so an unarmed or unreadable hunt is neither free nor ruled out by the time term alone.
+    public const float TaskUnknownWorkTicks = 180f;
+    // How far ahead the player's observed travel is projected when asking whether a job will still be near him when
+    // it is done. Capped because a travel estimate stretched over a long job invents a destination he never chose.
+    public const float PlayerProjectionCapTicks = 300f;
     public const int ObjectiveProgressWindowTicks = 180;
     public const float ObjectiveProgressPixels = 32f;
     /// <summary>Bonus multiplier the running action keeps, so scores do not flicker.</summary>
@@ -306,10 +334,12 @@ public static class Weights
 
     public const float WanderFloor = 0.05f;
     /// <summary>
-    /// Far reunion pull never sits at 1, so a proven job further across the screen can still win.
-    /// The hard leash at fly-home distance is not this cap: that one still drops everything.
+    /// The ceiling of far reunion pull. It sat at 0.8 while the walking body under-acted, so a proven job further
+    /// across the screen could still win; the orb over-acts far from the player instead, so the owner put it back at
+    /// 1 on 15 September 2026, and a companion far enough outside the player's region now wants to rejoin as much as
+    /// any job can be worth. The hard leash at fly-home distance is a separate step and still drops everything.
     /// </summary>
-    public const float KeepCompanyFarCap = 0.8f;
+    public const float KeepCompanyFarCap = 1f;
     public const float FollowIntentDistance = 140f;
     public const float RegroupFullDistance = 640f;
     public const float RegroupFreeReturnTicks = 60f;

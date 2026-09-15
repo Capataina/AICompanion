@@ -9,14 +9,19 @@ namespace AICompanion.Companion.Brain.Infrastructure.Selection;
 /// enters evaluation, so comparing a prepared board cannot acquire, prune or advance a job.</summary>
 public readonly record struct PreparedActivity(int Index, string Name, float RawValue, float ForecastTicks,
     bool IsExcursion, bool HasTarget, bool IsFollowing, bool IsIncumbent,
-    Activities.OfferEligibility Eligibility = Activities.OfferEligibility.NoOpportunity, bool ServesEncounter = false);
+    Activities.OfferEligibility Eligibility = Activities.OfferEligibility.NoOpportunity, bool ServesEncounter = false,
+    float TaskTicks = 0, Microsoft.Xna.Framework.Vector2? Site = null, float PlayerFit = 1, bool ServesPlayerDirectly = false);
 
+/// <param name="TaskWindowTicks">The time term's half-life; zero turns the time term off, which is what a board built
+/// before the term existed means.</param>
 public readonly record struct ActivityComparisonContext(float ProtectionUrgency, bool Stranded,
     float ThreatHorizonTicks, float InterruptibleTicks, float HorizonOverrunTicks, float Commitment,
-    bool WithinActivityAllowance, float FollowDuringUsefulWork, float ReunionDelayCostPerTick = 0, float EncounterIntensity = 0);
+    bool WithinActivityAllowance, float FollowDuringUsefulWork, float ReunionDelayCostPerTick = 0, float EncounterIntensity = 0,
+    float TaskWindowTicks = 0);
 
 public readonly record struct EvaluatedActivity(int Index, string Name, float Raw, float Final,
-    float Protection, float Commitment, float Horizon, float UsefulWork, string Error, float Reunion = 1);
+    float Protection, float Commitment, float Horizon, float UsefulWork, string Error, float Reunion = 1,
+    float Time = 1, float PlayerFit = 1);
 
 /// <summary>Shared utility arithmetic over a captured board. Discovery and activation belong
 /// to their callers; repeated evaluation of the same values has no side effects.</summary>
@@ -53,16 +58,33 @@ public static class EvaluatePreparedActivities
                 if (forecast > context.ThreatHorizonTicks)
                     horizon = Math.Max(0, 1 - (forecast - context.ThreatHorizonTicks) / context.HorizonOverrunTicks);
             }
-            float reunion = candidate.IsExcursion ? 1 / (1 + context.ReunionDelayCostPerTick * candidate.ForecastTicks) : 1;
-            float final = candidate.RawValue * protection * commitment * horizon * reunion;
+            // A job somewhere pays for the time it takes and for the time it keeps the companion apart, whether or not
+            // it is an excursion. A hunt that can shoot from where the orb hovers is not an excursion for the threat
+            // horizon, and it used to pay no separation either, so it held the orb over a surface zombie while the
+            // player dropped four hundred pixels into a cave (15 September 2026, ticks 7308-7735).
+            bool task = candidate.HasTarget && !candidate.IsFollowing && !candidate.ServesPlayerDirectly;
+            float taskTicks = Math.Max(candidate.ForecastTicks, candidate.TaskTicks);
+            float reunion = candidate.IsExcursion || task ? 1 / (1 + context.ReunionDelayCostPerTick * taskTicks) : 1;
+            // Worth per time rather than flat worth: a job nearly done or on the way is worth nearly all of its value,
+            // the same job across the room less, and no job reaches zero for being long.
+            float time = task && candidate.RawValue > 0 && context.TaskWindowTicks > 0
+                ? context.TaskWindowTicks / (context.TaskWindowTicks + taskTicks) : 1;
+            // Whether the job will still be near the player by the time it is done, read from where he is heading.
+            float fit = task ? candidate.PlayerFit : 1;
+            float final = candidate.RawValue * protection * commitment * horizon * reunion * time * fit;
             if (!float.IsFinite(final))
             {
                 results[i] = new(candidate.Index, candidate.Name, candidate.RawValue, 0, protection, commitment, horizon, 1, "non-finite-product");
                 continue;
             }
-            results[i] = new(candidate.Index, candidate.Name, candidate.RawValue, final, protection, commitment, horizon, 1, "", reunion);
+            results[i] = new(candidate.Index, candidate.Name, candidate.RawValue, final, protection, commitment, horizon, 1, "", reunion, time, fit);
             useful |= !candidate.IsFollowing && candidate.HasTarget && final > .1f;
         }
+        // The discount on following while useful work exists stays unconditional, and that was decided rather than left:
+        // lifting it while the player leaves was tried on 15 September 2026 to answer a hunt that held the orb over a
+        // surface zombie as the player dropped into a cave, and it also pulled the companion off a quick ore job beside
+        // a walking player, which Expected Behaviour asks it to take. What answers the zombie is the separation charge
+        // above applying to every job somewhere, a hunt shooting from where the orb hovers included.
         if (useful && context.WithinActivityAllowance)
             for (int i = 0; i < candidates.Count; i++)
                 if (candidates[i].IsFollowing && results[i].Error.Length == 0)
@@ -79,6 +101,9 @@ public static class EvaluatePreparedActivities
         if (candidate.RawValue > 0 && candidate.Eligibility is not (Activities.OfferEligibility.Usable or Activities.OfferEligibility.Unresolved))
             return "value-without-eligible-offer";
         if (!float.IsFinite(candidate.ForecastTicks) || candidate.ForecastTicks < 0) return "invalid-forecast";
+        if (!float.IsFinite(candidate.TaskTicks) || candidate.TaskTicks < 0) return "invalid-task-time";
+        if (!float.IsFinite(candidate.PlayerFit) || candidate.PlayerFit < 0 || candidate.PlayerFit > 1) return "invalid-player-fit";
+        if (!float.IsFinite(context.TaskWindowTicks) || context.TaskWindowTicks < 0) return "invalid-task-window";
         if (!float.IsFinite(context.ReunionDelayCostPerTick) || context.ReunionDelayCostPerTick < 0) return "invalid-reunion-cost";
         if (!float.IsFinite(context.ProtectionUrgency) || context.ProtectionUrgency < 0 || context.ProtectionUrgency > 1) return "invalid-protection";
         if (!float.IsFinite(context.EncounterIntensity) || context.EncounterIntensity < 0 || context.EncounterIntensity > 1) return "invalid-encounter";

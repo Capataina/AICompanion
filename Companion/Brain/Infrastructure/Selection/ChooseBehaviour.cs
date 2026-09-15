@@ -134,9 +134,13 @@ public sealed class Chooser
             action.Prepare(context);
             float raw = action.Score();
             offers[i] = (action.Eligibility, action.EligibilityReason);
-            prepared[i] = new(i, action.Name, raw, raw > 0 ? action.ForecastTicks() : 0,
-                action.IsExcursion, action.ActivityTarget != null, action is KeepCompany, action == Current, action.Eligibility,
-                action.Family == PurposeFamily.Combat);
+            float forecast = raw > 0 ? action.ForecastTicks() : 0;
+            float taskTicks = raw > 0 ? action.TaskTicks() : 0;
+            var site = action.ActivityTarget;
+            float fit = raw > 0 && site is { } place ? PlayerFit(context, place, MathF.Max(forecast, taskTicks)) : 1f;
+            prepared[i] = new(i, action.Name, raw, forecast,
+                action.IsExcursion, site != null, action is KeepCompany, action == Current, action.Eligibility,
+                action.Family == PurposeFamily.Combat, taskTicks, site, fit, action.ServesPlayerDirectly);
             bindings[i] = ValidatePreparedActivity.Capture(action);
         });
         for (int i = 0; i < Actions.Count; i++)
@@ -157,7 +161,12 @@ public sealed class Chooser
         // invalidated work offer must no longer suppress companionship.
         for (int attempt = 0; attempt <= prepared.Length; attempt++)
         {
-            var evaluated = EvaluatePreparedActivities.Evaluate(available, comparison);
+            var ordered = OrderNearbyTasks.Apply(EvaluatePreparedActivities.Evaluate(available, comparison), available,
+                ctx.Npc.Center, Infrastructure.Movement.OrbPace.MaxSpeed, comparison.TaskWindowTicks,
+                Weights.TaskOrderShare, Weights.TaskOrderMaximum);
+            var evaluated = ordered.Evaluated;
+            LastTaskOrder = ordered.Order;
+            LastTaskOrderRunnerUp = ordered.RunnerUp;
             var candidates = new FamilyCandidate[evaluated.Length];
             LastScores.Clear();
             foreach (EvaluatedActivity evaluatedScore in evaluated)
@@ -213,5 +222,28 @@ public sealed class Chooser
             // standing shrinks the ground in front of him as he walks into it.
             Microsoft.Xna.Framework.Vector2.Distance(ctx.Npc.Bottom, ctx.Senses.Intent.Region.Centre)
                 <= PlayerIntegration.CompanionPreferences.Current.ActiveActivityRadius,
-            Weights.FollowDuringUsefulWork, Reunion.DelayCostPerTick, ctx.Senses.Encounter.Intensity);
+            Weights.FollowDuringUsefulWork, Reunion.DelayCostPerTick, ctx.Senses.Encounter.Intensity,
+            Weights.TaskWindowTicks);
+
+    /// <summary>The order the last comparison put its close jobs in, and the best order that started differently,
+    /// each as names joined by '>' with the order's score; empty when fewer than two jobs were close.</summary>
+    public string LastTaskOrder { get; private set; } = "";
+    public string LastTaskOrderRunnerUp { get; private set; } = "";
+
+    /// <summary>
+    /// Whether a job at <paramref name="site"/> will still be inside the player's work allowance by the time it is
+    /// done: one inside the new-job radius of where his region is heading, nothing beyond the started-job radius, and a
+    /// straight fall between. Measured to the region's centre carried forward by his observed travel, the same anchor
+    /// the allowance itself reads, so a job the allowance admits now scores one until his heading takes it away.
+    /// </summary>
+    public static float PlayerFit(in ActionContext ctx, Microsoft.Xna.Framework.Vector2 site, float ticks)
+    {
+        if (ctx.Senses.Player.IsDead) return 1f;
+        var preferences = PlayerIntegration.CompanionPreferences.Current;
+        var projected = ctx.Senses.Intent.Region.Centre + ctx.Senses.Player.Intent * MathF.Min(ticks, Weights.PlayerProjectionCapTicks);
+        return FitAt(Microsoft.Xna.Framework.Vector2.Distance(site, projected), preferences.NewActivityRadius, preferences.ActiveActivityRadius);
+    }
+
+    public static float FitAt(float distance, float near, float far)
+        => distance <= near ? 1f : distance >= far ? 0f : 1f - (distance - near) / MathF.Max(1f, far - near);
 }

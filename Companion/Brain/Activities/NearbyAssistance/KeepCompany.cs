@@ -21,6 +21,7 @@ public sealed class KeepCompany : CompanionAction
     public override string Name => "keep-company";
     public override PurposeFamily Family => PurposeFamily.NearbyAssistance;
     public override bool IsExcursion => false;
+    public override bool ServesPlayerDirectly => true;
 
     private float preparedValue;
     private bool reunite;

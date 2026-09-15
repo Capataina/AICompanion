@@ -111,8 +111,11 @@ internal static class VerifyPreparedActivities
             "without reunion delay cost, useful work retains its ordinary opportunity");
         Require(Evaluator.Evaluate(board, context with { ReunionDelayCostPerTick = .24f })[0].Final < longWork[0].Final,
             "a more costly return must reduce optional work value on the same board");
-        Require(Evaluator.Evaluate(new[] { board[0] with { IsExcursion = false } }, context)[0].Reunion == 1,
+        Require(Evaluator.Evaluate(new[] { board[0] with { IsExcursion = false, ServesPlayerDirectly = true } }, context)[0].Reunion == 1,
             "player protection must not inherit the optional-excursion cost");
+        Require(Evaluator.Evaluate(new[] { board[0] with { IsExcursion = false } }, context)[0].Reunion < 1,
+            "a job somewhere that is not an excursion — a hunt shooting from where the orb hovers — still pays for keeping the companion apart");
+        VerifyTimeAndOrder();
         var history = new live::AICompanion.Companion.Brain.Infrastructure.Selection.AssessReunionCost();
         history.Observe(1, false, false);
         history.Observe(2, false, false);
@@ -201,6 +204,102 @@ internal static class VerifyPreparedActivities
         other.BeginExecution();
         Require(owner.RecentAttempts.All(a => a.AttemptId < other.AttemptId),
             "attempt identities must stay unique across owners, so a respawned brain cannot reuse ids a recorder cursor already wrote");
+    }
+
+    /// <summary>
+    /// The owner's rulings of 15 September 2026, each as a row that fails without its mechanism: a job is worth what it
+    /// delivers per time, so progress raises it with no bonus for having started; a companion outside the player's
+    /// region is not talked out of following him by nearby work; a job the player's heading takes out of range is worth
+    /// nothing; every trip job reports its trip; and close jobs are put in the order that delivers soonest, which
+    /// flips when the geometry does and does not flip back and forth while the body flies toward its choice.
+    /// </summary>
+    private static void VerifyTimeAndOrder()
+    {
+        var calm = new Context(0, false, float.PositiveInfinity, 12, 240, 1.15f, true, .2f, 0, 0, TaskWindowTicks: 300);
+
+        var fresh = new Prepared(0, "hunt", .4f, 0, true, true, false, false, Offer.Usable, TaskTicks: 400);
+        float freshFinal = Evaluator.Evaluate(new[] { fresh }, calm)[0].Final;
+        float nearlyDoneFinal = Evaluator.Evaluate(new[] { fresh with { TaskTicks = 60 } }, calm)[0].Final;
+        // The time term alone separates them: 300/(300+60) against 300/(300+400), a ratio of 1.944.
+        Require(nearlyDoneFinal > freshFinal && Math.Abs(nearlyDoneFinal / freshFinal - (300f / 360f) / (300f / 700f)) < .001f,
+            $"a job nearly done must be worth more than the same job fresh by exactly the time term, with no bonus for having started ({nearlyDoneFinal:0.000} against {freshFinal:0.000})");
+        Require(Evaluator.Evaluate(new[] { fresh }, calm with { TaskWindowTicks = 0 })[0].Time == 1,
+            "a board with no time window keeps the arithmetic it had before the time term existed");
+        Require(Evaluator.Evaluate(new[] { fresh with { ServesPlayerDirectly = true } }, calm)[0].Time == 1,
+            "protecting or keeping company with the player is never discounted for time");
+        Require(Evaluator.Evaluate(new[] { fresh with { PlayerFit = 0 } }, calm)[0].Final == 0
+            && live::AICompanion.Companion.Brain.Infrastructure.Selection.Chooser.FitAt(900, 1000, 1250) == 1
+            && live::AICompanion.Companion.Brain.Infrastructure.Selection.Chooser.FitAt(1125, 1000, 1250) == .5f
+            && live::AICompanion.Companion.Brain.Infrastructure.Selection.Chooser.FitAt(1300, 1000, 1250) == 0,
+            "a job the player's heading takes beyond the started-job radius is worth nothing, and one inside the new-job radius loses nothing");
+
+        // The surface zombie of 15 September 2026: a hunt the orb could shoot from where it hovered, not an excursion,
+        // against a reunion discounted because useful work existed, while the player dropped away and the observed cost of
+        // delaying reunion rose (0.000012 per tick as he set off, 0.0146 a few seconds later, from the capture's own column).
+        // A job somewhere pays that cost whether or not it is an excursion, so the hunt keeps the orb while the player has
+        // barely moved and loses to rejoining once his leaving has made the time apart expensive.
+        Prepared[] leaving =
+        {
+            new(0, "hunt", .63f, 0, false, true, false, true, Offer.Usable, TaskTicks: 250),
+            new(1, "company", 1f, 0, false, false, true, false, Offer.Usable, ServesPlayerDirectly: true),
+        };
+        var settingOff = Evaluator.Evaluate(leaving, calm with { ReunionDelayCostPerTick = .000012f });
+        var gone = Evaluator.Evaluate(leaving, calm with { ReunionDelayCostPerTick = .0146f });
+        Require(settingOff[0].Final > settingOff[1].Final && gone[1].Final > gone[0].Final,
+            $"a hunt shooting from where the orb hovers keeps it while the player sets off and loses to rejoining once he has gone (setting off hunt {settingOff[0].Final:0.000} company {settingOff[1].Final:0.000}, gone hunt {gone[0].Final:0.000} company {gone[1].Final:0.000})");
+
+        var chooser = new live::AICompanion.Companion.Brain.Infrastructure.Selection.Chooser();
+        foreach (var action in chooser.Actions)
+        {
+            if (!action.IsExcursion) continue;
+            var declared = action.GetType().GetMethod("ForecastTicks")!.DeclaringType;
+            Require(declared != typeof(live::AICompanion.Companion.Brain.Activities.CompanionAction),
+                $"{action.Name} is a trip job and inherits a trip time of zero, so it would be scored as instant beside jobs that report theirs");
+        }
+
+        const float speed = 9f;
+        var body = new Microsoft.Xna.Framework.Vector2(0, 0);
+        Prepared Job(int index, string name, float raw, float x, float work)
+        {
+            float flight = Math.Abs(x - body.X) / speed;
+            return new(index, name, raw, flight, true, true, false, false, Offer.Usable,
+                TaskTicks: flight + work, Site: new Microsoft.Xna.Framework.Vector2(x, 0));
+        }
+        string Leader(Prepared[] board)
+        {
+            var result = live::AICompanion.Companion.Brain.Infrastructure.Selection.OrderNearbyTasks.Apply(
+                Evaluator.Evaluate(board, calm), board, body, speed, calm.TaskWindowTicks, .4f, 5);
+            return result.Evaluated.Where(e => e.Error.Length == 0 && e.Final > 0)
+                .OrderByDescending(e => e.Final).ThenBy(e => e.Index).First().Name;
+        }
+
+        // A slime on the way to a dark corner. Alone, the corner scores higher; in order, killing the slime on the way
+        // and then lighting delivers sooner than lighting and coming back.
+        Prepared[] onTheWay = { Job(0, "hunt", .6f, 300, 90), Job(1, "place-torches", .62f, 900, 20) };
+        var single = Evaluator.Evaluate(onTheWay, calm);
+        Require(single[1].Final > single[0].Final, "premise: alone, the far corner outscores the slime on the way");
+        Require(Leader(onTheWay) == "hunt", "a slime on the way to a dark corner is killed first");
+
+        Prepared[] beyond = { Job(0, "hunt", .6f, 900, 90), Job(1, "place-torches", .62f, 300, 20) };
+        Require(Leader(beyond) == "place-torches", "with the slime beyond the corner the order flips and the corner is lit first");
+
+        // Two equal jobs in opposite directions: whichever leads first must keep leading while the body flies toward
+        // it, with the running job marked incumbent as the chooser marks it.
+        body = new Microsoft.Xna.Framework.Vector2(0, 0);
+        string? leader = null;
+        int switches = 0;
+        for (int rescore = 0; rescore < 12; rescore++)
+        {
+            Prepared[] even = { Job(0, "hunt", .6f, -450, 60), Job(1, "mine", .6f, 450, 60) };
+            if (leader != null) even = even.Select(p => p with { IsIncumbent = p.Name == leader }).ToArray();
+            string now = Leader(even);
+            if (leader != null && now != leader) switches++;
+            leader = now;
+            float direction = leader == "hunt" ? -1 : 1;
+            body = new Microsoft.Xna.Framework.Vector2(Math.Clamp(body.X + direction * speed * 30, -450, 450), 0);
+        }
+        Require(switches == 0, $"two even jobs must not trade the lead while the body flies toward the one it chose ({switches} switches)");
+        Console.WriteLine("time and order: progress, leaving, player fit, trip times, the order on the way and beyond, no flip-flop");
     }
 
     private static void Require(bool condition, string message)

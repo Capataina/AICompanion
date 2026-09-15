@@ -18,6 +18,7 @@ public sealed class ProtectPlayer : CompanionAction
     public override string Name => "guard";
     public override PurposeFamily Family => PurposeFamily.Combat;
     public override bool IsExcursion => false;
+    public override bool ServesPlayerDirectly => true;
     public override object? ActivityIdentity => prepared?.Enemy;
     public override Vector2? ActivityTarget => prepared?.Bottom;
     public override PositionRequest? PreparedPositionRequest => prepared is { } candidate

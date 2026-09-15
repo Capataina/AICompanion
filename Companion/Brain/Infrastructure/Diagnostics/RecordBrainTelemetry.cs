@@ -632,7 +632,7 @@ public sealed class BrainTelemetry : ModSystem
 
         if (!headerWritten)
         {
-            var textColumns = new StringBuilder("# text_columns=state,action,reflex,top_threat,target,request,anchor,spot,lookahead,npc_tile,npc_px,npc_vel,wall_normal,liquid,held,weapon,fire,engage,torch,player_tile,spot_home,sample_phase,player_px,player_vel,player_liquid,player_hit,npc_hit,player_state,player_activity,player_support,control,control_source,desired_vel,follow_reason,recovery_reason,guard_reason,mine_policy,mine_status,mine_target,target_evidence,nav_status,position_reason,escape_stage,escape_target,hunt_reason,hand_grant,control_request_owner,safety_kind,safety_reason,safety_last_end,collection_method,mine_end_reason,attempt_end_activity,attempt_end_family,attempt_end_status,attempt_end_cause,attempt_end_attribution,pursuit_target,pursuit_evidence,aim_target,landed_hit_target,landed_hit_aimed,encounter_source,torch_reason,lighting_sites,intent_region");
+            var textColumns = new StringBuilder("# text_columns=state,action,reflex,top_threat,target,request,anchor,spot,lookahead,npc_tile,npc_px,npc_vel,wall_normal,liquid,held,weapon,fire,engage,torch,player_tile,spot_home,sample_phase,player_px,player_vel,player_liquid,player_hit,npc_hit,player_state,player_activity,player_support,control,control_source,desired_vel,follow_reason,recovery_reason,guard_reason,mine_policy,mine_status,mine_target,target_evidence,nav_status,position_reason,escape_stage,escape_target,hunt_reason,hand_grant,control_request_owner,safety_kind,safety_reason,safety_last_end,collection_method,mine_end_reason,attempt_end_activity,attempt_end_family,attempt_end_status,attempt_end_cause,attempt_end_attribution,pursuit_target,pursuit_evidence,aim_target,landed_hit_target,landed_hit_aimed,encounter_source,torch_reason,lighting_sites,intent_region,task_order,task_order_runner_up");
             // Offer columns are named from the registered activities, like the raw/final pairs, so
             // the declaration and the header cannot disagree about which activities exist.
             foreach (var a in brain.Chooser.Actions) textColumns.Append(',').Append(a.Name).Append("_offer");
@@ -731,6 +731,10 @@ public sealed class BrainTelemetry : ModSystem
             // itself so a replay can redraw it; `intent_pull` is what keeping company priced its
             // reunion on, which is the number the never-overtakes defect was a flat zero of.
             h.Append("\tintent_region\tintent_pull");
+            // The order the chooser put its close jobs in and the best order that started with a different job, each
+            // as names joined by '>' with the order's score, or '-' when fewer than two jobs were close. Appended with
+            // the schema left where it is: nothing before it moved and every reader addresses columns by name.
+            h.Append("\ttask_order\ttask_order_runner_up");
             writer.WriteLine(h.ToString());
             headerWritten = true;
         }
@@ -1081,6 +1085,8 @@ public sealed class BrainTelemetry : ModSystem
         sb.Append('\t').Append(FormattableString.Invariant(
                 $"{intent.Centre.X:0},{intent.Centre.Y:0};{intent.HalfSize.X:0},{intent.HalfSize.Y:0}"))
             .Append('\t').Append(intent.Pull(companion.NPC.Bottom).ToString("0.000", CultureInfo.InvariantCulture));
+        sb.Append('\t').Append(brain.Chooser.LastTaskOrder.Length == 0 ? "-" : brain.Chooser.LastTaskOrder)
+            .Append('\t').Append(brain.Chooser.LastTaskOrderRunnerUp.Length == 0 ? "-" : brain.Chooser.LastTaskOrderRunnerUp);
 
         // A write that fails (disk full, a stream the OS closed) must not escape the NPC's AI
         // and take the companion with it; the record stops and the game goes on.

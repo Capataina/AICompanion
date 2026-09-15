@@ -123,6 +123,7 @@ public sealed class PursueAttackOpportunity : CompanionAction
             ? (verdict == FiringAccess.FromHere ? 0f
                 : MathF.Max(0f, found.DistanceToCompanion - 200f) / Infrastructure.Movement.OrbPace.MaxSpeed + 60f)
             : 0f;
+        preparedKillTicks = value > 0 && Target is { } victim ? EstimateKillTicks(ctx, victim.Npc) : 0f;
         localHunt = value > 0 && (verdict == FiringAccess.FromHere || trip <= Weights.HuntLocalTripTicks);
         prepared = value > 0 && Target is { } ready
             ? new(ready.Npc, HostileAttackSources.Generation(ready.Npc), ready.Npc.Bottom, ready.Npc.Center, value, trip)
@@ -220,6 +221,28 @@ public sealed class PursueAttackOpportunity : CompanionAction
 
     public override float ForecastTicks()
         => prepared?.TripTicks ?? 0f;
+
+    /// <summary>The flight to a stand and then the kill. The forecast keeps only the flight, because it is what the
+    /// threat horizon and the excursion charge were tuned against; the time term needs the kill too, and it is what
+    /// makes a nearly dead enemy worth more than a fresh one without any bonus for having started.</summary>
+    public override float TaskTicks()
+        => prepared is { } offer ? offer.TripTicks + preparedKillTicks : 0f;
+
+    private float preparedKillTicks;
+
+    /// <summary>The target's life over the fastest rate any weapon in the slots deals damage, hits assumed to land and
+    /// defence ignored. An optimistic kill time is the right error here: it only has to rank a nearly dead enemy above
+    /// a fresh one and a short fight above a long one.</summary>
+    private static float EstimateKillTicks(in ActionContext ctx, NPC npc)
+    {
+        float rate = 0f;
+        foreach (var weapon in ctx.Companion.Arsenal.Weapons)
+        {
+            int damage = weapon.DamagePerHit(ctx);
+            if (damage > 0) rate = MathF.Max(rate, damage / (float)Math.Max(1, weapon.UseTime));
+        }
+        return rate > 0f ? Math.Max(1, npc.life) / rate : Weights.TaskUnknownWorkTicks;
+    }
 
     public override PositionRequest Execute(in ActionContext ctx)
     {

@@ -171,6 +171,12 @@ public abstract class PerformNearbyWorldWork : CompanionAction
     {
         preparedValue = DiscoverValue(ctx);
         preparedTarget = target?.ToWorldCoordinates();
+        // The flight to the site and a moment to use it. This used to be missing, so every nearby interaction —
+        // lighting above all — was scored as though it cost no time at all while hunting, mining and collection paid
+        // for theirs, and the companion left a slime it was fighting to fly to a far torch site.
+        preparedTrip = preparedTarget is { } site
+            ? Vector2.Distance(ctx.Npc.Center, site) / OrbPace.MaxSpeed + Infrastructure.Selection.Weights.NearbyInteractionTicks
+            : 0f;
         if (!enabledAtPreparation) { var (eligibility, reason) = DisabledOffer(ctx); Classify(eligibility, reason); }
         // An unsettled flood outranks a refusal proven earlier in the same search, because proving site one
         // unreachable and then meeting a site the flood has not claimed is not "the companion cannot come back
@@ -197,6 +203,9 @@ public abstract class PerformNearbyWorldWork : CompanionAction
     }
 
     public override float Score() => preparedValue;
+
+    private float preparedTrip;
+    public override float ForecastTicks() => preparedTrip;
 
     /// <summary>One interaction is this purpose's whole job, so an observed productive effect
     /// completes it; a named give-up is a failed method unless the target itself stopped qualifying.</summary>

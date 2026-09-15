@@ -425,6 +425,9 @@ internal static class VerifyCombatPurpose
     // stands three tiles beyond the companion, and the hunt admits a target only inside the new-activity radius
     // of the player (seventy tiles), so at sixty-eight that zombie was refused as a target and the row read
     // "the visible one must be examined", and at seventy-five the companion itself was outside the radius.
+    // Since 15 September 2026 the radius is sixty-two and a half tiles and the orb flies three times the player's
+    // speed, so no start inside the radius prices a wait past the window; this start is kept as the scene beyond the
+    // radius, which is what its row now asserts.
     private const int PursuitFarStart = PursuitNearStart - 66;
 
     private readonly record struct PursuitScene(int Pursuit, int Aim, string HiddenVerdict, float HiddenAccess,
@@ -571,15 +574,20 @@ internal static class VerifyCombatPurpose
 
         foreach (var (name, scene) in new[] { ("cheap", cheapDangerous), ("middle", middleDangerous), ("costly", costlyDangerous), ("harmless", cheapHarmless), ("in-sight", cheapDangerousInSight) })
             Console.WriteLine($"  pursuit row {name}: pursuit={scene.Pursuit} aim={scene.Aim} hidden-danger={scene.HiddenDanger:0.000} hidden-player-urgency={scene.HiddenPlayerUrgency:0.000} candidates={scene.Evidence}");
-        foreach (var (name, scene) in new[] { ("cheap", cheapDangerous), ("middle", middleDangerous), ("costly", costlyDangerous), ("harmless", cheapHarmless) })
+        foreach (var (name, scene) in new[] { ("cheap", cheapDangerous), ("middle", middleDangerous), ("harmless", cheapHarmless) })
             Require(scene.HiddenVerdict == "AfterMoving" && float.IsFinite(scene.VisibleValue),
                 $"{name}: the hidden enemy must need a reachable reposition and the visible one must be examined, or the row tests nothing; {scene.Evidence}");
-        Require(cheapDangerous.HiddenAccess < middleDangerous.HiddenAccess && middleDangerous.HiddenAccess < costlyDangerous.HiddenAccess,
-            $"the reposition rows must lengthen the wait in order; cheap={cheapDangerous.HiddenAccess}, middle={middleDangerous.HiddenAccess}, costly={costlyDangerous.HiddenAccess}");
+        Require(cheapDangerous.HiddenAccess < middleDangerous.HiddenAccess,
+            $"the reposition rows must lengthen the wait in order; cheap={cheapDangerous.HiddenAccess}, middle={middleDangerous.HiddenAccess}");
         Require(middleDangerous.HiddenAccess < live::AICompanion.Companion.Weapons.Arsenal.HorizonTicks && middleDangerous.HiddenValue > 0f,
             $"the middle row must be a priced wait inside the arsenal's evaluation window, not a second truncation; wait={middleDangerous.HiddenAccess}, value={middleDangerous.HiddenValue}");
-        Require(costlyDangerous.HiddenAccess > live::AICompanion.Companion.Weapons.Arsenal.HorizonTicks,
-            $"the costly row tests a wait longer than the arsenal's whole evaluation window, so its hidden enemy is worth nothing inside it; wait={costlyDangerous.HiddenAccess}");
+        // The costly row used to price a wait longer than the arsenal's whole evaluation window, so that an enemy behind
+        // a long walk was worth nothing now. That case no longer exists in play and the row no longer tests it: on
+        // 15 September 2026 the owner put the orb at three times the player's speed and the new-job radius at 1000 px, and
+        // the longest reposition that radius admits is priced well inside the window at that speed. What the far start
+        // witnesses now is the radius itself: the same dangerous enemy, far enough away, is not examined or pursued.
+        Require(costlyDangerous.HiddenVerdict == "unexamined" && costlyDangerous.Pursuit != HiddenSlot,
+            $"costly: the same dangerous enemy beyond the new-job radius must not be examined or pursued; verdict={costlyDangerous.HiddenVerdict}, pursuit={costlyDangerous.Pursuit}, {costlyDangerous.Evidence}");
         // The companion's own exposure moves with its start, which is the physical cost of standing near
         // an enemy; the threat to the player must not, or the rows would differ in more than the reposition.
         Require(cheapDangerous.HiddenPlayerUrgency > 0f
@@ -588,15 +596,13 @@ internal static class VerifyCombatPurpose
             $"the reposition rows must hold the hidden enemy's threat to the player fixed; cheap={cheapDangerous.HiddenPlayerUrgency}, middle={middleDangerous.HiddenPlayerUrgency}, costly={costlyDangerous.HiddenPlayerUrgency}");
         Require(cheapDangerous.HiddenDanger > cheapHarmless.HiddenDanger,
             $"the dangerous hidden enemy must threaten more than the harmless one; {cheapDangerous.HiddenDanger} vs {cheapHarmless.HiddenDanger}");
-        Require(cheapDangerous.HiddenValue > middleDangerous.HiddenValue && middleDangerous.HiddenValue >= costlyDangerous.HiddenValue,
-            $"a longer reposition must lower the hidden enemy's delayed value; cheap={cheapDangerous.HiddenValue}, middle={middleDangerous.HiddenValue}, costly={costlyDangerous.HiddenValue}");
+        Require(cheapDangerous.HiddenValue > middleDangerous.HiddenValue,
+            $"a longer reposition must lower the hidden enemy's delayed value; cheap={cheapDangerous.HiddenValue}, middle={middleDangerous.HiddenValue}");
         Require(cheapDangerousInSight.HiddenVerdict == "FromHere",
             $"opening the line must let the hidden enemy be shot from where the companion stands; {cheapDangerousInSight.Evidence}");
 
         Require(cheapDangerous.Pursuit == HiddenSlot && cheapDangerous.Aim == VisibleSlot,
             $"a short step to remove a hard-hitting enemy must be pursued while the hands shoot the visible one; pursuit={cheapDangerous.Pursuit}, aim={cheapDangerous.Aim}, {cheapDangerous.Evidence}");
-        Require(costlyDangerous.Pursuit == VisibleSlot,
-            $"the same enemy behind a long walk must not be pursued over the arrows the walk would delay; pursuit={costlyDangerous.Pursuit}, {costlyDangerous.Evidence}");
         Require(cheapHarmless.Pursuit == VisibleSlot,
             $"a nearly dead harmless enemy must not pull pursuit off a healthy one it would cost an arrow to finish; pursuit={cheapHarmless.Pursuit}, {cheapHarmless.Evidence}");
         Require(cheapDangerousInSight.Pursuit == HiddenSlot && cheapDangerousInSight.Aim == HiddenSlot,

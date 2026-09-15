@@ -111,8 +111,23 @@ public abstract class CompanionAction
     /// <summary>0..1. Zero means "not now"; the product-of-considerations shape lives in each override.</summary>
     public abstract float Score();
 
-    /// <summary>How many ticks this would keep the companion away from the player, 0 when it does not.</summary>
+    /// <summary>How many ticks this would keep the companion away from the player, 0 when it does not. An excursion
+    /// must override it: an excursion inheriting zero is scored as instant, which is how a torch trip of 218 ticks
+    /// outbid a slime hunt that honestly reported its flight (15 September 2026), and a fixture refuses it.</summary>
     public virtual float ForecastTicks() => 0f;
+
+    /// <summary>
+    /// How many ticks until this job is done, travel included: what the chooser's time term and the order of nearby
+    /// jobs read. It defaults to <see cref="ForecastTicks"/> because a forecast that already counts the work (mining,
+    /// chopping, a nearby interaction) has nothing to add; an activity whose forecast counts only the flight — hunting,
+    /// which fires from its stand — adds the work here.
+    /// </summary>
+    public virtual float TaskTicks() => ForecastTicks();
+
+    /// <summary>Whether this activity's whole worth is where the player is — protecting him or keeping him company —
+    /// rather than a job somewhere. Such an activity is never discounted for time, never charged for being apart and
+    /// never put in an order with jobs.</summary>
+    public virtual bool ServesPlayerDirectly => false;
 
     /// <summary>Observe an executing activity after its controls and hands resolve. The
     /// activity owner withholds this callback during suspension.</summary>
