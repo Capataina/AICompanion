@@ -13,9 +13,14 @@ Game and Mod Case Studies/
 ├─ Starsector Ship and Weapon AI.md
 │                 public ship/autofire/recovery mechanisms and weapon-owner
 │                 compatibility boundary
-└─ Terraria NPC and Companion Boundaries.md
-                  installed tModLoader hook contract and historical/current
-                  companion action, combat and recovery evidence
+├─ Terraria NPC and Companion Boundaries.md
+│                 installed tModLoader hook contract and historical/current
+│                 companion action, combat and recovery evidence
+└─ Modded Weapon Behaviours.md
+                  a closed taxonomy of weapon behaviour properties drawn from
+                  Calamity, Spirit Mod, Starlight River, TerraGuardians and
+                  vanilla source plus wiki survey of nine other mods; owner-
+                  player and cursor reads as the recurring compatibility risk
 ```
 
 ## Current state — 2026-09-12
