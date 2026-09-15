@@ -73,6 +73,25 @@ public sealed class KeepCompany : CompanionAction
     {
         if (ctx.Senses.Player.IsDead) { pendingTicks = 0; return reunite = wantsReunion; }
         if (wantsReunion == reunite) { pendingTicks = 0; return reunite; }
+        // Reunion hands over to local company when the body has arrived, not when it is merely inside, and not at once when it
+        // is outside: arrived is the region's own settled state, at rest inside for a rescore, which already carries the wait
+        // below. It stands ahead of the outside exemption, because that exemption is for going after a player the body has lost,
+        // and a player who has stopped leaves a band just past the region's edge where the far slope has barely risen above the
+        // wander floor — local company won there, was granted at once for being outside, and the drifting region left the
+        // hovering body at its edge. Being inside was the whole test until 15 September 2026, and at three times the player's
+        // speed a reunion crossed the edge at two to three pixels a tick, the hold was issued mid-flight and the momentum coasted
+        // the body back out: thirty-nine method changes in six hundred ticks in VerifyResponsiveFollowing's settle row, nine
+        // with the settled test placed after the exemption, where the row's own trace showed every one outside at a pull of 1.01.
+        // A stranded body has no region to arrive in, so waiting for arrival would hold it in reunion for ever; it roams at once.
+        // A region still sliding back onto a player who has stopped is not yet a place to arrive in either: a body settled inside
+        // it and held still is outside it a second later, which was the last of the settle row's changes once the others were
+        // gone. So arrival also needs the region's centre moving slower than a settled body moves.
+        if (reunite && !wantsReunion && !ctx.Stranded)
+        {
+            pendingTicks = 0;
+            bool placeHasStopped = ctx.Senses.Intent.CentreSpeed <= Weights.SettledSpeedPx;
+            return reunite = !(ctx.Senses.Intent.Settled && placeHasStopped);
+        }
         // The wait guards a body that is already where it is meant to be. Outside the region there
         // is nothing to protect — a companion that has lost the player, or has just spawned and is
         // still falling, has no business waiting a rescore per tick it stays in the air before it

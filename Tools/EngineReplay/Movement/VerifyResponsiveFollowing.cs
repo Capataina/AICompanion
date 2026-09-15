@@ -1066,14 +1066,17 @@ internal static class VerifyResponsiveFollowing
             // sends whoever reads it looking for travel that never happened.
             if (speedTheBrainReads < live::AICompanion.Companion.Brain.Infrastructure.Selection.Weights.SettledSpeedPx
                 && brain.Positioner.FollowObjectiveReason == "follow-moving-deferred") mislabelled++;
-            company.Prepare(context);
+            // The method is read as the brain's own preparation left it. This loop used to call Prepare again after the tick,
+            // which ran the method choice a second time per tick — advancing its rescore wait twice as fast and able to flip the
+            // method itself — so the instrument was changing what it counted; removing it moved the count from 39 to 32 and was
+            // not the cause.
             if (company.EligibilityReason != method)
             {
                 if (method.Length > 0)
                 {
                     changes++;
                     flips.Add(FormattableString.Invariant(
-                        $"+{tick}:{method}->{company.EligibilityReason} speed={speedTheBrainReads:0.00} follow={brain.Positioner.FollowObjectiveReason} spot={brain.Positioner.Chosen}"));
+                        $"+{tick}:{method}->{company.EligibilityReason} speed={speedTheBrainReads:0.00} follow={brain.Positioner.FollowObjectiveReason} spot={brain.Positioner.Chosen} settled={brain.Senses.Intent.Settled} resting={brain.Senses.Intent.RestingInsideTicks} inCentre={brain.Senses.Intent.Region.Contains(companion.NPC.Center)} inBottom={brain.Senses.Intent.Region.Contains(companion.NPC.Bottom)} pull={brain.Senses.Intent.Region.Pull(companion.NPC.Center):0.00} half={brain.Senses.Intent.Region.HalfSize} centre={brain.Senses.Intent.Region.Centre} body={companion.NPC.Center}"));
                 }
                 method = company.EligibilityReason;
             }

@@ -121,6 +121,16 @@ public sealed class PlayerIntentRegionSense
     public bool AtRest { get; private set; }
 
     private Vector2 lead;
+    private bool hasRegion;
+
+    /// <summary>
+    /// How far the region's centre moved on this update, in pixels. A player who stops leaves a region that slides back onto
+    /// him over the lead's filter, and a body can be at rest inside a region that is still leaving it: keeping company reads
+    /// this so it does not call that arrival. Before 15 September 2026 nothing published it, and at three times the player's
+    /// speed the orb settled ahead of a stopped player, held still, was left outside the sliding region a second later and
+    /// was sent back — three method changes in six hundred ticks where one is the settle.
+    /// </summary>
+    public float CentreSpeed { get; private set; }
 
     /// <summary>The follow objective every consumer shares, anchored on the region's own centre.
     /// A caller with an anchor of its own — a priced meeting place, a request's anchor — refines it
@@ -170,7 +180,10 @@ public sealed class PlayerIntentRegionSense
         Vector2 applied = new(Math.Clamp(lead.X, -MathF.Max(0f, clampX), MathF.Max(0f, clampX)),
             Math.Clamp(lead.Y, -MathF.Max(0f, clampY), MathF.Max(0f, clampY)));
 
+        Vector2 previousCentre = Region.Centre;
         Region = new PlayerIntentRegion(player.Bottom + applied, half, applied, player.IsTravelling);
+        CentreSpeed = hasRegion ? Vector2.Distance(previousCentre, Region.Centre) : 0f;
+        hasRegion = true;
 
         // At rest is the body's speed under the settled threshold, read off the velocity the motor
         // handed the engine last tick. Inside is the body's centre, because the orb is its centre:
