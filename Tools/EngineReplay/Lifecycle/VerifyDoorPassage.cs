@@ -253,7 +253,12 @@ internal static class VerifyDoorPassage
         Player player = Main.player[0];
         player.dead = false;
         player.statLife = player.statLifeMax2 = 100;
-        player.position = new Vector2(EastX * 16, FloorRow * 16 - player.height);
+        // Column 80, not EastX. Restated on 15 September 2026: with the player at column 62 his region, which always holds him,
+        // reached west to column 44 across the sealed wall at 50, so a companion at column 48 on the wrong side was already
+        // inside it, accompanied him from there and never took the trench (finalFeetX 48.3 in every locked scene). The premise
+        // on the first tick keeps the whole admitted region past the trench, so these scenes stay about crossing the wall.
+        const int PlayerColumn = 80;
+        player.position = new Vector2(PlayerColumn * 16, FloorRow * 16 - player.height);
         player.velocity = Vector2.Zero;
         companion.NPC.position = new Vector2(WestX * 16, FloorRow * 16 - companion.NPC.height);
         companion.NPC.velocity = Vector2.Zero;
@@ -263,6 +268,13 @@ internal static class VerifyDoorPassage
             VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
             companion.AI();
             VerifyResponsiveFollowing.AdvanceNative(companion);
+            if (tick == 0)
+            {
+                var region = companion.Brain.Senses.Intent.Region;
+                float admittedWest = region.Centre.X - region.HalfSize.X + live::AICompanion.Companion.Brain.Infrastructure.Movement.Navigator.SettleRadius;
+                Require(admittedWest > 56 * 16f,
+                    $"the premise: no place the player's region admits may lie on the companion's side of the wall or in the trench; admitted west edge {admittedWest / 16:0.0} tiles, trench ends at column 55");
+            }
             if (opened < 0 && Main.tile[DoorX, FloorRow - 2].TileType == TileID.OpenDoor) opened = tick;
             if (crossed < 0 && companion.NPC.Center.X > (DoorX + 2) * 16) crossed = tick;
             if (companion.NPC.collideX) pushTicks++;
