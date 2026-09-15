@@ -698,7 +698,7 @@ const LANES = [
   {name: 'Combat', color: 'rgb(237,132,146)', nodes: [
     C('Damage', '+2% damage per level', 'Every weapon it holds, the first slot included.', 'A Destroyer Emblem-class accessory gives a player 8–15%; a Wrath Potion 10%.'),
     C('Attack speed', '+2% attack speed per level', 'Every weapon fires or swings a little more often, through the use time the weapons already read.', 'Thorium\'s Bard empowerment steps 3/6/9/12%; the Feral Claws line gives 12% melee speed.'),
-    A('Second weapon slot', 'Opens the second weapon slot', SLOT_NOTE, 'Terraria never gives slots as a percentage: a Pygmy Necklace gives one more minion slot.'),
+    A('Extra weapon slot', 'Opens one more weapon slot', SLOT_NOTE, 'Terraria never gives slots as a percentage: a Pygmy Necklace gives one more minion slot.'),
     L(C('Piercing', 'Shots pass through more enemies, each taking less damage', 'The extra enemies come after the weapon\'s own last hit, which keeps its own damage; a weapon that already pierces without limit, and a swing, gain nothing.', NO_REF), [
       'Passes through 1 more enemy, which takes 20% damage',
       'Passes through 1 more enemy, which takes 40% damage',
@@ -713,10 +713,10 @@ const LANES = [
       'Two more projectiles, at 45% and 20% damage',
       'Three more projectiles, at 50%, 25% and 10% damage',
     ]),
-    A('Third weapon slot', 'Opens the third weapon slot', SLOT_NOTE, 'Calamity\'s Statis\' Blessing gives two minion slots, and was cut down from three.', [2]),
+    A('Extra weapon slot', 'Opens one more weapon slot', SLOT_NOTE, 'Calamity\'s Statis\' Blessing gives two minion slots, and was cut down from three.', [2]),
     C('Critical strike', '+1% critical strike chance per level', 'More of its hits crit.', 'A Lucky reforge gives a player 4% per accessory.'),
     C('Projectile speed', '+4% projectile speed per level', 'Shots reach moving targets sooner, so fewer miss.', 'A Magic Quiver gives arrows 120% velocity, but velocity is that item\'s whole purpose.'),
-    A('Fourth weapon slot', 'Opens the fourth weapon slot', SLOT_NOTE, 'Vanilla reaches eleven minion slots from one, always one or two at a time.', [2, 5]),
+    A('Extra weapon slot', 'Opens one more weapon slot', SLOT_NOTE, 'Vanilla reaches eleven minion slots from one, always one or two at a time.', [2, 5]),
     C('Armour piercing', 'Ignores 2% of an enemy\'s defence per level', 'A share rather than a flat amount, so it still counts against an enemy with enormous defence.', 'Terraria\'s armour penetration is flat: a Shark Tooth Necklace ignores 5 defence whatever the enemy has.'),
   ]},
   {name: 'Movement', color: 'rgb(104,213,220)', nodes: [
@@ -757,7 +757,7 @@ const LANES = [
       '+25 more bag slots',
       '+40 more bag slots',
     ]),
-    C('Quick hands', '+2% mining and chopping speed per level', 'With Tool speed, +30% in all.', 'A Mining Potion gives a player 25%.'),
+    C('Plunder', 'Enemies drop 5% more loot per level', 'Every drop from every enemy, a mod\'s included, is more likely: a 1% drop is about 1.25% at level 5.', 'Terraria\'s luck gives some drops a second roll; nothing in the game raises every drop by a share.'),
   ]},
 ];
 // A shared circle between each pair of neighbouring lanes, opened from either side.
