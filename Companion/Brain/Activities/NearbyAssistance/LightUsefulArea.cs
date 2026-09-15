@@ -47,13 +47,14 @@ public sealed class LightUsefulArea : PerformNearbyWorldWork, ICandidateFunnelSo
     private const string StageOccupied = "occupied-or-protected";
     private const string StageUnread = "light-unread";
     private const string StageCarried = "light-carried-unknown";
+    private const string StageSky = "open-to-daylight";
     private const string StageLit = "lit";
     private const string StagePlacerRefused = "placer-refused";
 
     /// <summary>What the last search did with each tile it looked at. Lit and unread tiles are recorded by the gathering
     /// scan, which is where they are refused; the rest by the executor.</summary>
     public CandidateFunnel Funnel { get; } = new(FunnelEntries,
-        StageAllowance, StageOccupied, StageUnread, StageCarried, StageLit, StagePlacerRefused,
+        StageAllowance, StageOccupied, StageUnread, StageCarried, StageSky, StageLit, StagePlacerRefused,
         StageSearchCut, StageStandNotYetKnown, StageStandBeyondKnownRadius, StageStandUnreachable, CandidateFunnel.Offered);
     private const int FunnelEntries = 6;
     protected override CandidateFunnel? SearchFunnel => Funnel;
@@ -224,6 +225,7 @@ public sealed class LightUsefulArea : PerformNearbyWorldWork, ICandidateFunnelSo
     {
         LightSense.PlacementLight.Unread => StageUnread,
         LightSense.PlacementLight.Carried => StageCarried,
+        LightSense.PlacementLight.Sky => StageSky,
         _ => StageLit,
     };
 
@@ -235,6 +237,7 @@ public sealed class LightUsefulArea : PerformNearbyWorldWork, ICandidateFunnelSo
         LightSense.PlacementLight.Unread => "light=unread",
         LightSense.PlacementLight.Carried => FormattableString.Invariant($"light=carried:{reading.Brightness:0.000}"),
         LightSense.PlacementLight.Dark when reading.Remembered => FormattableString.Invariant($"light=dark-remembered:{reading.Brightness:0.000}"),
+        LightSense.PlacementLight.Sky => FormattableString.Invariant($"light=sky:{reading.Brightness:0.000}"),
         _ => FormattableString.Invariant($"light={reading.Brightness:0.000}"),
     };
 

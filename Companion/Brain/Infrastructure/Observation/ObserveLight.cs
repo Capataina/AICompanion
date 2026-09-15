@@ -301,6 +301,32 @@ public sealed class LightSense
         /// light arrived stays <see cref="Dark"/> while the light stands over it.
         /// </summary>
         Carried,
+        /// <summary>
+        /// Daylight reaches the tile: the engine gives it the sky's own light as a source (<see cref="DaylightReaches"/>),
+        /// so whatever it reads at night it will read lit at dawn. Never a torch site, by the owner's ruling of 15 September
+        /// 2026: surface air at night reads far below the dark level, and a companion that answered the night would line
+        /// the ground outside with torches the morning makes pointless.
+        /// </summary>
+        Sky,
+    }
+
+    /// <summary>
+    /// Whether the engine lights this tile with the sky's own colour, which is daylight by day. It is the colour engine's
+    /// surface rule, <c>TileLightScanner.ApplySurfaceLight</c> as decompiled: a tile no deeper than <c>Main.worldSurface</c>
+    /// whose wall passes light (<c>Main.wallLight</c>, true for no wall; walls 73 and 227 by number; the tinted glass walls
+    /// 88 to 93 and 241) and that holds nothing blocking the sun (<c>Main.tileNoSunLight</c>). A property of the tile rather
+    /// than a depth cutoff, so a player's house with background walls on the surface is not daylight and a wall-less
+    /// cave mouth above the surface line is, as the engine lights them. If the engine's rule changes, this and the engine
+    /// disagree about which tiles the morning lights, and the lighting job either lines the surface at night or leaves a
+    /// surface room dark.
+    /// </summary>
+    public static bool DaylightReaches(int x, int y)
+    {
+        if (!WorldGen.InWorld(x, y, 1) || y > (int)Main.worldSurface) return false;
+        Tile tile = Main.tile[x, y];
+        if (tile.HasTile && Main.tileNoSunLight[tile.TileType]) return false;
+        ushort wall = tile.WallType;
+        return Main.wallLight[wall] || wall == 73 || wall == 227 || (wall >= 88 && wall <= 93) || wall == 241;
     }
 
     /// <summary>One tile's placement reading and the brightness it read, clamped to 0..1. <paramref name="Remembered"/> means
@@ -336,6 +362,7 @@ public sealed class LightSense
         ForgetDarkTheWorldHasEdited();
         float engine = EngineBrightness(tile.X, tile.Y);
         float lit = Math.Clamp(engine, 0f, 1f);
+        if (DaylightReaches(tile.X, tile.Y)) return new(PlacementLight.Sky, lit);
         if (TransientLights.Count > 0 && Occluded(engine, tile.X, tile.Y))
             return knownDark.TryGetValue(tile, out float remembered)
                 ? new(PlacementLight.Dark, remembered, Remembered: true)

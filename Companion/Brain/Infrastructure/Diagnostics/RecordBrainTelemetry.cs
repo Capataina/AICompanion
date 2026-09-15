@@ -1161,6 +1161,7 @@ public sealed class BrainTelemetry : ModSystem
                 Observation.LightSense.PlacementLight.Dark => "dark",
                 Observation.LightSense.PlacementLight.Carried => "carried",
                 Observation.LightSense.PlacementLight.Lit => "lit",
+                Observation.LightSense.PlacementLight.Sky => "sky",
                 Observation.LightSense.PlacementLight.Unread => "unread",
                 _ => "-",
             })

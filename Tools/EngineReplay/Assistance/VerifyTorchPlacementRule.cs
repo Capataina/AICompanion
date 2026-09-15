@@ -92,6 +92,10 @@ internal static class VerifyTorchPlacementRule
             ALampLitRoomCrossedWithATorchOffersNothing);
         Each("place: a tile remembered dark is forgotten when the companion's own torch lights it, and is not offered a second",
             ATorchPlacedBesideARememberedDarkTileForgetsIt);
+        Each("sky: surface air at night reads below the dark level through the engine's own sky light, from dusk to the end of the night",
+            SurfaceAirAtNightReadsDark);
+        Each("sky: a dark surface room the sky lights is offered nothing, and the same room with background walls is lit",
+            ARoomDaylightReachesIsNeverATorchSite);
         Each("search: a search the planning deadline cut says so rather than naming an unsettled stand",
             ACutSearchIsNamedAsCut);
         Each("search: a stand beyond a finished flood's known radius is named, set aside and not re-asked",
@@ -408,6 +412,134 @@ internal static class VerifyTorchPlacementRule
         float score = VerifyPreparedActivities.PrepareAndScore(action, ctx);
         Require(!reading.IsDark && score == 0f && action.ActivityTarget is null,
             $"a tile the companion's own torch now lights must not stay remembered dark under his torch; reading {reading}, {OfferText(action, score)}");
+    }
+
+    // ---- the sky: daylight will light it, so the night never makes it a site -------------------------------------
+
+    /// <summary>
+    /// The measurement the ruling waited on: what a surface tile open to the sky reads at night. The game's own colour of
+    /// the skies is set for the night hour (<c>Main.SetBackColor</c>), turned into the tile colour the way the game turns
+    /// it (<c>ApplyColorOfTheSkiesToTiles</c>), and the colour engine's own tile scanner lights one wall-less surface air
+    /// tile from it; the brightness is that colour's mean at the game's global brightness, which is what
+    /// <c>Lighting.Brightness</c> reports. Every hour of the night is below the dark level, so a companion answering the
+    /// light alone would light the surface every night.
+    /// </summary>
+    private static void SurfaceAirAtNightReadsDark()
+    {
+        const BindingFlags PrivateStatic = BindingFlags.NonPublic | BindingFlags.Static;
+        double worldSurface = Main.worldSurface, time = Main.time;
+        bool dayTime = Main.dayTime, sunThroughNoWall = Main.wallLight[0];
+        Color tileColor = Main.tileColor;
+        var readings = new List<string>();
+        try
+        {
+            Scene();
+            LetTheSunThroughNoWall();
+            Main.worldSurface = 70;
+            Point air = new(40, 50);
+            Main.tile[air.X, air.Y].ClearEverything();
+            Require(LightSense.DaylightReaches(air.X, air.Y), "premise: a wall-less air tile above the surface line is one the sky lights");
+            object engine = typeof(Lighting).GetField("NewEngine", PrivateStatic)!.GetValue(null)!;
+            object scanner = engine.GetType().GetField("_tileScanner", InstanceField)!.GetValue(engine)!;
+            MethodInfo tileLight = scanner.GetType().GetMethod("GetTileLight")!;
+            Type info = typeof(Main).GetNestedType("InfoToSetBackColor")!;
+            MethodInfo setBackColor = typeof(Main).GetMethod("SetBackColor", PrivateStatic)!;
+            MethodInfo applySkies = typeof(Main).GetMethod("ApplyColorOfTheSkiesToTiles", PrivateStatic)!;
+            // The scanner asks the wall loader's light hooks after the sky's colour, and only mod loading creates their arrays;
+            // empty is what a world with no modded walls holds, as the ore fixture does for the tile loader's.
+            foreach (FieldInfo field in typeof(Terraria.ModLoader.WallLoader).GetFields(BindingFlags.Static | BindingFlags.NonPublic))
+                if (field.Name.StartsWith("Hook") && field.FieldType.IsArray && field.GetValue(null) == null)
+                    field.SetValue(null, Array.CreateInstance(field.FieldType.GetElementType()!, 0));
+            static void Call(MethodInfo method, object? target, object[]? args)
+            {
+                try { method.Invoke(target, args); }
+                catch (TargetInvocationException e) { throw new InvalidOperationException($"{method.Name} threw {e.InnerException?.GetType().Name}: {e.InnerException?.Message} at {e.InnerException?.StackTrace?.Split('\n').FirstOrDefault()?.Trim()}"); }
+            }
+            float brightest = 0f;
+            foreach (double hour in new[] { 0.0, 8100.0, 16200.0, 24300.0, 32399.0 })
+            {
+                Main.dayTime = false;
+                Main.time = hour;
+                object[] args = { Activator.CreateInstance(info)!, null!, null! };
+                Call(setBackColor, null, args);
+                Call(applySkies, null, null);
+                object[] light = { air.X, air.Y, null! };
+                Call(tileLight, scanner, light);
+                var colour = (Vector3)light[2];
+                float brightness = (colour.X + colour.Y + colour.Z) / 3f * GameGlobalBrightness;
+                brightest = Math.Max(brightest, brightness);
+                readings.Add($"night {hour:0}: {brightness:0.000}");
+            }
+            Console.WriteLine($"        MEASURE surface air at night, at the game's brightness, against a dark level of {Weights.LightDarkBelow}: {string.Join(", ", readings)}");
+            Require(brightest < Weights.LightDarkBelow,
+                $"surface air at night must read below the dark level for the ruling to have a case to answer; {string.Join(", ", readings)}");
+        }
+        finally
+        {
+            Main.worldSurface = worldSurface;
+            Main.time = time;
+            Main.dayTime = dayTime;
+            Main.tileColor = tileColor;
+            Main.wallLight[0] = sunThroughNoWall;
+        }
+    }
+
+    /// <summary>
+    /// The one entry of the game's wall-light table these rows need, set as the game sets it: <c>Main.wallLight[0] = true</c>
+    /// in <c>Main.Initialize_TileAndNPCData1_Part2</c> (Main.cs:10593 as decompiled), which a headless process never runs.
+    /// Running the whole initialiser would rewrite tile tables the other suites stand on; the wood wall these rows use as the
+    /// wall the sun does not pass is not in that method's list at all.
+    /// </summary>
+    private static void LetTheSunThroughNoWall()
+    {
+        Main.wallLight[0] = true;
+        Require(WallID.Wood == 4 && !Main.wallLight[WallID.Wood], "premise: the game's list lets the sun through no wall and never through wood (wall 4)");
+    }
+
+    /// <summary>
+    /// The dark room, moved above the surface line. With no background wall the sky lights it — the engine's own rule, which
+    /// lights a wall-less cave mouth above the surface by day — so however dark it reads now it is not a torch site. The same
+    /// room with a wood background wall, which the sun does not pass, is a surface house the morning does not light, and is
+    /// offered as any dark room is.
+    /// </summary>
+    private static void ARoomDaylightReachesIsNeverATorchSite()
+    {
+        double worldSurface = Main.worldSurface;
+        bool sunThroughNoWall = Main.wallLight[0];
+        try
+        {
+            foreach (bool walled in new[] { false, true })
+            {
+                var ctx = Scene();
+                LetTheSunThroughNoWall();
+                BuildSealedRoom();
+                Main.worldSurface = RoomBottom + 5;
+                if (walled)
+                    for (int x = RoomLeft; x <= RoomRight; x++)
+                        for (int y = RoomTop; y <= RoomBottom; y++)
+                        {
+                            Tile tile = Main.tile[x, y];
+                            tile.WallType = WallID.Wood;
+                        }
+                Point floor = new(RoomLeft + 2, RoomBottom);
+                Require(LightSense.DaylightReaches(floor.X, floor.Y) != walled && !Main.wallLight[WallID.Wood],
+                    $"premise: the sky reaches the room only without its wood wall; walled={walled} daylight={LightSense.DaylightReaches(floor.X, floor.Y)}");
+                GiveTorches(ctx, held: false);
+                Settle(ctx);
+                PresentEngineLight((_, _) => new Vector3(.02f), GameGlobalBrightness, placed: null);
+                ForceRefresh(ctx);
+                var action = new LightUsefulArea();
+                float score = VerifyPreparedActivities.PrepareAndScore(action, ctx);
+                var reading = ctx.Companion.Brain.Senses.Light.ReadForPlacement(floor, LightSense.Coverage.Current());
+                if (walled)
+                    Require(score > 0 && action.ActivityTarget is not null && reading.IsDark,
+                        $"a dark surface room behind background walls the sun does not pass is a torch site; reading {reading}, {OfferText(action, score)}");
+                else
+                    Require(score == 0f && action.ActivityTarget is null && reading.Light == LightSense.PlacementLight.Sky,
+                        $"a room the sky lights must never be a torch site at night; reading {reading}, {OfferText(action, score)}");
+            }
+        }
+        finally { Main.worldSurface = worldSurface; Main.wallLight[0] = sunThroughNoWall; }
     }
 
     // ---- every exit of the shared search is named for what it is ---------------------------------------------
