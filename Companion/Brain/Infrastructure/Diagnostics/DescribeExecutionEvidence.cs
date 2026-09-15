@@ -86,20 +86,17 @@ public static class DescribeExecutionEvidence
     }
 
     /// <summary>
-    /// The boxes a region declares, in feet space. Follow admits a destination near either of two references, so it has two
-    /// comfort boxes; a tool stand has the native reach box, which <see cref="FindToolAccess"/> tests at the eye above the feet
-    /// against the tile centre, so in feet space the same box sits that eye height lower. Kinds with no geometry have none.
+    /// The boxes a region declares, in feet space, which must be exactly the places the region's own <c>Contains</c> accepts.
+    /// Follow is one comfort box around the intent region's centre at admission; the request's anchor is evidence of what it
+    /// aimed at and draws no box, because since the region gained its own growth the anchor widens nothing, and a second box
+    /// around it painted places as accepted that the region refuses. A tool stand has the native reach box, which
+    /// <see cref="FindToolAccess"/> tests at the eye above the feet against the tile centre, so in feet space the same box
+    /// sits that eye height lower. Kinds with no geometry have none.
     /// </summary>
     public static IReadOnlyList<RegionBox> RegionBoxes(in SuccessRegion region)
     {
         if (region.Kind == SuccessRegionKind.FollowComfort)
-        {
-            Vector2 player = region.Comfort;
-            Vector2 ahead = region.ReachX > 0 && region.ReachY > 0
-                ? new Vector2(region.ReachX, region.ReachY)
-                : player;
-            return new[] { Around(region.PlayerFeet, player), Around(region.Anchor, ahead) };
-        }
+            return new[] { Around(region.PlayerFeet, region.Comfort) };
         if (region.Kind == SuccessRegionKind.ToolReach && region.WorkTile is Point tile)
         {
             Vector2 centre = tile.ToWorldCoordinates(8f, 8f) + new Vector2(0f, FindToolAccess.EyeHeight);

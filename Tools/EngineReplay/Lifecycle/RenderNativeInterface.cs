@@ -232,6 +232,16 @@ internal static class RenderNativeInterface
     {
         int reachX = Player.tileRangeX, reachY = Player.tileRangeY;
         Player.tileRangeX = 5; Player.tileRangeY = 4;
+        // The pixel half draws through an identity batch into a frame measured in world pixels, while the overlay's Screen divides
+        // by Main.UIScale because in play it draws under the UI scale matrix. This runs after the viewport loop, which leaves the
+        // last viewport's scale in place (183%), so the box came out 1.83 times smaller, off its frame: 2 of 636 perimeter pixels.
+        // It is measured at scale 1 and the loop's scale is put back.
+        var scaleUsed = typeof(Main).GetField("_uiScaleUsed", BindingFlags.NonPublic | BindingFlags.Static)!;
+        var scaleMatrix = typeof(Main).GetField("_uiScaleMatrix", BindingFlags.NonPublic | BindingFlags.Static)!;
+        object previousScale = scaleUsed.GetValue(null)!, previousMatrix = scaleMatrix.GetValue(null)!;
+        scaleUsed.SetValue(null, 1f);
+        scaleMatrix.SetValue(null, Matrix.Identity);
+        Terraria.GameInput.PlayerInput.SetZoom_UI();
         try
         {
             var tile = new Point(20, 20);
@@ -294,7 +304,13 @@ internal static class RenderNativeInterface
                 throw new InvalidOperationException($"the drawn reach box painted {covered} of its {perimeter} perimeter pixels, {strays} outside it and {cornerPaint} inside its corners");
             Console.WriteLine($"success region layer: {judged} edge samples agree with the region test and the reach arithmetic ({outside} outside); the drawn reach box paints all {perimeter} perimeter pixels and nothing outside or in its corners");
         }
-        finally { Player.tileRangeX = reachX; Player.tileRangeY = reachY; }
+        finally
+        {
+            Player.tileRangeX = reachX; Player.tileRangeY = reachY;
+            scaleUsed.SetValue(null, previousScale);
+            scaleMatrix.SetValue(null, previousMatrix);
+            Terraria.GameInput.PlayerInput.SetZoom_UI();
+        }
     }
 
     /// <summary>

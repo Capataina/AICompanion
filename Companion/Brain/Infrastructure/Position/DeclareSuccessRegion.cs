@@ -11,7 +11,7 @@ public enum SuccessRegionKind
 {
     /// <summary>No destination is held: a hold, or an attack request with nothing to aim at.</summary>
     None,
-    /// <summary>Following: the comfort box around the player's feet or the request's anchor, the two places <see cref="FollowPlayerObjective.AcceptsDestination"/> admits against.</summary>
+    /// <summary>Following: the comfort box around the player's intent region's centre at admission; the request's anchor is kept as evidence, not as a second box.</summary>
     FollowComfort,
     /// <summary>A tool stand: the native reach box around the work tile its proof chose the stand for.</summary>
     ToolReach,
