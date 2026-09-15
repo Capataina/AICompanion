@@ -13,6 +13,7 @@ research/
 ├─ Utility AI and Its Alternatives.md     initial decision-family comparison
 ├─ Evidence and Open Questions.md         initial recording corrections
 ├─ Historical Evidence/                  full commit coverage and pivotal conversation evidence
+├─ Combat System Plan/                   implementation plan: learned weapon knowledge beneath one Combat activity's attack planner
 ├─ Decision Architecture/                behavioural requirements, comparison criteria and decision mechanisms
 ├─ Game and Mod Case Studies/             inspected scheduling, ship-control and NPC integration examples
 ├─ Navigation Research/                  platformer state, search, control and experience alternatives
