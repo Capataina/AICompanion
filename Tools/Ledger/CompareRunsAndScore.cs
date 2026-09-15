@@ -244,7 +244,11 @@ public static class Scoreboard
 
         if (before == null)
         {
-            text.AppendLine("        no baseline: no ancestor commit has a clean run in the store, so nothing here is a comparison");
+            // The sentence names the coverage rule rather than the store's shape, because the store
+            // usually does hold clean ancestor runs when this prints: a run that retired a case
+            // refuses every ancestor that reported it, and "no clean run" sent one lane looking
+            // for a missing file instead of at Run.CoversRunsOf.
+            text.AppendLine("        no baseline: no clean ancestor run covers this run's cases — each candidate holds as a skip something this run measured, or reports a case this run does not — so nothing here is a comparison");
         }
         else
         {
