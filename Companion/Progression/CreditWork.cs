@@ -1,9 +1,13 @@
 #nullable enable
 
+using System;
+using System.Collections.Generic;
+using System.Linq;
 using Microsoft.Xna.Framework;
 using Terraria;
 using Terraria.ID;
 using Terraria.ModLoader;
+using Terraria.ModLoader.IO;
 using AICompanion.Companion.Brain.Infrastructure.Interactions.Chopping;
 using AICompanion.Companion.Brain.Infrastructure.Observation;
 
@@ -77,8 +81,31 @@ public static class CreditWork
         if (placed.HasTile && placed.TileType == type) Credit("torch", byCompanion: false, new Point(i, j));
     }
 
+    // Torch tiles already paid for in this world, by either earner. A torch is work that can be undone and redone on the same
+    // tile at will — placed, broken, placed again — so a torch credit per placement is experience for nothing, and the owner
+    // ruled on 15 September 2026 that a tile's torch is paid once. Kept per world and saved with it, because a reload is
+    // otherwise a way to be paid again. Ore and trees are not deduplicated: the owner has not ruled on them.
+    private static readonly HashSet<Point> torchTilesPaid = new();
+
+    public static int TorchTilesPaid => torchTilesPaid.Count;
+    public static void ForgetPaidTorches() => torchTilesPaid.Clear();
+
+    public static void SavePaidTorches(TagCompound tag)
+    {
+        tag["paidTorchX"] = torchTilesPaid.Select(p => p.X).ToArray();
+        tag["paidTorchY"] = torchTilesPaid.Select(p => p.Y).ToArray();
+    }
+
+    public static void LoadPaidTorches(TagCompound tag)
+    {
+        torchTilesPaid.Clear();
+        int[] x = tag.GetIntArray("paidTorchX"), y = tag.GetIntArray("paidTorchY");
+        for (int k = 0; k < Math.Min(x.Length, y.Length); k++) torchTilesPaid.Add(new Point(x[k], y[k]));
+    }
+
     private static void Credit(string source, bool byCompanion, Point tile)
     {
+        if (source == "torch" && !torchTilesPaid.Add(tile)) return;
         if (CreditKillsAndFights.Ledger() is not { } ledger) return;
         var credit = ledger.CreditWork(byCompanion);
         CreditKillsAndFights.Record(ledger, credit, source, byCompanion ? Striker.Companion : Striker.Player,
@@ -93,4 +120,12 @@ public sealed class ObservePlayerWorkForExperience : GlobalTile
         => CreditWork.PlayerKilledTile(i, j, type, fail, effectOnly);
 
     public override void PlaceInWorld(int i, int j, int type, Item item) => CreditWork.PlayerPlaced(i, j, type);
+}
+
+/// <summary>Saves the torch tiles already paid for with the world and clears them between worlds.</summary>
+public sealed class SavePaidTorchTiles : ModSystem
+{
+    public override void ClearWorld() => CreditWork.ForgetPaidTorches();
+    public override void SaveWorldData(TagCompound tag) => CreditWork.SavePaidTorches(tag);
+    public override void LoadWorldData(TagCompound tag) => CreditWork.LoadPaidTorches(tag);
 }

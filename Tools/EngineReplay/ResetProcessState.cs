@@ -108,10 +108,14 @@ internal static class ResetProcessState
         live::AICompanion.Companion.Weapons.AttackLearning.Reset();
         live::AICompanion.Companion.Weapons.ShotOutcomes.Clear();
         live::AICompanion.Companion.Weapons.TrackLandedHits.Clear();
-        // Which strike is in flight, each slot's spawn generation and the open boss fight are slot memories a rebuilt world
-        // reuses; a fixture that repriced the default enemy restores the game's own reading.
+        // Which strike is in flight and the open boss fight are slot memories a rebuilt world reuses; a fixture that repriced
+        // either slime reading restores the game's own. The companion's torches, the spots the player cleared of one and the
+        // torch tiles already paid for are world memories, which a rebuilt world does not have.
         live::AICompanion.Companion.Progression.CreditKillsAndFights.Reset();
         live::AICompanion.Companion.Progression.CompanionExperience.DefaultEnemyLife = live::AICompanion.Companion.Progression.CompanionExperience.GreenSlimeLifeInThisWorld;
+        live::AICompanion.Companion.Progression.CompanionExperience.NormalEnemyLife = () => live::AICompanion.Companion.Progression.CompanionExperience.GreenSlimeLife(Terraria.DataStructures.GameModeData.NormalMode);
+        live::AICompanion.Companion.Brain.Infrastructure.Interactions.Torch.CompanionTorches.Clear();
+        live::AICompanion.Companion.Progression.CreditWork.ForgetPaidTorches();
 
         // The map before the search policy, because the policy plugs a fresh world wrapper over
         // whatever map is standing, and the wrapper has to wrap the empty one.

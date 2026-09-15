@@ -57,6 +57,7 @@ internal static class VerifyCompanionExperience
             failed += RunOneRow.Case("a save written in its world's own terms loads and is converted by the first world that reads it", AWorldTermsSaveIsConvertedOnce, "experience");
             failed += RunOneRow.Case("levels the anchor-setting kill completes are priced at the old anchor", FirstKillFillsAtTheOldPrice, "experience");
             failed += RunOneRow.Case("1,000 companion ore breaks make a level and 2,000 of the player's, from their native calls", WorkMakesALevel, "experience");
+            failed += RunOneRow.Case("a torch tile is paid once, by either earner, across a reload of the world", ATorchTileIsPaidOnce, "experience");
             failed += RunOneRow.Case("critters, town NPCs, statue spawns, dummies, boss company and others' kills credit nothing", ExcludedKillsCreditNothing, "experience");
             failed += RunOneRow.Case("a registered companion shot is the companion's, the player's projectile his, a trap's and a town NPC's nobody's", StrikersAreNamedByTheShot, "experience");
             failed += RunOneRow.Case("save and load round-trip every field, and a placeholder save loads at level 1", SaveAndLoadRoundTrip, "experience");
@@ -776,6 +777,49 @@ internal static class VerifyCompanionExperience
             Require(ledger.Level == 2, $"the {breaks}th break must make the level at a fixed bar; level {ledger.Level}, filled {ledger.Into / fixedBar:P6}");
         }
         Console.WriteLine("  a native companion ore break filled 0.1% and the player's 0.05%; 1000 and 2000 breaks each made one level");
+    }
+
+    /// <summary>
+    /// A torch placed, broken and placed again on one tile was a torch's credit each time, and the companion's torches are
+    /// free, so the loop was experience for nothing. The tile is paid once, whoever places the torch and whenever — the
+    /// player's own torch on a tile the companion was paid for earns nothing, and neither does a reload — while a torch on a
+    /// new tile is paid as before.
+    /// </summary>
+    private static void ATorchTileIsPaidOnce()
+    {
+        Experience.DefaultEnemyLife = () => 14;
+        Experience.NormalEnemyLife = () => 14;
+        Experience ledger = Fresh();
+        Work.ForgetPaidTorches();
+        double share = ledger.Required * 0.001;
+        var tile = new Point(50, 30);
+        Work.CompanionPlacedTorch(tile);
+        Require(Near(ledger.Into, share), $"premise: the first torch on a tile is paid a thousandth of the bar; into {ledger.Into / Unit}");
+        Work.CompanionPlacedTorch(tile);
+        Require(Near(ledger.Into, share), $"the same tile's torch placed again must not be paid again; into {ledger.Into / Unit}");
+
+        bool menu = Main.gameMenu;
+        Tile t = Main.tile[tile.X, tile.Y];
+        try
+        {
+            Main.gameMenu = false;
+            t.ClearEverything();
+            t.HasTile = true;
+            t.TileType = TileID.Torches;
+            Work.PlayerPlaced(tile.X, tile.Y, TileID.Torches);
+            Require(Near(ledger.Into, share), $"the player's torch on a tile already paid for must not be paid; into {ledger.Into / Unit}");
+        }
+        finally { Main.gameMenu = menu; t.ClearEverything(); }
+
+        var saved = new TagCompound();
+        Work.SavePaidTorches(saved);
+        Work.ForgetPaidTorches();
+        Work.LoadPaidTorches(saved);
+        Work.CompanionPlacedTorch(tile);
+        Require(Near(ledger.Into, share), $"a reload must not make a paid tile payable again; into {ledger.Into / Unit}");
+        Work.CompanionPlacedTorch(new Point(tile.X + 1, tile.Y));
+        Require(Near(ledger.Into, 2 * share), $"a torch on a new tile is paid; into {ledger.Into / Unit}");
+        Console.WriteLine("  one tile's torch was paid once across a second placement, the player's own torch and a reload; the next tile was paid");
     }
 
     private static void ExcludedKillsCreditNothing()

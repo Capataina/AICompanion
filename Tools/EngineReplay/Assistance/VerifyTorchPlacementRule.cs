@@ -19,6 +19,9 @@ using ReachVerdict = live::AICompanion.Companion.Brain.Infrastructure.Observatio
 using RecommendTorchPlacement = live::AICompanion.Companion.Brain.Infrastructure.Interactions.Torch.RecommendTorchPlacement;
 using TerrainChanges = live::AICompanion.Companion.Brain.Infrastructure.Movement.TerrainChanges;
 using TransientLights = live::AICompanion.Companion.Brain.Infrastructure.Observation.TransientLights;
+using TileDamageWatcher = live::AICompanion.Companion.Brain.Infrastructure.Observation.TileDamageWatcher;
+using CompanionTorches = live::AICompanion.Companion.Brain.Infrastructure.Interactions.Torch.CompanionTorches;
+using PlaceTorches = live::AICompanion.Companion.Brain.Infrastructure.Interactions.Torch.PlaceTorches;
 using Weights = live::AICompanion.Companion.Brain.Infrastructure.Selection.Weights;
 
 /// <summary>
@@ -92,6 +95,10 @@ internal static class VerifyTorchPlacementRule
             ALampLitRoomCrossedWithATorchOffersNothing);
         Each("place: a tile remembered dark is forgotten when the companion's own torch lights it, and is not offered a second",
             ATorchPlacedBesideARememberedDarkTileForgetsIt);
+        Each("free: a companion torch drops nothing when broken, while the player's own torch beside it still drops its item",
+            ACompanionTorchDropsNothing);
+        Each("free: a spot the player cleared of a companion torch is not lit again within the game's spacing, across a save, until he places something there",
+            ASpotHeClearedIsNotLitAgain);
         Each("sky: surface air at night reads below the dark level through the engine's own sky light, from dusk to the end of the night",
             SurfaceAirAtNightReadsDark);
         Each("sky: a dark surface room the sky lights is offered nothing, and the same room with background walls is lit",
@@ -402,7 +409,7 @@ internal static class VerifyTorchPlacementRule
         ReadTheRoomBeforeHisLightArrives(ctx, new Vector3(.02f), placed: null);
         Require(light.ReadForPlacement(spaced, LightSense.Coverage.Current()).IsDark && light.RememberedDarkTiles > 0,
             $"premise: the dark room's far tile is read and remembered dark; remembered {light.RememberedDarkTiles}");
-        Require(live::AICompanion.Companion.Brain.Infrastructure.Interactions.Torch.PlaceTorches.Place(standing, ctx.Companion.Bag.Items, ctx.Player, out _),
+        Require(PlaceTorches.Place(standing, ctx.Companion.Bag.Items, ctx.Player, out _),
             "premise: the companion's placer puts its torch in the middle of the floor");
         PresentEngineLight((_, _) => new Vector3(.02f), GameGlobalBrightness, placed: new[] { (standing, TorchColour()) },
             (ctx.Player.Center.ToTileCoordinates(), TorchColour()));
@@ -412,6 +419,103 @@ internal static class VerifyTorchPlacementRule
         float score = VerifyPreparedActivities.PrepareAndScore(action, ctx);
         Require(!reading.IsDark && score == 0f && action.ActivityTarget is null,
             $"a tile the companion's own torch now lights must not stay remembered dark under his torch; reading {reading}, {OfferText(action, score)}");
+    }
+
+    // ---- the companion's torches are free, and his removing one is his decision ---------------------------------
+
+    /// <summary>The number of torch items lying in the world, for counting what a break dropped.</summary>
+    private static int TorchItemsInTheWorld()
+    {
+        int count = 0;
+        for (int i = 0; i < Main.maxItems; i++)
+            if (Main.item[i] is { active: true, type: ItemID.Torch } item) count += item.stack;
+        return count;
+    }
+
+    /// <summary>Breaks a torch tile the way the game does, with the torch memory's tile hook asked first as tModLoader asks
+    /// it inside <c>WorldGen.KillTile</c> (the harness loads no hooks), and returns how many torch items the break dropped.</summary>
+    private static int BreakTorch(Point tile, bool byCompanion = false)
+    {
+        int before = TorchItemsInTheWorld();
+        bool hitting = TileDamageWatcher.CompanionIsHitting;
+        TileDamageWatcher.CompanionIsHitting = byCompanion;
+        try
+        {
+            bool noItem = CompanionTorches.Breaking(tile.X, tile.Y, Main.tile[tile.X, tile.Y].TileType, fail: false, effectOnly: false);
+            WorldGen.KillTile(tile.X, tile.Y, noItem: noItem);
+        }
+        finally { TileDamageWatcher.CompanionIsHitting = hitting; }
+        Require(!Main.tile[tile.X, tile.Y].HasTile, $"premise: the torch at {tile} must be broken");
+        return TorchItemsInTheWorld() - before;
+    }
+
+    /// <summary>
+    /// The companion's torches cost nothing, so breaking one must give nothing: before, the game dropped each broken torch's
+    /// own item, which made a single handed-over rare torch an endless supply. The player's torch beside it is the control —
+    /// the same break of the same tile type drops its item — so a drop count of zero is the rule and not a harness that
+    /// drops nothing.
+    /// </summary>
+    private static void ACompanionTorchDropsNothing()
+    {
+        var ctx = Scene();
+        BuildSealedRoom();
+        GiveTorches(ctx, held: false);
+        Settle(ctx);
+        Point mine = new(RoomLeft + 2, RoomBottom), his = new(RoomRight - 2, RoomBottom);
+        Require(PlaceTorches.Place(mine, ctx.Companion.Bag.Items, ctx.Player, out _), "premise: the companion's placer puts a torch on the floor");
+        VerifyOreWork.Place(his, TileID.Torches);
+        int hisDrop = BreakTorch(his);
+        Require(hisDrop == 1, $"premise: a torch the player placed drops its item when broken, or the harness cannot see a drop; dropped {hisDrop}");
+        int myDrop = BreakTorch(mine);
+        Require(myDrop == 0, $"a companion torch must drop nothing when broken; dropped {myDrop}");
+        Console.WriteLine($"        the player's torch dropped {hisDrop} item, the companion's {myDrop}");
+    }
+
+    /// <summary>
+    /// He takes down the torch the companion put in a dark room. The room is still dark, so a rule that only remembered the
+    /// tile would put the same torch one tile over at the next search; the refusal covers the game's own spacing around the
+    /// spot, as a torch still standing there would. It survives the world being saved and loaded, and it ends when he places
+    /// something on the spot, which is his next decision about it.
+    /// </summary>
+    private static void ASpotHeClearedIsNotLitAgain()
+    {
+        var ctx = Scene();
+        BuildSealedRoom();
+        GiveTorches(ctx, held: false);
+        ctx.Player.position = new Vector2((RoomLeft + 1) * 16, (RoomBottom + 1) * 16 - ctx.Player.height);
+        Settle(ctx);
+        ReadTheRoomBeforeHisLightArrives(ctx, new Vector3(.02f), placed: null);
+        Point spot = new((RoomLeft + RoomRight) / 2, RoomBottom);
+        Require(PlaceTorches.Place(spot, ctx.Companion.Bag.Items, ctx.Player, out _),
+            $"premise: the companion lights the middle of the dark room; candidate={PlaceTorches.Candidate(spot)} player at {ctx.Player.Center.ToTileCoordinates()}");
+        BreakTorch(spot);
+        bool Near(Point? tile) => tile is Point t && Math.Abs(t.X - spot.X) <= CompanionTorches.SpacingTiles && Math.Abs(t.Y - spot.Y) <= CompanionTorches.SpacingTiles;
+        Point? Offered()
+        {
+            ForgetTransients();
+            PresentEngineLight((_, _) => new Vector3(.02f), GameGlobalBrightness, placed: null);
+            ForceRefresh(ctx);
+            var action = new LightUsefulArea();
+            VerifyPreparedActivities.PrepareAndScore(action, ctx);
+            return action.ActivityTarget?.ToTileCoordinates();
+        }
+        Point? afterRemoval = Offered();
+        Require(!Near(afterRemoval) && !PlaceTorches.Candidate(spot) && !PlaceTorches.Candidate(new Point(spot.X + 1, spot.Y)),
+            $"the spot he cleared and every tile within the game's spacing of it must not be lit again; offered {afterRemoval}, refusals {CompanionTorches.Refusals}");
+
+        var saved = new Terraria.ModLoader.IO.TagCompound();
+        CompanionTorches.Save(saved);
+        CompanionTorches.Clear();
+        CompanionTorches.Load(saved);
+        Point? afterLoad = Offered();
+        Require(!Near(afterLoad) && CompanionTorches.Refusals == 1, $"the refusal must survive the world being saved and loaded; offered {afterLoad}, refusals {CompanionTorches.Refusals}");
+
+        VerifyOreWork.Place(spot, TileID.WoodBlock);
+        CompanionTorches.TilePlaced(spot.X, spot.Y);                          // the placement hook, which the harness does not load
+        Main.tile[spot.X, spot.Y].ClearEverything();
+        Require(CompanionTorches.Refusals == 0 && PlaceTorches.Candidate(spot),
+            $"something he placed on the spot ends his refusal of it; refusals {CompanionTorches.Refusals}");
+        Console.WriteLine($"        after he cleared the torch the search offered {afterRemoval?.ToString() ?? "nothing"} outside the spacing, the same after a reload, and the spot again once he built on it");
     }
 
     // ---- the sky: daylight will light it, so the night never makes it a site -------------------------------------
@@ -683,6 +787,8 @@ internal static class VerifyTorchPlacementRule
         ForgetTransients();
         TerrainChanges.Reset();
         MovementQueries.World = new GameTileWorld();
+        // A torch a row broke is a spot refused for the rows after it, which is the rule and not the next row's scene.
+        CompanionTorches.Clear();
         return ctx;
     }
 

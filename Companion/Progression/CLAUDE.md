@@ -52,7 +52,7 @@ A character saved under the placeholder curve carries only an integer `total`; i
 
 ## What it deliberately does not do
 
-It grants no mastery points and spends none; the card still learns without points. It does not guard against cheap repeatable work — placing and re-mining an ore, placing and picking up a torch, felling acorn trees, duplicating ore in Journey — because the owner has not ruled a guard, and one invented here would be a product decision made by a bookkeeping file. An ordinary enemy with no strike on the killing tick earns nothing, while a boss fight whose last body died to a debuff credits whichever of the two struck it last, because a fight's blow is its last strike by either of them.
+It grants no mastery points and spends none; the card still learns without points. It guards one kind of cheap repeatable work, because the owner ruled it on 15 September 2026: a torch tile is paid once per world, by either earner, and the set of paid tiles is saved with the world, since the companion's torches are free and a place-break-place loop was otherwise experience for nothing. It does not guard the rest — placing and re-mining an ore, felling acorn trees, duplicating ore in Journey — because the owner has not ruled a guard for them, and one invented here would be a product decision made by a bookkeeping file. An ordinary enemy with no strike on the killing tick earns nothing, while a boss fight whose last body died to a debuff credits whichever of the two struck it last, because a fight's blow is its last strike by either of them.
 
 ## Traps
 
