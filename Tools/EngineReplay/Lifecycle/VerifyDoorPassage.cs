@@ -253,10 +253,12 @@ internal static class VerifyDoorPassage
         Player player = Main.player[0];
         player.dead = false;
         player.statLife = player.statLifeMax2 = 100;
-        // Column 80, not EastX. Restated on 15 September 2026: with the player at column 62 his region, which always holds him,
-        // reached west to column 44 across the sealed wall at 50, so a companion at column 48 on the wrong side was already
-        // inside it, accompanied him from there and never took the trench (finalFeetX 48.3 in every locked scene). The premise
-        // on the first tick keeps the whole admitted region past the trench, so these scenes stay about crossing the wall.
+        // Column 80, not EastX. With the player at column 62 his region reaches west to column 44, across the sealed wall at 50,
+        // and it reaches down past the trench, whose rows 81 to 83 sit inside the box. Being with the player needs a way to him
+        // inside his region, and here there is one: the trench. So a companion at column 48 on the wrong side is with him by the
+        // rule, keeps him company from there and never crosses (re-run on 15 September 2026 after that rule landed: finalFeetX
+        // 48.3, opened -1, crossed -1). The premise on the first tick keeps the whole admitted region past the trench, so these
+        // scenes stay about crossing the wall rather than about membership.
         const int PlayerColumn = 80;
         player.position = new Vector2(PlayerColumn * 16, FloorRow * 16 - player.height);
         player.velocity = Vector2.Zero;

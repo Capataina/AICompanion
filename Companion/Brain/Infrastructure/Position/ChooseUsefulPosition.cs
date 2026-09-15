@@ -317,7 +317,9 @@ public sealed class Positioner
     /// so the route flies as close as it can while the flood grows. Tiles the player is building on or walking down are passed
     /// over. Nearest, because inside the region the companion moves about with the region and a place in it is only the way
     /// back in: scoring places there for band, height and openness was choosing where to arrive and stop, which the owner ruled
-    /// on 15 September 2026 nothing does any more. Sight of the player is not asked, because losing it is not distance.
+    /// on 15 September 2026 nothing does any more. Sight of the player is not asked, because losing it is not distance. A corner
+    /// the intent sense has proven cut off from the player inside his region is passed over, because arriving there is not
+    /// being with him: the nearest inside corner to a body on the wrong side of a wall is otherwise the one it already hovers at.
     /// </summary>
     private Vector2? NearestInsideCorner(Senses.Senses senses)
     {
@@ -326,6 +328,7 @@ public sealed class Positioner
         EvaluatedCandidates = 0;
         CandidateCount = ReachableCandidateCount = RejectedCandidateCount = 0;
         var region = senses.Intent.Region;
+        var playerSide = senses.Intent.PlayerSide;
         float inset = Movement.Navigator.SettleRadius;
         Vector2 body = senses.Companion.Center;
         Point low = CornerGraph.NearestCorner(region.Centre - region.HalfSize + new Vector2(inset));
@@ -340,7 +343,7 @@ public sealed class Positioner
                 Vector2 spot = CornerGraph.ToWorld(corner);
                 CandidateCount++;
                 if (!region.Accepts(spot, inset) || !MovementQueries.IsUsableCorner(corner) || !Allowed(MovementQueries.Tile(spot))
-                    || ProvenUnreachable(corner) || StandsInPlayersWay(spot, senses))
+                    || ProvenUnreachable(corner) || (playerSide != null && !playerSide.Contains(corner)) || StandsInPlayersWay(spot, senses))
                 {
                     RejectedCandidateCount++;
                     continue;

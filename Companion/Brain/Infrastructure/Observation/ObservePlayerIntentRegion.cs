@@ -1,6 +1,7 @@
 #nullable enable
 
 using System;
+using System.Collections.Generic;
 using Microsoft.Xna.Framework;
 using Terraria;
 using AICompanion.Companion.Brain.Infrastructure.Selection;
@@ -159,10 +160,62 @@ public sealed class PlayerIntentRegionSense
     /// <summary>The follow objective every consumer shares, anchored on the region's own centre.
     /// A caller with an anchor of its own — a priced meeting place, a request's anchor — refines it
     /// with <see cref="FollowPlayerObjective.At"/> rather than building a second objective.</summary>
-    public Position.FollowPlayerObjective Objective => new(Region, Region.Centre, Inside);
+    public Position.FollowPlayerObjective Objective => new(Region, Region.Centre, Inside, Connected);
+
+    /// <summary>
+    /// Whether the body has a way to the player that stays inside his region, grown by the width the latch gives its edge. The
+    /// owner ruled on 15 September 2026 that being with the player requires the companion can reach him, so a body inside the
+    /// box on the far side of a sealed wall is outside and rejoining sends it round. It is asked of a flood bounded by the
+    /// region and not of the reach disc, because a way round outside the region joins both sides of a wall inside it: the disc
+    /// holds the player from either side and cannot tell them apart.
+    ///
+    /// <para>Not yet known reads as connected. It never means an unfinished flood — the side flood is bounded by the region and
+    /// run to exhaustion on the tick the region or the player's corner changes — so it arises only when no corner the orb fits
+    /// at roots a proof: the body pressed into liquid or a gap it cannot centre in, the player in a shaft, or no world at all.
+    /// A body the sense cannot prove cut off keeps the box's answer, because reading it outside would send rejoining to find a
+    /// place its own route search cannot root either, and a companion beside the player would seek for somewhere it already is.</para>
+    /// </summary>
+    public bool Connected { get; private set; } = true;
+
+    /// <summary>The corners inside the grown region that join the player without leaving it, or null when nothing is proven.
+    /// The positioner offers only these as the way back in, so rejoining does not arrive on the wrong side of a wall.</summary>
+    public IReadOnlySet<Point>? PlayerSide => side is { Stop: Movement.FreeSpaceSearch.StopReason.Exhausted } found ? found.Reached : null;
+
+    private Movement.FreeSpaceSearch? side;
+    private Point sideRoot;
+    private Rectangle sideBounds;
 
     public void Update(NPC companion, PlayerSense player)
-        => Update(companion.Center, player.Position, player.Intent, player.IsTravelling, player.IsDead, player.Activity.Samples);
+    {
+        Update(companion.Center, player.Position, player.Intent, player.IsTravelling, player.IsDead, player.Activity.Samples);
+        Connected = ConnectedToPlayer(companion.Center, player.Position);
+        Inside &= Connected;
+    }
+
+    private bool ConnectedToPlayer(Vector2 body, Vector2 playerCentre)
+    {
+        if (!Movement.MovementQueries.HasWorld) { side = null; return true; }
+        var world = Movement.MovementQueries.World;
+        if (Movement.CornerGraph.NearestUsable(world, playerCentre, 2) is not Point root) { side = null; return true; }
+        // Grown by the latch's width and a tile, so a body the latch still counts inside has a corner the flood may hold, and
+        // snapped to whole tiles, so a box sliding with a walking player refloods once a tile rather than once a tick.
+        float grow = Movement.Navigator.SettleRadius + 16f;
+        int left = (int)MathF.Floor((Region.Centre.X - Region.HalfSize.X - grow) / 16f) * 16;
+        int top = (int)MathF.Floor((Region.Centre.Y - Region.HalfSize.Y - grow) / 16f) * 16;
+        int right = (int)MathF.Ceiling((Region.Centre.X + Region.HalfSize.X + grow) / 16f) * 16;
+        int bottom = (int)MathF.Ceiling((Region.Centre.Y + Region.HalfSize.Y + grow) / 16f) * 16;
+        var bounds = new Rectangle(left, top, right - left + 1, bottom - top + 1);
+        if (side == null || root != sideRoot || bounds != sideBounds || !side.Valid)
+        {
+            side = new Movement.FreeSpaceSearch(world, root, null, priceClearance: false) { Bounds = bounds };
+            side.Advance(int.MaxValue);
+            sideRoot = root;
+            sideBounds = bounds;
+        }
+        if (side.Stop != Movement.FreeSpaceSearch.StopReason.Exhausted) return true;
+        if (Movement.CornerGraph.NearestUsable(world, body, 2) is not Point at) return true;
+        return side.Reached.Contains(at);
+    }
 
     /// <summary>The same update from the numbers it reads, so a recorded player track can be replayed through the real filter
     /// and the real geometry with no game world behind it: a capture's player stands thousands of tiles from anything a

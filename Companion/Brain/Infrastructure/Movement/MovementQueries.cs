@@ -20,6 +20,9 @@ public static class MovementQueries
         set => world = value;
     }
 
+    /// <summary>Whether a tile world is plugged in, for a sense that also runs in tools which update it with no world behind it.</summary>
+    public static bool HasWorld => world != null;
+
     /// <summary>The tile a world point is in.</summary>
     public static Point Tile(Vector2 point) => new((int)MathF.Floor(point.X / 16f), (int)MathF.Floor(point.Y / 16f));
     /// <summary>

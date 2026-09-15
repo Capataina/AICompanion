@@ -130,6 +130,14 @@ public sealed class FreeSpaceSearch
     /// </summary>
     public float Radius { get; }
 
+    /// <summary>
+    /// A rectangle in world pixels outside which a corner is never queued, or null for none. It bounds the way the disc does, so
+    /// <c>Exhausted</c> means every corner reachable without leaving the rectangle is closed. The intent sense asks it which
+    /// places inside the player's region join him without leaving the region, which the reach disc cannot answer: a way round
+    /// outside the region joins both sides of a wall inside it, so the disc holds the player from either side.
+    /// </summary>
+    public Rectangle? Bounds { get; init; }
+
     /// <param name="rules">The immunities this search runs under; the process-wide ones unless a caller
     /// needs to search through liquid the body is already in.</param>
     /// <param name="priceClearance">Whether edges carry the corridor-middle price; a search for the nearest
@@ -218,6 +226,7 @@ public sealed class FreeSpaceSearch
                 // Outside the disc is never queued, so the queue empties exactly when every corner
                 // reachable inside the disc is closed and Exhausted is proven for the disc rather than the world.
                 if (!float.IsPositiveInfinity(Radius) && Vector2.Distance(CornerGraph.ToWorld(next), CornerGraph.ToWorld(Start)) > Radius) continue;
+                if (Bounds is Rectangle box && !box.Contains(next.X * 16, next.Y * 16)) continue;
                 cost[next] = tentative;
                 parent[next] = node;
                 Touch(next);
