@@ -127,7 +127,9 @@ public static class CreditKillsAndFights
             && !(holder.type >= 0 && holder.type < NPCID.Sets.CountsAsCritter.Length && NPCID.Sets.CountsAsCritter[holder.type]);
 
     /// <summary>
-    /// Whose projectile this is. A companion shot is one the arsenal registered, or a child the outcome windows joined to one;
+    /// Whose projectile this is. A companion shot is the weapons lane's lineage contract,
+    /// <c>TrackLandedHits.IsCompanionShot</c>: true from a companion shot's registration, or from a descendant's spawn off a
+    /// companion parent, until that slot's next spawn, whether or not the shot had a forecast or an open outcome window;
     /// the player's is a friendly projectile he owns that no trap or town NPC fired; everything else is someone else's.
     /// </summary>
     public static Striker StrikerOf(Projectile projectile)
