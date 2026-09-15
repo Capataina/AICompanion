@@ -636,9 +636,10 @@ public static class Weights
     /// <summary>
     /// How many ticks a hit's added horizontal speed is held when weighing where the push leaves an enemy. A walker keeps
     /// the speed a hit gave it until its own AI turns it round, which takes on the order of this many ticks, so the push is
-    /// a speed held for a window rather than a flight. Integrating the airtime under gravity was the first shape and lost:
-    /// a zombie's pop from an ordinary bow is airborne for a couple of ticks, so every push read as a pixel and the
-    /// preference it was meant to drive was blind to the pushes the owner watched carry enemies into him.
+    /// a speed held for a window rather than a flight. Integrating the airtime under gravity was the first shape considered
+    /// and was rejected on paper before it was built: a zombie's pop from an ordinary bow is airborne for a couple of ticks,
+    /// so every push would read as a pixel and the preference it drives would be blind to the pushes the owner watched
+    /// carry enemies into him.
     /// </summary>
     public const int KnockbackSettleTicks = 12;
 
@@ -646,8 +647,9 @@ public static class Weights
     /// How much a hit's value is charged per unit of danger its push adds, where danger is the added urgency to a body
     /// times what one of that enemy's hits takes off that body. It is on the scale of the prevented-harm credit on
     /// purpose, because the charge and that credit measure the same thing in opposite directions: harm to the player or
-    /// the orb that the shot makes likelier rather than less likely. A charge far below it let a shot that pushes a zombie
-    /// into the player still win on its damage alone, which is the behaviour the owner reported.
+    /// the orb that the shot makes likelier rather than less likely. Before this there was no charge at all, and a shot
+    /// that pushed a zombie into the player won on its damage alone, which is the behaviour the owner reported; no other
+    /// value of this weight has been played.
     /// </summary>
     public const float KnockbackInducedDangerWeight = AttackPreventedHarmWeight;
 

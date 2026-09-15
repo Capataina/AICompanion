@@ -361,7 +361,7 @@ public sealed class Arsenal
         for (int i = 0; i < Math.Min(crossed, weapon.Pierce); i++)
         {
             float perHit = PerHit(ctx, weapon, pierced[i]);
-            hits.Add(new(pierced[i].whoAmI, perHit, InducedDanger(ctx, weapon, pierced[i], solution.LaunchVelocity, perHit)));
+            hits.Add(new(pierced[i].whoAmI, perHit, InducedDanger(ctx, weapon, pierced[i], muzzle, solution.LaunchVelocity, perHit)));
         }
         rejection = hits.Count == 0 ? "no-damageable-intercept" : "accepted";
         return hits.Count == 0 ? null : new(slot, target.whoAmI, weapon.UseTime, solution.ImpactTick, hits.ToArray());
@@ -404,7 +404,10 @@ public sealed class Arsenal
     /// <summary>
     /// The danger one hit's push adds, as the threat sense would weigh it: the target is displaced by the push the
     /// weapon-effects table expects in the direction the game will push it, and its urgency to the player and to the orb
-    /// is re-weighed at the displaced centre by <see cref="ThreatUrgency"/>, the rule the threat sense itself uses. Only an
+    /// is re-weighed at the displaced centre by <see cref="ThreatUrgency"/>, the rule the threat sense itself uses. The orb
+    /// is weighed as standing at <paramref name="muzzle"/>, because a forecast is asked about candidate stands as well as
+    /// about the live body, and a push toward the stand the orb would be firing from is the push that comes back at it; its
+    /// life and its sight stay the live body's, which are the same wherever it hovers. Only an
     /// increase is charged, per body, times what one of that enemy's hits takes off that body — so a push away from both
     /// bodies costs nothing, and the danger the enemy already carried is never charged, since both sides of the difference
     /// hold its speed, its sight and its reach as the sense decided them this tick. A body the enemy cannot reach, and a
@@ -413,7 +416,7 @@ public sealed class Arsenal
     /// Sight is held at what the sense measured, which under-charges a push that brings an enemy into a sight line it
     /// lacked; the alternative is a line-of-sight test per hit per forecast.
     /// </summary>
-    public static float InducedDanger(in ActionContext ctx, CompanionWeapon weapon, NPC target, Vector2 launch, float perHit)
+    public static float InducedDanger(in ActionContext ctx, CompanionWeapon weapon, NPC target, Vector2 muzzle, Vector2 launch, float perHit)
     {
         ThreatRecord? threat = null;
         foreach (ThreatRecord t in ctx.Senses.Threats.Threats)
@@ -437,9 +440,9 @@ public sealed class Arsenal
         {
             NPC body = ctx.Npc;
             float before = ThreatUrgency.ToCompanion(threat.EffectiveDamageToCompanion, body.life, threat.IsBoss,
-                threat.TicksToCompanion, threat.Shoots, threat.HasSightOnCompanion);
+                Vector2.Distance(target.Center, muzzle) / threat.ObservedSpeed, threat.Shoots, threat.HasSightOnCompanion);
             float after = ThreatUrgency.ToCompanion(threat.EffectiveDamageToCompanion, body.life, threat.IsBoss,
-                Vector2.Distance(pushed, body.Center) / threat.ObservedSpeed, threat.Shoots, threat.HasSightOnCompanion);
+                Vector2.Distance(pushed, muzzle) / threat.ObservedSpeed, threat.Shoots, threat.HasSightOnCompanion);
             charge += MathF.Max(0f, after - before) * threat.EffectiveDamageToCompanion;
         }
         return charge;

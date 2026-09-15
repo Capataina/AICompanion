@@ -266,8 +266,8 @@ internal static class VerifyKnockbackAwareness
         Require(arsenal.ShotSolves(ctx, far, enemy) && arsenal.ShotSolves(ctx, near, enemy), "premise: both muzzles have a shot");
 
         float perHit = MathF.Max(1f, bow.DamagePerHit(ctx) - enemy.defense / 2f);
-        float chargeFar = Arsenal.InducedDanger(ctx, bow, enemy, new Vector2(-1f, 0f), perHit);
-        float chargeNear = Arsenal.InducedDanger(ctx, bow, enemy, new Vector2(1f, 0f), perHit);
+        float chargeFar = Arsenal.InducedDanger(ctx, bow, enemy, far, new Vector2(-1f, 0f), perHit);
+        float chargeNear = Arsenal.InducedDanger(ctx, bow, enemy, near, new Vector2(1f, 0f), perHit);
         float valueFar = arsenal.BestShotValueFrom(ctx, far, enemy);
         float valueNear = arsenal.BestShotValueFrom(ctx, near, enemy);
         EmitLedgerRows.Detail(FormattableString.Invariant($"push charge: far {chargeFar:0.000} near {chargeNear:0.000}; value far {valueFar:0.000} near {valueNear:0.000}; settled push {W.SettledPush(bow.ItemType, enemy, bow.Knockback, perHit, -1):0.0}px"));
@@ -275,11 +275,20 @@ internal static class VerifyKnockbackAwareness
         Require(chargeNear == 0f, $"a push away from the player and not toward the orb adds no danger; charge={chargeNear}");
         Require(valueNear - valueFar >= .25f, $"the shot that pushes the zombie into the player is worth less; far={valueFar} near={valueNear}");
 
+        // The orb's half is weighed at the muzzle the forecast is asked about, not at the live body hovering above: the same
+        // leftward push from a stand left of the zombie carries the zombie toward that stand, and from a stand to its right
+        // carries it away. The player's half is the same push both times, so any difference is the orb's.
+        float intoStand = Arsenal.InducedDanger(ctx, bow, enemy, near, new Vector2(-1f, 0f), perHit);
+        float awayFromStand = Arsenal.InducedDanger(ctx, bow, enemy, far, new Vector2(-1f, 0f), perHit);
+        EmitLedgerRows.Detail(FormattableString.Invariant($"orb half at the stand: into the stand {intoStand:0.000} away from it {awayFromStand:0.000}"));
+        Require(intoStand > awayFromStand + .05f,
+            $"a push into the stand the orb would fire from is charged for the orb as well as the player; into={intoStand} away={awayFromStand}");
+
         // No push, no charge: the same far shot, on the same trajectory, from a weapon that has learned it pushes nothing.
         // Compared against itself rather than against the mirrored muzzle, because the aim sweep may land the two mirrored
         // arcs a tick apart, and a tick of timing is worth more than the tolerance an equality would need.
         W.AssumePush(bow.ItemType, enemy.type, 0f);
-        Require(Arsenal.InducedDanger(ctx, bow, enemy, new Vector2(-1f, 0f), perHit) == 0f, "a weapon that pushes nothing is charged nothing");
+        Require(Arsenal.InducedDanger(ctx, bow, enemy, far, new Vector2(-1f, 0f), perHit) == 0f, "a weapon that pushes nothing is charged nothing");
         float valueFarNoPush = arsenal.BestShotValueFrom(ctx, far, enemy);
         Require(valueFarNoPush - valueFar >= .25f,
             $"the far shot's lost value is its push charge: without the push it is worth more; with={valueFar} without={valueFarNoPush}");
