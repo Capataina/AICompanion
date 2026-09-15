@@ -49,9 +49,10 @@ public static class ChronicleTests
             ADamagedCaptureReducesCoverageAndInventsNoContradiction();
             IdentityRulesStillMatchTheProducer();
             TravelIsReadPerJourneyAndSkippedByNameOnAnOlderCapture();
+            StillnessAndMotionPairsBreakAtAGapAndAtDeath();
             // Last, because it writes a chronicle and an events sibling into the temp directory and
             // the multi-run cases above read that directory for runs to join.
-            Console.WriteLine("Chronicle self-tests passed (32 assertion groups).");
+            Console.WriteLine("Chronicle self-tests passed (33 assertion groups).");
             return 0;
         }
         catch (Exception error)
@@ -107,6 +108,66 @@ public static class ChronicleTests
             // A reflex owning the body is somebody else holding it, which is not this check's subject.
             Require(!new TheBodyMovesWhenDriven().Run(Write("2.00,0.00", "0.00,0.00", 200f, moving: false, reflex: "dodge")).Any(),
                 "a reflex holding the body was charged to the route");
+        }
+        finally { File.Delete(file); }
+    }
+
+    /// <summary>
+    /// The two rules of the stillness and motion measures that the capture they are pinned on cannot
+    /// exercise: a gap in the ticks ends a still run and refuses a pair, and so does a dead or downed
+    /// row. That capture holds 5,019 consecutive ticks, so a measure that ignored gaps reproduces
+    /// every pin, and only a fixture with a gap in it can tell.
+    ///
+    /// Every assertion is on a number that moves when a rule is dropped, not on a number that merely
+    /// exists. Ignoring the gap joins two five-tick stretches into a second run; ignoring death lets
+    /// the dead rows extend the last stretch, puts their 500 px distance at the p90 rank, and adds two
+    /// right-angle turns to a set that otherwise holds one straight pair.
+    /// </summary>
+    private static void StillnessAndMotionPairsBreakAtAGapAndAtDeath()
+    {
+        string file = Path.GetTempFileName();
+        try
+        {
+            var text = new StringBuilder("# text_columns=state,npc_px,npc_vel,player_px,player_vel,control_source,desired_vel\n");
+            text.AppendLine("tick\tstate\tnpc_px\tnpc_vel\tplayer_px\tplayer_vel\tcontrol_source\tdesired_vel");
+            void Row(long tick, string state, string velocity, string source = "hold")
+                => text.AppendLine($"{tick}\t{state}\t0,0\t{velocity}\t{(state == "up" ? "30.00,40.00" : "300.00,400.00")}\t3.00,0.00\t{source}\t0.00,0.00");
+            for (long t = 0; t <= 11; t++) Row(t, "up", "0.00,0.00");            // the one real run, twelve ticks
+            Row(12, "up", "2.00,0.00");
+            for (long t = 13; t <= 17; t++) Row(t, "up", "0.00,0.00");           // five, then ticks 18..29 are missing
+            for (long t = 30; t <= 34; t++) Row(t, "up", "0.00,0.00");           // five more across the gap
+            for (long t = 35; t <= 39; t++) Row(t, "player-dead", "0.00,0.00");  // still, but dead
+            for (long t = 40; t <= 44; t++) Row(t, "up", "0.00,0.00", "combat-spacing");
+            Row(50, "up", "2.00,0.00");
+            Row(51, "up", "2.00,0.00");                                          // one straight pair
+            Row(60, "up", "0.00,2.00");                                          // a right angle, but across a gap
+            Row(61, "downed", "-2.00,0.00");
+            Row(62, "up", "0.00,-2.00");
+            File.WriteAllText(file, text.ToString());
+            Session session = Session.Load(file);
+
+            var rows = new IMeasure[] { new MeasureStillness(), new MeasureDistanceWhilePlayerMoves(), new MeasureMotionSmoothness(), new MeasureSafetyShare() }
+                .SelectMany(measure => measure.Rows(session)).ToDictionary(row => row.Case, StringComparer.Ordinal);
+            double Value(string name) => rows.TryGetValue(name, out var row) && row.Value is { } v ? v : double.NaN;
+
+            Require(Value("stillness/runs") == 1 && Value("stillness/longest-run") == 12,
+                $"expected one still run of twelve ticks and found {Value("stillness/runs")} with the longest {Value("stillness/longest-run")} — "
+                + "a gap in the ticks or a dead row is being counted as part of a stretch of stillness");
+            // 32 alive rows with the player moving; the orb is still on 27 of them.
+            Require(Math.Abs(Value("stillness/share-still-while-player-moves") - 100.0 * 27 / 32) < 1e-9 && Value("stillness/player-moving-ticks") == 32,
+                $"the still-while-moving share read {Value("stillness/share-still-while-player-moves")} over {Value("stillness/player-moving-ticks")} ticks; a dead row is in the denominator");
+            Require(Value("stillness/still-by-owner/hold") == 22 && Value("stillness/still-by-owner/combat-spacing") == 5,
+                "still ticks were charged to the wrong control source");
+            Require(Value("distance/while-player-moves-p90") == 50,
+                $"the p90 distance read {Value("distance/while-player-moves-p90")} where every alive row is 50 px; a dead row's distance reached the percentile");
+            // The count is read off the p90 row, whose message names it as "over N pairs"; a pair across
+            // the gap or either side of the downing would make it three and put a right angle at p99.
+            Require(Value("smoothness/heading-change-p99") == 0 && rows["smoothness/heading-change-p90"].Message!.Contains("over 1 pairs", StringComparison.Ordinal),
+                $"the heading set is not the one straight pair: {rows["smoothness/heading-change-p90"].Message} — a pair across a gap or a downing was measured as a turn");
+            Require(rows["smoothness/speed-change-p90"].Message!.Contains("over 3 pairs", StringComparison.Ordinal),
+                $"the speed-change set should hold the two changes around tick 12 and the straight pair: {rows["smoothness/speed-change-p90"].Message}");
+            Require(Math.Abs(Value("safety/share-of-ticks/combat-spacing") - 100.0 * 5 / 32) < 1e-9 && Value("safety/share-of-ticks/survival-escape") == 0,
+                "the safety shares are not over alive ticks, or a response with no ticks did not file its zero");
         }
         finally { File.Delete(file); }
     }
@@ -1566,6 +1627,15 @@ public static class ChronicleTests
         Require(safety.Contains("\"survival-escape\"", StringComparison.Ordinal) && safety.Contains("\"combat-reflex\"", StringComparison.Ordinal)
                 && safety.Contains("Begin(ctx, \"combat-spacing\")", StringComparison.Ordinal),
             "a safety owner the grant rules classify is no longer issued");
+        // The safety measure files a row per owner in a fixed set, so it must be the producer's set in
+        // both directions: a renamed owner would otherwise read 0% for ever, and a new response would
+        // own the body on ticks no row counts.
+        foreach (string measured in MeasureSafetyShare.SafetyOwners)
+            Require(safety.Contains($"\"{measured}\"", StringComparison.Ordinal) && ControlGrantsAreCompatible.SuspendingOwners.Contains(measured),
+                $"the safety measure counts '{measured}', which ChooseSafetyResponse no longer issues or the grant rules no longer call suspending");
+        foreach (System.Text.RegularExpressions.Match issued in System.Text.RegularExpressions.Regex.Matches(safety, "new ActivityControlRequest\\(controls, \"([^\"]+)\""))
+            Require(MeasureSafetyShare.SafetyOwners.Contains(issued.Groups[1].Value),
+                $"ChooseSafetyResponse issues '{issued.Groups[1].Value}', which the safety measure does not count; add it to MeasureSafetyShare.SafetyOwners or say why it is not safety");
         Require(events.Contains("grant-id={id};grant-tick={tick};activity-id={activityId};attempt-id={attemptId};activity-phase={activityPhase};requested-owner={requestedOwner}", StringComparison.Ordinal)
                 && events.Contains("attempt={outcome.Attempt};choice-id={choiceId};activity-id={activityId};activity-attempt-id={activityAttemptId}", StringComparison.Ordinal)
                 && new[] { Source("Companion", "Brain", "Activities", "Gathering", "MineOre.cs"), Source("Companion", "Brain", "Activities", "Gathering", "ChopTree.cs") }

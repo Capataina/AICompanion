@@ -18,23 +18,23 @@ namespace AICompanion.Tools.SessionReport;
 /// unfinished on nearly half of them, one activity owns three quarters of the session — and the
 /// defects these measures exist to track live in exactly that shape.
 ///
-/// <b>Nothing is pinned at present, and that is a statement about the evidence rather than a gap
-/// somebody forgot to fill.</b> Every number this file used to hold was read off the 13:27 capture
-/// of 14 September 2026, which recorded the walking body at schema 0.33.0. The orb's row is a
-/// different row: the measures that fed four of those numbers are deleted because the quantities
-/// they counted do not exist for this body, and the ones that survive read columns that capture does
-/// not carry. Re-pinning them against it would be pinning the instrument to a body the game no
-/// longer has.
+/// <b>The pins are the first orb play's, and only the stillness and motion measures are pinned.</b>
+/// Every number this file held before was read off the 13:27 capture of 14 September 2026, which
+/// recorded the walking body at schema 0.33.0, and none of them survived the change of body. The
+/// table below is taken from <c>2026-09-15_08-30-31-684</c>, the first capture of the orb (schema
+/// 0.34.0, mod 0.26.0 from <c>6a2e59e</c>), and holds the stillness, distance, smoothness and safety
+/// measures, which were written for that play and whose every value was reproduced by an independent
+/// reading of the file before it was written here. The older measures still run on it and are not
+/// pinned: nobody has yet read their numbers against that play, and a pin taken without that reading
+/// would be a number nobody checked, written down as one somebody did.
 ///
-/// So the gate is the capture's own schema, and a capture below <see cref="OrbSchema"/> files a
+/// The gate is still the capture's own schema, and a capture below <see cref="OrbSchema"/> files a
 /// <c>skipped</c> row naming the schema it found and the schema the pins want. That is the same rule
 /// the absent-capture branch already followed, extended to the case that is worse because it looks
 /// fine: an old capture has every column name a surviving measure asks for, so it would produce
-/// numbers, and those numbers would be a walking body's. The first orb playtest is what fills the
-/// table below, and until it exists these measures are unverified against real play and this file
-/// says so on every run.
+/// numbers, and those numbers would be a walking body's.
 ///
-/// The reason to pin them at all is worth keeping while the table is empty. Two numbers quoted in
+/// The reason to pin at all is worth keeping beside the table. Two numbers quoted in
 /// the research around the 13:27 capture were wrong, both because they came from a reader's own
 /// filter over the file rather than from an instrument: a share of rows on which the companion led
 /// the travelling player was paired with the wrong threshold, and a count of stretches at a partial
@@ -51,9 +51,15 @@ public static class PlayMeasureTests
     /// prints what is missing and what it would have proved; it never reads as green.
     /// </summary>
     private const string CaptureVariable = "AIC_PLAY_CAPTURE";
-    /// <summary>The recorder names each capture for the moment it was written, so the default is the
-    /// folder and the newest capture in it, resolved exactly as the tool's own folder argument is.</summary>
-    private const string DefaultCapture = "Telemetry";
+    /// <summary>
+    /// The capture the pins were read off, by name. It used to be the folder, resolved to the newest
+    /// capture in it, and that was harmless only while nothing was pinned: pins are facts about one
+    /// recording, so the next playtest would have become the default and turned every pin red for
+    /// having a different play in it — which reads as the measures breaking, on exactly the run whose
+    /// numbers are meant to be compared against these. The newest capture is benchmarked through
+    /// <c>--measures</c> and the ledger instead.
+    /// </summary>
+    private const string DefaultCapture = "Telemetry/2026-09-15_08-30-31-684.tsv";
 
     /// <summary>
     /// The schema whose row this reader is built for. A capture below it was written by the walking
@@ -66,11 +72,37 @@ public static class PlayMeasureTests
     /// The before-numbers, by ledger case. A share is in percent and a count is a count, matching
     /// what the rows carry, so a figure here can be read straight against a figure in a report.
     ///
-    /// Empty until an orb capture exists. An empty table never passes: the run below files a skip
-    /// naming what is unpinned, because a green row for a comparison of nothing against nothing is
-    /// exactly the hollow result this whole file was built to refuse.
+    /// Every value is compared after rounding to two places with a tolerance of a thousandth, so a
+    /// pin is exact at the precision a report prints. The percentiles are the floor of the rank, so
+    /// each is a value one row of the capture actually held. An empty table never passes: the run
+    /// below files a skip naming what is unpinned, because a green row for a comparison of nothing
+    /// against nothing is exactly the hollow result this whole file was built to refuse.
     /// </summary>
-    private static readonly (string Case, double Expected, double Tolerance)[] Pinned = Array.Empty<(string, double, double)>();
+    private static readonly (string Case, double Expected, double Tolerance)[] Pinned =
+    {
+        // 1,221 of 2,031 alive ticks with the player moving. Every tick of the 5,019 is consecutive,
+        // so the gap rule that ends runs and pairs is proven by ChronicleTests' fixture, not here.
+        ("stillness/share-still-while-player-moves", 60.12, 0.001),
+        ("stillness/player-moving-ticks", 2031, 0),
+        ("stillness/still-by-owner/combat-spacing", 970, 0),
+        // 154 of these have the navigator Arrived and 2 Executable.
+        ("stillness/still-by-owner/travel", 156, 0),
+        ("stillness/still-by-owner/hold", 87, 0),
+        ("stillness/still-by-owner/seeking-destination", 8, 0),
+        // Alive ticks only. Over every row, the 600 player-dead ones included, the same rule finds 33
+        // runs: the dead rows are still, and they join or extend stretches the living rows did not make.
+        ("stillness/runs", 28, 0),
+        ("stillness/longest-run", 773, 0),
+        ("distance/while-player-moves-p50", 164.12, 0.001),
+        ("distance/while-player-moves-p90", 737.75, 0.001),
+        ("smoothness/heading-change-p90", 5.44, 0.001),
+        ("smoothness/heading-change-p99", 13.01, 0.001),
+        ("smoothness/speed-change-p90", 0.48, 0.001),
+        // Of 4,419 alive ticks: 2,715 and 80. No environmental escape ran, and its row still files.
+        ("safety/share-of-ticks/combat-spacing", 61.44, 0.001),
+        ("safety/share-of-ticks/combat-reflex", 1.81, 0.001),
+        ("safety/share-of-ticks/survival-escape", 0, 0),
+    };
 
     /// <summary>Cases that must report themselves skipped on the pinning capture, never silently produce a number.</summary>
     private static readonly string[] MustSkip = Array.Empty<string>();
@@ -180,7 +212,7 @@ public static class PlayMeasureTests
                 failures.Add($"{name}: expected a skip naming what the capture lacks, and got '{row.Verdict}' — a column this capture does not carry must never read as a number");
         }
 
-        // A measure that throws is an error row, and an error row here means the twenty-four numbers
+        // A measure that throws is an error row, and an error row here means the pinned numbers
         // above were measured by an instrument that is partly broken.
         foreach (LedgerRow row in rows.Where(r => r.Verdict == "error"))
             failures.Add($"{row.Case}: the measure itself failed — {row.Message}");

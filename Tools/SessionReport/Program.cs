@@ -114,6 +114,13 @@ public static class Program
         new MeasureJourneysReached(),
         new MeasureHandsByActivity(),
         new MeasureTerrainRevisionRate(),
+        // The orb's stillness and roughness, which the first orb play of 15 September made the
+        // question: `unexplained-stops` read zero over a session spent mostly still, because a body
+        // held by a safety response or an arrived hold has no route to stop on.
+        new MeasureStillness(),
+        new MeasureDistanceWhilePlayerMoves(),
+        new MeasureMotionSmoothness(),
+        new MeasureSafetyShare(),
     };
 
     public static int Main(string[] args)

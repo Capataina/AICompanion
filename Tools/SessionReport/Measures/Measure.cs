@@ -133,6 +133,50 @@ internal static class ReadPlay
         return File.Exists(path) ? File.ReadAllText(path) : null;
     }
 
+    /// <summary>
+    /// Both components of a <c>x,y</c> pair, parsed as doubles from the cell text for the reason
+    /// <see cref="Leading"/> gives: a speed floor of 0.3 or 1.0 tested against a float widened back
+    /// to a double admits the rows recorded at exactly the floor.
+    /// </summary>
+    public static (double X, double Y)? Pair(Column column, int row)
+    {
+        string cell = column.Text[row];
+        int comma = cell.IndexOf(',');
+        if (comma <= 0) return null;
+        return double.TryParse(cell.AsSpan(0, comma), NumberStyles.Float, CultureInfo.InvariantCulture, out double x)
+            && double.TryParse(cell.AsSpan(comma + 1), NumberStyles.Float, CultureInfo.InvariantCulture, out double y)
+                ? (x, y) : null;
+    }
+
+    /// <summary>
+    /// The engine tick as a long, read from the text, because the parsed float stops representing
+    /// consecutive integers at 2^24 and a pair of rows "one tick apart" must be decided exactly.
+    /// </summary>
+    public static long? Tick(Column tick, int row)
+        => long.TryParse(tick.Text[row], NumberStyles.Integer, CultureInfo.InvariantCulture, out long value) ? value : null;
+
+    /// <summary>
+    /// Whether the companion was in the world to be judged on this row: the player alive and the
+    /// companion not downed. Both are the <c>state</c> cell, which the recorder writes as
+    /// <c>player-dead</c> or <c>downed</c> in place of <c>up</c>; a dead player's companion and a
+    /// downed one are held still by the game rather than by a choice, so a stillness counted over
+    /// them measures the respawn timer.
+    /// </summary>
+    public static bool Alive(Column state, int row) => state.Text[row] is not ("player-dead" or "downed");
+
+    /// <summary>
+    /// The value at the floor of the rank, <c>sorted[floor(p·(n−1))]</c>, which is the percentile
+    /// <c>DescribeSession</c> already prints for recording cost, so two percentiles in one report are
+    /// taken one way. It never interpolates, so a pinned value is a value some row actually held.
+    /// Not <see cref="Median"/>, which averages the two middle values of an even count. Sorts in place.
+    /// </summary>
+    public static double FloorRank(List<double> values, double p)
+    {
+        if (values.Count == 0) return double.NaN;
+        values.Sort();
+        return values[Math.Min(values.Count - 1, (int)Math.Floor(p * (values.Count - 1)))];
+    }
+
     public static double Median(List<double> values)
     {
         if (values.Count == 0) return double.NaN;
