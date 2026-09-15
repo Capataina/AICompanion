@@ -11,6 +11,7 @@ using AICompanion.Companion.Brain.Infrastructure.Diagnostics;
 using AICompanion.Companion.Brain.Infrastructure.Aiming;
 using AICompanion.Companion.Brain.Infrastructure.Movement;
 using AICompanion.Companion.Brain.Infrastructure.Observation;
+using AICompanion.Companion.Brain.Infrastructure.Selection;
 using AICompanion.Companion.Inventory;
 using AICompanion.Companion.PlayerIntegration;
 
@@ -27,6 +28,10 @@ namespace AICompanion.Companion.Weapons;
 /// The weapons are whatever the two weapon slots of the gear hold, enumerated again only when
 /// the gear's signature changes, and a slot the predicate refuses — an item that stopped passing
 /// after it was saved — is skipped here as well, so a refused item never reaches a forecast.
+///
+/// Every forecast's hit damage is the arithmetic's prior times what <see cref="AttackLearning"/> has learned that
+/// weapon's attacks actually achieve in that context, so weapon, target, stand and aim are ranked by one learned value;
+/// every use opens an outcome window in <see cref="ShotOutcomes"/> that teaches the learner when it closes.
 /// </summary>
 public sealed class Arsenal
 {
@@ -49,6 +54,9 @@ public sealed class Arsenal
     public float MaxReach { get { Refresh(Main.LocalPlayer); return maxReach; } }
     private float maxReach;
 
+    /// <summary>The gear's signature as the arsenal last enumerated it, so a consumer holding a choice made for these weapons can tell when they changed.</summary>
+    public int GearSignature { get { Refresh(Main.LocalPlayer); return gearSignature; } }
+
     public CompanionWeapon? LastChosen { get; private set; }
     public bool LastShotSolved { get; private set; }
 
@@ -64,6 +72,12 @@ public sealed class Arsenal
     public float LastPreventedHarm { get; private set; }
     public int LastExpectedKills { get; private set; }
     public int CooldownTicks => cooldown;
+
+    /// <summary>Whether the last forecast was allowed to explore, or was held to the posterior mean by the danger gate.</summary>
+    public bool LastForecastExplored { get; private set; } = true;
+
+    /// <summary>The aim offset from the intercept the last shot actually left at, radians, noise included.</summary>
+    public float LastAimOffset { get; private set; }
 
     /// <summary>
     /// Why the last tick did or did not use a weapon, as one word: <c>fired</c>, <c>cooldown</c>,
@@ -98,10 +112,12 @@ public sealed class Arsenal
     private readonly NPC[] pierced = new NPC[MaxPierceCounted];
     private readonly List<NPC> hostiles = new();
 
+    /// <summary>Ages the reload and closes outcome windows whose bound has elapsed.</summary>
     public void Tick()
     {
         if (cooldown > 0)
             cooldown--;
+        ShotOutcomes.Tick(Main.GameUpdateCount);
     }
 
     /// <summary>
@@ -133,6 +149,7 @@ public sealed class Arsenal
         LastChosen = null;
         failedTarget = -1;
         interventionCheckedAt = int.MinValue;
+        idealCheckedAt = int.MinValue;
         fromHereAttacks = new List<EvaluateAttackOutcomes.Attack>();
         Array.Clear(engageCheckedAt);
     }
@@ -298,10 +315,10 @@ public sealed class Arsenal
     ///
     /// A target the hands can already shoot uses its retained, trajectory-checked attacks from the last
     /// ranking. A target that needs a reposition gets one assumed attack per weapon — per-hit damage after
-    /// the target's defence, the weapon's use time, a flight time from the current muzzle distance — which
-    /// is optimistic about the arc (the positioner proves the real one at the stand) and pessimistic about
-    /// the wait, because the hands' own shots during the walk are not counted. The retained from-here
-    /// attacks are the continuation after that first shot, so a reposition that delays the arrows a
+    /// the target's defence and the learned correction, the weapon's use time, a flight time from the current
+    /// muzzle distance — which is optimistic about the arc (the positioner proves the real one at the stand) and
+    /// pessimistic about the wait, because the hands' own shots during the walk are not counted. The retained
+    /// from-here attacks are the continuation after that first shot, so a reposition that delays the arrows a
     /// healthy target would otherwise have taken is charged for them. Zero means the target cannot be
     /// damaged or nothing lands inside the evaluation window; it is not proof the target is worthless.
     /// </summary>
@@ -316,20 +333,11 @@ public sealed class Arsenal
             foreach (var attack in fromHereAttacks)
                 if (attack.Target == target.whoAmI) firsts.Add(attack);
         if (firsts.Count == 0)
-        {
-            Vector2 muzzle = Muzzle(ctx.Npc);
-            for (int w = 0; w < weapons.Count; w++)
+            foreach (var assumed in AssumedAttacks(ctx, target))
             {
-                CompanionWeapon weapon = weapons[w];
-                int flight = Math.Max(1, (int)(Vector2.Distance(muzzle, target.Center) / MathF.Max(1f, weapon.Model.Speed)));
-                // No push is charged on an assumed attack: its muzzle is a stand nobody has chosen yet, so which side the
-                // push would carry the target to is unknown, and the positioner's side preference prices that at the stand.
-                var assumed = new EvaluateAttackOutcomes.Attack(w, target.whoAmI, weapon.UseTime, flight,
-                    new[] { new EvaluateAttackOutcomes.Hit(target.whoAmI, PerHit(ctx, weapon, target)) });
                 firsts.Add(assumed);
                 alternatives.Add(assumed);
             }
-        }
         int fireAt = Math.Max(cooldown, Math.Max(0, accessTicks));
         float best = 0f;
         foreach (var first in firsts)
@@ -337,34 +345,162 @@ public sealed class Arsenal
         return best;
     }
 
-    private EvaluateAttackOutcomes.Attack? ForecastAttack(in ActionContext ctx, CompanionWeapon weapon, int slot, NPC target, out string rejection)
-        => ForecastFrom(ctx, weapon, slot, target, Muzzle(ctx.Npc), record: true, out rejection);
+    /// <summary>
+    /// One assumed attack per weapon at a target with no geometry in the way: the learned per-hit damage, the weapon's use
+    /// time, a flight from the current distance at the weapon's launch speed, and no push charge — its muzzle is a stand
+    /// nobody has chosen yet, so which side a push would carry the target to is unknown, and a stand's own forecast prices it.
+    /// </summary>
+    private List<EvaluateAttackOutcomes.Attack> AssumedAttacks(in ActionContext ctx, NPC target)
+    {
+        var assumed = new List<EvaluateAttackOutcomes.Attack>();
+        Vector2 muzzle = Muzzle(ctx.Npc);
+        bool explore = Explore(ctx);
+        for (int w = 0; w < weapons.Count; w++)
+        {
+            CompanionWeapon weapon = weapons[w];
+            float distance = Vector2.Distance(muzzle, target.Center);
+            int flight = Math.Max(1, (int)(distance / MathF.Max(1f, weapon.Model.Speed)));
+            var inputs = new ContextInputs(distance, weapon.Reach, (target.velocity - ctx.Npc.velocity).Length(), 0, ctx.Npc.velocity.Length());
+            assumed.Add(new EvaluateAttackOutcomes.Attack(w, target.whoAmI, weapon.UseTime, flight,
+                new[] { LearnedHit(ctx, weapon, target, PerHit(ctx, weapon, target), 0f, inputs, 0f, explore) }));
+        }
+        return assumed;
+    }
+
+    private int idealCheckedAt = int.MinValue;
+    private int idealTarget = -1;
+    private int idealGeneration;
+    private int idealRevision;
+    private float idealValue;
 
     /// <summary>
-    /// The same forecast the hands fire from, evaluated at an arbitrary muzzle so hunt can ask whether
-    /// a pose would actually shoot rather than whether a straight ray would.
+    /// The value the best weapon in hand would have against this target if geometry were no object: the evaluator's value of
+    /// its assumed attacks, with no push charge. Position selection reads a stand's value as a share of this, so a stand is
+    /// priced by how much of the best available attack it actually realises rather than by a scale of its own. Cached for the
+    /// tick, the target and what the learner believes.
     /// </summary>
-    private EvaluateAttackOutcomes.Attack? ForecastFrom(in ActionContext ctx, CompanionWeapon weapon, int slot, NPC target, Vector2 muzzle, bool record, out string rejection)
+    public float IdealShotValue(in ActionContext ctx, NPC target)
     {
+        Refresh(ctx);
+        if (!target.active || target.life <= 0 || !target.CanBeChasedBy() || weapons.Count == 0) return 0f;
+        int generation = HostileAttackSources.Generation(target);
+        if (idealCheckedAt == ctx.Senses.Tick && idealTarget == target.whoAmI && idealGeneration == generation && idealRevision == AttackLearning.Revision)
+            return idealValue;
+        var targets = AttackTargets(ctx);
+        var assumed = AssumedAttacks(ctx, target);
+        float best = 0f;
+        foreach (var attack in assumed)
+            best = MathF.Max(best, EvaluateAttackOutcomes.Evaluate(attack, assumed, targets, cooldown, HorizonTicks).Value);
+        idealCheckedAt = ctx.Senses.Tick; idealTarget = target.whoAmI; idealGeneration = generation; idealRevision = AttackLearning.Revision;
+        return idealValue = best;
+    }
+
+    private EvaluateAttackOutcomes.Attack? ForecastAttack(in ActionContext ctx, CompanionWeapon weapon, int slot, NPC target, out string rejection)
+        => Forecast(ctx, weapon, slot, target, Muzzle(ctx.Npc), record: true, 0, out rejection, out _);
+
+    /// <summary>The raw inputs of a learning context other than the aim and the debuff, which differ per candidate and per body.</summary>
+    private readonly record struct ContextInputs(float Distance, float Reach, float RelativeSpeed, int LaneHostiles, float OrbSpeed)
+    {
+        public float[] With(float aimOffset, bool debuffedByOther)
+            => AttackLearning.Context(Distance, Reach, aimOffset, RelativeSpeed, LaneHostiles, OrbSpeed, OrbPace.MaxSpeed, debuffedByOther);
+    }
+
+    /// <summary>What a forecast predicted before any learned correction, and the context it was made in, so a use can be taught against it.</summary>
+    private readonly record struct ForecastPrior(float Damage, int Struck, float Charge, ContextInputs Inputs, float AimOffset, bool AimedDebuffed);
+
+    /// <summary>
+    /// The same forecast the hands fire from, evaluated at an arbitrary muzzle — and against the target as it will be
+    /// <paramref name="targetTickOffset"/> ticks from now — so hunt and position selection can ask whether a pose would
+    /// actually shoot rather than whether a straight ray would.
+    ///
+    /// The geometry is the prior: the solve, the bodies the flight crosses, each hit's damage after armour and the push
+    /// charge. The learner then scales each hit's damage by what this weapon has achieved in this context, and picks the
+    /// aim. Aim candidates share the intercept's geometry on purpose — the prior for an offset shot is the intercept's
+    /// forecast, and only the learner knows whether aiming off it costs anything — so the choice among them is the
+    /// candidate whose learned factor on the aimed target is largest, taken before any value is computed. Because the aim
+    /// input is the offset's size, a linear model's answer is either the intercept or the widest candidate; a swing has no
+    /// launch to aim and a weapon with no evidence has nothing to say, so both keep the intercept.
+    /// </summary>
+    private EvaluateAttackOutcomes.Attack? Forecast(in ActionContext ctx, CompanionWeapon weapon, int slot, NPC target, Vector2 muzzle,
+        bool record, int targetTickOffset, out string rejection, out ForecastPrior prior)
+    {
+        prior = default;
         rejection = "outside-reach";
         if (!weapon.InReach(muzzle, target)) return null;
         rejection = "no-clear-trajectory";
         FlightModel model = weapon.Model;
-        if (!TrajectoryAimer.TrySolve(muzzle, target, model, out TrajectorySolution solution))
+        if (!TrajectoryAimer.TrySolve(muzzle, target, model, Math.Max(0, targetTickOffset), out TrajectorySolution solution))
         {
             if (record) BrainInspectorSamples.RecordAim(muzzle, target.Center, weapon.Name, null, rejection);
             return null;
         }
         if (record) BrainInspectorSamples.RecordAim(muzzle, target.Center, weapon.Name, solution.LaunchVelocity, "solved");
-        int crossed = weapon.Hits(muzzle, solution.LaunchVelocity, hostiles, pierced);
+        int crossed = Math.Min(weapon.Hits(muzzle, solution.LaunchVelocity, hostiles, pierced), weapon.Pierce);
+        bool explore = Explore(ctx);
+        LastForecastExplored = explore;
+        var inputs = new ContextInputs(Vector2.Distance(muzzle, target.Center), weapon.Reach,
+            (target.velocity - ctx.Npc.velocity).Length(), Math.Max(0, crossed - 1), ctx.Npc.velocity.Length());
+        bool aimedDebuffed = ShotOutcomes.DebuffedByOther(target, weapon.ItemType);
+        float aim = 0f;
+        if (!weapon.IsSwing && AttackLearning.Evidence(weapon.ItemType) > 0)
+        {
+            int tick = ctx.Senses.Tick;
+            float bestFactor = AttackLearning.Factor(weapon.ItemType, target.type, inputs.With(0f, aimedDebuffed), explore, tick);
+            for (int step = 1; step <= Weights.WeaponAimOffsetSteps; step++)
+            {
+                float offset = step * Weights.WeaponAimOffsetRadians;
+                float factor = AttackLearning.Factor(weapon.ItemType, target.type, inputs.With(offset, aimedDebuffed), explore, tick);
+                if (factor > bestFactor) { bestFactor = factor; aim = offset; }
+            }
+        }
         var hits = new List<EvaluateAttackOutcomes.Hit>();
-        for (int i = 0; i < Math.Min(crossed, weapon.Pierce); i++)
+        float priorDamage = 0f, charge = 0f;
+        for (int i = 0; i < crossed; i++)
         {
             float perHit = PerHit(ctx, weapon, pierced[i]);
-            hits.Add(new(pierced[i].whoAmI, perHit, InducedDanger(ctx, weapon, pierced[i], muzzle, solution.LaunchVelocity, perHit)));
+            float danger = InducedDanger(ctx, weapon, pierced[i], muzzle, solution.LaunchVelocity, perHit);
+            priorDamage += perHit;
+            charge += danger;
+            hits.Add(LearnedHit(ctx, weapon, pierced[i], perHit, danger, inputs, aim, explore));
         }
         rejection = hits.Count == 0 ? "no-damageable-intercept" : "accepted";
-        return hits.Count == 0 ? null : new(slot, target.whoAmI, weapon.UseTime, solution.ImpactTick, hits.ToArray());
+        if (hits.Count == 0) return null;
+        prior = new ForecastPrior(priorDamage, hits.Count, charge, inputs, aim, aimedDebuffed);
+        return new(slot, target.whoAmI, weapon.UseTime, solution.ImpactTick, hits.ToArray(), aim);
+    }
+
+    /// <summary>
+    /// One forecast hit with the learned correction applied: its damage in the body's current state, its damage against a
+    /// body the other weapon has debuffed, and the learned chance and length of the debuff this weapon's hit leaves on
+    /// that enemy type. With no evidence both damages are the prior exactly.
+    /// </summary>
+    private static EvaluateAttackOutcomes.Hit LearnedHit(in ActionContext ctx, CompanionWeapon weapon, NPC body, float perHit, float danger,
+        ContextInputs inputs, float aim, bool explore)
+    {
+        int item = weapon.ItemType;
+        float chance = AttackLearning.DebuffChance(item, body.type);
+        int ticks = AttackLearning.DebuffTicks(item, body.type);
+        if (AttackLearning.Evidence(item) == 0)
+            return new(body.whoAmI, perHit, danger, float.NaN, chance, ticks);
+        int tick = ctx.Senses.Tick;
+        bool debuffed = ShotOutcomes.DebuffedByOther(body, item);
+        float now = AttackLearning.Factor(item, body.type, inputs.With(aim, debuffed), explore, tick);
+        float ifDebuffed = debuffed ? now : AttackLearning.Factor(item, body.type, inputs.With(aim, true), explore, tick);
+        return new(body.whoAmI, perHit * now, danger, perHit * ifDebuffed, chance, ticks);
+    }
+
+    /// <summary>
+    /// Whether decisions may explore this tick. Thompson sampling explores by drawing coefficients, which occasionally ranks
+    /// a worse attack first; that is the price of learning and it is not worth paying while something dangerous is on either
+    /// body, so above the declared danger every forecast uses the posterior mean. The danger is the threat sense's own
+    /// urgency, the larger of the two bodies' for the most urgent threat.
+    /// </summary>
+    public static bool Explore(in ActionContext ctx)
+    {
+        float danger = 0f;
+        foreach (ThreatRecord t in ctx.Senses.Threats.Threats)
+            danger = MathF.Max(danger, MathF.Max(t.Urgency, t.UrgencyToCompanion));
+        return danger <= Weights.WeaponExploreDangerCeiling;
     }
 
     /// <summary>Whether any weapon in hand has a real, intercepting use at this target from this muzzle.</summary>
@@ -374,15 +510,17 @@ public sealed class Arsenal
         if (!target.active || target.life <= 0 || !target.CanBeChasedBy()) return false;
         Collect(ctx);
         for (int w = 0; w < weapons.Count; w++)
-            if (ForecastFrom(ctx, weapons[w], w, target, muzzle, record: false, out _) != null) return true;
+            if (Forecast(ctx, weapons[w], w, target, muzzle, record: false, 0, out _, out _) != null) return true;
         return false;
     }
 
     /// <summary>
-    /// The arsenal's outcome value for the best weapon–target pair from this muzzle against one body.
-    /// Hunt uses this to steer: it does not pick the pair the hands will fire.
+    /// The arsenal's outcome value for the best attack any weapon in hand could make from this muzzle against one body, as
+    /// that body will be <paramref name="targetTickOffset"/> ticks from now. Hunt uses this to steer and position selection
+    /// to price a stand: it does not pick the pair the hands will fire. Every weapon is asked, so a stand is worth the
+    /// best shot it offers whichever weapon that is.
     /// </summary>
-    public float BestShotValueFrom(in ActionContext ctx, Vector2 muzzle, NPC target)
+    public float BestShotValueFrom(in ActionContext ctx, Vector2 muzzle, NPC target, int targetTickOffset = 0)
     {
         Refresh(ctx);
         if (!target.active || target.life <= 0 || !target.CanBeChasedBy()) return 0f;
@@ -390,7 +528,7 @@ public sealed class Arsenal
         var attacks = new List<EvaluateAttackOutcomes.Attack>();
         for (int w = 0; w < weapons.Count; w++)
         {
-            var attack = ForecastFrom(ctx, weapons[w], w, target, muzzle, record: false, out _);
+            var attack = Forecast(ctx, weapons[w], w, target, muzzle, record: false, targetTickOffset, out _, out _);
             if (attack != null) attacks.Add(attack);
         }
         if (attacks.Count == 0) return 0f;
@@ -448,22 +586,6 @@ public sealed class Arsenal
         return charge;
     }
 
-    /// <summary>
-    /// The settled horizontal push, px and signed, that the weapon the arsenal last chose would give this target from this
-    /// muzzle — the one push question position selection asks, so it can prefer a stand whose shot pushes the target away
-    /// from the player and the orb. Zero with no weapon chosen. The damage is the weapon's base damage after armour rather
-    /// than the player-modified hit, because this is asked without a context and only decides which of the game's two
-    /// knockback branches applies.
-    /// </summary>
-    public float ExpectedPushFrom(Vector2 muzzle, NPC target, Player player)
-    {
-        CompanionWeapon? weapon = LastChosen;
-        if (weapon == null || !target.active) return 0f;
-        int direction = WeaponEffects.PriorDirection(weapon.PushesAwayFromOwner, target.Center.X - muzzle.X, target.Center.X, player.Center.X);
-        return WeaponEffects.SettledPush(weapon.ItemType, target, weapon.Knockback,
-            WeaponEffects.PriorDamage(weapon.BaseDamage, target) * WeaponEffects.DamageFactor(weapon.ItemType, target.type), direction);
-    }
-
     /// <summary>The muzzle a shot would leave from at a candidate hover: the orb's centre there, the same point <see cref="Muzzle"/> reads off the live body.</summary>
     public static Vector2 MuzzleAt(Vector2 hoverCentre) => hoverCentre;
 
@@ -479,6 +601,7 @@ public sealed class Arsenal
     private static int CombatStamp(in ActionContext ctx)
     {
         var hash = new HashCode(); hash.Add(Muzzle(ctx.Npc)); hash.Add(TerrainChanges.Revision); hash.Add(WeaponEffects.Revision);
+        hash.Add(AttackLearning.Revision);
         foreach (var t in ctx.Senses.Threats.Threats)
         {
             hash.Add(t.Npc.whoAmI); hash.Add(HostileAttackSources.Generation(t.Npc)); hash.Add(t.Npc.life);
@@ -684,11 +807,32 @@ public sealed class Arsenal
             return false;
         }
 
-        // A swing has no launch to be imprecise about: the noise is a shot's, and rotating a sector's
-        // centre by it only moved which bodies at the sector's edge were struck.
+        // The forecast the use is taught against: the prior it predicted and the aim the learner chose. Taken here rather
+        // than carried from the choice, because the choice may be a dozen ticks old and the use happens from this muzzle.
+        Collect(ctx);
+        var forecast = Forecast(ctx, weapon, weapons.IndexOf(weapon), target, muzzle, record: false, 0, out _, out ForecastPrior prior);
+
+        // A swing has no launch to be imprecise about or to aim off: the noise and the offset are a shot's, and rotating a
+        // sector's centre only moved which bodies at the sector's edge were struck.
+        float aim = weapon.IsSwing || forecast == null ? 0f : prior.AimOffset * (Main.rand.NextBool() ? 1f : -1f);
         float noise = weapon.IsSwing ? 0f : (Main.rand.NextFloat() * 2f - 1f) * weapon.AimNoise;
-        Vector2 launch = solution.LaunchVelocity.RotatedBy(noise);
-        if (!TrajectoryAimer.TryTrace(muzzle, launch, target, weapon.Model, out TrajectorySolution finalShot))
+        Vector2 launch = solution.LaunchVelocity.RotatedBy(aim + noise);
+        bool traced = TrajectoryAimer.TryTrace(muzzle, launch, target, weapon.Model, out TrajectorySolution finalShot);
+        if (!traced && aim != 0f && TrajectoryAimer.TryClear(muzzle, launch, weapon.Model, solution.ImpactTick))
+        {
+            // An offset aim is off the intercept on purpose, so reaching the target's box is what the learner is finding
+            // out rather than a condition of firing; it is held only to flying clear of terrain for the intercept's flight.
+            traced = true;
+            finalShot = solution with { LaunchVelocity = launch };
+        }
+        if (!traced && aim != 0f)
+        {
+            // An offset that meets a wall falls back to the intercept, where the ordinary check decides.
+            aim = 0f;
+            launch = solution.LaunchVelocity.RotatedBy(noise);
+            traced = TrajectoryAimer.TryTrace(muzzle, launch, target, weapon.Model, out finalShot);
+        }
+        if (!traced)
         {
             LastShotSolved = false;
             LastFireOutcome = "no-arc";
@@ -709,11 +853,34 @@ public sealed class Arsenal
             TrackLandedHits.Register(result.ProjectileSlot, target, weapon.ItemType);
             ProjectileArcs.Register(result.ProjectileSlot, weapon.ProjectileType, launch);
         }
+        LastAimOffset = weapon.IsSwing ? 0f : MathHelper.WrapAngle(launch.ToRotation() - solution.LaunchVelocity.ToRotation());
+        if (forecast != null)
+            OpenOutcome(weapon, target, prior, LastAimOffset, result);
         cooldown = weapon.UseTime;
         ctx.Companion.StartAnimation(weapon.ItemType, Math.Max(10, weapon.BaseUseTime));
         ctx.Companion.SetAimRotation(launch);
         LastFireOutcome = "fired";
         return true;
+    }
+
+    /// <summary>
+    /// Open the use's outcome window against what its forecast predicted and the context it was fired in — the aim as it
+    /// actually left, noise included, because that is the offset whose outcome is about to be observed. A shot's window
+    /// holds its projectile until it and its descendants die; a swing's strikes are already known, so its window closes now.
+    /// </summary>
+    private static void OpenOutcome(CompanionWeapon weapon, NPC target, in ForecastPrior prior, float firedAim, FireResult result)
+    {
+        float[] context = prior.Inputs.With(firedAim, prior.AimedDebuffed);
+        int window = ShotOutcomes.Open(weapon.ItemType, target.type, context, prior.Damage, prior.Struck, prior.Charge, weapon.UseTime, Main.GameUpdateCount);
+        if (result.IsShot)
+        {
+            ShotOutcomes.AddSlot(window, result.ProjectileSlot);
+            return;
+        }
+        if (result.Strikes != null)
+            foreach (SwingStrike strike in result.Strikes)
+                ShotOutcomes.Strike(window, strike.Npc, strike.Dealt, strike.BuffTypesBefore, strike.BuffTimesBefore);
+        ShotOutcomes.Close(window, Main.GameUpdateCount, bounded: false);
     }
 
     private bool FailedTraceStillApplies(in ActionContext ctx, NPC target, Vector2 muzzle)

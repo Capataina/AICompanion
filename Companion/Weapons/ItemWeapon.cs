@@ -224,6 +224,7 @@ public sealed class ItemWeapon : CompanionWeapon
     {
         int struck = 0;
         int direction = aim.X >= 0f ? 1 : -1;
+        var strikes = new List<SwingStrike>();
         foreach (var threat in ctx.Senses.Threats.Threats)
         {
             NPC? npc = threat.Npc;
@@ -231,15 +232,18 @@ public sealed class ItemWeapon : CompanionWeapon
                 continue;
             // A swing passes through no NPC hit hook, so what it did is observed here around its own strike. The life it
             // took is what the game dealt while the body lives; a killing strike's is capped at the life that was left and
-            // says nothing true about the damage, so it is not taught.
+            // says nothing true about the damage, so it is not taught to the push table. The outcome learner is taught the
+            // capped life all the same, because a kill is what the swing achieved.
             Vector2 before = npc.velocity;
             int lifeBefore = npc.life;
+            int[] buffTypes = (int[])npc.buffType.Clone(), buffTimes = (int[])npc.buffTime.Clone();
             ctx.Player.ApplyDamageToNPC(npc, damage, Knockback, direction, crit: false, DamageClass.Melee);
             int dealt = lifeBefore - npc.life;
             if (dealt > 0 && npc.life > 0)
                 WeaponEffects.ObserveHit(Item.type, npc, before, npc.velocity, Knockback, direction, damage, dealt, crit: false);
+            strikes.Add(new SwingStrike(npc, Math.Max(0, dealt), buffTypes, buffTimes));
             struck++;
         }
-        return new FireResult(-1, struck);
+        return new FireResult(-1, struck, strikes);
     }
 }

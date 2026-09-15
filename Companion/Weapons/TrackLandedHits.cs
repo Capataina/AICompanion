@@ -118,25 +118,37 @@ public sealed class ForgetReusedShotSlots : GlobalProjectile
     {
         TrackLandedHits.Forget(projectile.whoAmI);
         ProjectileArcs.Forget(projectile.whoAmI);
+        // Forgets the slot's outcome window first and then joins a child to its parent projectile's window, so a
+        // splitting or star-calling shot is credited with what its children land.
+        ShotOutcomes.AttributeSpawn(projectile.whoAmI, source);
     }
 
     public override void PostAI(Projectile projectile) => ProjectileArcs.Observe(projectile);
 
-    public override void OnKill(Projectile projectile, int timeLeft) => ProjectileArcs.Retire(projectile.whoAmI);
+    public override void OnKill(Projectile projectile, int timeLeft)
+    {
+        ProjectileArcs.Retire(projectile.whoAmI);
+        ShotOutcomes.Retire(projectile.whoAmI);
+    }
 }
 
 /// <summary>
-/// Attributes a native projectile hit to the companion shot registered in that slot, if any, and feeds the weapon-effects
-/// table the velocity the hit was added to and the velocity it left.
+/// Attributes a native projectile hit to the companion shot registered in that slot, if any, feeds the weapon-effects
+/// table the velocity the hit was added to and the velocity it left, and feeds the outcome window the damage and the buffs
+/// the hit added — for the shot's own projectile and for every descendant attributed to it.
 /// </summary>
 public sealed class ObserveLandedCompanionHits : GlobalNPC
 {
     public override void ModifyHitByProjectile(NPC npc, Projectile projectile, ref NPC.HitModifiers modifiers)
-        => TrackLandedHits.BeforeStrike(npc, projectile);
+    {
+        TrackLandedHits.BeforeStrike(npc, projectile);
+        ShotOutcomes.BeforeStrike(npc, projectile.whoAmI);
+    }
 
     public override void OnHitByProjectile(NPC npc, Projectile projectile, NPC.HitInfo hit, int damageDone)
     {
         TrackLandedHits.ObserveHit(npc, projectile, damageDone);
         TrackLandedHits.AfterStrike(npc, projectile, hit, damageDone);
+        ShotOutcomes.Landed(npc, projectile.whoAmI, damageDone);
     }
 }

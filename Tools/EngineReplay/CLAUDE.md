@@ -58,7 +58,8 @@ The standalone flags are the fourth row's cause and it is structural rather than
 --free-space           corridor widths, liquids as walls, that the flood finishes, and that a bounded flood exhausts inside its ball
 --route-endings        pending against unreachable, and what an exhausted budget means
 --attack-outcomes      the arsenal's forecast against what landed
---knockback            the push prior against the game's strike, learning it, its charge on a shot, and the stand's side
+--knockback            the push prior against the game's strike, learning it, its charge on a shot, and a stand's share
+--weapon-learning      weapon, target, stand and aim valued by learned shot outcomes: aim, debuff pairs, attribution, danger, cost
 --offer-validity       shot windows, cut searches, proven absences while the body walks
 --capability           reach and tool power changing what is offered on the next preparation
 --light-senses         the light field and the reach flood, and their three-valued answers

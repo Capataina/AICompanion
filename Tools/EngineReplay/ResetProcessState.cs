@@ -103,6 +103,11 @@ internal static class ResetProcessState
         // What the weapons have learned about each enemy scales every hit the arsenal scores, so a case that swung a sword
         // at a zombie would otherwise hand the next case a damage ratio and a push it never observed.
         live::AICompanion.Companion.Weapons.WeaponEffects.Reset();
+        // What each weapon's attacks achieved scales every forecast the same way, the outcome windows hold projectile slots a
+        // rebuilt world reuses, and the landed-hit ledger holds shot identities for those slots: a case inherits none of them.
+        live::AICompanion.Companion.Weapons.AttackLearning.Reset();
+        live::AICompanion.Companion.Weapons.ShotOutcomes.Clear();
+        live::AICompanion.Companion.Weapons.TrackLandedHits.Clear();
 
         // The map before the search policy, because the policy plugs a fresh world wrapper over
         // whatever map is standing, and the wrapper has to wrap the empty one.
