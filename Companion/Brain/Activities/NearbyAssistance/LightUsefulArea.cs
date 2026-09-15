@@ -84,7 +84,7 @@ public sealed class LightUsefulArea : PerformNearbyWorldWork
         // the passage he is walking into is in range before he gets there. The nearest-first
         // ordering below still starts from the companion's own feet, because that is about which
         // darkness it can walk to rather than which darkness is worth lighting.
-        Point player = MovementQueries.Tile(ctx.Senses.Intent.Region.Centre);
+        Point player = MovementQueries.Tile(ctx.Senses.Intent.Region.Heading);
         int work = (int)(Weights.FollowWorkRadius / 16f);
         Vector2 fromFeet = ctx.Npc.Center;
         int span = Weights.LightPlacementSearchTiles;

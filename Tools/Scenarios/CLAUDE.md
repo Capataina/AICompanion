@@ -8,6 +8,7 @@ Scenarios/
 ├─ extracted-2026-09-14_19-55-52-468-tick-7224.txt  the statue ledge from the last walker play: the orb starts where the walker stalled and must reach the player's final position
 ├─ extracted-2026-09-14_20-00-40-039-tick-5300.txt  the water pocket from the same evening: the orb must reach the player without touching water or lava
 ├─ extracted-2026-09-14_13-27-46-345-tick-8127.txt  the platform jump of the 13:27 capture that was watched dying on a Hold issued mid-air, cut for the settled-arrival rule
+├─ 2026-09-15_13-16-33-496-player-track.txt         not terrain: the third orb play's player track, one line per consecutive tick of his feet and velocity, which the intent region's replay row drives through the real lead filter
 ├─ 2026-09-08_13-48-44-plans-shaped.txt             earlier captured failures reshaped from a saved world
 ├─ 2026-09-08_16-04-10-plans-shaped.txt             later shaped failures including the wet arrival regression
 ├─ 2026-09-09_18-25-59-plans-underground-house-0.8.3.txt  raw structure and pool failures

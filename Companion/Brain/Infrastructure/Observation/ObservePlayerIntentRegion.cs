@@ -8,43 +8,51 @@ using AICompanion.Companion.Brain.Infrastructure.Selection;
 namespace AICompanion.Companion.Brain.Infrastructure.Observation;
 
 /// <summary>
-/// Where the player is going, as a place rather than a point: a box carried ahead of his feet by
-/// his own observed pace, which every consumer measures "how far from the player" against.
+/// Where the player is going, as a place rather than a point: a box that holds the player, sits mostly above him, and leans
+/// the way his own observed pace is carrying him. It is where the companion lives while it keeps him company, and what every
+/// "how far apart are we" question measures to.
 ///
-/// <para>The shape it replaces was a symmetric box on the player's current feet, and its defect was
-/// not its size. It had no gradient: inside it the reunion pull was exactly zero, so a moving player
-/// was never itself a reason to move, and the body coasted to whichever edge it happened to enter by
-/// and stayed there while any rival offer won. No comfort size fixes that, because the quantity that
-/// was missing is velocity and the box did not carry any.</para>
+/// <para>The player is not at the box's centre. His centre sits at the centre of the box's bottom third, so with no lead the
+/// box's centre is a third of its height above him: a drone idles mostly above the person it goes with, underground as much
+/// as on the surface, because above is where it is out of his way and in his sight. The lead then moves the box within the
+/// limits that keep him inside it, which is a small allowance upward and a large one downward — the geometry is written out
+/// at <see cref="LeadLimits"/> — so however far and fast he travels, falls or climbs, he is always inside his own region.
+/// Before 15 September 2026 the lead was clamped to half the screen instead, which deliberately let the box leave him behind:
+/// on the 14:16 capture of that day he stood outside it on 14.9% of rows and on 37% of the rows he was falling.</para>
 ///
-/// <para>Being one object also settles an argument five callers were having separately. The reunion
-/// pull, the work radius around the player, the meeting place's fallback anchor, the lighting
-/// region's search centre and the collect radius each read the player's position with a radius of
-/// their own, so work "near the player" was work near where he was standing, behind him, while he
-/// walked away from it. They now all measure to this, which is why it is a sense and not a helper
-/// inside following.</para>
+/// <para><see cref="Centre"/> is the box's centre and is what the companion lives around. <see cref="Heading"/> is the player's
+/// own centre carried by the same lead, and it is what a radius measured "near where he is going" reads: a work radius
+/// centred on a point five tiles over his head would favour work above him for no reason the owner gave.</para>
 /// </summary>
 public readonly record struct PlayerIntentRegion(Vector2 Centre, Vector2 HalfSize, Vector2 Lead, bool IsTravelling)
 {
-    /// <summary>Whether a body standing here counts as being in the region. Both axes, never a radius:
-    /// a point on a nearby but different cave floor is not being with the player.</summary>
-    public bool Contains(Vector2 feet) => Pull(feet) <= 1f;
+    private readonly Vector2? heading;
+
+    /// <summary>The player's centre carried by the applied lead: where he is going, as a point. A region built without one — a
+    /// fixture's literal box — reads its own centre.</summary>
+    public Vector2 Heading { get => heading ?? Centre; init => heading = value; }
+
+    /// <summary>How the box moved on its last update, in pixels a tick: the player's smoothed travel plus the change in the
+    /// applied lead. It is the frame a companion moving about inside the region moves in, so a body that asks for this
+    /// velocity and nothing else stays where it is in the box while the box carries it along.</summary>
+    public Vector2 Velocity { get; init; }
+
+    /// <summary>Whether a point is in the region. Both axes, never a radius, because the two axes are deliberately different
+    /// sizes and a point on a different cave floor directly below is not being with the player.</summary>
+    public bool Contains(Vector2 point) => Pull(point) <= 1f;
 
     /// <summary>
-    /// How strongly this place is pulled towards the region, as a continuous scalar: zero at the
-    /// centre, one at the edge, and rising beyond it with no step anywhere. The normalised Chebyshev
-    /// distance rather than a radial one, because the region's two axes are deliberately different
-    /// sizes and a radial measure would call a body a comfortable width away and a body directly
-    /// below on the next floor down the same number.
+    /// The normalised Chebyshev distance from the box's centre: zero at the centre, one at the edge, rising beyond. A continuous
+    /// scalar for readers that want "how far through the box", which is not a demand to move: the owner ruled that there is no
+    /// pull anywhere inside the region, and the reunion pull is measured on <see cref="GapBeyond"/>.
     /// </summary>
-    public float Pull(Vector2 feet) => MathF.Max(
-        MathF.Abs(feet.X - Centre.X) / MathF.Max(1f, HalfSize.X),
-        MathF.Abs(feet.Y - Centre.Y) / MathF.Max(1f, HalfSize.Y));
+    public float Pull(Vector2 point) => MathF.Max(
+        MathF.Abs(point.X - Centre.X) / MathF.Max(1f, HalfSize.X),
+        MathF.Abs(point.Y - Centre.Y) / MathF.Max(1f, HalfSize.Y));
 
     /// <summary>
-    /// The point on the region's edge in the direction of travel: where a travelling player is
-    /// followed toward, and the anchor reunion aims at when nothing has been priced. A still player
-    /// has no direction, so the leading edge is the centre and following aims at him.
+    /// The point on the region's edge in the direction of travel, or the centre while the lead is negligible. What reunion aims
+    /// at when nothing better has been priced.
     /// </summary>
     public Vector2 LeadingEdge
     {
@@ -62,31 +70,82 @@ public readonly record struct PlayerIntentRegion(Vector2 Centre, Vector2 HalfSiz
     }
 
     /// <summary>
-    /// Whether a destination here still satisfies the request once the body has stopped at it. The
-    /// navigator accepts any grounded pose within its arrival radius, so that radius is reserved
-    /// inside the region: a candidate on the boundary is valid while the body stops just outside it,
-    /// which leaves an Arrived navigator and an unsatisfied objective for ever.
+    /// Whether a point is inside the region by at least <paramref name="arrivalSlack"/> on both axes. A destination is admitted
+    /// against this rather than <see cref="Contains"/>, because a body hovering around a point on the boundary spends half its
+    /// orbit outside the region that admitted it.
     /// </summary>
     public bool Accepts(Vector2 feet, float arrivalSlack)
         => MathF.Abs(feet.X - Centre.X) <= MathF.Max(0f, HalfSize.X - arrivalSlack)
             && MathF.Abs(feet.Y - Centre.Y) <= MathF.Max(0f, HalfSize.Y - arrivalSlack);
 
     /// <summary>
-    /// How far outside the region this place is, in pixels, and exactly zero anywhere inside it. The
-    /// larger of the two axes' overshoots rather than a radial distance, for the same reason
-    /// <see cref="Pull"/> is Chebyshev: the axes are deliberately different sizes.
-    ///
-    /// <para>This is what an outside-the-region slope is measured on, and the distinction from a
-    /// distance to the player's body is the whole of it. A slope measured body-to-body is already
-    /// large at the region's own leading edge — the companion standing exactly where the region asks
-    /// it to be is a lead plus a half-width away from the player — so it reports a demand at the one
-    /// place the region says there is nothing left to want, and the curve steps there. Measured to
-    /// the region the slope starts at zero where the region ends, which is where the inside gradient
-    /// is at its largest, so the two meet.</para>
+    /// How far outside the region a point is, in pixels, and exactly zero anywhere inside it: the larger of the two axes'
+    /// overshoots, for the same reason <see cref="Pull"/> is Chebyshev. Every separation the brain charges is measured on this,
+    /// so it starts at zero where the region ends and there is no step at the edge.
     /// </summary>
-    public float GapBeyond(Vector2 feet) => MathF.Max(0f, MathF.Max(
-        MathF.Abs(feet.X - Centre.X) - HalfSize.X,
-        MathF.Abs(feet.Y - Centre.Y) - HalfSize.Y));
+    public float GapBeyond(Vector2 point) => MathF.Max(0f, MathF.Max(
+        MathF.Abs(point.X - Centre.X) - HalfSize.X,
+        MathF.Abs(point.Y - Centre.Y) - HalfSize.Y));
+
+    /// <summary>The nearest point to <paramref name="point"/> that is inside the region by <paramref name="inset"/> on both
+    /// axes: the point itself when it already is.</summary>
+    public Vector2 NearestInside(Vector2 point, float inset)
+    {
+        Vector2 room = new(MathF.Max(0f, HalfSize.X - inset), MathF.Max(0f, HalfSize.Y - inset));
+        return new Vector2(Math.Clamp(point.X, Centre.X - room.X, Centre.X + room.X),
+            Math.Clamp(point.Y, Centre.Y - room.Y, Centre.Y + room.Y));
+    }
+
+    /// <summary>The half-size with no lead: the follow comfort, scaled by the player's distance preference and by the base scale.</summary>
+    public static Vector2 BaseHalfSize(float comfortScale)
+        => new Vector2(Weights.FollowHorizontalComfort, Weights.FollowVerticalComfort) * comfortScale * Weights.IntentRegionBaseScale;
+
+    /// <summary>
+    /// How far the player's centre sits below the box's centre: two thirds of the half-height, which puts him at the centre of
+    /// the bottom third, unless the box is too short for that to leave him inside by the slack, when he sits as low as the
+    /// slack allows. The second case is the Close distance mode, where a third of the half-height is under the slack.
+    /// </summary>
+    public static float PlayerBelowCentre(Vector2 halfSize, float slack)
+        => MathF.Min(halfSize.Y * 2f / 3f, MathF.Max(0f, halfSize.Y - slack));
+
+    /// <summary>
+    /// How far the lead may carry the box before the player would stop being inside it by the slack. With the player
+    /// <c>p</c> below the centre of a box of half-size <c>h</c>, his offset from the centre is <c>(−lead.x, p − lead.y)</c>,
+    /// and staying inside by <c>s</c> needs <c>|lead.x| ≤ h.x − s</c> and <c>p − (h.y − s) ≤ lead.y ≤ p + (h.y − s)</c>.
+    /// With <c>p = 2h.y/3</c> that is an upward allowance of <c>h.y/3 − s</c> and a downward one of <c>5h.y/3 − s</c>: small
+    /// up, large down, which is exactly a drone that idles above the player and is dragged below him when he drops. Screen
+    /// y grows downward, so up is negative. A limit that would be negative is zero: the box cannot lead that way at all.
+    /// </summary>
+    public static (float Across, float Up, float Down) LeadLimits(Vector2 halfSize, float slack)
+    {
+        float below = PlayerBelowCentre(halfSize, slack);
+        float room = MathF.Max(0f, halfSize.Y - slack);
+        return (MathF.Max(0f, halfSize.X - slack), MathF.Max(0f, room - below), room + below);
+    }
+
+    /// <summary>
+    /// The region for a player whose centre is at <paramref name="playerCentre"/> and whose filtered lead is
+    /// <paramref name="lead"/>. The box grows with its lead — up to the growth cap — by the lead's share of how far the fully
+    /// grown box allows it to lead on that axis, the larger of the two axes' shares; the lead is then clamped against the
+    /// limits of the box it actually is. So at the clamp the box is fully grown and the player is exactly at its edge less
+    /// the slack, and short of the clamp the clamp does not bind: the grown limits exceed the lead's share of the full ones,
+    /// because the margin between them is <c>(1 − share)(base − slack)</c> on each axis. Where the base is itself smaller than
+    /// the slack allows for — the Close mode's upward allowance — the clamp can bind a little before full growth, and the
+    /// player stays inside regardless, which is the property; growth is the preference.
+    /// </summary>
+    public static PlayerIntentRegion Around(Vector2 playerCentre, Vector2 lead, float comfortScale, bool travelling, float slack)
+    {
+        Vector2 baseHalf = BaseHalfSize(comfortScale);
+        var full = LeadLimits(baseHalf * (1f + Weights.IntentRegionGrowthCap), slack);
+        float across = full.Across > 0f ? MathF.Abs(lead.X) / full.Across : 0f;
+        float vertical = lead.Y < 0f ? (full.Up > 0f ? -lead.Y / full.Up : 0f) : (full.Down > 0f ? lead.Y / full.Down : 0f);
+        float share = MathF.Min(1f, MathF.Max(across, vertical));
+        Vector2 half = baseHalf * (1f + Weights.IntentRegionGrowthCap * share);
+        var limits = LeadLimits(half, slack);
+        Vector2 applied = new(Math.Clamp(lead.X, -limits.Across, limits.Across), Math.Clamp(lead.Y, -limits.Up, limits.Down));
+        Vector2 centre = playerCentre + new Vector2(0f, -PlayerBelowCentre(half, slack)) + applied;
+        return new PlayerIntentRegion(centre, half, applied, travelling) { Heading = playerCentre + applied };
+    }
 }
 
 /// <summary>
@@ -138,6 +197,13 @@ public sealed class PlayerIntentRegionSense
     public Position.FollowPlayerObjective Objective => new(Region, Region.Centre, Settled, AtRest);
 
     public void Update(NPC companion, PlayerSense player)
+        => Update(companion.Center, companion.velocity, player.Position, player.Intent, player.IsTravelling, player.IsDead, player.Activity.Samples);
+
+    /// <summary>The same update from the numbers it reads, so a recorded player track can be replayed through the real filter
+    /// and the real geometry with no game world behind it: a capture's player stands thousands of tiles from anything a
+    /// headless tile map holds.</summary>
+    public void Update(Vector2 companionCentre, Vector2 companionVelocity, Vector2 playerCentre, Vector2 intent,
+        bool travelling, bool dead, int samples)
     {
         // A live interference footprint deliberately does not suppress the lead, and that was
         // measured rather than assumed. Suppressing it was tried, on the hypothesis that a lead
@@ -148,48 +214,37 @@ public sealed class PlayerIntentRegionSense
         // measured effect was on the open-floor walk, where it made courtesy worse — 44 stationary
         // ticks in the player's way against 28 — since a region pulled back onto his feet is a region
         // that asks the companion to stand where he is walking. Courtesy is a positioning problem and
-        // is answered in the positioner's occupancy share, not by blinding the region.
-        Vector2 target = player.Intent * Weights.IntentRegionLeadTicks;
+        // is answered where the companion's place is chosen, not by blinding the region.
+        Vector2 target = intent * Weights.IntentRegionLeadTicks;
         // The same discontinuities that clear the intent history clear the lead: a death, a
         // teleport or an unobserved interval leaves a filtered lead pointing at where the player
         // was going before he stopped being there, and a companion sent towards a corpse.
         // InferPlayerActivity.Observe is the authority — it resets its sample count on exactly
         // those three — so the count reaching its first sample is the signal rather than a second
         // copy of the test.
-        if (player.IsDead || player.Activity.Samples <= 1)
+        if (dead || samples <= 1)
             lead = Vector2.Zero;
         else
             // One-pole low pass. It matters at the stop rather than the start: a player who halts
             // has his intent fall to nothing in one observation, and without this the region would
-            // snap back onto his feet and drag the destination with it.
+            // snap back onto him and drag the destination with it.
             lead += (target - lead) / MathF.Max(1f, Weights.IntentRegionFilterTicks);
 
-        float comfortScale = PlayerIntegration.CompanionPreferences.Current.FollowComfortScale;
-        float growth = 1f + Weights.IntentRegionGrowthCap
-            * MathF.Min(1f, lead.Length() / MathF.Max(1f, Weights.IntentRegionFullGrowthLead));
-        Vector2 half = new(Weights.FollowHorizontalComfort * comfortScale * growth,
-            Weights.FollowVerticalComfort * comfortScale * growth);
-
-        // The region may drift up to the edge of the player's own half-screen and no further, so
-        // the companion is somewhere he can see rather than somewhere he has to catch up with.
-        // Headless there is no screen, so the clamp falls back to a fixed neighbourhood; without
-        // that floor a zero screen pins the region to his feet and the whole lead is lost in
-        // every fixture. Main.screenWidth is in pixels at the game's own zoom.
-        float clampX = MathF.Max(Main.screenWidth / 2f, Weights.IntentRegionMinimumClampX) - half.X;
-        float clampY = MathF.Max(Main.screenHeight / 2f, Weights.IntentRegionMinimumClampY) - half.Y;
-        Vector2 applied = new(Math.Clamp(lead.X, -MathF.Max(0f, clampX), MathF.Max(0f, clampX)),
-            Math.Clamp(lead.Y, -MathF.Max(0f, clampY), MathF.Max(0f, clampY)));
-
-        Vector2 previousCentre = Region.Centre;
-        Region = new PlayerIntentRegion(player.Bottom + applied, half, applied, player.IsTravelling);
+        Vector2 previousCentre = Region.Centre, previousLead = Region.Lead;
+        // The slack is the settle radius, the room every destination inside the region reserves, so the player's own
+        // position is always a place the companion could be and count as inside.
+        Region = PlayerIntentRegion.Around(playerCentre, lead, PlayerIntegration.CompanionPreferences.Current.FollowComfortScale,
+            travelling, Movement.Navigator.SettleRadius) with
+        {
+            Velocity = intent + (hasRegion ? Region.Lead - previousLead : Vector2.Zero),
+        };
         CentreSpeed = hasRegion ? Vector2.Distance(previousCentre, Region.Centre) : 0f;
         hasRegion = true;
 
         // At rest is the body's speed under the settled threshold, read off the velocity the motor
-        // handed the engine last tick. Inside is the body's centre, because the orb is its centre:
-        // the region is measured to the player's feet and the body is compared as the point it is.
-        bool atRest = companion.velocity.LengthSquared() <= Weights.SettledSpeedPx * Weights.SettledSpeedPx;
-        bool inside = Region.Contains(companion.Center);
+        // handed the engine last tick. Inside is the body's centre, because the orb is its centre.
+        bool atRest = companionVelocity.LengthSquared() <= Weights.SettledSpeedPx * Weights.SettledSpeedPx;
+        bool inside = Region.Contains(companionCentre);
         AtRest = atRest;
         RestingInsideTicks = atRest && inside ? RestingInsideTicks + 1 : 0;
         // Entering costs a rescore at rest; leaving is immediate; and a body moving about inside a

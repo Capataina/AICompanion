@@ -11,6 +11,7 @@ Observation/
 ├─ VerifyPreparedActivities.cs        a prepared comparison preserves its numbers
 ├─ VerifyFamilyOffers.cs              each purpose family nominates its best child
 ├─ VerifyTravelEpisodes.cs            a journey recorded against the ticks the body could travel
+├─ VerifyIntentRegionHoldsThePlayer.cs the region's ruled shape on every distance mode, and a recorded player inside it on every row
 ├─ RecordEvidenceScenes.cs            four stalls driven through the real recorder, captures kept
 ├─ MeasureBrainCost.cs                per-phase timings, and the recording-invariance proof
 └─ GodsEyeTestStubs.cs                test-local telemetry and mod stubs for the writer
@@ -49,6 +50,10 @@ Both captures must also name a forty-digit source revision and a clean or dirty 
 `VerifyFamilyOffers` is the named selection contract: a matched flat reference, an empty family, a deferred child and absent offers. The family-allowance rows register two gathering probes, a winning combat probe and a non-excursion probe, set the chooser's share to zero and compare three times, requiring exactly one gathering child prepared per comparison with the other reported `Deferred` at zero value, the next comparison to start from the deferred sibling, the incumbent and non-excursion probes to prepare every time, and a deferred sibling's retained higher value to lose.
 
 Offer and attempt contracts are exercised at three depths: a pure fixture requiring a positive value beside a no-opportunity, policy-forbidden or known-unusable offer to be rejected, a zero-valued one to stay a truthful absence and an unresolved one to keep bounded value; a probe activity driving the real activity owner through selection without execution, reselection, suspension and repeated suspension, resumption, replacement and an empty selection, requiring distinct attempt identities and interruption that never consults the activity; and the native suites' own attempt conclusions.
+
+## The player is inside his own region
+
+`VerifyIntentRegionHoldsThePlayer` holds the owner's ruling on the region's shape in two halves that report together, because a clamp mutation reddens the geometry first and an abort on the first failure would hide whether the replay still holds. The geometry half runs on all three distance modes — the Close box is too short for the player to sit at its bottom third by the slack, and a Standard-only row would pass a placement that fails there — and writes the expected base as comfort times scale times 1.25 from the comfort constants rather than reading the base-scale constant, so a change to that constant is a red row. The replay half drives the committed player track of the 14:16 capture of 15 September 2026 through the real activity inference and the real lead filter, with no game world, since that player stands thousands of tiles from anything a headless tile map holds; the pass line is zero rows outside, where the recorded region had 5,226. **The replay cannot see where inside the box the player sits**, because containment holds wherever he is placed; that is what the geometry rows are for, and the mutation that put him at the centre left the replay green while all three placement rows went red.
 
 ## Journeys
 

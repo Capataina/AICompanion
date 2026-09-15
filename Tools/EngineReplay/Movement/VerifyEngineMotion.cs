@@ -91,6 +91,7 @@ internal static class VerifyEngineMotion
         ("the companion spawns, lives and is attached both ways", VerifyCompanionLifecycle.Run),
         ("a threat is anticipated from how it actually arrives", VerifyThreatAnticipation.Run),
         ("a captured escape gets the body out", VerifyCapturedEscape.Run),
+        ("the player's intent region holds the player on every recorded row and has the shape the owner ruled", VerifyIntentRegionHoldsThePlayer.Run),
         ("following responds to a player who departs", VerifyResponsiveFollowing.Run),
         ("recovery flight and protection admit only what may start them", VerifyFollowRecoveryAndProtection.Run),
         ("ore work breaks ore without excavating ordinary terrain", VerifyOreWork.Run),

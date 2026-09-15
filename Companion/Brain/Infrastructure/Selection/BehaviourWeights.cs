@@ -513,31 +513,20 @@ public static class Weights
     public const int IntentRegionFilterTicks = 60;
 
     /// <summary>
-    /// The most the region grows with its own lead, as a share. A leading region is also a wider one
-    /// — a player crossing broken ground is somewhere in a band rather than at a point, and a taller
-    /// region is what lets the companion count as "with him" while he climbs a hill. Capped low
-    /// because growth is slack in the arrival test, and an arrival test that grows without bound
-    /// stops being an arrival test.
+    /// How much larger the region is than the follow comfort it is built from, with no lead. The owner ruled a quarter larger
+    /// on 15 September 2026: the region stopped being a place the companion arrives at and became the place it lives and moves
+    /// through, and a box sized for arriving is too small to move about in.
     /// </summary>
-    public const float IntentRegionGrowthCap = .15f;
+    public const float IntentRegionBaseScale = 1.25f;
 
     /// <summary>
-    /// The lead at which the region is fully grown. It is the region's own half-width rather than a
-    /// fitted number: once the region has led by as much as it is wide, it has left the player's own
-    /// neighbourhood, which is exactly when the extra slack is worth having. Drifts if
-    /// <see cref="FollowHorizontalComfort"/> changes, which is the intent.
+    /// The most the region grows with its own lead, as a share, reached exactly when the lead is at the clamp that keeps the
+    /// player inside. A leading region is also a larger one — a player crossing broken ground is somewhere in a band rather
+    /// than at a point — and growing with the lead's share of its own limit, rather than with a fixed distance, is what makes
+    /// "fully grown" and "led as far as it may" the same moment. The owner raised it from fifteen to twenty-five percent with
+    /// the base scale.
     /// </summary>
-    public const float IntentRegionFullGrowthLead = FollowHorizontalComfort;
-
-    /// <summary>
-    /// The smallest half-extent the screen clamp may impose, in px, for each axis. The clamp is
-    /// half the screen so the region never drifts out of the player's own view, and headless there
-    /// is no screen at all: <c>Main.screenWidth</c> is zero, so an unguarded clamp would pin the
-    /// region to the player's feet and every fixture would pass for the reason the change exists to
-    /// remove. The same guard, and the same reason, as the light field's window minimum.
-    /// </summary>
-    public const float IntentRegionMinimumClampX = 640f;
-    public const float IntentRegionMinimumClampY = 360f;
+    public const float IntentRegionGrowthCap = .25f;
 
     /// <summary>
     /// The pull keeping company reads while the companion is inside the region and the player is

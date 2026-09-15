@@ -757,12 +757,6 @@ internal static class VerifyResponsiveFollowing
         float centralAtEdge = live::AICompanion.Companion.Brain.Infrastructure.Selection.Weights.IntentRegionCentralPull;
         Require(wouldStepTo > centralAtEdge * 1.2f, FormattableString.Invariant(
             $"the scene must lead far enough for a step to exist at all: lead={leadLength:F0}px would put a body-relative slope at {wouldStepTo:F3} against a central pull of {centralAtEdge:F3} at the edge"));
-        // Second: that lead must be the play clamp's, not the headless floor's. At the floor the lead
-        // is capped well below the length above, so this row could not be written headless — which is
-        // the clamp's own contract, asserted here rather than assumed.
-        float headlessClamp = live::AICompanion.Companion.Brain.Infrastructure.Selection.Weights.IntentRegionMinimumClampX - region.HalfSize.X;
-        Require(leadLength > headlessClamp, FormattableString.Invariant(
-            $"the region must be built at a play-sized screen: lead={leadLength:F0}px is within the headless clamp of {headlessClamp:F0}px, so the screen declaration is not reaching the sense"));
 
         float worstStep = 0f;
         float worstAt = 0f;

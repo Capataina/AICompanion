@@ -87,12 +87,12 @@ public sealed class Chooser
         var delta = region.Centre - ctx.Npc.Center;
         EstimatedReturnTicks = delta.Length() / Infrastructure.Movement.OrbPace.MaxSpeed;
         var navigator = ctx.Companion.Brain.Navigator;
-        // The route home is priced to the cell a body occupies at the region's centre — the centre is
-        // feet, so `FeetTile` — never to the tile those feet floor into: that is the solid floor row,
-        // which the flood never holds, and priced to it the estimate was null and the straight line
-        // silently won on every tick. The orb resting beside a standing player sits in that same cell.
+        // The route home is priced to the cell at the region's centre, which is air a third of the box
+        // above the player's centre rather than his feet, so it is the plain tile. It was `FeetTile` while
+        // the centre was his feet, because the tile feet floor into is the solid floor row the flood never
+        // holds, and priced to that the estimate was null and the straight line silently won every tick.
         if (ctx.Companion.Brain.Positioner.EstimatedTravelTicks(Infrastructure.Movement.MovementQueries.Tile(ctx.Npc.Center),
-            Infrastructure.Movement.MovementQueries.FeetTile(region.Centre)) is float knownTravel)
+            Infrastructure.Movement.MovementQueries.Tile(region.Centre)) is float knownTravel)
             EstimatedReturnTicks = MathF.Max(EstimatedReturnTicks, knownTravel);
         if (ctx.Companion.Brain.LastRequest.Kind is Infrastructure.Position.RequestKind.WithPlayer or Infrastructure.Position.RequestKind.Guard
             && navigator.Path != null)
@@ -100,11 +100,11 @@ public sealed class Chooser
         float movingAway = delta.LengthSquared() > 1f ? Microsoft.Xna.Framework.Vector2.Dot(ctx.Senses.Player.Intent, Microsoft.Xna.Framework.Vector2.Normalize(delta)) : 0f;
         Reunion.Evaluate(movingAway, EstimatedReturnTicks, ctx.Senses.Player.IsDead, ctx.Stranded);
         RegroupUrgency = ctx.Senses.Player.IsDead ? 0f : Infrastructure.Observation.CalculateRegroupUrgency.Evaluate(
-            // Centre to centre, as before, with the player's centre moved along by the region's lead:
-            // the urgency curve subtracts the comfortable distance itself, so handing it a distance
-            // that is already zero inside the region would subtract the comfort twice and leave a
-            // companion a whole comfort width outside the box with no return pressure at all.
-            Microsoft.Xna.Framework.Vector2.Distance(ctx.Npc.Center, region.Centre + (ctx.Senses.Player.Position - ctx.Senses.Player.Bottom)),
+            // Centre to centre, as before, with the player's centre moved along by the region's lead, which
+            // is the region's heading: the urgency curve subtracts the comfortable distance itself, so
+            // handing it a distance that is already zero inside the region would subtract the comfort twice
+            // and leave a companion a whole comfort width outside the box with no return pressure at all.
+            Microsoft.Xna.Framework.Vector2.Distance(ctx.Npc.Center, region.Heading),
             EstimatedReturnTicks, movingAway, navigator.StuckTicks,
             Weights.FollowHorizontalComfort * PlayerIntegration.CompanionPreferences.Current.FollowComfortScale,
             Weights.RegroupFullDistance, Weights.RegroupFreeReturnTicks, Weights.RegroupFullReturnTicks);
