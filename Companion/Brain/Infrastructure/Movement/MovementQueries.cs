@@ -22,6 +22,14 @@ public static class MovementQueries
 
     /// <summary>The tile a world point is in.</summary>
     public static Point Tile(Vector2 point) => new((int)MathF.Floor(point.X / 16f), (int)MathF.Floor(point.Y / 16f));
+    /// <summary>
+    /// The tile a standing body occupies, from its feet: a body resting on a floor has its feet exactly on
+    /// the tile boundary, so <see cref="Tile"/> of that point is the solid row under it, which no body is in
+    /// and no flood ever holds. One pixel up is the lowest row the body fills. The player and every walking
+    /// enemy still stand, and the orb resting beside a standing player sits in this same cell, so it is the
+    /// cell every "where he is" question about a grounded body means.
+    /// </summary>
+    public static Point FeetTile(Vector2 bottom) => Tile(new Vector2(bottom.X, bottom.Y - 1f));
     public static Vector2 TileCentre(Point tile) => new(tile.X * 16f + 8f, tile.Y * 16f + 8f);
     public static Vector2 CornerWorld(Point corner) => CornerGraph.ToWorld(corner);
 

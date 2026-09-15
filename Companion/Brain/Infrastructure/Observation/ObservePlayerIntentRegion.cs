@@ -179,6 +179,12 @@ public sealed class PlayerIntentRegionSense
         bool inside = Region.Contains(companion.Center);
         AtRest = atRest;
         RestingInsideTicks = atRest && inside ? RestingInsideTicks + 1 : 0;
-        Settled = RestingInsideTicks >= Weights.PositionRescoreTicks;
+        // Entering costs a rescore at rest; leaving is immediate; and a body moving about inside a
+        // region it has already settled in is neither, so the state latches while it stays inside.
+        // Without the latch a stroll beside a resting player un-settled the arrival on its first
+        // moving tick, reunion outscored the stroll, the body stopped and settled, strolled again,
+        // and the method flipped eight times in ten seconds beside a player who never moved. The
+        // walker never met this because its rest test was the ground, which a walking stroll keeps.
+        Settled = inside && (Settled || RestingInsideTicks >= Weights.PositionRescoreTicks);
     }
 }

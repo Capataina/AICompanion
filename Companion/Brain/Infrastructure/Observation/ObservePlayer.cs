@@ -68,7 +68,7 @@ public sealed class PlayerSense
         Velocity = player.velocity;
         // Only tiles the player stood in: the airborne part of a jump passes through tiles no
         // body can stand in, and the replay tool would name one of those as the missing link.
-        Point feet = MovementQueries.Tile(player.Bottom);
+        Point feet = MovementQueries.FeetTile(player.Bottom);
         if (player.velocity.Y == 0f && (trail.Count == 0 || trail[^1] != feet))
         {
             trail.Add(feet);
@@ -139,7 +139,12 @@ public sealed class PlayerSense
         if (player.velocity.Y != 0f || MathF.Abs(player.velocity.X) < Weights.PlayerIntentTravelSpeed)
             return null;
         int dir = Math.Sign(player.velocity.X);
-        Point from = MovementQueries.Tile(player.Bottom), to = MovementQueries.Tile(companion.Bottom);
+        // `from` is the lowest row the player's body fills, never the floor his feet rest on: `FeetTile` steps one
+        // pixel up before flooring, because a standing body's feet sit exactly on the boundary and the floor row is
+        // one no body is in. Floored onto the floor instead, the roof test below landed inside the body, this sense
+        // never fired in the one scene it exists for, and a companion resting in a one-body-tall corridor was still
+        // in the way seventeen ticks after a walking player reached it. The orb's cell is the one its centre is in.
+        Point from = MovementQueries.FeetTile(player.Bottom), to = MovementQueries.Tile(companion.Center);
         if (Math.Abs(from.Y - to.Y) > 1 || Math.Abs(to.X - from.X) > Weights.CourtesyPassageTiles)
             return null;
         // One body tall: a roof directly over a standing body, so the two cannot pass by jumping. The footprint is the passage

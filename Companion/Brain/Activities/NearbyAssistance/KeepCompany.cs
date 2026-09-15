@@ -167,7 +167,15 @@ public sealed class KeepCompany : CompanionAction
             // routes reach, not at a point extrapolated from velocity; a paused or working player
             // is met where they stand.
             var meeting = ctx.Companion.Brain.Meeting;
-            meeting.Resolve(ctx.Npc.Bottom, p, ctx.Senses.Intent.Region, Main.GameUpdateCount);
+            // The centre, because that is what the parameter is: the resolver roots its own free-space flood at
+            // `NearestUsableCorner` of the point handed in. `Bottom` on this body is the centre plus a radius,
+            // which for a companion resting one radius clear of a floor is the floor line itself — so the root
+            // was chosen around a point on or inside terrain, the flood grew from wherever that landed, and it
+            // finished having reached none of the tiles along the player's walk. A finished flood with no
+            // candidate reached is reported as a proven absence, so the refusal read `no-reachable-meeting-place`
+            // on open ground with the player walking straight at the companion, and reunion fell back to the
+            // region's leading edge on every tick of the journey it exists to price.
+            meeting.Resolve(ctx.Npc.Center, p, ctx.Senses.Intent.Region, Main.GameUpdateCount);
             return new PositionRequest(RequestKind.WithPlayer, meeting.Destination, MeetingPlace: meeting.HasPlace);
         }
         ctx.Companion.Brain.Meeting.Release();
@@ -183,8 +191,7 @@ public sealed class KeepCompany : CompanionAction
         // A held goal stays the goal until its time is up, unless it stops being a place worth standing: the player moved away
         // from it, or it became unsafe (an enemy's path now crosses it, the terrain changed under it). Re-rolling every tick is
         // what continuity rules out; keeping a goal that has turned dangerous is what this check rules out.
-        if (walking && (Vector2.DistanceSquared(goal, p.Bottom) > Weights.CalmBandFar * Weights.CalmBandFar
-            || !SafeStrollGoal(ctx, MovementQueries.Tile(goal))))
+        if (walking && (!ctx.Senses.Intent.Region.Contains(goal) || !SafeStrollGoal(ctx, MovementQueries.Tile(goal))))
             ResetLocalMovement();
         if (--ticksLeft <= 0) PickLocalMovement(ctx);
         return walking ? PositionRequest.ExactAt(goal) : PositionRequest.Hold;
@@ -223,7 +230,7 @@ public sealed class KeepCompany : CompanionAction
     /// </summary>
     private Vector2? StrollGoal(in ActionContext ctx)
     {
-        Point player = MovementQueries.Tile(ctx.Senses.Player.Bottom);
+        Point player = MovementQueries.FeetTile(ctx.Senses.Player.Bottom);
         Point body = MovementQueries.Tile(ctx.Npc.Center);
         int span = (int)(Weights.CalmBandFar * 0.7f / 16f);
         safe.Clear();
@@ -231,7 +238,14 @@ public sealed class KeepCompany : CompanionAction
             for (int y = player.Y - Weights.StrollRowsFromPlayer; y <= player.Y + Weights.StrollRowsFromPlayer; y++)
             {
                 Point tile = new(x, y);
-                if (Math.Abs(x - body.X) >= Weights.StrollMinimumTiles && SafeStrollGoal(ctx, tile))
+                // A stroll goal stays inside the player's intent region, because the region is what
+                // says the companion is with him: a goal chosen outside it is unsatisfied the moment
+                // it is reached, reunion outscores the stroll, and the method flips back and forth on
+                // a player who has not moved. The calm band is wider than the region's comfort at
+                // rest, so the band alone let the stroll manufacture the reunion it then answered.
+                if (Math.Abs(x - body.X) >= Weights.StrollMinimumTiles
+                    && ctx.Senses.Intent.Region.Contains(MovementQueries.HoverPoint(tile))
+                    && SafeStrollGoal(ctx, tile))
                     safe.Add(tile);
             }
         return safe.Count == 0 ? null : MovementQueries.HoverPoint(safe[Main.rand.Next(safe.Count)]);

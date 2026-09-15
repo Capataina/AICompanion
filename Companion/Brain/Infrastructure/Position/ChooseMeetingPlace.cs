@@ -269,7 +269,16 @@ public sealed class ChooseMeetingPlace
         Point centre = MovementQueries.Tile(feet);
         for (int i = 0; i <= Weights.MeetingSnapTiles * 2; i++)
         {
-            int dy = (i + 1) / 2 * (i % 2 == 0 ? -1 : 1);
+            // Upwards first at equal distance, because the meeting is beside a standing player and a standing
+            // player's own body is the rows above the tile his feet floor into. The ladder used to try the row
+            // *below* before the row above, which is the walker's reading surviving the body change: a walker
+            // snapped to a tile it could stand on, and the tile under a floor is not one, so the preference
+            // never mattered. A hovering body can occupy the cell under a floor perfectly well, and that cell
+            // is on the far side of the terrain the player is standing on — so on any floor thin enough to
+            // have free space beneath it, every priced candidate sat under the player's feet, the flood rooted
+            // beside the companion could not reach a single one of them, and reunion reported a proven
+            // `no-reachable-meeting-place` for a player walking straight at it down open ground.
+            int dy = (i + 1) / 2 * (i % 2 == 0 ? 1 : -1);
             Point cell = new(centre.X, centre.Y + dy);
             if (MovementQueries.IsHoverable(cell)) return cell;
         }

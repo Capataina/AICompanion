@@ -87,8 +87,10 @@ public sealed class ThreatSense
         // the end, which is what makes several threats add up while one big one still dominates.
         float playerMiss = 1f, companionMiss = 1f;
 
-        Point playerFeet = MovementQueries.Tile(player.Bottom);
-        Point companionFeet = MovementQueries.Tile(companion.Bottom);
+        // The cell each body occupies, which is what a walking enemy's reach flood is asked about: the
+        // player stands, so it is the row above his feet; the orb hovers, so it is the cell its centre is in.
+        Point playerFeet = MovementQueries.FeetTile(player.Bottom);
+        Point companionFeet = MovementQueries.Tile(companion.Center);
 
         foreach (NPC npc in Main.ActiveNPCs)
         {
@@ -113,7 +115,7 @@ public sealed class ThreatSense
             float speed = cls == MovementClass.Walker ? MathF.Abs(npc.velocity.X) : npc.velocity.Length();
             mem.PeakSpeed = MathF.Max(mem.PeakSpeed * SpeedDecay, speed);
 
-            Point from = cls == MovementClass.Walker ? MovementQueries.Tile(npc.Bottom) : npc.Center.ToTileCoordinates();
+            Point from = cls == MovementClass.Walker ? MovementQueries.FeetTile(npc.Bottom) : npc.Center.ToTileCoordinates();
             Point playerTarget = cls == MovementClass.Walker ? playerFeet : player.Center.ToTileCoordinates();
             Point companionTarget = cls == MovementClass.Walker ? companionFeet : companion.Center.ToTileCoordinates();
             bool sourceChanged = mem.From != from || mem.World != MovementQueries.World

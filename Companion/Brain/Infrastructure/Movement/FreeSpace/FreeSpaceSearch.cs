@@ -47,7 +47,19 @@ public sealed class FreeSpaceSearch
     private readonly ITileWorld world;
     private readonly LiquidImmunity immunity;
     private readonly bool immunityOverridden;
-    private readonly int revisionAtStart;
+    /// <summary>
+    /// The revision this query's answer is known to be current as of — the record's revision when the search
+    /// began, and then the record's revision at every later moment the query was asked and found clean.
+    ///
+    /// <para>It moves, and that is the whole point. The edit record keeps a fixed-size ring, so a revision older
+    /// than the ring can no longer be compared against and <c>ChangedSince</c> can only answer <c>TooOld</c>. If
+    /// this stayed at the revision the search started on, a query asked continuously while the world was edited
+    /// far away would still fall off the back of the ring after a window's worth of edits and throw its answer
+    /// away for no reason at all — measured here at exactly edit 256 of 256, with every edit fifty rows outside
+    /// the region the query read. Re-basing on a clean answer is what makes the ring a window on "since you last
+    /// asked" rather than a countdown on the query's whole life.</para>
+    /// </summary>
+    private int revisionAtStart;
     private readonly PriorityQueue<Point, float> open = new();
     private readonly Dictionary<Point, float> cost = new(CornerKey.Comparer);
     private readonly Dictionary<Point, Point> parent = new(CornerKey.Comparer);
@@ -110,7 +122,13 @@ public sealed class FreeSpaceSearch
             if (!ReferenceEquals(world, MovementQueries.World) && !ReferenceEquals(world, WorldOverride)) return false;
             if (immunity != (immunityOverridden ? immunity : OrbTerrain.Immunity)) return false;
             Rectangle bounds = ExploredBounds;
-            return world.ChangedSince(revisionAtStart, (x, y) => bounds.Contains(x, y)) == TerrainEditVerdict.Unchanged;
+            // Read once: the record moves under us, and re-basing to a revision later than the one the verdict
+            // was computed against would swallow an edit that landed between the two reads.
+            int now = world.Revision;
+            if (world.ChangedSince(revisionAtStart, (x, y) => bounds.Contains(x, y)) != TerrainEditVerdict.Unchanged)
+                return false;
+            revisionAtStart = now;
+            return true;
         }
     }
 

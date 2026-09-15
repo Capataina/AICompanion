@@ -83,6 +83,15 @@ public static class TravelEpisodes
 
     private static readonly List<(Point Tile, ulong Tick)> trail = new();
 
+    /// <summary>
+    /// The companion the last watch saw, so the close path can end its open journey and stop from the
+    /// body's own retained state. The recorder hands the close the live lookup, which is a search of the
+    /// NPC table at unload; when that search finds nothing the open journey used to be dropped without a
+    /// record — a session's last journey, the one still in flight when the world closed, was the one an
+    /// instrument built to time journeys never reported.
+    /// </summary>
+    private static CompanionNPC? watched;
+
     /// <summary>Stops so far against minutes of route travel so far, or -1 before any travel has been recorded.</summary>
     public static float StopsPerMinute => routeTicks == 0 ? -1f : stops * 3600f / routeTicks;
 
@@ -106,6 +115,7 @@ public static class TravelEpisodes
         routePixels = 0;
         stops = 0;
         trail.Clear();
+        watched = null;
     }
 
     /// <summary>
@@ -118,6 +128,7 @@ public static class TravelEpisodes
         ulong tick = Main.GameUpdateCount;
         if (tick == observedTick) return;
         observedTick = tick;
+        watched = companion;
 
         Brain brain = companion.Brain;
         Navigator navigator = brain.Navigator;
@@ -193,6 +204,7 @@ public static class TravelEpisodes
     /// rather than lost with it. The recorder calls this before it closes the occurrence stream.</summary>
     public static void Close(CompanionNPC? companion)
     {
+        companion ??= watched;
         if (companion == null) return;
         EndStop(companion, Main.GameUpdateCount);
         EndEpisode(companion, Main.GameUpdateCount);

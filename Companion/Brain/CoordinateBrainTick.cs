@@ -273,7 +273,7 @@ public sealed class Brain
     private void CountStranded()
     {
         bool towardPlayer = LastRequest.Kind is RequestKind.WithPlayer or RequestKind.Guard;
-        if (StrandedTicks > 0 && Positioner.Reaches(MovementQueries.Tile(Senses.Player.Bottom)))
+        if (StrandedTicks > 0 && Positioner.Reaches(MovementQueries.FeetTile(Senses.Player.Bottom)))
             StrandedTicks = 0;
         else if (towardPlayer && Navigator.PlannedThisTick)
             StrandedTicks = Navigator.LastPlanEmpty && Navigator.LastSearchStop == FreeSpaceSearch.StopReason.Exhausted

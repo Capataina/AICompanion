@@ -87,8 +87,12 @@ public sealed class Chooser
         var delta = region.Centre - ctx.Npc.Center;
         EstimatedReturnTicks = delta.Length() / Infrastructure.Movement.OrbPace.MaxSpeed;
         var navigator = ctx.Companion.Brain.Navigator;
+        // The route home is priced to the cell a body occupies at the region's centre — the centre is
+        // feet, so `FeetTile` — never to the tile those feet floor into: that is the solid floor row,
+        // which the flood never holds, and priced to it the estimate was null and the straight line
+        // silently won on every tick. The orb resting beside a standing player sits in that same cell.
         if (ctx.Companion.Brain.Positioner.EstimatedTravelTicks(Infrastructure.Movement.MovementQueries.Tile(ctx.Npc.Center),
-            Infrastructure.Movement.MovementQueries.Tile(region.Centre)) is float knownTravel)
+            Infrastructure.Movement.MovementQueries.FeetTile(region.Centre)) is float knownTravel)
             EstimatedReturnTicks = MathF.Max(EstimatedReturnTicks, knownTravel);
         if (ctx.Companion.Brain.LastRequest.Kind is Infrastructure.Position.RequestKind.WithPlayer or Infrastructure.Position.RequestKind.Guard
             && navigator.Path != null)

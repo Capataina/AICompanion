@@ -261,6 +261,13 @@ public sealed class CompanionMotor
     {
         downed = true;
         momentum = RecoveryFlight ? Vector2.Zero : new Vector2(0f, momentum.Y);
+        // The engine moves this body by `npc.velocity` and by nothing else, so a downing that stopped only the
+        // motor's own momentum stopped nothing the player could see: `Commit` had already written the flight's
+        // displacement into `npc.velocity`, the engine added it on the same tick, and the body carried a full
+        // tick of recovery speed after it went down — with contact skipped, straight through terrain. Downing
+        // writes the velocity it just decided onto the body, which is zero in flight and the fall it was
+        // already in otherwise.
+        npc.velocity = momentum;
         ControlSource = "downed";
     }
 
