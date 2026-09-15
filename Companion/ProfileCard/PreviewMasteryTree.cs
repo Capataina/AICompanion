@@ -18,7 +18,9 @@ namespace AICompanion.Companion.ProfileCard;
 /// and a level bar. It is simple by the owner's ruling of 15 September 2026, which called the earlier page "so
 /// crowded for no reason": no kind or rank line, no purpose sentence, no "sized against", no needs, no hint above the
 /// graph, no legend and no status line under it, and no Unlearn, because a learned level stays learned. −, + and
-/// Reset view are the page's title-bar actions. Everything here is local preview state; nothing is spent or saved.
+/// Reset view are the page's title-bar actions. Learn names what the next level costs, or says Learned once the node is
+/// full, and the gold centre is Core, picked by a click like any node. Everything here is local preview state: the
+/// points a level costs are counted for the Mastery tile, but nothing is gated on them, spent from a budget or saved.
 ///
 /// <para>The view is a scale and the screen position of the graph's origin measured from the canvas's top-left corner.
 /// Anchoring at the corner rather than the centre is what lets the panel open without anything moving: the canvas
@@ -32,7 +34,9 @@ public sealed class PreviewMasteryTree : UIElement, ICardPage
     public const float DragThreshold = 6;
     private const float FitMargin = 12;
 
-    private readonly int[] levels = new int[Nodes.Length];
+    /// <summary>Every node's learned level, and Core's in the last place.</summary>
+    private readonly int[] levels = new int[Nodes.Length + 1];
+    private static readonly Color Gold = new(255, 224, 102);
     private readonly UIElement canvas;
     private readonly DetailPanel panel;
     private int picked = -1;
@@ -49,8 +53,22 @@ public sealed class PreviewMasteryTree : UIElement, ICardPage
     public float Zoom => zoom;
     public Vector2 Origin => origin;
     public int Level(int node) => levels[node];
-    public int LearnedCount => levels.Count(level => level > 0);
-    public int Spent => levels.Sum();
+    /// <summary>How many of the tree's nodes have a level, Core not counted, for the tile's fill.</summary>
+    public int LearnedCount => levels.Take(Nodes.Length).Count(level => level > 0);
+    /// <summary>The points every learned level cost, Core's included, for the tile's reading.</summary>
+    public int Spent => Enumerable.Range(0, levels.Length).Sum(node => ContentOf(node).PointsIn(levels[node]));
+    /// <summary>What Learn says: the next level's cost, or Learned once the node is full.</summary>
+    public string LearnLabel
+    {
+        get
+        {
+            if (picked < 0) return "Learn";
+            NodeContent content = ContentOf(picked);
+            if (levels[picked] >= content.Levels) return "Learned";
+            int cost = content.CostOf(levels[picked] + 1);
+            return $"Learn · {cost} point{(cost == 1 ? "" : "s")}";
+        }
+    }
     public UIElement Canvas => canvas;
     public UIElement Panel => panel;
     public JoinedSegments? LevelBar => panel.LevelBar;
@@ -170,15 +188,16 @@ public sealed class PreviewMasteryTree : UIElement, ICardPage
         if (canvas.ContainsPoint(Mouse)) ZoomBy(evt.ScrollWheelValue > 0 ? 1.12f : .89f, Mouse);
     }
 
-    /// <summary>The node under a screen point, the nearest where shapes could overlap at a small zoom, else -1.</summary>
+    /// <summary>The node under a screen point, the gold centre (Core) included, the nearest where shapes could overlap at a small zoom, else -1.</summary>
     public int NodeAt(Vector2 point)
     {
         int hit = -1;
         float nearest = float.MaxValue;
-        for (int i = 0; i < Nodes.Length; i++)
+        for (int i = 0; i <= Nodes.Length; i++)
         {
-            float distance = Vector2.Distance(point, Screen(Nodes[i].Position));
-            float radius = Math.Max(6, NodeRadius * zoom * (Nodes[i].Kind == NodeKind.Diamond ? 1.3f : 1f) + 3);
+            float distance = Vector2.Distance(point, Screen(PositionOf(i)));
+            bool diamond = i == Core || Nodes[i].Kind == NodeKind.Diamond;
+            float radius = Math.Max(6, NodeRadius * zoom * (diamond ? 1.3f : 1f) + 3);
             if (distance > radius || distance >= nearest) continue;
             nearest = distance; hit = i;
         }
@@ -204,7 +223,7 @@ public sealed class PreviewMasteryTree : UIElement, ICardPage
         Recalculate();
         panel.Refresh();
         CalculatedStyle c = canvas.GetDimensions();
-        Vector2 at = Screen(Nodes[node].Position);
+        Vector2 at = Screen(PositionOf(node));
         float margin = NodeRadius * zoom * 1.5f + 8;
         if (at.X + margin > c.X + c.Width) origin.X -= at.X + margin - (c.X + c.Width);
         if (at.X - margin < c.X) origin.X += c.X - (at.X - margin);
@@ -218,6 +237,7 @@ public sealed class PreviewMasteryTree : UIElement, ICardPage
     public void Learn()
     {
         if (picked >= 0 && CanLearn(picked)) levels[picked]++;
+        panel.Refresh();
     }
 
     private static float Boundary(NodeKind kind, float radius, float angle)
@@ -251,7 +271,7 @@ public sealed class PreviewMasteryTree : UIElement, ICardPage
             if (fill.A > 0) DrawShape(sb, at, r, float.MaxValue, diamond, fill * alpha);
             DrawShape(sb, at, r, Math.Max(1f, (i == picked ? 6f : 3.5f) * zoom), diamond, colour * alpha);
         }
-        DrawShape(sb, Screen(Vector2.Zero), r, float.MaxValue, true, new Color(255, 224, 102));
+        DrawShape(sb, Screen(Vector2.Zero), r, float.MaxValue, true, Gold);
         float textScale = LabelHeight * zoom / FontAssets.MouseText.Value.MeasureString("A").Y;
         for (int lane = 0; lane < Lanes.Length; lane++)
         {
@@ -296,7 +316,7 @@ public sealed class PreviewMasteryTree : UIElement, ICardPage
     private sealed class DetailPanel : UIPanel
     {
         private readonly PreviewMasteryTree owner;
-        private int built = -2;
+        private int built = -2, builtLevel = -1;
         public UITextPanel<string> Learn { get; }
         public JoinedSegments? LevelBar { get; private set; }
 
@@ -312,17 +332,25 @@ public sealed class PreviewMasteryTree : UIElement, ICardPage
             Append(Learn);
         }
 
-        /// <summary>Rebuild the level bar for the picked node, one segment per level.</summary>
+        /// <summary>
+        /// Name Learn's next cost, and rebuild the level bar for the picked node, one segment per level. Core's bar is one
+        /// segment naming the level it has reached, because an unbounded node has no last segment to draw, so it is rebuilt
+        /// whenever that level changes.
+        /// </summary>
         public void Refresh()
         {
-            if (built == owner.picked) return;
-            built = owner.picked;
-            LevelBar?.Remove();
-            if (owner.picked < 0) { LevelBar = null; return; }
+            string label = owner.LearnLabel;
+            if (Learn.Text != label) Learn.SetText(label);
             int node = owner.picked;
+            int reached = node >= 0 ? owner.levels[node] : 0;
+            if (built == node && (node != Core || builtLevel == reached)) return;
+            built = node; builtLevel = reached;
+            LevelBar?.Remove();
+            if (node < 0) { LevelBar = null; return; }
             // "Level N" fits a segment of a three-level bar; a fifth of the panel's width fits only the number.
-            int count = Nodes[node].Content.Levels;
-            string[] labels = Enumerable.Range(1, count).Select(level => count > DiamondLevels ? $"{level}" : $"Level {level}").ToArray();
+            int count = ContentOf(node).Levels;
+            string[] labels = node == Core ? new[] { $"Level {reached}" }
+                : Enumerable.Range(1, count).Select(level => count > DiamondLevels ? $"{level}" : $"Level {level}").ToArray();
             LevelBar = new JoinedSegments(labels, segment => segment < owner.levels[node], null);
             LevelBar.Width.Set(0, 1f); LevelBar.Height.Set(LevelHeight, 0); LevelBar.VAlign = 1;
             Append(LevelBar);
@@ -345,7 +373,7 @@ public sealed class PreviewMasteryTree : UIElement, ICardPage
         public string EffectLine()
         {
             if (owner.picked < 0) return "";
-            NodeContent content = Nodes[owner.picked].Content;
+            NodeContent content = ContentOf(owner.picked);
             if (content.LevelLines is { } lines && LevelBar?.HoveredIndex is int hovered) return lines[hovered];
             return NextLevelLine(owner.picked, owner.levels[owner.picked]);
         }
@@ -354,10 +382,10 @@ public sealed class PreviewMasteryTree : UIElement, ICardPage
         {
             base.DrawSelf(sb);
             if (owner.picked < 0) return;
-            Node node = Nodes[owner.picked];
+            int node = owner.picked;
             Rectangle r = GetInnerDimensions().ToRectangle();
-            DrawCardPrimitives.WrappedText(sb, node.Content.Name, new Rectangle(r.X, r.Y, r.Width, 26), Colors[node.Lane], 1f);
-            DrawCardPrimitives.WrappedText(sb, EffectLine(), new Rectangle(r.X, r.Y + 32, r.Width, 90), new Color(255, 224, 102), .75f);
+            DrawCardPrimitives.WrappedText(sb, ContentOf(node).Name, new Rectangle(r.X, r.Y, r.Width, 26), node == Core ? Gold : Colors[Nodes[node].Lane], 1f);
+            DrawCardPrimitives.WrappedText(sb, EffectLine(), new Rectangle(r.X, r.Y + 32, r.Width, 90), Gold, .75f);
         }
     }
 }

@@ -329,13 +329,7 @@ internal static class VerifyNativeCard
         Click(Button("-")); Click(Button("-")); Require(tree.Zoom < fitted, "the - button did not zoom out");
         Click(Button("Reset view")); Require(Math.Abs(tree.Zoom - fitted) < 1e-4f, "Reset view did not restore the fitted view");
 
-        void Press(Vector2 at, Vector2 release)
-        {
-            Main.mouseX = (int)at.X; Main.mouseY = (int)at.Y; Main.mouseLeft = true;
-            tree.Canvas.LeftMouseDown(new UIMouseEvent(tree.Canvas, at));
-            Main.mouseX = (int)release.X; Main.mouseY = (int)release.Y; tree.Update(new GameTime());
-            Main.mouseLeft = false; tree.Canvas.LeftMouseUp(new UIMouseEvent(tree.Canvas, release)); tree.Update(new GameTime());
-        }
+        void Press(Vector2 at, Vector2 release) => PressCanvas(tree, at, release);
         Vector2 origin = tree.Origin;
         float zoom = tree.Zoom;
         Vector2 node = tree.Screen(Graph.Nodes[0].Position);
@@ -360,6 +354,7 @@ internal static class VerifyNativeCard
         Require(tree.Level(0) == 1 && tree.Level(attackSpeed) == 1 && tree.Level(piercing) == 1, "premise: Damage, Attack speed and Piercing learn along their edges");
         tree.Pick(thirdSlot); Click(tree.LearnButton);
         Require(tree.Level(thirdSlot) == 0 && !tree.CanLearn(thirdSlot), "Learn must refuse the third weapon slot while the second is unlearned, although Piercing into it is learned");
+        Require(tree.LearnButton.Text == "Learn · 3 points", $"a weapon slot's one level costs 3 points, and a refused Learn still names it; Learn says '{tree.LearnButton.Text}'");
         tree.Pick(secondSlot); Click(tree.LearnButton);
         tree.Pick(thirdSlot); Click(tree.LearnButton);
         Require(tree.Level(thirdSlot) == 1, "once its need is learned, the third weapon slot must take a level");
@@ -402,18 +397,23 @@ internal static class VerifyNativeCard
         Click(tree.LearnButton);
         Require(tree.Level(piercing) == 2 && tree.EffectLine == Lines(piercing)[2], $"Piercing at level 2 must say its third level's line; it says '{tree.EffectLine}'");
 
+        // Learn names the next level's cost at every step of a circle's ladder, and Learned once there is none.
         tree.Pick(extraProjectile);
-        for (int i = 0; i < 5; i++) Click(tree.LearnButton);
+        var said = new List<string>();
+        for (int i = 0; i < 5; i++) { said.Add(tree.LearnButton.Text); Click(tree.LearnButton); }
+        said.Add(tree.LearnButton.Text);
         Require(tree.Level(extraProjectile) == 5 && !tree.CanLearn(extraProjectile), "premise: Extra projectile learns to its fifth and last level");
+        string[] ladder = { "Learn · 1 point", "Learn · 2 points", "Learn · 2 points", "Learn · 3 points", "Learn · 3 points", "Learned" };
+        Require(said.SequenceEqual(ladder), $"Learn must name each next level's cost along a circle's 1, 2, 2, 3, 3 and then say Learned; Extra projectile's said [{string.Join(", ", said)}]");
         Require(tree.EffectLine == Lines(extraProjectile)[4], $"a full uneven node must say its last line; Extra projectile says '{tree.EffectLine}'");
 
         tree.Pick(bagSpace);
         Require(Labels().SequenceEqual(new[] { "Level 1", "Level 2", "Level 3" }), $"a three-level bar must say Level 1 to Level 3; Bag space reads [{string.Join(", ", Labels())}]");
         Require(tree.Level(bagSpace) == 0 && tree.EffectLine == Lines(bagSpace)[0], $"unlearned Bag space must say its first line; it says '{tree.EffectLine}'");
+        Require(tree.LearnButton.Text == "Learn · 1 point", $"a one-point level is named in the singular; Bag space's Learn says '{tree.LearnButton.Text}'");
 
         tree.Pick(secondSlot);
         Require(Labels().SequenceEqual(new[] { "Level 1" }), $"a weapon slot's bar must be one segment, Level 1; it reads [{string.Join(", ", Labels())}]");
-
         tree.Pick(damage);
         string effect = Graph.Nodes[damage].Content.Effect;
         Hover(1);
@@ -422,7 +422,61 @@ internal static class VerifyNativeCard
         Require(tree.EffectLine == effect, "an even node must say its per-level effect");
 
         tree.Pick(piercing);
-        Console.WriteLine($"mastery level lines: Piercing says each next level's line and a hovered segment's own, a full Extra projectile says its last, five-level bars are numbered and Bag space's three say Level N");
+        Console.WriteLine($"mastery level lines: Piercing says each next level's line and a hovered segment's own, a full Extra projectile says its last, five-level bars are numbered and Bag space's three say Level N; "
+            + $"Learn said [{string.Join(", ", said)}] along Extra projectile, one point for Bag space and 3 points for a refused weapon slot");
+    }
+
+    /// <summary>
+    /// The gold centre is Core: a click on it picks it, it refuses a level until every other node is full, its bar is one
+    /// segment naming the level reached, and once the tree is full it takes level after level at a point each. The tree is
+    /// filled through the page's own Learn, pass after pass, so every node is reached along its edges and needs. Leaves
+    /// Core picked at level 2 with the tree full, for the render.
+    /// </summary>
+    public static void MasteryCore(Mastery tree)
+    {
+        string[] Labels() => Enumerable.Range(0, tree.LevelBar!.Segments.Count).Select(tree.LevelBar.Label).ToArray();
+        var core = Graph.ContentOf(Graph.Core);
+        tree.Pick(-1); tree.Fit();
+        Vector2 centre = tree.Screen(Vector2.Zero);
+        Require(tree.Canvas.ContainsPoint(centre), "premise: the gold centre is inside the fitted graph");
+        Require(Enumerable.Range(0, Graph.Nodes.Length).Any(i => tree.Level(i) < Graph.Nodes[i].Content.Levels), "premise: the tree is not full yet");
+        PressCanvas(tree, centre, centre);
+        Require(tree.Picked == Graph.Core && tree.Panel.Parent != null && tree.EffectLine == core.Effect,
+            $"a click on the gold centre must pick Core and say '{core.Effect}'; picked {tree.Picked}, saying '{tree.EffectLine}'");
+        Click(tree.LearnButton);
+        Require(tree.Level(Graph.Core) == 0 && Labels().SequenceEqual(new[] { "Level 0" }) && !tree.LevelBar!.IsSelected(0) && tree.LearnButton.Text == "Learn · 1 point",
+            $"Core must refuse a level before every other node is full, with one unselected segment 'Level 0' and Learn naming one point; it is at level {tree.Level(Graph.Core)}, reads [{string.Join(", ", Labels())}] and Learn says '{tree.LearnButton.Text}'");
+
+        for (bool learned = true; learned;)
+        {
+            learned = false;
+            for (int i = 0; i < Graph.Nodes.Length; i++)
+                while (tree.CanLearn(i))
+                {
+                    int before = tree.Level(i);
+                    tree.Pick(i); Click(tree.LearnButton);
+                    Require(tree.Level(i) == before + 1, $"Learn on a learnable {Graph.Nodes[i].Content.Name} must add a level");
+                    learned = true;
+                }
+        }
+        Require(Enumerable.Range(0, Graph.Nodes.Length).All(i => tree.Level(i) == Graph.Nodes[i].Content.Levels) && tree.Spent == 415,
+            $"premise: Learn fills every node along its edges and needs, for 415 points; {tree.Spent} spent");
+
+        // Filling picked every node, and each pick panned the view to it, so the view is reset before Core is picked.
+        tree.Pick(-1); tree.Fit(); tree.Pick(Graph.Core);
+        Click(tree.LearnButton); Click(tree.LearnButton);
+        Require(tree.Level(Graph.Core) == 2 && Labels().SequenceEqual(new[] { "Level 2" }) && tree.LevelBar!.IsSelected(0) && tree.LearnButton.Text == "Learn · 1 point" && tree.Spent == 417,
+            $"once the tree is full, two learns must take Core to one selected segment 'Level 2' at 417 points; it is at level {tree.Level(Graph.Core)}, reads [{string.Join(", ", Labels())}], Learn says '{tree.LearnButton.Text}', {tree.Spent} spent");
+        Console.WriteLine($"mastery core: a click on the gold centre picks Core, which refuses at Level 0 before the tree is full; Learn fills all {Graph.Nodes.Length} nodes for 415 points, then two learns read Level 2 at {tree.Spent}");
+    }
+
+    /// <summary>A press on the graph canvas at one screen point released at another, through the canvas's own mouse events.</summary>
+    private static void PressCanvas(Mastery tree, Vector2 at, Vector2 release)
+    {
+        Main.mouseX = (int)at.X; Main.mouseY = (int)at.Y; Main.mouseLeft = true;
+        tree.Canvas.LeftMouseDown(new UIMouseEvent(tree.Canvas, at));
+        Main.mouseX = (int)release.X; Main.mouseY = (int)release.Y; tree.Update(new GameTime());
+        Main.mouseLeft = false; tree.Canvas.LeftMouseUp(new UIMouseEvent(tree.Canvas, release)); tree.Update(new GameTime());
     }
 
     /// <summary>The flat tree's structure and learning rule, with no graphics: the default suite runs this.</summary>
@@ -445,7 +499,32 @@ internal static class VerifyNativeCard
         }
         var uneven = Graph.Nodes.Where(n => n.Content.LevelLines != null).Select(n => n.Content.Name).ToArray();
         Require(uneven.SequenceEqual(new[] { "Piercing", "Extra projectile", "Bag space" }), $"the uneven nodes are Piercing, Extra projectile and Bag space; got [{string.Join(", ", uneven)}]");
-        int compared = RequireTheMocksNodes();
+        string mock = ReadMock();
+        int compared = RequireTheMocksNodes(mock);
+
+        // The owner's cost ladders, by shape, and what filling the tree costs.
+        foreach (var node in Graph.Nodes)
+        {
+            int[] ladder = Graph.IsWeaponSlot(node) ? new[] { 3 } : node.Kind == Graph.NodeKind.Diamond ? new[] { 1, 2, 3 } : new[] { 1, 2, 2, 3, 3 };
+            int[] costs = Enumerable.Range(1, node.Content.Levels).Select(node.Content.CostOf).ToArray();
+            Require(costs.SequenceEqual(ladder), $"{node.Content.Name}'s levels cost [{string.Join(", ", costs)}]; its shape's ladder is [{string.Join(", ", ladder)}]");
+        }
+        int total = Graph.Nodes.Sum(n => n.Content.PointsIn(n.Content.Levels));
+        Require(total == 415, $"filling the tree must cost 415 points; it costs {total}");
+        RequireTheMocksCostsAndCore(mock);
+
+        // Core, the gold centre: refused until every other node is full, then without a cap, a point a level.
+        var core = Graph.ContentOf(Graph.Core);
+        var full = new int[Graph.Nodes.Length + 1];
+        Require(!Graph.CanLearn(full, Graph.Core), "Core must refuse a level on an empty tree");
+        for (int i = 0; i < Graph.Nodes.Length; i++) full[i] = Graph.Nodes[i].Content.Levels;
+        full[Graph.Nodes.Length - 1]--;
+        Require(!Graph.CanLearn(full, Graph.Core), "Core must refuse a level while one node is a level short of full");
+        full[Graph.Nodes.Length - 1]++;
+        Require(Graph.CanLearn(full, Graph.Core), "Core must take a level once every other node is full");
+        full[Graph.Core] = 1000;
+        Require(Graph.CanLearn(full, Graph.Core), "Core has no level cap: at level 1000 it must still take a level");
+        Require(core.CostOf(1) == 1 && core.CostOf(1000) == 1 && core.PointsIn(2) == 2, "every level of Core costs 1 point");
         Require(Graph.Edges.Length == 4 * 11 + 4 * 2, $"eleven edges per lane and two into each shared circle; got {Graph.Edges.Length}");
         for (int j = 0; j < 4; j++)
         {
@@ -481,16 +560,13 @@ internal static class VerifyNativeCard
         levels[(1 + 1) * Graph.Roles + 3] = 1;
         Require(Graph.CanLearn(levels, Graph.FirstShared + 1), "a shared circle also opens from the next lane's other first-rank node");
         Console.WriteLine($"mastery rules: {Graph.Nodes.Length} nodes, {Graph.Edges.Length} edges, nearest pair {Graph.NearestPair:0} units against {2 * Graph.NodeRadius}, "
-            + $"circles 5 levels, levelling diamonds 3, weapon slots 1, {uneven.Length} uneven nodes with a line per level, {compared} nodes equal to the mock's LANES and JUNCTIONS, edges and needs govern learning");
+            + $"circles 5 levels, levelling diamonds 3, weapon slots 1, {uneven.Length} uneven nodes with a line per level, {compared} nodes equal to the mock's LANES and JUNCTIONS, "
+            + $"levels costing 1-2-2-3-3, 1-2-3 and 3 for {total} points to fill the tree, Core refused until the tree is full and then uncapped at a point a level, edges and needs govern learning");
         return 0;
     }
 
-    /// <summary>
-    /// The port is the mock's, read from the mock itself: every node call in <c>LANES</c> then <c>JUNCTIONS</c>, in order,
-    /// must match the native node at that index in name, level count (C five, D three, A one), effect, needs and, for an
-    /// <c>L(...)</c> node, its lines. Returns how many nodes were compared.
-    /// </summary>
-    private static int RequireTheMocksNodes()
+    /// <summary>The agreed mock, InterfaceExperiments/companion-card.html, found above the working directory.</summary>
+    private static string ReadMock()
     {
         string? mock = null;
         foreach (string start in new[] { Directory.GetCurrentDirectory(), AppContext.BaseDirectory })
@@ -500,7 +576,42 @@ internal static class VerifyNativeCard
                 if (File.Exists(candidate)) mock = candidate;
             }
         Require(mock != null, "the agreed mock InterfaceExperiments/companion-card.html must be found above the working directory");
-        string html = File.ReadAllText(mock!);
+        return File.ReadAllText(mock!);
+    }
+
+    /// <summary>
+    /// The costs and Core are the mock's too: its <c>costOf</c> must give the centre, a five-level node, a three-level node
+    /// and an unlock the ladders the port carries, and its centre's definition must carry Core's name and effect. The
+    /// patterns are the function's own lines, so a rewrite of <c>costOf</c> fails here as unreadable rather than passing.
+    /// </summary>
+    private static void RequireTheMocksCostsAndCore(string html)
+    {
+        int from = html.IndexOf("function costOf", StringComparison.Ordinal);
+        Require(from >= 0, "the mock must carry costOf");
+        string body = html[from..html.IndexOf("\n}", from, StringComparison.Ordinal)];
+        var root = System.Text.RegularExpressions.Regex.Match(body, @"'root'\) return (\d+);");
+        var five = System.Text.RegularExpressions.Regex.Match(body, @"ranks === 5\) return \[([\d,\s]+)\]\[level - 1\];");
+        bool three = body.Contains("ranks === 3) return level;", StringComparison.Ordinal);
+        var unlock = System.Text.RegularExpressions.Regex.Match(body, @"\n\s*return (\d+);");
+        Require(root.Success && five.Success && three && unlock.Success,
+            "the mock's costOf no longer reads as a centre cost, a five-level ladder, a three-level ladder of the level itself and an unlock cost; re-read it and port what it says");
+        int[] fiveLadder = five.Groups[1].Value.Split(',', StringSplitOptions.TrimEntries).Select(int.Parse).ToArray();
+        int[] mockUnlock = { int.Parse(unlock.Groups[1].Value) }, mockCore = { int.Parse(root.Groups[1].Value) };
+        Require(Graph.CircleCosts.SequenceEqual(fiveLadder) && Graph.DiamondCosts.SequenceEqual(new[] { 1, 2, 3 }) && Graph.WeaponSlotCosts.SequenceEqual(mockUnlock) && Graph.CoreCosts.SequenceEqual(mockCore),
+            $"the port's costs [{string.Join(",", Graph.CircleCosts)}], [{string.Join(",", Graph.DiamondCosts)}], [{string.Join(",", Graph.WeaponSlotCosts)}] and Core [{string.Join(",", Graph.CoreCosts)}] "
+            + $"differ from the mock's [{string.Join(",", fiveLadder)}], [1,2,3], [{string.Join(",", mockUnlock)}] and [{string.Join(",", mockCore)}]");
+        var def = System.Text.RegularExpressions.Regex.Match(html, @"wheel\.root\.def = \{name: '((?:[^'\\]|\\.)*)', ranks: Infinity, effect: '((?:[^'\\]|\\.)*)'");
+        Require(def.Success && Graph.CoreContent.Name == def.Groups[1].Value && Graph.CoreContent.Effect == def.Groups[2].Value && Graph.CoreContent.Levels == Graph.Unbounded,
+            $"Core is '{Graph.CoreContent.Name}', '{Graph.CoreContent.Effect}' where the mock's centre is '{def.Groups[1].Value}', '{def.Groups[2].Value}' with no level cap");
+    }
+
+    /// <summary>
+    /// The port is the mock's, read from the mock itself: every node call in <c>LANES</c> then <c>JUNCTIONS</c>, in order,
+    /// must match the native node at that index in name, level count (C five, D three, A one), effect, needs and, for an
+    /// <c>L(...)</c> node, its lines. Returns how many nodes were compared.
+    /// </summary>
+    private static int RequireTheMocksNodes(string html)
+    {
         int from = html.IndexOf("const LANES = [", StringComparison.Ordinal), to = html.IndexOf("const COLORS", StringComparison.Ordinal);
         Require(from >= 0 && to > from, "the mock must carry LANES and JUNCTIONS before COLORS");
         string data = html[from..to];

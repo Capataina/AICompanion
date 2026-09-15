@@ -8,9 +8,10 @@ namespace AICompanion.Companion.ProfileCard;
 /// <summary>
 /// The mastery preview's one flat tree, generated from one lane template rotated a quarter turn per lane, with every
 /// node's content in one data table. The table is the owner's node list as the agreed mock carries it
-/// (<c>InterfaceExperiments/companion-card.html</c>, <c>LANES</c> and <c>JUNCTIONS</c>, as of 0f49104), and the suite's
-/// mastery rules row reads that file and requires every name, level count, effect and per-level line here to match
-/// it, so the two cannot drift. Nothing here changes gameplay, spends a point or is saved.
+/// (<c>InterfaceExperiments/companion-card.html</c>, <c>LANES</c>, <c>JUNCTIONS</c>, <c>costOf</c> and the centre's
+/// definition, as of 110394a), and the suite's mastery rules row reads that file and requires every name, level count,
+/// effect, need, per-level line, cost and Core's text here to match it, so the two cannot drift. Nothing here changes
+/// gameplay, spends a point or is saved.
 ///
 /// <para>Four lanes are what the orb can grow: Combat at the top, then Movement, Survival and Gathering clockwise.
 /// Each lane is ten roles: a circle, a circle, then a split whose ranks alternate a diamond on the left beside a
@@ -30,8 +31,22 @@ public static class DefineMasteryGraph
     /// <summary>
     /// A node's content. <c>Purpose</c> and <c>SizedAgainst</c> are kept for balancing and never drawn, by the owner's
     /// ruling. <c>LevelLines</c> is one line per level for a node whose levels do not step evenly, and null otherwise.
+    /// <c>Costs</c> is what each level costs in points; a ladder shorter than the levels repeats its last step, which is
+    /// how Core's one-point levels run without end.
     /// </summary>
-    public readonly record struct NodeContent(string Name, int Levels, string Effect, string Purpose, string SizedAgainst, int[] Needs, string[]? LevelLines);
+    public readonly record struct NodeContent(string Name, int Levels, string Effect, string Purpose, string SizedAgainst, int[] Needs, string[]? LevelLines, int[] Costs)
+    {
+        /// <summary>What the given level costs, counting levels from 1.</summary>
+        public int CostOf(int level) => Costs[Math.Min(level, Costs.Length) - 1];
+
+        /// <summary>The points spent on a node that has reached the given level.</summary>
+        public int PointsIn(int level)
+        {
+            int points = 0;
+            for (int k = 1; k <= level; k++) points += CostOf(k);
+            return points;
+        }
+    }
     public readonly record struct Node(NodeContent Content, Vector2 Position, int Lane, int Role, NodeKind Kind, int[] Needs);
     public readonly record struct Edge(int From, int To);
     /// <summary>A lane's name, anchored in graph units, with the fraction of the text's box that sits on the anchor.</summary>
@@ -44,6 +59,15 @@ public static class DefineMasteryGraph
     public static readonly int[] DiamondRoles = { 2, 5, 8 };
     /// <summary>How many levels each shape takes, by the owner's ruling; a weapon slot is Combat's diamond.</summary>
     public const int CircleLevels = 5, DiamondLevels = 3, WeaponSlotLevels = 1;
+    /// <summary>Core's level count: it takes points without limit once every other node is full.</summary>
+    public const int Unbounded = int.MaxValue;
+    /// <summary>
+    /// What a level costs in points, by the owner's ruling of 15 September 2026 (the mock's <c>costOf</c>): a circle's
+    /// levels 1, 2, 2, 3 and 3, a levelling diamond's 1, 2 and 3, a weapon slot 3, and every level of Core 1. Filling the
+    /// tree costs 415 points, which is what the unbuilt level curve is to be designed against. These sit above the node
+    /// table because the table's helpers read them while the class's fields initialise in order.
+    /// </summary>
+    public static readonly int[] CircleCosts = { 1, 2, 2, 3, 3 }, DiamondCosts = { 1, 2, 3 }, WeaponSlotCosts = { 3 }, CoreCosts = { 1 };
     /// <summary>Graph units: a node's radius, where the shared circles sit, and the angle between lanes.</summary>
     public const float NodeRadius = 22, JunctionRadius = 290, LaneSpacing = 90;
     /// <summary>A lane label's text height in graph units, and its gap beyond the lane's last node's edge.</summary>
@@ -64,9 +88,9 @@ public static class DefineMasteryGraph
 
     // The mock's own helpers, so a row here reads like its row there: C a five-level circle, D a three-level diamond,
     // A a one-level weapon slot, L a node whose levels each carry their own line.
-    private static NodeContent C(string name, string effect, string purpose, string sized, params int[] needs) => new(name, CircleLevels, effect, purpose, sized, needs, null);
-    private static NodeContent D(string name, string effect, string purpose, string sized, params int[] needs) => new(name, DiamondLevels, effect, purpose, sized, needs, null);
-    private static NodeContent A(string name, string effect, string purpose, string sized, params int[] needs) => new(name, WeaponSlotLevels, effect, purpose, sized, needs, null);
+    private static NodeContent C(string name, string effect, string purpose, string sized, params int[] needs) => new(name, CircleLevels, effect, purpose, sized, needs, null, CircleCosts);
+    private static NodeContent D(string name, string effect, string purpose, string sized, params int[] needs) => new(name, DiamondLevels, effect, purpose, sized, needs, null, DiamondCosts);
+    private static NodeContent A(string name, string effect, string purpose, string sized, params int[] needs) => new(name, WeaponSlotLevels, effect, purpose, sized, needs, null, WeaponSlotCosts);
     private static NodeContent L(NodeContent node, params string[] lines) => node with { LevelLines = lines };
 
     /// <summary>The content, lane by lane in role order; <c>needs</c> name roles in the same lane.</summary>
@@ -90,8 +114,8 @@ public static class DefineMasteryGraph
                 "Two more projectiles, at 45% and 20% damage",
                 "Three more projectiles, at 50%, 25% and 10% damage"),
             A("Extra weapon slot", "Opens one more weapon slot", SlotNote, "Calamity's Statis' Blessing gives two minion slots, and was cut down from three.", 2),
-            C("Critical strike", "+1% critical strike chance per level", "More of its hits crit.", "A Lucky reforge gives a player 4% per accessory."),
-            C("Projectile speed", "+4% projectile speed per level", "Shots reach moving targets sooner, so fewer miss.", "A Magic Quiver gives arrows 120% velocity, but velocity is that item's whole purpose."),
+            C("Mana focus", "Out of mana, its damage drops 2% less per level", "An empty pool costs 50% of its damage, and 40% at level 5.", "Nothing in Terraria softens running dry; a Mana Flower refills the pool instead."),
+            C("Mana flow", "+0.6% of its mana back every second per level, even while casting", "3% a second at level 5; without it the pool only refills after a second without casting.", "A Mana Regeneration Band speeds a player's mana recovery."),
             A("Extra weapon slot", "Opens one more weapon slot", SlotNote, "Vanilla reaches eleven minion slots from one, always one or two at a time.", 2, 5),
             C("Armour piercing", "Ignores 2% of an enemy's defence per level", "A share rather than a flat amount, so it still counts against an enemy with enormous defence.", "Terraria's armour penetration is flat: a Shark Tooth Necklace ignores 5 defence whatever the enemy has."),
         },
@@ -148,13 +172,27 @@ public static class DefineMasteryGraph
         C("Scavenger", "3% more coins from enemies it kills per level", "Shared by Gathering and Combat.", "A Lucky Coin raises a player's coin drops."),
     };
 
+    /// <summary>
+    /// The gold centre, a node of its own: once every other node is full it takes points without limit, so points earned
+    /// after the tree is complete still buy something. It is not in <see cref="Nodes"/>, because it has no lane, no
+    /// role and no edge of its own; its index is <see cref="Core"/>.
+    /// </summary>
+    public static readonly NodeContent CoreContent = new("Core", Unbounded, "+1% life, mana and damage per level", "Opens once every other node is full.", "", Array.Empty<int>(), null, CoreCosts);
+
     public static readonly Node[] Nodes;
-    /// <summary>-1 is the centre, which is always open.</summary>
+    /// <summary>-1 is the centre, which is always open whatever Core's own level.</summary>
     public static readonly Edge[] Edges;
     public static readonly LaneLabel[] Labels;
     /// <summary>The smallest distance between any two node centres, in graph units; it must exceed a node's diameter.</summary>
     public static readonly float NearestPair;
     public static int FirstShared => Lanes.Length * Roles;
+    /// <summary>Core's index, one past the last node, so a levels array holds every node and then Core.</summary>
+    public static int Core => Nodes.Length;
+
+    /// <summary>A node's content by index, Core included.</summary>
+    public static NodeContent ContentOf(int node) => node == Core ? CoreContent : Nodes[node].Content;
+    /// <summary>A node's position in graph units by index; Core sits at the origin.</summary>
+    public static Vector2 PositionOf(int node) => node == Core ? Vector2.Zero : Nodes[node].Position;
 
     /// <summary>A weapon slot is a Combat diamond: it opens a slot and takes one level.</summary>
     public static bool IsWeaponSlot(Node node) => node.Lane == 0 && node.Kind == NodeKind.Diamond;
@@ -165,8 +203,16 @@ public static class DefineMasteryGraph
     /// </summary>
     public static string NextLevelLine(int node, int level)
     {
-        NodeContent content = Nodes[node].Content;
+        NodeContent content = ContentOf(node);
         return content.LevelLines is { } lines ? lines[Math.Clamp(level, 0, lines.Length - 1)] : content.Effect;
+    }
+
+    /// <summary>Whether every node other than Core is at its last level.</summary>
+    public static bool TreeFull(int[] levels)
+    {
+        for (int i = 0; i < Nodes.Length; i++)
+            if (levels[i] < Nodes[i].Content.Levels) return false;
+        return true;
     }
 
     static DefineMasteryGraph()
@@ -214,11 +260,14 @@ public static class DefineMasteryGraph
 
     /// <summary>
     /// Whether a node can take a level, given every node's learned level: it has a level left, an edge into it comes from
-    /// something learned (the centre always counts), and everything it needs is learned. The rule lives with the graph
-    /// rather than the page because it is a fact about the tree, so it can be held without drawing anything.
+    /// something learned (the centre always counts), and everything it needs is learned. Core instead waits for every
+    /// other node to be full, and then never refuses. The rule lives with the graph rather than the page because it is a
+    /// fact about the tree, so it can be held without drawing anything. Nothing is spent against a budget here: the
+    /// preview has no points to spend.
     /// </summary>
     public static bool CanLearn(int[] levels, int node)
     {
+        if (node == Core) return TreeFull(levels);
         if (levels[node] >= Nodes[node].Content.Levels) return false;
         bool connected = false;
         foreach (Edge edge in Edges)

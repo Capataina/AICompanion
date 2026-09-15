@@ -255,6 +255,20 @@ internal static class RenderCompanionCard
             Require(tree.LevelBar is { } one && one.Segments.Count == 1, $"{suffix}: a one-level node's level bar must have one segment");
             if (scale == 1f) LoneSegmentPixels(target, size, tree.LevelBar!, suffix);
         });
+        // Core, the gold centre: picked by a click on it, refused before the tree is full, then two learns once it is full.
+        Step("mastery core", () => VerifyNativeCard.MasteryCore(tree));
+        // The Mastery tile reads the points spent, a step of its own so a failure inside the Core step cannot hide it.
+        Step("mastery tile points", () =>
+        {
+            var tileType = card.GetType().GetNestedType("StatusTile", BindingFlags.NonPublic)!;
+            var reading = tileType.GetMethod("Reading", BindingFlags.Static | BindingFlags.NonPublic)!
+                .Invoke(null, new object[] { card, live::AICompanion.Companion.ProfileCard.CardPage.Mastery })!;
+            string points = (string)reading.GetType().GetField("Item2")!.GetValue(reading)!;
+            Require(points == "417 pts", $"{suffix}: the Mastery tile must read the points spent, 415 for the tree and 2 for Core; it reads '{points}'");
+            Console.WriteLine($"mastery tile {suffix}: reads {points}");
+        });
+        card.Update(new GameTime());
+        Render(graphics, batch, rasterizer, target, ui, size, output, $"MasteryCore-{suffix}");
 
         Invoke(card, "ShowOverview");
         Step("back to the overview", () =>
