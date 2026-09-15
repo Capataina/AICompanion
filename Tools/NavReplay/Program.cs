@@ -42,6 +42,9 @@ if (args.Length == 1 && args[0] == "--self-test")
         + EmitLedgerRows.Case("nav-replay", "NavReplay", "an accompanying body is bent only where its own walk across the region would be hit, and kept everywhere else",
             VerifyEvadeBendsAccompanying.Run,
             killedBy: "an accompanying walk that never declares itself the tick's producer, so the keep test flies an earlier request's steering, or a forecast that holds the walking target still")
+        + EmitLedgerRows.Case("nav-replay", "NavReplay", "the accompanying target starts where the body is and never moves faster than the walk",
+            VerifyAccompanyingTargetIsContinuous.Run,
+            killedBy: "walk state that outlives a request which was not accompanying, a first place clamped into the open part of the box, or the open part of the box snapping when the player's lead changes side")
         + EmitLedgerRows.Case("nav-replay", "NavReplay", "the body flies toward a goal while its search runs, and a finished search is not run again for an unchanged goal",
             VerifyNavigatorKeepsMoving.Run,
             killedBy: "a navigator that hovers until a search returns, restarts a search that hit its node limit or proved an absence, or keeps a proven absence to itself instead of handing the goal back")

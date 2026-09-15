@@ -114,6 +114,13 @@ public sealed class CoordinateMovement
 
     private void Produced(Producer by)
     {
+        // A request of a different kind from the last tick's starts the hover and the walk afresh from the body. Every brain tick
+        // reaches exactly one request method here, so a change of kind is exactly a tick on which the previous motion was not
+        // driven, and any state that motion kept describes somewhere the body no longer is. This is the one place that rule is
+        // enforced, rather than a staleness test inside each piece of state, because the state that outlived its request was found
+        // three times — a wait anchor, a per-goal memory under a drifting goal, and the accompanying walk's place in the box.
+        // What it cannot see is a tick on which the brain did not run at all; the walk's own jump test covers a box that moved far.
+        if (by != producer) Navigator.Hover.Release();
         producer = by;
         LastEvade = EvadeVerdict.Off;
     }
