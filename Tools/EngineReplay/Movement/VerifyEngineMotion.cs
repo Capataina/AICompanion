@@ -24,7 +24,7 @@ using TerrainChanges = live::AICompanion.Companion.Brain.Infrastructure.Movement
 /// </summary>
 internal static class VerifyEngineMotion
 {
-    public static int Run(bool lifecycleOnly = false, bool liquidsOnly = false, bool workOnly = false, bool followOnly = false, bool protectionOnly = false, bool brainCostOnly = false, bool combatCostOnly = false, bool combatPurposeOnly = false, bool safetyAftermathOnly = false, bool dodgeReproOnly = false)
+    public static int Run(bool lifecycleOnly = false, bool liquidsOnly = false, bool workOnly = false, bool followOnly = false, bool protectionOnly = false, bool brainCostOnly = false, bool combatCostOnly = false, bool combatPurposeOnly = false, bool safetyLayerOnly = false, bool dodgeReproOnly = false)
     {
         // The engine containers, the miniature world's dimensions and its tile map now belong to
         // ResetProcessState, which the entry point calls before dispatching any flag — they were
@@ -48,8 +48,8 @@ internal static class VerifyEngineMotion
         if (brainCostOnly) return MeasureBrainCost.Execute();
         if (combatCostOnly) return MeasureCombatCost.Execute();
         if (combatPurposeOnly) return VerifyCombatPurpose.Run();
-        if (safetyAftermathOnly) return VerifySafetyAftermath.Run();
-        if (dodgeReproOnly) return VerifySafetyAftermath.ReproduceDodgeOnDryFloor();
+        if (safetyLayerOnly) return VerifySafetyIsALayerOnTheJob.Run();
+        if (dodgeReproOnly) return VerifySafetyIsALayerOnTheJob.ReproduceDodgeOnDryFloor();
         int failed = 0;
         // Every fixture below used to be a term in one `failed += Verify*.Run()` sum, and the sum was
         // an abort dressed as a total: assertions here throw, so the first fixture to fail took the
@@ -115,7 +115,7 @@ internal static class VerifyEngineMotion
         ("a hit's push is the game's until the companion learns it, is charged for the danger it adds, and the stand prefers the player's side", VerifyKnockbackAwareness.Run),
         ("weapon, target, stand and aim are valued by what the companion's own shots achieved", VerifyWeaponLearning.Run),
         ("combat keeps its purpose across a substituted enemy", VerifyCombatPurpose.Run),
-        ("safety releases the body after the danger passes", VerifySafetyAftermath.Run),
+        ("safety bends the body inside its job and never takes it: an enemy beside a leaving player, firing on, a bent guard, an intervening hostile", VerifySafetyIsALayerOnTheJob.Run),
         ("an assistance trip goes and returns", VerifyAssistanceTrips.Run),
         ("the light and reach senses answer in three values", VerifyLightAndReachSenses.Run),
         ("torches go where his smart cursor would put one in the dark, and the record says why not", VerifyTorchPlacementRule.Run),

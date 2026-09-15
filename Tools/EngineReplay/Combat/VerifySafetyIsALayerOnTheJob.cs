@@ -21,7 +21,7 @@ using CompanionPlayer = live::AICompanion.Companion.PlayerIntegration.CompanionP
 /// placed and, where a scene needs motion, moved by hand; these establish the brain's responses to stated
 /// arrangements, not a live fight.
 /// </summary>
-internal static class VerifySafetyAftermath
+internal static class VerifySafetyIsALayerOnTheJob
 {
     public static int Run()
     {
@@ -37,7 +37,7 @@ internal static class VerifySafetyAftermath
             GuardingReachesThePlayerPastAnInterveningHostileWithoutContact();
         }
         finally { live::AICompanion.Companion.Brain.Infrastructure.Movement.LimitPlanningWork.Unbounded = false; }
-        Console.WriteLine("safety aftermath: an enemy beside the body does not keep it from a walking player, the hands fire while the job keeps the feet, a shot bends guarding without suspending it and misses, and guarding passes an intervening hostile without contact");
+        Console.WriteLine("safety is a layer on the job: an enemy beside the body does not keep it from a walking player, the hands fire while the job keeps the feet, a shot bends guarding without suspending it and misses, and guarding passes an intervening hostile without contact");
         return 0;
     }
 
@@ -280,6 +280,6 @@ internal static class VerifySafetyAftermath
 
     private static void Require(bool condition, string message)
     {
-        if (!condition) throw new InvalidOperationException("safety aftermath: " + message);
+        if (!condition) throw new InvalidOperationException("safety is a layer on the job: " + message);
     }
 }

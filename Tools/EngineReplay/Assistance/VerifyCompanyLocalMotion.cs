@@ -254,7 +254,7 @@ internal static class VerifyCompanyLocalMotion
             // with pools in it rather than a dry floor that would pass the same row.
             Require(MovementQueries.IsLava(LavaLeft + 1, FloorRow) && MovementQueries.IsHoverable(new Point(LavaLeft - 2, FloorRow - 1)),
                 "the lava pool premise needs lava below the floor line and room to hover beside it");
-            Require(MovementQueries.IsWet(WaterLeft + 3, FloorRow + 1) && MovementQueries.IsHoverable(new Point(WaterRight + 2, FloorRow - 1)),
+            Require(MovementQueries.IsLiquid(WaterLeft + 3, FloorRow + 1) && MovementQueries.IsHoverable(new Point(WaterRight + 2, FloorRow - 1)),
                 "the water pit premise needs water in it and room to hover beside it");
             // Both pools are free space to every flood the body runs, because every liquid is air to it.
             Require(MovementQueries.IsFreeForOrb(LavaLeft + 1, FloorRow) && MovementQueries.IsFreeForOrb(WaterLeft + 3, FloorRow + 1),

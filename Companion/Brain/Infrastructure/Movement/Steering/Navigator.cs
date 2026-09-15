@@ -263,7 +263,7 @@ public sealed class Navigator
             Status = search is { Finished: false } ? ExecutionStatus.Pending : ExecutionStatus.Unreachable;
             // Nothing to fly along and no clear line to the goal: drift around where this began rather than ask for
             // nothing, because the orb is never strictly standing still. Asking for nothing here parked the body for as
-            // long as a follow anchor stayed unplannable — measured in VerifySafetyAftermath's enemy-beside row, fourteen
+            // long as a follow anchor stayed unplannable — measured in VerifySafetyIsALayerOnTheJob's enemy-beside row, fourteen
             // ticks at zero with the player walking away — and the stuck strikes and the positioner's bans, not a stop,
             // are what find another place.
             // An anchor the body has no clear line to is not a place to drift around: hovering at it pins the body against

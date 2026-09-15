@@ -149,12 +149,14 @@ internal static class VerifyLiquidsAreAir
         var world = MovementQueries.World;
 
         // The scene's own premise, asked of the tiles rather than of any rule under test: the wall is solid everywhere but
-        // the passage, and every tile of the passage holds the liquid.
+        // the passage, and every tile of the passage holds the liquid. Solidity is the game tile's own HasTile, never
+        // IsSolidForOrb: that is OrbTerrain.Solid, the rule this scene exists to test, and a liquid wall written into it
+        // failed here as a broken premise before the route and reach assertions could say what actually went wrong.
         for (int x = wallLeft; x <= wallRight; x++)
             for (int y = ceiling + 1; y < floor; y++)
             {
                 bool passage = y >= tunnelTop && y <= tunnelBottom;
-                if (passage != !MovementQueries.IsSolidForOrb(x, y) || passage != (world.LiquidAmount(x, y) > 0 && world.LiquidKind(x, y) == kind))
+                if (passage != !Main.tile[x, y].HasTile || passage != (world.LiquidAmount(x, y) > 0 && world.LiquidKind(x, y) == kind))
                     return Detail($"{name}: premise: tile {x},{y} must be {(passage ? "open and full of " + name : "solid and dry")}");
             }
 

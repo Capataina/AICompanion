@@ -11,7 +11,7 @@ EngineReplay/
 ├─ Program.cs             the entry point and the flag table
 ├─ ResetProcessState.cs   the per-process and per-case reset every instrument shares
 ├─ RunOneRow.cs           one named row, run through the ledger's emitter
-├─ Combat/                hunting, guarding, firing, danger, encounter context, safety aftermath
+├─ Combat/                hunting, guarding, firing, danger, encounter context, safety as a layer on the job
 ├─ Gathering/             ore work, cooperation beside the player, remaining-work accounting
 ├─ Assistance/            lighting, collection, company hovering, courtesy, capability, the senses
 ├─ Lifecycle/             spawn and attachment, downing, stat mirroring, doors, HUD, the card
@@ -76,7 +76,7 @@ The standalone flags are the fourth row's cause and it is structural rather than
 --brain-cost           per-phase timings and the recording-invariance proof
 --combat-cost          the same, on a scene with four hostiles in it
 --combat-purpose       the danger matrix, the pursuit rows, guard access and identity
---safety-aftermath     safety as a layer: an enemy beside a leaving player, firing on, a bent guard, an intervening hostile
+--safety-layer         safety as a layer: an enemy beside a leaving player, firing on, a bent guard, an intervening hostile
 --dodge-repro          one arrow advanced by hand at body height on dry floor
 --lifecycle            spawn and attachment, downing and revival, stat mirroring
 --liquids              every liquid as air: flight through all four at the air pace, and a flooded passage reached through it

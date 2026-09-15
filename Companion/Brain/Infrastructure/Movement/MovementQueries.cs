@@ -42,10 +42,11 @@ public static class MovementQueries
     public static bool IsBlock(int x, int y) => IsSolidForOrb(x, y);
     /// <summary>Free for the orb: not solid. A wet tile is as free as a dry one, because every liquid is air to the body.</summary>
     public static bool IsFreeForOrb(int x, int y) => OrbTerrain.Free(World, x, y);
-    public static bool IsWet(int x, int y) => World.InWorld(x, y) && World.LiquidAmount(x, y) > 0;
     /// <summary>A tile a dropped item comes to rest on: anything with a shape, platforms included, because an item lands on a platform.</summary>
     public static bool IsSupport(int x, int y) => World.InWorld(x, y) && World.Shape(x, y) != TileShape.Air;
-    public static bool IsLiquid(int x, int y) => IsWet(x, y);
+    /// <summary>Whether any liquid is here, and whether it is lava. Nothing about the body reads these, because every liquid is
+    /// air to the orb; the recorder's tile map draws them, so a capture shows the pools a route crossed.</summary>
+    public static bool IsLiquid(int x, int y) => World.InWorld(x, y) && World.LiquidAmount(x, y) > 0;
     public static bool IsLava(int x, int y) => World.Lava(x, y);
 
     /// <summary>Distance from a free tile to the nearest wall, in tiles, capped; zero for a wall.</summary>

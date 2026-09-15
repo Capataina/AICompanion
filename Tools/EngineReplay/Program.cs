@@ -40,6 +40,6 @@ if (args.Any(a => a == "--evidence-scenes" || a.StartsWith("--evidence-scenes=",
 if (args.Contains("--brain-cost")) return VerifyEngineMotion.Run(brainCostOnly: true);
 if (args.Contains("--combat-cost")) return VerifyEngineMotion.Run(combatCostOnly: true);
 if (args.Contains("--combat-purpose")) return VerifyEngineMotion.Run(combatPurposeOnly: true);
-if (args.Contains("--safety-aftermath")) return VerifyEngineMotion.Run(safetyAftermathOnly: true);
+if (args.Contains("--safety-layer")) return VerifyEngineMotion.Run(safetyLayerOnly: true);
 if (args.Contains("--dodge-repro")) return VerifyEngineMotion.Run(dodgeReproOnly: true);
 return VerifyEngineMotion.Run(args.Contains("--lifecycle"), args.Contains("--liquids"));

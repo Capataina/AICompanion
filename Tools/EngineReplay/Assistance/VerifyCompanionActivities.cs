@@ -405,7 +405,7 @@ internal static class VerifyCompanionActivities
     /// Safety rides on the job. A heavy hitter beside the body used to start combat spacing, which suspended the ordinary activity
     /// and searched for a low-exposure cell; since 15 September 2026 only downing and recovery flight take the body, so the same scene
     /// must leave the probe activity executing on every tick with the hands granted. The zombie stands still and is never on a collision course, so the evade step has nothing to bend
-    /// here; the reflex rows in VerifySafetyAftermath are where a bent tick is asserted.
+    /// here; the evade rows in VerifySafetyIsALayerOnTheJob are where a bent tick is asserted.
     /// </summary>
     private static void AnEnemyBesideTheBodyNeitherSuspendsTheJobNorTakesTheFeet()
     {

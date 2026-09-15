@@ -214,7 +214,7 @@ internal static class ScoreTheRun
             else if (run.PlannerClaim[i] == Reach.NotYet) plannerUnfinished++;
         }
 
-        string note = $"{total} checkpoints every {cadence} ticks along {route.Capture}, reached when the body is inside the player's region and connected to him on some tick of the checkpoint's own {cadence}-tick stretch";
+        string note = $"{total} checkpoints every {cadence} ticks along {route.Capture}, reached when the body is inside the player's region and connected to him on at least one tick of the checkpoint's own {cadence}-tick stretch; a membership test and not a distance, so a body keeping to the far side of his region, trailing him, reaches every checkpoint, and how far behind it sits is the session reader's play measures rather than this row";
         EmitLedgerRows.Measure(Instrument, suite, "checkpoints the body reached", arrived, "checkpoints", "up", "unbounded-allowances", message: note);
         EmitLedgerRows.Measure(Instrument, suite, "checkpoints the body never reached", missed, "checkpoints", "down", "unbounded-allowances", message: note);
         // The furthest any checkpoint sat from the orb at the orb's nearest approach over the whole run. It is no longer the
