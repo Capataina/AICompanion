@@ -9,19 +9,19 @@ using live::AICompanion.Companion.CharacterBody;
 /// <summary>
 /// A committed scenario as a checkpoint: the whole brain and the native body in the real world the
 /// scenario was cut from, with the orb placed where the recording had it and the player standing
-/// where he stood, and the rows being whether the orb got to him and whether it ever touched water
-/// or lava on the way.
+/// where he stood, and the row being whether the orb got to him. A second row asked that the orb never
+/// touched water or lava on the way; every liquid became air to the orb on 15 September 2026, so that
+/// property no longer exists and the row went with it.
 ///
 /// The scenario file supplies the actors — its header names the companion's centre in pixels, the
 /// player's feet tile and the window — and the world file supplies the terrain. The grid inside the
 /// file is the recording's own picture of that terrain and is checked against the world rather than
-/// played in: a snapshot is written only when a chunk changes and carries no liquid, so the grid can
-/// be behind the world and always reads a pool as air, and a checkpoint about water played on the
-/// grid would pass without any water in it. The agreement between grid and world is reported as a
-/// measure so a reader can tell a world that has been mined since from the one the scenario names.
+/// played in: a snapshot is written only when a chunk changes, so the grid can be behind the world.
+/// The agreement between grid and world is reported as a measure so a reader can tell a world that
+/// has been mined since from the one the scenario names.
 ///
 /// The player stands still. That is the scenario's own question — the orb starting from the pocket
-/// or below the ledge, the player already at the far side — and it is what makes both rows a
+/// or below the ledge, the player already at the far side — and it is what makes the row a
 /// property of the body and the planner rather than of the recorded track.
 /// </summary>
 internal static class RunTheScenario
@@ -39,13 +39,11 @@ internal static class RunTheScenario
     {
         Scenario scenario = Read(scenarioPath);
         var loaded = LoadTheSavedWorld.Load(worldPath);
-        (int agreed, int compared, int wet) = CompareGridToWorld(scenario);
-        string agreement = $"the grid agrees with {loaded.Name} on {agreed} of {compared} window tiles and the world holds {wet} wet tiles in the window";
+        (int agreed, int compared) = CompareGridToWorld(scenario);
+        string agreement = $"the grid agrees with {loaded.Name} on {agreed} of {compared} window tiles";
         Console.WriteLine($"SCENARIO {scenario.Name}: orb at {scenario.OrbCentre.X:0},{scenario.OrbCentre.Y:0}, player at tile {scenario.Player.X},{scenario.Player.Y}; {agreement}");
         EmitLedgerRows.Measure(ScoreTheRun.Instrument, suite, "window tiles on which the scenario grid agrees with the world", agreed, "tiles", "up", "unbounded-allowances",
-            message: agreement + "; a fall says the world has been mined since the recording, and a grid never carries liquid");
-        EmitLedgerRows.Measure(ScoreTheRun.Instrument, suite, "wet tiles the world holds inside the scenario window", wet, "tiles", null, "unbounded-allowances",
-            message: agreement + "; zero makes the liquid row vacuous, and it says so");
+            message: agreement + "; a fall says the world has been mined since the recording");
 
         Vector2 playerFeet = new(scenario.Player.X * 16f + 8f, (scenario.Player.Y + 1) * 16f - 0.01f);
         live::AICompanion.Companion.Brain.Infrastructure.Movement.LimitPlanningWork.Unbounded = true;
@@ -93,22 +91,11 @@ internal static class RunTheScenario
             EmitLedgerRows.Fail(ScoreTheRun.Instrument, suite, "the orb reaches the player from where the recording left it",
                 (outcome.EnteredAt < 0 ? "never inside his region; " : $"inside his region on only {outcome.InsideTicks} of {ticks} ticks, under a quarter; ") + note, mode: "unbounded-allowances");
         }
-        string liquidNote = wet == 0 ? "the world holds no wet tile in the window, so this row is vacuous here; " : "";
-        if (outcome.WetTicks == 0)
-            EmitLedgerRows.Pass(ScoreTheRun.Instrument, suite, "the orb never touches water or lava",
-                liquidNote + note, mode: "unbounded-allowances",
-                killedBy: "a flood that treats a wet tile as free, a route smoothed through a pool, or a positioner that picks a spot under water");
-        else
-        {
-            failures++;
-            EmitLedgerRows.Fail(ScoreTheRun.Instrument, suite, "the orb never touches water or lava",
-                $"wet on {outcome.WetTicks} ticks, first at tick {outcome.FirstWetAt} at {outcome.FirstWet.X:0},{outcome.FirstWet.Y:0}; " + note, mode: "unbounded-allowances");
-        }
         return failures;
     }
 
     private sealed record Outcome(int ReachedAt, int EnteredAt, int InsideTicks, float Closest, int ClosestAt, float Final, float MinimumClearance,
-        int WetTicks, int FirstWetAt, Vector2 FirstWet, string LastAction, string LastStatus, double Seconds);
+        string LastAction, string LastStatus, double Seconds);
 
     private static Outcome Play(Scenario scenario, Vector2 playerFeet, int ticks, bool driveLight)
     {
@@ -125,9 +112,8 @@ internal static class RunTheScenario
 
         var world = live::AICompanion.Companion.Brain.Infrastructure.Movement.MovementQueries.World;
         float reach = live::AICompanion.Companion.Brain.Infrastructure.Selection.Weights.FollowVerticalComfort;
-        int reachedAt = -1, enteredAt = -1, insideTicks = 0, closestAt = 0, wetTicks = 0, firstWetAt = -1;
+        int reachedAt = -1, enteredAt = -1, insideTicks = 0, closestAt = 0;
         float closest = float.PositiveInfinity, minimumClearance = float.PositiveInfinity;
-        Vector2 firstWet = Vector2.Zero;
         var clock = Stopwatch.StartNew();
         for (int tick = 0; tick < ticks; tick++)
         {
@@ -158,29 +144,21 @@ internal static class RunTheScenario
                 if (enteredAt < 0) enteredAt = tick;
             }
             minimumClearance = MathF.Min(minimumClearance, live::AICompanion.Companion.Brain.Infrastructure.Movement.CircleContact.Clearance(world, centre));
-            // The motor's own liquid reading, which is the contact circle against wet tiles: honey and
-            // shimmer only slow the body and are not counted, water and lava are the two that hurt.
-            int liquid = companion.Motor.LiquidKind;
-            if (liquid is 0 or 1)
-            {
-                if (wetTicks == 0) { firstWetAt = tick; firstWet = centre; }
-                wetTicks++;
-            }
         }
         clock.Stop();
         return new Outcome(reachedAt, enteredAt, insideTicks, closest, closestAt, Vector2.Distance(companion.NPC.Center, playerFeet), minimumClearance,
-            wetTicks, firstWetAt, firstWet, companion.Brain.LastAction?.Name ?? "-", companion.Brain.Navigator.Status.ToString(), clock.Elapsed.TotalSeconds);
+            companion.Brain.LastAction?.Name ?? "-", companion.Brain.Navigator.Status.ToString(), clock.Elapsed.TotalSeconds);
     }
 
     /// <summary>
     /// The grid against the world, tile for tile over the window: solid-or-not from the grid's glyph
     /// against the loaded world's own shape, so a mined world or a wrong world is a number rather
-    /// than a surprise. Liquid is counted from the world alone, because the grid never carries it.
+    /// than a surprise.
     /// </summary>
-    private static (int Agreed, int Compared, int Wet) CompareGridToWorld(Scenario scenario)
+    private static (int Agreed, int Compared) CompareGridToWorld(Scenario scenario)
     {
         var world = new live::AICompanion.Companion.Brain.Infrastructure.Movement.GameTileWorld();
-        int agreed = 0, compared = 0, wet = 0;
+        int agreed = 0, compared = 0;
         for (int y = 0; y < scenario.Rows.Length; y++)
         {
             string row = scenario.Rows[y];
@@ -194,10 +172,9 @@ internal static class RunTheScenario
                 bool worldSolid = world.Shape(wx, wy) != live::AICompanion.Companion.Brain.Infrastructure.Movement.TileShape.Air;
                 compared++;
                 if (gridSolid == worldSolid) agreed++;
-                if (world.LiquidAmount(wx, wy) > 0) wet++;
             }
         }
-        return (agreed, compared, wet);
+        return (agreed, compared);
     }
 
     /// <summary>

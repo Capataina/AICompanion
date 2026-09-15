@@ -11,13 +11,13 @@ using CompanionGear = live::AICompanion.Companion.Inventory.CompanionGear;
 using CompanionPlayer = live::AICompanion.Companion.PlayerIntegration.CompanionPlayer;
 
 /// <summary>
-/// The combined-safety scenes, restated on 15 September 2026 when safety became a layer on the job. The one
-/// response that still takes the body is leaving a hurting liquid; everything else keeps the job running and
-/// bends its motion away from a predicted hit. Each scene asserts the companion stays coherent under that:
-/// an enemy beside the body does not keep it from a player who walks away, the hands keep fighting while the
-/// job keeps the feet, a shot bends guarding without suspending it and misses, guarding does not buy its
-/// position with contact, and a surfacing escape is not vetoed into drowning by a projectile above the
-/// water. Enemy AI does not run and projectiles are not advanced by the engine, so every hostile and shot is
+/// The combined-safety scenes, restated on 15 September 2026 when safety became a layer on the job. No
+/// response takes the body: the job keeps running and bends its motion away from a predicted hit. Each scene
+/// asserts the companion stays coherent under that: an enemy beside the body does not keep it from a player
+/// who walks away, the hands keep fighting while the job keeps the feet, a shot bends guarding without
+/// suspending it and misses, and guarding does not buy its position with contact. A fifth scene asked that a
+/// surfacing escape from water was not vetoed into drowning by a shot above it; every liquid became air to
+/// the orb the same day, so there is no escape to veto and the scene went with it. Enemy AI does not run and projectiles are not advanced by the engine, so every hostile and shot is
 /// placed and, where a scene needs motion, moved by hand; these establish the brain's responses to stated
 /// arrangements, not a live fight.
 /// </summary>
@@ -25,10 +25,9 @@ internal static class VerifySafetyAftermath
 {
     public static int Run()
     {
-        // Every scene runs the full brain, whose searches the live tick bounds by wall-clock allowances.
-        // Left in force, the surfacing escape under a shot reached air or drowned depending on how loaded
-        // the machine was, so the verdict measured the machine. Lifting them keeps each query's work-count
-        // limits and takes load out of the result.
+        // Every scene runs the full brain, whose searches the live tick bounds by wall-clock allowances. Left in
+        // force, how far each search got before its deadline would decide the verdict, so the verdict would measure
+        // the machine. Lifting them keeps each query's work-count limits and takes load out of the result.
         live::AICompanion.Companion.Brain.Infrastructure.Movement.LimitPlanningWork.Unbounded = true;
         try
         {
@@ -36,10 +35,9 @@ internal static class VerifySafetyAftermath
             TheHandsKeepFiringWhileTheBodyKeepsItsJob();
             AShotBendsGuardingWithoutSuspendingItAndMisses();
             GuardingReachesThePlayerPastAnInterveningHostileWithoutContact();
-            SurfacingIsNotVetoedIntoDrowningByAProjectileAboveTheWater();
         }
         finally { live::AICompanion.Companion.Brain.Infrastructure.Movement.LimitPlanningWork.Unbounded = false; }
-        Console.WriteLine("safety aftermath: an enemy beside the body does not keep it from a walking player, the hands fire while the job keeps the feet, a shot bends guarding without suspending it and misses, guarding passes an intervening hostile without contact, and a projectile over the only exit does not drown a surfacing escape");
+        Console.WriteLine("safety aftermath: an enemy beside the body does not keep it from a walking player, the hands fire while the job keeps the feet, a shot bends guarding without suspending it and misses, and guarding passes an intervening hostile without contact");
         return 0;
     }
 
@@ -65,7 +63,7 @@ internal static class VerifySafetyAftermath
         var brain = ctx.Companion.Brain;
         Player player = ctx.Player;
         float stopAt = player.Bottom.X + 40 * 16;
-        int suspended = 0, safetyOwned = 0, stillRun = 0, longestStill = 0, stoppedAt = -1, arrivedAt = -1;
+        int suspended = 0, stillRun = 0, longestStill = 0, stoppedAt = -1, arrivedAt = -1;
         var owners = new SortedDictionary<string, int>();
         // The ticks leading up to the first still run of ten, so a failure names what owned the body and what it asked for.
         var recent = new Queue<string>();
@@ -80,7 +78,6 @@ internal static class VerifySafetyAftermath
             VerifyOreWork.AdvanceBrain(ctx);
             string owner = brain.ControlGrants.Last?.AppliedOwner ?? "-";
             owners[owner] = owners.TryGetValue(owner, out int seen) ? seen + 1 : 1;
-            if (brain.Safety.Active) safetyOwned++;
             if (brain.Chooser.Activity.Phase == ActivityPhase.Suspended && !brain.FollowRecovery.Active && !ctx.Companion.IsDowned) suspended++;
             stillRun = walking && ctx.Companion.Motor.State.Velocity.Length() < 0.3f ? stillRun + 1 : 0;
             Vector2 v = ctx.Companion.Motor.State.Velocity, d = ctx.Companion.Motor.DesiredVelocity;
@@ -92,7 +89,7 @@ internal static class VerifySafetyAftermath
             if (!walking && brain.Senses.Intent.Objective.IsSatisfied(ctx.Npc.Center))
                 arrivedAt = tick;
         }
-        string ledger = $"suspended ticks {suspended}, safety-owned ticks {safetyOwned}, longest still run while walking {longestStill}, "
+        string ledger = $"suspended ticks {suspended}, longest still run while walking {longestStill}, "
             + $"stopped at {stoppedAt}, arrived at {arrivedAt}, owners {string.Join(", ", owners.Select(o => $"{o.Key}={o.Value}"))}, "
             + $"centre {ctx.Npc.Center}, player {player.Bottom}";
         Console.WriteLine($"  enemy-beside row: {ledger}");
@@ -145,7 +142,7 @@ internal static class VerifySafetyAftermath
     /// Attacks while keeping its job. A wounded companion beside a damageable zombie used to take combat spacing, and this
     /// row required a tick where spacing owned the feet while the hands fired. Since 15 September 2026 no enemy takes the
     /// body, so the row asks what survived the change: over the same scene the hands are granted and fire at the zombie on
-    /// some tick, no safety response ever starts, and the ordinary activity is never suspended.
+    /// some tick, and the ordinary activity is never suspended.
     /// </summary>
     private static void TheHandsKeepFiringWhileTheBodyKeepsItsJob()
     {
@@ -154,7 +151,7 @@ internal static class VerifySafetyAftermath
         companion.NPC.life = 12;
         Hostile(30, NPCID.Zombie, companion.NPC.Bottom + new Vector2(64, 0), damage: 20, life: 400);
         VerifyResponsiveFollowing.AdvanceNative(companion);
-        int fired = 0, firedAtZombie = 0, safetyTicks = 0, suspendedTicks = 0;
+        int fired = 0, firedAtZombie = 0, suspendedTicks = 0;
         for (int tick = 0; tick < 180; tick++)
         {
             Tick(companion);
@@ -162,14 +159,13 @@ internal static class VerifySafetyAftermath
             bool shot = companion.Arsenal.LastFireOutcome == "fired";
             fired += shot ? 1 : 0;
             if (shot && brain.EngageTarget?.whoAmI == 30 && brain.ControlGrants.Last?.Hand == HandGrant.Available) firedAtZombie++;
-            if (brain.Safety.Active) safetyTicks++;
             if (brain.Chooser.Current != null && brain.Chooser.Activity.Phase == ActivityPhase.Suspended) suspendedTicks++;
             VerifyResponsiveFollowing.AdvanceNative(companion);
         }
-        Console.WriteLine($"  keep-the-job rows: fired ticks {fired}, fired at the zombie {firedAtZombie}, safety ticks {safetyTicks}, suspended ticks {suspendedTicks}");
+        Console.WriteLine($"  keep-the-job rows: fired ticks {fired}, fired at the zombie {firedAtZombie}, suspended ticks {suspendedTicks}");
         Require(firedAtZombie > 0, $"on some tick the hands must be granted, aimed at the zombie and fire; fired={fired} at the zombie={firedAtZombie}");
-        Require(safetyTicks == 0 && suspendedTicks == 0,
-            $"an enemy beside a wounded companion must neither start a safety response nor suspend its job; safety ticks={safetyTicks} suspended ticks={suspendedTicks}");
+        Require(suspendedTicks == 0,
+            $"an enemy beside a wounded companion must not suspend its job; suspended ticks={suspendedTicks}");
     }
 
     /// <summary>
@@ -255,53 +251,6 @@ internal static class VerifySafetyAftermath
         Require(passedAt >= 0, $"guarding must actually get past the intervening zombie, since standing still also avoids contact; feet={companion.NPC.Bottom}");
     }
 
-    private static (int SurfacedAt, int Life, int Breath, Vector2 AirCenter, string Kinds) RunPool(Vector2? shotAt)
-    {
-        VerifyCapturedEscape.BuildCapturedPool();
-        for (int i = 0; i < Main.projectile.Length; i++) Main.projectile[i] ??= new Projectile();
-        foreach (Projectile projectile in Main.projectile) projectile.active = false;
-        var companion = VerifyCompanionLifecycle.Create();
-        companion.Brain.Chooser.Actions.Clear();
-        Main.player[0].dead = false;
-        Main.player[0].Bottom = new Vector2(2024, 1376);
-        companion.NPC.position = new Vector2(1356, 2016 - companion.NPC.height);
-        companion.NPC.velocity = Vector2.Zero; companion.NPC.wet = true; companion.NPC.active = true;
-        if (shotAt is Vector2 at) HostileShot(at, Vector2.Zero);
-        var kinds = new SortedSet<string>();
-        int dry = 0;
-        Vector2 firstAir = Vector2.Zero;
-        for (int tick = 0; tick < 630; tick++)
-        {
-            Tick(companion);
-            kinds.Add($"{companion.Brain.Safety.Kind}/{companion.Brain.Safety.Reason}");
-            VerifyResponsiveFollowing.AdvanceNative(companion);
-            bool air = !Collision.DrownCollision(companion.NPC.position, companion.NPC.width, companion.NPC.height, 1f);
-            if (air && dry == 0) firstAir = companion.NPC.Center;
-            dry = air ? dry + 1 : 0;
-            if (companion.IsDowned || companion.NPC.life <= 0) return (-1, companion.NPC.life, companion.Motor.LiquidContactTicks, firstAir, string.Join(",", kinds));
-            if (dry >= 30) return (tick, companion.NPC.life, companion.Motor.LiquidContactTicks, firstAir, string.Join(",", kinds));
-        }
-        return (-1, companion.NPC.life, companion.Motor.LiquidContactTicks, firstAir, string.Join(",", kinds));
-    }
-
-    /// <summary>
-    /// C02. The captured pool's full-brain escape is run once as recorded to find where the body first
-    /// breaks the surface, and again with a stationary hostile shot hanging at that point. Every state the
-    /// escape search considers is vetoed where the shot's predicted box meets the body, so a shot over the
-    /// only exit could hold the escape pending while breath runs out. The pass is the escape still reaching
-    /// sustained air with life left; which way it chose to pay — a hit, a longer route, or drowning damage
-    /// — is printed rather than asserted, because the priced trade between those costs is the open question.
-    /// </summary>
-    private static void SurfacingIsNotVetoedIntoDrowningByAProjectileAboveTheWater()
-    {
-        var baseline = RunPool(null);
-        Require(baseline.SurfacedAt >= 0, $"the captured pool must surface without pressure, or the pressure row proves nothing; {baseline}");
-        var pressured = RunPool(baseline.AirCenter);
-        Console.WriteLine($"  surfacing rows: baseline {baseline}, shot over exit {pressured}");
-        Require(pressured.SurfacedAt >= 0 && pressured.Life > 0,
-            $"a projectile hanging over the surfacing point must not hold the escape under water until it fails; baseline={baseline} pressured={pressured}");
-    }
-
     /// <summary>
     /// S01 reproduction, deliberately outside the default run: a companion standing on dry floor with no
     /// activities and a hostile arrow flying at its body height. The arrow is advanced by hand each tick.
@@ -320,7 +269,7 @@ internal static class VerifySafetyAftermath
         for (int tick = 0; tick < 40 && hitAt < 0; tick++)
         {
             Tick(companion);
-            controls.Add($"{companion.Brain.Senses.Projectiles.Threats.Count}{companion.Brain.Safety.Kind}:{companion.Motor.AppliedControls.Desired.X:0.#},{companion.Motor.AppliedControls.Desired.Y:0.#}");
+            controls.Add($"{companion.Brain.Senses.Projectiles.Threats.Count}{companion.Brain.Movement.LastEvade.Reason}:{companion.Motor.AppliedControls.Desired.X:0.#},{companion.Motor.AppliedControls.Desired.Y:0.#}");
             VerifyResponsiveFollowing.AdvanceNative(companion);
             arrow.position += arrow.velocity;
             if (arrow.Hitbox.Intersects(companion.NPC.Hitbox)) hitAt = tick;

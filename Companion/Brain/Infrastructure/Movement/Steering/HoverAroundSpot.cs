@@ -23,8 +23,8 @@ namespace AICompanion.Companion.Brain.Infrastructure.Movement;
 /// threshold on purpose, so a hovering body still reads as at rest to the follow objective and arriving
 /// somewhere is still arriving.</para>
 ///
-/// <para>The target is kept on this side of every wall the planner knows, liquids the body is not immune to
-/// included: a target whose straight line from the spot is not clear for the circle is mirrored off the wall
+/// <para>The target is kept on this side of every wall the planner knows: a target whose straight line from the spot is
+/// not clear for the circle is mirrored off the wall
 /// that blocked it, and a mirror reverses the direction of circling with it, because reflecting a circular
 /// path reverses its angular velocity — the first build mirrored the offset without reversing the rate, and
 /// the same trace showed the target bounced straight back into the ceiling it had just been reflected off.

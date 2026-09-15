@@ -13,8 +13,6 @@ public static class Weights
     public const double RouteSearchMilliseconds = 8d;
     public const double PositionReachMilliseconds = 2d;
     public const double PositionAimingMilliseconds = 2d;
-    public const double EscapeSearchMilliseconds = 2d;
-    public const int EscapeSearchWork = 120;
     // The orb's pace is the player's, read live, times these: the cap is three times his maximum run
     // speed after accessories (the owner's ruling, so a speed accessory carries over and a
     // companion at the cap overtakes a running player; raised from two times on 15 September 2026
@@ -281,11 +279,8 @@ public static class Weights
     /// <summary>
     /// Guard must be able to interrupt an ordinary action at its maximum committed value.
     /// A ceiling of one cannot displace that incumbent, regardless of observed player danger.
-    /// Shared safety can suspend either activity independently of this utility comparison.
     /// </summary>
     public const float GuardUrgency = 1.25f;   // > 1.00 × Commitment
-    public const int RefugeSearchRadiusTiles = 24;
-    public const int RefugeRecheckTicks = 30;
 
     /// <summary>How fast the horizon charge falls once an action would outlast the horizon, in ticks of overrun to zero.</summary>
     public const float HorizonOverrunToZero = 240f;

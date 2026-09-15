@@ -12,8 +12,10 @@ namespace AICompanion.Companion;
 /// The only component that writes the live NPC's velocity. Each tick it accelerates the orb toward
 /// the velocity the brain asked for, runs the circle contact on where that would put the body, and
 /// hands the engine the resolved displacement as the NPC's velocity — the engine, with tile
-/// collision switched off for this body, does nothing but add it. Liquid is read here too, because
-/// the engine reads it inside the collision it no longer runs for the orb.
+/// collision switched off for this body, does nothing but add it. Which liquid the body is in is
+/// read here too, because the engine reads it inside the collision it no longer runs for the orb;
+/// it is an observation for the record and the NPC's flags, and nothing about the move depends on
+/// it, because every liquid is air to this body.
 ///
 /// <para>Momentum is the motor's own and not the NPC's velocity. The displacement written to the
 /// NPC is what contact left after pushing the body out of a wall, and if that were read back as the
@@ -30,12 +32,6 @@ namespace AICompanion.Companion;
 /// </summary>
 public sealed class CompanionMotor
 {
-    /// <summary>Honey and shimmer are harmless and slow the body: the tick's displacement is
-    /// multiplied by these while the circle touches them. Water and lava do not slow it at all,
-    /// because the body is meant to leave them and a slowed exit is a longer exposure.</summary>
-    public const float HoneyVelocityFactor = 0.25f;
-    public const float ShimmerVelocityFactor = 0.375f;
-
     /// <summary>How fast a downed body sinks to rest; contact stops it on the floor, where the
     /// player can reach it to revive it. A downed orb hovering five tiles up would be unrevivable.</summary>
     private const float DownedSinkSpeed = 2f;
@@ -50,7 +46,6 @@ public sealed class CompanionMotor
     private bool appliedOnce;
     private Vector2? previousPosition;
     private Vector2? recoveryLastClearPosition;
-    private int waterContactTicks, lavaContactTicks;
     private bool downed;
 
     public CompanionMotor(CompanionNPC companion) => this.companion = companion;
@@ -91,20 +86,16 @@ public sealed class CompanionMotor
     public Controls AppliedControls { get; private set; }
     /// <summary>The velocity the brain asked the body to accelerate toward, after the speed cap.</summary>
     public Vector2 DesiredVelocity { get; private set; }
-    /// <summary>Which liquid the circle touches, or -1 for none: water 0, lava 1, honey 2, shimmer 3.</summary>
+    /// <summary>Which liquid the circle touches, or -1 for none: water 0, lava 1, honey 2, shimmer 3. The record
+    /// reads it and nothing decides from it: every liquid is air to this body.</summary>
     public int LiquidKind { get; private set; } = -1;
-    /// <summary>How many consecutive ticks the body has been touching a liquid that hurts it.</summary>
-    public int LiquidContactTicks => Math.Max(waterContactTicks, lavaContactTicks);
-    public bool InHurtingLiquid => (LiquidKind == 0 && !companion.ImmuneToWater) || (LiquidKind == 1 && !companion.ImmuneToLava);
     /// <summary>Whether the last contact pass touched a wall, and the wall's normal when it did.</summary>
     public bool TouchedWall { get; private set; }
     public Vector2 WallNormal { get; private set; }
     public bool ClearOfTerrain => !CircleContact.Overlaps(MovementQueries.World, npc.Center);
-    /// <summary>The immunities the body carries, as the terrain reading wants them.</summary>
-    public LiquidImmunity Immunity => new(companion.ImmuneToWater, companion.ImmuneToLava);
 
     /// <summary>The orb as the steering and every consumer read it this tick.</summary>
-    public OrbState State => new(npc.Center, momentum, LiquidKind, PinnedTicks >= 15);
+    public OrbState State => new(npc.Center, momentum, PinnedTicks >= 15);
 
     /// <summary>
     /// Read what the engine did with the last application before anything acts on this tick: the
@@ -176,7 +167,12 @@ public sealed class CompanionMotor
         return external.LengthSquared() < 1e-6f ? Vector2.Zero : external;
     }
 
-    /// <summary>Resolve contact on where the velocity would put the body, then write the move and the liquid facts.</summary>
+    /// <summary>
+    /// Resolve contact on where the velocity would put the body, then write the move and the liquid facts. The
+    /// displacement is the contact's and nothing scales it: honey and shimmer once multiplied it by a quarter and three
+    /// eighths, and water and lava struck the body on contact, until the owner ruled on 15 September 2026 that every
+    /// liquid is air to the companion.
+    /// </summary>
     private void Commit(Vector2 velocity, bool phasing)
     {
         Vector2 centre = npc.Center;
@@ -195,18 +191,17 @@ public sealed class CompanionMotor
         }
         ReadLiquid(world, next);
         Vector2 displacement = next - centre;
-        if (LiquidKind == 2) displacement *= HoneyVelocityFactor;
-        else if (LiquidKind == 3) displacement *= ShimmerVelocityFactor;
         momentum = velocity;
         appliedDisplacement = displacement;
         npc.velocity = displacement;
-        HurtIfInLiquid();
     }
 
     /// <summary>
-    /// Which liquid the circle touches at <paramref name="centre"/>, written to the NPC's own flags
-    /// as well, because the engine only sets them inside the collision it does not run for this body
-    /// and everything from hit effects to the senses reads them.
+    /// Which liquid the circle touches at <paramref name="centre"/>, written to the NPC's own flags as well, because the
+    /// engine only sets them inside the collision it does not run for this body. Writing them changes nothing about the
+    /// body: with <c>noTileCollide</c> set the engine's slowdown, lava strike and shimmer buff all live in the skipped
+    /// collision step, and <c>noGravity</c> skips the wet gravity. What reads them is the held torch, which the game's own
+    /// rule puts out in water, and the stand-in player, whose wet flag some hostiles aim by.
     /// </summary>
     private void ReadLiquid(ITileWorld world, Vector2 centre)
     {
@@ -227,24 +222,6 @@ public sealed class CompanionMotor
         npc.lavaWet = kind == 1;
         npc.honeyWet = kind == 2;
         npc.shimmerWet = kind == 3;
-    }
-
-    /// <summary>
-    /// Water and lava hurt on contact: a fixed amount every fixed interval of contact, the pairs
-    /// living on the body. A downed body takes nothing, because the game's own strike refuses it
-    /// and counting contact ticks against it would deal the damage the moment it got up.
-    /// </summary>
-    private void HurtIfInLiquid()
-    {
-        bool water = LiquidKind == 0 && !companion.ImmuneToWater;
-        bool lava = LiquidKind == 1 && !companion.ImmuneToLava;
-        waterContactTicks = water ? waterContactTicks + 1 : 0;
-        lavaContactTicks = lava ? lavaContactTicks + 1 : 0;
-        if (downed) return;
-        if (water && waterContactTicks % CompanionNPC.WaterHurt.IntervalTicks == 1)
-            npc.SimpleStrikeNPC(CompanionNPC.WaterHurt.Damage, 0, noPlayerInteraction: true);
-        if (lava && lavaContactTicks % CompanionNPC.LavaHurt.IntervalTicks == 1)
-            npc.SimpleStrikeNPC(CompanionNPC.LavaHurt.Damage, 0, noPlayerInteraction: true);
     }
 
     public void Stop() => Apply(Controls.None, "idle");

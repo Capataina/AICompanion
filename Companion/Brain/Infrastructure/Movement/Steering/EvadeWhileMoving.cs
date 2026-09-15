@@ -11,12 +11,10 @@ public enum EvadeReason
 {
     /// <summary>No predicate this tick, so nothing was tested.</summary>
     Off,
-    /// <summary>The job's own flight stayed clear of hits and of liquid for the whole lookahead, and its controls went out untouched.</summary>
+    /// <summary>The job's own flight stayed clear of hits for the whole lookahead, and its controls went out untouched.</summary>
     Kept,
-    /// <summary>The job's own flight met a predicted hit first.</summary>
+    /// <summary>The job's own flight met a predicted hit.</summary>
     Hit,
-    /// <summary>The job's own flight met water or lava the body is not immune to first.</summary>
-    Liquid,
 }
 
 /// <summary>Which candidate a bent tick flew.</summary>
@@ -24,14 +22,14 @@ public enum EvadeChoice { Job, JobHeading, Heading, Stop }
 
 /// <summary>
 /// One tick of the evade layer, for the record: the reason, the tick of the lookahead at which the job's own flight met a hit
-/// and met liquid (-1 for never), the candidate chosen, and how many candidates each refusal removed — reaching liquid while
-/// another stayed out of it longer, going nowhere, and being more dangerous than the least dangerous by more than the tolerance.
+/// (-1 for never), the candidate chosen, and how many candidates each refusal removed — going nowhere, and being more dangerous
+/// than the least dangerous by more than the tolerance.
 /// </summary>
-public readonly record struct EvadeVerdict(EvadeReason Reason, int HitTick, int WetTick, EvadeChoice Choice, int RefusedLiquid, int RefusedNowhere, int RefusedDanger)
+public readonly record struct EvadeVerdict(EvadeReason Reason, int HitTick, EvadeChoice Choice, int RefusedNowhere, int RefusedDanger)
 {
-    public static readonly EvadeVerdict Off = new(EvadeReason.Off, -1, -1, EvadeChoice.Job, 0, 0, 0);
+    public static readonly EvadeVerdict Off = new(EvadeReason.Off, -1, EvadeChoice.Job, 0, 0);
 
-    public bool Bent => Reason is EvadeReason.Hit or EvadeReason.Liquid;
+    public bool Bent => Reason is EvadeReason.Hit;
 }
 
 /// <summary>
@@ -64,16 +62,10 @@ public readonly record struct EvadeVerdict(EvadeReason Reason, int HitTick, int 
 /// <see cref="NowhereDistance"/> from where it began is scored exactly as the stop is, so it can only ever tie with the stop,
 /// and a tie goes to the stop's zero request rather than a request that shoves the body into the wall at full speed.</para>
 ///
-/// <para><b>Water and lava the body is not immune to are a mask rather than a danger to be traded.</b> Only the candidates that
-/// stay out of forbidden liquid longest are compared at all; when any stays dry for the whole lookahead that is the dry set, so a
-/// body that cannot avoid both a hit and the liquid takes the hit. The danger reading is the hit alone and runs to the end of
-/// the lookahead whatever the liquid did, because a heading's wetness is already the mask's business. The contact pushes out of
-/// solid tiles only, and a dodge scored against it alone flew a body squeezed between two shots twenty-five pixels into lava;
-/// counting liquid as one more "unsafe at tick N" fixed that and then failed the same way at three times the player's speed,
-/// where the fleeing body reached a corner, found the lava a tick later than the shot, and chose the lava (15 September 2026).
-/// The same scale survived inside the danger reading until a body that started in water read every heading as hit at once,
-/// which left interest alone to choose and flew it into the shot. Being hit and being in lava are not the same size of
-/// mistake, so they are never scored on one scale.</para>
+/// <para><b>Liquid plays no part in the choice.</b> Every liquid is air to the body, by the owner's ruling of 15 September 2026,
+/// so a heading into a pool is scored exactly as a heading into open air and a dodge is free to use a pool as space. Before the
+/// ruling water and lava were a mask over the candidates, compared apart from hits because a hit and a touch of lava were not
+/// the same size of mistake; the mask went with the hurt it guarded against, and a body cornered over lava now dodges into it.</para>
 ///
 /// <para>This replaced two things that took the body away from the job: combat spacing, a search for a
 /// low-exposure cell that suspended the activity and, in the first play of the orb, parked it beside
@@ -96,21 +88,19 @@ public static class EvadeWhileMoving
     /// <summary>
     /// The controls to apply this tick: <paramref name="wanted"/> unchanged when the job's own flight — the wanted controls
     /// first, then <paramref name="forecast"/> from each simulated state, or the wanted controls held when there is no
-    /// forecast — stays clear of hits and liquid for the whole lookahead; otherwise the candidate that stays out of liquid
-    /// longest, stays clear of hits within the tolerance of the best, goes somewhere, and agrees most with the job, at full
-    /// speed on a burst.
+    /// forecast — stays clear of hits for the whole lookahead; otherwise the candidate that stays clear of hits within the
+    /// tolerance of the best, goes somewhere, and agrees most with the job, at full speed on a burst.
     /// </summary>
     public static Controls Bend(OrbState live, Controls wanted, Func<OrbState, int, bool> unsafeAtTick, ITileWorld world,
         out EvadeVerdict verdict, Func<OrbState, Controls>? forecast = null)
     {
         int horizon = Weights.DodgeLookaheadTicks;
         Flight job = Fly(live, wanted, forecast ?? (_ => wanted), unsafeAtTick, world, horizon);
-        if (job.HitTick < 0 && job.WetTick < 0)
+        if (job.HitTick < 0)
         {
-            verdict = new EvadeVerdict(EvadeReason.Kept, -1, -1, EvadeChoice.Job, 0, 0, 0);
+            verdict = new EvadeVerdict(EvadeReason.Kept, -1, EvadeChoice.Job, 0, 0);
             return wanted;
         }
-        EvadeReason reason = job.HitTick >= 0 && (job.WetTick < 0 || job.HitTick < job.WetTick) ? EvadeReason.Hit : EvadeReason.Liquid;
 
         Vector2 preference = wanted.Desired.LengthSquared() > 0.01f ? Vector2.Normalize(wanted.Desired)
             : live.Velocity.LengthSquared() > 0.01f ? Vector2.Normalize(live.Velocity) : Vector2.Zero;
@@ -132,36 +122,23 @@ public static class EvadeWhileMoving
         desires[stop] = Vector2.Zero;
         interest[stop] = -2f;
 
-        // Each candidate's danger (the hit alone), how long it stays out of liquid (horizon + 1 for the whole lookahead), and
-        // whether it is still in the running. A candidate that goes nowhere is scored as the stop, which the stop itself
-        // already is, so it leaves the running and the stop stands for it.
+        // Each candidate's danger and whether it is still in the running. A candidate that goes nowhere is scored as the stop,
+        // which the stop itself already is, so it leaves the running and the stop stands for it.
         Span<float> danger = stackalloc float[count];
-        Span<int> dryFor = stackalloc int[count];
         Span<bool> open = stackalloc bool[count];
-        int refusedNowhere = 0, refusedLiquid = 0, refusedDanger = 0;
+        int refusedNowhere = 0, refusedDanger = 0;
         for (int i = 0; i < count; i++)
         {
             if (i == jobHeading && preference == Vector2.Zero) continue;
             var ask = new Controls(desires[i], Burst: true);
             Flight flight = Fly(live, ask, _ => ask, unsafeAtTick, world, horizon);
             danger[i] = flight.HitTick < 0 ? 0f : 1f - (flight.HitTick - 1) / (float)horizon;
-            dryFor[i] = flight.WetTick < 0 ? horizon + 1 : flight.WetTick;
             open[i] = true;
             if (i != stop && flight.Displacement < NowhereDistance)
             {
                 open[i] = false;
                 refusedNowhere++;
             }
-        }
-        // Liquid masks: only what stays out of it longest is compared. With a dry candidate that is the dry set.
-        int longestDry = 0;
-        for (int i = 0; i < count; i++)
-            if (open[i]) longestDry = Math.Max(longestDry, dryFor[i]);
-        for (int i = 0; i < count; i++)
-        {
-            if (!open[i] || dryFor[i] >= longestDry) continue;
-            open[i] = false;
-            if (i != stop) refusedLiquid++;
         }
         float least = float.PositiveInfinity;
         for (int i = 0; i < count; i++)
@@ -178,23 +155,21 @@ public static class EvadeWhileMoving
         }
         if (best < 0) best = stop;
         EvadeChoice choice = best == stop ? EvadeChoice.Stop : best == jobHeading ? EvadeChoice.JobHeading : EvadeChoice.Heading;
-        verdict = new EvadeVerdict(reason, job.HitTick, job.WetTick, choice, refusedLiquid, refusedNowhere, refusedDanger);
+        verdict = new EvadeVerdict(EvadeReason.Hit, job.HitTick, choice, refusedNowhere, refusedDanger);
         return new Controls(desires[best], Burst: true);
     }
 
-    private readonly record struct Flight(int HitTick, int WetTick, float Displacement);
+    private readonly record struct Flight(int HitTick, float Displacement);
 
     /// <summary>
     /// The body run forward for the lookahead through the motor's law and the contact: <paramref name="first"/> on the first
     /// tick and <paramref name="next"/>'s answer from each simulated state after it. Returns the first tick the predicate
-    /// fires and the first tick the body touches liquid that hurts it (-1 for never, each read to the end of the lookahead
-    /// whatever the other did), and how far the body ends from where it began.
+    /// fires (-1 for never) and how far the body ends from where it began.
     /// </summary>
     private static Flight Fly(OrbState live, Controls first, Func<OrbState, Controls> next, Func<OrbState, int, bool> unsafeAtTick, ITileWorld world, int horizon)
     {
         Vector2 centre = live.Centre, velocity = live.Velocity;
-        LiquidImmunity immunity = OrbTerrain.Immunity;
-        int hit = -1, wet = -1;
+        int hit = -1;
         Controls ask = first;
         for (int tick = 1; tick <= horizon; tick++)
         {
@@ -204,8 +179,7 @@ public static class EvadeWhileMoving
             CircleContact.Resolve(world, ref moved, ref velocity);
             centre = moved;
             if (hit < 0 && unsafeAtTick(new OrbState(centre, velocity), tick)) hit = tick;
-            if (wet < 0 && CircleContact.Touches(centre, (x, y) => OrbTerrain.WetWall(world, x, y, immunity))) wet = tick;
         }
-        return new Flight(hit, wet, Vector2.Distance(centre, live.Centre));
+        return new Flight(hit, Vector2.Distance(centre, live.Centre));
     }
 }

@@ -64,7 +64,7 @@ internal static class VerifyCombatPurpose
         Hostile(30, 200f);
         Hostile(31, 110f);
         live::AICompanion.Companion.Weapons.TrackLandedHits.Clear();
-        ctx.Companion.Brain.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Motor);
+        ctx.Companion.Brain.Senses.Update(ctx.Npc, ctx.Player);
         var arsenal = ctx.Companion.Arsenal;
         NPC? aimed = arsenal.BestTarget(ctx);
         Require(aimed != null, "the identity scene needs the arsenal to choose a target");
@@ -140,7 +140,7 @@ internal static class VerifyCombatPurpose
             enemy.whoAmI = 30; enemy.active = true; enemy.velocity = Vector2.Zero;
             enemy.Bottom = ctx.Npc.Bottom + new Vector2(200, 0);
             live::AICompanion.Companion.Weapons.TrackLandedHits.Clear();
-            ctx.Companion.Brain.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Motor);
+            ctx.Companion.Brain.Senses.Update(ctx.Npc, ctx.Player);
             NPC? aimed = ctx.Companion.Arsenal.BestTarget(ctx);
             Require(aimed != null && ctx.Companion.Arsenal.TryFire(ctx, aimed), "the recorded identity scene needs a real shot");
             Projectile shot = Main.projectile.First(p => p.active);
@@ -218,7 +218,7 @@ internal static class VerifyCombatPurpose
         if (life > 0) { enemy.lifeMax = life; enemy.life = life; }
         enemy.Bottom = ctx.Player.Bottom - new Vector2(48, 0);
         var brain = ctx.Companion.Brain;
-        brain.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Motor);
+        brain.Senses.Update(ctx.Npc, ctx.Player);
         var threat = brain.Senses.Threats.Threats.Find(t => t.Npc == enemy);
         Require(threat != null && threat.CanReachPlayer && threat.Urgency > 0f,
             $"the guard scene's hostile (type {type}) must threaten the player before protection is read; urgency={threat?.Urgency}");
@@ -325,7 +325,7 @@ internal static class VerifyCombatPurpose
         hidden.Bottom = new Vector2(HiddenX * 16f + 8f, ShaftFloorY * 16f);
 
         var brain = companion.Brain;
-        brain.Senses.Update(companion.NPC, player, companion.Motor);
+        brain.Senses.Update(companion.NPC, player);
         var ctx = new live::AICompanion.Companion.Brain.Activities.ActionContext(companion, brain.Senses);
         var threat = brain.Senses.Threats.Threats.Find(t => t.Npc == hidden);
         Require(threat != null && threat.CanReachPlayer && threat.Urgency > 0f,
@@ -494,7 +494,7 @@ internal static class VerifyCombatPurpose
         visible.Bottom = new Vector2((companionX - 3) * 16f + 8f, PitFloorY * 16f);
 
         var brain = companion.Brain;
-        brain.Senses.Update(companion.NPC, player, companion.Motor);
+        brain.Senses.Update(companion.NPC, player);
         var ctx = new live::AICompanion.Companion.Brain.Activities.ActionContext(companion, brain.Senses);
         var hiddenThreat = brain.Senses.Threats.Threats.Find(t => t.Npc == hidden);
         var visibleThreat = brain.Senses.Threats.Threats.Find(t => t.Npc == visible);
@@ -635,7 +635,7 @@ internal static class VerifyCombatPurpose
         enemy.SetDefaults(NPCID.Zombie);
         enemy.whoAmI = 30; enemy.active = true; enemy.velocity = Vector2.Zero;
         enemy.Bottom = ctx.Npc.Bottom - new Vector2(48, 0);
-        ctx.Companion.Brain.Senses.Update(ctx.Npc, player, ctx.Companion.Motor);
+        ctx.Companion.Brain.Senses.Update(ctx.Npc, player);
         var threats = ctx.Companion.Brain.Senses.Threats;
         Require(threats.Threats.Count == 1 && threats.Threats[0].CanReachPlayer && threats.Threats[0].CanReachCompanion,
             $"the consequence scene must hold one zombie that can reach both actors; threats={threats.Threats.Count}");
@@ -688,16 +688,17 @@ internal static class VerifyCombatPurpose
 
     /// <summary>
     /// J13, restated for the orb. A small attack beside a healthy companion and the same attack beside one at
-    /// twelve life must both leave the body to its job, because since 15 September 2026 no enemy starts a
-    /// safety response: neither run may show one. What the wound still changes is how dangerous the companion
-    /// reads, which hunting's own-skin term consumes, so the wounded run must read more danger than the healthy
-    /// one. Only the companion's life differs between the runs; the slime cannot be damaged, so the arsenal
-    /// cannot end the scene by killing it.
+    /// twelve life must both leave the body to its job. Until 15 September 2026 this row also required that
+    /// neither run start a safety response; the environmental escape was the last response that could take the
+    /// body and it went that day, so nothing remains for an enemy to start and that half has no subject. What the
+    /// wound still changes is how dangerous the companion reads, which hunting's own-skin term consumes, so the
+    /// wounded run must read more danger than the healthy one. Only the companion's life differs between the
+    /// runs; the slime cannot be damaged, so the arsenal cannot end the scene by killing it.
     /// </summary>
     private static void TheSameSmallAttackWeighsMoreAtLowHealthWithoutTakingTheBody()
     {
         string gate = "";
-        bool Responds(int life, out float danger)
+        void Responds(int life, out float danger)
         {
             var (_, ctx) = VerifyOreWork.SetUp(Policy.Disabled, TileID.Copper, new Point(25, 89));
             Main.tile[25, 89].ClearEverything();
@@ -709,7 +710,6 @@ internal static class VerifyCombatPurpose
             slime.Bottom = ctx.Npc.Bottom + new Vector2(64, 0);
             VerifyResponsiveFollowing.AdvanceNative(ctx.Companion);
             ctx.Companion.Brain.Chooser.Actions.Clear();
-            bool responded = false;
             danger = 0f;
             for (int tick = 0; tick < 60; tick++)
             {
@@ -719,8 +719,7 @@ internal static class VerifyCombatPurpose
                 Require(senses.Threats.Threats.Count == 1 && senses.Threats.PlayerDanger == 0f,
                     "the small-attack scene must threaten the companion alone");
                 danger = MathF.Max(danger, senses.Threats.CompanionDanger);
-                responded |= ctx.Companion.Brain.Safety.Active;
-                if (tick == 0 || ctx.Companion.Brain.Safety.Active)
+                if (tick == 0)
                 {
                     var threat = senses.Threats.Threats[0];
                     float exposure = live::AICompanion.Companion.Brain.Infrastructure.Position.Positioner.PredictedExposureAt(ctx.Npc.Center, senses);
@@ -733,17 +732,14 @@ internal static class VerifyCombatPurpose
                             rows.Append(live::AICompanion.Companion.Brain.Infrastructure.Movement.MovementQueries.IsBlock(x, y) ? '#' : '.');
                     }
                     gate = FormattableString.Invariant(
-                        $"life={life} inTrouble={senses.Threats.CompanionInTrouble} danger={senses.Threats.CompanionDanger:0.000} canReach={threat.CanReachCompanion} ticksToCompanion={threat.TicksToCompanion:0.0} sees={sees} orb={ctx.Npc.Center} slime={slime.Center} rows={rows} exposure={exposure:0.000} safety={ctx.Companion.Brain.Safety.Active}/{ctx.Companion.Brain.Safety.Kind}/{ctx.Companion.Brain.Safety.Reason}");
+                        $"life={life} inTrouble={senses.Threats.CompanionInTrouble} danger={senses.Threats.CompanionDanger:0.000} canReach={threat.CanReachCompanion} ticksToCompanion={threat.TicksToCompanion:0.0} sees={sees} orb={ctx.Npc.Center} slime={slime.Center} rows={rows} exposure={exposure:0.000}");
                 }
                 VerifyResponsiveFollowing.AdvanceNative(ctx.Companion);
             }
-            return responded;
         }
-        bool healthy = Responds(100, out float healthyDanger);
+        Responds(100, out float healthyDanger);
         string healthyGate = gate;
-        bool wounded = Responds(12, out float woundedDanger);
-        Require(!healthy && !wounded,
-            $"no enemy may start a safety response, at full health or at twelve life; healthy={healthy} wounded={wounded}; healthy gate: {healthyGate}; wounded gate: {gate}");
+        Responds(12, out float woundedDanger);
         Require(woundedDanger > healthyDanger,
             $"the same slime must read as more dangerous to a companion at twelve life; healthy danger={healthyDanger} wounded danger={woundedDanger}; healthy gate: {healthyGate}; wounded gate: {gate}");
     }

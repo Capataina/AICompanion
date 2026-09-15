@@ -118,12 +118,7 @@ internal static class ResetProcessState
 
     /// <summary>
     /// The orb's own per-process search state, which a case sets for its scene and would otherwise
-    /// leave standing for the next one.
-    ///
-    /// The terrain rules are the dangerous pair, for the reason the walker's one-way-drop switch was
-    /// dangerous: <see cref="OrbTerrain.Immunity"/> decides what counts as a wall for every flood,
-    /// route and clearance value in the process at once, so an escape fixture that opens water to
-    /// search through it leaves every later fixture planning straight through a lake.
+    /// leave standing for the next one: the search's world override, the clearance field and the world.
     ///
     /// The world is rebuilt rather than merely reset, and the fresh object is the point. Every
     /// clearance chunk holds the world it was built over and compares by reference, so a new
@@ -134,12 +129,9 @@ internal static class ResetProcessState
     /// </summary>
     private static void ResetSearchPolicy()
     {
-        OrbTerrain.Immunity = LiquidImmunity.None;
         FreeSpaceSearch.WorldOverride = null;
         ClearanceField.Shared.Invalidate();
         MovementQueries.World = new GameTileWorld();
-        live::AICompanion.Companion.Brain.Infrastructure.Movement.OrbTerrain.Immunity =
-            live::AICompanion.Companion.Brain.Infrastructure.Movement.LiquidImmunity.None;
         live::AICompanion.Companion.Brain.Infrastructure.Movement.FreeSpaceSearch.WorldOverride = null;
         live::AICompanion.Companion.Brain.Infrastructure.Movement.ClearanceField.Shared.Invalidate();
         live::AICompanion.Companion.Brain.Infrastructure.Movement.MovementQueries.World =

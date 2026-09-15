@@ -16,10 +16,10 @@ using AICompanion.Companion.CharacterBody;
 namespace AICompanion.Companion.Brain;
 
 /// <summary>
-/// The tick order of the companion's mind: senses read the world, shared safety may
-/// take the body, the chooser picks a family offer, the behaviour acts and asks for
-/// a spot, the positioner picks the spot, the navigator walks there. Everything the
-/// overlay and telemetry show is left on these objects after the tick.
+/// The tick order of the companion's mind: senses read the world, the chooser picks a
+/// family offer, the behaviour acts and asks for a spot, the positioner picks the spot,
+/// the navigator flies there and the evade layer bends that flight away from a predicted
+/// hit. Everything the overlay and telemetry show is left on these objects after the tick.
 /// </summary>
 public sealed class Brain
 {
@@ -33,7 +33,6 @@ public sealed class Brain
     public readonly Reflexes Reflexes = new();
     public readonly GrantActivityControls ControlGrants = new();
     public readonly ConsiderIncidentalInteractions Incidental = new();
-    public readonly ChooseSafetyResponse Safety = new();
     public readonly RecoverDistantCompanion FollowRecovery = new();
     public ActivitySnapshot Presentation { get; private set; }
 
@@ -50,7 +49,7 @@ public sealed class Brain
     public ulong LastTick { get; private set; } = ulong.MaxValue;
     public bool ChoiceEvaluated { get; private set; }
     public bool MovementStalled { get; private set; }
-    public string ActivityStatus => FollowRecovery.Active ? "Catching up" : Safety.Active ? "Getting to safety" : MovementStalled ? "Stuck: not making progress" : LastAction?.Name switch
+    public string ActivityStatus => FollowRecovery.Active ? "Catching up" : MovementStalled ? "Stuck: not making progress" : LastAction?.Name switch
     {
         "keep-company" => "Keeping company", "guard" => "Guarding you", "hunt" => "Hunting",
         "mine" => "Mining ore", "chop" => "Chopping a tree", "collect" => "Collecting",
@@ -104,9 +103,6 @@ public sealed class Brain
         whole.Restart();
         LimitPlanningWork.Begin(Weights.TotalPlanningMilliseconds);
         ReflexMs = DecideMs = PositionMs = NavigateMs = FinaliseMs = 0;
-        // Which liquids are walls this tick is the body's own immunity and nothing else: a liquid the
-        // body is not immune to hurts on touch, so no life fraction makes it a crossable cost.
-        Movement.Configure(companion.Motor.Immunity);
         try
         {
             ActivityControlRequest request = TickPhases(companion, player);
@@ -124,7 +120,6 @@ public sealed class Brain
 
     public void ApplyDownedControls(CompanionNPC companion)
     {
-        Safety.Cancel(new ActionContext(companion, Senses, Roaming), "downed");
         SuspendActivity(companion, "downed");
         LastRequest = PositionRequest.Hold;
         FinaliseControls(companion, new ActivityControlRequest(Movement.Hold(companion.Motor.State, preemptedBy: "downed"), "downed", HandGrant.Unavailable));
@@ -136,7 +131,7 @@ public sealed class Brain
         ActivityControlGrant grant = ControlGrants.Apply(companion, request, Chooser.Activity);
         var ctx = new ActionContext(companion, Senses, Roaming);
         bool fired = Engage(companion, ctx, grant.Hand);
-        // Only an ordinary execution tick: safety, recovery and downed grants belong to responses that own the body for another purpose.
+        // Only an ordinary execution tick: recovery and downed grants belong to responses that own the body for another purpose.
         if (request.ObserveProgress) Incidental.Consider(ctx, grant.Hand, fired, Chooser.Current, Chooser.Activity.Id);
         if (request.CountReunion) CountStranded();
         if (request.ObserveProgress)
@@ -146,7 +141,7 @@ public sealed class Brain
         }
         Presentation = new ActivitySnapshot(Terraria.Main.GameUpdateCount, Chooser.Activity.Id,
             Chooser.Current?.Family, Chooser.Current?.Name, Chooser.Activity.Phase,
-            companion.IsDowned, FollowRecovery.Active, Safety.Active, MovementStalled);
+            companion.IsDowned, FollowRecovery.Active, MovementStalled);
         FinaliseMs = System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds;
     }
 
@@ -160,8 +155,8 @@ public sealed class Brain
     private ActivityControlRequest TickPhases(CompanionNPC companion, Terraria.Player player)
     {
         phase.Restart();
-        Senses.Update(companion.NPC, player, companion.Motor);
-        // The reach flood grows every tick under this tick's terrain rules; where it is rooted and when a
+        Senses.Update(companion.NPC, player);
+        // The reach flood grows every tick; where it is rooted and when a
         // replacement takes over is decided on the positioner's rescore, which is where it is refreshed.
         Senses.Reach.Grow();
         ProtectCompanionHomes.Refresh(player.Bottom, companion.NPC.Center);
@@ -180,12 +175,6 @@ public sealed class Brain
         Reflexes.TryAssess(companion.NPC, Senses, companion.Motor.State, out var unsafeAtTick);
         Navigator.UnsafeAtTick = Senses.Threats.Threats.Count == 0 && Senses.Projectiles.Threats.Count == 0 ? null : unsafeAtTick;
         ReflexMs = Lap();
-        if (Safety.TryChoose(ctx, out var safetyRequest))
-        {
-            LastRequest = PositionRequest.Hold;
-            ReflexMs += Lap();
-            return safetyRequest;
-        }
 
         CompanionAction? action = Chooser.Choose(ctx);
         ChoiceEvaluated = true;
@@ -239,7 +228,6 @@ public sealed class Brain
             companion.NPC.Center, player.Center, companion.Motor.ClearOfTerrain
                 && player.velocity.Y == 0f && companion.NPC.Center.Y <= player.Center.Y)) return false;
         LastRequest = new PositionRequest(RequestKind.WithPlayer, player.Bottom);
-        Safety.Cancel(new ActionContext(companion, Senses, Roaming), "follow-recovery-flight");
         Chooser.Activity.Suspend(new ActionContext(companion, Senses, Roaming), "follow-recovery-flight");
         Movement.Hold(companion.Motor.State, preemptedBy: "follow-recovery-flight");
         request = new ActivityControlRequest(Controls.None, "follow-recovery-flight", RecoveryVelocity:
@@ -301,11 +289,10 @@ public sealed class Brain
             progressPath = Navigator.Path;
             progressStep = progressPath?.Index ?? 0;
         }
-        bool wantsTravel = Safety.Active
-            || (LastRequest.Kind == RequestKind.WithPlayer
+        bool wantsTravel = LastRequest.Kind == RequestKind.WithPlayer
             ? !Senses.Intent.Objective.IsSatisfied(centre)
             : LastRequest.Kind != RequestKind.Hold && (Positioner.Chosen is not Vector2 spot
-                || Vector2.DistanceSquared(spot, centre) > Navigator.SettleRadius * Navigator.SettleRadius));
+                || Vector2.DistanceSquared(spot, centre) > Navigator.SettleRadius * Navigator.SettleRadius);
         if (!wantsTravel)
         {
             progressOrigin = centre; progressTicks = 0; MovementStalled = false;

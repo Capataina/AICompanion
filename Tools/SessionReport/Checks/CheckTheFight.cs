@@ -33,11 +33,11 @@ public sealed class DamageArrivesWhereDangerWasSeen : ICheck
         // Read rather than required, the same way the danger column is: a file without them still
         // answers the question, less precisely, and the finding says so instead of being skipped.
         Column? selfDanger = session.Find("self_danger");
-        // The orb is hurt by the liquid it touches rather than by running out of air, so `hurting` is
-        // what a drained breath bar used to be. `npc_hit` is required to be absent beside it for the
-        // same reason the old rule refused to exclude on submersion alone: a hit by something alive
-        // while the body happens to be in water is a true finding, and excluding on the liquid alone
-        // would suppress it exactly as the breath suffix once suppressed two.
+        // `hurting` exists only in captures written before 15 September 2026, when a liquid still hurt the orb on
+        // contact; every liquid is air to it since, and the recorder stopped writing the column. It is still read so an
+        // older capture keeps its exclusion. `npc_hit` is required to be absent beside it for the reason the old rule
+        // refused to exclude on submersion alone: a hit by something alive while the body happens to be in water is a
+        // true finding, and excluding on the liquid alone would suppress it exactly as the breath suffix once suppressed two.
         Column? hurting = session.Find("hurting");
         Column? hitEvent = session.Find("npc_hit");
 
@@ -65,11 +65,13 @@ public sealed class DamageArrivesWhereDangerWasSeen : ICheck
             float reading = sense == null ? float.NaN : sense.Number[i];
             hits.Add((i, before - after, reading));
         }
+        // Only a missing self_danger blinds the exclusion now: a capture with no `hurting` column is simply one written
+        // after liquids stopped hurting the orb, and saying otherwise would print a false caveat on every new session.
         string aside = environmental == 0
-            ? (selfDanger == null || hurting == null || hitEvent == null
-                ? " This file carries no self_danger or hurting column, so a hit from lava, fire or a hurting liquid cannot be told from a hit by something alive."
+            ? (selfDanger == null
+                ? " This file carries no self_danger column, so a hit from fire cannot be told from a hit by something alive."
                 : "")
-            : $" A further {environmental} life loss(es) came from lava, fire or a hurting liquid and are excluded, "
+            : $" A further {environmental} life loss(es) came from fire, or in an older capture from lava or a hurting liquid, and are excluded, "
               + "because a threat sense is right to read zero when nothing alive is in the room.";
         if (hits.Count == 0)
             yield break;

@@ -422,7 +422,7 @@ internal static class VerifyTorchPlacementRule
     {
         TerrainChanges.Reset();
         MovementQueries.World = new GameTileWorld();
-        ctx.Companion.Brain.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Motor);
+        ctx.Companion.Brain.Senses.Update(ctx.Npc, ctx.Player);
         VerifyOreWork.ResettleReach(ctx);
     }
 
@@ -530,7 +530,7 @@ internal static class VerifyTorchPlacementRule
         VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
         ulong? before = sense.ReadTick;
         typeof(LightSense).GetField("sinceRefresh", InstanceField)!.SetValue(sense, 1000);
-        ctx.Companion.Brain.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Motor);
+        ctx.Companion.Brain.Senses.Update(ctx.Npc, ctx.Player);
         Require(sense.ReadTick != before, "forcing a refresh must actually resample the world");
     }
 

@@ -47,19 +47,6 @@ public class CompanionNPC : ModNPC
     /// <summary>How long the drill beam stays drawn after a swing, so it holds through the cadence of the cuts.</summary>
     private const int BeamHoldTicks = 24;
 
-    /// <summary>A liquid's hurt on contact: this much, every this many ticks of contact.</summary>
-    public readonly record struct LiquidHurt(int Damage, int IntervalTicks);
-
-    /// <summary>
-    /// The two hurts, the one place they live. Water is gentle enough that a few tiles of crossing
-    /// is survivable on a starter life pool: two life a third of a second is six a second, so a
-    /// three-second crossing costs under a fifth of a hundred. Lava is lethal within a few seconds
-    /// whatever the pool: twenty-five every tenth of a second, after defence, empties four hundred
-    /// life in under two seconds.
-    /// </summary>
-    public static readonly LiquidHurt WaterHurt = new(2, 20);
-    public static readonly LiquidHurt LavaHurt = new(25, 6);
-
     public Brain.Brain Brain { get; private set; } = new();
     public CompanionMotor Motor { get; private set; } = null!;
     public Arsenal Arsenal { get; } = new();
@@ -71,10 +58,6 @@ public class CompanionNPC : ModNPC
 
     /// <summary>The player hostiles aim at; also what the game's own pick routine runs on.</summary>
     public HostileTargetStandIn StandIn { get; } = new();
-
-    /// <summary>When true the matching liquid is neither a wall to the planner nor a hurt to the body. The mastery tree flips them.</summary>
-    public bool ImmuneToWater { get; set; }
-    public bool ImmuneToLava { get; set; }
 
     /// <summary>Scale the player-derived speed cap and acceleration; the mastery tree drives them, one is the body as handed over.</summary>
     public float SpeedMultiplier { get; set; } = 1f;
@@ -143,13 +126,18 @@ public class CompanionNPC : ModNPC
         NPC.HitSound = SoundID.NPCHit4;
         NPC.DeathSound = SoundID.NPCDeath14;
         NPC.value = 0f;
-        // The engine leaves the body to the motor: no gravity, and no tile collision, which also
-        // switches off the engine's own liquid detection and liquid slowdown for this body. The
-        // motor does all three through the circle contact. The liquid speed factors are set to one
-        // so that, should any engine path still read them, nothing is slowed twice.
+        // The engine leaves the body to the motor: no gravity, and no tile collision. Every liquid is air to this body, by
+        // the owner's ruling of 15 September 2026, and the engine already agrees for a body with tile collision off:
+        // `NPC.UpdateNPC_Inner` calls `UpdateCollision` only when `noTileCollide` is false, and that one method is where the
+        // engine detects liquid, slows a wet NPC through `Collision_MoveWhileWet`, strikes it in lava and applies the shimmer
+        // buff whose tick sets `shimmering` and ends in `GetShimmered`; the wet gravity ladder is skipped by `noGravity`.
+        // The speed factors, the lava immunity and the shimmer buff immunity say the same thing to any engine path that reads
+        // them outside that step, so the ruling does not rest only on a flag set for a different reason.
         NPC.noGravity = true;
         NPC.noTileCollide = true;
         NPC.waterMovementSpeed = NPC.lavaMovementSpeed = NPC.honeyMovementSpeed = NPC.shimmerMovementSpeed = 1f;
+        NPC.lavaImmune = true;
+        NPC.buffImmune[BuffID.Shimmer] = true;
         Motor = new CompanionMotor(this);
     }
 
@@ -202,8 +190,8 @@ public class CompanionNPC : ModNPC
         else
         {
             Brain.Tick(this, player);
-            // A liquid strike inside the motor can down the companion mid-tick; the downed branch
-            // takes over next tick, and this tick's remaining work is skipped.
+            // If anything during the brain tick downed the companion, the downed branch takes over
+            // next tick, and this tick's remaining work is skipped.
             if (!IsDowned)
             {
                 // After the steps, because the direction the door swings is the direction the brain

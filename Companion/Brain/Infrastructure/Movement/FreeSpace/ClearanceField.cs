@@ -11,8 +11,7 @@ namespace AICompanion.Companion.Brain.Infrastructure.Movement;
 /// search prices its edges against so the cheapest route runs down the middle of a passage and
 /// hugs a wall only where the passage is the wall. It is computed per chunk on demand and kept
 /// while the world it describes stands: a chunk is rebuilt when the terrain revision has an edit
-/// inside the chunk's own reach, when the immunities change what counts as a wall, or when the
-/// world object itself is replaced. Asking about a tile far from every recent edit costs a
+/// inside the chunk's own reach, or when the world object itself is replaced. Asking about a tile far from every recent edit costs a
 /// dictionary lookup.
 ///
 /// <para>Distances are capped at <see cref="MaxTiles"/>, which is a structural cap and not a
@@ -28,7 +27,6 @@ public sealed class ClearanceField
     {
         public readonly float[] Values = new float[ChunkSize * ChunkSize];
         public int Revision;
-        public LiquidImmunity Immunity;
         public ITileWorld World = null!;
     }
 
@@ -63,8 +61,7 @@ public sealed class ClearanceField
         var key = (cx, cy);
         if (chunks.TryGetValue(key, out Chunk? chunk))
         {
-            bool sameRules = ReferenceEquals(chunk.World, world) && chunk.Immunity == OrbTerrain.Immunity;
-            if (sameRules)
+            if (ReferenceEquals(chunk.World, world))
             {
                 int revision = world.Revision;
                 if (checkedAt.TryGetValue(key, out int at) && at == revision) return chunk;
@@ -91,7 +88,6 @@ public sealed class ClearanceField
     {
         Builds++;
         chunk.World = world;
-        chunk.Immunity = OrbTerrain.Immunity;
         chunk.Revision = world.Revision;
         int baseX = cx * ChunkSize, baseY = cy * ChunkSize;
         for (int ly = 0; ly < ChunkSize; ly++)

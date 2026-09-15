@@ -81,7 +81,7 @@ internal static class VerifyItemWeapon
         enemy.Bottom = new Vector2(32 * 16f + tilesAway * 16f, FloorY * 16f);
         Main.npc[25] = enemy;
 
-        companion.Brain.Senses.Update(companion.NPC, player, companion.Motor);
+        companion.Brain.Senses.Update(companion.NPC, player);
         var threats = companion.Brain.Senses.Threats.Threats;
         threats.Clear();
         threats.Add(new T

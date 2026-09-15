@@ -133,7 +133,7 @@ internal static class VerifyWeaponLearning
     /// <summary>One senses update, then the scene's own threat records in place of whatever the sense built, so the tick advances and the threats stay what the row declared.</summary>
     private static void Restate(CompanionNPC companion, Player player, List<T> threats)
     {
-        companion.Brain.Senses.Update(companion.NPC, player, companion.Motor);
+        companion.Brain.Senses.Update(companion.NPC, player);
         var live = companion.Brain.Senses.Threats.Threats;
         live.Clear();
         live.AddRange(threats);

@@ -22,15 +22,13 @@ public sealed class Route
     public int Index;
     public readonly long SearchId;
     public readonly int TerrainRevision;
-    public readonly LiquidImmunity Immunity;
     public readonly Rectangle Bounds;
 
-    public Route(List<Vector2> points, long searchId, int terrainRevision, LiquidImmunity immunity)
+    public Route(List<Vector2> points, long searchId, int terrainRevision)
     {
         Points = points;
         SearchId = searchId;
         TerrainRevision = terrainRevision;
-        Immunity = immunity;
         float minX = float.MaxValue, minY = float.MaxValue, maxX = float.MinValue, maxY = float.MinValue;
         foreach (Vector2 p in points)
         {
@@ -64,7 +62,6 @@ public sealed class Route
     /// <summary>Whether the world under the route is what it was planned over.</summary>
     public bool StillValid(ITileWorld world)
     {
-        if (Immunity != OrbTerrain.Immunity) return false;
         Rectangle bounds = Bounds;
         return world.ChangedSince(TerrainRevision, (x, y) => bounds.Contains(x, y)) == TerrainEditVerdict.Unchanged;
     }

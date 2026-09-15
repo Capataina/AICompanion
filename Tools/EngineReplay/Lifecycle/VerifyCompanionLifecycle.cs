@@ -152,8 +152,7 @@ internal static class VerifyCompanionLifecycle
             && presentation.Family == companion.Brain.Chooser.Current?.Family
             && presentation.Activity == companion.Brain.Chooser.Current?.Name
             && presentation.Phase == companion.Brain.Chooser.Activity.Phase
-            && presentation.Downed == companion.IsDowned && presentation.Recovering == companion.Brain.FollowRecovery.Active
-            && presentation.SafetyActive == companion.Brain.Safety.Active,
+            && presentation.Downed == companion.IsDowned && presentation.Recovering == companion.Brain.FollowRecovery.Active,
             "presentation must publish one completed activity/control state, including early returns");
         Require(companion.Motor.ControlApplications == before + 1,
             $"one AI invocation must apply exactly one movement packet; applied={companion.Motor.ControlApplications - before}");

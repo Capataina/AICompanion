@@ -19,8 +19,8 @@ namespace AICompanion.Companion.Brain.Infrastructure.Diagnostics;
 /// body (a velocity held with no displacement, which only an AI-phase position write can
 /// produce), a stuck run (the body has not moved for two seconds while the navigator had a
 /// route, counted here so a replan cannot reset it), a hit taken just after a reflex
-/// approved a dodge (the dodge did not clear what it was simulated against; lava and fire
-/// are excluded because the reflex never promised those), and a missed mode (the player has
+/// approved a dodge (the dodge did not clear what it was simulated against; fire is excluded
+/// because the reflex never promised it), and a missed mode (the player has
 /// been mining or chopping for five seconds of activity, pauses of up to a second allowed,
 /// and the matching action scored zero throughout, so the icon never showed). The walker's
 /// traversal-fault detector and its two one-way-region detectors went with the walker: an
@@ -169,14 +169,16 @@ public static class ScenarioCapture
             BrainTelemetry.DumpScenario(feet, goal, $"stuck, body still for {StuckTicksToReport} ticks with a path");
         }
 
-        // A hit just after a reflex approved a dodge: the simulation said it would clear. Lava
-        // and fire are the self sense's business and were never part of the promise.
+        // A hit just after a reflex approved a dodge: the simulation said it would clear. Fire is
+        // the self sense's business and was never part of the promise. Lava was excluded beside it
+        // until every liquid became air to the orb; a life loss while in lava is now a hit by
+        // something alive, and it belongs in the window.
         if (brain.Reflexes.Active is string dodge)
         {
             lastDodgeTick = tick;
             lastDodge = dodge;
         }
-        bool environmental = brain.Senses.Self.InLava || brain.Senses.Self.OnFire;
+        bool environmental = brain.Senses.Self.OnFire;
         // The dodge must have happened. Without that first clause the age is `tick - long.MinValue`,
         // which overflows a signed long and wraps to a large negative number, so every hit in a
         // session where no reflex had ever fired was reported as a hit through a dodge — with an age

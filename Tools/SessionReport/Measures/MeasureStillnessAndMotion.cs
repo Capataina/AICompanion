@@ -241,17 +241,18 @@ public sealed class MeasureSafetyShare : IMeasure
     public string[] Needs => new[] { "state", "control_source" };
 
     /// <summary>
-    /// Every owner a safety response has taken the body under. <c>survival-escape</c> is the one
-    /// <c>ChooseSafetyResponse</c> still issues; the retired two are counted because captures made
-    /// before the layer hold them, the pinned first orb play among them. The self-test's producer pin
-    /// requires every live owner to be issued there and every retired one to be absent, and all of
-    /// them to stay suspending owners the grant rules classify, so a renamed response fails the
-    /// self-test instead of filing a zero here for ever.
+    /// Every owner a safety response has ever taken the body under, and all three are retired: no safety response takes the
+    /// body any more. <c>combat-spacing</c> and <c>combat-reflex</c> went when safety became a layer on the job, and
+    /// <c>survival-escape</c> went when the owner ruled on 15 September 2026 that every liquid is air to the orb, which left
+    /// the escape nothing to leave. They are still counted because captures made before then hold them, the pinned first orb
+    /// play among them. The self-test's producer pin requires every one to be declared retired, to be issued nowhere by the
+    /// coordinator, and to stay a suspending owner the grant rules classify, so a revived response is classified on purpose
+    /// rather than read as a zero here for ever.
     /// </summary>
     public static readonly string[] SafetyOwners = { "combat-spacing", "combat-reflex", "survival-escape" };
 
     /// <summary>The owners safety no longer issues, still counted for older captures.</summary>
-    public static readonly string[] RetiredOwners = { "combat-spacing", "combat-reflex" };
+    public static readonly string[] RetiredOwners = { "combat-spacing", "combat-reflex", "survival-escape" };
 
     /// <summary>The ordinary owner the coordinator records on a tick the evade layer bent; the self-test pins it as ordinary.</summary>
     public const string EvadeOwner = "evade";

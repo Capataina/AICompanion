@@ -68,13 +68,6 @@ internal static class RunTheWorld
         int LightMeasuredSamples,
         float LightAtCompanion,
         float LightAtPlayer,
-        /// <summary>
-        /// The orb's liquid immunities, read off the live body inside the run because the body is
-        /// gone by the time the scorer runs: `CompanionNPC.Find()` answered null on every checkpoint
-        /// of the only instrument that asked it, so a rule reading the flags there was reading a default.
-        /// </summary>
-        bool ImmuneToWater,
-        bool ImmuneToLava,
         /// <summary>Ticks the body's own tile sat outside the reach sense's known radius, so nothing near it could be proven absent.</summary>
         int TicksOutsideKnownRadius,
         /// <summary>Ticks the reach flood read complete.</summary>
@@ -212,6 +205,6 @@ internal static class RunTheWorld
         var light = companion.Brain.Senses.Light;
         return new Outcome(centres, trace, claims, inside, connected, route.Count, clock.Elapsed.TotalSeconds, worldSource,
             light.ReadTick, light.MeasuredSamples, light.AtCompanion, light.AtPlayer,
-            companion.ImmuneToWater, companion.ImmuneToLava, ticksOutsideKnownRadius, ticksReachComplete);
+            ticksOutsideKnownRadius, ticksReachComplete);
     }
 }

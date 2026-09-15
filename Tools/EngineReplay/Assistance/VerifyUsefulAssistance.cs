@@ -135,7 +135,7 @@ internal static class VerifyUsefulAssistance
         // have settled, because work that reads reachability refuses an unfinished flood instead of walking
         // at it — an unprimed region would make every row below read "not yet known" rather than its verdict.
         var brain = ctx.Companion.Brain;
-        brain.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Motor);
+        brain.Senses.Update(ctx.Npc, ctx.Player);
         var home = new live::AICompanion.Companion.Brain.Infrastructure.Position.PositionRequest(
             live::AICompanion.Companion.Brain.Infrastructure.Position.RequestKind.WithPlayer, ctx.Player.Bottom);
         for (int i = 0; i < 3000 && !brain.Positioner.ReachComplete; i++)

@@ -96,7 +96,7 @@ internal static class VerifyKnockbackAwareness
         companion.NPC.velocity = Vector2.Zero;
         companion.NPC.life = companion.NPC.lifeMax;
 
-        companion.Brain.Senses.Update(companion.NPC, player, companion.Motor);
+        companion.Brain.Senses.Update(companion.NPC, player);
         var threats = companion.Brain.Senses.Threats.Threats;
         threats.Clear();
         float toPlayer = Vector2.Distance(enemy.Center, player.Center);

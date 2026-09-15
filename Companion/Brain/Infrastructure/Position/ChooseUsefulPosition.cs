@@ -53,9 +53,9 @@ public sealed class Positioner
 
     // The corners the orb can reach are the reach sense's, not this resolver's. A spot the body
     // cannot reach is not a spot: the fourth run of 2026-09-08 parked the walker above a sealed
-    // cavity the scorer had picked. This resolver drives the sense's cadence — the flood's liquid
-    // rules are set per tick, so it has to run inside a resolve — and every other consumer reads
-    // the same region instead of flooding its own.
+    // cavity the scorer had picked. This resolver drives the sense's cadence — the region a
+    // candidate is scored against has to hold still for the rescore, so it runs inside a resolve —
+    // and every other consumer reads the same region instead of flooding its own.
     private ReachSense reachSense = null!;
     public int CandidateCount { get; private set; }
     public int ReachableCandidateCount { get; private set; }

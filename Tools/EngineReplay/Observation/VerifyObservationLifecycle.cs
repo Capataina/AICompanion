@@ -77,12 +77,12 @@ internal static class VerifyObservationLifecycle
         Require(header >= 0 && header + 1 < lines.Length, "real sample writer emitted no table row");
         string[] names = lines[header].Split('\t'), values = lines[header + 1].Split('\t');
         Require(names.Length == values.Length, $"sample/header widths disagree: {names.Length}/{values.Length}");
-        // `hurting` where the walker's list named `head_submerged`. That column was Terraria's own drowning
-        // rectangle over a forty-two-pixel body, and this body has no head; what the recorder carries instead is
-        // whether the liquid the circle is touching is liquid that hurts it, which is the same fact the escape
-        // fixtures read off the motor. The name is checked rather than assumed because the schema appends
-        // columns and a reader that names them survives a bump — but only if it names ones that exist.
-        foreach (string name in new[] { "escape_stage", "state_search_pending", "hurting", "attack_value", "hunt_reason", "nav_status",
+        // `liquid` where the walker's list named `head_submerged`, and where the orb's first schema carried `hurting`
+        // and the escape's two columns: those went on 15 September 2026 when every liquid became air to the orb, and
+        // what stays is which liquid the circle is touching, as an observation. The name is checked rather than
+        // assumed because the schema appends columns and a reader that names them survives a bump — but only if it
+        // names ones that exist.
+        foreach (string name in new[] { "liquid", "attack_value", "hunt_reason", "nav_status",
             "player_intent_y", "player_intent_confidence", "player_intent_samples", "player_local_work_fraction", "collection_method" })
             Require(Array.IndexOf(names, name) >= 0, "causal sample field missing: " + name);
         float Number(string name) => float.Parse(values[Array.IndexOf(names, name)], System.Globalization.CultureInfo.InvariantCulture);
@@ -257,31 +257,29 @@ internal static class VerifyObservationLifecycle
         var recorder = new BrainTelemetry(); Attach(recorder);
         recorder.OnWorldLoad();
         string path = Directory.GetFiles(BrainTelemetry.Folder, "*.tsv").OrderByDescending(File.GetLastWriteTimeUtc).First();
-        // The liquid is poured before the first recorded tick rather than between the first and the second,
-        // and the three rows this fixture asserts are unchanged by the move. The orb has no engine collision,
-        // so nothing sets `npc.wet` for it: the motor's `ReadLiquid` decides the liquid from the circle's own
-        // contact and then writes `wet`, `lavaWet` and the rest itself, which means a hand-set `wet` was both
-        // ignored and overwritten. It runs inside `Commit`, at the end of a tick, so `Motor.InHurtingLiquid`
-        // read at the top of the next tick describes where the body was when it was last moved. Pouring the
-        // liquid and asserting on the very next tick therefore asked the brain about a fact no Commit had
-        // published yet, and read the one-tick publication order as an absent danger.
-        //
-        // So the first recorded tick is the one that discovers the liquid and still reports no safety — which
-        // is what row 0 asserts — and the second is the one that acts on it, which is row 1. The row contract
-        // is the same three rows as before and the scene is the same scene; what changed is that the fact is
-        // published by its producer instead of arranged by the fixture.
+        // Liquid under the body is poured before the first recorded tick. The motor's `ReadLiquid` decides the liquid from the
+        // circle's own contact inside `Commit`, at the end of a tick, so the first tick discovers it and the second is the first
+        // tick that could act on it. This row asked, until 15 September 2026, that the second tick hand the body to an
+        // environmental escape; every liquid is air to the orb since, so it asks the opposite of the same scene: the liquid is
+        // read and recorded, nothing takes the body for it, and the downing that follows still takes the hand. A body with no
+        // ordinary offer keeps the brain's own hold rather than suspending, and no choice is fabricated to fill the gap.
         for (int x = 18; x <= 22; x++)
         for (int y = 84; y <= 89; y++) Main.tile[x, y].LiquidAmount = byte.MaxValue;
         live::AICompanion.Companion.Brain.Infrastructure.Movement.TerrainChanges.Reset();
+        int lifeBefore = companion.NPC.life;
         VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
         VerifyCompanionLifecycle.TickWithOneControlGrant(companion);
         VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
         VerifyCompanionLifecycle.TickWithOneControlGrant(companion);
-        Require(companion.Brain.Safety.Active && companion.Brain.Chooser.Current == null,
-            "native environmental danger must create safety ownership with no ordinary activity; "
-            + $"centre={companion.NPC.Center} liquidKind={companion.Motor.LiquidKind} "
-            + $"hurting={companion.Motor.InHurtingLiquid} safety={companion.Brain.Safety.Active}/{companion.Brain.Safety.Kind} "
-            + $"activity={companion.Brain.Chooser.Current?.Name ?? "<none>"}");
+        int life = companion.NPC.life;
+        var suspendingOwners = new[] { "survival-escape", "follow-recovery-flight", "downed" };
+        string owner = companion.Brain.ControlGrants.Last?.RequestedOwner ?? "-";
+        Require(companion.Motor.LiquidKind == 0 && companion.Brain.Chooser.Current == null
+                && companion.Brain.Chooser.Activity.Phase != live::AICompanion.Companion.Brain.Infrastructure.Selection.ActivityPhase.Suspended
+                && Array.IndexOf(suspendingOwners, owner) < 0 && life == lifeBefore,
+            "liquid under a body with no ordinary offer must be read and create no response: "
+            + $"centre={companion.NPC.Center} liquidKind={companion.Motor.LiquidKind} owner={owner} "
+            + $"phase={companion.Brain.Chooser.Activity.Phase} life={lifeBefore}->{life} activity={companion.Brain.Chooser.Current?.Name ?? "<none>"}");
         companion.CheckDead();
         VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
         VerifyCompanionLifecycle.TickWithOneControlGrant(companion);
@@ -290,16 +288,22 @@ internal static class VerifyObservationLifecycle
         int header = Array.FindIndex(lines, line => line.StartsWith("tick\t"));
         string[] names = lines[header].Split('\t');
         string[][] rows = lines.Skip(header + 1).Where(line => !line.StartsWith('#')).Select(line => line.Split('\t')).ToArray();
-        Require(rows.Length == 3 && rows.All(row => row.Length == names.Length), "safety fixture must write all three complete samples");
+        Require(rows.Length == 3 && rows.All(row => row.Length == names.Length), "the liquid fixture must write all three complete samples");
         string Value(int row, string name) => rows[row][Array.IndexOf(names, name)];
-        Require(Value(0, "safety_active") == "0" && Value(1, "safety_active") == "1"
-            && Value(1, "safety_kind") == "environmental-escape" && long.Parse(Value(1, "safety_response_id")) > 0,
-            "the actual recorder must expose a separate environmental response identity");
-        Require(Value(1, "choice_fresh") == "0" && Value(1, "control_grant_fresh") == "1"
-            && Value(1, "choice_id") == Value(0, "choice_id"),
-            "shared safety must not fabricate an ordinary choice comparison");
-        Require(Value(2, "safety_active") == "0" && Value(2, "safety_last_end") == "downed"
-            && Value(2, "hand_grant") == "Unavailable", "downing must explicitly cancel shared safety and hand ownership");
+        Require(Array.IndexOf(names, "safety_active") < 0 && Array.IndexOf(names, "escape_stage") < 0 && Array.IndexOf(names, "hurting") < 0,
+            "the recorder must no longer carry an environmental response or a hurting liquid, because nothing produces either");
+        Require(Value(1, "liquid") == "water" && Array.IndexOf(suspendingOwners, Value(1, "control_request_owner")) < 0,
+            $"the recorder must read the water under the body and name no suspending owner for it; liquid={Value(1, "liquid")} owner={Value(1, "control_request_owner")}");
+        // Until 15 September 2026 row 1 was a tick the escape owned, and the brain skipped selection on it, so the row
+        // required no fresh comparison there. With nothing taking the body row 1 is an ordinary tick, where a resumed
+        // selection publishes a comparison even when nothing is worthwhile (the recovery rows above pin that), so what
+        // holds is consistency: a fresh comparison advances the identity by exactly one, a retained one keeps it.
+        long before = long.Parse(Value(0, "choice_id")), after = long.Parse(Value(1, "choice_id"));
+        bool fresh = Value(1, "choice_fresh") == "1";
+        Require(Value(1, "control_grant_fresh") == "1" && (fresh ? after == before + 1 : after == before),
+            $"an ordinary tick with no offer must grant once and publish a comparison only as a new identity; fresh={fresh} id {before}->{after} grant_fresh={Value(1, "control_grant_fresh")}");
+        Require(Value(2, "control_request_owner") == "downed" && Value(2, "hand_grant") == "Unavailable",
+            "downing must explicitly take the body and the hand");
     }
 
     private static void VerifySameStemGainsAnAttemptSuffix()

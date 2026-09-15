@@ -24,7 +24,7 @@ using TerrainChanges = live::AICompanion.Companion.Brain.Infrastructure.Movement
 /// </summary>
 internal static class VerifyEngineMotion
 {
-    public static int Run(bool lifecycleOnly = false, bool escapeOnly = false, bool workOnly = false, bool followOnly = false, bool protectionOnly = false, bool brainCostOnly = false, bool combatCostOnly = false, bool combatPurposeOnly = false, bool safetyAftermathOnly = false, bool dodgeReproOnly = false)
+    public static int Run(bool lifecycleOnly = false, bool liquidsOnly = false, bool workOnly = false, bool followOnly = false, bool protectionOnly = false, bool brainCostOnly = false, bool combatCostOnly = false, bool combatPurposeOnly = false, bool safetyAftermathOnly = false, bool dodgeReproOnly = false)
     {
         // The engine containers, the miniature world's dimensions and its tile map now belong to
         // ResetProcessState, which the entry point calls before dispatching any flag — they were
@@ -39,7 +39,7 @@ internal static class VerifyEngineMotion
             tile.TileType = 1;
         }
         if (lifecycleOnly) return VerifyCompanionLifecycle.Run() + VerifyDowningAndRevival.Run() + VerifyStatMirroring.Run();
-        if (escapeOnly) return VerifyCapturedEscape.Run();
+        if (liquidsOnly) return VerifyLiquidsAreAir.FlightThroughEveryLiquid() + VerifyLiquidsAreAir.AFloodedPassageIsReachedThroughIt();
         if (workOnly) return VerifyOreWork.Run() + VerifyCompanionPreferences.Run() + VerifyCompanionActivities.Run() + VerifyUsefulAssistance.Run()
             + VerifyGatheringCooperation.Run() + VerifyWorkAccounting.Run() + VerifyCollectionContracts.Run()
             + VerifyAssistanceTrips.Run() + VerifyCapabilityRevision.Run() + VerifyLightAndReachSenses.Run();
@@ -77,7 +77,7 @@ internal static class VerifyEngineMotion
         ("the orb fits every two-by-two gap and no one-by-one gap in any direction", VerifyOrbContact.SizeRule),
         ("the orb passes a one-tile diagonal step without ever overlapping a wall", VerifyOrbContact.DiagonalStep),
         ("contact pushes the orb out of a wall, kills the velocity into it and keeps the slide", VerifyOrbContact.PushOutAndSlide),
-        ("a two-wide corridor is open to the flood, a one-wide is closed, and a liquid is a wall until its immunity", VerifyFreeSpace.CorridorsAndLiquids),
+        ("a two-wide corridor is open to the flood, a one-wide is closed, and a liquid across it is as open as air", VerifyFreeSpace.CorridorsAndLiquids),
         ("the free-space flood over a screen-sized room finishes in a handful of slices", VerifyFreeSpace.FloodFinishes),
         ("a flood bounded by travel cost exhausts inside its radius with exactly the corners the ball holds", VerifyFreeSpace.FloodBounded),
         ("an enemy's observed motion is forecast from what it actually did", VerifyObservedMotion.Run),
@@ -90,7 +90,8 @@ internal static class VerifyEngineMotion
         ("the threat sense reads danger from sealed chambers correctly", VerifyPersonalDanger.Run),
         ("the companion spawns, lives and is attached both ways", VerifyCompanionLifecycle.Run),
         ("a threat is anticipated from how it actually arrives", VerifyThreatAnticipation.Run),
-        ("a captured escape gets the body out", VerifyCapturedEscape.Run),
+        ("every liquid is air to the orb: it flies through water, honey, lava and shimmer at its air pace and is never hurt", VerifyLiquidsAreAir.FlightThroughEveryLiquid),
+        ("a player beyond a passage flooded with any liquid is reachable through it, and the companion flies it to him", VerifyLiquidsAreAir.AFloodedPassageIsReachedThroughIt),
         ("the player's intent region holds the player on every recorded row and has the shape the owner ruled", VerifyIntentRegionHoldsThePlayer.Run),
         ("following responds to a player who departs", VerifyResponsiveFollowing.Run),
         ("recovery flight and protection admit only what may start them", VerifyFollowRecoveryAndProtection.Run),
@@ -119,7 +120,7 @@ internal static class VerifyEngineMotion
         ("the light and reach senses answer in three values", VerifyLightAndReachSenses.Run),
         ("torches go where his smart cursor would put one in the dark, and the record says why not", VerifyTorchPlacementRule.Run),
         ("every candidate a preparation refused is named with the stage and what it read", VerifyCandidateFunnel.Run),
-        ("keeping company strolls without walking into hazards", VerifyCompanyLocalMotion.Run),
+        ("keeping company over pools stays returnable, never stands still, and meets a walking player", VerifyCompanyLocalMotion.Run),
         ("keeping company is the fallback: a slime worth hunting is hunted, a far one is not, rejoining is capped and sight is not distance", VerifyCompanyIsTheFallback.Run),
         ("keeping the player company is moving about his whole region: never still, never trailing, and moving from the first tick", VerifyAccompanyingThePlayer.Run),
         ("being with the player needs a way to him: a body inside his region on the far side of a sealed wall comes round", VerifyWithThePlayerNeedsAWayToHim.Run),

@@ -65,7 +65,7 @@ internal static class VerifyCorridorMiddle
                     failures += Fail($"the smoothed route's segment {i} is not clear of the walls");
 
             // The body along the smoothed route: momentum steering through the contact, tick by tick.
-            var route = new Route(smoothed, 1, corridor.Revision, OrbTerrain.Immunity);
+            var route = new Route(smoothed, 1, corridor.Revision);
             var offsets = new List<float>();
             float minClearance = float.PositiveInfinity;
             Vector2 centre = smoothed[0], velocity = Vector2.Zero;

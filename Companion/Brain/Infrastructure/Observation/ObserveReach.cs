@@ -48,10 +48,10 @@ public enum ReachVerdict
 /// bound is a disc and not a cost ball: a ball is sound only in unpriced units.</para>
 ///
 /// <para>The sense is refreshed by the positioner's resolve rather than by <see cref="Senses.Update"/>,
-/// and that is deliberate: the immunities are copied into the terrain reading by the brain tick, so
-/// a flood run at the top of the tick would answer every consumer under the previous tick's rule.
-/// Consumers that read between resolves read the flood the last resolve left, which is a tick or
-/// two stale and still the best answer to "where can I get to".</para>
+/// and that is deliberate: where the flood is rooted and when a replacement takes over is decided on
+/// the rescore, because the region a candidate is scored against has to hold still for the rescore
+/// that scores it. Consumers that read between resolves read the flood the last resolve left, which
+/// is a tick or two stale and still the best answer to "where can I get to".</para>
 ///
 /// <para>The tri-state is the whole point of exposing it. A tile missing from an unfinished flood is
 /// unknown rather than absent, so an activity that refuses <see cref="ReachVerdict.NotYet"/> is
@@ -192,7 +192,7 @@ public sealed class ReachSense
 
     /// <summary>
     /// Advance the flood if the cadence has passed, or start it again where the world has been edited
-    /// inside what it read, where the immunities changed, or where the body has left its region. The
+    /// inside what it read, or where the body has left its region. The
     /// terrain check lives here rather than in the caller so every consumer of the sense reads a
     /// region that survived the dig, and it expires the cadence rather than waiting for the reuse
     /// test, because an edit the flood read has to land on the next resolve and not up to a cadence later.
@@ -213,8 +213,8 @@ public sealed class ReachSense
         Point? root = CornerGraph.NearestUsable(world, senses.Companion.Center, 2, requireSweep: false);
         if (root == null)
         {
-            // Inside something, or in a liquid that is a wall: keep the last flood, which is a tick
-            // or two stale and still the best answer to "where can I get to" until the body is out.
+            // Inside something: keep the last flood, which is a tick or two stale and still the best
+            // answer to "where can I get to" until the body is out.
             return;
         }
         var clock = System.Diagnostics.Stopwatch.StartNew();

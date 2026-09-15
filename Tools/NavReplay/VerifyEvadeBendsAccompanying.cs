@@ -40,7 +40,6 @@ internal static class VerifyEvadeBendsAccompanying
             var world = Room();
             MovementQueries.World = world;
             FreeSpaceSearch.WorldOverride = world;
-            OrbTerrain.Immunity = LiquidImmunity.None;
             ClearanceField.Shared.Invalidate();
 
             Walk keep = Fly(world, (_, _) => false);
@@ -79,7 +78,6 @@ internal static class VerifyEvadeBendsAccompanying
         {
             LimitPlanningWork.Unbounded = false;
             FreeSpaceSearch.WorldOverride = null;
-            OrbTerrain.Immunity = LiquidImmunity.None;
             if (previous != null) MovementQueries.World = previous;
             ClearanceField.Shared.Invalidate();
         }

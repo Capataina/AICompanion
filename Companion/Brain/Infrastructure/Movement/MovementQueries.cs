@@ -40,7 +40,7 @@ public static class MovementQueries
     public static bool IsSolidForOrb(int x, int y) => OrbTerrain.Solid(World, x, y);
     /// <summary>The name the map reveal reads: a tile light stops at.</summary>
     public static bool IsBlock(int x, int y) => IsSolidForOrb(x, y);
-    /// <summary>Free for the orb under this tick's immunities: not solid and not a forbidden liquid.</summary>
+    /// <summary>Free for the orb: not solid. A wet tile is as free as a dry one, because every liquid is air to the body.</summary>
     public static bool IsFreeForOrb(int x, int y) => OrbTerrain.Free(World, x, y);
     public static bool IsWet(int x, int y) => World.InWorld(x, y) && World.LiquidAmount(x, y) > 0;
     /// <summary>A tile a dropped item comes to rest on: anything with a shape, platforms included, because an item lands on a platform.</summary>

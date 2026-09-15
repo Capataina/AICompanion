@@ -71,7 +71,14 @@ public sealed class BrainTelemetry : ModSystem
     // occurrence's factor list gains `time`, `player-fit` and `order`, with `raw` and `final` beside them, so the factors
     // recorded multiply to the final recorded; a new `candidate-funnel` occurrence carries each funnel's counts and entries.
     // A 0.34.0 capture reads as it did: every check addresses columns by name and skips one whose columns are absent.
-    private const string Schema = "0.35.0";
+    // 0.36.0 removes every column whose producer went when the owner ruled on 15 September 2026 that every liquid is air to
+    // the orb: `hurting` and `liquid_ticks` from the body line; the escape's `escape_active`, `escape_stage` and
+    // `escape_target` with the state search's `state_search_pending` and `state_search_retained`; the five `safety_*`
+    // columns of a response that no longer exists; and the evade layer's `evade_wet_tick` and `evade_refused_liquid`. The
+    // navigation evidence loses the matching keys, `self_danger` loses its trailing `L`, and the capabilities header reads
+    // `liquids=air`. `wet` and `liquid` stay: which liquid the body is in is still observed, and nothing decides from it.
+    // A 0.35.0 capture reads as it did, for the same reason as every bump before it.
+    private const string Schema = "0.36.0";
 
     /// <summary>
     /// One activity's factors from one comparison, as <c>name:value</c> pairs joined by commas: every multiplier its final
@@ -356,7 +363,7 @@ public sealed class BrainTelemetry : ModSystem
     private static string DescribeCapabilities()
     {
         Player player = Main.LocalPlayer;
-        return "companion:body=flying-orb,fly=True,water-immune=per-character,lava-immune=per-character"
+        return "companion:body=flying-orb,fly=True,liquids=air"
             + $";player:mount={player.mount?.Active == true},wings={player.wingsLogic > 0},dash={player.dashType},rocket-boots={player.rocketBoots}";
     }
 
@@ -612,7 +619,6 @@ public sealed class BrainTelemetry : ModSystem
         var guard = default(Activities.Combat.ProtectPlayer);
         var mine = default(Activities.Gathering.MineOre);
         var chop = default(Activities.Gathering.ChopTree);
-        var survival = brain.Safety.Escape;
         var hunt = default(Activities.Combat.PursueAttackOpportunity);
         var light = default(Activities.NearbyAssistance.LightUsefulArea);
         foreach (var candidate in brain.Chooser.Actions)
@@ -648,7 +654,7 @@ public sealed class BrainTelemetry : ModSystem
             brain.Positioner.CandidateCount, brain.Positioner.ReachableCandidateCount, brain.Positioner.RejectedCandidateCount, brain.Positioner.ChoiceReason,
             senses.Threats.InterventionTicks, senses.Threats.ProtectionUrgency,
             senses.Threats.MostUrgent?.PredictionConfidence ?? 0f, senses.Threats.MostUrgent?.PredictionSamples ?? 0,
-            $"route-completed-steps={brain.Navigator.Path?.Index ?? 0};route-remaining-estimated-ticks={brain.Navigator.RemainingEstimatedRouteTicks:0.000};follow-objective-valid={brain.Positioner.FollowObjectiveSatisfied};follow-horizontal-gap={brain.Positioner.FollowHorizontalGap:0.000};follow-vertical-gap={brain.Positioner.FollowVerticalGap:0.000};follow-objective={brain.Positioner.FollowObjectiveReason};recovery-active={brain.FollowRecovery.Active};recovery-reason={brain.FollowRecovery.Reason};recovery-flights={brain.FollowRecovery.Flights};guard-threat={guard?.ProtectedThreatId ?? -1};guard-pressure={(guard?.RetainedPressure ?? 0f).ToString("0.000", CultureInfo.InvariantCulture)};guard-reason={guard?.CommitmentReason ?? "unavailable"};mine-job={mine?.JobId ?? 0};mine-policy={mine?.Policy.ToString() ?? "unavailable"};mine-status={mine?.Status ?? "unavailable"};mine-remaining={mine?.RemainingTiles ?? 0};mine-target={mine?.TargetTile?.ToString() ?? "-"};control-source={companion.Motor.ControlSource};state-search-pending={brain.Movement.StateSearchPending};retained-control-ticks={brain.Movement.StateSearchRetainedTicks};air-target={survival.AirTarget};safety-response-id={brain.Safety.Id};safety-active={brain.Safety.Active};safety-kind={brain.Safety.Kind};safety-reason={brain.Safety.Reason};safety-last-end={brain.Safety.LastEndReason};liquid-ticks={companion.Motor.LiquidContactTicks};position-evidence-tick={brain.Positioner.EvidenceTick};positions-evaluated={brain.Positioner.EvaluatedCandidates};reach-complete={senses.Reach.Complete};position-alternatives={brain.Positioner.CandidateEvidence};target-evidence-tick={companion.Arsenal.TargetEvidenceTick};target-evidence-age={senses.Tick - companion.Arsenal.TargetEvidenceTick};target-alternatives={companion.Arsenal.TargetEvidence}");
+            $"route-completed-steps={brain.Navigator.Path?.Index ?? 0};route-remaining-estimated-ticks={brain.Navigator.RemainingEstimatedRouteTicks:0.000};follow-objective-valid={brain.Positioner.FollowObjectiveSatisfied};follow-horizontal-gap={brain.Positioner.FollowHorizontalGap:0.000};follow-vertical-gap={brain.Positioner.FollowVerticalGap:0.000};follow-objective={brain.Positioner.FollowObjectiveReason};recovery-active={brain.FollowRecovery.Active};recovery-reason={brain.FollowRecovery.Reason};recovery-flights={brain.FollowRecovery.Flights};guard-threat={guard?.ProtectedThreatId ?? -1};guard-pressure={(guard?.RetainedPressure ?? 0f).ToString("0.000", CultureInfo.InvariantCulture)};guard-reason={guard?.CommitmentReason ?? "unavailable"};mine-job={mine?.JobId ?? 0};mine-policy={mine?.Policy.ToString() ?? "unavailable"};mine-status={mine?.Status ?? "unavailable"};mine-remaining={mine?.RemainingTiles ?? 0};mine-target={mine?.TargetTile?.ToString() ?? "-"};control-source={companion.Motor.ControlSource};position-evidence-tick={brain.Positioner.EvidenceTick};positions-evaluated={brain.Positioner.EvaluatedCandidates};reach-complete={senses.Reach.Complete};position-alternatives={brain.Positioner.CandidateEvidence};target-evidence-tick={companion.Arsenal.TargetEvidenceTick};target-evidence-age={senses.Tick - companion.Arsenal.TargetEvidenceTick};target-alternatives={companion.Arsenal.TargetEvidence}");
         SessionMap.Watch(
             MovementQueries.Tile(npc.Center),
             MovementQueries.Tile(senses.Player.Bottom),
@@ -657,7 +663,7 @@ public sealed class BrainTelemetry : ModSystem
 
         if (!headerWritten)
         {
-            var textColumns = new StringBuilder("# text_columns=state,action,reflex,top_threat,target,request,anchor,spot,lookahead,npc_tile,npc_px,npc_vel,wall_normal,liquid,held,weapon,fire,engage,torch,player_tile,spot_home,sample_phase,player_px,player_vel,player_liquid,player_hit,npc_hit,player_state,player_activity,player_support,control,control_source,desired_vel,follow_reason,recovery_reason,guard_reason,mine_policy,mine_status,mine_target,target_evidence,nav_status,position_reason,escape_stage,escape_target,hunt_reason,hand_grant,control_request_owner,safety_kind,safety_reason,safety_last_end,collection_method,mine_end_reason,attempt_end_activity,attempt_end_family,attempt_end_status,attempt_end_cause,attempt_end_attribution,pursuit_target,pursuit_evidence,aim_target,landed_hit_target,landed_hit_aimed,encounter_source,torch_reason,lighting_sites,intent_region,task_order,task_order_runner_up,evade_reason,evade_choice");
+            var textColumns = new StringBuilder("# text_columns=state,action,reflex,top_threat,target,request,anchor,spot,lookahead,npc_tile,npc_px,npc_vel,wall_normal,liquid,held,weapon,fire,engage,torch,player_tile,spot_home,sample_phase,player_px,player_vel,player_liquid,player_hit,npc_hit,player_state,player_activity,player_support,control,control_source,desired_vel,follow_reason,recovery_reason,guard_reason,mine_policy,mine_status,mine_target,target_evidence,nav_status,position_reason,hunt_reason,hand_grant,control_request_owner,collection_method,mine_end_reason,attempt_end_activity,attempt_end_family,attempt_end_status,attempt_end_cause,attempt_end_attribution,pursuit_target,pursuit_evidence,aim_target,landed_hit_target,landed_hit_aimed,encounter_source,torch_reason,lighting_sites,intent_region,task_order,task_order_runner_up,evade_reason,evade_choice");
             // Offer columns are named from the registered activities, like the raw/final pairs, so
             // the declaration and the header cannot disagree about which activities exist.
             foreach (var a in brain.Chooser.Actions) textColumns.Append(',').Append(a.Name).Append("_offer");
@@ -681,11 +687,12 @@ public sealed class BrainTelemetry : ModSystem
             // while the body does not move is a body pinned on a route it cannot keep.
             h.Append("\trequest\tanchor\tspot\tspot_score\tfollow_objective_valid\tfollow_dx\tfollow_dy\tfollow_reason\trecovery_active\trecovery_reason\trecovery_flights\troute_points\troute_index\troute_search_id\troute_attempt_id\troute_remaining_ticks\troute_remaining_px\tlookahead\tplan_failed\texpansions");
             // The body: its centre and velocity, whether the contact pushed it off a wall this tick and
-            // along which normal, the liquid it touches and whether that liquid hurts it, how far it is
-            // from the nearest wall, the engine's own displacement, and how long it has held a velocity
-            // without moving. There is one body and one contact, so there is no second body to diverge
-            // from and no ground to stand on: those columns went with the walker.
-            h.Append("\tnpc_tile\tnpc_px\tnpc_vel\ttouched_wall\twall_normal\twet\tliquid\thurting\tclearance\tmoved\tpinned\tdir\tlife\tliquid_ticks\tself_danger\theld\tweapon\tshot\tfire\texp_bow\texp_knife\texp_target\tnear_threat\tweapon_reach\tengage\ttorch\tdark_near\tdark_ahead\ttorch_reason\tlight_samples\tlight_read_tick\tlight_region");
+            // along which normal, the liquid it touches, how far it is from the nearest wall, the engine's
+            // own displacement, and how long it has held a velocity without moving. There is one body and
+            // one contact, so there is no second body to diverge from and no ground to stand on: those
+            // columns went with the walker, and the liquid's hurt and contact count went when every
+            // liquid became air to the orb.
+            h.Append("\tnpc_tile\tnpc_px\tnpc_vel\ttouched_wall\twall_normal\twet\tliquid\tclearance\tmoved\tpinned\tdir\tlife\tself_danger\theld\tweapon\tshot\tfire\texp_bow\texp_knife\texp_target\tnear_threat\tweapon_reach\tengage\ttorch\tdark_near\tdark_ahead\ttorch_reason\tlight_samples\tlight_read_tick\tlight_region");
             h.Append("\tplayer_tile\tplayer_intent\tplayer_dead\tplayer_attacking\tplayer_chopping\tplayer_mining");
             h.Append("\tplan_ms\tflood_ms\tsenses_ms\treflex_ms\tdecide_ms\tposition_ms\tnavigate_ms\tbrain_ms\tclearance_builds\tstranded");
             // The reachability tier, which is where the companion decides whether to enter somewhere
@@ -697,10 +704,9 @@ public sealed class BrainTelemetry : ModSystem
             // `control` is what the motor applied this tick and `desired_vel` the velocity it accelerated
             // toward after capping; the two differ where the request exceeded the cap.
             h.Append("\twall_elapsed_ms\tsample_phase\tplayer_px\tplayer_vel\tplayer_ground\tplayer_liquid\tplayer_life\tplayer_hit\tnpc_hit\tplayer_state\tplayer_activity\tplayer_support\tcontrol\tcontrol_source\tbrain_fresh\tdesired_vel");
-            h.Append("\tnav_status\tposition_reason\tmovement_stalled\tescape_active\tescape_stage\tescape_target\tstate_search_pending\tstate_search_retained\tattack_value\tattack_kills\tattack_harm\tweapon_cooldown\thunt_idle_ticks\thunt_reason");
+            h.Append("\tnav_status\tposition_reason\tmovement_stalled\tattack_value\tattack_kills\tattack_harm\tweapon_cooldown\thunt_idle_ticks\thunt_reason");
             h.Append("\tchoice_fresh\tchoice_id\tchoice_tick");
             h.Append("\tcontrol_grant_fresh\tcontrol_grant_id\tcontrol_grant_tick\thand_grant\tcontrol_request_owner\tcontrol_motor_applications\tfinalise_ms");
-            h.Append("\tsafety_response_id\tsafety_active\tsafety_kind\tsafety_reason\tsafety_last_end");
             h.Append("\tplayer_intent_y\tplayer_intent_confidence\tplayer_intent_samples\tplayer_local_work_fraction");
             h.Append("\tmine_remaining_work_ticks\tmine_remaining_hits\tchop_remaining_work_ticks\tchop_remaining_hits");
             h.Append("\treunion_apart_ticks\treunion_departure\treunion_delay_cost_per_tick");
@@ -772,11 +778,10 @@ public sealed class BrainTelemetry : ModSystem
                 if (a is Activities.ICandidateFunnelSource) h.Append('\t').Append(a.Name).Append("_funnel");
             h.Append("\ttorch_reference\ttorch_reference_light\ttorch_reference_dark\ttorch_reference_stage\tgc0\tgc1\tgc2");
             lastGc0 = lastGc1 = lastGc2 = -1;
-            // Lane C (the evade layer), appended after lane A's block and carried by schema 0.35.0: why the layer kept or bent
-            // this tick's controls, the lookahead tick at which the job's own flight met a hit and met liquid (-1 for never),
-            // which candidate a bent tick flew, and how many candidates each refusal removed. `evade_reason` and
-            // `evade_choice` are textual and declared in the preamble.
-            h.Append("\tevade_reason\tevade_hit_tick\tevade_wet_tick\tevade_choice\tevade_refused_liquid\tevade_refused_nowhere\tevade_refused_danger");
+            // Lane C (the evade layer), appended after lane A's block: why the layer kept or bent this tick's controls, the
+            // lookahead tick at which the job's own flight met a hit (-1 for never), which candidate a bent tick flew, and how
+            // many candidates each refusal removed. `evade_reason` and `evade_choice` are textual and declared in the preamble.
+            h.Append("\tevade_reason\tevade_hit_tick\tevade_choice\tevade_refused_nowhere\tevade_refused_danger");
             writer.WriteLine(h.ToString());
             headerWritten = true;
         }
@@ -842,7 +847,6 @@ public sealed class BrainTelemetry : ModSystem
         sb.Append('\t').Append(companion.Motor.TouchedWall ? Pair(companion.Motor.WallNormal) : "-");
         sb.Append('\t').Append(npc.wet ? 1 : 0);
         sb.Append('\t').Append(LiquidName(companion.Motor.LiquidKind));
-        sb.Append('\t').Append(companion.Motor.InHurtingLiquid ? 1 : 0);
         // How far the body's edge is from the nearest wall, in pixels, from the same circle test the
         // contact runs; zero is a body overlapping terrain, which recovery clearance exists for.
         sb.Append('\t').Append(CircleContact.Clearance(MovementQueries.World, npc.Center).ToString("0.0", CultureInfo.InvariantCulture));
@@ -858,8 +862,7 @@ public sealed class BrainTelemetry : ModSystem
         sb.Append('\t').Append(companion.Motor.PinnedTicks);
         sb.Append('\t').Append(npc.direction);
         sb.Append('\t').Append(npc.life).Append('/').Append(npc.lifeMax);
-        sb.Append('\t').Append(senses.Self.LiquidContactTicks.ToString(CultureInfo.InvariantCulture));
-        sb.Append('\t').Append(senses.Self.SelfDanger.ToString("0.00")).Append(senses.Self.InLava ? "L" : senses.Self.OnFire ? "f" : "");
+        sb.Append('\t').Append(senses.Self.SelfDanger.ToString("0.00")).Append(senses.Self.OnFire ? "f" : "");
         sb.Append('\t').Append(companion.HeldItemType == 0 ? "-" : Lang.GetItemNameValue(companion.HeldItemType));
         sb.Append('\t').Append(companion.Arsenal.LastChosen?.Name ?? "-");
         sb.Append('\t').Append(companion.Arsenal.LastShotSolved ? 1 : 0);
@@ -965,9 +968,7 @@ public sealed class BrainTelemetry : ModSystem
         sb.Append('\t').Append(brainExecuted ? 1 : 0);
         sb.Append('\t').Append(Pair(companion.Motor.DesiredVelocity));
         sb.Append('\t').Append(brain.Navigator.Status).Append('\t').Append(brain.Positioner.ChoiceReason);
-        sb.Append('\t').Append(brain.MovementStalled ? 1 : 0).Append('\t').Append(survival?.EscapeActive == true ? 1 : 0);
-        sb.Append('\t').Append(survival?.EscapeStage ?? "inactive").Append('\t').Append(survival?.AirTarget?.ToString() ?? "-");
-        sb.Append('\t').Append(brain.Movement.StateSearchPending ? 1 : 0).Append('\t').Append(brain.Movement.StateSearchRetainedTicks);
+        sb.Append('\t').Append(brain.MovementStalled ? 1 : 0);
         sb.Append('\t').Append(companion.Arsenal.LastAttackValue.ToString("0.000", CultureInfo.InvariantCulture));
         sb.Append('\t').Append(companion.Arsenal.LastExpectedKills).Append('\t').Append(companion.Arsenal.LastPreventedHarm.ToString("0.000", CultureInfo.InvariantCulture));
         sb.Append('\t').Append(companion.Arsenal.CooldownTicks).Append('\t').Append(hunt?.NoProgressTicks ?? 0).Append('\t').Append(hunt?.LastRejection ?? "unavailable");
@@ -979,8 +980,6 @@ public sealed class BrainTelemetry : ModSystem
             .Append('\t').Append(controlGrant?.RequestedOwner ?? "unavailable")
             .Append('\t').Append(controlGrant?.MotorApplications ?? 0)
             .Append('\t').Append(controlFresh ? brain.FinaliseMs.ToString("0.00", CultureInfo.InvariantCulture) : "0.00");
-        sb.Append('\t').Append(brain.Safety.Id).Append('\t').Append(brain.Safety.Active ? 1 : 0)
-            .Append('\t').Append(brain.Safety.Kind).Append('\t').Append(brain.Safety.Reason).Append('\t').Append(brain.Safety.LastEndReason);
         sb.Append('\t').Append(senses.Player.Intent.Y.ToString("0.000", CultureInfo.InvariantCulture))
             .Append('\t').Append(senses.Player.Activity.Confidence.ToString("0.000", CultureInfo.InvariantCulture))
             .Append('\t').Append(senses.Player.Activity.Samples)
@@ -1171,11 +1170,9 @@ public sealed class BrainTelemetry : ModSystem
 
         // Lane C: the evade layer's verdict, matching the header block of the same name.
         var evade = brain.Movement.LastEvade;
-        sb.Append('\t').Append(evade.Reason switch { EvadeReason.Kept => "kept", EvadeReason.Hit => "hit", EvadeReason.Liquid => "liquid", _ => "off" })
+        sb.Append('\t').Append(evade.Reason switch { EvadeReason.Kept => "kept", EvadeReason.Hit => "hit", _ => "off" })
             .Append('\t').Append(evade.HitTick)
-            .Append('\t').Append(evade.WetTick)
             .Append('\t').Append(!evade.Bent ? "-" : evade.Choice switch { EvadeChoice.Stop => "stop", EvadeChoice.JobHeading => "job-heading", _ => "heading" })
-            .Append('\t').Append(evade.RefusedLiquid)
             .Append('\t').Append(evade.RefusedNowhere)
             .Append('\t').Append(evade.RefusedDanger);
 

@@ -89,7 +89,7 @@ internal static class VerifyAssistanceTrips
         Vector2 feet = ctx.Npc.Bottom;
         Point pot = PlacePot(new Point((int)(feet.X / 16f) + 1, FloorRow - 2));
         TerrainChanges.Reset();
-        ctx.Companion.Brain.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Motor);
+        ctx.Companion.Brain.Senses.Update(ctx.Npc, ctx.Player);
         Point[] footprint = { pot, pot + new Point(1, 0), pot + new Point(0, 1), pot + new Point(1, 1) };
         Require(footprint.Any(t => FindToolAccess.InReach(feet, t)), $"the pot must be within reach where the companion stands; feet={feet} pot={pot}");
         var incidental = new ConsiderIncidentalInteractions();
@@ -132,7 +132,7 @@ internal static class VerifyAssistanceTrips
         VerifyUsefulAssistance.WriteMeasuredLight(new Rectangle(0, 0, 100, 100), (x, y) => y is >= 57 and <= 60 ? .9f : .02f);
         Point pot = PlacePot(new Point(27, FloorRow - 2));
         TerrainChanges.Reset();
-        ctx.Companion.Brain.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Motor);
+        ctx.Companion.Brain.Senses.Update(ctx.Npc, ctx.Player);
         Point[] footprint = { pot, pot + new Point(1, 0), pot + new Point(0, 1), pot + new Point(1, 1) };
         Vector2 start = ctx.Npc.Bottom;
         Require(footprint.All(t => !FindToolAccess.InReach(start, t)), "the pot must be out of reach where the walk starts, or nothing is passed");
@@ -234,7 +234,7 @@ internal static class VerifyAssistanceTrips
         }
         TerrainChanges.Reset();
         MovementQueries.World = new GameTileWorld();
-        ctx.Companion.Brain.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Motor);
+        ctx.Companion.Brain.Senses.Update(ctx.Npc, ctx.Player);
         var brain = ctx.Companion.Brain;
         // The flood has to have settled before anything asks an access question, because every one of them
         // now reads it: an unfinished flood answers "not yet known" for the hover beside the site, and both
@@ -321,7 +321,7 @@ internal static class VerifyAssistanceTrips
                 // region primed to settle before preparing: an unprimed flood answers "not yet known" for
                 // every site, which would pass the no-offer half of this pair for the wrong reason.
                 var brain = ctx.Companion.Brain;
-                brain.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Motor);
+                brain.Senses.Update(ctx.Npc, ctx.Player);
                 // Thrown away and flooded again rather than driven to completion: the chamber and its shaft
                 // were built after the shared setup had already flooded an open floor, and a loop that runs
                 // while the region is incomplete does nothing at all when the stale region is complete. That
@@ -436,7 +436,7 @@ internal static class VerifyAssistanceTrips
         foreach (Item slot in ctx.Companion.Bag.Items) slot.TurnToAir();
         TerrainChanges.Reset();
         MovementQueries.World = new GameTileWorld();
-        ctx.Companion.Brain.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Motor);
+        ctx.Companion.Brain.Senses.Update(ctx.Npc, ctx.Player);
         VerifyOreWork.ResettleReach(ctx);
         var reach = ctx.Companion.Brain.Senses.Reach;
         Require(reach.Complete, "the premise needs a settled flood before it can say what is reachable");

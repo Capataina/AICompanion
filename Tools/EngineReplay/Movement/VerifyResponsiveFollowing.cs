@@ -144,7 +144,7 @@ internal static class VerifyResponsiveFollowing
         Require(!brain.Chooser.Actions.Any(a => a.Name is "walk-with" or "wander"), "obsolete companionship candidates remain registered");
         brain.Chooser.Actions.RemoveAll(a => !ReferenceEquals(a, company));
         var context = new live::AICompanion.Companion.Brain.Activities.ActionContext(companion, brain.Senses);
-        brain.Senses.Update(companion.NPC, player, companion.Motor);
+        brain.Senses.Update(companion.NPC, player);
         Require(brain.Chooser.Choose(context) == company && company.Score() > 0, "company must be a positive ordinary offer while nearby");
         long identity = brain.Chooser.Activity.Id;
         // Company beside a resting player is the inside method: the body moves about his region, the request aims at the
@@ -166,7 +166,7 @@ internal static class VerifyResponsiveFollowing
             $"company beside a resting player must accompany him from inside his region, and that must still complete the reach region; accompanied={accompanied} "
             + $"returnable={brain.Positioner.ReturnableCount} reach={brain.Positioner.ReachCount} complete={brain.Positioner.ReachComplete} reason={brain.Positioner.ChoiceReason}");
         player.Bottom += new Vector2(480, 0);
-        brain.Senses.Update(companion.NPC, player, companion.Motor);
+        brain.Senses.Update(companion.NPC, player);
         Require(brain.Chooser.Choose(context) == company && company.Execute(context).Kind == RequestKind.WithPlayer,
             "departure must switch the same company activity to reunion");
         Require(brain.Chooser.Activity.Id == identity, "a company method change must not create a new purpose");
@@ -467,7 +467,7 @@ internal static class VerifyResponsiveFollowing
                 player.position += player.velocity;
                 player.itemAnimation = placingTorches ? 10 : 0;
                 VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
-                companion.Brain.Senses.Update(companion.NPC, player, companion.Motor);
+                companion.Brain.Senses.Update(companion.NPC, player);
             }
         player.itemAnimation = 0;
         held.TurnToAir();
@@ -517,7 +517,7 @@ internal static class VerifyResponsiveFollowing
                 player.velocity = new Vector2(3f, 0f);
                 player.position += player.velocity;
                 VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
-                companion.Brain.Senses.Update(companion.NPC, player, companion.Motor);
+                companion.Brain.Senses.Update(companion.NPC, player);
             }
             int decidedAt = -1, lastTick = 0;
             string decision = "";
@@ -625,7 +625,7 @@ internal static class VerifyResponsiveFollowing
                 player.velocity = new Vector2(3f, 0f);
                 player.position += player.velocity;
                 VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
-                companion.Brain.Senses.Update(companion.NPC, player, companion.Motor);
+                companion.Brain.Senses.Update(companion.NPC, player);
             }
             var meeting = companion.Brain.Meeting;
             var sense = companion.Brain.Senses.Player;
@@ -673,7 +673,7 @@ internal static class VerifyResponsiveFollowing
         // and a companion ten tiles from a still player is inside his region, where the positioner chooses no place at all, so
         // the priced place this row drops could never have been taken in the first place.
         companion.NPC.position = new Vector2(55 * 16 - companion.NPC.width / 2f, 80 * 16 - companion.NPC.height);
-        companion.Brain.Senses.Update(companion.NPC, player, companion.Motor);
+        companion.Brain.Senses.Update(companion.NPC, player);
         Require(companion.Brain.Senses.Intent.Region.GapBeyond(companion.NPC.Center) > 0,
             $"the premise: the companion must begin beyond the player's region; gap={companion.Brain.Senses.Intent.Region.GapBeyond(companion.NPC.Center)} half={companion.Brain.Senses.Intent.Region.HalfSize}");
         var positioner = companion.Brain.Positioner;
@@ -774,7 +774,7 @@ internal static class VerifyResponsiveFollowing
             player.velocity = new Vector2(RunningSpeed, 0f);
             player.Bottom += player.velocity;
             VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
-            companion.Brain.Senses.Update(companion.NPC, player, companion.Motor);
+            companion.Brain.Senses.Update(companion.NPC, player);
         }
         var region = companion.Brain.Senses.Intent.Region;
         Require(companion.Brain.Senses.Player.IsTravelling && region.Lead.Length() > 100f, FormattableString.Invariant(
@@ -832,7 +832,7 @@ internal static class VerifyResponsiveFollowing
         companion.NPC.Bottom = new Vector2(600f, 1280f);
         companion.NPC.velocity = Vector2.Zero;
         VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
-        companion.Brain.Senses.Update(companion.NPC, player, companion.Motor);
+        companion.Brain.Senses.Update(companion.NPC, player);
         var still = companion.Brain.Senses.Intent.Region;
         for (int tick = 0; tick < 240; tick++)
         {
@@ -840,7 +840,7 @@ internal static class VerifyResponsiveFollowing
             player.velocity = new Vector2(2f, -1.5f);
             player.Bottom += player.velocity;
             VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
-            companion.Brain.Senses.Update(companion.NPC, player, companion.Motor);
+            companion.Brain.Senses.Update(companion.NPC, player);
         }
         var climbing = companion.Brain.Senses.Intent.Region;
         float cap = 1f + live::AICompanion.Companion.Brain.Infrastructure.Selection.Weights.IntentRegionGrowthCap;
@@ -909,7 +909,7 @@ internal static class VerifyResponsiveFollowing
         // The body is observed once where it came to rest over the hill, exactly as the brain observes it every tick; being
         // with the player is being inside his region, with no streak to build first.
         VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
-        brain.Senses.Update(companion.NPC, player, companion.Motor);
+        brain.Senses.Update(companion.NPC, player);
         var objective = brain.Senses.Intent.Objective;
         var slopeRegion = brain.Senses.Intent.Region;
         Console.WriteLine(FormattableString.Invariant(
@@ -944,7 +944,7 @@ internal static class VerifyResponsiveFollowing
         // makes the momentum real, and without it the row would be a stationary body wearing a velocity.
         companion.Motor.Steer(new Vector2(2f, -6.4f), "fixture");
         VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
-        brain.Senses.Update(companion.NPC, player, companion.Motor);
+        brain.Senses.Update(companion.NPC, player);
         var request = new live::AICompanion.Companion.Brain.Infrastructure.Position.PositionRequest(
             RequestKind.WithPlayer, player.Bottom);
         brain.Positioner.Resolve(request, brain.Senses, null);
@@ -957,7 +957,7 @@ internal static class VerifyResponsiveFollowing
         companion.Motor.Steer(new Vector2(2f, -6.0f), "fixture");
         companion.NPC.Center += new Vector2(2f, -6.0f);
         VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
-        brain.Senses.Update(companion.NPC, player, companion.Motor);
+        brain.Senses.Update(companion.NPC, player);
         company.Prepare(context);
         Require(company.EligibilityReason == movingMethod, FormattableString.Invariant(
             $"keeping company must not change method on a moving tick: {movingMethod} became {company.EligibilityReason}"));

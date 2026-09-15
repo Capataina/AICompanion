@@ -171,7 +171,7 @@ public sealed class PlayerIntentRegionSense
     ///
     /// <para>Not yet known reads as connected. It never means an unfinished flood — the side flood is bounded by the region and
     /// run to exhaustion on the tick the region or the player's corner changes — so it arises only when no corner the orb fits
-    /// at roots a proof: the body pressed into liquid or a gap it cannot centre in, the player in a shaft, or no world at all.
+    /// at roots a proof: the body pressed into a gap it cannot centre in, the player in a shaft, or no world at all.
     /// A body the sense cannot prove cut off keeps the box's answer, because reading it outside would send rejoining to find a
     /// place its own route search cannot root either, and a companion beside the player would seek for somewhere it already is.</para>
     /// </summary>
