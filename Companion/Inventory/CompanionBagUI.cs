@@ -181,10 +181,14 @@ public sealed class CompanionBagUI : UIState
                     if (!refused)
                         ItemSlot.Handle(ref items[index], ItemSlot.Context.BankItem);
                 }
+                // An item already in the slot that its predicate no longer accepts — a saved item whose mod has
+                // since unloaded — is kept and drawn dim, the same dim a refused cursor item gets, so the player
+                // sees that it is idle without it being thrown away.
+                bool idle = !items[index].IsAir && !CompanionGear.Accepts(slot, items[index], out _);
                 Texture2D background = items[index].favorited ? TextureAssets.InventoryBack10.Value : TextureAssets.InventoryBack.Value;
-                sb.Draw(background, area, refused ? Color.White * .45f : Color.White);
+                sb.Draw(background, area, refused || idle ? Color.White * .45f : Color.White);
                 if (!items[index].IsAir)
-                    ItemSlot.DrawItemIcon(items[index], ItemSlot.Context.BankItem, sb, area.Center.ToVector2(), Main.inventoryScale, 32f, refused ? Color.White * .45f : Color.White);
+                    ItemSlot.DrawItemIcon(items[index], ItemSlot.Context.BankItem, sb, area.Center.ToVector2(), Main.inventoryScale, 32f, refused || idle ? Color.White * .45f : Color.White);
                 else
                     DrawCardPrimitives.Text(sb, SlotGlyph(slot), area.Center.ToVector2() - new Vector2(6, 10), DrawCardPrimitives.Muted * .8f, .9f);
                 Color edge = owner.inspectedGear == index ? Color.Gold : refused ? Color.LightSalmon : DrawCardPrimitives.Edge * .75f;

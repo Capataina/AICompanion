@@ -23,7 +23,7 @@ internal static class VerifyHandedGear
     {
         VerifyCompanionLifecycle.Create();
         FiveItemsFindTheirSlots();
-        GearPersistsAndDropsWhatNoLongerFits();
+        GearPersistsAndKeepsWhatNoLongerFits();
         ToolPowerIsWhatTheGameGatesWith();
         Console.WriteLine("handed gear: a bow, a sword and a wand fit a weapon slot, a pickaxe only its own, a yoyo nowhere, and the pick power the slot reads is the one the game gates a tile with");
         return 0;
@@ -95,11 +95,11 @@ internal static class VerifyHandedGear
     }
 
     /// <summary>
-    /// Saved gear comes back item for item, and an item that no longer passes its slot — here an
-    /// item whose damage was zeroed after it was saved, standing in for an unloaded mod's placeholder —
-    /// is dropped on load rather than kept for the arsenal to refuse every tick.
+    /// Saved gear comes back item for item, and an item in the saved compound that its slot would
+    /// refuse — a yoyo written by hand, standing in for an unloaded mod's placeholder — is kept in
+    /// the slot on load rather than thrown away, and the arsenal is what skips it.
     /// </summary>
-    private static void GearPersistsAndDropsWhatNoLongerFits()
+    private static void GearPersistsAndKeepsWhatNoLongerFits()
     {
         var gear = new CompanionGear();
         gear.Slots[0] = Sample(ItemID.WoodenBow).Clone();
@@ -113,16 +113,13 @@ internal static class VerifyHandedGear
         Require(loaded.Signature == gear.Signature, "a round trip through the save preserves the signature");
 
         var saved = gear.Save();
-        // The saved bow's entry is rewritten as an item that does no damage; loading must refuse it.
-        var harmless = Sample(ItemID.WoodenBow).Clone();
-        harmless.damage = 0;
-        saved[GearSlot.FirstWeapon.ToString()] = Terraria.ModLoader.IO.ItemIO.Save(harmless);
+        // The saved bow's entry is rewritten as a yoyo, which no weapon slot accepts: the load must keep
+        // it — it is the player's item — and the arsenal must not enumerate it.
+        saved[GearSlot.FirstWeapon.ToString()] = Terraria.ModLoader.IO.ItemIO.Save(Sample(ItemID.WoodYoyo).Clone());
         var reloaded = new CompanionGear();
         reloaded.Load(saved);
-        // ItemIO.Load restores the item from its type, so a zeroed damage is a stand-in that survives
-        // only if Load re-applies defaults; assert the property rather than the mechanism.
-        Require(reloaded.Slots[0].IsAir || reloaded.Slots[0].damage > 0,
-            "a loaded slot holds either nothing or an item its predicate accepts");
+        Require(reloaded.Slots[0].type == ItemID.WoodYoyo, $"a loaded slot keeps the item it was saved with; got {reloaded.Slots[0].type}");
+        Require(!CompanionGear.Accepts(GearSlot.FirstWeapon, reloaded.Slots[0], out _), "the premise: the kept item is one the slot refuses, so the arsenal's own check is what idles it");
     }
 
     /// <summary>

@@ -211,17 +211,18 @@ public sealed class CompanionGear
     }
 
     /// <summary>
-    /// Load what was saved. An item that no longer passes its slot's predicate — a mod unloaded since,
-    /// so its item loads as an unloaded placeholder with no damage — is dropped from the slot rather
-    /// than kept as a weapon the arsenal would then have to refuse on every tick.
+    /// Load what was saved, whatever it is now. An item that no longer passes its slot's predicate —
+    /// a mod unloaded since, so its item loads as the loader's placeholder with no damage — stays in
+    /// the slot rather than being thrown away, because the placeholder carries the player's item and
+    /// gives it back when the mod returns; the arsenal re-runs the predicate when it enumerates, so
+    /// an idle item costs nothing, and the slot dims it so the player sees why it is idle.
     /// </summary>
     public void Load(TagCompound tag)
     {
         for (int i = 0; i < SlotCount; i++)
         {
             string key = ((GearSlot)i).ToString();
-            Item item = tag.ContainsKey(key) ? ItemIO.Load(tag.GetCompound(key)) : new Item();
-            Slots[i] = Accepts((GearSlot)i, item, out _) ? item : new Item();
+            Slots[i] = tag.ContainsKey(key) ? ItemIO.Load(tag.GetCompound(key)) : new Item();
         }
     }
 }
