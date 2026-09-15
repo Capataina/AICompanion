@@ -193,7 +193,7 @@ public sealed class Navigator
         }
         Arrived = false;
 
-        // Is the route still the route? Edited under, immunity changed, or the segment ahead blocked.
+        // Is the route still the route? Edited under, or the segment ahead blocked.
         if (Path != null && (!Path.StillValid(world) || !SegmentAheadClear(world, live, Path)))
         {
             Path = null;
@@ -319,8 +319,7 @@ public sealed class Navigator
                 ?? CornerGraph.NearestUsable(world, goal, Weights.RouteGoalCornerTiles, requireSweep: false);
             if (start == null || end == null)
             {
-                // Inside something, in a liquid that is a wall, or aiming at a goal buried deeper than the corner search
-                // looks: nothing to plan over. The direct steer or a hover answers this tick, and next tick asks again.
+                // Inside something, or aiming at a goal buried deeper than the corner search looks: nothing to plan over. The direct steer or a hover answers this tick, and next tick asks again.
                 LastPlanFailed = true;
                 LastSearchStop = FreeSpaceSearch.StopReason.Exhausted;
                 LastExpansions = 0;
@@ -344,7 +343,7 @@ public sealed class Navigator
             // ends at that corner, which is the nearest free place to a goal inside rock or a goal just behind a thin wall.
             bool reachesGoal = CircleContact.SweptClear(world, raw[^1], goal, OrbTerrain.Wall);
             if (reachesGoal) raw.Add(goal);
-            Path = new Route(Route.Smooth(world, raw), SearchId, world.Revision, OrbTerrain.Immunity);
+            Path = new Route(Route.Smooth(world, raw), SearchId, world.Revision);
             PathIsPartial = !reachesGoal;
             routeEndsWhereSearchChose = !reachesGoal;
             search = null;
@@ -390,7 +389,7 @@ public sealed class Navigator
         if (from.Closest is not Point nearest) return;
         if (Vector2.Distance(CornerGraph.ToWorld(nearest), goal) > Vector2.Distance(live.Centre, goal) - Weights.ObjectiveProgressPixels) return;
         if (CircleContact.SweptClear(world, live.Centre, goal, OrbTerrain.Wall)) return;
-        Path = new Route(Route.Smooth(world, Joined(live, from.PathTo(nearest), world)), SearchId, world.Revision, OrbTerrain.Immunity);
+        Path = new Route(Route.Smooth(world, Joined(live, from.PathTo(nearest), world)), SearchId, world.Revision);
         PathIsPartial = true;
         routeEndsWhereSearchChose = false;
         settledShort = null;

@@ -57,7 +57,6 @@ internal static class WorldRunEntry
             {
                 string reason = $"no world file at {world ?? "<none given>"}; a .wld is never committed, so the world must be named with --world=";
                 EmitLedgerRows.Skipped(ScoreTheRun.Instrument, suite, "the orb reaches the player from where the recording left it", reason);
-                EmitLedgerRows.Skipped(ScoreTheRun.Instrument, suite, "the orb never touches water or lava", reason);
                 Console.WriteLine($"SKIP {reason}");
                 return 0;
             }
@@ -204,7 +203,7 @@ internal static class WorldRunEntry
               --route=<capture.tsv>   the recording whose player track is replayed
               --scenario=<block.txt>  a committed scenario played as a checkpoint: the orb starts at its
                                       recorded centre, the player stands at his recorded feet, and the rows
-                                      are whether the orb reaches him and never touches water or lava
+                                      is whether the orb reaches him
               --world=<world.wld>     the saved world it is replayed in
               --from-tick=N           seed both bodies at this recorded tick instead of the first
               --ticks=N               how many ticks to play (default 600 for a route, 900 for a scenario; 0 plays the whole capture)

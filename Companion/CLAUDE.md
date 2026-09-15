@@ -5,7 +5,7 @@
 ```
 Companion/
 ├─ CLAUDE.md                 this guide
-├─ CharacterBody/            the orb NPC's lifecycle, its drawing, the liquid hurts and the stand-in hostiles aim at
+├─ CharacterBody/            the orb NPC's lifecycle, its drawing, its immunity to every liquid and the stand-in hostiles aim at
 ├─ EnemyIntegration/         temporary targeting stand-in and spawn-rate changes
 ├─ Brain/                    Activities, SharedBehaviours (Safety, Recovery) and Infrastructure
 ├─ Weapons/                  the item-backed weapon, outcome-based arsenal selection and the mana pool

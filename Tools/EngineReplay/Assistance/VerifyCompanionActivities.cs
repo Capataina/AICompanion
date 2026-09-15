@@ -53,7 +53,7 @@ internal static class VerifyCompanionActivities
     {
         var (_, ctx) = VerifyOreWork.SetUp(Policy.Opportunistic, TileID.Copper, new Point(25, 59));
         ctx.Player.Bottom = new Vector2(50 * 16, 60 * 16);
-        ctx.Companion.Brain.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Motor);
+        ctx.Companion.Brain.Senses.Update(ctx.Npc, ctx.Player);
         var chosen = ctx.Companion.Brain.Chooser.Choose(ctx);
         Require(chosen?.Name == "mine", $"reachable ore at 480px separation must beat ordinary following; got {chosen?.Name ?? "none"}");
     }
@@ -269,7 +269,7 @@ internal static class VerifyCompanionActivities
         // directly must let the sense see the move or it is measuring against where he used to be. A
         // still player carries no lead, so a refreshed region sits exactly on his feet and the
         // distances below mean what they meant when they were written.
-        void SeeThePlayer() => ctx.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Motor);
+        void SeeThePlayer() => ctx.Senses.Update(ctx.Npc, ctx.Player);
         SeeThePlayer();
         var activity = new ActivityProbe { Target = ctx.Player.Bottom + new Vector2(500, 0) };
         Require(activity.Allows(ctx), "new target within acquisition radius must be admitted");
@@ -403,9 +403,8 @@ internal static class VerifyCompanionActivities
 
     /// <summary>
     /// Safety rides on the job. A heavy hitter beside the body used to start combat spacing, which suspended the ordinary activity
-    /// and searched for a low-exposure cell; since 15 September 2026 nothing but a hurting liquid takes the body, so the same scene
-    /// must leave the probe activity executing on every tick with the hands granted, and with no ordinary offer at all no safety
-    /// response may start either. The zombie stands still and is never on a collision course, so the evade step has nothing to bend
+    /// and searched for a low-exposure cell; since 15 September 2026 only downing and recovery flight take the body, so the same scene
+    /// must leave the probe activity executing on every tick with the hands granted. The zombie stands still and is never on a collision course, so the evade step has nothing to bend
     /// here; the reflex rows in VerifySafetyAftermath are where a bent tick is asserted.
     /// </summary>
     private static void AnEnemyBesideTheBodyNeitherSuspendsTheJobNorTakesTheFeet()
@@ -425,18 +424,17 @@ internal static class VerifyCompanionActivities
             var chooser = ctx.Companion.Brain.Chooser;
             chooser.Actions.Clear();
             if (!emptyOffers) { chooser.Actions.Add(activity); chooser.Activity.Select(activity, ctx); chooser.Activity.BeginExecution(); }
-            int safetyTicks = 0, suspendedTicks = 0, handsWithheld = 0;
+            int suspendedTicks = 0, handsWithheld = 0;
             for (int tick = 0; tick < 300; tick++)
             {
                 VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
                 VerifyCompanionLifecycle.TickWithOneControlGrant(ctx.Companion);
-                if (ctx.Companion.Brain.Safety.Active) safetyTicks++;
                 if (!emptyOffers && chooser.Activity.Phase == live::AICompanion.Companion.Brain.Infrastructure.Selection.ActivityPhase.Suspended) suspendedTicks++;
                 if (ctx.Companion.Brain.ControlGrants.Last!.Value.Hand != live::AICompanion.Companion.Brain.Infrastructure.Grants.HandGrant.Available) handsWithheld++;
                 VerifyResponsiveFollowing.AdvanceNative(ctx.Companion);
             }
-            Require(safetyTicks == 0 && suspendedTicks == 0 && handsWithheld == 0,
-                $"an enemy beside the body must neither start a safety response, nor suspend the job, nor withhold the hands; emptyOffers={emptyOffers}, safety ticks={safetyTicks}, suspended ticks={suspendedTicks}, hands withheld={handsWithheld}");
+            Require(suspendedTicks == 0 && handsWithheld == 0,
+                $"an enemy beside the body must neither suspend the job nor withhold the hands; emptyOffers={emptyOffers}, suspended ticks={suspendedTicks}, hands withheld={handsWithheld}");
             Require(!new live::AICompanion.Companion.Brain.Infrastructure.Selection.Chooser().Actions.Any(a => a.Name == "kite"),
                 "kiting must not remain an ordinary family candidate");
         }
@@ -449,9 +447,8 @@ internal static class VerifyCompanionActivities
         playerThreat.Bottom = playerOnly.Player.Bottom - new Vector2(64, 0);
         playerOnly.Companion.Brain.Chooser.Actions.Clear();
         VerifyCompanionLifecycle.TickWithOneControlGrant(playerOnly.Companion);
-        Require(playerOnly.Senses.Threats.PlayerDanger > 0 && playerOnly.Senses.Threats.CompanionDanger == 0
-            && !playerOnly.Companion.Brain.Safety.Active,
-            "player-only danger must not become the companion's own spacing response");
+        Require(playerOnly.Senses.Threats.PlayerDanger > 0 && playerOnly.Senses.Threats.CompanionDanger == 0,
+            "player-only danger must read as the player's alone, not the companion's own");
     }
 
     /// <summary>
@@ -520,7 +517,7 @@ internal static class VerifyCompanionActivities
                 if (scene.Player) Hostile(30, ctx.Player.Bottom - new Vector2(64, 0), attackable: false);
                 if (scene.Companion) Hostile(31, ctx.Npc.Bottom - new Vector2(64, 0), attackable: false);
                 var brain = ctx.Companion.Brain;
-                brain.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Motor);
+                brain.Senses.Update(ctx.Npc, ctx.Player);
                 brain.Senses.SetInterventionEstimate(ctx.Companion.Arsenal.EstimateInterventionTicks(ctx));
                 // The light field must describe the frame this scene presented, not one measured before it.
                 Require(brain.Senses.Light.MeasuredSamples > 0,
@@ -600,7 +597,7 @@ internal static class VerifyCompanionActivities
             // whole premise. Restated on 15 September 2026: the row used to stand the body still for a rescore, because
             // following then read as satisfied only after a settled streak.
             VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
-            ctx.Companion.Brain.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Motor);
+            ctx.Companion.Brain.Senses.Update(ctx.Npc, ctx.Player);
             ctx.Companion.Brain.Chooser.Choose(ctx);
             Require(ctx.Companion.Brain.Chooser.RegroupUrgency == 0,
                 $"{mode} comfortable following must not request regrouping; inside={ctx.Companion.Brain.Senses.Intent.Inside} gap={ctx.Companion.Brain.Senses.Intent.Region.GapBeyond(ctx.Npc.Center)}");
@@ -631,7 +628,7 @@ internal static class VerifyCompanionActivities
         int window = live::AICompanion.Companion.Brain.Infrastructure.Selection.Weights.ObjectiveProgressWindowTicks;
         Vector2 origin = ctx.Npc.Bottom;
         ctx.Player.Bottom = origin + new Vector2(500, 0);
-        brain.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Motor);
+        brain.Senses.Update(ctx.Npc, ctx.Player);
         void Tick(RequestKind kind, float offset = 0)
         {
             ctx.Npc.Bottom = origin + new Vector2(offset, 0);
@@ -652,11 +649,11 @@ internal static class VerifyCompanionActivities
         Require(brain.MovementStalled, "local oscillation and behaviour churn must not reset continuing non-progress");
         Tick(RequestKind.Hold);
         // A two-point route the row advances by hand, so the stall watcher sees a body making route progress
-        // without the fixture having to fly one. Revision zero and no immunity: this route is never validated
-        // against the world, it only has to exist and have an index to move.
+        // without the fixture having to fly one. Revision zero: this route is never validated against the world, it only has
+        // to exist and have an index to move.
         var route = new live::AICompanion.Companion.Brain.Infrastructure.Movement.Route(
             new System.Collections.Generic.List<Vector2> { new(320f, 944f), new(800f, 944f), new(1200f, 944f) },
-            0, 0, live::AICompanion.Companion.Brain.Infrastructure.Movement.LiquidImmunity.None);
+            0, 0);
         brain.Navigator.GetType().GetProperty("Path")!.SetValue(brain.Navigator, route);
         for (int i = 0; i < window; i++)
         {
@@ -676,7 +673,7 @@ internal static class VerifyCompanionActivities
         // Place the next vein beyond the old job's continuation envelope from the new player.
         ctx.Player.Bottom = new Vector2(2000, 60 * 16);
         Tile ore = Main.tile[84, 59]; ore.HasTile = true; ore.TileType = TileID.Copper;
-        ctx.Companion.Brain.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Motor);
+        ctx.Companion.Brain.Senses.Update(ctx.Npc, ctx.Player);
         for (int i = 0; i < 61; i++) VerifyPreparedActivities.PrepareAndScore(mine, ctx);
         Require(mine.JobId != oldJob && mine.TargetTile == new Point(84, 59), "an obsolete retained vein must not prevent discovering reachable local ore");
     }
@@ -711,7 +708,7 @@ internal static class VerifyCompanionActivities
         Require(VerifyPreparedActivities.PrepareAndScore(mine, ctx) > 0, "fixture must discover a mining job");
         mine.AdmitActivity();
         ctx.Npc.Bottom = ctx.Player.Bottom + new Vector2(Preferences.Current.ActiveActivityRadius + 1, 0);
-        ctx.Companion.Brain.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Motor);
+        ctx.Companion.Brain.Senses.Update(ctx.Npc, ctx.Player);
         Require(VerifyPreparedActivities.PrepareAndScore(mine, ctx) == 0 && mine.RemainingTiles == 0,
             "retained ore near the player must not keep a companion outside the active range in mining mode");
     }

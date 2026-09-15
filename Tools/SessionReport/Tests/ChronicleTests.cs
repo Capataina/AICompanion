@@ -637,11 +637,11 @@ public static class ChronicleTests
     {
         string source = File.ReadAllText(Path.Combine("Companion", "Brain", "Infrastructure", "Diagnostics", "RecordBrainTelemetry.cs"));
         Require(source.Contains("\\tplayer_life\\tplayer_hit\\tnpc_hit\\tplayer_state", StringComparison.Ordinal), "recorder header lost the hit-event sequence consumed by Chronicle");
-        Require(source.Contains("\\tdir\\tlife\\tliquid_ticks", StringComparison.Ordinal), "recorder no longer writes the actual companion life column");
+        Require(source.Contains("\\tdir\\tlife\\tself_danger", StringComparison.Ordinal), "recorder no longer writes the actual companion life column");
         // The body columns Chronicle and the movement checks read, pinned as the sequence the recorder
         // writes them in. A rename here is the failure this file exists to turn into a red: a reader
         // addressing a column the producer stopped writing reports a clean run it never measured.
-        Require(source.Contains("\\tnpc_tile\\tnpc_px\\tnpc_vel\\ttouched_wall\\twall_normal\\twet\\tliquid\\thurting\\tclearance\\tmoved\\tpinned", StringComparison.Ordinal),
+        Require(source.Contains("\\tnpc_tile\\tnpc_px\\tnpc_vel\\ttouched_wall\\twall_normal\\twet\\tliquid\\tclearance\\tmoved\\tpinned", StringComparison.Ordinal),
             "the recorder's body line lost the centre, velocity, wall contact, liquid, clearance or pinned columns the reader's movement checks are built on");
         Require(source.Contains("\\troute_points\\troute_index\\troute_search_id\\troute_attempt_id\\troute_remaining_ticks\\troute_remaining_px\\tlookahead", StringComparison.Ordinal),
             "the recorder's route line no longer names the points, segment index and remaining length the movement and follow checks read");
@@ -1732,7 +1732,6 @@ public static class ChronicleTests
     {
         string Source(params string[] parts) => File.ReadAllText(Path.Combine(parts));
         string tick = Source("Companion", "Brain", "CoordinateBrainTick.cs");
-        string safety = Source("Companion", "Brain", "SharedBehaviours", "Safety", "ChooseSafetyResponse.cs");
         string events = Source("Companion", "Brain", "Infrastructure", "Diagnostics", "RecordGodsEyeEvents.cs");
         string telemetry = Source("Companion", "Brain", "Infrastructure", "Diagnostics", "RecordBrainTelemetry.cs");
         string offers = Source("Companion", "Brain", "Activities", "ClassifyOffersAndAttempts.cs");
@@ -1745,29 +1744,23 @@ public static class ChronicleTests
         Require(tick.Contains("\"downed\", HandGrant.Unavailable", StringComparison.Ordinal) && tick.Contains("HandGrant.WorkTool : HandGrant.Available", StringComparison.Ordinal)
                 && tick.Contains("\"follow-recovery-flight\", RecoveryVelocity", StringComparison.Ordinal),
             "the coordinator's downed, work-tool or recovery grant no longer has the shape the grant rules assume");
-        Require(safety.Contains("\"survival-escape\"", StringComparison.Ordinal),
-            "the environmental escape no longer issues the safety owner the grant rules classify");
-        // The safety measure files a row per owner in a fixed set, so it must be the producer's set in both directions: a
-        // renamed owner would otherwise read 0% for ever, and a new response would own the body on ticks no row counts. The one
-        // declared exception is the retired owners. combat-spacing and combat-reflex took the body until safety became a layer
-        // on the job on 15 September 2026; the pinned first orb play holds both, so they stay counted and classified, and they
-        // must be absent from the producer, so a revived one is classified on purpose rather than by an old list.
+        // The safety measure files a row per owner in a fixed set, and since 15 September 2026 every owner in it is retired: no
+        // safety response takes the body. combat-spacing and combat-reflex went when safety became a layer on the job, and
+        // survival-escape when every liquid became air to the orb, which removed the escape and the file that issued it. The
+        // pinned first orb play holds the first two, so all three stay counted and classified for older captures, and each must
+        // be declared retired and issued nowhere by the coordinator, so a revived response is classified on purpose rather than
+        // by an old list. The safety folder is checked too, because a revived response would be written there first.
+        string safetyFolder = string.Concat(Directory.GetFiles(Path.Combine("Companion", "Brain", "SharedBehaviours", "Safety"), "*.cs")
+            .Select(File.ReadAllText));
         foreach (string measured in MeasureSafetyShare.SafetyOwners)
         {
             Require(ControlGrantsAreCompatible.SuspendingOwners.Contains(measured),
                 $"the safety measure counts '{measured}', which the grant rules no longer call suspending");
-            bool retired = MeasureSafetyShare.RetiredOwners.Contains(measured);
-            Require(retired != safety.Contains($"\"{measured}\"", StringComparison.Ordinal),
-                retired ? $"'{measured}' is declared retired, but ChooseSafetyResponse issues it again; classify the revived response on purpose"
-                        : $"the safety measure counts '{measured}', which ChooseSafetyResponse no longer issues");
+            Require(MeasureSafetyShare.RetiredOwners.Contains(measured),
+                $"the safety measure counts '{measured}' as live, but no safety response takes the body any more; declare it retired or name the response that issues it");
+            Require(!tick.Contains($"\"{measured}\"", StringComparison.Ordinal) && !safetyFolder.Contains($"\"{measured}\"", StringComparison.Ordinal),
+                $"'{measured}' is declared retired, but the coordinator or the safety folder issues it again; classify the revived response on purpose");
         }
-        var issuedOwners = System.Text.RegularExpressions.Regex.Matches(safety, "new ActivityControlRequest\\(controls, \"([^\"]+)\"");
-        // A pattern that matches nothing makes the loop below pass having checked nothing.
-        Require(issuedOwners.Count > 0,
-            "the owner-literal pattern found no control request in ChooseSafetyResponse, so the reverse pin on the safety measure's owner set checks nothing; rewrite the pattern to the file's current shape");
-        foreach (System.Text.RegularExpressions.Match issued in issuedOwners)
-            Require(MeasureSafetyShare.SafetyOwners.Contains(issued.Groups[1].Value) && !MeasureSafetyShare.RetiredOwners.Contains(issued.Groups[1].Value),
-                $"ChooseSafetyResponse issues '{issued.Groups[1].Value}', which the safety measure does not count as live; add it to MeasureSafetyShare.SafetyOwners or say why it is not safety");
         // The evade row counts the ordinary owner the coordinator names a bent tick with, so that name must still be ordinary.
         Require(ControlGrantsAreCompatible.OrdinaryOwners.Contains(MeasureSafetyShare.EvadeOwner),
             $"the safety measure counts '{MeasureSafetyShare.EvadeOwner}' ticks, which the grant rules no longer call an ordinary owner");

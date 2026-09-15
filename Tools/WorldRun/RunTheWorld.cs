@@ -46,6 +46,15 @@ internal static class RunTheWorld
         /// actually held at the time rather than one reconstructed from a later state.
         /// </summary>
         IReadOnlyList<live::AICompanion.Companion.Brain.Infrastructure.Observation.ReachVerdict> PlannerClaim,
+        /// <summary>
+        /// Whether the body's centre sat inside the player's intent region on each tick, by the region's own geometry
+        /// rather than the sense's inside latch, and whether the sense read the body connected to him. Together they are
+        /// what the brain itself calls being with the player — inside his region, with a way to him inside it — and they
+        /// are taken here for the planner claim's reason: they are the region and the connection the brain held that
+        /// tick, which no later state can reconstruct.
+        /// </summary>
+        IReadOnlyList<bool> InsideRegion,
+        IReadOnlyList<bool> ConnectedToPlayer,
         int Ticks,
         double Seconds,
         string WorldSource,
@@ -59,13 +68,6 @@ internal static class RunTheWorld
         int LightMeasuredSamples,
         float LightAtCompanion,
         float LightAtPlayer,
-        /// <summary>
-        /// The orb's liquid immunities, read off the live body inside the run because the body is
-        /// gone by the time the scorer runs: `CompanionNPC.Find()` answered null on every checkpoint
-        /// of the only instrument that asked it, so a rule reading the flags there was reading a default.
-        /// </summary>
-        bool ImmuneToWater,
-        bool ImmuneToLava,
         /// <summary>Ticks the body's own tile sat outside the reach sense's known radius, so nothing near it could be proven absent.</summary>
         int TicksOutsideKnownRadius,
         /// <summary>Ticks the reach flood read complete.</summary>
@@ -141,6 +143,8 @@ internal static class RunTheWorld
         var centres = new List<Vector2>(route.Count);
         var trace = new List<string>(route.Count);
         var claims = new List<live::AICompanion.Companion.Brain.Infrastructure.Observation.ReachVerdict>(route.Count);
+        var inside = new List<bool>(route.Count);
+        var connected = new List<bool>(route.Count);
         int ticksOutsideKnownRadius = 0, ticksReachComplete = 0;
         var clock = Stopwatch.StartNew();
 
@@ -184,6 +188,8 @@ internal static class RunTheWorld
             // positioner's resolve rather than by the senses' own update, so asking before it would
             // read the previous tick's region under the previous tick's rules.
             claims.Add(brain.Senses.Reach.Reachable(player.Center.ToTileCoordinates()));
+            inside.Add(brain.Senses.Intent.Region.Contains(companion.NPC.Center));
+            connected.Add(brain.Senses.Intent.Connected);
             // The reach sense's verdicts are only given inside its known radius of the flood's root, and
             // the root trails a travelling body; these count the ticks the body itself sat outside that
             // radius, where nothing near it could be proven absent, and the ticks the flood read complete.
@@ -197,8 +203,8 @@ internal static class RunTheWorld
 
         clock.Stop();
         var light = companion.Brain.Senses.Light;
-        return new Outcome(centres, trace, claims, route.Count, clock.Elapsed.TotalSeconds, worldSource,
+        return new Outcome(centres, trace, claims, inside, connected, route.Count, clock.Elapsed.TotalSeconds, worldSource,
             light.ReadTick, light.MeasuredSamples, light.AtCompanion, light.AtPlayer,
-            companion.ImmuneToWater, companion.ImmuneToLava, ticksOutsideKnownRadius, ticksReachComplete);
+            ticksOutsideKnownRadius, ticksReachComplete);
     }
 }

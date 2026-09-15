@@ -7,28 +7,19 @@ using Terraria.ID;
 namespace AICompanion.Companion.Brain.Infrastructure.Observation;
 
 /// <summary>
-/// What is happening to the companion's own body: which liquid it touches and whether that
-/// liquid hurts it, how long it has been in contact, whether it burns, how much life it has and
-/// how much it lost just now. From those, <see cref="SelfDanger"/>, 0..1, supplies personal
-/// exposure to shared safety: a hurting liquid is total danger from the first tick of contact,
-/// because the body is meant to leave it at once rather than ration a reserve; fire counts while
-/// it lasts; a burst of recent damage counts by its share of max life. The threat sense measures
-/// danger to the player; this measures danger to the companion, and the two are kept apart so
-/// "the player is safe" never hides "I am in the water".
+/// What is happening to the companion's own body: whether it burns, how much life it has and how much it lost just now.
+/// From those, <see cref="SelfDanger"/>, 0..1, is the companion's personal exposure: fire counts while it lasts, and a burst
+/// of recent damage counts by its share of max life. The threat sense measures danger to the player; this measures danger
+/// to the companion, and the two are kept apart so "the player is safe" never hides "I am being hurt".
+///
+/// <para>Liquid is not here. Until 15 September 2026 a water or lava contact was total danger from its first tick, because
+/// the body was meant to leave it at once; every liquid has been air to the orb since, so touching one is no exposure at
+/// all, and which liquid the body is in is read by the motor for the record and nothing else.</para>
 /// </summary>
 public sealed class CompanionSense
 {
     private const int DamageWindowTicks = 60;
 
-    /// <summary>The body touches water or lava it is not immune to.</summary>
-    public bool InHurtingLiquid { get; private set; }
-    /// <summary>The older name for the same fact, kept because the escape and the record read it: a
-    /// wet body that is being hurt.</summary>
-    public bool HeadUnderwater => InHurtingLiquid;
-    public bool InWater { get; private set; }
-    public bool InLava { get; private set; }
-    /// <summary>How many consecutive ticks the body has touched a liquid that hurts it.</summary>
-    public int LiquidContactTicks { get; private set; }
     public bool OnFire { get; private set; }
     public float LifeFraction { get; private set; } = 1f;
 
@@ -43,12 +34,8 @@ public sealed class CompanionSense
     private readonly int[] damageRing = new int[DamageWindowTicks];
     private int ringAt;
 
-    public void Update(NPC npc, global::AICompanion.Companion.CompanionMotor motor)
+    public void Update(NPC npc)
     {
-        InWater = motor.LiquidKind == 0;
-        InLava = motor.LiquidKind == 1;
-        InHurtingLiquid = motor.InHurtingLiquid;
-        LiquidContactTicks = motor.LiquidContactTicks;
         OnFire = npc.HasBuff(BuffID.OnFire) || npc.HasBuff(BuffID.OnFire3) || npc.HasBuff(BuffID.Burning);
         LifeFraction = npc.lifeMax > 0 ? Math.Clamp(npc.life / (float)npc.lifeMax, 0f, 1f) : 0f;
 
@@ -63,9 +50,8 @@ public sealed class CompanionSense
         lastLife = npc.life;
         lastLifeMax = npc.lifeMax;
 
-        float liquid = InHurtingLiquid ? 1f : 0f;
         float burning = OnFire ? 0.6f : 0f;
         float bleeding = Math.Clamp(RecentDamageFraction * 2f, 0f, 1f) * (1f - LifeFraction);
-        SelfDanger = Math.Max(liquid, Math.Max(burning, bleeding));
+        SelfDanger = Math.Max(burning, bleeding);
     }
 }

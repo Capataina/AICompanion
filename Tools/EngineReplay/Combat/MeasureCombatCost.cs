@@ -70,7 +70,7 @@ internal static class MeasureCombatCost
             double ai = stopwatch.Elapsed.TotalMilliseconds;
             VerifyResponsiveFollowing.AdvanceNative(companion);
             var brain = companion.Brain;
-            trace.Add($"{brain.Chooser.Current?.Name ?? "-"}|{brain.LastRequest.Kind}|safety={brain.Safety.Kind}|aim={brain.EngageTarget?.whoAmI ?? -1}|encounter={brain.Senses.Encounter.Source}");
+            trace.Add($"{brain.Chooser.Current?.Name ?? "-"}|{brain.LastRequest.Kind}|evade={brain.Movement.LastEvade.Reason}|aim={brain.EngageTarget?.whoAmI ?? -1}|encounter={brain.Senses.Encounter.Source}");
             Sample("senses", brain.SensesMs);
             Sample("reflex+safety", brain.ReflexMs);
             Sample("decide", brain.DecideMs);

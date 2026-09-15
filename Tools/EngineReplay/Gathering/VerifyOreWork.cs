@@ -142,7 +142,7 @@ internal static class VerifyOreWork
                 ctx.Player.velocity = new Vector2(4, 0);
                 ctx.Player.position += ctx.Player.velocity;
                 VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
-                brain.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Motor);
+                brain.Senses.Update(ctx.Npc, ctx.Player);
                 workClock.PostUpdateEverything();
             }
             Item pick = live::AICompanion.Companion.Brain.Infrastructure.Interactions.Mining.TileMiner.PickaxeFor(ctx.Player);
@@ -244,7 +244,7 @@ internal static class VerifyOreWork
                 ctx.Player.velocity = new Vector2(speed, 0);
                 ctx.Player.position += ctx.Player.velocity;
                 VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
-                brain.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Motor);
+                brain.Senses.Update(ctx.Npc, ctx.Player);
                 workClock.PostUpdateEverything();
             }
             var home = new live::AICompanion.Companion.Brain.Infrastructure.Position.PositionRequest(
@@ -648,7 +648,7 @@ internal static class VerifyOreWork
                 bool fail = true, effectOnly = false, noItem = false;
                 new live::AICompanion.Companion.Brain.Infrastructure.Observation.TileDamageWatcher()
                     .KillTile(point.X, point.Y, TileID.Trees, ref fail, ref effectOnly, ref noItem);
-                ctx.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Motor);
+                ctx.Senses.Update(ctx.Npc, ctx.Player);
                 Require(ctx.Senses.Player.ChoppedTree == point, "cooperation fixture must observe the actual active trunk");
             }
             WorkPolicies.Chopping = WorkPolicy.Opportunistic;
@@ -1564,7 +1564,7 @@ internal static class VerifyOreWork
             new live::AICompanion.Companion.Brain.Infrastructure.Observation.TileDamageWatcher()
                 .KillTile(hit.X, hit.Y, tileType, ref fail, ref effectOnly, ref noItem);
         }
-        companion.Brain.Senses.Update(companion.NPC, player, companion.Motor);
+        companion.Brain.Senses.Update(companion.NPC, player);
         SettleReach(companion, player);
         return (new MineOre(), new ActionContext(companion, companion.Brain.Senses));
     }

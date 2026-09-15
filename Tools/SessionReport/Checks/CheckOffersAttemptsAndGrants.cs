@@ -332,11 +332,12 @@ public sealed class CompletedTransferClaimsWereReceived : ICheck, ICheckCoverage
 ///                        after BeginExecution opened an attempt, so it never carries a suspending
 ///                        owner and never carries attempt zero
 ///   Unavailable hand     only the downed branch issues it, and the downed branch issues nothing else
-///   suspending owners    survival-escape (ChooseSafetyResponse), follow-recovery-flight and downed
-///                        (CoordinateBrainTick) all suspend the activity before finalising, so they
-///                        carry attempt zero. combat-reflex and combat-spacing suspended it too until
-///                        the orb's safety became a layer on the job on 15 September 2026; they stay in
-///                        the set so a capture recorded before then is still judged by its own rules
+///   suspending owners    follow-recovery-flight and downed (CoordinateBrainTick) suspend the activity
+///                        before finalising, so they carry attempt zero. combat-reflex and combat-spacing
+///                        suspended it too until the orb's safety became a layer on the job, and
+///                        survival-escape until every liquid became air to the orb, both on 15 September
+///                        2026; they stay in the set so a capture recorded before then is still judged by
+///                        its own rules
 ///   evade                an ordinary owner: the job's own controls bent away from a predicted hit
 ///                        (CoordinateBrainTick after navigation), so it keeps the job's attempt and hand
 ///   attempt phase        an attempt is open only while the owner's phase is Executing

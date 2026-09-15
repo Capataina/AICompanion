@@ -17,15 +17,16 @@ using TerrainChanges = live::AICompanion.Companion.Brain.Infrastructure.Movement
 using Weights = live::AICompanion.Companion.Brain.Infrastructure.Selection.Weights;
 
 /// <summary>
-/// Keeping company's local method through the whole brain on native collision: where it chooses to stroll when the neighbourhood holds
-/// hazards, and what it does over a long idle window when nothing else is on offer.
+/// Keeping company's local method through the whole brain on native collision: what it resolves when the neighbourhood holds pools,
+/// and what it does over a long idle window when nothing else is on offer.
 ///
 /// <para>Two of this file's cases were about a body that fell. The rim case stood both actors on a slab with open air twelve rows down
 /// on either side and required that the slab's end tiles were never strolled to; the hazard case's third hazard was a twelve-row pit
 /// with a way down and none back. Neither is a hazard to a body that flies — it hovers off the edge and hovers back — and the rim rule
-/// they tested is gone from the picker with the walker that needed it. The hazards that remain are the ones that still hurt this body,
-/// which are the liquids: lava and water are walls to every flood and damage on contact, and they are what the stroll picker still has
-/// to keep clear of. The "no jump for show" row went with them, because the body has no jump to start.</para>
+/// they tested is gone from the picker with the walker that needed it. The liquids were the last hazards, and since the owner ruled on
+/// 15 September 2026 that every liquid is air to the companion they are not hazards either: the pools stay in the scene as space the
+/// body may use, and the row keeps what is still a property — only places it can come back from, and no work credit for moving about.
+/// The "no jump for show" row went with the walker, because the body has no jump to start.</para>
 /// </summary>
 internal static class VerifyCompanyLocalMotion
 {
@@ -41,32 +42,32 @@ internal static class VerifyCompanyLocalMotion
             catch (Exception e) { red++; Console.WriteLine($"RED {name}: {e.Message}"); }
             finally { LimitPlanningWork.Unbounded = false; }
         }
-        Each("J06/X01 hovering company never touches lava or deep water", HoveringCompanyNeverTouchesAHazard);
+        Each("J06/X01 hovering company over pools resolves only places it can come back from", HoveringCompanyOverPoolsStaysReturnable);
         Each("J06 an idle window keeps company without ever standing still", IdleCompanyNeverStandsStill);
         Each("J06 an idle window on a 1:1 block staircase keeps the flat floor's envelope", () => IdleCompanyOnStairs(StairStyle.Blocks));
         Each("empty-world reunion: nothing on offer and the player walks away", AnEmptyWorldReunitesWithAWalkingPlayer);
-        if (red == 0) Console.WriteLine("company local motion: hovering company keeps clear of hazards, never stands still, and meets a walking player where he stops");
+        if (red == 0) Console.WriteLine("company local motion: hovering company over pools stays returnable, never stands still, and meets a walking player where he stops");
         return red;
     }
 
     private const int FloorRow = 60, PlayerColumn = 40;
-    // Hazard footprints, in tile columns, both inside the calm band either side of the player. Lava sits before the water pit, and
-    // both are walls to every flood this body runs as well as damage on contact, so a goal beyond one of them is reached around it.
+    // Pool footprints, in tile columns, both inside the calm band either side of the player. Lava sits before the water pit; both are
+    // air to this body, so a place inside either is as free as any other and a goal beyond one is reached straight through it.
     private const int LavaLeft = 45, LavaRight = 47, WaterLeft = 51, WaterRight = 57;
     // "Still" is the session reader's own threshold, and a run this long is the stop the owner saw in play.
     private const float StillSpeed = 0.3f;
     private const int StillRunTicks = 10;
 
     /// <summary>
-    /// A floor with two hazards beside a standing player: a lava pool two rows deep and a water pit three rows deep. Keeping company
-    /// used to stroll between random safe cells here, and the row asked that no stroll goal lay in a hazard; since 15 September 2026
-    /// company hovers around where it holds instead, so the row asks the same of everything the hover can reach. Over a long seeded run
-    /// with keeping company the only activity, no destination the positioner resolves may lie inside a hazard or outside the region the
-    /// body can come back from, the body must never read as touching a liquid that hurts it — the hover's target is kept on this side of
-    /// every liquid wall, which is what this row holds it to — and nothing it does may earn productive-work credit. The scene asserts each
-    /// hazard is what it claims before the run.
+    /// A floor with two pools beside a standing player: a lava pool two rows deep and a water pit three rows deep. The row used to
+    /// ask that nothing the hover could reach lay in a pool and that the body never touched one, because both hurt it and both were
+    /// walls to every flood; since 15 September 2026 every liquid is air to the companion, so that half of the row asks for a
+    /// property that no longer exists and is gone. What remains is still a property: over a long seeded run with keeping company the
+    /// only activity, no destination the positioner resolves may lie where the body does not fit or outside the region the body can
+    /// come back from, and nothing it does may earn productive-work credit. The scene asserts each pool holds its liquid, and that
+    /// the liquid is free for the body, before the run.
     /// </summary>
-    private static void HoveringCompanyNeverTouchesAHazard()
+    private static void HoveringCompanyOverPoolsStaysReturnable()
     {
         var ctx = BuildNeighbourhood(hazards: true);
         var brain = ctx.Companion.Brain;
@@ -85,14 +86,11 @@ internal static class VerifyCompanyLocalMotion
                 if (!brain.Positioner.ChosenReturnable) { Note(violations, $"t{tick} resolved destination {tile} outside the returnable region"); Count("destination outside the returnable region"); }
             }
             Vector2 centre = ctx.Npc.Center;
-            // The motor's own reading, not a tile lookup: the circle touching a hurting liquid at all is the exposure
-            // for this body, and a tile test at its centre would miss a body half in the pool.
-            if (ctx.Companion.Motor.InHurtingLiquid) { Note(violations, $"t{tick} body touching {(ctx.Companion.Motor.LiquidKind == 1 ? "lava" : "water")} at {centre}"); Count("body in a hurting liquid"); }
             if (brain.Chooser.IsCollectingWork(centre)) { Note(violations, $"t{tick} movement recorded as productive work"); Count("productive credit"); }
         }
         string ledger = $"violation ticks by kind: {string.Join(", ", counts.Select(c => $"{c.Key}={c.Value}"))}; first violations: {string.Join("; ", violations)}";
-        Require(violations.Count == 0, $"keeping company must never resolve or reach a hazard or a place it cannot come back from; {ledger}");
-        Console.WriteLine($"hovering hazards: no hazard resolved or reached over {Ticks} ticks");
+        Require(violations.Count == 0, $"keeping company over pools must never resolve a place the body does not fit or cannot come back from; {ledger}");
+        Console.WriteLine($"hovering over pools: every destination returnable over {Ticks} ticks");
     }
 
     /// <summary>
@@ -218,15 +216,10 @@ internal static class VerifyCompanyLocalMotion
         Console.WriteLine($"empty-world reunion: {ledger}");
     }
 
-    /// <summary>What is wrong with hovering in this tile, by the scene's own geometry: no room for the body, or inside a hazard's
-    /// footprint. Deliberately not the production predicate, so the two can disagree.</summary>
+    /// <summary>What is wrong with hovering in this tile: no room for the body. A tile inside either pool is not wrong, because every
+    /// liquid is air to the body.</summary>
     private static string? Hazard(Point tile)
-    {
-        if (!MovementQueries.IsHoverable(tile)) return "is not a place the body fits";
-        if (tile.X is >= LavaLeft and <= LavaRight && tile.Y >= FloorRow) return "is inside the lava pool";
-        if (tile.X is >= WaterLeft and <= WaterRight && tile.Y >= FloorRow) return "is inside the water pit";
-        return null;
-    }
+        => MovementQueries.IsHoverable(tile) ? null : "is not a place the body fits";
 
     private static void Note(List<string> violations, string what)
     {
@@ -254,19 +247,18 @@ internal static class VerifyCompanyLocalMotion
         terrain?.Invoke();
         TerrainChanges.Reset();
         MovementQueries.World = new GameTileWorld();
-        ctx.Companion.Brain.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Motor);
+        ctx.Companion.Brain.Senses.Update(ctx.Npc, ctx.Player);
         if (hazards)
         {
-            // Each pool must actually hold its liquid, and the body must have somewhere to hover beside it — otherwise
-            // "it never went in" would be satisfied by a scene the body could not approach in the first place.
+            // Each pool must actually hold its liquid, and the body must have somewhere to hover beside it, so the scene is one
+            // with pools in it rather than a dry floor that would pass the same row.
             Require(MovementQueries.IsLava(LavaLeft + 1, FloorRow) && MovementQueries.IsHoverable(new Point(LavaLeft - 2, FloorRow - 1)),
                 "the lava pool premise needs lava below the floor line and room to hover beside it");
             Require(MovementQueries.IsWet(WaterLeft + 3, FloorRow + 1) && MovementQueries.IsHoverable(new Point(WaterRight + 2, FloorRow - 1)),
                 "the water pit premise needs water in it and room to hover beside it");
-            // Both pools are walls to every flood the body runs, which is what makes them hazards it routes around
-            // rather than places it may pass through.
-            Require(!MovementQueries.IsFreeForOrb(LavaLeft + 1, FloorRow) && !MovementQueries.IsFreeForOrb(WaterLeft + 3, FloorRow + 1),
-                "the hazard premise needs both liquids to be walls to the flood under this body's immunities");
+            // Both pools are free space to every flood the body runs, because every liquid is air to it.
+            Require(MovementQueries.IsFreeForOrb(LavaLeft + 1, FloorRow) && MovementQueries.IsFreeForOrb(WaterLeft + 3, FloorRow + 1),
+                "the pool premise needs both liquids to be free space to the flood, because every liquid is air to the body");
         }
         return ctx;
     }

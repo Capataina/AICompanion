@@ -139,7 +139,7 @@ internal static class VerifyThreatAnticipation
         var target = new NPC { whoAmI = 1, active = true, life = 100, lifeMax = 100, damage = 20,
             width = 30, height = 40, position = new Vector2(510, 800), noGravity = true };
         Main.npc[1] = target;
-        companion.Brain.Senses.Update(companion.NPC, Main.player[0], companion.Motor);
+        companion.Brain.Senses.Update(companion.NPC, Main.player[0]);
         var context = new live::AICompanion.Companion.Brain.Activities.ActionContext(companion, companion.Brain.Senses);
         Require(companion.Arsenal.CanEngage(context, target), "open fixture must initially have an attackable shot");
         float estimate = companion.Arsenal.EstimateInterventionTicks(context);

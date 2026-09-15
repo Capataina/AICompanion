@@ -27,8 +27,8 @@ public sealed class BrainOverlay : ModSystem
     public static bool Enabled, ShowWorld = true;
     public static bool ShowThreats = true, ShowPredictions = true, ShowRoutes = true, ShowCandidates = true;
     public static bool ShowProjectiles = true, ShowAiming = true, ShowMovement = true, ShowAttention = true, ShowRegion = true;
-    public static bool ShowFollow = true, ShowSenses = true, ShowSafety = true, ShowCost = true, ShowClearance = true;
-    public const int AllLayers = 1 | 2 | 4 | 8 | 16 | 32 | 64 | 128 | 256 | 512 | 1024 | 2048 | 4096 | 8192 | 16384;
+    public static bool ShowFollow = true, ShowSenses = true, ShowCost = true, ShowClearance = true;
+    public const int AllLayers = 1 | 2 | 4 | 8 | 16 | 32 | 64 | 128 | 256 | 512 | 1024 | 2048 | 8192 | 16384;
 
     /// <summary>
     /// The layer switches as one integer, so the character save can carry which drawings the
@@ -36,19 +36,21 @@ public sealed class BrainOverlay : ModSystem
     /// rather than a per-session decision, and re-picking them on every launch is the tax this
     /// removes. The chooser panel's own open/closed state is deliberately not in here: it covers
     /// the drawings it describes, so a session that reopened it every launch would start obscured.
-    /// The bit order is the menu order and must not be reshuffled, because an older save's integer
-    /// is read against it; a new layer is appended at the next bit, which is how the success-region
-    /// layer took bit 9 and the four intent layers took bits 10 to 13, and an older save simply
-    /// leaves it off. The clearance field took bit 14; the two dense layers still to come — the
-    /// candidate grid by rejection reason and the light field — take bits 15 upward, so nothing
-    /// below is reused.
+    /// Each layer keeps its bit for ever, because an older save's integer is read against the bits;
+    /// a new layer is appended at the next bit, which is how the success-region layer took bit 9 and
+    /// the four intent layers took bits 10 to 13, and an older save simply leaves it off. The
+    /// clearance field took bit 14; the two dense layers still to come — the candidate grid by
+    /// rejection reason and the light field — take bits 15 upward. Bit 12 (4096) was the safety
+    /// response's layer, retired on 15 September 2026 when every liquid became air to the orb and no
+    /// response was left to draw; it is never reused, so a save that had it on reads nothing from it,
+    /// and the menu skips it, which is the one place the menu order and the bit order differ.
     /// </summary>
     public static int Layers
     {
         get => (ShowWorld ? 1 : 0) | (ShowThreats ? 2 : 0) | (ShowPredictions ? 4 : 0)
             | (ShowProjectiles ? 8 : 0) | (ShowRoutes ? 16 : 0) | (ShowCandidates ? 32 : 0)
             | (ShowAiming ? 64 : 0) | (ShowMovement ? 128 : 0) | (ShowAttention ? 256 : 0) | (ShowRegion ? 512 : 0)
-            | (ShowFollow ? 1024 : 0) | (ShowSenses ? 2048 : 0) | (ShowSafety ? 4096 : 0) | (ShowCost ? 8192 : 0)
+            | (ShowFollow ? 1024 : 0) | (ShowSenses ? 2048 : 0) | (ShowCost ? 8192 : 0)
             | (ShowClearance ? 16384 : 0);
         set
         {
@@ -56,7 +58,7 @@ public sealed class BrainOverlay : ModSystem
             ShowProjectiles = (value & 8) != 0; ShowRoutes = (value & 16) != 0; ShowCandidates = (value & 32) != 0;
             ShowAiming = (value & 64) != 0; ShowMovement = (value & 128) != 0; ShowAttention = (value & 256) != 0;
             ShowRegion = (value & 512) != 0; ShowFollow = (value & 1024) != 0; ShowSenses = (value & 2048) != 0;
-            ShowSafety = (value & 4096) != 0; ShowCost = (value & 8192) != 0; ShowClearance = (value & 16384) != 0;
+            ShowCost = (value & 8192) != 0; ShowClearance = (value & 16384) != 0;
         }
     }
 
@@ -114,7 +116,7 @@ public sealed class BrainOverlay : ModSystem
         => new(12, 12, Math.Max(200, Math.Min(440, width - 24)), Math.Max(180, Math.Min(540, height - 24)));
     private static Rectangle Bounds => PanelBounds((int)(Main.screenWidth / Main.UIScale), (int)(Main.screenHeight / Main.UIScale));
     private static Point Mouse => new((int)(Main.mouseX / Main.UIScale), (int)(Main.mouseY / Main.UIScale));
-    private static readonly string[] labels = { "Show world drawings", "Enemies and their velocity", "Predicted enemy movement", "Incoming projectiles", "Current route and destination", "Alternative destinations", "Aiming and rejected shots", "Movement and dodge choices", "Targets and attention", "Where the purpose succeeds", "Where following wants it", "What it senses", "Safety response", "Cost of thinking", "Clearance field" };
+    private static readonly string[] labels = { "Show world drawings", "Enemies and their velocity", "Predicted enemy movement", "Incoming projectiles", "Current route and destination", "Alternative destinations", "Aiming and rejected shots", "Movement and dodge choices", "Targets and attention", "Where the purpose succeeds", "Where following wants it", "What it senses", "Cost of thinking", "Clearance field" };
     private static readonly string[] hints = {
         "Hide all drawings without losing your selected layers.", "Red boxes are observed bodies; arrows show current velocity.",
         "Yellow paths contain only samples the brain calculated. Future enemy decisions remain unknown.",
@@ -126,18 +128,17 @@ public sealed class BrainOverlay : ModSystem
         "Lines connect the companion to its firing target, work target and player. Hands and feet may have different targets.",
         "Green boxes are the comfort regions a follow destination was admitted against, around the player's feet and the anchor then. The cyan box is where a tool stand's feet reach its tile, with the tile and the stand marked. Drawn from the positioner's retained region; nothing is recomputed.",
         "Green is where following would be content: the solid box is around your feet, the dashed box around the place it was asked to go, and the two faint rings are the near and far edges of the calm distance band. The white ring is the meeting place reunion priced, labelled with its reason and both bodies' ticks to it.",
-        "Yellow is the continuation the brain predicts from your recent movement, labelled with its confidence and how many samples back it. A diamond is a drop: white it can reach, orange it has proven it cannot, hollow not yet flooded. The companion's own label carries its breath and the encounter pressure charged against optional work.",
-        "Orange appears only while shared safety holds the body: the response's kind and phase join the companion's label, and the line runs to the air or landing tile it is escaping to. Nothing is drawn when no response is active.",
+        "Yellow is the continuation the brain predicts from your recent movement, labelled with its confidence and how many samples back it. A diamond is a drop: white it can reach, orange it has proven it cannot, hollow not yet flooded. The companion's own label carries the encounter pressure charged against optional work.",
         "One column per tick of the last second: how long deciding, positioning and navigating took together. The hairline is eight milliseconds, half a frame, and the scale never moves, so a spike reads as a spike. White is under four milliseconds, orange at or above it.",
         "Every free tile near the companion tinted by how far it is from the nearest wall: dark red is a tile the body cannot fit in, and the tint fades to nothing at the field's cap. This is the field the route search prices, so the route runs where the tint is faintest.",
     };
     // Every index is named and the default is false rather than the last layer, because a default arm holding a real layer
     // silently maps the next bit anyone appends onto that layer's toggle instead of onto its own — which is exactly what the
     // arm did when it read `_ => ShowRegion` and four layers were appended after it.
-    private static bool Value(int i) => i switch { 0 => ShowWorld, 1 => ShowThreats, 2 => ShowPredictions, 3 => ShowProjectiles, 4 => ShowRoutes, 5 => ShowCandidates, 6 => ShowAiming, 7 => ShowMovement, 8 => ShowAttention, 9 => ShowRegion, 10 => ShowFollow, 11 => ShowSenses, 12 => ShowSafety, 13 => ShowCost, 14 => ShowClearance, _ => false };
+    private static bool Value(int i) => i switch { 0 => ShowWorld, 1 => ShowThreats, 2 => ShowPredictions, 3 => ShowProjectiles, 4 => ShowRoutes, 5 => ShowCandidates, 6 => ShowAiming, 7 => ShowMovement, 8 => ShowAttention, 9 => ShowRegion, 10 => ShowFollow, 11 => ShowSenses, 12 => ShowCost, 13 => ShowClearance, _ => false };
     private static void Flip(int i)
     {
-        switch (i) { case 0: ShowWorld = !ShowWorld; break; case 1: ShowThreats = !ShowThreats; break; case 2: ShowPredictions = !ShowPredictions; break; case 3: ShowProjectiles = !ShowProjectiles; break; case 4: ShowRoutes = !ShowRoutes; break; case 5: ShowCandidates = !ShowCandidates; break; case 6: ShowAiming = !ShowAiming; break; case 7: ShowMovement = !ShowMovement; break; case 8: ShowAttention = !ShowAttention; break; case 9: ShowRegion = !ShowRegion; break; case 10: ShowFollow = !ShowFollow; break; case 11: ShowSenses = !ShowSenses; break; case 12: ShowSafety = !ShowSafety; break; case 13: ShowCost = !ShowCost; break; case 14: ShowClearance = !ShowClearance; break; }
+        switch (i) { case 0: ShowWorld = !ShowWorld; break; case 1: ShowThreats = !ShowThreats; break; case 2: ShowPredictions = !ShowPredictions; break; case 3: ShowProjectiles = !ShowProjectiles; break; case 4: ShowRoutes = !ShowRoutes; break; case 5: ShowCandidates = !ShowCandidates; break; case 6: ShowAiming = !ShowAiming; break; case 7: ShowMovement = !ShowMovement; break; case 8: ShowAttention = !ShowAttention; break; case 9: ShowRegion = !ShowRegion; break; case 10: ShowFollow = !ShowFollow; break; case 11: ShowSenses = !ShowSenses; break; case 12: ShowCost = !ShowCost; break; case 13: ShowClearance = !ShowClearance; break; }
     }
     public static void CaptureInput()
     {
@@ -394,8 +395,6 @@ public sealed class BrainOverlay : ModSystem
         }
         if (ShowFollow) DrawFollow(sb, brain);
         if (ShowSenses) DrawSensed(sb, brain);
-        if (ShowSafety && brain.Safety.Active && brain.Safety.Escape.AirTarget is Point refuge)
-            Line(sb, c.NPC.Center, refuge.ToWorldCoordinates(), Color.Orange);
         // One label for the companion however many layers have something to say about it, because two
         // labels above one body overlap into an unreadable smear the moment both layers are on.
         DrawCompanionLabel(sb, c, brain);
@@ -478,13 +477,8 @@ public sealed class BrainOverlay : ModSystem
 
     private static void DrawCompanionLabel(SpriteBatch sb, CompanionNPC c, Brain brain)
     {
-        string text = "";
         if (ShowSenses)
-            text = $"wet {brain.Senses.Self.LiquidContactTicks}  pressure {brain.Senses.Encounter.PressureTicks}";
-        if (ShowSafety && brain.Safety.Active)
-            text = (text.Length > 0 ? text + "  " : "")
-                + $"{brain.Safety.Kind}: {(brain.Safety.Escape.EscapeActive ? brain.Safety.Escape.EscapeStage : brain.Safety.Reason)}";
-        if (text.Length > 0) Label(sb, Screen(c.NPC.Top), text, Color.White);
+            Label(sb, Screen(c.NPC.Top), $"pressure {brain.Senses.Encounter.PressureTicks}", Color.White);
     }
 
     /// <summary>

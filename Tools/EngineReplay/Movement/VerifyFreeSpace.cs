@@ -5,7 +5,7 @@ using AICompanion.Tools.Ledger;
 
 /// <summary>
 /// The free-space core on text worlds, game-free: a two-wide corridor is open and a one-wide is
-/// closed, a wet tile is a wall until the matching immunity opens it, the diagonal edge between
+/// closed, a wet tile is exactly as free as a dry one, the diagonal edge between
 /// corners passes a one-tile staircase, a search with a goal finds the corridor, and the flood
 /// over a screen-sized room finishes within a handful of the brain's own slices — which is the
 /// property the walker's flood never had, and the one every "not yet known" answer stands on.
@@ -40,23 +40,22 @@ internal static class VerifyFreeSpace
                 $"the pinch must close the corridor: stop={flood.Stop} farEnd={flood.Reached.Contains(new Point(38, 2))}");
             Require(flood.Reached.Count == 18, $"the corridor up to the pinch holds 18 usable corners; the flood closed {flood.Reached.Count}");
 
-            // Water across the corridor is a wall until the water immunity opens it; lava the same under its own.
-            foreach ((char glyph, LiquidImmunity opens, string name) in new[] { ('~', new LiquidImmunity(true, false), "water"), ('L', new LiquidImmunity(false, true), "lava") })
+            // Water or lava filling the corridor's whole height across two columns is air to the body, so the flood closes the
+            // same 37 corners the dry corridor does and the far end is reached through it. The owner ruled on 15 September 2026
+            // that every liquid is air to the companion; this row held water and lava as walls until an immunity opened them.
+            // The text world carries only water and lava, so honey and shimmer are proven on native tiles by VerifyLiquidsAreAir.
+            foreach ((char glyph, string name) in new[] { ('~', "water"), ('L', "lava") })
             {
                 var wet = Corridor(40, freeRows: 2);
                 for (int row = 1; row <= 2; row++) { wet.Set(20, row, glyph); wet.Set(21, row, glyph); }
-                OrbTerrain.Immunity = LiquidImmunity.None;
+                bool poured = glyph == '~' ? wet.Water(20, 1) && wet.Water(21, 2) : wet.Lava(20, 1) && wet.Lava(21, 2);
+                Require(poured, $"the {name} premise needs the corridor's two middle columns to hold {name}");
+                ClearanceField.Shared.Invalidate();
                 flood = Flood(wet, new Point(2, 2));
-                Require(flood.Finished && !flood.Reached.Contains(new Point(38, 2)), $"{name} must be a wall to the flood without the immunity");
-                OrbTerrain.Immunity = opens;
-                flood = Flood(wet, new Point(2, 2));
-                Require(flood.Reached.Contains(new Point(38, 2)), $"{name} must open to the flood under the {name} immunity");
-                // The other immunity opens nothing here.
-                OrbTerrain.Immunity = new LiquidImmunity(!opens.Water, !opens.Lava);
-                flood = Flood(wet, new Point(2, 2));
-                Require(!flood.Reached.Contains(new Point(38, 2)), $"the other immunity must not open {name}");
+                Require(flood.Finished && flood.Stop == FreeSpaceSearch.StopReason.Exhausted && flood.Reached.Contains(new Point(38, 2)),
+                    $"{name} across the corridor must be open to the flood: stop={flood.Stop} farEnd={flood.Reached.Contains(new Point(38, 2))}");
+                Require(flood.Reached.Count == 37, $"a corridor with {name} across it holds the dry corridor's 37 usable corners; the flood closed {flood.Reached.Count}");
             }
-            OrbTerrain.Immunity = LiquidImmunity.None;
             ClearanceField.Shared.Invalidate();
 
             // The diagonal edge: a staircase of two-by-two openings each offset one tile is one region.
@@ -77,7 +76,6 @@ internal static class VerifyFreeSpace
         finally
         {
             LimitPlanningWork.Unbounded = false;
-            OrbTerrain.Immunity = LiquidImmunity.None;
             FreeSpaceSearch.WorldOverride = null;
             ClearanceField.Shared.Invalidate();
         }

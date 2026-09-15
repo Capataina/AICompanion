@@ -19,8 +19,9 @@ public sealed class Senses
     /// <summary>Where the player is going, as a place. Every "how far from the player" question in the
     /// brain measures to this, so work near him is work near where he will be rather than where he was.</summary>
     public readonly PlayerIntentRegionSense Intent = new();
-    /// <summary>Where the body can walk to. Refreshed by the positioner's resolve rather than by
-    /// <see cref="Update"/>, because the flood's lava and one-way rules are set per request.</summary>
+    /// <summary>Where the body can fly to. Refreshed by the positioner's resolve rather than by
+    /// <see cref="Update"/>, because where the flood is rooted and when a replacement takes over is
+    /// decided on the rescore, whose region has to hold still for the candidates scored against it.</summary>
     public readonly ReachSense Reach = new();
     public readonly CompanionSense Self = new();
     public readonly ObserveProjectiles Projectiles = new();
@@ -35,7 +36,7 @@ public sealed class Senses
     /// <summary>Applied after weapons inspect this tick's threats; infinity means no useful intervention was observed.</summary>
     public void SetInterventionEstimate(float ticks) => Threats.SetInterventionEstimate(ticks);
 
-    public void Update(NPC companion, Terraria.Player player, global::AICompanion.Companion.CompanionMotor motor)
+    public void Update(NPC companion, Terraria.Player player)
     {
         Tick++;
         Companion = companion;
@@ -49,7 +50,7 @@ public sealed class Senses
         Projectiles.Update(companion);
         Loot.Update(companion, player);
         Light.Update(companion, player);
-        Self.Update(companion, motor);
+        Self.Update(companion);
         DistanceToPlayer = Microsoft.Xna.Framework.Vector2.Distance(companion.Center, player.Center);
     }
 }

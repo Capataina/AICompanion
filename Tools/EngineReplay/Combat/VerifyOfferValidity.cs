@@ -150,7 +150,7 @@ internal static class VerifyOfferValidity
             int column = Home - Swing + Stride * (phase <= Period / 2 ? phase : Period - phase);
             companion.NPC.position = new Vector2(column * 16f, FloorY * 16f - companion.NPC.height);
             companion.NPC.velocity = Vector2.Zero;
-            companion.Brain.Senses.Update(companion.NPC, Main.player[0], companion.Motor);
+            companion.Brain.Senses.Update(companion.NPC, Main.player[0]);
             int bucket = MovementQueries.Tile(companion.NPC.Center).X >> 2;
             if (bucket != previousBucket) { buckets++; previousBucket = bucket; }
             positioner.Resolve(request, companion.Brain.Senses, profile);
@@ -398,7 +398,7 @@ internal static class VerifyOfferValidity
 
         // Behind the pillar, well out of a shot from where the body stands.
         enemy.Bottom = new Vector2((PillarRight + 6) * 16f + 8f, FloorY * 16f);
-        companion.Brain.Senses.Update(companion.NPC, Main.player[0], companion.Motor);
+        companion.Brain.Senses.Update(companion.NPC, Main.player[0]);
         var (behind, _) = firing.Resolve(ctx, enemy);
         Require(behind != live::AICompanion.Companion.Brain.Activities.Combat.FiringAccess.FromHere, FormattableString.Invariant(
             $"the premise fails: the enemy behind the pillar must not already be shootable from where the body stands, or moving it proves nothing; verdict={behind}"));
@@ -407,7 +407,7 @@ internal static class VerifyOfferValidity
         // changed — only the target — so an answer that does not move is an answer keyed on the wrong things.
         enemy.Bottom = companion.NPC.Bottom + new Vector2(32f, 0f);
         float moved = Vector2.Distance(enemy.Center, companion.NPC.Center);
-        companion.Brain.Senses.Update(companion.NPC, Main.player[0], companion.Motor);
+        companion.Brain.Senses.Update(companion.NPC, Main.player[0]);
         var (beside, _) = firing.Resolve(ctx, enemy);
         Console.WriteLine(FormattableString.Invariant(
             $"offer validity: a target behind the pillar read {behind}; walked to {moved:F0}px from the muzzle on the same tick it reads {beside}"));
@@ -492,7 +492,7 @@ internal static class VerifyOfferValidity
             live::AICompanion.Companion.Brain.Infrastructure.Observation.PredictObservedMotion.Observe(enemy);
         }
 
-        companion.Brain.Senses.Update(companion.NPC, player, companion.Motor);
+        companion.Brain.Senses.Update(companion.NPC, player);
         var threats = companion.Brain.Senses.Threats.Threats;
         threats.Clear();
         threats.Add(new T
@@ -549,7 +549,7 @@ internal static class VerifyOfferValidity
         enemy.Bottom = new Vector2(51 * 16f + 8f, ShaftFloorY * 16f);
         Main.npc[30] = enemy;
 
-        companion.Brain.Senses.Update(companion.NPC, player, companion.Motor);
+        companion.Brain.Senses.Update(companion.NPC, player);
         var threats = companion.Brain.Senses.Threats.Threats;
         threats.Clear();
         threats.Add(new T

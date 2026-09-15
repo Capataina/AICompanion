@@ -75,9 +75,7 @@ public static class Program
         new HuntingProducesAnOutcome(),
         new HuntingHadAWeaponThatCouldReach(),
         // A submerged body running its breath down was a check here and is not replaced. The orb has
-        // no breath: a liquid hurts it on contact rather than over a bar, and no capture has yet shown
-        // it stalled in one. A check written for that now would be written from an imagined failure,
-        // which is the one way of adding a check this folder refuses.
+        // no breath, and every liquid is air to it, so there is no submerged state for a check to watch.
         new FollowingRespondsAfterDeparture(),
         new DamageArrivesWhereDangerWasSeen(),
         new TheHandsWorkWhileThreatened(),
@@ -91,7 +89,7 @@ public static class Program
         new TheActionBoardGetsUsed(),
         new TheTorchGivesUpTheHand(),
         // The player as the reference: his own smart cursor's dark tile left unlit, and a usable hunt beside him while he
-        // stood idle, each while keeping company won. Both read columns only 0.35.0 writes and skip an older capture by name.
+        // stood idle, each while keeping company won. Both read columns only 0.35.0 and later write and skip an older capture by name.
         new TorchesGoWhereHisCursorWould(),
         new HuntsWorthTakingAreTaken(),
         new TheBrainFitsInAFrame(),

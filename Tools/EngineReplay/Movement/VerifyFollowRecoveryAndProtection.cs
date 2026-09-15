@@ -109,7 +109,7 @@ internal static class VerifyFollowRecoveryAndProtection
         Main.player[0].dead = false;
         Main.player[0].position = new Vector2(450, 900);
         var senses = companion.Brain.Senses;
-        senses.Update(companion.NPC, Main.player[0], companion.Motor);
+        senses.Update(companion.NPC, Main.player[0]);
         var npc = new NPC { whoAmI = 4, active = true, life = 100, damage = 20 };
         var threat = new Threat { Npc = npc, CanReachPlayer = true, Urgency = 1f, EffectiveTicksToPlayer = 0 };
         senses.Threats.Threats.Add(threat);

@@ -35,14 +35,12 @@ internal static class ScoreTheRun
     private const float ABodyWidth = live::AICompanion.Companion.Brain.Infrastructure.Movement.CircleContact.Diameter;
 
     /// <summary>
-    /// How near the player's body the orb's centre must come for a checkpoint to count as reached, in
-    /// pixels: the follow objective's own vertical comfort, which is the height band following admits
-    /// a spot inside. It is measured to the nearest point of the player's box, feet to head, and not
-    /// to his feet: the brain admits a box around the player and lets the orb sit above his head, so a
-    /// circle of this radius on the feet scored a body hovering squarely inside the admitted box as a
-    /// miss — four of twenty on the first orb tree, every one of them within twenty pixels of being
-    /// over him and a hundred-odd above his feet. Measured to the box, the same radius reaches the
-    /// height the brain's own contract allows.
+    /// A reference distance printed beside every checkpoint and never its verdict: the follow objective's own vertical
+    /// comfort, measured to the nearest point of the player's box. It was the pass line until 15 September 2026, when the
+    /// orb began moving about the player's whole region instead of hovering at his side, and a body inside the region is
+    /// with him far outside this distance — the recorded route at 615ab50 missed two checkpoints on dry ground by it
+    /// (furthest closest approach 138 px) while the same build reached all twenty at 110394a (77.7 px). The distance stays
+    /// as the furthest-approach measure because a run that stops coming near the player at all is still worth seeing.
     /// </summary>
     private static float CheckpointReach => live::AICompanion.Companion.Brain.Infrastructure.Selection.Weights.FollowVerticalComfort;
 
@@ -173,15 +171,13 @@ internal static class ScoreTheRun
     /// </summary>
     public static void Checkpoints(string suite, ReadRecordedRoute.Route route, RunTheWorld.Outcome run, int cadence)
     {
-        int arrived = 0, missed = 0, plannerSaidNo = 0, plannerUnfinished = 0, underLiquid = 0, total = 0;
+        // A checkpoint the player stood in while swimming used to be excused by name, because water and lava were walls to the
+        // orb until a mastery immunity opened them. Every liquid has been air to the orb since 15 September 2026, so a checkpoint
+        // under any liquid is judged like any other and a miss there is a miss.
+        int arrived = 0, missed = 0, plannerSaidNo = 0, plannerUnfinished = 0, total = 0;
         float furthestApproach = 0f;
         int steps = Math.Min(route.Count, run.CompanionCentres.Count);
         var visited = new HashSet<Point>();
-        // Water and lava are walls to the orb until a mastery immunity opens them, and they hurt on
-        // touch, so a checkpoint the player stood in while swimming is outside the companion's kit
-        // in exactly the way a dash is: the body refusing it is the design, not a miss. The flags
-        // come out of the run, read off the live body while it existed; the body is gone by now.
-        bool immuneToWater = run.ImmuneToWater, immuneToLava = run.ImmuneToLava;
 
         for (int i = 0; i < steps; i += cadence)
         {
@@ -189,44 +185,47 @@ internal static class ScoreTheRun
             if (!visited.Add(tile)) continue;
             total++;
 
-            // Arrived at any point in the run, not only on the tick the player stood there: the
-            // companion following a player is behind them by design, and scoring it only at the
-            // moment of passing would count ordinary following as a failure to arrive. Reach is
-            // measured to the player's box rather than to his feet, for the reason on CheckpointReach.
+            // Reached is being with the player while he stood there: on some tick of this checkpoint's own stretch of track,
+            // from its step to the next cadence step, the body's centre sat inside his region and the sense read it
+            // connected to him. The stretch rather than the whole run, because one entry into the region would otherwise
+            // satisfy every checkpoint the run ever passed; the stretch rather than the single tick, because the region is
+            // carried ahead of him by his own pace and a body moving about it is on its far side on some ticks. The closest
+            // approach to his box over the whole run is still printed and measured, as a reference and not a verdict.
             Rectangle body = PlayerBoxAt(route[i].PlayerFeet);
             float closest = float.PositiveInfinity;
             for (int j = 0; j < steps; j++)
                 closest = MathF.Min(closest, NearestDistance(run.CompanionCentres[j], body));
             furthestApproach = MathF.Max(furthestApproach, closest);
-            bool reached = closest <= CheckpointReach;
+            int end = Math.Min(steps, i + cadence), insideTicks = 0, connectedTicks = 0, withTicks = 0;
+            for (int j = i; j < end; j++)
+            {
+                if (run.InsideRegion[j]) insideTicks++;
+                if (run.ConnectedToPlayer[j]) connectedTicks++;
+                if (run.InsideRegion[j] && run.ConnectedToPlayer[j]) withTicks++;
+            }
+            bool reached = withTicks > 0;
+            Console.WriteLine(string.Create(CultureInfo.InvariantCulture,
+                $"CHECKPOINT {total,2} at recorded tick {route[i].Tick} tile {tile.X},{tile.Y}: inside the region on {insideTicks} of {end - i} ticks, "
+                + $"connected on {connectedTicks}, both on {withTicks}; closest approach to his box over the run {closest:0.0} px -> {(reached ? "reached" : "MISSED")}"));
 
             if (reached) { arrived++; continue; }
             missed++;
             if (run.PlannerClaim[i] == Reach.Unreachable) plannerSaidNo++;
             else if (run.PlannerClaim[i] == Reach.NotYet) plannerUnfinished++;
-            Tile stood = Main.tile[tile.X, tile.Y];
-            bool forbidden = stood.LiquidAmount > 0 && stood.LiquidType switch
-            {
-                Terraria.ID.LiquidID.Water => !immuneToWater,
-                Terraria.ID.LiquidID.Lava => !immuneToLava,
-                _ => false, // honey and shimmer only slow the orb
-            };
-            if (forbidden) underLiquid++;
         }
 
-        string note = $"{total} checkpoints every {cadence} ticks along {route.Capture}, reached within {CheckpointReach:0} px of the player's body";
+        string note = $"{total} checkpoints every {cadence} ticks along {route.Capture}, reached when the body is inside the player's region and connected to him on some tick of the checkpoint's own {cadence}-tick stretch";
         EmitLedgerRows.Measure(Instrument, suite, "checkpoints the body reached", arrived, "checkpoints", "up", "unbounded-allowances", message: note);
         EmitLedgerRows.Measure(Instrument, suite, "checkpoints the body never reached", missed, "checkpoints", "down", "unbounded-allowances", message: note);
-        // The furthest any checkpoint sat from the orb at the orb's nearest approach: a value just under
-        // the reach says the verdict above is a coin on its edge, which the counts alone cannot show.
+        // The furthest any checkpoint sat from the orb at the orb's nearest approach over the whole run. It is no longer the
+        // verdict — a body moving about the player's region is with him well beyond it — but a run whose body stops coming
+        // near the player at all shows here first.
         EmitLedgerRows.Measure(Instrument, suite, "furthest closest approach to any checkpoint", furthestApproach, "px", "down", "unbounded-allowances",
-            message: note + "; the reach the counts are judged against is the same number, so a value near it is a verdict on a knife edge");
+            message: note + $"; measured to the player's box, beside the follow comfort of {CheckpointReach:0} px that was the pass line before the orb moved about his whole region");
         EmitLedgerRows.Measure(Instrument, suite, "unreached checkpoints the planner called unreachable", plannerSaidNo, "checkpoints", "down", "unbounded-allowances",
             message: note + "; the reach sense's verdict on the tile the player's body occupied; a missing edge unless the player's kit explains it");
         EmitLedgerRows.Measure(Instrument, suite, "unreached checkpoints whose flood never finished", plannerUnfinished, "checkpoints", "down", "unbounded-allowances",
             message: note + "; the reach sense had not finished flooding, or the tile lay beyond its known radius, when the player stood there");
-        EmitLedgerRows.Measure(Instrument, suite, "unreached checkpoints under water or lava the companion may not enter", underLiquid, "checkpoints", "down", "unbounded-allowances",
-            message: note + "; the player swam there and the companion has no immunity for that liquid, so refusing it is the design");
 
         if (!route.Kits.Known)
         {
@@ -250,17 +249,16 @@ internal static class ScoreTheRun
             return;
         }
 
-        if (missed == underLiquid)
+        if (missed == 0)
             EmitLedgerRows.Pass(Instrument, suite, "every unreached checkpoint is outside the companion's kit or a real miss",
                 $"the player reached every checkpoint with a kit the companion's own declaration covers "
-                + $"({route.Kits.Raw}); the body reached {arrived} of {total} checkpoints and the {underLiquid} it did not "
-                + "were under water or lava it may not enter",
+                + $"({route.Kits.Raw}); the body reached all {total} checkpoints",
                 mode: "unbounded-allowances",
                 killedBy: "counting a checkpoint as reached on the tick the player stood there rather than at any point in the run");
         else
             EmitLedgerRows.Fail(Instrument, suite, "every unreached checkpoint is outside the companion's kit or a real miss",
                 $"the player reached {total} checkpoints with nothing the companion's kit lacks ({route.Kits.Raw}) "
-                + $"and the body missed {missed} of them, {underLiquid} under a liquid it may not enter and {missed - underLiquid} on dry ground; "
+                + $"and the body missed {missed} of them; "
                 + $"the planner called {plannerSaidNo} unreachable and had not finished flooding {plannerUnfinished}",
                 mode: "unbounded-allowances");
     }
@@ -271,16 +269,14 @@ internal static class ScoreTheRun
     ///
     /// The orb flies, so anything that carries a player through air — a mount, wings, rocket boots
     /// — is answered by the body itself and filters nothing; what the orb has no answer to is a
-    /// dash, which is a burst of pace the motor's cap does not allow. A swim has no player flag to
-    /// read and is a liquid immunity on the orb's side rather than a movement, so it is judged per
-    /// checkpoint in <see cref="Checkpoints"/> instead: a checkpoint under water or lava the orb may
-    /// not enter is excused by name rather than filtering the whole route.
+    /// dash, which is a burst of pace the motor's cap does not allow. A swim filters nothing either:
+    /// every liquid is air to the orb, so a place the player swam to is a place it flies to.
     /// </summary>
     private static string[] AbilitiesThePlayerHadAndTheCompanionDoesNot(ReadRecordedRoute.Kits kits)
         => kits.PlayerDash ? new[] { "a dash" } : Array.Empty<string>();
 
     private static string DescribeTheCompanionsDeclaredKit()
-        => "flying-orb: fly=True, dash=False, water and lava by per-character immunity";
+        => "flying-orb: fly=True, dash=False, every liquid as air";
 
     private static int FirstDisagreement(IReadOnlyList<string> first, IReadOnlyList<string> second)
     {

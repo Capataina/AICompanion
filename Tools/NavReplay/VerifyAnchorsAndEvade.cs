@@ -16,10 +16,11 @@ using AICompanion.Companion.Brain.Infrastructure.Selection;
 /// wall between. The rows here carry a body across a wall mid-wait, and then interrupt it and hand it a new unreachable
 /// goal, and require it to hover where it now is and never sit still.</para>
 ///
-/// <para>A dodge never flies the body into water or lava it is not immune to. The evade simulation ran the contact,
-/// which pushes out of solid tiles only, so a body in a two-row gap over lava with shots closing from both sides went
-/// 24.9 px into the lava. The row requires that the evade actually bent the body — a scene where it never dodged would
-/// satisfy "never touched lava" having tested nothing — and that the body never touched the lava.</para>
+/// <para>A dodge is free to use the lava below it. Until 15 September 2026 this row asked the opposite: a dodge never flew
+/// the body into water or lava, because both hurt it, and the scene — a two-row gap over lava with shots closing from both
+/// sides — required a cornered body to take the hit rather than the lava. The owner ruled that day that every liquid is air
+/// to the companion, so the lava below the gap is the one heading clear of both shots, and the row now requires the dodge to
+/// take it: the evade bends the body, the body enters the lava, and no tick of its flight meets a shot.</para>
 /// </summary>
 internal static class VerifyAnchorsAndEvade
 {
@@ -36,7 +37,7 @@ internal static class VerifyAnchorsAndEvade
         try
         {
             failures += AStaleWaitAnchorNeverPullsTheBodyBack();
-            failures += AnEvadeNeverFliesIntoLava();
+            failures += AnEvadeUsesTheLavaBelowTheShots();
         }
         finally
         {
@@ -135,26 +136,25 @@ internal static class VerifyAnchorsAndEvade
 
     /// <summary>
     /// A ceiling, a two-row gap the body fits in, four rows of lava and a floor. Two shots fill the gap's whole height and
-    /// close from either side, so every heading along the gap meets one sooner or later and nothing but the lava below is
-    /// out of their way. At three times the player's speed the body outruns one shot to the world's edge and is cornered
-    /// there with the lava a tick later than the shot, which is the case a dodge scoring liquid as one more danger lost:
-    /// it must take the hit.
+    /// close from either side, so every heading along the gap meets one sooner or later and only the lava below is out of
+    /// their way. Pass line, declared before the first run under the ruling: the evade bends the body at least once, the body
+    /// touches the lava on at least one tick — the premise that the heading clear of both shots was taken — and on no tick of
+    /// the sixty does the body's box meet either shot.
     /// </summary>
-    private static int AnEvadeNeverFliesIntoLava()
+    private static int AnEvadeUsesTheLavaBelowTheShots()
     {
         const int width = 40;
         var rows = new List<string> { new('#', width), new('.', width), new('.', width), new('L', width), new('L', width), new('L', width), new('L', width), new('#', width) };
         var world = new TextTileWorld(0, 0, rows);
         Plug(world);
-        OrbTerrain.Immunity = LiquidImmunity.None;
 
         float middle = width * 8f;
         Vector2 centre = new(middle, 32f), velocity = Vector2.Zero;
         const float gapTop = 16f, gapBottom = 48f, shotHalf = 8f, shotSpeed = 8f, start = 200f;
-        int bentTicks = 0, lavaTicks = 0, firstLava = -1;
+        int bentTicks = 0, lavaTicks = 0, hitTicks = 0, firstHit = -1;
         float deepest = 0f;
-        // Every tick's body, ask and bend, printed around the first lava touch on failure: the same instrument the arrival
-        // row prints when its still run trips, because a count of lava ticks says that the dodge went wrong and not how.
+        // Every tick's body, ask and bend, printed around the first hit on failure: the same instrument the arrival row prints
+        // when its still run trips, because a count of hit ticks says that the dodge went wrong and not how.
         var trace = new List<string>();
         for (int now = 0; now < 60; now++)
         {
@@ -175,27 +175,36 @@ internal static class VerifyAnchorsAndEvade
             velocity = OrbPace.Step(velocity, controls.Desired, controls.Burst);
             centre += velocity;
             CircleContact.Resolve(world, ref centre, ref velocity);
-            bool wet = CircleContact.Touches(centre, (x, y) => OrbTerrain.WetWall(world, x, y, LiquidImmunity.None));
+            bool wet = CircleContact.Touches(centre, (x, y) => world.Lava(x, y));
+            // Where the shots are on the tick the body arrived at its new centre: one tick past now, asked of the predicate the
+            // evade itself reads, so a hit here is exactly a hit the evade's own reading would call one.
+            bool hit = Unsafe(new OrbState(centre, velocity), 1);
             float nearShot = MathF.Min(MathF.Abs(before.X - (middle - start + shotSpeed * now)), MathF.Abs(before.X - (middle + start - shotSpeed * now)));
-            trace.Add($"tick {now,2}: at {before.X:0.0},{before.Y:0.0} v {velocityBefore.X:0.00},{velocityBefore.Y:0.00} asked {controls.Desired.X:0.00},{controls.Desired.Y:0.00}{(controls.Burst ? " burst" : "")}{(bent ? " bent" : "")} -> {centre.X:0.0},{centre.Y:0.0}{(wet ? " LAVA" : "")}, nearest shot {nearShot:0} px");
+            trace.Add($"tick {now,2}: at {before.X:0.0},{before.Y:0.0} v {velocityBefore.X:0.00},{velocityBefore.Y:0.00} asked {controls.Desired.X:0.00},{controls.Desired.Y:0.00}{(controls.Burst ? " burst" : "")}{(bent ? " bent" : "")} -> {centre.X:0.0},{centre.Y:0.0}{(wet ? " in lava" : "")}{(hit ? " HIT" : "")}, nearest shot {nearShot:0} px");
             if (wet)
             {
                 lavaTicks++;
-                if (firstLava < 0) firstLava = now;
                 deepest = MathF.Max(deepest, centre.Y + CircleContact.Radius - gapBottom);
+            }
+            if (hit)
+            {
+                hitTicks++;
+                if (firstHit < 0) firstHit = now;
             }
         }
 
         int failures = 0;
         if (bentTicks == 0)
             failures += Fail("premise: the closing shots must make the evade bend the body at least once, or this row proves nothing about where a dodge goes");
-        if (lavaTicks > 0)
+        if (lavaTicks == 0)
+            failures += Fail($"premise: the only heading clear of both shots is down into the lava, and the body never entered it over {bentTicks} bent ticks; a liquid is still being treated as something to avoid");
+        if (hitTicks > 0)
         {
-            failures += Fail($"a dodge flew the body into lava it is not immune to: {lavaTicks} ticks touching it, {deepest:0.0} px below the surface, over {bentTicks} bent ticks");
-            for (int i = Math.Max(0, firstLava - 20); i < Math.Min(trace.Count, firstLava + 6); i++) Console.WriteLine("      " + trace[i]);
+            failures += Fail($"a dodge with the lava free to use still met a shot: {hitTicks} ticks inside a shot, first at tick {firstHit}, over {bentTicks} bent ticks and {lavaTicks} ticks in the lava");
+            for (int i = Math.Max(0, firstHit - 20); i < Math.Min(trace.Count, firstHit + 6); i++) Console.WriteLine("      " + trace[i]);
         }
         if (failures == 0)
-            Console.WriteLine($"evade: bent {bentTicks} ticks between two closing shots over lava and never touched it");
+            Console.WriteLine($"evade: bent {bentTicks} ticks between two closing shots, used the lava below on {lavaTicks} ticks ({deepest:0.0} px deep) and was never hit");
         return failures;
     }
 

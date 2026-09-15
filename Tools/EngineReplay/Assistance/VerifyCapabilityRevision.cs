@@ -213,7 +213,7 @@ internal static class VerifyCapabilityRevision
         // capability these rows actually vary, is not what either sense holds, so priming here cannot hide
         // the very-next-preparation behaviour the rows are checking.
         var brain = ctx.Companion.Brain;
-        brain.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Motor);
+        brain.Senses.Update(ctx.Npc, ctx.Player);
         var home = new live::AICompanion.Companion.Brain.Infrastructure.Position.PositionRequest(
             live::AICompanion.Companion.Brain.Infrastructure.Position.RequestKind.WithPlayer, ctx.Player.Bottom);
         for (int i = 0; i < 3000 && !brain.Positioner.ReachComplete; i++)
@@ -300,7 +300,7 @@ internal static class VerifyCapabilityRevision
             ctx.Npc.Bottom = new Vector2(Rim * 16 + 8, 60 * 16);
             ctx.Npc.velocity = Vector2.Zero;
             ctx.Senses.Loot.Pickups.Clear();
-            ctx.Companion.Brain.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Motor);
+            ctx.Companion.Brain.Senses.Update(ctx.Npc, ctx.Player);
             return ctx;
         }
 

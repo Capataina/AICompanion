@@ -22,7 +22,6 @@ EmitLedgerRows.ResetBeforeCase = keepProductionAllowances =>
     LimitPlanningWork.Unbounded = !keepProductionAllowances;
     LimitPlanningWork.End();
     FreeSpaceSearch.WorldOverride = null;
-    OrbTerrain.Immunity = LiquidImmunity.None;
     ClearanceField.Shared.Invalidate();
     BehaviourCensus.Reset();
 };
@@ -34,9 +33,9 @@ if (args.Length == 1 && args[0] == "--self-test")
         + EmitLedgerRows.Case("nav-replay", "NavReplay", "a body the navigator has called arrived stays arrived, on one search, and comes to rest",
             VerifyArrivalHolds.Run,
             killedBy: "steering that brakes too late for the arrival radius, or an arrival that coasts out and replans")
-        + EmitLedgerRows.Case("nav-replay", "NavReplay", "a hover anchor never pulls the body back behind a wall, and a dodge never flies it into lava",
+        + EmitLedgerRows.Case("nav-replay", "NavReplay", "a hover anchor never pulls the body back behind a wall, and a dodge between two shots is free to use the lava below them",
             VerifyAnchorsAndEvade.Run,
-            killedBy: "a wait anchor that outlives its goal or survives the body being carried across a wall, or an evade simulation that runs the solid contact without asking about liquid")
+            killedBy: "a wait anchor that outlives its goal or survives the body being carried across a wall, or a dodge that still treats liquid as something to stay out of")
         + EmitLedgerRows.Case("nav-replay", "NavReplay", "a dodge bends the job's flight only where the job's own flight would meet harm, and never presses the body into a wall",
             VerifyEvadeKeepsTheJob.Run,
             killedBy: "a keep test that holds one velocity in a straight line instead of flying the job's own steering, or a heading that goes nowhere scored above a stop")

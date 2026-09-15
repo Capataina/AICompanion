@@ -106,7 +106,7 @@ internal static class VerifyFiringPosition
         enemy.Bottom = new Vector2(EnemyTileX * 16f + 8f, ShaftFloorY * 16f);
         Main.npc[30] = enemy;
 
-        companion.Brain.Senses.Update(companion.NPC, player, companion.Motor);
+        companion.Brain.Senses.Update(companion.NPC, player);
         var threats = companion.Brain.Senses.Threats.Threats;
         threats.Clear();
         threats.Add(new T

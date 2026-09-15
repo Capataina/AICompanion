@@ -189,7 +189,7 @@ internal static class VerifyCompanyIsTheFallback
         companion.NPC.Center = at;
         companion.NPC.velocity = Vector2.Zero;
         VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
-        companion.Brain.Senses.Update(companion.NPC, player, companion.Motor);
+        companion.Brain.Senses.Update(companion.NPC, player);
         companion.Brain.Chooser.Choose(ctx);
         return companion.Brain.Chooser.LastScores.Single(s => s.Action.Name == "keep-company").Raw;
     }
@@ -233,7 +233,7 @@ internal static class VerifyCompanyIsTheFallback
         Main.screenHeight = 1080;
         FollowTheScreen(player);
         var ctx = new ActionContext(companion, companion.Brain.Senses);
-        companion.Brain.Senses.Update(companion.NPC, player, companion.Motor);
+        companion.Brain.Senses.Update(companion.NPC, player);
         return (companion, player, ctx);
     }
 

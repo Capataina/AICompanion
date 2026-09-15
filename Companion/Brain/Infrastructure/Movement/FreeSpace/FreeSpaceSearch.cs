@@ -51,8 +51,6 @@ public sealed class FreeSpaceSearch
     public const int NodeLimit = 80000;
 
     private readonly ITileWorld world;
-    private readonly LiquidImmunity immunity;
-    private readonly bool immunityOverridden;
     /// <summary>
     /// The revision this query's answer is known to be current as of — the record's revision when the search
     /// began, and then the record's revision at every later moment the query was asked and found clean.
@@ -83,26 +81,6 @@ public sealed class FreeSpaceSearch
     public int Expansions { get; private set; }
     /// <summary>Extra cost for corners inside these rectangles (world pixels): threat bodies a route should go around rather than through.</summary>
     public IReadOnlyList<Rectangle> Avoid { get; set; } = Array.Empty<Rectangle>();
-    /// <summary>A goal given as a predicate rather than a corner: the search finishes Found at the first closed corner it accepts.</summary>
-    public Func<Point, bool>? Accept { get; set; }
-    /// <summary>An ordering value for a predicate goal, used as the heuristic so the flood leans toward what the caller prefers.</summary>
-    public Func<Point, float>? Prefer
-    {
-        get => prefer;
-        set
-        {
-            // A preference reorders the queue away from cost order, and a disc-bounded flood's "exhausted
-            // inside the disc" is argued from closing every reachable corner inside it, which a preference
-            // does not break — but a bounded flood is the reach sense's and answers "where can I get to";
-            // leaning it toward a caller's goal would make one consumer's preference everyone's region.
-            if (value != null && !float.IsPositiveInfinity(Radius))
-                throw new InvalidOperationException("a bounded flood is a region, not a search; it takes no preference");
-            prefer = value;
-        }
-    }
-    private Func<Point, float>? prefer;
-    /// <summary>The corner a predicate goal accepted, once one has.</summary>
-    public Point? FoundCorner { get; private set; }
 
     /// <summary>
     /// The closed corner nearest the goal so far by the straight line the heuristic measures, or null for a search with no
@@ -138,19 +116,15 @@ public sealed class FreeSpaceSearch
     /// </summary>
     public Rectangle? Bounds { get; init; }
 
-    /// <param name="rules">The immunities this search runs under; the process-wide ones unless a caller
-    /// needs to search through liquid the body is already in.</param>
-    /// <param name="priceClearance">Whether edges carry the corridor-middle price; a search for the nearest
-    /// safe corner wants the nearest and not the widest.</param>
+    /// <param name="priceClearance">Whether edges carry the corridor-middle price; a flood that answers only which
+    /// places join, as the meeting place and the intent region's side flood ask, prices by length alone.</param>
     /// <param name="radius">See <see cref="Radius"/>; infinite unless the caller bounds a flood.</param>
-    public FreeSpaceSearch(ITileWorld world, Point start, Point? goal, LiquidImmunity? rules = null, bool priceClearance = true,
+    public FreeSpaceSearch(ITileWorld world, Point start, Point? goal, bool priceClearance = true,
         float radius = float.PositiveInfinity)
     {
         if (goal != null && !float.IsPositiveInfinity(radius))
             throw new ArgumentException("a radius bounds a flood; a route search has a goal and no disc", nameof(radius));
         this.world = world;
-        immunity = rules ?? OrbTerrain.Immunity;
-        immunityOverridden = rules != null;
         this.priceClearance = priceClearance;
         Radius = radius;
         revisionAtStart = world.Revision;
@@ -167,16 +141,15 @@ public sealed class FreeSpaceSearch
         : new Rectangle(minX - 2, minY - 2, maxX - minX + 4, maxY - minY + 4);
 
     /// <summary>
-    /// Whether the search still describes the world: the same world object, the same immunities,
-    /// and no edit since it began inside what it read. Answered from the edit record's ring, so
-    /// a world edited only far away keeps the search.
+    /// Whether the search still describes the world: the same world object, and no edit since it
+    /// began inside what it read. Answered from the edit record's ring, so a world edited only far
+    /// away keeps the search.
     /// </summary>
     public bool Valid
     {
         get
         {
             if (!ReferenceEquals(world, MovementQueries.World) && !ReferenceEquals(world, WorldOverride)) return false;
-            if (immunity != (immunityOverridden ? immunity : OrbTerrain.Immunity)) return false;
             Rectangle bounds = ExploredBounds;
             // Read once: the record moves under us, and re-basing to a revision later than the one the verdict
             // was computed against would swallow an edit that landed between the two reads.
@@ -210,14 +183,13 @@ public sealed class FreeSpaceSearch
             spent++;
             if (Goal != null && Heuristic(node) is float toGoal && toGoal < closestDistance) { closestDistance = toGoal; Closest = node; }
             if (Goal is Point goal && node == goal) return Finish(StopReason.Found);
-            if (Accept != null && Accept(node)) { FoundCorner = node; return Finish(StopReason.Found); }
             float here = cost[node];
             foreach (Point step in CornerGraph.Neighbours)
             {
                 var next = new Point(node.X + step.X, node.Y + step.Y);
                 if (closed.Contains(next)) continue;
                 if (!usable.TryGetValue(next, out bool fits))
-                    usable[next] = fits = CornerGraph.Usable(world, next, immunity);
+                    usable[next] = fits = CornerGraph.Usable(world, next);
                 if (!fits) continue;
                 float edge = priceClearance ? CornerGraph.EdgeCost(world, node, next) : Vector2.Distance(CornerGraph.ToWorld(node), CornerGraph.ToWorld(next));
                 if (Avoid.Count > 0) edge *= AvoidancePenalty(next);
@@ -264,8 +236,7 @@ public sealed class FreeSpaceSearch
     }
 
     private float Heuristic(Point corner)
-        => Goal is Point goal ? Vector2.Distance(CornerGraph.ToWorld(corner), CornerGraph.ToWorld(goal))
-            : Prefer != null ? Prefer(corner) : 0f;
+        => Goal is Point goal ? Vector2.Distance(CornerGraph.ToWorld(corner), CornerGraph.ToWorld(goal)) : 0f;
 
     private float AvoidancePenalty(Point corner)
     {

@@ -173,7 +173,7 @@ internal static class VerifyLightAndReachSenses
         var ctx = Scene(null);
         VerifyUsefulAssistance.WriteMeasuredLight(new Rectangle(60, 40, 30, 30), (_, _) => .9f);
         var senses = ctx.Companion.Brain.Senses;
-        senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Motor);
+        senses.Update(ctx.Npc, ctx.Player);
         var light = senses.Light;
         Point body = ctx.Npc.Center.ToTileCoordinates();
         Vector2 ahead = new(75 * 16f, 50 * 16f);
@@ -1020,7 +1020,7 @@ internal static class VerifyLightAndReachSenses
         ForgetTransients();
         TerrainChanges.Reset();
         MovementQueries.World = new GameTileWorld();
-        ctx.Companion.Brain.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Motor);
+        ctx.Companion.Brain.Senses.Update(ctx.Npc, ctx.Player);
         return ctx;
     }
 
@@ -1061,7 +1061,7 @@ internal static class VerifyLightAndReachSenses
         VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
         ulong? before = sense.ReadTick;
         typeof(LightSense).GetField("sinceRefresh", InstanceField)!.SetValue(sense, 1000);
-        ctx.Companion.Brain.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Motor);
+        ctx.Companion.Brain.Senses.Update(ctx.Npc, ctx.Player);
         Require(sense.ReadTick != before,
             "forcing a refresh must actually resample the world, or every row built on it compares a scene with itself");
     }

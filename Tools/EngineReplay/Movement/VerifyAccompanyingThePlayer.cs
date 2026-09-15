@@ -127,7 +127,7 @@ internal static class VerifyAccompanyingThePlayer
         ctx.Player.Bottom = new Vector2(StartColumn * 16 + 8, ctx.Player.Bottom.Y);
         ctx.Npc.Center = new Vector2(StartColumn * 16 + 8, ctx.Npc.Center.Y);
         ctx.Npc.velocity = Vector2.Zero;
-        brain.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Motor);
+        brain.Senses.Update(ctx.Npc, ctx.Player);
         float frontmost = 0f;
         int stillRun = 0, longestStill = 0, outside = 0, trailing = 0, behind = 0;
         // The ticks leading into the longest still run, so a failure names what the body was asked for while it stood.
