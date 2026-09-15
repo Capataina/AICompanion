@@ -29,6 +29,7 @@
     <Compile Include="VerifyEvadeKeepsTheJob.cs" />
     <Compile Include="VerifyEvadeBendsAccompanying.cs" />
     <Compile Include="VerifyAccompanyingTargetIsContinuous.cs" />
+    <Compile Include="VerifyEvadeUnderSustainedFire.cs" />
     <Compile Include="VerifyNavigatorKeepsMoving.cs" />
     <Compile Include="VerifyNavigatorConclusions.cs" />
     <!-- The ledger's row writer, as a source file. It names no game type, so including it here

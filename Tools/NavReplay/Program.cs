@@ -42,6 +42,9 @@ if (args.Length == 1 && args[0] == "--self-test")
         + EmitLedgerRows.Case("nav-replay", "NavReplay", "an accompanying body is bent only where its own walk across the region would be hit, and kept everywhere else",
             VerifyEvadeBendsAccompanying.Run,
             killedBy: "an accompanying walk that never declares itself the tick's producer, so the keep test flies an earlier request's steering, or a forecast that holds the walking target still")
+        + EmitLedgerRows.Case("nav-replay", "NavReplay", "under sustained fire a dodge takes no more hits than the job alone and never keeps the body from arriving",
+            VerifyEvadeUnderSustainedFire.Run,
+            killedBy: "a dodge that only postpones a hit it cannot avoid, so a body in a corridor flees ahead of each shot and never reaches its goal")
         + EmitLedgerRows.Case("nav-replay", "NavReplay", "the accompanying target starts where the body is and never moves faster than the walk",
             VerifyAccompanyingTargetIsContinuous.Run,
             killedBy: "walk state that outlives a request which was not accompanying, a first place clamped into the open part of the box, or the open part of the box snapping when the player's lead changes side")

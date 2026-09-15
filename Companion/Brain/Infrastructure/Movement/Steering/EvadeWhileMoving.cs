@@ -15,6 +15,9 @@ public enum EvadeReason
     Kept,
     /// <summary>The job's own flight met a predicted hit.</summary>
     Hit,
+    /// <summary>The job's own flight met a predicted hit, but the layer had already bent for longer than its lookahead without
+    /// that flight coming clear, so the job's controls went out: the bend was postponing the hit rather than avoiding it.</summary>
+    Spent,
 }
 
 /// <summary>Which candidate a bent tick flew.</summary>
