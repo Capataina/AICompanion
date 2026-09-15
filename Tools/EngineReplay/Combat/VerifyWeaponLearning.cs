@@ -539,6 +539,65 @@ internal static class VerifyWeaponLearning
         return 0;
     }
 
+    /// <summary>
+    /// Every projectile the companion spawns is the companion's, whether or not a forecast opened an outcome window for it,
+    /// and so is every projectile descended from one, for as long as it lives. The spawn hook is the real global projectile
+    /// class, called directly because the loader does not run it headless, and the reader is the experience system's own
+    /// striker test. Declared before the run: a shot registered with no window reads as the companion's; its child and
+    /// grandchild read as the companion's and the experience system names the companion as their striker; a child spawned
+    /// after the parent's window closed on its bound still reads as the companion's; a projectile an NPC spawned, one spawned
+    /// by a projectile nobody registered, and a slot reused by an unrelated spawn do not.
+    /// </summary>
+    public static int EveryProjectileTheCompanionSpawnsIsTheCompanions()
+    {
+        L.Reset();
+        S.Clear();
+        Landed.Clear();
+        var hook = new SpawnHook();
+        var zombie = Zombie(25, new Vector2(36 * 16f, FloorY * 16f), .5f);
+        Projectile Spawn(int index, Entity? parent)
+        {
+            var projectile = new Projectile { whoAmI = index, active = true, friendly = true, owner = Main.myPlayer };
+            Main.projectile[index] = projectile;
+            hook.OnSpawn(projectile, parent == null ? null! : new EntitySource_Parent(parent));
+            return projectile;
+        }
+
+        var companionBody = VerifyCompanionLifecycle.Create().NPC;
+        Projectile root = Spawn(5, companionBody);
+        Landed.Register(root.whoAmI, zombie, ItemID.WoodenBow);
+        Require(S.WindowOf(root.whoAmI) == null, "premise: the shot has no outcome window, as a shot fired without a forecast has none");
+        Require(Landed.IsCompanionShot(root.whoAmI), "a shot registered without a window is the companion's");
+        Projectile child = Spawn(9, root), grandchild = Spawn(11, child);
+        bool childOwned = Landed.IsCompanionShot(child.whoAmI), grandchildOwned = Landed.IsCompanionShot(grandchild.whoAmI);
+        Striker childStriker = Credit.StrikerOf(child), grandchildStriker = Credit.StrikerOf(grandchild);
+        Projectile fromNpc = Spawn(12, zombie);
+        Projectile stranger = Spawn(20, null);
+        stranger.friendly = true;
+        Projectile fromStranger = Spawn(13, stranger);
+
+        float[] x = L.Context(300f, 800f, 0f, 0f, 0, 0f, 6f, debuffedByOther: false);
+        Projectile windowed = Spawn(30, companionBody);
+        Landed.Register(windowed.whoAmI, zombie, ItemID.WoodenBow);
+        int window = S.Open(ItemID.WoodenBow, zombie, x, predictedDamage: 10f, predictedStruck: 1, predictedCharge: 0f, useTicks: 60, impactTicks: 20, now: 0);
+        S.AddSlot(window, windowed.whoAmI);
+        S.Tick((ulong)Weights.ShotOutcomeWindowTicks + 1);
+        Require(S.OpenCount == 0, "premise: the window closed on its bound");
+        Projectile late = Spawn(31, windowed);
+        bool lateOwned = Landed.IsCompanionShot(late.whoAmI);
+        Spawn(9, null);
+        bool reusedOwned = Landed.IsCompanionShot(9);
+
+        EmitLedgerRows.Detail($"attribution: child {childOwned} ({childStriker}), grandchild {grandchildOwned} ({grandchildStriker}), after the window's bound {lateOwned}; from an NPC {Landed.IsCompanionShot(fromNpc.whoAmI)}, from an unregistered projectile {Landed.IsCompanionShot(fromStranger.whoAmI)}, reused slot {reusedOwned}");
+        Require(childOwned && grandchildOwned, $"a windowless shot's child and grandchild are the companion's; child={childOwned} grandchild={grandchildOwned}");
+        Require(childStriker == Striker.Companion && grandchildStriker == Striker.Companion, $"the experience system credits them to the companion; child={childStriker} grandchild={grandchildStriker}");
+        Require(lateOwned, "a child spawned after its parent's window closed on its bound is the companion's");
+        Require(!Landed.IsCompanionShot(fromNpc.whoAmI), "a projectile an NPC spawned is not the companion's");
+        Require(!Landed.IsCompanionShot(fromStranger.whoAmI), "a projectile spawned by an unregistered projectile is not the companion's");
+        Require(!reusedOwned, "a slot reused by an unrelated spawn is not the companion's");
+        return 0;
+    }
+
     private static void Require(bool value, string message)
     {
         if (!value) throw new InvalidOperationException(message);
