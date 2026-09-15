@@ -21,6 +21,13 @@ using Arsenal = live::AICompanion.Companion.Weapons.Arsenal;
 using Positioner = live::AICompanion.Companion.Brain.Infrastructure.Position.Positioner;
 using PositionRequest = live::AICompanion.Companion.Brain.Infrastructure.Position.PositionRequest;
 using RequestKind = live::AICompanion.Companion.Brain.Infrastructure.Position.RequestKind;
+using Landed = live::AICompanion.Companion.Weapons.TrackLandedHits;
+using SpawnHook = live::AICompanion.Companion.Weapons.ForgetReusedShotSlots;
+using Credit = live::AICompanion.Companion.Progression.CreditKillsAndFights;
+using Striker = live::AICompanion.Companion.Progression.Striker;
+using Generations = live::AICompanion.Companion.Brain.Infrastructure.Observation.HostileAttackSources;
+using OrbPace = live::AICompanion.Companion.Brain.Infrastructure.Movement.OrbPace;
+using ItemWeapon = live::AICompanion.Companion.Weapons.ItemWeapon;
 
 /// <summary>
 /// Weapon choice, target choice, firing position and aim are one decision valued by what the companion's own shots
@@ -285,7 +292,7 @@ internal static class VerifyWeaponLearning
         }
         Projectile parent = Slot(5), child = Slot(9), grandchild = Slot(11), stranger = Slot(20);
         float[] x = L.Context(300f, 800f, 0f, 0f, 0, 0f, 6f, debuffedByOther: false);
-        int window = S.Open(ItemID.WoodenBow, NPCID.Zombie, x, predictedDamage: 10f, predictedStruck: 1, predictedCharge: 0f, useTicks: 60, now: 0);
+        int window = S.Open(ItemID.WoodenBow, zombie, x, predictedDamage: 10f, predictedStruck: 1, predictedCharge: 0f, useTicks: 60, impactTicks: 20, now: 0);
         S.AddSlot(window, parent.whoAmI);
 
         Require(S.AttributeSpawn(child.whoAmI, new EntitySource_Parent(parent)) == window, "a projectile spawned by the shot's projectile joins the shot's window");
@@ -476,6 +483,340 @@ internal static class VerifyWeaponLearning
         double untrained = Math.Max(coldUntrained.Mean, warmUntrained.Mean);
         EmitLedgerRows.Detail(FormattableString.Invariant($"cost per ranking of 8 hostiles, 2 weapons, ms (lower is better): untrained mean {coldUntrained.Mean:0.000} then {warmUntrained.Mean:0.000} (p95 {warmUntrained.P95:0.000}); trained mean {trainedArm.Mean:0.000} (p95 {trainedArm.P95:0.000}); one sampled factor with a fresh draw {factorClock.Elapsed.TotalMilliseconds * 1000.0 / 10000:0.0} us"));
         Require(trainedArm.Mean - untrained < 1.0, $"the learner adds under a millisecond to a full ranking; trained={trainedArm.Mean} untrained={untrained}");
+    }
+
+    /// <summary>
+    /// A weapon's misses against one enemy type stay with that type. The bow is taught three outcomes against demon eyes in a
+    /// flier's context — at range, fast across the line, with the orb moving — and then asked about a zombie it has never
+    /// struck, floating three hundred pixels off. Two arms from one seed: in the first the eye shots all missed, in the control
+    /// they all landed exactly their forecast, so both arms hold the same amount of evidence and draw the same random numbers,
+    /// and only what the evidence said differs. Declared before the run: the misses were learned about the eye (its mean factor
+    /// below three quarters in the miss arm); the zombie's mean factor in the miss arm is within five hundredths of the
+    /// control's; over two hundred decisions the miss arm finds no target no more often than the control, and its mean attack
+    /// value is at least ninety-five percent of the control's. The first review of the learner measured the zombie at 0.139
+    /// and no target on 53 of 200 decisions after three eye misses, because the weapon model took most of every miss and every
+    /// enemy type reads the weapon model.
+    /// </summary>
+    public static int MissesAgainstOneEnemyTypeStayWithThatType()
+    {
+        (float Zombie, float Eye, int NoTarget, float MeanValue) Arm(float eyeRatio)
+        {
+            var scene = Scene(0f, new Vector2(-300f, 0f), floating: true, (GearSlot.FirstWeapon, ItemID.WoodenBow));
+            L.Reset();
+            Arsenal arsenal = scene.Companion.Arsenal;
+            Require(arsenal.Weapons.Count == 1, "premise: the bow is the one weapon in hand");
+            float reach = arsenal.Weapons[0].Reach;
+            float[] eyeContext = L.Context(260f, reach, 0f, 5f, 0, 2f, OrbPace.MaxSpeed, debuffedByOther: false);
+            for (int i = 0; i < 3; i++) L.Observe(ItemID.WoodenBow, NPCID.DemonEye, eyeContext, eyeRatio);
+            float[] zombieContext = L.Context(300f, reach, 0f, 0f, 0, 0f, OrbPace.MaxSpeed, debuffedByOther: false);
+            float zombie = L.Factor(ItemID.WoodenBow, NPCID.Zombie, zombieContext, explore: false, 0);
+            float eye = L.Factor(ItemID.WoodenBow, NPCID.DemonEye, eyeContext, explore: false, 0);
+            int noTarget = 0;
+            float value = 0f;
+            const int Decisions = 200;
+            for (int decision = 0; decision < Decisions; decision++)
+            {
+                for (int i = 0; i < 16; i++) Restate(scene.Companion, scene.Ctx.Player, scene.Threats);
+                if (arsenal.BestTarget(scene.Ctx) == null) noTarget++;
+                value += arsenal.LastAttackValue;
+            }
+            return (zombie, eye, noTarget, value / Decisions);
+        }
+
+        var missed = Arm(0f);
+        var landed = Arm(1f);
+        EmitLedgerRows.Detail(FormattableString.Invariant($"after three demon-eye outcomes, zombie mean factor (higher is better): misses {missed.Zombie:0.000}, control {landed.Zombie:0.000}; eye {missed.Eye:0.000} / {landed.Eye:0.000}; no target on {missed.NoTarget} / {landed.NoTarget} of 200 decisions (lower is better); mean attack value {missed.MeanValue:0.00} / {landed.MeanValue:0.00}"));
+        Require(missed.Eye < .75f, $"premise: the misses were learned about the demon eye; eye factor={missed.Eye}");
+        // Two-sided: a first version required only that the zombie was not cut, and a mutation that spread the eye misses into
+        // the zombie as a raised factor of 1.455 passed it. Evidence about one type moves another type neither way.
+        Require(MathF.Abs(missed.Zombie - landed.Zombie) <= .05f, $"demon-eye outcomes do not move the bow's value against a zombie it never shot; zombie after misses={missed.Zombie} control={landed.Zombie}");
+        Require(missed.NoTarget <= landed.NoTarget, $"misses against demon eyes do not make the arsenal find no zombie to shoot; no target {missed.NoTarget} against control {landed.NoTarget} of 200");
+        Require(missed.MeanValue >= .95f * landed.MeanValue, $"misses against demon eyes do not cut the zombie shot's value; mean value {missed.MeanValue} against control {landed.MeanValue}");
+        return 0;
+    }
+
+    /// <summary>
+    /// A swing records a kill the way a projectile does: as the strike's damage, not the life that happened to be left. Two
+    /// swings of one copper broadsword at identical blue slimes beside the orb, one with its ordinary life and one with two
+    /// life left. A projectile's hit reports the strike's damage whether it kills or not, and the forecast it is divided by is the
+    /// same uncapped damage, so a finishing arrow teaches a ratio of one. Declared before the run: the killing swing's recorded
+    /// damage and ratio equal the wounding swing's, and the wounding swing's ratio is one within a thousandth, which is what
+    /// says both are the strike rather than both being wrong together. The swing already met this when the row was written:
+    /// the game takes a strike's whole damage off the body's life without stopping at zero, so the life a killing swing took
+    /// is the strike. The swing's own comment had said a killing strike was capped at the life left, a review took that as a
+    /// defect, and a recording capped that way is the rule this row turns red.
+    /// </summary>
+    public static int ASwingKillIsRecordedAsTheStrike()
+    {
+        (float Dealt, float Ratio, bool Died) Swing(int lifeLeft)
+        {
+            var scene = Scene(.5f, new Vector2(-22f, -4f), floating: false, (GearSlot.FirstWeapon, ItemID.CopperBroadsword));
+            L.Reset();
+            // A slime rather than the scene's zombie: a zombie's death effect spawns gore, which has no graphics state to
+            // spawn into headless, and a slime's is dust, which the dedicated-server flag already skips.
+            Vector2 bottom = scene.Enemy.Bottom;
+            scene.Enemy.SetDefaults(NPCID.BlueSlime);
+            scene.Enemy.active = true;
+            scene.Enemy.knockBackResist = .5f;
+            scene.Enemy.Bottom = bottom;
+            if (lifeLeft > 0) scene.Enemy.life = lifeLeft;
+            Arsenal arsenal = scene.Companion.Arsenal;
+            // The strike is the game's own hit modifiers and NPC.StrikeNPC under the two headless allowances
+            // VerifyCompanionExperience's strike uses, neither of which touches the life taken: the game skips a killing hit
+            // effect's gore while paused, and NPCLoot, which reads the bestiary, the drop database and the achievements nothing
+            // headless has, returns on its first line for a network client. The player's bookkeeping around StrikeNPC is what is
+            // left out, because as a client it sends the strike over a network nothing headless has; the swing's own reading of
+            // what the strike took is the mod's code running unchanged.
+            var deliver = ItemWeapon.DeliverStrike;
+            ItemWeapon.DeliverStrike = (player, npc, damage, knockback, direction) =>
+            {
+                NPC.HitInfo hit = npc.GetIncomingStrikeModifiers(Terraria.ModLoader.DamageClass.Melee, direction)
+                    .ToHitInfo(damage, false, knockback, false, player.luck);
+                bool paused = Main.gamePaused;
+                int netMode = Main.netMode;
+                Main.gamePaused = true;
+                Main.netMode = 1;
+                try { npc.StrikeNPC(hit); }
+                finally { Main.gamePaused = paused; Main.netMode = netMode; }
+            };
+            bool fired;
+            try { fired = arsenal.TryFire(scene.Ctx, scene.Enemy); }
+            finally { ItemWeapon.DeliverStrike = deliver; }
+            Require(fired, $"premise: the sword swings; outcome={arsenal.LastFireOutcome}");
+            Require(S.LastClosed is { Struck: 1 }, $"premise: the swing's window closed on one strike; closed={S.LastClosed}");
+            return (S.LastClosed!.Value.Dealt, S.LastClosed!.Value.Ratio, !scene.Enemy.active || scene.Enemy.life <= 0);
+        }
+
+        var wound = Swing(0);
+        var kill = Swing(2);
+        EmitLedgerRows.Detail(FormattableString.Invariant($"sword: wounding swing recorded {wound.Dealt:0} (ratio {wound.Ratio:0.000}); killing swing on two life recorded {kill.Dealt:0} (ratio {kill.Ratio:0.000})"));
+        Require(!wound.Died && kill.Died, $"premise: the first swing wounds and the second kills; wound died={wound.Died} kill died={kill.Died}");
+        Require(MathF.Abs(wound.Ratio - 1f) < 1e-3f, $"a wounding swing records exactly its forecast; ratio={wound.Ratio}");
+        Require(kill.Dealt == wound.Dealt && MathF.Abs(kill.Ratio - wound.Ratio) < 1e-4f,
+            $"a killing swing records the strike's damage like a wounding one; kill dealt={kill.Dealt} ratio={kill.Ratio}, wound dealt={wound.Dealt} ratio={wound.Ratio}");
+        return 0;
+    }
+
+    /// <summary>
+    /// The push charge on a hit is weighted by the learned hit rate its damage is. The orb stands on the zombie's far side, so
+    /// the bow's push carries the zombie toward the player; the zombie has life enough that nothing is killed, and the threat's
+    /// urgency is held above the exploration ceiling so every forecast reads the posterior mean. Four values of the stand: the
+    /// untrained bow and the bow taught to land half its forecast, each against a zombie that ignores pushes and one that takes
+    /// them in full. Without a push nothing is charged, so the trained value over the untrained is the learned factor on the
+    /// damage, and the difference a push makes is the charge. Declared before the run: every value is positive, so no follow-up
+    /// was dropped for going negative, which would make the arithmetic nonlinear; the untrained charge is positive; and the
+    /// trained charge equals the untrained charge times the learned factor to within five percent.
+    /// </summary>
+    public static int APushIsChargedAtTheLearnedHitRate()
+    {
+        float Value(bool trained, float resist)
+        {
+            var scene = Scene(resist, new Vector2(96f, -8f), floating: false, (GearSlot.FirstWeapon, ItemID.WoodenBow));
+            scene.Enemy.lifeMax = scene.Enemy.life = 5000;
+            scene.Threats[0].Urgency = .9f;
+            Restate(scene.Companion, scene.Ctx.Player, scene.Threats);
+            L.Reset();
+            Arsenal arsenal = scene.Companion.Arsenal;
+            Vector2 stand = scene.Companion.NPC.Center;
+            if (trained)
+            {
+                float[] x = L.Context(Vector2.Distance(stand, scene.Enemy.Center), arsenal.Weapons[0].Reach, 0f, 0f, 0, 0f, OrbPace.MaxSpeed, debuffedByOther: false);
+                for (int i = 0; i < 40; i++) L.Observe(ItemID.WoodenBow, NPCID.Zombie, x, .5f);
+            }
+            Require(!Arsenal.Explore(scene.Ctx), "premise: the danger gate holds the forecast to the posterior mean");
+            return arsenal.BestShotValueFrom(scene.Ctx, stand, scene.Enemy);
+        }
+
+        float untrainedStill = Value(false, 0f), untrainedPushed = Value(false, 1f);
+        float trainedStill = Value(true, 0f), trainedPushed = Value(true, 1f);
+        float factor = trainedStill / untrainedStill;
+        float untrainedCharge = untrainedStill - untrainedPushed, trainedCharge = trainedStill - trainedPushed;
+        EmitLedgerRows.Detail(FormattableString.Invariant($"push charge: untrained value {untrainedStill:0.000} still, {untrainedPushed:0.000} pushed (charge {untrainedCharge:0.000}); trained value {trainedStill:0.000} still, {trainedPushed:0.000} pushed (charge {trainedCharge:0.000}); learned factor {factor:0.000}, charge ratio {trainedCharge / untrainedCharge:0.000}"));
+        Require(untrainedStill > 0f && untrainedPushed > 0f && trainedStill > 0f && trainedPushed > 0f,
+            $"premise: every value is positive; {untrainedStill} {untrainedPushed} {trainedStill} {trainedPushed}");
+        Require(untrainedCharge > 0f, $"premise: a push toward the player is charged; charge={untrainedCharge}");
+        Require(factor < .9f, $"premise: the bow learned it lands less than its forecast; factor={factor}");
+        Require(MathF.Abs(trainedCharge - factor * untrainedCharge) <= .05f * factor * untrainedCharge,
+            $"the push charge is weighted by the same learned factor as the damage; trained charge={trainedCharge}, untrained charge times factor={factor * untrainedCharge}");
+        return 0;
+    }
+
+    /// <summary>
+    /// A shot whose target died to someone else before the shot could land teaches nothing about the weapon. Tested on the
+    /// outcome windows directly, because the projectile hooks do not run headless: a window is opened against a zombie with a
+    /// forecast landing twenty ticks later, and the zombie is taken out of the world in one of five ways. Declared before the
+    /// run: killed by someone else before the landing tick and never struck by the shot, nothing is taught; its slot reused by
+    /// a new enemy before the landing, nothing is taught; left alive and missed, the miss is taught as a ratio of zero; killed
+    /// by someone else after the landing tick, the miss is still taught; and struck by the shot, which then kills it, the hit
+    /// is taught. The death seen only when the window closes counts at the close, so a window closed before the landing tick
+    /// on a body already gone teaches nothing either.
+    /// </summary>
+    public static int AShotWhoseTargetDiedToSomeoneElseTeachesNothing()
+    {
+        const ulong Opened = 1000;
+        const int Impact = 20;
+        (int Evidence, float Ratio) Arm(Action<NPC, int> during, ulong closeAt)
+        {
+            L.Reset();
+            S.Clear();
+            var zombie = Zombie(25, new Vector2(36 * 16f, FloorY * 16f), .5f);
+            float[] x = L.Context(300f, 800f, 0f, 0f, 0, 0f, 6f, debuffedByOther: false);
+            int window = S.Open(ItemID.WoodenBow, zombie, x, predictedDamage: 10f, predictedStruck: 1, predictedCharge: 0f, useTicks: 60, impactTicks: Impact, now: Opened);
+            S.AddSlot(window, 5);
+            for (ulong tick = Opened; tick < closeAt; tick++)
+            {
+                during(zombie, (int)(tick - Opened));
+                S.Tick(tick);
+            }
+            S.Close(window, closeAt, bounded: false);
+            return (L.Evidence(ItemID.WoodenBow), S.LastClosed?.Ratio ?? float.NaN);
+        }
+        void Die(NPC npc) { npc.life = 0; npc.active = false; }
+
+        var killedEarly = Arm((npc, age) => { if (age == 8) Die(npc); }, Opened + 60);
+        var reused = Arm((npc, age) => { if (age == 8) Generations.Spawn(npc); }, Opened + 60);
+        var missed = Arm((_, _) => { }, Opened + 60);
+        var killedLate = Arm((npc, age) => { if (age == Impact + 10) Die(npc); }, Opened + 60);
+        var goneAtClose = Arm((npc, age) => { if (age == 4) Die(npc); }, Opened + 5);
+        var struckAndKilled = Arm((npc, age) =>
+        {
+            if (age != 18) return;
+            S.BeforeStrike(npc, 5);
+            S.Landed(npc, 5, 10);
+            Die(npc);
+        }, Opened + 60);
+        EmitLedgerRows.Detail(FormattableString.Invariant($"evidence taught: killed by another before landing {killedEarly.Evidence}, slot reused {reused.Evidence}, gone at an early close {goneAtClose.Evidence}; missed {missed.Evidence} (ratio {missed.Ratio:0.000}), killed by another after landing {killedLate.Evidence} (ratio {killedLate.Ratio:0.000}), struck and killed {struckAndKilled.Evidence} (ratio {struckAndKilled.Ratio:0.000})"));
+        Require(missed.Evidence == 1 && missed.Ratio == 0f, $"premise: a miss at a living target is taught as zero; evidence={missed.Evidence} ratio={missed.Ratio}");
+        Require(killedEarly.Evidence == 0, $"a target killed by someone else before the shot could land teaches nothing; evidence={killedEarly.Evidence}");
+        Require(reused.Evidence == 0, $"a target whose slot a new enemy took before the landing teaches nothing; evidence={reused.Evidence}");
+        Require(goneAtClose.Evidence == 0, $"a target found gone when the window closes before the landing teaches nothing; evidence={goneAtClose.Evidence}");
+        Require(killedLate.Evidence == 1 && killedLate.Ratio == 0f, $"a target killed by someone else after the shot should have landed is still a miss; evidence={killedLate.Evidence} ratio={killedLate.Ratio}");
+        Require(struckAndKilled.Evidence == 1 && MathF.Abs(struckAndKilled.Ratio - 1f) < 1e-4f, $"a shot that struck its target and killed it teaches its hit; evidence={struckAndKilled.Evidence} ratio={struckAndKilled.Ratio}");
+        return 0;
+    }
+
+    /// <summary>
+    /// The fifteen-tick target hold survives ordinary motion and breaks on a change that should change the choice. A held
+    /// target is visible as the evidence tick staying where the last ranking stamped it. Declared before the run: the zombie
+    /// drifting two pixels a tick with a velocity of its own, and the orb drifting a pixel a tick, keep the hold for three
+    /// ticks; a second hostile appearing, that hostile leaving, the learner revising and the zombie jumping a hundred pixels
+    /// each re-rank on the tick they happen. Before this row the stamp hashed every hostile's centre and velocity, so the
+    /// hold was renewed never.
+    /// </summary>
+    public static int TheTargetHoldSurvivesOrdinaryMotion()
+    {
+        var scene = Scene(0f, new Vector2(-300f, 0f), floating: true, (GearSlot.FirstWeapon, ItemID.WoodenBow));
+        L.Reset();
+        Arsenal arsenal = scene.Companion.Arsenal;
+        Player player = scene.Ctx.Player;
+        var senses = scene.Companion.Brain.Senses;
+
+        int Establish()
+        {
+            for (int i = 0; i < 16; i++) Restate(scene.Companion, player, scene.Threats);
+            NPC? target = arsenal.BestTarget(scene.Ctx);
+            // A target rather than the first zombie: while the second hostile is listed it can outvalue the first.
+            Require(target != null, $"premise: a target is ranked; evidence={arsenal.TargetEvidence}");
+            Require(arsenal.TargetEvidenceTick == senses.Tick, "premise: a fresh ranking stamps this tick");
+            return senses.Tick;
+        }
+        bool Reranked(Action change)
+        {
+            change();
+            Restate(scene.Companion, player, scene.Threats);
+            arsenal.BestTarget(scene.Ctx);
+            return arsenal.TargetEvidenceTick == senses.Tick;
+        }
+
+        int held = Establish();
+        int keptTicks = 0;
+        for (int i = 0; i < 3; i++)
+            if (!Reranked(() =>
+                {
+                    scene.Enemy.position.X += 2f;
+                    scene.Enemy.velocity = new Vector2(2f, .3f);
+                    scene.Companion.NPC.position.X += 1f;
+                    scene.Companion.NPC.velocity = new Vector2(1f, 0f);
+                }))
+                keptTicks++;
+        bool motionHeld = keptTicks == 3 && arsenal.TargetEvidenceTick == held;
+
+        Establish();
+        var second = Zombie(27, new Vector2(40 * 16f, AirRow * 16f), 0f);
+        var secondThreat = Threat(second, scene.Companion, player);
+        bool appearing = Reranked(() => scene.Threats.Add(secondThreat));
+        Establish();
+        bool leaving = Reranked(() => scene.Threats.Remove(secondThreat));
+        Establish();
+        bool revising = Reranked(() => L.ObserveDebuff(ItemID.WoodenBow, NPCID.Zombie, applied: false, 0));
+        Establish();
+        bool jumping = Reranked(() => scene.Enemy.position.Y -= 100f);
+        EmitLedgerRows.Detail($"target hold: ordinary motion kept it {keptTicks} of 3 ticks; re-ranked on a hostile appearing {appearing}, leaving {leaving}, the learner revising {revising}, a hundred-pixel jump {jumping}");
+        Require(motionHeld, $"ordinary motion of the target and the orb keeps the hold; kept {keptTicks} of 3 ticks");
+        Require(appearing, "a hostile appearing re-ranks at once");
+        Require(leaving, "a hostile leaving re-ranks at once");
+        Require(revising, "the learner revising re-ranks at once");
+        Require(jumping, "a hundred-pixel jump re-ranks at once");
+        return 0;
+    }
+
+    /// <summary>
+    /// Every projectile the companion spawns is the companion's, whether or not a forecast opened an outcome window for it,
+    /// and so is every projectile descended from one, for as long as it lives. The spawn hook is the real global projectile
+    /// class, called directly because the loader does not run it headless, and the reader is the experience system's own
+    /// striker test. Declared before the run: a shot registered with no window reads as the companion's; its child and
+    /// grandchild read as the companion's and the experience system names the companion as their striker; a child spawned
+    /// after the parent's window closed on its bound still reads as the companion's; a projectile an NPC spawned, one spawned
+    /// by a projectile nobody registered, and a slot reused by an unrelated spawn do not.
+    /// </summary>
+    public static int EveryProjectileTheCompanionSpawnsIsTheCompanions()
+    {
+        L.Reset();
+        S.Clear();
+        Landed.Clear();
+        var hook = new SpawnHook();
+        var zombie = Zombie(25, new Vector2(36 * 16f, FloorY * 16f), .5f);
+        Projectile Spawn(int index, Entity? parent)
+        {
+            var projectile = new Projectile { whoAmI = index, active = true, friendly = true, owner = Main.myPlayer };
+            Main.projectile[index] = projectile;
+            hook.OnSpawn(projectile, parent == null ? null! : new EntitySource_Parent(parent));
+            return projectile;
+        }
+
+        var companionBody = VerifyCompanionLifecycle.Create().NPC;
+        Projectile root = Spawn(5, companionBody);
+        Landed.Register(root.whoAmI, zombie, ItemID.WoodenBow);
+        Require(S.WindowOf(root.whoAmI) == null, "premise: the shot has no outcome window, as a shot fired without a forecast has none");
+        Require(Landed.IsCompanionShot(root.whoAmI), "a shot registered without a window is the companion's");
+        Projectile child = Spawn(9, root), grandchild = Spawn(11, child);
+        bool childOwned = Landed.IsCompanionShot(child.whoAmI), grandchildOwned = Landed.IsCompanionShot(grandchild.whoAmI);
+        Striker childStriker = Credit.StrikerOf(child), grandchildStriker = Credit.StrikerOf(grandchild);
+        Projectile fromNpc = Spawn(12, zombie);
+        Projectile stranger = Spawn(20, null);
+        stranger.friendly = true;
+        Projectile fromStranger = Spawn(13, stranger);
+
+        float[] x = L.Context(300f, 800f, 0f, 0f, 0, 0f, 6f, debuffedByOther: false);
+        Projectile windowed = Spawn(30, companionBody);
+        Landed.Register(windowed.whoAmI, zombie, ItemID.WoodenBow);
+        int window = S.Open(ItemID.WoodenBow, zombie, x, predictedDamage: 10f, predictedStruck: 1, predictedCharge: 0f, useTicks: 60, impactTicks: 20, now: 0);
+        S.AddSlot(window, windowed.whoAmI);
+        S.Tick((ulong)Weights.ShotOutcomeWindowTicks + 1);
+        Require(S.OpenCount == 0, "premise: the window closed on its bound");
+        Projectile late = Spawn(31, windowed);
+        bool lateOwned = Landed.IsCompanionShot(late.whoAmI);
+        Spawn(9, null);
+        bool reusedOwned = Landed.IsCompanionShot(9);
+
+        EmitLedgerRows.Detail($"attribution: child {childOwned} ({childStriker}), grandchild {grandchildOwned} ({grandchildStriker}), after the window's bound {lateOwned}; from an NPC {Landed.IsCompanionShot(fromNpc.whoAmI)}, from an unregistered projectile {Landed.IsCompanionShot(fromStranger.whoAmI)}, reused slot {reusedOwned}");
+        Require(childOwned && grandchildOwned, $"a windowless shot's child and grandchild are the companion's; child={childOwned} grandchild={grandchildOwned}");
+        Require(childStriker == Striker.Companion && grandchildStriker == Striker.Companion, $"the experience system credits them to the companion; child={childStriker} grandchild={grandchildStriker}");
+        Require(lateOwned, "a child spawned after its parent's window closed on its bound is the companion's");
+        Require(!Landed.IsCompanionShot(fromNpc.whoAmI), "a projectile an NPC spawned is not the companion's");
+        Require(!Landed.IsCompanionShot(fromStranger.whoAmI), "a projectile spawned by an unregistered projectile is not the companion's");
+        Require(!reusedOwned, "a slot reused by an unrelated spawn is not the companion's");
+        return 0;
     }
 
     private static void Require(bool value, string message)

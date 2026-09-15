@@ -222,7 +222,7 @@ public sealed class Arsenal
         ThreatRecord? heldThreat = held == null ? null : ctx.Senses.Threats.Threats.Find(t => ReferenceEquals(t.Npc, held));
         bool newlyUrgent = urgent != null && urgent.Npc != held && urgent.Urgency > (heldThreat?.Urgency ?? 0f);
         int stamp = CombatStamp(ctx);
-        if (held != null && now - heldAt < TargetHoldTicks && stamp == heldStamp && !newlyUrgent && CanEngage(ctx, held))
+        if (held != null && now - heldAt < TargetHoldTicks && stamp == heldStamp && !MovedPastHold(ctx) && !newlyUrgent && CanEngage(ctx, held))
             return held;
 
         Collect(ctx);
@@ -272,6 +272,7 @@ public sealed class Arsenal
         heldGeneration = best == null ? 0 : HostileAttackSources.Generation(best);
         heldAt = now;
         heldStamp = stamp;
+        RememberHoldPositions(ctx);
         LastTargetExpected = winningOutcome.Damage;
         LastAttackValue = winningOutcome.Value;
         LastPreventedHarm = winningOutcome.PreventedHarm;
@@ -486,7 +487,11 @@ public sealed class Arsenal
         bool debuffed = ShotOutcomes.DebuffedByOther(body, item);
         float now = AttackLearning.Factor(item, body.type, inputs.With(aim, debuffed), explore, tick);
         float ifDebuffed = debuffed ? now : AttackLearning.Factor(item, body.type, inputs.With(aim, true), explore, tick);
-        return new(body.whoAmI, perHit * now, danger, perHit * ifDebuffed, chance, ticks);
+        // The push is charged at the share of the forecast the weapon has been seen to land, the same factor its damage takes,
+        // so a weapon learned to miss is not charged for pushes it will not deliver. The factor is capped at one for the
+        // charge because what lands beyond the forecast is damage — a child projectile, a debuff paying off — and each
+        // hit's push is already learned per hit by the weapon-effects table.
+        return new(body.whoAmI, perHit * now, danger * MathF.Min(1f, now), perHit * ifDebuffed, chance, ticks);
     }
 
     /// <summary>
@@ -598,16 +603,47 @@ public sealed class Arsenal
         return targets;
     }
 
+    /// <summary>
+    /// The facts whose change should change the held choice at once: which hostiles are listed, by slot and spawn generation,
+    /// the terrain's revision, and what the weapon-effects table and the attack learner believe. Hostiles are combined by
+    /// addition so the list's order, which the threat sense may rebuild every tick, is not a fact. Position is not in it,
+    /// because a hash of every centre and velocity changed on every tick anything moved and so the hold was renewed never;
+    /// movement large enough to matter is <see cref="MovedPastHold"/>'s. Life and urgency are not in it either: the
+    /// companion's own hits advance the learner's and the table's revisions when they land, a more urgent threat already
+    /// breaks the hold on its own test, and a wound from the player waits at most the hold's length to be re-ranked.
+    /// </summary>
     private static int CombatStamp(in ActionContext ctx)
     {
-        var hash = new HashCode(); hash.Add(Muzzle(ctx.Npc)); hash.Add(TerrainChanges.Revision); hash.Add(WeaponEffects.Revision);
-        hash.Add(AttackLearning.Revision);
+        int hostiles = 0;
         foreach (var t in ctx.Senses.Threats.Threats)
-        {
-            hash.Add(t.Npc.whoAmI); hash.Add(HostileAttackSources.Generation(t.Npc)); hash.Add(t.Npc.life);
-            hash.Add(t.Npc.Center); hash.Add(t.Npc.velocity); hash.Add(t.Urgency); hash.Add(t.UrgencyToCompanion);
-        }
-        return hash.ToHashCode();
+            hostiles += HashCode.Combine(t.Npc.whoAmI, HostileAttackSources.Generation(t.Npc));
+        return HashCode.Combine(hostiles, ctx.Senses.Threats.Threats.Count, TerrainChanges.Revision, WeaponEffects.Revision, AttackLearning.Revision);
+    }
+
+    /// <summary>
+    /// How far any listed hostile or the muzzle may move from where the ranking saw it before the hold is re-ranked, px:
+    /// three tiles. Across a hold a walker covers well under that and a flier can cover more, and past it the ranking's
+    /// geometry — which bodies a flight crosses, which side a push lands on — can have changed; below it the held target is
+    /// still revalidated by <see cref="CanEngage"/> every tick, so a shot that stopped solving is never kept.
+    /// </summary>
+    private const float HoldBreakDistance = 48f;
+
+    private bool MovedPastHold(in ActionContext ctx)
+    {
+        float limit = HoldBreakDistance * HoldBreakDistance;
+        if (Vector2.DistanceSquared(Muzzle(ctx.Npc), heldMuzzle) > limit) return true;
+        foreach (var t in ctx.Senses.Threats.Threats)
+            if (heldCentres.TryGetValue(t.Npc.whoAmI, out Vector2 seen) && Vector2.DistanceSquared(seen, t.Npc.Center) > limit)
+                return true;
+        return false;
+    }
+
+    private void RememberHoldPositions(in ActionContext ctx)
+    {
+        heldMuzzle = Muzzle(ctx.Npc);
+        heldCentres.Clear();
+        foreach (var t in ctx.Senses.Threats.Threats)
+            heldCentres[t.Npc.whoAmI] = t.Npc.Center;
     }
 
     public int TargetEvidenceTick { get; private set; }
@@ -702,6 +738,8 @@ public sealed class Arsenal
     private int heldGeneration;
     private int heldAt = 0;
     private int heldStamp;
+    private Vector2 heldMuzzle;
+    private readonly Dictionary<int, Vector2> heldCentres = new();
     private readonly List<ThreatRecord> candidates = new();
 
     /// <summary>The hostiles worth simulating against: the threat sense's own list, alive and hostile.</summary>
@@ -855,7 +893,7 @@ public sealed class Arsenal
         }
         LastAimOffset = weapon.IsSwing ? 0f : MathHelper.WrapAngle(launch.ToRotation() - solution.LaunchVelocity.ToRotation());
         if (forecast != null)
-            OpenOutcome(weapon, target, prior, LastAimOffset, result);
+            OpenOutcome(weapon, target, prior, forecast.ImpactTicks, LastAimOffset, result);
         cooldown = weapon.UseTime;
         ctx.Companion.StartAnimation(weapon.ItemType, Math.Max(10, weapon.BaseUseTime));
         ctx.Companion.SetAimRotation(launch);
@@ -868,10 +906,10 @@ public sealed class Arsenal
     /// actually left, noise included, because that is the offset whose outcome is about to be observed. A shot's window
     /// holds its projectile until it and its descendants die; a swing's strikes are already known, so its window closes now.
     /// </summary>
-    private static void OpenOutcome(CompanionWeapon weapon, NPC target, in ForecastPrior prior, float firedAim, FireResult result)
+    private static void OpenOutcome(CompanionWeapon weapon, NPC target, in ForecastPrior prior, int impactTicks, float firedAim, FireResult result)
     {
         float[] context = prior.Inputs.With(firedAim, prior.AimedDebuffed);
-        int window = ShotOutcomes.Open(weapon.ItemType, target.type, context, prior.Damage, prior.Struck, prior.Charge, weapon.UseTime, Main.GameUpdateCount);
+        int window = ShotOutcomes.Open(weapon.ItemType, target, context, prior.Damage, prior.Struck, prior.Charge, weapon.UseTime, impactTicks, Main.GameUpdateCount);
         if (result.IsShot)
         {
             ShotOutcomes.AddSlot(window, result.ProjectileSlot);

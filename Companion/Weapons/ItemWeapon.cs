@@ -231,16 +231,17 @@ public sealed class ItemWeapon : CompanionWeapon
             if (npc == null || !npc.active || npc.life <= 0 || !npc.CanBeChasedBy() || !InSwing(muzzle, aim, npc))
                 continue;
             // A swing passes through no NPC hit hook, so what it did is observed here around its own strike. The life it
-            // took is what the game dealt while the body lives; a killing strike's is capped at the life that was left and
-            // says nothing true about the damage, so it is not taught to the push table. The outcome learner is taught the
-            // capped life all the same, because a kill is what the swing achieved.
+            // took is the strike's whole damage whether or not it killed, because NPC.StrikeNPC subtracts the damage with no
+            // floor at zero (NPC.cs 92307 as decompiled) and checkDead only deactivates the body (84177): a kill records what
+            // a projectile's on-hit hook reports for the same hit. A killing strike's push says nothing, since the body is
+            // gone, so only a strike the body survived teaches the push table.
             Vector2 before = npc.velocity;
             int lifeBefore = npc.life;
             int[] buffTypes = (int[])npc.buffType.Clone(), buffTimes = (int[])npc.buffTime.Clone();
             // The experience ledger reads the same strike from both sides, the way the game's own NPCKillAttempt does, because
             // no NPC hook runs on this path to tell it the companion landed it.
             Progression.CreditKillsAndFights.BeforeStrike(npc, Progression.Striker.Companion);
-            ctx.Player.ApplyDamageToNPC(npc, damage, Knockback, direction, crit: false, DamageClass.Melee);
+            DeliverStrike(ctx.Player, npc, damage, Knockback, direction);
             Progression.CreditKillsAndFights.AfterStrike(npc);
             int dealt = lifeBefore - npc.life;
             if (dealt > 0 && npc.life > 0)
@@ -250,4 +251,13 @@ public sealed class ItemWeapon : CompanionWeapon
         }
         return new FireResult(-1, struck, strikes);
     }
+
+    /// <summary>
+    /// The strike itself: <c>Player.ApplyDamageToNPC</c> as melee with no crit, taking the player, the body, the damage, the
+    /// knockback and the direction. A fixture substitutes it, because a killing strike through the player's bookkeeping sends
+    /// the strike as a network client and reads loot tables and achievements, none of which exist headless; nothing in the
+    /// mod assigns it.
+    /// </summary>
+    public static Action<Player, NPC, int, float, int> DeliverStrike = (player, npc, damage, knockback, direction)
+        => player.ApplyDamageToNPC(npc, damage, knockback, direction, crit: false, DamageClass.Melee);
 }

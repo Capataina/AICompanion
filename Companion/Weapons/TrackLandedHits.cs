@@ -37,6 +37,12 @@ public static class TrackLandedHits
 
     private static readonly Shot?[] shots = new Shot?[Main.maxProjectiles + 1];
 
+    // Whether each slot's projectile is the companion's: set when the arsenal registers a shot and when a projectile spawns
+    // from a parent projectile that is, cleared at every spawn first. Kept apart from the outcome windows, which exist to
+    // teach the learner and open only for a shot that had a forecast and only until their bound, so attribution read off
+    // them handed a forecast-less shot's children, and every child spawned late in a long flight, to the player.
+    private static readonly bool[] companions = new bool[Main.maxProjectiles + 1];
+
     public static LandedHit? Last { get; private set; }
 
     /// <summary>Landed hits attributed to companion shots since the ledger was last cleared.</summary>
@@ -46,12 +52,30 @@ public static class TrackLandedHits
     {
         if ((uint)projectileSlot >= (uint)shots.Length) return;
         shots[projectileSlot] = new Shot(aimed?.whoAmI ?? -1, aimed == null ? 0 : HostileAttackSources.Generation(aimed), Main.GameUpdateCount, itemType);
+        companions[projectileSlot] = true;
     }
 
-    /// <summary>Whether the projectile in this slot is the companion's: a shot the arsenal registered, or a child the outcome
-    /// windows joined to one. Every companion shot is owned by the local player, so ownership alone cannot say this.</summary>
+    /// <summary>
+    /// Whether the projectile in this slot is the companion's, for as long as it lives: a shot the arsenal registered, or any
+    /// projectile descended from one through <c>EntitySource_Parent</c>, whether or not the shot had a forecast or an open
+    /// outcome window. Every companion shot is owned by the local player, so ownership alone cannot say this. This is the
+    /// contract the experience system's striker test reads, and it is decided here and nowhere else.
+    /// </summary>
     public static bool IsCompanionShot(int projectileSlot)
-        => (uint)projectileSlot < (uint)shots.Length && (shots[projectileSlot] != null || ShotOutcomes.WindowOf(projectileSlot) != null);
+        => (uint)projectileSlot < (uint)companions.Length && companions[projectileSlot];
+
+    /// <summary>
+    /// A projectile has just spawned into this slot: the slot's previous identity is forgotten, and the new projectile is the
+    /// companion's if its source names a parent projectile that is. The companion's own shot names the companion NPC as its
+    /// parent, so it is not attributed here; the arsenal registers it after this has cleared the slot.
+    /// </summary>
+    public static void AttributeSpawn(int projectileSlot, IEntitySource? source)
+    {
+        Forget(projectileSlot);
+        if ((uint)projectileSlot >= (uint)companions.Length) return;
+        if (source is EntitySource_Parent { Entity: Projectile parent } && parent.whoAmI != projectileSlot && IsCompanionShot(parent.whoAmI))
+            companions[projectileSlot] = true;
+    }
 
     // The velocity each NPC had just before a registered companion projectile struck it, and which projectile slot (plus
     // one, so zero is none) took it. Per NPC rather than per projectile because a piercing shot strikes several bodies in
@@ -90,7 +114,9 @@ public static class TrackLandedHits
 
     public static void Forget(int projectileSlot)
     {
-        if ((uint)projectileSlot < (uint)shots.Length) shots[projectileSlot] = null;
+        if ((uint)projectileSlot >= (uint)shots.Length) return;
+        shots[projectileSlot] = null;
+        companions[projectileSlot] = false;
     }
 
     public static void ObserveHit(NPC npc, Projectile projectile, int damageDone)
@@ -104,6 +130,7 @@ public static class TrackLandedHits
     public static void Clear()
     {
         System.Array.Clear(shots);
+        System.Array.Clear(companions);
         System.Array.Clear(preStrikeBy);
         Last = null;
         Count = 0;
@@ -121,7 +148,7 @@ public sealed class ForgetReusedShotSlots : GlobalProjectile
 {
     public override void OnSpawn(Projectile projectile, IEntitySource source)
     {
-        TrackLandedHits.Forget(projectile.whoAmI);
+        TrackLandedHits.AttributeSpawn(projectile.whoAmI, source);
         ProjectileArcs.Forget(projectile.whoAmI);
         // Forgets the slot's outcome window first and then joins a child to its parent projectile's window, so a
         // splitting or star-calling shot is credited with what its children land.
