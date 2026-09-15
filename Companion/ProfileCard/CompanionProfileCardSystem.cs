@@ -88,12 +88,9 @@ public sealed class CompanionProfileCardSystem : ModSystem
     public override void UpdateUI(GameTime gameTime)
     {
         lastTime = gameTime;
+        // Escape is not read here: this runs before the tick's keyboard is sampled, so a close here came a tick after the
+        // same press had already toggled the inventory. The card closes on the Inventory trigger in CompanionPlayer.SetControls.
         if (!IsOpen) return;
-        if (Main.keyState.IsKeyDown(Microsoft.Xna.Framework.Input.Keys.Escape))
-        {
-            Close();
-            return;
-        }
         ui?.Update(gameTime);
     }
 

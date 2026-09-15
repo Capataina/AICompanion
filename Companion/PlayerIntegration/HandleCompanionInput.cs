@@ -24,6 +24,22 @@ public partial class CompanionPlayer
         }
     }
 
+    /// <summary>
+    /// The card closes on the game's Inventory trigger, Escape unless the player rebound it, and the press is spent on that.
+    /// This is the one place both halves can happen on the same tick: <c>Player.Update</c> reads the tick's controls, calls
+    /// this hook, and then its own gate calls <c>ToggleInv</c> on a fresh press (Player.cs 23942-23954). Clearing
+    /// <c>releaseInventory</c> is what the gate reads as "already handled"; clearing <c>controlInv</c> instead would re-arm
+    /// the gate and toggle the inventory on the next held tick. The card used to close on a raw Escape in
+    /// <c>UpdateUI</c>, which runs before the tick's keyboard is sampled, so the same press reached <c>ToggleInv</c> a tick
+    /// before the card saw it and one Escape did two things.
+    /// </summary>
+    public override void SetControls()
+    {
+        if (!ProfileCard.CompanionProfileCardSystem.IsOpen || !Player.controlInv || !Player.releaseInventory) return;
+        ProfileCard.CompanionProfileCardSystem.CloseOpenCard();
+        Player.releaseInventory = false;
+    }
+
     public override void PreUpdate()
     {
         BrainOverlay.CaptureInput();

@@ -7,7 +7,7 @@ PlayerIntegration/
 ├─ ConfigureCompanionPreferences.cs  per-character optional-work and follow-distance choices, and the mining list they carry
 ├─ KeepMiningList.cs         the ores this character has held, the marks on them and what a mark means, saved by name
 ├─ RecordOresHeld.cs         `CompanionPlayer.PostUpdate`: every ore in the inventory joins the list
-├─ HandleCompanionInput.cs   saved inspector keybind and pre-item-use notch/card/bag input handling
+├─ HandleCompanionInput.cs   saved inspector keybind, pre-item-use notch/card/bag input, and the Inventory trigger that closes the card
 ├─ ObservePlayerEvents.cs    `CompanionPlayer` authoritative player-event observation
 └─ CompanionCommand.cs       /companion setup and explicit recovery command
 ```
@@ -15,6 +15,8 @@ PlayerIntegration/
 `CompanionPlayer` is one partial `ModPlayer` class split by responsibility. It owns state that belongs to the character across worlds: whether the companion has been introduced, bag storage, the four gear slots under the `gear` key (`../Inventory/CompanionGear.cs` owns what each holds and how it is written) and player-facing layout/input preferences. `PersistCompanionState.cs` retains the existing save keys while `HandleCompanionInput.cs` and `ObservePlayerEvents.cs` add no second player-state object. `CompanionPreferences.Current` is set to the entering character's saved instance before spawning, so existing static work readers cannot leak another character's choices between worlds.
 
 `/companion` introduces a companion when none exists and is the explicit player recovery action when one does. Autonomous companion behaviour never teleports. The command is deliberately the only player-initiated exception for a body stranded where the player cannot yet rescue it.
+
+**A key the game also acts on is handled in `SetControls`, never in a system's `UpdateUI`.** Within one tick the game updates the interface first, then samples the keyboard, then updates the player, and the player's controls step calls `SetControls` immediately before its own gates act on a fresh press (the Inventory trigger's is `ToggleInv`). A handler in `UpdateUI` therefore sees a press a tick after the game has already acted on it, which is how one Escape used to close the card and toggle the player's inventory. `CompanionPlayer.SetControls` closes an open card on the Inventory trigger, Escape unless rebound, and spends the press by clearing `releaseInventory`, the flag the gate reads; clearing `controlInv` would re-arm the gate for the next held tick.
 
 This folder forwards player facts to the brain and HUD but does not own the NPC. `CharacterBody/` creates and controls the live body; `Inventory/` defines cargo behaviour; `HeadsUpDisplay/` draws the notch; diagnostics owns its own overlay input contract.
 

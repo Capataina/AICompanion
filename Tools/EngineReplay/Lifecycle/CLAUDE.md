@@ -14,6 +14,8 @@ Lifecycle/
 ├─ VerifyCompanionHud.cs          the notch's own drawing: three bars, even padding, nothing else, and its input
 ├─ RenderCompanionCard.cs         the card at each viewport: regions against the mock's sizes, rhythm, overlaps, placement, renders and pixels
 ├─ VerifyNativeCard.cs            the card driven: controls, drag guard, chest buttons, occlusion, mining list, mastery; and the suite's mastery rules
+├─ VerifyEscapeClosesOnlyTheCard.cs  one Escape closes the card and toggles nothing, replayed in the game's tick order
+├─ EnableModPlayerHooks.cs        fills one PlayerLoader hook list so the game's own calls reach the mod's ModPlayer overrides headless
 └─ RenderNativeInterface.cs       the offscreen renderer and the inspector's evidence views
 ```
 
@@ -84,6 +86,8 @@ The viewport matrix still includes 640×480, below the game's own minimum screen
 ## Input composition
 
 The input-composition fixture passes a native inventory probe and the actual card through production `ModifyInterfaceLayers`, then calls each real `GameInterfaceLayer.Draw` in order. The underlying probe uses the native inventory's slot bounds and mouse predicate with its real `ItemSlot.LeftClick`; the card draws and handles its own real slot. At every supported viewport it reaches an overlapping pair, verifies that only the visible bag slot receives the press, repeats the underlying exclusion after returning to the overview and the Mastery page, then verifies an uncovered native slot remains usable. The card is placed at the screen's top-left for this, because at its default place under the notch it covers none of the game's inventory; at b2f9bbb this fixture could not find an overlapping pair at all once the gear row had pushed the grid down, and `--render-ui` exited on its first viewport. It also checks raw and UI pointer restoration and ownership of player-inventory open/close state. This exercises the native handlers and the layer lifecycle; it does not draw all vanilla inventory art or third-party mod layers.
+
+**A `ModPlayer` hook the game calls reaches nothing headless unless its loader list is filled.** `PlayerLoader` keeps one `HookList` per hook, filled by `HookList.Update` when mods load, so in this shell `PlayerLoader.SetControls` or `ItemSlot`'s call into `ShiftClickSlot` enumerates an empty list and a row driving the game's path passes without the mod's override ever running. `EnableModPlayerHooks.For` fills the named list with the registered `CompanionPlayer` and empties it on dispose. `VerifyEscapeClosesOnlyTheCard` uses it to replay a tick in the game's order: the interface update with last tick's keys, this tick's Escape arming the Inventory trigger, `PlayerLoader.SetControls`, then a copy of `Player.Update`'s inventory gate that counts `ToggleInv` rather than running it, because `ToggleInv` reaches capture and recipe state this shell never builds. On the overview and the Inventory page, with the player's inventory open and closed, the press must close the card, count no toggle on the press, while held or on release, leave the inventory as he had it, and let the next press count one.
 
 ## Traps
 

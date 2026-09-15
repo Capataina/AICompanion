@@ -62,6 +62,8 @@ A node whose levels do not step evenly (Piercing, Extra projectile, Bag space) c
 
 `mouseInterface` stops world use, but does not stop vanilla inventory slots behind the card from handling the same click. The native inventory draws before this card. `BlockCoveredInventoryInput` wraps that layer: a pointer covered by any card page is temporarily moved offscreen in the engine's raw coordinate cache while the underlying layer draws, then restored in `finally`. Changing only the current mouse coordinates fails because each layer restores them from that cache. Uncovered native inventory remains interactive. Closing the card closes player inventory only when the card opened it.
 
+The card closes on the game's Inventory trigger, Escape unless rebound, in `../PlayerIntegration/HandleCompanionInput.cs`'s `SetControls`, which spends the press so the game's own inventory toggle does not also fire; a close read from the keyboard in `UpdateUI` comes a tick after the game has acted on the same press. That folder's guide says why.
+
 MagicPixel is an atlas. Lines and fills select a one-pixel source rectangle; stretching the complete texture turns a line into a rectangle.
 
 **The game font at the card's text scale drops the vertical stroke of "+".** At UI scale 1 the Mastery page's zoom buttons were the same dash and only the 150% render showed a plus, so a button labelled "+" or "-" draws its symbol as bars in `DrawCardPrimitives` rather than as text. Any other one-character symbol is worth checking at scale 1 before trusting the font with it.
