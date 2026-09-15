@@ -146,13 +146,16 @@ internal static class VerifyNativeCard
             Require(Of(bag.Items, ItemID.Wood) == 65 && Of(player.inventory, ItemID.Wood) == 0 && Of(player.inventory, ItemID.Torch) == 3 && Of(bag.Items, ItemID.Torch) == 0,
                 "Quick Stack must move the wood the bag holds and leave the torches it does not");
 
-            // Restock: the player's partial gel stack is topped up from the bag; wood the player does not carry stays in the bag.
+            // Restock: the player's partial gel stack is topped up from the bag in its own slot; wood the player does not carry
+            // stays in the bag. Gel is ammo, and Restock also swaps ammo into an empty ammo slot, so a total alone passes
+            // with partial stacks never topped up at all: the stack must grow where it is, and no other slot may fill.
             Clear(player.inventory);
             Put(player.inventory, 3, ItemID.Gel, 1);
             int gelTotal = Of(bag.Items, ItemID.Gel) + 1;
             Click(Button("Restock"));
-            Require(Of(player.inventory, ItemID.Gel) == gelTotal && Of(bag.Items, ItemID.Gel) == 0 && Of(bag.Items, ItemID.Wood) == 65,
-                $"Restock must top up the player's gel from the bag and leave the wood; player gel {Of(player.inventory, ItemID.Gel)} of {gelTotal}, bag wood {Of(bag.Items, ItemID.Wood)}");
+            int filled = player.inventory.Count(item => !item.IsAir);
+            Require(player.inventory[3].type == ItemID.Gel && player.inventory[3].stack == gelTotal && filled == 1 && Of(bag.Items, ItemID.Gel) == 0 && Of(bag.Items, ItemID.Wood) == 65,
+                $"Restock must top up the player's gel in its own slot from the bag and leave the wood; slot 3 holds {player.inventory[3].stack} of {gelTotal}, {filled} slot(s) filled, bag wood {Of(bag.Items, ItemID.Wood)}");
         }
         finally
         {

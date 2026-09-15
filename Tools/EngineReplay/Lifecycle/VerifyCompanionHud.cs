@@ -38,6 +38,12 @@ internal static class VerifyCompanionHud
         manaCurrent.SetValue(mana, mana.Max / 2f);
         experienceTotal.SetValue(experience, 150);
         companion.NPC.life = companion.NPC.lifeMax * 3 / 4;
+        // Downed, the health bar fills with revival progress. At none it draws no fill at all, and "no coloured fill"
+        // then holds whatever colour the fill would have had, so the downed scene is pinned half revived.
+        var reviveField = companion.GetType().GetField("reviveProgress", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        int originalRevive = (int)reviveField.GetValue(companion)!;
+        int reviveTicks = (int)companion.GetType().GetField("ReviveTicks", BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public)!.GetValue(null)!;
+        reviveField.SetValue(companion, reviveTicks / 2);
         Require(Math.Abs(mana.Fraction - 0.5f) < 0.001f && experience.Level == 2 && Math.Abs(experience.Fraction - 0.25f) < 0.001f,
             "the pinned mana and experience fractions must be what the bars are asked to draw");
         var hud = new Hud();
@@ -115,10 +121,15 @@ internal static class VerifyCompanionHud
                         if (At(x, y) != Background) below++;
                 Require(strays == 0 && below == 0, $"notch {i} drew something besides its bars: {strays} pixels inside the body, {below} under it");
             }
-            // Downed, the health bar is grey: no green or red fill anywhere along it.
+            // Downed, the health bar is grey and fills with revival: the fill runs the revival fraction of the bar, and none
+            // of it is green or red.
             var down = Hud.Bars(boxes[2], scale).Health;
+            int percent = companion.RevivePercent;
+            Require(percent >= 45 && percent <= 55, $"premise: the downed scene must be about half revived; it reads {percent}%");
+            int greyFill = Filled(down), revived = (int)(down.Width * percent / 100f);
             int coloured = Enumerable.Range(down.Left, down.Width).Count(x => At(x, down.Center.Y) is var c && Math.Abs(c.R - c.G) > 40);
-            Require(coloured == 0, $"a downed notch must not draw a coloured health fill; {coloured} coloured pixels");
+            Require(Math.Abs(greyFill - revived) <= 3 && coloured == 0,
+                $"a downed notch must fill its health bar in grey to the revival fraction; {greyFill} fill pixels where {percent}% of {down.Width} is {revived}, {coloured} coloured");
             Console.WriteLine($"native HUD notch {suffix}: {boxes[0].Width}x{boxes[0].Height}, three bars with even padding, fills read back at 75/50/25%, nothing else drawn in or under the notch, downed health grey");
             string file = Path.Combine(output, "Hud-" + suffix + ".png");
             using (var stream = File.Create(file)) target.SaveAsPng(stream, size.X, size.Y);
@@ -134,6 +145,7 @@ internal static class VerifyCompanionHud
             save.HealthBarPosition = savedPosition; Main.gameMenu = menu;
             downed.SetValue(companion, wasDowned);
             companion.NPC.life = originalLife;
+            reviveField.SetValue(companion, originalRevive);
             manaCurrent.SetValue(mana, originalMana);
             experienceTotal.SetValue(experience, originalExperience);
             // The fixture owns the hidden graphics device. Release the shared mask cache before that device is

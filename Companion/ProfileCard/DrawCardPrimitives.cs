@@ -79,6 +79,19 @@ public static class DrawCardPrimitives
             Rectangle r = GetDimensions().ToRectangle();
             if (IsMouseHovering)
                 Fill(sb, new Rectangle(r.X + 7, r.Bottom - 3, r.Width - 14, 1), Color.Gold);
+            if (Text is "+" or "-")
+            {
+                // The game font at the card's text scale drops the vertical stroke of "+", so at UI scale 1 zoom in and
+                // zoom out drew the same dash. Both are drawn as bars instead, with the text's own down-right shadow.
+                const int arm = 6, stroke = 2;
+                Point c = r.Center;
+                foreach (var (offset, colour) in new[] { (2, Color.Black), (0, ink) })
+                {
+                    Fill(sb, new Rectangle(c.X - arm + offset, c.Y - stroke / 2 + offset, 2 * arm, stroke), colour);
+                    if (Text == "+") Fill(sb, new Rectangle(c.X - stroke / 2 + offset, c.Y - arm + offset, stroke, 2 * arm), colour);
+                }
+                return;
+            }
             Vector2 size = FontAssets.MouseText.Value.MeasureString(Text) * TextScale;
             DrawCardPrimitives.Text(sb, Text, new Vector2(r.Center.X - size.X / 2, r.Center.Y - size.Y / 2), ink, TextScale);
         }

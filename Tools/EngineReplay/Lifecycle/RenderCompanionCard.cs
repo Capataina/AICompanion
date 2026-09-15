@@ -24,8 +24,8 @@ using Hud = live::AICompanion.Companion.HeadsUpDisplay.CompanionHealthBar;
 /// The companion card at one render viewport: every region measured against the mock's logical sizes, the 12px rhythm
 /// between stacked regions computed from the layout rectangles, no two sibling regions overlapping, the placement rule
 /// against a docked notch, then each page driven through <see cref="VerifyNativeCard"/> and rendered to a PNG, with
-/// pixel checks at scale 1 for what a rectangle cannot show: the drone drawn, the icons painted, dim ores dimmer, and
-/// a lone level segment rounded at both ends.
+/// pixel checks at scale 1 for what a rectangle cannot show: the drone drawn, the icons painted, dim ores dimmer, zoom in
+/// and zoom out distinguishable, and a lone level segment rounded at both ends.
 ///
 /// <para>The expected numbers are written here from the mock and the owner's rulings, deliberately not read from the
 /// production <c>CardRegions</c> table, so a drift in that table fails this file instead of moving both together.</para>
@@ -213,6 +213,7 @@ internal static class RenderCompanionCard
         });
         Step("mastery unpicked", () => MasteryUnpicked(suffix, tree, pageContent));
         Render(graphics, batch, rasterizer, target, ui, size, output, $"Mastery-{suffix}");
+        if (scale == 1f) Step("zoom glyphs", () => ZoomGlyphPixels(target, size, title, suffix));
         Step("mastery interaction", () => VerifyNativeCard.MasteryInteraction(card, tree, pageContent));
         // Damage, with the levels the interaction learned, picked with its panel open.
         tree.Pick(0);
@@ -461,6 +462,30 @@ internal static class RenderCompanionCard
         double dimLight = Luminance(dim), brightLight = Luminance(bright);
         Require(brightLight > dimLight + 20, $"{suffix}: a left ore must be drawn dimmer than a mined one; iron {dimLight:0.0} against silver {brightLight:0.0}");
         Console.WriteLine($"mining list pixels {suffix}: the left iron swatch reads {dimLight:0.0} against the mined silver's {brightLight:0.0}");
+    }
+
+    /// <summary>
+    /// Zoom in and zoom out read as two symbols: "+" has ink in its centre column above and below its middle, "-" has ink
+    /// across its middle and none above or below. At UI scale 1 the game font had drawn both as the same dash, which
+    /// passes the premise here and fails the stroke.
+    /// </summary>
+    private static void ZoomGlyphPixels(RenderTarget2D target, Point size, UIElement title, string suffix)
+    {
+        Color[] pixels = Pixels(target, size);
+        int Ink(Rectangle r, int fromY, int toY)
+        {
+            int count = 0;
+            for (int y = r.Center.Y + fromY; y <= r.Center.Y + toY; y++)
+                for (int x = r.Center.X - 1; x <= r.Center.X + 1; x++)
+                    if (x >= 0 && y >= 0 && x < size.X && y < size.Y && pixels[y * size.X + x] is { R: > 200, G: > 200, B: > 200 }) count++;
+            return count;
+        }
+        var buttons = title.Children.OfType<UITextPanel<string>>().ToArray();
+        Rectangle plus = Rect(buttons.Single(b => b.Text == "+")), minus = Rect(buttons.Single(b => b.Text == "-"));
+        int plusStroke = Ink(plus, -6, -3) + Ink(plus, 3, 6), minusStroke = Ink(minus, -6, -3) + Ink(minus, 3, 6), minusBar = Ink(minus, -1, 1);
+        Require(minusBar >= 3, $"{suffix}: premise: the - button must draw ink across its middle ({minusBar} pixels)");
+        Require(plusStroke >= 8 && minusStroke == 0, $"{suffix}: zoom in and zoom out must be different symbols; + has {plusStroke} ink pixels above and below its middle, - has {minusStroke}");
+        Console.WriteLine($"zoom glyphs {suffix}: + has {plusStroke} ink pixels above and below its middle, - has none there and {minusBar} across it");
     }
 
     /// <summary>

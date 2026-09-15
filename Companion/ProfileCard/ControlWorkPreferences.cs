@@ -24,21 +24,21 @@ public sealed class ControlWorkPreferences : UIElement
 {
     public const float RowHeight = 26, RowStep = 33, IconSize = 26, IconGap = 10, SegmentHeight = 22;
 
-    /// <summary>What a row controls, its icon item, its choices and its hint; the order is the drawn order.</summary>
-    public static readonly (string Name, int Icon, string[] Choices, string Hint)[] Rows =
+    /// <summary>What a row controls, its icon item and its choices; the order is the drawn order. There is no hover hint, by the owner's ruling that nothing on the card shows hover text.</summary>
+    public static readonly (string Name, int Icon, string[] Choices)[] Rows =
     {
-        ("Mining", ItemID.CopperPickaxe, new[] { "Off", "Mimic", "Auto" }, "Mimic: mine when you do. Auto: find ore nearby on its own."),
-        ("Chopping", ItemID.CopperAxe, new[] { "Off", "Mimic", "Auto" }, "Mimic: chop when you do. Auto: find trees nearby on its own."),
-        ("Torches", ItemID.Torch, new[] { "Off", "On" }, "Lights dark places with torches of its own; it never uses up yours."),
+        ("Mining", ItemID.CopperPickaxe, new[] { "Off", "Mimic", "Auto" }),
+        ("Chopping", ItemID.CopperAxe, new[] { "Off", "Mimic", "Auto" }),
+        ("Torches", ItemID.Torch, new[] { "Off", "On" }),
     };
 
-    private readonly List<(UIElement Row, string Hint)> rows = new();
+    private readonly List<UIElement> rows = new();
 
     public ControlWorkPreferences()
     {
         for (int i = 0; i < Rows.Length; i++)
         {
-            var (name, icon, choices, hint) = Rows[i];
+            var (_, icon, choices) = Rows[i];
             var row = new UIElement();
             row.Top.Set(4 + i * RowStep, 0); row.Width.Set(0, 1f); row.Height.Set(RowHeight, 0);
             var picture = new ItemIcon(icon);
@@ -53,20 +53,13 @@ public sealed class ControlWorkPreferences : UIElement
             control.Left.Set(IconSize + IconGap, 0); control.Top.Set((RowHeight - SegmentHeight) / 2, 0);
             control.Width.Set(-(IconSize + IconGap), 1f); control.Height.Set(SegmentHeight, 0);
             row.Append(control);
-            rows.Add((row, hint));
+            rows.Add(row);
             Append(row);
         }
     }
 
     /// <summary>The joined control of a row, for the fixture to click.</summary>
-    public JoinedSegments Control(int row) => (JoinedSegments)rows[row].Row.Children.Last();
-
-    public override void Update(GameTime gameTime)
-    {
-        base.Update(gameTime);
-        foreach (var (row, hint) in rows)
-            if (row.IsMouseHovering) Main.instance?.MouseText(hint);
-    }
+    public JoinedSegments Control(int row) => (JoinedSegments)rows[row].Children.Last();
 
     /// <summary>An item's own icon, fitted into its square without stretching.</summary>
     private sealed class ItemIcon(int type) : UIElement

@@ -27,6 +27,7 @@ Every region here was cut down by the owner on 15 September 2026, and the reason
 - The Mastery panel shows a node's name and its effect, then Learn and a level bar, and nothing else. There is no kind or rank line, no purpose sentence, no "sized against", no needs, no Unlearn, no hint above the graph, no legend and no status line. The panel exists only while a node is picked.
 - The Mining list has no count line, no instruction sentence and no caption under the preview.
 - The Inventory page has no picture of the companion, no caption on either gear box, no filters, no detail panel and no hover text anywhere, item tooltips included.
+- Nothing else on the card shows hover text either: the three work controls have no hint.
 - A page's actions are in the title bar, so the page body starts at the top.
 
 The draft mastery content still carries each node's purpose and what it was sized against, for balancing, and they are never drawn. The sentence that described what the companion is doing went with the action line: the card was its only reader, and a harness check that graded its wording went too. What the companion is doing is read from the record and the inspector.
@@ -56,6 +57,8 @@ The Mastery page draws the tree `DefineMasteryGraph` generates: four ten-node la
 `mouseInterface` stops world use, but does not stop vanilla inventory slots behind the card from handling the same click. The native inventory draws before this card. `BlockCoveredInventoryInput` wraps that layer: a pointer covered by any card page is temporarily moved offscreen in the engine's raw coordinate cache while the underlying layer draws, then restored in `finally`. Changing only the current mouse coordinates fails because each layer restores them from that cache. Uncovered native inventory remains interactive. Closing the card closes player inventory only when the card opened it.
 
 MagicPixel is an atlas. Lines and fills select a one-pixel source rectangle; stretching the complete texture turns a line into a rectangle.
+
+**The game font at the card's text scale drops the vertical stroke of "+".** At UI scale 1 the Mastery page's zoom buttons were the same dash and only the 150% render showed a plus, so a button labelled "+" or "-" draws its symbol as bars in `DrawCardPrimitives` rather than as text. Any other one-character symbol is worth checking at scale 1 before trusting the font with it.
 
 The rounded shapes are runtime-built textures cached per pixel size in `DrawCardPrimitives`, shared with the HUD notch. The card system releases them at unload through `Main.QueueMainThreadAction`, because mod unload runs on a worker thread and FNA3D refuses to dispose a texture there.
 
