@@ -66,6 +66,21 @@ public sealed class CompanionExperience
     public float Fraction => Math.Clamp((float)IntoLevel / NeededNow, 0f, 1f);
 
     /// <summary>
+    /// What one productive effect of a family's work is worth: a hit landed or a threat removed for
+    /// combat, a tile broken for gathering, a torch placed or a drop taken for nearby assistance.
+    /// Combat pays most because its effects are rarest per attempt and cost the companion the most;
+    /// these are the tuning numbers the folder guide says live here. A shared completion, where the
+    /// player did part of the work, pays half.
+    /// </summary>
+    public static int WorthPerEffect(Brain.Infrastructure.Selection.PurposeFamily family) => family switch
+    {
+        Brain.Infrastructure.Selection.PurposeFamily.Combat => 15,
+        Brain.Infrastructure.Selection.PurposeFamily.Gathering => 10,
+        Brain.Infrastructure.Selection.PurposeFamily.NearbyAssistance => 5,
+        _ => 0,
+    };
+
+    /// <summary>
     /// Credit an amount. Negative and zero amounts are refused rather than clamped, because an
     /// attempt that produced nothing is not an event here and a caller passing a negative number
     /// has a bug worth surfacing.

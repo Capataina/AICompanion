@@ -152,9 +152,15 @@ internal static class ScoreTheRun
     /// </summary>
     public static void Checkpoints(string suite, ReadRecordedRoute.Route route, RunTheWorld.Outcome run, int cadence)
     {
-        int arrived = 0, missed = 0, plannerSaidNo = 0, plannerUnfinished = 0, total = 0;
+        int arrived = 0, missed = 0, plannerSaidNo = 0, plannerUnfinished = 0, underLiquid = 0, total = 0;
         int steps = Math.Min(route.Count, run.CompanionCentres.Count);
         var visited = new HashSet<Point>();
+        // Water and lava are walls to the orb until a mastery immunity opens them, and they hurt on
+        // touch, so a checkpoint the player stood in while swimming is outside the companion's kit
+        // in exactly the way a dash is: the body refusing it is the design, not a miss. The flags
+        // are read off the live orb, which is how a per-character immunity will reach this row.
+        var orb = live::AICompanion.Companion.CharacterBody.CompanionNPC.Find()?.ModNPC as live::AICompanion.Companion.CharacterBody.CompanionNPC;
+        bool immuneToWater = orb?.ImmuneToWater ?? false, immuneToLava = orb?.ImmuneToLava ?? false;
 
         for (int i = 0; i < steps; i += cadence)
         {
@@ -175,6 +181,14 @@ internal static class ScoreTheRun
             missed++;
             if (run.PlannerClaim[i] == Reach.Unreachable) plannerSaidNo++;
             else if (run.PlannerClaim[i] == Reach.NotYet) plannerUnfinished++;
+            Tile stood = Main.tile[tile.X, tile.Y];
+            bool forbidden = stood.LiquidAmount > 0 && stood.LiquidType switch
+            {
+                Terraria.ID.LiquidID.Water => !immuneToWater,
+                Terraria.ID.LiquidID.Lava => !immuneToLava,
+                _ => false, // honey and shimmer only slow the orb
+            };
+            if (forbidden) underLiquid++;
         }
 
         string note = $"{total} checkpoints every {cadence} ticks along {route.Capture}, reached within {CheckpointReach:0} px of the player's feet";
@@ -184,6 +198,8 @@ internal static class ScoreTheRun
             message: note + "; a missing edge unless the player's kit explains it");
         EmitLedgerRows.Measure(Instrument, suite, "unreached checkpoints whose flood never finished", plannerUnfinished, "checkpoints", "down", "unbounded-allowances",
             message: note + "; the search ran out of region rather than proving anything");
+        EmitLedgerRows.Measure(Instrument, suite, "unreached checkpoints under water or lava the companion may not enter", underLiquid, "checkpoints", "down", "unbounded-allowances",
+            message: note + "; the player swam there and the companion has no immunity for that liquid, so refusing it is the design");
 
         if (!route.Kits.Known)
         {
@@ -207,16 +223,17 @@ internal static class ScoreTheRun
             return;
         }
 
-        if (missed == 0)
+        if (missed == underLiquid)
             EmitLedgerRows.Pass(Instrument, suite, "every unreached checkpoint is outside the companion's kit or a real miss",
                 $"the player reached every checkpoint with a kit the companion's own declaration covers "
-                + $"({route.Kits.Raw}), and the body reached all {total} checkpoints",
+                + $"({route.Kits.Raw}); the body reached {arrived} of {total} checkpoints and the {underLiquid} it did not "
+                + "were under water or lava it may not enter",
                 mode: "unbounded-allowances",
                 killedBy: "counting a checkpoint as reached on the tick the player stood there rather than at any point in the run");
         else
             EmitLedgerRows.Fail(Instrument, suite, "every unreached checkpoint is outside the companion's kit or a real miss",
                 $"the player reached {total} checkpoints with nothing the companion's kit lacks ({route.Kits.Raw}) "
-                + $"and the body missed {missed} of them; "
+                + $"and the body missed {missed} of them, {underLiquid} under a liquid it may not enter and {missed - underLiquid} on dry ground; "
                 + $"the planner called {plannerSaidNo} unreachable and had not finished flooding {plannerUnfinished}",
                 mode: "unbounded-allowances");
     }
@@ -227,10 +244,10 @@ internal static class ScoreTheRun
     ///
     /// The orb flies, so anything that carries a player through air — a mount, wings, rocket boots
     /// — is answered by the body itself and filters nothing; what the orb has no answer to is a
-    /// dash, which is a burst of pace the motor's cap does not allow, and a swim, which has no
-    /// player flag to read and is a liquid immunity on the orb's side rather than a movement. A
-    /// capture of a player who swam somewhere the companion cannot is a gap this row does not close,
-    /// and the counts above are what a reader has instead.
+    /// dash, which is a burst of pace the motor's cap does not allow. A swim has no player flag to
+    /// read and is a liquid immunity on the orb's side rather than a movement, so it is judged per
+    /// checkpoint in <see cref="Checkpoints"/> instead: a checkpoint under water or lava the orb may
+    /// not enter is excused by name rather than filtering the whole route.
     /// </summary>
     private static string[] AbilitiesThePlayerHadAndTheCompanionDoesNot(ReadRecordedRoute.Kits kits)
         => kits.PlayerDash ? new[] { "a dash" } : Array.Empty<string>();

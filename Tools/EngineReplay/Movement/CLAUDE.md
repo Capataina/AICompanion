@@ -13,7 +13,7 @@ Movement/
 ├─ VerifyFollowRecoveryAndProtection.cs  what may start recovery flight, and guard retention
 ├─ VerifyCapturedEscape.cs            the captured water pocket, escaped through the real safety controller
 ├─ VerifyObservedMotion.cs            the shared enemy forecast against native collision
-└─ VerifyProjectileMotion.cs          every projectile in the kit against native `Projectile.VanillaAI`
+└─ (the projectile-arc fixture is `../Combat/VerifyArcLearning.cs` since the authored kit died: arcs are learned per projectile type from the companion's own shots, so what it asks is a combat question)
 ```
 
 ## The contact is the body, and it is proved directly
@@ -72,7 +72,7 @@ Recovery-flight assertions are expressed against the motor's own `RecoveryFlight
 
 `VerifyObservedMotion` runs the shared target forecast against the same initialised tile map: a stationary grounded hostile stays supported, a tile-colliding flyer stops at a wall while a phaser crosses it, observed acceleration changes the short forecast, a jump is not extrapolated as a repeated impulse, `Forget` removes a reused slot's old track, and a position correction during the same engine tick replaces an already-built forecast. It snapshots Terraria's collision scratch flags around each forecast, because a target forecast that changes shared collision state corrupts the movement prediction it exists to inform.
 
-`VerifyProjectileMotion` compares every projectile in the current kit against native `Projectile.VanillaAI` for a bounded free flight — phase, gravity, drag, terminal velocity and default hitbox — then checks that a swept trace rejects a thin blocking tile, reopens when it is removed, and rejects an accuracy-rotated launch that no longer reaches its target. It establishes the solver's supported profiles and its collision sampling, not every modded projectile and not a live fight.
+The projectile fixture that used to sit here compared an authored kit's flight profiles against native `Projectile.VanillaAI`. The kit is gone, and with it the profiles: a projectile's arc is now a prior read from the game's own AI style and then learned from the companion's shots, and `../Combat/VerifyArcLearning.cs` measures that learning as hits per shot before and after. The swept trace's terrain sampling is still exercised there.
 
 ## What these fixtures deliberately do not establish
 

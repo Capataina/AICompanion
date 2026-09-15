@@ -142,7 +142,7 @@ public sealed class ResolveFiringOpportunity
 
         Point feet = Infrastructure.Movement.MovementQueries.Tile(ctx.Npc.Center);
         var positioner = ctx.Companion.Brain.Positioner;
-        float reach = MathF.Max(arsenal.Primary.Profile.Reach, arsenal.Secondary.Profile.Reach);
+        float reach = arsenal.MaxReach;
         int radius = Math.Min(FiringSampleRadiusTiles, (int)(reach / 16f));
         Point centre = Infrastructure.Movement.MovementQueries.Tile(enemy.Center);
         var stands = new List<(float Distance, Point Tile, Vector2 Eye)>();
@@ -155,7 +155,7 @@ public sealed class ResolveFiringOpportunity
                     continue;
                 // The arsenal's muzzle is expressed from a feet point; the orb's feet are its centre plus its radius.
                 Vector2 hover = Infrastructure.Movement.MovementQueries.HoverPoint(tile);
-                Vector2 eye = Arsenal.MuzzleAtFeet(hover + new Vector2(0f, Infrastructure.Movement.CircleContact.Radius));
+                Vector2 eye = Arsenal.MuzzleAt(hover);
                 if (Vector2.Distance(eye, enemy.Center) > reach)
                     continue;
                 stands.Add((Vector2.DistanceSquared(ctx.Npc.Center, hover), tile, eye));

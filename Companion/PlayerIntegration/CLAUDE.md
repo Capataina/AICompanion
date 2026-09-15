@@ -10,7 +10,7 @@ PlayerIntegration/
 └─ CompanionCommand.cs       /companion setup and explicit recovery command
 ```
 
-`CompanionPlayer` is one partial `ModPlayer` class split by responsibility. It owns state that belongs to the character across worlds: whether the companion has been introduced, bag storage and player-facing layout/input preferences. `PersistCompanionState.cs` retains the existing save keys while `HandleCompanionInput.cs` and `ObservePlayerEvents.cs` add no second player-state object. `CompanionPreferences.Current` is set to the entering character's saved instance before spawning, so existing static work readers cannot leak another character's choices between worlds.
+`CompanionPlayer` is one partial `ModPlayer` class split by responsibility. It owns state that belongs to the character across worlds: whether the companion has been introduced, bag storage, the four gear slots under the `gear` key (`../Inventory/CompanionGear.cs` owns what each holds and how it is written) and player-facing layout/input preferences. `PersistCompanionState.cs` retains the existing save keys while `HandleCompanionInput.cs` and `ObservePlayerEvents.cs` add no second player-state object. `CompanionPreferences.Current` is set to the entering character's saved instance before spawning, so existing static work readers cannot leak another character's choices between worlds.
 
 `/companion` introduces a companion when none exists and is the explicit player recovery action when one does. Autonomous companion behaviour never teleports. The command is deliberately the only player-initiated exception for a body stranded where the player cannot yet rescue it.
 

@@ -46,7 +46,7 @@ public sealed class Positioner
     public SuccessRegion Region { get; private set; } = SuccessRegion.None;
     public float ChosenScore { get; private set; }
     private PositionRequest lastRequest;
-    private WeaponProfile? lastFireProfile;
+    private FlightModel? lastFireProfile;
     private int lastTerrainRevision = -1;
     private int lastInterferenceRevision;
     private int sinceScore = RescoreInterval;
@@ -98,7 +98,7 @@ public sealed class Positioner
     /// <summary>Refine a nominated attack method through the ordinary resolver. A rejected
     /// nomination must not erase another activity's held destination or its explanation.
     /// Reach-search work survives rejection so yielding cannot starve refinement.</summary>
-    public PositionOffer PrepareOffer(in PositionRequest request, Senses.Senses senses, WeaponProfile? profile)
+    public PositionOffer PrepareOffer(in PositionRequest request, Senses.Senses senses, FlightModel? profile)
     {
         if (request.Kind is not (RequestKind.Guard or RequestKind.LineOfFire))
             throw new ArgumentException("Only attack-position requests require this admission query.", nameof(request));
@@ -138,7 +138,7 @@ public sealed class Positioner
         }
     }
 
-    public Vector2? Resolve(in PositionRequest request, Senses.Senses senses, WeaponProfile? fireProfile)
+    public Vector2? Resolve(in PositionRequest request, Senses.Senses senses, FlightModel? fireProfile)
     {
         reachSense = senses.Reach;
         if (lastTerrainRevision != TerrainChanges.Revision)
@@ -300,7 +300,7 @@ public sealed class Positioner
     /// The corner is tested rather than the tile the point floors into, because a point on a tile boundary floors
     /// into one of four tiles and a hoverable test on that one tile can refuse a spot the body fits at.
     /// </summary>
-    private bool RetainsHeldDestination(in PositionRequest request, Senses.Senses senses, WeaponProfile? fireProfile)
+    private bool RetainsHeldDestination(in PositionRequest request, Senses.Senses senses, FlightModel? fireProfile)
     {
         if (Chosen is not Vector2 spot) return false;
         Point tile = MovementQueries.Tile(spot);
@@ -457,7 +457,7 @@ public sealed class Positioner
     /// replaces. The arrival sample is taken first and the window samples only on a pass, because three solves per
     /// candidate under an unchanged millisecond budget would otherwise cut the shortlist to a third of its depth.
     /// </summary>
-    private ShotVerdict SolveShotAtArrival(Vector2 eye, NPC target, WeaponProfile profile, Senses.Senses senses)
+    private ShotVerdict SolveShotAtArrival(Vector2 eye, NPC target, FlightModel profile, Senses.Senses senses)
     {
         Point from = MovementQueries.Tile(senses.Companion.Center);
         float trip = EstimatedTravelTicks(from, MovementQueries.Tile(eye))
@@ -668,7 +668,7 @@ public sealed class Positioner
                 <= Weights.FiringHoldTargetSlackPx * Weights.FiringHoldTargetSlackPx
             ? mark : null;
 
-    private Vector2? Best(in PositionRequest request, Senses.Senses senses, WeaponProfile? fireProfile)
+    private Vector2? Best(in PositionRequest request, Senses.Senses senses, FlightModel? fireProfile)
     {
         EvidenceTick = senses.Tick;
         CandidateEvidence = "";

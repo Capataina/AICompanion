@@ -8,8 +8,8 @@ Companion/
 ├─ CharacterBody/            the orb NPC's lifecycle, its drawing, the liquid hurts and the stand-in hostiles aim at
 ├─ EnemyIntegration/         temporary targeting stand-in and spawn-rate changes
 ├─ Brain/                    Activities, SharedBehaviours (Safety, Recovery) and Infrastructure
-├─ Weapons/                  companion equipment and outcome-based arsenal selection
-├─ Inventory/                bag storage and its UI
+├─ Weapons/                  the item-backed weapon, outcome-based arsenal selection and the mana pool
+├─ Inventory/                the cargo bag, the four gear slots and their page
 ├─ PlayerIntegration/        persistence, input, player events and /companion
 ├─ ProfileCard/              native per-character behaviour controls and inventory access
 ├─ DiagnosticsConfiguration/ native mod settings for inspector and local recording
@@ -23,7 +23,7 @@ The companion remains an opportunistic presence: it follows loosely, helps with 
 
 ## Cross-subsystem rules
 
-- The bag carries cargo, not equipment. Weapons are fixed companion capabilities selected by the arsenal.
+- The bag carries cargo, not equipment. The gear's four slots carry equipment, not cargo: two weapons, a pickaxe and an axe the player hands over, read for their numbers and never run, with the arsenal choosing which weapon to use by what it would land.
 - HUD and map surfaces show companion state; they do not decide behaviour or movement.
 - Player integration owns character-persistent state and input. The body owns spawning an actual NPC from that state.
 - The companion does not teleport under autonomous behaviour. The `/companion` command is the explicit player recovery exception.

@@ -29,6 +29,9 @@ public partial class CompanionPlayer : ModPlayer
 
     public CompanionInventory Bag { get; private set; } = new();
 
+    /// <summary>The four gear slots: two weapons, a pickaxe and an axe, handed over by this character.</summary>
+    public CompanionGear Gear { get; private set; } = new();
+
     /// <summary>The saved choices currently backing <see cref="CompanionPreferences.Current"/>.</summary>
     public CompanionPreferences Preferences { get; private set; } = new();
 
@@ -41,6 +44,7 @@ public partial class CompanionPlayer : ModPlayer
         if (HealthBarPosition is Vector2 p)
             tag["healthBar"] = p;
         tag["bag"] = Bag.Save();
+        tag["gear"] = Gear.Save();
         tag["experience"] = Experience.Save();
         var preferences = new TagCompound();
         Preferences.Save(preferences);
@@ -57,6 +61,9 @@ public partial class CompanionPlayer : ModPlayer
         Bag = new CompanionInventory();
         if (tag.ContainsKey("bag"))
             Bag.Load(tag.GetCompound("bag"));
+        Gear = new CompanionGear();
+        if (tag.ContainsKey("gear"))
+            Gear.Load(tag.GetCompound("gear"));
         Experience = tag.ContainsKey("experience")
             ? Progression.CompanionExperience.Load(tag.GetCompound("experience"))
             : new Progression.CompanionExperience();

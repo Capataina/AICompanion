@@ -308,7 +308,11 @@ internal static class VerifyCombatPurpose
         // the companion's side, and cut between the zombie and a player standing there it doubled the zombie's
         // urgency to the player (0.295 to 0.591 on the first run), which the danger premise below refused.
         player.position = new Vector2(ShaftGuardPlayerX * 16f, PitFloorY * 16f - player.height);
-        companion.NPC.position = new Vector2(NearStart * 16f, PitFloorY * 16f - companion.NPC.height);
+        // The orb hovers a tile above the floor in all three shaft-guard scenes, because an orb
+        // sitting on the floor cannot shoot steeply down past the edge of its own floor tile (the
+        // arrow's hitbox clips that tile before it clears the opened rock), and a hovering body is
+        // what positioning gives it; the three scenes share the height so their danger premise holds.
+        companion.NPC.position = new Vector2(NearStart * 16f, PitFloorY * 16f - companion.NPC.height - 16f);
         companion.NPC.velocity = Vector2.Zero;
 
         Main.npc[VisibleSlot] = new NPC();
@@ -438,7 +442,13 @@ internal static class VerifyCombatPurpose
     /// retune could erase. The headless screen is empty, so hunting's on-screen rule plays no part here and
     /// a result says nothing about it.
     /// </summary>
-    private static PursuitScene HuntPair(int companionX, bool hiddenDangerous, bool lineFromHere)
+    /// <param name="hoverTiles">
+    /// How far above the floor the orb hovers. The reposition rows sit it on the floor, where their
+    /// waits were calibrated; the in-sight row hovers one tile up, because an orb sitting on the
+    /// floor cannot shoot steeply down past the edge of its own floor tile — the arrow's hitbox
+    /// clips that tile before it clears the cut — and a hovering body is what positioning gives it.
+    /// </param>
+    private static PursuitScene HuntPair(int companionX, bool hiddenDangerous, bool lineFromHere, int hoverTiles = 0)
     {
         Main.maxTilesX = PursuitWorldWidth;
         Main.maxTilesY = 120;
@@ -463,7 +473,7 @@ internal static class VerifyCombatPurpose
         player.statLife = player.statLifeMax2;
         player.DefenseEffectiveness = MultipliableFloat.One * .5f;
         player.position = new Vector2(PursuitPlayerX * 16f, PitFloorY * 16f - player.height);
-        companion.NPC.position = new Vector2(companionX * 16f, PitFloorY * 16f - companion.NPC.height);
+        companion.NPC.position = new Vector2(companionX * 16f, PitFloorY * 16f - companion.NPC.height - hoverTiles * 16f);
 
         NPC hidden = Main.npc[HiddenSlot];
         hidden.SetDefaults(NPCID.Zombie);
@@ -557,7 +567,7 @@ internal static class VerifyCombatPurpose
         var middleDangerous = HuntPair(PursuitMiddleStart, hiddenDangerous: true, lineFromHere: false);
         var costlyDangerous = HuntPair(PursuitFarStart, hiddenDangerous: true, lineFromHere: false);
         var cheapHarmless = HuntPair(PursuitNearStart, hiddenDangerous: false, lineFromHere: false);
-        var cheapDangerousInSight = HuntPair(PursuitNearStart, hiddenDangerous: true, lineFromHere: true);
+        var cheapDangerousInSight = HuntPair(PursuitNearStart, hiddenDangerous: true, lineFromHere: true, hoverTiles: 1);
 
         foreach (var (name, scene) in new[] { ("cheap", cheapDangerous), ("middle", middleDangerous), ("costly", costlyDangerous), ("harmless", cheapHarmless), ("in-sight", cheapDangerousInSight) })
             Console.WriteLine($"  pursuit row {name}: pursuit={scene.Pursuit} aim={scene.Aim} hidden-danger={scene.HiddenDanger:0.000} hidden-player-urgency={scene.HiddenPlayerUrgency:0.000} candidates={scene.Evidence}");

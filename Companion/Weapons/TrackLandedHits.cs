@@ -3,6 +3,7 @@
 using Terraria;
 using Terraria.DataStructures;
 using Terraria.ModLoader;
+using AICompanion.Companion.Brain.Infrastructure.Aiming;
 using AICompanion.Companion.Brain.Infrastructure.Observation;
 
 namespace AICompanion.Companion.Weapons;
@@ -66,10 +67,24 @@ public static class TrackLandedHits
     }
 }
 
-/// <summary>Clears a projectile slot's shot identity at every native spawn.</summary>
+/// <summary>
+/// Clears a projectile slot's shot identity and its arc watch at every native spawn, and feeds the arc
+/// learner every post-AI velocity of a registered companion projectile until it dies. The learner
+/// (<c>../Brain/Infrastructure/Aiming/LearnProjectileArcs.cs</c>) owns what is done with the samples; this
+/// hook only delivers them, under the same slot-reuse discipline as the shot ledger: a spawn forgets first,
+/// the arsenal registers after its own spawn has cleared the slot, and a death retires the watch.
+/// </summary>
 public sealed class ForgetReusedShotSlots : GlobalProjectile
 {
-    public override void OnSpawn(Projectile projectile, IEntitySource source) => TrackLandedHits.Forget(projectile.whoAmI);
+    public override void OnSpawn(Projectile projectile, IEntitySource source)
+    {
+        TrackLandedHits.Forget(projectile.whoAmI);
+        ProjectileArcs.Forget(projectile.whoAmI);
+    }
+
+    public override void PostAI(Projectile projectile) => ProjectileArcs.Observe(projectile);
+
+    public override void OnKill(Projectile projectile, int timeLeft) => ProjectileArcs.Retire(projectile.whoAmI);
 }
 
 /// <summary>Attributes a native projectile hit to the companion shot registered in that slot, if any.</summary>

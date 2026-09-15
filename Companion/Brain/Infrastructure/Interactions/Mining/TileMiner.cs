@@ -42,9 +42,14 @@ public sealed class TileMiner
         damageOf = (PickaxeDamage)Delegate.CreateDelegate(typeof(PickaxeDamage), body, method);
     }
 
-    /// <summary>The pickaxe the companion swings: the player's, or a copper pickaxe if the player holds none.</summary>
+    /// <summary>
+    /// The pickaxe the companion swings: whatever sits in its pickaxe slot, read from the character's
+    /// gear. An empty slot is an air item with no pick power, so every tile is refused and the work is
+    /// offered as known-unusable rather than dug with a tool the companion was never handed; the
+    /// player's own held tool is never borrowed, by the four-slot ruling of 14 September 2026.
+    /// </summary>
     public static Item PickaxeFor(Player player)
-        => player.HeldItem.pick > 0 ? player.HeldItem : ContentSamples.ItemsByType[ItemID.CopperPickaxe];
+        => player.GetModPlayer<global::AICompanion.Companion.PlayerIntegration.CompanionPlayer>().Gear.Pickaxe;
 
     public bool Ready => swingCooldown <= 0;
 

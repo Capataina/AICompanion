@@ -239,6 +239,11 @@ public sealed class MeasureHandsByActivity : IMeasure
         var total = new Dictionary<string, int>();
         var noTarget = new Dictionary<string, int>();
         var working = new Dictionary<string, int>();
+        // An unarmed companion is neither idle nor working: both weapon slots are empty, so the
+        // hands have nothing to fire with whatever the feet were told to do. It is its own share
+        // so a session played before any weapon was handed over reads as that rather than as a
+        // companion that never found a target.
+        var unarmed = new Dictionary<string, int>();
         for (int row = 0; row < session.Count; row++)
         {
             string activity = action.Text[row];
@@ -251,6 +256,7 @@ public sealed class MeasureHandsByActivity : IMeasure
             // healthy two-minute exchange into one enormous finding whose own tally listed the
             // shots it fired.
             if (outcome is "fired" or "cooldown") working[activity] = working.GetValueOrDefault(activity) + 1;
+            if (outcome == "no-weapon") unarmed[activity] = unarmed.GetValueOrDefault(activity) + 1;
         }
         foreach ((string activity, int rows) in total.OrderByDescending(p => p.Value).Take(5))
         {
@@ -258,6 +264,8 @@ public sealed class MeasureHandsByActivity : IMeasure
                 $"ticks under {activity} on which the hands had nothing to shoot at", "R7");
             yield return PlayRow.Share($"{Name}/{activity}/fired-or-cooldown", working.GetValueOrDefault(activity), rows, "up",
                 $"ticks under {activity} on which the gun fired or was reloading", "R7");
+            yield return PlayRow.Share($"{Name}/{activity}/no-weapon", unarmed.GetValueOrDefault(activity), rows, "down",
+                $"ticks under {activity} on which both weapon slots were empty", "R7");
         }
     }
 }

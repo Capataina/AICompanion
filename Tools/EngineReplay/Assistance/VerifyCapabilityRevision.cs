@@ -178,16 +178,16 @@ internal static class VerifyCapabilityRevision
     private static void ChoppingRemainingWorkFollowsTheAxe()
     {
         var (chop, ctx, _) = SetUpTree();
-        Player player = ctx.Player;
-        for (int i = 0; i < player.inventory.Length; i++) player.inventory[i] = new Item();
-        player.selectedItem = 0;
-        player.inventory[0].SetDefaults(ItemID.CopperAxe);
+        // The companion's axe is the one in its own axe slot (gear slot index 3), never the player's
+        // held tool, so the swap is made in the gear.
+        var gear = ctx.Player.GetModPlayer<live::AICompanion.Companion.PlayerIntegration.CompanionPlayer>().Gear;
+        gear.Slots[3].SetDefaults(ItemID.CopperAxe);
         float copperValue = VerifyPreparedActivities.PrepareAndScore(chop, ctx);
         var copperWork = chop.RemainingWork;
         Require(copperValue > 0 && copperWork != null,
             $"premise: a copper axe must price the trunk; offer={chop.Eligibility}/{chop.EligibilityReason}");
         var copper = copperWork!.Value;
-        player.inventory[0].SetDefaults(ItemID.GoldAxe);
+        gear.Slots[3].SetDefaults(ItemID.GoldAxe);
         VerifyPreparedActivities.PrepareAndScore(chop, ctx);
         Require(chop.RemainingWork is { } gold && gold.DamagePerHit > copper.DamagePerHit && gold.Hits <= copper.Hits,
             $"a stronger axe must price the same trunk with its own damage on the next preparation; copper={copper} gold={chop.RemainingWork}");

@@ -10,23 +10,34 @@ using AICompanion.Companion.Brain.Infrastructure.Movement;
 namespace AICompanion.Companion.Brain.Infrastructure.Aiming;
 
 /// <summary>
-/// The free-flight part of a vanilla projectile's AI. The phase is <c>ai[0]</c> after AI advances
-/// it, so the first gravity tick is exact instead of an approximate straight-flight duration.
+/// How a projectile type moves once it is in the air, in the shape the game's own free flight
+/// takes: a number of ticks of straight flight, then a constant gravity added to the vertical
+/// speed and a drag factor multiplied into the horizontal speed each tick, with the fall capped.
+/// The phase counts AI steps, so the first gravity tick is exact rather than an approximate
+/// straight-flight duration. Nothing on an item says how its projectile flies, so a motion is
+/// either a prior read off a vanilla style or learned from the companion's own shots; both live in
+/// <see cref="ProjectileArcs"/>. <see cref="Straight"/> is the guess before anything is known.
 /// </summary>
-public readonly record struct ProjectileMotion(int GravityStartsAtPhase, float Gravity, float HorizontalDrag, float MaxFallSpeed)
+public readonly record struct LearnedMotion(int GravityStartsAtPhase, float Gravity, float HorizontalDrag, float MaxFallSpeed)
 {
-    public static readonly ProjectileMotion Arrow = new(GravityStartsAtPhase: 15, Gravity: .1f, HorizontalDrag: 1f, MaxFallSpeed: 16f);
-    public static readonly ProjectileMotion ThrowingKnife = new(GravityStartsAtPhase: 20, Gravity: .4f, HorizontalDrag: .97f, MaxFallSpeed: 16f);
+    /// <summary>
+    /// A straight line at launch speed for ever, which is the first guess for a projectile nobody
+    /// has watched. The fall cap is the one the game applies to every gravity style it has
+    /// (<c>if (velocity.Y > 16f) velocity.Y = 16f</c> in <c>Projectile.AI</c>), kept here so a
+    /// learned gravity with no observed plateau still stops accelerating where the game does.
+    /// </summary>
+    public static readonly LearnedMotion Straight = new(GravityStartsAtPhase: int.MaxValue, Gravity: 0f, HorizontalDrag: 1f, MaxFallSpeed: 16f);
+
+    public bool IsStraight => Gravity == 0f && HorizontalDrag == 1f;
 }
 
-/// <summary>Facts that turn one of the companion's closed weapon kit into a traceable projectile.</summary>
-public readonly record struct WeaponProfile(float Speed, ProjectileMotion Motion, int MaxFlightTicks, int HitboxSize, float Reach = 1100f)
-{
-    // Projectile.SetDefaults gives WoodenArrowFriendly a 10 by 10 box and ThrowingKnife a 12 by 12 box.
-    public static readonly WeaponProfile Arrow = new(Speed: 9.6f, Motion: ProjectileMotion.Arrow, MaxFlightTicks: 150, HitboxSize: 10, Reach: 1100f);
-
-    public WeaponProfile WithSpeed(float speed) => this with { Speed = speed };
-}
+/// <summary>
+/// What the aimer needs to fly one shot: launch speed, the motion, how long to trace, the box the
+/// game will collide, and how far a shot is worth attempting at all. A swung weapon is a one-tick
+/// flight whose speed is its reach, so the same sweep of angles that finds an arc finds a swing
+/// with terrain in the way.
+/// </summary>
+public readonly record struct FlightModel(float Speed, LearnedMotion Motion, int MaxFlightTicks, int HitboxSize, float Reach);
 
 /// <summary>The valid flight which a shot, its expected damage and its telemetry all describe.</summary>
 public readonly record struct TrajectorySolution(Vector2 LaunchVelocity, Vector2 ExpectedImpact, int ImpactTick);
@@ -38,10 +49,10 @@ public readonly record struct TrajectorySolution(Vector2 LaunchVelocity, Vector2
 /// </summary>
 public static class ProjectileFlight
 {
-    public static void Advance(ref Vector2 position, ref Vector2 velocity, in WeaponProfile weapon, ref int phase)
+    public static void Advance(ref Vector2 position, ref Vector2 velocity, in FlightModel weapon, ref int phase)
     {
         phase++;
-        ProjectileMotion motion = weapon.Motion;
+        LearnedMotion motion = weapon.Motion;
         if (phase >= motion.GravityStartsAtPhase)
         {
             float gravity = motion.Gravity;
@@ -79,7 +90,7 @@ public static class TrajectoryAimer
     private const float CollisionSampleDistance = 4f;
 
     /// <summary>Returns the first valid arc, flattest first, together with its actual predicted impact.</summary>
-    public static bool TrySolve(Vector2 muzzle, NPC target, WeaponProfile weapon, out TrajectorySolution solution)
+    public static bool TrySolve(Vector2 muzzle, NPC target, FlightModel weapon, out TrajectorySolution solution)
         => TrySolve(muzzle, target, weapon, 0, out solution);
 
     /// <summary>
@@ -90,7 +101,7 @@ public static class TrajectoryAimer
     /// while the motion is straight. Every interception test inside the trace is then taken at
     /// <c>offset + flight tick</c>, so the flight lead the aimer already applies is preserved on top of the wait.
     /// </summary>
-    public static bool TrySolve(Vector2 muzzle, NPC target, WeaponProfile weapon, int targetTickOffset, out TrajectorySolution solution)
+    public static bool TrySolve(Vector2 muzzle, NPC target, FlightModel weapon, int targetTickOffset, out TrajectorySolution solution)
     {
         // Aim at where it will be, not where it is: aiming the sweep from the current centre makes the
         // flattest-first order search the wrong side of the arc for a target that has moved a long way.
@@ -111,18 +122,18 @@ public static class TrajectoryAimer
     /// <summary>Compatibility query for callers that only need a launch vector, optionally against the target as it
     /// will be after a wait — position selection asks with the trip to the stand, because a stand is chosen now and
     /// stood on a walk later.</summary>
-    public static Vector2? Solve(Vector2 muzzle, NPC target, WeaponProfile weapon, int targetTickOffset = 0)
+    public static Vector2? Solve(Vector2 muzzle, NPC target, FlightModel weapon, int targetTickOffset = 0)
         => TrySolve(muzzle, target, weapon, targetTickOffset, out TrajectorySolution solution) ? solution.LaunchVelocity : null;
 
     /// <summary>
     /// Re-validates a concrete launch, including aim noise, against the target and terrain. A
     /// rotation is not allowed to turn a proved shot into an unproved one at the firing boundary.
     /// </summary>
-    public static bool TryTrace(Vector2 muzzle, Vector2 launch, NPC target, WeaponProfile weapon, out TrajectorySolution solution)
+    public static bool TryTrace(Vector2 muzzle, Vector2 launch, NPC target, FlightModel weapon, out TrajectorySolution solution)
         => Trace(muzzle, launch, target, weapon, out solution);
 
     /// <summary>Counts the hostile bodies a valid projectile trace crosses, in flight order.</summary>
-    public static int PathHits(Vector2 muzzle, Vector2 launch, WeaponProfile weapon, IReadOnlyList<NPC> hostiles, NPC[] into)
+    public static int PathHits(Vector2 muzzle, Vector2 launch, FlightModel weapon, IReadOnlyList<NPC> hostiles, NPC[] into)
     {
         Vector2 position = muzzle;
         Vector2 velocity = launch;
@@ -138,10 +149,10 @@ public static class TrajectoryAimer
         return found;
     }
 
-    private static bool TryAngle(float angle, Vector2 muzzle, NPC target, WeaponProfile weapon, int targetTickOffset, out TrajectorySolution solution)
+    private static bool TryAngle(float angle, Vector2 muzzle, NPC target, FlightModel weapon, int targetTickOffset, out TrajectorySolution solution)
         => Trace(muzzle, angle.ToRotationVector2() * weapon.Speed, target, weapon, out solution, targetTickOffset);
 
-    private static bool Trace(Vector2 muzzle, Vector2 launch, NPC target, WeaponProfile weapon, out TrajectorySolution solution, int targetTickOffset = 0)
+    private static bool Trace(Vector2 muzzle, Vector2 launch, NPC target, FlightModel weapon, out TrajectorySolution solution, int targetTickOffset = 0)
     {
         var trace = CaptureRequested?.Invoke() == true ? new List<Vector2> { muzzle } : null;
         Vector2 position = muzzle;
@@ -171,7 +182,7 @@ public static class TrajectoryAimer
         return false;
     }
 
-    private static bool TraceSegment(Vector2 start, Vector2 end, WeaponProfile weapon, int tick, IReadOnlyList<NPC>? hostiles, NPC[]? into, ref int found, NPC? stopAtTarget, out Vector2 impact)
+    private static bool TraceSegment(Vector2 start, Vector2 end, FlightModel weapon, int tick, IReadOnlyList<NPC>? hostiles, NPC[]? into, ref int found, NPC? stopAtTarget, out Vector2 impact)
     {
         impact = default;
         int samples = Math.Max(1, (int)MathF.Ceiling(Vector2.Distance(start, end) / CollisionSampleDistance));

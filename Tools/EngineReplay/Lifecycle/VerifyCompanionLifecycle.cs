@@ -15,13 +15,15 @@ internal static class VerifyCompanionLifecycle
         // to measure a damage popup using fonts that a headless simulation never loads.
         for (int i = 0; i < Main.combatText.Length; i++) Main.combatText[i] = new CombatText { active = true };
         foreach (int item in new[] { Terraria.ID.ItemID.WoodenBow, Terraria.ID.ItemID.WoodenArrow, Terraria.ID.ItemID.ThrowingKnife,
-            Terraria.ID.ItemID.CopperPickaxe, Terraria.ID.ItemID.CopperAxe })
+            Terraria.ID.ItemID.CopperPickaxe, Terraria.ID.ItemID.CopperAxe, Terraria.ID.ItemID.CopperBroadsword, Terraria.ID.ItemID.WandofSparking,
+            Terraria.ID.ItemID.FlintlockPistol, Terraria.ID.ItemID.MusketBall, Terraria.ID.ItemID.WoodYoyo, Terraria.ID.ItemID.GoldPickaxe })
         {
             var sample = new Item();
             sample.SetDefaults(item);
             Terraria.ID.ContentSamples.ItemsByType[item] = sample;
         }
-        foreach (int type in new[] { Terraria.ID.ProjectileID.WoodenArrowFriendly, Terraria.ID.ProjectileID.ThrowingKnife })
+        foreach (int type in new[] { Terraria.ID.ProjectileID.WoodenArrowFriendly, Terraria.ID.ProjectileID.ThrowingKnife,
+            Terraria.ID.ProjectileID.Bullet, Terraria.ID.ProjectileID.WandOfSparkingSpark, Terraria.ID.ProjectileID.WoodYoyo })
         {
             var sample = new Projectile();
             sample.SetDefaults(type);
@@ -43,6 +45,16 @@ internal static class VerifyCompanionLifecycle
             .SetValue(companionPlayer, Main.player[0]);
         typeof(Player).GetField("modPlayers", BindingFlags.Instance | BindingFlags.NonPublic)!
             .SetValue(Main.player[0], new ModPlayer[] { companionPlayer });
+        // The gear a fresh companion holds in every fixture: the arsenal enumerates weapons from these
+        // slots and the tools read their power from them, so an empty gear would leave every combat
+        // and work fixture testing a companion with nothing in its hands. The two weapons are the two
+        // items the authored kit read, because the combat scenes were calibrated against that pair's
+        // speeds — a reposition priced at the edge of the evaluation window is inside it for the knife
+        // and outside it for the bow alone.
+        companionPlayer.Gear.Slots[0].SetDefaults(Terraria.ID.ItemID.WoodenBow);
+        companionPlayer.Gear.Slots[1].SetDefaults(Terraria.ID.ItemID.ThrowingKnife);
+        companionPlayer.Gear.Slots[2].SetDefaults(Terraria.ID.ItemID.CopperPickaxe);
+        companionPlayer.Gear.Slots[3].SetDefaults(Terraria.ID.ItemID.CopperAxe);
         for (int i = 0; i < Main.npc.Length; i++) Main.npc[i] = new NPC { whoAmI = i, active = false };
         for (int i = 0; i < Main.projectile.Length; i++) Main.projectile[i] = new Projectile { whoAmI = i, active = false };
         for (int i = 0; i < Main.item.Length; i++) Main.item[i] = new Item { whoAmI = i, active = false };

@@ -1356,7 +1356,11 @@ internal static class VerifyOreWork
             && mine.Eligibility == OfferEligibility.KnownUnusable,
             $"a pick too weak for the only ore must offer no work and say the tool is why; got {mine.Eligibility}/{mine.EligibilityReason}");
 
-        ctx.Player.inventory[ctx.Player.selectedItem] = strong;
+        // The companion's pick is the one in its own pickaxe slot, never the player's held tool, so the
+        // swap is made in the gear (slot index 2 is the pickaxe, by GearSlot's order).
+        var gear = ctx.Player.GetModPlayer<live::AICompanion.Companion.PlayerIntegration.CompanionPlayer>().Gear;
+        Item weakPick = gear.Slots[2];
+        gear.Slots[2] = strong;
         float stronger = VerifyPreparedActivities.PrepareAndScore(mine, ctx);
         Require(stronger > 0f && mine.JobId > 0 && mine.Eligibility == OfferEligibility.Usable,
             $"a stronger pick must start the job on the next preparation, not after a search cadence; value={stronger} job={mine.JobId} offer={mine.Eligibility}/{mine.EligibilityReason}");
@@ -1372,7 +1376,7 @@ internal static class VerifyOreWork
         }
         Require(effects > 0 && Main.tile[ore.X, ore.Y].HasTile, "the stronger pick must land real partial damage before the swap");
 
-        ctx.Player.inventory[ctx.Player.selectedItem] = new Item();
+        gear.Slots[2] = weakPick;
         float weaker = VerifyPreparedActivities.PrepareAndScore(mine, ctx);
         Require(weaker == 0f && mine.Eligibility == OfferEligibility.KnownUnusable && Main.tile[ore.X, ore.Y].HasTile,
             $"a weaker pick must end the offer as a tool that cannot mine, with the ore still in place; value={weaker} offer={mine.Eligibility}/{mine.EligibilityReason}");

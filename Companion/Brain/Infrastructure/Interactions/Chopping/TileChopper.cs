@@ -26,9 +26,14 @@ public sealed class TileChopper
     private long nextAttempt;
     public TileToolObservation? LastOutcome { get; private set; }
 
-    /// <summary>The axe the companion swings: the player's, or a copper axe if the player holds none.</summary>
+    /// <summary>
+    /// The axe the companion swings: whatever sits in its axe slot, read from the character's gear.
+    /// An empty slot is an air item with no axe power, so no trunk is damaged and chopping is offered
+    /// as known-unusable; the player's own held axe is never borrowed, by the four-slot ruling of
+    /// 14 September 2026.
+    /// </summary>
     public static Item AxeFor(Player player)
-        => player.HeldItem.axe > 0 ? player.HeldItem : ContentSamples.ItemsByType[ItemID.CopperAxe];
+        => player.GetModPlayer<global::AICompanion.Companion.PlayerIntegration.CompanionPlayer>().Gear.Axe;
 
     public bool Ready => swingCooldown <= 0;
 

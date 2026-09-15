@@ -1,87 +1,84 @@
 #nullable enable
 
+using System.Collections.Generic;
 using Microsoft.Xna.Framework;
 using Terraria;
-using Terraria.ID;
-using Terraria.ModLoader;
 using AICompanion.Companion.Brain.Activities;
 using AICompanion.Companion.Brain.Infrastructure.Aiming;
 
 namespace AICompanion.Companion.Weapons;
 
 /// <summary>
-/// One of the companion's own weapons. It states facts about itself and nothing else: how its
-/// projectile flies, how hard it hits, how often it can fire, and how many bodies one shot can
-/// pass through. It holds no opinion about when it should be used, because the arsenal decides
-/// that by working out what each weapon would actually land in the next few seconds, and a
-/// weapon that carried its own view of "suits a crowd" would be overruling that arithmetic with
-/// a guess. That separation is what lets a new weapon arrive as numbers rather than as a rule.
+/// What one use of a weapon put into the world: the projectile slot the game gave a shot, or the
+/// bodies a swing struck. A swing has no projectile and a shot has struck nothing yet, so the two
+/// numbers are never both meaningful and <see cref="Landed"/> is what a caller asks.
+/// </summary>
+public readonly record struct FireResult(int ProjectileSlot, int Struck)
+{
+    public static readonly FireResult Nothing = new(-1, 0);
+    public bool IsShot => ProjectileSlot >= 0;
+    public bool Landed => IsShot || Struck > 0;
+}
+
+/// <summary>
+/// A weapon in the companion's hands, as the arsenal sees it: facts about itself and the two
+/// geometric questions the arsenal asks of every weapon in the same words. It holds no opinion
+/// about when it should be used, because the arsenal decides that by working out what each weapon
+/// would actually land in the next few seconds, and a weapon that carried its own view of "suits a
+/// crowd" would be overruling that arithmetic with a guess. That separation is what lets any item
+/// arrive as numbers rather than as a rule.
 ///
-/// Fire rate is halved and damage is scaled until the mastery tree upgrades them, and a few
-/// degrees of aim noise are added for the same reason.
+/// Fire rate is halved until the mastery tree raises it, and a few degrees of aim noise are added
+/// for the same reason; both are companion facts rather than item facts.
 /// </summary>
 public abstract class CompanionWeapon
 {
     public abstract string Name { get; }
 
-    /// <summary>The item drawn in the companion's hand.</summary>
+    /// <summary>The item recorded as held while this is used; the body decides what to draw for it.</summary>
     public abstract int ItemType { get; }
 
-    /// <summary>The vanilla projectile this fires, which is where its pierce comes from.</summary>
+    /// <summary>The projectile this spawns, or zero for a weapon that swings.</summary>
     public abstract int ProjectileType { get; }
 
-    public abstract WeaponProfile Profile { get; }
+    public abstract bool IsSwing { get; }
 
-    /// <summary>Ticks between shots before the fire-rate nerf.</summary>
+    /// <summary>How the aimer flies one use of this weapon, read fresh each time because a learned motion changes under it.</summary>
+    public abstract FlightModel Model { get; }
+
+    /// <summary>Ticks between uses before the fire-rate nerf.</summary>
     public abstract int BaseUseTime { get; }
 
-    /// <summary>Damage of one hit before the balance factor and the player's ranged bonuses.</summary>
+    /// <summary>Damage of one hit before the player's class bonuses and the companion's own factors.</summary>
     public abstract int BaseDamage { get; }
 
     /// <summary>Multiplier on use time; 2 is the launch nerf, the tree lowers it.</summary>
     public float FireRateFactor = 2f;
 
-    /// <summary>
-    /// Multiplier on damage, which is the one knob the roster is balanced with. It exists because
-    /// the weapons read vanilla item numbers and those numbers were balanced for a player holding
-    /// one weapon at a time, not for a companion choosing between two: the throwing knife out-damages
-    /// the wooden bow outright and also pierces, so on any honest reckoning the bow would never be
-    /// chosen and one of the two slots would be decoration.
-    /// </summary>
-    public float DamageFactor = 1f;
-
-    /// <summary>Random angle added to every shot, radians; the tree lowers it.</summary>
+    /// <summary>Random angle added to every use, radians; the tree lowers it.</summary>
     public float AimNoise = MathHelper.ToRadians(4f);
 
-    /// <summary>Furthest a shot is worth attempting, px.</summary>
-    public abstract float Reach { get; }
+    /// <summary>Furthest a use is worth attempting, px, which is the model's own reach.</summary>
+    public float Reach => Model.Reach;
+
+    /// <summary>How many hostiles one use can hurt.</summary>
+    public abstract int Pierce { get; }
 
     /// <summary>
-    /// How many hostiles one shot can hurt, taken from the vanilla projectile's own penetration
-    /// rather than written down here, so a weapon that later fires a different projectile pierces
-    /// whatever that projectile pierces. A projectile with unlimited penetration reports the width
-    /// of the arsenal's pierce buffer, since nothing can hit more bodies than the arc is walked for.
+    /// What one hit takes off, with every factor the actual use will apply. The scorer and the use
+    /// read this same method on purpose: a weapon scored on one damage number and used with another
+    /// is a weapon chosen for a reason that never happens.
     /// </summary>
-    public virtual int Pierce
-    {
-        get
-        {
-            int p = ContentSamples.ProjectilesByType[ProjectileType].penetrate;
-            return p < 0 ? Arsenal.MaxPierceCounted : System.Math.Max(1, p);
-        }
-    }
+    public abstract int DamagePerHit(in ActionContext ctx);
 
-    /// <summary>
-    /// What one hit takes off, with the player's ranged bonuses applied the way they are when the
-    /// shot is actually fired. The scorer and the shot read this same method on purpose: a weapon
-    /// scored on one damage number and fired with another is a weapon chosen for a reason that
-    /// never happens.
-    /// </summary>
-    public int DamagePerHit(in ActionContext ctx)
-        => (int)ctx.Player.GetTotalDamage(DamageClass.Ranged).ApplyTo(BaseDamage * DamageFactor);
+    /// <summary>Whether the target is close enough for a use to be worth tracing at all.</summary>
+    public abstract bool InReach(Vector2 muzzle, NPC target);
 
-    /// <summary>Spawn the projectile and return its Terraria slot for the causal shot record.</summary>
-    public abstract int Fire(in ActionContext ctx, Vector2 muzzle, Vector2 launch);
+    /// <summary>The hostiles one use from this muzzle along this launch would hurt, in the order it reaches them.</summary>
+    public abstract int Hits(Vector2 muzzle, Vector2 launch, IReadOnlyList<NPC> hostiles, NPC[] into);
+
+    /// <summary>Use the weapon: spawn the projectile, or strike the bodies in the swing.</summary>
+    public abstract FireResult Fire(in ActionContext ctx, Vector2 muzzle, Vector2 launch);
 
     public int UseTime => (int)(BaseUseTime * FireRateFactor);
 }
