@@ -94,13 +94,16 @@ public sealed class FreeSpaceSearch
     public IReadOnlySet<Point> Reached => closed;
 
     /// <summary>
-    /// The travel cost beyond which a flood does not reach, in the search's own cost units (world pixels
-    /// when clearance is not priced). A goalless search closes corners in cost order, so when its queue
-    /// empties every corner whose cheapest path costs no more than this is closed, and <c>Exhausted</c>
-    /// then means "exhausted within the radius": a sound proven absence for everything inside the ball,
-    /// which a rectangular window could not give, because a corner inside a box whose only route loops
-    /// outside it would read as absent. It is only meaningful without a goal and without a preference,
-    /// since either reorders the queue away from cost order; a route search leaves it infinite.
+    /// The straight-line distance from the start, in world pixels, beyond which a flood does not reach:
+    /// a corner outside the disc is never queued, so <c>Exhausted</c> means every corner reachable
+    /// inside the disc is closed. A disc and not a travel-cost ball, on purpose: a cost ball is only
+    /// sound when costs are lengths, and the reach flood prices its edges by clearance so the travel
+    /// estimates read off it stay the ones every reunion weight was tuned against — a priced ball
+    /// shrinks in a tight tunnel to a third of its nominal reach, which is exactly where the size rule
+    /// sends the body. The disc's guarantee is weaker than the ball's and is stated where it is
+    /// consumed: a corner inside the reach sense's known radius that an exhausted flood never claimed
+    /// has no route shorter than about three times its straight line, since any route to it that
+    /// leaves the disc goes out past twice the known radius and comes back.
     /// </summary>
     public float Radius { get; }
 
@@ -113,7 +116,7 @@ public sealed class FreeSpaceSearch
         float radius = float.PositiveInfinity)
     {
         if (goal != null && !float.IsPositiveInfinity(radius))
-            throw new ArgumentException("a radius bounds a flood, and a search with a goal is not in cost order", nameof(radius));
+            throw new ArgumentException("a radius bounds a flood; a route search has a goal and no disc", nameof(radius));
         this.world = world;
         immunity = rules ?? OrbTerrain.Immunity;
         immunityOverridden = rules != null;
@@ -187,10 +190,10 @@ public sealed class FreeSpaceSearch
                 float edge = priceClearance ? CornerGraph.EdgeCost(world, node, next) : Vector2.Distance(CornerGraph.ToWorld(node), CornerGraph.ToWorld(next));
                 if (Avoid.Count > 0) edge *= AvoidancePenalty(next);
                 float tentative = here + edge;
-                // Beyond the radius is never queued, so the queue empties exactly when every corner
-                // inside the ball is closed and Exhausted is proven for the ball rather than the world.
-                if (tentative > Radius) continue;
                 if (cost.TryGetValue(next, out float known) && known <= tentative) continue;
+                // Outside the disc is never queued, so the queue empties exactly when every corner
+                // reachable inside the disc is closed and Exhausted is proven for the disc rather than the world.
+                if (!float.IsPositiveInfinity(Radius) && Vector2.Distance(CornerGraph.ToWorld(next), CornerGraph.ToWorld(Start)) > Radius) continue;
                 cost[next] = tentative;
                 parent[next] = node;
                 Touch(next);

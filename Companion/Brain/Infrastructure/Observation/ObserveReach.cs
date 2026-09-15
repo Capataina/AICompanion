@@ -26,22 +26,26 @@ public enum ReachVerdict
 /// region, and the walker's one-way exception for a player standing at the bottom of a drop has no
 /// meaning.
 ///
-/// <para>The flood is a ball, not a world. It is bounded by travel cost at twice
-/// <see cref="Weights.ReachKnownRadiusTiles"/>, so in an open world it finishes rather than growing
-/// until the search's node limit stops it unfinished — which is what the first orb tree did, and it
-/// left <see cref="Complete"/> false for the life of every session, so nothing could ever be proven
-/// unreachable and hunting could never prove an absence. A tile within the known radius of the root
-/// that a finished flood never claimed is proven unreachable; a tile beyond it answers not yet,
-/// because the flood was never asked about it. Underground the ball is mostly rock and closes in a
-/// few resolves; in open sky it is the whole disc and takes a few hundred ticks, which is the one
-/// place "not yet" stays the common answer for long.</para>
+/// <para>The flood is a disc, not a world. It is bounded at twice
+/// <see cref="Weights.ReachKnownRadiusTiles"/> of straight-line distance from its root, so in an open
+/// world it finishes rather than growing until the search's node limit stops it unfinished — which is
+/// what the first orb tree did, and it left <see cref="Complete"/> false for the life of every
+/// session, so nothing could ever be proven unreachable and hunting could never prove an absence. A
+/// tile within the known radius of the root that a finished flood never claimed is proven
+/// unreachable, which means it has no route shorter than about three times its straight line, since
+/// a route that leaves the disc goes out past twice the radius and back; a tile beyond the known
+/// radius answers not yet, because the flood was never asked about it. Underground the disc is mostly
+/// rock and closes in a few resolves; in open sky it is the whole disc and takes a few hundred ticks,
+/// which is the one place "not yet" stays the common answer for long.</para>
 ///
 /// <para>Once the body has travelled half the known radius from the root, a second flood is grown
 /// there while the first keeps answering, and it replaces the first only when it has finished, so
-/// ordinary travel never empties the region the way a terrain edit does. The flood's costs are
-/// unpriced lengths in pixels rather than the route search's clearance-weighted ones, because a
-/// reach flood is asked "how far" and not "which way", and a travel estimate read off it should be
-/// a distance.</para>
+/// ordinary travel never empties the region the way a terrain edit does. The flood keeps the route
+/// search's clearance pricing on its edges, and the travel estimates read off it are therefore
+/// priced rather than plain distances: the reunion charge takes the larger of the straight line and
+/// that estimate, and every reunion weight was tuned against the priced number — an unpriced flood
+/// was tried and had keeping company stroll beside a player fifteen tiles off. Which is why the
+/// bound is a disc and not a cost ball: a ball is sound only in unpriced units.</para>
 ///
 /// <para>The sense is refreshed by the positioner's resolve rather than by <see cref="Senses.Update"/>,
 /// and that is deliberate: the immunities are copied into the terrain reading by the brain tick, so
@@ -65,11 +69,11 @@ public sealed class ReachSense
     /// not connected to the region it left, and an unfinished flood would never say so.</summary>
     private const int MissingRootPatience = 3;
 
-    /// <summary>The flood's travel-cost bound, in pixels of unpriced path length: twice the known radius, so a
-    /// tile inside the known radius is proven absent only when no route of less than twice the straight line exists.</summary>
-    private static float TravelRadius => Weights.ReachKnownRadiusTiles * 2f * 16f;
-    /// <summary>How far, in pixels of travel, the body may be from the root before a replacement flood is grown there.</summary>
-    private static float RerootTravel => Weights.ReachKnownRadiusTiles * 16f / 2f;
+    /// <summary>The flood's disc, in pixels of straight-line distance from its root: twice the known radius, so a
+    /// tile inside the known radius is proven absent only when every route to it is a detour of about three times its straight line.</summary>
+    private static float DiscRadius => Weights.ReachKnownRadiusTiles * 2f * 16f;
+    /// <summary>How far, in pixels of straight-line distance, the body may be from the root before a replacement flood is grown there.</summary>
+    private static float RerootDistance => Weights.ReachKnownRadiusTiles * 16f / 2f;
 
     private FreeSpaceSearch? flood;
     /// <summary>The replacement flood growing under a body that has travelled far from the root; answers come
@@ -219,7 +223,8 @@ public sealed class ReachSense
             if (flood!.Reached.Contains(root.Value)) rootMissing = 0;
             // The body has travelled far from the root of a finished flood: grow the replacement here
             // while the old one keeps answering, so ordinary travel never reads as an empty region.
-            if (pending == null && flood.Finished && flood.CostTo(root.Value) is float travelled && travelled > RerootTravel)
+            if (pending == null && flood.Finished
+                && Vector2.Distance(CornerGraph.ToWorld(root.Value), CornerGraph.ToWorld(flood.Start)) > RerootDistance)
             {
                 pending = Flood(world, root.Value);
                 Reroots++;
@@ -241,7 +246,7 @@ public sealed class ReachSense
         LastFloodMs = clock.Elapsed.TotalMilliseconds;
     }
 
-    /// <summary>A reach flood: goalless, unpriced so its costs are distances, and bounded by the travel radius.</summary>
+    /// <summary>A reach flood: goalless, priced like the route search so its estimates stay calibrated, and bounded to the disc.</summary>
     private static FreeSpaceSearch Flood(ITileWorld world, Point root)
-        => new(world, root, null, priceClearance: false, radius: TravelRadius);
+        => new(world, root, null, radius: DiscRadius);
 }

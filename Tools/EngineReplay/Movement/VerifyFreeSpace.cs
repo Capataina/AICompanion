@@ -131,12 +131,14 @@ internal static class VerifyFreeSpace
     }
 
     /// <summary>
-    /// A bounded flood exhausts inside its travel radius and nowhere else. The reach sense depends on
-    /// this: a flood over an open world once ran to the search's node limit, which finishes without
-    /// exhausting, so the sense could never say "unreachable" for the life of a session. The corridor
-    /// is far longer than the radius, and the count is exact because a goalless unpriced search closes
-    /// corners in cost order: twenty tiles each way along the start's row, nineteen along the row a
-    /// diagonal step away. Without the bound the flood closes the whole corridor and the count fails.
+    /// A bounded flood exhausts inside its disc and nowhere else. The reach sense depends on this: a
+    /// flood over an open world once ran to the search's node limit, which finishes without exhausting,
+    /// so the sense could never say "unreachable" for the life of a session. The corridor is far longer
+    /// than the radius, and the count is exact: twenty tiles each way along the start's row, nineteen
+    /// along the row one tile off, where the diagonal takes the corner at twenty just past the disc.
+    /// Without the bound the flood closes the whole corridor and the count fails. Unpriced here so the
+    /// cost of the corner at the radius is the radius itself, which is the row's check that a flood's
+    /// costs are what its pricing says.
     /// </summary>
     public static int FloodBounded()
     {
