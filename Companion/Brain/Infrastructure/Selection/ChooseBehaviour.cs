@@ -246,26 +246,63 @@ public sealed class Chooser
     }
 
     /// <summary>
-    /// The share of a job's worth left after paying for keeping the companion apart: one minus the pull beyond the player's
-    /// region at the job's stand — keeping company's own slope, uncapped — measured against the region carried along his
-    /// observed travel for the job's duration. So a stand inside the region pays nothing, a stand beyond it pays by the gap,
-    /// a job whose stand the player's travel will leave at fly-home distance is worth nothing, and a player leaving makes a
-    /// long job pay more than a quick one. It is the one separation cost; the reunion delay charge it replaced priced the
-    /// same separation a second way and is still computed only because the recorder writes it.
+    /// The share of a job's worth left after paying for keeping the companion apart: one minus keeping company's own slope,
+    /// uncapped, read at the job's stand against the player's region carried along his observed travel for the job's duration.
+    /// The distance read on that slope is the gap beyond the region plus how much longer the way home runs than the straight
+    /// line, so a stand whose way back goes the long way round a floor pays for that walk and not for the crow's flight. A
+    /// stand inside the region pays nothing whatever its route, because the owner ruled there is no pull inside it; a stand
+    /// beyond it pays by the gap and the detour; a job whose stand is left at fly-home distance is worth nothing; and a player
+    /// leaving makes a long job pay more than a quick one. It is the one separation cost; the reunion delay charge it replaced
+    /// priced the same separation a second way and is still computed only because the recorder writes it.
     /// </summary>
     public static float Separation(in ActionContext ctx, Microsoft.Xna.Framework.Vector2 stand, float ticks)
     {
         if (ctx.Senses.Player.IsDead || ctx.Stranded) return 1f;
-        return SeparationAt(ctx.Senses.Intent.Region, ctx.Senses.Player.Intent, stand, ticks);
+        return SeparationAt(ctx.Senses.Intent.Region, ctx.Senses.Player.Intent, stand, ticks,
+            RouteDetour(ctx.Senses.Reach, ctx.Npc.Center, stand, ctx.Senses.Player.Position));
     }
 
-    /// <summary>The same share from the numbers it reads, so a comparison can be checked against a region built by hand.</summary>
+    /// <summary>The same share from the numbers it reads, so a comparison can be checked against a region built by hand;
+    /// <paramref name="detour"/> is <see cref="RouteDetour"/>'s answer, and zero reads the straight line.</summary>
     public static float SeparationAt(in Infrastructure.Observation.PlayerIntentRegion region, Microsoft.Xna.Framework.Vector2 playerTravel,
-        Microsoft.Xna.Framework.Vector2 stand, float ticks)
+        Microsoft.Xna.Framework.Vector2 stand, float ticks, float detour = 0f)
     {
         var shift = playerTravel * MathF.Min(ticks, Weights.PlayerProjectionCapTicks);
         var projected = region with { Centre = region.Centre + shift, Heading = region.Heading + shift };
-        return 1f - KeepCompany.PullBeyond(projected, stand);
+        float gap = projected.GapBeyond(stand);
+        return 1f - (gap > 0f ? KeepCompany.PullAtGap(projected, gap + detour) : 0f);
+    }
+
+    /// <summary>
+    /// How much further than the straight line the way from a job's stand to the player runs, in pixels, read off the reach
+    /// flood. The flood is rooted at the body, so its cost to the player less its cost to the stand is a lower bound on the
+    /// route between the two — a route through the stand is one the flood could have taken — and the detour is that less the
+    /// straight line. The stand is priced at the nearest corner the body fits at, because a mining stand is the ore tile
+    /// itself and no flood of free space holds a solid tile; a stand with no such corner in the flood is priced from the body,
+    /// which is where a job done from here stands anyway.
+    ///
+    /// <para>Two answers are not a route, and neither reads as free. While the flood has not reached the player's tile the
+    /// detour is zero and the cost is the straight-line gap, which is a floor the real route can only exceed. When a finished
+    /// flood proves his tile out of reach the detour is twice the straight line, because the disc's own guarantee is that no
+    /// route to a place it proved absent is shorter than about three times its straight line. A body with no way home at all
+    /// is stranded, and that is answered before this is asked.</para>
+    /// </summary>
+    public static float RouteDetour(Infrastructure.Observation.ReachSense reach, Microsoft.Xna.Framework.Vector2 body,
+        Microsoft.Xna.Framework.Vector2 stand, Microsoft.Xna.Framework.Vector2 player)
+    {
+        Microsoft.Xna.Framework.Point playerTile = Movement.MovementQueries.Tile(player);
+        if (reach.EstimatedTravelTicks(playerTile, playerTile) is not float toPlayer)
+            return reach.Reachable(playerTile) == Infrastructure.Observation.ReachVerdict.Unreachable
+                ? 2f * Microsoft.Xna.Framework.Vector2.Distance(stand, player) : 0f;
+        Microsoft.Xna.Framework.Vector2 from = stand;
+        float atStand = 0f;
+        if (Movement.CornerGraph.NearestUsable(Movement.MovementQueries.World, stand, 2, requireSweep: false) is { } corner
+            && reach.TravelTicksToCorner(corner) is float ticks)
+            atStand = ticks;
+        else
+            from = body;
+        return MathF.Max(0f, (toPlayer - atStand) * MathF.Max(0.1f, Movement.OrbPace.MaxSpeed)
+            - Microsoft.Xna.Framework.Vector2.Distance(from, player));
     }
 
     public static float FitAt(float distance, float near, float far)

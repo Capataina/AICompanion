@@ -91,11 +91,15 @@ public sealed class KeepCompany : CompanionAction
     /// is far. Capped for the job as well, a fight the player has dropped four hundred pixels away from lost only half its
     /// worth, and the discount on following while useful work exists took four fifths of rejoining's, so the orb stayed.
     /// </summary>
-    public static float PullBeyond(in PlayerIntentRegion region, Vector2 point)
+    public static float PullBeyond(in PlayerIntentRegion region, Vector2 point) => PullAtGap(region, region.GapBeyond(point));
+
+    /// <summary>The same slope read at a distance the caller measured, so a job's separation priced along the route home climbs
+    /// the one slope keeping company climbs rather than a second one.</summary>
+    public static float PullAtGap(in PlayerIntentRegion region, float gap)
     {
         float inner = MathF.Max(region.HalfSize.X, region.HalfSize.Y);
         float span = MathF.Max(1f, PlayerIntegration.CompanionPreferences.Current.RecoveryRadius - inner);
-        return Consideration.Rising(region.GapBeyond(point), span);
+        return Consideration.Rising(gap, span);
     }
 
     /// <summary>
