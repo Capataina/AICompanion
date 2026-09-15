@@ -118,6 +118,7 @@ internal static class VerifyEngineMotion
         ("a swing records a kill as the strike, the way a projectile does", VerifyWeaponLearning.ASwingKillIsRecordedAsTheStrike),
         ("a hit's push charge is weighted by the learned hit rate its damage is", VerifyWeaponLearning.APushIsChargedAtTheLearnedHitRate),
         ("a shot whose target died to someone else before it could land teaches nothing", VerifyWeaponLearning.AShotWhoseTargetDiedToSomeoneElseTeachesNothing),
+        ("the target hold survives ordinary motion and breaks on a change that should change the choice", VerifyWeaponLearning.TheTargetHoldSurvivesOrdinaryMotion),
         ("every projectile the companion spawns, and every descendant, is the companion's", VerifyWeaponLearning.EveryProjectileTheCompanionSpawnsIsTheCompanions),
         ("combat keeps its purpose across a substituted enemy", VerifyCombatPurpose.Run),
         ("safety releases the body after the danger passes", VerifySafetyAftermath.Run),

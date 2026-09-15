@@ -23,6 +23,13 @@ if (args.Contains("--attack-outcomes")) return VerifyAttackOutcomes.Run();
 if (args.Contains("--knockback")) return VerifyKnockbackAwareness.Run();
 if (args.Contains("--experience")) return VerifyCompanionExperience.Run();
 if (args.Contains("--weapon-learning")) return VerifyWeaponLearning.Run();
+if (args.Contains("--weapon-outcome-credit"))
+    return RunOneRow.Case("misses stay with their enemy type", () => VerifyWeaponLearning.MissesAgainstOneEnemyTypeStayWithThatType())
+        + RunOneRow.Case("a swing kill is the strike", () => VerifyWeaponLearning.ASwingKillIsRecordedAsTheStrike())
+        + RunOneRow.Case("the push charge is at the learned hit rate", () => VerifyWeaponLearning.APushIsChargedAtTheLearnedHitRate())
+        + RunOneRow.Case("a target killed by someone else teaches nothing", () => VerifyWeaponLearning.AShotWhoseTargetDiedToSomeoneElseTeachesNothing())
+        + RunOneRow.Case("the target hold survives ordinary motion", () => VerifyWeaponLearning.TheTargetHoldSurvivesOrdinaryMotion())
+        + RunOneRow.Case("every companion projectile is the companion's", () => VerifyWeaponLearning.EveryProjectileTheCompanionSpawnsIsTheCompanions());
 if (args.Contains("--offer-validity")) return VerifyOfferValidity.Run();
 if (args.Contains("--capability")) return VerifyCapabilityRevision.Run() == 0 ? 0 : 1;
 if (args.Contains("--light-senses")) return VerifyLightAndReachSenses.Run() == 0 ? 0 : 1;

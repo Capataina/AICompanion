@@ -222,7 +222,7 @@ public sealed class Arsenal
         ThreatRecord? heldThreat = held == null ? null : ctx.Senses.Threats.Threats.Find(t => ReferenceEquals(t.Npc, held));
         bool newlyUrgent = urgent != null && urgent.Npc != held && urgent.Urgency > (heldThreat?.Urgency ?? 0f);
         int stamp = CombatStamp(ctx);
-        if (held != null && now - heldAt < TargetHoldTicks && stamp == heldStamp && !newlyUrgent && CanEngage(ctx, held))
+        if (held != null && now - heldAt < TargetHoldTicks && stamp == heldStamp && !MovedPastHold(ctx) && !newlyUrgent && CanEngage(ctx, held))
             return held;
 
         Collect(ctx);
@@ -272,6 +272,7 @@ public sealed class Arsenal
         heldGeneration = best == null ? 0 : HostileAttackSources.Generation(best);
         heldAt = now;
         heldStamp = stamp;
+        RememberHoldPositions(ctx);
         LastTargetExpected = winningOutcome.Damage;
         LastAttackValue = winningOutcome.Value;
         LastPreventedHarm = winningOutcome.PreventedHarm;
@@ -602,16 +603,47 @@ public sealed class Arsenal
         return targets;
     }
 
+    /// <summary>
+    /// The facts whose change should change the held choice at once: which hostiles are listed, by slot and spawn generation,
+    /// the terrain's revision, and what the weapon-effects table and the attack learner believe. Hostiles are combined by
+    /// addition so the list's order, which the threat sense may rebuild every tick, is not a fact. Position is not in it,
+    /// because a hash of every centre and velocity changed on every tick anything moved and so the hold was renewed never;
+    /// movement large enough to matter is <see cref="MovedPastHold"/>'s. Life and urgency are not in it either: the
+    /// companion's own hits advance the learner's and the table's revisions when they land, a more urgent threat already
+    /// breaks the hold on its own test, and a wound from the player waits at most the hold's length to be re-ranked.
+    /// </summary>
     private static int CombatStamp(in ActionContext ctx)
     {
-        var hash = new HashCode(); hash.Add(Muzzle(ctx.Npc)); hash.Add(TerrainChanges.Revision); hash.Add(WeaponEffects.Revision);
-        hash.Add(AttackLearning.Revision);
+        int hostiles = 0;
         foreach (var t in ctx.Senses.Threats.Threats)
-        {
-            hash.Add(t.Npc.whoAmI); hash.Add(HostileAttackSources.Generation(t.Npc)); hash.Add(t.Npc.life);
-            hash.Add(t.Npc.Center); hash.Add(t.Npc.velocity); hash.Add(t.Urgency); hash.Add(t.UrgencyToCompanion);
-        }
-        return hash.ToHashCode();
+            hostiles += HashCode.Combine(t.Npc.whoAmI, HostileAttackSources.Generation(t.Npc));
+        return HashCode.Combine(hostiles, ctx.Senses.Threats.Threats.Count, TerrainChanges.Revision, WeaponEffects.Revision, AttackLearning.Revision);
+    }
+
+    /// <summary>
+    /// How far any listed hostile or the muzzle may move from where the ranking saw it before the hold is re-ranked, px:
+    /// three tiles. Across a hold a walker covers well under that and a flier can cover more, and past it the ranking's
+    /// geometry — which bodies a flight crosses, which side a push lands on — can have changed; below it the held target is
+    /// still revalidated by <see cref="CanEngage"/> every tick, so a shot that stopped solving is never kept.
+    /// </summary>
+    private const float HoldBreakDistance = 48f;
+
+    private bool MovedPastHold(in ActionContext ctx)
+    {
+        float limit = HoldBreakDistance * HoldBreakDistance;
+        if (Vector2.DistanceSquared(Muzzle(ctx.Npc), heldMuzzle) > limit) return true;
+        foreach (var t in ctx.Senses.Threats.Threats)
+            if (heldCentres.TryGetValue(t.Npc.whoAmI, out Vector2 seen) && Vector2.DistanceSquared(seen, t.Npc.Center) > limit)
+                return true;
+        return false;
+    }
+
+    private void RememberHoldPositions(in ActionContext ctx)
+    {
+        heldMuzzle = Muzzle(ctx.Npc);
+        heldCentres.Clear();
+        foreach (var t in ctx.Senses.Threats.Threats)
+            heldCentres[t.Npc.whoAmI] = t.Npc.Center;
     }
 
     public int TargetEvidenceTick { get; private set; }
@@ -706,6 +738,8 @@ public sealed class Arsenal
     private int heldGeneration;
     private int heldAt = 0;
     private int heldStamp;
+    private Vector2 heldMuzzle;
+    private readonly Dictionary<int, Vector2> heldCentres = new();
     private readonly List<ThreatRecord> candidates = new();
 
     /// <summary>The hostiles worth simulating against: the threat sense's own list, alive and hostile.</summary>

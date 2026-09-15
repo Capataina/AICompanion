@@ -696,6 +696,71 @@ internal static class VerifyWeaponLearning
     }
 
     /// <summary>
+    /// The fifteen-tick target hold survives ordinary motion and breaks on a change that should change the choice. A held
+    /// target is visible as the evidence tick staying where the last ranking stamped it. Declared before the run: the zombie
+    /// drifting two pixels a tick with a velocity of its own, and the orb drifting a pixel a tick, keep the hold for three
+    /// ticks; a second hostile appearing, that hostile leaving, the learner revising and the zombie jumping a hundred pixels
+    /// each re-rank on the tick they happen. Before this row the stamp hashed every hostile's centre and velocity, so the
+    /// hold was renewed never.
+    /// </summary>
+    public static int TheTargetHoldSurvivesOrdinaryMotion()
+    {
+        var scene = Scene(0f, new Vector2(-300f, 0f), floating: true, (GearSlot.FirstWeapon, ItemID.WoodenBow));
+        L.Reset();
+        Arsenal arsenal = scene.Companion.Arsenal;
+        Player player = scene.Ctx.Player;
+        var senses = scene.Companion.Brain.Senses;
+
+        int Establish()
+        {
+            for (int i = 0; i < 16; i++) Restate(scene.Companion, player, scene.Threats);
+            NPC? target = arsenal.BestTarget(scene.Ctx);
+            // A target rather than the first zombie: while the second hostile is listed it can outvalue the first.
+            Require(target != null, $"premise: a target is ranked; evidence={arsenal.TargetEvidence}");
+            Require(arsenal.TargetEvidenceTick == senses.Tick, "premise: a fresh ranking stamps this tick");
+            return senses.Tick;
+        }
+        bool Reranked(Action change)
+        {
+            change();
+            Restate(scene.Companion, player, scene.Threats);
+            arsenal.BestTarget(scene.Ctx);
+            return arsenal.TargetEvidenceTick == senses.Tick;
+        }
+
+        int held = Establish();
+        int keptTicks = 0;
+        for (int i = 0; i < 3; i++)
+            if (!Reranked(() =>
+                {
+                    scene.Enemy.position.X += 2f;
+                    scene.Enemy.velocity = new Vector2(2f, .3f);
+                    scene.Companion.NPC.position.X += 1f;
+                    scene.Companion.NPC.velocity = new Vector2(1f, 0f);
+                }))
+                keptTicks++;
+        bool motionHeld = keptTicks == 3 && arsenal.TargetEvidenceTick == held;
+
+        Establish();
+        var second = Zombie(27, new Vector2(40 * 16f, AirRow * 16f), 0f);
+        var secondThreat = Threat(second, scene.Companion, player);
+        bool appearing = Reranked(() => scene.Threats.Add(secondThreat));
+        Establish();
+        bool leaving = Reranked(() => scene.Threats.Remove(secondThreat));
+        Establish();
+        bool revising = Reranked(() => L.ObserveDebuff(ItemID.WoodenBow, NPCID.Zombie, applied: false, 0));
+        Establish();
+        bool jumping = Reranked(() => scene.Enemy.position.Y -= 100f);
+        EmitLedgerRows.Detail($"target hold: ordinary motion kept it {keptTicks} of 3 ticks; re-ranked on a hostile appearing {appearing}, leaving {leaving}, the learner revising {revising}, a hundred-pixel jump {jumping}");
+        Require(motionHeld, $"ordinary motion of the target and the orb keeps the hold; kept {keptTicks} of 3 ticks");
+        Require(appearing, "a hostile appearing re-ranks at once");
+        Require(leaving, "a hostile leaving re-ranks at once");
+        Require(revising, "the learner revising re-ranks at once");
+        Require(jumping, "a hundred-pixel jump re-ranks at once");
+        return 0;
+    }
+
+    /// <summary>
     /// Every projectile the companion spawns is the companion's, whether or not a forecast opened an outcome window for it,
     /// and so is every projectile descended from one, for as long as it lives. The spawn hook is the real global projectile
     /// class, called directly because the loader does not run it headless, and the reader is the experience system's own
