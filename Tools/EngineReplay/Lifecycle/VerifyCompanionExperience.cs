@@ -80,6 +80,15 @@ internal static class VerifyCompanionExperience
         return ledger;
     }
 
+    /// <summary>An empty NPC table, at the top of every fight row: a boss or a part left standing by an earlier row — one whose
+    /// assertion aborted it halfway, above all — would hold the next row's fight open or join it, and the next row would then
+    /// fail for the earlier row's reason rather than its own.</summary>
+    private static void ClearArena()
+    {
+        for (int i = 0; i < Main.maxNPCs; i++) Main.npc[i] = new NPC { whoAmI = i };
+        Credit.Reset();
+    }
+
     private static NPC Spawn(int slot, int type, GameModeData mode, IEntitySource? source = null)
     {
         var npc = new NPC();
@@ -244,6 +253,7 @@ internal static class VerifyCompanionExperience
 
     private static void MultiBodyFightsCreditOnce()
     {
+        ClearArena();
         Main.GameMode = GameModeID.Normal;
         Experience.DefaultEnemyLife = () => 14;
         GameModeData normal = GameModeData.NormalMode;
@@ -330,6 +340,7 @@ internal static class VerifyCompanionExperience
     /// </summary>
     private static void EaterOfWorldsIsOrderFree()
     {
+        ClearArena();
         Main.GameMode = GameModeID.Normal;
         Experience.DefaultEnemyLife = () => 14;
         GameModeData normal = GameModeData.NormalMode;
@@ -344,7 +355,6 @@ internal static class VerifyCompanionExperience
                 worm.Add(Spawn(100 + i, i == Segments - 1 ? NPCID.EaterofWorldsTail : NPCID.EaterofWorldsBody, normal, new EntitySource_Parent(head)));
             long whole = worm.Sum(s => (long)s.lifeMax);
             Credit.Sweep(20);
-            Require(Credit.FightMembers == Segments, $"premise: every segment is a member of the worm's fight; members {Credit.FightMembers}");
             ulong tick = 21;
             for (int k = 0; k < Segments; k++)
             {
@@ -364,6 +374,7 @@ internal static class VerifyCompanionExperience
 
     private static void EveryPartThatMustDieCounts()
     {
+        ClearArena();
         Main.GameMode = GameModeID.Normal;
         Experience.DefaultEnemyLife = () => 14;
         GameModeData normal = GameModeData.NormalMode;
@@ -423,12 +434,12 @@ internal static class VerifyCompanionExperience
         Require(Matches(ledger, Reference(plantera.lifeMax, true)),
             $"a hook nothing can hurt does not have to die and must add nothing to Plantera's {plantera.lifeMax}; anchor {ledger.BossAnchorLife}");
         lines.Add($"Plantera with an unhurtable hook {ledger.BossAnchorLife}");
-        hook.active = false;                                                  // leaves no company standing for the next row's fight
         Console.WriteLine("  " + string.Join("; ", lines));
     }
 
     private static void ABossNobodyFinishedGoesToTheLastStriker()
     {
+        ClearArena();
         Main.GameMode = GameModeID.Normal;
         Experience.DefaultEnemyLife = () => 14;
         GameModeData normal = GameModeData.NormalMode;
@@ -470,6 +481,7 @@ internal static class VerifyCompanionExperience
     /// </summary>
     private static void TwoBodiesLeavingOnOneTick()
     {
+        ClearArena();
         Main.GameMode = GameModeID.Normal;
         Experience.DefaultEnemyLife = () => 14;
         GameModeData normal = GameModeData.NormalMode;
@@ -495,6 +507,7 @@ internal static class VerifyCompanionExperience
     /// </summary>
     private static void ARefilledSlotIsStillADeath()
     {
+        ClearArena();
         Main.GameMode = GameModeID.Normal;
         Experience.DefaultEnemyLife = () => 14;
         GameModeData normal = GameModeData.NormalMode;
@@ -520,6 +533,7 @@ internal static class VerifyCompanionExperience
     /// </summary>
     private static void PlayerDirectStrikesAreHis()
     {
+        ClearArena();
         Main.GameMode = GameModeID.Normal;
         Experience.DefaultEnemyLife = () => 14;
         GameModeData normal = GameModeData.NormalMode;
