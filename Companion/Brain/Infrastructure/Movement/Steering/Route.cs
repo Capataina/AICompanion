@@ -49,10 +49,13 @@ public sealed class Route
     public bool OnLastSegment => Index >= Points.Count - 2;
 
     /// <summary>The route's length from the body's projection on its current segment to the goal.</summary>
-    public float RemainingLength(Vector2 from)
+    public float RemainingLength(Vector2 from) => RemainingLength(from, Index);
+
+    /// <summary>The route's length from the body's projection on segment <paramref name="index"/> to the goal, for a caller carrying its own segment.</summary>
+    public float RemainingLength(Vector2 from, int index)
     {
         if (Points.Count < 2) return 0f;
-        int i = Math.Clamp(Index, 0, Points.Count - 2);
+        int i = Math.Clamp(index, 0, Points.Count - 2);
         float length = Vector2.Distance(Project(from, Points[i], Points[i + 1]), Points[i + 1]);
         for (int j = i + 1; j < Points.Count - 1; j++) length += Vector2.Distance(Points[j], Points[j + 1]);
         return length;

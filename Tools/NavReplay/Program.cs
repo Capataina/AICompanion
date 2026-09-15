@@ -37,6 +37,9 @@ if (args.Length == 1 && args[0] == "--self-test")
         + EmitLedgerRows.Case("nav-replay", "NavReplay", "a hover anchor never pulls the body back behind a wall, and a dodge never flies it into lava",
             VerifyAnchorsAndEvade.Run,
             killedBy: "a wait anchor that outlives its goal or survives the body being carried across a wall, or an evade simulation that runs the solid contact without asking about liquid")
+        + EmitLedgerRows.Case("nav-replay", "NavReplay", "a dodge bends the job's flight only where the job's own flight would meet harm, and never presses the body into a wall",
+            VerifyEvadeKeepsTheJob.Run,
+            killedBy: "a keep test that holds one velocity in a straight line instead of flying the job's own steering, or a heading that goes nowhere scored above a stop")
         + EmitLedgerRows.Case("nav-replay", "NavReplay", "the body flies toward a goal while its search runs, and a finished search is not run again for an unchanged goal",
             VerifyNavigatorKeepsMoving.Run,
             killedBy: "a navigator that hovers until a search returns, restarts a search that hit its node limit or proved an absence, or keeps a proven absence to itself instead of handing the goal back")
