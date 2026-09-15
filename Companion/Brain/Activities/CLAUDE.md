@@ -39,7 +39,7 @@ It reads the reach sense, which floods that answer once for every tile in the re
 
 The rule is worth enforcing because breaking it costs nothing visible at the call site. A bounded search per candidate answers Unknown when it runs out of expansions; an Unknown cannot be remembered, because remembering one writes a place off on evidence that does not exist; so a caller that rations how many candidates it asks about re-asks the same nearest ones for ever, and its offer says, correctly and uselessly, that the question is not finished. On the 2026-09-14 capture that was 79% of lighting's offers, with a settled flood beside 7,003 of those rows already holding the answer.
 
-Two consequences are rulings rather than side effects. Mining and chopping ask the two-way region now instead of the one-way walker, so a vein across a drop the body cannot climb back from is refused rather than approached. And an activity's first rescores after a world change read NotYet for everywhere the flood has not grown to yet, which is the correct answer and means optional work starts a beat later than it used to.
+Two consequences are rulings rather than side effects. Mining and chopping ask the flood over free space, so a vein behind water or lava the body is not immune to is refused rather than approached, and nothing distinguishes going from coming back because an orb's flood has no one-way edge. And an activity's first rescores after a world change read NotYet for everywhere the flood has not grown to yet, which is the correct answer and means optional work starts a beat later than it used to.
 
 ## Traps
 
@@ -56,4 +56,4 @@ The intent region became the third sense, and `AllowsTarget` became its single c
 
 And a bounded search that ran out now says so. The three-valued offer vocabulary above is the same rule one layer down from the positioner's own, and it is what stopped a hunt being branded impossible on the tick a budget expired.
 
-Companionship may still walk toward the player while optional work waits on its answers, which is the behaviour to expect rather than debug for the first hundred-odd ticks after any world change.
+Companionship may still fly toward the player while optional work waits on its answers, which is the behaviour to expect rather than debug for the first hundred-odd ticks after any world change. The body became an orb on 2026-09-15 and every activity here was re-requested rather than redesigned: a work activity asks for a hover beside its tile through the shared tool-access query, collect dips to the drop, and nothing under this tree asks for a jump, a stand or a take-off any more.

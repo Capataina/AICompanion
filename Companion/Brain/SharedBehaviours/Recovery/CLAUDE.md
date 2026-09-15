@@ -1,6 +1,6 @@
 # Recovery — distant flight home
 
-Visible catch-up outside navigation. Flight ignores terrain until a clear landing near the owner exists. It supplies velocity to the sole motor, never a route edge, so waiting or flying cannot enter the executed-route archive. No teleport. Recovery is an explicit coordinator branch, not a movement ability — the unbuilt mastery tree may add movement methods like flight, but those would be methods the activities invoke, not a system that owns the feet at coordinator level.
+Visible catch-up outside navigation. Flight phases through terrain until a clear position near the owner exists, which is the one exception to the orb's contact. It supplies velocity to the sole motor, never a route, so nothing it does is counted as a navigator attempt. No teleport. Recovery is an explicit coordinator branch, not a movement ability — the unbuilt mastery tree may add movement methods like flight, but those would be methods the activities invoke, not a system that owns the feet at coordinator level.
 
 ```
 Recovery/
@@ -8,7 +8,7 @@ Recovery/
 └─ RecoverDistantCompanion.cs
 ```
 
-Guarding, hunting, collecting and work destinations do not grant recovery even when their coordinates equal the player's. Flight ends near the owner only with a clear body, cancels on downing or owner death, and never becomes a traversal or archive entry. Independent weapon targeting continues while the feet fly.
+Guarding, hunting, collecting and work destinations do not grant recovery even when their coordinates equal the player's. Flight ends near the owner only with a clear body, cancels on downing or owner death, and a body cancelled inside rock is ejected to the last clear position by the motor before ordinary contact resumes. Independent weapon targeting continues while the feet fly.
 
 ## Traps
 

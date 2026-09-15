@@ -47,7 +47,7 @@ Both senses answer in three values rather than two, and the middle one is the re
 ```
 AICompanion/
 ├─ Companion/                the complete companion gameplay subsystem
-│  ├─ CharacterBody/         NPC lifecycle, rendering and breath
+│  ├─ CharacterBody/         the orb NPC's lifecycle, its drawing, the liquid hurts and the stand-in hostiles aim at
 │  ├─ EnemyIntegration/      hostile targeting bridge and spawn-rate adjustment
 │  ├─ Brain/                 observe, choose, request movement
 │  │  ├─ Activities/         the seven jobs and their shared contract
@@ -62,12 +62,11 @@ AICompanion/
 │  │     ├─ Selection/      utility scoring and the behaviour tunables
 │  │     ├─ Position/       position requests and candidate scoring
 │  │     ├─ Movement/       travel, avoidance and the motor
-│  │     │  ├─ RoutePlanning/      the tile graph and its A* search
-│  │     │  ├─ MovementExecution/  the navigator, traversals and guards
-│  │     │  ├─ MovementAbilities/  which moves the body is allowed to offer
-│  │     │  ├─ BodySimulation/     the portable body and its physics
-│  │     │  ├─ TerrainModel/       the tile world every search reads
-│  │     │  └─ TerrariaIntegration/ the engine adapter outside the portable core
+│  │     │  ├─ Contact/            the circle-against-tiles contact, the one body the orb has
+│  │     │  ├─ FreeSpace/          what is free for the orb, the clearance field, the corner graph and the resumable search
+│  │     │  ├─ Steering/           the body's state and controls, the route, the steering law, the navigator and the census
+│  │     │  ├─ TerrainModel/       the tile world every search reads, and the record of where it was edited
+│  │     │  └─ TerrariaIntegration/ the live tile reader, the edit announcements and the motor, outside the game-free core
 │  │     ├─ Interactions/   chop, mine, torch, doors, homes
 │  │     │  ├─ Chopping/          trees and their trunks
 │  │     │  ├─ Mining/            ore tiles through the game's own PickTile
@@ -87,7 +86,7 @@ AICompanion/
 │  └─ HeadsUpDisplay/        player-facing health notch
 ├─ Localization/             display strings
 ├─ Tools/                    headless replay, report, reshape and verification tools
-│  ├─ NavReplay/             portable route replay and movement contract tests
+│  ├─ NavReplay/             the game-free movement core's contract rows, and the scenario extractor
 │  ├─ EngineReplay/          native fixtures, in folders by what they ask
 │  │  ├─ Combat/             guarding, hunting, firing and encounter context
 │  │  ├─ Gathering/          ore and tree work, and work accounting
@@ -98,6 +97,7 @@ AICompanion/
 │  ├─ SessionReport/         chronological reader
 │  │  ├─ Read/               the chronicle and the god's-eye events
 │  │  ├─ Checks/             the findings graded against the record
+│  │  ├─ Measures/           the play measures the self-test pins against a real capture
 │  │  ├─ Write/              the rendered report
 │  │  └─ Tests/              the reader's own self-test
 │  ├─ Ledger/                the committed run record every instrument files rows into, and the scoreboard against the last clean ancestor
@@ -160,7 +160,7 @@ Read a playtest with `dotnet run --project Tools/SessionReport -- Telemetry`; re
 ## Traps
 
 - **The shell build says "Build succeeded" in under two seconds.** That is real; check the DLL timestamp before trusting it. `Tools/verify.sh` already checks this for you — it refuses a DLL older than any source file feeding it — so the trap bites hardest when building by hand.
-- **`sh Tools/verify.sh` is not reliably green under load, and a single green run is not evidence that it is.** Measured 2026-09-14 on this machine at effd5e9, five consecutive runs with a droid fleet building in the same checkout: three exited 0, two exited 1, both on `VerifyOreWork.RaisedLipsAtBothGravitiesProduceWork` at `Tools/EngineReplay/Gathering/VerifyOreWork.cs`, "raised lip must produce a native ore break", the `mirrored=True, mode=HeldActivity` case at floor 90 on one run and floor 60 on the other. Five runs at 1554e0b with the machine idle were all green. Later the same day, with a second android building the same suite concurrently, the reach-sense lane saw 13 of 15 runs red on the same fixture, every failure identical (`floor=60, mirrored=True, mode=HeldActivity, miningTicks=15, action=<empty>`), and checking out the commit before its own first change reproduced the failure identically, which is the cheap control: **before reading a red on this fixture as yours, run the suite at the parent of your first commit.** The load hypothesis (wall-clock planning deadlines expiring) is AIC-249's; it is not settled. The practical consequence when reading or writing a commit body: a citation of "verify.sh exits 0" after one run under load confirms much less than it implies, and a red on this fixture alone is probably not yours. Anything depending on this suite needs a batch of runs sized to how rarely the flake fires, taken idle.
+- **`sh Tools/verify.sh` is not reliably green under load, and a single green run is not evidence that it is.** Measured 2026-09-14 on this machine at effd5e9, five consecutive runs with a droid fleet building in the same checkout: three exited 0, two exited 1, both on `VerifyOreWork.RaisedLipsAtBothGravitiesProduceWork` at `Tools/EngineReplay/Gathering/VerifyOreWork.cs`, "raised lip must produce a native ore break", the `mirrored=True, mode=HeldActivity` case at floor 90 on one run and floor 60 on the other. Five runs at 1554e0b with the machine idle were all green. Later the same day, with a second android building the same suite concurrently, the reach-sense lane saw 13 of 15 runs red on the same fixture, every failure identical (`floor=60, mirrored=True, mode=HeldActivity, miningTicks=15, action=<empty>`), and checking out the commit before its own first change reproduced the failure identically, which is the cheap control: **before reading a red on this fixture as yours, run the suite at the parent of your first commit.** The load hypothesis (wall-clock planning deadlines expiring) is AIC-249's; it is not settled. The practical consequence when reading or writing a commit body: a citation of "verify.sh exits 0" after one run under load confirms much less than it implies, and a red on this fixture alone is probably not yours. Anything depending on this suite needs a batch of runs sized to how rarely the flake fires, taken idle. **The row that flaked no longer exists**: `RaisedLipsAtBothGravitiesProduceWork` was one of the walker's gravity rows and went with the body on 2026-09-15, so the signature above cannot recur on it and the load hypothesis is untested rather than settled; the per-case reset that rebuilds the tile map (`Tools/EngineReplay/ResetProcessState.cs`) removed the one order dependence the rebuild did find, which was terrain rather than time.
 
   **The suite no longer lets the wall clock decide any of this, and the flake did not fire either side of that change.** Every case now runs with the millisecond allowances lifted, so the planning deadline cannot depend on how busy the machine was; the rows that are about a deadline hold the clock deliberately and say so in their recorded mode. Paired batches of ten through `Tools/measure-flake.sh`, on 2026-09-14 at `1a64ef0` with two other lanes building throughout: **10 of 10 green before the lift at load 2.74, and 10 of 10 green after it at load 3.58**, the second batch's rows recording `mode: in-suite; unbounded-allowances`. That settles nothing about the load hypothesis in either direction, and saying so is the point — ten green runs bound the failure rate only below 27.8 percent, which cannot tell a fixture that fails one run in four from one that never fails. The plan's pass line, thirty runs on an idle machine, was taken later that evening at `ca69344` with one dotnet process running: **30 of 30 green, failure bounded below 11.4 percent** (`Tools/Ledger/runs/ca69344-20260914-193027.jsonl`). That is a bound and not a cause. **Do not read "the allowances are lifted now" as "the flake is fixed": it was never observed firing under the lifted regime because it was never observed firing at all this session, so the batch cannot tell a flake the lift removed from one that was always rarer than a tenth.**
 
@@ -170,17 +170,15 @@ Read a playtest with `dotnet run --project Tools/SessionReport -- Telemetry`; re
 - **The key left of 1 can never reach the mod on a Mac ISO keyboard.** FNA logs `KEY/SCANCODE MISSING FROM SDL2->XNA DICTIONARY: SDL_SCANCODE_GRAVE` and drops the press before it becomes a key, so no keybind and no raw-key fallback sees it; a whole playtest on 2026-09-08 produced zero key lines. The overlay default is the left square bracket.
 - **A saved keybind outranks its registered default.** The inspector honours the user's Mod Controls binding and has no hidden raw-key overrides. If an older saved binding names a key FNA drops, rebind it in Controls; changing the registration default cannot repair that saved value. Input for the inspector and the opening health-notch press is consumed before item use.
 - **`WorldGen.GetTreeBottom` returns the ground tile under the trunk, not the lowest trunk tile.** Use `TreeFinder.TrunkBottom`.
-- **The player renderer draws the held item from `lastVisualizedSelectedItem`**, which only `Player.Update` sets; `CompanionBody.Sync` assigns it by hand.
-- **The player renderer expects a closed sprite batch**; `CompanionNPC.PreDraw` closes and reopens the NPC batch around it.
 - **`Main.DrawTileCracks` adds `offScreenRange`** unless `drawToScreen`; `TileCracksRenderer` cancels it.
 - **`CheckActive` returns false**, so the companion is never culled for distance.
 - **The health bar draws in raw screen pixels** because `Main.mouseX/Y` are screen pixels.
-- **The engine-only `moved` column cannot see our AI-phase position writes.** The separate AI-entry observation captures the resulting position on the next tick. `oldPosition = position` is assigned inside the engine's `Collision_MoveWhileDry` immediately before `position += velocity`, so the telemetry's `moved` column spans the engine's own move and nothing our brain, motor or a `Collision.*` helper did beforehand. `Collision.StepUp` writes position by reference and never touches `velocity.Y`, and calling it with `holdsMatching: true` on every tick of a descent made the companion climb the platform it was falling through for 265 ticks while reading as a body with a large velocity, no collision and no movement. The general rule: a reused game helper that takes a "the player is holding this" flag needs that flag computed per tick from the same intent a vanilla NPC computes it from, never hard-coded — the town NPC recomputes it from whether it is above its home, the fighter from whether its target is below. The `pinned` column exists to catch the whole class without knowing which writer it is.
+- **The engine-only `moved` column cannot see our AI-phase position writes.** `oldPosition = position` is assigned inside the engine immediately before `position += velocity`, so the telemetry's `moved` column spans the engine's own move and nothing our brain or motor wrote to `npc.position` beforehand — the walker's step-up helper once lifted the body back onto a platform it was descending for 265 ticks while reading as a body with a large velocity, no collision and no movement. The general rule: a reused game helper that takes a "the player is holding this" flag needs that flag computed per tick from the same intent a vanilla NPC computes it from, never hard-coded. The `pinned` column exists to catch the whole class without knowing which writer it is.
 - **A tile that "has a solid tile" is not a wall.** Worldgen smooths cave corners into slopes and half blocks, the game's collision skips a slope from its open side and rests the body on its diagonal, and the fourth run of 2026-09-08 parked the companion for six thousand ticks above a staircase of five such slopes that the grid drew as `#`. Every tile question goes through `ITileWorld.Shape`, never `tileSolid` alone.
 
 ## What a reader will get wrong here
 
-- **The two bodies are the point of failure, not a curiosity.** The real NPC and the live prediction use Terraria collision, while portable replay uses a shape approximation. Shared controls alone do not prove the two backends agree. Reading either one as "the" body is how a fix gets built for the half that was not broken; a divergence measurement runs every tick precisely because this keeps happening.
+- **There is one body now, and a reader who remembers two will look for a divergence that cannot exist.** The walker had a real NPC under Terraria's collision beside a portable prediction under a shape approximation, and every second defect lived in the gap between them. The orb's contact is the mod's own circle-against-tiles test, run by the motor in the game and by every headless tool from the same source, with the engine's collision switched off for it; what a headless row proves is a property of the body the game moves, and the native suite adds only that the contact reads Terraria's tiles correctly.
 - **The stand-in player in `Main.player` is not the companion.** It is a drawing-and-targeting device that is only active inside a hostile's AI call. Damage, life and death all belong to the NPC.
 - **The mod's version in `build.txt` moves with the work and is not a release signal.** Nothing here has shipped to anyone.
 - **A number in any of these folder files is either a fact of the world or a dated measurement.** The behaviour tunables are the `Weights` class in `Companion/Brain/Infrastructure/Selection/BehaviourWeights.cs` — the class and the file are not named the same thing, which is worth knowing before searching for `Weights.cs`, because there is no such file. A threshold quoted in prose anywhere else is a documentation defect rather than the current value.

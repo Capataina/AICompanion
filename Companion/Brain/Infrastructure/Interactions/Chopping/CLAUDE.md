@@ -15,7 +15,7 @@ The next-trunk completion estimate and the actual hit share one axe-damage funct
 
 Discovery accepts the work action's target-admission predicate. Radius and home protection classify the trunk bottom, while the standing spot remains a movement destination: choosing the other side of a trunk must not change whether the tree is allowed. Final swings recheck home protection before damaging any tile.
 
-TreeFinder separates the search origin from the companion's actual feet. It deduplicates trunk bottoms and applies resource admission before asking the shared tool query for actual access or a reachable working pose. Searching near the player cannot assume the companion starts there. Unknown or sealed approaches yield to other candidates; distance ranks the resource rather than a preferred side of its trunk.
+TreeFinder separates the search origin from the companion's own centre. It deduplicates trunk bottoms and applies resource admission before asking the shared tool query for actual access or a reachable hover. Searching near the player cannot assume the companion starts there. Unknown or sealed approaches yield to other candidates; distance ranks the resource rather than a preferred side of its trunk.
 
 `TreeFinder.FindNearest` never searches within ten tiles of the world edge. A tree planted near the edge of a small test world is therefore invisible to discovery, and a fixture built that way reads as a valuation or cooperation failure rather than as a tree the finder never saw.
 
