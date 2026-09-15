@@ -140,8 +140,12 @@ internal static class VerifyCombatActorMatrix
             float margin = 1f - tankBlocked.Guard / tankClear.Guard;
             float expectedMargin = tankBlocked.GuardAccessTicks / (tankBlocked.Removal + tankBlocked.GuardAccessTicks);
             Console.WriteLine($"  actor matrix guard {actor}: blocked guard {tankBlocked.Guard:0.0000} below clear {tankClear.Guard:0.0000} by {margin:P2}; access/(access+removal) {expectedMargin:P2}");
-            Require(tankBlocked.Guard < tankClear.Guard && margin >= 0.02f && MathF.Abs(margin - expectedMargin) < 1e-3f,
-                $"{actor} guard pair: a threat the companion must walk around the pillar to shoot must be worth less protection than the same threat it can shoot now, by the walk's part of access plus removal (at least 2%); clear={tankClear.Guard}, blocked={tankBlocked.Guard}, margin={margin}, expected={expectedMargin}");
+            // The floor on the margin is a premise, not the property: it keeps the equality below from comparing two
+            // numbers inside its own tolerance. It is ten times that tolerance rather than a fixed percentage, because the
+            // walk's share shrinks as the body gets faster — at three times the player's speed it measured 1.76%, where a
+            // 2% floor set at twice his speed failed a pair whose relationship still held exactly.
+            Require(tankBlocked.Guard < tankClear.Guard && margin >= 10f * 1e-3f && MathF.Abs(margin - expectedMargin) < 1e-3f,
+                $"{actor} guard pair: a threat the companion must walk around the pillar to shoot must be worth less protection than the same threat it can shoot now, by exactly the walk's part of access plus removal; clear={tankClear.Guard}, blocked={tankBlocked.Guard}, margin={margin}, expected={expectedMargin}");
         }
     }
 

@@ -112,8 +112,11 @@ internal static class VerifyOreWork
         // 800 is the veto scene rather than another gradient scene: it is the first measured separation at
         // which the ore has left the work radius, and it is carried here so the emptiness of the band is a
         // row rather than a claim in a comment.
-        const int VetoSeparation = 800;
-        foreach (int separation in new[] { 480, 576, 640, VetoSeparation })
+        // Since 15 September 2026 the work radius is 1000 px rather than 1120, so the ore leaves it between 576 and 640
+        // rather than between 640 and 800: 640 is the first measured separation outside, and the three gradient scenes sit
+        // inside at 400, 480 and 576. The table above was measured at the old radius and is kept for its shape.
+        const int VetoSeparation = 640;
+        foreach (int separation in new[] { 400, 480, 576, VetoSeparation })
         foreach (bool nearlyDone in new[] { false, true })
         {
             Point ore = new(25, 89);

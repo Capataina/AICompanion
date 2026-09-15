@@ -518,7 +518,12 @@ internal static class VerifyResponsiveFollowing
             Require(arm.Arrived, $"reunion must complete through the production brain; {both}");
         }
         foreach (var arm in arms)
-            Require(arm.Decision == "meeting-ahead-priced" && arm.AnchorX > arm.PlayerX + 8 * 16,
+            // "Ahead" is held to more than the player's own body plus a tile rather than to a fixed eight tiles, because the
+            // meeting place is the soonest point on his journey the companion's routes reach, and a faster body reaches it
+            // sooner and so nearer him: at twice his speed the anchors read +21.6 and +16.0 tiles, at three times +10.6 and
+            // +5.0 (15 September 2026). The decision reason is what tells this from the player-position fallback; the lead
+            // only refuses an "ahead" anchor standing at his feet.
+            Require(arm.Decision == "meeting-ahead-priced" && arm.AnchorX > arm.PlayerX + 3 * 16,
                 $"a travelling player must be met on the journey ahead of him; {both}");
         // DELETED: the directional half of this pair, which required the gap-ahead arm to set off forwards by
         // more than three tiles in its first sixty ticks and the cliff arm to set off backwards by more than
