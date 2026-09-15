@@ -31,7 +31,8 @@ public sealed class ShowMiningList : UIElement, ICardPage
     public const int Columns = 8;
     public const float GridWidth = Columns * CardRegions.SlotPitch - (CardRegions.SlotPitch - CardRegions.Slot);
     public const float ScrollbarLeft = GridWidth + 4, ScrollbarWidth = 20, PreviewLeft = ScrollbarLeft + ScrollbarWidth + 20;
-    public const float PreviewPadding = 12, PreviewSwatch = 96;
+    /// <summary>The preview is the mock's <c>#orepanel</c>: the swatch, the name and the verdict, and no taller than they need, while the grid keeps the page's height.</summary>
+    public const float PreviewPadding = 12, PreviewSwatch = 96, PreviewHeight = 214;
 
     private static readonly Color WillMine = new(102, 221, 116), WillLeave = new(255, 107, 107);
 
@@ -62,7 +63,7 @@ public sealed class ShowMiningList : UIElement, ICardPage
         scrollbar.Left.Set(ScrollbarLeft, 0); scrollbar.Width.Set(ScrollbarWidth, 0); scrollbar.Height.Set(0, 1f);
         Append(scrollbar);
         preview = new Preview(this) { BackgroundColor = DrawCardPrimitives.Panel, BorderColor = DrawCardPrimitives.Edge };
-        preview.Left.Set(PreviewLeft, 0); preview.Width.Set(-PreviewLeft, 1f); preview.Height.Set(0, 1f);
+        preview.Left.Set(PreviewLeft, 0); preview.Width.Set(-PreviewLeft, 1f); preview.Height.Set(PreviewHeight, 0);
         Append(preview);
     }
 

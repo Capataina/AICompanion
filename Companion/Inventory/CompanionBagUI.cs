@@ -62,15 +62,13 @@ public sealed class CompanionBagUI : UIState, ICardPage
         var companionPlayer = Main.LocalPlayer.GetModPlayer<PlayerIntegration.CompanionPlayer>();
         bag = companionPlayer.Bag;
         gear = companionPlayer.Gear;
-        int total = GearBoxes[0].Length + GearBoxes[1].Length;
-        float gap = CardRegions.Rhythm;
-        // Each box's width follows its slot count, so the slots sit at the same even spacing in both; the second box starts
-        // one rhythm after the first and ends on the page's edge.
+        // The gear row spans exactly what the bag below it spans, the grid's left edge to the scrollbar's right edge, as the
+        // mock lays it out; with two weapon slots and two tools the two boxes are equal, one rhythm apart.
+        float boxWidth = (ScrollbarLeft + ScrollbarWidth - GridLeft - CardRegions.Rhythm) / 2;
         var weapons = new GearBox(this, GearBoxes[0]);
-        weapons.Width.Set(-gap * GearBoxes[0].Length / total, (float)GearBoxes[0].Length / total); weapons.Height.Set(GearBoxHeight, 0);
+        weapons.Left.Set(GridLeft, 0); weapons.Width.Set(boxWidth, 0); weapons.Height.Set(GearBoxHeight, 0);
         var tools = new GearBox(this, GearBoxes[1]);
-        tools.Left.Set(gap * GearBoxes[1].Length / total, (float)GearBoxes[0].Length / total);
-        tools.Width.Set(-gap * GearBoxes[1].Length / total, (float)GearBoxes[1].Length / total); tools.Height.Set(GearBoxHeight, 0);
+        tools.Left.Set(GridLeft + boxWidth + CardRegions.Rhythm, 0); tools.Width.Set(boxWidth, 0); tools.Height.Set(GearBoxHeight, 0);
         Boxes[0] = weapons; Boxes[1] = tools;
         Append(weapons); Append(tools);
         viewport = new UIElement { OverflowHidden = true };
@@ -86,6 +84,8 @@ public sealed class CompanionBagUI : UIState, ICardPage
         foreach (var slot in slots) grid.Append(slot);
     }
 
+    /// <summary>The bottom line's count, what the page draws on the right: occupied slots against the bag's size.</summary>
+    public string CountLine => $"{bag.Count} / {CompanionInventory.Slots}";
     public UIElement Grid => grid;
     public UIElement Viewport => viewport;
     public UIScrollbar Scrollbar => scrollbar;
@@ -136,7 +136,7 @@ public sealed class CompanionBagUI : UIState, ICardPage
     {
         Rectangle r = GetDimensions().ToRectangle();
         int footerY = r.Bottom - (int)FooterHeight;
-        string count = $"{bag.Count} / {CompanionInventory.Slots}";
+        string count = CountLine;
         Vector2 countSize = FontAssets.MouseText.Value.MeasureString(count) * .8f;
         DrawCardPrimitives.Text(sb, count, new Vector2(r.Right - GridLeft - countSize.X, footerY + 3), DrawCardPrimitives.Muted, .8f);
         string last = message.Length > 0 ? message : bag.LastPickup ?? "";

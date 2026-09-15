@@ -17,8 +17,12 @@ namespace AICompanion.Companion.Inventory;
 /// </summary>
 public sealed class CompanionInventory
 {
-    /// <summary>The player's main inventory is 50 slots; the bag is double.</summary>
-    public const int Slots = 100;
+    /// <summary>
+    /// The bag's base size, by the owner's ruling of 15 September 2026, which the mastery tree's Bag space levels would take
+    /// to 200. A save records each item by its slot index, so a bag saved when this was 100 loads every item into its own
+    /// slot and the new slots empty; lowering this would drop the items saved past the new end.
+    /// </summary>
+    public const int Slots = 120;
     private const int PlayerMainSlots = 50;
 
     public readonly Item[] Items = new Item[Slots];

@@ -34,6 +34,16 @@ public sealed class JoinedSegments : UIElement
 
     public IReadOnlyList<UIElement> Segments => segments;
     public string Label(int index) => labels[index];
+    /// <summary>The segment under the pointer, or null; a display bar reports it too, so a panel can say what that segment means.</summary>
+    public int? HoveredIndex
+    {
+        get
+        {
+            for (int i = 0; i < segments.Count; i++)
+                if (segments[i].IsMouseHovering) return i;
+            return null;
+        }
+    }
     public bool IsSelected(int index) => selected(index);
 
     /// <param name="choose">What a click on a segment does; null draws a display that takes no clicks.</param>

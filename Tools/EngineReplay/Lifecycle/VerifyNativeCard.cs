@@ -60,12 +60,16 @@ internal static class VerifyNativeCard
     }
 
     /// <summary>A press on a title-bar button never drags the card; a press on the bar itself does.</summary>
-    public static void TitleBarDragGuard(UIState card, UIElement frame, UIElement title, string suffix)
+    public static void TitleBarDragGuard(UIState card, UIElement frame, UIElement title, string suffix, bool dragBar)
     {
         Rectangle before = frame.GetDimensions().ToRectangle();
         var close = (UIElement)Field(card, "close");
         var back = (UIElement)Field(card, "back");
-        foreach (UIElement button in new[] { back, close })
+        // Every button the title bar carries right now: close alone on the overview, and on a page back and the page's
+        // actions too.
+        UIElement[] buttons = title.Children.OfType<UITextPanel<string>>().ToArray<UIElement>();
+        Require(buttons.Contains(close) && buttons.Contains(back) == (back.Parent == title), $"{suffix}: premise: the drag guard presses every title-bar button");
+        foreach (UIElement button in buttons)
         {
             Vector2 press = button.GetDimensions().Center();
             Main.mouseX = (int)press.X; Main.mouseY = (int)press.Y; Main.mouseLeft = true;
@@ -73,6 +77,12 @@ internal static class VerifyNativeCard
             Main.mouseX += 40; Main.mouseY += 25; card.Update(new GameTime());
             Main.mouseLeft = false; title.LeftMouseUp(new UIMouseEvent(button, Main.MouseScreen)); card.Update(new GameTime());
             Require(frame.GetDimensions().ToRectangle().Location == before.Location, $"{suffix}: a press on a title-bar button dragged the card");
+        }
+        if (!dragBar)
+        {
+            Main.mouseX = Main.mouseY = -100;
+            Console.WriteLine($"title bar {suffix}: presses on {buttons.Length} page title-bar buttons, back included, never drag");
+            return;
         }
         Vector2 bar = title.GetDimensions().Position() + new Vector2(300, 10);
         Main.mouseX = (int)bar.X; Main.mouseY = (int)bar.Y; Main.mouseLeft = true;
@@ -82,7 +92,7 @@ internal static class VerifyNativeCard
         Rectangle moved = frame.GetDimensions().ToRectangle();
         Require(moved.X != before.X || moved.Y != before.Y, $"{suffix}: dragging the title bar itself did not move the card");
         Main.mouseX = Main.mouseY = -100;
-        Console.WriteLine($"title bar {suffix}: presses on back and close never drag, a press on the bar moves the card {moved.X - before.X},{moved.Y - before.Y}");
+        Console.WriteLine($"title bar {suffix}: a press on close never drags, a press on the bar moves the card {moved.X - before.X},{moved.Y - before.Y}");
     }
 
     /// <summary>
@@ -354,12 +364,65 @@ internal static class VerifyNativeCard
         tree.Pick(thirdSlot); Click(tree.LearnButton);
         Require(tree.Level(thirdSlot) == 1, "once its need is learned, the third weapon slot must take a level");
         tree.Pick(0); Click(tree.LearnButton);
-        Require(tree.Level(0) == 2 && tree.LevelBar!.Segments.Count == 3 && Enumerable.Range(0, 3).Count(i => tree.LevelBar.IsSelected(i)) == 2,
-            "Damage must show three level segments with its two learned levels selected");
+        Require(tree.Level(0) == 2 && tree.LevelBar!.Segments.Count == 5 && Enumerable.Range(0, 5).Count(i => tree.LevelBar.IsSelected(i)) == 2,
+            "Damage, a circle, must show five level segments with its two learned levels selected");
         Require(!tree.LevelBar.Segments.Any(segment => segment.GetType().GetField("OnLeftClick", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)?.GetValue(segment) != null),
             "the level bar is a display and must take no clicks");
+        MasteryLevelLines(tree);
         Main.mouseX = Main.mouseY = -100;
         Console.WriteLine("mastery interaction: zoom and reset, pick keeps the view, background click unpicks, drag pans, Learn follows edges and needs");
+    }
+
+    /// <summary>
+    /// A node whose levels step unevenly says one line at a time: the next level's line, the last once full, and a hovered
+    /// segment's own line until the pointer leaves it, which the segments are told through their real mouse-over and
+    /// mouse-out. An even node's line never changes under hover. Five-level bars are numbered and three-level bars say
+    /// "Level N". Leaves Piercing at level 2 of 5 for the render.
+    /// </summary>
+    private static void MasteryLevelLines(Mastery tree)
+    {
+        const int piercing = 3, extraProjectile = 4, secondSlot = 2, damage = 0;
+        int bagSpace = Array.FindIndex(Graph.Nodes, n => n.Content.Name == "Bag space");
+        string[] Lines(int node) => Graph.Nodes[node].Content.LevelLines!;
+        void Hover(int segment) { UIElement s = tree.LevelBar!.Segments[segment]; s.MouseOver(new UIMouseEvent(s, s.GetDimensions().Center())); }
+        void Leave(int segment) { UIElement s = tree.LevelBar!.Segments[segment]; s.MouseOut(new UIMouseEvent(s, s.GetDimensions().Center())); }
+        string[] Labels() => Enumerable.Range(0, tree.LevelBar!.Segments.Count).Select(tree.LevelBar.Label).ToArray();
+
+        tree.Pick(piercing);
+        Require(tree.Level(piercing) == 1 && Lines(piercing).Length == 5, "premise: Piercing is at level 1 of 5");
+        Require(Labels().SequenceEqual(new[] { "1", "2", "3", "4", "5" }), $"a five-level bar must be numbered 1 to 5; it reads [{string.Join(", ", Labels())}]");
+        Require(tree.EffectLine == Lines(piercing)[1], $"Piercing at level 1 must say its second level's line; it says '{tree.EffectLine}'");
+        foreach (int segment in new[] { 0, 4 })
+        {
+            Hover(segment);
+            Require(tree.EffectLine == Lines(piercing)[segment], $"hovering Piercing's segment {segment + 1} must say that level's line '{Lines(piercing)[segment]}'; it says '{tree.EffectLine}'");
+            Leave(segment);
+            Require(tree.EffectLine == Lines(piercing)[1], $"leaving Piercing's segment {segment + 1} must restore the next level's line; it says '{tree.EffectLine}'");
+        }
+        Click(tree.LearnButton);
+        Require(tree.Level(piercing) == 2 && tree.EffectLine == Lines(piercing)[2], $"Piercing at level 2 must say its third level's line; it says '{tree.EffectLine}'");
+
+        tree.Pick(extraProjectile);
+        for (int i = 0; i < 5; i++) Click(tree.LearnButton);
+        Require(tree.Level(extraProjectile) == 5 && !tree.CanLearn(extraProjectile), "premise: Extra projectile learns to its fifth and last level");
+        Require(tree.EffectLine == Lines(extraProjectile)[4], $"a full uneven node must say its last line; Extra projectile says '{tree.EffectLine}'");
+
+        tree.Pick(bagSpace);
+        Require(Labels().SequenceEqual(new[] { "Level 1", "Level 2", "Level 3" }), $"a three-level bar must say Level 1 to Level 3; Bag space reads [{string.Join(", ", Labels())}]");
+        Require(tree.Level(bagSpace) == 0 && tree.EffectLine == Lines(bagSpace)[0], $"unlearned Bag space must say its first line; it says '{tree.EffectLine}'");
+
+        tree.Pick(secondSlot);
+        Require(Labels().SequenceEqual(new[] { "Level 1" }), $"a weapon slot's bar must be one segment, Level 1; it reads [{string.Join(", ", Labels())}]");
+
+        tree.Pick(damage);
+        string effect = Graph.Nodes[damage].Content.Effect;
+        Hover(1);
+        Require(tree.EffectLine == effect, $"hovering an even node's segment must leave its per-level effect; Damage says '{tree.EffectLine}'");
+        Leave(1);
+        Require(tree.EffectLine == effect, "an even node must say its per-level effect");
+
+        tree.Pick(piercing);
+        Console.WriteLine($"mastery level lines: Piercing says each next level's line and a hovered segment's own, a full Extra projectile says its last, five-level bars are numbered and Bag space's three say Level N");
     }
 
     /// <summary>The flat tree's structure and learning rule, with no graphics: the default suite runs this.</summary>
@@ -369,7 +432,20 @@ internal static class VerifyNativeCard
         Require(Graph.Roles == 10 && Graph.Nodes.Length == 4 * 10 + 4, $"four ten-node lanes and four shared circles; got {Graph.Nodes.Length} nodes");
         Require(Graph.DiamondRoles.SequenceEqual(new[] { 2, 5, 8 }), "diamonds at the left of the first split rank, the right of the second, and the meeting");
         for (int i = 0; i < Graph.FirstShared; i++)
-            Require((Graph.Nodes[i].Kind == Graph.NodeKind.Unlock) == Graph.DiamondRoles.Contains(i % Graph.Roles), $"node {i} is not the kind its role says");
+            Require((Graph.Nodes[i].Kind == Graph.NodeKind.Diamond) == Graph.DiamondRoles.Contains(i % Graph.Roles), $"node {i} is not the kind its role says");
+
+        // The owner's rank rule: a levelling circle has five levels, a levelling diamond three, a weapon slot one. An uneven
+        // node carries exactly one line per level, and only the three the owner named step unevenly.
+        foreach (var node in Graph.Nodes)
+        {
+            int ranks = Graph.IsWeaponSlot(node) ? 1 : node.Kind == Graph.NodeKind.Diamond ? 3 : 5;
+            Require(node.Content.Levels == ranks, $"{node.Content.Name} takes {node.Content.Levels} levels; a {(Graph.IsWeaponSlot(node) ? "weapon slot" : node.Kind.ToString().ToLowerInvariant())} takes {ranks}");
+            if (node.Content.LevelLines is { } lines)
+                Require(lines.Length == node.Content.Levels && lines.All(line => line.Length > 0), $"{node.Content.Name} has {lines.Length} level lines for {node.Content.Levels} levels");
+        }
+        var uneven = Graph.Nodes.Where(n => n.Content.LevelLines != null).Select(n => n.Content.Name).ToArray();
+        Require(uneven.SequenceEqual(new[] { "Piercing", "Extra projectile", "Bag space" }), $"the uneven nodes are Piercing, Extra projectile and Bag space; got [{string.Join(", ", uneven)}]");
+        int compared = RequireTheMocksNodes();
         Require(Graph.Edges.Length == 4 * 11 + 4 * 2, $"eleven edges per lane and two into each shared circle; got {Graph.Edges.Length}");
         for (int j = 0; j < 4; j++)
         {
@@ -404,7 +480,53 @@ internal static class VerifyNativeCard
         Array.Clear(levels);
         levels[(1 + 1) * Graph.Roles + 3] = 1;
         Require(Graph.CanLearn(levels, Graph.FirstShared + 1), "a shared circle also opens from the next lane's other first-rank node");
-        Console.WriteLine($"mastery rules: {Graph.Nodes.Length} nodes, {Graph.Edges.Length} edges, nearest pair {Graph.NearestPair:0} units against {2 * Graph.NodeRadius}, edges and needs govern learning");
+        Console.WriteLine($"mastery rules: {Graph.Nodes.Length} nodes, {Graph.Edges.Length} edges, nearest pair {Graph.NearestPair:0} units against {2 * Graph.NodeRadius}, "
+            + $"circles 5 levels, levelling diamonds 3, weapon slots 1, {uneven.Length} uneven nodes with a line per level, {compared} nodes equal to the mock's LANES and JUNCTIONS, edges and needs govern learning");
         return 0;
+    }
+
+    /// <summary>
+    /// The port is the mock's, read from the mock itself: every node call in <c>LANES</c> then <c>JUNCTIONS</c>, in order,
+    /// must match the native node at that index in name, level count (C five, D three, A one), effect, needs and, for an
+    /// <c>L(...)</c> node, its lines. Returns how many nodes were compared.
+    /// </summary>
+    private static int RequireTheMocksNodes()
+    {
+        string? mock = null;
+        foreach (string start in new[] { Directory.GetCurrentDirectory(), AppContext.BaseDirectory })
+            for (var dir = new DirectoryInfo(start); dir != null && mock == null; dir = dir.Parent)
+            {
+                string candidate = Path.Combine(dir.FullName, "InterfaceExperiments", "companion-card.html");
+                if (File.Exists(candidate)) mock = candidate;
+            }
+        Require(mock != null, "the agreed mock InterfaceExperiments/companion-card.html must be found above the working directory");
+        string html = File.ReadAllText(mock!);
+        int from = html.IndexOf("const LANES = [", StringComparison.Ordinal), to = html.IndexOf("const COLORS", StringComparison.Ordinal);
+        Require(from >= 0 && to > from, "the mock must carry LANES and JUNCTIONS before COLORS");
+        string data = html[from..to];
+        const string quoted = @"'((?:[^'\\]|\\.)*)'";
+        const string argument = @"(?:'(?:[^'\\]|\\.)*'|[A-Z_]+)";
+        string Unescape(string s) => s.Replace("\\'", "'");
+        var calls = System.Text.RegularExpressions.Regex.Matches(data,
+            $@"\b([CDA])\({quoted},\s*{quoted},\s*{argument},\s*{argument}(?:,\s*\[([\d,\s]*)\])?\)");
+        var lineBlocks = System.Text.RegularExpressions.Regex.Matches(data, $@"\),\s*\[((?:\s*{quoted},?)+)\s*\]\)");
+        Require(calls.Count == Graph.Nodes.Length, $"the mock has {calls.Count} nodes and the port {Graph.Nodes.Length}");
+        for (int i = 0; i < calls.Count; i++)
+        {
+            var call = calls[i];
+            var content = Graph.Nodes[i].Content;
+            int ranks = call.Groups[1].Value switch { "C" => 5, "D" => 3, _ => 1 };
+            int[] needs = call.Groups[4].Success ? call.Groups[4].Value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Select(int.Parse).ToArray() : Array.Empty<int>();
+            Require(content.Name == Unescape(call.Groups[2].Value) && content.Effect == Unescape(call.Groups[3].Value) && content.Levels == ranks && content.Needs.SequenceEqual(needs),
+                $"node {i} is '{content.Name}' ({content.Levels} levels, needs [{string.Join(",", content.Needs)}], '{content.Effect}') where the mock has '{Unescape(call.Groups[2].Value)}' ({ranks}, needs [{string.Join(",", needs)}], '{Unescape(call.Groups[3].Value)}')");
+            // A line block belongs to the node call it follows, before the next call starts.
+            int end = i + 1 < calls.Count ? calls[i + 1].Index : data.Length;
+            var block = lineBlocks.Cast<System.Text.RegularExpressions.Match>().FirstOrDefault(m => m.Index > call.Index && m.Index < end);
+            string[]? lines = block == null ? null
+                : System.Text.RegularExpressions.Regex.Matches(block.Groups[1].Value, quoted).Select(m => Unescape(m.Groups[1].Value)).ToArray();
+            Require((lines == null) == (content.LevelLines == null) && (lines == null || lines.SequenceEqual(content.LevelLines!)),
+                $"{content.Name}'s level lines differ from the mock's: [{string.Join(" | ", content.LevelLines ?? Array.Empty<string>())}] against [{string.Join(" | ", lines ?? Array.Empty<string>())}]");
+        }
+        return calls.Count;
     }
 }

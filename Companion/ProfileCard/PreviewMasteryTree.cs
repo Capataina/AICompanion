@@ -55,6 +55,8 @@ public sealed class PreviewMasteryTree : UIElement, ICardPage
     public UIElement Panel => panel;
     public JoinedSegments? LevelBar => panel.LevelBar;
     public UITextPanel<string> LearnButton => panel.Learn;
+    /// <summary>The effect line the panel draws now; the fixture reads the same method the drawing does.</summary>
+    public string EffectLine => panel.EffectLine();
 
     private static Vector2 Mouse => Main.MouseScreen;
 
@@ -118,7 +120,7 @@ public sealed class PreviewMasteryTree : UIElement, ICardPage
         Vector2 min = new(float.MaxValue), max = new(float.MinValue);
         foreach (Node node in Nodes)
         {
-            float extent = node.Kind == NodeKind.Unlock ? NodeRadius * MathF.Sqrt(2) : NodeRadius;
+            float extent = node.Kind == NodeKind.Diamond ? NodeRadius * MathF.Sqrt(2) : NodeRadius;
             min = Vector2.Min(min, node.Position - new Vector2(extent));
             max = Vector2.Max(max, node.Position + new Vector2(extent));
         }
@@ -176,7 +178,7 @@ public sealed class PreviewMasteryTree : UIElement, ICardPage
         for (int i = 0; i < Nodes.Length; i++)
         {
             float distance = Vector2.Distance(point, Screen(Nodes[i].Position));
-            float radius = Math.Max(6, NodeRadius * zoom * (Nodes[i].Kind == NodeKind.Unlock ? 1.3f : 1f) + 3);
+            float radius = Math.Max(6, NodeRadius * zoom * (Nodes[i].Kind == NodeKind.Diamond ? 1.3f : 1f) + 3);
             if (distance > radius || distance >= nearest) continue;
             nearest = distance; hit = i;
         }
@@ -219,7 +221,7 @@ public sealed class PreviewMasteryTree : UIElement, ICardPage
     }
 
     private static float Boundary(NodeKind kind, float radius, float angle)
-        => kind == NodeKind.Unlock ? radius * MathF.Sqrt(2) / (MathF.Abs(MathF.Cos(angle)) + MathF.Abs(MathF.Sin(angle))) : radius;
+        => kind == NodeKind.Diamond ? radius * MathF.Sqrt(2) / (MathF.Abs(MathF.Cos(angle)) + MathF.Abs(MathF.Sin(angle))) : radius;
 
     private void DrawTree(SpriteBatch sb)
     {
@@ -229,7 +231,7 @@ public sealed class PreviewMasteryTree : UIElement, ICardPage
             Node to = Nodes[edge.To];
             Vector2 a = Screen(edge.From < 0 ? Vector2.Zero : Nodes[edge.From].Position), b = Screen(to.Position);
             float angle = (b - a).ToRotation();
-            float fromBoundary = edge.From < 0 ? Boundary(NodeKind.Unlock, r, angle) : Boundary(Nodes[edge.From].Kind, r, angle);
+            float fromBoundary = edge.From < 0 ? Boundary(NodeKind.Diamond, r, angle) : Boundary(Nodes[edge.From].Kind, r, angle);
             float toBoundary = Boundary(to.Kind, r, angle);
             Vector2 direction = new(MathF.Cos(angle), MathF.Sin(angle));
             bool lit = (edge.From < 0 || levels[edge.From] > 0) && levels[edge.To] > 0;
@@ -244,7 +246,7 @@ public sealed class PreviewMasteryTree : UIElement, ICardPage
             float alpha = level > 0 || CanLearn(i) ? 1f : .45f;
             Color fill = level > 0 ? colour * (level < node.Content.Levels ? .45f : 1f)
                 : node.Kind == NodeKind.Shared ? Color.White * .12f : Color.Transparent;
-            bool diamond = node.Kind == NodeKind.Unlock;
+            bool diamond = node.Kind == NodeKind.Diamond;
             Vector2 at = Screen(node.Position);
             if (fill.A > 0) DrawShape(sb, at, r, float.MaxValue, diamond, fill * alpha);
             DrawShape(sb, at, r, Math.Max(1f, (i == picked ? 6f : 3.5f) * zoom), diamond, colour * alpha);
@@ -318,7 +320,9 @@ public sealed class PreviewMasteryTree : UIElement, ICardPage
             LevelBar?.Remove();
             if (owner.picked < 0) { LevelBar = null; return; }
             int node = owner.picked;
-            string[] labels = Enumerable.Range(1, Nodes[node].Content.Levels).Select(level => $"Level {level}").ToArray();
+            // "Level N" fits a segment of a three-level bar; a fifth of the panel's width fits only the number.
+            int count = Nodes[node].Content.Levels;
+            string[] labels = Enumerable.Range(1, count).Select(level => count > DiamondLevels ? $"{level}" : $"Level {level}").ToArray();
             LevelBar = new JoinedSegments(labels, segment => segment < owner.levels[node], null);
             LevelBar.Width.Set(0, 1f); LevelBar.Height.Set(LevelHeight, 0); LevelBar.VAlign = 1;
             Append(LevelBar);
@@ -334,6 +338,18 @@ public sealed class PreviewMasteryTree : UIElement, ICardPage
             Learn.BorderColor = can && Learn.IsMouseHovering ? Color.Gold : can ? DrawCardPrimitives.Edge : DrawCardPrimitives.Edge * .4f;
         }
 
+        /// <summary>
+        /// The one effect line the panel says: a node whose levels step unevenly says the next level's line, or its last
+        /// once full, and a hovered level segment says that level's own line until the pointer leaves it.
+        /// </summary>
+        public string EffectLine()
+        {
+            if (owner.picked < 0) return "";
+            NodeContent content = Nodes[owner.picked].Content;
+            if (content.LevelLines is { } lines && LevelBar?.HoveredIndex is int hovered) return lines[hovered];
+            return NextLevelLine(owner.picked, owner.levels[owner.picked]);
+        }
+
         protected override void DrawSelf(SpriteBatch sb)
         {
             base.DrawSelf(sb);
@@ -341,7 +357,7 @@ public sealed class PreviewMasteryTree : UIElement, ICardPage
             Node node = Nodes[owner.picked];
             Rectangle r = GetInnerDimensions().ToRectangle();
             DrawCardPrimitives.WrappedText(sb, node.Content.Name, new Rectangle(r.X, r.Y, r.Width, 26), Colors[node.Lane], 1f);
-            DrawCardPrimitives.WrappedText(sb, node.Content.Effect, new Rectangle(r.X, r.Y + 32, r.Width, 90), new Color(255, 224, 102), .75f);
+            DrawCardPrimitives.WrappedText(sb, EffectLine(), new Rectangle(r.X, r.Y + 32, r.Width, 90), new Color(255, 224, 102), .75f);
         }
     }
 }

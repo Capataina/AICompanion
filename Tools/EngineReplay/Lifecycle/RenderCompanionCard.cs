@@ -120,7 +120,7 @@ internal static class RenderCompanionCard
         {
         Require(frame.Width == FrameWidth && frame.Height == OverviewHeight, $"{suffix}: overview is {frame.Width}x{frame.Height}, not {FrameWidth}x{OverviewHeight}");
         Expect(measures, "title bar", Rect(title), frame, Inset, Inset, InnerWidth, TitleHeight);
-        Expect(measures, "back", Rect((UIElement)Field(card, "back")), frame, Inset, Inset, 30, 30);
+        Require(((UIElement)Field(card, "back")).Parent == null, $"{suffix}: the overview's title bar must have no back button, because there is nothing to go back to");
         Expect(measures, "close", Rect((UIElement)Field(card, "close")), frame, Inset + InnerWidth - 30, Inset, 30, 30);
         Expect(measures, "identity strip", Rect(identity), frame, Inset, Inset + TitleHeight + Rhythm, InnerWidth, IdentityHeight);
         Expect(measures, "tiles", Rect(footer), frame, Inset, Inset + TitleHeight + Rhythm + IdentityHeight + Rhythm, InnerWidth, TileHeight);
@@ -159,8 +159,19 @@ internal static class RenderCompanionCard
         Console.WriteLine($"card layout {suffix}: overview {frame.Width}x{frame.Height} at {frame.Location}, {measures.Count} regions at the mock's positions, 12px rhythm title/strip/tiles, no overlap");
         });
 
+        Step("inventory tile count", () =>
+        {
+            // The tile's own reading, the one it draws: occupied slots against the bag's size.
+            var tileType = card.GetType().GetNestedType("StatusTile", BindingFlags.NonPublic)!;
+            var reading = tileType.GetMethod("Reading", BindingFlags.Static | BindingFlags.NonPublic)!
+                .Invoke(null, new object[] { card, live::AICompanion.Companion.ProfileCard.CardPage.Inventory })!;
+            string count = (string)reading.GetType().GetField("Item2")!.GetValue(reading)!;
+            int held = save.Bag.Count;
+            Require(count == $"{held}/120", $"{suffix}: the Inventory tile must count against the bag's 120 slots; it reads '{count}'");
+            Console.WriteLine($"inventory tile {suffix}: reads {count}");
+        });
         Step("controls", () => VerifyNativeCard.Controls(controls));
-        Step("title bar drag guard", () => VerifyNativeCard.TitleBarDragGuard(card, frameElement, title, suffix));
+        Step("title bar drag guard", () => VerifyNativeCard.TitleBarDragGuard(card, frameElement, title, suffix, dragBar: true));
         Step("inventory occlusion", () => VerifyNativeCard.InventoryOcclusion(card, owner, ui, graphics, target));
 
         // The occlusion check placed the card over the game's inventory; the rest starts from a card that has never moved.
@@ -169,6 +180,7 @@ internal static class RenderCompanionCard
         frame = Rect(frameElement);
         Render(graphics, batch, rasterizer, target, ui, size, output, $"Overview-{suffix}");
         if (scale == 1f) Step("overview pixels", () => OverviewPixels(target, size, identity, suffix));
+        if (scale == 1f) Step("no back on the overview", () => NoBackPixels(target, size, frame, (UIElement)Field(card, "close"), suffix));
 
         // ---- pages: the frame keeps its top-left, grows to the page height, and the title bar carries the page's actions ----
         foreach (var (method, expected) in new[] { ("ShowInventory", new[] { "Loot All", "Deposit All", "Quick Stack", "Restock" }) })
@@ -183,9 +195,13 @@ internal static class RenderCompanionCard
                 RequireActions(suffix, card, title, expected, "Inventory");
                 Expect(measures, "page content", Rect(content), Rect(frameElement), Inset, Inset + TitleHeight + Rhythm, InnerWidth, ContentHeight);
                 RequireRhythm(suffix, "title bar", Rect(title), "page content", Rect(content));
+                var back = (UITextPanel<string>)Field(card, "back");
+                Require(back.Parent == title && back.Text == "<", $"{suffix}: a page's title bar must carry the back button");
+                Expect(measures, "back", Rect(back), Rect(frameElement), Inset, Inset, 30, 30);
             });
             Step("inventory layout", () => InventoryLayout(suffix, bag, Rect(content)));
             Step("chest buttons", () => VerifyNativeCard.ChestButtons(card, bag));
+            Step("page title bar drag guard", () => VerifyNativeCard.TitleBarDragGuard(card, frameElement, title, suffix, dragBar: false));
             Render(graphics, batch, rasterizer, target, ui, size, output, $"Inventory-{suffix}");
         }
 
@@ -215,13 +231,23 @@ internal static class RenderCompanionCard
         Render(graphics, batch, rasterizer, target, ui, size, output, $"Mastery-{suffix}");
         if (scale == 1f) Step("zoom glyphs", () => ZoomGlyphPixels(target, size, title, suffix));
         Step("mastery interaction", () => VerifyNativeCard.MasteryInteraction(card, tree, pageContent));
-        // Damage, with the levels the interaction learned, picked with its panel open.
-        tree.Pick(0);
-        card.Update(new GameTime());
-        Step("mastery picked", () => MasteryPicked(suffix, tree, pageContent));
-        Render(graphics, batch, rasterizer, target, ui, size, output, $"MasteryPicked-{suffix}");
-        // Piercing, a one-level node, picked: its level bar is one segment rounded at both ends.
+        // Piercing, which the interaction left at level 2 of 5, picked with its panel open: a numbered five-segment bar and
+        // the line for its third level.
         tree.Pick(3);
+        card.Update(new GameTime());
+        Step("mastery picked", () =>
+        {
+            MasteryPicked(suffix, tree, pageContent);
+            string[] lines = Graph.Nodes[3].Content.LevelLines!;
+            Require(Graph.Nodes[3].Content.Name == "Piercing" && tree.Level(3) == 2, $"{suffix}: premise: Piercing is picked at level 2; it is at {tree.Level(3)}");
+            Require(Enumerable.Range(0, 5).Select(i => tree.LevelBar!.Label(i)).SequenceEqual(new[] { "1", "2", "3", "4", "5" }) && Enumerable.Range(0, 5).Count(tree.LevelBar!.IsSelected) == 2,
+                $"{suffix}: Piercing's bar must be five numbered segments with two selected");
+            Require(tree.EffectLine == lines[2], $"{suffix}: Piercing at level 2 must say its third level's line, '{lines[2]}'; it says '{tree.EffectLine}'");
+            Console.WriteLine($"mastery picked {suffix}: Piercing at level 2 of 5, segments 1 to 5 with two selected, the panel says \"{tree.EffectLine}\"");
+        });
+        Render(graphics, batch, rasterizer, target, ui, size, output, $"MasteryPicked-{suffix}");
+        // The second weapon slot, a one-level node, picked: its level bar is one segment rounded at both ends.
+        tree.Pick(2);
         card.Update(new GameTime());
         Render(graphics, batch, rasterizer, target, ui, size, output, $"MasteryOneLevel-{suffix}");
         Step("one-level node", () =>
@@ -322,10 +348,12 @@ internal static class RenderCompanionCard
     {
         var measures = new List<string>();
         Rectangle weapons = Rect(bag.Boxes[0]), tools = Rect(bag.Boxes[1]);
-        Expect(measures, "weapons box", weapons, content, 0, 0, (InnerWidth - Rhythm) / 2f, 64);
-        Expect(measures, "tools box", tools, content, (InnerWidth + Rhythm) / 2f, 0, (InnerWidth - Rhythm) / 2f, 64);
-        Require(Math.Abs(tools.Left - weapons.Right - Rhythm) <= Tolerance && Math.Abs(tools.Right - content.Right) <= Tolerance,
-            $"{suffix}: the two gear boxes must span the page with one rhythm between them");
+        // The mock's gear row spans what the bag spans: the grid's left edge to the scrollbar's right edge, 23 to 673.
+        Expect(measures, "weapons box", weapons, content, 23, 0, 319, 64);
+        Expect(measures, "tools box", tools, content, 354, 0, 319, 64);
+        Rectangle gridBox = Rect(bag.Viewport), scrollBox = Rect(bag.Scrollbar);
+        Require(weapons.Left == gridBox.Left && tools.Right == scrollBox.Right && tools.Left - weapons.Right == Rhythm && weapons.Width == tools.Width,
+            $"{suffix}: the gear boxes must line up with the bag: weapons from the grid's left edge {gridBox.Left} (it starts at {weapons.Left}), tools to the scrollbar's right edge {scrollBox.Right} (it ends at {tools.Right}), equal and one rhythm apart");
         foreach (Rectangle box in new[] { weapons, tools })
         {
             UIElement element = bag.Boxes[box == weapons ? 0 : 1];
@@ -340,10 +368,12 @@ internal static class RenderCompanionCard
         RequireRhythm(suffix, "gear boxes", weapons, "bag grid", Rect(bag.Viewport));
         Require(Math.Abs(content.Bottom - 24 - Rect(bag.Viewport).Bottom - Rhythm) <= Tolerance, $"{suffix}: the grid does not end one rhythm above the bottom line");
         Rectangle[] grid = bag.Grid.Children.Select(Rect).ToArray();
-        Require(grid.Length == 100 && grid.All(r => r.Width == 48 && r.Height == 48), $"{suffix}: the bag must show 100 fixed 48px slots");
+        Require(grid.Length == 120 && grid.All(r => r.Width == 48 && r.Height == 48), $"{suffix}: the bag must show its 120 fixed 48px slots; it shows {grid.Length}");
+        int held = Main.LocalPlayer.GetModPlayer<live::AICompanion.Companion.PlayerIntegration.CompanionPlayer>().Bag.Count;
+        Require(bag.CountLine == $"{held} / 120", $"{suffix}: the bottom line must count against the bag's 120 slots; it reads '{bag.CountLine}'");
         Require(grid.Count(r => r.Y == grid[0].Y) == 12 && grid[1].X - grid[0].X == 52, $"{suffix}: the bag grid must be 12 columns at a 52px pitch");
         RequireNoOverlap(suffix, ("weapons box", weapons), ("tools box", tools), ("bag grid", Rect(bag.Viewport)), ("bag scrollbar", Rect(bag.Scrollbar)));
-        Console.WriteLine($"inventory layout {suffix}: two gear boxes {weapons.Width}x{weapons.Height} with evenly spaced slots, grid 620x396 twelve columns, 12px rhythm above and below the grid");
+        Console.WriteLine($"inventory layout {suffix}: two gear boxes {weapons.Width}x{weapons.Height} from the grid's left edge x {weapons.Left} to the scrollbar's right edge x {tools.Right}, evenly spaced slots, grid 620x396 twelve columns, 12px rhythm above and below the grid");
     }
 
     private static void MiningLayout(string suffix, MiningPage page, Rectangle content)
@@ -352,9 +382,9 @@ internal static class RenderCompanionCard
         var parts = page.Children.ToArray();
         Expect(measures, "ore grid", Rect(parts[0]), content, 0, 0, 412, ContentHeight);
         Expect(measures, "ore scrollbar", Rect(parts[1]), content, 416, 0, 20, ContentHeight);
-        Expect(measures, "ore preview", Rect(parts[2]), content, 456, 0, 240, ContentHeight);
+        Expect(measures, "ore preview", Rect(parts[2]), content, 456, 0, 240, 214);
         RequireNoOverlap(suffix, ("ore grid", Rect(parts[0])), ("ore scrollbar", Rect(parts[1])), ("ore preview", Rect(parts[2])));
-        Console.WriteLine($"mining list layout {suffix}: grid 412 wide, preview 240 wide, both the page's full {ContentHeight}px height");
+        Console.WriteLine($"mining list layout {suffix}: grid 412 wide and scrollbar at the page's full {ContentHeight}px height, preview 240x214 under the mock's swatch, name and verdict");
     }
 
     private static void MasteryUnpicked(string suffix, Mastery tree, Rectangle content)
@@ -377,7 +407,7 @@ internal static class RenderCompanionCard
             foreach (var node in Graph.Nodes)
             {
                 Vector2 nearest = Vector2.Clamp(node.Position, lo, hi);
-                float reach = node.Kind == Graph.NodeKind.Unlock ? Graph.NodeRadius * MathF.Sqrt(2) : Graph.NodeRadius;
+                float reach = node.Kind == Graph.NodeKind.Diamond ? Graph.NodeRadius * MathF.Sqrt(2) : Graph.NodeRadius;
                 Require(Vector2.Distance(nearest, node.Position) > reach, $"{suffix}: the {Graph.Lanes[lane]} label sits on {node.Content.Name}");
             }
         }
@@ -462,6 +492,41 @@ internal static class RenderCompanionCard
         double dimLight = Luminance(dim), brightLight = Luminance(bright);
         Require(brightLight > dimLight + 20, $"{suffix}: a left ore must be drawn dimmer than a mined one; iron {dimLight:0.0} against silver {brightLight:0.0}");
         Console.WriteLine($"mining list pixels {suffix}: the left iron swatch reads {dimLight:0.0} against the mined silver's {brightLight:0.0}");
+    }
+
+    /// <summary>
+    /// The overview's title bar has no back button: at the place a page draws it, not one pixel of the button's border
+    /// colour or its hover gold. The close button at the other end, drawn the same way, is the premise that the check can
+    /// see a button at all.
+    /// </summary>
+    private static void NoBackPixels(RenderTarget2D target, Point size, Rectangle frame, UIElement close, string suffix)
+    {
+        Color[] pixels = Pixels(target, size);
+        int Border(Rectangle r)
+        {
+            int count = 0;
+            for (int y = Math.Max(0, r.Top); y < Math.Min(size.Y, r.Bottom); y++)
+                for (int x = Math.Max(0, r.Left); x < Math.Min(size.X, r.Right); x++)
+                {
+                    Color c = pixels[y * size.X + x];
+                    bool edge = Math.Abs(c.R - Primitives.Edge.R) <= 12 && Math.Abs(c.G - Primitives.Edge.G) <= 12 && Math.Abs(c.B - Primitives.Edge.B) <= 12;
+                    bool gold = c.R > 220 && c.G > 190 && c.B < 90;
+                    if (edge || gold) count++;
+                }
+            return count;
+        }
+        var backPlace = new Rectangle(frame.X + Inset, frame.Y + Inset, 30, 30);
+        int backBorder = Border(backPlace);
+        Require(backBorder == 0, $"{suffix}: something is drawn where a page's back button sits on the overview: {backBorder} button-coloured pixels in {backPlace}");
+        // On a screen narrower than the card, close is past the right edge and cannot be the premise here; the wider viewports read it.
+        if (!new Rectangle(0, 0, size.X, size.Y).Contains(Rect(close)))
+        {
+            Console.WriteLine($"no back on the overview {suffix}: 0 button pixels at {backPlace}; close is past the screen's edge at {Rect(close)}, so the premise is read at the wider viewports");
+            return;
+        }
+        int closeBorder = Border(Rect(close));
+        Require(closeBorder >= 20, $"{suffix}: premise: the close button's border must be visible to this check ({closeBorder} pixels)");
+        Console.WriteLine($"no back on the overview {suffix}: 0 button pixels at {backPlace}, against {closeBorder} on close");
     }
 
     /// <summary>

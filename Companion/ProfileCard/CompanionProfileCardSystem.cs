@@ -23,8 +23,9 @@ public enum CardPage { Overview, Inventory, Mastery, MiningList }
 /// <summary>
 /// Owns the companion card: one panel whose body is either the short overview (title bar, identity strip with the
 /// work controls, three tiles) or one full-height page (Inventory, Mastery, Mining list), swapped in place so the
-/// title bar never moves. A page's own actions sit in the title bar, right-aligned before the close button; the
-/// title bar holds back and close and nothing else on the overview.
+/// title bar never moves. A page's own actions sit in the title bar, right-aligned before the close button. Back
+/// exists only on a page; the overview's title bar holds the title and close, because a back button with nothing to
+/// go back to did nothing.
 /// </summary>
 public sealed class CompanionProfileCardSystem : ModSystem
 {
@@ -157,8 +158,7 @@ public sealed class CompanionProfileCardSystem : ModSystem
                 dragging = true; dragOffset = Mouse - frame.GetDimensions().Position();
             };
             titleBar.OnLeftMouseUp += (_, _) => dragging = false;
-            back = DrawCardPrimitives.Button("+", CardRegions.RoundButton, () => { if (page != CardPage.Overview) ShowOverview(); });
-            titleBar.Append(back);
+            back = DrawCardPrimitives.Button("<", CardRegions.RoundButton, ShowOverview);
             close = DrawCardPrimitives.Button("X", CardRegions.RoundButton, owner.Close);
             close.HAlign = 1; titleBar.Append(close);
 
@@ -238,7 +238,7 @@ public sealed class CompanionProfileCardSystem : ModSystem
             page = CardPage.Overview;
             if (identity.Parent == null) frame.Append(identity);
             if (footer.Parent == null) frame.Append(footer);
-            back.SetText("+");
+            back.Remove();
             RebuildActions();
             Layout();
         }
@@ -253,7 +253,7 @@ public sealed class CompanionProfileCardSystem : ModSystem
             content.Append(element);
             pageElement = element;
             page = next;
-            back.SetText("<");
+            if (back.Parent == null) titleBar.Append(back);
             RebuildActions();
             Layout();
         }
