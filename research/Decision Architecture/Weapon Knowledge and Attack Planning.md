@@ -12,6 +12,8 @@ The owner's picture is right that choosing a weapon, a target, an aim and a plac
 
 Positioning splits the other way from where it first looks. **The planner is the only thing that values a firing stand; the positioner only says whether and how the body can get there.** Stand proposals come from the planner, because only the planner knows that a line through three enemies or a spot low beside a group is interesting for this weapon. For each proposal the positioner returns a verdict and no score: reach in the reach sense's three values, travel ticks, predicted exposure along the route, and whether the stand belongs to the region the request is admitted against. Those verdict numbers enter the planner's objective vector as harm taken and time to first damage. A `LineOfFire` or `Guard` request then carries the stand the planner chose, and the positioner's job for it is route or refuse. `FiringStandShare`, `StandoffFromTarget` and the line-of-fire and guard score formulas in `ChooseUsefulPosition` go rather than being taught to read the plan, because a positioner still multiplying its own band, sight and standoff terms over the planner's stands would commit to a different stand from the plan it was asked to fly.
 
+**Fighting is one activity, and it is the only thing that fires.** The owner ruled on 15 September 2026 that hunting and guarding merge into a single Combat activity, the only child of the Combat family, so the brain has six activities in three families: Combat; Gathering with mining and chopping; Nearby assistance with lighting, collecting and keeping company. The weapons fire only while Combat is the current activity. Mining, chopping, lighting, collecting and keeping company never shoot, and an enemy worth shooting is a reason for Combat to win the comparison rather than a shot taken in passing. The evade layer is untouched: bending away from a predicted hit rides on top of every activity, Combat included. The ruling removes the third place positioning lived — a hunting walk to a place from which the hands, separately, might find a shot — so where to stand, which weapon, which target and which aim are one decision in one activity with one owner. It reverses the earlier rule that the hands fire in every job, which was written when combat rarely won and the companion could not shoot while following or working at all, so it holds only if Combat wins readily whenever something it can hurt is near; making it do so is part of this plan, tuned with the owner in play rather than by a fixed ordering. The owner's intended feel is mining and chopping, then combat, then lighting and looting, with combat almost always beating keeping company while enemies are on screen, and danger to the player lifting combat above work; the existing utility terms — remaining work, travel, danger, switching cost — produce that ordering, and fixture rows measure it rather than a priority list enforcing it.
+
 ```
                     ┌─────────────────────────────────────────────────────────────────┐
   observations ───► │ 1 Weapon knowledge   what a use puts into the world, and what    │
@@ -27,10 +29,10 @@ Positioning splits the other way from where it first looks. **The planner is the
                     └───────┬───────────────────────────────────┬─────────────────────┘      to the positioner
                             │ plan's first step                  │ plan's value and stand
                     ┌───────▼────────┐                  ┌───────▼──────────────────────┐
-                    │ 3a Hands       │                  │ 3b Combat activities          │
-                    │ fire the step, │                  │ hunting and guarding offer    │
-                    │ reproduce the  │                  │ the plan's value; the winner  │
-                    │ volley, apply  │                  │ asks the positioner for the   │
+                    │ 3a Hands       │                  │ 3b Combat, the one activity   │
+                    │ fire the step, │                  │ that fires: offers the plan's │
+                    │ reproduce the  │                  │ value; when it wins it asks   │
+                    │ volley, apply  │                  │ the positioner for the        │
                     │ modifiers      │                  │ plan's stand                  │
                     └───────┬────────┘                  └───────────────────────────────┘
                             │ spawned projectiles, landed hits, events
@@ -191,7 +193,9 @@ Evaluation is anytime: candidates are ordered by a cheap upper bound (the simula
 
 ## Layer 3 — Execution and the activities
 
-The hands keep their independence from the feet: every tick with a free hand they fire the best attack from where the body actually is, which is the committed plan's step when the body is at its stand and the best from-here candidate otherwise. The hands reproduce the learned volley themselves — N spawns at the learned offsets and origins — so the ruling that an item is read and never run survives. Hunting offers the committed plan's value; guarding offers the plan scored with the player's harm weighted up; the family chooser is unchanged. The winner sends the positioner a `LineOfFire` or `Guard` request carrying the plan's chosen stand, and the positioner routes to it or refuses with a reason; it scores nothing about a firing stand.
+The hands fire only on a tick whose current activity is Combat. On such a tick, with a free hand, they fire the best attack from where the body actually is, which is the committed plan's step when the body is at its stand and the best from-here candidate while it travels there, so a fight is fought in real time on the way to a better spot rather than suspended until arrival. On every other activity's tick the arsenal is not asked for a shot at all, and the recorder's fire outcome reads that the activity does not fight rather than no-target, so a quiet weapon during mining is never mistaken for a missing target. The hands reproduce the learned volley themselves — N spawns at the learned offsets and origins — so the ruling that an item is read and never run survives. Downed and recovery-flight ticks do not fire either, since neither is Combat.
+
+Combat offers the committed plan's value, weighted by the senses, so a threat on the player, a threat on the companion and an enemy that is merely near are one activity at different weights rather than two activities with their own positioning. Combat is offered whenever a damageable hostile is inside the region it may fight in and at least one handed weapon has any candidate; with no weapon in hand it offers nothing, which is the open card about an unarmed orb answered by construction. When it wins, it sends the positioner one request kind carrying the plan's chosen stand, and the positioner routes to it or refuses with a reason; it scores nothing about a firing stand.
 
 Three consumers of today's prior are named so none is orphaned. Protection's `EstimateInterventionTicks` and pursuit's `EstimateRemovalTicks` read the simulator's kill times in place of the arc-free single-hit assumption, because an optimistic removal time that ignores spread and misses is what lets guarding believe a threat is handled. `LearnAttackOutcomes.Context` normalises hostiles along the lane by the hostile count the forecast considered rather than by eight, so the feature keeps a zero-to-one range without a cap.
 
@@ -255,6 +259,11 @@ Each row names what it varies and the mutation that must turn it red. Knowledge 
 | P7 stability | an unchanged scene keeps one plan across rescores | a score-bonus hold instead of membership |
 | P8 budget cut | a starved budget reports unresolved, not no attack | report a cut as absence |
 | C1 cost | forty hostiles, four weapons, planning inside the frame budget | measured, not asserted |
+| F1 only combat fires | with a hostile in reach and a clear line, mining, lighting, collecting and keeping company fire nothing and record that the activity does not fight | let the hands fire on any activity's tick |
+| F2 combat is eager | a damageable hostile in reach makes Combat beat keeping company | restore today's hunting and guarding scores unchanged |
+| F3 danger lifts combat over work | an enemy on the player takes the body from a vein; an idle enemy far off does not | drop the player-danger term from Combat's offer |
+| F4 dodging survives | a projectile at the companion mid-vein bends the body and the vein continues | gate the evade layer on Combat |
+| F5 unarmed | empty weapon slots offer no Combat at all | offer Combat on a hostile regardless of weapons |
 
 `Tools/check-navigation-boundary.sh` gains the planning folder in the set that may not run a route search, because stand verdicts come from the reach sense and the positioner. Every build lane is reviewed by a sentinel before merge, and by Codex beside it once Codex is available again.
 
@@ -293,7 +302,15 @@ Companion/Weapons/
 
 Companion/Brain/Infrastructure/Aiming/   keeps the enemy-motion prediction; the projectile solver folds into Simulation
 Companion/Brain/Infrastructure/Position/ChooseUsefulPosition.cs   returns stand verdicts to the planner and routes to the chosen stand; FiringStandShare, StandoffFromTarget and the LineOfFire and Guard score formulas go
-Companion/Brain/Activities/Combat/       hunting and guarding offer the plan's value; ResolveFiringOpportunity's sampling goes
+Companion/Brain/Activities/Combat/FightEnemies.cs   the one Combat activity; replaces ProtectPlayer.cs, PursueAttackOpportunity.cs and ResolveFiringOpportunity.cs
+Companion/Brain/CoordinateBrainTick.cs   Engage asks for a shot only when the current activity is Combat
+Companion/Brain/Infrastructure/Selection/BehaviourWeights.cs   the Guard* and Hunt* weights become Combat's, or go where the plan's vector replaces them
+Companion/Brain/Infrastructure/Selection/ChooseBehaviour.cs   six activities in three families
+Companion/Brain/Infrastructure/Position/   one firing request kind in place of LineOfFire and Guard
+Companion/PlayerIntegration/ConfigureCompanionPreferences.cs   the saved Hunting preference becomes Combat, reading the old "hunting" key so saves keep the player's choice
+Companion/Brain/Infrastructure/Diagnostics/RecordBrainTelemetry.cs   combat labels in place of hunt and guard; the fire outcome names an activity that does not fight
+Tools/SessionReport/  CheckTheFight, CheckTheChoices, CheckDecisionContracts, CheckThePlayersReference, CheckTheRecord, MultiRunReport, MeasureCommitmentAndChoice and the chronicle tests read combat labels, and keep reading hunt and guard in older captures
+Tools/EngineReplay/   the twelve fixtures that name hunting or guarding are rewritten against Combat, and F1–F5 added
 Tools/EngineReplay/Combat/Knowledge/     K rows
 Tools/EngineReplay/Combat/Planning/      P rows and C1
 Tools/SessionReport/Checks/CheckTheWeaponKnowledge.cs
@@ -305,6 +322,8 @@ Each phase keeps the suite green and lands behind its rows. Phases 1–3 are ind
 
 ```
 0 instruments       shot-event and motion-law records, CheckTheWeaponKnowledge, forecast calibration measured on today's code
+A one combat        hunting and guarding merge on today's arsenal and stand pricing; the hands fire only in Combat;
+                    F1–F5; then a play session to tune how readily Combat wins before anything below changes the fight
 1 caps              game-fact pierce and lifetime; K8
 2 cursor spoof      K6
 3 volley            learned from the player's uses and reproduced by the hands; K7's volley half
@@ -320,9 +339,10 @@ Each phase keeps the suite green and lands behind its rows. Phases 1–3 are ind
 
 1. **Where the volley comes from.** Default: learned from the player's own uses and reproduced by the companion, keeping the ruling that an item is read and never run; a weapon the player has never fired fires one projectile until he does. The alternative is calling the item's own `Shoot` hook on a stand-in, which reaches modded volleys without the player but runs item code, and still misses vanilla spreads, which live in `Player.ItemCheck_Shoot`.
 2. **Cursor spoofing during companion projectile AI.** Default: yes, as TerraGuardians does.
-3. **Hunting and guarding.** Default: both stay as activities and offer the plan's value under different weights; folding them into one fight activity is revisited once the planner has run in play.
-4. **Held and charged weapons.** Default: refused in the first build, with the revival condition above.
-5. **Projectiles anchored to their owner's body.** Default: refused by that observed property, as drawn under owner reads.
+3. **Held and charged weapons.** Default: refused in the first build, with the revival condition above.
+4. **Projectiles anchored to their owner's body.** Default: refused by that observed property, as drawn under owner reads.
+
+Decided rather than open: hunting and guarding are one Combat activity and only Combat fires (owner, 15 September 2026, recorded in the verdict).
 
 ## The roadmap cards this plan absorbs
 
@@ -334,10 +354,12 @@ These open cards on the AICompanion board are parts of this plan rather than sep
 - The gear refuses a weapon whose projectile anchors to its owner's body by that property — question 5.
 - A sword that also fires a projectile sweeps its arc as well as shooting — the volley row, once a use can put a swing and a projectile into the world together.
 - The item weapon composes damage and speed with the engine rules it still omits (archery potion, quivers) — the volley row's multishot state, and the damage composition beside it.
+- A companion with no weapon in its slots neither shoots nor treats combat as its job — phase A, row F5.
+- A mode icon beside the notch shows what the companion is doing, with a shield for guarding (AIC-92) — the icon names Combat instead.
 
 ## What this deliberately does not do
 
-It does not run item-use code, predict enemy decisions beyond their observed motion, count damage over time, or give the companion minions. It does not promise that every modded weapon is used well: it promises that every weapon inside the taxonomy is represented, that anything outside it is still fired and valued by its outcomes, and that the report says which is which.
+It does not shoot outside Combat, run item-use code, predict enemy decisions beyond their observed motion, count damage over time, or give the companion minions. It does not promise that every modded weapon is used well: it promises that every weapon inside the taxonomy is represented, that anything outside it is still fired and valued by its outcomes, and that the report says which is which.
 
 ## What would refute it
 
