@@ -5,7 +5,7 @@ These are not the seven activities and they do not compete in the comparison. Th
 ```
 SharedBehaviours/
 ├─ CLAUDE.md
-├─ Safety/      environmental escape, collision avoidance, combat space
+├─ Safety/      environmental escape, and the hit prediction movement's evade layer bends against
 └─ Recovery/    distant flight home
 ```
 
@@ -35,6 +35,6 @@ the question                          measured to        because
 
 A reader who has just learned that the intent region answers "how far from the player" will reach for it here and will be wrong. A change that rewrote this folder to measure to the region would put the companion's danger response a lead-length away from the thing endangering him.
 
-## Current state — 2026-09-14
+## Current state — 2026-09-15
 
-Safety runs after observation and can interrupt any activity to leave water or lava, which hurt the orb on contact, or to avoid an immediate collision. Recovery is a coordinator-level reflex that flies the companion home when it sits beyond the recovery distance — the same threshold this file names above, not a second one — and has no ordinary work. Both are separate from the future mastery movement abilities, which would be scoring methods the activities invoke, not systems that own the feet at coordinator level.
+Safety runs after observation and can interrupt any activity to leave water or lava, which hurt the orb on contact. It no longer interrupts anything to avoid a collision or to make combat space: it supplies the collision prediction, and movement bends whatever the body is doing away from the hit without suspending the job. Recovery is a coordinator-level reflex that flies the companion home when it sits beyond the recovery distance — the same threshold this file names above, not a second one — and has no ordinary work. Both are separate from the future mastery movement abilities, which would be scoring methods the activities invoke, not systems that own the feet at coordinator level.
