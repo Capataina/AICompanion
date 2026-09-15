@@ -48,6 +48,11 @@ public static class TrackLandedHits
         shots[projectileSlot] = new Shot(aimed?.whoAmI ?? -1, aimed == null ? 0 : HostileAttackSources.Generation(aimed), Main.GameUpdateCount, itemType);
     }
 
+    /// <summary>Whether the projectile in this slot is the companion's: a shot the arsenal registered, or a child the outcome
+    /// windows joined to one. Every companion shot is owned by the local player, so ownership alone cannot say this.</summary>
+    public static bool IsCompanionShot(int projectileSlot)
+        => (uint)projectileSlot < (uint)shots.Length && (shots[projectileSlot] != null || ShotOutcomes.WindowOf(projectileSlot) != null);
+
     // The velocity each NPC had just before a registered companion projectile struck it, and which projectile slot (plus
     // one, so zero is none) took it. Per NPC rather than per projectile because a piercing shot strikes several bodies in
     // one update, and each strike's modify hook runs directly before its own strike.

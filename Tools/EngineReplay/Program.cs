@@ -21,6 +21,7 @@ if (args.Contains("--free-space")) return VerifyFreeSpace.CorridorsAndLiquids() 
 if (args.Contains("--route-endings")) return VerifyRouteEndings.Run() == 0 ? 0 : 1;
 if (args.Contains("--attack-outcomes")) return VerifyAttackOutcomes.Run();
 if (args.Contains("--knockback")) return VerifyKnockbackAwareness.Run();
+if (args.Contains("--experience")) return VerifyCompanionExperience.Run();
 if (args.Contains("--weapon-learning")) return VerifyWeaponLearning.Run();
 if (args.Contains("--offer-validity")) return VerifyOfferValidity.Run();
 if (args.Contains("--capability")) return VerifyCapabilityRevision.Run() == 0 ? 0 : 1;

@@ -35,7 +35,8 @@ public partial class CompanionPlayer : ModPlayer
     /// <summary>The saved choices currently backing <see cref="CompanionPreferences.Current"/>.</summary>
     public CompanionPreferences Preferences { get; private set; } = new();
 
-    /// <summary>What the companion has earned by its own completed work; the notch draws its level.</summary>
+    /// <summary>The companion's level and the bar toward the next, earned from kills and work by the companion and by this
+    /// character; the notch and the card draw it.</summary>
     public Progression.CompanionExperience Experience { get; private set; } = new();
 
     public override void SaveData(TagCompound tag)

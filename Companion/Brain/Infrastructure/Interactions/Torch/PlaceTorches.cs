@@ -56,6 +56,8 @@ public static class PlaceTorches
         if (!Candidate(tile) || !RecommendTorchPlacement.Accepts(tile, item, player)) return false;
         WorldGen.PlaceTile(tile.X, tile.Y, item.createTile, mute: false, forced: false, plr: player.whoAmI, style: item.placeStyle);
         Tile placed = Main.tile[tile.X, tile.Y];
-        return placed.HasTile && placed.TileType == item.createTile;
+        bool landed = placed.HasTile && placed.TileType == item.createTile;
+        if (landed) Progression.CreditWork.CompanionPlacedTorch(tile);
+        return landed;
     }
 }

@@ -78,7 +78,11 @@ public sealed class BrainTelemetry : ModSystem
     // navigation evidence loses the matching keys, `self_danger` loses its trailing `L`, and the capabilities header reads
     // `liquids=air`. `wet` and `liquid` stay: which liquid the body is in is still observed, and nothing decides from it.
     // A 0.35.0 capture reads as it did, for the same reason as every bump before it.
-    private const string Schema = "0.36.0";
+    // 0.37.0 changes no column: the sidecar gains an `experience-credit` occurrence for every credit the experience ledger
+    // takes, so a capture shows the bar moving and which kill, fight or piece of work moved it. The liquids and experience
+    // lanes each moved the schema to 0.36.0 on their own branches; merging both made this bump, so no two captures with
+    // different sidecars share a number.
+    private const string Schema = "0.37.0";
 
     /// <summary>
     /// One activity's factors from one comparison, as <c>name:value</c> pairs joined by commas: every multiplier its final

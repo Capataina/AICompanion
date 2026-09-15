@@ -108,6 +108,10 @@ internal static class ResetProcessState
         live::AICompanion.Companion.Weapons.AttackLearning.Reset();
         live::AICompanion.Companion.Weapons.ShotOutcomes.Clear();
         live::AICompanion.Companion.Weapons.TrackLandedHits.Clear();
+        // Which strike is in flight, each slot's spawn generation and the open boss fight are slot memories a rebuilt world
+        // reuses; a fixture that repriced the default enemy restores the game's own reading.
+        live::AICompanion.Companion.Progression.CreditKillsAndFights.Reset();
+        live::AICompanion.Companion.Progression.CompanionExperience.DefaultEnemyLife = live::AICompanion.Companion.Progression.CompanionExperience.GreenSlimeLifeInThisWorld;
 
         // The map before the search policy, because the policy plugs a fresh world wrapper over
         // whatever map is standing, and the wrapper has to wrap the empty one.

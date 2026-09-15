@@ -32,11 +32,16 @@ internal static class VerifyCompanionHud
         var mana = companion.Mana;
         var manaCurrent = mana.GetType().GetProperty("Current")!;
         float originalMana = (float)manaCurrent.GetValue(mana)!;
-        var experience = save.Experience;
-        var experienceTotal = experience.GetType().GetProperty("Total")!;
-        int originalExperience = (int)experienceTotal.GetValue(experience)!;
+        var originalExperience = save.Experience;
+        var experience = new live::AICompanion.Companion.Progression.CompanionExperience();
+        var experienceProperty = typeof(live::AICompanion.Companion.PlayerIntegration.CompanionPlayer).GetProperty("Experience")!;
+        // A quarter of the way into level 2 of a bar of 100: the pinned fields are the ledger's own, in its unit.
+        double unit = live::AICompanion.Companion.Progression.CompanionExperience.ExperiencePerLife;
+        typeof(live::AICompanion.Companion.Progression.CompanionExperience).GetProperty("Level")!.SetValue(experience, 2);
+        typeof(live::AICompanion.Companion.Progression.CompanionExperience).GetProperty("Required")!.SetValue(experience, 100 * unit);
+        typeof(live::AICompanion.Companion.Progression.CompanionExperience).GetProperty("Into")!.SetValue(experience, 25 * unit);
+        experienceProperty.SetValue(save, experience);
         manaCurrent.SetValue(mana, mana.Max / 2f);
-        experienceTotal.SetValue(experience, 150);
         companion.NPC.life = companion.NPC.lifeMax * 3 / 4;
         // Downed, the health bar fills with revival progress. At none it draws no fill at all, and "no coloured fill"
         // then holds whatever colour the fill would have had, so the downed scene is pinned half revived.
@@ -147,7 +152,7 @@ internal static class VerifyCompanionHud
             companion.NPC.life = originalLife;
             reviveField.SetValue(companion, originalRevive);
             manaCurrent.SetValue(mana, originalMana);
-            experienceTotal.SetValue(experience, originalExperience);
+            experienceProperty.SetValue(save, originalExperience);
             // The fixture owns the hidden graphics device. Release the shared mask cache before that device is
             // disposed; the live mod releases it through its main-thread unload queue.
             var masks = (System.Collections.IDictionary)typeof(Primitives).GetField("masks", BindingFlags.Static | BindingFlags.NonPublic)!.GetValue(null)!;

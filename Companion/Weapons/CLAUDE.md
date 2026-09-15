@@ -7,7 +7,7 @@ Weapons/
 ├─ ItemWeapon.cs             the one weapon: whatever item sits in a weapon slot, read and never run
 ├─ Arsenal.cs                target, weapon and cooldown selection, fed from the gear's two weapon slots
 ├─ CompanionMana.cs          the pool that mirrors the player's maximum and tires a magic weapon
-├─ TrackLandedHits.cs        which NPC a companion shot struck, and the global hooks that feed the arc learner, the weapon-effects table and the outcome windows
+├─ TrackLandedHits.cs        which NPC a companion shot struck, whether a projectile is the companion's, and the global hooks that feed the arc learner, the weapon-effects table and the outcome windows
 ├─ LearnWeaponEffectsOnEnemies.cs how far a weapon's hit pushes each enemy type and how much of its damage lands, with the game's arithmetic as the prior
 ├─ LearnAttackOutcomes.cs     what each weapon's attacks achieve against their forecast, learned per weapon from closed uses and sampled for every decision
 ├─ ObserveShotOutcomes.cs     one use's outcome window: its projectile and every descendant, the damage landed, the bodies struck, the debuffs added
