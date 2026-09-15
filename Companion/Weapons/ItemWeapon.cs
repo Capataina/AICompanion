@@ -91,10 +91,11 @@ public sealed class ItemWeapon : CompanionWeapon
     {
         get
         {
-            // A swing's box is the orb's own diameter, not the item's drawn height: the box only asks
-            // whether terrain blocks the sweep, and a forty-pixel sword box straddled the floor from an
-            // orb hovering low over it, so a zombie standing on that floor could not be swung at from
-            // any angle. The sector test in InSwing decides what a swing actually strikes.
+            // A swing's box is the orb's own diameter, not the item's drawn height. The box is what the
+            // trace sweeps against terrain and what it intercepts the aimed target with, and a forty-pixel
+            // sword box straddled the floor from an orb hovering low over it, so a zombie standing on that
+            // floor could not be swung at from any angle. The sector test in InSwing, with its own sight
+            // test per body, decides what a swing actually strikes.
             if (IsSwing)
                 return new FlightModel(Speed: SwingReach, Motion: LearnedMotion.Straight, MaxFlightTicks: 1,
                     HitboxSize: (int)CircleContact.Diameter, Reach: SwingReach);
@@ -171,14 +172,22 @@ public sealed class ItemWeapon : CompanionWeapon
         return found;
     }
 
-    /// <summary>Whether a body is inside the swing: its box within reach of the orb and its centre within the half angle of the aim.</summary>
+    /// <summary>
+    /// Whether a body is inside the swing: its box within reach of the orb, its centre within the half
+    /// angle of the aim, and nothing solid between the orb and it. The sight test is per body, because
+    /// only the aim's own ray is traced by the flight model: without it a sword struck through a
+    /// one-tile floor at anything in the sector but the aimed target.
+    /// </summary>
     public bool InSwing(Vector2 muzzle, Vector2 aim, NPC npc)
     {
         if (NearestDistance(muzzle, npc.Hitbox) > SwingReach) return false;
         Vector2 toBody = npc.Center - muzzle;
-        if (toBody == Vector2.Zero || aim == Vector2.Zero) return true;
-        float cos = Vector2.Dot(Vector2.Normalize(toBody), Vector2.Normalize(aim));
-        return MathF.Acos(Math.Clamp(cos, -1f, 1f)) <= SwingHalfAngle;
+        if (toBody != Vector2.Zero && aim != Vector2.Zero)
+        {
+            float cos = Vector2.Dot(Vector2.Normalize(toBody), Vector2.Normalize(aim));
+            if (MathF.Acos(Math.Clamp(cos, -1f, 1f)) > SwingHalfAngle) return false;
+        }
+        return Brain.Infrastructure.Observation.LineOfSight.Between(muzzle, npc);
     }
 
     private static float NearestDistance(Vector2 point, Rectangle box)
@@ -191,11 +200,13 @@ public sealed class ItemWeapon : CompanionWeapon
     public override FireResult Fire(in ActionContext ctx, Vector2 muzzle, Vector2 launch)
     {
         int damage = DamagePerHit(ctx);
-        if (IsSwing)
-            return Swing(ctx, muzzle, launch, damage);
-        // Read before spend, so the cast that empties the pool lands at the strength the pool had.
+        // Read before spend, so the cast that empties the pool lands at the strength the pool had; and
+        // spent for a swing as much as for a shot, or a magic item that is swung would be scaled by a
+        // pool it could never empty.
         if (Item.mana > 0)
             ctx.Companion.Mana.Spend(Item.mana);
+        if (IsSwing)
+            return Swing(ctx, muzzle, launch, damage);
         int slot = Projectile.NewProjectile(ctx.Npc.GetSource_FromAI(), muzzle, launch, ProjectileType, damage, Knockback, Main.myPlayer);
         return new FireResult(slot, 0);
     }

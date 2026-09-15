@@ -183,11 +183,35 @@ internal static class VerifyItemWeapon
         var sword = (ItemWeapon)arsenal.Weapons[0];
         Require(sword.IsSwing && sword.ProjectileType == 0, "a broadsword is a swing with no projectile");
         Require(sword.InReach(Arsenal.Muzzle(companion.NPC), enemy), $"the premise: the zombie a tile away is inside the swing's reach of {sword.SwingReach}px");
-        int lifeBefore = enemy.life;
+        // A second zombie a tile and a half behind the orb, inside the swing's reach and outside its
+        // sector: a swing that struck it would be a swing that hits behind the body, which a sentinel's
+        // mutation of the half angle to nearly a full circle once passed this fixture unnoticed.
+        var behind = new NPC();
+        behind.SetDefaults(NPCID.Zombie);
+        behind.whoAmI = 26;
+        behind.active = true;
+        behind.velocity = Vector2.Zero;
+        behind.Bottom = new Vector2(32 * 16f - 24f, FloorY * 16f);
+        Main.npc[26] = behind;
+        ctx.Senses.Threats.Threats.Add(new T
+        {
+            Npc = behind,
+            DistanceToCompanion = Vector2.Distance(companion.NPC.Bottom, behind.Bottom),
+            DistanceToPlayer = Vector2.Distance(Main.player[0].Bottom, behind.Bottom),
+        });
+        Require(sword.InReach(Arsenal.Muzzle(companion.NPC), behind), "the premise: the zombie behind is inside the swing's reach");
+        int lifeBefore = enemy.life, behindBefore = behind.life;
+        int damage = sword.DamagePerHit(ctx);
         Require(arsenal.BestTarget(ctx) == enemy, "the adjacent zombie is the best target for a sword");
         Require(arsenal.TryFire(ctx, enemy), $"the sword must swing; outcome={arsenal.LastFireOutcome}");
         Require(arsenal.LastFireOutcome == "fired", $"a swing is recorded as fired; got {arsenal.LastFireOutcome}");
         Require(enemy.life < lifeBefore, $"the swing struck the zombie through the game's strike path; life {lifeBefore} -> {enemy.life}");
+        // One strike per body per swing: the drop cannot exceed the strike's own damage, and a second
+        // strike on the same body would, since the zombie's defence takes less than half of it.
+        Require(lifeBefore - enemy.life <= damage,
+            $"a body is struck once per swing; life fell {lifeBefore - enemy.life} against a strike of {damage}");
+        Require(behind.life == behindBefore, $"a body behind the orb is outside the sector and is not struck; life {behindBefore} -> {behind.life}");
+        Main.npc[26] = new NPC();
         bool anyProjectile = false;
         foreach (Projectile projectile in Main.projectile) anyProjectile |= projectile.active;
         Require(!anyProjectile, "a swing spawns no projectile");
@@ -198,6 +222,23 @@ internal static class VerifyItemWeapon
         Require(far.Arsenal.BestTarget(farCtx) == null, "a zombie out of the swing's reach is not a target for a sword alone");
         Require(!far.Arsenal.TryFire(farCtx, farEnemy) && farEnemy.life == farLife,
             $"the sword refuses a body out of reach and strikes nothing; outcome={far.Arsenal.LastFireOutcome}");
+
+        // A body inside the sector but behind a wall is not in the swing: the sector test carries its
+        // own sight test per body, because only the aim's ray is traced by the flight model, and
+        // without it a sword struck through a one-tile floor at everything in the sector but its target.
+        var (walled, walledEnemy, _) = Scene(2, (GearSlot.FirstWeapon, ItemID.CopperBroadsword));
+        var walledSword = (ItemWeapon)walled.Arsenal.Weapons[0];
+        Vector2 muzzle = Arsenal.Muzzle(walled.NPC);
+        Vector2 aim = walledEnemy.Center - muzzle;
+        Require(walledSword.InSwing(muzzle, aim, walledEnemy), "the premise: two tiles off, the zombie is in the swing with nothing between");
+        for (int row = 1; row <= 3; row++)
+        {
+            Tile wall = Main.tile[33, FloorY - row];
+            wall.HasTile = true; wall.TileType = 1; wall.Slope = 0; wall.IsHalfBlock = false;
+        }
+        Require(!walledSword.InSwing(muzzle, aim, walledEnemy), "a wall between the orb and a body in the sector keeps it out of the swing");
+        for (int row = 1; row <= 3; row++) { Tile air = Main.tile[33, FloorY - row]; air.HasTile = false; }
+        Require(walledSword.InSwing(muzzle, aim, walledEnemy), "and with the wall gone it is in the swing again");
     }
 
     private static void ARefusedItemInASlotNeverReachesTheArsenal()

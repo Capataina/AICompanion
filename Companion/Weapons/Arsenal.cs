@@ -396,7 +396,6 @@ public sealed class Arsenal
         return best;
     }
 
-    /// <summary>Muzzle a body would have if its feet were at this stand, matching the positioner's eye height.</summary>
     /// <summary>The muzzle a shot would leave from at a candidate hover: the orb's centre there, the same point <see cref="Muzzle"/> reads off the live body.</summary>
     public static Vector2 MuzzleAt(Vector2 hoverCentre) => hoverCentre;
 
@@ -614,7 +613,9 @@ public sealed class Arsenal
             return false;
         }
 
-        float noise = (Main.rand.NextFloat() * 2f - 1f) * weapon.AimNoise;
+        // A swing has no launch to be imprecise about: the noise is a shot's, and rotating a sector's
+        // centre by it only moved which bodies at the sector's edge were struck.
+        float noise = weapon.IsSwing ? 0f : (Main.rand.NextFloat() * 2f - 1f) * weapon.AimNoise;
         Vector2 launch = solution.LaunchVelocity.RotatedBy(noise);
         if (!TrajectoryAimer.TryTrace(muzzle, launch, target, weapon.Model, out TrajectorySolution finalShot))
         {

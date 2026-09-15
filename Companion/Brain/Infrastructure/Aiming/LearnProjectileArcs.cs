@@ -39,6 +39,15 @@ public static class ProjectileArcs
     /// <summary>How many consecutive pairs past the onset a fit needs before it replaces the prior.</summary>
     public const int MinPairsToFit = 4;
 
+    /// <summary>
+    /// How many velocity pairs a type keeps, the newest kept: eight full flights' worth. Unbounded, the
+    /// list grew for the life of the session and the fit, a median over every pair, was measured at
+    /// twelve times its early cost after a few thousand shots, paid inside the projectile hooks on the
+    /// main thread. Eight flights is more evidence than a median needs and few enough that a projectile
+    /// whose mod changed its gravity is re-learned from what it does now rather than what it did an hour ago.
+    /// </summary>
+    public const int MaxPairsKept = SamplesPerShot * 8;
+
     /// <summary>Two velocities closer than this are the same velocity; the game's arithmetic is single precision.</summary>
     private const float SameVelocity = 1e-4f;
 
@@ -174,8 +183,28 @@ public static class ProjectileArcs
             }
             record.Pairs.Add((v[k - 1], v[k]));
         }
+        if (record.Pairs.Count > MaxPairsKept)
+            record.Pairs.RemoveRange(0, record.Pairs.Count - MaxPairsKept);
         Fit(watch.Type, record);
     }
+
+    /// <summary>
+    /// Whether the aimer can fly this motion at all. The model falls under a non-negative gravity from an
+    /// onset and damps the horizontal by a ratio in (0, 1]; a projectile that rises, homes, bounces or
+    /// steers fits none of that, and a fit taken from it is a number the solver cannot fly. Such a fit
+    /// must not become the type's motion: with it in place no shot solves, no shot is fired, no flight
+    /// is watched, and the type is dead for the session with nothing left that could correct it.
+    /// </summary>
+    public static bool Flyable(LearnedMotion motion)
+        => float.IsFinite(motion.Gravity) && motion.Gravity >= 0f
+            && float.IsFinite(motion.HorizontalDrag) && motion.HorizontalDrag > 0f && motion.HorizontalDrag <= 1f
+            && float.IsFinite(motion.MaxFallSpeed) && motion.MaxFallSpeed > 0f;
+
+    /// <summary>Types whose observed flight fits nothing the aimer can fly, kept so a slot can say why the item is refused.</summary>
+    private static readonly HashSet<int> unfittable = new();
+
+    /// <summary>Whether this type's observed flight has been found to fit nothing the aimer can fly; its prior stands.</summary>
+    public static bool Unfittable(int projectileType) => unfittable.Contains(projectileType);
 
     /// <summary>
     /// Drag from the horizontal ratio, gravity from the vertical difference with the vertical left
@@ -199,7 +228,18 @@ public static class ProjectileArcs
         float drag = ratios.Count == 0 ? 1f : Math.Clamp(Median(ratios), 0f, 1f);
         float gravity = Median(gravities);
         float cap = record.Plateau > 0f ? record.Plateau : LearnedMotion.Straight.MaxFallSpeed;
-        learned[type] = new LearnedMotion(record.Onset, gravity, drag, cap);
+        var motion = new LearnedMotion(record.Onset, gravity, drag, cap);
+        if (!Flyable(motion))
+        {
+            // The flight fits nothing the aimer can fly: the prior stands, the type is named unfittable,
+            // and the next flight is still watched, so a mod that changes the projectile is not held to
+            // what it did before.
+            learned.Remove(type);
+            unfittable.Add(type);
+            return;
+        }
+        unfittable.Remove(type);
+        learned[type] = motion;
     }
 
     private static float Median(List<float> values)
@@ -215,5 +255,6 @@ public static class ProjectileArcs
         watching.Clear();
         records.Clear();
         learned.Clear();
+        unfittable.Clear();
     }
 }
