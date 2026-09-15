@@ -536,6 +536,68 @@ internal static class VerifyWeaponLearning
     }
 
     /// <summary>
+    /// A swing records a kill the way a projectile does: as the strike's damage, not the life that happened to be left. Two
+    /// swings of one copper broadsword at identical blue slimes beside the orb, one with its ordinary life and one with two
+    /// life left. A projectile's hit reports the strike's damage whether it kills or not, and the forecast it is divided by is the
+    /// same uncapped damage, so a finishing arrow teaches a ratio of one. Declared before the run: the killing swing's recorded
+    /// damage and ratio equal the wounding swing's, and the wounding swing's ratio is one within a thousandth, which is what
+    /// says both are the strike rather than both being wrong together. The swing already met this when the row was written:
+    /// the game takes a strike's whole damage off the body's life without stopping at zero, so the life a killing swing took
+    /// is the strike. The swing's own comment had said a killing strike was capped at the life left, a review took that as a
+    /// defect, and a recording capped that way is the rule this row turns red.
+    /// </summary>
+    public static int ASwingKillIsRecordedAsTheStrike()
+    {
+        (float Dealt, float Ratio, bool Died) Swing(int lifeLeft)
+        {
+            var scene = Scene(.5f, new Vector2(-22f, -4f), floating: false, (GearSlot.FirstWeapon, ItemID.CopperBroadsword));
+            L.Reset();
+            // A slime rather than the scene's zombie: a zombie's death effect spawns gore, which has no graphics state to
+            // spawn into headless, and a slime's is dust, which the dedicated-server flag already skips.
+            Vector2 bottom = scene.Enemy.Bottom;
+            scene.Enemy.SetDefaults(NPCID.BlueSlime);
+            scene.Enemy.active = true;
+            scene.Enemy.knockBackResist = .5f;
+            scene.Enemy.Bottom = bottom;
+            if (lifeLeft > 0) scene.Enemy.life = lifeLeft;
+            Arsenal arsenal = scene.Companion.Arsenal;
+            // The strike is the game's own hit modifiers and NPC.StrikeNPC under the two headless allowances
+            // VerifyCompanionExperience's strike uses, neither of which touches the life taken: the game skips a killing hit
+            // effect's gore while paused, and NPCLoot, which reads the bestiary, the drop database and the achievements nothing
+            // headless has, returns on its first line for a network client. The player's bookkeeping around StrikeNPC is what is
+            // left out, because as a client it sends the strike over a network nothing headless has; the swing's own reading of
+            // what the strike took is the mod's code running unchanged.
+            var deliver = ItemWeapon.DeliverStrike;
+            ItemWeapon.DeliverStrike = (player, npc, damage, knockback, direction) =>
+            {
+                NPC.HitInfo hit = npc.GetIncomingStrikeModifiers(Terraria.ModLoader.DamageClass.Melee, direction)
+                    .ToHitInfo(damage, false, knockback, false, player.luck);
+                bool paused = Main.gamePaused;
+                int netMode = Main.netMode;
+                Main.gamePaused = true;
+                Main.netMode = 1;
+                try { npc.StrikeNPC(hit); }
+                finally { Main.gamePaused = paused; Main.netMode = netMode; }
+            };
+            bool fired;
+            try { fired = arsenal.TryFire(scene.Ctx, scene.Enemy); }
+            finally { ItemWeapon.DeliverStrike = deliver; }
+            Require(fired, $"premise: the sword swings; outcome={arsenal.LastFireOutcome}");
+            Require(S.LastClosed is { Struck: 1 }, $"premise: the swing's window closed on one strike; closed={S.LastClosed}");
+            return (S.LastClosed!.Value.Dealt, S.LastClosed!.Value.Ratio, !scene.Enemy.active || scene.Enemy.life <= 0);
+        }
+
+        var wound = Swing(0);
+        var kill = Swing(2);
+        EmitLedgerRows.Detail(FormattableString.Invariant($"sword: wounding swing recorded {wound.Dealt:0} (ratio {wound.Ratio:0.000}); killing swing on two life recorded {kill.Dealt:0} (ratio {kill.Ratio:0.000})"));
+        Require(!wound.Died && kill.Died, $"premise: the first swing wounds and the second kills; wound died={wound.Died} kill died={kill.Died}");
+        Require(MathF.Abs(wound.Ratio - 1f) < 1e-3f, $"a wounding swing records exactly its forecast; ratio={wound.Ratio}");
+        Require(kill.Dealt == wound.Dealt && MathF.Abs(kill.Ratio - wound.Ratio) < 1e-4f,
+            $"a killing swing records the strike's damage like a wounding one; kill dealt={kill.Dealt} ratio={kill.Ratio}, wound dealt={wound.Dealt} ratio={wound.Ratio}");
+        return 0;
+    }
+
+    /// <summary>
     /// A shot whose target died to someone else before the shot could land teaches nothing about the weapon. Tested on the
     /// outcome windows directly, because the projectile hooks do not run headless: a window is opened against a zombie with a
     /// forecast landing twenty ticks later, and the zombie is taken out of the world in one of five ways. Declared before the

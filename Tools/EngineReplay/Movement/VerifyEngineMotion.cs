@@ -115,6 +115,7 @@ internal static class VerifyEngineMotion
         ("a hit's push is the game's until the companion learns it, is charged for the danger it adds, and the stand prefers the player's side", VerifyKnockbackAwareness.Run),
         ("weapon, target, stand and aim are valued by what the companion's own shots achieved", VerifyWeaponLearning.Run),
         ("a weapon's misses against one enemy type stay with that type", VerifyWeaponLearning.MissesAgainstOneEnemyTypeStayWithThatType),
+        ("a swing records a kill as the strike, the way a projectile does", VerifyWeaponLearning.ASwingKillIsRecordedAsTheStrike),
         ("a shot whose target died to someone else before it could land teaches nothing", VerifyWeaponLearning.AShotWhoseTargetDiedToSomeoneElseTeachesNothing),
         ("every projectile the companion spawns, and every descendant, is the companion's", VerifyWeaponLearning.EveryProjectileTheCompanionSpawnsIsTheCompanions),
         ("combat keeps its purpose across a substituted enemy", VerifyCombatPurpose.Run),
