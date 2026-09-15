@@ -1,6 +1,6 @@
 # Gathering fixtures — ore, trees, and who is credited for the work
 
-Four files, all driving the live mining and chopping code against native tiles, and all of them diffing or counting what the world actually lost, or what was actually offered, so that "it mined" cannot be satisfied by an intention.
+Four of these files drive the live mining and chopping code against native tiles, diffing or counting what the world actually lost, or what was actually offered, so that "it mined" cannot be satisfied by an intention. The fifth, `VerifyRouteHomeFromEitherEnd`, drives no work at all: it builds the route-home scene and reads the chooser's detour from beside the ore and from beside the player, because the separation cost a job pays is decided from wherever the body happens to be when the job is chosen.
 
 ```
 Gathering/
