@@ -77,7 +77,28 @@ public sealed class HoverAroundSpot
         Vector2 desired = targetMotion + (target - live.Centre) * Weights.HoverGain;
         if (desired.LengthSquared() > Weights.HoverSpeedPx * Weights.HoverSpeedPx)
             desired = Vector2.Normalize(desired) * Weights.HoverSpeedPx;
-        return new Controls(desired);
+        return new Controls(OffTheWall(live.Centre, desired, world));
+    }
+
+    /// <summary>
+    /// The request turned off any wall it would press the body into. The target is clear of walls from the spot,
+    /// not from the body, and a body lagging round the ellipse can meet a corner the target's own path never
+    /// touched — on a staircase of blocks the body met a step's corner and the pursuit asked into it for fourteen
+    /// ticks running, each request killed by the contact, which leaves nothing along the wall to slide with when
+    /// the request points almost straight at it. So the request is tried against the contact first, and the part
+    /// pointing into the net push-out is mirrored rather than removed: the body turns away at the speed it asked
+    /// for instead of stalling against the step. The net push rather than one tile's normal, because an inner
+    /// corner is two tiles and a mirror off either face alone sends the body into the other.
+    /// </summary>
+    private static Vector2 OffTheWall(Vector2 centre, Vector2 desired, ITileWorld world)
+    {
+        Vector2 asked = centre + desired, resolved = asked, velocity = desired;
+        if (!CircleContact.Resolve(world, ref resolved, ref velocity, OrbTerrain.Wall).Touched) return desired;
+        Vector2 push = resolved - asked;
+        if (push.LengthSquared() < 1e-8f) return desired;
+        Vector2 normal = Vector2.Normalize(push);
+        float into = Vector2.Dot(desired, normal);
+        return into < 0f ? desired - 2f * into * normal : desired;
     }
 
     /// <summary>
