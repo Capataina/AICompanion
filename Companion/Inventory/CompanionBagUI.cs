@@ -7,92 +7,112 @@ using Terraria;
 using Terraria.GameContent;
 using Terraria.GameContent.UI.Elements;
 using Terraria.GameInput;
-using Terraria.ID;
 using Terraria.UI;
 using AICompanion.Companion.ProfileCard;
 
 namespace AICompanion.Companion.Inventory;
 
 /// <summary>
-/// Fixed-size native bank slots, filtered without rearranging the backing inventory, with the four
-/// gear slots drawn in a row above the cargo grid. The gear row is part of this page rather than a
-/// page of its own because the profile card embeds this one element for its Inventory page, so
-/// gear appears there with no change to the card.
+/// The card's Inventory page: a top row of two bordered boxes, one holding the weapon slots and one the pickaxe and
+/// axe, together spanning the page; one rhythm below, the bag's grid of fixed native slots with its scrollbar; and a
+/// bottom line with the last transfer's message and the count. Terraria's chest buttons, Loot All, Deposit All,
+/// Quick Stack and Restock, are the page's title-bar actions, with the game's names and the game's semantics
+/// (<see cref="CompanionInventory"/>), and the bag sorts itself after every transfer.
+///
+/// <para>There is no picture of the companion, no caption on either box, no filter, no detail panel and no hover text
+/// anywhere on the page, by the owner's rulings of 15 September 2026: information shown twice, or not needed at a
+/// glance, is clutter. The slots therefore take the game's click handling without its hover tooltip.</para>
 /// </summary>
-public sealed class CompanionBagUI : UIState
+public sealed class CompanionBagUI : UIState, ICardPage
 {
-    // The native texture is 52 pixels. Scale its complete slot to the agreed 48 pixels;
-    // the pitch includes a gap and never stretches to consume spare panel width.
-    public const float SlotSize = 48;
-    private const float Pitch = 52;
-    // The filters take the first row and the gear the second; the cargo grid starts under both.
-    private const float GearTop = 38;
-    private const float GridTop = GearTop + Pitch + 4;
+    public const float SlotSize = CardRegions.Slot;
+    private const float Pitch = CardRegions.SlotPitch;
+    public const float GearBoxHeight = 64, GridLeft = 23, GridWidth = 620, ScrollbarLeft = 653, ScrollbarWidth = 20, FooterHeight = 24;
+    public static float GridTop => GearBoxHeight + CardRegions.Rhythm;
+
+    /// <summary>The two boxes' slots, in drawn order: the weapons, then the tools.</summary>
+    public static readonly GearSlot[][] GearBoxes = { new[] { GearSlot.FirstWeapon, GearSlot.SecondWeapon }, new[] { GearSlot.Pickaxe, GearSlot.Axe } };
+
     private UIScrollbar scrollbar = null!;
-    private UIElement viewport = null!, grid = null!, details = null!;
+    private UIElement viewport = null!, grid = null!;
     private CompanionInventory bag = null!;
     private CompanionGear gear = null!;
     private readonly List<BagSlot> slots = new();
-    private readonly List<UITextPanel<string>> filters = new();
-    private int filter, inspected = -1, inspectedGear = -1, signature;
-    private string transferMessage = "", refusal = "";
+    private int signature;
+    private string message = "";
+
+    public string Title => "Inventory";
+    public IReadOnlyList<CardAction> Actions { get; }
+    public UIElement[] Boxes { get; } = new UIElement[2];
+    public string Message => message;
+
+    public CompanionBagUI()
+    {
+        Actions = new[]
+        {
+            new CardAction("Loot All", () => Transfer(p => bag.LootAll(p), n => bag.Count == 0 ? "Looted everything" : $"Looted {n}; the rest has no room", "The bag is empty")),
+            new CardAction("Deposit All", () => Transfer(p => bag.DepositAll(p), n => $"Deposited {n}", "Nothing to deposit")),
+            new CardAction("Quick Stack", () => Transfer(p => bag.QuickStack(p), n => $"Quick stacked {n} into the bag", "Nothing you carry matches the bag")),
+            new CardAction("Restock", () => Transfer(p => bag.Restock(p), n => $"Restocked {n} to you", "Nothing in the bag matches what you carry")),
+        };
+    }
 
     public override void OnInitialize()
     {
         var companionPlayer = Main.LocalPlayer.GetModPlayer<PlayerIntegration.CompanionPlayer>();
         bag = companionPlayer.Bag;
         gear = companionPlayer.Gear;
-        string[] names = { "All", "Ore", "Wood", "Loot" };
-        for (int i = 0; i < names.Length; i++)
-        {
-            int index = i;
-            var button = DrawCardPrimitives.Button(names[i], 58, () => { filter = index; scrollbar.ViewPosition = 0; Recalculate(); });
-            button.Left.Set(i * 62, 0); Append(button); filters.Add(button);
-        }
-        for (int i = 0; i < CompanionGear.SlotCount; i++)
-        {
-            var slot = new GearSlotElement(this, (GearSlot)i);
-            slot.Left.Set(i * Pitch, 0); slot.Top.Set(GearTop, 0); Append(slot);
-        }
+        int total = GearBoxes[0].Length + GearBoxes[1].Length;
+        float gap = CardRegions.Rhythm;
+        // Each box's width follows its slot count, so the slots sit at the same even spacing in both; the second box starts
+        // one rhythm after the first and ends on the page's edge.
+        var weapons = new GearBox(this, GearBoxes[0]);
+        weapons.Width.Set(-gap * GearBoxes[0].Length / total, (float)GearBoxes[0].Length / total); weapons.Height.Set(GearBoxHeight, 0);
+        var tools = new GearBox(this, GearBoxes[1]);
+        tools.Left.Set(gap * GearBoxes[1].Length / total, (float)GearBoxes[0].Length / total);
+        tools.Width.Set(-gap * GearBoxes[1].Length / total, (float)GearBoxes[1].Length / total); tools.Height.Set(GearBoxHeight, 0);
+        Boxes[0] = weapons; Boxes[1] = tools;
+        Append(weapons); Append(tools);
         viewport = new UIElement { OverflowHidden = true };
-        viewport.Top.Set(GridTop, 0); Append(viewport);
+        viewport.Left.Set(GridLeft, 0); viewport.Top.Set(GridTop, 0); viewport.Width.Set(GridWidth, 0);
+        viewport.Height.Set(-(GridTop + CardRegions.Rhythm + FooterHeight), 1f);
+        Append(viewport);
         grid = new UIElement(); viewport.Append(grid);
         for (int i = 0; i < CompanionInventory.Slots; i++) slots.Add(new BagSlot(this, i));
-        scrollbar = new UIScrollbar(); scrollbar.Top.Set(GridTop, 0); Append(scrollbar);
-        details = new ItemDetails(this); details.HAlign = 1; details.Top.Set(GearTop, 0); Append(details);
-        var handOver = DrawCardPrimitives.Button("Hand everything over", 220, HandEverythingOver);
-        handOver.HAlign = .5f; handOver.Top.Set(-32, 1); Append(handOver);
+        scrollbar = new UIScrollbar();
+        scrollbar.Left.Set(ScrollbarLeft, 0); scrollbar.Top.Set(GridTop, 0); scrollbar.Width.Set(ScrollbarWidth, 0);
+        scrollbar.Height.Set(-(GridTop + CardRegions.Rhythm + FooterHeight), 1f);
+        Append(scrollbar);
+        foreach (var slot in slots) grid.Append(slot);
     }
 
-    private static bool IsOre(Item item) => item.createTile > -1 && item.createTile < TileID.Sets.Ore.Length && TileID.Sets.Ore[item.createTile];
-    private static bool IsWood(Item item) => RecipeGroup.recipeGroups.TryGetValue(RecipeGroupID.Wood, out var wood) && wood.ValidItems.Contains(item.type);
-    private bool Matches(Item item) => filter == 0 || !item.IsAir && (filter == 1 ? IsOre(item) : filter == 2 ? IsWood(item) : !IsOre(item) && !IsWood(item));
+    public UIElement Grid => grid;
+    public UIElement Viewport => viewport;
+    public UIScrollbar Scrollbar => scrollbar;
+
+    private void Transfer(Func<Player, int> operation, Func<int, string> moved, string nothing)
+    {
+        if (!Main.mouseItem.IsAir) { message = "Put down the cursor item first"; return; }
+        int count = operation(Main.LocalPlayer);
+        message = count > 0 ? moved(count) : nothing;
+        Recalculate();
+    }
 
     public override void Recalculate()
     {
         base.Recalculate();
         if (viewport == null) return;
-        float width = GetInnerDimensions().Width;
-        float detailWidth = width >= 560 ? 180 : 142;
-        float gridWidth = Math.Max(SlotSize, width - detailWidth - 30);
-        float gridHeight = Math.Max(SlotSize, MathF.Floor((GetInnerDimensions().Height - GridTop - 38) / Pitch) * Pitch - 4);
-        viewport.Width.Set(gridWidth, 0); viewport.Height.Set(gridHeight, 0);
-        scrollbar.Left.Set(gridWidth + 4, 0); scrollbar.Height.Set(gridHeight, 0);
-        // The details panel spans the gear row and the grid, so a gear item is inspected in the same place as cargo.
-        details.Width.Set(detailWidth, 0); details.Height.Set(gridHeight + GridTop - GearTop, 0);
-        int columns = Math.Max(1, (int)((gridWidth + Pitch - SlotSize) / Pitch));
-        grid.RemoveAllChildren();
-        int visible = 0;
-        foreach (var slot in slots)
+        CalculatedStyle view = viewport.GetDimensions();
+        int columns = Math.Max(1, (int)((GridWidth + Pitch - SlotSize) / Pitch));
+        for (int i = 0; i < slots.Count; i++)
         {
-            if (!Matches(bag.Items[slot.Index])) continue;
-            slot.Left.Set(visible % columns * Pitch, 0); slot.Top.Set(visible / columns * Pitch, 0);
-            grid.Append(slot); visible++;
+            slots[i].Left.Set(i % columns * Pitch, 0);
+            slots[i].Top.Set(i / columns * Pitch, 0);
         }
-        float height = Math.Max(gridHeight, (int)Math.Ceiling(visible / (float)columns) * Pitch);
-        grid.Width.Set(gridWidth, 0); grid.Height.Set(height, 0);
-        scrollbar.SetView(gridHeight, height);
-        viewport.Recalculate(); scrollbar.Recalculate(); details.Recalculate();
+        float height = Math.Max(view.Height, (int)Math.Ceiling(slots.Count / (float)columns) * Pitch - (Pitch - SlotSize));
+        grid.Width.Set(GridWidth, 0); grid.Height.Set(height, 0);
+        scrollbar.SetView(view.Height, height);
+        viewport.Recalculate(); scrollbar.Recalculate();
     }
 
     public override void ScrollWheel(UIScrollWheelEvent evt)
@@ -109,49 +129,74 @@ public sealed class CompanionBagUI : UIState
         foreach (Item item in bag.Items) next = unchecked(next * 31 + item.type);
         next = unchecked(next * 31 + gear.Signature);
         if (next != signature) { signature = next; Recalculate(); }
-        // The refusal is recomputed by whichever gear slot the cursor is over; off every slot it clears.
-        refusal = "";
         grid.Top.Set(-scrollbar.GetValue(), 0); grid.Recalculate();
-        for (int i = 0; i < filters.Count; i++)
-        {
-            filters[i].TextColor = i == filter ? Color.Gold : Color.White;
-            filters[i].BackgroundColor = i == filter ? DrawCardPrimitives.Selected : DrawCardPrimitives.Panel;
-        }
-    }
-
-    private void HandEverythingOver()
-    {
-        if (!Main.mouseItem.IsAir) { transferMessage = "Put down the cursor item first."; return; }
-        Player player = Main.LocalPlayer;
-        for (int i = 0; i < bag.Items.Length; i++)
-        {
-            if (bag.Items[i].IsAir) continue;
-            // Native insertion returns what did not fit. Keep that remainder in
-            // its original bag slot; a full player inventory never deletes an item.
-            bag.Items[i] = player.GetItem(player.whoAmI, bag.Items[i], GetItemSettings.InventoryEntityToPlayerInventorySettings);
-        }
-        transferMessage = bag.Count == 0 ? "Everything handed over." : "The rest stays here until you have room.";
-        Recalculate();
     }
 
     protected override void DrawSelf(SpriteBatch sb)
     {
         Rectangle r = GetDimensions().ToRectangle();
-        DrawCardPrimitives.Text(sb, $"{bag.Count} / {CompanionInventory.Slots}", new Vector2(r.Right - 84, r.Y + 6), DrawCardPrimitives.Muted, .75f);
-        // The caption names the four slots in their drawn order, or says why the cursor's item is refused.
-        string caption = refusal.Length > 0 ? refusal : "Two weapons, a pickaxe, an axe";
-        DrawCardPrimitives.Text(sb, caption, new Vector2(r.X + CompanionGear.SlotCount * Pitch + 6, r.Y + GearTop + 17),
-            refusal.Length > 0 ? Color.LightSalmon : DrawCardPrimitives.Muted, .7f);
-        if (filter != 0 && !slots.Exists(slot => Matches(bag.Items[slot.Index])))
-            DrawCardPrimitives.WrappedText(sb, "No items in this category.", viewport.GetDimensions().ToRectangle(), DrawCardPrimitives.Muted);
+        int footerY = r.Bottom - (int)FooterHeight;
+        string count = $"{bag.Count} / {CompanionInventory.Slots}";
+        Vector2 countSize = FontAssets.MouseText.Value.MeasureString(count) * .8f;
+        DrawCardPrimitives.Text(sb, count, new Vector2(r.Right - GridLeft - countSize.X, footerY + 3), DrawCardPrimitives.Muted, .8f);
+        string last = message.Length > 0 ? message : bag.LastPickup ?? "";
+        DrawCardPrimitives.Text(sb, last, new Vector2(r.X + GridLeft, footerY + 4), DrawCardPrimitives.Muted, .68f);
+    }
+
+    /// <summary>The game's slot handling without its hover tooltip: shift-click overrides, then the left and right clicks.</summary>
+    private static void HandleWithoutTooltip(ref Item item)
+    {
+        ItemSlot.OverrideHover(ref item, ItemSlot.Context.BankItem);
+        ItemSlot.LeftClick(ref item, ItemSlot.Context.BankItem);
+        ItemSlot.RightClick(ref item, ItemSlot.Context.BankItem);
+    }
+
+    private static void DrawSlotEdge(SpriteBatch sb, Rectangle area, Color edge)
+    {
+        DrawCardPrimitives.Fill(sb, new Rectangle(area.X + 5, area.Y, area.Width - 10, 1), edge);
+        DrawCardPrimitives.Fill(sb, new Rectangle(area.X + 5, area.Bottom - 1, area.Width - 10, 1), edge);
+        DrawCardPrimitives.Fill(sb, new Rectangle(area.X, area.Y + 5, 1, area.Height - 10), edge);
+        DrawCardPrimitives.Fill(sb, new Rectangle(area.Right - 1, area.Y + 5, 1, area.Height - 10), edge);
+    }
+
+    /// <summary>A bordered box of gear slots, the slots at the fixed slot size and evenly spaced across the box, centred top to bottom.</summary>
+    private sealed class GearBox : UIPanel
+    {
+        public GearBox(CompanionBagUI owner, GearSlot[] contents)
+        {
+            BackgroundColor = DrawCardPrimitives.Panel;
+            BorderColor = DrawCardPrimitives.Edge;
+            SetPadding(0);
+            foreach (GearSlot slot in contents)
+            {
+                var element = new GearSlotElement(owner, slot);
+                element.Top.Set((GearBoxHeight - SlotSize) / 2, 0);
+                Append(element);
+            }
+        }
+
+        public override void Recalculate()
+        {
+            base.Recalculate();
+            float width = GetDimensions().Width;
+            int n = 0;
+            foreach (UIElement _ in Children) n++;
+            float spacing = (width - n * SlotSize) / (n + 1);
+            int i = 0;
+            foreach (UIElement child in Children)
+            {
+                child.Left.Set(MathF.Round(spacing + i * (SlotSize + spacing)), 0);
+                child.Recalculate();
+                i++;
+            }
+        }
     }
 
     /// <summary>
-    /// One gear slot: a native item slot that asks the gear's predicate before letting the game's
-    /// slot handling swap the cursor's item in. A refused item never reaches the handler, so it stays
-    /// on the cursor and the slot dims to say so; taking an item out, or putting a slot's own item
-    /// back, is always allowed. Bank context is used for the same reason the cargo slots use it:
-    /// it is the one context that neither stamps a hotbar shortcut nor treats the slot as armour.
+    /// One gear slot: a native item slot that asks the gear's predicate before letting the game's slot handling swap the
+    /// cursor's item in. A refused item never reaches the handler, so it stays on the cursor and the slot dims to say so;
+    /// taking an item out, or putting a slot's own item back, is always allowed. Bank context is used for the same reason
+    /// the cargo slots use it: it neither stamps a hotbar shortcut nor treats the slot as armour.
     /// </summary>
     private sealed class GearSlotElement : UIElement
     {
@@ -172,41 +217,25 @@ public sealed class CompanionBagUI : UIState
             {
                 Main.inventoryScale = SlotSize / TextureAssets.InventoryBack.Value.Width;
                 Rectangle area = GetDimensions().ToRectangle();
-                bool refused = false;
-                if (ContainsPoint(Main.MouseScreen) && !PlayerInput.IgnoreMouseInterface)
+                bool refused = false, hovering = ContainsPoint(Main.MouseScreen) && !PlayerInput.IgnoreMouseInterface;
+                if (hovering)
                 {
                     Main.LocalPlayer.mouseInterface = true;
-                    if (!items[index].IsAir) { owner.inspectedGear = index; owner.inspected = -1; }
-                    refused = !Main.mouseItem.IsAir && !CompanionGear.Accepts(slot, Main.mouseItem, out owner.refusal);
-                    if (!refused)
-                        ItemSlot.Handle(ref items[index], ItemSlot.Context.BankItem);
+                    refused = !Main.mouseItem.IsAir && !CompanionGear.Accepts(slot, Main.mouseItem, out _);
+                    if (!refused) HandleWithoutTooltip(ref items[index]);
                 }
-                // An item already in the slot that its predicate no longer accepts — a saved item whose mod has
-                // since unloaded — is kept and drawn dim, the same dim a refused cursor item gets, so the player
-                // sees that it is idle without it being thrown away.
+                // An item already in the slot that its predicate no longer accepts — a saved item whose mod has since
+                // unloaded — is kept and drawn dim, the same dim a refused cursor item gets, so the player sees it is idle
+                // without it being thrown away.
                 bool idle = !items[index].IsAir && !CompanionGear.Accepts(slot, items[index], out _);
                 Texture2D background = items[index].favorited ? TextureAssets.InventoryBack10.Value : TextureAssets.InventoryBack.Value;
                 sb.Draw(background, area, refused || idle ? Color.White * .45f : Color.White);
                 if (!items[index].IsAir)
                     ItemSlot.DrawItemIcon(items[index], ItemSlot.Context.BankItem, sb, area.Center.ToVector2(), Main.inventoryScale, 32f, refused || idle ? Color.White * .45f : Color.White);
-                else
-                    DrawCardPrimitives.Text(sb, SlotGlyph(slot), area.Center.ToVector2() - new Vector2(6, 10), DrawCardPrimitives.Muted * .8f, .9f);
-                Color edge = owner.inspectedGear == index ? Color.Gold : refused ? Color.LightSalmon : DrawCardPrimitives.Edge * .75f;
-                DrawCardPrimitives.Fill(sb, new Rectangle(area.X + 5, area.Y, area.Width - 10, 1), edge);
-                DrawCardPrimitives.Fill(sb, new Rectangle(area.X + 5, area.Bottom - 1, area.Width - 10, 1), edge);
-                DrawCardPrimitives.Fill(sb, new Rectangle(area.X, area.Y + 5, 1, area.Height - 10), edge);
-                DrawCardPrimitives.Fill(sb, new Rectangle(area.Right - 1, area.Y + 5, 1, area.Height - 10), edge);
+                DrawSlotEdge(sb, area, hovering && !refused ? Color.Gold : refused ? Color.LightSalmon : DrawCardPrimitives.Edge * .75f);
             }
             finally { Main.inventoryScale = previous; }
         }
-
-        /// <summary>What an empty slot is for, as one character: W for a weapon, P for the pickaxe, A for the axe.</summary>
-        private static string SlotGlyph(GearSlot slot) => slot switch
-        {
-            GearSlot.Pickaxe => "P",
-            GearSlot.Axe => "A",
-            _ => "W",
-        };
     }
 
     private sealed class BagSlot : UIElement
@@ -218,6 +247,7 @@ public sealed class CompanionBagUI : UIState
             this.owner = owner; Index = index;
             Width.Set(SlotSize, 0); Height.Set(SlotSize, 0);
         }
+
         protected override void DrawSelf(SpriteBatch sb)
         {
             Item[] items = owner.bag.Items;
@@ -227,15 +257,14 @@ public sealed class CompanionBagUI : UIState
                 Main.inventoryScale = SlotSize / TextureAssets.InventoryBack.Value.Width;
                 Rectangle area = GetDimensions().ToRectangle();
                 Vector2 mouse = Main.MouseScreen;
-                if (ContainsPoint(mouse) && owner.viewport.ContainsPoint(mouse) && !PlayerInput.IgnoreMouseInterface)
+                bool hovering = ContainsPoint(mouse) && owner.viewport.ContainsPoint(mouse) && !PlayerInput.IgnoreMouseInterface;
+                if (hovering)
                 {
                     Main.LocalPlayer.mouseInterface = true;
-                    if (!items[Index].IsAir) { owner.inspected = Index; owner.inspectedGear = -1; }
-                    ItemSlot.Handle(ref items[Index], ItemSlot.Context.BankItem);
+                    HandleWithoutTooltip(ref items[Index]);
                 }
-                // Bank Draw selects brown art. Inventory Draw assumes a player hotbar
-                // index and stamps a shortcut on single-item slots. Use the game's
-                // blue texture and icon path directly, retaining native item hooks.
+                // Bank Draw selects brown art, and Inventory Draw assumes a player hotbar index and stamps a shortcut on
+                // single-item slots, so the game's blue texture and icon path are used directly, keeping native item hooks.
                 Texture2D background = items[Index].favorited ? TextureAssets.InventoryBack10.Value : TextureAssets.InventoryBack.Value;
                 sb.Draw(background, area, Color.White);
                 if (!items[Index].IsAir)
@@ -244,44 +273,9 @@ public sealed class CompanionBagUI : UIState
                     if (items[Index].stack > 1)
                         DrawCardPrimitives.Text(sb, items[Index].stack.ToString(), area.TopLeft() + new Vector2(10, 26) * Main.inventoryScale, Color.White, Main.inventoryScale, FontAssets.ItemStack.Value);
                 }
-                Color edge = owner.inspected == Index ? Color.Gold : DrawCardPrimitives.Edge * .75f;
-                DrawCardPrimitives.Fill(sb, new Rectangle(area.X + 5, area.Y, area.Width - 10, 1), edge);
-                DrawCardPrimitives.Fill(sb, new Rectangle(area.X + 5, area.Bottom - 1, area.Width - 10, 1), edge);
-                DrawCardPrimitives.Fill(sb, new Rectangle(area.X, area.Y + 5, 1, area.Height - 10), edge);
-                DrawCardPrimitives.Fill(sb, new Rectangle(area.Right - 1, area.Y + 5, 1, area.Height - 10), edge);
+                DrawSlotEdge(sb, area, hovering ? Color.Gold : DrawCardPrimitives.Edge * .75f);
             }
             finally { Main.inventoryScale = previous; }
-        }
-    }
-
-    private sealed class ItemDetails(CompanionBagUI owner) : UIPanel
-    {
-        protected override void DrawSelf(SpriteBatch sb)
-        {
-            BackgroundColor = DrawCardPrimitives.Panel; BorderColor = DrawCardPrimitives.Edge;
-            base.DrawSelf(sb);
-            Rectangle r = GetInnerDimensions().ToRectangle();
-            Item? item = owner.inspectedGear >= 0 ? owner.gear.Slots[owner.inspectedGear]
-                : owner.inspected >= 0 ? owner.bag.Items[owner.inspected] : null;
-            if (item == null || item.IsAir)
-                DrawCardPrimitives.WrappedText(sb, "Point to an item to inspect it.\n\nThe top row is gear: two weapons, a pickaxe and an axe it fights and works with. The grid is cargo it collected.", r, DrawCardPrimitives.Muted, .72f);
-            else
-            {
-                Color rarity = Terraria.GameContent.UI.ItemRarity.GetColor(item.rare);
-                DrawCardPrimitives.WrappedText(sb, item.Name, new Rectangle(r.X, r.Y, r.Width, 40), rarity, .85f);
-                DrawCardPrimitives.Text(sb, $"x{item.stack}", new Vector2(r.X, r.Y + 44), Color.White, .8f);
-                if (IsOre(item) && r.Height >= 120 && owner.transferMessage.Length == 0)
-                {
-                    int labelY = r.Height > 140 ? 80 : 64;
-                    DrawCardPrimitives.Text(sb, "In the wall", new Vector2(r.X, r.Y + labelY), DrawCardPrimitives.Muted, .7f);
-                    Main.instance?.LoadTiles(item.createTile);
-                    var tile = TextureAssets.Tile[item.createTile];
-                    if (tile?.IsLoaded == true)
-                        sb.Draw(tile.Value, new Rectangle(r.X, r.Y + labelY + 24, 32, 32), new Rectangle(18, 18, 16, 16), Color.White);
-                }
-            }
-            if (owner.transferMessage.Length > 0 && r.Height >= 116)
-                DrawCardPrimitives.WrappedText(sb, owner.transferMessage, new Rectangle(r.X, r.Bottom - 50, r.Width, 50), Color.LightGreen, .65f);
         }
     }
 }

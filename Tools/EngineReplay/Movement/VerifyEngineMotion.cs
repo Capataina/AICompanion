@@ -99,6 +99,7 @@ internal static class VerifyEngineMotion
         ("remaining work is accounted to whoever did it", VerifyWorkAccounting.Run),
         ("a collected drop is claimed only for what arrived", VerifyCollectionContracts.Run),
         ("per-character preferences reach the brain", VerifyCompanionPreferences.Run),
+        ("the mastery preview is the owner's flat tree of ten-node lanes, and learning follows its edges and needs", VerifyNativeCard.RunMasteryRules),
         ("the seven activities are offered and chosen", VerifyCompanionActivities.Run),
         ("assistance is useful rather than merely nearby", VerifyUsefulAssistance.Run),
         ("the senses' lifecycle restores what it changed", VerifyObservationLifecycle.Run),

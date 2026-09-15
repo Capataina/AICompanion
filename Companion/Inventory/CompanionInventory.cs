@@ -258,6 +258,142 @@ public sealed class CompanionInventory
         }
     }
 
+    // ---- the chest buttons: the game's four container transfers, against the bag instead of a chest ----
+    //
+    // Terraria.UI.ChestUI implements Loot All, Deposit All, Quick Stack and Restock, and none of them can be called for the
+    // bag: every one switches on player.chest and indexes the fixed forty-slot arrays of a world chest or one of the player's
+    // banks. These are the same transfers written against this array, with the same choices of which player slots take
+    // part, read from the decompiled ChestUI rather than recalled. The one deliberate difference is coins: the game moves
+    // coins between purse and container, and the bag is cargo rather than a purse, so its transfers leave coins where they
+    // are. Each returns how many items moved and sorts the bag afterwards, because the card's bag sorts itself after every
+    // transfer and has no Sort button.
+
+    /// <summary>Loot All: every bag stack offered to the player through the game's own insertion, the remainder left in place.</summary>
+    public int LootAll(Player player)
+    {
+        int moved = 0;
+        for (int i = 0; i < Slots; i++)
+        {
+            if (Items[i].IsAir) continue;
+            int before = Items[i].stack;
+            Items[i].position = player.Center;
+            Items[i] = player.GetItem(player.whoAmI, Items[i], GetItemSettings.LootAllSettings);
+            moved += before - (Items[i].IsAir ? 0 : Items[i].stack);
+        }
+        Sort();
+        return moved;
+    }
+
+    /// <summary>
+    /// Deposit All: the player's main inventory below the hotbar, last slot first, favourites and coins kept back; each
+    /// stack tops up matching bag stacks, and what is left takes the first empty bag slot.
+    /// </summary>
+    public int DepositAll(Player player)
+    {
+        int moved = 0;
+        for (int slot = PlayerMainSlots - 1; slot >= HotbarSlots; slot--)
+        {
+            Item from = player.inventory[slot];
+            if (from.IsAir || from.stack <= 0 || from.favorited || from.IsACoin) continue;
+            int before = from.stack;
+            if (from.maxStack > 1)
+                for (int i = 0; i < Slots && from.stack > 0; i++)
+                    if (!Items[i].IsAir && Items[i].stack < Items[i].maxStack && Items[i].netID == from.netID)
+                        ItemLoader.TryStackItems(Items[i], from, out _);
+            if (from.stack > 0)
+                for (int i = 0; i < Slots; i++)
+                    if (Items[i].IsAir) { Items[i] = from.Clone(); from.stack = 0; break; }
+            moved += before - System.Math.Max(0, from.stack);
+            if (from.stack <= 0) player.inventory[slot] = new Item();
+        }
+        Sort();
+        return moved;
+    }
+
+    /// <summary>
+    /// Quick Stack: from the player's main inventory below the hotbar, favourites and coins kept back, only kinds the bag
+    /// already holds move; they top up the bag's stacks, then take empty bag slots.
+    /// </summary>
+    public int QuickStack(Player player)
+    {
+        var kinds = new HashSet<int>();
+        foreach (Item item in Items)
+            if (!item.IsAir && !item.IsACoin) kinds.Add(item.netID);
+        int moved = 0;
+        for (int slot = HotbarSlots; slot < PlayerMainSlots; slot++)
+        {
+            Item from = player.inventory[slot];
+            if (from.IsAir || from.favorited || from.IsACoin || !kinds.Contains(from.netID)) continue;
+            int before = from.stack;
+            for (int i = 0; i < Slots && from.stack > 0; i++)
+                if (!Items[i].IsAir && Items[i].netID == from.netID && Items[i].stack < Items[i].maxStack)
+                    ItemLoader.TryStackItems(Items[i], from, out _);
+            if (from.stack > 0)
+                for (int i = 0; i < Slots; i++)
+                    if (Items[i].IsAir) { Items[i] = from.Clone(); from.stack = 0; break; }
+            moved += before - System.Math.Max(0, from.stack);
+            if (from.stack <= 0) player.inventory[slot] = new Item();
+        }
+        Sort();
+        return moved;
+    }
+
+    /// <summary>
+    /// Restock: bag items of a stackable kind the player already carries top up the player's partial stacks of that kind,
+    /// hotbar and ammo slots included and coin slots excluded, each move asked of the game's own slot rules; ammo left over
+    /// may also take an empty player slot the game would accept it in.
+    /// </summary>
+    public int Restock(Player player)
+    {
+        Item[] inventory = player.inventory;
+        var kinds = new HashSet<int>();
+        var partial = new List<int>();
+        var empty = new List<int>();
+        for (int n = AmmoSlotsEnd - 1; n >= 0; n--)
+        {
+            if (n >= PlayerMainSlots && n < AmmoSlotsStart) continue;
+            if (inventory[n].IsACoin) continue;
+            if (inventory[n].stack > 0 && inventory[n].maxStack > 1)
+            {
+                kinds.Add(inventory[n].netID);
+                if (inventory[n].stack < inventory[n].maxStack) partial.Add(n);
+            }
+            else if (inventory[n].IsAir) empty.Add(n);
+        }
+        int moved = 0;
+        for (int i = 0; i < Slots; i++)
+        {
+            if (Items[i].IsAir || !kinds.Contains(Items[i].netID)) continue;
+            int before = Items[i].stack;
+            bool emptied = false;
+            for (int j = 0; j < partial.Count; j++)
+            {
+                int n = partial[j];
+                int context = n >= PlayerMainSlots ? 2 : 0;
+                if (inventory[n].netID != Items[i].netID || ItemSlot.PickItemMovementAction(inventory, context, n, Items[i]) == -1
+                    || !ItemLoader.TryStackItems(inventory[n], Items[i], out _)) continue;
+                if (inventory[n].stack == inventory[n].maxStack) { partial.RemoveAt(j); j--; }
+                if (Items[i].stack == 0) { Items[i] = new Item(); emptied = true; break; }
+            }
+            if (!emptied && empty.Count > 0 && Items[i].ammo != 0)
+                for (int k = 0; k < empty.Count; k++)
+                {
+                    int n = empty[k];
+                    int context = n >= PlayerMainSlots ? 2 : 0;
+                    if (ItemSlot.PickItemMovementAction(inventory, context, n, Items[i]) == -1) continue;
+                    Utils.Swap(ref inventory[n], ref Items[i]);
+                    partial.Add(n);
+                    empty.RemoveAt(k);
+                    break;
+                }
+            moved += before - (Items[i].IsAir ? 0 : Items[i].stack);
+        }
+        Sort();
+        return moved;
+    }
+
+    /// <summary>The hotbar's ten slots, which the game's own Deposit All and Quick Stack never take from.</summary>
+    private const int HotbarSlots = 10;
     private const int AmmoSlotsStart = 54, AmmoSlotsEnd = 58;
 
     /// <summary>

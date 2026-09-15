@@ -1,120 +1,91 @@
 #nullable enable
 using System;
+using System.Globalization;
+using System.Linq;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Terraria;
 using Terraria.GameContent;
-using Terraria.ID;
-using Terraria.Map;
 using Terraria.UI;
 using AICompanion.Companion.CharacterBody;
-using AICompanion.Companion.Brain.Activities.Gathering;
-using AICompanion.Companion.Brain.Activities;
 using AICompanion.Companion.PlayerIntegration;
 
 namespace AICompanion.Companion.ProfileCard;
 
-/// <summary>Reads retained action evidence; displaying a reason never chooses an action.</summary>
+/// <summary>
+/// The overview's identity strip: the drone's portrait, the name and level, and health, mana and experience as
+/// three large bars filling the strip under the name, each reading beside its bar in the bar's colour, with the
+/// three work controls on the right. The action line that used to sit under the bars is gone by the owner's
+/// ruling of 15 September 2026, because information shown twice, or not needed at a glance, is clutter, and
+/// the sentence that composed it went with it, since nothing else read it. Displaying never chooses an action.
+/// </summary>
 public sealed class DrawCompanionStatus : UIElement
 {
-    public override void Update(GameTime time)
+    public const float NameLeft = 80, BarsTop = 30, BarWidth = 220, BarHeight = 16, BarStep = 25, ReadingGap = 8;
+    public const float ReadingScale = .75f, ControlsLeft = 430;
+
+    public static readonly Color HealthFill = new(140, 240, 140);
+    /// <summary>The game's own mana-star blue and the card's experience gold; the HUD notch draws the same two.</summary>
+    public static readonly Color ManaFill = new(106, 168, 255);
+    public static readonly Color ExperienceFill = new(255, 210, 74);
+    private static readonly Color Gold = new(255, 224, 102);
+    private static readonly Color Sunk = new Color(37, 41, 122) * .75f;
+    private static readonly Color BarTrack = new(22, 22, 69);
+    private static readonly Color DownedFill = new(142, 142, 147);
+
+    public ControlWorkPreferences Controls { get; }
+
+    public DrawCompanionStatus()
     {
-        base.Update(time);
-        if (IsMouseHovering && CompanionNPC.Instance is { } companion)
-            Main.instance?.MouseText(Describe(companion));
+        Controls = new ControlWorkPreferences();
+        Controls.Left.Set(ControlsLeft, 0); Controls.Width.Set(-ControlsLeft, 1f); Controls.Height.Set(0, 1f);
+        Append(Controls);
     }
 
-    public static string Describe(CompanionNPC companion)
-    {
-        var brain = companion.Brain;
-        if (companion.IsDowned) return "Downed · stay nearby to revive";
-        if (brain.FollowRecovery.Active) return "Catching up · returning to your side";
-        if (brain.MovementStalled) return "Stuck · no movement progress; looking for another route";
-        var action = brain.LastAction;
-        string target = action?.ActivityTarget is Vector2 point ? Direction(companion.NPC.Center, point) : "";
-        string reason = action?.Name switch
-        {
-            "mine" => WorkPolicies.Mining == WorkPolicy.Mimic ? "mimicking your mining" : "opportunistic",
-            "chop" => WorkPolicies.Chopping == WorkPolicy.Mimic ? "mimicking your chopping" : "opportunistic",
-            "guard" => "protecting you from a nearby threat",
-            "hunt" => "voluntary hunting is on",
-            "survive" => "escaping danger",
-            "collect" => "nearby drops or worthwhile pot contents",
-            "place-torches" => "lighting a dark route with supplied torches",
-            "keep-company" => "accompanying you and moving nearby when there is time",
-            _ => "no activity currently selected"
-        };
-        string activity = brain.ActivityStatus;
-        if (action is MineOre mine && mine.TargetTile is Point tile && WorldGen.InWorld(tile.X, tile.Y))
-        {
-            string ore = Lang.GetMapObjectName(MapHelper.TileToLookup(Main.tile[tile.X, tile.Y].TileType, 0));
-            activity = "Mining · " + (string.IsNullOrWhiteSpace(ore) ? "ore vein" : ore + " vein");
-        }
-        string reflex = brain.Reflexes.Active is { Length: > 0 } active ? " · " + active : "";
-        return activity + (target.Length > 0 ? " · " + target : "") + " · " + reason + reflex;
-    }
+    /// <summary>The portrait's box inside a strip.</summary>
+    public static Rectangle Portrait(Rectangle strip) => new(strip.X + 2, strip.Y + 3, 66, 92);
 
-    private static string Direction(Vector2 from, Vector2 to)
-    {
-        Vector2 tiles = (to - from) / 16;
-        int distance = (int)MathF.Round(Math.Max(Math.Abs(tiles.X), Math.Abs(tiles.Y)));
-        if (distance <= 1) return "beside me";
-        string direction = Math.Abs(tiles.Y) > Math.Abs(tiles.X) ? (tiles.Y > 0 ? "below" : "above") : (tiles.X > 0 ? "right" : "left");
-        return $"{distance} tiles {direction}";
-    }
+    /// <summary>The three bars' boxes inside a strip: health, mana, experience.</summary>
+    public static Rectangle[] Bars(Rectangle strip)
+        => Enumerable.Range(0, 3).Select(i => new Rectangle(strip.X + (int)NameLeft, strip.Y + (int)(BarsTop + i * BarStep), (int)BarWidth, (int)BarHeight)).ToArray();
+
+    private static string Number(int value) => value.ToString("N0", CultureInfo.InvariantCulture);
 
     protected override void DrawSelf(SpriteBatch sb)
     {
         Rectangle r = GetDimensions().ToRectangle();
         var companion = CompanionNPC.Instance;
-        Rectangle portrait = new(r.X + 2, r.Y + 3, 72, r.Height - 8);
-        DrawCardPrimitives.Fill(sb, portrait, new Color(37, 41, 122) * .75f);
-        // The portrait is the game's Destroyer probe, the texture the orb itself is drawn with
-        // until its own art exists, so the card shows the thing that is actually in the world.
-        // One frame of the sheet, never the sheet. The request is a no-op once the texture is
-        // loaded, and the render fixture preloads it because its Main is an uninitialised shell.
-        Main.instance?.LoadNPC(NPCID.Probe);
-        if (TextureAssets.Npc[NPCID.Probe]?.IsLoaded == true)
-        {
-            Texture2D texture = TextureAssets.Npc[NPCID.Probe].Value;
-            var source = new Rectangle(0, 0, texture.Width, texture.Height / Math.Max(1, Main.npcFrameCount[NPCID.Probe]));
-            float scale = Math.Min((portrait.Width - 16f) / source.Width, (portrait.Height - 16f) / source.Height);
-            sb.Draw(texture, portrait.Center.ToVector2(), source, Color.White, 0, source.Size() / 2, scale, SpriteEffects.None, 0);
-        }
-        int x = r.X + 88;
+        Rectangle portrait = Portrait(r);
+        DrawCardPrimitives.Fill(sb, portrait, Sunk);
+        DrawDronePortrait.Draw(sb, new Rectangle(portrait.Center.X - 24, portrait.Center.Y - 24, 48, 48));
+
+        int x = r.X + (int)NameLeft;
         string name = companion == null || string.IsNullOrWhiteSpace(companion.NPC.GivenName) ? "Companion" : companion.NPC.GivenName;
         var save = Main.LocalPlayer.GetModPlayer<CompanionPlayer>();
-        string level = companion == null ? "" : $"Level {save.Experience.Level}";
-        Vector2 levelSize = FontAssets.MouseText.Value.MeasureString(level) * .8f;
-        DrawCardPrimitives.WrappedText(sb, name, new Rectangle(x, r.Y + 3, r.Right - (int)levelSize.X - x - 20, 26), Color.White, 1f);
-        DrawCardPrimitives.Text(sb, level, new Vector2(r.Right - levelSize.X - 6, r.Y + 6), Gold, .8f);
+        float nameWidth = FontAssets.MouseText.Value.MeasureString(name).X;
+        DrawCardPrimitives.Text(sb, name, new Vector2(x, r.Y + 1), Color.White, 1f);
+        if (companion != null)
+            DrawCardPrimitives.Text(sb, $"Level {save.Experience.Level}", new Vector2(x + nameWidth + 10, r.Y + 5), Gold, .8f);
 
-        // Health, mana and experience stacked in the notch's order, each a bar with its reading
-        // beside it in the bar's own colour, so the strip and the notch teach one column.
-        int readingW = 112, barY = r.Y + 27, rowStep = 12;
-        Rectangle bar = new(x, barY, r.Right - x - readingW - 6, 7);
+        Rectangle[] bars = Bars(r);
         (float Fraction, string Reading, Color Fill)[] rows = companion == null
-            ? new[] { (0f, "Unavailable", HealthFill) }
+            ? new[] { (0f, "", HealthFill), (0f, "", ManaFill), (0f, "", ExperienceFill) }
             : new[]
             {
-                (Math.Clamp((float)companion.NPC.life / Math.Max(1, companion.NPC.lifeMax), 0, 1), $"{companion.NPC.life} / {companion.NPC.lifeMax} HP", HealthFill),
-                (companion.Mana.Fraction, $"{(int)MathF.Round(companion.Mana.Current)} / {companion.Mana.Max} MP", ManaFill),
-                (save.Experience.Fraction, $"{save.Experience.IntoLevel} / {save.Experience.NeededNow} XP", ExperienceFill),
+                // Downed, the health bar is grey and fills with revival, the same reading the notch gives.
+                companion.IsDowned
+                    ? (Math.Clamp(companion.RevivePercent / 100f, 0, 1), $"Reviving {companion.RevivePercent}%", DownedFill)
+                    : (Math.Clamp((float)companion.NPC.life / Math.Max(1, companion.NPC.lifeMax), 0, 1), $"{Number(companion.NPC.life)} / {Number(companion.NPC.lifeMax)} HP", HealthFill),
+                (companion.Mana.Fraction, $"{Number((int)MathF.Round(companion.Mana.Current))} / {Number(companion.Mana.Max)} MP", ManaFill),
+                (save.Experience.Fraction, $"{Number(save.Experience.IntoLevel)} / {Number(save.Experience.NeededNow)} XP", ExperienceFill),
             };
-        foreach (var (fraction, reading, fill) in rows)
+        float textHeight = FontAssets.MouseText.Value.MeasureString("0").Y * ReadingScale;
+        for (int i = 0; i < 3; i++)
         {
-            DrawCardPrimitives.Fill(sb, bar, new Color(22, 24, 69));
-            DrawCardPrimitives.Fill(sb, bar with { Width = (int)(bar.Width * fraction) }, fill);
-            DrawCardPrimitives.Text(sb, reading, new Vector2(bar.Right + 8, bar.Y - 3), fill, .66f);
-            bar.Y += rowStep;
+            Rectangle bar = bars[i];
+            DrawCardPrimitives.Fill(sb, bar, BarTrack);
+            DrawCardPrimitives.Fill(sb, bar with { Width = (int)(bar.Width * rows[i].Fraction) }, rows[i].Fill);
+            DrawCardPrimitives.Text(sb, rows[i].Reading, new Vector2(bar.Right + ReadingGap, bar.Center.Y - textHeight / 2 + 2), rows[i].Fill, ReadingScale);
         }
-        DrawCardPrimitives.WrappedText(sb, companion == null ? "No companion is present." : Describe(companion), new Rectangle(x, r.Y + 64, r.Right - x - 8, r.Height - 64), Color.White, .75f);
-        DrawCardPrimitives.Fill(sb, new Rectangle(r.X, r.Bottom, r.Width, 1), DrawCardPrimitives.Edge * .6f);
     }
-
-    private static readonly Color Gold = new(255, 224, 102);
-    private static readonly Color HealthFill = new(102, 221, 116);
-    /// <summary>The game's own mana-star blue and the mock's experience gold; the notch draws the same two.</summary>
-    private static readonly Color ManaFill = new(106, 168, 255);
-    private static readonly Color ExperienceFill = new(255, 210, 74);
 }

@@ -78,6 +78,9 @@ internal static class RenderNativeInterface
             typeof(Terraria.ModLoader.ModPlayer).GetProperty("Entity", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)!.SetValue(preferences, Main.player[0]);
             typeof(Player).GetField("modPlayers", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(Main.player[0], new Terraria.ModLoader.ModPlayer[] { preferences });
             var seeded = SeedVisibleState(assets, preferences);
+            // ---- lane-ui: the card's item icons, ore tiles, gear and mining list ----
+            RenderCompanionCard.Seed(assets, preferences);
+            // ---- end lane-ui ----
             Main.mouseX = Main.mouseY = -100;
             using var batch = new SpriteBatch(graphics);
             using var rasterizer = new RasterizerState { ScissorTestEnable = true };
@@ -100,34 +103,9 @@ internal static class RenderNativeInterface
                 typeof(Main).GetField("_uiScaleMatrix", BindingFlags.NonPublic | BindingFlags.Static)!.SetValue(null, Matrix.CreateScale(scale, scale, 1));
                 Terraria.GameInput.PlayerInput.SetZoom_UI();
                 using var target = new RenderTarget2D(graphics, size.X, size.Y);
-                var owner = new live::AICompanion.Companion.ProfileCard.CompanionProfileCardSystem();
-                Type type = owner.GetType().GetNestedType("CompanionProfileCard", BindingFlags.NonPublic)!;
-                var card = (UIState)Activator.CreateInstance(type, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic, null, new object[] { owner }, null)!;
-                var ui = new UserInterface(); ui.SetState(card); card.Recalculate();
-                VerifyProfileControls(card);
-                VerifyCardNavigation(card);
-                VerifyNativeCard.VerifyInventoryOcclusion(card, owner, ui, graphics, target);
-                Rectangle? frameBounds = null;
-                foreach (string page in new[] { "ShowOverview", "ShowInventory", "ShowMastery", "ShowMasteryTree" })
-                {
-                    string method = page == "ShowMasteryTree" ? "ShowMastery" : page;
-                    type.GetMethod(method, BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public)!.Invoke(card, null); card.Recalculate();
-                    card.Update(new GameTime());
-                    if (page == "ShowMasteryTree") VerifyNativeCard.OpenDiamondTree(card);
-                    Rectangle frame = ((UIElement)type.GetField("frame", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(card)!).GetDimensions().ToRectangle();
-                    if (frameBounds is { } previous && previous != frame) throw new InvalidOperationException("Page navigation changed the card's frame");
-                    frameBounds = frame;
-                    VerifyNativeCard.VerifyPage(card, page);
-                    graphics.SetRenderTarget(target); graphics.Clear(new Color(18, 27, 40));
-                    batch.Begin(SpriteSortMode.Deferred, BlendState.AlphaBlend, SamplerState.PointClamp, DepthStencilState.None, rasterizer, null, Main.UIScaleMatrix);
-                    graphics.ScissorRectangle = new Rectangle(0, 0, size.X, size.Y);
-                    ui.Draw(batch, new GameTime()); batch.End();
-                    graphics.SetRenderTarget(null);
-                    string file = Path.Combine(output, $"{page}-{suffix}.png");
-                    using var stream = File.Create(file); target.SaveAsPng(stream, size.X, size.Y);
-                    Console.WriteLine("RENDER " + file);
-                }
-                ui.SetState(null);
+                // ---- lane-ui: the companion card is measured, driven and rendered in its own file ----
+                RenderCompanionCard.Run(graphics, batch, rasterizer, target, size, scale, output, suffix);
+                // ---- end lane-ui ----
                 graphics.SetRenderTarget(target); graphics.Clear(new Color(18, 27, 40));
                 graphics.ScissorRectangle = new Rectangle(0, 0, size.X, size.Y);
                 batch.Begin(SpriteSortMode.Deferred, BlendState.AlphaBlend, SamplerState.PointClamp, DepthStencilState.None, rasterizer, null, Main.UIScaleMatrix);
@@ -188,11 +166,8 @@ internal static class RenderNativeInterface
             var item = preferences.Bag.Items[i]; item.SetDefaults(type); item.stack = i + 14;
             item.SetNameOverride(type == Terraria.ID.ItemID.CopperOre ? "Copper Ore" : type == Terraria.ID.ItemID.Wood ? "Wood" : "Gel");
         }
-        string status = live::AICompanion.Companion.ProfileCard.DrawCompanionStatus.Describe(companion);
-        if (!status.Contains("12 tiles below") || !status.Contains("opportunistic"))
-            throw new InvalidOperationException("Action explanation lost retained target or work policy: " + status);
-        Console.WriteLine("retained mining evidence: " + status);
-        VerifyNativeCard.VerifyMastery();
+        // ---- lane-ui: the card's action sentence is gone with the action line, so its text check went with it ----
+        // ---- end lane-ui ----
         SeedExecutionEvidence(companion, mine, target);
         return companion;
     }
@@ -378,8 +353,6 @@ internal static class RenderNativeInterface
         Console.WriteLine($"inspector execution page {suffix}: {lines.Count} retained evidence lines, {visible} visible inside the panel{(scale == 1f ? ", heading, tab and background pixels as drawn" : "")}");
     }
 
-    private static void VerifyCardNavigation(UIState card) => VerifyNativeCard.VerifyNavigation(card);
-
     private static void VerifyWorldLine(GraphicsDevice graphics, SpriteBatch batch)
     {
         Main.screenPosition = Vector2.Zero;
@@ -395,31 +368,6 @@ internal static class RenderNativeInterface
         if (drawn < 80 || drawn > 400)
             throw new InvalidOperationException($"A 100-pixel debug line painted {drawn} pixels; expected a thin segment");
         Console.WriteLine($"native debug line: {drawn} painted pixels for a 100-pixel segment");
-    }
-
-    private static void VerifyProfileControls(UIElement card)
-    {
-        IEnumerable<UIElement> Descendants(UIElement parent)
-        {
-            foreach (UIElement child in parent.Children)
-            { yield return child; foreach (var nested in Descendants(child)) yield return nested; }
-        }
-        var buttons = Descendants(card).OfType<Terraria.GameContent.UI.Elements.UITextPanel<string>>().ToArray();
-        var off = buttons.First(b => b.Text == "Off");
-        off.LeftClick(new UIMouseEvent(off, off.GetDimensions().Center()));
-        if ((int)live::AICompanion.Companion.PlayerIntegration.CompanionPreferences.Current.Mining != 0)
-            throw new InvalidOperationException("The native mining Off button did not change the live preference");
-        var auto = buttons.First(b => b.Text == "Auto");
-        auto.LeftClick(new UIMouseEvent(auto, auto.GetDimensions().Center()));
-        if ((int)live::AICompanion.Companion.PlayerIntegration.CompanionPreferences.Current.Mining != 2)
-            throw new InvalidOperationException("The native mining Auto button did not restore the live preference");
-        foreach (var button in buttons)
-        {
-            var bounds = button.GetDimensions();
-            if (bounds.Width < 20 || bounds.Height < 20)
-                throw new InvalidOperationException($"Native control {button.Text} has unusable bounds {bounds}");
-        }
-        Console.WriteLine("native profile controls: Off/Auto events change the live policy, button bounds remain usable");
     }
 
     private sealed class GraphicsService(GraphicsDevice device) : IGraphicsDeviceService
