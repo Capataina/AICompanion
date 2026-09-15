@@ -144,7 +144,8 @@ public sealed class BrainOverlay : ModSystem
     {
         if (!Enabled || !CompanionDiagnosticsConfig.Current.EnableBrainInspector) return;
         // Escape is not read here: this runs in PreUpdate, before the game's inventory gate acts on the same press, so a raw key
-        // closed the chooser and toggled the player's inventory as well. CompanionPlayer.SetControls closes it and spends the press.        if (!Bounds.Contains(Mouse)) return;
+        // closed the chooser and toggled the player's inventory as well. CompanionPlayer.SetControls closes it and spends the press.
+        if (!Bounds.Contains(Mouse)) return;
         Main.LocalPlayer.mouseInterface = true;
         if (inputTick == Main.GameUpdateCount) return;
         inputTick = Main.GameUpdateCount;

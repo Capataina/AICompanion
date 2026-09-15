@@ -163,6 +163,25 @@ internal static class VerifyEscapeClosesOneCompanionPanel
                 Tick(escapeHeld: false);
                 cases.Add($"{who} card over the chooser");
             }
+            // The open chooser claims the mouse only over its own panel. Claiming it anywhere sets mouseInterface every tick and
+            // leaves the player unable to swing, shoot, mine or place while the inspector is open; the edit that moved Escape out
+            // of CaptureInput once folded this guard into a comment, and nothing here moved the mouse off the panel to notice.
+            player.dead = false;
+            BrainOverlay.Enabled = true;
+            int mouseX = Main.mouseX, mouseY = Main.mouseY;
+            Rectangle panel = BrainOverlay.PanelBounds((int)(Main.screenWidth / Main.UIScale), (int)(Main.screenHeight / Main.UIScale));
+            player.mouseInterface = false;
+            Main.mouseX = (int)((panel.Right + 40) * Main.UIScale);
+            Main.mouseY = (int)((panel.Y + 40) * Main.UIScale);
+            BrainOverlay.CaptureInput();
+            Require(!player.mouseInterface, $"the open chooser claimed the mouse at {Main.mouseX},{Main.mouseY}, outside its panel {panel}, so the player could not use an item anywhere");
+            Main.mouseX = (int)((panel.X + 20) * Main.UIScale);
+            BrainOverlay.CaptureInput();
+            Require(player.mouseInterface, $"premise: the open chooser must claim the mouse over its own panel {panel}");
+            Main.mouseX = mouseX; Main.mouseY = mouseY;
+            player.mouseInterface = false;
+            BrainOverlay.Close();
+            cases.Add("the open chooser claims the mouse only over its panel");
             Console.WriteLine($"escape: one press closes the top companion panel and reaches neither ToggleInv nor the dead player's options menu, held or released, and the next press does, in {cases.Count} cases: {string.Join("; ", cases)}");
         }
         finally
