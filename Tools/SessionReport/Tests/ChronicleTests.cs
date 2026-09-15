@@ -541,6 +541,8 @@ public static class ChronicleTests
             foreach (var (label, file) in new[]
             {
                 ("a lit tile", Capture(300, t => DarkTile(t, dark: "lit"))),
+                ("a tile only a carried light outshines", Capture(300, t => DarkTile(t, dark: "carried"))),
+                ("a tile the sky lights", Capture(300, t => DarkTile(t, dark: "sky"))),
                 ("two seconds", Capture(120, t => DarkTile(t))),
                 ("the companion lighting", Capture(300, t => DarkTile(t, action: "place-torches"))),
                 ("a tile that keeps moving", Capture(300, t => DarkTile(t, tile: $"{21 + t / 60},59"))),
