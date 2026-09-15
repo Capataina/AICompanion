@@ -44,13 +44,13 @@ It reads the reach sense, which floods that answer once for every tile in the re
 
 The rule is worth enforcing because breaking it costs nothing visible at the call site. A bounded search per candidate answers Unknown when it runs out of expansions; an Unknown cannot be remembered, because remembering one writes a place off on evidence that does not exist; so a caller that rations how many candidates it asks about re-asks the same nearest ones for ever, and its offer says, correctly and uselessly, that the question is not finished. On the 2026-09-14 capture that was 79% of lighting's offers, with a settled flood beside 7,003 of those rows already holding the answer.
 
-Two consequences are rulings rather than side effects. Mining and chopping ask the flood over free space, so a vein behind water or lava the body is not immune to is refused rather than approached, and nothing distinguishes going from coming back because an orb's flood has no one-way edge. And an activity's first rescores after a world change read NotYet for everywhere the flood has not grown to yet, which is the correct answer and means optional work starts a beat later than it used to.
+Two consequences are rulings rather than side effects. Mining and chopping ask the flood over free space, so a vein behind a flooded passage is approached through it, because every liquid is air to the orb, and nothing distinguishes going from coming back because an orb's flood has no one-way edge. And an activity's first rescores after a world change read NotYet for everywhere the flood has not grown to yet, which is the correct answer and means optional work starts a beat later than it used to.
 
 ## Traps
 
 - A prepared candidate with an unknown approach still reads as an unresolved offer. Its value of zero prevents it from winning; it does not defer the decision to wait for the answer.
 - **A fixture that edits terrain or moves a body after its setup, then primes with "resolve while the region is incomplete", primes nothing.** A stale region is complete, so the loop returns at once and every reach question is answered about the world before the edit. `VerifyOreWork.ResettleReach` throws the region away and floods it again; it also nulls the two `ContinueRouteSearch` objects, because `Refresh` reuses a live one from the same feet and a reused one hands back the tiles it had already expanded through.
-- A work activity exits and clears its retained job if the policy is disabled, a recheck changes the tile, a reach change invalidates the approach, or the native tool permission is revoked. Exit and suspension clear independently; a suspended job held through safety still owns the tool.
+- A work activity exits and clears its retained job if the policy is disabled, a recheck changes the tile, a reach change invalidates the approach, or the native tool permission is revoked. Exit and suspension clear independently; a suspended job held through recovery or downing still owns the tool.
 - Changing the player's active tool is new evidence in every search, reopening discovery on the same preparation for both mining and chopping.
 
 ## Current state — 2026-09-14

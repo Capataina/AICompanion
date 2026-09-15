@@ -6,7 +6,7 @@ This is the only shared-movement folder allowed to name Terraria types (`Tools/c
 TerrariaIntegration/
 ├─ CLAUDE.md                     this boundary
 ├─ ReadGameTerrain.cs            GameTileWorld: shape and pass-through read separately from Main.tile, liquids, and the edit record
-├─ ApplyControlsToCompanion.cs   CompanionMotor: momentum toward the requested velocity, the contact, the liquid reading and its hurt, the pace, recovery flight and the downed sink
+├─ ApplyControlsToCompanion.cs   CompanionMotor: momentum toward the requested velocity, the contact, the liquid reading, the pace, recovery flight and the downed sink
 └─ TrackTerrainChanges.cs        `TerrainChanges`, the one announcement point and the owner of the door detours; `TrackTerrainChanges`, the GlobalTile hooks that announce placement, breaking, hammering and wiring; `ResetTerrainChanges`, the ModSystem that resets the record on world load and unload and installs the door detours at mod load
 ```
 
@@ -16,7 +16,7 @@ Each tick the motor moves its own momentum toward the velocity the brain asked f
 
 The pace is the player's own: the cap a multiple of his maximum run speed after accessories, and the turn authority and the speed change each a multiple of his run acceleration, all times a multiplier on the body that the mastery tree drives, so a companion at the cap overtakes a running player and nothing here lags him. All three are published to `../Steering/OrbPace` every tick before anything plans, so the game-free steering eases and bends against the numbers this tick will apply.
 
-Liquid is read here because the engine reads it inside the collision it no longer runs for this body, and it is written to the NPC's own wet flags because everything from hit effects to the senses reads them. Water and lava hurt on contact, a fixed amount every fixed interval of contact, with the two pairs living on the body; honey and shimmer only scale the tick's displacement. A downed body takes no liquid damage and sinks at a fixed pace until the contact rests it on the floor, where the player can reach it to revive it.
+Liquid is read here because the engine reads it inside the collision it no longer runs for this body, and it is written to the NPC's own wet flags because everything from hit effects to the held torch and the stand-in the hostiles aim at reads them. It is an observation and nothing more: every liquid is air to this body, so nothing here strikes it for a liquid or scales its displacement. Until the owner's ruling of 15 September 2026 water and lava struck the body on an interval of contact and honey and shimmer scaled the tick's step; the engine applies all of that inside the collision step as well, which is why switching tile collision off was already enough on its side. A downed body sinks at a fixed pace until the contact rests it on the floor, where the player can reach it to revive it.
 
 `Track`, at the top of the tick, reads what the engine did with the last application: a body holding a velocity that did not move is pinned, which a body the engine only integrates cannot do on its own, and the count of such ticks is the record's `pinned` column and the state search's "cannot act" flag.
 

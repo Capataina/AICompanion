@@ -18,7 +18,7 @@ Lifecycle/
 
 ## Attachment is bidirectional, and half of it passes every direct test
 
-`ModNPC.Entity` points at the body and `NPC.ModNPC` points back at the behaviour. Assigning only `Entity` lets direct AI calls pass while **native lethal damage bypasses the companion's `CheckDead`** and enters vanilla NPC loot and death handling. A drowning-to-downing test must preserve both links rather than suppressing lethal strikes, which is why `VerifyCompanionLifecycle` asserts the attachment both ways rather than assuming the one it set.
+`ModNPC.Entity` points at the body and `NPC.ModNPC` points back at the behaviour. Assigning only `Entity` lets direct AI calls pass while **native lethal damage bypasses the companion's `CheckDead`** and enters vanilla NPC loot and death handling. A lethal-strike-to-downing test must preserve both links rather than suppressing lethal strikes, which is why `VerifyCompanionLifecycle` asserts the attachment both ways rather than assuming the one it set.
 
 `VerifyCompanionLifecycle.Create` starts with a **dead player**, deliberately, to exercise autonomous lifecycle handling; a fixture that needs ordinary companionship must explicitly make that player alive before its first brain update. A last-registered zero-score fallback used to hide this precondition.
 

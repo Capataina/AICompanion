@@ -2,7 +2,7 @@
 
 Mining and chopping animate accepted native swings, but credit their retained worksite only when the observed tool outcome shows increased damage or removal. They publish that same immutable outcome to the recorder. A cooldown, refused effect or changed tile frame cannot manufacture productive work credit; the native interaction owns the observation and the behaviour consumes it.
 
-Tool ownership spans cooldowns only while that work is executing. Exit and suspension clear the swinging phase independently of retaining a vein or tree; otherwise an interrupted job reports an occupied hand after safety has already taken control. The current activity grant determines whether the arsenal may use the released hand.
+Tool ownership spans cooldowns only while that work is executing. Exit and suspension clear the swinging phase independently of retaining a vein or tree; otherwise an interrupted job reports an occupied hand after recovery or downing has already taken control. The current activity grant determines whether the arsenal may use the released hand.
 
 Execution rechecks the work policy before requesting travel or taking the tool. Turning mining or chopping off revokes a previously prepared candidate, clears its retained job and releases its admission. Native tool permission remains a separate mutation check; an earlier positive utility value is never permission to keep acting after the user disables the work.
 
@@ -16,7 +16,7 @@ Gathering/
 └─ DescribeOreJobEnd.cs   original bounded vein state at job end, with separate removal attribution
 ```
 
-Both activities declare PurposeFamily.Gathering and register once in `../../Infrastructure/Selection/ChooseBehaviour.cs`. They use the common activity contract and the thin policy readers in `../WorkPolicies.cs`; persistent preferences remain owned by PlayerIntegration. Native tools remain in WorldInteractions, and shared safety can interrupt either activity without becoming a gathering child.
+Both activities declare PurposeFamily.Gathering and register once in `../../Infrastructure/Selection/ChooseBehaviour.cs`. They use the common activity contract and the thin policy readers in `../WorkPolicies.cs`; persistent preferences remain owned by PlayerIntegration. Native tools remain in WorldInteractions, and recovery or downing can interrupt either activity without becoming a gathering child.
 
 Mimic triggers come from the tile damage watcher in `../../Infrastructure/Observation/`, which sees real axe and pickaxe hits through the game's KillTile hook. Opportunistic triggers discover nearby resources without requiring a player hit. Both read the player's held tool's numbers, with a basic tool fallback. The work itself is in `../../Infrastructure/Interactions/Chopping/` and `../../Infrastructure/Interactions/Mining/`.
 

@@ -1,19 +1,19 @@
 # Movement fixtures — the contact, the free space, the route and the body that flies it
 
-Everything about getting the orb from where it is to where it was asked to be, proved against Terraria's own tiles. `VerifyEngineMotion.cs` is also the default suite's entry point: it holds the forty-five-case table and the flag dispatch, which the parent guide describes.
+Everything about getting the orb from where it is to where it was asked to be, proved against Terraria's own tiles. `VerifyEngineMotion.cs` is also the default suite's entry point: it holds the default case table and the flag dispatch, which the parent guide describes.
 
 ```
 Movement/
 ├─ CLAUDE.md
 ├─ VerifyEngineMotion.cs              the default case table, the flag dispatch, and the five route scenes
 ├─ VerifyOrbContact.cs                the circle contact: size rule, diagonal step, push-out and slide
-├─ VerifyFreeSpace.cs                 corridor widths, liquids as walls, and that the flood finishes
+├─ VerifyFreeSpace.cs                 corridor widths, liquids as open as air, and that the flood finishes
 ├─ VerifyRouteEndings.cs              pending against unreachable, and what an exhausted budget means
 ├─ VerifyResponsiveFollowing.cs       travel intent, meeting places, reunion, method settling
 ├─ VerifyAccompanyingThePlayer.cs     moving about the player's whole region: never still, never trailing, moving at once
 ├─ VerifyWithThePlayerNeedsAWayToHim.cs  a body inside the region but cut off from the player by a sealed wall is outside it and comes round
 ├─ VerifyFollowRecoveryAndProtection.cs  what may start recovery flight, and guard retention
-├─ VerifyCapturedEscape.cs            the captured water pocket, escaped through the real safety controller
+├─ VerifyLiquidsAreAir.cs             every liquid as air: flight through all four at the air pace, and a flooded passage reached through it
 ├─ VerifyObservedMotion.cs            the shared enemy forecast against native collision
 └─ (the projectile-arc fixture is `../Combat/VerifyArcLearning.cs` since the authored kit died: arcs are learned per projectile type from the companion's own shots, so what it asks is a combat question)
 ```
@@ -26,7 +26,7 @@ Movement/
 - **The diagonal step.** Crossing a one-tile diagonal step never overlaps a wall at any point of the crossing, which is the case a swept test passes and a per-tick point test does not.
 - **Push-out and slide.** Contact pushes the body out of a wall, kills the velocity *into* the wall, and keeps the component along it. A contact that zeroed the whole velocity would stop a body that should slide along a surface, and the two halves are asserted separately.
 
-`VerifyFreeSpace` is the graph over that contact: a two-wide corridor is open to the flood, a one-wide is closed, and a liquid is a wall until the matching immunity opens it. Its second case is a standing guard against the flood that never finishes — over a screen-sized room it must settle in a handful of slices — because "not yet known" is only a useful third answer if it eventually stops being the answer.
+`VerifyFreeSpace` is the graph over that contact: a two-wide corridor is open to the flood, a one-wide is closed, and water or lava across a corridor leaves it exactly as open as a dry one. Its second case is a standing guard against the flood that never finishes — over a screen-sized room it must settle in a handful of slices — because "not yet known" is only a useful third answer if it eventually stops being the answer.
 
 ## The five route scenes each name the mechanism they exist for
 
@@ -64,13 +64,15 @@ Both arms set off backwards and finish a tile and a half and one tick apart. The
 
 Both arms are now measured before either is judged, because they are a pair whose whole point is the difference between them and asserting inside the loop meant the first arm's failure aborted before the second produced the number it is compared against.
 
-## Recovery, escape and the two forecasts
+## Recovery, liquids and the two forecasts
 
 `VerifyFollowRecoveryAndProtection` exercises recovery admission with one alternate executor issuing reunion, exact-work, guard and hold requests at the same distant player position: **only reunion may start flight.** That catches a follow-class dependency and a coordinate-only shortcut independently of the flight and clearance checks. Its guard rows replace the observation's most urgent enemy after scoring and require the prepared identity, score and requested anchor to stay bound to the original enemy, including at entry; removing that enemy must produce `Hold` at execution. These expose a score-to-execution substitution; they do not establish arrival at a useful firing pose or a native protective hit.
 
 Recovery-flight assertions are expressed against the motor's own `RecoveryFlight`, never against `noGravity` or `noTileCollide` — the orb holds both permanently, so an assertion on them passes before recovery starts and witnesses nothing.
 
-`VerifyCapturedEscape` runs the production survival action and the real senses over native collision on a captured water pocket. Its premise asks the geometry rather than the motor whether the body starts wet, through `CircleContact.Touches` against `OrbTerrain.WetWall` — the motor's own liquid reading is only populated inside `Commit`, so asking it before the first tick reads the previous scene. **That same one-tick blindness is what its empty-offers pool caught in the brain.** On the body's first tick in water nothing has told the brain it is wet, so it holds and anchors its hover in the pool; when the hover arrived, the escape carried the body out and the hover floated it straight back in, looping until the body went down, which the row reported as a downed tick still holding its hands. The escape now drops the hold anchor as it starts. The same stale anchor had been pulling both awning bodies back toward the water without failing anything: their dry exits moved from ticks 577 and 582 to 154 and 286 when it went, which is why each scene's exit tick is worth reading and not only its verdict.
+`VerifyLiquidsAreAir` holds the owner's ruling of 15 September 2026 that every liquid is air to the orb, in two scenes on native tiles with the real `CompanionNPC`. The first drives the live motor straight at its cap through a full-height column of water, honey, lava and shimmer in turn and compares every tick inside a liquid with the cruising tick in air, against a tolerance declared before its first run that only float rounding may use; it also requires each liquid to be touched for at least ten ticks, life never to fall, and no shimmer buff or transparency. The second floods the only passage through a sealed wall with each liquid in turn and asks the route search for a way through it within a quarter over the straight line, then drives the whole brain with keeping company as its only activity and requires the reach sense to read the player's tile reachable and never unreachable, the body to touch the liquid and arrive inside his region past the wall, no life lost, no suspending owner, and no evade reason but off or kept. Measured on 15 September 2026 with each mutation shown red and then restored: a liquid wall put back in the free-space terrain reddened the passage for all four liquids, the search exhausting with no route; a strike put back for water and lava reddened the flight (life 100 to 66) and the water and lava passages (100 to 17); and the engine's own wet slowdown applied to the motor reddened the flight by exactly the engine's shares of a 9 px step, 4.5 px in water and lava, 2.25 in honey and 3.375 in shimmer. Neither scene reaches the engine's own NPC update, which no headless tool runs.
+
+The escape fixture that stood here went with the escape. The property it paid for binds any takeover: the motor publishes which liquid the body touches only inside its own application, so a brain reading it on the body's first tick somewhere is a tick behind, and a hover anchored on that tick floated the body straight back into the pool the escape had carried it out of.
 
 `VerifyObservedMotion` runs the shared target forecast against the same initialised tile map: a stationary grounded hostile stays supported, a tile-colliding flyer stops at a wall while a phaser crosses it, observed acceleration changes the short forecast, a jump is not extrapolated as a repeated impulse, `Forget` removes a reused slot's old track, and a position correction during the same engine tick replaces an already-built forecast. It snapshots Terraria's collision scratch flags around each forecast, because a target forecast that changes shared collision state corrupts the movement prediction it exists to inform.
 

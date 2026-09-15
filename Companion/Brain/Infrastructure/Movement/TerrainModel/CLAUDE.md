@@ -20,7 +20,7 @@ TerrainModel/
 
 `TerrariaIntegration/` supplies the live implementation. `TextTileWorld` supplies deterministic captured geometry. Its alphabet round-trips flat platforms, sloped platforms and pass-through half blocks as distinct glyphs; the recorder's terrain snapshots and plan dumps call the same encoder, which is what lets a scenario be cut out of a capture. A liquid glyph is water or lava with a full cell; the text world cannot express a partial amount or honey and shimmer, which is reduced fidelity rather than a complete liquid reconstruction. Outside a captured window every side is a wall, and a search that reached a window's edge has met the recording's limit rather than the world's.
 
-**Nothing here can defend against a change the engine never announces, because an unannounced change has no tile to record and does not move the counter either.** A liquid settling is the standing case: a route planned beside a pool that then spreads is a route the record still calls valid, and what catches it is the motor's own liquid reading when the body arrives, never this record.
+**Nothing here can defend against a change the engine never announces, because an unannounced change has no tile to record and does not move the counter either.** A liquid settling is the standing case, and it costs the orb's routes nothing, because every liquid is air to the orb and no search reads liquid; it matters to the consumers that still read it, such as where a torch may go or where a drop will land, and each of those rereads the tile when it acts.
 
 ## Traps
 

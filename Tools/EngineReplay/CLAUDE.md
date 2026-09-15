@@ -15,7 +15,7 @@ EngineReplay/
 ├─ Gathering/             ore work, cooperation beside the player, remaining-work accounting
 ├─ Assistance/            lighting, collection, company hovering, courtesy, capability, the senses
 ├─ Lifecycle/             spawn and attachment, downing, stat mirroring, doors, HUD, the card
-├─ Movement/              contact, free space, routes, following, recovery, escape, projectiles
+├─ Movement/              contact, free space, routes, following, recovery, liquids, projectiles
 └─ Observation/           the recorder, the event writer, family offers, evidence scenes, cost
 ```
 
@@ -55,7 +55,7 @@ The standalone flags are the fourth row's cause and it is structural rather than
 ```
 (no flag)              the default suite: every case in DefaultCases(), exit 0 when none went red
 --orb-contact          the circle contact's size rule, diagonal step, push-out and slide
---free-space           corridor widths, liquids as walls, that the flood finishes, and that a bounded flood exhausts inside its ball
+--free-space           corridor widths, liquids as open as air, that the flood finishes, and that a bounded flood exhausts inside its ball
 --route-endings        pending against unreachable, and what an exhausted budget means
 --attack-outcomes      the arsenal's forecast against what landed
 --knockback            the push prior against the game's strike, learning it, its charge on a shot, and a stand's share
@@ -76,10 +76,10 @@ The standalone flags are the fourth row's cause and it is structural rather than
 --brain-cost           per-phase timings and the recording-invariance proof
 --combat-cost          the same, on a scene with four hostiles in it
 --combat-purpose       the danger matrix, the pursuit rows, guard access and identity
---safety-aftermath     safety as a layer: an enemy beside a leaving player, firing on, a bent guard, surfacing
+--safety-aftermath     safety as a layer: an enemy beside a leaving player, firing on, a bent guard, an intervening hostile
 --dodge-repro          one arrow advanced by hand at body height on dry floor
 --lifecycle            spawn and attachment, downing and revival, stat mirroring
---escape               the captured water escape
+--liquids              every liquid as air: flight through all four at the air pace, and a flooded passage reached through it
 ```
 
 `--brain-cost`, `--combat-cost`, `--evidence-scenes` and `--dodge-repro` are instruments rather than suites: they measure or record, and the first two assert nothing about behaviour. Numbers any of them print describe the machine they ran on and are never asserted.
@@ -102,7 +102,7 @@ One more C# shape costs a build every time it is written: `FormattableString.Inv
 
 ## No wall-clock allowance decides a verdict in the default suite
 
-`EmitLedgerRows.Case` calls a reset before every case, and each instrument registers its own — the engine tier in `ResetProcessState.cs`. The reset lifts the millisecond allowances, leaving each query's work-count limits as the only bound, and returns the statics a case can reach to what a fresh process holds: the planning allowance, the shared clearance field, the search's world override, the terrain record, the body's immunities and the census. Both copies of every static are written, for the reason above.
+`EmitLedgerRows.Case` calls a reset before every case, and each instrument registers its own — the engine tier in `ResetProcessState.cs`. The reset lifts the millisecond allowances, leaving each query's work-count limits as the only bound, and returns the statics a case can reach to what a fresh process holds: the planning allowance, the shared clearance field, the search's world override, the terrain record and the census. Both copies of every static are written, for the reason above.
 
 A case whose subject *is* a deadline keeps the clock, and there are two ways to say so. A whole case tags itself `EmitLedgerRows.ProductionAllowancesTag`. A single row inside an otherwise lifted case saves the regime, turns the lift off, and restores **what it found** — never a literal, because a literal is the current default written down twice, and the day the real default moves every fixture ordered after that row runs under the stale one. The row's own mode is stamped by the emitter rather than passed by the caller, so a row always records the regime the process was actually in.
 
@@ -130,7 +130,7 @@ Most of the reds this suite produced during the body change were one of seven sh
 
 **State the orb holds permanently cannot witness anything.** `noGravity` and `noTileCollide` are set once at spawn and never cleared, so an assertion that recovery flight sets them passes before recovery starts. Re-express against the motor's own `RecoveryFlight`.
 
-**A fact one component publishes for another has an order, and a fixture that arranges the fact instead cannot see it.** The motor's `ReadLiquid` runs inside `Commit`, at the end of a tick, and decides the liquid from the circle's own contact — then writes `npc.wet` itself, so a hand-set `wet` is both ignored and overwritten. A brain reading `Motor.InHurtingLiquid` at the top of the next tick is reading where the body was when it was last moved. The same one-tick skew governs the settled-speed reason: the sense decides at rest from the velocity the motor wrote last tick, so a fixture must sample the speed *before* `AI()`, not after `AI()` and `AdvanceNative()`. Both skews agree on every tick the answer is obvious and disagree only at the threshold, so they surface as a handful of ticks in hundreds rather than as a broken row.
+**A fact one component publishes for another has an order, and a fixture that arranges the fact instead cannot see it.** The motor's `ReadLiquid` runs inside `Commit`, at the end of a tick, and decides the liquid from the circle's own contact — then writes `npc.wet` itself, so a hand-set `wet` is both ignored and overwritten. A brain reading `Motor.LiquidKind` at the top of the next tick is reading where the body was when it was last moved. The same one-tick skew governs the settled-speed reason: the sense decides at rest from the velocity the motor wrote last tick, so a fixture must sample the speed *before* `AI()`, not after `AI()` and `AdvanceNative()`. Both skews agree on every tick the answer is obvious and disagree only at the threshold, so they surface as a handful of ticks in hundreds rather than as a broken row.
 
 **A bounded search needs its own clock driven, and each one keys off something different.** The reach flood advances per *rescore*, so it is grown by resolving the positioner. The firing stand sweep is keyed to `Senses.Tick`, so it is grown by advancing that clock — re-preparing an activity four hundred times without moving it re-reads one cached answer for ever. A premise that wants a proven absence must first establish that the relevant search *settled*; an exhausted bound is deliberately not a negative, and a row that reads `…-undecided` is the production rule working rather than failing.
 

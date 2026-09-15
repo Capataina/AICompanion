@@ -6,7 +6,7 @@ These files preserve terrain and actor states cut out of playtest recordings, pl
 Scenarios/
 ├─ CLAUDE.md
 ├─ extracted-2026-09-14_19-55-52-468-tick-7224.txt  the statue ledge from the last walker play: the orb starts where the walker stalled and must reach the player's final position
-├─ extracted-2026-09-14_20-00-40-039-tick-5300.txt  the water pocket from the same evening: the orb must reach the player without touching water or lava
+├─ extracted-2026-09-14_20-00-40-039-tick-5300.txt  the water pocket from the same evening: the orb must reach the player from the pocket the walker looped in
 ├─ extracted-2026-09-14_13-27-46-345-tick-8127.txt  the platform jump of the 13:27 capture that was watched dying on a Hold issued mid-air, cut for the settled-arrival rule
 ├─ 2026-09-15_13-16-33-496-player-track.txt         not terrain: the third orb play's player track, one line per consecutive tick of his feet and velocity, which the intent region's replay row drives through the real lead filter
 ├─ 2026-09-08_13-48-44-plans-shaped.txt             earlier captured failures reshaped from a saved world
@@ -14,7 +14,6 @@ Scenarios/
 ├─ 2026-09-09_18-25-59-plans-underground-house-0.8.3.txt  raw structure and pool failures
 ├─ 2026-09-09_18-25-59-census-0.8.3.txt             the walker's traversal census accompanying that recording
 ├─ actual-entry-drop-run-9.txt                      recorded body offset before a cave descent
-├─ captured-pool-23-50-24-14964.txt                 the underwater-awning window the native escape fixture rebuilds
 ├─ gap-three-wide-two-up-from-run-4-case-9.txt      a gap isolated from a captured failure
 ├─ half-block-floor-landed-through-a-platform.txt   platform descent onto half-height support
 ├─ jump-from-a-one-tile-runway-under-a-ceiling.txt  the 2026-09-11 window where the walker refused a jump proven at a speed its runway could not build
@@ -32,9 +31,9 @@ Scenarios/
 
 ## The two checkpoints are the orb's pass line, and they run in the real world
 
-The first two files are the evidence the orb was built against: the last two plays of the walker, 19:55 and 20:00 on 14 September 2026, where the statue ledge stayed unreached and the companion looped in a water pocket. `sh Tools/verify.sh` plays each as a headless world run — `dotnet run --project Tools/WorldRun -- --scenario=<file> --world=<wld>` — in the saved world the capture was made in, with the player standing still where the recording left him and the orb placed at the header's centre, and files three kinds of row: the grid's agreement with the world (solid against air over the window, and the wet tile count), the ticks until the orb is within following's vertical comfort of the player and until it enters his region, the ticks it spends inside that region, the closest distance and the minimum clearance it flew at, and the two pass lines — the orb reaches the player, which is being inside his region and staying there on a share of the run, and the orb never touches water or lava. The world file is not committed, so a machine without it files a skip rather than a red.
+The first two files are the evidence the orb was built against: the last two plays of the walker, 19:55 and 20:00 on 14 September 2026, where the statue ledge stayed unreached and the companion looped in a water pocket. `sh Tools/verify.sh` plays each as a headless world run — `dotnet run --project Tools/WorldRun -- --scenario=<file> --world=<wld>` — in the saved world the capture was made in, with the player standing still where the recording left him and the orb placed at the header's centre, and files three kinds of row: the grid's agreement with the world (solid against air over the window), the ticks until the orb is within following's vertical comfort of the player and until it enters his region, the ticks it spends inside that region, the closest distance and the minimum clearance it flew at, and the pass line — the orb reaches the player, which is being inside his region and staying there on a share of the run. The world file is not committed, so a machine without it files a skip rather than a red.
 
-The grid is the recording's picture of the terrain and the run uses the world's; the agreement row is what tells a divergence in the orb from a divergence in the ground, and on both files it is within a handful of tiles. The water-pocket window holds no wet tile in the saved world — the pocket the walker looped in was drained or lies outside the cut — so its liquid row is vacuous and says so in its message rather than reading as a proof. It stays committed because the reach row is the row that failed for the walker, and because a later capture with water in the window turns the liquid row on with nothing edited here.
+The grid is the recording's picture of the terrain and the run uses the world's; the agreement row is what tells a divergence in the orb from a divergence in the ground, and on both files it is within a handful of tiles. The water-pocket window holds no wet tile in the saved world — the pocket the walker looped in was drained or lies outside the cut. It stays committed because the reach row is the row that failed for the walker. A second pass line, that the orb never touches water or lava, went on 15 September 2026 when every liquid became air to the orb.
 
 ## The walker's fixtures are history, kept as terrain
 

@@ -18,7 +18,7 @@ The engine's box (`NPC.width` and `height`) must stay equal to the diameter, bec
 
 Solid is a full block, a half block and every slope — the owner ruled that slopes are full tiles to this body — with a platform passable whatever shape hammering gave it, because the world's own pass-through flag is asked rather than the shape compared, and a closed door solid until the door interaction opens it. Outside the world is solid.
 
-Liquid is not a wall to the contact at all. It is a wall to the planner (`../FreeSpace/OrbTerrain`) and a hurt to the motor, so a body knocked into water is pushed out of nothing and simply takes the damage until a route or an escape takes it out. Making liquid a contact wall was considered and refused: a body pushed out of a pool it was knocked into would be pushed toward whichever wet tile's normal won, which in a pool is up through the surface at best and into the pool's wall at worst.
+Liquid is not a wall to the contact, nor to the planner, nor a hurt to the motor: every liquid is air to this body. Making liquid a contact wall was considered and refused while water and lava still hurt: a body pushed out of a pool it was knocked into would be pushed toward whichever wet tile's normal won, which in a pool is up through the surface at best and into the pool's wall at worst.
 
 ## The four questions the folder answers
 
