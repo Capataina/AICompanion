@@ -71,7 +71,9 @@ public sealed class BrainTelemetry : ModSystem
     // occurrence's factor list gains `time`, `player-fit` and `order`, with `raw` and `final` beside them, so the factors
     // recorded multiply to the final recorded; a new `candidate-funnel` occurrence carries each funnel's counts and entries.
     // A 0.34.0 capture reads as it did: every check addresses columns by name and skips one whose columns are absent.
-    private const string Schema = "0.35.0";
+    // 0.36.0 changes no column: the sidecar gains an `experience-credit` occurrence for every credit the experience ledger
+    // takes, so a capture shows the bar moving and which kill, fight or piece of work moved it.
+    private const string Schema = "0.36.0";
 
     /// <summary>
     /// One activity's factors from one comparison, as <c>name:value</c> pairs joined by commas: every multiplier its final

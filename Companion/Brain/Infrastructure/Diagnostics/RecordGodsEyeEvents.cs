@@ -140,6 +140,22 @@ public static class GodsEyeEvents
             $"attempt-id={attemptId};activity-id={activityId};family={family};start-tick={startTick};end-tick={endTick};status={status};attribution={attribution};cause={cause};productive-effects={productiveEffects};effect-scope=companion-credited-tool-or-interaction-effects;interruption-is-not-failure=true;claimed-yield-type={claimedYieldType};claimed-yield-quantity={claimedYieldQuantity}");
     }
 
+    /// <summary>
+    /// One experience credit: what earned it (enemy-kill, boss-fight, ore, tree, torch), who (companion, player), how much in
+    /// displayed experience, the level before and after, where the bar stands, and both anchors with the one this credit
+    /// moved, so a play capture shows the bar moving and why. The subject is the level after; the channel is the anchor
+    /// changed. Plain values, because the headless tools compile this file without the progression folder.
+    /// </summary>
+    public static void RecordExperienceCredit(string source, string earner, double earned, int levelBefore, int levelAfter, double into,
+        double required, double enemyAnchorLife, int enemyAnchorLevel, double bossAnchorLife, int bossAnchorLevel, string anchorChanged,
+        Vector2 where, string detail)
+    {
+        if (!Accepting()) return;
+        Write("experience-credit", levelAfter, earner, source, anchorChanged, where, Vector2.Zero, Vector2.Zero,
+            (int)Math.Min(int.MaxValue, Math.Round(earned)),
+            FormattableString.Invariant($"source={source};earner={earner};earned={earned:0.###};level-before={levelBefore};level-after={levelAfter};into={into:0.###};required={required:0.###};enemy-anchor={enemyAnchorLife:0}@{enemyAnchorLevel};boss-anchor={bossAnchorLife:0}@{bossAnchorLevel};anchor-changed={anchorChanged};{detail}"));
+    }
+
     internal static void Open(string path)
     {
         Close();

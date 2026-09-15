@@ -237,7 +237,11 @@ public sealed class ItemWeapon : CompanionWeapon
             Vector2 before = npc.velocity;
             int lifeBefore = npc.life;
             int[] buffTypes = (int[])npc.buffType.Clone(), buffTimes = (int[])npc.buffTime.Clone();
+            // The experience ledger reads the same strike from both sides, the way the game's own NPCKillAttempt does, because
+            // no NPC hook runs on this path to tell it the companion landed it.
+            Progression.CreditKillsAndFights.BeforeStrike(npc, Progression.Striker.Companion);
             ctx.Player.ApplyDamageToNPC(npc, damage, Knockback, direction, crit: false, DamageClass.Melee);
+            Progression.CreditKillsAndFights.AfterStrike(npc);
             int dealt = lifeBefore - npc.life;
             if (dealt > 0 && npc.life > 0)
                 WeaponEffects.ObserveHit(Item.type, npc, before, npc.velocity, Knockback, direction, damage, dealt, crit: false);

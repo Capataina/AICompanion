@@ -128,6 +128,7 @@ internal static class VerifyEngineMotion
         ("courtesy stillness does not depend on what ran before", VerifyCourtesy.Run),
         ("downing and revival keep life on the NPC", VerifyDowningAndRevival.Run),
         ("the companion's stats mirror the player's", VerifyStatMirroring.Run),
+        ("experience follows the game's own numbers: kills, boss fights and work level the companion alike in every difficulty", VerifyCompanionExperience.Run),
         ("a whole journey is recorded against its proven ticks", VerifyTravelEpisodes.Run),
     };
 

@@ -8,6 +8,7 @@ Lifecycle/
 ├─ VerifyCompanionLifecycle.cs    spawn, both-way attachment, and the shared tick helper
 ├─ VerifyDowningAndRevival.cs     downing through CheckDead, revival beside and alone
 ├─ VerifyStatMirroring.cs         maximum life and defence tracking the player's
+├─ VerifyCompanionExperience.cs   kills, boss fights and work pricing the level by the game's numbers, in every difficulty, and the save
 ├─ VerifyDoorPassage.cs           the native door helper, announced toggles, locked doors
 ├─ VerifyCompanionPreferences.cs  per-character preferences reaching the brain
 ├─ VerifyCompanionHud.cs          the notch's own drawing: three bars, even padding, nothing else, and its input
@@ -29,6 +30,14 @@ Lifecycle/
 It also **names a finding rather than hiding it**: on the tick the companion gets up, the published presentation still says downed, because `UpdateDowned` applies the downed controls first, `FinaliseControls` builds the presentation from `IsDowned` at that moment, and revival is decided afterwards. On that one tick the fixture checks the application and the grant itself and prints the finding as `MEASURE`; the ordering belongs to the character body and the presentation's owners, not to this fixture.
 
 `VerifyStatMirroring` ticks the real AI entry point with the local player's maximum life and defence changed between ticks and asserts the companion's follow on the next tick: a raise carries current life up by the same amount, a cut clamps it without killing, and defence tracks both ways. It is the proof behind the ruling that the companion's toughness is the player's and nothing is equipped on it; the mirror itself lives in `CompanionNPC.MirrorStats`. The player's defence is a `Player.DefenseStat` struct built as `Default + n`, not an int, which is why the fixture sets it that way.
+
+## Experience, and how a native kill runs headless
+
+`VerifyCompanionExperience` (`--experience`) proves the owner's pricing of 15 September 2026 in two registers. The rows about who earned a kill strike real NPCs, set up by the game's own `SetDefaults` in a named difficulty, and bracket the strike with the same `BeforeStrike` and `AfterStrike` the hooks call, so the game's `StrikeNPC` and `checkDead` decide the death and the ledger reads it as it would in play; the hooks themselves are not loaded headless and are one-line delegations for that reason. The rows about pricing drive the ledger directly with the default enemy named in the row, so every number an assertion holds can be derived from the ruling by hand.
+
+**A native kill needs four headless allowances, each found by the crash it prevents, and none touches the life taken or the deactivation.** The scene metrics must exist, because the strike reads the player's banner buffs from them. Every dust slot must hold a dust, because a boss's hit effect writes through the slot `Dust.NewDust` returns. Gore must be skipped, because a killing hit effect spawns gore whose textures nothing loads, and the game skips gore while paused. And the loot path must be skipped, because it reads the bestiary, the drop database and the achievements: `NPCLoot` returns on its first line for a network client, while `checkDead` still sets `active` false after it, so the strike runs as `NPC.StrikeNPC` under client mode. `StrikeNPC` rather than `Player.ApplyDamageToNPC`, because the player's path sends the strike over the network when not in single player. The consequence to know: `GlobalNPC.OnKill` never fires in these rows, which is also the property the kill signal is built not to need.
+
+**A per-type hit effect is not chased; the rows that do not need it skip it.** A boss's killing hit effect reached one uninitialised piece of graphics state after another (gore, then dust slots, then more inside the Twins' block), and a modded boss's could reach anything, so filling statics one crash at a time has no end. The zombie rows keep the whole strike, which proves the full chain from `StrikeNPC` to deactivation once. The boss, worm, critter, town-NPC and dummy rows take `StrikeNPC`'s own two death steps instead — the life taken from the NPC that holds it, then that NPC's `checkDead` — because they are about attribution and fights, which the hit effect has no part in.
 
 ## Doors, and the wall that was not a wall
 

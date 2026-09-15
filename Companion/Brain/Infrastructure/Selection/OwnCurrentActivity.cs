@@ -125,23 +125,6 @@ public sealed class OwnCurrentActivity
         recent.Add(new AttemptOutcome(AttemptId, Id, Current!.Name, Current.Family, AttemptStartedAt,
             Terraria.Main.GameUpdateCount, status, cause, AttemptEffects, attribution, claimedYieldType, claimedYieldQuantity));
         AttemptOpen = false;
-        AwardExperience(Current.Family, attribution);
-    }
-
-    /// <summary>
-    /// The experience ledger is fed here, from the same outcome record, because this is the one
-    /// place every attempt's effects and attribution meet: only what the companion itself was
-    /// credited for earns, a shared completion earns half, and the player's own work earns nothing
-    /// (the owner's ruling of 14 September 2026). A fixture whose player carries no companion state
-    /// simply earns nothing, which is why the lookup is a try rather than a get.
-    /// </summary>
-    private void AwardExperience(PurposeFamily family, AttemptAttribution attribution)
-    {
-        if (AttemptEffects <= 0 || attribution is not (AttemptAttribution.Companion or AttemptAttribution.Shared)) return;
-        int worth = Progression.CompanionExperience.WorthPerEffect(family) * AttemptEffects;
-        if (attribution == AttemptAttribution.Shared) worth /= 2;
-        if (worth > 0 && Terraria.Main.LocalPlayer.TryGetModPlayer<PlayerIntegration.CompanionPlayer>(out var save))
-            save.Experience.Award(worth);
     }
 
     private void SetPhase(ActivityPhase phase, string reason)

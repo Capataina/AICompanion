@@ -87,7 +87,10 @@ public sealed class TileChopper
             if (HitTile.AddDamage(id, damage) >= 100)
             {
                 HitTile.Clear(id);
+                int typeBefore = tile.TileType;
+                bool trunkBottom = Progression.CreditWork.IsTrunkBottom(x, y, typeBefore);
                 WorldGen.KillTile(x, y);
+                Progression.CreditWork.CompanionFelled(new Microsoft.Xna.Framework.Point(x, y), trunkBottom, typeBefore);
             }
             else
             {

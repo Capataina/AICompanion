@@ -79,6 +79,9 @@ public sealed class TileMiner
         TileToolState before = TileToolState.Capture(tile, HitTile);
         bool previousHitter = TileDamageWatcher.CompanionIsHitting;
         TileDamageWatcher.CompanionIsHitting = true;
+        Tile struck = Main.tile[tile.X, tile.Y];
+        bool hadTile = struck.HasTile;
+        int typeBefore = struck.TileType;
         try
         {
             body.PickTile(tile.X, tile.Y, pickaxe.pick);
@@ -87,6 +90,7 @@ public sealed class TileMiner
         {
             TileDamageWatcher.CompanionIsHitting = previousHitter;
         }
+        Progression.CreditWork.CompanionMined(tile, hadTile, typeBefore);
         LastOutcome = new TileToolObservation(Main.GameUpdateCount, ++nextAttempt, tile, pickaxe.type,
             before, TileToolState.Capture(tile, HitTile));
         return true;
