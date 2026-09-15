@@ -35,9 +35,11 @@ public static class CornerGraph
     public static Point NearestCorner(Vector2 point) => new((int)MathF.Round(point.X / 16f), (int)MathF.Round(point.Y / 16f));
 
     /// <summary>The four tiles a corner touches, which are the tiles the body overlaps when centred on it.</summary>
-    public static bool Usable(ITileWorld world, Point corner)
-        => OrbTerrain.Free(world, corner.X - 1, corner.Y - 1) && OrbTerrain.Free(world, corner.X, corner.Y - 1)
-        && OrbTerrain.Free(world, corner.X - 1, corner.Y) && OrbTerrain.Free(world, corner.X, corner.Y);
+    public static bool Usable(ITileWorld world, Point corner) => Usable(world, corner, OrbTerrain.Immunity);
+
+    public static bool Usable(ITileWorld world, Point corner, LiquidImmunity rules)
+        => OrbTerrain.Free(world, corner.X - 1, corner.Y - 1, rules) && OrbTerrain.Free(world, corner.X, corner.Y - 1, rules)
+        && OrbTerrain.Free(world, corner.X - 1, corner.Y, rules) && OrbTerrain.Free(world, corner.X, corner.Y, rules);
 
     /// <summary>The corners of a tile: a body at any of them sits within the tile's own footprint.</summary>
     public static bool AnyCornerOf(Point tile, Func<Point, bool> test)
@@ -48,8 +50,10 @@ public static class CornerGraph
     /// reach in a straight line from where it is: a start corner the body cannot slide to is a
     /// route that begins with a wall.
     /// </summary>
-    public static Point? NearestUsable(ITileWorld world, Vector2 point, int radius, bool requireSweep = true)
+    public static Point? NearestUsable(ITileWorld world, Vector2 point, int radius, bool requireSweep = true, LiquidImmunity? rules = null)
     {
+        LiquidImmunity immunity = rules ?? OrbTerrain.Immunity;
+        bool Wall(ITileWorld w, int x, int y) => !OrbTerrain.Free(w, x, y, immunity);
         Point centre = NearestCorner(point);
         Point? fallback = null;
         float fallbackDistance = float.PositiveInfinity;
@@ -63,9 +67,9 @@ public static class CornerGraph
                 {
                     if (Math.Max(Math.Abs(dx), Math.Abs(dy)) != ring) continue;
                     var corner = new Point(centre.X + dx, centre.Y + dy);
-                    if (!Usable(world, corner)) continue;
+                    if (!Usable(world, corner, immunity)) continue;
                     float distance = Vector2.DistanceSquared(point, ToWorld(corner));
-                    if (requireSweep && !CircleContact.SweptClear(world, point, ToWorld(corner), OrbTerrain.Wall))
+                    if (requireSweep && !CircleContact.SweptClear(world, point, ToWorld(corner), Wall))
                     {
                         if (distance < fallbackDistance) { fallback = corner; fallbackDistance = distance; }
                         continue;

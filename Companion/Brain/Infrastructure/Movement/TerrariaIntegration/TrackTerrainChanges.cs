@@ -1,8 +1,5 @@
 using Terraria;
 using Terraria.ModLoader;
-using Terraria.ModLoader.IO;
-using System;
-using System.Text;
 
 namespace AICompanion.Companion.Brain.Infrastructure.Movement;
 
@@ -10,22 +7,22 @@ namespace AICompanion.Companion.Brain.Infrastructure.Movement;
 public static class TerrainChanges
 {
     /// <summary>Where the world was edited, beside how many times. Every announcement carries its
-    /// tile, so a consumer holding retained work can ask whether an edit landed anywhere it read
-    /// rather than restarting on a counter that moves for the whole loaded world. Doors announce
-    /// through <see cref="Changed"/> like everything else, which is why the game's door helper
-    /// skipping the ordinary tile hooks costs nothing here.</summary>
+    /// tile, so a consumer holding retained work — a flood, a route, a clearance chunk — asks
+    /// whether an edit landed anywhere it read rather than restarting on a counter that moves for
+    /// the whole loaded world. Doors announce through <see cref="Changed"/> like everything else,
+    /// which is why the game's door helper skipping the ordinary tile hooks costs nothing here.</summary>
     public static readonly TerrainEditLog Edits = new();
 
     public static int Revision => Edits.Revision;
-    public static void Changed(int x, int y)
-    {
-        Edits.Record(x, y);
-        AStar.TileChanged(x, y);
-    }
+    public static void Changed(int x, int y) => Edits.Record(x, y);
+
+    /// <summary>Everything changed and no tile can be named: a world loading or unloading, or a
+    /// fixture rebuilding its scene. Every retained search asks the record and finds its revision
+    /// unanswerable; the clearance field is dropped outright.</summary>
     public static void Reset()
     {
         Edits.Reset();
-        AStar.InvalidateEdges();
+        ClearanceField.Shared.Invalidate();
     }
 
     // ── doors toggled by anybody ──────────────────────────────────────────────────────────────
@@ -41,7 +38,7 @@ public static class TerrainChanges
     /// <summary>
     /// Make a door toggled by anything at all announce its rows. The game's door helpers write
     /// tiles through neither the placement nor the destruction hook, so a player opening a door, a
-    /// town NPC walking through one, or a wire pulsing one changes what the body can walk through
+    /// town NPC walking through one, or a wire pulsing one changes what the body can pass through
     /// and nothing downstream hears about it. The companion's own toggles were never the gap —
     /// <c>DoorOpener</c> announces those by hand — and every other toggle was invisible.
     ///
@@ -103,13 +100,10 @@ public static class TerrainChanges
     /// <summary>
     /// The three rows a door occupies, at the column the toggle named. It is the announcement
     /// <c>DoorOpener</c> already makes, deliberately, because one shape of announcement for one
-    /// kind of change is what stops the two drifting.
-    ///
-    /// <para>One column rather than the two an open door spans, and the row the caller named
-    /// rather than the door's own top, because every consumer of this record inflates it: a
-    /// retained query is sensitive within <c>AStar.ScanReaches</c> of what it read, which is two
-    /// dozen columns and a dozen rows, and the edge cache is dropped in that same box. Naming any
-    /// tile of a three-tall door therefore reaches every query that read any of it.</para>
+    /// kind of change is what stops the two drifting. One column rather than the two an open door
+    /// spans, and the row the caller named rather than the door's own top, because every consumer
+    /// of this record inflates what it read by at least a tile, so naming any tile of a three-tall
+    /// door reaches every search that read any of it.
     /// </summary>
     private static void DoorRows(int x, int y)
     {
@@ -132,63 +126,11 @@ public sealed class TrackTerrainChanges : GlobalTile
     }
 }
 
+/// <summary>The world lifecycle: nothing the orb learns about terrain outlives the world it learned it in.</summary>
 public sealed class ResetTerrainChanges : ModSystem
 {
-    private const string ExecutedRoutesKey = "executedRoutes";
-    // TagIO stores strings with a signed Int16 byte count. Route JSON can exceed that
-    // independently of its edge cap, so this optional archive is always a byte[] instead.
-    private const int MaximumRouteArchiveBytes = 1024 * 1024;
-    private static readonly UTF8Encoding StrictUtf8 = new(false, true);
-
     public override void Load() => TerrainChanges.InstallDoorHooks();
     public override void Unload() => TerrainChanges.RemoveDoorHooks();
-    public override void OnWorldLoad() { TerrainChanges.Reset(); RememberExecutedRoutes.World.Clear(); }
-    public override void OnWorldUnload() { TerrainChanges.Reset(); RememberExecutedRoutes.World.Clear(); }
-    public override void SaveWorldData(TagCompound tag)
-    {
-        tag.Remove(ExecutedRoutesKey);
-        byte[] archive = StrictUtf8.GetBytes(RememberExecutedRoutes.World.Save());
-        if (archive.Length > MaximumRouteArchiveBytes)
-        {
-            Mod.Logger.Warn("Discarded oversized companion route memory while saving; routes will be learned again.");
-            return;
-        }
-        tag[ExecutedRoutesKey] = archive;
-    }
-    public override void LoadWorldData(TagCompound tag)
-    {
-        RememberExecutedRoutes.World.Clear();
-        if (!tag.ContainsKey(ExecutedRoutesKey)) return;
-        if (!TryReadArchive(tag[ExecutedRoutesKey], out string archive) || !RememberExecutedRoutes.World.Load(archive))
-            Mod.Logger.Warn("Discarded invalid or unsupported companion route memory; routes will be learned again.");
-    }
-
-    private static bool TryReadArchive(object? stored, out string archive)
-    {
-        archive = string.Empty;
-        try
-        {
-            switch (stored)
-            {
-                case byte[] bytes when bytes.Length <= MaximumRouteArchiveBytes:
-                    archive = StrictUtf8.GetString(bytes);
-                    return true;
-                // Pre-byte-array worlds can be read only while their string was within TagIO's
-                // signed-short limit. Larger legacy strings were already malformed on disk.
-                case string legacy when StrictUtf8.GetByteCount(legacy) <= short.MaxValue:
-                    archive = legacy;
-                    return true;
-                default:
-                    return false;
-            }
-        }
-        catch (EncoderFallbackException)
-        {
-            return false;
-        }
-        catch (DecoderFallbackException)
-        {
-            return false;
-        }
-    }
+    public override void OnWorldLoad() => TerrainChanges.Reset();
+    public override void OnWorldUnload() => TerrainChanges.Reset();
 }

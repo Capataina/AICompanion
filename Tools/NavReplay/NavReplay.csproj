@@ -1,9 +1,9 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <!--
-    The replay tool: runs the mod's real navigation core on a text scenario with no game
-    running. It compiles the core files straight out of the mod tree, so there is one
-    planner, not a copy, and references FNA only for Point, Rectangle and Vector2.
-    Run from the repository root:  dotnet run - -project Tools/NavReplay - - Telemetry/Scenarios/*.txt
+    The game-free side of the movement core: the corner graph, the flood, the route search, the
+    smoother and the steering law compiled straight out of the mod tree, so there is one search
+    and not a copy, referencing FNA only for Point, Rectangle and Vector2.
+    Run from the repository root:  dotnet run - -project Tools/NavReplay - - - -self-test
   -->
   <PropertyGroup>
     <OutputType>Exe</OutputType>
@@ -16,16 +16,14 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="Program.cs" />
-    <Compile Include="VerifyMovementContracts.cs" />
-    <Compile Include="CompareJumpPaths.cs" />
     <!-- Listed one by one because EnableDefaultCompileItems is off above: a source added to this
          folder and not added here does not fail, it is simply absent, and the modes it carries
          report nothing. -->
-    <Compile Include="ReplayOneBlock.cs" />
+    <Compile Include="ReadScenarioBlocks.cs" />
     <Compile Include="MirrorScenarioWorlds.cs" />
-    <Compile Include="ShrinkFailingScenario.cs" />
     <Compile Include="ExtractScenarioFromCapture.cs" />
-    <Compile Include="VerifyMirrorAndShrink.cs" />
+    <Compile Include="VerifyMirrorExactness.cs" />
+    <Compile Include="VerifyCorridorMiddle.cs" />
     <!-- The ledger's row writer, as a source file. It names no game type, so including it here
          does not cross the navigation boundary this project exists on the game-free side of. -->
     <Compile Include="../Ledger/EmitLedgerRows.cs" />

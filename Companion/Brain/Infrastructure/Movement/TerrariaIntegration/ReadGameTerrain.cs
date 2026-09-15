@@ -4,8 +4,8 @@ using Terraria.ID;
 
 namespace AICompanion.Companion.Brain.Infrastructure.Movement;
 
-/// <summary>Live terrain and the engine collision backend used by movement predictions.</summary>
-public sealed class GameTileWorld : ITileWorld, IBodySimulationWorld
+/// <summary>Live terrain, read straight from the game's tile map.</summary>
+public sealed class GameTileWorld : ITileWorld
 {
     public int Revision => TerrainChanges.Revision;
     public TerrainEditVerdict ChangedSince(int since, System.Func<int, int, bool> sensitive)
@@ -35,7 +35,4 @@ public sealed class GameTileWorld : ITileWorld, IBodySimulationWorld
     public bool Lava(int x, int y) => InWorld(x, y) && Main.tile[x, y].LiquidAmount > 0 && Main.tile[x, y].LiquidType == LiquidID.Lava;
     public int LiquidKind(int x, int y) => InWorld(x, y) ? Main.tile[x, y].LiquidType : 0;
     public byte LiquidAmount(int x, int y) => InWorld(x, y) ? Main.tile[x, y].LiquidAmount : (byte)0;
-    public BodyState Simulate(BodyState state, Controls controls, MovementCapabilities capabilities)
-        => SimulateTerrariaBody.Step(state, controls, capabilities);
-    public float GravityAt(BodyState state) => SimulateTerrariaBody.GravityAt(state);
 }

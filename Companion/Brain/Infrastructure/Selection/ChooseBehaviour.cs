@@ -84,19 +84,15 @@ public sealed class Chooser
         // the intent region's centre: a companion pricing its way back to where the player was
         // standing prices a trip that is already out of date on a player who is walking.
         var region = ctx.Senses.Intent.Region;
-        var delta = region.Centre - ctx.Npc.Bottom;
-        EstimatedReturnTicks = (MathF.Abs(delta.X) + MathF.Abs(delta.Y)) / Infrastructure.Movement.BodyPhysics.WalkSpeed;
+        var delta = region.Centre - ctx.Npc.Center;
+        EstimatedReturnTicks = delta.Length() / Infrastructure.Movement.OrbPace.MaxSpeed;
         var navigator = ctx.Companion.Brain.Navigator;
-        if (ctx.Companion.Brain.Positioner.EstimatedTravelTicks(Infrastructure.Movement.NavGrid.FeetTile(ctx.Npc.Bottom),
-            Infrastructure.Movement.NavGrid.FeetTile(region.Centre)) is float knownTravel)
+        if (ctx.Companion.Brain.Positioner.EstimatedTravelTicks(Infrastructure.Movement.MovementQueries.Tile(ctx.Npc.Center),
+            Infrastructure.Movement.MovementQueries.Tile(region.Centre)) is float knownTravel)
             EstimatedReturnTicks = MathF.Max(EstimatedReturnTicks, knownTravel);
         if (ctx.Companion.Brain.LastRequest.Kind is Infrastructure.Position.RequestKind.WithPlayer or Infrastructure.Position.RequestKind.Guard
-            && navigator.Path is { Finished: false } route)
-        {
-            float routeTicks = 0f;
-            for (int i = route.Index; i < route.Steps.Count; i++) routeTicks += route.Steps[i].Ticks;
-            EstimatedReturnTicks = MathF.Max(EstimatedReturnTicks, routeTicks);
-        }
+            && navigator.Path != null)
+            EstimatedReturnTicks = MathF.Max(EstimatedReturnTicks, navigator.RemainingEstimatedRouteTicks);
         float movingAway = delta.LengthSquared() > 1f ? Microsoft.Xna.Framework.Vector2.Dot(ctx.Senses.Player.Intent, Microsoft.Xna.Framework.Vector2.Normalize(delta)) : 0f;
         Reunion.Evaluate(movingAway, EstimatedReturnTicks, ctx.Senses.Player.IsDead, ctx.Stranded);
         RegroupUrgency = ctx.Senses.Player.IsDead ? 0f : Infrastructure.Observation.CalculateRegroupUrgency.Evaluate(

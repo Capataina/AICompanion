@@ -46,6 +46,7 @@ public sealed class FreeSpaceSearch
 
     private readonly ITileWorld world;
     private readonly LiquidImmunity immunity;
+    private readonly bool immunityOverridden;
     private readonly int revisionAtStart;
     private readonly PriorityQueue<Point, float> open = new();
     private readonly Dictionary<Point, float> cost = new(CornerKey.Comparer);
@@ -55,6 +56,8 @@ public sealed class FreeSpaceSearch
     private readonly Dictionary<Point, bool> usable = new(CornerKey.Comparer);
     private int minX = int.MaxValue, minY = int.MaxValue, maxX = int.MinValue, maxY = int.MinValue;
 
+    private readonly bool priceClearance;
+
     public Point Start { get; }
     public Point? Goal { get; }
     public bool Finished { get; private set; }
@@ -62,14 +65,26 @@ public sealed class FreeSpaceSearch
     public int Expansions { get; private set; }
     /// <summary>Extra cost for corners inside these rectangles (world pixels): threat bodies a route should go around rather than through.</summary>
     public IReadOnlyList<Rectangle> Avoid { get; set; } = Array.Empty<Rectangle>();
+    /// <summary>A goal given as a predicate rather than a corner: the search finishes Found at the first closed corner it accepts.</summary>
+    public Func<Point, bool>? Accept { get; set; }
+    /// <summary>An ordering value for a predicate goal, used as the heuristic so the flood leans toward what the caller prefers.</summary>
+    public Func<Point, float>? Prefer { get; set; }
+    /// <summary>The corner a predicate goal accepted, once one has.</summary>
+    public Point? FoundCorner { get; private set; }
 
     /// <summary>The corners closed so far; for the flood this is the reachable region.</summary>
     public IReadOnlySet<Point> Reached => closed;
 
-    public FreeSpaceSearch(ITileWorld world, Point start, Point? goal)
+    /// <param name="rules">The immunities this search runs under; the process-wide ones unless a caller
+    /// needs to search through liquid the body is already in.</param>
+    /// <param name="priceClearance">Whether edges carry the corridor-middle price; a search for the nearest
+    /// safe corner wants the nearest and not the widest.</param>
+    public FreeSpaceSearch(ITileWorld world, Point start, Point? goal, LiquidImmunity? rules = null, bool priceClearance = true)
     {
         this.world = world;
-        immunity = OrbTerrain.Immunity;
+        immunity = rules ?? OrbTerrain.Immunity;
+        immunityOverridden = rules != null;
+        this.priceClearance = priceClearance;
         revisionAtStart = world.Revision;
         Start = start;
         Goal = goal;
@@ -92,8 +107,8 @@ public sealed class FreeSpaceSearch
     {
         get
         {
-            if (!ReferenceEquals(world, NavGrid.World) && !ReferenceEquals(world, WorldOverride)) return false;
-            if (immunity != OrbTerrain.Immunity) return false;
+            if (!ReferenceEquals(world, MovementQueries.World) && !ReferenceEquals(world, WorldOverride)) return false;
+            if (immunity != (immunityOverridden ? immunity : OrbTerrain.Immunity)) return false;
             Rectangle bounds = ExploredBounds;
             return world.ChangedSince(revisionAtStart, (x, y) => bounds.Contains(x, y)) == TerrainEditVerdict.Unchanged;
         }
@@ -120,15 +135,16 @@ public sealed class FreeSpaceSearch
             Expansions++;
             spent++;
             if (Goal is Point goal && node == goal) return Finish(StopReason.Found);
+            if (Accept != null && Accept(node)) { FoundCorner = node; return Finish(StopReason.Found); }
             float here = cost[node];
             foreach (Point step in CornerGraph.Neighbours)
             {
                 var next = new Point(node.X + step.X, node.Y + step.Y);
                 if (closed.Contains(next)) continue;
                 if (!usable.TryGetValue(next, out bool fits))
-                    usable[next] = fits = CornerGraph.EdgeClear(world, node, next);
+                    usable[next] = fits = CornerGraph.Usable(world, next, immunity);
                 if (!fits) continue;
-                float edge = CornerGraph.EdgeCost(world, node, next);
+                float edge = priceClearance ? CornerGraph.EdgeCost(world, node, next) : Vector2.Distance(CornerGraph.ToWorld(node), CornerGraph.ToWorld(next));
                 if (Avoid.Count > 0) edge *= AvoidancePenalty(next);
                 float tentative = here + edge;
                 if (cost.TryGetValue(next, out float known) && known <= tentative) continue;
@@ -146,10 +162,13 @@ public sealed class FreeSpaceSearch
 
     /// <summary>The corners from the start to the goal, or null while unfound.</summary>
     public List<Point>? RouteCorners()
+        => Goal is Point goal && closed.Contains(goal) ? PathTo(goal) : null;
+
+    /// <summary>The corners from the start to any closed corner.</summary>
+    public List<Point> PathTo(Point corner)
     {
-        if (Goal is not Point goal || !closed.Contains(goal)) return null;
         var route = new List<Point>();
-        for (Point at = goal; ; at = parent[at])
+        for (Point at = corner; ; at = parent[at])
         {
             route.Add(at);
             if (at == Start) break;
@@ -166,7 +185,8 @@ public sealed class FreeSpaceSearch
     }
 
     private float Heuristic(Point corner)
-        => Goal is Point goal ? Vector2.Distance(CornerGraph.ToWorld(corner), CornerGraph.ToWorld(goal)) : 0f;
+        => Goal is Point goal ? Vector2.Distance(CornerGraph.ToWorld(corner), CornerGraph.ToWorld(goal))
+            : Prefer != null ? Prefer(corner) : 0f;
 
     private float AvoidancePenalty(Point corner)
     {

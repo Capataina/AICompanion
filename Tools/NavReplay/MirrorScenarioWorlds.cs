@@ -70,9 +70,9 @@ internal static class MirrorScenarioWorlds
         foreach (string raw in block)
         {
             string line = raw.TrimEnd('\r');
-            if (ReplayOneBlock.IsHeaderLine(line))
+            if (ReadScenarioBlocks.IsHeaderLine(line))
                 mirrored.Add(MirrorHeader(line, originX, width));
-            else if (ReplayOneBlock.IsExtraLine(line))
+            else if (ReadScenarioBlocks.IsExtraLine(line))
                 mirrored.Add(MirrorExtra(line, originX, width));
             else
                 mirrored.Add(MirrorRow(line, width));
@@ -93,7 +93,7 @@ internal static class MirrorScenarioWorlds
         foreach (string raw in block)
         {
             string line = raw.TrimEnd('\r');
-            if (ReplayOneBlock.IsHeaderLine(line))
+            if (ReadScenarioBlocks.IsHeaderLine(line))
             {
                 int at = line.IndexOf("window x ", StringComparison.Ordinal);
                 if (at >= 0)
@@ -104,7 +104,7 @@ internal static class MirrorScenarioWorlds
                 }
                 continue;
             }
-            if (ReplayOneBlock.IsExtraLine(line))
+            if (ReadScenarioBlocks.IsExtraLine(line))
                 continue;
             width = Math.Max(width, line.Length);
         }

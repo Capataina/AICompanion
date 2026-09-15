@@ -189,14 +189,14 @@ public sealed class Positioner
                 Region = SuccessRegion.None;
                 return null;
             case RequestKind.Exact:
-                // Exact still means a real place to stand: the nearest standable tile the walker can
-                // reach, which NavGrid refuses when it is in or over lava; when nothing reachable is
-                // near, the nearest standable tile at all, and the partial path walks as close as it can.
+                // Exact still means a real place to hover: the nearest free cell the body can reach;
+                // when nothing reachable is near, the nearest free cell at all, and the route flies as
+                // close as it can.
                 lastRequest = request;
                 senses.Reach.Refresh(senses);
-                Point around = MovementQueries.FeetTile(request.Anchor);
-                Point? tile = MovementQueries.NearestStandable(around, 3, t => InReach(t) && Allowed(t)) ?? MovementQueries.NearestStandable(around, 3, Allowed);
-                Chosen = tile is Point t ? MovementQueries.FeetWorld(t) : null;
+                Point around = MovementQueries.Tile(request.Anchor);
+                Point? tile = MovementQueries.NearestHoverable(around, 3, t => InReach(t) && Allowed(t)) ?? MovementQueries.NearestHoverable(around, 3, Allowed);
+                Chosen = tile is Point t ? MovementQueries.HoverPoint(t) : null;
                 // Declared against the request's own stand rather than the substituted tile: the proof
                 // chose the stand, and the tile nearest it is where the walk happens to aim.
                 Region = Chosen == null ? SuccessRegion.None
@@ -215,7 +215,7 @@ public sealed class Positioner
                 lastRequest = request;
                 sinceScore = 0;
                 senses.Reach.Refresh(senses);
-                Chosen = RoamSpot(MovementQueries.FeetTile(request.Anchor));
+                Chosen = RoamSpot(MovementQueries.Tile(request.Anchor));
                 Region = Chosen == null ? SuccessRegion.None
                     : SuccessRegion.Unscored(SuccessRegionKind.Undeclared, request.Anchor, senses.Tick, TerrainChanges.Revision);
                 return Chosen;
@@ -228,13 +228,13 @@ public sealed class Positioner
             // along the route the meeting place had been chosen to avoid. It still has to be a place to
             // stand that this region has not proven unreachable; otherwise ordinary scoring applies.
             senses.Reach.Refresh(senses);
-            Point place = MovementQueries.FeetTile(request.Anchor);
-            if (MovementQueries.IsStandable(place.X, place.Y) && Allowed(place) && !ProvenUnreachable(place)
-                && CourtesyShare(MovementQueries.FeetWorld(place), senses) == 1f)
+            Point place = MovementQueries.Tile(request.Anchor);
+            if (MovementQueries.IsHoverable(place) && Allowed(place) && !ProvenUnreachable(place)
+                && CourtesyShare(MovementQueries.HoverPoint(place), senses) == 1f)
             {
                 lastRequest = request;
                 sinceScore = 0;
-                Chosen = MovementQueries.FeetWorld(place);
+                Chosen = MovementQueries.HoverPoint(place);
                 ChoiceReason = "priced-meeting-place";
                 Region = SuccessRegion.Unscored(SuccessRegionKind.MeetingPlace, request.Anchor, senses.Tick, TerrainChanges.Revision);
                 return Chosen;
@@ -291,8 +291,8 @@ public sealed class Positioner
     private bool RetainsHeldDestination(in PositionRequest request, Senses.Senses senses, WeaponProfile? fireProfile)
     {
         if (Chosen is not Vector2 spot) return false;
-        Point tile = MovementQueries.FeetTile(spot);
-        if (!Allowed(tile) || !MovementQueries.IsStandable(tile.X, tile.Y) || ProvenUnreachable(tile))
+        Point tile = MovementQueries.Tile(spot);
+        if (!Allowed(tile) || !MovementQueries.IsHoverable(tile) || ProvenUnreachable(tile))
             return false;
         switch (Region.Kind)
         {
@@ -411,7 +411,7 @@ public sealed class Positioner
 
     /// <summary>Whether the spot last chosen is one the body can come home from; true when nothing is chosen.</summary>
     public bool ChosenReturnable
-        => Chosen is not Vector2 c || reachSense == null || reachSense.Returnable(MovementQueries.FeetTile(c));
+        => Chosen is not Vector2 c || reachSense == null || reachSense.Returnable(MovementQueries.Tile(c));
 
     /// <summary>Wall-clock of the last reach flood, for the telemetry.</summary>
     public double LastFloodMs => reachSense?.LastFloodMs ?? 0d;
@@ -440,7 +440,7 @@ public sealed class Positioner
                 bestDistance = distance;
             }
         }
-        return best is Point b ? MovementQueries.FeetWorld(b) : null;
+        return best is Point b ? MovementQueries.HoverPoint(b) : null;
     }
 
     private const int RoamSamples = 12;
@@ -466,8 +466,8 @@ public sealed class Positioner
         Vector2? found = null;
         foreach (Point tile in reachSense?.ScoredTiles ?? (IReadOnlyCollection<Point>)System.Array.Empty<Point>())
         {
-            if (!Allowed(tile) || !MovementQueries.IsStandable(tile.X, tile.Y)) continue;
-            Vector2 feet = MovementQueries.FeetWorld(tile);
+            if (!Allowed(tile) || !MovementQueries.IsHoverable(tile)) continue;
+            Vector2 feet = MovementQueries.HoverPoint(tile);
             if (Vector2.Distance(feet, feetNow) <= Navigator.ArriveDistance) continue;
             float gap = objective.HorizontalGap(feet) + objective.VerticalGap(feet);
             if (gap >= best) continue;
@@ -496,9 +496,9 @@ public sealed class Positioner
     /// </summary>
     private ShotVerdict SolveShotAtArrival(Vector2 eye, Vector2 feet, NPC target, WeaponProfile profile, Senses.Senses senses)
     {
-        Point from = MovementQueries.FeetTile(senses.Companion.Bottom);
-        float trip = EstimatedTravelTicks(from, MovementQueries.FeetTile(feet))
-            ?? Vector2.Distance(senses.Companion.Bottom, feet) / Companion.CompanionMotor.WalkSpeed;
+        Point from = MovementQueries.Tile(senses.Companion.Bottom);
+        float trip = EstimatedTravelTicks(from, MovementQueries.Tile(feet))
+            ?? Vector2.Distance(senses.Companion.Bottom, feet) / OrbPace.MaxSpeed;
         int arrival = (int)MathHelper.Clamp(trip, 0f, 180f);
         bool forecastUsable = PredictObservedMotion.ErrorSamples(target) > 0
             && PredictObservedMotion.Confidence(target, arrival) >= Weights.ShotForecastConfidenceFloor;
@@ -576,7 +576,7 @@ public sealed class Positioner
     private bool EveryRemainingAsked(List<(Vector2 feet, Vector2 eye, float baseScore)> candidates, int from, NPC target)
     {
         for (int i = from; i < candidates.Count; i++)
-            if (!EverAsked(MovementQueries.FeetTile(candidates[i].feet), target)) return false;
+            if (!EverAsked(MovementQueries.Tile(candidates[i].feet), target)) return false;
         return true;
     }
 
@@ -609,7 +609,7 @@ public sealed class Positioner
     /// <summary>Where the body is standing, in the strides the refusal memory is scoped by.</summary>
     private static Point BodyBucket(Vector2 bottom)
     {
-        Point feet = MovementQueries.FeetTile(bottom);
+        Point feet = MovementQueries.Tile(bottom);
         return new Point(feet.X >> 2, feet.Y >> 2);
     }
 
@@ -718,7 +718,7 @@ public sealed class Positioner
         // is why the chosen spot still changed a thousand times under requests that had not changed.
         FollowPlayerObjective? followObjective = request.Kind == RequestKind.WithPlayer
             ? senses.Intent.Objective.At(request.Anchor) : null;
-        Point centre = MovementQueries.FeetTile(request.Anchor);
+        Point centre = MovementQueries.Tile(request.Anchor);
         Vector2 playerBottom = senses.Player.Bottom;
         bool threatened = !senses.Threats.PlayerIsSafe;
         float bandNear = threatened ? Weights.ThreatBandNear : Weights.CalmBandNear;
@@ -743,7 +743,7 @@ public sealed class Positioner
             {
                 int x = centre.X + dx, y = centre.Y + dy;
                 CandidateCount++;
-                if (!MovementQueries.IsStandable(x, y) || !Allowed(new Point(x, y)))
+                if (!MovementQueries.IsHoverable(new Point(x, y)) || !Allowed(new Point(x, y)))
                 {
                     RejectedCandidateCount++;
                     continue;
@@ -752,7 +752,7 @@ public sealed class Positioner
                 if (reachable) ReachableCandidateCount++;
                 if (ProvenUnreachable(new Point(x, y)))
                     continue;
-                Vector2 feet = MovementQueries.FeetWorld(new Point(x, y));
+                Vector2 feet = MovementQueries.HoverPoint(new Point(x, y));
                 if (followObjective is FollowPlayerObjective objective && !objective.AcceptsDestination(feet, CanSeePlayer(feet + new Vector2(0f, -30f), senses)))
                     continue;
                 if (!reachable && anyReachable)
@@ -817,7 +817,7 @@ public sealed class Positioner
             string shot = "not-required";
             if (needsFire)
             {
-                Point tile = MovementQueries.FeetTile(feet);
+                Point tile = MovementQueries.Tile(feet);
                 if (AlreadyRefused(tile, request.Target!, bodyTile))
                 {
                     // Counted as evaluated because it is answered: a real solve refused it, under this terrain
@@ -843,7 +843,7 @@ public sealed class Positioner
                 score = ScoreSpot(request, feet, eye, playerBottom, senses, bandNear, bandFar, verdict.Solved ? 1f : 0f, reach);
             }
             EvaluatedCandidates++;
-            evidence.Add((MovementQueries.FeetTile(feet), score, shot));
+            evidence.Add((MovementQueries.Tile(feet), score, shot));
             evidence.Sort((a, b) => b.score.CompareTo(a.score));
             if (evidence.Count > 4) evidence.RemoveAt(4);
             if (score > 0f && score > bestScore)
@@ -929,7 +929,7 @@ public sealed class Positioner
     /// </summary>
     private static bool StandsInPlayersWay(Vector2 feet, Senses.Senses senses)
         => senses.Player.Interference is Rectangle footprint
-            && PlayerSense.BodyTiles(feet, BodyPhysics.Width, BodyPhysics.Height).Intersects(footprint);
+            && PlayerSense.BodyTiles(feet + new Vector2(0f, CircleContact.Radius), (int)CircleContact.Diameter, (int)CircleContact.Diameter).Intersects(footprint);
 
     private static bool CanSeePlayer(Vector2 eye, Senses.Senses senses)
         => Collision.CanHitLine(eye, 1, 1, senses.PlayerEntity.position, senses.PlayerEntity.width, senses.PlayerEntity.height);
@@ -976,7 +976,7 @@ public sealed class Positioner
     /// <summary>Penalise crevices: count solid tiles in the ring two tiles out at eye height.</summary>
     private static float Openness(Vector2 feet)
     {
-        Point p = MovementQueries.FeetTile(feet);
+        Point p = MovementQueries.Tile(feet);
         int solid = 0;
         for (int dx = -2; dx <= 2; dx++)
             for (int dy = -3; dy <= -1; dy++)

@@ -2,7 +2,6 @@
 using System;
 using Microsoft.Xna.Framework;
 using Terraria;
-using Terraria.ID;
 using AICompanion.Companion.Brain.Infrastructure.Movement;
 using AICompanion.Companion.Brain.Infrastructure.Selection;
 using AICompanion.Companion.CharacterBody;
@@ -25,7 +24,9 @@ namespace AICompanion.Companion;
 /// <para>Speed and acceleration are the player's, read live: the cap is a multiple of the player's
 /// maximum run speed after accessories and the acceleration a multiple of his run acceleration,
 /// each further scaled by a multiplier on the body that the mastery tree drives. Nothing here lags
-/// the player: a companion at the cap overtakes a running player.</para>
+/// the player: a companion at the cap overtakes a running player. The motor publishes both to
+/// <see cref="OrbPace"/> every tick so the game-free steering brakes and bends against the same
+/// numbers it applies.</para>
 /// </summary>
 public sealed class CompanionMotor
 {
@@ -91,14 +92,17 @@ public sealed class CompanionMotor
     public bool TouchedWall { get; private set; }
     public Vector2 WallNormal { get; private set; }
     public bool ClearOfTerrain => !CircleContact.Overlaps(MovementQueries.World, npc.Center);
+    /// <summary>The immunities the body carries, as the terrain reading wants them.</summary>
+    public LiquidImmunity Immunity => new(companion.ImmuneToWater, companion.ImmuneToLava);
 
-    /// <summary>The orb as the steering reads it this tick.</summary>
-    public OrbState Orb => new(npc.Center, momentum, LiquidKind, PinnedTicks >= 15);
+    /// <summary>The orb as the steering and every consumer read it this tick.</summary>
+    public OrbState State => new(npc.Center, momentum, LiquidKind, PinnedTicks >= 15);
 
     /// <summary>
     /// Read what the engine did with the last application before anything acts on this tick: the
     /// body is pinned when it holds a velocity and did not move, which a body the engine only
-    /// integrates cannot do on its own.
+    /// integrates cannot do on its own. The pace is published here too, so everything the tick
+    /// plans against reads the pace this tick will apply.
     /// </summary>
     public void Track()
     {
@@ -106,6 +110,8 @@ public sealed class CompanionMotor
         bool stationary = previousPosition is Vector2 previous && Vector2.DistanceSquared(previous, position) < 0.01f;
         PinnedTicks = stationary && appliedDisplacement.LengthSquared() > 0.25f ? PinnedTicks + 1 : 0;
         previousPosition = position;
+        OrbPace.MaxSpeed = LiveMaxSpeed;
+        OrbPace.Acceleration = LiveAcceleration;
     }
 
     /// <summary>Accelerate toward the requested velocity, run contact, read liquid, and hand the engine the move.</summary>
@@ -261,30 +267,4 @@ public sealed class CompanionMotor
     public void LeaveDowned() => downed = false;
 
     public void Face(float worldX) => npc.direction = npc.spriteDirection = worldX >= npc.Center.X ? 1 : -1;
-
-    // ── bridge to the walker's read surface, deleted with the walker's planner ──────────────────
-    // Everything below exists so the tree builds between the body landing and the free-space
-    // navigator replacing the walker's; none of it describes the orb.
-    public MovementCapabilities Capabilities { get; set; } = MovementCapabilities.Basic;
-    public bool OnGround => false;
-    public bool WantsFallThrough { get; set; }
-    public bool Descending => false;
-    public float Divergence => 0f;
-    public bool DivergenceValid => false;
-    public string DivergenceInvalidReason => "orb";
-    public BodyState State => new(npc.position.X, npc.Bottom.Y, momentum.X, momentum.Y, false,
-        Pinned: PinnedTicks >= 15, Wet: npc.wet, Capabilities: Capabilities, LiquidKind: Math.Max(0, LiquidKind));
-    public BodyState ObservedState => State;
-    public BodyState? PredictedState => null;
-    public float ObservedEngineGravity => 0f;
-    public float ObservedModelGravity => 0f;
-    public bool ObservedGravityEnabled => false;
-    public ulong GravityObservationTick => Main.GameUpdateCount;
-    public const float WalkSpeed = BodyPhysics.WalkSpeed;
-    public const float JumpVelocity = BodyPhysics.JumpVelocity;
-    public static float LiveWalkSpeed => MaxSpeed(1f);
-    public static float LiveJumpSpeed => -BodyPhysics.JumpVelocity;
-    public static float StepVelocity(float v, float target) => BodyPhysics.StepVelocity(v, target);
-    public static float JumpScaleForTiles(int tiles) => BodyPhysics.JumpScaleForTiles(tiles);
-    public static float JumpOffsetAt(int ticks) => BodyPhysics.JumpOffsetAt(ticks);
 }

@@ -68,7 +68,7 @@ public sealed class PlayerSense
         Velocity = player.velocity;
         // Only tiles the player stood in: the airborne part of a jump passes through tiles no
         // body can stand in, and the replay tool would name one of those as the missing link.
-        Point feet = MovementQueries.FeetTile(player.Bottom);
+        Point feet = MovementQueries.Tile(player.Bottom);
         if (player.velocity.Y == 0f && (trail.Count == 0 || trail[^1] != feet))
         {
             trail.Add(feet);
@@ -139,7 +139,7 @@ public sealed class PlayerSense
         if (player.velocity.Y != 0f || MathF.Abs(player.velocity.X) < Weights.PlayerIntentTravelSpeed)
             return null;
         int dir = Math.Sign(player.velocity.X);
-        Point from = MovementQueries.FeetTile(player.Bottom), to = MovementQueries.FeetTile(companion.Bottom);
+        Point from = MovementQueries.Tile(player.Bottom), to = MovementQueries.Tile(companion.Bottom);
         if (Math.Abs(from.Y - to.Y) > 1 || Math.Abs(to.X - from.X) > Weights.CourtesyPassageTiles)
             return null;
         // One body tall: a roof directly over a standing body, so the two cannot pass by jumping. The footprint is the passage
@@ -147,7 +147,7 @@ public sealed class PlayerSense
         // from the companion: anchored there, every step the companion took moved the footprint's edge with it, and the spot
         // just past that edge was still in the player's path. It holds wherever the companion is on that floor nearby, behind
         // as well as ahead, so reunion's meeting place on the journey is not chosen inside the passage either.
-        int roof = from.Y - MovementQueries.BodyHeightTiles;
+        int roof = from.Y - PlayerHeightTiles;
         if (!MovementQueries.IsBlock(from.X, roof))
             return null;
         int end = from.X;
@@ -156,6 +156,9 @@ public sealed class PlayerSense
         if (end == from.X)
             return null;
         int left = Math.Min(from.X, end), right = Math.Max(from.X, end);
-        return new Rectangle(left, roof + 1, right - left + 1, MovementQueries.BodyHeightTiles);
+        return new Rectangle(left, roof + 1, right - left + 1, PlayerHeightTiles);
     }
+
+    /// <summary>The player's own body is 42 pixels tall, three tile rows, which is the passage height a one-body-tall roof is measured against.</summary>
+    private const int PlayerHeightTiles = 3;
 }

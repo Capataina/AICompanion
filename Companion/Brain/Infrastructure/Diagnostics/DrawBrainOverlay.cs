@@ -73,15 +73,12 @@ public sealed class BrainOverlay : ModSystem
     public override void Load()
     {
         ToggleKey = KeybindLoader.RegisterKeybind(Mod, "BrainOverlay", "OemOpenBrackets");
-        PlanLocalMovement.CaptureRequested = () => MayCapture && ShowMovement;
-        PlanLocalMovement.CandidateEvaluated = BrainInspectorSamples.RecordMovement;
         TrajectoryAimer.CaptureRequested = () => MayCapture && ShowAiming;
         TrajectoryAimer.TraceEvaluated = BrainInspectorSamples.RecordTrace;
     }
     public override void Unload()
     {
         ToggleKey = null; Enabled = false;
-        PlanLocalMovement.CaptureRequested = null; PlanLocalMovement.CandidateEvaluated = null;
         TrajectoryAimer.CaptureRequested = null; TrajectoryAimer.TraceEvaluated = null;
         BrainInspectorSamples.Reset();
     }
@@ -335,19 +332,19 @@ public sealed class BrainOverlay : ModSystem
         { Border(sb, WorldRect(p.Hitbox), Color.Orange); Line(sb, p.Hitbox.Center.ToVector2(), p.Predict(30).Center.ToVector2(), Color.Orange); }
         if (ShowRoutes && brain.Navigator.Path is { } route)
         {
-            Vector2 previous = c.NPC.Bottom;
-            for (int i = route.Index; i < Math.Min(route.Steps.Count, route.Index + 128); i++)
+            Vector2 previous = c.NPC.Center;
+            for (int i = route.Index + 1; i < Math.Min(route.Count, route.Index + 128); i++)
             {
-                var step = route.Steps[i]; Vector2 p = NavGrid.FeetWorld(step.Tile);
-                Color colour = step.Kind switch { MoveKind.Jump => Color.Gold, MoveKind.Drop => Color.SkyBlue, MoveKind.FallThrough => Color.Violet, _ => Color.LimeGreen };
-                Line(sb, previous, p, colour * .65f); Dot(sb, p, colour, 5); previous = p;
+                Vector2 p = route.Points[i];
+                Line(sb, previous, p, Color.LimeGreen * .65f); Dot(sb, p, Color.LimeGreen, 5); previous = p;
             }
+            Dot(sb, brain.Navigator.Lookahead, Color.Gold, 6);
         }
         if (ShowRoutes && brain.Positioner.Chosen is Vector2 chosen) Dot(sb, chosen, Color.White, 9);
         if (ShowCandidates) foreach (string sample in brain.Positioner.CandidateEvidence.Split('|'))
         {
             string[] fields = sample.Split(':'); string[] xy = fields[0].Split(',');
-            if (xy.Length == 2 && int.TryParse(xy[0], out int x) && int.TryParse(xy[1], out int y)) Dot(sb, NavGrid.FeetWorld(new Point(x, y)), Color.Cyan, 5);
+            if (xy.Length == 2 && int.TryParse(xy[0], out int x) && int.TryParse(xy[1], out int y)) Dot(sb, MovementQueries.HoverPoint(new Point(x, y)), Color.Cyan, 5);
         }
         if (ShowAiming) foreach (var trace in BrainInspectorSamples.AimTraces)
             if (Main.GameUpdateCount - trace.Tick <= 60 && trace.Points.Length > 0)
@@ -365,7 +362,7 @@ public sealed class BrainOverlay : ModSystem
         {
             foreach (var trace in BrainInspectorSamples.MovementTraces) if (Main.GameUpdateCount - trace.Tick <= 30 && trace.Points.Length > 0)
             { Path(sb, trace.Points, trace.Accepted ? Color.Cyan : Color.Red * .65f); HoverEvidence(trace.Points[^1], trace.Reason); }
-            if (BrainInspectorSamples.LastReflex is { } r && Main.GameUpdateCount - r.Tick <= 30) Dot(sb, r.Body.Feet, Color.OrangeRed, 12);
+            if (BrainInspectorSamples.LastReflex is { } r && Main.GameUpdateCount - r.Tick <= 30) Dot(sb, r.Body.Centre, Color.OrangeRed, 12);
         }
         if (ShowAttention)
         {
@@ -448,7 +445,7 @@ public sealed class BrainOverlay : ModSystem
         }
         foreach (var pickup in brain.Senses.Loot.Pickups)
         {
-            bool reachable = brain.Positioner.Reaches(NavGrid.FeetTile(pickup.Item.Bottom));
+            bool reachable = brain.Positioner.Reaches(MovementQueries.Tile(pickup.Item.Bottom));
             bool known = reachable || brain.Positioner.ReachComplete;
             Diamond(sb, pickup.Item.Center, LootDiamond, reachable ? Color.White : known ? Color.Orange : Color.LightSteelBlue, known);
         }

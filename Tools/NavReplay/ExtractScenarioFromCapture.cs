@@ -70,7 +70,7 @@ internal static class ExtractScenarioFromCapture
         float left = Single(row, "observed_left"), bottom = Single(row, "observed_bottom");
         float boxWidth = row.TryGetValue("npc_width", out string? w) && float.TryParse(w, NumberStyles.Float, CultureInfo.InvariantCulture, out float bw) ? bw : 0f;
         float boxHeight = row.TryGetValue("npc_height", out string? h) && float.TryParse(h, NumberStyles.Float, CultureInfo.InvariantCulture, out float bh) ? bh : 0f;
-        Point start = new((int)MathF.Floor((left + boxWidth / 2f) / 16f), BodyPhysics.FeetRow(bottom));
+        Point start = new((int)MathF.Floor((left + boxWidth / 2f) / 16f), (int)MathF.Floor((bottom - boxHeight / 2f) / 16f));
         Point player = PixelTile(row.GetValueOrDefault("player_px", "")) ?? start;
         // The destination the brain had actually asked for on that tick, which is what makes the
         // fixture a replay of the ask rather than of a goal invented afterwards. Without one the
@@ -207,7 +207,7 @@ internal static class ExtractScenarioFromCapture
         return xy.Length == 2
             && float.TryParse(xy[0], NumberStyles.Float, CultureInfo.InvariantCulture, out float px)
             && float.TryParse(xy[1], NumberStyles.Float, CultureInfo.InvariantCulture, out float py)
-                ? new Point((int)MathF.Floor(px / 16f), BodyPhysics.FeetRow(py))
+                ? new Point((int)MathF.Floor(px / 16f), (int)MathF.Floor((py - 0.01f) / 16f))
                 : null;
     }
 

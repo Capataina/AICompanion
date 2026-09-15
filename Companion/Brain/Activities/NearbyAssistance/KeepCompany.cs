@@ -184,7 +184,7 @@ public sealed class KeepCompany : CompanionAction
         // from it, or it became unsafe (an enemy's path now crosses it, the terrain changed under it). Re-rolling every tick is
         // what continuity rules out; keeping a goal that has turned dangerous is what this check rules out.
         if (walking && (Vector2.DistanceSquared(goal, p.Bottom) > Weights.CalmBandFar * Weights.CalmBandFar
-            || !SafeStrollGoal(ctx, MovementQueries.FeetTile(goal))))
+            || !SafeStrollGoal(ctx, MovementQueries.Tile(goal))))
             ResetLocalMovement();
         if (--ticksLeft <= 0) PickLocalMovement(ctx);
         return walking ? PositionRequest.ExactAt(goal) : PositionRequest.Hold;
@@ -215,112 +215,50 @@ public sealed class KeepCompany : CompanionAction
     }
 
     /// <summary>
-    /// A safe standing tile in the player's neighbourhood: every tile the feet can walk to across the calm band either side of the
-    /// player, within a few rows of the player's feet and at least a short walk away, that passes <see cref="SafeStrollGoal"/>, then one
-    /// of those at random, so strolls vary without any tile being preferred. The walk is traced once each way from the feet, and a walk
-    /// holds one standing tile per column, so the candidates are read along it rather than sampled from columns and rows. The earlier
-    /// pick sampled a dozen random columns and read rows around the player's feet in each; on a floor rising one row per column only the
-    /// few columns within those rows could hold a goal, most samples missed them, and an idle companion on a staircase rested for most of
-    /// its window although goals existed. Reading along the walk accepts exactly the tiles that pick accepted, and costs one step per
-    /// column plus one safety check per walked tile in the row window.
+    /// A safe hoverable cell in the player's neighbourhood: every free cell across the calm band either side of the player, within a
+    /// few rows of his feet and at least a short flight away, that passes <see cref="SafeStrollGoal"/>, then one of those at random,
+    /// so strolls vary without any cell being preferred. The walker's version traced a walk along the floor because a stroll could
+    /// not need a jump; an orb strolls to any free cell the reach flood holds, so the candidates are the cells themselves, and the
+    /// flood is what keeps a goal on this side of anything the body cannot come back through.
     /// </summary>
     private Vector2? StrollGoal(in ActionContext ctx)
     {
-        Point player = MovementQueries.FeetTile(ctx.Senses.Player.Bottom);
-        Point feet = MovementQueries.FeetTile(ctx.Npc.Bottom);
+        Point player = MovementQueries.Tile(ctx.Senses.Player.Bottom);
+        Point body = MovementQueries.Tile(ctx.Npc.Center);
         int span = (int)(Weights.CalmBandFar * 0.7f / 16f);
         safe.Clear();
-        // The feet tile is read from the body's bottom, and a body wider than a tile rests overhanging the higher neighbour on a
-        // staircase, so it can name a row above the feet column's own floor; walking sideways from that row finds the next column
-        // two rows down and stops before its first step. The walk starts where the body would settle in its own column.
-        int start = WalkStep(feet.X, feet.Y) ?? feet.Y;
-        foreach (int direction in stepsBothWays)
-        {
-            int y = start;
-            for (int x = feet.X + direction; Math.Abs(x - player.X) <= span; x += direction)
+        for (int x = player.X - span; x <= player.X + span; x++)
+            for (int y = player.Y - Weights.StrollRowsFromPlayer; y <= player.Y + Weights.StrollRowsFromPlayer; y++)
             {
-                if (WalkStep(x, y) is not int next) break;
-                y = next;
                 Point tile = new(x, y);
-                if (Math.Abs(x - feet.X) >= Weights.StrollMinimumTiles && Math.Abs(y - player.Y) <= Weights.StrollRowsFromPlayer
-                    && SafeStrollGoal(ctx, tile))
+                if (Math.Abs(x - body.X) >= Weights.StrollMinimumTiles && SafeStrollGoal(ctx, tile))
                     safe.Add(tile);
             }
-        }
-        return safe.Count == 0 ? null : MovementQueries.FeetWorld(safe[Main.rand.Next(safe.Count)]);
+        return safe.Count == 0 ? null : MovementQueries.HoverPoint(safe[Main.rand.Next(safe.Count)]);
     }
 
-    private static readonly int[] stepsBothWays = { -1, 1 };
     private readonly System.Collections.Generic.List<Point> safe = new();
 
     /// <summary>
-    /// The standing row a walk reaches in <paramref name="column"/> from <paramref name="row"/> in the column before, or null where the walk
-    /// cannot go on: a supported standing tile within one walk step, with no lava touching the body and the head out of liquid, upward
-    /// steps tried first. A goal the returnable region holds can still lie beyond a gap, a pool or a drop that a route jumps, and a jump
-    /// the native body does not land drops it into the hazard the goal was chosen to avoid: the first version of the stroll chose only
-    /// safe goals and still put the body in lava and in the drop, because it chose them on the far side. A stroll is company, not a
-    /// traversal, so it never needs a jump, and a goal is only ever a tile this walk reaches.
-    /// </summary>
-    private static int? WalkStep(int column, int row)
-    {
-        for (int dy = -StepRows; dy <= StepRows; dy++)
-            if (MovementQueries.IsStandable(column, row + dy) && MovementQueries.IsSupport(column, row + dy + 1) && ClearOfLiquidHazards(new Point(column, row + dy)))
-                return row + dy;
-        return null;
-    }
-
-    /// <summary>
-    /// The rows a walk changes between one column and the next: the one-tile step a walking body climbs or drops without a jump. It is
-    /// the walk itself rather than a tunable, and both stroll rules read it so they cannot drift apart: <see cref="WalkStep"/> steps
-    /// by it, and <see cref="NoDropBeside"/> calls anything deeper than it a drop. Widening it would make strolls climb what the body
-    /// needs a jump for.
-    /// </summary>
-    private const int StepRows = 1;
-
-    /// <summary>
-    /// Floor under the tile's own column, and under each column beside it within one walk step of the tile's floor, so the goal is not the
-    /// rim of a drop. <c>BodyPhysics.Stand</c> accepts a body overhanging an edge, so a tile beside a pit reads as standable, and the
-    /// first version of this rule chose rim tiles as goals that a stroll arrives at walking speed and slides off. That version asked for
-    /// floor on the same row under both neighbours, which cannot tell a one-row step from a twelve-row drop: on a floor rising one row per
-    /// column, whether blocks or either slope style, every tile failed it, and the companion rested for the whole of an idle window with
-    /// no goal in 400 picks. A neighbour one row up is a step the body walks onto, one row down is a step it walks off, and anything
-    /// further down is the drop the rule exists for; the depth is the walk's own step, not a threshold fitted to a scene.
-    /// </summary>
-    private static bool NoDropBeside(Point tile)
-        => MovementQueries.IsSupport(tile.X, tile.Y + 1) && FloorWithinStep(tile.X - 1, tile.Y) && FloorWithinStep(tile.X + 1, tile.Y);
-
-    private static bool FloorWithinStep(int column, int feetRow)
-    {
-        for (int dy = -StepRows; dy <= StepRows; dy++)
-            if (MovementQueries.IsSupport(column, feetRow + 1 + dy)) return true;
-        return false;
-    }
-
-    /// <summary>No lava in any column the body can cover, from its head to the tile under its feet, and the head out of liquid in each.
-    /// The body is wider than a tile, so a standable tile beside a pool still puts part of it over the lava; the columns either side are read.</summary>
+    /// The body hovering at this cell touches no liquid that hurts it. The circle is wider than one tile can promise, so the test is
+    /// the circle's own, not the cell's: a free cell beside a lava pool still puts part of the body over the lava.</summary>
     private static bool ClearOfLiquidHazards(Point tile)
     {
-        int head = tile.Y - MovementQueries.BodyHeightTiles + 1;
-        for (int x = tile.X - 1; x <= tile.X + 1; x++)
-        {
-            if (MovementQueries.IsLiquid(x, head)) return false;
-            for (int y = head; y <= tile.Y + 1; y++)
-                if (MovementQueries.IsLava(x, y)) return false;
-        }
-        return true;
+        ITileWorld world = MovementQueries.World;
+        LiquidImmunity rules = OrbTerrain.Immunity;
+        return !CircleContact.Touches(MovementQueries.HoverPoint(tile), (x, y) => OrbTerrain.WetWall(world, x, y, rules));
     }
 
     /// <summary>
-    /// Whether standing with the feet in this tile is a safe place to keep company: standable and not the rim of a drop (floor under
-    /// its own column, and under each neighbour within a walk step), inside the region the body can walk to and come home from (never
-    /// beyond a drop it cannot climb back), clear of lava and deep liquid across the body's width, and with predicted enemy exposure
-    /// within <see cref="Weights.StrollExposureLimit"/>. A held goal is checked again each tick, so an enemy arriving or a terrain edit
+    /// Whether hovering at this cell is a safe place to keep company: free for the body, inside the region the body can fly to and
+    /// come home from, clear of liquid that hurts across the body's width, and with predicted enemy exposure within
+    /// <see cref="Weights.StrollExposureLimit"/>. A held goal is checked again each tick, so an enemy arriving or a terrain edit
     /// under it ends the stroll.
     /// </summary>
     private static bool SafeStrollGoal(in ActionContext ctx, Point tile)
     {
-        if (!MovementQueries.IsStandable(tile.X, tile.Y) || !NoDropBeside(tile) || !ClearOfLiquidHazards(tile)) return false;
-        if (Infrastructure.Position.Positioner.PredictedExposureAt(MovementQueries.FeetWorld(tile), ctx.Senses) > Weights.StrollExposureLimit) return false;
+        if (!MovementQueries.IsHoverable(tile) || !ClearOfLiquidHazards(tile)) return false;
+        if (Infrastructure.Position.Positioner.PredictedExposureAt(MovementQueries.HoverPoint(tile), ctx.Senses) > Weights.StrollExposureLimit) return false;
         return ctx.Companion.Brain.Positioner.IsReturnable(ctx.Senses, tile);
     }
 }

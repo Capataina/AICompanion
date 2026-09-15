@@ -10,21 +10,26 @@ using AICompanion.Companion.Brain.Infrastructure.Diagnostics;
 namespace AICompanion.Companion.Brain.SharedBehaviours.Safety;
 
 /// <summary>
-/// Identifies imminent collisions and supplies their predicted occupied space. Locomotion
-/// evaluates and performs avoidance using its own body/ability rules; no motor writes live here.
+/// Identifies imminent collisions and supplies their predicted occupied space. Movement
+/// evaluates and performs avoidance through the orb's own contact; no motor writes live here.
 /// </summary>
 public sealed class Reflexes
 {
     public string? Active { get; private set; }
 
-    public bool TryAssess(NPC npc, Infrastructure.Observation.Senses senses, BodyState live,
-        out Func<BodyState, int, bool> unsafeAtTick)
+    /// <summary>The engine's box for the orb at <paramref name="centre"/>, grown by a pixel each way so a hitbox that
+    /// merely touches the circle's bounding square still counts: the game tests overlap on integer boxes.</summary>
+    public static Rectangle BodyAt(Vector2 centre)
+        => new((int)MathF.Floor(centre.X - CircleContact.Radius), (int)MathF.Floor(centre.Y - CircleContact.Radius),
+            (int)CircleContact.Diameter + 1, (int)CircleContact.Diameter + 1);
+
+    public bool TryAssess(NPC npc, Infrastructure.Observation.Senses senses, OrbState live,
+        out Func<OrbState, int, bool> unsafeAtTick)
     {
-        bool Unsafe(BodyState state, int tick)
+        bool Unsafe(OrbState state, int tick)
         {
             if (tick > Weights.DodgeLookaheadTicks) return false;
-            Rectangle body = new((int)MathF.Floor(state.Left), (int)MathF.Floor(state.Bottom - BodyPhysics.Height),
-                BodyPhysics.Width + 1, BodyPhysics.Height + 1);
+            Rectangle body = BodyAt(state.Centre);
             foreach (ThreatRecord threat in senses.Threats.Threats)
                 if (threat.Npc.damage > 0 && threat.PredictedHitbox(tick).Intersects(body)) return true;
             foreach (var shot in senses.Projectiles.Threats)
@@ -34,12 +39,15 @@ public sealed class Reflexes
         unsafeAtTick = Unsafe;
         Active = null;
         if (senses.Threats.Threats.Count == 0 && senses.Projectiles.Threats.Count == 0) return false;
-        // Ask the shared body for the passive trajectory: braking still has momentum and a
-        // falling body still falls. Treating every threatened body as stationary misses both.
-        BodyState predicted = live;
+        // The passive trajectory: an orb carries its momentum and nothing pulls it down, so the body
+        // it will be in a few ticks from now is this one coasting, stopped only by the walls it meets.
+        ITileWorld world = MovementQueries.World;
+        Vector2 centre = live.Centre, velocity = live.Velocity;
         for (int tick = 1; tick <= Weights.DodgeLookaheadTicks; tick++)
         {
-            predicted = BodyMotion.Step(MovementQueries.World, predicted, Controls.None);
+            centre += velocity;
+            CircleContact.Resolve(world, ref centre, ref velocity);
+            OrbState predicted = live with { Centre = centre, Velocity = velocity };
             if (!Unsafe(predicted, tick)) continue;
             BrainInspectorSamples.RecordReflex(Main.GameUpdateCount, tick, predicted);
             Active = "avoid-collision";

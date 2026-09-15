@@ -11,7 +11,6 @@ public static class Weights
     // Wall-clock budgets are live-brain policy. Headless core tests leave them disabled so
     // machine load cannot change a fixture's reachability verdict.
     public const double RouteSearchMilliseconds = 8d;
-    public const double MovementPreparationMilliseconds = 2d;
     public const double PositionReachMilliseconds = 2d;
     public const double PositionAimingMilliseconds = 2d;
     public const double EscapeSearchMilliseconds = 2d;
@@ -19,12 +18,18 @@ public static class Weights
     // The orb's pace is the player's, read live, times these: the cap is twice his maximum run
     // speed after accessories (the owner's ruling, so a companion at the cap overtakes a running
     // player), and the acceleration a multiple of his run acceleration chosen so the body reaches
-    // the cap in well under a second and still reads as a thrown thing rather than a snap. The
-    // fallbacks are for a player whose numbers are not finite, which a fixture can produce.
+    // the cap in a fifth of a second and still reads as a thrown thing rather than a snap. The
+    // acceleration is also the turn authority, because momentum steering changes velocity by at
+    // most this much a tick whichever way: at three times the run acceleration a body at the cap
+    // turned with a radius of nine tiles and sailed past a corridor's last bend into the wall
+    // (Tools/NavReplay --self-test, corridor middle); at six the radius is half that and the bend
+    // slowdown brings it inside the two-tile gaps the body is meant to fit. The fallbacks are for a
+    // player whose numbers are not finite, which a fixture can produce, and mirror a plain
+    // player's run acceleration of 0.08 times the multiple.
     public const float OrbSpeedPerRunSpeed = 2f;
-    public const float OrbAccelerationPerRunAcceleration = 3f;
+    public const float OrbAccelerationPerRunAcceleration = 6f;
     public const float OrbFallbackSpeed = 6f;
-    public const float OrbFallbackAcceleration = 0.24f;
+    public const float OrbFallbackAcceleration = 0.48f;
     // The route search prices an edge at its length times one plus this over the clearance at its
     // far corner, in tiles, so a corridor's middle is cheaper than its walls without a wall ever
     // being refused: at one, a corner touching a wall costs twice its length and one three tiles
@@ -37,6 +42,20 @@ public static class Weights
     // swept tests each — and a screen-sized window is a few thousand corners, so this closes one
     // in a handful of resolves rather than the walker's several seconds.
     public const int ReachFloodExpansions = 1500;
+    // How many corners a route search may close per tick; a search that runs out keeps its
+    // frontier and continues next tick while the body follows what it already had.
+    public const int RouteSearchExpansions = 2500;
+    // How far a goal may drift before its route is thrown away and planned afresh: a following
+    // anchor moves every tick, and a route re-aimed at a nearby goal is the same route.
+    public const float ReplanGoalPixels = 24f;
+    // The steering aims at a point this far ahead of the body's projection on its route. Longer
+    // cuts corners more and settles faster on straights; shorter tracks a winding route tighter.
+    public const float OrbLookaheadPixels = 40f;
+    // Into a bend the speed cap falls by this share of the turn's fraction of a half-turn, never
+    // below the minimum share of the cap, so a hairpin is taken slowly and a gentle curve barely
+    // slows the body at all.
+    public const float OrbBendSlowdown = 0.85f;
+    public const float OrbBendMinimumShare = 0.25f;
     public const int HuntRetryTicks = 180;
     // Useful damage remains valuable across the forecast window. Timely threat
     // removal earns extra value without letting kill count dominate healthy targets.
@@ -231,10 +250,6 @@ public static class Weights
     /// <summary>Beyond this the companion drops everything and comes back, whatever else is going on.</summary>
     public const float LeashHard = FollowRecoveryDistance;
 
-    /// <summary>Live walk and jump as a share of the player's current stats, so a buffed player can still be overtaken without predicting their next tile. The motor never goes slower than the body's nominal walk and jump.</summary>
-    public const float CompanionWalkPace = 1.10f;
-    public const float CompanionJumpPace = 1.05f;
-
     /// <summary>
     /// How far the companion may stray before hunting starts losing value, and how much further
     /// takes it to nothing. Hunting is the opportunistic behaviour — something to do when there is
@@ -342,13 +357,6 @@ public static class Weights
 
     // ---- P09: gathering cooperation and truthful completion ----
 
-    /// <summary>
-    /// Mining: how long ceiling ore stays out of discovery after its take-off, with the body at rest on
-    /// it, stopped proving a jump while the terrain has not changed. Any terrain change ends the wait at
-    /// once, because a changed world is the condition under which the same take-off can be worth asking
-    /// again; without a wait the next preparation re-proves the same take-off from rest and re-offers it.
-    /// </summary>
-    public const int HopTakeOffRetryTicks = 600;
 
     // P08 — purposeful combat and combined safety. Proposal 1's P08 tunables sit together at the end of
     // the class so parallel lanes adding their own blocks collide on nothing but position.

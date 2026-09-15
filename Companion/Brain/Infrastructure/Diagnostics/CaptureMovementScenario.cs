@@ -91,8 +91,8 @@ public static class ScenarioCapture
         NPC npc = companion.NPC;
         var player = brain.Senses.Player;
         long tick = Main.GameUpdateCount;
-        Point feet = NavGrid.FeetTile(npc.Bottom);
-        Point playerFeet = NavGrid.FeetTile(player.Bottom);
+        Point feet = MovementQueries.Tile(npc.Center);
+        Point playerFeet = MovementQueries.Tile(player.Bottom);
         Point goal = brain.Navigator.GoalTile ?? playerFeet;
 
         // Follow failure: walking with the player, far behind, and no nearer than when the
@@ -111,16 +111,6 @@ public static class ScenarioCapture
                 BrainTelemetry.DumpScenario(feet, playerFeet, $"follow failure, more than {FollowGapTiles} tiles behind for {FollowGapTicks} ticks and no nearer");
             }
             followBehind = 0;
-        }
-
-        // A step the follower could not complete, named by its traversal: which move, from where
-        // to where, and why (stood past its allowance, landed elsewhere, pressed a shape, lost
-        // inside a shape). This is the follow class's own detector; the stuck count below is
-        // the backstop for a body that stands with no step faulting.
-        if (brain.Navigator.LastFault != TraversalFault.None && tick >= faultCooldown && brain.Navigator.LastEdge is EdgeReport fault)
-        {
-            faultCooldown = tick + CooldownTicks;
-            BrainTelemetry.DumpScenario(feet, goal, $"traversal fault, {fault.Outcome} on {fault.Kind} {fault.From.X},{fault.From.Y} -> {fault.Tile.X},{fault.Tile.Y} after {fault.Actual} ticks, proven {fault.Expected}");
         }
 
         // Wanting to go somewhere and never getting nearer, which is a different failure from

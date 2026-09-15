@@ -84,7 +84,7 @@ public sealed class ResolveFiringOpportunity
         // tick of every approach, which is how a previous addition on this path made a session
         // unplayable. Whether some reachable position can shoot an enemy does not change from one
         // tile of travel, so the key moves in strides and the tick window bounds the staleness.
-        Point feet = Infrastructure.Movement.MovementQueries.FeetTile(ctx.Npc.Bottom);
+        Point feet = Infrastructure.Movement.MovementQueries.Tile(ctx.Npc.Center);
         var origin = new Point(feet.X >> 2, feet.Y >> 2);
         int terrain = Infrastructure.Movement.TerrainChanges.Revision;
         // Where the target stood when the answer was taken is part of the key, for the same reason the body's own
@@ -140,23 +140,25 @@ public sealed class ResolveFiringOpportunity
         if (arsenal.ShotSolves(ctx, here, enemy))
             return (FiringAccess.FromHere, 0f, arsenal.BestShotValueFrom(ctx, here, enemy));
 
-        Point feet = Infrastructure.Movement.MovementQueries.FeetTile(ctx.Npc.Bottom);
+        Point feet = Infrastructure.Movement.MovementQueries.Tile(ctx.Npc.Center);
         var positioner = ctx.Companion.Brain.Positioner;
         float reach = MathF.Max(arsenal.Primary.Profile.Reach, arsenal.Secondary.Profile.Reach);
         int radius = Math.Min(FiringSampleRadiusTiles, (int)(reach / 16f));
-        Point centre = Infrastructure.Movement.MovementQueries.FeetTile(enemy.Bottom);
+        Point centre = Infrastructure.Movement.MovementQueries.Tile(enemy.Center);
         var stands = new List<(float Distance, Point Tile, Vector2 Eye)>();
         for (int dx = -radius; dx <= radius; dx += FiringSampleStride)
         {
             for (int dy = -radius; dy <= radius; dy += FiringSampleStride)
             {
                 var tile = new Point(centre.X + dx, centre.Y + dy);
-                if (!Infrastructure.Movement.MovementQueries.IsStandable(tile.X, tile.Y))
+                if (!Infrastructure.Movement.MovementQueries.IsHoverable(tile))
                     continue;
-                Vector2 eye = Arsenal.MuzzleAtFeet(Infrastructure.Movement.MovementQueries.FeetWorld(tile));
+                // The arsenal's muzzle is expressed from a feet point; the orb's feet are its centre plus its radius.
+                Vector2 hover = Infrastructure.Movement.MovementQueries.HoverPoint(tile);
+                Vector2 eye = Arsenal.MuzzleAtFeet(hover + new Vector2(0f, Infrastructure.Movement.CircleContact.Radius));
                 if (Vector2.Distance(eye, enemy.Center) > reach)
                     continue;
-                stands.Add((Vector2.DistanceSquared(ctx.Npc.Bottom, Infrastructure.Movement.MovementQueries.FeetWorld(tile)), tile, eye));
+                stands.Add((Vector2.DistanceSquared(ctx.Npc.Center, hover), tile, eye));
             }
         }
         stands.Sort(static (a, b) => a.Distance.CompareTo(b.Distance));
@@ -191,7 +193,7 @@ public sealed class ResolveFiringOpportunity
             if (positioner.Reaches(stand.Tile))
             {
                 float ticks = positioner.EstimatedTravelTicks(feet, stand.Tile)
-                    ?? Vector2.Distance(ctx.Npc.Bottom, Infrastructure.Movement.MovementQueries.FeetWorld(stand.Tile)) / Companion.CompanionMotor.WalkSpeed;
+                    ?? Vector2.Distance(ctx.Npc.Center, Infrastructure.Movement.MovementQueries.HoverPoint(stand.Tile)) / Infrastructure.Movement.OrbPace.MaxSpeed;
                 nearestReachable = MathF.Min(nearestReachable, ticks);
             }
             else if (!positioner.ReachComplete)
@@ -208,15 +210,15 @@ public sealed class ResolveFiringOpportunity
         if (solvedUnreachable)
         {
             sweep.Remove(sweepKey);
-            return (FiringAccess.AfterMoving, Vector2.Distance(ctx.Npc.Bottom, enemy.Bottom) / Companion.CompanionMotor.WalkSpeed, bestValue);
+            return (FiringAccess.AfterMoving, Vector2.Distance(ctx.Npc.Center, enemy.Center) / Infrastructure.Movement.OrbPace.MaxSpeed, bestValue);
         }
         if (!positioner.ReachComplete)
-            return (FiringAccess.Unknown, Vector2.Distance(ctx.Npc.Bottom, enemy.Bottom) / Companion.CompanionMotor.WalkSpeed, 0f);
+            return (FiringAccess.Unknown, Vector2.Distance(ctx.Npc.Center, enemy.Center) / Infrastructure.Movement.OrbPace.MaxSpeed, 0f);
         // Only a completed sweep of every sampled stand is a proven absence. Stopping at the solve cap and calling
         // it None is an exhausted bound reported as a fact about the world, which is what put hunt at KnownUnusable
         // on 303 of the 13:27 capture's 624 decisions and let keeping company take the body by default.
         if (examined < stands.Count)
-            return (FiringAccess.Unknown, Vector2.Distance(ctx.Npc.Bottom, enemy.Bottom) / Companion.CompanionMotor.WalkSpeed, 0f);
+            return (FiringAccess.Unknown, Vector2.Distance(ctx.Npc.Center, enemy.Center) / Infrastructure.Movement.OrbPace.MaxSpeed, 0f);
         return (FiringAccess.None, float.PositiveInfinity, 0f);
     }
 }

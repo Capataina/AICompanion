@@ -121,7 +121,7 @@ public sealed class PursueAttackOpportunity : CompanionAction
         float value = DiscoverValue(ctx);
         float trip = value > 0 && Target is { } found
             ? (verdict == FiringAccess.FromHere ? 0f
-                : MathF.Max(0f, found.DistanceToCompanion - 200f) / Companion.CompanionMotor.WalkSpeed + 60f)
+                : MathF.Max(0f, found.DistanceToCompanion - 200f) / Infrastructure.Movement.OrbPace.MaxSpeed + 60f)
             : 0f;
         localHunt = value > 0 && (verdict == FiringAccess.FromHere || trip <= Weights.HuntLocalTripTicks);
         prepared = value > 0 && Target is { } ready

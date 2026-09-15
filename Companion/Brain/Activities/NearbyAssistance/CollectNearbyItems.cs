@@ -45,8 +45,8 @@ public sealed class CollectNearbyItems : PerformNearbyWorldWork
     /// marginal tile that still grazed, and on a slope that graze missed for thousands of ticks.</summary>
     private static float ProvePickupReach => MathF.Max(8f, PickupContactReach - Navigator.ArriveDistance);
 
-    /// <summary>How far from a drop's own tile a contact pose can stand: half the body and the pickup reach, in tiles.</summary>
-    private static readonly int ContactSearchTiles = (int)MathF.Ceiling((BodyPhysics.Width / 2f + PickupContactReach) / 16f);
+    /// <summary>How far from a drop's own tile a contact cell can lie: the body's radius and the pickup reach, in tiles.</summary>
+    private static readonly int ContactSearchTiles = (int)MathF.Ceiling((CircleContact.Radius + PickupContactReach) / 16f);
 
     /// <summary>A drop that has moved more than a tile from where it was proven is not where the proof applies; a tile is the
     /// resolution the contact pose was chosen at.</summary>
@@ -60,7 +60,7 @@ public sealed class CollectNearbyItems : PerformNearbyWorldWork
         float dropValue = candidate is { } drop ? drop.Near * drop.Value : 0f;
         float potValue = base.Score();
         float potTrip = base.ActivityTarget is { } position
-            ? Vector2.Distance(ctx.Npc.Bottom, position) / Companion.CompanionMotor.WalkSpeed + Weights.PotContentsHandlingTicks : 0f;
+            ? Vector2.Distance(ctx.Npc.Center, position) / OrbPace.MaxSpeed + Weights.PotContentsHandlingTicks : 0f;
         bool incumbent = ctx.Companion.Brain.Chooser.Current == this;
         var options = new PreparedActivity[]
         {
@@ -150,7 +150,7 @@ public sealed class CollectNearbyItems : PerformNearbyWorldWork
                 // cannot get to or one it could not come home from, and the flood does not distinguish them. The
                 // separate `drop-would-strand-return` was the marginal proof's name and went with that proof.
                 if (reach == Reachability.Reach.No) { Refuse(OfferEligibility.KnownUnusable, "drop-unreachable"); continue; }
-                pose = MovementQueries.FeetWorld(contact);
+                pose = MovementQueries.HoverPoint(contact);
             }
             float near = Consideration.Inverse(pickup.DistanceToCompanion, Weights.LootReach);
             // The loot sense values the whole stack; the offer is for what the cargo can take, so its value is scaled by the
@@ -158,7 +158,7 @@ public sealed class CollectNearbyItems : PerformNearbyWorldWork
             float whole = LootSense.ValueOf(item, item.stack);
             float fits = whole > 0 ? LootSense.ValueOf(item, acceptable) / whole : 1f;
             // The same unit mining and chopping price their walk in: pixels to the working pose over walking speed.
-            float trip = Vector2.Distance(ctx.Npc.Bottom, pose) / Companion.CompanionMotor.WalkSpeed;
+            float trip = Vector2.Distance(ctx.Npc.Center, pose) / OrbPace.MaxSpeed;
             // The candidate records the landing the pose was proven at, not the drop's live bottom, so
             // the guard in Execute asks whether the *forecast* moved. A drop falling exactly as
             // predicted keeps one landing all the way down and is walked to without a single hold.
@@ -167,8 +167,9 @@ public sealed class CollectNearbyItems : PerformNearbyWorldWork
         }
     }
 
-    private static Rectangle BodyAt(Vector2 feet)
-        => new((int)(feet.X - BodyPhysics.Width / 2f), (int)(feet.Y - BodyPhysics.Height), BodyPhysics.Width, BodyPhysics.Height);
+    /// <summary>The engine's box for a body centred at <paramref name="centre"/>, which is what item pickup measures against.</summary>
+    private static Rectangle BodyAt(Vector2 centre)
+        => new((int)(centre.X - CircleContact.Radius), (int)(centre.Y - CircleContact.Radius), (int)CircleContact.Diameter, (int)CircleContact.Diameter);
 
     private static bool TouchesDrop(Rectangle body, Item item, float reach) => Touches(body, item.Hitbox, reach);
 
@@ -251,15 +252,15 @@ public sealed class CollectNearbyItems : PerformNearbyWorldWork
         return null;
     }
 
-    /// <summary>The standable pose nearest the drop from which a body that has arrived still picks it up, or none.
-    /// Nearest-to-companion among tiles that merely graze was the pose with the least overlap: arrival slack and a
-    /// slope then missed, and the navigator reported Arrived so the body froze on the ledge above the gel.</summary>
+    /// <summary>The hoverable cell nearest the drop from which a body that has arrived still picks it up, or none.
+    /// Nearest-to-companion among cells that merely graze was the cell with the least overlap: arrival slack then
+    /// missed, and the navigator reported Arrived so the body hung beside the gel without taking it.</summary>
     private static Point? ContactPose(Item item, Vector2 landing)
     {
         // Every geometric question below is asked about the landing rather than the live bottom: an
-        // item still in the air is going to be somewhere else by the time a body walks to it, and a
-        // pose proven against where it currently hangs is proven against a place it will not be.
-        Point around = MovementQueries.FeetTile(landing);
+        // item still in the air is going to be somewhere else by the time a body flies to it, and a
+        // cell proven against where it currently hangs is proven against a place it will not be.
+        Point around = MovementQueries.Tile(landing);
         Rectangle drop = new((int)(landing.X - item.width / 2f), (int)(landing.Y - item.height), item.width, item.height);
         Point? best = null;
         float bestDistance = float.MaxValue;
@@ -267,13 +268,10 @@ public sealed class CollectNearbyItems : PerformNearbyWorldWork
             for (int dy = -ContactSearchTiles; dy <= ContactSearchTiles; dy++)
             {
                 Point tile = new(around.X + dx, around.Y + dy);
-                if (!MovementQueries.IsStandable(tile.X, tile.Y)) continue;
-                Vector2 feet = MovementQueries.FeetWorld(tile);
-                // A floor more than a tile above the drop is a cliff, not a pickup: the inflated AABB can
-                // graze an item on the slope below while the live body never takes it.
-                if (landing.Y - feet.Y > 16f || feet.Y - landing.Y > 16f) continue;
-                if (!Touches(BodyAt(feet), drop, ProvePickupReach)) continue;
-                float distance = Vector2.DistanceSquared(feet, landing);
+                if (!MovementQueries.IsHoverable(tile)) continue;
+                Vector2 hover = MovementQueries.HoverPoint(tile);
+                if (!Touches(BodyAt(hover), drop, ProvePickupReach)) continue;
+                float distance = Vector2.DistanceSquared(hover, landing);
                 if (distance >= bestDistance) continue;
                 best = tile;
                 bestDistance = distance;
@@ -403,8 +401,6 @@ public sealed class CollectNearbyItems : PerformNearbyWorldWork
 
     protected override string CompletedEffect => "pot-broken-contents-unobserved";
     protected override float Utility => Weights.PotContentsValue;
-    // A pot on a shelf above standing reach is broken the way a player does it, from a proven hop, like a torch site or ceiling ore.
-    protected override bool AllowJump => true;
     protected override bool Enabled(in ActionContext ctx)
         => PlayerIntegration.CompanionPreferences.Current.PotBreaking && ctx.Companion.Bag.Count < Inventory.CompanionInventory.Slots;
     protected override (OfferEligibility Eligibility, string Reason) DisabledOffer(in ActionContext ctx)

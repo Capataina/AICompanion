@@ -11,8 +11,10 @@ namespace AICompanion.Companion.Brain.Infrastructure.Movement;
 /// </summary>
 public static class OrbPace
 {
-    public static float MaxSpeed { get; set; } = 6f;
-    public static float Acceleration { get; set; } = 0.24f;
+    // The defaults are the fallbacks in BehaviourWeights, so a headless tool that never writes them
+    // runs the body a plain player would produce.
+    public static float MaxSpeed { get; set; } = Selection.Weights.OrbFallbackSpeed;
+    public static float Acceleration { get; set; } = Selection.Weights.OrbFallbackAcceleration;
 
     /// <summary>How far the body travels while braking from the cap to rest: v² over 2a.</summary>
     public static float BrakingDistance => MaxSpeed * MaxSpeed / (2f * System.MathF.Max(0.01f, Acceleration));
