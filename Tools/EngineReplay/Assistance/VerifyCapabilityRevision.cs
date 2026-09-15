@@ -330,7 +330,9 @@ internal static class VerifyCapabilityRevision
 
     private static List<Point> NoReturnSites(CollectNearbyItems collect)
     {
-        var field = typeof(CollectNearbyItems).BaseType!.GetField("noReturn", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
+        // The executor's store of refused stands, keyed by tile; it also holds stands beyond the flood's known radius,
+        // which this scene has none of, so its keys are the no-return sites.
+        var field = typeof(CollectNearbyItems).BaseType!.GetField("refused", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
         return ((System.Collections.IDictionary)field.GetValue(collect)!).Keys.Cast<Point>().ToList();
     }
 

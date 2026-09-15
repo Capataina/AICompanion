@@ -47,7 +47,10 @@ namespace AICompanion.Companion.Brain.Infrastructure.Observation;
 public static class TransientLights
 {
     /// <summary>One transient light, reduced to what the falloff model needs: where it is and how bright it
-    /// is in the same units <see cref="Lighting.Brightness"/> reports, so the two are directly comparable.</summary>
+    /// is in the same units <see cref="Lighting.Brightness"/> reports, so the two are directly comparable.
+    /// Those units are not capped at one: the engine multiplies the mean colour by its global brightness, which
+    /// is 1.2 by default, so a torch reads about 1.1 at its own tile and a strength clamped to one would sit
+    /// below the engine's own reading at every distance it reaches.</summary>
     public readonly record struct Source(Point Tile, float Strength);
 
     /// <summary>The furthest any light can carry. The engine stops propagating below 0.0185 and multiplies
@@ -149,7 +152,9 @@ public static class TransientLights
             int steps = Math.Abs(x - source.Tile.X) + Math.Abs(y - source.Tile.Y);
             if (steps > MaxReachTiles) continue;
             float reached = source.Strength * MathF.Pow(DecayThroughAirPerTile, steps);
-            if (reached >= PropagationCutoff && reached > best) best = reached;
+            // The engine's cutoff is on the map's colour, before the global brightness multiplies it, and the
+            // strength here is after it, so the cutoff is carried into the same units.
+            if (reached >= PropagationCutoff * Lighting.GlobalBrightness && reached > best) best = reached;
         }
         return best;
     }
@@ -182,8 +187,13 @@ public static class TransientLights
             tile = (Point)PositionField.GetValue(entry)!;
             var colour = (Vector3)ColorField.GetValue(entry)!;
             // The same reduction Lighting.Brightness applies, so a modelled source and an observed sample
-            // are in one scale: the mean of the three channels times the global brightness.
-            strength = Math.Clamp(Lighting.GlobalBrightness * (colour.X + colour.Y + colour.Z) / 3f, 0f, 1f);
+            // are in one scale: the mean of the three channels times the global brightness. Unclamped, because
+            // Lighting.Brightness is unclamped: this was clamped to one, the engine's torch reads 1.1 at the
+            // game's default brightness, and the modelled torch then fell short of the engine by a tenth of its
+            // own decay everywhere it reached — past the comparison's tolerance out to the edge of its light —
+            // so every tile a carried torch lit was kept as the room's own light (a whole capture of 15
+            // September 2026 read a dark cave as lit beside a torch-carrying player).
+            strength = Math.Max(0f, Lighting.GlobalBrightness * (colour.X + colour.Y + colour.Z) / 3f);
             return true;
         }
     }

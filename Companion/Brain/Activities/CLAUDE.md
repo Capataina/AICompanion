@@ -7,6 +7,7 @@ Activities/
 ├─ CLAUDE.md
 ├─ CompanionAction.cs            the shared contract: prepare, score, execute, a place
 ├─ ClassifyOffersAndAttempts.cs  offer eligibility and attempt outcomes
+├─ RecordCandidateFunnel.cs      what one preparation did with each candidate: the stage that refused it and what it read
 ├─ WorkPolicies.cs               mining/chopping mimic vs opportunistic vs off
 ├─ Combat/                       protecting the player and pursuing useful attacks
 │  ├─ ProtectPlayer.cs           guarding: positioning against a particular threat
@@ -17,7 +18,7 @@ Activities/
 │  ├─ ChopTree.cs                trunk-preference work under the chosen policy
 │  └─ DescribeOreJobEnd.cs       the bounded vein's state at job end, with attribution
 └─ NearbyAssistance/             accompanying the player and useful local help
-   ├─ LightUsefulArea.cs         dark-region lighting work
+   ├─ LightUsefulArea.cs         a torch wherever his smart cursor could place one in the dark
    ├─ CollectNearbyItems.cs      drops priced where they will land
    ├─ KeepCompany.cs             reunion and nearby movement
    └─ PerformNearbyWorldWork.cs  the shared pot/torch discovery and interaction adapter
@@ -27,7 +28,11 @@ All seven ordinary activities live in this tree: **Combat** nominates hunting or
 
 ## The shared contract and offer classification
 
-Every activity implements `CompanionAction`: a `Prepare` pass that populates the candidate pool, a `Score` pass that values each candidate, an `Execute` pass that performs the selected work, and a `Place` query that returns the tile or target where the work occurs. `ClassifyOffersAndAttempts.cs` owns the vocabulary of offer eligibility: **usable** if a prepared candidate has a proven working pose or target; **unresolved** at value zero if the approach is still unknown and cannot yet decide; **known-unusable** if the work is inherently impossible here (a reachability veto, a tool that cannot damage the target, or a pick whose material does not exist nearby). Optional work does not nominate unresolved candidates — mining and hunting publish Unknown at value zero rather than walking toward an unanswered search.
+Every activity implements `CompanionAction`: a `Prepare` pass that populates the candidate pool, a `Score` pass that values each candidate, an `Execute` pass that performs the selected work, and a `Place` query that returns the tile or target where the work occurs. `ClassifyOffersAndAttempts.cs` owns the vocabulary of offer eligibility: **usable** if a prepared candidate has a proven working pose or target; **unresolved** at value zero if the approach is still unknown and cannot yet decide; **known-unusable** if the work is inherently impossible here (a reachability veto, a tool that cannot damage the target, or a pick whose material does not exist nearby). Optional work does not nominate unresolved candidates — mining and hunting publish Unknown at value zero rather than walking toward an unanswered search. **Deferred**, also at value zero, is an offer set aside for a reason that is neither an unanswered search nor a proof: a family whose preparation share was spent before the child ran, and a nearby-work stand outside a finished flood's known radius, which no amount of waiting on that flood will answer.
+
+## A preparation says what it did with each candidate
+
+An offer names only why a search ended; the question a capture is read for is usually about one candidate — why this tile, this drop, this enemy was passed over. `RecordCandidateFunnel.cs` is the record of that, shared by every activity that searches. An activity declares its stages in the order a candidate meets them, with `offered` last, and adds each candidate it looks at with the stage that refused it and the numbers that stage read; a candidate that meets its stages in a line gets the stage it passed from that order, and one refused at one of several alternatives at the same point names the stage it passed itself. Every candidate is counted by its refusing stage, the nearest few by the activity's own cost are kept, and the candidate that got furthest is kept whatever its distance, because a nearest-only sample of a search over a lit bubble holds only tiles refused for being lit. The counts are the whole search and the entries a sample of it, never the other way round. Lighting, collection and hunting fill one; the recorder writes the furthest stage of each as a column every row and the funnel as an occurrence when its counts or its furthest stage change.
 
 **An exhausted bound is not a proven negative, and the vocabulary now separates them everywhere.** Every bounded search under this tree — the stand sweep around a hunt target, the positioner's own candidate shortlist, a lighting site scan cut by the tick's planning deadline — can stop because it ran out rather than because it found nothing. A pass that solved or already remembered a refusal for every candidate reports the absence and is **known-unusable**; a pass that stopped early reports an unfinished search and is **unresolved**, and the chooser must be able to ask which happened without knowing how the search works. Collapsing the two is the defect that vetoed a hunt on the tick a millisecond budget expired and handed the body to keeping company by default. The rule holds however the bounds are tuned, which is why raising any of them was refused as an instance fix: whatever the numbers are, a search can exceed them, and the only question is whether the cut is reported as a cut.
 

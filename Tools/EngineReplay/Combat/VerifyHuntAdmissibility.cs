@@ -200,6 +200,12 @@ internal static class VerifyHuntAdmissibility
         Require(hunt.Eligibility == live::AICompanion.Companion.Brain.Activities.OfferEligibility.KnownUnusable
             && hunt.EligibilityReason == "no-reachable-firing-position",
             $"a proven absence of firing positions is a known-unusable method, not an absent enemy; got {hunt.Eligibility}/{hunt.EligibilityReason}");
+        // The offer names the family's refusal; the funnel names the threat it was about and what the firing query read, which
+        // is what the 7,910 rows of `firing-position-undecided` on the 15 September capture could not say.
+        var furthest = hunt.Funnel.Best;
+        Require(furthest is { RefusedAt: "no-reachable-firing-position" } refused && refused.Identity.StartsWith($"npc{enemy.whoAmI}:", StringComparison.Ordinal)
+            && refused.Readings.Contains("opportunity=None", StringComparison.Ordinal),
+            $"hunting's funnel names the sealed enemy as refused for want of a firing position, with the query's verdict; best={furthest} counts={hunt.Funnel.Summary()}");
     }
 
     /// <summary>

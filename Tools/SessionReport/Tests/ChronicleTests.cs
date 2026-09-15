@@ -50,9 +50,11 @@ public static class ChronicleTests
             IdentityRulesStillMatchTheProducer();
             TravelIsReadPerJourneyAndSkippedByNameOnAnOlderCapture();
             StillnessAndMotionPairsBreakAtAGapAndAtDeath();
+            ThePlayersReferenceChecksFindWhatTheyClaim();
+            TheFunnelSectionTalliesEachActivity();
             // Last, because it writes a chronicle and an events sibling into the temp directory and
             // the multi-run cases above read that directory for runs to join.
-            Console.WriteLine("Chronicle self-tests passed (33 assertion groups).");
+            Console.WriteLine("Chronicle self-tests passed (35 assertion groups).");
             return 0;
         }
         catch (Exception error)
@@ -464,6 +466,118 @@ public static class ChronicleTests
                 "the downing transition must remain visible for investigation");
             Require(findings.All(f => !f.Detail.Contains("half-minute", StringComparison.Ordinal)),
                 "sparse samples were presented as thirty seconds of observed context");
+        }
+        finally { File.Delete(file); }
+    }
+
+    /// <summary>The columns a 0.35.0 capture carries for the two player-reference checks, and one row of them.</summary>
+    private static readonly string[] ReferenceColumns =
+    {
+        "tick", "action", "torch_reference", "torch_reference_light", "torch_reference_dark", "torch_reference_stage",
+        "hunt_offer", "near_threat", "player_vel", "hunt_raw", "hunt_fin", "hunt_time", "keep-company_fin", "place-torches_funnel", "hunt_funnel",
+    };
+
+    private static string ReferenceCapture(int rows, Func<int, System.Collections.Generic.Dictionary<string, string>> row)
+    {
+        string file = Path.GetTempFileName();
+        var text = new StringBuilder("# schema=0.35.0\n# text_columns=action,torch_reference,torch_reference_dark,torch_reference_stage,hunt_offer,player_vel,place-torches_funnel,hunt_funnel\n")
+            .Append(string.Join('\t', ReferenceColumns)).Append('\n');
+        for (int tick = 0; tick < rows; tick++)
+        {
+            var cells = row(tick);
+            cells["tick"] = tick.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            text.Append(string.Join('\t', ReferenceColumns.Select(c => cells.TryGetValue(c, out string? v) ? v : "-"))).Append('\n');
+        }
+        File.WriteAllText(file, text.ToString());
+        return file;
+    }
+
+    private static System.Collections.Generic.Dictionary<string, string> Quiet() => new()
+    {
+        ["action"] = "keep-company", ["torch_reference"] = "-", ["torch_reference_light"] = "-", ["torch_reference_dark"] = "-",
+        ["torch_reference_stage"] = "cursor-offers-nothing", ["hunt_offer"] = "NoOpportunity:no-eligible-target", ["near_threat"] = "-",
+        ["player_vel"] = "0.00,0.00", ["hunt_raw"] = "0.00", ["hunt_fin"] = "0.00", ["hunt_time"] = "1.000", ["keep-company_fin"] = "0.30",
+        ["place-torches_funnel"] = "lit", ["hunt_funnel"] = "-",
+    };
+
+    /// <summary>
+    /// Both player-reference checks run through the report's own evaluation, so a check dropped from the registry turns this
+    /// red as surely as a check that stopped finding. Each finds its stretch on the capture built for it and names what it
+    /// claims — lighting's refusing stage, hunting's factors — and neither fires on the cases that differ in the one fact
+    /// its rule turns on: a lit tile, a stretch too short, the companion lighting, a tile that keeps moving; a hostile too far,
+    /// a player walking, a hunt that was not usable.
+    /// </summary>
+    private static void ThePlayersReferenceChecksFindWhatTheyClaim()
+    {
+        var files = new System.Collections.Generic.List<string>();
+        try
+        {
+            string Capture(int rows, Func<int, System.Collections.Generic.Dictionary<string, string>> row)
+            {
+                string file = ReferenceCapture(rows, row);
+                files.Add(file);
+                return file;
+            }
+            System.Collections.Generic.Dictionary<string, string> DarkTile(int tick, string dark = "dark", string action = "keep-company", string tile = "21,59")
+            {
+                var cells = Quiet();
+                cells["action"] = action; cells["torch_reference"] = tile; cells["torch_reference_light"] = "0.050";
+                cells["torch_reference_dark"] = dark; cells["torch_reference_stage"] = "stand-unreachable";
+                return cells;
+            }
+            System.Collections.Generic.Dictionary<string, string> NearHunt(int tick, string near = "12.0", string velocity = "0.10,0.00", string offer = "Usable:reachable-firing-position")
+            {
+                var cells = Quiet();
+                cells["hunt_offer"] = offer; cells["near_threat"] = near; cells["player_vel"] = velocity;
+                cells["hunt_raw"] = "0.55"; cells["hunt_fin"] = "0.21"; cells["hunt_time"] = "0.420"; cells["hunt_funnel"] = "offered";
+                return cells;
+            }
+
+            string torchName = new TorchesGoWhereHisCursorWould().Name, huntName = new HuntsWorthTakingAreTaken().Name;
+            var (torchFindings, _, _) = Program.Evaluate(Session.Load(Capture(300, t => DarkTile(t))));
+            Finding? unlit = torchFindings.FirstOrDefault(f => f.Check == torchName);
+            Require(unlit != null && unlit.Detail.Contains("stand-unreachable", StringComparison.Ordinal) && unlit.Rows == 300,
+                "a dark tile his cursor offered for five seconds while keeping company won was not reported, or lost its refusing stage");
+            foreach (var (label, file) in new[]
+            {
+                ("a lit tile", Capture(300, t => DarkTile(t, dark: "lit"))),
+                ("two seconds", Capture(120, t => DarkTile(t))),
+                ("the companion lighting", Capture(300, t => DarkTile(t, action: "place-torches"))),
+                ("a tile that keeps moving", Capture(300, t => DarkTile(t, tile: $"{21 + t / 60},59"))),
+            })
+                Require(!new TorchesGoWhereHisCursorWould().Run(Session.Load(file)).Any(), $"the cursor check fired on {label}");
+
+            var (huntFindings, _, _) = Program.Evaluate(Session.Load(Capture(300, t => NearHunt(t))));
+            Finding? idle = huntFindings.FirstOrDefault(f => f.Check == huntName);
+            Require(idle != null && idle.Detail.Contains("hunt_time 0.420", StringComparison.Ordinal) && idle.Detail.Contains("hunt_fin", StringComparison.Ordinal),
+                "a usable hunt near an idle player while keeping company won was not reported with hunting's factors");
+            foreach (var (label, file) in new[]
+            {
+                ("a hostile thirty tiles away", Capture(300, t => NearHunt(t, near: "30.0"))),
+                ("a walking player", Capture(300, t => NearHunt(t, velocity: "3.00,0.00"))),
+                ("a hunt that was not usable", Capture(300, t => NearHunt(t, offer: "Unresolved:firing-position-undecided"))),
+            })
+                Require(!new HuntsWorthTakingAreTaken().Run(Session.Load(file)).Any(), $"the hunt check fired on {label}");
+        }
+        finally { foreach (string file in files) File.Delete(file); }
+    }
+
+    /// <summary>The description names each activity's funnel with the share of rows its furthest candidate stopped at each stage.</summary>
+    private static void TheFunnelSectionTalliesEachActivity()
+    {
+        string file = ReferenceCapture(200, t =>
+        {
+            var cells = Quiet();
+            cells["place-torches_funnel"] = t < 150 ? "stand-unreachable" : "offered";
+            return cells;
+        });
+        try
+        {
+            string description = DescribeSession.Of(Session.Load(file));
+            Require(description.Contains("funnel    place-torches: stand-unreachable 75.0%  offered 25.0%", StringComparison.Ordinal),
+                $"the description did not tally lighting's funnel by stage: {description}");
+            Require(description.Contains("funnel    hunt: - 100.0%", StringComparison.Ordinal),
+                $"the description skipped an activity whose funnel looked at nothing: {description}");
         }
         finally { File.Delete(file); }
     }

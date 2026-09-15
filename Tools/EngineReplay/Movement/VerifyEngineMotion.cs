@@ -113,6 +113,8 @@ internal static class VerifyEngineMotion
         ("safety releases the body after the danger passes", VerifySafetyAftermath.Run),
         ("an assistance trip goes and returns", VerifyAssistanceTrips.Run),
         ("the light and reach senses answer in three values", VerifyLightAndReachSenses.Run),
+        ("torches go where his smart cursor would put one in the dark, and the record says why not", VerifyTorchPlacementRule.Run),
+        ("every candidate a preparation refused is named with the stage and what it read", VerifyCandidateFunnel.Run),
         ("keeping company strolls without walking into hazards", VerifyCompanyLocalMotion.Run),
         ("an immunity change invalidates what depended on it", VerifyCapabilityRevision.Run),
         ("a closed door is opened rather than treated as a wall", VerifyDoorPassage.Run),

@@ -61,7 +61,32 @@ public sealed class BrainTelemetry : ModSystem
     // normal, liquid, clearance, desired velocity and the route's lookahead instead. Columns are
     // addressed by name and the reader skips a check whose columns are absent, so an older capture
     // reads as reduced coverage rather than as a misread column.
-    private const string Schema = "0.34.0";
+    // 0.35.0 changes one column's meaning and appends the rest at the end of the row. `plan_ms` is this tick's own
+    // planning cost, zero on a tick that planned nothing; before, it repeated the last plan's cost on every row until the
+    // next one, so a sum over a stretch counted one plan once per row. Appended: `<activity>_time`, the time-per-job factor
+    // each activity's final carried; `<activity>_funnel` for every activity that keeps a candidate funnel, naming the stage
+    // that refused the candidate that got furthest; the player's own smart-cursor torch tile, its light, its placement
+    // reading and the stage lighting refuses it at (`torch_reference`, `torch_reference_light`, `torch_reference_dark`,
+    // `torch_reference_stage`); and this tick's garbage collections per generation (`gc0`, `gc1`, `gc2`). The decision
+    // occurrence's factor list gains `time`, `player-fit` and `order`, with `raw` and `final` beside them, so the factors
+    // recorded multiply to the final recorded; a new `candidate-funnel` occurrence carries each funnel's counts and entries.
+    // A 0.34.0 capture reads as it did: every check addresses columns by name and skips one whose columns are absent.
+    private const string Schema = "0.35.0";
+
+    /// <summary>
+    /// One activity's factors from one comparison, as <c>name:value</c> pairs joined by commas: every multiplier its final
+    /// carries, in the order <see cref="Selection.EvaluatePreparedActivities"/> and <see cref="Selection.OrderNearbyTasks"/>
+    /// apply them, then the raw value and the final, then the error, the offer and the method evidence. The method evidence
+    /// is last because its text is free and may itself hold commas; readers take a factor by its name, never by position.
+    /// </summary>
+    public static string FactorList(in Selection.Chooser.Scored score)
+        => FormattableString.Invariant(
+            $"protection:{score.Protection:0.000},commitment:{score.Commitment:0.000},horizon:{score.Horizon:0.000},useful-work:{score.UsefulWork:0.000},reunion:{score.Reunion:0.000},time:{score.Time:0.000},player-fit:{score.PlayerFit:0.000},order:{score.Order:0.000},raw:{score.Raw:0.000},final:{score.Final:0.000},")
+            + $"error:{score.Error},offer:{score.Eligibility}/{score.EligibilityReason},method:{score.MethodEvidence}";
+
+    // The garbage collector's per-generation counts at the last row, so each row carries its own tick's collections; -1 until
+    // a session's first row has read them.
+    private static int lastGc0 = -1, lastGc1 = -1, lastGc2 = -1;
     // The cost of the previous row's Record call: a row cannot contain the time spent writing itself, so each row carries
     // the one before it and the first row of a session carries none.
     private static readonly Stopwatch recordClock = new();
@@ -605,7 +630,7 @@ public sealed class BrainTelemetry : ModSystem
             foreach (var score in brain.Chooser.LastScores) { if (board.Length > 0) board.Append(','); board.Append(score.Action.Name).Append('=').Append(score.Raw.ToString("0.000", CultureInfo.InvariantCulture)).Append("->").Append(score.Final.ToString("0.000", CultureInfo.InvariantCulture)); }
             board.Append(CultureInfo.InvariantCulture, $";regroup={brain.Chooser.RegroupUrgency:0.000};return-ticks={brain.Chooser.EstimatedReturnTicks:0.0}");
             foreach (var score in brain.Chooser.LastScores)
-                board.Append(CultureInfo.InvariantCulture, $";factors:{score.Action.Name}=protection:{score.Protection:0.000},commitment:{score.Commitment:0.000},horizon:{score.Horizon:0.000},useful-work:{score.UsefulWork:0.000},reunion:{score.Reunion:0.000},error:{score.Error},offer:{score.Eligibility}/{score.EligibilityReason},method:{score.MethodEvidence}");
+                board.Append(";factors:").Append(score.Action.Name).Append('=').Append(FactorList(score));
             foreach (var nomination in brain.Chooser.LastNominations)
                 board.Append(CultureInfo.InvariantCulture, $";family:{nomination.Family}=child:{nomination.Activity?.Name ?? "none"},value:{nomination.Activity?.Final ?? 0:0.000}");
             foreach (var family in brain.Chooser.Queries.LastFamilies)
@@ -639,6 +664,10 @@ public sealed class BrainTelemetry : ModSystem
             textColumns.Append(",meeting_reason,meeting_anchor,meeting_flood");
             textColumns.Append(",nav_failure,nav_failure_reason,nav_attempt_ending");
             textColumns.Append(",region_kind,region_anchor_px,region_player_px,region_comfort,region_work_tile,region_reach,region_arrival");
+            // Lane A's textual columns, declared from the same activity list the header appends them from.
+            foreach (var a in brain.Chooser.Actions)
+                if (a is Activities.ICandidateFunnelSource) textColumns.Append(',').Append(a.Name).Append("_funnel");
+            textColumns.Append(",torch_reference,torch_reference_dark,torch_reference_stage");
             writer.WriteLine(textColumns.ToString());
             var h = new StringBuilder();
             // A start timestamp is file metadata. Stopwatch is the observed wall duration of
@@ -735,6 +764,14 @@ public sealed class BrainTelemetry : ModSystem
             // as names joined by '>' with the order's score, or '-' when fewer than two jobs were close. Appended with
             // the schema left where it is: nothing before it moved and every reader addresses columns by name.
             h.Append("\ttask_order\ttask_order_runner_up");
+            // Lane A, schema 0.35.0, appended at the end so every column before it keeps its index. The time factor per
+            // activity; the stage that refused each funnel's furthest candidate; the player's own smart-cursor torch tile,
+            // its light, its placement reading and the stage lighting refuses it at; and this tick's collections.
+            foreach (var a in brain.Chooser.Actions) h.Append('\t').Append(a.Name).Append("_time");
+            foreach (var a in brain.Chooser.Actions)
+                if (a is Activities.ICandidateFunnelSource) h.Append('\t').Append(a.Name).Append("_funnel");
+            h.Append("\ttorch_reference\ttorch_reference_light\ttorch_reference_dark\ttorch_reference_stage\tgc0\tgc1\tgc2");
+            lastGc0 = lastGc1 = lastGc2 = -1;
             writer.WriteLine(h.ToString());
             headerWritten = true;
         }
@@ -869,9 +906,9 @@ public sealed class BrainTelemetry : ModSystem
         sb.Append('\t').Append(senses.Player.IsAttacking ? 1 : 0);
         sb.Append('\t').Append(senses.Player.IsChoppingTree ? 1 : 0);
         sb.Append('\t').Append(senses.Player.MinedOre != null ? 1 : 0);
-        // The cost of the pose grid in the game, per tick: the last plan's and the last reach flood's wall-clock.
-        sb.Append('\t').Append(brain.Navigator.LastPlanMs.ToString("0.00")).Append('\t').Append(brain.Positioner.LastFloodMs.ToString("0.00"));
-        // The two above are sticky (the last search's cost, repeated until the next); these six
+        // What planning cost this tick, zero when nothing planned, and the last reach flood slice's wall-clock.
+        sb.Append('\t').Append(brain.Navigator.TakePlanMs().ToString("0.00")).Append('\t').Append(brain.Positioner.LastFloodMs.ToString("0.00"));
+        // The flood cost above is sticky (the last slice's, repeated until the next); these six
         // are this tick's, so a sum over a stretch of rows is the brain's real share of the wall.
         sb.Append('\t').Append(brain.SensesMs.ToString("0.00")).Append('\t').Append(brain.ReflexMs.ToString("0.00"))
           .Append('\t').Append(brain.DecideMs.ToString("0.00")).Append('\t').Append(brain.PositionMs.ToString("0.00"))
@@ -1087,6 +1124,45 @@ public sealed class BrainTelemetry : ModSystem
             .Append('\t').Append(intent.Pull(companion.NPC.Bottom).ToString("0.000", CultureInfo.InvariantCulture));
         sb.Append('\t').Append(brain.Chooser.LastTaskOrder.Length == 0 ? "-" : brain.Chooser.LastTaskOrder)
             .Append('\t').Append(brain.Chooser.LastTaskOrderRunnerUp.Length == 0 ? "-" : brain.Chooser.LastTaskOrderRunnerUp);
+        // Lane A, schema 0.35.0: the time factor each activity's final carried, one where the activity was not compared.
+        foreach (var a in brain.Chooser.Actions)
+        {
+            float time = 1f;
+            foreach (var s in brain.Chooser.LastScores)
+                if (ReferenceEquals(s.Action, a)) { time = s.Time; break; }
+            sb.Append('\t').Append(time.ToString("0.000", CultureInfo.InvariantCulture));
+        }
+        // Each funnel's furthest candidate's refusing stage, and the funnel as an occurrence when its outcome changed.
+        foreach (var a in brain.Chooser.Actions)
+            if (a is Activities.ICandidateFunnelSource source)
+            {
+                var funnel = source.Funnel;
+                string stage = funnel.BestStage, summary = funnel.Summary();
+                sb.Append('\t').Append(stage);
+                if (GodsEyeEvents.CandidateFunnelChanged(npc, a.Name, stage, summary))
+                    GodsEyeEvents.RecordCandidateFunnel(npc, a.Name, stage, summary, funnel.Total, funnel.Describe());
+            }
+        // The player's own smart cursor as the reference lighting is judged against: the tile it would offer him, that
+        // tile's own light, what that light says to placing a torch, and the stage at which lighting refuses the tile.
+        var referenceReading = lighting?.PlayerReferenceReading;
+        sb.Append('\t').Append(lighting?.PlayerReferenceTile is Point referenceTile ? FormattableString.Invariant($"{referenceTile.X},{referenceTile.Y}") : "-")
+            .Append('\t').Append(referenceReading is { Light: not Observation.LightSense.PlacementLight.Unread } read
+                ? read.Brightness.ToString("0.000", CultureInfo.InvariantCulture) : "-")
+            .Append('\t').Append(referenceReading?.Light switch
+            {
+                Observation.LightSense.PlacementLight.Dark => "dark",
+                Observation.LightSense.PlacementLight.Carried => "carried",
+                Observation.LightSense.PlacementLight.Lit => "lit",
+                Observation.LightSense.PlacementLight.Unread => "unread",
+                _ => "-",
+            })
+            .Append('\t').Append(lighting?.PlayerReferenceStage ?? "-");
+        // This tick's garbage collections per generation, so a hitch in the brain's share can be told from a collection.
+        int gc0 = GC.CollectionCount(0), gc1 = GC.CollectionCount(1), gc2 = GC.CollectionCount(2);
+        sb.Append('\t').Append(lastGc0 < 0 ? 0 : gc0 - lastGc0)
+            .Append('\t').Append(lastGc1 < 0 ? 0 : gc1 - lastGc1)
+            .Append('\t').Append(lastGc2 < 0 ? 0 : gc2 - lastGc2);
+        lastGc0 = gc0; lastGc1 = gc1; lastGc2 = gc2;
 
         // A write that fails (disk full, a stream the OS closed) must not escape the NPC's AI
         // and take the companion with it; the record stops and the game goes on.

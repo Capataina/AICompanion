@@ -19,7 +19,7 @@ namespace AICompanion.Companion.Brain.Activities.Combat;
 /// it, and only a target beyond the screen loses value with range. A second enemy
 /// appearing does not end a hunt; only the danger and horizon it changes can.
 /// </summary>
-public sealed class PursueAttackOpportunity : CompanionAction
+public sealed class PursueAttackOpportunity : CompanionAction, ICandidateFunnelSource
 {
     public override string Name => "hunt";
     public override PurposeFamily Family => PurposeFamily.Combat;
@@ -137,6 +137,7 @@ public sealed class PursueAttackOpportunity : CompanionAction
         if (!PlayerIntegration.CompanionPreferences.Current.Hunting)
         {
             Target = null;
+            Funnel.Begin();
             Classify(OfferEligibility.PolicyForbidden, "hunting-disabled");
             return 0f;
         }
@@ -276,12 +277,41 @@ public sealed class PursueAttackOpportunity : CompanionAction
     private const int MaxFiringChecksPerTick = 3;
     private readonly System.Collections.Generic.HashSet<int> examined = new();
     private readonly System.Collections.Generic.List<(int Slot, int Generation, Vector2 Centre)> examinedAdmissible = new();
+    // Every examined threat with a firing verdict, kept until the choice is made so each can be recorded against it.
+    private readonly System.Collections.Generic.List<(ThreatRecord Threat, FiringAccess Opportunity, float Access, float Value)> admitted = new();
+
+    // Hunting's stages, in the order a threat meets them.
+    private const string StageDeferred = "engagement-deferred";
+    private const string StageAllowance = "activity-allowance";
+    private const string StageNotChaseable = "not-chaseable";
+    private const string StageUnseen = "unseen-and-unreachable";
+    private const string StageNoFiringPosition = "no-reachable-firing-position";
+    private const string StageFiringUndecided = "firing-position-undecided";
+    private const string StageOutvalued = "outvalued";
+
+    /// <summary>
+    /// What the last preparation did with each threat it looked at: the ones the candidate filter refused before any shot
+    /// was asked about, and each one whose firing position was asked, with the access, the delayed attack value and the
+    /// verdict. `firing-position-undecided` as an offer says one examined threat had an open question; the funnel says
+    /// which, and whether a nearer threat was refused outright before it.
+    /// </summary>
+    public CandidateFunnel Funnel { get; } = new(6,
+        StageDeferred, StageAllowance, StageNotChaseable, StageUnseen, StageNoFiringPosition, StageFiringUndecided, StageOutvalued,
+        CandidateFunnel.Offered);
+
+    private static string Identity(ThreatRecord threat) => FormattableString.Invariant($"npc{threat.Npc.whoAmI}:{threat.Npc.type}");
+
+    private static string FiringReadings(ThreatRecord threat, FiringAccess opportunity, float access, float value)
+        => FormattableString.Invariant(
+            $"distance={threat.DistanceToCompanion:0};urgency={threat.Urgency:0.000};opportunity={opportunity};access={access:0.0};value={value:0.000}");
 
     private ThreatRecord? PickTarget(in ActionContext ctx, Rectangle screen)
     {
         // Reused rather than allocated, because this runs on every tick of every hunt.
         examined.Clear();
         examinedAdmissible.Clear();
+        admitted.Clear();
+        Funnel.Begin();
         bool refusedForFiring = false;
         bool undecidedFiring = false;
         ThreatRecord? chosen = null, firstAdmissible = null;
@@ -290,7 +320,8 @@ public sealed class PursueAttackOpportunity : CompanionAction
         var evidence = new System.Text.StringBuilder();
         for (int attempt = 0; attempt < MaxFiringChecksPerTick; attempt++)
         {
-            ThreatRecord? candidate = BestCandidate(ctx, screen, examined);
+            // The candidate filter's refusals are the same on every pass of a tick, so only the first pass records them.
+            ThreatRecord? candidate = BestCandidate(ctx, screen, examined, record: attempt == 0);
             if (candidate == null)
                 break;
             examined.Add(candidate.Npc.whoAmI);
@@ -303,13 +334,18 @@ public sealed class PursueAttackOpportunity : CompanionAction
             if (opportunity == FiringAccess.None)
             {
                 refusedForFiring = true;
+                Funnel.Add(Identity(candidate), candidate.Npc.Center.ToTileCoordinates(), candidate.DistanceToCompanion,
+                    "candidate", StageNoFiringPosition, FiringReadings(candidate, opportunity, access, value));
                 continue;
             }
             if (opportunity == FiringAccess.Unknown)
             {
                 undecidedFiring = true;
+                Funnel.Add(Identity(candidate), candidate.Npc.Center.ToTileCoordinates(), candidate.DistanceToCompanion,
+                    "candidate", StageFiringUndecided, FiringReadings(candidate, opportunity, access, value));
                 continue;
             }
+            admitted.Add((candidate, opportunity, access, value));
             examinedAdmissible.Add((candidate.Npc.whoAmI, HostileAttackSources.Generation(candidate.Npc), candidate.Npc.Center));
             if (firstAdmissible == null) { firstAdmissible = candidate; firstVerdict = opportunity; firstAccess = access; }
             if (value > chosenValue) { chosen = candidate; chosenVerdict = opportunity; chosenValue = value; chosenAccess = access; }
@@ -319,6 +355,9 @@ public sealed class PursueAttackOpportunity : CompanionAction
         {
             chosen = firstAdmissible; chosenVerdict = firstVerdict; chosenAccess = firstAccess;
         }
+        foreach (var (threat, opportunity, access, value) in admitted)
+            Funnel.Add(Identity(threat), threat.Npc.Center.ToTileCoordinates(), threat.DistanceToCompanion, "firing-position",
+                ReferenceEquals(threat, chosen) ? "" : StageOutvalued, FiringReadings(threat, opportunity, access, value));
         PursuitValue = chosenValue;
         PursuitAccessTicks = chosen == null ? 0f : chosenAccess;
         if (chosen != null)
@@ -344,7 +383,7 @@ public sealed class PursueAttackOpportunity : CompanionAction
         return null;
     }
 
-    private ThreatRecord? BestCandidate(in ActionContext ctx, Rectangle screen, System.Collections.Generic.HashSet<int> unshootable)
+    private ThreatRecord? BestCandidate(in ActionContext ctx, Rectangle screen, System.Collections.Generic.HashSet<int> unshootable, bool record)
     {
         LastRejection = "no-eligible-target";
         var expired = new System.Collections.Generic.List<(int slot, int generation)>();
@@ -362,13 +401,29 @@ public sealed class PursueAttackOpportunity : CompanionAction
                 bool unchanged = ctx.Senses.Tick < failure.until && failure.terrain == Infrastructure.Movement.TerrainChanges.Revision
                     && Vector2.DistanceSquared(failure.target, t.Npc.Center) < 32f * 32f
                     && Vector2.DistanceSquared(failure.body, ctx.Npc.Bottom) < 32f * 32f;
-                if (unchanged) { LastRejection = "engagement-deferred-no-progress"; continue; }
+                if (unchanged)
+                {
+                    LastRejection = "engagement-deferred-no-progress";
+                    if (record) Funnel.Add(Identity(t), t.Npc.Center.ToTileCoordinates(), t.DistanceToCompanion, "", StageDeferred, "");
+                    continue;
+                }
                 deferred.Remove(key);
             }
-            if (!AllowsTarget(ctx, t.Npc.Bottom, t.Npc)) continue;
-            if (!t.Npc.CanBeChasedBy()) continue;
-            if (!t.CanReachEither && !t.Npc.Hitbox.Intersects(screen))
+            if (!AllowsTarget(ctx, t.Npc.Bottom, t.Npc))
+            {
+                if (record) Funnel.Add(Identity(t), t.Npc.Center.ToTileCoordinates(), t.DistanceToCompanion, "", StageAllowance, "");
                 continue;
+            }
+            if (!t.Npc.CanBeChasedBy())
+            {
+                if (record) Funnel.Add(Identity(t), t.Npc.Center.ToTileCoordinates(), t.DistanceToCompanion, StageAllowance, StageNotChaseable, "");
+                continue;
+            }
+            if (!t.CanReachEither && !t.Npc.Hitbox.Intersects(screen))
+            {
+                if (record) Funnel.Add(Identity(t), t.Npc.Center.ToTileCoordinates(), t.DistanceToCompanion, StageNotChaseable, StageUnseen, "");
+                continue;
+            }
             // A sealed-off enemy used to be dropped here unless a weapon solved a shot from where
             // the companion happened to be standing. That test is now both redundant and wrong:
             // redundant because every surviving candidate has its firing opportunity established
