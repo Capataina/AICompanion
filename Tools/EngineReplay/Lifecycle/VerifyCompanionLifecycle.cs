@@ -47,7 +47,7 @@ internal static class VerifyCompanionLifecycle
         for (int i = 0; i < Main.projectile.Length; i++) Main.projectile[i] = new Projectile { whoAmI = i, active = false };
         for (int i = 0; i < Main.item.Length; i++) Main.item[i] = new Item { whoAmI = i, active = false };
         var companion = new CompanionNPC();
-        live::AICompanion.Companion.Brain.Infrastructure.Movement.NavGrid.World = new live::AICompanion.Companion.Brain.Infrastructure.Movement.GameTileWorld();
+        live::AICompanion.Companion.Brain.Infrastructure.Movement.MovementQueries.World = new live::AICompanion.Companion.Brain.Infrastructure.Movement.GameTileWorld();
         var npc = new NPC();
         typeof(ModNPC).GetProperty("Entity", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)!.SetValue(companion, npc);
         // Native damage calls NPCLoader through the NPC's reverse attachment. Entity alone
@@ -87,35 +87,45 @@ internal static class VerifyCompanionLifecycle
         TickWithOneControlGrant(companion);
         Require(companion.IsDowned && companion.Brain.Senses.Tick == tick && !companion.Torch.Shown,
             "the companion's own downed state suspends decisions and hides its torch");
-        VerifyWorldMemory();
-        VerifyRoutePersistence.Run();
+        VerifyTheWorldLifecycleClearsTheEditRecord();
         Console.WriteLine("companion lifecycle: real NPC AI continues with a dead player and clears stale hand ownership");
         return 0;
     }
 
-    private static void VerifyWorldMemory()
+    /// <summary>
+    /// What the world lifecycle still owns, now that it owns less. It used to carry the walker's
+    /// archive of executed routes across a save and a load, and the rows here proved that archive
+    /// was world-scoped rather than process-scoped: a second world must not inherit the first
+    /// world's remembered routes. The orb has no archive — it plans from the corner graph every
+    /// time and keeps nothing between worlds — so those rows have no subject and are gone with it.
+    ///
+    /// What remains is the terrain edit record, and it has the same world-scoping requirement for
+    /// the same reason: its revision counter is what every retained search and every clearance chunk
+    /// compares against, so a record carried into a second world would tell each of them that
+    /// terrain they have never read is unchanged.
+    /// </summary>
+    private static void VerifyTheWorldLifecycleClearsTheEditRecord()
     {
         var owner = new live::AICompanion.Companion.Brain.Infrastructure.Movement.ResetTerrainChanges();
-        var memory = live::AICompanion.Companion.Brain.Infrastructure.Movement.RememberExecutedRoutes.World;
         owner.OnWorldLoad();
-        var entry = new live::AICompanion.Companion.Brain.Infrastructure.Movement.BodyState(150, 176, 0, 0, true,
-            Capabilities: live::AICompanion.Companion.Brain.Infrastructure.Movement.MovementCapabilities.Basic);
-        var end = entry with { Left = 166 };
-        var step = new live::AICompanion.Companion.Brain.Infrastructure.Movement.NavStep(end.FeetTile,
-            live::AICompanion.Companion.Brain.Infrastructure.Movement.MoveKind.Walk, entry.FeetTile, Ticks: 10);
-        memory.Record(live::AICompanion.Companion.Brain.Infrastructure.Movement.NavGrid.World, step, entry, end,
-            new Rectangle(150, 134, 36, 42));
-        Require(memory.Count == 1, "archive lifecycle fixture must contain an entry");
-        var firstWorld = new Terraria.ModLoader.IO.TagCompound();
-        owner.SaveWorldData(firstWorld);
+        int held = live::AICompanion.Companion.Brain.Infrastructure.Movement.TerrainChanges.Revision;
+
+        // An edit somewhere else leaves a consumer's own region answerable and unchanged.
+        live::AICompanion.Companion.Brain.Infrastructure.Movement.TerrainChanges.Changed(400, 400);
+        Require(live::AICompanion.Companion.Brain.Infrastructure.Movement.TerrainChanges.Revision != held,
+            "an announced edit must move the terrain revision");
+        Require(live::AICompanion.Companion.Brain.Infrastructure.Movement.TerrainChanges.Edits.ChangedSince(held, (x, y) => x == 150 && y == 134)
+            == live::AICompanion.Companion.Brain.Infrastructure.Movement.TerrainEditVerdict.Unchanged,
+            "an edit outside a consumer's own region must leave that consumer's retained work standing");
+
+        // Crossing a world boundary is the case no tile can be named for, so every revision taken
+        // before it becomes unanswerable rather than unchanged — the safe direction, because a
+        // search told Unchanged here would serve the next world terrain from the previous one.
         owner.OnWorldUnload();
         owner.OnWorldLoad();
-        owner.LoadWorldData(new Terraria.ModLoader.IO.TagCompound());
-        Require(memory.Count == 0, "an unrelated world must not inherit route memory");
-        owner.OnWorldUnload();
-        owner.OnWorldLoad();
-        owner.LoadWorldData(firstWorld);
-        Require(memory.Count == 1, "world-owned route memory must survive clear-then-load lifecycle");
+        Require(live::AICompanion.Companion.Brain.Infrastructure.Movement.TerrainChanges.Edits.ChangedSince(held, (x, y) => true)
+            == live::AICompanion.Companion.Brain.Infrastructure.Movement.TerrainEditVerdict.Changed,
+            "a revision taken in a previous world must never answer Unchanged in this one");
         owner.OnWorldUnload();
     }
 

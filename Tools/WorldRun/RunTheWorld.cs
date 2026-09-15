@@ -14,8 +14,8 @@ using live::AICompanion.Companion.CharacterBody;
 /// collision finish the move. The light engine is advanced one phase alongside, because that is
 /// what a frame does and because the lighting behaviour reads the result.
 ///
-/// The output is a track and a trace. The track is where the body went, which is what the recorded
-/// comparison and the checkpoint scorer both measure. The trace is one line per tick naming the
+/// The output is a track and a trace. The track is where the body's centre went, which is what the
+/// recorded comparison and the checkpoint scorer both measure. The trace is one line per tick naming the
 /// decision as well as the position, and it exists because determinism has to be checked on what
 /// the brain *decided* and not only on where the body ended up: two runs can agree on position for
 /// a hundred ticks while disagreeing about why, and the disagreement is the thing that matters.
@@ -33,7 +33,7 @@ internal static class RunTheWorld
     private const int LightHalfWidth = 80, LightHalfHeight = 60;
 
     internal sealed record Outcome(
-        IReadOnlyList<Vector2> CompanionFeet,
+        IReadOnlyList<Vector2> CompanionCentres,
         IReadOnlyList<string> Trace,
         /// <summary>
         /// What the planner said about the tile the player was standing on, on the tick they stood
@@ -118,17 +118,13 @@ internal static class RunTheWorld
         // tick meaningful at all: the source has moved since these captures, so a run from tick one
         // has diverged long before it reaches anything worth asking about, and seeding the body at
         // the recorded pose is the only way to ask what this build does at that place.
-        var companion = PrepareTheHeadlessEngine.AttachCompanion(
-            new Vector2(opening.CompanionLeftBottom.X, opening.CompanionLeftBottom.Y),
-            opening.PlayerFeet);
-        // The recorded left edge is the body's left, not its centre, and the two differ by half a
-        // body; placing a centre where a left edge belongs starts the run half a body out.
-        companion.NPC.Bottom = new Vector2(opening.CompanionLeftBottom.X + companion.NPC.width / 2f, opening.CompanionLeftBottom.Y);
+        // The recorded position is the body's centre, and the orb is its centre, so it is placed as read.
+        var companion = PrepareTheHeadlessEngine.AttachCompanion(opening.CompanionCentre, opening.PlayerFeet);
 
         Player player = Main.player[0];
         if (DriveLight) PrepareTheHeadlessEngine.WarmTheLightEngine(player.Bottom.ToTileCoordinates(), LightHalfWidth, LightHalfHeight);
 
-        var feet = new List<Vector2>(route.Count);
+        var centres = new List<Vector2>(route.Count);
         var trace = new List<string>(route.Count);
         var claims = new List<live::AICompanion.Companion.Brain.Infrastructure.Observation.ReachVerdict>(route.Count);
         var clock = Stopwatch.StartNew();
@@ -167,7 +163,7 @@ internal static class RunTheWorld
                     + $"player at {player.Bottom.X:0},{player.Bottom.Y:0}", failure);
             }
 
-            feet.Add(companion.NPC.Bottom);
+            centres.Add(companion.NPC.Center);
             var brain = companion.Brain;
             // Asked after the tick's resolve, because the reach flood is advanced by the
             // positioner's resolve rather than by the senses' own update, so asking before it would
@@ -179,7 +175,7 @@ internal static class RunTheWorld
 
         clock.Stop();
         var light = companion.Brain.Senses.Light;
-        return new Outcome(feet, trace, claims, route.Count, clock.Elapsed.TotalSeconds, worldSource,
+        return new Outcome(centres, trace, claims, route.Count, clock.Elapsed.TotalSeconds, worldSource,
             light.ReadTick, light.MeasuredSamples, light.AtCompanion, light.AtPlayer);
     }
 }

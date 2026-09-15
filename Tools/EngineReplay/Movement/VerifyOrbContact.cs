@@ -5,7 +5,7 @@ using Terraria;
 using AICompanion.Tools.Ledger;
 using CompanionNPC = live::AICompanion.Companion.CharacterBody.CompanionNPC;
 using Contact = live::AICompanion.Companion.Brain.Infrastructure.Movement.CircleContact;
-using World = live::AICompanion.Companion.Brain.Infrastructure.Movement.NavGrid;
+using World = live::AICompanion.Companion.Brain.Infrastructure.Movement.MovementQueries;
 
 /// <summary>
 /// The orb's body, proved on the live motor and the engine's own advance: the size rule — it fits
@@ -110,8 +110,8 @@ internal static class VerifyOrbContact
         float minimum = Drive(companion, companion.NPC.Center, new Vector2(60 * 16f, 30 * 16f), 120, out _);
         Require(minimum >= -0.01f, $"steering into a wall overlapped it by {-minimum:0.00}px on some tick");
         Require(MathF.Abs(companion.NPC.Center.X - (40 * 16f - R)) < 0.05f, $"the body must come to rest touching the wall; centre {companion.NPC.Center}");
-        Require(companion.Motor.TouchedWall && companion.Motor.Orb.Velocity.X == 0f && companion.Motor.DesiredVelocity.X > 0f,
-            $"at the wall the motor must report the touch, a dead velocity into it and a live desire toward it: touched={companion.Motor.TouchedWall} momentum={companion.Motor.Orb.Velocity} desired={companion.Motor.DesiredVelocity}");
+        Require(companion.Motor.TouchedWall && companion.Motor.State.Velocity.X == 0f && companion.Motor.DesiredVelocity.X > 0f,
+            $"at the wall the motor must report the touch, a dead velocity into it and a live desire toward it: touched={companion.Motor.TouchedWall} momentum={companion.Motor.State.Velocity} desired={companion.Motor.DesiredVelocity}");
 
         // Slide: steering diagonally into the floor keeps the horizontal motion while the floor holds the vertical.
         companion.NPC.Center = new Vector2(15 * 16f, 44 * 16f);

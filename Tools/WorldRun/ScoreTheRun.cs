@@ -27,12 +27,21 @@ internal static class ScoreTheRun
     /// <summary>
     /// How far apart two tracks may be before they count as having diverged, in pixels.
     ///
-    /// One body width, because that is the smallest separation that means anything physically: two
-    /// positions closer than a body are the same body in the same place, and the first tick at
-    /// which they are further apart than that is the first tick a watcher would see two companions
-    /// rather than one.
+    /// One body width, the orb's diameter, because that is the smallest separation that means
+    /// anything physically: two positions closer than a body are the same body in the same place,
+    /// and the first tick at which they are further apart than that is the first tick a watcher
+    /// would see two companions rather than one.
     /// </summary>
-    private const float ABodyWidth = 20f;
+    private const float ABodyWidth = live::AICompanion.Companion.Brain.Infrastructure.Movement.CircleContact.Diameter;
+
+    /// <summary>
+    /// How near the player's feet the body must come for a checkpoint to count as reached, in
+    /// pixels: the follow objective's own vertical comfort, which is the height band following
+    /// admits a spot inside. A body that hovers beside the player at head height never comes within
+    /// a body of his feet by design, so a checkpoint radius of a body or two would score ordinary
+    /// following as a miss; the comfort band is the distance the brain itself calls "with him".
+    /// </summary>
+    private static float CheckpointReach => live::AICompanion.Companion.Brain.Infrastructure.Selection.Weights.FollowVerticalComfort;
 
     /// <summary>
     /// Two passes of one route must produce one run.
@@ -54,8 +63,8 @@ internal static class ScoreTheRun
         }
 
         int tick = FirstDisagreement(first.Trace, second.Trace);
-        float pixels = tick < Math.Min(first.CompanionFeet.Count, second.CompanionFeet.Count)
-            ? Vector2.Distance(first.CompanionFeet[tick], second.CompanionFeet[tick]) : float.NaN;
+        float pixels = tick < Math.Min(first.CompanionCentres.Count, second.CompanionCentres.Count)
+            ? Vector2.Distance(first.CompanionCentres[tick], second.CompanionCentres[tick]) : float.NaN;
         EmitLedgerRows.Fail(Instrument, suite, "one route run twice produces one run",
             $"the two passes first disagree at step {tick} of {first.Ticks}, {pixels:0.0} px apart; "
             + $"pass one traced {Line(first.Trace, tick)} and pass two traced {Line(second.Trace, tick)}; "
@@ -81,7 +90,7 @@ internal static class ScoreTheRun
     /// </summary>
     public static void RecordedTrackDivergence(string suite, ReadRecordedRoute.Route route, RunTheWorld.Outcome run, string worldNote)
     {
-        int steps = Math.Min(route.Count, run.CompanionFeet.Count);
+        int steps = Math.Min(route.Count, run.CompanionCentres.Count);
         int firstApart = -1;
         double total = 0, recordedPath = 0, runPath = 0;
         float worst = 0;
@@ -95,13 +104,11 @@ internal static class ScoreTheRun
             // path lengths are what tell a reader whether anything was reproduced at all.
             if (i > 0)
             {
-                recordedPath += Vector2.Distance(route[i].CompanionLeftBottom, route[i - 1].CompanionLeftBottom);
-                runPath += Vector2.Distance(run.CompanionFeet[i], run.CompanionFeet[i - 1]);
+                recordedPath += Vector2.Distance(route[i].CompanionCentre, route[i - 1].CompanionCentre);
+                runPath += Vector2.Distance(run.CompanionCentres[i], run.CompanionCentres[i - 1]);
             }
-            // The recorded column is the body's left edge; the run's track is its centre-bottom, so
-            // the recorded pose is moved to the same reference before the two are subtracted.
-            var recorded = new Vector2(route[i].CompanionLeftBottom.X + ABodyWidth / 2f, route[i].CompanionLeftBottom.Y);
-            float apart = Vector2.Distance(recorded, run.CompanionFeet[i]);
+            // Both are centres: the recorded column and the run's track name the same point of the body.
+            float apart = Vector2.Distance(route[i].CompanionCentre, run.CompanionCentres[i]);
             total += apart;
             worst = Math.Max(worst, apart);
             if (firstApart < 0 && apart > ABodyWidth) firstApart = route[i].Tick;
@@ -146,7 +153,7 @@ internal static class ScoreTheRun
     public static void Checkpoints(string suite, ReadRecordedRoute.Route route, RunTheWorld.Outcome run, int cadence)
     {
         int arrived = 0, missed = 0, plannerSaidNo = 0, plannerUnfinished = 0, total = 0;
-        int steps = Math.Min(route.Count, run.CompanionFeet.Count);
+        int steps = Math.Min(route.Count, run.CompanionCentres.Count);
         var visited = new HashSet<Point>();
 
         for (int i = 0; i < steps; i += cadence)
@@ -157,10 +164,12 @@ internal static class ScoreTheRun
 
             // Arrived at any point in the run, not only on the tick the player stood there: the
             // companion following a player is behind them by design, and scoring it only at the
-            // moment of passing would count ordinary following as a failure to arrive.
+            // moment of passing would count ordinary following as a failure to arrive. The radius
+            // is the follow comfort, because a hovering body is beside him at head height and never
+            // at his feet.
             bool reached = false;
             for (int j = 0; j < steps && !reached; j++)
-                reached = Vector2.Distance(run.CompanionFeet[j], route[i].PlayerFeet) <= ABodyWidth * 2;
+                reached = Vector2.Distance(run.CompanionCentres[j], route[i].PlayerFeet) <= CheckpointReach;
 
             if (reached) { arrived++; continue; }
             missed++;
@@ -168,7 +177,7 @@ internal static class ScoreTheRun
             else if (run.PlannerClaim[i] == Reach.NotYet) plannerUnfinished++;
         }
 
-        string note = $"{total} checkpoints every {cadence} ticks along {route.Capture}";
+        string note = $"{total} checkpoints every {cadence} ticks along {route.Capture}, reached within {CheckpointReach:0} px of the player's feet";
         EmitLedgerRows.Measure(Instrument, suite, "checkpoints the body reached", arrived, "checkpoints", "up", "unbounded-allowances", message: note);
         EmitLedgerRows.Measure(Instrument, suite, "checkpoints the body never reached", missed, "checkpoints", "down", "unbounded-allowances", message: note);
         EmitLedgerRows.Measure(Instrument, suite, "unreached checkpoints the planner called unreachable", plannerSaidNo, "checkpoints", "down", "unbounded-allowances",
@@ -213,40 +222,21 @@ internal static class ScoreTheRun
     }
 
     /// <summary>
-    /// The abilities the recorded player carried that the companion's own declaration does not
-    /// claim — which is what "filtered" means, rather than "the player left the ground".
+    /// The abilities the recorded player carried that the companion's body does not answer — which
+    /// is what "filtered" means, rather than "the player left the ground".
     ///
-    /// The comparison is against <c>MovementCapabilities.Basic</c>, the mod's declaration of the
-    /// shipping kit and the same value the recorder writes into the capture's companion half. That
-    /// is what makes the filter narrow on its own: the day flight lands in that record, a capture
-    /// of a flying player stops being filtered here and starts being graded, with nothing in this
-    /// file edited. Reading the companion's half out of the capture instead would compare this
-    /// build against a kit some older build declared, which is the one comparison the row must
-    /// never make.
-    ///
-    /// Each player flag maps to the companion ability that would answer it: anything that carries
-    /// a body through air — a mount, wings, rocket boots — is answered by flight, and a dash by a
-    /// dash. Swimming has no player flag to read, so it is not compared; a capture of a player who
-    /// swam somewhere the companion cannot is a gap this row does not close, and the counts above
-    /// are what a reader has instead.
+    /// The orb flies, so anything that carries a player through air — a mount, wings, rocket boots
+    /// — is answered by the body itself and filters nothing; what the orb has no answer to is a
+    /// dash, which is a burst of pace the motor's cap does not allow, and a swim, which has no
+    /// player flag to read and is a liquid immunity on the orb's side rather than a movement. A
+    /// capture of a player who swam somewhere the companion cannot is a gap this row does not close,
+    /// and the counts above are what a reader has instead.
     /// </summary>
     private static string[] AbilitiesThePlayerHadAndTheCompanionDoesNot(ReadRecordedRoute.Kits kits)
-    {
-        var companion = live::AICompanion.Companion.Brain.Infrastructure.Movement.MovementCapabilities.Basic;
-        var beyond = new List<string>();
-        if (kits.PlayerCanLeaveTheGround && !companion.CanFly)
-            beyond.Add("a kit that leaves the ground (" + string.Join(", ",
-                new[] { kits.PlayerMount ? "mount" : null, kits.PlayerWings ? "wings" : null, kits.PlayerRocketBoots ? "rocket boots" : null }
-                    .Where(p => p != null)) + ")");
-        if (kits.PlayerDash && !companion.CanDash) beyond.Add("a dash");
-        return beyond.ToArray();
-    }
+        => kits.PlayerDash ? new[] { "a dash" } : Array.Empty<string>();
 
     private static string DescribeTheCompanionsDeclaredKit()
-    {
-        var kit = live::AICompanion.Companion.Brain.Infrastructure.Movement.MovementCapabilities.Basic;
-        return $"air-jumps={kit.AirJumpCount}, dash={kit.CanDash}, swim={kit.CanSwim}, fly={kit.CanFly}";
-    }
+        => "flying-orb: fly=True, dash=False, water and lava by per-character immunity";
 
     private static int FirstDisagreement(IReadOnlyList<string> first, IReadOnlyList<string> second)
     {

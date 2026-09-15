@@ -180,7 +180,7 @@ public sealed class TheBodyStopsOnItsOwnRoute : ICheck, ICheckCoverage
             .Take(Longest)
             .Select(e => $"tick {e.Field("start-tick") ?? e.tick.ToString(CultureInfo.InvariantCulture)} "
                 + $"{TravelEvidence.Ticks(e)} ticks {e.Field("reason")} "
-                + $"(grounded {e.Field("grounded-throughout")}, same step {e.Field("same-step-throughout")}, replanned {e.Field("replanned-during")})"));
+                + $"(against wall {e.Field("against-wall-throughout")}, same segment {e.Field("same-segment-throughout")}, replanned {e.Field("replanned-during")}, fastest {e.Field("fastest-px-per-tick")} px/tick)"));
 
         double perMinute = travelTicks == 0 ? 0 : stops.Count * 3600.0 / travelTicks;
         yield return new Finding(Severity.Oddity, Name,
@@ -189,9 +189,10 @@ public sealed class TheBodyStopsOnItsOwnRoute : ICheck, ICheckCoverage
                 + $"The recorder's own running rate on the last row reads {recorded}, computed over the same predicate — the "
                 + "ordinary travel owner holding the body while the navigator has an executable or partial route — so the two "
                 + "disagreeing means one of them is counting something the other is not. "
-                + "A stop is not itself a defect: brake-before-from-rest-move is a move paying its own entry cost, and "
-                + "during-replan is the body waiting for an answer. The reasons worth reading are inside-walk-step and other, "
-                + "which are a body that had a step to perform and did not move.",
+                + "A stop is not itself a defect: during-replan is the body waiting for an answer, and against-wall is the "
+                + "contact killing the velocity into a wall the steering is aiming through, which names the route rather than "
+                + "the body. The reason worth reading is other, which is a body that had a segment to fly and did not move "
+                + "with nothing in the record accounting for it.",
             TravelEvidence.Clamp(stops.Min(e => e.tick)), TravelEvidence.Clamp(stops.Max(e => e.tick)), stops.Count);
     }
 }

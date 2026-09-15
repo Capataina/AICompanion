@@ -11,7 +11,9 @@ using AttemptAttribution = live::AICompanion.Companion.Brain.Activities.AttemptA
 using OfferEligibility = live::AICompanion.Companion.Brain.Activities.OfferEligibility;
 using RequestKind = live::AICompanion.Companion.Brain.Infrastructure.Position.RequestKind;
 using TerrainChanges = live::AICompanion.Companion.Brain.Infrastructure.Movement.TerrainChanges;
-using AStar = live::AICompanion.Companion.Brain.Infrastructure.Movement.AStar;
+using GameTileWorld = live::AICompanion.Companion.Brain.Infrastructure.Movement.GameTileWorld;
+using MovementQueries = live::AICompanion.Companion.Brain.Infrastructure.Movement.MovementQueries;
+using ReachVerdict = live::AICompanion.Companion.Brain.Infrastructure.Observation.ReachVerdict;
 using LimitPlanningWork = live::AICompanion.Companion.Brain.Infrastructure.Movement.LimitPlanningWork;
 using Preferences = live::AICompanion.Companion.PlayerIntegration.CompanionPreferences;
 
@@ -37,14 +39,12 @@ internal static class VerifyCollectionContracts
         void Each(string name, Action fixture)
         {
             LimitPlanningWork.Unbounded = true;
-            bool oneWay = AStar.AllowOneWayDrops;
             Preferences.Current.PotBreaking = false;
             try { fixture(); Console.WriteLine($"GREEN {name}"); }
             catch (Exception e) { red++; Console.WriteLine($"RED {name}: {e.Message}"); }
             finally
             {
                 LimitPlanningWork.Unbounded = false;
-                AStar.AllowOneWayDrops = oneWay;
                 Preferences.Current.PotBreaking = potBreaking;
                 Restore();
             }
@@ -63,9 +63,8 @@ internal static class VerifyCollectionContracts
         foreach (bool warmUp in new[] { true, false })
             foreach (bool pit in new[] { false, true })
             {
-                bool oneWay = AStar.AllowOneWayDrops;
                 try { MeasureFallingDropCost(pit, warmUp); }
-                finally { AStar.AllowOneWayDrops = oneWay; Preferences.Current.PotBreaking = potBreaking; Restore(); }
+                finally { Preferences.Current.PotBreaking = potBreaking; Restore(); }
             }
         if (red == 0) Console.WriteLine("collection contracts: own reach and return, moved drops, partial capacity, transfer attribution, trip unit, refused-drop budget and merged drops pass");
         return red;
@@ -89,7 +88,6 @@ internal static class VerifyCollectionContracts
         var ctx = SetUpFloor();
         ctx.Npc.Bottom = new Vector2(40 * 16 + 8, 60 * 16);
         BuildSealedPit(43, 46);
-        AStar.AllowOneWayDrops = false;
         var pit = new List<Item>();
         for (int i = 0; i < 4; i++) pit.Add(Drop(ItemID.CopperOre, 5, new Vector2((43 + i) * 16 + 8, 75 * 16), Slot + i));
         Item far = Drop(ItemID.CopperOre, 5, new Vector2(12 * 16 + 8, 60 * 16), Slot + 4);
@@ -193,7 +191,6 @@ internal static class VerifyCollectionContracts
     {
         const int farAppears = 110;
         Preferences.Current.PotBreaking = false;
-        AStar.AllowOneWayDrops = false;
         var ctx = SetUpFloor();
         ctx.Npc.Bottom = new Vector2(40 * 16 + 8, 60 * 16);
         if (pit) BuildSealedPit(43, 46);
@@ -226,19 +223,30 @@ internal static class VerifyCollectionContracts
             + $"{sorted.Count(v => v >= 0.5)} of {sorted.Count} evaluated ticks at or over 0.5 ms; farther drop first offered at tick {(farOffered < 0 ? "never" : farOffered.ToString())}");
     }
 
+    /// <summary>
+    /// A chamber below the floor with no way in that this body fits through. It used to be a pit open at the top, which
+    /// was unreachable to a walker because it could drop in and never climb out; a body that flies goes in and comes back,
+    /// so the mouth is closed instead and the chamber is sealed on every side. What it tests is unchanged — a drop the
+    /// companion cannot get to is not a usable offer however near it is — and only the reason it cannot get there has
+    /// moved, from a missing return to a missing way in.
+    /// </summary>
     private static void BuildSealedPit(int left, int right)
     {
-        for (int x = left; x <= right; x++)
+        for (int x = left - 1; x <= right + 1; x++)
         {
-            Main.tile[x, 60].ClearEverything();
+            VerifyOreWork.Place(new Point(x, 60), TileID.Dirt);
             VerifyOreWork.Place(new Point(x, 75), TileID.Dirt);
         }
+        for (int x = left; x <= right; x++)
+            for (int y = 61; y < 75; y++)
+                Main.tile[x, y].ClearEverything();
         for (int y = 60; y <= 75; y++)
         {
             VerifyOreWork.Place(new Point(left - 1, y), TileID.Dirt);
             VerifyOreWork.Place(new Point(right + 1, y), TileID.Dirt);
         }
         TerrainChanges.Reset();
+        MovementQueries.World = new GameTileWorld();
     }
 
     private static void ObserveAll(ActionContext ctx, params Item[] items)
@@ -250,42 +258,36 @@ internal static class VerifyCollectionContracts
     }
 
     /// <summary>
-    /// A drop at the bottom of a sealed pit beside the floor the companion stands on. A standable tile beside it proves
-    /// nothing about getting there or back. With one-way drops refused the companion cannot reach it; with them allowed it
-    /// can drop in but not return to a player it can currently reach. Neither may be a usable collection offer, and a drop
-    /// on the open floor must stay usable.
+    /// A drop inside a sealed chamber under the floor the companion stands on. A place to hover beside it proves nothing about
+    /// getting to it, and there is no way in that this body fits through, so it must be a known-unusable offer however near it
+    /// is; a drop on the open floor beside it must stay usable, which is what stops the row passing on a collection that simply
+    /// refuses everything.
+    ///
+    /// <para>The pair this replaces ran the same scene twice under the walker's one-way-drop switch, once where it could not
+    /// get in and once where it could get in and not out. There is no such setting now and no such asymmetry: a flood over free
+    /// cells reaches a cell or it does not, and the return is the same flood read backwards.</para>
     /// </summary>
     private static void ADropInAPitIsNotCollectedOnAStandableTileAlone()
     {
-        foreach (bool oneWay in new[] { false, true })
-        {
-            var ctx = SetUpFloor();
-            for (int x = 30; x <= 33; x++)
-            {
-                Main.tile[x, 60].ClearEverything();
-                VerifyOreWork.Place(new Point(x, 75), TileID.Dirt);
-            }
-            for (int y = 60; y <= 75; y++)
-            {
-                VerifyOreWork.Place(new Point(29, y), TileID.Dirt);
-                VerifyOreWork.Place(new Point(34, y), TileID.Dirt);
-            }
-            TerrainChanges.Reset();
-            AStar.AllowOneWayDrops = oneWay;
-            var collect = new CollectNearbyItems();
-            Item pitDrop = Drop(ItemID.CopperOre, 5, new Vector2(31 * 16 + 8, 75 * 16));
-            Observe(ctx, pitDrop);
-            collect.Prepare(ctx);
-            Require(!(collect.Method == "known-drop" || collect.Eligibility == OfferEligibility.Usable),
-                $"oneWay={oneWay}: a drop in a sealed pit must not be a usable collection offer; method={collect.Method} offer={collect.Eligibility}/{collect.EligibilityReason} value={collect.Score()}");
-            Require(collect.Eligibility is OfferEligibility.KnownUnusable,
-                $"oneWay={oneWay}: the refusal must say the drop is known to be unusable; offer={collect.Eligibility}/{collect.EligibilityReason}");
-            Item floorDrop = Drop(ItemID.CopperOre, 5, new Vector2(26 * 16 + 8, 60 * 16));
-            Observe(ctx, floorDrop);
-            collect.Prepare(ctx);
-            Require(collect.Method == "known-drop" && collect.Eligibility == OfferEligibility.Usable && ReferenceEquals(collect.ActivityIdentity, floorDrop),
-                $"oneWay={oneWay}: a drop on the open floor must remain a usable offer; method={collect.Method} offer={collect.Eligibility}/{collect.EligibilityReason}");
-        }
+        var ctx = SetUpFloor();
+        ctx.Npc.Bottom = new Vector2(40 * 16 + 8, 60 * 16);
+        BuildSealedPit(30, 33);
+        Settle(ctx);
+        Require(ctx.Companion.Brain.Senses.Reach.Reachable(new Point(31, 74)) == ReachVerdict.Unreachable,
+            "the premise needs the chamber genuinely closed to this body, or the refusal below means nothing");
+        var collect = new CollectNearbyItems();
+        Item pitDrop = Drop(ItemID.CopperOre, 5, new Vector2(31 * 16 + 8, 75 * 16));
+        Observe(ctx, pitDrop);
+        collect.Prepare(ctx);
+        Require(!(collect.Method == "known-drop" || collect.Eligibility == OfferEligibility.Usable),
+            $"a drop in a sealed chamber must not be a usable collection offer; method={collect.Method} offer={collect.Eligibility}/{collect.EligibilityReason} value={collect.Score()}");
+        Require(collect.Eligibility is OfferEligibility.KnownUnusable,
+            $"the refusal must say the drop is known to be unusable; offer={collect.Eligibility}/{collect.EligibilityReason}");
+        Item floorDrop = Drop(ItemID.CopperOre, 5, new Vector2(26 * 16 + 8, 60 * 16));
+        Observe(ctx, floorDrop);
+        collect.Prepare(ctx);
+        Require(collect.Method == "known-drop" && collect.Eligibility == OfferEligibility.Usable && ReferenceEquals(collect.ActivityIdentity, floorDrop),
+            $"a drop on the open floor must remain a usable offer; method={collect.Method} offer={collect.Eligibility}/{collect.EligibilityReason}");
     }
 
     /// <summary>
@@ -575,7 +577,7 @@ internal static class VerifyCollectionContracts
         Item drop = Drop(ItemID.CopperOre, 5, new Vector2(30 * 16 + 8, 60 * 16));
         Observe(ctx, drop);
         collect.Prepare(ctx);
-        float walkSpeed = live::AICompanion.Companion.CompanionMotor.WalkSpeed;
+        float walkSpeed = live::AICompanion.Companion.Brain.Infrastructure.Movement.OrbPace.MaxSpeed;
         float straight = Vector2.Distance(ctx.Npc.Bottom, drop.Bottom) / walkSpeed;
         Require(collect.Method == "known-drop" && collect.ForecastTicks() > 0 && collect.ForecastTicks() <= straight + 0.01f
             && collect.ForecastTicks() >= straight - 4 * 16 / walkSpeed,

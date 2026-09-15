@@ -53,7 +53,7 @@ internal static class ExploreWithoutTheTrack
         PrepareTheHeadlessEngine.PrepareLightServices();
         PrepareTheHeadlessEngine.PinEveryRandomSource(1);
 
-        Vector2 start = new(route[0].CompanionLeftBottom.X, route[0].CompanionLeftBottom.Y);
+        Vector2 start = route[0].CompanionCentre;
         var archive = new Dictionary<Point, Vector2> { [Cell(start.ToTileCoordinates())] = start };
         var visits = new Dictionary<Point, int> { [Cell(start.ToTileCoordinates())] = 0 };
         var reached = new HashSet<Point>();       // every tile the reach sense has ever claimed
@@ -78,7 +78,6 @@ internal static class ExploreWithoutTheTrack
 
             PrepareTheHeadlessEngine.ForgetEverythingLearnedAboutTheWorld();
             var companion = PrepareTheHeadlessEngine.AttachCompanion(pose, target);
-            companion.NPC.Bottom = new Vector2(pose.X + companion.NPC.width / 2f, pose.Y);
             Player player = Main.player[0];
             player.Bottom = target;
             player.velocity = Vector2.Zero;
@@ -88,17 +87,17 @@ internal static class ExploreWithoutTheTrack
             for (int tick = 0; tick < ExcursionTicks && spent < tickBudget; tick++, spent++)
             {
                 PrepareTheHeadlessEngine.AdvanceTheWorldClock();
-                PrepareTheHeadlessEngine.DriveLightOnce(companion.NPC.Bottom.ToTileCoordinates(), LightHalf, LightHalf);
+                PrepareTheHeadlessEngine.DriveLightOnce(companion.NPC.Center.ToTileCoordinates(), LightHalf, LightHalf);
                 companion.AI();
                 PrepareTheHeadlessEngine.AdvanceTheNativeBody(companion);
 
-                Point feet = companion.NPC.Bottom.ToTileCoordinates();
-                stood.Add(feet);
-                Point cell = Cell(feet);
+                Point at = companion.NPC.Center.ToTileCoordinates();
+                stood.Add(at);
+                Point cell = Cell(at);
                 // A cell is archived with the first pose that reached it. Overwriting with a later
                 // pose would quietly make the archive a record of where the body ended up rather
                 // than of a place it can be put back into.
-                if (!archive.ContainsKey(cell)) archive[cell] = companion.NPC.Bottom - new Vector2(companion.NPC.width / 2f, 0);
+                if (!archive.ContainsKey(cell)) archive[cell] = companion.NPC.Center;
                 foreach (Point tile in companion.Brain.Senses.Reach.ScoredTiles) reached.Add(tile);
             }
             growth.Add(reached.Count - before);

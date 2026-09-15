@@ -18,21 +18,15 @@ ResetProcessState.Register();
 
 if (args.Contains("--orb-contact")) return VerifyOrbContact.SizeRule() + VerifyOrbContact.DiagonalStep() + VerifyOrbContact.PushOutAndSlide();
 if (args.Contains("--free-space")) return VerifyFreeSpace.CorridorsAndLiquids() + VerifyFreeSpace.FloodFinishes();
-if (args.Contains("--route-persistence")) return VerifyRoutePersistence.Run();
+if (args.Contains("--route-endings")) return VerifyRouteEndings.Run() == 0 ? 0 : 1;
 if (args.Contains("--attack-outcomes")) return VerifyAttackOutcomes.Run();
 if (args.Contains("--offer-validity")) return VerifyOfferValidity.Run();
-if (args.Contains("--movement-failures")) return VerifyMovementFailures.Run() == 0 ? 0 : 1;
-if (args.Contains("--round-trip")) return VerifyRoundTripEvidence.Run() == 0 ? 0 : 1;
 if (args.Contains("--capability")) return VerifyCapabilityRevision.Run() == 0 ? 0 : 1;
 if (args.Contains("--light-senses")) return VerifyLightAndReachSenses.Run() == 0 ? 0 : 1;
 if (args.Contains("--doors")) return VerifyDoorPassage.Run() == 0 ? 0 : 1;
 if (args.Contains("--courtesy")) return VerifyCourtesy.Run() == 0 ? 0 : 1;
 if (args.Contains("--render-ui")) return RenderNativeInterface.Run(root);
-if (args.FirstOrDefault(a => a.StartsWith("--replay-water=")) is string capture)
-    return ReplayRecordedWater.Run(capture[15..], int.Parse(args.Single(a => a.StartsWith("--tick="))[7..]),
-        args.FirstOrDefault(a => a.StartsWith("--movement-ticks=")) is string span ? int.Parse(span[17..]) : null);
 if (args.Contains("--ore-work")) return VerifyEngineMotion.Run(workOnly: true);
-if (args.Contains("--mining-baseline")) return VerifyEngineMotion.Run(miningBaselineOnly: true);
 if (args.Contains("--follow")) return VerifyEngineMotion.Run(followOnly: true);
 if (args.Contains("--protection-recovery")) return VerifyEngineMotion.Run(protectionOnly: true);
 if (args.Contains("--observation")) return VerifyObservationLifecycle.Run();

@@ -35,12 +35,40 @@ internal static class WorldRunEntry
         if (args.Contains("--help")) { Usage(); return 0; }
 
         string? capture = Value(args, "--route=");
+        string? scenario = Value(args, "--scenario=");
         string? world = Value(args, "--world=");
         int fromTick = Int(args, "--from-tick=", 1);
         int ticks = Int(args, "--ticks=", DefaultTicks);
-        string suite = Value(args, "--suite=") ?? "recorded route";
+        string suite = Value(args, "--suite=") ?? (scenario != null ? "scenario " + Path.GetFileNameWithoutExtension(scenario) : "recorded route");
 
-        if (capture == null) { Usage(); return 2; }
+        if (capture == null && scenario == null) { Usage(); return 2; }
+
+        // A committed scenario as a checkpoint. The scenario is in the repository, so only the world
+        // can be absent, and an absent world is the same skip the recorded route files.
+        if (scenario != null)
+        {
+            if (!File.Exists(scenario))
+            {
+                EmitLedgerRows.Skipped(ScoreTheRun.Instrument, suite, "the orb reaches the player from where the recording left it", $"no scenario at {scenario}");
+                Console.WriteLine($"SKIP no scenario at {scenario}");
+                return 0;
+            }
+            if (world == null || !File.Exists(world))
+            {
+                string reason = $"no world file at {world ?? "<none given>"}; a .wld is never committed, so the world must be named with --world=";
+                EmitLedgerRows.Skipped(ScoreTheRun.Instrument, suite, "the orb reaches the player from where the recording left it", reason);
+                EmitLedgerRows.Skipped(ScoreTheRun.Instrument, suite, "the orb never touches water or lava", reason);
+                Console.WriteLine($"SKIP {reason}");
+                return 0;
+            }
+            Main.dedServ = true;
+            int scenarioFailures = RunTheScenario.Run(scenario, world, suite, Value(args, "--ticks=") is null ? RunTheScenario.DefaultTickCount : ticks, !args.Contains("--no-light"));
+            foreach (LedgerRow row in EmitLedgerRows.Emitted)
+                Console.WriteLine($"{row.Verdict.ToUpperInvariant()} {row.Case}"
+                    + (row.Value is { } value ? $" = {value.ToString("0.###", CultureInfo.InvariantCulture)} {row.Unit}" : "")
+                    + (row.Message.Length > 0 ? $" :: {row.Message}" : ""));
+            return scenarioFailures == 0 ? 0 : 1;
+        }
 
         // A fresh clone has neither a capture nor a world: Telemetry/ is gitignored and a .wld is
         // never committed. That is an absence of evidence rather than a failure, so it files a skip
@@ -174,10 +202,14 @@ internal static class WorldRunEntry
             The world run: the whole brain and the native body, in a real world, behind a player who moves.
 
               --route=<capture.tsv>   the recording whose player track is replayed
+              --scenario=<block.txt>  a committed scenario played as a checkpoint: the orb starts at its
+                                      recorded centre, the player stands at his recorded feet, and the rows
+                                      are whether the orb reaches him and never touches water or lava
               --world=<world.wld>     the saved world it is replayed in
               --from-tick=N           seed both bodies at this recorded tick instead of the first
-              --ticks=N               how many ticks to play (default 600; 0 plays the whole capture)
+              --ticks=N               how many ticks to play (default 600 for a route, 900 for a scenario; 0 plays the whole capture)
               --suite=<name>          the ledger suite these rows belong to
+              --no-light              leave the light engine undriven
 
             The world is never committed and Telemetry/ is gitignored, so both paths are named rather
             than discovered, and an absent one is a skipped row rather than a failure.

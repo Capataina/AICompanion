@@ -223,12 +223,11 @@ public sealed class ColumnsHoldWhatTheyClaim : ICheck
     // number, so anything unparsed outside this set is the writer and the reader disagreeing.
     private static readonly HashSet<string> Wordy = new(System.StringComparer.Ordinal)
     {
-        "state", "action", "reflex", "top_threat", "target", "request", "anchor", "spot", "next_kind",
+        "state", "action", "reflex", "top_threat", "target", "request", "anchor", "spot",
         "npc_tile", "npc_px", "npc_vel", "held", "weapon", "fire", "engage", "torch", "player_tile",
-        "edge_kind", "edge_from", "edge_to", "edge_outcome", "spot_home",
-        "diverge_invalid_reason", "sample_phase", "player_px", "player_vel", "player_liquid", "player_hit", "npc_hit",
-        "player_state", "player_activity", "player_support", "npc_support", "control", "control_source",
-        "observed_vel", "observed_mobility", "predicted_vel", "predicted_mobility",
+        "spot_home", "lookahead", "wall_normal", "liquid", "desired_vel",
+        "sample_phase", "player_px", "player_vel", "player_liquid", "player_hit", "npc_hit",
+        "player_state", "player_activity", "player_support", "control", "control_source",
         "follow_reason", "recovery_reason", "guard_reason", "mine_policy", "mine_status", "mine_target", "target_evidence",
         "torch_reason", "lighting_sites",
     };

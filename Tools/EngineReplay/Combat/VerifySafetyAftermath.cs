@@ -106,7 +106,9 @@ internal static class VerifySafetyAftermath
             if (wasSpacing && !brain.Safety.Active && brain.Safety.LastEndReason == "safe-state-observed")
             {
                 endedAfterSpacing++;
-                if (companion.Motor.State.OnGround && !companion.NPC.wet) landedAfterSpacing++;
+                // "Landed" for a body that hovers is being clear of terrain and out of anything that hurts it,
+                // which is the settled state the walker's ground flag stood for here.
+                if (companion.Motor.ClearOfTerrain && !companion.Motor.InHurtingLiquid) landedAfterSpacing++;
             }
             wasSpacing = isSpacing;
             VerifyResponsiveFollowing.AdvanceNative(companion);
@@ -269,7 +271,7 @@ internal static class VerifySafetyAftermath
         for (int tick = 0; tick < 40 && hitAt < 0; tick++)
         {
             Tick(companion);
-            controls.Add($"{companion.Brain.Senses.Projectiles.Threats.Count}{companion.Brain.Safety.Kind}:{companion.Motor.AppliedControls.MoveX:0.#}{(companion.Motor.AppliedControls.Jump ? "J" : "")}");
+            controls.Add($"{companion.Brain.Senses.Projectiles.Threats.Count}{companion.Brain.Safety.Kind}:{companion.Motor.AppliedControls.Desired.X:0.#},{companion.Motor.AppliedControls.Desired.Y:0.#}");
             VerifyResponsiveFollowing.AdvanceNative(companion);
             arrow.position += arrow.velocity;
             if (arrow.Hitbox.Intersects(companion.NPC.Hitbox)) hitAt = tick;

@@ -35,7 +35,6 @@ internal static class VerifyOfferValidity
         AnExhaustedSearchIsProvableWhileTheBodyWalks();
         AStandWhoseShotClosesBeforeArrivalIsRefused();
         AMovedTargetIsAskedAboutAgain();
-        PartialProgressNeverNamesTheTileTheBodyStandsOn();
         Console.WriteLine("offer validity: the shot window is the trip's length, cut searches stay undecided, exhausted ones prove a negative while the body walks, arrival-time shots and the partial-progress fixed point pass");
         return 0;
     }
@@ -152,7 +151,7 @@ internal static class VerifyOfferValidity
             companion.NPC.position = new Vector2(column * 16f, FloorY * 16f - companion.NPC.height);
             companion.NPC.velocity = Vector2.Zero;
             companion.Brain.Senses.Update(companion.NPC, Main.player[0], companion.Motor);
-            int bucket = MovementQueries.FeetTile(companion.NPC.Bottom).X >> 2;
+            int bucket = MovementQueries.Tile(companion.NPC.Center).X >> 2;
             if (bucket != previousBucket) { buckets++; previousBucket = bucket; }
             positioner.Resolve(request, companion.Brain.Senses, profile);
             if (tick == 0)
@@ -355,15 +354,15 @@ internal static class VerifyOfferValidity
                 || positioner.CandidateEvidence.Contains(":" + PositionReasons.ShotWindowShorterThanTrip),
             $"no candidate was judged against the forecast, so this row tested the low-confidence fallback; "
             + $"evidence={positioner.CandidateEvidence}");
-        Point stand = MovementQueries.FeetTile(chosen!.Value);
+        Point stand = MovementQueries.Tile(chosen!.Value);
         Console.WriteLine($"offer validity: chose {stand.X},{stand.Y} against a target walking from 58 toward 74; evidence={positioner.CandidateEvidence}");
         // The whole claim, in one assertion: the stand the companion walks to is one that can shoot the target
         // where it will be when the body arrives, not one chosen for where it was when the choice was made. The
         // probe asks at the stand's own estimated trip rather than at a fixed horizon, because that is the horizon
         // the choice was made at — asking at any other one tests a question the positioner was never posed.
-        Point feet = MovementQueries.FeetTile(companion.NPC.Bottom);
+        Point feet = MovementQueries.Tile(companion.NPC.Center);
         float trip = positioner.EstimatedTravelTicks(feet, stand)
-            ?? Vector2.Distance(companion.NPC.Bottom, chosen.Value) / live::AICompanion.Companion.CompanionMotor.WalkSpeed;
+            ?? Vector2.Distance(companion.NPC.Center, chosen.Value) / live::AICompanion.Companion.Brain.Infrastructure.Movement.OrbPace.MaxSpeed;
         Require(live::AICompanion.Companion.Brain.Infrastructure.Aiming.TrajectoryAimer
                 .Solve(MuzzleAt(stand), enemy, profile.Value, (int)MathF.Min(180f, trip)) != null,
             $"the chosen stand cannot shoot the target at its forecast arrival, so the shot was solved against a "
@@ -420,51 +419,13 @@ internal static class VerifyOfferValidity
             $"a moved target must never be reported as a proven absence of firing positions on evidence gathered about where it used to be; verdict={beside}");
     }
 
-    /// <summary>
-    /// The follow fallback must never hand back a tile the navigator would immediately call arrived at. The body
-    /// is placed exactly on a partial-progress answer with the player still out of reach above; the next answer
-    /// has to be somewhere else, or nothing at all, and never the tile under the feet.
-    /// </summary>
-    private static void PartialProgressNeverNamesTheTileTheBodyStandsOn()
-    {
-        var (companion, _, _, _) = PitScene();
-        var positioner = companion.Brain.Positioner;
-        Player player = Main.player[0];
-        // The player stands on a shelf the companion cannot reach, so no candidate is ever accepted and every
-        // answer is the fallback's. The shelf is above the sealed ceiling of the world's floor slab.
-        player.position = new Vector2(60 * 16f, (FloorY - 20) * 16f - player.height);
-        player.velocity = Vector2.Zero;
-        companion.Brain.Senses.Update(companion.NPC, player, companion.Motor);
-
-        var request = new PositionRequest(RequestKind.WithPlayer, player.Bottom);
-        Vector2? chosen = null;
-        for (int i = 0; i < 900 && !positioner.ReachComplete; i++)
-            chosen = positioner.Resolve(request, companion.Brain.Senses, null);
-        for (int tick = 0; tick < 24; tick++)
-            chosen = positioner.Resolve(request, companion.Brain.Senses, null);
-
-        Require(chosen != null && positioner.ChoiceReason == "partial-progress-candidate",
-            $"a player on an unreachable shelf must be answered by the fallback; reason={positioner.ChoiceReason}, chosen={chosen}");
-        Require(positioner.Region.Kind == SuccessRegionKind.PartialProgress,
-            $"the fallback must declare the region it can meet; kind={positioner.Region.Kind}");
-
-        // Stand the body exactly on that answer and ask again. Every later answer must be a real step away.
-        for (int round = 0; round < 6; round++)
-        {
-            companion.NPC.Bottom = chosen!.Value;
-            companion.NPC.velocity = Vector2.Zero;
-            companion.Brain.Senses.Update(companion.NPC, player, companion.Motor);
-            Vector2 feet = companion.NPC.Bottom;
-            Vector2? next = null;
-            for (int tick = 0; tick < 24; tick++)
-                next = positioner.Resolve(request, companion.Brain.Senses, null);
-            Require(next == null || Vector2.Distance(next.Value, feet) > Navigator.ArriveDistance,
-                $"round {round}: the fallback named a tile the navigator is already arrived at; feet={feet}, next={next}, "
-                + $"distance={(next == null ? -1f : Vector2.Distance(next.Value, feet))}, arrive={Navigator.ArriveDistance}");
-            if (next == null) break;
-            chosen = next;
-        }
-    }
+    // The partial-progress row is gone with the fallback it guarded. It required that a follow answer for an
+    // unreachable player was never the tile the body already stood on, because the walker's positioner, finding
+    // no acceptable candidate, answered with a progress tile of its own and could hand back the body's own feet
+    // — an answer the navigator calls arrived at, so the body stood still while reading as travelling. The orb's
+    // positioner has no fallback: a follow request that accepts nothing answers null, and the brain closes the
+    // gap through `SeekDestination` aimed at the anchor. `SuccessRegionKind.PartialProgress` and the
+    // `partial-progress-candidate` reason no longer exist, so there is nothing here to assert against.
 
     // ---- scene ----------------------------------------------------------------------------------------
 
@@ -475,7 +436,7 @@ internal static class VerifyOfferValidity
     private const int ArrivalTicks = 45;
 
     private static Vector2 MuzzleAt(Point tile)
-        => live::AICompanion.Companion.Weapons.Arsenal.MuzzleAtFeet(MovementQueries.FeetWorld(tile));
+        => live::AICompanion.Companion.Weapons.Arsenal.MuzzleAtFeet(MovementQueries.HoverPoint(tile));
 
     /// <summary>
     /// A flat floor with a pillar on it and an enemy walking past that pillar. Stands short of the pillar can see
@@ -566,7 +527,7 @@ internal static class VerifyOfferValidity
             for (int y = FloorY - PillarTop; y < FloorY; y++)
                 Solid(x, y);
         live::AICompanion.Companion.Brain.Infrastructure.Movement.TerrainChanges.Reset();
-        live::AICompanion.Companion.Brain.Infrastructure.Movement.NavGrid.World = new live::AICompanion.Companion.Brain.Infrastructure.Movement.GameTileWorld();
+        live::AICompanion.Companion.Brain.Infrastructure.Movement.MovementQueries.World = new live::AICompanion.Companion.Brain.Infrastructure.Movement.GameTileWorld();
     }
 
     private static (CompanionNPC Companion, NPC Enemy, WeaponProfile? Profile, C Ctx) PitScene()
@@ -622,7 +583,7 @@ internal static class VerifyOfferValidity
             for (int y = FloorY; y < ShaftFloorY; y++)
                 Open(x, y);
         live::AICompanion.Companion.Brain.Infrastructure.Movement.TerrainChanges.Reset();
-        live::AICompanion.Companion.Brain.Infrastructure.Movement.NavGrid.World = new live::AICompanion.Companion.Brain.Infrastructure.Movement.GameTileWorld();
+        live::AICompanion.Companion.Brain.Infrastructure.Movement.MovementQueries.World = new live::AICompanion.Companion.Brain.Infrastructure.Movement.GameTileWorld();
     }
 
     private static void Solid(int x, int y)

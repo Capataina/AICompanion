@@ -9,16 +9,20 @@ namespace AICompanion.Tools.SessionReport;
 
 /// <summary>
 /// Turns the high-rate record into a chronological account without promoting a measurement into
-/// a story it cannot prove. A support change is reported as a support change; only a run of
-/// observed slope supports is called an ascent or descent, and a life fall remains a life fall
-/// unless the recorder supplied a hit event.
+/// a story it cannot prove. A liquid change is reported as a liquid change, and a life fall remains
+/// a life fall unless the recorder supplied a hit event.
+///
+/// The slope inference here is the player's alone and stays for that reason: the player still walks
+/// and still rests on a support the recorder names, while the companion is a flying orb with no
+/// support to change and nothing for an ascent or descent to be inferred from. The companion's own
+/// state comes from one position, <c>npc_px</c>, and one velocity beside it.
 /// </summary>
 public static class Chronicle
 {
     private static readonly string[] Needs =
     {
         "wall_elapsed_ms", "sample_phase", "player_px", "player_vel", "player_ground", "player_liquid", "player_life", "player_hit", "npc_hit", "player_state", "player_activity", "player_support",
-        "life", "npc_support", "control", "control_source", "state", "action", "request", "spot",
+        "life", "npc_px", "npc_vel", "liquid", "control", "control_source", "state", "action", "request", "spot",
     };
 
     private const int DefaultLimit = 80;
@@ -84,13 +88,13 @@ public static class Chronicle
 
     private static string Key(Session s, int row) => string.Join('|',
         Direction(s["player_vel"].Text[row]), s["player_ground"].Text[row], s["player_liquid"].Text[row], s["player_activity"].Text[row], s["player_support"].Text[row],
-        Direction(CompanionVelocity(s, row)), s["npc_support"].Text[row], s["control"].Text[row], s["control_source"].Text[row], s["state"].Text[row], s["action"].Text[row], s["request"].Text[row], s["spot"].Text[row], s["player_hit"].Text[row]);
+        Direction(s["npc_vel"].Text[row]), s["liquid"].Text[row], s["control"].Text[row], s["control_source"].Text[row], s["state"].Text[row], s["action"].Text[row], s["request"].Text[row], s["spot"].Text[row], s["player_hit"].Text[row]);
 
     private static string Interval(Session s, int first, int last)
     {
         string playerGround = s["player_ground"].Text[first] == "1" ? "grounded" : "airborne";
         string player = $"player {Direction(s["player_vel"].Text[first])}, {s["player_activity"].Text[first]}, {playerGround}, {s["player_liquid"].Text[first]}, support {s["player_support"].Text[first]}";
-        string companion = $"companion {Direction(CompanionVelocity(s, first))}, {s["state"].Text[first]}, action {s["action"].Text[first]}, controls {s["control"].Text[first]} from {s["control_source"].Text[first]}, support {s["npc_support"].Text[first]}";
+        string companion = $"companion {Direction(s["npc_vel"].Text[first])}, {s["state"].Text[first]}, action {s["action"].Text[first]}, controls {s["control"].Text[first]} from {s["control_source"].Text[first]}, liquid {s["liquid"].Text[first]}";
         string progress = Progress(s, first, last);
         return $"{When(s, first)}..{When(s, last)} (ticks {s.Tick(first)}..{s.Tick(last)}): observed {player}; observed {companion}{progress}";
     }
@@ -100,12 +104,9 @@ public static class Chronicle
         string when = $"{When(s, row)} (tick {s.Tick(row)})";
         Transition(s, before, row, "player_liquid", "player entered", events, when);
         Transition(s, before, row, "player_support", "player support changed to", events, when);
-        Transition(s, before, row, "npc_support", "companion support changed to", events, when);
+        Transition(s, before, row, "liquid", "companion entered", events, when);
         Transition(s, before, row, "player_activity", "player activity became", events, when);
         Transition(s, before, row, "control_source", "companion control source became", events, when);
-        if (s.Has("edge_n", "edge_kind", "edge_from", "edge_to", "edge_outcome", "edge_took")
-            && s["edge_n"].Text[before] != s["edge_n"].Text[row])
-            events.Add($"{when}: recorded movement attempt {s["edge_kind"].Text[row]} {s["edge_from"].Text[row]} -> {s["edge_to"].Text[row]} ended {s["edge_outcome"].Text[row]} after {s["edge_took"].Text[row]} ticks");
         LifeFall(s, before, row, "player_life", "player", events, when);
         LifeFall(s, before, row, "life", "companion", events, when, "npc_hit");
         if (s["player_hit"].Text[row] != "-")
@@ -117,7 +118,7 @@ public static class Chronicle
         if (s["npc_hit"].Text[row] != "-")
         {
             events.Add($"{when}: observed companion hit event {s["npc_hit"].Text[row]}");
-            if (VelocityJump(s, CompanionVelocityColumn(s), before, row))
+            if (VelocityJump(s, "npc_vel", before, row))
                 events.Add($"{when}: inference from the observed companion hit event and velocity discontinuity: the hit likely changed companion motion; the recorded knockback is above and attacker source is unrecorded");
         }
 
@@ -168,19 +169,18 @@ public static class Chronicle
         if (first == last || s["spot"].Text[first] != s["spot"].Text[last] || !Session.TryPair(s["spot"].Text[first], out float sx, out float sy)
             || !CompanionPosition(s, first, out float ax, out float ay) || !CompanionPosition(s, last, out float bx, out float by))
             return "";
-        // `spot` is a feet tile; observed companion positions are world pixels.
+        // `spot` is a destination tile and the body is a centre, so the comparison is against the
+        // tile's own centre on both axes. The walker's conversion put the target on the tile's floor
+        // because its position was a pair of feet; keeping that here would leave this reader and the
+        // arrival check measuring the same distance from points eight pixels apart.
         sx = sx * 16f + 8f;
-        sy = (sy + 1f) * 16f;
+        sy = sy * 16f + 8f;
         float start = MathF.Sqrt((ax - sx) * (ax - sx) + (ay - sy) * (ay - sy));
         float end = MathF.Sqrt((bx - sx) * (bx - sx) + (by - sy) * (by - sy));
         return end < start - 0.1f
             ? $"; observed companion net progress toward its recorded spot: {start:0.0}->{end:0.0} px"
             : "";
     }
-
-    private static string CompanionVelocity(Session s, int row) => s.Has("observed_vel") ? s["observed_vel"].Text[row] : s["npc_vel"].Text[row];
-
-    private static string CompanionVelocityColumn(Session s) => s.Has("observed_vel") ? "observed_vel" : "npc_vel";
 
     /// <summary>
     /// A stall is not stillness. It needs one stable target, a control request that could move the
@@ -200,7 +200,7 @@ public static class Chronicle
                 && MathF.Abs(x1 - x0) < 0.1f && MathF.Abs(y1 - y0) < 0.1f)
                 end++;
             if (s.Tick(end) - s.Tick(start) >= MinTicks)
-                events.Add($"{When(s, start)}..{When(s, end)} (ticks {s.Tick(start)}..{s.Tick(end)}): inferred lack of progress — the observed-before-AI body stayed at {PositionText(s, start)} while {s["control"].Text[start]} from {s["control_source"].Text[start]} requested movement toward recorded spot {s["spot"].Text[start]}");
+                events.Add($"{When(s, start)}..{When(s, end)} (ticks {s.Tick(start)}..{s.Tick(end)}): inferred lack of progress — the body stayed at {PositionText(s, start)} while {s["control"].Text[start]} from {s["control_source"].Text[start]} requested movement toward recorded spot {s["spot"].Text[start]}");
             start = Math.Max(start + 1, end + 1);
         }
     }
@@ -212,22 +212,27 @@ public static class Chronicle
             && s["control_source"].Text[row] is ("travel" or "navigation" or "seeking-destination")
             && IsActiveControl(s["control"].Text[row]);
 
+    /// <summary>
+    /// Whether the motor was asked to move the body. The cell is <c>desired=x,y</c> and a zero desire
+    /// is a brake rather than a neutral, so any non-zero component is an active request. This is the
+    /// whole vocabulary: there is no jump and no fall-through to ask about, and a predicate still
+    /// looking for <c>move=</c>, <c>jump=1</c> or <c>fall=1</c> would be false on every row of every
+    /// capture this reader will ever see again.
+    /// </summary>
     private static bool IsActiveControl(string control)
-        => !control.Contains("move=0.00", StringComparison.Ordinal) || control.Contains("jump=1", StringComparison.Ordinal) || control.Contains("fall=1", StringComparison.Ordinal);
+    {
+        const string marker = "desired=";
+        int at = control.IndexOf(marker, StringComparison.Ordinal);
+        string pair = at < 0 ? control : control[(at + marker.Length)..];
+        return Session.TryPair(pair, out float x, out float y) && MathF.Abs(x) + MathF.Abs(y) > 0.01f;
+    }
 
     private static string PositionText(Session s, int row)
         => CompanionPosition(s, row, out float x, out float y) ? $"{x:0.00},{y:0.00}" : "an unavailable position";
 
+    /// <summary>The orb's centre. There is one body and one position for it.</summary>
     private static bool CompanionPosition(Session s, int row, out float x, out float y)
-    {
-        if (s.Has("observed_left", "observed_bottom", "npc_width"))
-        {
-            x = s["observed_left"].Number[row] + s["npc_width"].Number[row] / 2f;
-            y = s["observed_bottom"].Number[row];
-            return !float.IsNaN(x) && !float.IsNaN(y);
-        }
-        return Session.TryPair(s["npc_px"].Text[row], out x, out y);
-    }
+        => Session.TryPair(s["npc_px"].Text[row], out x, out y);
 
     private static bool TimesAdvance(Session s, out string bad)
     {

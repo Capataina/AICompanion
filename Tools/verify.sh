@@ -133,30 +133,10 @@ cat "$engine_log"
 rm -f "$engine_log"
 record_exit "engine-replay" "$engine_status"
 
-# corpus
-#
-# Every committed scenario run twice, once as captured and once reflected left to right, with the
-# two verdicts required to agree. Nothing about a tile world prefers a direction, so this doubles the
-# corpus for the cost of a transform and every disagreement is an asymmetry in our own code.
-#
-# What runs here is the mirror relation and not the corpus's own verdict, and that distinction is
-# why this block can exist at all. The plain corpus carries known incomplete and model-closed cases
-# — it has been red for months by design — so running it here would put a permanent failure into
-# every run, and a run carrying a failure can never be a baseline: the ledger would lose its memory
-# to report something nobody learns from. The relation is a different claim, and a block that is
-# model-closed both ways satisfies it.
-#
-# It runs only on this corpus. The plan refuses mirroring the native suite until the wall-clock rule
-# has landed there, because the one mirror relation implemented over there is the intermittent
-# fixture, and a metamorphic relation checked against an oracle that disagrees with itself under
-# load is a test of the oracle rather than of the world.
-mirror_log=$(mktemp)
-dotnet run --project Tools/NavReplay -- --mirror Tools/Scenarios >"$mirror_log" 2>&1
-mirror_status=$?
-tail -n 1 "$mirror_log"
-[ $mirror_status -ne 0 ] && grep "DISAGREES" "$mirror_log"
-rm -f "$mirror_log"
-record_exit "nav-replay" "$mirror_status"
+# The corpus mirror is a row of NavReplay's self-test now: the reflection's exactness over the
+# committed scenarios is checked there, and the walker's replay of the corpus — the thing the
+# mirror relation used to run both ways — went with the walker. A scenario is played against the
+# orb by the world run below, in the real world it was cut from.
 
 # world-run — the whole brain and the native body in a real saved world, behind the player track a
 # recording holds. Both of its inputs live outside the repository on purpose: Telemetry/ is
@@ -187,6 +167,21 @@ cat "$world_run_log"
 rm -f "$world_run_log"
 record_exit "world-run" "$world_run_status"
 
+# The committed scenario checkpoints: the two windows from the last walker play, the statue ledge
+# and the water pocket, played by the orb in the real world they were cut from with the player
+# standing where he stood. The scenario files are in the repository, so only the world can be
+# absent, and an absent world files the same skip the recorded route does. The suite name carries
+# the scenario, so each window keeps its own rows across runs.
+for scenario in Tools/Scenarios/extracted-2026-09-14_19-55-52-468-tick-7224.txt Tools/Scenarios/extracted-2026-09-14_20-00-40-039-tick-5300.txt; do
+  scenario_log=$(mktemp)
+  dotnet run --project Tools/WorldRun -- --scenario="$scenario" --world="$world_run_world" >"$scenario_log" 2>&1
+  scenario_status=$?
+  grep -E '^(PASS|FAIL|SKIP|SCENARIO) ' "$scenario_log"
+  [ $scenario_status -ne 0 ] && cat "$scenario_log"
+  rm -f "$scenario_log"
+  record_exit "world-run" "$scenario_status"
+done
+
 # Rerunning a red is how one observation becomes a claim about a rate. A case that fails once and
 # passes once at the same commit is flaky by observation rather than by suspicion, which is the
 # only definition a ledger can supply — and the arithmetic for how many runs a claim needs is in
@@ -209,7 +204,9 @@ if [ "$rerun" -gt 0 ]; then
         session-report) project="Tools/SessionReport"; arguments="--self-test" ;;
         # The world run's inputs are paths with spaces in them on this machine, so they cannot
         # travel through the unquoted $arguments the other instruments use; the loop below quotes
-        # them itself for this one instrument.
+        # them itself for this one instrument. A red scenario row is rerun through the recorded
+        # route's command, which selects nothing and files a skip: rerun a scenario by hand with
+        # --scenario=<file> --world=<wld> instead.
         world-run) project="Tools/WorldRun"; arguments="" ;;
         *) echo "verify: '$red' is red under instrument '$instrument', which this script cannot rerun"; continue ;;
       esac

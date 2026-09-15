@@ -196,7 +196,7 @@ public sealed class Session
 
     /// <summary>
     /// The number a cell carries, whatever else it carries beside it. The writer packs a unit or a
-    /// state letter into several columns — life is <c>86/100</c>, breath is <c>0.55u</c> underwater,
+    /// state letter into several columns — life is <c>86/100</c>, a control is <c>desired=1.00,0.00</c>,
     /// self danger is <c>0.30L</c> in lava, horizon is the word <c>inf</c> with no threat — so a
     /// plain float parse throws on a third of the file. The leading number is what a check wants in
     /// every one of those cases, and the suffix is read from the text when it matters.

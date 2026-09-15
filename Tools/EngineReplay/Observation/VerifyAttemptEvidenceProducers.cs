@@ -212,7 +212,16 @@ internal static class VerifyAttemptEvidenceProducers
         {
             string kind = capture.Text(row, "region_kind");
             string arrival = capture.Text(row, "region_arrival");
-            Vector2 feet = new(Number(row, "observed_left") + Number(row, "npc_width") / 2f, Number(row, "observed_bottom"));
+            // The body point is the orb's centre, read from the one column that carries it. `observed_left`,
+            // `observed_bottom` and `npc_width` were the walker's body box, reconstructed here into a feet
+            // point; they are not columns any more, and their absence is deliberate rather than an omission —
+            // there is one body and one contact, a circle about this centre, so there is no box to write and
+            // SessionReport's own reader asserts the names are gone. The recorder writes the centre because it
+            // is the point the navigator steers and the intent region measures, which is the same point both
+            // geometries below have to be judged against.
+            var centreOf = PairOf(capture.Text(row, "npc_px"))
+                ?? throw new InvalidOperationException($"row at tick {capture.Text(row, "tick")} carries no body centre: npc_px={capture.Text(row, "npc_px")}");
+            Vector2 body = new(centreOf.X, centreOf.Y);
             if (row > 0 && capture.Text(row, "spot") != capture.Text(row - 1, "spot"))
             {
                 Require(capture.Text(row, "region_revision") != capture.Text(row - 1, "region_revision"),
@@ -232,8 +241,8 @@ internal static class VerifyAttemptEvidenceProducers
                 if (arrival != "-")
                 {
                     toolClaims++;
-                    bool inside = live::AICompanion.Companion.Brain.Infrastructure.Interactions.FindToolAccess.InReachBox(feet, work, (int)reach.Value.X, (int)reach.Value.Y);
-                    Require(arrival == (inside ? "inside" : "outside"), $"the arrival at tick {capture.Text(row, "tick")} is recorded {arrival}, but feet {feet} are {(inside ? "inside" : "outside")} the reach box");
+                    bool inside = live::AICompanion.Companion.Brain.Infrastructure.Interactions.FindToolAccess.InReachBox(body, work, (int)reach.Value.X, (int)reach.Value.Y);
+                    Require(arrival == (inside ? "inside" : "outside"), $"the arrival at tick {capture.Text(row, "tick")} is recorded {arrival}, but the body centre {body} is {(inside ? "inside" : "outside")} the reach box");
                 }
             }
             else if (kind == "follow-comfort")
@@ -246,7 +255,7 @@ internal static class VerifyAttemptEvidenceProducers
                     $"a follow-comfort row at tick {capture.Text(row, "tick")} lacks well-formed admission references: player {capture.Text(row, "region_player_px")} anchor {capture.Text(row, "region_anchor_px")} comfort {capture.Text(row, "region_comfort")}");
                 if (arrival == "-") continue;
                 followClaims++;
-                bool Near((float X, float Y) centre) => MathF.Abs(feet.X - centre.X) <= comfort!.Value.X + .01f && MathF.Abs(feet.Y - centre.Y) <= comfort.Value.Y + .01f;
+                bool Near((float X, float Y) centre) => MathF.Abs(body.X - centre.X) <= comfort!.Value.X + .01f && MathF.Abs(body.Y - centre.Y) <= comfort.Value.Y + .01f;
                 bool inside = Near(player!.Value) || Near(anchor!.Value);
                 Require(arrival == (inside ? "inside" : "outside"), $"the follow arrival at tick {capture.Text(row, "tick")} is recorded {arrival}, but its geometry says {(inside ? "inside" : "outside")}");
             }

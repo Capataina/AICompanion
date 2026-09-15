@@ -26,7 +26,14 @@ internal static class VerifyObservedMotion
 
     private static int StationaryGroundedEnemyStaysGrounded()
     {
+        // The floor is this scene's own. It used to be whatever the free-space case before it had
+        // left in the map, and the moment every case started from an empty map the enemy fell
+        // through nothing: a fixture that reads terrain it did not write is order-dependent by
+        // construction, and this one had been passing on another fixture's walls since it was written.
+        const int floorRow = 60;
+        for (int x = 16; x <= 24; x++) VerifyEngineMotion.Solid(x, floorRow);
         var npc = Npc(11, new Vector2(320f, 928f), Vector2.Zero);
+        npc.Bottom = new Vector2(npc.Center.X, floorRow * 16f);
         SetTick(10);
         float bottom = npc.Bottom.Y;
         Vector2 forecast = PredictObservedMotion.Predict(npc, 12);

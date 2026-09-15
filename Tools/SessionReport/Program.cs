@@ -39,12 +39,13 @@ public static class Program
         new ColumnsHoldWhatTheyClaim(),
         new TheCaptureWasClosed(),
         new NoOccurrenceWasDropped(),
-        // The two boundary checks, which ask whether the record can be believed at all: a body
-        // held by our own code rather than by the world, and the offline motion rule drifting away
-        // from the collision that performs it. Both come before the behaviour checks because a
-        // finding in either means the behaviour below it was measured on a broken body.
+        // The boundary check, which asks whether the record can be believed at all: a body held by
+        // our own code rather than by the world. It comes before the behaviour checks because a
+        // finding here means the behaviour below it was measured on a broken body. Its former
+        // companion, the divergence between the offline motion rule and the collision that
+        // performed it, went with the walker: there is one body and one contact now, run identically
+        // in the mod and in every headless tool, so there is no second prediction to disagree with.
         new TheBodyIsNeverPinned(),
-        new TheTwoBodiesAgree(),
         // The identity contracts: whether a selection, an attempt and a control grant are named
         // consistently across the rows and the occurrence sibling. Every one is a rule the producer
         // guarantees rather than a threshold, and a finding here means any later attribution of
@@ -55,18 +56,16 @@ public static class Program
         new RepeatedFailedMethodsAreFindings(),
         new CompletedTransferClaimsWereReceived(),
         new ControlGrantsAreCompatible(),
-        // Then the body, the fight and the choices.
+        // Then the body, the fight and the choices. Three movement checks went with the walker and
+        // are worth naming here, because each would have kept reporting a clean run for ever rather
+        // than failing loudly: a move's proven ticks against its performed ticks, whether every kind
+        // of offered move was ever made, and whether a refused step held the body. All three read a
+        // proved edge with a kind, an outcome and a macro refusal in front of it, and the orb's
+        // navigator carries a route of free-space corners with none of those things in it.
         new TheBodyMovesWhenDriven(),
-        new EveryMoveOfferedGetsMade(),
-        new ProvenMovesTakeTheirProvenTime(),
-        // A refused step sits before the fault checks because a refusal is not a fault: it happens
-        // before the attempt's first tick, so it raises none, and a body parked on one is invisible
-        // to every check that reads outcomes. It is read from the god's-eye samples rather than the
-        // chronicle because the chronicle cannot see it at all.
-        new PersistentRejectionsAreFindings(),
-        // One move against its proven ticks, then the whole journey against its proven ticks and against the player's
-        // own: every move inside a journey can land inside its price while the journey costs four times as much,
-        // because the time goes into the gaps between the moves, and the stops are where those gaps are.
+        // The whole journey against its proven ticks and against the player's own, then the stops:
+        // a route's segments can each be flown at pace while the journey costs four times as much,
+        // because the time goes into the gaps, and the stops are where those gaps are.
         new JourneysTakeTheTimeTheyWereProven(),
         new TheBodyStopsOnItsOwnRoute(),
         new BeingUnableToReachHimGetsNoticed(),
@@ -75,7 +74,10 @@ public static class Program
         new ClaimedArrivalsStayInsideTheirSuccessRegion(),
         new HuntingProducesAnOutcome(),
         new HuntingHadAWeaponThatCouldReach(),
-        new SubmergedMotionGetsExplained(),
+        // A submerged body running its breath down was a check here and is not replaced. The orb has
+        // no breath: a liquid hurts it on contact rather than over a bar, and no capture has yet shown
+        // it stalled in one. A check written for that now would be written from an imagined failure,
+        // which is the one way of adding a check this folder refuses.
         new FollowingRespondsAfterDeparture(),
         new DamageArrivesWhereDangerWasSeen(),
         new TheHandsWorkWhileThreatened(),
@@ -100,13 +102,16 @@ public static class Program
     private static readonly IMeasure[] Measures =
     {
         new MeasureAheadShare(),
-        new MeasureCancelledInFlight(),
+        // `cancelled-in-flight` and `arrived-with-follow-gap` were measures here and are deleted
+        // rather than rewritten: the first read a proved edge released mid-arc, and the second read
+        // the positioner's `partial-progress-candidate` choice reason, which the positioner stopped
+        // writing when a spot became a corner node the flood reached. Neither quantity exists for
+        // this body, and a measure left reading a name nobody writes reports zero for ever.
         new MeasureStopsByReason(),
         new MeasureValidityFlips(),
         new MeasureHuntKnownUnusableShare(),
         new MeasureReachCompleteShare(),
         new MeasureJourneysReached(),
-        new MeasureArrivedWithFollowGap(),
         new MeasureHandsByActivity(),
         new MeasureTerrainRevisionRate(),
     };
@@ -384,7 +389,9 @@ public static class Program
     }
 
     /// <summary>A file as given, or the newest .tsv in a folder, so a report is one command after a playtest.</summary>
-    private static string? Resolve(string argument)
+    /// <summary>A capture path, or the newest capture in a folder. Internal because the play measures
+    /// resolve their default the same way the tool does, rather than naming one file nobody writes.</summary>
+    internal static string? Resolve(string argument)
     {
         if (File.Exists(argument))
             return argument;

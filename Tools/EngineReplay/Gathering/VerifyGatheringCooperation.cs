@@ -47,7 +47,17 @@ internal static class VerifyGatheringCooperation
         void Each(string name, Action fixture)
         {
             try { fixture(); Console.WriteLine($"GREEN {name}"); }
-            catch (Exception e) { red++; Console.WriteLine($"RED {name}: {e.Message}"); }
+            catch (Exception e)
+            {
+                red++;
+                // An `InvalidOperationException` is this file's own `Require` and its message is the whole story.
+                // Anything else is the instrument breaking, and a bare message for those is useless — a red
+                // reading only "Object reference not set to an instance of an object" cost a separate isolation
+                // run to locate. Those carry their type and where they were thrown.
+                string detail = e is InvalidOperationException ? e.Message
+                    : $"{e.GetType().Name}: {e.Message}{Environment.NewLine}{e.StackTrace}";
+                AICompanion.Tools.Ledger.EmitLedgerRows.Detail($"RED {name}: {detail}");
+            }
             finally { WorkPolicies.Mining = mining; WorkPolicies.Chopping = chopping; Protection.Reset(); new TileDamageClock().OnWorldUnload(); }
         }
         Each("W01 chopping from actual reach", ChoppingFellsFromActualReachOnEitherSide);
@@ -242,7 +252,6 @@ internal static class VerifyGatheringCooperation
         // approach asks the region instead of searching, so `AStar.MsBudget` cannot reach it and a row
         // still starving it would have gone on passing while testing nothing.
         live::AICompanion.Companion.Brain.Infrastructure.Movement.LimitPlanningWork.Unbounded = false;
-        double budget = live::AICompanion.Companion.Brain.Infrastructure.Movement.AStar.MsBudget;
         try
         {
             Point far = new(50, 59);
@@ -260,7 +269,6 @@ internal static class VerifyGatheringCooperation
         }
         finally
         {
-            live::AICompanion.Companion.Brain.Infrastructure.Movement.AStar.MsBudget = budget;
             live::AICompanion.Companion.Brain.Infrastructure.Movement.LimitPlanningWork.Unbounded = true;
             Protection.Reset();
         }
@@ -307,10 +315,12 @@ internal static class VerifyGatheringCooperation
                     && Vector2.Distance(ctx.Npc.Bottom, target.ToWorldCoordinates()) < 7 * 16,
                 "cooldown" => LastToolOutcome(ctx, c.Chopping) is { Productive: true } && !(c.Chopping ? ctx.Companion.Chopper.Ready : ctx.Companion.Miner.Ready)
                     && TargetPresent(target, c.Chopping),
-                _ => !ctx.Companion.Motor.State.OnGround && ctx.Companion.Brain.LastAction?.Name == "mine" && ctx.Npc.Bottom.Y < 60 * 16 - 8,
+                // The walker's "in flight" phase was a jump; the orb's is simply being up off the floor line,
+                // which is where a body that hovers does ceiling work from.
+                _ => ctx.Companion.Brain.LastAction?.Name == "mine" && ctx.Npc.Center.Y < 60 * 16 - 24,
             });
             Require(ctx.Companion.Brain.LastAction?.Name == name && TargetPresent(target, c.Chopping),
-                $"{c.Name}: the fixture must catch the {c.Phase} phase; action={ctx.Companion.Brain.LastAction?.Name} feet={ctx.Npc.Bottom} ground={ctx.Companion.Motor.State.OnGround}");
+                $"{c.Name}: the fixture must catch the {c.Phase} phase; action={ctx.Companion.Brain.LastAction?.Name} centre={ctx.Npc.Center} clear={ctx.Companion.Motor.ClearOfTerrain}");
             long strikes = LastToolOutcome(ctx, c.Chopping)?.Attempt ?? -1;
             if (c.Chopping) WorkPolicies.Chopping = c.Off; else WorkPolicies.Mining = c.Off;
             bool handReleased = true;
@@ -433,20 +443,24 @@ internal static class VerifyGatheringCooperation
         var (mine, ctx) = VerifyOreWork.SetUp(WorkPolicy.Opportunistic, TileID.Copper, ore);
         MakeTree(trunk);
         WorkPolicies.Chopping = WorkPolicy.Opportunistic;
-        ctx.Npc.Bottom = new Vector2(28 * 16 + 8, 60 * 16);
+        // A hover one radius clear of the floor, and every distance below measured from the same centre the
+        // activities price from. Writing `Bottom` put half the circle inside the floor and priced the walk from a
+        // point ten pixels under the one the forecast used, which is why the two sides disagreed by a fraction of
+        // a tick rather than by anything structural.
+        ctx.Npc.Center = new Vector2(28 * 16 + 8, 60 * 16 - live::AICompanion.Companion.Brain.Infrastructure.Movement.CircleContact.Radius);
         TerrainChanges.Reset();
         var chop = new ChopTree();
         Require(VerifyPreparedActivities.PrepareAndScore(mine, ctx) > 0 && VerifyPreparedActivities.PrepareAndScore(chop, ctx) > 0
             && mine.RemainingWork is { } oreWork && chop.RemainingWork is { } treeWork,
             "the unit fixture needs both a proven ore job and a proven trunk");
-        float walkSpeed = live::AICompanion.Companion.CompanionMotor.WalkSpeed;
+        float walkSpeed = live::AICompanion.Companion.Brain.Infrastructure.Movement.OrbPace.MaxSpeed;
         float mineWalk = mine.ForecastTicks() - mine.RemainingWork!.Value.Ticks;
         float chopWalk = chop.ForecastTicks() - chop.RemainingWork!.Value.Ticks;
-        float expectedMine = Vector2.Distance(ctx.Npc.Bottom, mine.TargetStandPosition!.Value) / walkSpeed;
-        // The trunk's working pose from the same shared query and the same feet that chopping's discovery asks.
-        Require(FindToolAccess.Approach(trunk, ctx.Npc.Bottom, ctx.Companion.Brain.Senses.Reach, out Vector2 chopStand) == live::AICompanion.Companion.Brain.Infrastructure.Movement.Reachability.Reach.Yes,
+        float expectedMine = Vector2.Distance(ctx.Npc.Center, mine.TargetStandPosition!.Value) / walkSpeed;
+        // The trunk's working pose from the same shared query and the same body point that chopping's discovery asks.
+        Require(FindToolAccess.Approach(trunk, ctx.Npc.Center, ctx.Companion.Brain.Senses.Reach, out Vector2 chopStand) == live::AICompanion.Companion.Brain.Infrastructure.Movement.Reachability.Reach.Yes,
             "the unit fixture needs a proven working pose for the trunk");
-        float expectedChop = Vector2.Distance(ctx.Npc.Bottom, chopStand) / walkSpeed;
+        float expectedChop = Vector2.Distance(ctx.Npc.Center, chopStand) / walkSpeed;
         Require(MathF.Abs(mineWalk - expectedMine) < 0.01f && MathF.Abs(chopWalk - expectedChop) < 0.01f && chopWalk > 0 && mineWalk > 0,
             $"mining and chopping must price the walk in one unit, pixels to their own working pose over walking speed; mine walk={mineWalk:0.00} (expected {expectedMine:0.00}) chop walk={chopWalk:0.00} (expected {expectedChop:0.00})");
     }

@@ -6,22 +6,35 @@ using System.Collections.Generic;
 namespace AICompanion.Tools.SessionReport;
 
 /// <summary>
-/// Whether a recorded follow objective remains unsatisfied without consuming a route step.
+/// Whether a recorded follow objective remains unsatisfied without making progress along its route.
 /// Euclidean distance is deliberately not the progress measure: a valid C-turn can first move
 /// away from the player. Remaining ETA is evidence to display, never progress evidence by itself,
 /// because an active traversal's estimate decreases as time passes even if the body is frozen.
+/// Two signals count as progress, and the second exists because the first alone cannot see a
+/// straight flight: the orb's route is smoothed by skipping up to a lookahead of raw corners into
+/// one segment, so a body crossing an open span holds one segment for the whole crossing and
+/// <c>route_index</c> never moves. <c>route_remaining_px</c> is the body's own projection onto
+/// that segment, so it falls only when the body moves, and it is credited only while the search
+/// identity is unchanged, because a replan can shorten the route without the body having travelled.
 /// </summary>
 public sealed class FollowingMakesRouteProgress : ICheck
 {
     /// <summary>Two seconds excludes a normal short replan while retaining a sustained wrong-floor run.</summary>
     private const int MinUnsatisfiedTicks = 120;
 
+    /// <summary>
+    /// One tile, measured from the window's own start rather than from the previous row. A per-row
+    /// comparison would credit the projection's own jitter on a body that is not moving, which
+    /// turns this check silent; a tile is far above that jitter and far below any real approach.
+    /// </summary>
+    private const float ProgressPixels = 16f;
+
     private const string CheckName = "did an unsatisfied follow objective make route progress";
     public string Name => CheckName;
     public string[] Needs => new[]
     {
         "request", "follow_objective_valid", "follow_dx", "follow_dy", "follow_reason",
-        "route_search_id", "route_attempt_id", "route_remaining_ticks", "path_at", "action", "recovery_active", "brain_fresh"
+        "route_search_id", "route_attempt_id", "route_remaining_ticks", "route_remaining_px", "route_index", "action", "recovery_active", "brain_fresh"
     };
 
     public IEnumerable<Finding> Run(Session session)
@@ -29,7 +42,11 @@ public sealed class FollowingMakesRouteProgress : ICheck
         Column request = session["request"], satisfied = session["follow_objective_valid"];
         Column dx = session["follow_dx"], dy = session["follow_dy"], reason = session["follow_reason"];
         Column search = session["route_search_id"], attempt = session["route_attempt_id"];
-        Column remaining = session["route_remaining_ticks"], completed = session["path_at"], action = session["action"], recovery = session["recovery_active"], fresh = session["brain_fresh"];
+        // `route_index` is the segment the body is on, so it rising is a segment consumed — the orb's
+        // form of the completed waypoint this watch resets on. It is read for progress only and never
+        // compared against `route_points`, because the index stops one short of the count by design.
+        Column remaining = session["route_remaining_ticks"], completed = session["route_index"], action = session["action"], recovery = session["recovery_active"], fresh = session["brain_fresh"];
+        Column remainingPx = session["route_remaining_px"];
         int start = -1;
         for (int i = 0; i < session.Count; i++)
         {
@@ -42,7 +59,12 @@ public sealed class FollowingMakesRouteProgress : ICheck
                 continue;
             }
             bool stepCompleted = i > 0 && completed.Number[i] > completed.Number[i - 1];
-            if (start < 0 || stepCompleted)
+            // A NaN on either side makes this false, so a capture that stopped writing the column
+            // reports the window rather than silently crediting progress it cannot see.
+            bool closed = start >= 0
+                && search.Number[i] == search.Number[start]
+                && remainingPx.Number[start] - remainingPx.Number[i] > ProgressPixels;
+            if (start < 0 || stepCompleted || closed)
             {
                 if (start >= 0) foreach (Finding finding in ReportWindow(session, start, i - 1, dx, dy, reason, search, attempt, remaining, completed)) yield return finding;
                 // A completed waypoint is physical progress. Resetting the watch here prevents a
@@ -69,9 +91,9 @@ public sealed class FollowingMakesRouteProgress : ICheck
                 $"follow remained unsatisfied for {rows} ticks without completing a route step ({classification})",
                 $"The companionship activity kept requesting WithPlayer while follow reason was "
                     + $"{FindStretches.Summarise(reason, new Stretch(start, end), 3)}. Navigator identity began search {search.Number[start]:0}, "
-                    + $"attempt {attempt.Number[start]:0}, completed step {completed.Number[start]:0}, "
+                    + $"attempt {attempt.Number[start]:0}, route segment {completed.Number[start]:0}, "
                     + $"remaining estimate {remaining.Number[start]:0.0} ticks and ended search {search.Number[end]:0}, "
-                    + $"attempt {attempt.Number[end]:0}, completed step {completed.Number[end]:0}, "
+                    + $"attempt {attempt.Number[end]:0}, route segment {completed.Number[end]:0}, "
                     + $"remaining estimate {remaining.Number[end]:0.0} ticks. Follow gap changed {firstGap:0.0}->{lastGap:0.0} px. "
                     + "A countdown in remaining estimate alone is not credited, because time can pass while the body is frozen. Recovery flight rows are excluded. Replay the captured terrain and inspect the route identities to separate a wrong floor from a planner that never resolved.",
                 session.Tick(start), session.Tick(end), rows);

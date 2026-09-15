@@ -41,8 +41,6 @@ public static class DescribeGodsEyeEvents
                 text.Append($"causal    {TimeSpan.FromMilliseconds(e.wall_elapsed_ms):hh\\:mm\\:ss\\.fff} tick {e.tick}: {shot.label} projectile {e.subject} intended target {shot.related} at {shot.expected_x:0.0},{shot.expected_y:0.0} from {shot.pos_x:0.0},{shot.pos_y:0.0} met terrain at {e.pos_x:0.0},{e.pos_y:0.0} before any recorded enemy contact (observed obstruction; cause requires the recorded trajectory and terrain)\n");
             if (e.kind == "projectile-enemy-hit" && launches.TryGetValue(e.subject, out GodsEyeEvent? hitShot) && hitShot != null)
                 contacted.Add(e.subject);
-            if (e.kind == "movement-state" && TryRejection(e.detail, out string rejected) && rejections.Add(rejected))
-                text.Append($"causal    {TimeSpan.FromMilliseconds(e.wall_elapsed_ms):hh\\:mm\\:ss\\.fff} tick {e.tick}: recorded movement rejection at {e.pos_x:0.0},{e.pos_y:0.0}; {Abbreviate(rejected, 280)} (observed planner/execution evidence; its underlying terrain cause remains unknown unless a matching terrain snapshot covers it)\n");
         }
         // The default spans the entire run: aggregate each time window rather than showing only
         // the first few seconds of a long session. The full trace preserves every causal record.
@@ -95,29 +93,14 @@ public static class DescribeGodsEyeEvents
         return text.ToString();
     }
 
-    private static string MovementSummary(string detail)
-    {
-        const string rejection = ";last-rejection=";
-        int index = detail.IndexOf(rejection, StringComparison.Ordinal);
-        if (index < 0) return Abbreviate(detail, 700);
-        string before = detail[..index];
-        string value = detail[(index + rejection.Length)..];
-        if (string.IsNullOrEmpty(value)) return before + "; last rejection none";
-        int reason = value.LastIndexOf("Reason = ", StringComparison.Ordinal);
-        return reason >= 0
-            ? before + "; last rejection recorded (" + Abbreviate(value[reason..], 160) + ")"
-            : before + "; last rejection recorded (detail retained in --timeline)";
-    }
+    /// <summary>
+    /// The navigator's sampled state, as the producer writes it: status, search stop, goal, the route's
+    /// points and the segment in hand, the progress reason, and the stuck counters. There is no last
+    /// rejection to unpack any more — a refusal was the walking body's macro proof turning a step down,
+    /// and the orb's search either returns a corridor or does not.
+    /// </summary>
+    private static string MovementSummary(string detail) => Abbreviate(detail, 700);
 
     private static string Abbreviate(string value, int maximum)
         => value.Length <= maximum ? value : value[..maximum] + "… (full detail in --timeline)";
-
-    private static bool TryRejection(string detail, out string rejection)
-    {
-        const string marker = "last-rejection=";
-        int start = detail.IndexOf(marker, StringComparison.Ordinal);
-        if (start < 0) { rejection = ""; return false; }
-        rejection = detail[(start + marker.Length)..];
-        return !string.IsNullOrEmpty(rejection);
-    }
 }

@@ -21,7 +21,6 @@ internal static class VerifyCombatPurpose
     public static int Run()
     {
         ThreatConsequenceCountsEffectiveDamageAgainstRemainingLife();
-        TheSameSmallAttackIsIgnoredAtFullHealthAndEscapedAtLowHealth();
         PursuitWeighsARepositionAgainstTheShotsItDelays();
         ProtectionIsWorthTheHarmAnInterventionCanRemove();
         ProtectionCountsTheTimeToReachAFiringPosition();
@@ -29,6 +28,16 @@ internal static class VerifyCombatPurpose
         TheRecordCarriesPursuitAimAndHitApart();
         VerifyEncounterContext.Run();
         VerifyCombatActorMatrix.Run();
+        // Last deliberately, and it is the only row here whose position is chosen rather than incidental.
+        // This fixture aborts on its first throw, and this row is red on a brain finding that will stay red
+        // until combat spacing is changed: it wants a companion at twelve life to create space from a slime
+        // whose danger comes to 0.411 against a `CompanionInTrouble` threshold of 0.45. Standing second, as it
+        // did, it took the seven rows below it with it every run — the pursuit valuation, both protection rows,
+        // the two identity rows, the whole encounter context and the whole actor matrix — none of which had run
+        // at this body since the change, and two of which turned out to be carrying walker-era defects of their
+        // own once they could be seen. A row that cannot pass until somebody changes the brain goes last, so
+        // that what it is waiting on is the only thing it hides.
+        TheSameSmallAttackIsIgnoredAtFullHealthAndEscapedAtLowHealth();
         Console.WriteLine("combat purpose: effective damage and remaining life decide threat consequence, low health turns a tolerable attack into an escape, pursuit weighs a reposition against the shots it delays, protection is worth only the harm an intervention can remove, pursuit, aim and landed-hit identities are recorded apart, and a boss or world event stops optional work only where it reaches, once, from native facts or observed pressure");
         return 0;
     }
@@ -287,11 +296,9 @@ internal static class VerifyCombatPurpose
             for (int x = ShaftLeft - 3; x < ShaftLeft; x++)
                 for (int y = PitFloorY; y < ShaftFloorY; y++) { Tile air = Main.tile[x, y]; air.HasTile = false; }
         live::AICompanion.Companion.Brain.Infrastructure.Movement.TerrainChanges.Reset();
-        live::AICompanion.Companion.Brain.Infrastructure.Movement.NavGrid.World = new live::AICompanion.Companion.Brain.Infrastructure.Movement.GameTileWorld();
-        live::AICompanion.Companion.Brain.Infrastructure.Movement.AStar.InvalidateEdges();
+        live::AICompanion.Companion.Brain.Infrastructure.Movement.MovementQueries.World = new live::AICompanion.Companion.Brain.Infrastructure.Movement.GameTileWorld();
 
         var companion = VerifyCompanionLifecycle.Create();
-        live::AICompanion.Companion.Brain.Infrastructure.Movement.AStar.MsBudget = 0;
         Player player = Main.player[0];
         player.dead = false;
         player.statLife = player.statLifeMax2;
@@ -394,6 +401,28 @@ internal static class VerifyCombatPurpose
     // the short step, the priced walk inside the arsenal's window or the walk past it that it claims to be.
     private const int PlayerTileX = 44, NearStart = 45, MiddleStart = 22, FarStart = 9;
 
+    // The pursuit scene needs its own world, twice as wide, and the reason is the body rather than the scene.
+    // Its three rows are a near, a middle and a far reposition, and the far one exists to price a wait longer
+    // than `Arsenal.HorizonTicks` — the window the arsenal evaluates inside — so that an enemy the companion
+    // could only reach after it is worth nothing now. A walker reached that wait inside a 120-tile world; the
+    // orb flies the same detour at about 3.2 ticks a tile and the old far start priced 137.6 against a horizon
+    // of 180, so the row asserted a truncation that no longer happened and the wait it measured sat comfortably
+    // inside the window. The distances are the only thing that grew: the shaft, the pit and the hidden enemy
+    // keep the shape they had, shifted right so the far start has floor under it. They are separate constants
+    // from the ones above because `ProtectionCountsTheTimeToReachAFiringPosition` builds its own world from
+    // those, and it is about a guard's access rather than about a wait against the horizon.
+    private const int PursuitWorldWidth = 240, PursuitShift = 120;
+    private const int PursuitShaftLeft = ShaftLeft + PursuitShift, PursuitShaftRight = ShaftRight + PursuitShift;
+    private const int PursuitHiddenX = HiddenX + PursuitShift, PursuitPlayerX = PlayerTileX + PursuitShift;
+    private const int PursuitNearStart = NearStart + PursuitShift, PursuitMiddleStart = MiddleStart + PursuitShift;
+    // Sixty-six tiles behind the near start rather than the walker's thirty-six, which is what carries the wait
+    // past 180. Sixty priced 212.2 under the three-row sight beam and 176.3 once sight became the single-tile
+    // walk, because a thinner line finds a nearer lip to shoot from. It cannot go further: the visible zombie
+    // stands three tiles beyond the companion, and the hunt admits a target only inside the new-activity radius
+    // of the player (seventy tiles), so at sixty-eight that zombie was refused as a target and the row read
+    // "the visible one must be examined", and at seventy-five the companion itself was outside the radius.
+    private const int PursuitFarStart = PursuitNearStart - 66;
+
     private readonly record struct PursuitScene(int Pursuit, int Aim, string HiddenVerdict, float HiddenAccess,
         float HiddenValue, float VisibleValue, float HiddenDanger, float HiddenPlayerUrgency, string Evidence);
 
@@ -411,29 +440,29 @@ internal static class VerifyCombatPurpose
     /// </summary>
     private static PursuitScene HuntPair(int companionX, bool hiddenDangerous, bool lineFromHere)
     {
-        Main.maxTilesX = Main.maxTilesY = 120;
+        Main.maxTilesX = PursuitWorldWidth;
+        Main.maxTilesY = 120;
         Main.worldSurface = 50;
         Main.tile = (Tilemap)Activator.CreateInstance(typeof(Tilemap), System.Reflection.BindingFlags.Instance
-            | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public, null, new object[] { (ushort)120, (ushort)120 }, null)!;
+            | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public, null, new object[] { (ushort)PursuitWorldWidth, (ushort)120 }, null)!;
         Main.tileSolid[1] = true;
-        for (int x = 5; x < 115; x++)
+        for (int x = 5; x < PursuitWorldWidth - 5; x++)
             for (int y = PitFloorY; y <= ShaftFloorY + 2; y++) { Tile rock = Main.tile[x, y]; rock.HasTile = true; rock.TileType = 1; }
-        for (int x = ShaftLeft; x <= ShaftRight; x++)
+        for (int x = PursuitShaftLeft; x <= PursuitShaftRight; x++)
             for (int y = PitFloorY; y < ShaftFloorY; y++) { Tile air = Main.tile[x, y]; air.HasTile = false; }
         // The opening stops short of the companion's own floor tile, so the body stands where it did.
         if (lineFromHere)
-            for (int x = ShaftLeft - 3; x < ShaftLeft; x++)
+            for (int x = PursuitShaftLeft - 3; x < PursuitShaftLeft; x++)
                 for (int y = PitFloorY; y < ShaftFloorY; y++) { Tile air = Main.tile[x, y]; air.HasTile = false; }
         live::AICompanion.Companion.Brain.Infrastructure.Movement.TerrainChanges.Reset();
-        live::AICompanion.Companion.Brain.Infrastructure.Movement.NavGrid.World = new live::AICompanion.Companion.Brain.Infrastructure.Movement.GameTileWorld();
+        live::AICompanion.Companion.Brain.Infrastructure.Movement.MovementQueries.World = new live::AICompanion.Companion.Brain.Infrastructure.Movement.GameTileWorld();
 
         var companion = VerifyCompanionLifecycle.Create();
-        live::AICompanion.Companion.Brain.Infrastructure.Movement.AStar.MsBudget = 0;
         Player player = Main.player[0];
         player.dead = false;
         player.statLife = player.statLifeMax2;
         player.DefenseEffectiveness = MultipliableFloat.One * .5f;
-        player.position = new Vector2(PlayerTileX * 16f, PitFloorY * 16f - player.height);
+        player.position = new Vector2(PursuitPlayerX * 16f, PitFloorY * 16f - player.height);
         companion.NPC.position = new Vector2(companionX * 16f, PitFloorY * 16f - companion.NPC.height);
 
         NPC hidden = Main.npc[HiddenSlot];
@@ -442,7 +471,7 @@ internal static class VerifyCombatPurpose
         hidden.life = Math.Max(1, hidden.lifeMax / 20);
         hidden.noTileCollide = true;
         hidden.damage = hiddenDangerous ? 100 : 1;
-        hidden.Bottom = new Vector2(HiddenX * 16f + 8f, ShaftFloorY * 16f);
+        hidden.Bottom = new Vector2(PursuitHiddenX * 16f + 8f, ShaftFloorY * 16f);
         NPC visible = Main.npc[VisibleSlot];
         visible.SetDefaults(NPCID.Zombie);
         visible.whoAmI = VisibleSlot; visible.active = true; visible.velocity = Vector2.Zero;
@@ -470,16 +499,45 @@ internal static class VerifyCombatPurpose
         var hunt = brain.Chooser.Actions.OfType<live::AICompanion.Companion.Brain.Activities.Combat.PursueAttackOpportunity>().Single();
         VerifyPreparedActivities.PrepareAndScore(hunt, ctx);
 
-        string hiddenVerdict = "unexamined"; float hiddenAccess = float.NaN, hiddenValue = float.NaN, visibleValue = float.NaN;
-        foreach (string entry in hunt.PursuitEvidence.Split('|', StringSplitOptions.RemoveEmptyEntries))
+        // The firing-stand sweep behind each pursuit candidate resumes on `Senses.Tick`, which is the clock
+        // `ResolveFiringOpportunity` caches its verdict against, so one preparation reads one bounded scan.
+        // A sweep that has not settled reports `Unknown` *with a wait already priced*, which on the printed
+        // evidence is indistinguishable from a reposition the brain examined and refused. The near start
+        // settled in a single preparation and the middle and far starts did not, so a single preparation made
+        // this premise a function of how far the reposition was rather than of anything the brain decided —
+        // three of the five rows failed at "the row tests nothing" while the behaviour under them was never
+        // reached. Driving that clock is the only thing the loop does: the threat list, the urgency and the
+        // terrain stay as the scene built them, where a fresh `Senses.Update` would rebuild them. The step is
+        // one past the cache's own twenty-tick window, which is what `VerifyHuntAdmissibility` uses for the
+        // same sweep. The ceiling is a fixture guard, so a sweep that never settles fails as a broken premise
+        // naming its pass count rather than falling out still undecided and reading as a behaviour result.
+        const int SweepPassCeiling = 400;
+        const int SweepClockStepTicks = 21;
+        var sensesClock = typeof(live::AICompanion.Companion.Brain.Infrastructure.Observation.Senses).GetProperty("Tick")!;
+
+        string hiddenVerdict; float hiddenAccess, hiddenValue, visibleValue;
+        int passes = 1;
+        while (true)
         {
-            string[] field = entry.Split(':');
-            int slot = int.Parse(field[0]);
-            float access = float.Parse(field[3], System.Globalization.CultureInfo.InvariantCulture);
-            float value = float.Parse(field[4], System.Globalization.CultureInfo.InvariantCulture);
-            if (slot == HiddenSlot) { hiddenVerdict = field[2]; hiddenAccess = access; hiddenValue = value; }
-            if (slot == VisibleSlot) visibleValue = value;
+            hiddenVerdict = "unexamined";
+            hiddenAccess = hiddenValue = visibleValue = float.NaN;
+            foreach (string entry in hunt.PursuitEvidence.Split('|', StringSplitOptions.RemoveEmptyEntries))
+            {
+                string[] field = entry.Split(':');
+                int slot = int.Parse(field[0]);
+                float access = float.Parse(field[3], System.Globalization.CultureInfo.InvariantCulture);
+                float value = float.Parse(field[4], System.Globalization.CultureInfo.InvariantCulture);
+                if (slot == HiddenSlot) { hiddenVerdict = field[2]; hiddenAccess = access; hiddenValue = value; }
+                if (slot == VisibleSlot) visibleValue = value;
+            }
+            if (hiddenVerdict != "Unknown" || passes >= SweepPassCeiling) break;
+            sensesClock.SetValue(brain.Senses, (int)sensesClock.GetValue(brain.Senses)! + SweepClockStepTicks);
+            VerifyPreparedActivities.PrepareAndScore(hunt, ctx);
+            passes++;
         }
+        string threatLedger = string.Join("|", brain.Senses.Threats.Threats.Select(t =>
+            FormattableString.Invariant($"{t.Npc.whoAmI}:urgency={t.Urgency:0.000}:reachPlayer={t.CanReachPlayer}:reachCompanion={t.CanReachCompanion}:toCompanion={t.DistanceToCompanion:0}")));
+        Console.WriteLine($"  pursuit scene at x={companionX}: the stand sweep settled after {passes} preparation(s), hidden verdict={hiddenVerdict}; threats={threatLedger}");
         return new(hunt.Target?.Npc.whoAmI ?? -1, aim?.whoAmI ?? -1, hiddenVerdict, hiddenAccess, hiddenValue, visibleValue, hiddenDanger,
             hiddenThreat.Urgency, hunt.PursuitEvidence);
     }
@@ -495,11 +553,11 @@ internal static class VerifyCombatPurpose
     /// </summary>
     private static void PursuitWeighsARepositionAgainstTheShotsItDelays()
     {
-        var cheapDangerous = HuntPair(NearStart, hiddenDangerous: true, lineFromHere: false);
-        var middleDangerous = HuntPair(MiddleStart, hiddenDangerous: true, lineFromHere: false);
-        var costlyDangerous = HuntPair(FarStart, hiddenDangerous: true, lineFromHere: false);
-        var cheapHarmless = HuntPair(NearStart, hiddenDangerous: false, lineFromHere: false);
-        var cheapDangerousInSight = HuntPair(NearStart, hiddenDangerous: true, lineFromHere: true);
+        var cheapDangerous = HuntPair(PursuitNearStart, hiddenDangerous: true, lineFromHere: false);
+        var middleDangerous = HuntPair(PursuitMiddleStart, hiddenDangerous: true, lineFromHere: false);
+        var costlyDangerous = HuntPair(PursuitFarStart, hiddenDangerous: true, lineFromHere: false);
+        var cheapHarmless = HuntPair(PursuitNearStart, hiddenDangerous: false, lineFromHere: false);
+        var cheapDangerousInSight = HuntPair(PursuitNearStart, hiddenDangerous: true, lineFromHere: true);
 
         foreach (var (name, scene) in new[] { ("cheap", cheapDangerous), ("middle", middleDangerous), ("costly", costlyDangerous), ("harmless", cheapHarmless), ("in-sight", cheapDangerousInSight) })
             Console.WriteLine($"  pursuit row {name}: pursuit={scene.Pursuit} aim={scene.Aim} hidden-danger={scene.HiddenDanger:0.000} hidden-player-urgency={scene.HiddenPlayerUrgency:0.000} candidates={scene.Evidence}");
@@ -620,6 +678,7 @@ internal static class VerifyCombatPurpose
     /// </summary>
     private static void TheSameSmallAttackIsIgnoredAtFullHealthAndEscapedAtLowHealth()
     {
+        string gate = "";
         bool Spaces(int life, out float danger)
         {
             var (_, ctx) = VerifyOreWork.SetUp(Policy.Disabled, TileID.Copper, new Point(25, 89));
@@ -643,6 +702,23 @@ internal static class VerifyCombatPurpose
                     "the small-attack scene must threaten the companion alone");
                 danger = MathF.Max(danger, senses.Threats.CompanionDanger);
                 spaced = ctx.Companion.Brain.Safety.Active && ctx.Companion.Brain.Safety.Kind == "combat-spacing";
+                if (tick == 0 || spaced)
+                {
+                    var threat = senses.Threats.Threats[0];
+                    float connectWindow = live::AICompanion.Companion.Brain.Infrastructure.Selection.Weights.CombatSpaceConnectTicks;
+                    float exposureGate = live::AICompanion.Companion.Brain.Infrastructure.Selection.Weights.CombatSpaceExposure;
+                    float exposure = live::AICompanion.Companion.Brain.Infrastructure.Position.Positioner.PredictedExposureAt(ctx.Npc.Center, senses);
+                    bool sees = live::AICompanion.Companion.Brain.Infrastructure.Observation.LineOfSight.Between(slime, ctx.Npc);
+                    var rows = new System.Text.StringBuilder();
+                    for (int y = (int)(ctx.Npc.Center.Y / 16) - 2; y <= (int)(ctx.Npc.Center.Y / 16) + 1; y++)
+                    {
+                        rows.Append(' ').Append(y).Append(':');
+                        for (int x = (int)(ctx.Npc.Center.X / 16) - 1; x <= (int)(slime.Center.X / 16) + 1; x++)
+                            rows.Append(live::AICompanion.Companion.Brain.Infrastructure.Movement.MovementQueries.IsBlock(x, y) ? '#' : '.');
+                    }
+                    gate = FormattableString.Invariant(
+                        $"life={life} inTrouble={senses.Threats.CompanionInTrouble} danger={senses.Threats.CompanionDanger:0.000} canReach={threat.CanReachCompanion} ticksToCompanion={threat.TicksToCompanion:0.0} sees={sees} orb={ctx.Npc.Center} slime={slime.Center} rows={rows} connectWindow={connectWindow} exposure={exposure:0.000} exposureGate={exposureGate} safety={ctx.Companion.Brain.Safety.Active}/{ctx.Companion.Brain.Safety.Kind}/{ctx.Companion.Brain.Safety.Reason}");
+                }
                 VerifyResponsiveFollowing.AdvanceNative(ctx.Companion);
             }
             return spaced;
@@ -650,7 +726,7 @@ internal static class VerifyCombatPurpose
         bool healthy = Spaces(100, out float healthyDanger);
         bool wounded = Spaces(12, out float woundedDanger);
         Require(!healthy, $"a three-damage slime must not make a full-health companion abandon work; danger={healthyDanger}");
-        Require(wounded, $"the same slime must make a companion at twelve life create space; danger={woundedDanger}");
+        Require(wounded, $"the same slime must make a companion at twelve life create space; danger={woundedDanger}; gate: {gate}");
     }
 
     private static void Require(bool condition, string message)

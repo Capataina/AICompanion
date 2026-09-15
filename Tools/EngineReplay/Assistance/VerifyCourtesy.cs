@@ -7,7 +7,7 @@ using Terraria.ID;
 using CompanionNPC = live::AICompanion.Companion.CharacterBody.CompanionNPC;
 using KeepCompany = live::AICompanion.Companion.Brain.Activities.NearbyAssistance.KeepCompany;
 using TerrainChanges = live::AICompanion.Companion.Brain.Infrastructure.Movement.TerrainChanges;
-using NavGrid = live::AICompanion.Companion.Brain.Infrastructure.Movement.NavGrid;
+using MovementQueries = live::AICompanion.Companion.Brain.Infrastructure.Movement.MovementQueries;
 using GameTileWorld = live::AICompanion.Companion.Brain.Infrastructure.Movement.GameTileWorld;
 using LimitPlanningWork = live::AICompanion.Companion.Brain.Infrastructure.Movement.LimitPlanningWork;
 
@@ -140,7 +140,7 @@ internal static class VerifyCourtesy
         for (int y = FloorRow; y <= FloorRow + 6; y++)
             for (int x = 68; x <= 76; x++) Solid(x, y);
         TerrainChanges.Reset();
-        NavGrid.World = new GameTileWorld();
+        MovementQueries.World = new GameTileWorld();
         var enemy = new NPC();
         enemy.SetDefaults(NPCID.Zombie);
         enemy.whoAmI = 44;
@@ -168,7 +168,10 @@ internal static class VerifyCourtesy
         // nothing exercised. A resting companion is on its spot in play; here the resolver picked it while the body
         // was a few tiles off, so the fixture closes that gap itself.
         Vector2 spot = positioner.Chosen!.Value;
-        companion.NPC.Bottom = spot;
+        // The positioner's chosen point is where this body's centre goes, not where feet go, so writing it into
+        // `Bottom` parked the body a whole radius below its own destination — and the block aimed at the row under
+        // it then produced a footprint that overlapped nothing the destination covered.
+        companion.NPC.Center = spot;
         companion.NPC.velocity = Vector2.Zero;
         // And bring the player within his own placement range of it. A footprint is only produced for a tile the
         // player could actually place on, so a destination further away than his reach yields nothing at all and
@@ -191,13 +194,21 @@ internal static class VerifyCourtesy
         Item item = player.inventory[player.selectedItem];
         item.SetDefaults(ItemID.DirtBlock);
         player.itemAnimation = 0;
-        Player.tileTargetX = (int)(companion.NPC.Bottom.X / 16f);
-        Player.tileTargetY = FloorRow - 1;
+        Player.tileTargetX = (int)(companion.NPC.Center.X / 16f);
+        // The tile the body's own centre occupies, rather than the row a standing body's feet would be on: those
+        // were the same tile for the walker and are not for a body that hovers.
+        Player.tileTargetY = (int)(companion.NPC.Center.Y / 16f);
         brain.Senses.Update(companion.NPC, player, companion.Motor);
+        // `BodyTiles` is bottom-anchored — it takes feet — while the positioner's chosen point is a centre, so
+        // the radius has to be added before asking, exactly as `ChooseUsefulPosition` does at its own footprint
+        // check. Without it the row compared the footprint against a body one radius higher than the one the
+        // destination describes and missed by a single row.
         Require(brain.Senses.Player.Interference is Rectangle asked
                 && live::AICompanion.Companion.Brain.Infrastructure.Observation.PlayerSense
-                    .BodyTiles(positioner.Chosen!.Value, companion.NPC.width, companion.NPC.height).Intersects(asked),
-            $"the block must produce a footprint the held destination overlaps, or retention is never released and both "
+                    .BodyTiles(positioner.Chosen!.Value + new Vector2(0f, live::AICompanion.Companion.Brain.Infrastructure.Movement.CircleContact.Radius),
+                        companion.NPC.width, companion.NPC.height).Intersects(asked),
+            $"body tiles at the destination={(live::AICompanion.Companion.Brain.Infrastructure.Observation.PlayerSense.BodyTiles(positioner.Chosen!.Value + new Vector2(0f, live::AICompanion.Companion.Brain.Infrastructure.Movement.CircleContact.Radius), companion.NPC.width, companion.NPC.height))}; "
+            + $"the block must produce a footprint the held destination overlaps, or retention is never released and both "
             + $"arms read the same; footprint={brain.Senses.Player.Interference}, destination={positioner.Chosen}");
 
         if (interposeRejectedQuery)
@@ -254,10 +265,10 @@ internal static class VerifyCourtesy
         return new PlacementRun(firstClear, Covers(companion, target), Vector2.Distance(companion.NPC.Bottom, player.Bottom), trace);
     }
 
-    private readonly record struct PassageRun(int BlockingTicks, int StartColumn, float EndPlayerColumn, float EndCompanionColumn)
+    private readonly record struct PassageRun(int BlockingTicks, int StartColumn, float EndPlayerColumn, float EndCompanionColumn, string BlockedTicks)
     {
         public override string ToString()
-            => $"companion started at column {StartColumn}; stationary ticks in the player's way after the grace: {BlockingTicks}; "
+            => $"companion started at column {StartColumn}; stationary ticks in the player's way after the grace: {BlockingTicks} [{BlockedTicks}]; "
                 + $"at the end the player was at column {EndPlayerColumn:0.0} and the companion at {EndCompanionColumn:0.0}";
     }
 
@@ -271,6 +282,11 @@ internal static class VerifyCourtesy
         var (companion, player) = Scene(roofed, companionColumn: start, playerColumn: start - 8);
         player.inventory[player.selectedItem].TurnToAir();
         int blocking = 0;
+        // The ticks themselves, not only the count. A contiguous run at the start of the window is a body still
+        // accelerating and reads as a threshold question; ticks scattered through the walk are a body that keeps
+        // settling in front of the player, which is a behaviour finding and belongs in the failure message rather
+        // than in whoever next reads the count.
+        var blockedTicks = new List<int>();
         for (int tick = 0; tick < 160; tick++)
         {
             player.velocity = new Vector2(1.5f, 0f);
@@ -288,9 +304,13 @@ internal static class VerifyCourtesy
             // reunion's meeting place put it with no courtesy, stands in the player's own column rather than ahead of it.
             Rectangle way = new((int)player.position.X, (FloorRow - 3) * 16, player.width + 32, 48);
             if (tick >= ReactionGraceTicks && companion.NPC.Hitbox.Intersects(way) && MathF.Abs(companion.NPC.velocity.X) < .5f)
+            {
                 blocking++;
+                blockedTicks.Add(tick);
+            }
         }
-        return new PassageRun(blocking, start, player.Center.X / 16f, companion.NPC.Center.X / 16f);
+        return new PassageRun(blocking, start, player.Center.X / 16f, companion.NPC.Center.X / 16f,
+            string.Join(",", blockedTicks));
     }
 
     private static (CompanionNPC Companion, Player Player) Scene(bool roofed, int companionColumn, int playerColumn)
@@ -309,7 +329,7 @@ internal static class VerifyCourtesy
             for (int x = 20; x < 80; x++) Solid(x, FloorRow - 4);
         var companion = VerifyCompanionLifecycle.Create();
         TerrainChanges.Reset();
-        NavGrid.World = new GameTileWorld();
+        MovementQueries.World = new GameTileWorld();
         Player player = Main.player[0];
         player.dead = false;
         player.statLife = player.statLifeMax2 = 100;

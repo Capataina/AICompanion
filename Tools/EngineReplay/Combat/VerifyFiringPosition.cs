@@ -311,7 +311,7 @@ internal static class VerifyFiringPosition
             for (int y = FloorY; y < ShaftFloorY; y++)
                 Open(x, y);
         live::AICompanion.Companion.Brain.Infrastructure.Movement.TerrainChanges.Reset();
-        live::AICompanion.Companion.Brain.Infrastructure.Movement.NavGrid.World = new live::AICompanion.Companion.Brain.Infrastructure.Movement.GameTileWorld();
+        live::AICompanion.Companion.Brain.Infrastructure.Movement.MovementQueries.World = new live::AICompanion.Companion.Brain.Infrastructure.Movement.GameTileWorld();
     }
 
     /// <summary>Whether a body standing on the main floor at this tile column has a straight line to the target.</summary>
