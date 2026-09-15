@@ -329,7 +329,7 @@ public sealed class Positioner
                 return true;
             case SuccessRegionKind.FiringPosition:
                 // The kind declares no box because the arc belongs to a moving target, so membership is the arc
-                // itself. Re-proving it costs one solve and it is taken outside the shortlist budget, which is
+                // itself. Re-proving it costs one solve per handed weapon and it is taken outside the shortlist budget, which is
                 // what makes a budget cut incapable of dropping a stand that still works.
                 if (request.Target is not { active: true, life: > 0 } enemy || fireProfile is not { } profile)
                     return false;
