@@ -2,6 +2,7 @@ extern alias live;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Input;
 using Terraria;
+using Terraria.GameInput;
 using Terraria.ModLoader;
 using CardSystem = live::AICompanion.Companion.ProfileCard.CompanionProfileCardSystem;
 using CompanionPlayer = live::AICompanion.Companion.PlayerIntegration.CompanionPlayer;
@@ -36,16 +37,30 @@ internal static class VerifyEscapeClosesOnlyTheCard
         Player player = Main.LocalPlayer;
         var save = player.GetModPlayer<CompanionPlayer>();
         KeyboardState keys = Main.keyState;
-        bool inventory = Main.playerInventory, control = player.controlInv, release = player.releaseInventory, dedicated = Main.dedServ;
+        bool inventory = Main.playerInventory, control = player.controlInv, release = player.releaseInventory, dedicated = Main.dedServ, wasDead = player.dead;
+        var triggers = PlayerInput.Triggers.Current.KeyStatus;
+        bool hadTrigger = triggers.TryGetValue("Inventory", out bool trigger);
         var time = new GameTime();
         int toggles = 0;
 
+        // A living player's tick copies the triggers into controlInv and then calls SetControls before the gate. A dead
+        // player's returns into UpdateDead, which calls the mod's UpdateDead before copying the triggers and then runs the
+        // same gate shape to open the in-game options (TryOpeningInGameOptionsBasedOnInput, 16011); the count stands for that.
         void Tick(bool escapeHeld)
         {
             system.UpdateUI(time);
             Main.keyState = escapeHeld ? new KeyboardState(Keys.Escape) : new KeyboardState();
-            player.controlInv = escapeHeld;
-            PlayerLoader.SetControls(player);
+            PlayerInput.Triggers.Current.Inventory = escapeHeld;
+            if (player.dead)
+            {
+                PlayerLoader.UpdateDead(player);
+                player.controlInv = escapeHeld;
+            }
+            else
+            {
+                player.controlInv = escapeHeld;
+                PlayerLoader.SetControls(player);
+            }
             if (player.controlInv)
             {
                 if (player.releaseInventory) toggles++;
@@ -55,13 +70,17 @@ internal static class VerifyEscapeClosesOnlyTheCard
         }
 
         using var hook = EnableModPlayerHooks.For("HookSetControls", save);
+        using var deadHook = EnableModPlayerHooks.For("HookUpdateDead", save);
         try
         {
             Main.dedServ = true;
             var cases = new List<string>();
+            foreach (bool dead in new[] { false, true })
             foreach (bool inventoryWasOpen in new[] { false, true })
                 foreach (bool onInventoryPage in new[] { false, true })
                 {
+                    player.dead = dead;
+                    string gate = dead ? "the in-game options" : "ToggleInv";
                     if (CardSystem.IsOpen) CardSystem.CloseOpenCard();
                     Main.playerInventory = inventoryWasOpen;
                     Main.keyState = new KeyboardState();
@@ -70,7 +89,7 @@ internal static class VerifyEscapeClosesOnlyTheCard
                     toggles = 0;
                     CardSystem.Toggle();
                     if (onInventoryPage) CardSystem.OpenInventory();
-                    string name = $"{(onInventoryPage ? "Inventory page" : "overview")} with the player's inventory {(inventoryWasOpen ? "open" : "closed")}";
+                    string name = $"{(dead ? "a dead player's" : "a living player's")} {(onInventoryPage ? "Inventory page" : "overview")} with the inventory {(inventoryWasOpen ? "open" : "closed")}";
                     Require(CardSystem.IsOpen, $"premise: the card must open for the {name} case");
 
                     Tick(escapeHeld: false);
@@ -81,16 +100,16 @@ internal static class VerifyEscapeClosesOnlyTheCard
                     Tick(escapeHeld: true);
                     Tick(escapeHeld: false);
                     Require(onPress == 0 && toggles == 0,
-                        $"{name}: the press that closed the card also reached ToggleInv ({onPress} toggle(s) on the press, {toggles} by release)");
+                        $"{name}: the press that closed the card also reached {gate} ({onPress} toggle(s) on the press, {toggles} by release)");
                     Require(closedOnPress, $"{name}: the card must close on the tick Escape is pressed, not a tick later");
                     Require(Main.playerInventory == inventoryWasOpen,
                         $"{name}: closing the card left the player's inventory {(Main.playerInventory ? "open" : "closed")}, where he had it {(inventoryWasOpen ? "open" : "closed")}");
                     Tick(escapeHeld: true);
-                    Require(toggles == 1, $"{name}: premise: with the card closed, the next press must reach ToggleInv; it reached it {toggles} time(s)");
+                    Require(toggles == 1, $"{name}: premise: with the card closed, the next press must reach {gate}; it reached it {toggles} time(s)");
                     Tick(escapeHeld: false);
                     cases.Add(name);
                 }
-            Console.WriteLine($"escape: one press closes the card and reaches no ToggleInv, held or released, and the next press toggles the inventory, in {cases.Count} cases: {string.Join("; ", cases)}");
+            Console.WriteLine($"escape: one press closes the card and reaches neither ToggleInv nor the dead player's options menu, held or released, and the next press does, in {cases.Count} cases: {string.Join("; ", cases)}");
         }
         finally
         {
@@ -99,6 +118,8 @@ internal static class VerifyEscapeClosesOnlyTheCard
             Main.playerInventory = inventory;
             player.controlInv = control;
             player.releaseInventory = release;
+            player.dead = wasDead;
+            if (hadTrigger) triggers["Inventory"] = trigger; else triggers.Remove("Inventory");
             Main.dedServ = dedicated;
         }
     }

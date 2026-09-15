@@ -34,9 +34,23 @@ public partial class CompanionPlayer
     /// <c>UpdateUI</c>, which runs before the tick's keyboard is sampled, so the same press reached <c>ToggleInv</c> a tick
     /// before the card saw it and one Escape did two things.
     /// </summary>
-    public override void SetControls()
+    public override void SetControls() => CloseCardOnInventoryPress(Player.controlInv);
+
+    /// <summary>
+    /// A dead player's tick never reaches <c>SetControls</c>: <c>Player.Update</c> returns into <c>UpdateDead</c> first
+    /// (Player.cs 23636), and there the same press opens the in-game options through the same gate
+    /// (<c>TryOpeningInGameOptionsBasedOnInput</c>, 16011). This hook runs before that method copies the tick's triggers into
+    /// the player (15932 against 16006), so it reads the trigger itself, under the conditions that copy is made on.
+    /// </summary>
+    public override void UpdateDead()
     {
-        if (!ProfileCard.CompanionProfileCardSystem.IsOpen || !Player.controlInv || !Player.releaseInventory) return;
+        if (Main.drawingPlayerChat || Main.editSign || Main.editChest || Main.blockInput) return;
+        CloseCardOnInventoryPress(PlayerInput.Triggers.Current.Inventory);
+    }
+
+    private void CloseCardOnInventoryPress(bool pressed)
+    {
+        if (!ProfileCard.CompanionProfileCardSystem.IsOpen || !pressed || !Player.releaseInventory) return;
         ProfileCard.CompanionProfileCardSystem.CloseOpenCard();
         Player.releaseInventory = false;
     }
@@ -63,6 +77,9 @@ public partial class CompanionPlayer
         if (inventory == Player.inventory)
         {
             if (context is not (ItemSlot.Context.InventoryItem or ItemSlot.Context.InventoryCoin or ItemSlot.Context.InventoryAmmo)) return false;
+            // The game already has a destination for this click: a chest or the piggy bank is open beside the card, or the
+            // hover found a reforge, guide or research slot (cursorOverride 9, ItemSlot.OverrideHover). That destination wins.
+            if (Player.chest != -1 || Main.cursorOverride == 9) return false;
             if (Main.mouseItem.IsAir) Bag.DepositSlot(Player, slot);
             return true;
         }

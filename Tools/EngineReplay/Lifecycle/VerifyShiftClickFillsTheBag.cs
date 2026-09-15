@@ -33,6 +33,8 @@ internal static class VerifyShiftClickFillsTheBag
         Item[] savedPlayer = player.inventory.Select(item => item.Clone()).ToArray();
         Item[] savedBag = bag.Items.Select(item => item.Clone()).ToArray();
         Item[] savedGear = gear.Slots.Select(item => item.Clone()).ToArray();
+        Item[] savedBank = player.bank.item.Select(item => item.Clone()).ToArray();
+        int savedChest = player.chest;
         Item savedTrash = player.trashItem.Clone(), savedCursor = Main.mouseItem.Clone();
         KeyboardState keys = Main.keyState;
         bool trashSetting = ItemSlot.Options.DisableLeftShiftTrashCan, left = Main.mouseLeft, release = Main.mouseLeftRelease;
@@ -43,7 +45,7 @@ internal static class VerifyShiftClickFillsTheBag
         static void Put(Item[] items, int slot, int type, int stack, bool favourite = false)
         { items[slot] = new Item(); items[slot].SetDefaults(type); items[slot].stack = stack; items[slot].favorited = favourite; }
         static int Of(IEnumerable<Item> items, int type) => items.Where(item => item.type == type).Sum(item => item.stack);
-        Dictionary<int, int> Totals() => player.inventory.Concat(bag.Items).Concat(gear.Slots).Append(Main.mouseItem)
+        Dictionary<int, int> Totals() => player.inventory.Concat(bag.Items).Concat(gear.Slots).Concat(player.bank.item).Append(Main.mouseItem)
             .Where(item => !item.IsAir).GroupBy(item => item.type).ToDictionary(g => g.Key, g => g.Sum(item => item.stack));
         static string Show(Dictionary<int, int> totals) => string.Join(", ", totals.OrderBy(kv => kv.Key).Select(kv => $"{kv.Key}x{kv.Value}"));
 
@@ -84,7 +86,8 @@ internal static class VerifyShiftClickFillsTheBag
 
                 void Case(string name, Action arrange, Action click, Func<bool> placed, Func<string> describe)
                 {
-                    Clear(player.inventory); Clear(bag.Items); Clear(gear.Slots);
+                    Clear(player.inventory); Clear(bag.Items); Clear(gear.Slots); Clear(player.bank.item);
+                    player.chest = -1;
                     player.trashItem = new Item();
                     Main.mouseItem = new Item();
                     arrange();
@@ -124,6 +127,11 @@ internal static class VerifyShiftClickFillsTheBag
                 Case("a favourite", () => Put(player.inventory, 18, ItemID.StoneBlock, 7, favourite: true), () => ShiftClickPlayerSlot(18),
                     () => player.inventory[18].stack == 7 && Of(bag.Items, ItemID.StoneBlock) == 0,
                     () => $"a favourite stays with the player, as Deposit All keeps it; the slot holds {player.inventory[18].stack}");
+                // With a container open beside the card the game has a shift-click destination of its own, and it keeps it.
+                Case("a stack with the piggy bank also open", () => { Put(player.inventory, 19, ItemID.Wood, 40); player.chest = -2; },
+                    () => ShiftClickPlayerSlot(19),
+                    () => Of(player.bank.item, ItemID.Wood) == 40 && Of(bag.Items, ItemID.Wood) == 0,
+                    () => $"the open piggy bank is the game's destination, so the wood must go there; it holds {Of(player.bank.item, ItemID.Wood)} and the bag {Of(bag.Items, ItemID.Wood)}");
                 Case("a bag stack to a player with room", () => Put(bag.Items, 0, ItemID.Wood, 25), () => ShiftClickCardSlot(bag.Items, 0),
                     () => Of(player.inventory, ItemID.Wood) == 25 && Of(bag.Items, ItemID.Wood) == 0,
                     () => $"the wood must go to the player; he holds {Of(player.inventory, ItemID.Wood)} and the bag {Of(bag.Items, ItemID.Wood)}");
@@ -153,6 +161,8 @@ internal static class VerifyShiftClickFillsTheBag
             for (int i = 0; i < savedPlayer.Length; i++) player.inventory[i] = savedPlayer[i];
             for (int i = 0; i < savedBag.Length; i++) bag.Items[i] = savedBag[i];
             for (int i = 0; i < savedGear.Length; i++) gear.Slots[i] = savedGear[i];
+            for (int i = 0; i < savedBank.Length; i++) player.bank.item[i] = savedBank[i];
+            player.chest = savedChest;
             player.trashItem = savedTrash;
             Main.mouseItem = savedCursor;
             Main.keyState = keys;
