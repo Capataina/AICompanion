@@ -52,6 +52,9 @@ internal static class VerifyCompanionExperience
             failed += RunOneRow.Case("two bodies leaving on the same tick credit the latest striker, whichever body the fight saw first", TwoBodiesLeavingOnOneTick, "experience");
             failed += RunOneRow.Case("a boss whose death refused its loot and whose slot was refilled before the sweep still ends a credited fight", ARefilledSlotIsStillADeath, "experience");
             failed += RunOneRow.Case("the player's direct strikes (dash, stomp, touch) credit him, and never take a strike the companion's swing or shot already took", PlayerDirectStrikesAreHis, "experience");
+            failed += RunOneRow.Case("a first kill weaker than the green slime moves no anchor, and the bar keeps growing from the slime", AWeakKillNeverFlattensTheBar, "experience");
+            failed += RunOneRow.Case("a character takes the same kills per level in a world of another difficulty, the level in progress included", KillsPerLevelSurviveAChangeOfWorld, "experience");
+            failed += RunOneRow.Case("a save written in its world's own terms loads and is converted by the first world that reads it", AWorldTermsSaveIsConvertedOnce, "experience");
             failed += RunOneRow.Case("levels the anchor-setting kill completes are priced at the old anchor", FirstKillFillsAtTheOldPrice, "experience");
             failed += RunOneRow.Case("1,000 companion ore breaks make a level and 2,000 of the player's, from their native calls", WorkMakesALevel, "experience");
             failed += RunOneRow.Case("critters, town NPCs, statue spawns, dummies, boss company and others' kills credit nothing", ExcludedKillsCreditNothing, "experience");
@@ -62,6 +65,7 @@ internal static class VerifyCompanionExperience
         {
             Main.GameMode = mode;
             Experience.DefaultEnemyLife = Experience.GreenSlimeLifeInThisWorld;
+            Experience.NormalEnemyLife = () => Experience.GreenSlimeLife(GameModeData.NormalMode);
             Credit.Reset();
         }
         Console.WriteLine(failed == 0
@@ -594,6 +598,96 @@ internal static class VerifyCompanionExperience
         Require(hooks.GetMethod("ModifyHitNPC", Declared) != null && hooks.GetMethod("OnHitNPC", Declared) != null,
             "the player's strike hooks must be overridden, or no direct strike reaches the ledger in the game");
         Console.WriteLine("  a dash kill paid the player half; the companion's swing and shot through the player's hooks paid the companion");
+    }
+
+    /// <summary>
+    /// A one-life first kill. Anchored at its own life it priced 200 lives a bar against the slime's 2800, the never-lower
+    /// rule held the bar at 2800, and the bar then stayed flat for every level: four levels on it read 2800 where the slime's
+    /// own growth reads 2800 × 1.05⁴. The slime is a floor, so the kill anchors nothing and growth continues.
+    /// </summary>
+    private static void AWeakKillNeverFlattensTheBar()
+    {
+        Experience.DefaultEnemyLife = () => 14;
+        Experience.NormalEnemyLife = () => 14;
+        Experience ledger = Fresh();
+        ledger.CreditEnemyKill(1, true);
+        Require(ledger.EnemyAnchorLife == 0, $"a kill weaker than the green slime must not anchor; anchor {ledger.EnemyAnchorLife}@{ledger.EnemyAnchorLevel}");
+        while (ledger.Level < 3) ledger.CreditWork(true);
+        ledger.CreditEnemyKill(5, true);                                      // a second weak kill, later, restarts nothing either
+        while (ledger.Level < 5) ledger.CreditWork(true);
+        double grown = 200 * 14 * Unit * Math.Pow(1.05, 4);
+        Require(Near(ledger.Required, grown),
+            $"four levels on, the bar must be the slime's own 2800 × 1.05^4 = {grown / Unit:0.##}; read {ledger.Required / Unit:0.##}, anchor {ledger.EnemyAnchorLife}@{ledger.EnemyAnchorLevel}");
+        Console.WriteLine($"  a 1-life first kill and a 5-life kill at level 3 left the level 5 bar at {ledger.Required / Unit:0.#}, the slime's own growth");
+    }
+
+    /// <summary>
+    /// A character levelled in a Master world, carried into a Normal one. The enemies in Normal have a third of Master's life,
+    /// so a ledger kept in the terms of the world it was played in asks three times the kills in Normal — for the level in
+    /// progress, and for every level after, through the anchor it brought. Counted by crediting each world's own zombie until
+    /// the level turns, twice, from the same saved character.
+    /// </summary>
+    private static void KillsPerLevelSurviveAChangeOfWorld()
+    {
+        double masterSlime = Experience.GreenSlimeLife(GameModeData.MasterMode), normalSlime = Experience.GreenSlimeLife(GameModeData.NormalMode);
+        int masterZombie = new NPCProbe(NPCID.Zombie, GameModeData.MasterMode).LifeMax, normalZombie = new NPCProbe(NPCID.Zombie, GameModeData.NormalMode).LifeMax;
+        Require(masterSlime == 3 * normalSlime && masterZombie == 3 * normalZombie,
+            $"premise: Master triples the slime and the zombie; slime {masterSlime}/{normalSlime}, zombie {masterZombie}/{normalZombie}");
+        Experience.NormalEnemyLife = () => normalSlime;
+        Experience.DefaultEnemyLife = () => masterSlime;
+        Experience played = Fresh();
+        for (int i = 0; i < 350; i++) played.CreditEnemyKill(masterZombie, true);
+        Require(played.Level == 2 && played.Into > 0, $"premise: the character is part way into level 2; level {played.Level}");
+        TagCompound saved = played.Save();
+
+        (int ToFinish, int ForTheNext) Count(double slime, int zombie)
+        {
+            Experience.DefaultEnemyLife = () => slime;
+            Experience ledger = Experience.Load(saved);
+            int start = ledger.Level, finish = 0, next = 0;
+            while (ledger.Level == start && finish < 100_000) { ledger.CreditEnemyKill(zombie, true); finish++; }
+            while (ledger.Level == start + 1 && next < 100_000) { ledger.CreditEnemyKill(zombie, true); next++; }
+            return (finish, next);
+        }
+        var inMaster = Count(masterSlime, masterZombie);
+        var inNormal = Count(normalSlime, normalZombie);
+        Require(inMaster == inNormal,
+            $"the kills to finish the level in progress and to make the next must not depend on the world's difficulty; Master {inMaster}, Normal {inNormal}");
+        Console.WriteLine($"  from the same Master character: {inMaster.ToFinish} kills to finish level 2 and {inMaster.ForTheNext} for level 3 in Master, {inNormal.ToFinish} and {inNormal.ForTheNext} in Normal");
+    }
+
+    /// <summary>
+    /// A character saved before the ledger kept Normal terms, in an Expert world: its values are Expert's. At the menu nothing
+    /// is converted, because no world is there to say which terms they were; in the Expert world it was played in, the bar
+    /// it shows is the bar it saved, and its anchor is the Normal zombie's life.
+    /// </summary>
+    private static void AWorldTermsSaveIsConvertedOnce()
+    {
+        double normalSlime = Experience.GreenSlimeLife(GameModeData.NormalMode), expertSlime = Experience.GreenSlimeLife(GameModeData.ExpertMode);
+        int expertZombie = new NPCProbe(NPCID.Zombie, GameModeData.ExpertMode).LifeMax, normalZombie = new NPCProbe(NPCID.Zombie, GameModeData.NormalMode).LifeMax;
+        Experience.NormalEnemyLife = () => normalSlime;
+        Experience.DefaultEnemyLife = () => expertSlime;
+        var old = new TagCompound
+        {
+            ["level"] = 3, ["into"] = 5000 * Unit, ["required"] = 200 * expertZombie * Unit * 1.05 * 1.05,
+            ["enemyAnchorLife"] = (double)expertZombie, ["enemyAnchorLevel"] = 1, ["bossAnchorLife"] = 0.0, ["bossAnchorLevel"] = 1,
+        };
+        bool menu = Main.gameMenu;
+        try
+        {
+            Main.gameMenu = true;
+            Experience loaded = Experience.Load(old);
+            Require(loaded.Save().GetString("units") != "normal-life" && loaded.Save().GetDouble("enemyAnchorLife") == expertZombie,
+                "a save loaded at the menu must be kept exactly as it was until a world reads it");
+            Main.gameMenu = false;
+            int shown = loaded.NeededNow, into = loaded.IntoLevel;
+            Require(loaded.EnemyAnchorLife == normalZombie && shown == (int)Math.Round(200 * expertZombie * 1.05 * 1.05) && into == 5000,
+                $"in its Expert world the old save must show the bar and fill it saved, with its anchor in Normal terms; anchor {loaded.EnemyAnchorLife}, {into}/{shown}");
+            double anchor = loaded.EnemyAnchorLife;
+            Require(loaded.EnemyAnchorLife == anchor && loaded.Save().GetString("units") == "normal-life", "the conversion must happen once, and the next save is in Normal terms");
+            Console.WriteLine($"  an Expert save of {into}/{shown} with a {expertZombie}-life anchor loaded as the same bar with a {anchor}-life Normal anchor");
+        }
+        finally { Main.gameMenu = menu; }
     }
 
     private static void FirstKillFillsAtTheOldPrice()

@@ -251,15 +251,17 @@ public static class CreditKillsAndFights
     internal static CompanionExperience? Ledger()
         => Main.LocalPlayer is { } player && player.TryGetModPlayer<PlayerIntegration.CompanionPlayer>(out var save) ? save.Experience : null;
 
-    /// <summary>Writes the credit's occurrence; the earner is always the companion or the player, because nothing else earns.</summary>
+    /// <summary>Writes the credit's occurrence, every amount in the terms of the world being played, as the display shows them;
+    /// the earner is always the companion or the player, because nothing else earns.</summary>
     internal static void Record(CompanionExperience ledger, in CompanionExperience.Credit credit, string source, Striker by, Vector2 where, string detail)
     {
         if (credit.Earned <= 0 && !credit.EnemyAnchorChanged && !credit.BossAnchorChanged) return;
         string anchor = credit.EnemyAnchorChanged ? "enemy" : credit.BossAnchorChanged ? "boss" : "none";
+        double unit = CompanionExperience.ExperiencePerLife;
         GodsEyeEvents.RecordExperienceCredit(source, by == Striker.Companion ? "companion" : "player",
-            credit.Earned / CompanionExperience.ExperiencePerLife, credit.LevelBefore, credit.LevelAfter, ledger.Into / CompanionExperience.ExperiencePerLife,
-            ledger.Required / CompanionExperience.ExperiencePerLife, ledger.EnemyAnchorLife, ledger.EnemyAnchorLevel, ledger.BossAnchorLife,
-            ledger.BossAnchorLevel, anchor, where, detail);
+            ledger.InWorldTerms(credit.Earned) / unit, credit.LevelBefore, credit.LevelAfter, ledger.InWorldTerms(ledger.Into) / unit,
+            ledger.InWorldTerms(ledger.Required) / unit, ledger.InWorldTerms(ledger.EnemyAnchorLife), ledger.EnemyAnchorLevel,
+            ledger.InWorldTerms(ledger.BossAnchorLife), ledger.BossAnchorLevel, anchor, where, detail);
     }
 }
 
