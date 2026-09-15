@@ -147,7 +147,7 @@ Most of the reds this suite produced during the body change were one of seven sh
 
 ## Current state — 15 September 2026
 
-The suite builds with zero `error CS` and the default run exits 0: forty-two cases pass and six print a `MEASURE`, on the run of 15 September 2026 that landed the brain fixes below. Three reds came out of the rebuild and each was a brain finding rather than a fixture speaking for the walker; all three are fixed in the brain, and the fixture that found each carries the evidence.
+The suite builds with zero `error CS` and the default run exits 0: forty-five cases pass and thirteen rows print a `MEASURE`, on the whole-suite run of 15 September 2026 at `b9bf064` (`Tools/Ledger/runs/b9bf064-20260915-052728.jsonl`), after the reach flood became a disc and the swing gained its sight test. Earlier that morning the rebuild's own run had landed the brain fixes below. Three reds came out of the rebuild and each was a brain finding rather than a fixture speaking for the walker; all three are fixed in the brain, and the fixture that found each carries the evidence.
 
 ```
 following responds to a player who departs        a stroll goal outside the intent region manufactured the reunion it then answered, and
