@@ -11,44 +11,54 @@
  * native card (Tools/EngineReplay --render-ui, 2026-09-13); rounds of the
  * owner's review produced this shape. The 2026-09-15 revisions:
  *
- *   - the page opens on the HUD notch, not on the card. The notch is the
- *     name, the level and health, mana and experience stacked as three
- *     bars with their readings beside them, and nothing else: no family
- *     icon and no behaviour icon either side, because what the companion
- *     is doing belongs to the card's action line, not the HUD. Clicking
- *     the notch opens the card; dragging frees it from the edge;
- *     right-clicking docks it again;
+ *   - the page opens on the HUD notch, not on the card. The notch is
+ *     health, mana and experience as three stacked bars and nothing
+ *     else: no name, no level, no numbers, no icons; the numbers live on
+ *     the card. Clicking the notch opens the card; dragging frees it from
+ *     the edge; right-clicking docks it again;
  *   - the companion is called Lumen in the mock (the name is a proposal)
- *     and is pictured as the drone, a rough symmetrical pixel disc drawn
- *     from Assets/, in the card's portrait and on the Inventory page;
- *   - the Inventory page's gear row is four weapon slots, a pickaxe and
- *     an axe; the first weapon slot is open and each other one is locked
- *     behind the Combat diamond it names. This is a proposal: the game
- *     today has two weapon slots;
+ *     and the card's portrait is the drone, a rough symmetrical pixel
+ *     disc drawn from Assets/. The overview has no action line: the strip
+ *     is the portrait, the name and level, and the three bars made large
+ *     with their readings. Each tile is its bar, its count and its name,
+ *     because a sentence under a tile only repeated the count;
+ *   - the Inventory page's top row is two bordered sections spanning the
+ *     page, Weapons with four slots and Tools with two, and nothing else:
+ *     no picture of the companion and no hover text. The first weapon
+ *     slot is open and the other three are locked behind Combat's
+ *     diamonds, a proposal, since the game today has two weapon slots;
  *   - the mastery wheel is one flat tree. Its lanes are Combat, Movement,
  *     Survival and Gathering, ten nodes each: a circle, a circle, then a
  *     split whose ranks alternate — diamond on the left and circle on the
  *     right, circle on the left and diamond on the right, two circles —
- *     meeting at a third diamond and ending on a circle. A diamond unlocks
- *     something and opens nothing; there are no trees inside diamonds. A
- *     shared circle sits between neighbouring lanes;
- *   - clicking a node shows its effect per rank, what it is for, what it
- *     was sized against in Terraria, Calamity or Thorium, and what it
- *     needs; Learn and Unlearn walk the preview along the edges;
+ *     meeting at a third diamond and ending on a circle. There are no trees
+ *     inside diamonds. A shared circle sits between neighbouring lanes.
+ *     Every node is a flat bonus to a number the companion already reads,
+ *     never a new thing it can do or choose; a circle that levels has five
+ *     levels, a diamond three, a weapon slot one;
+ *   - the Mastery page is simple by the owner's ruling: with nothing picked
+ *     the tree fills the page, centred; picking a node opens a panel on the
+ *     right with its name and what it does, and Learn and a level bar in the
+ *     joined-segment shape at the panel's foot; a click on empty background
+ *     closes it, a pan does not. No Unlearn, no hint line, no legend, no
+ *     status line. The same rule trims explanatory copy on every page;
+ *   - a page's actions live in the title bar, right-aligned before the X:
+ *     the chest buttons, the Mining list's mode, and −, + and Reset view;
  *   - magnitudes are deliberately modest: a fully learned lane is worth
  *     about one or two good accessories, not a new character. Every name
  *     and number is a draft for the owner to edit.
  *
  * Kept from earlier rounds: the overview is short (title bar, identity
- * strip, three tiles); each tile turns the whole card into its page with
- * back and close only; one 12px rhythm separates every stacked region;
+ * strip, three tiles); each tile turns the whole card into its page;
+ * one 12px rhythm separates every stacked region;
  * the Mining list is the only allow/deny control; the Inventory page has
  * Terraria's chest buttons and a self-sorting bag; there is no minimise.
  *
  * Every size is the logical pixel the C# layout will use:
- *   notch 232x60, overview 720x284, full pages 720x580, padding 10,
- *   title bar 34, rhythm 12, identity 100, tiles 100, joined segments 22
- *   tall, buttons 30 tall, pills 34 tall, slots 48 with 4 gap.
+ *   notch 232x50, overview 720x244, full pages 720x580, padding 10,
+ *   title bar 34, rhythm 12, identity 100, tiles 60, joined segments 22
+ *   tall, buttons 30 tall, pills 34 tall (30 in the title bar), slots 48
+ *   with 4 gap.
  *
  * Terraria's interface language: every string has a hard black drop
  * shadow, panels are saturated blue-violet at 86%, slots are a lighter
@@ -96,24 +106,21 @@ body{font-family:var(--ui);color:var(--ink);text-shadow:2px 2px 0 #000;font-weig
   background:linear-gradient(#1b2a4a 0 55%,#3a2c22 55% 100%)}
 
 /* ---- the HUD notch: name, level and three bars; docked it hangs from the top edge with fillets ---- */
-#notch{zoom:var(--z);position:absolute;width:232px;height:60px;background:var(--notch);border-radius:0 0 12px 12px;
+#notch{zoom:var(--z);position:absolute;width:232px;height:50px;background:var(--notch);border-radius:0 0 12px 12px;
   cursor:pointer;z-index:5;color:#ebebf0}
 #notch::before,#notch::after{content:"";position:absolute;top:0;width:10px;height:10px}
 #notch::before{left:-10px;background:radial-gradient(circle at 0 100%,transparent 10px,var(--notch) 10.5px)}
 #notch::after{right:-10px;background:radial-gradient(circle at 100% 100%,transparent 10px,var(--notch) 10.5px)}
 #notch.free{border-radius:12px;outline:1px solid var(--notch-edge)}
 #notch.free::before,#notch.free::after{display:none}
-#notch .nname{position:absolute;left:8px;top:3px;font-size:12px;line-height:14px}
-#notch .nlvl{position:absolute;right:8px;top:3px;font-size:11px;line-height:14px;color:var(--xp)}
-#notch .nbar{position:absolute;left:8px;width:150px;height:6px;background:var(--notch-track);border-radius:3px;overflow:hidden}
-#notch .nbar i{display:block;height:100%;border-radius:3px}
-#nhp{top:22px}#nhp i{background:var(--notch-hp)}
-#nmp{top:35px}#nmp i{background:var(--mana)}
-#nxp{top:48px}#nxp i{background:var(--xp)}
-#notch .nread{position:absolute;left:164px;font-size:10px;line-height:10px;white-space:nowrap}
-#nhpr{top:20px;color:var(--notch-hp)}#nmpr{top:33px;color:var(--mana)}#nxpr{top:46px;color:var(--xp)}
+/* three bars and nothing else, 8px padding round them and 5px between */
+#notch .nbar{position:absolute;left:10px;right:10px;height:8px;background:var(--notch-track);border-radius:4px;overflow:hidden}
+#notch .nbar i{display:block;height:100%;border-radius:4px}
+#nhp{top:8px}#nhp i{background:var(--notch-hp)}
+#nmp{top:21px}#nmp i{background:var(--mana)}
+#nxp{top:34px}#nxp i{background:var(--xp)}
 
-#frame{zoom:var(--z);width:720px;height:284px;position:absolute;left:0;top:0;z-index:4;
+#frame{zoom:var(--z);width:720px;height:244px;position:absolute;left:0;top:0;z-index:4;
   background:var(--panel);border:2px solid var(--edge);border-radius:9px;padding:10px}
 #frame.full{height:580px}
 #frame.hidden{display:none}
@@ -139,6 +146,12 @@ body{font-family:var(--ui);color:var(--ink);text-shadow:2px 2px 0 #000;font-weig
 #title .name{position:absolute;left:42px;top:3px;pointer-events:none}
 #title .rb{position:absolute;top:0}
 #back{left:0}#close{right:0}
+/* a page's own actions sit in the title bar, right-aligned before the X, at the round buttons' 30px height, so the
+   page below them is only its content; the overview has none */
+#acts{position:absolute;right:42px;top:0;height:30px}
+.acts{display:none;height:30px;gap:6px}.acts.on{display:flex}
+#acts .pill{height:30px;border-radius:15px;padding:0 12px}
+#acts .rb{position:static}
 
 /* the drone, everywhere the companion is pictured: a rough symmetrical pixel disc */
 .drone{image-rendering:pixelated;display:block}
@@ -149,17 +162,16 @@ body{font-family:var(--ui);color:var(--ink);text-shadow:2px 2px 0 #000;font-weig
 #portrait .drone{width:48px;height:48px}
 #who{position:absolute;left:80px;top:1px}
 #lvl{position:absolute;left:150px;top:5px;color:var(--gold)}
-.meter{position:absolute;left:80px;width:220px;height:8px;background:var(--bar-bg)}
+.meter{position:absolute;left:80px;width:220px;height:16px;background:var(--bar-bg)}
 .meter i{display:block;height:100%}
-/* health, mana and experience stacked in the notch's order, a 12px row step, each reading in its bar's colour */
-#hpbar{top:27px}#hpbar i{background:var(--hp)}
-#mpbar{top:39px}#mpbar i{background:var(--mana)}
-#xpbar{top:51px}#xpbar i{background:var(--xp)}
-.reading{position:absolute;left:308px;width:112px;text-align:left;line-height:1}
-#hp{top:24px;color:var(--hp)}
-#mp{top:36px;color:var(--mana)}
-#xp{top:48px;color:var(--xp)}
-#action{position:absolute;left:80px;width:340px;top:64px;line-height:1.35}
+/* health, mana and experience in the notch's order, filling the strip under the name where the action line was, each reading beside its bar in the bar's colour */
+#hpbar{top:32px}#hpbar i{background:var(--hp)}
+#mpbar{top:54px}#mpbar i{background:var(--mana)}
+#xpbar{top:76px}#xpbar i{background:var(--xp)}
+.reading{position:absolute;left:310px;width:112px;text-align:left;line-height:16px}
+#hp{top:32px;color:var(--hp)}
+#mp{top:54px;color:var(--mana)}
+#xp{top:76px;color:var(--xp)}
 #frame.full #identity,#frame.full #footer{display:none}
 
 /* three controls: a 26px icon and a joined segment control, 26 tall with 8 between */
@@ -173,19 +185,18 @@ body{font-family:var(--ui);color:var(--ink);text-shadow:2px 2px 0 #000;font-weig
   cursor:pointer;line-height:1;margin-left:-2px}
 .joined .seg:first-child{margin-left:0;border-radius:11px 0 0 11px}
 .joined .seg:last-child{border-radius:0 11px 11px 0}
+.joined .seg:only-child{border-radius:11px}  /* one segment is both ends, and :last-child alone would square its left */
 .joined .seg:hover{border-color:var(--gold);z-index:1}
 .joined .seg.on{border-color:var(--gold);color:var(--gold);background:var(--selected);z-index:1}
 
 /* ---- tiles: three across, 100 tall, one rhythm under the strip and one above the card's edge ---- */
-#footer{position:absolute;left:10px;right:10px;top:168px;height:100px;display:flex;gap:10px}
+#footer{position:absolute;left:10px;right:10px;top:168px;height:60px;display:flex;gap:10px}
 .tile{flex:1;position:relative;border:2px solid var(--edge);border-radius:9px;background:var(--panel);cursor:pointer}
 .tile:hover{border-color:var(--gold)}
 .tile .bar{position:absolute;left:10px;top:10px;right:64px;height:6px;background:var(--tile-bar-bg)}
 .tile .bar i{display:block;height:100%}
 .tile .count{position:absolute;right:10px;top:4px;color:var(--muted);width:60px;text-align:right}
 .tile .t{position:absolute;left:10px;top:23px}
-.tile .d{position:absolute;left:10px;top:47px;color:var(--muted);white-space:nowrap;overflow:hidden;right:6px}
-.tile .d2{position:absolute;left:10px;top:69px;color:var(--muted);white-space:nowrap;overflow:hidden;right:6px}
 
 /* ---- full pages: one rhythm below the title rule, one above the card's edge ---- */
 #content{position:absolute;left:10px;right:10px;top:56px;bottom:12px;display:none}
@@ -200,20 +211,18 @@ body{font-family:var(--ui);color:var(--ink);text-shadow:2px 2px 0 #000;font-weig
 .sb i:hover{background:#ffffff}
 
 /* ---- inventory: the gear row with the drone, one rhythm, chest buttons, one rhythm, the grid, the count line ---- */
-#dronebox{position:absolute;left:23px;top:0;width:70px;height:66px;background:var(--sunk);display:grid;place-items:center}
-#dronebox .drone{width:48px;height:48px}
-.gearlabel{position:absolute;top:0;color:var(--muted);line-height:14px}
-#gearweapons{left:105px}#geartools{left:329px}
+/* the top row is two bordered sections spanning the page, weapons and tools, slots evenly spaced in each at their fixed size */
+/* no caption: the two boxes and what is in them say which is which, and a caption row only pushed the slots off centre */
+.gearsection{position:absolute;top:0;height:64px;border:2px solid var(--edge);border-radius:9px}
+.gearsection .row{position:absolute;left:0;right:0;top:6px;display:flex;justify-content:space-evenly}
+#gearweapons{left:23px;width:425px}#geartools{left:460px;width:213px}
 .slot{width:48px;height:48px;border:2px solid var(--edge);border-radius:6px;background:var(--panel-solid);position:relative}
 .slot:hover{border-color:var(--gold)}
-.gearslot{position:absolute;top:18px;cursor:pointer}
+.gearslot{cursor:pointer}
 .gearslot svg{position:absolute;left:9px;top:9px;width:26px;height:26px;image-rendering:pixelated}
 .gearslot.locked{background:var(--sunk);border-color:rgba(143,147,240,.35)}
 .gearslot.locked svg{opacity:.55}
-#gearnote{position:absolute;left:445px;right:23px;top:18px;height:48px;color:var(--muted);line-height:1.35;display:flex;align-items:center}
-#chest{position:absolute;left:23px;width:650px;top:78px;height:34px;display:flex;gap:6px}
-#chest .pill{flex:1;padding:0}
-#gridview{left:23px;top:124px;width:620px;bottom:36px}
+#gridview{left:23px;top:76px;width:620px;bottom:36px}
 #grid{display:grid;grid-template-columns:repeat(12,48px);gap:4px}
 .slot .n{position:absolute;left:5px;bottom:3px;color:var(--gold)}
 .slot .it{position:absolute;right:6px;top:6px;width:12px;height:12px}
@@ -221,14 +230,12 @@ body{font-family:var(--ui);color:var(--ink);text-shadow:2px 2px 0 #000;font-weig
 .slot .it.wood{background:#a8703a;box-shadow:0 3px 0 #6b4520 inset}
 .slot .it.gel{background:#4f7fff;border-radius:50%}
 .slot .it.torch{background:#ffb347;box-shadow:0 -4px 0 #7a4a1a inset}
-#invbar{left:653px;top:124px;bottom:36px}
+#invbar{left:653px;top:76px;bottom:36px}
 #invcount{position:absolute;right:23px;bottom:0;height:24px;line-height:24px;color:var(--muted)}
 #invlast{position:absolute;left:23px;bottom:0;height:24px;line-height:24px;color:var(--muted)}
 
-/* ---- mining list: a mode, a scrolling grid of found ores, the hovered ore's wall preview beside it ---- */
-#mode{position:absolute;left:0;top:0;width:280px;height:34px;display:flex;gap:4px}
-#mode .pill{flex:1;padding:0}
-#oreview{left:0;top:46px;width:412px;bottom:36px}
+/* ---- mining list: a scrolling grid of found ores, the hovered ore's wall preview beside it; the mode is in the title bar ---- */
+#oreview{left:0;top:0;width:412px;bottom:0}
 #ores{display:grid;grid-template-columns:repeat(8,48px);gap:4px}
 .oretile{width:48px;height:48px;border:2px solid var(--edge);border-radius:6px;background:var(--panel-solid);position:relative;cursor:pointer}
 .oretile:hover{border-color:var(--gold)}
@@ -237,37 +244,32 @@ body{font-family:var(--ui);color:var(--ink);text-shadow:2px 2px 0 #000;font-weig
 .oretile.off .sw{opacity:.35}
 .oretile.off .mk{color:var(--red)}
 .oretile.on .mk{color:var(--gold)}
-#orebar{left:416px;top:46px;bottom:36px}
-#orepanel{position:absolute;left:456px;right:0;top:46px;height:214px;border:2px solid var(--edge);border-radius:9px;padding:12px}
+#orebar{left:416px;top:0;bottom:0}
+#orepanel{position:absolute;left:456px;right:0;top:0;height:214px;border:2px solid var(--edge);border-radius:9px;padding:12px}
 #orepanel .sw{display:block;width:96px;height:96px;border:2px solid var(--edge);border-radius:6px;image-rendering:pixelated;margin-bottom:12px}
 #orepanel .nm{margin-bottom:6px}
 #orepanel .st{margin-bottom:4px}
-#orepanel .how{color:var(--muted)}
-#orenote{position:absolute;left:456px;right:0;top:272px;color:var(--muted);line-height:1.4}
-#orecount{position:absolute;left:0;bottom:0;height:24px;line-height:24px;color:var(--muted)}
 
-/* ---- mastery: the graph on the left, the selected node's panel on the right ---- */
-#mast .hint{position:absolute;left:0;top:10px;color:var(--muted)}
-#mast .zoom{position:absolute;right:0;top:0;height:34px;display:flex;gap:8px;align-items:flex-start}
-#graph{position:absolute;left:0;right:232px;top:46px;bottom:70px;overflow:hidden;cursor:grab}
+/* ---- mastery: the graph fills the page; a picked node's panel takes the right and the graph gives it the room ---- */
+#graph{position:absolute;left:0;right:0;top:0;bottom:0;overflow:hidden;cursor:grab}
+#mast.picked #graph{right:232px}
 #graph.dragging{cursor:grabbing}
 #graph svg{width:100%;height:100%;display:block}
 #graph .node{cursor:pointer}
 #graph .node.sel{stroke-width:6}
-#detail{position:absolute;right:0;width:220px;top:46px;bottom:70px;border:2px solid var(--edge);border-radius:9px;padding:12px;
-  display:flex;flex-direction:column;gap:6px;overflow:hidden}
+#detail{position:absolute;right:0;width:220px;top:0;bottom:0;border:2px solid var(--edge);border-radius:9px;padding:12px;
+  display:none;flex-direction:column;gap:8px;overflow:hidden}
+#mast.picked #detail{display:flex}
 #detail .dn{line-height:1.15}
-#detail .dk{color:var(--muted)}
 #detail .de{color:var(--gold);line-height:1.3}
-#detail .dd{color:#e6e7ff;line-height:1.35}
-#detail .dr{color:var(--muted);line-height:1.35}
-#detail .dq{color:var(--muted);line-height:1.35}
-#detail .dq.bad{color:var(--red)}
 #detail .sp{flex:1}
-#detail .row{display:flex;gap:6px}
-#detail .row .pill{flex:1;padding:0}
-#mast .legend{position:absolute;left:0;bottom:36px;line-height:1.5}
-#mast .legend2{position:absolute;left:0;bottom:10px;color:var(--muted);right:0;white-space:nowrap;overflow:hidden}
+/* the level bar is the joined-segment control's shape used as a display: one segment per level, learned ones selected */
+/* flex:none because the joined control's own flex:1 would, in this column, split the free space with the spacer and
+   lift Learn and the bar off the card's bottom edge */
+#levels{flex:none}
+#levels .seg{cursor:default}
+#levels .seg:hover{border-color:var(--edge)}
+#levels .seg.on:hover{border-color:var(--gold)}
 </style>
 </head>
 <body>
@@ -303,17 +305,25 @@ body{font-family:var(--ui);color:var(--ink);text-shadow:2px 2px 0 #000;font-weig
 
 <div id="stage">
 <div id="notch" title="Click to open the companion card · drag to move · right-click to dock">
-  <div class="nname">Lumen</div>
-  <div class="nlvl">Level 12</div>
-  <div id="nhp" class="nbar"><i style="width:100%"></i></div><div id="nhpr" class="nread">400 / 400</div>
-  <div id="nmp" class="nbar"><i style="width:65%"></i></div><div id="nmpr" class="nread">78 / 120</div>
-  <div id="nxp" class="nbar"><i style="width:62%"></i></div><div id="nxpr" class="nread">1,240 / 2,000</div>
+  <div id="nhp" class="nbar"><i style="width:100%"></i></div>
+  <div id="nmp" class="nbar"><i style="width:65%"></i></div>
+  <div id="nxp" class="nbar"><i style="width:62%"></i></div>
 </div>
 
 <div id="frame" class="hidden">
   <div id="title">
     <div id="back" class="rb s80">+</div>
     <div class="name s100">Companion</div>
+    <div id="acts">
+      <div id="chest" class="acts s75" data-for="inv">
+        <div class="pill" data-op="loot" title="Everything in the bag goes to you">Loot All</div>
+        <div class="pill" data-op="deposit" title="Everything you carry goes into the bag">Deposit All</div>
+        <div class="pill" data-op="quick" title="What you carry that the bag already holds goes into the bag">Quick Stack</div>
+        <div class="pill" data-op="restock" title="What the bag holds that you already carry comes to you">Restock</div>
+      </div>
+      <div id="mode" class="acts s75" data-for="ore"><div class="pill on" data-mode="black">Skip marked</div><div class="pill" data-mode="white">Only marked</div></div>
+      <div class="acts zoom s80" data-for="mast"><div class="rb" id="zout">-</div><div class="rb" id="zin">+</div><div class="pill" id="zreset">Reset view</div></div>
+    </div>
     <div id="close" class="rb s80">X</div>
   </div>
 
@@ -322,12 +332,11 @@ body{font-family:var(--ui);color:var(--ink);text-shadow:2px 2px 0 #000;font-weig
     <div id="who" class="s100">Lumen</div>
     <div id="lvl" class="s80">Level 12</div>
     <div id="hpbar" class="meter"><i style="width:100%"></i></div>
-    <div id="hp" class="reading s66">400 / 400 HP</div>
+    <div id="hp" class="reading s75">400 / 400 HP</div>
     <div id="mpbar" class="meter"><i style="width:65%"></i></div>
-    <div id="mp" class="reading s66">78 / 120 MP</div>
+    <div id="mp" class="reading s75">78 / 120 MP</div>
     <div id="xpbar" class="meter"><i style="width:62%"></i></div>
-    <div id="xp" class="reading s66">1,240 / 2,000 XP</div>
-    <div id="action" class="s75">Mining · Copper vein · 12 tiles below · opportunistic</div>
+    <div id="xp" class="reading s75">1,240 / 2,000 XP</div>
 
     <div id="controls" class="s68">
       <div class="ctlrow" data-hint="Mimic: mine when you do. Auto: find ore nearby on its own.">
@@ -359,39 +368,24 @@ body{font-family:var(--ui);color:var(--ink);text-shadow:2px 2px 0 #000;font-weig
       <div class="bar"><i id="invfill" style="background:var(--hp)"></i></div>
       <div class="count s65" id="invtilecount"></div>
       <div class="t s85">Inventory</div>
-      <div class="d s68" id="invtiledetail"></div>
-      <div class="d2 s64" id="invtilelast">No recent pickup</div>
     </div>
     <div class="tile" data-page="mast">
       <div class="bar"><i id="mastfill" style="width:0;background:var(--gold)"></i></div>
       <div class="count s65" id="masttilecount"></div>
       <div class="t s85">Mastery</div>
-      <div class="d s68" id="masttiledetail">Explore the preview</div>
-      <div class="d2 s64">Draft · nothing is saved</div>
     </div>
     <div class="tile" data-page="ore">
       <div class="bar"><i id="orefill" style="background:var(--gold)"></i></div>
       <div class="count s65" id="oretilecount"></div>
       <div class="t s85">Mining list</div>
-      <div class="d s68" id="oretiledetail"></div>
-      <div class="d2 s64" id="oretilemode"></div>
     </div>
   </div>
 
   <div id="content">
     <!-- Inventory page -->
     <div id="inv" class="page">
-      <div id="dronebox"><svg class="drone" viewBox="0 0 16 16"><use href="#drone-art"/></svg></div>
-      <div id="gearweapons" class="gearlabel s64">Weapons</div>
-      <div id="geartools" class="gearlabel s64">Tools</div>
-      <div id="gearslots"></div>
-      <div id="gearnote" class="s68"></div>
-      <div id="chest" class="s80">
-        <div class="pill" data-op="loot" title="Everything in the bag goes to you">Loot All</div>
-        <div class="pill" data-op="deposit" title="Everything you carry goes into the bag">Deposit All</div>
-        <div class="pill" data-op="quick" title="What you carry that the bag already holds goes into the bag">Quick Stack</div>
-        <div class="pill" data-op="restock" title="What the bag holds that you already carry comes to you">Restock</div>
-      </div>
+      <div id="gearweapons" class="gearsection"><div class="row"></div></div>
+      <div id="geartools" class="gearsection"><div class="row"></div></div>
       <div id="gridview" class="viewport"><div class="inner"><div id="grid" class="s75"></div></div></div>
       <div id="invbar" class="sb"><i></i></div>
       <div id="invlast" class="s68"></div>
@@ -400,38 +394,27 @@ body{font-family:var(--ui);color:var(--ink);text-shadow:2px 2px 0 #000;font-weig
 
     <!-- Mining list page -->
     <div id="ore" class="page">
-      <div id="mode" class="s80"><div class="pill on" data-mode="black">Skip marked</div><div class="pill" data-mode="white">Only marked</div></div>
       <div id="oreview" class="viewport"><div class="inner"><div id="ores"></div></div></div>
       <div id="orebar" class="sb"><i></i></div>
       <div id="orepanel">
         <i class="sw"></i>
         <div class="nm s100"></div>
         <div class="st s80"></div>
-        <div class="how s68"></div>
       </div>
-      <div id="orenote" class="s68">An ore appears here once you have picked one up. Click an ore to mark it.</div>
-      <div id="orecount" class="s80"></div>
     </div>
 
     <!-- Mastery page -->
     <div id="mast" class="page">
-      <div class="hint s75" id="masthint"></div>
-      <div class="zoom s80"><div class="rb" id="zout">-</div><div class="rb" id="zin">+</div><div class="pill" id="zreset">Reset view</div></div>
       <div id="graph">
         <svg id="graphsvg" preserveAspectRatio="none" font-family="inherit" font-weight="bold"></svg>
       </div>
       <div id="detail">
-        <div class="dn s100" id="dname">Mastery</div>
-        <div class="dk s68" id="dkind">Select a node to see what it does.</div>
+        <div class="dn s100" id="dname"></div>
         <div class="de s75" id="deffect"></div>
-        <div class="dd s68" id="ddesc"></div>
-        <div class="dr s64" id="dref"></div>
-        <div class="dq s64" id="dneeds"></div>
         <div class="sp"></div>
-        <div class="row s80"><div class="pill off" id="learn">Learn</div><div class="pill off" id="unlearn">Unlearn</div></div>
+        <div class="pill s80 off" id="learn">Learn</div>
+        <div class="joined s68" id="levels"></div>
       </div>
-      <div class="legend s80" id="mastlegend"></div>
-      <div class="legend2 s75" id="mastline"></div>
     </div>
   </div>
 </div>
@@ -442,7 +425,7 @@ body{font-family:var(--ui);color:var(--ink);text-shadow:2px 2px 0 #000;font-weig
 const $ = s => document.querySelector(s), $$ = s => [...document.querySelectorAll(s)];
 const z = () => Number(getComputedStyle(document.documentElement).getPropertyValue('--z')) || 1;
 const frame = $('#frame'), stage = $('#stage'), notch = $('#notch');
-const W = 720, H_OVERVIEW = 284, H_FULL = 580, NOTCH_W = 232, NOTCH_H = 60, NOTCH_MARGIN = 8;
+const W = 720, H_OVERVIEW = 244, H_FULL = 580, NOTCH_W = 232, NOTCH_H = 50, NOTCH_MARGIN = 8;
 
 // ---------------------------------------------------------------- the notch
 // Docked, the notch sits top-centre flush with the screen edge, as the game draws it when no
@@ -505,7 +488,7 @@ window.addEventListener('resize', place);
 // drag the card by the title bar, never by its buttons
 const title = $('#title'); let drag = null;
 title.addEventListener('pointerdown', e => {
-  if (e.target.classList.contains('rb')) return;
+  if (e.target.closest('.rb, .pill')) return;
   drag = {x: e.clientX, y: e.clientY, ox: framePos.x, oy: framePos.y};
   title.classList.add('dragging'); title.setPointerCapture(e.pointerId);
 });
@@ -528,9 +511,12 @@ function syncBench() {
 function show(p) {
   page = p;
   $$('.page').forEach(x => x.classList.toggle('on', x.id === p));
+  $$('.acts').forEach(x => x.classList.toggle('on', x.dataset.for === p));
   frame.classList.toggle('full', p !== 'overview');
   titleName.textContent = names[p];
-  back.textContent = p === 'overview' ? '+' : '<';
+  // back exists only on a page; the overview has nothing to go back to, and a "+" there did nothing
+  back.textContent = '<';
+  back.style.visibility = p === 'overview' ? 'hidden' : 'visible';
   openCard(); syncBench();
 }
 $$('.tile').forEach(t => t.addEventListener('click', () => show(t.dataset.page)));
@@ -597,17 +583,13 @@ function drawOres() {
     oresEl.appendChild(t);
   });
   const n = ORES.filter(mines).length, found = ORES.length;
-  $('#orecount').textContent = `${found} found · will mine ${n}`;
   $('#oretilecount').textContent = `${n}/${found}`; $('#orefill').style.width = Math.round(100 * n / found) + '%';
-  $('#oretiledetail').textContent = `${found} ores found · will mine ${n}`;
-  $('#oretilemode').textContent = mode === 'black' ? `Skips the ${found - n} marked` : `Mines only the ${n} marked`;
   scrollers.forEach(s => s.layout());
 }
 function describe(o) {
   orepanel.querySelector('.sw').style = swatch(o);
   orepanel.querySelector('.nm').textContent = o.name;
   orepanel.querySelector('.st').textContent = mines(o) ? 'Will mine' : 'Will leave';
-  orepanel.querySelector('.how').textContent = 'How it looks in the wall';
   orepanel.querySelector('.st').style.color = mines(o) ? 'var(--green)' : 'var(--red)';
 }
 $$('#mode .pill').forEach(s => s.addEventListener('click', () => {
@@ -637,8 +619,7 @@ function drawBag(last) {
   const used = bag.length, pct = Math.round(100 * used / SLOTS);
   $('#invcount').textContent = `${used} / ${SLOTS}`;
   $('#invtilecount').textContent = `${used}/${SLOTS}`; $('#invfill').style.width = pct + '%';
-  $('#invtiledetail').textContent = `${used} of ${SLOTS} slots occupied`;
-  if (last) { $('#invtilelast').textContent = last; $('#invlast').textContent = last; }
+  if (last) $('#invlast').textContent = last;
   $('#yours').textContent = 'you carry: ' + (Object.entries(yours).filter(([, n]) => n > 0).map(([k, n]) => `${KIND[k]} ${n}`).join(' · ') || 'nothing');
   scrollers.forEach(s => s.layout());
 }
@@ -676,97 +657,115 @@ const GEAR = [
   {kind: 'pickaxe', item: 'Gold Pickaxe', icon: 'pick'},
   {kind: 'axe', item: 'Gold Axe', icon: 'axe'},
 ];
-const DEFAULT_GEAR_NOTE = 'One weapon, a pickaxe and an axe. Three more weapon slots open through Combat mastery.';
 function slotOpen(g) { return g.lockedBy === undefined || !!learned[SLOT_DIAMONDS[g.lockedBy]]; }
 function drawGear() {
-  const host = $('#gearslots'); host.innerHTML = '';
-  GEAR.forEach((g, i) => {
-    const s = document.createElement('div');
-    const open = slotOpen(g), x = i < 4 ? 105 + i * 52 : 329 + (i - 4) * 52;
+  const weapons = $('#gearweapons .row'), tools = $('#geartools .row');
+  weapons.innerHTML = ''; tools.innerHTML = '';
+  GEAR.forEach(g => {
+    const s = document.createElement('div'), open = slotOpen(g);
     s.className = 'slot gearslot' + (open ? '' : ' locked');
-    s.style.left = x + 'px';
     const icon = open ? (g.icon ? ICON[g.icon] : '') : ICON.lock;
     if (icon) s.innerHTML = `<svg viewBox="0 0 13 13" shape-rendering="crispEdges">${icon}</svg>`;
-    const diamond = g.lockedBy === undefined ? null : wheel.nodes.find(n => n.key === SLOT_DIAMONDS[g.lockedBy]);
-    const note = !open ? `Locked · learn ${diamond.def.name} in Combat mastery to open it. Click to go there.`
-      : g.item ? `${g.item} · the ${g.kind} the companion is using.`
-      : `Empty weapon slot · opened by ${diamond.def.name}. Put a weapon here.`;
-    s.addEventListener('mouseenter', () => $('#gearnote').textContent = note);
-    s.addEventListener('mouseleave', () => $('#gearnote').textContent = DEFAULT_GEAR_NOTE);
-    if (!open) s.addEventListener('click', () => { show('mast'); selectKey(diamond.key); });
-    host.appendChild(s);
+    // a locked slot goes to the diamond that opens it; nothing is written about it anywhere
+    if (!open) s.addEventListener('click', () => { show('mast'); selectKey(SLOT_DIAMONDS[g.lockedBy]); });
+    (g.kind === 'weapon' ? weapons : tools).appendChild(s);
   });
-  $('#gearnote').textContent = DEFAULT_GEAR_NOTE;
 }
 
 // ---------------------------------------------------------------- mastery: content
 // One flat tree. Every lane is ten roles: [trunk, fork, left diamond, right circle, left circle,
 // right diamond, left circle, right circle, tip diamond, end circle], so the split's ranks alternate
-// diamond-circle then circle-diamond before two circles and the meeting diamond. A circle has ranks;
-// a diamond unlocks something once and opens nothing. Magnitudes are kept modest on purpose: a fully
-// learned lane is worth about one or two good accessories. Each node names what it was sized against,
-// or says nothing comparable was found rather than borrowing a number.
+// diamond-circle then circle-diamond before two circles and the meeting diamond.
+//
+// Every node is a flat bonus to a number something the companion already does reads, never a new thing it can do or
+// choose (the owner's ruling of 15 September 2026): a node that switched a capability on would have to be tested with
+// and without it after every later change, which is why the dash, the liquid immunities and every conditional bonus
+// such as "while at top speed" are off the tree, and the immunities are built in. A circle that levels has five
+// levels, a diamond that levels has three, and a weapon slot has one. Magnitudes stay modest: a fully learned lane is
+// worth about one or two good accessories. Each node names what it was sized against, or says nothing comparable was
+// found rather than borrowing a number.
 const S = (name, ranks, effect, desc, ref, needs) => ({name, ranks, effect, desc: desc || '', ref: ref || '', needs: needs || []});
-const A = (name, effect, desc, ref, needs) => ({name, ranks: 1, effect, desc: desc || '', ref: ref || '', needs: needs || []});
+const C = (name, effect, desc, ref, needs) => S(name, 5, effect, desc, ref, needs);  // a circle: five levels
+const D = (name, effect, desc, ref, needs) => S(name, 3, effect, desc, ref, needs);  // a diamond that levels: three
+const A = (name, effect, desc, ref, needs) => ({name, ranks: 1, effect, desc: desc || '', ref: ref || '', needs: needs || []});  // a one-level unlock
+// A node whose levels do not step evenly says what each level does; the panel shows the next level's line, and hovering
+// a segment of the level bar shows that level's
+const L = (node, levels) => ({...node, levels});
 const NO_REF = 'Nothing comparable in Terraria, Calamity or Thorium was found; the number is a first guess.';
 const SLOT_NOTE = 'It still fires one weapon at a time, choosing whichever suits the target, so a slot adds choice rather than a second stream of shots.';
 
 const LANES = [
   {name: 'Combat', color: 'rgb(237,132,146)', nodes: [
-    S('Damage', 3, '+3% damage per rank, up to +9%', 'Every weapon it holds, the first slot included.', 'A Destroyer Emblem-class accessory gives a player 8–15%; a Wrath Potion 10%.'),
-    S('Attack speed', 3, '+3% attack speed per rank, up to +9%', 'Every weapon fires or swings a little more often.', 'Thorium\'s Bard empowerment steps 3/6/9/12%; the Feral Claws line gives 12% melee speed.'),
+    C('Damage', '+2% damage per level', 'Every weapon it holds, the first slot included.', 'A Destroyer Emblem-class accessory gives a player 8–15%; a Wrath Potion 10%.'),
+    C('Attack speed', '+2% attack speed per level', 'Every weapon fires or swings a little more often, through the use time the weapons already read.', 'Thorium\'s Bard empowerment steps 3/6/9/12%; the Feral Claws line gives 12% melee speed.'),
     A('Second weapon slot', 'Opens the second weapon slot', SLOT_NOTE, 'Terraria never gives slots as a percentage: a Pygmy Necklace gives one more minion slot.'),
-    S('Piercing', 1, 'Its shots pass through one more enemy', 'A line of slimes takes one shot for two.', NO_REF),
-    S('Extra projectile', 1, 'Each shot fires one more projectile, at half damage', 'Crowds take more hits; a single target takes at most half as much again.', NO_REF),
+    L(C('Piercing', 'Shots pass through more enemies, each taking less damage', 'The extra enemies come after the weapon\'s own last hit, which keeps its own damage; a weapon that already pierces without limit, and a swing, gain nothing.', NO_REF), [
+      'Passes through 1 more enemy, which takes 20% damage',
+      'Passes through 1 more enemy, which takes 40% damage',
+      'Passes through 2 more enemies, taking 60% and 15% damage',
+      'Passes through 2 more enemies, taking 70% and 30% damage',
+      'Passes through 3 more enemies, taking 75%, 50% and 25% damage',
+    ]),
+    L(C('Extra projectile', 'Fires more projectiles after each shot, each weaker', 'Each extra projectile leaves a fifth of the weapon\'s own reload after the one before, so a bow\'s arrows never overlap.', NO_REF), [
+      'A second projectile at 30% damage',
+      'A second projectile at 40% damage',
+      'Two more projectiles, at 40% and 15% damage',
+      'Two more projectiles, at 45% and 20% damage',
+      'Three more projectiles, at 50%, 25% and 10% damage',
+    ]),
     A('Third weapon slot', 'Opens the third weapon slot', SLOT_NOTE, 'Calamity\'s Statis\' Blessing gives two minion slots, and was cut down from three.', [2]),
-    S('Critical strike', 2, '+3% critical strike chance per rank, up to +6%', 'More of its hits crit.', 'A Lucky reforge gives a player 4% per accessory.'),
-    S('Projectile speed', 2, '+10% projectile speed per rank, up to +20%', 'Shots reach moving targets sooner, so fewer miss.', 'A Magic Quiver gives arrows 120% velocity, but velocity is that item\'s whole purpose.'),
+    C('Critical strike', '+1% critical strike chance per level', 'More of its hits crit.', 'A Lucky reforge gives a player 4% per accessory.'),
+    C('Projectile speed', '+4% projectile speed per level', 'Shots reach moving targets sooner, so fewer miss.', 'A Magic Quiver gives arrows 120% velocity, but velocity is that item\'s whole purpose.'),
     A('Fourth weapon slot', 'Opens the fourth weapon slot', SLOT_NOTE, 'Vanilla reaches eleven minion slots from one, always one or two at a time.', [2, 5]),
-    S('Damage', 2, '+4% damage per rank, up to +8%', 'With the first Damage node, +17% in all: about one emblem.', 'A Destroyer Emblem-class accessory gives a player 8–15%.'),
+    C('Armour piercing', 'Ignores 2% of an enemy\'s defence per level', 'A share rather than a flat amount, so it still counts against an enemy with enormous defence.', 'Terraria\'s armour penetration is flat: a Shark Tooth Necklace ignores 5 defence whatever the enemy has.'),
   ]},
   {name: 'Movement', color: 'rgb(104,213,220)', nodes: [
-    S('Top speed', 3, '+3% top speed per rank, up to +9%', 'It keeps up when you sprint.', 'An Aglet gives a player 5%, an Anklet of the Wind 10%.'),
-    S('Acceleration', 3, '+5% acceleration per rank', 'It reaches top speed sooner.', 'Terraria does not publish acceleration as a percentage; the number is a first guess.'),
-    A('Dash', 'A short burst of about 10 tiles, every 4 seconds', 'It dashes when it needs to be somewhere fast or out of the way of a hit.', 'A Shield of Cthulhu dashes every 0.5 s; Calamity\'s Asgard\'s Valor covers 18 blocks.'),
-    S('Turning', 2, '+8% turn rate per rank', 'Tighter curves around corners and shots.', NO_REF),
-    S('Dash cooldown', 2, 'The dash comes back 0.5 seconds sooner per rank', 'Down to 3 seconds.', 'A Shield of Cthulhu waits 0.5 s and Master Ninja Gear 1 s, both for a player.'),
-    A('Slipstream', '+10% top speed while flying behind you as you move', 'Following you is easier than chasing you.', NO_REF),
-    S('Homing flight', 2, '+10% speed per rank when flying back from far away', 'It rejoins you sooner after being left behind.', NO_REF),
-    S('Steady hull', 2, '−15% knockback taken per rank', 'Hits shove it off course less.', 'Calamity\'s Asgard\'s Valor gives full knockback immunity in one item.'),
-    A('Afterburner', 'After 2 seconds without slowing, +10% top speed until it slows', 'Long trips go faster.', 'The Panic! buff gives a player 100% speed, but only briefly after a hit.'),
-    S('Top speed', 2, '+3% top speed per rank', 'With the first Top speed node, +15% in all.', 'An Aglet gives a player 5%, an Anklet of the Wind 10%.'),
+    C('Top speed', '+2% top speed per level', 'It keeps up when you sprint.', 'An Aglet gives a player 5%, an Anklet of the Wind 10%.'),
+    C('Acceleration', '+3% acceleration per level', 'It reaches top speed and slows down sooner.', 'Terraria does not publish acceleration as a percentage; the number is a first guess.'),
+    D('Return flight', '+10% speed flying back to you from far away per level', 'Being left behind costs less time.', NO_REF),
+    C('Job rush', '+3% acceleration flying to a job per level', 'It gets moving sooner when there is work to go to.', NO_REF),
+    C('Steady hull', '5% less knockback taken per level', 'Hits shove it off course less.', 'Calamity\'s Asgard\'s Valor gives full knockback immunity in one item.'),
+    D('Overdrive', '+4% top speed per level', 'A bigger step of the same speed, so a long trip takes less time.', 'An Anklet of the Wind gives a player 10%.'),
+    C('Return thrust', '+5% acceleration flying back to you per level', 'It gets up to speed sooner when it has to come home.', NO_REF),
+    C('Thrusters', '+2% acceleration per level', 'Quicker to get up to speed and to slow down.', NO_REF),
+    D('Errand speed', '+5% top speed flying to a job per level', 'Work across the screen starts sooner.', NO_REF),
+    C('Top speed', '+2% top speed per level', 'With the first Top speed node and Overdrive, +32% in all.', 'Hermes Boots and an Anklet of the Wind together give a player well past that.'),
   ]},
   {name: 'Survival', color: 'rgb(233,180,103)', nodes: [
-    S('Max life', 3, '+20 life per rank, up to +60', 'It survives longer in a fight.', 'A Life Crystal gives a player 20.'),
-    S('Plating', 3, '2% less damage taken per rank, up to 6%', 'Every hit hurts a little less.', 'A Worm Scarf gives 17% and the Chlorophyte set 5%; Terraria keeps unconditional damage reduction small.'),
-    A('Waterproof', 'Flies through water and honey and takes no damage', 'Water stops being a wall to its routes.', 'Terraria goes from timed breathing to Neptune\'s Shell, which removes the limit for good.'),
-    S('Regeneration', 2, '+1 life per second per rank', 'It heals between fights.', 'A Band of Regeneration gives a player 1 life per second.'),
-    S('Quick reboot', 3, 'Revives 5 seconds sooner per rank, from 20 down to 5', 'Less time without it after it goes down.', 'Nothing in Terraria shortens respawn: a player waits 10 s, or 15 s in Expert.'),
-    A('Magma core', 'Flies through lava and takes no damage', 'Lava stops being a wall to its routes.', 'A Lava Charm gives a player 7 seconds; Calamity\'s Void Striders give full immunity late in the game.'),
-    S('Last stand', 2, '5% less damage taken per rank while below half life', 'Harder to finish off.', 'A Frozen Turtle Shell gives a player 25%, but only below half life.'),
-    S('Thick hull', 2, 'Debuffs on it wear off 20% faster per rank', 'Poison and fire hold on to it less.', NO_REF),
-    A('Guardian link', '5% of the damage you take goes to the companion while it is within 25 tiles', 'It takes a small part of every hit for you.', 'A Paladin\'s Shield absorbs 25% of a teammate\'s damage within 50 tiles, at most once every 0.67 s.'),
-    S('Link share', 2, '+5% more of your damage per rank, up to 15% in all', 'Stays under a Paladin\'s Shield even when full.', 'A Paladin\'s Shield absorbs 25%.'),
+    C('Max life', '+10 life per level', 'On top of the life it mirrors from you.', 'A Life Crystal gives a player 20.'),
+    C('Plating', '1% less damage taken per level', 'Every hit hurts a little less.', 'A Worm Scarf gives 17% and the Chlorophyte set 5%; Terraria keeps unconditional damage reduction small.'),
+    D('Guardian link', '5% of the damage you take goes to the companion per level', 'It takes part of every hit for you, wherever it is.', 'A Paladin\'s Shield absorbs 25% of a teammate\'s damage within 50 tiles, at most once every 0.67 s.'),
+    C('Regeneration', '+0.5 life per second per level', 'It heals between fights.', 'A Band of Regeneration gives a player 1 life per second.'),
+    C('Quick reboot', 'Revives 3 seconds sooner per level', 'From 20 seconds down to 5 at level 5.', 'Nothing in Terraria shortens respawn: a player waits 10 s, or 15 s in Expert.'),
+    D('Lifeline', '1% of the damage it deals heals you per level', 'Its fighting keeps you standing.', 'Vampire Knives heal a player from 7.5% of their own damage, capped per second.'),
+    C('Last stand', '3% less damage taken per level while below half life', 'Harder to finish off.', 'A Frozen Turtle Shell gives a player 25%, but only below half life.'),
+    C('Thick hull', 'Debuffs on it wear off 10% faster per level', 'Poison and fire hold on to it less.', NO_REF),
+    D('Emergency repair', 'Below 10% life it heals to full, once every 3, 2, then 1 minute', 'One big hit cannot take it out of a fight.', 'Like Calamity\'s revival accessories, but once a cooldown rather than once a life.'),
+    C('Toughness', '+2 defence per level', 'On top of the defence it mirrors from you.', 'A Cobalt Shield gives a player 1 defence; a Warrior emblem none.'),
   ]},
   {name: 'Gathering', color: 'rgb(109,201,178)', nodes: [
-    S('Mining speed', 3, '+5% mining speed per rank, up to +15%', 'Ore comes out faster.', 'A Mining Potion and an Ancient Chisel each give a player 25%.'),
-    S('Chopping speed', 3, '+5% chopping speed per rank, up to +15%', 'Trees come down faster.', 'Sized like mining speed.'),
-    A('Vein beam', 'Breaking an ore also breaks one touching tile of the same ore', 'Veins come out in fewer passes.', 'No Terraria item raises ore per tile; big tools break an area instead, like the Picksaw\'s 3×3.'),
-    S('Tool reach', 2, '+1 tile of tool reach per rank', 'Works a tile from further away.', NO_REF),
-    S('Bag space', 2, '+10 bag slots per rank', 'Carries more before you empty it.', NO_REF),
-    A('Tractor field', 'Pulls loot in from 6 tiles away', 'Fewer drops left behind.', 'A Treasure Magnet stretches a player\'s pickup range from about 2.6 to 12 tiles.'),
-    S('Flashlight reach', 2, '+10% flashlight reach per rank', 'Lights dark places from further away.', 'No published light radius for the Mining Helmet or Shine Potion was found; the number is a first guess.'),
-    S('Pull range', 2, '+2 tiles of pull range per rank', 'The tractor field reaches further.', 'A Treasure Magnet reaches 12 tiles.'),
-    A('Prospector\'s eye', 'Sees ore through walls within 15 tiles', 'It notices veins it would otherwise fly past.', 'Like a Spelunker Potion, for the companion.'),
-    S('Quick hands', 2, '+3% mining and chopping speed per rank', 'With the first two nodes, +21% in all.', 'A Mining Potion gives a player 25%.'),
+    C('Tool speed', '+4% mining and chopping speed per level', 'Ore comes out and trees come down faster.', 'A Mining Potion and an Ancient Chisel each give a player 25%.'),
+    C('Timber', '2% chance per level that a tree drops twice its wood', 'Trees give a little more.', 'Sized like Lucky strike.'),
+    D('Vein beam', 'Breaking an ore also breaks one more touching ore per level', 'Veins come out in fewer passes.', 'No Terraria item raises ore per tile; big tools break an area instead, like the Picksaw\'s 3×3.'),
+    C('Tool reach', '+1 tile of tool reach per level', 'Breaks ore and wood and places torches from further away.', 'A Toolbelt gives a player 1 tile; an Extendo Grip 3.'),
+    C('Lucky strike', '2% chance per level that an ore drops twice', 'Veins give a little more.', 'Calamity\'s and Thorium\'s double-drop effects sit around 5–10%.'),
+    D('Tractor field', 'Pulls loot in from 6 more tiles per level', 'Fewer drops left behind: 6, 12, then 18 tiles.', 'A Treasure Magnet stretches a player\'s pickup range from about 2.6 to 12 tiles.'),
+    C('Prospector\'s eye', 'Ore within 3 more tiles per level glows for you', 'You see the veins it is flying past.', 'A Spelunker Potion lights every ore on a player\'s screen.'),
+    C('Flashlight reach', '+10% flashlight reach per level', 'Lights dark places from further away; the beam is brightest at the source and fades toward its end.', 'No published light radius for the Mining Helmet or Shine Potion was found; the number is a first guess.'),
+    L(D('Bag space', 'More bag slots', 'Carries more before you empty it: 120 slots become 200.', NO_REF), [
+      '+15 bag slots',
+      '+25 more bag slots',
+      '+40 more bag slots',
+    ]),
+    C('Quick hands', '+2% mining and chopping speed per level', 'With Tool speed, +30% in all.', 'A Mining Potion gives a player 25%.'),
   ]},
 ];
 // A shared circle between each pair of neighbouring lanes, opened from either side.
 const JUNCTIONS = [
-  S('Strafe', 2, '+3% attack speed per rank while flying at top speed', 'Shared by Combat and Movement.', NO_REF),
-  S('Evasive', 2, '+10% speed per rank for 1 second after a hit misses it', 'Shared by Movement and Survival.', NO_REF),
-  S('Trap sense', 2, '20% less damage from traps per rank', 'Shared by Survival and Gathering.', NO_REF),
-  S('Cutting beam', 1, 'Its mining beam deals 10 damage per second to enemies it crosses', 'Shared by Gathering and Combat.', NO_REF),
+  C('Impact', '+5% knockback dealt per level', 'Shared by Combat and Movement.', 'A Titan Glove gives a player 100% knockback.'),
+  C('Shock absorbers', '+0.1 seconds of invincibility after a hit per level', 'Shared by Movement and Survival.', 'A Cross Necklace gives a player 1 second.'),
+  C('Trap sense', '10% less damage from traps per level', 'Shared by Survival and Gathering.', NO_REF),
+  C('Scavenger', '3% more coins from enemies it kills per level', 'Shared by Gathering and Combat.', 'A Lucky Coin raises a player\'s coin drops.'),
 ];
 const COLORS = LANES.map(l => l.color);
 
@@ -786,7 +785,9 @@ const rad = d => d * Math.PI / 180;
 const polar = (r, deg) => ({x: Math.round(r * Math.cos(rad(deg))), y: Math.round(r * Math.sin(rad(deg)))});
 const nearestPair = nodes => Math.min(...nodes.flatMap((a, i) => nodes.slice(i + 1).map(b => Math.hypot(a.x - b.x, a.y - b.y))));
 
-const wheel = {nodes: [], edges: [], labels: [], root: {x: 0, y: 0, b: -1, kind: 'root'}, extent: 2 * (LABEL_R + 90)};
+// extent is replaced by the drawn tree's own measured bounds the first time the page is visible (see measureExtent),
+// so a label's real text width, which no constant here knows, is what the fit leaves room for
+const wheel = {nodes: [], edges: [], labels: [], root: {x: 0, y: 0, b: -1, kind: 'root'}, extent: 2 * (LABEL_R + 140)};
 LANES.forEach((lane, b) => {
   const base = b * SPACING - 90;
   TEMPLATE.forEach(([r, d], n) => {
@@ -795,7 +796,12 @@ LANES.forEach((lane, b) => {
       kind: DIAMOND_ROLES.has(n) ? 'unlock' : 'stat', needs: def.needs.map(k => 'w' + (b * ROLES + k))});
   });
   LANE_EDGES.forEach(([f, t]) => wheel.edges.push([f < 0 ? -1 : b * ROLES + f, b * ROLES + t]));
-  const p = polar(LABEL_R, base); wheel.labels.push({x: p.x, y: p.y + 12, text: lane.name, b});
+  // A label stands past its lane's last node. Across a vertical lane the text is short in the lane's direction and can
+  // centre on it; along a horizontal lane it is long, so centred it lay on the last node, and it is anchored at its
+  // near end instead, one node radius and a gap beyond the node.
+  const end = TEMPLATE[ROLES - 1][0], along = Math.cos(rad(base));
+  const side = Math.abs(along) > 0.5, p = polar(side ? end + NODE_R + 24 : LABEL_R, base);
+  wheel.labels.push({x: p.x, y: p.y + 14, text: lane.name, b, anchor: !side ? 'middle' : along > 0 ? 'start' : 'end'});
 });
 JUNCTIONS.forEach((def, i) => {
   // joined to lane i's clockwise first-rank node and lane i+1's counter-clockwise first-rank node
@@ -805,11 +811,12 @@ JUNCTIONS.forEach((def, i) => {
   wheel.edges.push([a + 2, j], [c + 3, j]);
 });
 wheel.nearest = nearestPair(wheel.nodes);
+// the layout's own proof, kept as a check rather than on-screen text: no two nodes may touch
+console.assert(wheel.nearest > 2 * NODE_R, `mastery nodes touch: nearest pair ${wheel.nearest} against ${2 * NODE_R}`);
 
 // ---------------------------------------------------------------- mastery: the preview's learning
 // A node can be learned when an edge into it comes from something learned (the centre always is) and
-// everything it names under needs is learned. Unlearning removes one rank and then takes back
-// everything that no longer connects.
+// everything it names under needs is learned. Nothing is ever unlearned.
 const learned = {};
 const rankOf = n => learned[n.key] || 0;
 const nodeOfKey = key => wheel.nodes.find(n => n.key === key);
@@ -818,15 +825,6 @@ function parentsLearned(i) {
 }
 function canLearn(n) {
   return rankOf(n) < n.def.ranks && parentsLearned(wheel.nodes.indexOf(n)) && n.needs.every(k => learned[k]);
-}
-function prune() {
-  let changed = true;
-  while (changed) {
-    changed = false;
-    wheel.nodes.forEach((n, i) => {
-      if (learned[n.key] && !(parentsLearned(i) && n.needs.every(k => learned[k]))) { delete learned[n.key]; changed = true; }
-    });
-  }
 }
 const spent = () => Object.values(learned).reduce((a, b) => a + b, 0);
 
@@ -864,59 +862,84 @@ function draw(keepView) {
   });
   // the centre, in gold
   svg.appendChild(el('rect', {x: -R, y: -R, width: 2 * R, height: 2 * R, fill: '#ffe066', stroke: '#ffe066', 'stroke-width': 3.5, transform: 'rotate(45 0 0)'}));
-  wheel.labels.forEach(l => { const t = el('text', {x: l.x, y: l.y, fill: COLORS[l.b], 'text-anchor': 'middle', 'font-size': 40, filter: 'url(#hard)'});
+  wheel.labels.forEach(l => { const t = el('text', {x: l.x, y: l.y, fill: COLORS[l.b], 'text-anchor': l.anchor, 'font-size': 40, filter: 'url(#hard)'});
     t.textContent = l.text; svg.appendChild(t); });
   if (!keepView) fitGraph();
   refreshStatus();
 }
 function refreshStatus() {
-  const total = wheel.nodes.reduce((a, n) => a + n.def.ranks, 0), have = wheel.nodes.filter(n => learned[n.key]).length;
+  const have = wheel.nodes.filter(n => learned[n.key]).length;
   $('#masttilecount').textContent = `${spent()} pts`;
   $('#mastfill').style.width = Math.round(100 * have / wheel.nodes.length) + '%';
-  $('#masttiledetail').textContent = `${have} of ${wheel.nodes.length} nodes · 4 lanes`;
-  $('#masthint').textContent = `Preview · ${spent()} of ${total} points · drag to pan · wheel to zoom`;
-  $('#mastlegend').innerHTML = 'Circle: upgrade with ranks &nbsp; Diamond: unlock &nbsp; Shaded: shared between lanes';
-  $('#mastline').textContent = `${wheel.nodes.length} nodes, ${total} ranks · nearest pair ${Math.round(wheel.nearest)} apart, nodes ${2 * NODE_R} wide · all names and numbers are drafts`;
 }
 
 // ---------------------------------------------------------------- mastery: the detail panel
+// The panel says the node's name and what it does and nothing else, because the owner ruled the page must be simple:
+// no kind or rank line, no purpose sentence, no "sized against", no needs, no hint, legend or status line anywhere on
+// the page. Learn and the level bar sit at the panel's foot; the bar is the joined-segment control's shape with one
+// segment per level, learned levels selected. There is no Unlearn: a learned level stays learned.
+//
+// The panel exists only while a node is picked. With nothing picked the tree has the whole page and Reset view centres
+// it there; picking a node narrows the graph by the panel's width, and a click on empty background (a press released
+// without dragging) unpicks it. The narrowing keeps the view's left edge and scale, so nothing on screen moves when
+// the panel opens and the tree is centred again when it closes, and a picked node the panel would cover is panned in.
+const mast = $('#mast');
+function setPicked(on) {
+  if (mast.classList.contains('picked') === on) return;
+  const before = graph.clientWidth, s = view.w / (before || 1);
+  mast.classList.toggle('picked', on);
+  const after = graph.clientWidth;
+  if (!before || !after) return;
+  view.w = after * s; applyView();
+}
+function panIntoView(n) {
+  const cw = graph.clientWidth, s = view.w / cw, margin = 2 * NODE_R + 12;
+  if (n.x + margin > view.x + view.w) view.x = n.x + margin - view.w;
+  if (n.x - margin < view.x) view.x = n.x - margin;
+  applyView();
+}
+function deselect() {
+  if (!selectedNode) return;
+  selectedNode = null; setPicked(false); draw(true);
+}
 function select(n) {
   selectedNode = n;
+  setPicked(true); panIntoView(n);
   draw(true);
-  const r = rankOf(n), lane = LANES[n.lane];
+  const r = rankOf(n);
   $('#dname').textContent = n.def.name; $('#dname').style.color = COLORS[n.b];
-  $('#dkind').textContent = n.kind === 'unlock' ? `${lane.name} unlock · ${r ? 'learned' : 'not learned'}`
-    : n.kind === 'junction' ? `Shared by ${LANES[n.between[0]].name} and ${LANES[n.between[1]].name} · rank ${r} of ${n.def.ranks}`
-    : `${lane.name} upgrade · rank ${r} of ${n.def.ranks}`;
-  $('#deffect').textContent = n.def.effect;
-  $('#ddesc').textContent = n.def.desc;
-  $('#dref').textContent = n.def.ref ? 'Sized against: ' + n.def.ref : '';
-  const i = wheel.nodes.indexOf(n);
-  const from = wheel.edges.filter(([, t]) => t === i && t >= 0).map(([f]) => f < 0 ? null : wheel.nodes[f].def.name).filter(Boolean);
-  const needs = [...new Set([...(from.length ? [from.join(' or ')] : []), ...n.needs.map(k => nodeOfKey(k).def.name)])];
-  $('#dneeds').textContent = needs.length ? 'Needs: ' + needs.join(' and ') : 'Needs: nothing, it starts the lane';
-  $('#dneeds').classList.toggle('bad', !(canLearn(n) || r > 0));
+  // an even node says its per-level effect; an uneven one says what the next level to learn does (the last once full),
+  // and a hovered segment says what its own level does
+  const resting = n.def.levels ? n.def.levels[Math.min(r, n.def.ranks - 1)] : n.def.effect;
+  $('#deffect').textContent = resting;
   $('#learn').classList.toggle('off', !canLearn(n));
-  $('#learn').textContent = n.def.ranks > 1 && r > 0 ? 'Add a rank' : 'Learn';
-  $('#unlearn').classList.toggle('off', r === 0);
+  // "Level N" fits a segment up to three levels; five segments in the panel's width fit only the number
+  const label = i => n.def.ranks > 3 ? `${i + 1}` : `Level ${i + 1}`;
+  $('#levels').innerHTML = Array.from({length: n.def.ranks}, (_, i) => `<div class="seg${i < r ? ' on' : ''}">${label(i)}</div>`).join('');
+  if (n.def.levels) $$('#levels .seg').forEach((s, i) => {
+    s.addEventListener('mouseenter', () => $('#deffect').textContent = n.def.levels[i]);
+    s.addEventListener('mouseleave', () => $('#deffect').textContent = resting);
+  });
 }
 function selectKey(key) { const n = nodeOfKey(key); if (n) select(n); }
 $('#learn').addEventListener('click', () => {
   const n = selectedNode; if (!n || !canLearn(n)) return;
   learned[n.key] = rankOf(n) + 1; select(n); drawGear();
 });
-$('#unlearn').addEventListener('click', () => {
-  const n = selectedNode; if (!n || !rankOf(n)) return;
-  if (learned[n.key] > 1) learned[n.key]--; else delete learned[n.key];
-  prune(); select(n); drawGear();
-});
 
 // pan and zoom as the game does them: wheel 1.12 / 0.89 about the pointer, buttons 1.15 / 0.85
 // about the canvas centre, reset fits the wheel's extent
 const graph = $('#graph'); let view = {x: -600, y: -600, w: 1200, h: 1200};
 function applyView() { svg.setAttribute('viewBox', `${view.x} ${view.y} ${view.w} ${view.h}`); }
+// the tree's bounds as drawn, labels included, as a square about the centre; getBBox reads nothing while the page is
+// hidden, so the last measured value stands until it can
+function measureExtent() {
+  const b = svg.getBBox(); if (!b.width) return;
+  wheel.extent = 2 * Math.max(-b.x, b.x + b.width, -b.y, b.y + b.height) + 40;
+}
 function fitGraph() {
   const cw = graph.clientWidth, ch = graph.clientHeight; if (!cw || !ch) return;
+  measureExtent();
   const s = Math.max(wheel.extent / cw, wheel.extent / ch);
   view = {w: cw * s, h: ch * s, x: -cw * s / 2, y: -ch * s / 2}; applyView();
 }
@@ -935,13 +958,19 @@ $('#zreset').addEventListener('click', fitGraph);
 let pan = null;
 graph.addEventListener('pointerdown', e => {
   if (e.target.classList && e.target.classList.contains('node')) return;
-  pan = {x: e.clientX, y: e.clientY, vx: view.x, vy: view.y}; graph.classList.add('dragging'); graph.setPointerCapture(e.pointerId); });
+  pan = {x: e.clientX, y: e.clientY, vx: view.x, vy: view.y, moved: false}; graph.classList.add('dragging'); graph.setPointerCapture(e.pointerId); });
 graph.addEventListener('pointermove', e => {
   if (!pan) return;
+  // the notch's drag threshold: under six pixels a press is still a click
+  if (Math.hypot(e.clientX - pan.x, e.clientY - pan.y) >= 6) pan.moved = true;
   view.x = pan.vx - (e.clientX - pan.x) / z() * (view.w / graph.clientWidth);
   view.y = pan.vy - (e.clientY - pan.y) / z() * (view.h / graph.clientHeight); applyView();
 });
-graph.addEventListener('pointerup', () => { pan = null; graph.classList.remove('dragging'); });
+graph.addEventListener('pointerup', () => {
+  const clicked = pan && !pan.moved;
+  pan = null; graph.classList.remove('dragging');
+  if (clicked) deselect();  // a click on the background unpicks; a pan never does
+});
 
 // ---------------------------------------------------------------- start: the notch, the card closed
 draw(); drawGear(); place(); scrollers.forEach(s => s.layout()); syncBench();
