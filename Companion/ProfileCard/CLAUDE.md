@@ -70,7 +70,7 @@ MagicPixel is an atlas. Lines and fills select a one-pixel source rectangle; str
 
 The rounded shapes are runtime-built textures in `DrawCardPrimitives`, shared with the HUD notch, and **no texture is ever keyed by a shape's width or height.** A rounded rectangle's anti-aliasing lives only in its four radius-sized corners, so `RoundedFill` draws one quadrant mask per radius, flipped into each rounded corner, around solid bands; the notch's fillets are keyed by their side and radius. A cache keyed by pixel size uploaded a new texture mid-draw for every fill width a bar reached and kept it until unload, which the render fixture now fails. The card system releases the cache at unload through `Main.QueueMainThreadAction`, because mod unload runs on a worker thread and FNA3D refuses to dispose a texture there.
 
-A page's construction measures text through the game's font, so constructing any page needs fonts loaded; a check that must run without graphics tests the graph's rules, not a page.
+Opening a page puts its actions in the title bar, and each pill's width is measured from its label through the game's font, so opening a page needs fonts loaded; a check that must run without graphics tests the graph's rules, not a page.
 
 ## A page sitting open allocates nothing of its own
 
