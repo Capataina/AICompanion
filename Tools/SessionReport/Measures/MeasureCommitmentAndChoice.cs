@@ -8,75 +8,18 @@ using AICompanion.Tools.Ledger;
 namespace AICompanion.Tools.SessionReport;
 
 /// <summary>
-/// A move that was cancelled while the body was in the air, which is the platform jump failing
-/// counted rather than watched.
+/// Reading one field out of an occurrence's packed <c>key=value;key=value</c> detail.
 ///
-/// The record shape is exact and each part of it is load-bearing. The navigator's last edge reads
-/// <c>Outcome = Interrupted</c> and the attempt ended <c>Cancelled</c>, so the move was released by
-/// its owner rather than failing physically. The sample's own vertical velocity is non-zero and the
-/// navigator's status is <c>Idle</c>, so the release happened with the body off the ground and the
-/// navigator holding nothing — the path and the step nulled mid-arc, the motor handed no controls,
-/// and the body flying on ballistics to land short of where the edge was proven to reach.
-///
-/// Both halves of the filter are needed. A cancellation on the ground is an ordinary route
-/// replacement and there are plenty; an airborne sample with the navigator still executing is a
-/// move in progress. Only the pair is the defect.
-///
-/// The last-edge field is sticky — it stands until another edge replaces it — so consecutive
-/// identical reports are one cancellation observed repeatedly rather than a cancellation happening
-/// repeatedly, and counting rows instead of changes would multiply one defect by however often the
-/// sampler ran.
+/// This is all that survives of <c>cancelled-in-flight</c>, the measure that counted moves released
+/// by their own owner while the body was in the air. It read <c>last-edge=</c> and
+/// <c>preparation=</c> out of a <c>movement-state</c> sample, and the producer writes neither: the
+/// orb's navigator carries a route rather than a proved edge with a preparation in front of it, so
+/// there is no interrupted-and-cancelled edge to count and no ballistic arc to be released into.
+/// A measure left reading those keys would have returned zero for ever, which is the one outcome
+/// this harness treats as worse than a red.
 /// </summary>
-public sealed class MeasureCancelledInFlight : IMeasure
+internal static class EventDetail
 {
-    public string Name => "cancelled-in-flight";
-    public string[] Needs => new[] { "tick" };
-
-    public string? Missing(Session session)
-        => CheckEvents.SidecarUnavailable(session, "the navigator's last edge and attempt ending beside the body's vertical velocity");
-
-    public IEnumerable<LedgerRow> Rows(Session session)
-    {
-        GodsEyeEventLog log = ReadGodsEyeEvents.Read(session.Path);
-        var airborne = new Dictionary<string, int>();
-        var all = new Dictionary<string, int>();
-        string lastReport = "";
-
-        foreach (GodsEyeEvent e in log.Events)
-        {
-            if (e.kind != "movement-state") continue;
-            string edge = Between(e.detail, "last-edge=", ";preparation=");
-            string ending = Between(e.detail, "attempt-ending=", ";");
-            if (edge.Length == 0 || !edge.Contains("Outcome = Interrupted", StringComparison.Ordinal) || ending != "Cancelled")
-            {
-                lastReport = "";
-                continue;
-            }
-            string report = edge + "|" + ending;
-            if (report == lastReport) continue;
-            lastReport = report;
-
-            string kind = Between(edge, "Kind = ", ",");
-            if (kind.Length == 0) kind = "unknown";
-            all[kind] = all.GetValueOrDefault(kind) + 1;
-            if (Math.Abs(e.vel_y) > 0 && Between(e.detail, "status=", ";") == "Idle")
-                airborne[kind] = airborne.GetValueOrDefault(kind) + 1;
-        }
-
-        // Every kind the capture saw cancelled gets a row, including the ones at zero, so a kind
-        // that stops being cancelled reads as a fixed number rather than as a vanished case — a
-        // measure that only emits where something happened cannot show anything reaching zero.
-        foreach (string kind in all.Keys.OrderBy(k => k, StringComparer.Ordinal))
-        {
-            yield return PlayRow.Count($"{Name}/{kind}-airborne-idle", airborne.GetValueOrDefault(kind), "cancellations", "down",
-                $"{kind} moves released by their own owner while the body was off the ground and the navigator was left Idle, out of {all[kind]:n0} cancelled in total",
-                "R4", "pass-line:zero");
-        }
-        if (all.Count == 0)
-            yield return PlayRow.Count($"{Name}/none", 0, "cancellations", "down",
-                "no interrupted-and-cancelled edge was recorded in this capture at all", "R4", "pass-line:zero");
-    }
-
     /// <summary>
     /// The text between a key and the next delimiter. Written by hand rather than as a regular
     /// expression because the payload nests braces — an <c>EdgeReport</c> holds <c>From = {X:… Y:…}</c>
@@ -98,15 +41,20 @@ public sealed class MeasureCancelledInFlight : IMeasure
 /// The body stopping on its own route, counted by the reason the producer attributed at the moment
 /// it happened rather than by a reason reconstructed afterwards from retained state.
 ///
-/// <c>airborne-no-sideways-speed</c> is the one the plan names a pass line for, because it is the
-/// same defect as a cancellation in flight seen from the body's side: a move released mid-arc
-/// leaves a body with no horizontal drive and nothing steering it. The others are emitted beside it
-/// because a reason that stops firing while another starts is a defect that moved rather than one
-/// that was fixed, and only the whole split shows that.
+/// <c>other</c> is the one the plan names a pass line for, and it is named by exclusion on purpose.
+/// The producer attributes a stop in a strict precedence — a route replaced under a still body is
+/// <c>during-replan</c> and explains the stillness outright, a body pressed against a wall for the
+/// whole stop is <c>against-wall</c> and names the steering aiming through a wall — so anything
+/// reaching <c>other</c> is a body that had a segment to fly, was not waiting for a plan, and was not
+/// touching anything. That is a stall with nothing in the record accounting for it, which is the
+/// strongest thing a stop can say about this body.
+///
+/// The three are emitted together because a reason that stops firing while another starts is a
+/// defect that moved rather than one that was fixed, and only the whole split shows that.
 /// </summary>
 public sealed class MeasureStopsByReason : IMeasure
 {
-    public string Name => "airborne-no-sideways-speed-stops";
+    public string Name => "unexplained-stops";
     public string[] Needs => new[] { "tick" };
 
     public string? Missing(Session session)
@@ -120,20 +68,20 @@ public sealed class MeasureStopsByReason : IMeasure
         foreach (GodsEyeEvent e in log.Events)
         {
             if (e.kind != "stop") continue;
-            string reason = MeasureCancelledInFlight.Between(e.detail, "reason=", ";");
+            string reason = EventDetail.Between(e.detail, "reason=", ";");
             if (reason.Length == 0) reason = "unattributed";
             stops[reason] = stops.GetValueOrDefault(reason) + 1;
-            string span = MeasureCancelledInFlight.Between(e.detail, "ticks=", ";");
+            string span = EventDetail.Between(e.detail, "ticks=", ";");
             ticks[reason] = ticks.GetValueOrDefault(reason) + (int.TryParse(span, out int t) ? t : 0);
         }
 
-        const string Airborne = "airborne-no-sideways-speed";
-        yield return PlayRow.Count($"{Name}/stops", stops.GetValueOrDefault(Airborne), "stops", "down",
-            "stops the producer attributed to a body in the air with no sideways drive, which is a move released mid-arc seen from the body's side",
+        const string Unexplained = "other";
+        yield return PlayRow.Count($"{Name}/stops", stops.GetValueOrDefault(Unexplained), "stops", "down",
+            "stops the producer could attribute neither to a replan nor to a wall the body was pressed against, which is a body with a segment to fly that stopped for nothing the record names",
             "R4", "pass-line:zero");
-        yield return PlayRow.Count($"{Name}/ticks", ticks.GetValueOrDefault(Airborne), "ticks", "down",
+        yield return PlayRow.Count($"{Name}/ticks", ticks.GetValueOrDefault(Unexplained), "ticks", "down",
             "ticks spent in those stops", "R4", "pass-line:zero");
-        foreach (string reason in stops.Keys.Where(r => r != Airborne).OrderBy(r => r, StringComparer.Ordinal))
+        foreach (string reason in stops.Keys.Where(r => r != Unexplained).OrderBy(r => r, StringComparer.Ordinal))
             yield return PlayRow.Count($"stops-by-reason/{reason}", stops[reason], "stops", "down",
                 $"stops attributed to {reason}, {ticks.GetValueOrDefault(reason):n0} ticks in total", "R9");
     }
@@ -241,9 +189,9 @@ public sealed class MeasureHuntKnownUnusableShare : IMeasure
         {
             if (e.kind != "decision") continue;
             decisions++;
-            string factors = MeasureCancelledInFlight.Between(e.detail, "factors:hunt=", ";factors:");
+            string factors = EventDetail.Between(e.detail, "factors:hunt=", ";factors:");
             if (factors.Length == 0) { unreadable++; continue; }
-            string offer = MeasureCancelledInFlight.Between(factors, "offer:", ",");
+            string offer = EventDetail.Between(factors, "offer:", ",");
             if (offer.Length == 0) { unreadable++; continue; }
             switch (offer.Split('/')[0])
             {

@@ -5,14 +5,9 @@ using Microsoft.Xna.Framework;
 using Terraria;
 using Terraria.Graphics.Light;
 using Terraria.ID;
-using AStar = live::AICompanion.Companion.Brain.Infrastructure.Movement.AStar;
-using BodyPhysics = live::AICompanion.Companion.Brain.Infrastructure.Movement.BodyPhysics;
-using BodyState = live::AICompanion.Companion.Brain.Infrastructure.Movement.BodyState;
-using ContinueRouteSearch = live::AICompanion.Companion.Brain.Infrastructure.Movement.ContinueRouteSearch;
-using MoveKind = live::AICompanion.Companion.Brain.Infrastructure.Movement.MoveKind;
-using NavGrid = live::AICompanion.Companion.Brain.Infrastructure.Movement.NavGrid;
-using NavStep = live::AICompanion.Companion.Brain.Infrastructure.Movement.NavStep;
-using RememberExecutedRoutes = live::AICompanion.Companion.Brain.Infrastructure.Movement.RememberExecutedRoutes;
+using CornerGraph = live::AICompanion.Companion.Brain.Infrastructure.Movement.CornerGraph;
+using FreeSpaceSearch = live::AICompanion.Companion.Brain.Infrastructure.Movement.FreeSpaceSearch;
+using GameTileWorld = live::AICompanion.Companion.Brain.Infrastructure.Movement.GameTileWorld;
 using TerrainEditLog = live::AICompanion.Companion.Brain.Infrastructure.Movement.TerrainEditLog;
 using ActionContext = live::AICompanion.Companion.Brain.Activities.ActionContext;
 using LightSense = live::AICompanion.Companion.Brain.Infrastructure.Observation.LightSense;
@@ -103,13 +98,10 @@ internal static class VerifyLightAndReachSenses
         Each("b: nearer darkness the body cannot reach does not hide the darkness it can", NearerUnreachableDarknessDoesNotHideAReachableSite);
         Each("c: two sites in one dark region are worked without going back to the player", TwoSitesAreWorkedWithoutReturning);
         Each("c: the same dark floor priced under the production allowances", MeasureTheRegionScanUnderProductionAllowances);
-        Each("d: a player no candidate can stand beside still gets a gap-closing destination declaring the region it can meet", APlayerNoCandidateReachesStillGetsProgress);
         Each("e: a retained search survives an edit it never read and dies on one it did", ARetainedSearchSurvivesAnEditItNeverRead);
-        Each("e: the invalidation margin is the scan's own reach, either side of it", TheMarginIsTheScansOwnReach);
+        Each("e: the invalidation margin is the flood's own explored bounds, either side of it", TheMarginIsTheScansOwnReach);
         Each("e: a revision older than the record's window is treated as changed", ARevisionOlderThanTheRecordIsChanged);
         Each("e: the reach flood refloods for an edit it read and not for one it did not", TheReachFloodRefloodsOnlyForAnEditItRead);
-        Each("e: a remembered suffix is tested against every edit since it was snapshotted, before and after it is adopted", AnAdoptedSuffixIsTestedAgainstEveryEditSinceItsSnapshot);
-        Each("e: an edit in the raw flood's own ground does not survive in the scored region", AnEditInTheRawFloodsOwnGroundDoesNotSurviveInTheScoredRegion);
         Each("e: a door toggled by anything but the companion announces its rows", ADoorToggledByAnybodyAnnouncesItsRows);
         if (red == 0) Console.WriteLine("light and reach senses: the torch reads a field around the body and on the heading, lighting works a region through the reach sense, and following always has somewhere to go");
         return red;
@@ -181,7 +173,7 @@ internal static class VerifyLightAndReachSenses
         var ctx = Scene(null);
         VerifyUsefulAssistance.WriteMeasuredLight(new Rectangle(60, 40, 30, 30), (_, _) => .9f);
         var senses = ctx.Companion.Brain.Senses;
-        senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Breath);
+        senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Motor);
         var light = senses.Light;
         Point body = ctx.Npc.Center.ToTileCoordinates();
         Vector2 ahead = new(75 * 16f, 50 * 16f);
@@ -502,9 +494,9 @@ internal static class VerifyLightAndReachSenses
         // NotYet, which is the answer a flood that has not settled gives and which lighting must refuse.
         var request = action.Execute(ctx);
         Vector2? destination = brain.Positioner.Resolve(request, brain.Senses, null);
-        Require(destination is { } stand && brain.Senses.Reach.Reachable(MovementQueries.FeetTile(stand)) == ReachVerdict.Reachable,
+        Require(destination is { } stand && brain.Senses.Reach.Reachable(MovementQueries.Tile(stand)) == ReachVerdict.Reachable,
             $"the lighting destination must be a tile the reach sense calls Reachable; destination={destination} "
-            + $"verdict={(destination is { } d ? brain.Senses.Reach.Reachable(MovementQueries.FeetTile(d)).ToString() : "none")} "
+            + $"verdict={(destination is { } d ? brain.Senses.Reach.Reachable(MovementQueries.Tile(d)).ToString() : "none")} "
             + $"complete={brain.Senses.Reach.Complete}");
     }
 
@@ -582,8 +574,8 @@ internal static class VerifyLightAndReachSenses
         Point site = action.ActivityTarget!.Value.ToTileCoordinates();
         Require(site.X >= FarDark,
             $"the offered site must be the reachable darkness, not a chamber tile the body cannot get to; site={site}; {offer}");
-        Require(reach.Reachable(MovementQueries.FeetTile(ctx.Companion.Brain.Positioner.Resolve(action.Execute(ctx), ctx.Companion.Brain.Senses, null)
-                ?? ctx.Npc.Bottom)) == ReachVerdict.Reachable,
+        Require(reach.Reachable(MovementQueries.Tile(ctx.Companion.Brain.Positioner.Resolve(action.Execute(ctx), ctx.Companion.Brain.Senses, null)
+                ?? ctx.Npc.Center)) == ReachVerdict.Reachable,
             $"the destination lighting resolves for that site must itself be reachable; {offer}");
         // The ledger the recorder writes must name what was asked, or the next capture is as unreadable as the
         // last one. Every chamber site asked has to appear as unreachable: a ledger that only recorded the
@@ -696,53 +688,18 @@ internal static class VerifyLightAndReachSenses
     }
 
     // ---- (d) following always has somewhere to go ------------------------------------------------------
-
-    /// <summary>
-    /// The player stands on a shelf hanging in the air with nothing under it, so the comfort box around him
-    /// holds no tile that is both standable and inside the flood. Before, that emptied the candidate list and
-    /// the request answered nothing at all, which left the navigator with no proven destination and the brain
-    /// reaching for a state search that jumps at the player. Now it answers with a reachable tile that closes
-    /// the gap — and declares no success region, because the one thing it is certain of is that the answer is
-    /// outside the objective.
-    /// </summary>
-    private static void APlayerNoCandidateReachesStillGetsProgress()
-    {
-        var ctx = Scene(null);
-        for (int x = 58; x <= 62; x++) VerifyOreWork.Place(new Point(x, 40), TileID.Dirt);
-        TerrainChanges.Reset();
-        AStar.InvalidateEdges();
-        ctx.Player.position = new Vector2(60 * 16f, 40 * 16f - ctx.Player.height);
-        ctx.Player.velocity = Vector2.Zero;
-        var brain = ctx.Companion.Brain;
-        brain.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Breath);
-
-        var request = new PositionRequest(RequestKind.WithPlayer, ctx.Player.Bottom);
-        Vector2? chosen = null;
-        // More than one resolve: a single call measures the flood's per-rescore budget rather than the answer,
-        // and the whole point of the tri-state is that an unfinished flood is not a refusal.
-        for (int i = 0; i < 3000 && !brain.Positioner.ReachComplete; i++)
-            chosen = brain.Positioner.Resolve(request, brain.Senses, null);
-        Require(brain.Positioner.ReachComplete, "the flood must settle before this row reads a refusal as final");
-        for (int i = 0; i < 8; i++) chosen = brain.Positioner.Resolve(request, brain.Senses, null);
-
-        Require(chosen is not null,
-            $"following must always produce somewhere to go; reason={brain.Positioner.ChoiceReason}");
-        Require(brain.Positioner.ChoiceReason == "partial-progress-candidate",
-            $"a player on an unreachable shelf must be answered with progress toward him, not an accepted candidate; reason={brain.Positioner.ChoiceReason} chosen={chosen}");
-        Require(brain.Senses.Reach.Reachable(MovementQueries.FeetTile(chosen!.Value)) == ReachVerdict.Reachable,
-            $"the progress tile must be one the companion can actually get to and back from; chosen={chosen} verdict={brain.Senses.Reach.Reachable(MovementQueries.FeetTile(chosen.Value))}");
-        // The destination is outside the follow objective by construction, so it must not declare the follow box —
-        // publishing a contract the navigator cannot meet is what made every arrival on it read as a violation. It
-        // declares its own instead: being at that tile, inside the navigator's arrival radius, which is the whole of
-        // what it claimed. Declaring nothing was the earlier answer and it had the mirror defect — an arrival on a
-        // destination with no region cannot be judged at all, so a body handed back the tile it was already standing
-        // on read as a satisfied journey for as long as the follow gap stayed open.
-        Require(brain.Positioner.Region.Kind == SuccessRegionKind.PartialProgress,
-            $"a destination outside the follow objective must declare the region it can meet, not the one it cannot; kind={brain.Positioner.Region.Kind}");
-        Require(brain.Positioner.Region.Contains(chosen.Value) == true
-            && brain.Positioner.Region.Contains(chosen.Value + new Vector2(64f, 0f)) == false,
-            "the partial-progress region must hold its own tile and nothing four tiles away, or an arrival on it proves nothing");
-    }
+    //
+    // This section's one row is gone with the fallback it was about. A player on a shelf hanging in the air
+    // left the walker's candidate list empty, because every candidate had to be a tile a body could stand on
+    // and be flooded to, and the positioner answered with a partial-progress tile plus a success region of
+    // its own. The orb's positioner has no such fallback — a follow request that accepts nothing answers
+    // null, and the brain closes the gap through `SeekDestination` aiming at the anchor itself — so
+    // `SuccessRegionKind.PartialProgress` and the `partial-progress-candidate` reason no longer exist to
+    // assert against.
+    //
+    // NOT REPLACED, and worth saying rather than leaving as a silence: the orb-shaped version of this row is
+    // a follow scene where every free cell near the player is above the positioner's ceiling, so `Best`
+    // returns null and the body must still reach the anchor. It is not written here.
 
     // ---- (e) knowledge is invalidated where it happened -------------------------------------------------
 
@@ -759,78 +716,82 @@ internal static class VerifyLightAndReachSenses
     private static void ARetainedSearchSurvivesAnEditItNeverRead()
     {
         var ctx = Scene(null);
-        Point feet = MovementQueries.FeetTile(ctx.Npc.Bottom);
-        using var search = new ContinueRouteSearch(feet, null, false, false);
-        for (int i = 0; i < 40; i++) search.Advance(Weights.ReachFloodBudget);
+        Point body = MovementQueries.Tile(ctx.Npc.Center);
+        var search = Flood(ctx);
+        for (int i = 0; i < 40; i++) search.Advance(Weights.ReachFloodExpansions);
         Rectangle bounds = search.ExploredBounds;
         Require(search.Valid && search.Expansions > 0 && bounds.Height > 0,
             $"the row needs a live query with a region behind it; valid={search.Valid} expansions={search.Expansions} bounds={bounds}");
 
-        // Far above the region: above every reached tile by more than the jump box the tile's own scans read
-        // through. Above rather than sideways because this world is a hundred tiles wide and the flood runs
-        // the whole flat floor, so no column is far from it — which is itself the honest limit of this lane
-        // and is why the boundary row below pins the margin rather than assuming a wide one.
-        int farAbove = bounds.Top - AStar.EdgeReachUp - 20;
-        Require(farAbove > 0, $"the fixture world must leave room above the flood to place a distant edit; top={bounds.Top}");
+        // Below the floor, not above it. A flying body's flood fills the open sky up to the world margin, so
+        // the rows above the floor are inside the region it read; the free space it never reads is under the
+        // floor. Sideways is no good either, because this world is a hundred tiles wide and the flood runs the
+        // whole open floor, so no column is far from it — which is the honest limit of this lane, and is why
+        // the boundary row below pins the margin rather than assuming a wide one.
+        int farOutside = bounds.Bottom + 5;
+        Require(farOutside < Main.maxTilesY && farOutside > bounds.Bottom,
+            $"the fixture world must leave room below the flood to place a distant edit; bottom={bounds.Bottom}");
         int reachedBefore = search.Reached.Count;
-        TerrainChanges.Changed(feet.X, farAbove);
+        TerrainChanges.Changed(body.X, farOutside);
         Require(search.Valid,
-            $"an edit {bounds.Top - farAbove} rows above everything the query read must leave it valid; bounds={bounds} edit={feet.X},{farAbove}");
-        Require(search.Reached.Count == reachedBefore && search.Stop == AStar.SearchStopReason.Exhausted,
+            $"an edit {farOutside - bounds.Bottom} rows below everything the query read must leave it valid; bounds={bounds} edit={body.X},{farOutside}");
+        Require(search.Reached.Count == reachedBefore && search.Stop == FreeSpaceSearch.StopReason.Exhausted,
             $"the answer a surviving query already has must survive with it; reached {reachedBefore} -> {search.Reached.Count} stop={search.Stop}");
 
         // The same thing said about a query that has not finished, because "keeps its answer" and "goes on
-        // working" are two claims and this floor is small enough to exhaust in one advance at full budget.
-        using (var unfinished = new ContinueRouteSearch(feet, null, false, false))
-        {
-            unfinished.Advance(1);
-            Require(!unfinished.Finished, $"a one-unit advance must leave work to do, or the row below asserts nothing; stop={unfinished.Stop}");
-            int expansionsBefore = unfinished.Expansions;
-            TerrainChanges.Changed(feet.X, farAbove);
-            Require(unfinished.Valid, "an unfinished query must survive a distant edit too");
-            for (int i = 0; i < 20; i++) unfinished.Advance(1);
-            Require(unfinished.Expansions > expansionsBefore,
-                $"a query that survived a distant edit must go on expanding; {expansionsBefore} -> {unfinished.Expansions}");
-        }
+        // working" are two claims and this room is small enough to exhaust in one advance at full budget.
+        var unfinished = Flood(ctx);
+        unfinished.Advance(1);
+        Require(!unfinished.Finished, $"a one-unit advance must leave work to do, or the row below asserts nothing; stop={unfinished.Stop}");
+        int expansionsBefore = unfinished.Expansions;
+        TerrainChanges.Changed(body.X, farOutside);
+        Require(unfinished.Valid, "an unfinished query must survive a distant edit too");
+        for (int i = 0; i < 20; i++) unfinished.Advance(1);
+        Require(unfinished.Expansions > expansionsBefore,
+            $"a query that survived a distant edit must go on expanding; {expansionsBefore} -> {unfinished.Expansions}");
 
-        // Inside: the tile under the body's own feet, which every reached tile on this floor reads through.
-        TerrainChanges.Changed(feet.X, feet.Y + 1);
-        Require(!search.Valid, $"an edit on the floor the query flooded must invalidate it; bounds={bounds}");
+        // Inside: a tile in the middle of what the flood actually closed.
+        TerrainChanges.Changed(bounds.Center.X, bounds.Center.Y);
+        Require(!search.Valid, $"an edit inside the region the query flooded must invalidate it; bounds={bounds}");
         Require(!search.Valid, "invalidity must be remembered rather than re-derived against a moving counter");
     }
 
+    /// <summary>A goal-less flood from the corner nearest the body, which is what the reach sense runs and what
+    /// every row in this group retains across an edit.</summary>
+    private static FreeSpaceSearch Flood(ActionContext ctx)
+    {
+        var world = MovementQueries.World;
+        Point? root = CornerGraph.NearestUsable(world, ctx.Npc.Center, 2, requireSweep: false);
+        Require(root != null, $"the scene must leave the body somewhere it fits; centre={ctx.Npc.Center}");
+        return new FreeSpaceSearch(world, root!.Value, null);
+    }
+
     /// <summary>
-    /// The margin is how far a tile's own scans read, not the body's size, and this row pins it to that
-    /// constant either side. A drop steers sideways for as long as the deepest fall takes and a jump rises
-    /// through a box above, so an edit two dozen columns from a tile the query has already closed can change
-    /// what that tile's drop does; a margin of a body and a tile would leave that priced from terrain that no
-    /// longer exists. Both halves are asserted so a later tidy-up cannot shrink the margin quietly — and the
+    /// The margin is the flood's own explored bounds — the corners it closed, inflated by the tile a swept
+    /// edge of the body's radius can read into — and this row pins it to exactly that, one row inside and one
+    /// row outside. Both halves are asserted so a later tidy-up cannot shrink the margin quietly, and the
     /// looser half matters as much, because a margin that never lets anything survive is this whole lane
     /// doing nothing while every row about invalidation still passes.
     /// </summary>
     private static void TheMarginIsTheScansOwnReach()
     {
         var ctx = Scene(null);
-        Point feet = MovementQueries.FeetTile(ctx.Npc.Bottom);
+        Point body = MovementQueries.Tile(ctx.Npc.Center);
 
-        using (var atTheMargin = new ContinueRouteSearch(feet, null, false, false))
-        {
-            for (int i = 0; i < 40; i++) atTheMargin.Advance(Weights.ReachFloodBudget);
-            Rectangle bounds = atTheMargin.ExploredBounds;
-            Require(bounds.Top == feet.Y,
-                $"this flat-floor row needs a flood with nothing above its own start, or the one-row-beyond half tests a different tile's reach; top={bounds.Top} start={feet.Y}");
-            TerrainChanges.Changed(feet.X, feet.Y - AStar.EdgeReachUp);
-            Require(!atTheMargin.Valid,
-                $"an edit exactly {AStar.EdgeReachUp} rows above a reached tile is inside that tile's own jump box and must invalidate");
-        }
+        var atTheMargin = Flood(ctx);
+        for (int i = 0; i < 40; i++) atTheMargin.Advance(Weights.ReachFloodExpansions);
+        Rectangle margin = atTheMargin.ExploredBounds;
+        TerrainChanges.Changed(body.X, margin.Top);
+        Require(!atTheMargin.Valid,
+            $"an edit on the topmost row the flood's own bounds claim must invalidate it; bounds={margin}");
 
-        using (var oneBeyond = new ContinueRouteSearch(feet, null, false, false))
-        {
-            for (int i = 0; i < 40; i++) oneBeyond.Advance(Weights.ReachFloodBudget);
-            TerrainChanges.Changed(feet.X, feet.Y - AStar.EdgeReachUp - 1);
-            Require(oneBeyond.Valid,
-                $"an edit one row past the scan's reach touches nothing the query priced and must leave it valid");
-        }
+        var oneBeyond = Flood(ctx);
+        for (int i = 0; i < 40; i++) oneBeyond.Advance(Weights.ReachFloodExpansions);
+        Rectangle beyond = oneBeyond.ExploredBounds;
+        Require(beyond.Top == margin.Top, $"both halves must flood the same region, or they pin different margins; {margin} vs {beyond}");
+        TerrainChanges.Changed(body.X, beyond.Top - 1);
+        Require(oneBeyond.Valid,
+            $"an edit one row past the flood's own bounds touches nothing it read and must leave it valid; bounds={beyond}");
     }
 
     /// <summary>
@@ -843,30 +804,37 @@ internal static class VerifyLightAndReachSenses
     private static void ARevisionOlderThanTheRecordIsChanged()
     {
         var ctx = Scene(null);
-        Point feet = MovementQueries.FeetTile(ctx.Npc.Bottom);
-        using var search = new ContinueRouteSearch(feet, null, false, false);
-        for (int i = 0; i < 40; i++) search.Advance(Weights.ReachFloodBudget);
+        Point body = MovementQueries.Tile(ctx.Npc.Center);
+        var search = Flood(ctx);
+        for (int i = 0; i < 40; i++) search.Advance(Weights.ReachFloodExpansions);
         Rectangle bounds = search.ExploredBounds;
-        int farAbove = bounds.Top - AStar.EdgeReachUp - 20;
-        Require(farAbove > 0, $"the fixture world must leave room above the flood; top={bounds.Top}");
+        // Below the floor, for the same reason as the row above: a flying body's flood fills the sky, so the
+        // free space it never read is under the ground rather than over it.
+        int farOutside = bounds.Bottom + 5;
+        Require(farOutside < Main.maxTilesY && farOutside > bounds.Bottom,
+            $"the fixture world must leave room below the flood; bottom={bounds.Bottom}");
 
         // Not one call to Valid in between: the query's own revision only moves forward when it is asked, so
         // this is exactly the case the window exists to fail safely on.
-        for (int i = 0; i <= TerrainEditLog.Window; i++) TerrainChanges.Changed(feet.X, farAbove);
+        for (int i = 0; i <= TerrainEditLog.Window; i++) TerrainChanges.Changed(body.X, farOutside);
         Require(!search.Valid,
             $"a query unasked across {TerrainEditLog.Window + 1} edits has fallen off the record's window and must read invalid rather than clean");
 
         // And the asked query outlives the same run of distant edits, which is what makes the row above a
         // statement about the window rather than about distance.
-        using var asked = new ContinueRouteSearch(feet, null, false, false);
-        for (int i = 0; i < 40; i++) asked.Advance(Weights.ReachFloodBudget);
+        var asked = Flood(ctx);
+        for (int i = 0; i < 40; i++) asked.Advance(Weights.ReachFloodExpansions);
+        Rectangle askedBounds = asked.ExploredBounds;
+        int died = -1;
         for (int i = 0; i <= TerrainEditLog.Window * 2; i++)
         {
-            TerrainChanges.Changed(feet.X, farAbove);
-            if (!asked.Valid) break;
+            TerrainChanges.Changed(body.X, farOutside);
+            if (!asked.Valid) { died = i; break; }
         }
         Require(asked.Valid,
-            $"a query asked between edits advances its own revision and must survive any number of distant ones; window={TerrainEditLog.Window}");
+            $"a query asked between edits advances its own revision and must survive any number of distant ones; "
+            + $"window={TerrainEditLog.Window} died at edit {died} of {TerrainEditLog.Window * 2} "
+            + $"edit={body.X},{farOutside} askedBounds={askedBounds} searchBounds={bounds}");
     }
 
     /// <summary>
@@ -887,23 +855,25 @@ internal static class VerifyLightAndReachSenses
         for (int i = 0; i < 3000 && !brain.Positioner.ReachComplete; i++) brain.Positioner.Resolve(request, brain.Senses, null);
         Require(brain.Positioner.ReachComplete, "the flood must settle before a reflood can be counted against it");
 
-        Point feet = MovementQueries.FeetTile(ctx.Npc.Bottom);
+        Point feet = MovementQueries.Tile(ctx.Npc.Center);
         Point beyond = new(feet.X + 30, StandRow);
         Require(brain.Senses.Reach.Reachable(beyond) == ReachVerdict.Reachable,
             $"the row needs a settled region holding a tile it can later lose; verdict={brain.Senses.Reach.Reachable(beyond)}");
 
         int refloodsBefore = brain.Senses.Reach.Refloods;
-        TerrainChanges.Changed(feet.X, 10);
+        // Outside the world's own margin, so it is a row no flood over free cells can have read.
+        TerrainChanges.Changed(feet.X, 2);
         for (int i = 0; i < 40; i++) brain.Positioner.Resolve(request, brain.Senses, null);
         Require(brain.Senses.Reach.Refloods == refloodsBefore,
             $"an edit forty rows above everything the flood read must cost no reflood; {refloodsBefore} -> {brain.Senses.Reach.Refloods}");
         Require(brain.Positioner.ReachComplete && brain.Senses.Reach.Reachable(beyond) == ReachVerdict.Reachable,
             "a region that survived a distant edit keeps both its completeness and its membership");
 
-        // A wall on the floor the flood walked, taller than the body can jump, so the tiles past it leave the
-        // region. The edit is real here because this half is about membership rather than about the compare.
+        // A wall across the floor the flood walked, carried up to the world's own margin, because a body that
+        // flies leaves the region only where the column is sealed to the top. The edit is real here because
+        // this half is about membership rather than about the compare.
         int wall = feet.X + 12;
-        for (int y = StandRow; y >= StandRow - NavGrid.JumpHeightTiles - NavGrid.BodyHeightTiles - 3; y--)
+        for (int y = StandRow; y >= 5; y--)
         {
             VerifyOreWork.Place(new Point(wall, y), TileID.Dirt);
             TerrainChanges.Changed(wall, y);
@@ -919,198 +889,22 @@ internal static class VerifyLightAndReachSenses
             $"the region grown after the wall must not still hold the floor behind it; verdict={brain.Senses.Reach.Reachable(beyond)}");
     }
 
-    /// <summary>
-    /// A suffix is terrain the query's answer stands on from the moment it is copied out of route memory,
-    /// not from the moment it is adopted, and this row holds both ends of that window because they are
-    /// guarded by two different pieces of code.
-    ///
-    /// <para>The second half is the one the <c>Note</c> loop in <c>ContinueRouteSearch</c> guards: once a
-    /// suffix has been adopted its landings are tiles the query depends on, so an edit on one of them
-    /// invalidates the query even though the search never expanded them. Removing that loop leaves every
-    /// other row in this group green, which is why this half exists.</para>
-    ///
-    /// <para>The first half is the hole that loop leaves open, and it is invisible from the code it lives
-    /// in. Between the constructor's snapshot and the adoption, an edit on a suffix tile retires the
-    /// archive's own entry and does not touch the query's copy — and <c>Valid</c> cannot catch it either,
-    /// because <c>Valid</c> walks the set of tiles the query has read, that set does not yet hold the
-    /// suffix, so it answers Unchanged and moves the query's own revision <em>past</em> the edit. Every
-    /// later check is then against a revision after the one thing that mattered. The row therefore asks
-    /// <c>Valid</c> out loud in between and requires it to answer true: that true is the defect's
-    /// precondition, and a row that skipped it could pass by invalidating the whole query for an unrelated
-    /// reason.</para>
-    ///
-    /// <para>The edits are announced rather than made, so the walk the suffix was recorded over is still
-    /// physically there and a query that ignores the announcement really does hand back the remembered
-    /// route. That is what makes the failure legible: under the code before this row the search reports
-    /// Found with experience used, over ground the game has said changed.</para>
-    /// </summary>
-    private static void AnAdoptedSuffixIsTestedAgainstEveryEditSinceItsSnapshot()
-    {
-        // Empty on the way out as well as on the way in, because the planted run would otherwise be offered
-        // to every fixture after this one as experience it never earned.
-        try { PlantedSuffixHalves(); }
-        finally { RememberExecutedRoutes.World.Clear(); }
-    }
+    // Two rows in this group are gone with the machinery they were about, and both are worth naming rather
+    // than leaving as a gap in the lettering.
+    //
+    // The adopted-suffix row held a window in the walker's route archive: a search could copy a remembered
+    // route suffix out of `RememberExecutedRoutes`, and terrain under that suffix had to be tested from the
+    // moment it was copied rather than from the moment it was adopted. There is no archive now — the orb
+    // plans from the corner graph every time and remembers no route between searches — so a search depends
+    // only on the corners it actually closed, which is exactly what `FreeSpaceSearch.ExploredBounds` covers
+    // and what the three rows above already pin.
+    //
+    // The raw-flood row held the seam between two floods: a raw one that allowed edges with no way back and
+    // a scored one that did not, diverging by construction so that an edit could invalidate one alone. The
+    // reach sense runs one flood now, because for a body that flies the outward and return questions are the
+    // same flood read in one direction, and there is no second search for a stale region to be folded in
+    // from. `ReachSense.ReachableOneWay` is `Returnable` in the source, which is that collapse written down.
 
-    private static void PlantedSuffixHalves()
-    {
-        var ctx = Scene(null);
-        Point feet = MovementQueries.FeetTile(ctx.Npc.Bottom);
-        Point goal = new(feet.X + 70, StandRow);
-        Point suffixRoot = new(feet.X + 20, StandRow);
-        // Far enough along the suffix that it stays outside the scan reach of everything the search will
-        // have expanded at either moment the row announces it, in both halves. The flat floor means "far"
-        // is only available horizontally, which is the honest shape of the gain rather than a convenience.
-        Point edited = new(feet.X + 65, StandRow);
-        Require(goal.X < 94 && AStar.EdgeReachX < 25,
-            $"the row's geometry assumes this world's floor and the scan's own reach; goal={goal.X} reachX={AStar.EdgeReachX}");
-
-        TeachWalkRun(suffixRoot, goal);
-        using (var control = new ContinueRouteSearch(feet, goal, false, true))
-        {
-            control.Advance(100000);
-            Require(control.Stop == AStar.SearchStopReason.Found && control.ExperienceRoutesUsed > 0,
-                $"premise: with nothing edited the query must adopt the planted suffix, or neither half below "
-                + $"is about a suffix at all; stop={control.Stop} used={control.ExperienceRoutesUsed}");
-        }
-
-        // ── before adoption ────────────────────────────────────────────────────────────────────────
-        TeachWalkRun(suffixRoot, goal);
-        using (var early = new ContinueRouteSearch(feet, goal, false, true))
-        {
-            for (int i = 0; i < 100000 && MaxReachedColumn(early) < suffixRoot.X - 1; i++)
-            {
-                early.Advance(1);
-                Require(!early.Finished, $"the search must still be short of the suffix root when the edit lands; "
-                    + $"maxColumn={MaxReachedColumn(early)} root={suffixRoot.X}");
-            }
-            Require(early.ExperienceRoutesUsed == 0,
-                "the suffix must not have been adopted yet, or this half is the other half wearing its name");
-            int frontier = MaxReachedColumn(early);
-            Require(edited.X - frontier > AStar.EdgeReachX,
-                $"the edit must be outside the scan reach of everything expanded so far, or the ordinary check "
-                + $"catches it and the row says nothing about suffixes; frontier={frontier} edit={edited.X}");
-
-            TerrainChanges.Changed(edited.X, edited.Y);
-            Require(early.Valid,
-                "the defect's precondition: the ordinary validity check cannot see an edit on ground the query "
-                + "has not adopted, and it advances the query's own revision past it");
-
-            early.Advance(100000);
-            Require(early.Stop == AStar.SearchStopReason.Found,
-                $"the floor is still walkable, so the query must still arrive by expanding it; stop={early.Stop}");
-            Require(early.ExperienceRoutesUsed == 0,
-                $"a suffix whose ground was announced changed after the snapshot must be refused, however clean "
-                + $"the query's own last answer was; used={early.ExperienceRoutesUsed}");
-        }
-
-        // ── after adoption ─────────────────────────────────────────────────────────────────────────
-        TeachWalkRun(suffixRoot, goal);
-        using (var adopted = new ContinueRouteSearch(feet, goal, false, true))
-        {
-            adopted.Advance(100000);
-            Require(adopted.Stop == AStar.SearchStopReason.Found && adopted.ExperienceRoutesUsed > 0,
-                $"premise: this half needs the suffix actually taken; stop={adopted.Stop} used={adopted.ExperienceRoutesUsed}");
-            int frontier = MaxReachedColumn(adopted);
-            Require(edited.X - frontier > AStar.EdgeReachX,
-                $"the edit must lie on a suffix landing and nowhere the search expanded, or the reached set "
-                + $"answers and the noting of suffix tiles is never asked; frontier={frontier} edit={edited.X}");
-            Require(!adopted.Reached.Contains(edited),
-                $"the edited tile must be one the search never reached; it is a suffix landing only");
-
-            TerrainChanges.Changed(edited.X, edited.Y);
-            Require(!adopted.Valid,
-                $"an edit on a landing of the suffix this query's answer runs across must invalidate it, though "
-                + $"the search never expanded that tile");
-        }
-    }
-
-    /// <summary>
-    /// The two floods come apart, and the one that is invalid alone must not have its pre-edit region folded
-    /// into the scored one. Under a world-global counter this could not happen: two searches born together
-    /// shared one answer, so testing either stood for both. Spatially they diverge by construction — the raw
-    /// flood allows edges with no way back, so on a one-way tick it owns ground the two-way flood cannot
-    /// reach — and an edit in exactly that extra ground invalidates the raw search and nothing else.
-    ///
-    /// <para>What that costs if the guard is missing is not a wasted search but a wrong answer. Advancing an
-    /// invalid search marks it finished without expanding, its stale <c>Reached</c> is unioned into the
-    /// scored region, and the positioner then scores candidates against tiles behind a wall it was told
-    /// about. The row asserts membership rather than the reflood count, because a reflood count is satisfied
-    /// by a flood thrown away for any reason at all, and it asserts a tile before the wall as well as one
-    /// behind it, so an empty region cannot pass for a correct one.</para>
-    ///
-    /// <para>The geometry is forced by the margin: a two-way tile reads through a box tens of rows deep, so a
-    /// lower floor is never outside it vertically however far down it sits. The extra ground has to be far
-    /// along that lower floor instead.</para>
-    /// </summary>
-    private static void AnEditInTheRawFloodsOwnGroundDoesNotSurviveInTheScoredRegion()
-    {
-        var ctx = Scene(null);
-        var brain = ctx.Companion.Brain;
-        Point feet = MovementQueries.FeetTile(ctx.Npc.Bottom);
-        const int LedgeEnd = 49, LowerFloorRow = 76, LowerStandRow = 75, Wall = 75;
-        Point beforeTheWall = new(70, LowerStandRow), behindTheWall = new(85, LowerStandRow);
-
-        // The upper floor stops at LedgeEnd and a lower floor runs on below it, far enough down that the
-        // body can fall to it and not climb back.
-        for (int x = LedgeEnd + 1; x < 95; x++) Main.tile[x, FloorRow].ClearEverything();
-        for (int x = LedgeEnd; x < 95; x++) VerifyOreWork.Place(new Point(x, LowerFloorRow), TileID.Dirt);
-        ctx.Player.position = new Vector2(58 * 16, LowerFloorRow * 16 - ctx.Player.height);
-        TerrainChanges.Reset();
-        // The reach sense reads the player through the senses rather than off the entity, so a row that
-        // moves a body and does not observe it again floods against the world before the move — which is
-        // this folder's own trap, and the first version of this row walked into it: the player read as
-        // still standing beside the companion, the two-way flood held him, and the raw flood the row is
-        // about was never advanced at all.
-        ctx.Companion.Brain.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Breath);
-        VerifyOreWork.ResettleReach(ctx);
-
-        var request = new PositionRequest(RequestKind.WithPlayer, ctx.Player.Bottom);
-        for (int i = 0; i < 3000 && !brain.Positioner.ReachComplete; i++) brain.Positioner.Resolve(request, brain.Senses, null);
-
-        var reach = brain.Senses.Reach;
-        Require(reach.PlayerOnlyOneWay,
-            "premise: the player must stand where only the flood that allows edges with no way back can hold "
-            + "him, or the raw flood is never advanced and the two searches never diverge");
-        Require(!reach.Returnable(behindTheWall) && reach.InScoredRegion(behindTheWall),
-            $"premise: the far lower floor must be raw-only ground — outside the two-way flood and inside the "
-            + $"scored one; returnable={reach.Returnable(behindTheWall)} scored={reach.InScoredRegion(behindTheWall)}");
-        int twoWayEdge = MaxColumn(reach.ScoredTiles, StandRow);
-        Require(Wall - LedgeEnd > AStar.EdgeReachX,
-            $"the wall must sit outside the scan reach of every tile the two-way flood holds, or the edit "
-            + $"invalidates both searches and the row stops being about one of them; ledge={LedgeEnd} wall={Wall} reach={AStar.EdgeReachX}");
-
-        // What the dependency set costs the goal-less owners, printed and never asserted. A query with no
-        // goal holds no suffixes, so its dependency set and its reached set hold the same tiles and the
-        // second one is pure duplication. A HashSet<Point> slot is a hash code, a next index and two ints
-        // of payload, sixteen bytes, plus a bucket int, and capacity is a prime at or above the count after
-        // doubling growth, so the honest figure is a band rather than a product.
-        Console.WriteLine($"        MEASURE reach dependency set on this fixture's floor: two-way {reach.TwoWayCount} tiles, "
-            + $"scored {reach.AnyCount} tiles; the duplicate costs about {reach.AnyCount * 20 / 1024f:F1}-{reach.AnyCount * 40 / 1024f:F1} kB "
-            + $"per fully grown flood (this geometry, not a cave; the live figure is the capture's reach_any column)");
-        int refloodsBefore = reach.Refloods;
-        for (int y = LowerStandRow; y >= LowerStandRow - NavGrid.JumpHeightTiles - NavGrid.BodyHeightTiles - 3; y--)
-        {
-            VerifyOreWork.Place(new Point(Wall, y), TileID.Dirt);
-            TerrainChanges.Changed(Wall, y);
-        }
-
-        // One resolve before the settle loop, unconditionally. The completeness flag is the one the last
-        // resolve left, so a loop that tests it first never runs its body and every assertion below is
-        // answered by the region from before the wall — which is exactly the failure this row is about,
-        // arriving in the instrument instead of in the code.
-        brain.Positioner.Resolve(request, brain.Senses, null);
-        for (int i = 0; i < 3000 && !brain.Positioner.ReachComplete; i++) brain.Positioner.Resolve(request, brain.Senses, null);
-        Require(brain.Senses.Reach.Refloods > refloodsBefore,
-            $"an edit on ground only the raw flood had walked must throw the floods away, though it landed "
-            + $"outside everything the two-way flood read; refloods={refloodsBefore} -> {brain.Senses.Reach.Refloods}");
-        Require(brain.Senses.Reach.InScoredRegion(beforeTheWall),
-            $"the region grown after the edit must actually hold the lower floor it can still walk, or the row "
-            + $"below passes on an empty region rather than on a correct one; upperEdge={twoWayEdge}");
-        Require(!brain.Senses.Reach.InScoredRegion(behindTheWall),
-            $"the raw flood's pre-edit tiles must not be folded into the scored region after an edit that "
-            + $"invalidated it alone; scored={brain.Senses.Reach.InScoredRegion(behindTheWall)}");
-    }
 
     /// <summary>
     /// A door toggled by anything at all announces its rows. The game's door helpers write tiles through
@@ -1137,12 +931,15 @@ internal static class VerifyLightAndReachSenses
         Main.tileSolid[TileID.ClosedDoor] = true;
         Main.tileSolid[TileID.OpenDoor] = false;
 
-        (ContinueRouteSearch Search, int Revision, Point Door) Settled()
+        (FreeSpaceSearch Search, int Revision, Point Door) Settled()
         {
             var ctx = Scene(null);
-            Point feet = MovementQueries.FeetTile(ctx.Npc.Bottom);
+            Point feet = MovementQueries.Tile(ctx.Npc.Center);
             Point door = new(feet.X + 12, StandRow - 2);
-            for (int row = 40; row < door.Y; row++) VerifyOreWork.Place(new Point(door.X, row), TileID.Dirt);
+            // From the top of the world, not from a comfortable height: a wall that stops short is a wall a
+            // flying body goes over, and the premise below then reads the far side as reached for a reason
+            // that has nothing to do with the door.
+            for (int row = 0; row < door.Y; row++) VerifyOreWork.Place(new Point(door.X, row), TileID.Dirt);
             for (int row = 0; row < 3; row++)
             {
                 Tile tile = Main.tile[door.X, door.Y + row];
@@ -1153,10 +950,14 @@ internal static class VerifyLightAndReachSenses
                 tile.TileFrameY = (short)(row * 18);
             }
             TerrainChanges.Reset();
-            var search = new ContinueRouteSearch(feet, null, false, false);
-            for (int i = 0; i < 200; i++) search.Advance(Weights.ReachFloodBudget);
-            Require(search.Reached.Contains(new Point(door.X - 1, StandRow)) && !search.Reached.Contains(new Point(door.X + 1, StandRow)),
-                $"premise: the closed door must be the wall this query's region stops at; door={door}");
+            var search = Flood(ctx);
+            for (int i = 0; i < 200; i++) search.Advance(Weights.ReachFloodExpansions);
+            // The flood closes corners, so tile membership is "any of this tile's four corners was closed",
+            // which is the same reading the reach sense publishes.
+            bool near = CornerGraph.AnyCornerOf(new Point(door.X - 1, StandRow), search.Reached.Contains);
+            bool far = CornerGraph.AnyCornerOf(new Point(door.X + 1, StandRow), search.Reached.Contains);
+            Require(near && !far,
+                $"premise: the closed door must be the wall this query's region stops at; door={door} near={near} far={far}");
             return (search, TerrainChanges.Revision, door);
         }
 
@@ -1164,38 +965,29 @@ internal static class VerifyLightAndReachSenses
         {
             TerrainChanges.RemoveDoorHooks();
             var silent = Settled();
-            using (silent.Search)
-            {
-                Require(WorldGen.OpenDoor(silent.Door.X, silent.Door.Y + 1, 1),
-                    "premise: the native helper must open this door");
-                Require(TerrainChanges.Revision == silent.Revision && silent.Search.Valid,
-                    "the defect, stated: with nothing detouring the door helper the world changes under a "
-                    + "retained query and the query never hears about it");
-            }
+            Require(WorldGen.OpenDoor(silent.Door.X, silent.Door.Y + 1, 1),
+                "premise: the native helper must open this door");
+            Require(TerrainChanges.Revision == silent.Revision && silent.Search.Valid,
+                "the defect, stated: with nothing detouring the door helper the world changes under a "
+                + "retained query and the query never hears about it");
 
             TerrainChanges.InstallDoorHooks();
             var opened = Settled();
-            using (opened.Search)
-            {
-                Require(WorldGen.OpenDoor(opened.Door.X, opened.Door.Y + 1, 1),
-                    "premise: the native helper must open this door with the detour in");
-                Require(TerrainChanges.Revision != opened.Revision,
-                    "a door opened by anybody must reach the edit record");
-                Require(!opened.Search.Valid,
-                    "a query whose region stopped at that doorway must be invalidated by the opening");
-            }
+            Require(WorldGen.OpenDoor(opened.Door.X, opened.Door.Y + 1, 1),
+                "premise: the native helper must open this door with the detour in");
+            Require(TerrainChanges.Revision != opened.Revision,
+                "a door opened by anybody must reach the edit record");
+            Require(!opened.Search.Valid,
+                "a query whose region stopped at that doorway must be invalidated by the opening");
 
             var closed = Settled();
-            using (closed.Search)
-            {
-                Require(WorldGen.OpenDoor(closed.Door.X, closed.Door.Y + 1, 1), "premise: opened before closing");
-                int afterOpen = TerrainChanges.Revision;
-                Require(WorldGen.CloseDoor(closed.Door.X, closed.Door.Y + 1, true),
-                    "premise: the native helper must close it again");
-                Require(TerrainChanges.Revision != afterOpen,
-                    "closing announces as well as opening: a door shut across the only corridor is the case a "
-                    + "retained route survives longest under a spatial rule");
-            }
+            Require(WorldGen.OpenDoor(closed.Door.X, closed.Door.Y + 1, 1), "premise: opened before closing");
+            int afterOpen = TerrainChanges.Revision;
+            Require(WorldGen.CloseDoor(closed.Door.X, closed.Door.Y + 1, true),
+                "premise: the native helper must close it again");
+            Require(TerrainChanges.Revision != afterOpen,
+                "closing announces as well as opening: a door shut across the only corridor is the case a "
+                + "retained route survives longest under a spatial rule");
         }
         finally
         {
@@ -1206,31 +998,6 @@ internal static class VerifyLightAndReachSenses
     }
 
     // ---- scene ----------------------------------------------------------------------------------------
-
-    /// <summary>Teach route memory a run of single-column walks, the way the navigator teaches one: through
-    /// <c>Record</c>, from real standing poses, so the archive holds exactly what a walked route would leave
-    /// and <c>Suffixes</c> composes them into one chain ending at <paramref name="to"/>.</summary>
-    private static void TeachWalkRun(Point from, Point to)
-    {
-        // The archive is a static that no scene rebuild empties, so a run that does not clear it plants its
-        // route beside whatever every earlier fixture taught — and the query then adopts the longest suffix
-        // it meets rather than this one, from a root nobody chose. Run alone this row passed; inside the
-        // default suite the search finished four columns before the planted root.
-        RememberExecutedRoutes.World.Clear();
-        for (int x = from.X; x < to.X; x++)
-        {
-            Point a = new(x, from.Y), b = new(x + 1, from.Y);
-            BodyPhysics.Pose? standA = NavGrid.StandAt(a.X, a.Y, false), standB = NavGrid.StandAt(b.X, b.Y, false);
-            Require(standA != null && standB != null, $"the planted run needs standable floor at {a} and {b}");
-            RememberExecutedRoutes.World.Record(NavGrid.World, new NavStep(b, MoveKind.Walk, a, Ticks: 8),
-                BodyState.Standing(standA.Value), BodyState.Standing(standB.Value),
-                new Rectangle(a.X * 16, (a.Y - 2) * 16, 32, 48));
-        }
-        Require(RememberExecutedRoutes.World.Suffixes(NavGrid.World, to).ContainsKey(from),
-            $"the planted walks must compose into a suffix from {from} to {to}");
-    }
-
-    private static int MaxReachedColumn(ContinueRouteSearch search) => MaxColumn(search.Reached, StandRow);
 
     private static int MaxColumn(IReadOnlyCollection<Point> tiles, int row)
     {
@@ -1253,8 +1020,8 @@ internal static class VerifyLightAndReachSenses
         else VerifyUsefulAssistance.WriteMeasuredLight(Window, light);
         ForgetTransients();
         TerrainChanges.Reset();
-        AStar.InvalidateEdges();
-        ctx.Companion.Brain.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Breath);
+        MovementQueries.World = new GameTileWorld();
+        ctx.Companion.Brain.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Motor);
         return ctx;
     }
 
@@ -1295,7 +1062,7 @@ internal static class VerifyLightAndReachSenses
         VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
         ulong? before = sense.ReadTick;
         typeof(LightSense).GetField("sinceRefresh", InstanceField)!.SetValue(sense, 1000);
-        ctx.Companion.Brain.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Breath);
+        ctx.Companion.Brain.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Motor);
         Require(sense.ReadTick != before,
             "forcing a refresh must actually resample the world, or every row built on it compares a scene with itself");
     }

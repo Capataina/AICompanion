@@ -72,17 +72,3 @@ public interface ITileWorld
     int LiquidKind(int x, int y) => Lava(x, y) ? 1 : 0;
     byte LiquidAmount(int x, int y) => Water(x, y) || Lava(x, y) ? byte.MaxValue : (byte)0;
 }
-
-/// <summary>
-/// An optional authoritative one-tick backend. The live Terraria adapter implements this with
-/// the game's collision helpers; text scenarios use <see cref="BodyMotion"/>'s shape model.
-/// Keeping the switch at this interface makes the caller's state/control contract identical in
-/// both environments rather than selecting a second navigator at runtime.
-/// </summary>
-public interface IBodySimulationWorld
-{
-    /// <summary>Current vertical acceleration for proposing controls. A proposal still
-    /// requires complete simulation because the environment can change along its flight.</summary>
-    float GravityAt(BodyState state);
-    BodyState Simulate(BodyState state, Controls controls, MovementCapabilities capabilities);
-}

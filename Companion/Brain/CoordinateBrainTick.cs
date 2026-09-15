@@ -43,7 +43,6 @@ public sealed class Brain
     {
         Navigator.PlanFailed = BrainTelemetry.DumpPlan;
         Navigator.PlanMsBudget = Weights.RouteSearchMilliseconds;
-        PlanLocalMovement.PreparationMsBudget = Weights.MovementPreparationMilliseconds;
     }
 
     public PositionRequest LastRequest { get; private set; }
@@ -59,7 +58,7 @@ public sealed class Brain
     };
     private Vector2 progressOrigin;
     private int progressTicks;
-    private NavPath? progressPath;
+    private Route? progressPath;
     private int progressStep;
 
     /// <summary>
@@ -105,7 +104,9 @@ public sealed class Brain
         whole.Restart();
         LimitPlanningWork.Begin(Weights.TotalPlanningMilliseconds);
         ReflexMs = DecideMs = PositionMs = NavigateMs = FinaliseMs = 0;
-        Movement.Configure(Terraria.Main.GameUpdateCount, Senses.Self.LifeFraction > 0.6f, false);
+        // Which liquids are walls this tick is the body's own immunity and nothing else: a liquid the
+        // body is not immune to hurts on touch, so no life fraction makes it a crossable cost.
+        Movement.Configure(companion.Motor.Immunity);
         try
         {
             ActivityControlRequest request = TickPhases(companion, player);
@@ -159,8 +160,8 @@ public sealed class Brain
     private ActivityControlRequest TickPhases(CompanionNPC companion, Terraria.Player player)
     {
         phase.Restart();
-        Senses.Update(companion.NPC, player, companion.Breath);
-        ProtectCompanionHomes.Refresh(player.Bottom, companion.NPC.Bottom);
+        Senses.Update(companion.NPC, player, companion.Motor);
+        ProtectCompanionHomes.Refresh(player.Bottom, companion.NPC.Center);
         companion.Arsenal.Tick();
         companion.Chopper.Tick();
         SensesMs = Lap();
@@ -171,8 +172,6 @@ public sealed class Brain
 
         if (FollowRecovery.Active && TryFollowRecovery(companion, player, false, out var initialRecovery)) return initialRecovery;
 
-        Navigator.Capabilities = companion.Motor.Capabilities;
-        Navigator.DisplacementCause = companion.Motor.DivergenceInvalidReason;
         bool taken = Reflexes.TryAssess(companion.NPC, Senses, companion.Motor.State, out var unsafeAtTick);
         Navigator.UnsafeAtTick = Senses.Threats.Threats.Count == 0 && Senses.Projectiles.Threats.Count == 0 ? null : unsafeAtTick;
         ReflexMs = Lap();
@@ -194,14 +193,6 @@ public sealed class Brain
         if (TryFollowRecovery(companion, player, reunionRequested, out var selectedRecovery)) return selectedRecovery;
 
         var profile = companion.Arsenal.ProfileFor(ctx, LastRequest.Target);
-        // Lava is a crossable cost only while there is life to pay it with.
-        // A drop with no way back is taken only after the player, or to save the body: a hunt
-        // that dropped into a sealed pocket after its target stood at the rim for the rest of
-        // run 5 (2026-09-08). This gates the planner alone; the positioner's reach flood answers
-        // the same question for itself and against the player's tile rather than the request kind.
-        Movement.Configure(Terraria.Main.GameUpdateCount,
-            Senses.Self.LifeFraction > 0.6f && !Senses.Self.InLava,
-            LastRequest.Kind is RequestKind.WithPlayer or RequestKind.Guard);
         Vector2? spot = Positioner.Resolve(LastRequest, Senses, profile);
         PositionMs = Lap();
         // Enemy bodies are hazards wherever the route passes them, even when neither actor
@@ -232,15 +223,17 @@ public sealed class Brain
     private bool TryFollowRecovery(CompanionNPC companion, Terraria.Player player, bool mayStart, out ActivityControlRequest request)
     {
         request = default;
+        // A clear arrival is the orb out of every tile and no lower than the player's own centre, which
+        // is where following hovers anyway; a body that phased in below him would have to climb back out.
         if (!FollowRecovery.Update(mayStart, companion.IsDowned, !player.dead && player.active,
-            companion.NPC.Bottom, player.Bottom, companion.Motor.ClearOfTerrain
-                && player.velocity.Y == 0f && companion.NPC.Bottom.Y <= player.Bottom.Y)) return false;
+            companion.NPC.Center, player.Center, companion.Motor.ClearOfTerrain
+                && player.velocity.Y == 0f && companion.NPC.Center.Y <= player.Center.Y)) return false;
         LastRequest = new PositionRequest(RequestKind.WithPlayer, player.Bottom);
         Safety.Cancel(new ActionContext(companion, Senses, Roaming), "follow-recovery-flight");
         Chooser.Activity.Suspend(new ActionContext(companion, Senses, Roaming), "follow-recovery-flight");
         Movement.Hold(companion.Motor.State, preemptedBy: "follow-recovery-flight");
         request = new ActivityControlRequest(Controls.None, "follow-recovery-flight", RecoveryVelocity:
-            FollowRecovery.Steer(companion.NPC.Bottom, companion.NPC.velocity, player.Bottom, player.velocity));
+            FollowRecovery.Steer(companion.NPC.Center, companion.NPC.velocity, player.Center, player.velocity));
         NavigateMs = Lap();
         return true;
     }
@@ -283,7 +276,7 @@ public sealed class Brain
         if (StrandedTicks > 0 && Positioner.Reaches(MovementQueries.FeetTile(Senses.Player.Bottom)))
             StrandedTicks = 0;
         else if (towardPlayer && Navigator.PlannedThisTick)
-            StrandedTicks = Navigator.LastPlanEmpty && Navigator.LastSearchStop == AStar.SearchStopReason.Exhausted
+            StrandedTicks = Navigator.LastPlanEmpty && Navigator.LastSearchStop == FreeSpaceSearch.StopReason.Exhausted
                 && Positioner.ReachComplete ? System.Math.Max(StrandedTicks, 1) : 0;
         else if (StrandedTicks > 0)
             StrandedTicks++;
@@ -291,55 +284,55 @@ public sealed class Brain
 
     private void WatchProgress(CompanionNPC companion)
     {
+        Vector2 centre = companion.NPC.Center;
         if (progressTicks == 0)
         {
-            progressOrigin = companion.NPC.Bottom;
+            progressOrigin = centre;
             progressPath = Navigator.Path;
             progressStep = progressPath?.Index ?? 0;
         }
         bool wantsTravel = Safety.Active
             || (LastRequest.Kind == RequestKind.WithPlayer
-            ? !Senses.Intent.Objective.IsSatisfied(companion.NPC.Bottom,
-                LineOfSight.Between(companion.NPC, Senses.PlayerEntity))
+            ? !Senses.Intent.Objective.IsSatisfied(centre, LineOfSight.Between(companion.NPC, Senses.PlayerEntity))
             : LastRequest.Kind != RequestKind.Hold && (Positioner.Chosen is not Vector2 spot
-                || Vector2.DistanceSquared(spot, companion.NPC.Bottom) > 16f * 16f));
+                || Vector2.DistanceSquared(spot, centre) > 16f * 16f));
         if (!wantsTravel)
         {
-            progressOrigin = companion.NPC.Bottom; progressTicks = 0; MovementStalled = false;
+            progressOrigin = centre; progressTicks = 0; MovementStalled = false;
             progressPath = Navigator.Path; progressStep = progressPath?.Index ?? 0;
             return;
         }
-        if (MovementStalled && Vector2.DistanceSquared(progressOrigin, companion.NPC.Bottom) >= Weights.ObjectiveProgressPixels * Weights.ObjectiveProgressPixels)
+        if (MovementStalled && Vector2.DistanceSquared(progressOrigin, centre) >= Weights.ObjectiveProgressPixels * Weights.ObjectiveProgressPixels)
             MovementStalled = false;
         if (++progressTicks >= Weights.ObjectiveProgressWindowTicks)
         {
             // Net displacement across a window catches stationary holds and local oscillation;
             // it makes no claim that moving away from the player is a bad route detour.
             bool advancedRoute = progressPath != null && ReferenceEquals(progressPath, Navigator.Path) && progressPath.Index > progressStep;
-            MovementStalled = !advancedRoute && Vector2.DistanceSquared(progressOrigin, companion.NPC.Bottom) < Weights.ObjectiveProgressPixels * Weights.ObjectiveProgressPixels;
-            progressOrigin = companion.NPC.Bottom; progressTicks = 0;
+            MovementStalled = !advancedRoute && Vector2.DistanceSquared(progressOrigin, centre) < Weights.ObjectiveProgressPixels * Weights.ObjectiveProgressPixels;
+            progressOrigin = centre; progressTicks = 0;
             progressPath = Navigator.Path; progressStep = progressPath?.Index ?? 0;
         }
     }
 
     private Controls Navigate(CompanionNPC companion, Vector2? spot, out string owner)
     {
-        if (spot is Vector2 feet)
+        if (spot is Vector2 goal)
         {
             // One continuous stretch of wanting one kind of place is one ask, so the census reads
             // "asked for 40 places, reached 11" rather than counting a minute of following as
-            // 3,600 requests. The kind is the episode's identity because the exact tile moves
+            // 3,600 requests. The kind is the episode's identity because the exact point moves
             // under a request that has not changed.
             BehaviourCensus.RequestBegan(LastRequest.Kind.ToString());
             owner = "travel";
-            Controls controls = Movement.MoveTo(companion.Motor.State, feet, LastRequest.JumpScale);
-            // Stuck twice on the way to one spot: the first strike priced the step and the replan
-            // found nothing better, so the spot itself is the problem. Refuse it for a while and
-            // let the positioner answer with another, which is Caner's "choose a different
-            // position to unstick itself" (2026-09-08).
+            Controls controls = Movement.MoveTo(companion.Motor.State, goal);
+            // Stuck twice on the way to one spot: the first strike replanned and the replan found
+            // nothing better, so the spot itself is the problem. Refuse it for a while and let the
+            // positioner answer with another, which is Caner's "choose a different position to
+            // unstick itself" (2026-09-08).
             if (Navigator.StuckStrikes >= 2)
             {
-                Positioner.Ban(MovementQueries.FeetTile(feet), Weights.StuckSpotBanTicks);
+                Positioner.Ban(MovementQueries.Tile(goal), Weights.StuckSpotBanTicks);
                 Navigator.ResetStrikes();
             }
             return controls;
@@ -349,27 +342,16 @@ public sealed class Brain
             var objective = Senses.Intent.Objective.At(LastRequest.Anchor);
             BehaviourCensus.RequestBegan(LastRequest.Kind.ToString());
             owner = "seeking-destination";
-            Controls seeking = Movement.SeekDestination(companion.Motor.State, LastRequest.Anchor,
-                state => state.OnGround && objective.IsSatisfied(state.Feet,
-                    Terraria.Collision.CanHitLine(new Vector2(state.Left, state.Bottom - BodyPhysics.Height),
-                        BodyPhysics.Width, BodyPhysics.Height, Senses.PlayerEntity.position,
-                        Senses.PlayerEntity.width, Senses.PlayerEntity.height)));
-            if (Navigator.ReleasePending) owner = "travel-committed";
-            return seeking;
+            Terraria.Player player = Senses.PlayerEntity;
+            return Movement.SeekDestination(companion.Motor.State, LastRequest.Anchor,
+                centre => objective.IsSatisfied(centre,
+                    Terraria.Collision.CanHitLine(centre - new Vector2(CircleContact.Radius),
+                        (int)CircleContact.Diameter, (int)CircleContact.Diameter, player.position, player.width, player.height)));
         }
         else
         {
             owner = "hold";
-            Controls controls = Movement.Hold(companion.Motor.State, LastRequest.JumpScale);
-            // A release the navigator held until the move in hand lands is still that move's
-            // travel: the record names it apart from a hold, so a body steered through a deferral
-            // does not read as one holding still, and the ask it was walking stays open until the
-            // release actually applies.
-            if (Navigator.ReleasePending)
-            {
-                owner = "travel-committed";
-                return controls;
-            }
+            Controls controls = Movement.Hold(companion.Motor.State);
             // Nothing is being asked for, so whatever was being asked for is over: reached if the
             // navigator got there, abandoned otherwise. A Hold request is the ordinary way an
             // episode ends, which is why this is not treated as a failure.

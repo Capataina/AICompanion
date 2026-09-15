@@ -1,12 +1,30 @@
+extern alias live;
+
 using System.Reflection;
-using AICompanion.Companion.Brain.Infrastructure.Movement;
 using AICompanion.Tools.Ledger;
 using Microsoft.Xna.Framework;
 using Terraria;
 
+using CornerGraph = live::AICompanion.Companion.Brain.Infrastructure.Movement.CornerGraph;
+using GameTileWorld = live::AICompanion.Companion.Brain.Infrastructure.Movement.GameTileWorld;
+using MovementQueries = live::AICompanion.Companion.Brain.Infrastructure.Movement.MovementQueries;
+using Navigator = live::AICompanion.Companion.Brain.Infrastructure.Movement.Navigator;
+using TerrainChanges = live::AICompanion.Companion.Brain.Infrastructure.Movement.TerrainChanges;
+
+/// <summary>
+/// The suite's entry point and its case table.
+///
+/// <para>This file used to open with a collision matrix comparing a portable body simulation against
+/// Terraria's own NPC collision on every shape, liquid, entry pose and control — 2,536 comparisons
+/// whose whole purpose was that the companion had two bodies that could disagree. The orb has one:
+/// the mod switches the engine's tile collision off for it and the motor runs the mod's own circle
+/// contact, in the mod and in every headless tool alike, so there is no second body to match and the
+/// matrix has no subject. <c>VerifyOrbContact</c> is the contact's proof now, and it proves the size
+/// rule directly rather than by agreement with a routine the body no longer uses.</para>
+/// </summary>
 internal static class VerifyEngineMotion
 {
-    public static int Run(bool lifecycleOnly = false, bool escapeOnly = false, bool workOnly = false, bool followOnly = false, bool protectionOnly = false, bool miningBaselineOnly = false, bool brainCostOnly = false, bool combatCostOnly = false, bool combatPurposeOnly = false, bool safetyAftermathOnly = false, bool dodgeReproOnly = false)
+    public static int Run(bool lifecycleOnly = false, bool escapeOnly = false, bool workOnly = false, bool followOnly = false, bool protectionOnly = false, bool brainCostOnly = false, bool combatCostOnly = false, bool combatPurposeOnly = false, bool safetyAftermathOnly = false, bool dodgeReproOnly = false)
     {
         // The engine containers, the miniature world's dimensions and its tile map now belong to
         // ResetProcessState, which the entry point calls before dispatching any flag — they were
@@ -23,9 +41,8 @@ internal static class VerifyEngineMotion
         if (lifecycleOnly) return VerifyCompanionLifecycle.Run() + VerifyDowningAndRevival.Run() + VerifyStatMirroring.Run();
         if (escapeOnly) return VerifyCapturedEscape.Run();
         if (workOnly) return VerifyOreWork.Run() + VerifyCompanionPreferences.Run() + VerifyCompanionActivities.Run() + VerifyUsefulAssistance.Run()
-            + VerifyMiningHops.Run() + VerifyGatheringCooperation.Run() + VerifyWorkAccounting.Run() + VerifyCollectionContracts.Run()
+            + VerifyGatheringCooperation.Run() + VerifyWorkAccounting.Run() + VerifyCollectionContracts.Run()
             + VerifyAssistanceTrips.Run() + VerifyCapabilityRevision.Run() + VerifyLightAndReachSenses.Run();
-        if (miningBaselineOnly) return VerifyOreWork.RunRaisedLipBaseline();
         if (followOnly) return VerifyResponsiveFollowing.Run() + VerifyCompanyLocalMotion.Run() + VerifyCourtesy.Run();
         if (protectionOnly) return VerifyFollowRecoveryAndProtection.Run();
         if (brainCostOnly) return MeasureBrainCost.Execute();
@@ -34,13 +51,6 @@ internal static class VerifyEngineMotion
         if (safetyAftermathOnly) return VerifySafetyAftermath.Run();
         if (dodgeReproOnly) return VerifySafetyAftermath.ReproduceDodgeOnDryFloor();
         int failed = 0;
-        // The collision matrix is a case like every other one, which it was not: it emitted its row
-        // through Row and Measure directly, so it ran all 2,536 comparisons on a --case run that had
-        // excluded it and then filed a pass for a case the filter said not to run. Its suite stays
-        // "Movement" so the row keeps the key its history is under.
-        failed += EmitLedgerRows.Case(Instrument, "Movement",
-            "the portable body matches native NPC collision on every shape, liquid and control", MatchNativeCollision);
-
         // Every fixture below used to be a term in one `failed += Verify*.Run()` sum, and the sum was
         // an abort dressed as a total: assertions here throw, so the first fixture to fail took the
         // whole chain with it. As a table, each fixture is a named case that reports its own verdict
@@ -51,75 +61,6 @@ internal static class VerifyEngineMotion
         return failed == 0 ? 0 : 1;
     }
 
-    /// <summary>
-    /// Every shape, liquid, entry pose and control the portable body claims to reproduce, against
-    /// Terraria's own NPC collision on the same tiles, plus the liquid-transition grid.
-    /// </summary>
-    private static int MatchNativeCollision()
-    {
-        int checkedCases = 0, failed = 0;
-        foreach (int altitude in new[] { 0, 30 })
-        foreach (int shape in Enumerable.Range(0, 7))
-        foreach (int liquid in Enumerable.Range(0, 4))
-        foreach (float left in new[] { 390f, 398f, 405f })
-        foreach (float bottom in new[] { 951f, 960f, 925f })
-        foreach (Controls controls in new[] { Controls.None, new Controls(4), new Controls(-4, Jump: true),
-            new Controls(-4, Jump: true, JumpScale: BodyPhysics.JumpScaleForTiles(2) * .5f), new Controls(2, FallThrough: true, Descend: true) })
-        {
-            for (int x = 20; x < 35; x++)
-            {
-                Tile support = Main.tile[x, 60 + altitude];
-                support.HasTile = true;
-                support.TileType = (ushort)(shape >= 5 ? 19 : 1);
-                support.Slope = (Terraria.ID.SlopeType)(shape is >= 1 and <= 4 ? shape : shape == 6 ? 1 : 0);
-                for (int y = 50 + altitude; y < 60 + altitude; y++)
-                {
-                    Tile water = Main.tile[x, y];
-                    water.LiquidAmount = liquid == 0 ? (byte)0 : (byte)255;
-                    water.LiquidType = liquid == 1 ? 0 : liquid == 2 ? 2 : 3;
-                }
-            }
-            var state = new BodyState(left, bottom + altitude * 16, 2.4f, bottom == 960 ? 0 : 1.2f, bottom == 960,
-                Wet: liquid != 0, LiquidKind: liquid == 1 ? 0 : liquid);
-            var scratch = Scratch();
-            BodyState predicted = SimulateTerrariaBody.Step(state, controls, MovementCapabilities.Basic);
-            if (Scratch() != scratch) throw new InvalidOperationException("Prediction changed Collision scratch fields");
-            BodyState actual = RunEngine(state, controls);
-            checkedCases++;
-            if (Vector2.Distance(predicted.Feet, actual.Feet) > .001f || MathF.Abs(predicted.Vx - actual.Vx) > .001f
-                || MathF.Abs(predicted.Vy - actual.Vy) > .001f || predicted.Wet != actual.Wet
-                || predicted.LiquidKind != actual.LiquidKind || predicted.StairFall != actual.StairFall
-                || predicted.OnGround != actual.OnGround || predicted.CollideX != actual.CollideX)
-            {
-                if (failed++ < 12) EmitLedgerRows.Detail($"mismatch shape={shape} liquid={liquid} entry={state} controls={controls}; predicted={predicted}; engine={actual}");
-            }
-        }
-        foreach (int previous in Enumerable.Range(0, 4))
-        foreach (int current in Enumerable.Range(0, 4))
-        {
-            for (int x = 20; x < 35; x++)
-            for (int y = 50; y < 60; y++)
-            {
-                Tile tile = Main.tile[x, y];
-                tile.LiquidAmount = current == 0 ? (byte)0 : (byte)255;
-                tile.LiquidType = current == 1 ? 0 : current == 2 ? 2 : 3;
-            }
-            var state = new BodyState(400, 925, 3, 1, false, Wet: previous != 0, LiquidKind: previous == 1 ? 0 : previous);
-            BodyState predicted = SimulateTerrariaBody.Step(state, Controls.None, MovementCapabilities.Basic);
-            BodyState actual = RunEngine(state, Controls.None);
-            checkedCases++;
-            if (predicted != actual)
-            {
-                failed++;
-                EmitLedgerRows.Detail($"liquid transition {previous}->{current} mismatch: predicted={predicted} engine={actual}");
-            }
-        }
-        Console.WriteLine($"engine motion: {checkedCases - failed}/{checkedCases} matched native NPC collision; {failed} mismatches; Collision scratch preserved");
-        EmitLedgerRows.Measure(Instrument, "Movement", "native-collision-cases-matched", checkedCases - failed, "cases", "up",
-            message: $"out of {checkedCases} shape, liquid, entry and control combinations");
-        return failed;
-    }
-
     internal const string Instrument = "engine-replay";
 
     /// <summary>
@@ -128,17 +69,22 @@ internal static class VerifyEngineMotion
     /// what <c>--case</c> matches against.
     ///
     /// Case granularity is the fixture file rather than the assertion. The plan's full migration
-    /// wants a case per assertion site, about 1,180 of them across thirty-nine files, and most of
-    /// those files belong to other lanes; this is the granularity reachable from here, and it is
+    /// wants a case per assertion site; this is the granularity reachable from here, and it is
     /// already enough for per-case selection, rerun-red and a scoreboard that names what moved.
     /// </summary>
     private static IEnumerable<(string Name, Func<int> Body)> DefaultCases() => new (string, Func<int>)[]
     {
-        ("the motor's observed motion is what the engine actually did", VerifyObservedMotion.Run),
+        ("the orb fits every two-by-two gap and no one-by-one gap in any direction", VerifyOrbContact.SizeRule),
+        ("the orb passes a one-tile diagonal step without ever overlapping a wall", VerifyOrbContact.DiagonalStep),
+        ("contact pushes the orb out of a wall, kills the velocity into it and keeps the slide", VerifyOrbContact.PushOutAndSlide),
+        ("a two-wide corridor is open to the flood, a one-wide is closed, and a liquid is a wall until its immunity", VerifyFreeSpace.CorridorsAndLiquids),
+        ("the free-space flood over a screen-sized room finishes in a handful of slices", VerifyFreeSpace.FloodFinishes),
+        ("an enemy's observed motion is forecast from what it actually did", VerifyObservedMotion.Run),
         ("the god's-eye occurrence stream records what it claims", VerifyGodsEyeEvents.Run),
         ("a prepared comparison preserves its numbers", VerifyPreparedActivities.Run),
         ("each purpose family nominates its best child", VerifyFamilyOffers.Run),
-        ("planned routes reach their goals", VerifyRoutes),
+        ("the orb flies its planned routes over native terrain and stops at what it cannot fit through", VerifyRoutes),
+        ("a route that ran out of budget is pending, and only an exhausted one is unreachable", VerifyRouteEndings.Run),
         ("a projectile flies the arc the solver predicted", VerifyProjectileMotion.Run),
         ("the threat sense reads danger from sealed chambers correctly", VerifyPersonalDanger.Run),
         ("the companion spawns, lives and is attached both ways", VerifyCompanionLifecycle.Run),
@@ -147,7 +93,6 @@ internal static class VerifyEngineMotion
         ("following responds to a player who departs", VerifyResponsiveFollowing.Run),
         ("recovery flight and protection admit only what may start them", VerifyFollowRecoveryAndProtection.Run),
         ("ore work breaks ore without excavating ordinary terrain", VerifyOreWork.Run),
-        ("mining hops reach the vein", VerifyMiningHops.Run),
         ("gathering beside the player is cooperative rather than competing", VerifyGatheringCooperation.Run),
         ("remaining work is accounted to whoever did it", VerifyWorkAccounting.Run),
         ("a collected drop is claimed only for what arrived", VerifyCollectionContracts.Run),
@@ -160,14 +105,12 @@ internal static class VerifyEngineMotion
         ("a bounded stand search that ran out says so, and a stand is proved against the target's forecast", VerifyOfferValidity.Run),
         ("a hunt is admitted only where it can be executed", VerifyHuntAdmissibility.Run),
         ("an attack's outcome is the one the arsenal forecast", VerifyAttackOutcomes.Run),
-        ("a movement failure is classified as what it was", VerifyMovementFailures.Run),
-        ("a route proves it can come home as well as go", VerifyRoundTripEvidence.Run),
         ("combat keeps its purpose across a substituted enemy", VerifyCombatPurpose.Run),
         ("safety releases the body after the danger passes", VerifySafetyAftermath.Run),
         ("an assistance trip goes and returns", VerifyAssistanceTrips.Run),
         ("the light and reach senses answer in three values", VerifyLightAndReachSenses.Run),
         ("keeping company strolls without walking into hazards", VerifyCompanyLocalMotion.Run),
-        ("a capability change invalidates what depended on it", VerifyCapabilityRevision.Run),
+        ("an immunity change invalidates what depended on it", VerifyCapabilityRevision.Run),
         ("a closed door is opened rather than treated as a wall", VerifyDoorPassage.Run),
         ("courtesy stillness does not depend on what ran before", VerifyCourtesy.Run),
         ("downing and revival keep life on the NPC", VerifyDowningAndRevival.Run),
@@ -175,84 +118,138 @@ internal static class VerifyEngineMotion
         ("a whole journey is recorded against its proven ticks", VerifyTravelEpisodes.Run),
     };
 
-    internal static BodyState RunEngine(BodyState state, Controls controls)
-    {
-        var npc = new NPC
-        {
-            width = BodyPhysics.Width, height = BodyPhysics.Height, type = 0,
-            aiStyle = controls.FallThrough ? 10 : -1, lavaImmune = true, wetCount = 2,
-            position = new Vector2(state.Left, state.Bottom - BodyPhysics.Height), velocity = new Vector2(state.Vx, state.Vy),
-            wet = state.Wet, honeyWet = state.LiquidKind == 2, shimmerWet = state.LiquidKind == 3,
-            lavaWet = state.LiquidKind == 1, stairFall = state.StairFall,
-            waterMovementSpeed = .5f, lavaMovementSpeed = .5f, honeyMovementSpeed = .25f, shimmerMovementSpeed = .375f
-        };
-        Invoke(npc, "UpdateNPC_UpdateGravity");
-        BodyState driven = MovementAbilities.ApplyControls(state, controls, MovementCapabilities.Basic);
-        npc.velocity = new Vector2(driven.Vx, driven.Vy);
-        if (npc.velocity.Y == 0 && !controls.FallThrough)
-            Collision.StepDown(ref npc.position, ref npc.velocity, npc.width, npc.height, ref npc.stepSpeed, ref npc.gfxOffY);
-        if (npc.velocity.Y >= 0)
-            Collision.StepUp(ref npc.position, ref npc.velocity, npc.width, npc.height, ref npc.stepSpeed, ref npc.gfxOffY, 1, !controls.Descend, 1);
-        npc.velocity.Y = MathF.Min(npc.velocity.Y + npc.gravity, npc.maxFallSpeed);
-        if (MathF.Abs(npc.velocity.X) < .005f) npc.velocity.X = 0;
-        Invoke(npc, "UpdateCollision");
-        return driven with { Left = npc.position.X, Bottom = npc.Bottom.Y, Vx = npc.velocity.X, Vy = npc.velocity.Y,
-            OnGround = npc.velocity.Y == 0, CollideX = npc.collideX, Wet = npc.wet,
-            LiquidKind = npc.shimmerWet ? 3 : npc.honeyWet ? 2 : npc.lavaWet ? 1 : 0, StairFall = npc.stairFall };
-    }
-
-    private static void Invoke(NPC npc, string method) => typeof(NPC).GetMethod(method, BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(npc, null);
-    private static (bool, bool, bool, bool, bool, bool, bool) Scratch() =>
-        (Collision.up, Collision.down, Collision.stair, Collision.stairFall, Collision.honey, Collision.shimmer, Collision.sloping);
-
+    /// <summary>
+    /// Five scenes on native tiles, driven through the live navigator and the live motor with a real
+    /// <c>CompanionNPC</c>, so what is proved here is the whole chain the game runs: search, smooth,
+    /// steer, contact, and the engine adding the displacement.
+    ///
+    /// <para>Each scene names the mechanism it is there for, because "it arrived" is satisfied by
+    /// three different code paths in this navigator and only one of them is route-following. The
+    /// open floor exists to prove the navigator does <em>not</em> plan when the straight line is
+    /// clear; the ledge, the staircase and the two-wide shaft each put a wall across that line, so
+    /// they can only arrive through a planned route and each asserts that it saw one. The one-wide
+    /// shaft is the body's size rule read back through the planner: the only way through is a gap
+    /// the orb does not fit, so the flood exhausts the free space and reports a proven absence.</para>
+    /// </summary>
     private static int VerifyRoutes()
     {
         int failed = 0;
-        foreach (string name in new[] { "flat", "two-tile-ledge", "stairs-up", "stairs-down" })
+        foreach (string name in new[] { "open floor", "two-tile ledge", "sloped staircase", "two-wide shaft", "one-wide shaft" })
         {
-            Main.tile = (Tilemap)Activator.CreateInstance(typeof(Tilemap), BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public,
-                null, new object[] { (ushort)100, (ushort)100 }, null)!;
-            for (int x = 5; x < 95; x++)
+            BuildWorld();
+            // The floor every scene stands over, and the ceiling that keeps the flood bounded.
+            for (int x = 10; x < 90; x++) { Solid(x, 90); Solid(x, 70); }
+            for (int y = 70; y <= 90; y++) { Solid(10, y); Solid(89, y); }
+
+            Point start = new(30, 89), goal = new(60, 89);
+            bool routeExpected = true, reachable = true;
+            switch (name)
             {
-                Tile tile = Main.tile[x, 90]; tile.HasTile = true; tile.TileType = 1;
+                case "open floor":
+                    // Nothing between them: the straight line is clear and no route is needed.
+                    routeExpected = false;
+                    break;
+                case "two-tile ledge":
+                    // A block standing two tiles off the floor, taller than the body, across the line.
+                    for (int x = 44; x <= 46; x++)
+                        for (int y = 87; y <= 89; y++) Solid(x, y);
+                    break;
+                case "sloped staircase":
+                    // Slopes are full tiles to this body, so a staircase is a wall it flies over.
+                    for (int i = 0; i <= 5; i++)
+                    {
+                        Tile step = Main.tile[44 + i, 89 - i];
+                        step.HasTile = true;
+                        step.TileType = 1;
+                        step.Slope = (Terraria.ID.SlopeType)2;
+                        for (int y = 90 - i; y <= 89; y++) Solid(44 + i, y);
+                    }
+                    break;
+                case "two-wide shaft":
+                case "one-wide shaft":
+                    // A floor across the middle of the room with a vertical shaft through it, the
+                    // body above and the goal below. Two tiles of shaft put a usable corner in the
+                    // middle of it with six pixels either side; one tile has no usable corner
+                    // anywhere in it, in either row, so the lower half is closed to this body.
+                    int width = name == "two-wide shaft" ? 2 : 1;
+                    for (int x = 11; x <= 88; x++) Solid(x, 80);
+                    for (int x = 60; x < 60 + width; x++) Clear(x, 80);
+                    start = new Point(30, 79);
+                    reachable = name == "two-wide shaft";
+                    break;
             }
-            Point from = new(30, 89), to = new(45, 89);
-            if (name == "two-tile-ledge")
-            {
-                for (int x = 35; x < 65; x++)
-                for (int y = 88; y < 90; y++)
-                {
-                    Tile tile = Main.tile[x, y]; tile.HasTile = true; tile.TileType = 1;
-                }
-                to = new Point(40, 87);
-            }
-            if (name.StartsWith("stairs"))
-            {
-                for (int x = 35; x <= 40; x++)
-                {
-                    Tile tile = Main.tile[x, 89 - (x - 35)]; tile.HasTile = true; tile.TileType = 19; tile.Slope = (Terraria.ID.SlopeType)2;
-                }
-                to = new Point(40, 83);
-                if (name == "stairs-down") (from, to) = (to, from);
-            }
+
             TerrainChanges.Reset();
-            NavGrid.World = new GameTileWorld();
-            BodyPhysics.Pose? pose = NavGrid.StandAt(from.X, from.Y, false);
-            if (pose == null) { EmitLedgerRows.Detail($"native route {name}: no start pose"); failed++; continue; }
-            BodyState live = BodyState.Standing(pose.Value);
-            var movement = new CoordinateMovement();
-            int tick;
-            for (tick = 0; tick < 1800; tick++)
+            MovementQueries.World = new GameTileWorld();
+
+            var companion = VerifyCompanionLifecycle.Create();
+            // Create rebuilds the actor slots, so the world is plugged in again after it.
+            MovementQueries.World = new GameTileWorld();
+            Vector2 from = CornerGraph.ToWorld(start), to = CornerGraph.ToWorld(goal);
+            if (!MovementQueries.IsUsableCorner(start) || !MovementQueries.IsUsableCorner(goal))
             {
-                movement.Configure((uint)tick, false, true);
-                Controls controls = movement.MoveTo(live, NavGrid.FeetWorld(to));
-                live = RunEngine(live, controls);
-                if (movement.Navigator.Arrived) break;
+                EmitLedgerRows.Detail($"native route {name}: the scene's own start or goal is not a place the body fits");
+                failed++;
+                continue;
             }
-            bool pass = movement.Navigator.Arrived;
-            Console.WriteLine($"{(pass ? "PASS" : "FAIL")} native route {name}: {tick} ticks, {movement.Navigator.FaultCount} faults, final {live.FeetTile}");
-            if (!pass) failed++;
+            companion.NPC.Center = from;
+            companion.NPC.velocity = Vector2.Zero;
+
+            var navigator = new Navigator();
+            bool sawPlannedRoute = false, sawDirect = false, sawUnreachable = false;
+            int tick;
+            for (tick = 0; tick < 900; tick++)
+            {
+                companion.Motor.Track();
+                var controls = navigator.MoveTo(companion.Motor.State, to);
+                sawPlannedRoute |= navigator.Status == Navigator.ExecutionStatus.Executable;
+                sawDirect |= navigator.Status == Navigator.ExecutionStatus.Direct;
+                sawUnreachable |= navigator.Status == Navigator.ExecutionStatus.Unreachable;
+                companion.Motor.Apply(controls);
+                VerifyResponsiveFollowing.AdvanceNative(companion);
+                if (navigator.Arrived || sawUnreachable) break;
+            }
+
+            // What each scene is held to, and what it is deliberately not held to.
+            //
+            // The first version of this row required the open floor to report `Direct` and never `Executable`,
+            // reading those as "the straight line was enough" against "a route was needed". They do not mean
+            // that. `Direct` is published only while there is no route *yet* and the line happens to be clear;
+            // the moment the search hands back a path the status is `Executable` however open the floor is. So
+            // the open floor reported `planned=True direct=False` and the row failed for being right. The status
+            // cannot carry that distinction, so the scene's own geometry does: a clear swept line from the start
+            // to the goal is a fact about the room, asked of the same contact test the navigator asks.
+            bool clearLine = live::AICompanion.Companion.Brain.Infrastructure.Movement.CircleContact.SweptClear(
+                MovementQueries.World, from, to, live::AICompanion.Companion.Brain.Infrastructure.Movement.OrbTerrain.Wall);
+            bool pass = reachable
+                ? navigator.Arrived && clearLine == !routeExpected && (routeExpected ? sawPlannedRoute : true)
+                : sawUnreachable && !navigator.Arrived;
+            Console.WriteLine($"native route {name}: {tick} ticks, arrived={navigator.Arrived}, clearLine={clearLine}, "
+                + $"planned={sawPlannedRoute}, direct={sawDirect}, unreachable={sawUnreachable}, centre={companion.NPC.Center}");
+            if (!pass)
+            {
+                EmitLedgerRows.Detail($"native route {name}: arrived={navigator.Arrived} clearLine={clearLine} planned={sawPlannedRoute} "
+                    + $"direct={sawDirect} unreachable={sawUnreachable} reason={navigator.ProgressReason} centre={companion.NPC.Center}");
+                failed++;
+            }
         }
         return failed;
     }
+
+    /// <summary>A fresh tile map, because a scene that edited tiles in place would leave the previous
+    /// scene's walls standing wherever this one happens not to write.</summary>
+    internal static void BuildWorld()
+    {
+        Main.tile = (Tilemap)Activator.CreateInstance(typeof(Tilemap), BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public,
+            null, new object[] { (ushort)Main.maxTilesX, (ushort)Main.maxTilesY }, null)!;
+    }
+
+    internal static void Solid(int x, int y)
+    {
+        Tile tile = Main.tile[x, y];
+        tile.HasTile = true;
+        tile.TileType = 1;
+    }
+
+    internal static void Clear(int x, int y) => Main.tile[x, y].ClearEverything();
 }

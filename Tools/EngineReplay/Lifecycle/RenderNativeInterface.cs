@@ -163,7 +163,6 @@ internal static class RenderNativeInterface
         var npc = new NPC { active = true, life = 400, lifeMax = 400, position = new Vector2(320, 320), width = 20, height = 42, GivenName = "Aria" };
         typeof(Terraria.ModLoader.ModNPC).GetProperty("Entity", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)!.SetValue(companion, npc);
         typeof(NPC).GetProperty("ModNPC")!.SetValue(npc, companion);
-        typeof(live::AICompanion.Companion.CharacterBody.CompanionBody).GetField("rendererFailed", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(companion.Body, true);
         Main.npc[0] = npc;
         var mine = new live::AICompanion.Companion.Brain.Activities.Gathering.MineOre();
         var target = new Point(20, 33);
@@ -264,7 +263,7 @@ internal static class RenderNativeInterface
                 new live::AICompanion.Companion.Brain.Infrastructure.Position.FollowPlayerObjective(
                     new live::AICompanion.Companion.Brain.Infrastructure.Observation.PlayerIntentRegion(
                         new Vector2(600, 400), new Vector2(240, 96), Vector2.Zero, IsTravelling: false),
-                    new Vector2(900, 400), Settled: true, Grounded: true), 100, 1);
+                    new Vector2(900, 400), Settled: true, AtRest: true), 100, 1);
             int judged = 0, outside = 0;
             foreach (var region in new[] { tool, follow })
             {

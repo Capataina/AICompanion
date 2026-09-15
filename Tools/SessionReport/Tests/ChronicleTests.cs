@@ -33,7 +33,7 @@ public static class ChronicleTests
             MultiRunFolderKeepsFirstAndLastRuns();
             MultiRunRetainsDefinitiveExit();
             DecisionContractsDistinguishStallsFromProgress();
-            AMoveKindThatMostlyFailsIsReportedNotOnlyOneThatAlwaysDoes();
+            AFrozenBodyWithARouteAheadIsReportedAndARestingOneIsNot();
             HuntRangeEvidenceDoesNotInventUniversalFailure();
             DowningDoesNotProveAvoidability();
             ASelectedActivityMustHaveCarriedAnEligibleOffer();
@@ -51,7 +51,6 @@ public static class ChronicleTests
             TravelIsReadPerJourneyAndSkippedByNameOnAnOlderCapture();
             // Last, because it writes a chronicle and an events sibling into the temp directory and
             // the multi-run cases above read that directory for runs to join.
-            ARefusalOnlyCountsWhileTheBodyIsNotLeavingIt();
             Console.WriteLine("Chronicle self-tests passed (32 assertion groups).");
             return 0;
         }
@@ -63,49 +62,51 @@ public static class ChronicleTests
     }
 
     /// <summary>
-    /// The check that asks whether an offered move is ever made used to fire only at zero, and a
-    /// session where 30 of 281 jumps completed therefore read clean. These cases pin the four
-    /// corners of the replacement: a mostly-failing kind is reported, a healthy kind is not, an
-    /// interrupted kind is not (an interruption is somebody else taking the body, not the move
-    /// failing), and a handful of attempts is too few to call a rate.
+    /// A body with a route ahead of it that does not move, and the three neighbouring shapes that
+    /// must stay quiet.
+    ///
+    /// The first case is built to fail if the check reads the wrong velocity column, and that is its
+    /// whole reason for existing. Its <c>npc_vel</c> is zero while its <c>desired_vel</c> is 2 px a
+    /// tick — the exact record a body pressed into a wall writes, because the motor sets the NPC's
+    /// velocity from the displacement the circle contact allowed. A check reading <c>npc_vel</c> for
+    /// "driven" would grade that stretch Potential instead of Definitive and report a frozen body as
+    /// a body at rest, so the assertion is on the grade rather than on a finding merely existing.
     /// </summary>
-    private static void AMoveKindThatMostlyFailsIsReportedNotOnlyOneThatAlwaysDoes()
+    private static void AFrozenBodyWithARouteAheadIsReportedAndARestingOneIsNot()
     {
         string file = Path.GetTempFileName();
         try
         {
-            Session Write(params (string Kind, string Outcome, int Count)[] moves)
+            Session Write(string desired, string velocity, float remaining, bool moving, string reflex = "-")
             {
-                var text = new StringBuilder("# text_columns=edge_kind,edge_outcome,next_kind\n");
-                text.AppendLine("tick\twall_elapsed_ms\tedge_n\tedge_kind\tedge_outcome\tnext_kind");
-                int tick = 0, edge = 0;
-                foreach (var move in moves)
-                    for (int i = 0; i < move.Count; i++, tick++)
-                        text.AppendLine($"{tick}\t{tick * 16}\t{++edge}\t{move.Kind}\t{move.Outcome}\t{move.Kind}");
+                var text = new StringBuilder("# text_columns=npc_px,npc_vel,desired_vel,reflex,action,wall_normal\n");
+                text.AppendLine("tick\twall_elapsed_ms\tnpc_px\tnpc_vel\tdesired_vel\troute_points\troute_remaining_px\treflex\taction\ttouched_wall\twall_normal\tclearance\tpinned");
+                for (int i = 0; i < 90; i++)
+                    text.AppendLine($"{i}\t{i * 16}\t{500 + (moving ? i : 0)},1280\t{velocity}\t{desired}\t5\t{remaining:0.0}\t{reflex}\tkeep-company\t1\t-1.00,0.00\t0.0\t{i}");
                 File.WriteAllText(file, text.ToString());
                 return Session.Load(file);
             }
 
-            bool Fires(Session s, string kind) =>
-                new EveryMoveOfferedGetsMade().Run(s).Any(f => f.Title.StartsWith(kind, StringComparison.Ordinal));
+            var driven = new TheBodyMovesWhenDriven().Run(Write("2.00,0.00", "0.00,0.00", 200f, moving: false)).ToList();
+            Require(driven.Any(f => f.Severity == Severity.Definitive),
+                "a body asked for 2 px a tick that never moved was not reported as driven — the check is reading the contact's "
+                + "allowed velocity rather than the steering's request, which is zero on exactly the ticks this exists to catch");
 
-            // 3 completed against 27 faulted: never zero, and still a broken move.
-            Require(Fires(Write(("Jump", "None", 3), ("Jump", "Misland", 27)), "Jump"),
-                "a move kind completing 3 of 30 was passed because it completed more than none");
+            Require(new TheBodyMovesWhenDriven().Run(Write("0.00,0.00", "0.00,0.00", 200f, moving: false))
+                    .All(f => f.Severity == Severity.Potential),
+                "a body asked for nothing was graded definitive, which is a body at rest reported as a stall");
 
-            // The shape that used to be the only one caught, and it keeps its Definitive grade.
-            Require(new EveryMoveOfferedGetsMade().Run(Write(("Jump", "Misland", 27)))
-                    .Any(f => f.Severity == Severity.Definitive),
-                "a move kind that never completed lost its definitive grade");
+            Require(!new TheBodyMovesWhenDriven().Run(Write("2.00,0.00", "2.00,0.00", 200f, moving: true)).Any(),
+                "a body that was moving was reported as frozen");
 
-            // Walk is interrupted constantly and faults never; counting interruptions as failures
-            // would report the healthiest move in the session.
-            Require(!Fires(Write(("Walk", "None", 25), ("Walk", "Interrupted", 60)), "Walk"),
-                "interruptions were counted as faults and reported a healthy move kind");
+            // Inside the navigator's arrival radius there is nowhere left to be, so an unchanged
+            // position is an arrival rather than a stall.
+            Require(!new TheBodyMovesWhenDriven().Run(Write("2.00,0.00", "0.00,0.00", 6f, moving: false)).Any(),
+                "a body holding station inside the arrival radius was called a stall");
 
-            // Too few endings for a rate to mean anything.
-            Require(!Fires(Write(("Drop", "None", 1), ("Drop", "Misland", 3)), "Drop"),
-                "four attempts were treated as a measurable completion rate");
+            // A reflex owning the body is somebody else holding it, which is not this check's subject.
+            Require(!new TheBodyMovesWhenDriven().Run(Write("2.00,0.00", "0.00,0.00", 200f, moving: false, reflex: "dodge")).Any(),
+                "a reflex holding the body was charged to the route");
         }
         finally { File.Delete(file); }
     }
@@ -119,27 +120,29 @@ public static class ChronicleTests
             {
                 ["tick"] = "0", ["wall_elapsed_ms"] = "0", ["action"] = "walk-with", ["request"] = "WithPlayer",
                 ["brain_fresh"] = "1", ["recovery_active"] = "0", ["follow_objective_valid"] = "0",
-                ["spot"] = "31,79", ["path_steps"] = "0", ["control"] = "move=0.00;jump=0;scale=1.00",
-                ["observed_left"] = "500", ["observed_bottom"] = "1280", ["npc_width"] = "20",
+                // The destination tile's centre is 31*16+8, 79*16+8 = 504,1272, and the body sits at
+                // 500,1280 — inside the twelve-pixel arrival radius, so the older-schema branch of the
+                // contradiction agrees with the recorded Arrived rather than contradicting it.
+                ["spot"] = "31,79", ["route_points"] = "0", ["control"] = "desired=0.00,0.00",
+                ["npc_px"] = "500,1280", ["desired_vel"] = "0.00,0.00",
                 ["follow_reason"] = "follow-horizontal-gap", ["nav_status"] = "Arrived", ["fire"] = "no-arc",
-                ["control_source"] = "travel", ["breath"] = "0.60u", ["attack_value"] = "25",
+                ["control_source"] = "travel", ["liquid"] = "water", ["hurting"] = "1", ["attack_value"] = "25",
                 ["weapon"] = "bow", ["exp_bow"] = "5", ["exp_knife"] = "50"
             };
             Session Write(bool moving = false)
             {
-                var text = new StringBuilder("# text_columns=action,request,spot,control,follow_reason,nav_status,fire,control_source,weapon\n");
+                var text = new StringBuilder("# text_columns=action,request,spot,control,follow_reason,nav_status,fire,control_source,weapon,npc_px,desired_vel,liquid\n");
                 text.AppendLine(string.Join('\t', row.Keys));
                 for (int i = 0; i < 130; i++)
                 {
                     row["tick"] = i.ToString(); row["wall_elapsed_ms"] = (i * 16).ToString();
-                    row["observed_left"] = (500 + (moving ? i : 0)).ToString();
+                    row["npc_px"] = $"{500 + (moving ? i : 0)},1280";
                     text.AppendLine(string.Join('\t', row.Values));
                 }
                 File.WriteAllText(file, text.ToString()); return Session.Load(file);
             }
             Session stalled = Write();
             Require(new ArrivalDoesNotStrandFollowing().Run(stalled).Any(), "arrival contradiction was missed");
-            Require(new SubmergedMotionGetsExplained().Run(stalled).Any(), "submerged stationary body was missed");
             Require(!new ColumnsHoldWhatTheyClaim().Run(stalled).Any(), "declared text columns were called malformed numbers");
             Require(!new TheChosenWeaponIsTheBetterOne().Run(stalled).Any(), "outcome-aware attack was judged by damage alone");
             Require(MultiRunReport.Of(new[] { file }).Contains("destination while following remained unsatisfied"), "multi-run output omitted its definitive findings");
@@ -164,15 +167,17 @@ public static class ChronicleTests
         string file = Path.GetTempFileName();
         try
         {
-            File.WriteAllText(file, "# schema=0.9.0\n# started_utc=2026-09-09T18:25:59.0000000Z\n"
-                + "tick\twall_elapsed_ms\tsample_phase\tplayer_px\tplayer_vel\tplayer_ground\tplayer_liquid\tplayer_life\tplayer_hit\tnpc_hit\tplayer_state\tplayer_activity\tplayer_support\tnpc_px\tnpc_vel\tlife\tnpc_support\tcontrol\tcontrol_source\tstate\taction\trequest\tspot\n"
-                + "10\t0\tobserved_before_ai;request_after_ai;npc_px_after_helpers\t0,0\t0,0\t1\tdry\t100\t-\t-\talive\tidle\tsolid\t-32,0\t0,0\t100\tsolid\tnone\tnavigator\tup\twalk-with\twith-player\t-\n"
-                + "11\t16\tobserved_before_ai;request_after_ai;npc_px_after_helpers\t8,-4\t2,0\t1\twater\t100\t-\t-\talive\tmove\tslope-lower-right\t-24,0\t1,0\t100\tsolid\tmove-right\tnavigator\tup\twalk-with\twith-player\t0,0\n"
-                + "12\t33\tobserved_before_ai;request_after_ai;npc_px_after_helpers\t16,-8\t2,0\t1\twater\t90\tdamage=10;source=npc:Zombie;direction=1;knockback=4.00\tdamage=10;direction=-1;knockback=3.00;source=unrecorded\talive\tattack\tslope-lower-right\t-16,0\t2,0\t90\tsolid\tjump-right\treflex\tup\tguard\tguard\t0,0\n");
+            const string phase = "in_ai_after_contact_before_engine_move";
+            File.WriteAllText(file, "# schema=0.34.0\n# started_utc=2026-09-09T18:25:59.0000000Z\n"
+                + "tick\twall_elapsed_ms\tsample_phase\tplayer_px\tplayer_vel\tplayer_ground\tplayer_liquid\tplayer_life\tplayer_hit\tnpc_hit\tplayer_state\tplayer_activity\tplayer_support\tnpc_px\tnpc_vel\tlife\tliquid\tcontrol\tcontrol_source\tstate\taction\trequest\tspot\n"
+                + $"10\t0\t{phase}\t0,0\t0,0\t1\tdry\t100\t-\t-\talive\tidle\tsolid\t-32,0\t0,0\t100\tdry\tdesired=0.00,0.00\ttravel\tup\twalk-with\twith-player\t-\n"
+                + $"11\t16\t{phase}\t8,-4\t2,0\t1\twater\t100\t-\t-\talive\tmove\tslope-lower-right\t-24,0\t1,0\t100\twater\tdesired=1.00,0.00\ttravel\tup\twalk-with\twith-player\t0,0\n"
+                + $"12\t33\t{phase}\t16,-8\t2,0\t1\twater\t90\tdamage=10;source=npc:Zombie;direction=1;knockback=4.00\tdamage=10;direction=-1;knockback=3.00;source=unrecorded\talive\tattack\tslope-lower-right\t-16,0\t2,0\t90\twater\tdesired=2.00,0.00\tseeking-destination\tup\tguard\tguard\t0,0\n");
             string report = Chronicle.Of(Session.Load(file), full: true);
-            Require(report.Contains("schema 0.9.0"), "metadata was not read");
-            Require(report.Contains("samples are observed_before_ai;request_after_ai;npc_px_after_helpers"), "sample phase was not preserved");
+            Require(report.Contains("schema 0.34.0"), "metadata was not read");
+            Require(report.Contains($"samples are {phase}"), "sample phase was not preserved");
             Require(report.Contains("player entered water"), "liquid transition missing");
+            Require(report.Contains("companion entered water"), "the companion's own liquid transition, which is what a body hurt on contact turns on, was missing");
             Require(report.Contains("player ascended a slope"), "bounded slope inference missing");
             Require(report.Contains("player hit event damage=10;source=npc:Zombie"), "exact hook event missing");
             Require(report.Contains("companion hit event damage=10;direction=-1;knockback=3.00;source=unrecorded"), "companion hit event missing");
@@ -205,9 +210,9 @@ public static class ChronicleTests
         string file = Path.GetTempFileName();
         try
         {
-            File.WriteAllText(file, "tick\twall_elapsed_ms\tsample_phase\tplayer_px\tplayer_vel\tplayer_ground\tplayer_liquid\tplayer_life\tplayer_hit\tnpc_hit\tplayer_state\tplayer_activity\tplayer_support\tnpc_px\tnpc_vel\tlife\tnpc_support\tcontrol\tcontrol_source\tstate\taction\trequest\tspot\n"
-                + "1\t20\tobserved_before_ai;request_after_ai;npc_px_after_helpers\t0,0\t0,0\t1\tdry\t100\t-\t-\talive\tidle\tsolid\t0,0\t0,0\t100\tsolid\tnone\tidle\tup\twander\thold\t-\n"
-                + "2\t10\tobserved_before_ai;request_after_ai;npc_px_after_helpers\t1,0\t1,0\t1\twater\t100\t-\t-\talive\tmove\tslope-lower-left\t1,0\t1,0\t100\tsolid\tmove\tnavigation\tup\twander\thold\t-\n");
+            File.WriteAllText(file, "tick\twall_elapsed_ms\tsample_phase\tplayer_px\tplayer_vel\tplayer_ground\tplayer_liquid\tplayer_life\tplayer_hit\tnpc_hit\tplayer_state\tplayer_activity\tplayer_support\tnpc_px\tnpc_vel\tlife\tliquid\tcontrol\tcontrol_source\tstate\taction\trequest\tspot\n"
+                + "1\t20\tin_ai_after_contact_before_engine_move\t0,0\t0,0\t1\tdry\t100\t-\t-\talive\tidle\tsolid\t0,0\t0,0\t100\tdry\tdesired=0.00,0.00\tidle\tup\twander\thold\t-\n"
+                + "2\t10\tin_ai_after_contact_before_engine_move\t1,0\t1,0\t1\twater\t100\t-\t-\talive\tmove\tslope-lower-left\t1,0\t1,0\t100\tdry\tdesired=1.00,0.00\ttravel\tup\twander\thold\t-\n");
             string report = Chronicle.Of(Session.Load(file), full: false);
             Require(report.Contains("not monotonic"), "out-of-order wall time produced a false chronological account");
             Require(!report.Contains("player entered water"), "events leaked after chronology was rejected");
@@ -223,14 +228,18 @@ public static class ChronicleTests
         string file = Path.GetTempFileName();
         try
         {
-            File.WriteAllText(file, "# schema=0.9.0\n# started_utc=2026-09-09T18:25:59.0000000Z\n"
-                + "tick\twall_elapsed_ms\tsample_phase\tplayer_px\tplayer_vel\tplayer_ground\tplayer_liquid\tplayer_life\tplayer_hit\tnpc_hit\tplayer_state\tplayer_activity\tplayer_support\tnpc_px\tnpc_vel\tlife\tnpc_support\tcontrol\tcontrol_source\tstate\taction\trequest\tspot\n"
-                + "1\t0\tobserved_before_ai;request_after_ai;npc_px_after_helpers\t0,0\t0,0\t1\tdry\t100\t-\t-\talive\tidle\tsolid\t-30,0\t0,0\t100\tsolid\tnone\tnavigation\tup\twalk-with\twith-player\t0,0\n"
-                + "2\t20\tobserved_before_ai;request_after_ai;npc_px_after_helpers\t0,0\t0,0\t1\tdry\t100\t-\t-\talive\tidle\tsolid\t-20,0\t1,0\t100\tsolid\tmove\tnavigation\tup\twalk-with\twith-player\t0,0\n"
-                + "3\t40\tobserved_before_ai;request_after_ai;npc_px_after_helpers\t0,0\t0,0\t1\tdry\t100\t-\t-\talive\tidle\tsolid\t-10,0\t1,0\t100\tsolid\tmove\tnavigation\tup\twalk-with\twith-player\t0,0\n"
-                + "4\t60\tobserved_before_ai;request_after_ai;npc_px_after_helpers\t0,0\t0,0\t1\tdry\t100\t-\t-\talive\tidle\tsolid\t-10,0\t0,0\t100\tsolid\tnone\tnavigation\tup\twalk-with\twith-player\t0,0\n");
+            const string phase = "in_ai_after_contact_before_engine_move";
+            File.WriteAllText(file, "# schema=0.34.0\n# started_utc=2026-09-09T18:25:59.0000000Z\n"
+                + "tick\twall_elapsed_ms\tsample_phase\tplayer_px\tplayer_vel\tplayer_ground\tplayer_liquid\tplayer_life\tplayer_hit\tnpc_hit\tplayer_state\tplayer_activity\tplayer_support\tnpc_px\tnpc_vel\tlife\tliquid\tcontrol\tcontrol_source\tstate\taction\trequest\tspot\n"
+                + $"1\t0\t{phase}\t0,0\t0,0\t1\tdry\t100\t-\t-\talive\tidle\tsolid\t-30,0\t0,0\t100\tdry\tdesired=0.00,0.00\ttravel\tup\twalk-with\twith-player\t0,0\n"
+                + $"2\t20\t{phase}\t0,0\t0,0\t1\tdry\t100\t-\t-\talive\tidle\tsolid\t-20,0\t1,0\t100\tdry\tdesired=1.00,0.00\ttravel\tup\twalk-with\twith-player\t0,0\n"
+                + $"3\t40\t{phase}\t0,0\t0,0\t1\tdry\t100\t-\t-\talive\tidle\tsolid\t-10,0\t1,0\t100\tdry\tdesired=1.00,0.00\ttravel\tup\twalk-with\twith-player\t0,0\n"
+                + $"4\t60\t{phase}\t0,0\t0,0\t1\tdry\t100\t-\t-\talive\tidle\tsolid\t-10,0\t0,0\t100\tdry\tdesired=0.00,0.00\ttravel\tup\twalk-with\twith-player\t0,0\n");
             string report = Chronicle.Of(Session.Load(file), full: true);
-            Require(report.Contains("net progress toward its recorded spot: 32.2->24.1 px"), "successful approach must convert the recorded feet tile to world pixels");
+            // Tile 0,0's centre is 8,8, so a body at -20,0 is 29.1 px away and at -10,0 is 19.7. The
+            // numbers are written out because they are what pins the tile-centre convention: under the
+            // walker's floor conversion the same rows read 32.2 and 24.1.
+            Require(report.Contains("net progress toward its recorded spot: 29.1->19.7 px"), "successful approach must convert the recorded destination tile to its centre in world pixels");
             Require(!report.Contains("hesitation", StringComparison.OrdinalIgnoreCase), "a neutral hold was mislabelled as failure");
         }
         finally
@@ -244,14 +253,17 @@ public static class ChronicleTests
         string file = Path.GetTempFileName();
         try
         {
-            const string header = "tick\trequest\tfollow_objective_valid\tfollow_dx\tfollow_dy\tfollow_reason\troute_search_id\troute_attempt_id\troute_remaining_ticks\tpath_at\taction\trecovery_active\tnpc_px\tplayer_px\tplayer_vel\twall_elapsed_ms\tbrain_fresh\n";
+            // `route_remaining_px` sits beside the tick estimate deliberately: every fixture below
+            // that must fire holds it constant, so the firing is earned by the absence of both
+            // progress signals rather than by the one the walker happened to have.
+            const string header = "tick\trequest\tfollow_objective_valid\tfollow_dx\tfollow_dy\tfollow_reason\troute_search_id\troute_attempt_id\troute_remaining_ticks\troute_remaining_px\troute_index\taction\trecovery_active\tnpc_px\tplayer_px\tplayer_vel\twall_elapsed_ms\tbrain_fresh\n";
             var rows = new StringBuilder(header);
             for (int tick = 0; tick <= 120; tick++)
             {
                 // The companion first walks away around a C-turn, so the Euclidean gap grows.
                 // Its route identity stays stable while completed steps rise and ETA falls.
                 rows.Append(tick).Append("\tWithPlayer\t0\t").Append(100 + tick).Append("\t0\tC-turn\t7\t11\t")
-                    .Append(240 - tick).Append('\t').Append(tick / 30).Append("\twalk-with\t0\t")
+                    .Append(240 - tick).Append("\t400\t").Append(tick / 30).Append("\twalk-with\t0\t")
                     .Append(tick).Append(",0\t0,0\t1,0\t").Append(tick * 16).Append('\n');
             }
             File.WriteAllText(file, WithFreshDecisions(rows));
@@ -267,7 +279,7 @@ public static class ChronicleTests
             rows.Clear();
             rows.Append(header);
             for (int tick = 0; tick <= 120; tick++)
-                rows.Append(tick).Append("\tWithPlayer\t0\t").Append(100 + tick).Append("\t0\twrong-floor\t7\t11\t240\t0\twalk-with\t0\t")
+                rows.Append(tick).Append("\tWithPlayer\t0\t").Append(100 + tick).Append("\t0\twrong-floor\t7\t11\t240\t400\t0\twalk-with\t0\t")
                     .Append(tick).Append(",0\t0,0\t1,0\t").Append(tick * 16).Append('\n');
             File.WriteAllText(file, WithFreshDecisions(rows));
             string finding = new FollowingMakesRouteProgress().Run(Session.Load(file)).Single().Title;
@@ -283,7 +295,7 @@ public static class ChronicleTests
             {
                 int completed = tick < 10 ? tick : 10;
                 rows.Append(tick).Append("\tWithPlayer\t0\t").Append(100 + tick).Append("\t0\twrong-floor\t7\t11\t")
-                    .Append(240 - Math.Min(tick, 10)).Append('\t').Append(completed).Append("\twalk-with\t0\t")
+                    .Append(240 - Math.Min(tick, 10)).Append("\t400\t").Append(completed).Append("\twalk-with\t0\t")
                     .Append(tick).Append(",0\t0,0\t1,0\t").Append(tick * 16).Append('\n');
             }
             File.WriteAllText(file, WithFreshDecisions(rows));
@@ -293,7 +305,7 @@ public static class ChronicleTests
             rows.Clear();
             rows.Append(header);
             for (int tick = 0; tick <= 240; tick++)
-                rows.Append(tick).Append("\tWithPlayer\t0\t100\t0\trecovery\t7\t11\t240\t0\twalk-with\t1\t")
+                rows.Append(tick).Append("\tWithPlayer\t0\t100\t0\trecovery\t7\t11\t240\t400\t0\twalk-with\t1\t")
                     .Append(tick).Append(",0\t0,0\t1,0\t").Append(tick * 16).Append('\n');
             File.WriteAllText(file, WithFreshDecisions(rows));
             Require(!new FollowingMakesRouteProgress().Run(Session.Load(file)).Any(), "recovery flight inherited stale WithPlayer/walk-with state as an ordinary follow failure");
@@ -301,13 +313,40 @@ public static class ChronicleTests
             rows.Clear();
             rows.Append(header);
             for (int tick = 0; tick <= 240; tick++)
-                rows.Append(tick).Append("\tWithPlayer\t0\t900\t0\twrong-floor\t7\t11\t240\t0\twalk-with\t0\t0,0\t900,0\t1,0\t")
+                rows.Append(tick).Append("\tWithPlayer\t0\t900\t0\twrong-floor\t7\t11\t240\t400\t0\twalk-with\t0\t0,0\t900,0\t1,0\t")
                     .Append(tick * 16).Append('\n');
             File.WriteAllText(file, WithFreshDecisions(rows, fresh: false));
             Require(!new FollowingMakesRouteProgress().Run(Session.Load(file)).Any(),
                 "sticky follow fields during downing must not become a new follow-stall diagnosis");
             Require(!new FollowingRespondsAfterDeparture().Run(Session.Load(file)).Any(f => f.Title.Contains("was first selected", StringComparison.Ordinal)),
                 "sticky downed action fields must not count as a fresh follow response");
+
+            // A straight flight across open space. Route smoothing skips every raw corner between
+            // the ends into one segment, so `route_index` cannot move for the whole crossing while
+            // the body closes 4 px a tick — the exact record an orb flying at the player writes,
+            // and a false positive for any rule that reads only the index.
+            rows.Clear();
+            rows.Append(header);
+            for (int tick = 0; tick <= 130; tick++)
+                rows.Append(tick).Append("\tWithPlayer\t0\t").Append(800 - tick * 4).Append("\t0\ttoo-far\t7\t11\t240\t")
+                    .Append(800 - tick * 4).Append("\t0\twalk-with\t0\t").Append(tick * 4).Append(",0\t800,0\t0,0\t")
+                    .Append(tick * 16).Append('\n');
+            File.WriteAllText(file, WithFreshDecisions(rows));
+            Require(!new FollowingMakesRouteProgress().Run(Session.Load(file)).Any(),
+                "a body closing along one smoothed segment was called a follow that made no route progress");
+
+            // The mirror, and the reason the search identity guards the pixel rule: the body never
+            // moves, and the only fall in remaining distance is a replan at tick 60 adopting a
+            // shorter route. Crediting that would read a planner's arithmetic as travel.
+            rows.Clear();
+            rows.Append(header);
+            for (int tick = 0; tick <= 130; tick++)
+                rows.Append(tick).Append("\tWithPlayer\t0\t800\t0\twrong-floor\t").Append(tick < 60 ? 7 : 8)
+                    .Append("\t11\t240\t").Append(tick < 60 ? 800 : 400).Append("\t0\twalk-with\t0\t0,0\t800,0\t0,0\t")
+                    .Append(tick * 16).Append('\n');
+            File.WriteAllText(file, WithFreshDecisions(rows));
+            Require(new FollowingMakesRouteProgress().Run(Session.Load(file)).Any(),
+                "a replan shortening the route was credited as the body having travelled");
 
             static string WithFreshDecisions(StringBuilder source, bool fresh = true)
             {
@@ -324,22 +363,23 @@ public static class ChronicleTests
         try
         {
             var trace = new StringBuilder();
-            trace.Append("tick\twall_elapsed_ms\tsample_phase\tplayer_px\tplayer_vel\tplayer_ground\tplayer_liquid\tplayer_life\tplayer_hit\tnpc_hit\tplayer_state\tplayer_activity\tplayer_support\tnpc_px\tnpc_vel\tlife\tnpc_support\tcontrol\tcontrol_source\tstate\taction\trequest\tspot\tobserved_left\tobserved_bottom\tobserved_vel\tobserved_ground\tobserved_wet\tobserved_mobility\tnpc_width\n");
+            trace.Append("tick\twall_elapsed_ms\tsample_phase\tplayer_px\tplayer_vel\tplayer_ground\tplayer_liquid\tplayer_life\tplayer_hit\tnpc_hit\tplayer_state\tplayer_activity\tplayer_support\tnpc_px\tnpc_vel\tlife\tliquid\tcontrol\tcontrol_source\tstate\taction\trequest\tspot\n");
             for (int tick = 0; tick <= 120; tick++)
             {
-                // npc_px deliberately changes as an after-helper compatibility value. The body
-                // observed at AI entry does not; Chronicle must use the latter for this finding.
-                trace.Append(tick).Append('\t').Append(tick * 16).Append("\tobserved_before_ai;request_after_ai;npc_px_after_helpers\t0,0\t0,0\t1\tdry\t100\t-\t-\talive\tidle\tsolid\t")
-                    .Append(tick).Append(",0\t1,0\t100\tsolid\tmove=4.00;jump=0;scale=1.00;fall=0;descend=0\tnavigation\tup\twalk-with\twith-player\t100,0\t-20\t0\t1,0\t1\t0\tair=0;latched=0;dash=0\t20\n");
+                // The body does not move for the whole run while the motor is asked for 4 px a tick
+                // toward a fixed destination, which is the shape the inference exists to name. There is
+                // one position now, so there is no second body for this fixture to disagree with.
+                trace.Append(tick).Append('\t').Append(tick * 16).Append("\tin_ai_after_contact_before_engine_move\t0,0\t0,0\t1\tdry\t100\t-\t-\talive\tidle\tsolid\t")
+                    .Append("-20,0\t1,0\t100\tdry\tdesired=4.00,0.00\ttravel\tup\twalk-with\twith-player\t100,0\n");
             }
             File.WriteAllText(file, trace.ToString());
             string report = Chronicle.Of(Session.Load(file), full: true);
-            Require(report.Contains("inferred lack of progress", StringComparison.Ordinal), "sustained movement request without entry-state movement was not reported");
+            Require(report.Contains("inferred lack of progress", StringComparison.Ordinal), "sustained movement request without body movement was not reported");
             Require(report.Contains("ticks 0..120", StringComparison.Ordinal), "lack-of-progress evidence did not preserve its tick interval");
-            Require(!report.Contains("net progress toward its recorded spot", StringComparison.Ordinal), "after-helper npc_px was used as actual motion");
+            Require(!report.Contains("net progress toward its recorded spot", StringComparison.Ordinal), "a body that never moved was credited with progress");
             foreach (string owner in new[] { "combat-reflex", "reflex", "survival-escape", "follow-recovery-flight", "travel-recovery-clearance", "unrecognised-owner" })
             {
-                File.WriteAllText(file, trace.ToString().Replace("\tnavigation\t", $"\t{owner}\t", StringComparison.Ordinal));
+                File.WriteAllText(file, trace.ToString().Replace("\ttravel\t", $"\t{owner}\t", StringComparison.Ordinal));
                 Require(!Chronicle.Of(Session.Load(file), full: true).Contains("inferred lack of progress", StringComparison.Ordinal),
                     $"{owner} movement was charged to the retained ordinary activity");
             }
@@ -406,7 +446,7 @@ public static class ChronicleTests
         try
         {
             File.WriteAllText(file, "# schema=0.9.0\n# started_utc=2026-09-09T18:25:59.0000000Z\n"
-                + "tick\twall_elapsed_ms\tsample_phase\tplayer_px\tplayer_vel\tplayer_ground\tplayer_liquid\tplayer_life\tplayer_hit\tnpc_hit\tplayer_state\tplayer_activity\tplayer_support\tlife\tnpc_support\tcontrol\tcontrol_source\tstate\taction\trequest\tspot\n");
+                + "tick\twall_elapsed_ms\tsample_phase\tplayer_px\tplayer_vel\tplayer_ground\tplayer_liquid\tplayer_life\tplayer_hit\tnpc_hit\tplayer_state\tplayer_activity\tplayer_support\tnpc_px\tnpc_vel\tlife\tliquid\tcontrol\tcontrol_source\tstate\taction\trequest\tspot\n");
             Session session = Session.Load(file);
             Require(session.Count == 0, "header-only session was not retained as an empty session");
             Require(Chronicle.Of(session, full: false).Contains("no samples were written"), "empty session did not explain its lack of chronology");
@@ -422,7 +462,19 @@ public static class ChronicleTests
     {
         string source = File.ReadAllText(Path.Combine("Companion", "Brain", "Infrastructure", "Diagnostics", "RecordBrainTelemetry.cs"));
         Require(source.Contains("\\tplayer_life\\tplayer_hit\\tnpc_hit\\tplayer_state", StringComparison.Ordinal), "recorder header lost the hit-event sequence consumed by Chronicle");
-        Require(source.Contains("\\tdir\\tlife\\tbreath", StringComparison.Ordinal), "recorder no longer writes the actual companion life column");
+        Require(source.Contains("\\tdir\\tlife\\tliquid_ticks", StringComparison.Ordinal), "recorder no longer writes the actual companion life column");
+        // The body columns Chronicle and the movement checks read, pinned as the sequence the recorder
+        // writes them in. A rename here is the failure this file exists to turn into a red: a reader
+        // addressing a column the producer stopped writing reports a clean run it never measured.
+        Require(source.Contains("\\tnpc_tile\\tnpc_px\\tnpc_vel\\ttouched_wall\\twall_normal\\twet\\tliquid\\thurting\\tclearance\\tmoved\\tpinned", StringComparison.Ordinal),
+            "the recorder's body line lost the centre, velocity, wall contact, liquid, clearance or pinned columns the reader's movement checks are built on");
+        Require(source.Contains("\\troute_points\\troute_index\\troute_search_id\\troute_attempt_id\\troute_remaining_ticks\\troute_remaining_px\\tlookahead", StringComparison.Ordinal),
+            "the recorder's route line no longer names the points, segment index and remaining length the movement and follow checks read");
+        Require(source.Contains("\\tbrain_fresh\\tdesired_vel", StringComparison.Ordinal),
+            "the recorder stopped writing the steering's requested velocity, which is the only column that says a stalled body was being driven");
+        Require(!source.Contains("\\tbreath\\t", StringComparison.Ordinal) && !source.Contains("\\tdiverge\\t", StringComparison.Ordinal)
+                && !source.Contains("\\tedge_n\\t", StringComparison.Ordinal) && !source.Contains("observed_left", StringComparison.Ordinal),
+            "a walking-body column came back to the recorder without this reader gaining a check that reads it");
         Require(!source.Contains("npc_life", StringComparison.Ordinal), "recorder contract invented an npc_life column it does not write");
     }
 
@@ -462,81 +514,6 @@ public static class ChronicleTests
             "the capability line no longer reads both kits from their own sources, and an inferred ability is a heuristic running underneath the thing being measured");
         Require(!telemetry.Contains("identity.GetHashCode()", StringComparison.Ordinal) && telemetry.Contains("14695981039346656037UL", StringComparison.Ordinal),
             "the world hash is no longer FNV-1a: string.GetHashCode() is randomised per process, so a hash taken from it differs between two captures of one world and agrees with nothing, including itself tomorrow");
-    }
-
-    /// <summary>
-    /// The four corners of the refused-step check. A refusal repeating at one pixel is the body
-    /// parked on a step the plan keeps offering; the same refusal while the body walks away is the
-    /// navigator's last-rejection property being sticky rather than the refusal being live, and
-    /// reading the first as the second is the whole reason the position is in the key. The
-    /// silence cases matter more than the firing one here, because every capture on this machine
-    /// fires — the defect predates the recording that prompted the check — so nothing in the
-    /// Telemetry folder can show that the check is capable of staying quiet.
-    /// </summary>
-    private static void ARefusalOnlyCountsWhileTheBodyIsNotLeavingIt()
-    {
-        string file = Path.GetTempFileName();
-        string events = Path.ChangeExtension(file, null) + "-events.jsonl";
-        try
-        {
-            File.WriteAllText(file, "# text_columns=edge_kind\ntick\twall_elapsed_ms\tedge_kind\n0\t0\tWalk\n");
-
-            Session Write(params (string Rejection, double X)[] samples)
-            {
-                var lines = new System.Collections.Generic.List<string>
-                {
-                    System.Text.Json.JsonSerializer.Serialize(new { v = 1, seq = 0, tick = 0, wall_elapsed_ms = 0.0, kind = "session", subject = 0, related = "", label = "", channel = "", pos_x = 0.0, pos_y = 0.0, vel_x = 0.0, vel_y = 0.0, expected_x = 0.0, expected_y = 0.0, amount = 0, detail = "" }),
-                };
-                for (int i = 0; i < samples.Length; i++)
-                    lines.Add(System.Text.Json.JsonSerializer.Serialize(new
-                    {
-                        v = 1, seq = i + 1, tick = i + 1, wall_elapsed_ms = (i + 1) * 16.0, kind = "movement-state",
-                        subject = 1, related = "", label = "none", channel = "", pos_x = samples[i].X, pos_y = 100.0,
-                        vel_x = 0.0, vel_y = 0.0, expected_x = 0.0, expected_y = 0.0, amount = 0,
-                        detail = $"status=Executable;last-rejection={samples[i].Rejection};failure=None",
-                    }));
-                lines.Add(System.Text.Json.JsonSerializer.Serialize(new { v = 1, seq = samples.Length + 1, tick = 999, wall_elapsed_ms = 9000.0, kind = "session-end", subject = 0, related = "", label = "", channel = "", pos_x = 0.0, pos_y = 0.0, vel_x = 0.0, vel_y = 0.0, expected_x = 0.0, expected_y = 0.0, amount = 0, detail = "" }));
-                File.WriteAllLines(events, lines);
-                return Session.Load(file);
-            }
-
-            // A park is the Definitive finding. The check also emits an Oddity stating how many
-            // refusals it saw when it found no park, because after the freshness rule a zero is far
-            // more often the sensitivity limit than a clean run — and "no park" and "nothing was
-            // measured" are the two things this tool exists to keep apart. Testing for Any() would
-            // fold them back together, which is what this predicate used to do.
-            bool Fires(Session s) => new PersistentRejectionsAreFindings().Run(s).Any(f => f.Severity == Severity.Definitive);
-            bool StatesCoverage(Session s) => new PersistentRejectionsAreFindings().Run(s)
-                .Any(f => f.Severity == Severity.Oddity && f.Title.Contains("were issued", StringComparison.Ordinal));
-
-            Require(Fires(Write(("Rejection { Step = A }", 50.0), ("Rejection { Step = A }", 50.0), ("Rejection { Step = A }", 50.0))),
-                "three samples of one refusal at one pixel is a body parked on a refused step and must be reported");
-            Require(!Fires(Write(("Rejection { Step = A }", 50.0), ("Rejection { Step = A }", 50.0))),
-                "two samples is a refusal being replanned around, which is the designed path and not a finding");
-            Require(!Fires(Write(("Rejection { Step = A }", 50.0), ("Rejection { Step = A }", 62.0), ("Rejection { Step = A }", 74.0))),
-                "the last rejection is a sticky property, so the same text while the body walks away is a stale reading rather than a stuck body");
-            Require(!Fires(Write(("Rejection { Step = A }", 50.0), ("Rejection { Step = B }", 50.0), ("Rejection { Step = C }", 50.0))),
-                "a body refused a different step each sample is being replanned for, however still it is");
-            Require(!Fires(Write(("", 50.0), ("", 50.0), ("", 50.0), ("", 50.0))),
-                "a session with no refusal at all must produce no finding, which is the case no capture on this machine can demonstrate");
-            Require(new PersistentRejectionsAreFindings().Run(Write(("", 50.0), ("", 50.0))).Any() == false,
-                "a session with no refusal at all must say nothing, not even a coverage line, because there was no refusal to have a park");
-
-            // A retained refusal standing over a still body is the defect this check had: the field
-            // is sticky, so a body that stopped beside a refusal it walked away from reads exactly
-            // like one frozen at the take-off of it. The refusal is issued once, the body then
-            // moves, and the same text follows it — which must open nothing at the new pixel.
-            Require(!Fires(Write(("Rejection { Step = A }", 50.0), ("Rejection { Step = A }", 62.0),
-                                 ("Rejection { Step = A }", 62.0), ("Rejection { Step = A }", 62.0))),
-                "a refusal the body walked away from must not become a park at wherever it stopped: the field is retained, so the text following the body is a stale reading and not a refusal being issued there");
-            Require(StatesCoverage(Write(("Rejection { Step = A }", 50.0), ("Rejection { Step = A }", 62.0))),
-                "a capture holding refusals and no park must say how many refusals it saw, because zero findings and zero coverage are otherwise the same output");
-        }
-        finally
-        {
-            File.Delete(file);
-            File.Delete(events);
-        }
     }
 
     private static void EventSiblingReportsCountsAndCorruption()
@@ -768,7 +745,7 @@ public static class ChronicleTests
     private static FixtureEvent Grant(long tick, long id, long activity, long attempt, string phase, string requested, string hand, string? applied = null)
         => new(tick, "control-grant", applied ?? requested, hand, 0,
             $"grant-id={id};grant-tick={tick};activity-id={activity};attempt-id={attempt};activity-phase={phase};requested-owner={requested};applied-owner={applied ?? requested};"
-            + $"requested-controls=move=0.00;jump=0;scale=1.00;fall=0;descend=0;applied-controls=move=0.00;jump=0;scale=1.00;fall=0;descend=0;hand={hand};motor-applications=1;scope=ai-phase-before-engine;hand-effect=unobserved");
+            + $"requested-controls=desired=0.00,0.00;applied-controls=desired=0.00,0.00;hand={hand};motor-applications=1;scope=ai-phase-before-engine;hand-effect=unobserved");
 
     private static FixtureEvent Outcome(long tick, long attempt, long activity, string name, string family, long start, long end, string status, string attribution, string cause, int effects)
         => new(tick, "attempt-outcome", name, attribution == "NotApplicable" ? status : status + ":" + attribution, effects,
@@ -1116,8 +1093,14 @@ public static class ChronicleTests
 
     /// <summary>
     /// One family at a time, a claimed arrival held against the region its destination was admitted against: a follow
-    /// arrival inside either admission box, a tool stand inside its own reach box and a firing arrival that still solves
+    /// arrival inside the admitted region, a tool stand inside its own reach box and a firing arrival that still solves
     /// report nothing; the same captures with the body or the stand moved out, or the arc gone, report the contract by name.
+    ///
+    /// The follow family carries one case that flips rather than moves, and it is the case worth reading here. Following
+    /// used to be admitted against either the region or the request's anchor, so a body parked at a far-off anchor was
+    /// clean; the anchor stopped widening acceptance when the region gained its own growth, so that same capture is now
+    /// the contradiction. The fixture asserts the firing rather than the silence, because a check still admitting the
+    /// anchor would pass a silence assertion and fail this one.
     /// </summary>
     private static void AClaimedArrivalMustLieInsideItsSuccessRegion()
     {
@@ -1125,15 +1108,17 @@ public static class ChronicleTests
         try
         {
             string[] columns = { "tick", "wall_elapsed_ms", "region_kind", "region_revision", "region_terrain", "region_anchor_px", "region_player_px", "region_comfort",
-                "region_work_tile", "region_reach", "region_arrival", "observed_left", "observed_bottom", "npc_width", "spot", "fire" };
-            System.Collections.Generic.Dictionary<string, string> Row(long t, string kind, string arrival, float feetX, float feetY, string anchor = "-", string player = "-",
+                "region_work_tile", "region_reach", "region_arrival", "npc_px", "touched_wall", "spot", "fire" };
+            System.Collections.Generic.Dictionary<string, string> Row(long t, string kind, string arrival, float bodyX, float bodyY, string anchor = "-", string player = "-",
                 string comfort = "-", string tile = "-", string reach = "-", string fire = "none")
                 => new()
                 {
                     ["tick"] = t.ToString(), ["wall_elapsed_ms"] = (t * 16).ToString(), ["region_kind"] = kind, ["region_revision"] = "7", ["region_terrain"] = "3",
                     ["region_anchor_px"] = anchor, ["region_player_px"] = player, ["region_comfort"] = comfort, ["region_work_tile"] = tile, ["region_reach"] = reach,
-                    ["region_arrival"] = arrival, ["observed_left"] = (feetX - 10).ToString(System.Globalization.CultureInfo.InvariantCulture),
-                    ["observed_bottom"] = feetY.ToString(System.Globalization.CultureInfo.InvariantCulture), ["npc_width"] = "20", ["spot"] = "25,60", ["fire"] = fire,
+                    // The orb's centre, which is the point the region and the reach box are both handed.
+                    ["region_arrival"] = arrival,
+                    ["npc_px"] = bodyX.ToString(System.Globalization.CultureInfo.InvariantCulture) + "," + bodyY.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    ["touched_wall"] = "0", ["spot"] = "25,60", ["fire"] = fire,
                 };
             Finding[] Found(System.Collections.Generic.IEnumerable<System.Collections.Generic.Dictionary<string, string>> rows, string schema = "0.27.0")
                 => new ClaimedArrivalsStayInsideTheirSuccessRegion().Run(Session.Load(WriteIdentitySession(files, columns, rows, events: null, schema))).ToArray();
@@ -1144,15 +1129,19 @@ public static class ChronicleTests
             void Fires(Finding[] found, Severity severity, string title, string failure)
                 => Require(found.Length == 1 && found[0].Severity == severity && found[0].Title.StartsWith(title, StringComparison.Ordinal), failure + Describe(found));
 
-            // Following: admitted against player feet 400,800 and anchor 400,800 with a 64 by 48 comfort box.
+            // Following: admitted against a region centred 400,800 with a 64 by 48 comfort box, anchor beside it.
             const string comfort = "64.00,48.00", here = "400.00,800.00";
-            System.Collections.Generic.Dictionary<string, string> Follow(long t, float x, string arrival = "inside", string player = here, string box = comfort)
-                => Row(t, "follow-comfort", arrival, x, 800, anchor: here, player: player, comfort: box);
-            Clean(Found(Many(5, t => Follow(t, 430))), "a follow arrival thirty pixels from the admission player was reported");
-            Clean(Found(Many(5, t => Follow(t, 430, player: "900.00,800.00"))), "a follow arrival inside the anchor's box was reported because the player's box was elsewhere");
+            System.Collections.Generic.Dictionary<string, string> Follow(long t, float x, string arrival = "inside", string player = here, string box = comfort, string anchor = here)
+                => Row(t, "follow-comfort", arrival, x, 800, anchor: anchor, player: player, comfort: box);
+            Clean(Found(Many(5, t => Follow(t, 430))), "a follow arrival thirty pixels from the admitted region centre was reported");
+            // The flipped case: the body sits on its anchor and five hundred pixels outside the region it
+            // was admitted against. Acceptance stopped widening to the anchor, so this is the contradiction.
+            Fires(Found(new[] { Follow(100, 900, arrival: "outside", player: here, anchor: "900.00,800.00") }), Severity.Definitive,
+                "claimed purpose arrival outside its declared success region: following",
+                "a follow arrival parked on its anchor and far outside the admitted region was passed, which means acceptance is still widening to the anchor");
             Clean(Found(Many(5, t => Follow(t, 480, arrival: "-"))), "a body outside the comfort box with no arrival claimed was judged as an arrival");
             Fires(Found(new[] { Follow(100, 480, arrival: "outside") }), Severity.Definitive, "claimed purpose arrival outside its declared success region: following",
-                "a follow arrival eighty pixels from both admission references was not Definitive on its first sample");
+                "a follow arrival eighty pixels from the admitted region centre was not Definitive on its first sample");
             Fires(Found(new[] { Follow(100, 415, arrival: "outside", box: "10.00,10.00") }), Severity.Potential, "claimed purpose arrival outside its declared success region: following",
                 "a follow arrival outside a comfort box narrower than the arrival radius was not downgraded to Potential");
 
@@ -1184,7 +1173,7 @@ public static class ChronicleTests
 
             // The geometry above restates the producer; these are the literals it rests on.
             string Source(params string[] parts) => File.ReadAllText(Path.Combine(parts));
-            string navigator = Source("Companion", "Brain", "Infrastructure", "Movement", "MovementExecution", "Navigator.cs");
+            string navigator = Source("Companion", "Brain", "Infrastructure", "Movement", "Steering", "Navigator.cs");
             string access = Source("Companion", "Brain", "Infrastructure", "Interactions", "FindToolAccess.cs");
             string region = Source("Companion", "Brain", "Infrastructure", "Position", "DeclareSuccessRegion.cs");
             string telemetry = Source("Companion", "Brain", "Infrastructure", "Diagnostics", "RecordBrainTelemetry.cs");
@@ -1194,16 +1183,26 @@ public static class ChronicleTests
             // while the slack is not actually reserved — an objective that passes the radius to a
             // region that ignores it reserves nothing.
             Require(navigator.Contains($"ArriveDistance = {ClaimedArrivalsStayInsideTheirSuccessRegion.ArriveDistance:0}f", StringComparison.Ordinal)
-                    && Source("Companion", "Brain", "Infrastructure", "Position", "FollowPlayerObjective.cs").Contains("Region.Accepts(feet, Movement.Navigator.ArriveDistance)", StringComparison.Ordinal)
+                    && Source("Companion", "Brain", "Infrastructure", "Position", "FollowPlayerObjective.cs").Contains("Region.Accepts(centre, Movement.Navigator.ArriveDistance)", StringComparison.Ordinal)
                     && Source("Companion", "Brain", "Infrastructure", "Observation", "ObservePlayerIntentRegion.cs").Contains("HalfSize.X - arrivalSlack", StringComparison.Ordinal),
                 "the navigator's arrival radius, or follow acceptance reserving it, no longer matches what the follow rule assumes");
-            Require(access.Contains($"Eye = new(0f, -{ClaimedArrivalsStayInsideTheirSuccessRegion.EyeHeight:0}f)", StringComparison.Ordinal)
+            // The eye is the centre for this body, so the tool rule measures the reach box on the centre
+            // with no vertical offset at all. The zero is pinned rather than dropped: a non-zero eye
+            // returning here would silently shift every tool-arrival verdict by its height, and nothing
+            // else in this file would notice.
+            Require(access.Contains("EyeHeight => 0f", StringComparison.Ordinal)
                     && access.Contains("reachX * 16f + 8f", StringComparison.Ordinal) && access.Contains("reachY * 16f + 8f", StringComparison.Ordinal),
-                "the tool reach box no longer has the eye height and extents the tool rule recomputes");
-            Require(Source("Companion", "Brain", "Activities", "Gathering", "MineOre.cs").Contains("t.Hop ? PositionRequest.ExactAt(t.StandPosition) : PositionRequest.ExactAt(t.StandPosition, t.Tile)", StringComparison.Ordinal)
+                "the tool reach box no longer measures from the body's centre with the extents the tool rule recomputes");
+            Require(Source("Companion", "Brain", "Activities", "Gathering", "MineOre.cs").Contains("PositionRequest.ExactAt(t.StandPosition, t.Tile)", StringComparison.Ordinal)
                     && Source("Companion", "Brain", "Activities", "Gathering", "ChopTree.cs").Contains("ExactAt(t.StandPosition, t.Bottom)", StringComparison.Ordinal)
                     && Source("Companion", "Brain", "Activities", "NearbyAssistance", "PerformNearbyWorldWork.cs").Contains("ExactAt(stand, tile)", StringComparison.Ordinal),
-                "a tool stand no longer declares its work tile, or a hop take-off now declares one it does not reach from");
+                "a tool stand no longer declares the work tile its reach box is judged against");
+            // `Contains` is handed the body's centre and the follow arm reads the region alone; a second
+            // reference reappearing there would widen acceptance behind this check's back.
+            Require(region.Contains("public bool? Contains(Vector2 feet)", StringComparison.Ordinal)
+                    && region.Contains("SuccessRegionKind.FollowComfort => Near(feet, PlayerFeet)", StringComparison.Ordinal)
+                    && telemetry.Contains("region.Contains(npc.Center)", StringComparison.Ordinal),
+                "the follow region admits something other than its own box, or the recorder judges an arrival on a point other than the orb's centre");
             Require(new[] { "\"follow-comfort\"", "\"tool-reach\"", "\"firing-position\"", "\"meeting-place\"", "\"undeclared\"" }.All(name => region.Contains(name, StringComparison.Ordinal))
                     && telemetry.Contains("controlGrant?.RequestedOwner == \"travel\"", StringComparison.Ordinal)
                     && telemetry.Contains("region_kind\\tregion_revision\\tregion_tick\\tregion_terrain\\tregion_anchor_px\\tregion_player_px\\tregion_comfort\\tregion_work_tile\\tregion_reach\\tregion_arrival", StringComparison.Ordinal),
@@ -1629,7 +1628,7 @@ public static class ChronicleTests
             string Episode(long tick, string kind, string outcome, int planned, int actual, string player, int downed = 0)
                 => Event($"{{\"v\":1,\"seq\":0,\"tick\":{tick},\"wall_elapsed_ms\":{tick * 16},\"kind\":\"route-episode\",\"subject\":1,\"related\":\"\",\"label\":\"{kind}\",\"channel\":\"{outcome}\",\"pos_x\":0,\"pos_y\":0,\"vel_x\":0,\"vel_y\":0,\"expected_x\":0,\"expected_y\":0,\"amount\":{actual},\"detail\":\"start-tick={tick - actual - downed};end-tick={tick};outcome={outcome};planned-ticks={planned};actual-ticks={actual};downed-ticks={downed};player-ticks={player};straight-tiles=10.00;path-tiles=14.00;mean-speed-px-per-tick=1.20\"}}");
             string Stop(long tick, int ticks, string reason)
-                => Event($"{{\"v\":1,\"seq\":0,\"tick\":{tick},\"wall_elapsed_ms\":{tick * 16},\"kind\":\"stop\",\"subject\":1,\"related\":\"\",\"label\":\"{reason}\",\"channel\":\"{reason}\",\"pos_x\":0,\"pos_y\":0,\"vel_x\":0,\"vel_y\":0,\"expected_x\":0,\"expected_y\":0,\"amount\":{ticks},\"detail\":\"start-tick={tick - ticks};end-tick={tick};ticks={ticks};reason={reason};grounded-throughout=True;airborne-throughout=False;same-step-throughout=True;replanned-during=False;next-step-from-rest=False;fastest-sideways-px-per-tick=0.10;threshold-px-per-tick=0.60;threshold-ticks=3\"}}");
+                => Event($"{{\"v\":1,\"seq\":0,\"tick\":{tick},\"wall_elapsed_ms\":{tick * 16},\"kind\":\"stop\",\"subject\":1,\"related\":\"\",\"label\":\"{reason}\",\"channel\":\"{reason}\",\"pos_x\":0,\"pos_y\":0,\"vel_x\":0,\"vel_y\":0,\"expected_x\":0,\"expected_y\":0,\"amount\":{ticks},\"detail\":\"start-tick={tick - ticks};end-tick={tick};ticks={ticks};reason={reason};against-wall-throughout=True;same-segment-throughout=True;replanned-during=False;fastest-px-per-tick=0.10;threshold-px-per-tick=0.60;threshold-ticks=3;scope=ordinary-travel-owner-with-an-executable-or-direct-route\"}}");
 
             var travelling = new StringBuilder();
             for (int tick = 1; tick <= 120; tick++)
@@ -1650,7 +1649,10 @@ public static class ChronicleTests
                 // A journey the body died inside: 599 ticks of the clock belong to the death and are outside every
                 // figure, so this must not read as a journey that took 632 ticks against 30 proven.
                 + Episode(760, "Exact", "reached", 30, 33, "-", downed: 599)
-                + Stop(30, 12, "inside-walk-step")
+                // The producer's two attributed reasons, in its own precedence: a route replaced under a
+                // still body, and a body pressed against a wall for the whole stop. Anything it cannot
+                // attribute becomes `other`, which is the one the pass line is named for.
+                + Stop(30, 12, "against-wall")
                 + Stop(70, 4, "during-replan"));
             Session busySession = Session.Load(busy);
 
@@ -1681,14 +1683,14 @@ public static class ChronicleTests
                 $"the stop count or the travel it is measured against was wrong: {stopped.Title}");
             // Two stops over 120 ticks of travel is one a second, which is 60 a minute.
             Require(stopped.Title.Contains("60.00 a minute", StringComparison.Ordinal), $"the rate per minute of travel was wrong: {stopped.Title}");
-            Require(stopped.Detail.Contains("inside-walk-step 1", StringComparison.Ordinal) && stopped.Detail.Contains("during-replan 1", StringComparison.Ordinal),
+            Require(stopped.Detail.Contains("against-wall 1", StringComparison.Ordinal) && stopped.Detail.Contains("during-replan 1", StringComparison.Ordinal),
                 $"the split by reason was not reported: {stopped.Detail}");
             Require(stopped.Detail.Contains("reads 1.50", StringComparison.Ordinal), "the recorder's own running rate was not printed beside the reader's");
 
             // The same evidence one schema older. Both must skip by name rather than run and find nothing.
             sequence = 0;
             string old = Capture(before, travelling.ToString(),
-                Session0() + Episode(60, "WithPlayer", "reached", 40, 180, "50") + Stop(30, 12, "inside-walk-step"));
+                Session0() + Episode(60, "WithPlayer", "reached", 40, 180, "50") + Stop(30, 12, "against-wall"));
             Session oldSession = Session.Load(old);
             foreach (ICheckCoverage check in new ICheckCoverage[] { journeys, stopping })
                 Require(check.Missing(oldSession)?.Contains(first, StringComparison.Ordinal) == true,

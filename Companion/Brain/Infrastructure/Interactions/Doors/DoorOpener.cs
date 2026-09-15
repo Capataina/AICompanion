@@ -67,9 +67,11 @@ public sealed class DoorOpener
         if (MathF.Abs(npc.velocity.X) < MovingSpeed && !npc.collideX)
             return;
 
-        Point feet = MovementQueries.FeetTile(npc.Bottom);
-        int ahead = feet.X + npc.direction;
-        for (int row = feet.Y; row >= feet.Y - MovementQueries.BodyHeightTiles + 1; row--)
+        // The rows the circle covers: its centre's tile and, where the body straddles a boundary, the neighbour above or below.
+        Point centre = MovementQueries.Tile(npc.Center);
+        int ahead = centre.X + npc.direction;
+        int top = (int)MathF.Floor((npc.Center.Y - CircleContact.Radius) / 16f), bottom = (int)MathF.Floor((npc.Center.Y + CircleContact.Radius - 0.01f) / 16f);
+        for (int row = bottom; row >= top; row--)
         {
             Tile tile = Framing.GetTileSafely(ahead, row);
             if (!tile.HasTile)

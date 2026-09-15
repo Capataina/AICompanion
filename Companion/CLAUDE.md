@@ -5,7 +5,7 @@
 ```
 Companion/
 ├─ CLAUDE.md                 this guide
-├─ CharacterBody/            NPC lifecycle, player-shaped rendering and breath
+├─ CharacterBody/            the orb NPC's lifecycle, its drawing, the liquid hurts and the stand-in hostiles aim at
 ├─ EnemyIntegration/         temporary targeting stand-in and spawn-rate changes
 ├─ Brain/                    Activities, SharedBehaviours (Safety, Recovery) and Infrastructure
 ├─ Weapons/                  companion equipment and outcome-based arsenal selection

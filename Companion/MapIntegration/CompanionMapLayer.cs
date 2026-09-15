@@ -12,16 +12,14 @@ using AICompanion.Companion.CharacterBody;
 namespace AICompanion.Companion.MapIntegration;
 
 /// <summary>
-/// Draws the companion on the minimap and the full-screen map as its own head, the way
-/// the game draws players, so a companion sent away or trapped can be found. No
+/// Draws the companion on the minimap and the full-screen map as the orb's own sprite, the way
+/// the game draws players' heads, so a companion sent away or trapped can be found. No
 /// teleport ever, by ruling, is what makes this necessary.
 /// </summary>
 public sealed class CompanionMapLayer : ModMapLayer
 {
-    /// <summary>Set the first time the head renderer throws; logged once, Guide head from then on.</summary>
-    private static bool headRendererFailed;
-
-    public override void Unload() => headRendererFailed = false;
+    /// <summary>The probe sprite is thirty pixels across; on the map it is drawn at head size.</summary>
+    private const float MapScale = 0.8f;
 
     public override void Draw(ref MapOverlayDrawContext context, ref string text)
     {
@@ -33,25 +31,12 @@ public sealed class CompanionMapLayer : ModMapLayer
         if (context.ClippingRectangle is Rectangle clip && !clip.Contains(screen.ToPoint()))
             return;
 
-        bool drawn = false;
-        if (companion.Body.UsesPlayerRenderer && !headRendererFailed)
+        if (TextureAssets.Npc[NPCID.Probe]?.IsLoaded == true)
         {
-            try
-            {
-                Main.MapPlayerRenderer.DrawPlayerHead(Main.Camera, companion.Body.Player, screen, 1f, context.DrawScale, Color.White);
-                drawn = true;
-            }
-            catch (System.Exception e)
-            {
-                headRendererFailed = true;
-                Mod.Logger.Error("Map head renderer refused the companion body; falling back to the Guide head.", e);
-            }
+            var frame = new Terraria.DataStructures.SpriteFrame(1, (byte)System.Math.Max(1, Main.npcFrameCount[NPCID.Probe]));
+            context.Draw(TextureAssets.Npc[NPCID.Probe].Value, tile, Color.White, frame, MapScale, MapScale, Alignment.Center);
         }
-        if (!drawn)
-        {
-            int head = NPC.TypeToDefaultHeadIndex(NPCID.Guide);
-            context.Draw(TextureAssets.NpcHead[head].Value, tile, Alignment.Center);
-        }
+        else Main.instance.LoadNPC(NPCID.Probe);
         if (Vector2.Distance(new Vector2(Main.mouseX, Main.mouseY), screen) < 12f * context.DrawScale)
             text = "Companion";
     }

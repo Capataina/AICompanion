@@ -7,7 +7,7 @@ Infrastructure/
 ├─ CLAUDE.md
 ├─ Observation/    one account of the world, rebuilt per tick — except reach, refreshed per rescore
 ├─ Selection/      utility scoring, family nomination, tunables
-├─ Position/       a kind of place into a tile
+├─ Position/       a kind of place into a hover point
 ├─ Movement/       one request surface and one motor
 ├─ Interactions/   pickaxe, axe, torch, doors, homes
 ├─ Aiming/         projectile trajectory solver

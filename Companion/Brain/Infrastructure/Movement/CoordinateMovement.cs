@@ -1,117 +1,159 @@
 #nullable enable
 
 using System;
+using System.Collections.Generic;
 using Microsoft.Xna.Framework;
 
 namespace AICompanion.Companion.Brain.Infrastructure.Movement;
 
 /// <summary>
-/// The movement entry point for the brain. It owns the navigator's retained route and local
-/// repair state, so callers hand it a live body and intent rather than manipulating controls,
-/// grid state or planner flags independently.
+/// The movement entry point for the brain. It owns the navigator's retained route and the
+/// state search a safety response may hold, so callers hand it a live body and an intent rather
+/// than manipulating routes, searches or the terrain rules independently. Every caller supplies
+/// intent here; only the motor applies what comes back.
 /// </summary>
 public sealed class CoordinateMovement
 {
     public Navigator Navigator { get; } = new();
-    private readonly SearchControlSequences stateSearch = new();
+    private StateSeek? seek;
     private Vector2? unresolvedGoal;
-    private bool seekingDestination;
-    public bool StateSearchPending => stateSearch.Pending;
-    public int StateSearchRetainedTicks => stateSearch.RetainedTicks;
+
+    public bool StateSearchPending => seek is { Pending: true };
+    public int StateSearchRetainedTicks => seek?.RetainedTicks ?? 0;
+
     public void CancelStateSearch()
     {
-        stateSearch.Clear();
+        seek = null;
         unresolvedGoal = null;
-        seekingDestination = false;
     }
 
-    public bool SeekState(BodyState live, Func<BodyState, bool> goal, Func<BodyState, float> heuristic,
-        int workBudget, out Controls controls, out bool pending)
+    /// <summary>
+    /// Find and follow a way to any nearby place the caller calls safe: a bounded flood over the
+    /// corner graph from the body, stopping at the first corner the predicate accepts and steering
+    /// along the way there. <paramref name="throughLiquid"/> lets the flood cross liquid tiles the
+    /// body may not normally enter, which is the escape's case: the body is already in the water,
+    /// and a flood that refuses wet corners would refuse the one it is standing on. The flood is
+    /// kept across ticks while it is unfinished, so a large pocket is searched over several.
+    /// </summary>
+    public bool SeekState(OrbState live, Func<Vector2, bool> safe, Func<Vector2, float> heuristic,
+        int workBudget, bool throughLiquid, out Controls controls, out bool pending)
     {
-        if (seekingDestination) CancelStateSearch();
-        // A state objective (escape, combat space) is another owner taking the body from any route.
         Navigator.Interrupt(live, AttemptEnding.Preempted, "state-search");
-        bool chosen = stateSearch.TryChoose(NavGrid.World, live, goal, heuristic, Navigator.Capabilities,
-            workBudget, Infrastructure.Selection.Weights.EscapeSearchMilliseconds, out controls, Navigator.UnsafeAtTick);
-        pending = stateSearch.Pending;
+        seek ??= new StateSeek(live, safe, heuristic, throughLiquid);
+        bool chosen = seek.Continue(live, workBudget, out controls);
+        pending = seek.Pending;
+        if (!chosen && !pending) seek = null;
         return chosen;
     }
 
-    public Controls MoveTo(BodyState live, Vector2 goal, float requestedJump = 0f)
+    public Controls MoveTo(OrbState live, Vector2 goal)
     {
         CancelStateSearch();
-        return AddRequestedJump(Navigator.MoveTo(live, goal), requestedJump);
+        return Navigator.MoveTo(live, goal);
     }
 
     /// <param name="preemptedBy">Null when the brain released the request itself; otherwise the owner
     /// that took the body (downing, recovery flight), so the interrupted attempt is scored as
     /// pre-empted rather than cancelled.</param>
-    public Controls Hold(BodyState live, float requestedJump = 0f, string? preemptedBy = null)
+    public Controls Hold(OrbState live, string? preemptedBy = null)
     {
         CancelStateSearch();
-        // Releasing the movement request interrupts the retained route explicitly, including
-        // its census outcome, unless the body is committed to a move, in which case the navigator
-        // holds the release until the move lands (below). Survival can request a ground jump
-        // through the same body rules.
         Navigator.Interrupt(live, preemptedBy == null ? AttemptEnding.Cancelled : AttemptEnding.Preempted, preemptedBy ?? "released");
-        // A release the navigator deferred (the body is mid-move) keeps its in-flight steer until
-        // the move lands; returning no controls here is what cut jumps short in the air.
-        if (Navigator.ReleasePending)
-            return AddRequestedJump(Navigator.ContinueCommitted(live), requestedJump);
-        return AddRequestedJump(Controls.None, requestedJump);
+        return Controls.None;
     }
 
-    /// <summary>A missing stand does not cancel a travel intention. Search legal body states
-    /// while position selection continues, retaining only physically validated prefixes.</summary>
-    public Controls SeekDestination(BodyState live, Vector2 anchor, Func<BodyState, bool> arrived)
+    /// <summary>A missing chosen place does not cancel a travel intention: aim at the anchor itself until <paramref name="arrived"/> says the body is there.</summary>
+    public Controls SeekDestination(OrbState live, Vector2 anchor, Func<Vector2, bool> arrived)
     {
-        if (!seekingDestination || unresolvedGoal is not Vector2 held || Vector2.DistanceSquared(held, anchor) > 32f * 32f)
+        seek = null;
+        unresolvedGoal = anchor;
+        if (arrived(live.Centre))
         {
-            stateSearch.Clear();
-            unresolvedGoal = anchor;
+            Navigator.Interrupt(live, AttemptEnding.Completed, "objective-satisfied");
+            return Controls.None;
         }
-        seekingDestination = true;
-        Vector2 target = unresolvedGoal.Value;
-        // The same purpose changing method (route to state search) is a voluntary cancellation,
-        // and like any voluntary cancellation it waits for a committed move to land: this is
-        // called on every tick a destination is unresolved, so without the wait it cut the same
-        // moves the Hold above did.
-        Navigator.Interrupt(live, AttemptEnding.Cancelled, "method-change");
-        if (Navigator.ReleasePending)
-            return Navigator.ContinueCommitted(live);
-        stateSearch.TryChoose(NavGrid.World, live, arrived,
-            state => Vector2.Distance(state.Feet, target), Navigator.Capabilities,
-            Infrastructure.Selection.Weights.EscapeSearchWork, Infrastructure.Selection.Weights.EscapeSearchMilliseconds,
-            out Controls controls, Navigator.UnsafeAtTick);
-        return controls;
+        return Navigator.MoveTo(live, anchor);
     }
 
-    public Controls AvoidThreats(BodyState live, Func<BodyState, int, bool> unsafeAtTick, Vector2 goal)
+    public Controls AvoidThreats(OrbState live, Func<OrbState, int, bool> unsafeAtTick, Vector2 goal)
     {
+        CancelStateSearch();
         return Navigator.AvoidThreats(live, unsafeAtTick, goal);
     }
 
-    public void Configure(uint clock, bool allowLava, bool allowOneWayDrops)
-    {
-        AStar.Clock = clock;
-        AStar.AllowLava = allowLava;
-        AStar.AllowOneWayDrops = allowOneWayDrops;
-    }
+    /// <summary>The terrain rules every search runs under this tick: which liquids are not walls.</summary>
+    public void Configure(LiquidImmunity immunity) => OrbTerrain.Immunity = immunity;
 
-    public void SetObstacles(System.Collections.Generic.IEnumerable<Rectangle> obstacles)
-    {
-        AStar.Avoid.Clear();
-        foreach (Rectangle obstacle in obstacles)
-            AStar.Avoid.Add(obstacle);
-    }
+    public void SetObstacles(IEnumerable<Rectangle> obstacles) => Navigator.Avoid = new List<Rectangle>(obstacles);
 
-    private Controls AddRequestedJump(Controls controls, float requestedJump)
+    /// <summary>A retained flood toward the nearest place a predicate accepts, and the route once one is found.</summary>
+    private sealed class StateSeek
     {
-        // A traversal's run-up/flight controls are committed macro state. A behaviour-level jump
-        // is a floor for an uncommitted body only, otherwise a drowning bob can restart every
-        // running jump and recreate the cadence loop this component exists to prevent.
-        if (requestedJump <= 0f || Navigator.Path is { Finished: false })
-            return controls;
-        return controls with { Jump = true, JumpScale = requestedJump };
+        private readonly Func<Vector2, bool> safe;
+        private readonly Func<Vector2, float> heuristic;
+        private readonly bool throughLiquid;
+        private FreeSpaceSearch? flood;
+        private Route? route;
+        public bool Pending { get; private set; }
+        public int RetainedTicks { get; private set; }
+
+        public StateSeek(OrbState live, Func<Vector2, bool> safe, Func<Vector2, float> heuristic, bool throughLiquid)
+        {
+            this.safe = safe;
+            this.heuristic = heuristic;
+            this.throughLiquid = throughLiquid;
+        }
+
+        public bool Continue(OrbState live, int workBudget, out Controls controls)
+        {
+            controls = Controls.None;
+            RetainedTicks++;
+            ITileWorld world = MovementQueries.World;
+            if (route != null)
+            {
+                if (safe(live.Centre) && Vector2.Distance(live.Centre, route.Goal) <= Navigator.ArriveDistance)
+                {
+                    Pending = false;
+                    return true;
+                }
+                if (!route.StillValid(world)) route = null;
+            }
+            if (route == null)
+            {
+                LiquidImmunity rules = throughLiquid ? new LiquidImmunity(true, true) : OrbTerrain.Immunity;
+                if (flood == null || !flood.Valid)
+                {
+                    Point? start = CornerGraph.NearestUsable(world, live.Centre, 2, requireSweep: false, rules);
+                    if (start == null) { Pending = false; return false; }
+                    flood = new FreeSpaceSearch(world, start.Value, null, rules, priceClearance: false)
+                    {
+                        Accept = corner => safe(CornerGraph.ToWorld(corner)),
+                        Prefer = corner => heuristic(CornerGraph.ToWorld(corner)),
+                    };
+                }
+                bool finished = flood.Advance(workBudget);
+                if (flood.FoundCorner is Point found)
+                {
+                    var corners = flood.PathTo(found);
+                    var raw = new List<Vector2>(corners.Count + 1) { live.Centre };
+                    foreach (Point corner in corners) raw.Add(CornerGraph.ToWorld(corner));
+                    route = new Route(raw, 0, world.Revision, rules);
+                    flood = null;
+                }
+                else if (finished)
+                {
+                    Pending = false;
+                    return false;
+                }
+                else
+                {
+                    Pending = true;
+                    return false;
+                }
+            }
+            Pending = false;
+            controls = SteerAlongRoute.Steer(live, route, OrbPace.MaxSpeed, OrbPace.Acceleration, out _);
+            return true;
+        }
     }
 }

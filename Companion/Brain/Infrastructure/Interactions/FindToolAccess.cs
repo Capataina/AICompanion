@@ -7,22 +7,22 @@ using AICompanion.Companion.Brain.Infrastructure.Observation;
 
 namespace AICompanion.Companion.Brain.Infrastructure.Interactions;
 
-/// <summary>Shared tile-tool range, exposed-face access and reachable working positions.
-/// Native material and mutation permission remain owned by the individual tool.</summary>
+/// <summary>Shared tile-tool range, exposed-face access and reachable working positions for a body
+/// that hovers. Native material and mutation permission remain owned by the individual tool.</summary>
 public static class FindToolAccess
 {
     /// <summary>
-    /// Whether the body can get to this feet tile and come home from it, read from the reach sense and
-    /// never from a search of this query's own. One flood has already answered it for every tile in the
-    /// region, where the walker query this replaced was a fresh bounded A* per pose: a tile whose poses
-    /// numbered in the hundreds cost hundreds of searches, each one able to answer Unknown on its
-    /// expansion budget, and a caller that could not remember an Unknown re-asked the same nearest
-    /// sites until nothing was ever decided. The three answers survive the translation because they are
-    /// the same three: in the region is Yes, an unfinished flood is Unknown and must be re-asked, and a
-    /// flood that ran out of region is No and may be remembered.
+    /// Whether the body can get to this tile, read from the reach sense and never from a search of this
+    /// query's own. One flood has already answered it for every tile in the region, where the walker
+    /// query this replaced was a fresh bounded A* per pose: a tile whose poses numbered in the hundreds
+    /// cost hundreds of searches, each one able to answer Unknown on its expansion budget, and a caller
+    /// that could not remember an Unknown re-asked the same nearest sites until nothing was ever decided.
+    /// The three answers survive the translation because they are the same three: in the region is Yes,
+    /// an unfinished flood is Unknown and must be re-asked, and a flood that ran out of region is No and
+    /// may be remembered.
     /// </summary>
-    private static Reachability.Reach Sensed(ReachSense reach, Point feetTile)
-        => reach.Reachable(feetTile) switch
+    private static Reachability.Reach Sensed(ReachSense reach, Point tile)
+        => reach.Reachable(tile) switch
         {
             ReachVerdict.Reachable => Reachability.Reach.Yes,
             ReachVerdict.NotYet => Reachability.Reach.Unknown,
@@ -34,207 +34,80 @@ public static class FindToolAccess
     public static int ReachY => Player.tileRangeY;
 
     /// <summary>The reach every retained access fact is derived under, as one value to key on. Reach is the player's and
-    /// moves with accessories, buffs and held items, so a stand, a deferral or a "nothing reachable" verdict kept without
-    /// it outlives the reach that made it true: a smaller reach walks to a pose that no longer swings, and a larger one
+    /// moves with accessories, buffs and held items, so a hover, a deferral or a "nothing reachable" verdict kept without
+    /// it outlives the reach that made it true: a smaller reach flies to a cell that no longer swings, and a larger one
     /// waits out a cadence for work it could already do.</summary>
     public static (int X, int Y) Reach => (ReachX, ReachY);
 
     /// <summary>
-    /// A standable feet tile within reach of the tile whose eye has a line to it and that the body can
-    /// get to and come home from, nearest to the tile first. <paramref name="fromFeet"/> is still the
-    /// body's own pose, because the pose that already reaches needs no journey at all; every other pose
-    /// is answered by <paramref name="reach"/>, whose flood was run from those same feet.
+    /// A cell the body can hover in within reach of the tile, whose centre has a line to an exposed face
+    /// of it, and that the body can get to, nearest to the tile first. <paramref name="fromCentre"/> is
+    /// the body's own centre, because the place that already reaches needs no journey at all; every other
+    /// cell is answered by <paramref name="reach"/>, whose flood was run from that same body. The hover
+    /// point returned is inside the cell, at the usable corner nearest the cell's centre.
     /// </summary>
-    public static Reachability.Reach Approach(Point tile, Vector2 fromFeet, ReachSense reach, out Vector2 stand)
+    public static Reachability.Reach Approach(Point tile, Vector2 fromCentre, ReachSense reach, out Vector2 hover)
     {
-        // Tool access at the actual pose needs no route to a representative standing node.
-        // Requiring that route can reject usable reach or move the body out of a working pose.
-        if (InReach(fromFeet, tile))
+        // Tool access at the actual pose needs no route to a representative node. Requiring one can
+        // reject usable reach or move the body out of a working pose.
+        if (InReach(fromCentre, tile))
         {
-            stand = fromFeet;
+            hover = fromCentre;
             return Reachability.Reach.Yes;
         }
         Vector2 tileCentre = tile.ToWorldCoordinates(8f, 8f);
-        // Rank every geometrically usable pose, then ask the sense nearest first and stop at the first
-        // yes. The early stop is kept from when each of these questions was a fresh bounded A*: the
-        // answer is identical, since the first yes in ascending distance is the nearest yes and equal
-        // distances keep the scan order the exhaustive loop broke ties with. It is now a membership
-        // test rather than a search, so the whole scan is cheap even when no pose is reachable — which
-        // is the case that matters, because "unknown" versus "no" needs every answer.
-        poses.Clear();
+        // Rank every geometrically usable cell, then ask the sense nearest first and stop at the first
+        // yes: the first yes in ascending distance is the nearest yes. The scan is a membership test
+        // rather than a search, so it is cheap even when no cell is reachable — which is the case that
+        // matters, because "unknown" versus "no" needs every answer.
+        cells.Clear();
         for (int dx = -ReachX; dx <= ReachX; dx++)
         {
-            for (int dy = -ReachY; dy <= ReachY + 2; dy++)
+            for (int dy = -ReachY; dy <= ReachY; dy++)
             {
-                int x = tile.X + dx, y = tile.Y + dy;
-                if (!MovementQueries.IsStandable(x, y))
+                var cell = new Point(tile.X + dx, tile.Y + dy);
+                if (!MovementQueries.IsHoverable(cell))
                     continue;
-                Vector2 feet = MovementQueries.FeetWorld(new Point(x, y));
-                if (!InReach(feet, tile) || !InReach(feet + new Vector2(-8, 0), tile) || !InReach(feet + new Vector2(8, 0), tile))
+                Vector2 point = MovementQueries.HoverPoint(cell);
+                if (!InReach(point, tile))
                     continue;
-                poses.Add((Vector2.DistanceSquared(feet + Eye, tileCentre), poses.Count, new Point(x, y), feet));
+                cells.Add((Vector2.DistanceSquared(point, tileCentre), cells.Count, cell, point));
             }
         }
-        poses.Sort(static (a, b) => a.Distance != b.Distance ? a.Distance.CompareTo(b.Distance) : a.Order.CompareTo(b.Order));
+        cells.Sort(static (a, b) => a.Distance != b.Distance ? a.Distance.CompareTo(b.Distance) : a.Order.CompareTo(b.Order));
         bool unknown = false;
-        foreach (var pose in poses)
+        foreach (var cell in cells)
         {
-            Reachability.Reach sensed = Sensed(reach, pose.Tile);
+            Reachability.Reach sensed = Sensed(reach, cell.Tile);
             if (sensed == Reachability.Reach.Yes)
             {
-                stand = pose.Feet;
+                hover = cell.Point;
                 return Reachability.Reach.Yes;
             }
             unknown |= sensed == Reachability.Reach.Unknown;
         }
-        stand = default;
+        hover = default;
         return unknown ? Reachability.Reach.Unknown : Reachability.Reach.No;
-    }
-
-    /// <summary>
-    /// A tile no standing pose can swing at, reached the way a player reaches a ceiling: walk to a
-    /// take-off pose, jump, and swing while the rising body's reach covers the tile. A pose counts
-    /// only when the shared body model proves a dry ground jump from rest there brings the tile into
-    /// reach and lands back beside the take-off, nearest pose first with the same early stop as
-    /// <see cref="Approach"/>. The <paramref name="body"/> supplies everything about the companion
-    /// except where it stands, so a capability that changes the jump changes the proof.
-    ///
-    /// <para>The order of the two tests is reversed from what it was: the sense is asked before the body
-    /// simulation rather than after, because a pose the body cannot walk to is not a take-off however
-    /// well it jumps, and the simulation is now the expensive half of the pair. When the walker question
-    /// was a bounded A* the opposite order was right for exactly the same reason.</para>
-    ///
-    /// <para>There is no "from" pose any more. The old walker query needed one and this took the body's
-    /// feet for it; the sense floods from those same feet and is asked about the take-off alone, so a
-    /// second origin would have been a parameter nothing read. A caller that wants the question asked
-    /// from somewhere else is asking for a different flood, not a different argument here.</para>
-    /// </summary>
-    public static Reachability.Reach HopApproach(Point tile, BodyState body, ReachSense reach, out Vector2 stand)
-    {
-        stand = default;
-        // A tile with no open neighbour has no face a line can reach from any height.
-        if (!HasOpenFace(tile))
-            return Reachability.Reach.No;
-        Vector2 tileCentre = tile.ToWorldCoordinates(8f, 8f);
-        poses.Clear();
-        for (int dx = -ReachX; dx <= ReachX; dx++)
-        {
-            for (int dy = -ReachY; dy <= ReachY + HopRiseTiles; dy++)
-            {
-                int x = tile.X + dx, y = tile.Y + dy;
-                if (!MovementQueries.IsStandable(x, y))
-                    continue;
-                Vector2 feet = MovementQueries.FeetWorld(new Point(x, y));
-                // A pose that already reaches standing belongs to Approach; hopping from it adds nothing.
-                if (InReach(feet, tile))
-                    continue;
-                // A jump only raises the eye, so a tile level with or below the standing eye gets no nearer by
-                // rising. Skipping those before any body proof matters beyond cost: on top of a ceiling slab every
-                // pose sits above the ore it cannot see, and proving each one ran the scan past the planning
-                // deadline, which a cut-short scan must report as Unknown rather than the No it really is.
-                if (tileCentre.Y >= feet.Y + Eye.Y)
-                    continue;
-                poses.Add((Vector2.DistanceSquared(feet + Eye, tileCentre), poses.Count, new Point(x, y), feet));
-            }
-        }
-        poses.Sort(static (a, b) => a.Distance != b.Distance ? a.Distance.CompareTo(b.Distance) : a.Order.CompareTo(b.Order));
-        bool unknown = false;
-        foreach (var pose in poses)
-        {
-            // The proof below starts the body at rest on the take-off, but the body gets there by walking, and
-            // BodyPhysics.Stand accepts a pose that overhangs an edge by two pixels. A pose is admitted only if a
-            // body still sliding to rest from walking speed, in either direction, keeps some support under it,
-            // and only if it is dry, because the proof is a dry jump and a wet body cannot make it.
-            if (!SupportedThroughArrivalSlide(pose.Feet.X, pose.Tile.Y) || MovementQueries.IsLiquid(pose.Tile.X, pose.Tile.Y))
-                continue;
-            // A take-off the body cannot walk to is not a take-off, so the free question is asked before
-            // the costly one. An unfinished flood is carried the same way a cut scan is: Unknown, never No.
-            Reachability.Reach sensed = Sensed(reach, pose.Tile);
-            if (sensed != Reachability.Reach.Yes)
-            {
-                unknown |= sensed == Reachability.Reach.Unknown;
-                continue;
-            }
-            // The body simulation does not watch the planning deadline. A scan cut short has established
-            // nothing about the poses it never reached, so it is Unknown and never No.
-            if (LimitPlanningWork.Expired)
-            {
-                unknown = true;
-                break;
-            }
-            BodyState rest = body with
-            {
-                Left = pose.Feet.X - BodyPhysics.Width / 2f, Bottom = pose.Feet.Y, Vx = 0f, Vy = 0f, OnGround = true,
-                CollideX = false, Stuck = false, Pinned = false, Wet = false, StairFall = false, LiquidKind = 0,
-            };
-            if (!ProveInteractionJump.CanReach(NavGrid.World, rest, rising => InReach(rising.Feet, tile)))
-                continue;
-            stand = pose.Feet;
-            return Reachability.Reach.Yes;
-        }
-        return unknown ? Reachability.Reach.Unknown : Reachability.Reach.No;
-    }
-
-    /// <summary>How many tiles above standing reach a ground jump can lift the eye: the apex of a jump at
-    /// the body's own take-off speed under ordinary gravity, rounded up. Air jumps are not ground hops. The
-    /// bound understates the real rise where gravity is reduced: near the sky BodyMotion.GravityAt lowers
-    /// gravity, the true apex is higher, and a take-off further below the tile than this is never searched.</summary>
-    private static readonly int HopRiseTiles = (int)System.MathF.Ceiling(
-        BodyPhysics.JumpVelocity * BodyPhysics.JumpVelocity / (2f * BodyPhysics.Gravity) / 16f);
-
-    /// <summary>How far a body moving at walking speed slides before it stops with no input: StepVelocity takes
-    /// the slowdown off every tick, so the distance is v²/2a. It mirrors BodyPhysics' walking speed and slowdown
-    /// and must move with them, or a take-off admitted here is one a real arrival slides off.</summary>
-    private static readonly float ArrivalSlide = BodyPhysics.WalkSpeed * BodyPhysics.WalkSpeed / (2f * BodyPhysics.Slowdown);
-
-    /// <summary>Whether a body with its feet at <paramref name="feetX"/> in <paramref name="row"/> keeps support
-    /// under some column it covers when it comes to rest at that point or an arrival slide either side of it.
-    /// Three samples suffice: two supported samples an arrival slide apart leave no room between them for a gap
-    /// wide enough to let a body twenty pixels wide fall through.</summary>
-    private static bool SupportedThroughArrivalSlide(float feetX, int row)
-        => SupportedAt(feetX, row) && SupportedAt(feetX - ArrivalSlide, row) && SupportedAt(feetX + ArrivalSlide, row);
-
-    private static bool SupportedAt(float feetX, int row)
-    {
-        int first = (int)System.MathF.Floor((feetX - BodyPhysics.Width / 2f) / 16f);
-        int last = (int)System.MathF.Floor((feetX + BodyPhysics.Width / 2f - 0.001f) / 16f);
-        for (int x = first; x <= last; x++)
-            if (NavGrid.IsSupport(x, row + 1))
-                return true;
-        return false;
-    }
-
-    private static bool HasOpenFace(Point tile)
-    {
-        foreach (Point side in new[] { new Point(-1, 0), new Point(1, 0), new Point(0, -1), new Point(0, 1) })
-        {
-            Point face = tile + side;
-            if (WorldGen.InWorld(face.X, face.Y, 5) && !WorldGen.SolidTile(face.X, face.Y))
-                return true;
-        }
-        return false;
     }
 
     // Reused across calls: the brain is single-threaded and Approach never re-enters itself.
-    private static readonly System.Collections.Generic.List<(float Distance, int Order, Point Tile, Vector2 Feet)> poses = new();
+    private static readonly System.Collections.Generic.List<(float Distance, int Order, Point Tile, Vector2 Point)> cells = new();
 
-    private static readonly Vector2 Eye = new(0f, -30f);
-    /// <summary>How far above the feet reach is measured from; read from the one offset <see cref="InReach"/> uses, so a drawing of the reach box cannot drift from the test.</summary>
-    public static float EyeHeight => -Eye.Y;
+    /// <summary>Reach is measured from the orb's centre, which is where its eye and its tools are; nothing sits above the body.</summary>
+    public static float EyeHeight => 0f;
 
-    /// <summary>Whether a swing from <paramref name="feet"/> can reach <paramref name="tile"/>: inside the player's native reach box and with a line to one exposed face.</summary>
-    public static bool InReach(Vector2 feet, Point tile)
-        => InReachBox(feet, tile, ReachX, ReachY) && HasLineToExposedFace(feet + Eye, tile);
+    /// <summary>Whether a swing from a body centred at <paramref name="centre"/> can reach <paramref name="tile"/>: inside the player's native reach box and with a line to one exposed face.</summary>
+    public static bool InReach(Vector2 centre, Point tile)
+        => InReachBox(centre, tile, ReachX, ReachY) && HasLineToExposedFace(centre, tile);
 
-    /// <summary>The arithmetic half of <see cref="InReach"/>: whether the eye over <paramref name="feet"/> lies inside the
-    /// native reach box of <paramref name="tile"/> for the given reach, with no world query. The success region a tool stand
-    /// declares is this box, and diagnostics judge arrival against it without running the line test, which reads live tiles.</summary>
-    public static bool InReachBox(Vector2 feet, Point tile, int reachX, int reachY)
+    /// <summary>The arithmetic half of <see cref="InReach"/>: whether the centre lies inside the native reach box of
+    /// <paramref name="tile"/> for the given reach, with no world query. The success region a tool hover declares is this
+    /// box, and diagnostics judge arrival against it without running the line test, which reads live tiles.</summary>
+    public static bool InReachBox(Vector2 centre, Point tile, int reachX, int reachY)
     {
-        Vector2 eye = feet + Eye;
         Vector2 tileCentre = tile.ToWorldCoordinates(8f, 8f);
-        return System.MathF.Abs(eye.X - tileCentre.X) <= reachX * 16f + 8f
-            && System.MathF.Abs(eye.Y - tileCentre.Y) <= reachY * 16f + 8f;
+        return System.MathF.Abs(centre.X - tileCentre.X) <= reachX * 16f + 8f
+            && System.MathF.Abs(centre.Y - tileCentre.Y) <= reachY * 16f + 8f;
     }
 
     private static bool HasLineToExposedFace(Vector2 eye, Point tile)

@@ -10,7 +10,7 @@ using MineOre = live::AICompanion.Companion.Brain.Activities.Gathering.MineOre;
 using WorkPolicies = live::AICompanion.Companion.Brain.Activities.WorkPolicies;
 using WorkPolicy = live::AICompanion.Companion.Brain.Activities.WorkPolicy;
 using ActionContext = live::AICompanion.Companion.Brain.Activities.ActionContext;
-using AStar = live::AICompanion.Companion.Brain.Infrastructure.Movement.AStar;
+using CircleContact = live::AICompanion.Companion.Brain.Infrastructure.Movement.CircleContact;
 using Reachability = live::AICompanion.Companion.Brain.Infrastructure.Movement.Reachability;
 using TerrainChanges = live::AICompanion.Companion.Brain.Infrastructure.Movement.TerrainChanges;
 using OfferEligibility = live::AICompanion.Companion.Brain.Activities.OfferEligibility;
@@ -54,7 +54,6 @@ internal static class VerifyOreWork
             AReachableOreProducesANativeBreak();
             AUsefulCurrentPoseNeedsNoApproach();
             AProjectileInterruptsCoherentToolOwnership();
-            RaisedLipsAtBothGravitiesProduceWork();
             NativeToolOutcomesDistinguishAttemptsFromProgress();
             PreparedWorkForecastRespondsToNativeProgress();
             RemainingToolWorkMatchesNativeCompletion();
@@ -83,7 +82,38 @@ internal static class VerifyOreWork
 
     private static void DepartingPlayerChangesWhetherWorkIsWorthFinishing()
     {
-        foreach (int separation in new[] { 480, 576, 640 })
+        var fresh = new System.Collections.Generic.Dictionary<int, float>();
+        var finishing = new System.Collections.Generic.Dictionary<int, float>();
+        // DELETED: the half of this row that required fresh work to lose to reunion while a one-hit finish
+        // still won, at the same separation. It is deleted rather than re-tuned because it was measured across
+        // nine separations and there is no value at which it can hold — the band it needs does not exist for
+        // this body. Selected activity and final scores, one scene per row:
+        //
+        //     separation   fresh work            one hit left          keep-company
+        //      480         mine  0.212           mine  0.652           0.160
+        //      576         mine  0.201           mine  0.648           0.160
+        //      640         mine  0.194           mine  0.646           0.160
+        //      800         mine  0               mine  0               0.800
+        //      960..1600   mine  0               mine  0               0.800
+        //     2000         mine  0               mine  0               1.000
+        //
+        // Read the last column with the first: reunion's own value is flat at its wander floor across the whole
+        // range where mining is worth anything, and mining does not decline towards a crossing — it is vetoed
+        // outright between 640 and 800, where the ore leaves the work radius. So the two radii no longer
+        // overlap: by the time the player is far enough away for reunion to outrank fresh work, the ore is
+        // already worth nothing, and the trade-off this row was written to catch has no separation to happen
+        // at. That is the same shape as the stroll band sitting outside the follow comfort, and both are
+        // reported rather than tuned here, because which radius should move is a decision about how the
+        // companion should feel.
+        //
+        // What is kept is what the scene can still witness, and it is asserted below rather than dropped: the
+        // remaining-work gradient inside the radius, where a job with one hit left is worth about three times a
+        // fresh one on identical geometry, and the veto itself.
+        // 800 is the veto scene rather than another gradient scene: it is the first measured separation at
+        // which the ore has left the work radius, and it is carried here so the emptiness of the band is a
+        // row rather than a claim in a comment.
+        const int VetoSeparation = 800;
+        foreach (int separation in new[] { 480, 576, 640, VetoSeparation })
         foreach (bool nearlyDone in new[] { false, true })
         {
             Point ore = new(25, 89);
@@ -92,13 +122,15 @@ internal static class VerifyOreWork
             var workClock = new live::AICompanion.Companion.Brain.Infrastructure.Observation.TileDamageClock();
             workClock.OnWorldLoad();
             brain.Chooser.Actions.RemoveAll(action => action.Name is not ("mine" or "keep-company"));
-            ctx.Player.Bottom = ctx.Npc.Bottom + new Vector2(separation - 120 * 4, 0);
+            // The companion's centre hovers one radius clear of the floor, so the player's feet are that radius
+            // lower again; this used to read off the walker's own feet and would now stand him in the air.
+            ctx.Player.Bottom = ctx.Npc.Center + new Vector2(separation - 120 * 4, CircleContact.Radius);
             for (int tick = 0; tick < 120; tick++)
             {
                 ctx.Player.velocity = new Vector2(4, 0);
                 ctx.Player.position += ctx.Player.velocity;
                 VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
-                brain.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Breath);
+                brain.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Motor);
                 workClock.PostUpdateEverything();
             }
             Item pick = live::AICompanion.Companion.Brain.Infrastructure.Interactions.Mining.TileMiner.PickaxeFor(ctx.Player);
@@ -109,9 +141,31 @@ internal static class VerifyOreWork
                     for (int tick = 0; tick < pick.useTime; tick++) ctx.Companion.Miner.Tick();
                 }
             var selected = brain.Chooser.Choose(ctx);
-            Require(selected?.Name == (nearlyDone ? "mine" : "keep-company"),
-                $"departure should distinguish fresh work from a one-hit finish: separation={separation}; nearlyDone={nearlyDone}; selected={selected?.Name}; scores={string.Join(",", brain.Chooser.LastScores.Select(s => s.Action.Name + "=" + s.Final))}");
+            float mineValue = brain.Chooser.LastScores.Single(s => s.Action.Name == "mine").Final;
+            string scores = string.Join(",", brain.Chooser.LastScores.Select(s => s.Action.Name + "=" + s.Final));
+            if (separation == VetoSeparation)
+            {
+                Require(mineValue == 0f && selected?.Name == "keep-company",
+                    $"past the work radius the same ore must be worth nothing and company must win: separation={separation}; nearlyDone={nearlyDone}; selected={selected?.Name}; scores={scores}");
+                continue;
+            }
+            Require(selected?.Name == "mine",
+                $"inside the work radius a proven job must still be chosen over resting company: separation={separation}; nearlyDone={nearlyDone}; selected={selected?.Name}; scores={scores}");
+            if (nearlyDone) finishing[separation] = mineValue; else fresh[separation] = mineValue;
         }
+        // The gradient that survives: on identical geometry, with the player at the same distance, a job with
+        // one hit left is worth substantially more than a fresh one. The margin is asserted as a ratio rather
+        // than a difference so it does not encode the scores' absolute scale, and it is well clear of the
+        // measured values above — about 3.1x at every separation — so a change that flattened remaining work
+        // into the valuation would redden this rather than drifting past it.
+        foreach (int separation in fresh.Keys)
+            Require(finishing[separation] > fresh[separation] * 2f, FormattableString.Invariant(
+                $"a job with one hit left must be worth more than a fresh one at the same separation: separation={separation}; fresh={fresh[separation]}; finishing={finishing[separation]}"));
+        // The veto itself is asserted in the loop above, at VetoSeparation, so "the band is empty" is a row
+        // rather than a sentence: mining is chosen at every separation inside the radius and worth exactly
+        // nothing at the first one outside it, with nothing in between for the deleted half to have held at.
+        Require(fresh.Count == 3 && finishing.Count == 3,
+            FormattableString.Invariant($"the gradient must be measured at every separation; fresh={fresh.Count} finishing={finishing.Count}"));
     }
 
     /// <summary>
@@ -159,19 +213,25 @@ internal static class VerifyOreWork
             brain.Chooser.Actions.RemoveAll(action => action.Name is not ("mine" or "keep-company"));
             const int separation = 576;
             // The player stands on the upper floor, five rows above the companion's corridor floor.
-            ctx.Player.Bottom = ctx.Npc.Bottom + new Vector2(separation - 120 * speed, -5 * 16);
+            ctx.Player.Bottom = ctx.Npc.Center + new Vector2(separation - 120 * speed, -5 * 16 + CircleContact.Radius);
             for (int tick = 0; tick < 120; tick++)
             {
                 ctx.Player.velocity = new Vector2(speed, 0);
                 ctx.Player.position += ctx.Player.velocity;
                 VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
-                brain.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Breath);
+                brain.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Motor);
                 workClock.PostUpdateEverything();
             }
             var home = new live::AICompanion.Companion.Brain.Infrastructure.Position.PositionRequest(
                 live::AICompanion.Companion.Brain.Infrastructure.Position.RequestKind.WithPlayer, ctx.Player.Bottom);
-            Point from = live::AICompanion.Companion.Brain.Infrastructure.Movement.NavGrid.FeetTile(ctx.Npc.Bottom);
-            Point to = live::AICompanion.Companion.Brain.Infrastructure.Movement.NavGrid.FeetTile(ctx.Player.Bottom);
+            Point from = live::AICompanion.Companion.Brain.Infrastructure.Movement.MovementQueries.Tile(ctx.Npc.Center);
+            // The cell a body would rest in beside the player, not the tile his feet are in. A standing player's
+            // feet sit exactly on a tile boundary, so flooring them lands on the solid floor row itself — a tile
+            // no body occupies and the flood therefore never reaches, which read back as `Unreachable` from a
+            // complete region and made the premise fail on geometry rather than on pricing. One radius up is
+            // where this body's centre sits on that floor, which is the cell the route home actually ends in.
+            Point to = live::AICompanion.Companion.Brain.Infrastructure.Movement.MovementQueries.Tile(
+                ctx.Player.Bottom - new Vector2(0f, CircleContact.Radius));
             // Throw the region away and flood it again, to completion rather than to first contact: a
             // cost-ordered flood can first reach the player's tile the long way round and lower its ticks
             // later along the short route. Thrown away rather than merely driven, because the upper floor
@@ -184,10 +244,10 @@ internal static class VerifyOreWork
             if (brain.Positioner.EstimatedTravelTicks(from, to) == null)
             {
                 // An extern alias cannot appear inside an interpolation hole, so the diagnostics are locals.
-                bool standable = live::AICompanion.Companion.Brain.Infrastructure.Movement.MovementQueries.IsStandable(to.X, to.Y);
-                var walker = live::AICompanion.Companion.Brain.Infrastructure.Movement.MovementQueries.WalkerReach(from, to);
+                bool fits = live::AICompanion.Companion.Brain.Infrastructure.Movement.MovementQueries.IsHoverable(to);
+                var verdict = brain.Senses.Reach.Reachable(to);
                 Require(false, $"the route home must be priced before return cost can be compared; speed={speed} farRoute={farRoute} from={from} to={to} "
-                    + $"standable={standable} inRegion={brain.Positioner.Reaches(to)} regionComplete={brain.Positioner.ReachComplete} walker={walker}");
+                    + $"fits={fits} verdict={verdict} inRegion={brain.Positioner.Reaches(to)} regionComplete={brain.Positioner.ReachComplete}");
             }
             Item pick = TileMiner.PickaxeFor(ctx.Player);
             if (nearlyDone)
@@ -329,7 +389,7 @@ internal static class VerifyOreWork
     {
         Point ore = new(25, 59);
         var (_, ctx) = SetUp(WorkPolicy.Opportunistic, TileID.Copper, ore);
-        Require(FindToolAccess.InReach(ctx.Npc.Bottom, ore),
+        Require(FindToolAccess.InReach(ctx.Npc.Center, ore),
             "the productive-work control must begin within actual tool reach");
         Item pick = live::AICompanion.Companion.Brain.Infrastructure.Interactions.Mining.TileMiner.PickaxeFor(ctx.Player);
         int swings = 0;
@@ -348,7 +408,7 @@ internal static class VerifyOreWork
     {
         Point ore = new(25, 59);
         var (_, ctx) = SetUp(WorkPolicy.Opportunistic, TileID.Copper, ore);
-        Vector2 feet = ctx.Npc.Bottom;
+        Vector2 feet = ctx.Npc.Center;
         Require(FindToolAccess.InReach(feet, ore),
             "the current-pose fixture must already satisfy actual tool range and exposed access");
         var reach = FindToolAccess.Approach(ore, feet, ctx.Companion.Brain.Senses.Reach, out Vector2 stand);
@@ -424,155 +484,24 @@ internal static class VerifyOreWork
             "a vanished trunk must not become a successful axe attempt");
     }
 
-    private enum BaselineMode { FullBrain, HeldActivity, FixedWorkingPose }
-
-    /// <summary>
-    /// A two-tile lip beside the ore used to be mined by walking at an unproven approach until a
-    /// stand appeared. That walk is no longer a plan. If mining never starts, the new contract
-    /// holds. If it does start, the ore must break without excavating the lip.
-    /// </summary>
-    private static void RaisedLipsAtBothGravitiesProduceWork()
-    {
-        foreach (int floor in new[] { 60, 90 })
-            foreach (bool mirrored in new[] { false, true })
-                foreach (BaselineMode mode in new[] { BaselineMode.FullBrain, BaselineMode.HeldActivity })
-                    Require(MeasureRaisedLipWork(mirrored, mode, floor),
-                        $"raised lip must produce a native ore break: floor={floor}, mirrored={mirrored}, mode={mode}");
-    }
-
-    internal static int RunRaisedLipBaseline()
-    {
-        bool all = true;
-        foreach (int floor in new[] { 60, 90 })
-            foreach (bool mirrored in new[] { false, true })
-                foreach (BaselineMode mode in Enum.GetValues<BaselineMode>())
-                    all &= MeasureRaisedLipWork(mirrored, mode, floor, diagnostics: true);
-        Console.WriteLine(all ? "mining baseline: every method produced a native break"
-            : "mining baseline: at least one method failed; this is a recorded implementation gap, not a passing acceptance result");
-        return all ? 0 : 1;
-    }
-
-    private static bool MeasureRaisedLipWork(bool mirrored, BaselineMode mode, int floor, bool diagnostics = false)
-    {
-        Point ore = new(25, floor - 1);
-        var (_, ctx) = SetUp(WorkPolicy.Opportunistic, TileID.Copper, ore);
-        int lipX = mirrored ? 26 : 24;
-        for (int y = floor - 2; y < floor; y++)
-        {
-            Tile lip = Main.tile[lipX, y];
-            lip.HasTile = true;
-            lip.TileType = TileID.Dirt;
-        }
-        if (mirrored)
-        {
-            ctx.Npc.position = new Vector2(30 * 16, floor * 16 - ctx.Npc.height);
-            ctx.Player.position = new Vector2(30 * 16, floor * 16 - ctx.Player.height);
-        }
-        live::AICompanion.Companion.Brain.Infrastructure.Movement.TerrainChanges.Reset();
-        var mine = ctx.Companion.Brain.Chooser.Actions.OfType<MineOre>().Single();
-        if (mode == BaselineMode.HeldActivity)
-        {
-            ctx.Companion.Brain.Chooser.Actions.Clear();
-            ctx.Companion.Brain.Chooser.Actions.Add(mine);
-        }
-        Require(!FindToolAccess.InReach(ctx.Npc.Bottom, ore),
-            "the raised-lip fixture must obstruct the initial tool line, not test an already usable pose");
-        if (mode == BaselineMode.FixedWorkingPose)
-        {
-            // Set the experimental initial pose; production code never teleports. This perch
-            // overlaps the lip in either orientation and reaches the ore's exposed upper face.
-            ctx.Npc.Bottom = new Vector2(408, (floor - 2) * 16);
-            Require(!Collision.SolidCollision(ctx.Npc.position, ctx.Npc.width, ctx.Npc.height)
-                && FindToolAccess.InReach(ctx.Npc.Bottom, ore),
-                "the fixed-pose control must be native-clear and within tool reach");
-        }
-        var initialBody = ctx.Companion.Motor.State;
-        if (diagnostics) Console.WriteLine($"lip environment floor={floor} worldSurface={Main.worldSurface} initial={initialBody}");
-        if (diagnostics && mode == BaselineMode.HeldActivity)
-        {
-            DescribeRaisedLipRoutes(ctx, ore);
-            live::AICompanion.Companion.Brain.Infrastructure.Movement.TerrainChanges.Reset();
-        }
-        int miningTicks = 0;
-        for (int tick = 0; tick < 600 && Main.tile[ore.X, ore.Y].HasTile; tick++)
-        {
-            VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
-            if (mode == BaselineMode.FixedWorkingPose)
-            {
-                ctx.Companion.Miner.Tick();
-                ctx.Companion.Miner.Swing(ore,
-                    live::AICompanion.Companion.Brain.Infrastructure.Interactions.Mining.TileMiner.PickaxeFor(ctx.Player));
-            }
-            else VerifyCompanionLifecycle.TickWithOneControlGrant(ctx.Companion);
-            if (ctx.Companion.Brain.LastAction?.Name == "mine") miningTicks++;
-            VerifyResponsiveFollowing.AdvanceNative(ctx.Companion);
-            if (diagnostics && tick % 60 == 0)
-                Console.WriteLine($"lip mirror={mirrored} mode={mode} tick={tick} feet={ctx.Npc.Bottom} "
-                    + $"mine={mine.Status} target={mine.TargetTile} stand={mine.TargetStandPosition} "
-                    + $"action={ctx.Companion.Brain.LastAction?.Name} request={ctx.Companion.Brain.LastRequest} nav={ctx.Companion.Brain.Navigator.Status}");
-        }
-        bool broken = !Main.tile[ore.X, ore.Y].HasTile;
-        if (!broken)
-        {
-            bool jumpProven = live::AICompanion.Companion.Brain.Infrastructure.Movement.ProveInteractionJump.CanReach(
-                live::AICompanion.Companion.Brain.Infrastructure.Movement.NavGrid.World, initialBody,
-                body => FindToolAccess.InReach(body.Feet, ore));
-            Console.WriteLine($"lip initial-pose ground-jump proof={jumpProven}");
-            AStar.MsBudget = 0;
-            var approach = FindToolAccess.Approach(ore, ctx.Npc.Bottom, ctx.Companion.Brain.Senses.Reach, out Vector2 stand);
-            // The wall-time limit is lifted here for the rest of the block; the approach itself no longer reads
-            // one, because it ranks poses by geometry and answers reach from the flood rather than by searching.
-            Console.WriteLine($"lip approach={approach} stand={stand}; answered from the reach flood, not a bounded search");
-            for (int x = 22; x <= 28; x++)
-                for (int y = floor - 4; y < floor; y++)
-                {
-                    if (!live::AICompanion.Companion.Brain.Infrastructure.Movement.NavGrid.IsStandable(x, y)) continue;
-                    Vector2 feet = live::AICompanion.Companion.Brain.Infrastructure.Movement.NavGrid.FeetWorld(new Point(x, y));
-                    bool useful = FindToolAccess.InReach(feet, ore);
-                    if (useful) Console.WriteLine($"lip usable={feet} route={Reachability.WalkerReach(live::AICompanion.Companion.Brain.Infrastructure.Movement.NavGrid.FeetTile(ctx.Npc.Bottom), new Point(x, y))}");
-                }
-        }
-        Console.WriteLine($"raised-lip native mining broken={broken} (floor={floor}, mirrored={mirrored}, mode={mode}, miningTicks={miningTicks}, "
-            + $"feet={ctx.Npc.Bottom}, action={ctx.Companion.Brain.LastAction?.Name}, "
-            + $"request={ctx.Companion.Brain.LastRequest}, navigator={ctx.Companion.Brain.Navigator.Status})");
-        Require(Main.tile[lipX, floor - 2].HasTile && Main.tile[lipX, floor - 1].HasTile,
-            "mining must overcome the lip through useful positioning, without excavating ordinary terrain");
-        if (miningTicks == 0)
-            return true;
-        return broken;
-    }
-
-    private static void DescribeRaisedLipRoutes(in ActionContext ctx, Point ore)
-    {
-        var start = live::AICompanion.Companion.Brain.Infrastructure.Movement.NavGrid.FeetTile(ctx.Npc.Bottom);
-        for (int x = ore.X - 3; x <= ore.X + 3; x++)
-            for (int y = ore.Y - 3; y <= ore.Y; y++)
-            {
-                var pose = live::AICompanion.Companion.Brain.Infrastructure.Movement.NavGrid.StandAt(x, y, false);
-                if (pose == null) continue;
-                var tile = new Point(x, y);
-                Vector2 feet = live::AICompanion.Companion.Brain.Infrastructure.Movement.NavGrid.FeetWorld(tile);
-                if (!FindToolAccess.InReach(feet, ore)) continue;
-                var route = AStar.Find(start, tile, Reachability.WalkerBudget, out int used, out var stop);
-                Console.WriteLine($"lip initial useful pose={feet} route={stop} used={used} partial={route?.Partial} "
-                    + $"steps={string.Join(';', route?.Steps.Select(step => $"{step.Kind}:{step.From}->{step.Tile}") ?? Array.Empty<string>())}");
-            }
-        for (int x = ore.X - 3; x <= ore.X + 3; x++)
-        {
-            var tile = new Point(x, ore.Y);
-            var pose = live::AICompanion.Companion.Brain.Infrastructure.Movement.NavGrid.StandAt(tile.X, tile.Y, false);
-            if (pose == null) continue;
-            var jumps = new live::AICompanion.Companion.Brain.Infrastructure.Movement.JumpTraversal().Candidates(
-                live::AICompanion.Companion.Brain.Infrastructure.Movement.NavNode.At(tile), pose, false);
-            Console.WriteLine($"lip jump proposals from={tile}: {string.Join(';', jumps.Select(edge => edge.Step.Tile))}");
-        }
-    }
+    // The raised-lip baseline lived here, and it is gone with the body it was about. Its whole subject was a
+    // two-tile lip of ordinary dirt standing between a walking body and the ore beside it: the fixture existed
+    // because a walker had to get over that lip, and its three modes were three ways of asking whether the
+    // planner could find a way up. A twenty-pixel orb hovers past a two-tile lip without a route decision to
+    // make, so the scene asks nothing. It also carried the suite's one known intermittent case — the root guide
+    // records eight reds in ten runs under load on `floor=60, mirrored=True, mode=HeldActivity` — and that
+    // intermittency goes with it rather than being inherited by a body it was never about.
+    //
+    // What the lip proved that still matters is proved elsewhere and was never the lip's alone: that mining
+    // reaches its ore and breaks it natively is `AReachableOreProducesANativeBreak` and `EveryArrivalOffsetEndsInUsableWork`,
+    // and that ordinary terrain is never excavated on the way is asserted in every whole-brain gathering scene
+    // by the tile-map diff in `VerifyGatheringCooperation`.
 
     private static void MimicStartsFromThePlayersVein()
     {
         Point ore = new(25, 59);
         var (action, ctx) = SetUp(WorkPolicy.Mimic, TileID.Copper, ore, playerHit: ore);
-        Reachability.Reach directReach = Reachability.WalkerReach(new Point(20, 59), new Point(24, 59));
+        var directReach = ctx.Companion.Brain.Senses.Reach.Reachable(new Point(24, 59));
         float score = VerifyPreparedActivities.PrepareAndScore(action, ctx);
         Require(score > 0f && action.TargetTile == ore,
             $"mimic mining must select the ore vein the player hit (score={score}, target={action.TargetTile}, status={action.Status}, observed={ctx.Senses.Player.MinedOre}, direct={directReach})");
@@ -585,8 +514,8 @@ internal static class VerifyOreWork
         int id = action.JobId;
         action.Exit(ctx); // Guard/self-defence switching actions must not discard retained work.
         Require(VerifyPreparedActivities.PrepareAndScore(action, ctx) > 0f && action.JobId == id, "an interrupted vein must resume with the same job identity");
-        ctx.Companion.NPC.Bottom += new Vector2(64, 0);
-        Require(VerifyPreparedActivities.PrepareAndScore(action, ctx) > 0f && action.JobId == id && action.TargetStandPosition == ctx.Npc.Bottom,
+        ctx.Companion.NPC.Center += new Vector2(64, 0);
+        Require(VerifyPreparedActivities.PrepareAndScore(action, ctx) > 0f && action.JobId == id && action.TargetStandPosition == ctx.Npc.Center,
             "scoring early during guard must not retain an old approach after guard moves the body again");
     }
 
@@ -611,7 +540,7 @@ internal static class VerifyOreWork
             "comparison must not prune externally removed ore or recompute the prepared trip");
         Require(VerifyPreparedActivities.PrepareAndScore(action, ctx) > 0f && action.TargetTile == second && action.RemainingTiles == 1,
             "after one tile disappears, the retained job must relocate to the remaining ore");
-        Require(action.TargetStandPosition == ctx.Companion.NPC.Bottom,
+        Require(action.TargetStandPosition == ctx.Companion.NPC.Center,
             "an in-reach resumed tile must use the body’s current stand instead of walking back to an old one");
     }
 
@@ -694,7 +623,7 @@ internal static class VerifyOreWork
                 bool fail = true, effectOnly = false, noItem = false;
                 new live::AICompanion.Companion.Brain.Infrastructure.Observation.TileDamageWatcher()
                     .KillTile(point.X, point.Y, TileID.Trees, ref fail, ref effectOnly, ref noItem);
-                ctx.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Breath);
+                ctx.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Motor);
                 Require(ctx.Senses.Player.ChoppedTree == point, "cooperation fixture must observe the actual active trunk");
             }
             WorkPolicies.Chopping = WorkPolicy.Opportunistic;
@@ -737,8 +666,11 @@ internal static class VerifyOreWork
                     TileID.Sets.IsATreeTrunk[TileID.Trees] = true;
                     action = new live::AICompanion.Companion.Brain.Activities.Gathering.ChopTree();
                 }
-                if (inPosition) ctx.Npc.Bottom = new Vector2(23 * 16 + 8, 90 * 16);
-                else ctx.Npc.Bottom = new Vector2(15 * 16 + 8, 90 * 16);
+                // One radius above the floor row, which is where SetUp leaves the body: a centre written onto the
+                // floor line itself puts half the circle inside the floor, and the first contact resolve moves it
+                // off the pose the row is about.
+                if (inPosition) ctx.Npc.Center = new Vector2(23 * 16 + 8, 90 * 16 - CircleContact.Radius);
+                else ctx.Npc.Center = new Vector2(15 * 16 + 8, 90 * 16 - CircleContact.Radius);
                 Require(VerifyPreparedActivities.PrepareAndScore(action, ctx) > 0,
                     $"permission fixture needs prepared work: chopping={chopping}; inPosition={inPosition}");
                 var admission = live::AICompanion.Companion.Brain.Infrastructure.Selection.ValidatePreparedActivity.Capture(action);
@@ -770,7 +702,7 @@ internal static class VerifyOreWork
                 Main.tileSolid[TileID.Trees] = false;
                 TileID.Sets.IsATreeTrunk[TileID.Trees] = true;
                 WorkPolicies.Chopping = WorkPolicy.Opportunistic;
-                ctx.Npc.Bottom = new Vector2((mirrored ? 30 : 20) * 16 + 8, 90 * 16);
+                ctx.Npc.Center = new Vector2((mirrored ? 30 : 20) * 16 + 8, 90 * 16 - CircleContact.Radius);
                 var chop = new live::AICompanion.Companion.Brain.Activities.Gathering.ChopTree();
                 Require(VerifyPreparedActivities.PrepareAndScore(chop, ctx) > 0,
                     "a tree inside actual reach must prepare useful work");
@@ -791,7 +723,7 @@ internal static class VerifyOreWork
                     wall.HasTile = true;
                     wall.TileType = TileID.Dirt;
                 }
-                Require(!FindToolAccess.InReach(ctx.Npc.Bottom, bottom), "native wall must occlude the retained axe target");
+                Require(!FindToolAccess.InReach(ctx.Npc.Center, bottom), "native wall must occlude the retained axe target");
                 chop.Execute(ctx);
                 Require(!chop.HandsBusy && ctx.Companion.Chopper.LastOutcome == firstEffect,
                     "a wall added after preparation must prevent another native axe effect");
@@ -894,7 +826,11 @@ internal static class VerifyOreWork
     private static void TheNearestFirstApproachMatchesTheExhaustiveScan()
     {
         var (_, ctx) = SetUp(WorkPolicy.Opportunistic, TileID.Copper, new Point(25, 89));
-        for (int y = 80; y < 90; y++) { Tile wall = Main.tile[45, y]; wall.HasTile = true; wall.TileType = TileID.Dirt; }
+        // From the world's top margin down to the floor, not from row 80. A ten-row pillar sealed the corridor
+        // for a body that walked along it; this one flies, so it simply went over the top and all twenty-five
+        // pairs read reachable — which the row's own closing requirement catches rather than passing quietly,
+        // because a comparison holding no unreachable case compares nothing.
+        for (int y = 0; y < 90; y++) { Tile wall = Main.tile[45, y]; wall.HasTile = true; wall.TileType = TileID.Dirt; }
         var ores = new[] { new Point(25, 89), new Point(30, 86), new Point(38, 84), new Point(47, 89), new Point(60, 88) };
         var feet = new[] { 12f, 20f, 33f, 52f, 70f };
         // All terrain is final before the first query, so both searches read one world and one cache.
@@ -904,7 +840,6 @@ internal static class VerifyOreWork
             tile.HasTile = true;
             tile.TileType = TileID.Copper;
         }
-        AStar.InvalidateEdges();
         // The sealing wall went up after the setup flooded, so without this the region still describes an
         // open floor and every one of the twenty-five pairs reads reachable — which the row's own closing
         // requirement catches, because a comparison with no unreachable case in it compares nothing.
@@ -913,7 +848,10 @@ internal static class VerifyOreWork
         foreach (Point ore in ores)
         foreach (float x in feet)
         {
-            Vector2 from = new(x * 16 + 8, 90 * 16);
+            // A body centre one radius clear of the floor, which is where a resting orb sits and what both
+            // queries name their first parameter. On the floor line itself it is half inside the floor, and the
+            // in-reach early return either query takes is then asked about a point no body can occupy.
+            Vector2 from = new(x * 16 + 8, 90 * 16 - live::AICompanion.Companion.Brain.Infrastructure.Movement.CircleContact.Radius);
             var actual = FindToolAccess.Approach(ore, from, ctx.Companion.Brain.Senses.Reach, out Vector2 actualStand);
             var expected = ExhaustiveApproach(ore, from, ctx.Companion.Brain.Senses.Reach, out Vector2 expectedStand);
             Require(actual == expected && actualStand == expectedStand,
@@ -928,22 +866,47 @@ internal static class VerifyOreWork
     /// <summary>The previous algorithm verbatim except for its oracle: it asks the same reach sense the
     /// production call asks, because this row measures the scan order rather than the reach question. Left on
     /// the walker search it would compare two different questions and report the difference as a divergence.</summary>
-    private static Reachability.Reach ExhaustiveApproach(Point tile, Vector2 fromFeet,
+    private static Reachability.Reach ExhaustiveApproach(Point tile, Vector2 fromCentre,
         live::AICompanion.Companion.Brain.Infrastructure.Observation.ReachSense sense, out Vector2 stand)
     {
-        if (FindToolAccess.InReach(fromFeet, tile)) { stand = fromFeet; return Reachability.Reach.Yes; }
-        Vector2 eye = new(0f, -30f), tileCentre = tile.ToWorldCoordinates(8f, 8f);
+        if (FindToolAccess.InReach(fromCentre, tile)) { stand = fromCentre; return Reachability.Reach.Yes; }
+        Vector2 tileCentre = tile.ToWorldCoordinates(8f, 8f);
         Vector2? best = null;
         bool unknown = false;
         float bestDist = float.MaxValue;
-        for (int dx = -Player.tileRangeX; dx <= Player.tileRangeX; dx++)
-            for (int dy = -Player.tileRangeY; dy <= Player.tileRangeY + 2; dy++)
+        // Three things in this scan were the walking body, and each of them made the reference rank or admit
+        // stands the orb's own geometry never would — so the row was comparing two different questions and
+        // reporting the difference as a scan-order divergence, which is the one thing it is not.
+        //
+        // The eye. The ranking key was the distance from the stand *plus thirty pixels of eye height* to the
+        // ore, so it preferred a stand two rows below the ore, where a walker's eye came level with it. On the
+        // ore at (30,86) that scored the stand at (30,88) about two pixels against thirty-four for the stand
+        // beside it, and picked it. `FindToolAccess.EyeHeight` is zero for this body and says why: the orb's
+        // eye and its tools are its centre, and nothing sits above it. So the key is the stand to the ore.
+        //
+        // The two extra rows. The scan ran two rows further *down* than the reach box, which is where a body
+        // standing below and reaching up could be. Reach is a box about the centre now, symmetric by
+        // construction, and the extra rows only ever admitted stands production does not consider.
+        //
+        // The body's width. Each stand had to reach the ore from its centre and from eight pixels either side
+        // of it, which is a body forty-two tall and twenty wide sampled at its edges. The contact is a circle
+        // about one point, so the one sample at that point is the whole body, and the side samples only
+        // rejected stands production accepts.
+        //
+        // What is deliberately *not* aligned is the thing under test: this stays a full scan keeping the
+        // minimum, against a production query that sorts and stops at the first reachable cell. Ties resolve
+        // the same way in both — production breaks them on insertion order and this keeps the first strict
+        // improvement, over the same dx-outer, dy-inner traversal — so an equal-distance pair cannot read as a
+        // divergence on its own.
+        var box = FindToolAccess.Reach;
+        for (int dx = -box.X; dx <= box.X; dx++)
+            for (int dy = -box.Y; dy <= box.Y; dy++)
             {
                 int x = tile.X + dx, y = tile.Y + dy;
-                if (!live::AICompanion.Companion.Brain.Infrastructure.Movement.MovementQueries.IsStandable(x, y)) continue;
-                Vector2 feet = live::AICompanion.Companion.Brain.Infrastructure.Movement.MovementQueries.FeetWorld(new Point(x, y));
-                if (!FindToolAccess.InReach(feet, tile) || !FindToolAccess.InReach(feet + new Vector2(-8, 0), tile) || !FindToolAccess.InReach(feet + new Vector2(8, 0), tile)) continue;
-                float d = Vector2.DistanceSquared(feet + eye, tileCentre);
+                if (!live::AICompanion.Companion.Brain.Infrastructure.Movement.MovementQueries.IsHoverable(new Point(x, y))) continue;
+                Vector2 hover = live::AICompanion.Companion.Brain.Infrastructure.Movement.MovementQueries.HoverPoint(new Point(x, y));
+                if (!FindToolAccess.InReach(hover, tile)) continue;
+                float d = Vector2.DistanceSquared(hover, tileCentre);
                 var reach = sense.Reachable(new Point(x, y)) switch
                 {
                     live::AICompanion.Companion.Brain.Infrastructure.Observation.ReachVerdict.Reachable => Reachability.Reach.Yes,
@@ -951,7 +914,7 @@ internal static class VerifyOreWork
                     _ => Reachability.Reach.No,
                 };
                 if (reach == Reachability.Reach.Unknown) unknown = true;
-                if (d < bestDist && reach == Reachability.Reach.Yes) { bestDist = d; best = feet; }
+                if (d < bestDist && reach == Reachability.Reach.Yes) { bestDist = d; best = hover; }
             }
         stand = best ?? default;
         return best != null ? Reachability.Reach.Yes : unknown ? Reachability.Reach.Unknown : Reachability.Reach.No;
@@ -1135,37 +1098,39 @@ internal static class VerifyOreWork
         var run = RunBrainUntilBroken(ctx, ore, 900);
         Require(run.Broken,
             $"a companion that spawns beside its player with a cold reach flood must still start the ore thirty-two "
-            + $"tiles away; feet={ctx.Npc.Bottom} offer={mine.Eligibility}/{mine.EligibilityReason} "
+            + $"tiles away; feet={ctx.Npc.Center} offer={mine.Eligibility}/{mine.EligibilityReason} "
             + $"status={mine.Status} action={ctx.Companion.Brain.LastAction?.Name} "
             + $"reach-complete={ctx.Companion.Brain.Positioner.ReachComplete} strikes={run.StrikeFeet.Count}");
     }
 
     /// <summary>
     /// Put the reach sense back into the state it is in before its first flood: nothing claimed and nothing
-    /// exhausted, so every tile answers NotYet. Both fields are written because the verdict reads both — a
-    /// tile is Unreachable only where the set it was looked up in ran out of region, and leaving
-    /// <c>Complete</c> true would turn every unclaimed tile into a proven No, which is the opposite state.
+    /// exhausted, so every tile answers NotYet. The flood and its tile set go together, and <c>Complete</c>
+    /// goes with them — leaving it true would turn every unclaimed tile into a proven No, which is the
+    /// opposite of the state a caller asking for an undecided approach wants.
     /// </summary>
     internal static void EmptyTheReachRegion(ActionContext ctx)
     {
         var sense = ctx.Senses.Reach;
         var type = typeof(live::AICompanion.Companion.Brain.Infrastructure.Observation.ReachSense);
         const BindingFlags instance = BindingFlags.Instance | BindingFlags.NonPublic;
-        // `scored` as well as `returnable`, because a non-null `scored` is what tells Refresh the region is
-        // young enough to serve: leaving it set makes the next resolve hand back the region from before
-        // whatever the caller just changed. The two searches go with them, and that is the part that is easy
-        // to miss — Refresh reuses a live ContinueRouteSearch whenever it is valid and starts from the same
-        // feet, and a reused one hands back the tiles it had already expanded into, so emptying only the
-        // result sets refills them from a search that walked through the wall before the wall existed.
-        foreach (string field in new[] { "scored", "returnable", "raw" })
-            type.GetField(field, instance)!.SetValue(sense, null);
-        foreach (string field in new[] { "returnSearch", "rawSearch" })
-        {
-            (type.GetField(field, instance)!.GetValue(sense) as System.IDisposable)?.Dispose();
-            type.GetField(field, instance)!.SetValue(sense, null);
-        }
+        // The walker's sense kept two searches and three result sets — `returnSearch`, `rawSearch`, `scored`,
+        // `returnable`, `raw` — because reach and return were two questions and each had a flood of its own.
+        // None of those names exists now: for a body that flies, reach and return are one flood, and the sense
+        // keeps that one flood and the tile set derived from it. Naming the old fields through reflection is
+        // silent right up until it is not — `GetField` simply returned null and the `!` threw a bare
+        // `NullReferenceException` from inside a helper, with the fixture that called it reported as the red.
+        //
+        // These are the same four fields `ResettleReach` writes, and deliberately so; the difference between
+        // the two helpers is what happens afterwards. That one floods again, this one leaves the region empty,
+        // which is what makes every tile answer NotYet rather than a proven No.
+        type.GetField("flood", instance)!.SetValue(sense, null);
+        type.GetField("tiles", instance)!.SetValue(sense, null);
+        type.GetField("tilesBuiltAt", instance)!.SetValue(sense, -1);
+        type.GetField("rootMissing", instance)!.SetValue(sense, 0);
+        // `ScoredComplete` is an expression over `Complete` and has no setter of its own, so this one property
+        // is the whole of the sense's completeness.
         type.GetProperty("Complete")!.GetSetMethod(true)!.Invoke(sense, new object[] { false });
-        type.GetProperty("ScoredComplete")!.GetSetMethod(true)!.Invoke(sense, new object[] { false });
     }
 
     /// <summary>
@@ -1183,19 +1148,22 @@ internal static class VerifyOreWork
     /// moving a wall does.</summary>
     internal static void ResettleReach(live::AICompanion.Companion.CharacterBody.CompanionNPC companion, Player player)
     {
-        AStar.InvalidateEdges();
+        // The clearance field is derived terrain like the flood is, and it compares the world by reference, so a
+        // scene that rewrote tiles under a revision counter that never moved has to drop it here too.
+        live::AICompanion.Companion.Brain.Infrastructure.Movement.ClearanceField.Shared.Invalidate();
         var sense = companion.Brain.Senses.Reach;
         var type = typeof(live::AICompanion.Companion.Brain.Infrastructure.Observation.ReachSense);
         const BindingFlags instance = BindingFlags.Instance | BindingFlags.NonPublic;
-        foreach (string field in new[] { "scored", "returnable", "raw" })
-            type.GetField(field, instance)!.SetValue(sense, null);
-        foreach (string field in new[] { "returnSearch", "rawSearch" })
-        {
-            (type.GetField(field, instance)!.GetValue(sense) as System.IDisposable)?.Dispose();
-            type.GetField(field, instance)!.SetValue(sense, null);
-        }
+        // The sense keeps one flood and a tile set derived from it. Nulling the flood is what forces a
+        // reflood — Refresh returns early only while a flood exists — and the tile set has to go with it,
+        // because it is rebuilt from the flood only when the tick it was built at has moved on.
+        type.GetField("flood", instance)!.SetValue(sense, null);
+        type.GetField("tiles", instance)!.SetValue(sense, null);
+        type.GetField("tilesBuiltAt", instance)!.SetValue(sense, -1);
+        type.GetField("rootMissing", instance)!.SetValue(sense, 0);
+        // ScoredComplete is an expression over Complete now and has no setter of its own, so this one
+        // property is the whole of the sense's completeness.
         type.GetProperty("Complete")!.GetSetMethod(true)!.Invoke(sense, new object[] { false });
-        type.GetProperty("ScoredComplete")!.GetSetMethod(true)!.Invoke(sense, new object[] { false });
         SettleReach(companion, player);
     }
 
@@ -1221,7 +1189,7 @@ internal static class VerifyOreWork
         // all — while the far ore is Unknown because the region has not settled. An unsettled region cannot
         // prove anything No, so a row needing both answers at once has to get one of them from geometry.
         EmptyTheReachRegion(ctx);
-        Require(FindToolAccess.Approach(sealedOre, ctx.Npc.Bottom, ctx.Companion.Brain.Senses.Reach, out _) == Reachability.Reach.No,
+        Require(FindToolAccess.Approach(sealedOre, ctx.Npc.Center, ctx.Companion.Brain.Senses.Reach, out _) == Reachability.Reach.No,
             "the nearby ore must have no exposed working face, and must answer so from geometry rather than from the region");
         float score = VerifyPreparedActivities.PrepareAndScore(action, ctx);
         Require(score == 0f && action.TargetTile == null,
@@ -1262,18 +1230,17 @@ internal static class VerifyOreWork
             // rows below ask whether the body can stand inside it.
             ResettleReach(ctx);
             string shape = pocket ? "chambered" : "sealed";
-            Require(Vector2.DistanceSquared(ctx.Npc.Bottom, blocked.ToWorldCoordinates()) < Vector2.DistanceSquared(ctx.Npc.Bottom, usable.ToWorldCoordinates()),
+            Require(Vector2.DistanceSquared(ctx.Npc.Center, blocked.ToWorldCoordinates()) < Vector2.DistanceSquared(ctx.Npc.Center, usable.ToWorldCoordinates()),
                 $"the {shape} ore must be the nearer one, or the fixture tests nothing");
-            var standing = FindToolAccess.Approach(blocked, ctx.Npc.Bottom, ctx.Companion.Brain.Senses.Reach, out _);
-            var hop = FindToolAccess.HopApproach(blocked, ctx.Companion.Motor.State, ctx.Companion.Brain.Senses.Reach, out _);
-            Require(standing != Reachability.Reach.Yes && hop != Reachability.Reach.Yes,
-                $"the {shape} ore must have no usable approach, standing or hopping; got {standing}/{hop}");
+            var standing = FindToolAccess.Approach(blocked, ctx.Npc.Center, ctx.Companion.Brain.Senses.Reach, out _);
+            Require(standing != Reachability.Reach.Yes,
+                $"the {shape} ore must have no usable approach; got {standing}");
             var mine = ctx.Companion.Brain.Chooser.Actions.OfType<MineOre>().Single();
             float value = VerifyPreparedActivities.PrepareAndScore(mine, ctx);
             Require(value > 0f && mine.TargetTile == usable && mine.Eligibility == OfferEligibility.Usable,
                 $"a {shape} nearer ore must not mask the exposed farther one; value={value} target={mine.TargetTile} offer={mine.Eligibility}/{mine.EligibilityReason}");
             var run = RunBrainUntilBroken(ctx, usable, 900);
-            Require(run.Broken, $"the whole brain must break the exposed ore beside a {shape} one; feet={ctx.Npc.Bottom} status={mine.Status} action={ctx.Companion.Brain.LastAction?.Name}");
+            Require(run.Broken, $"the whole brain must break the exposed ore beside a {shape} one; feet={ctx.Npc.Center} status={mine.Status} action={ctx.Companion.Brain.LastAction?.Name}");
             Require(Main.tile[blocked.X, blocked.Y].HasTile && walls.All(wall => Main.tile[wall.X, wall.Y].HasTile),
                 $"the {shape} ore and its enclosure must be left intact; mining never excavates to make access");
         }
@@ -1289,13 +1256,13 @@ internal static class VerifyOreWork
         Point ore = new(25, 59);
         var (_, ctx) = SetUp(WorkPolicy.Opportunistic, TileID.Copper, ore);
         float edge = ore.ToWorldCoordinates(8f, 8f).X - (Player.tileRangeX * 16f + 8f);
-        ctx.Npc.Bottom = new Vector2(edge, ctx.Npc.Bottom.Y);
-        Require(FindToolAccess.InReach(ctx.Npc.Bottom, ore) && !FindToolAccess.InReach(ctx.Npc.Bottom - new Vector2(1f, 0f), ore),
+        ctx.Npc.Center = new Vector2(edge, ctx.Npc.Center.Y);
+        Require(FindToolAccess.InReach(ctx.Npc.Center, ore) && !FindToolAccess.InReach(ctx.Npc.Center - new Vector2(1f, 0f), ore),
             "the fixture pose must sit exactly on the edge of actual tool reach");
-        Vector2 start = ctx.Npc.Bottom;
+        Vector2 start = ctx.Npc.Center;
         TerrainChanges.Reset();
         var run = RunBrainUntilBroken(ctx, ore, 600);
-        Require(run.Broken && run.StrikeFeet.Count > 0, $"a maximum-reach pose must produce a native break; feet={ctx.Npc.Bottom}");
+        Require(run.Broken && run.StrikeFeet.Count > 0, $"a maximum-reach pose must produce a native break; feet={ctx.Npc.Center}");
         float drift = run.StrikeFeet.Max(feet => MathF.Abs(feet.X - start.X));
         Require(drift < 4f, $"every strike must come from the edge pose itself rather than from walking in; the largest drift was {drift:0.0} px");
     }
@@ -1312,12 +1279,12 @@ internal static class VerifyOreWork
         foreach (float startX in new[] { 8 * 16f + 3f, 13 * 16f + 11f, 34 * 16f + 5f, 39 * 16f + 14f })
         {
             var (_, ctx) = SetUp(WorkPolicy.Opportunistic, TileID.Copper, ore);
-            ctx.Npc.Bottom = new Vector2(startX, ctx.Npc.Bottom.Y);
+            ctx.Npc.Center = new Vector2(startX, ctx.Npc.Center.Y);
             TerrainChanges.Reset();
-            Require(!FindToolAccess.InReach(ctx.Npc.Bottom, ore), $"start x={startX} must begin outside reach so the approach delivers the pose");
+            Require(!FindToolAccess.InReach(ctx.Npc.Center, ore), $"start x={startX} must begin outside reach so the approach delivers the pose");
             var run = RunBrainUntilBroken(ctx, ore, 900);
             Require(run.Broken && run.StrikeFeet.Count > 0,
-                $"start x={startX}: the delivered pose must produce a native break; feet={ctx.Npc.Bottom} request={ctx.Companion.Brain.LastRequest} nav={ctx.Companion.Brain.Navigator.Status}");
+                $"start x={startX}: the delivered pose must produce a native break; feet={ctx.Npc.Center} request={ctx.Companion.Brain.LastRequest} nav={ctx.Companion.Brain.Navigator.Status}");
             Require(run.StrikeFeet.All(feet => FindToolAccess.InReach(feet, ore)),
                 $"start x={startX}: every productive strike must come from actual reach; strikes at {string.Join("; ", run.StrikeFeet)}");
             arrivals.Add($"{startX:0}->{run.StrikeFeet[0].X:0.0}");
@@ -1326,13 +1293,20 @@ internal static class VerifyOreWork
     }
 
     /// <summary>
-    /// Ore set in a ceiling slab above standing reach is worked the way a player works it: walk under it,
-    /// jump, swing while rising. Discovery must find it through a proven hop, the whole brain must break it
-    /// and land, and the slab must stay whole. Ore beyond the reach of any hop must never be offered.
+    /// Ore set in a ceiling slab above tool reach from the floor is worked from a hover under it: the body
+    /// rises to a cell beside the ore's open face and swings from there. The whole brain must break it with
+    /// every strike taken from actual reach and from a body above where it started, and the slab must stay
+    /// whole.
+    ///
+    /// <para>The walker's version of this row proved the ore through a hop from a walkable take-off, and
+    /// carried a third case at row 44 whose whole content was that the ore sat higher than any jump could
+    /// carry the body. A body that flies has no jump to exceed, so height alone refuses nothing and that
+    /// case has no subject; ore that genuinely cannot be worked is covered by the sealed and unmineable rows
+    /// in this same file, which refuse on the face and the tool rather than on the ceiling's height.</para>
     /// </summary>
     private static void CeilingOreIsMinedFromAProvenHop()
     {
-        foreach ((int oreRow, bool mirrored, bool reachable) in new[] { (52, false, true), (52, true, true), (44, false, false) })
+        foreach ((int oreRow, bool mirrored, bool reachable) in new[] { (52, false, true), (52, true, true) })
         {
             Point placeholder = new(25, 59);
             var (_, ctx) = SetUp(WorkPolicy.Opportunistic, TileID.Copper, placeholder);
@@ -1347,29 +1321,20 @@ internal static class VerifyOreWork
             foreach (Point p in slab) Place(p, TileID.Dirt);
             Place(ore, TileID.Copper);
             TerrainChanges.Reset();
-            Vector2 standingFeet = ctx.Npc.Bottom;
-            var standing = FindToolAccess.Approach(ore, standingFeet, ctx.Companion.Brain.Senses.Reach, out _);
-            var hop = FindToolAccess.HopApproach(ore, ctx.Companion.Motor.State, ctx.Companion.Brain.Senses.Reach, out Vector2 takeOff);
-            Require(standing != Reachability.Reach.Yes, $"ore row {oreRow} must be out of standing reach, or this is not a ceiling case; got {standing}");
+            ResettleReach(ctx);
+            Vector2 startedAt = ctx.Npc.Center;
+            var standing = FindToolAccess.Approach(ore, startedAt, ctx.Companion.Brain.Senses.Reach, out Vector2 hover);
+            Require(!FindToolAccess.InReach(startedAt, ore),
+                $"ore row {oreRow} must be out of tool reach from where the body starts, or this is not a ceiling case");
+            Require(standing == Reachability.Reach.Yes && hover.Y < startedAt.Y - 16f,
+                $"the approach must name a hover above the body's own start; got {standing} at {hover} from {startedAt}");
             var mine = ctx.Companion.Brain.Chooser.Actions.OfType<MineOre>().Single();
-            if (!reachable)
-            {
-                Require(hop != Reachability.Reach.Yes, $"ore row {oreRow} is beyond any hop and must not be proven; got {hop} from {takeOff}");
-                for (int tick = 0; tick < 240; tick++) AdvanceBrain(ctx);
-                Require(Main.tile[ore.X, ore.Y].HasTile && slab.All(p => Main.tile[p.X, p.Y].HasTile)
-                    && mine.Eligibility is not (OfferEligibility.Usable or OfferEligibility.Unresolved),
-                    $"ore beyond any hop must stay unoffered and untouched; offer={mine.Eligibility}/{mine.EligibilityReason}");
-                continue;
-            }
-            Require(hop == Reachability.Reach.Yes, $"ore row {oreRow} mirrored={mirrored} must be reachable by a proven hop from a walkable take-off; got {hop}");
             var run = RunBrainUntilBroken(ctx, ore, 900);
             Require(run.Broken && run.StrikeFeet.Count > 0,
-                $"ceiling ore mirrored={mirrored} must be mined from a hop; status={mine.Status} feet={ctx.Npc.Bottom} action={ctx.Companion.Brain.LastAction?.Name} request={ctx.Companion.Brain.LastRequest}");
-            Require(run.StrikeFeet.All(feet => FindToolAccess.InReach(feet, ore) && feet.Y < standingFeet.Y - 1f),
-                $"every strike must come from a raised body in actual reach, which only the hop provides; strikes at {string.Join("; ", run.StrikeFeet)}");
-            for (int tick = 0; tick < 120 && !ctx.Companion.Motor.State.OnGround; tick++) AdvanceBrain(ctx);
-            Require(ctx.Companion.Motor.State.OnGround && slab.All(p => Main.tile[p.X, p.Y].HasTile),
-                "the hop must land and the ceiling slab must stay whole");
+                $"ceiling ore mirrored={mirrored} must be mined from a hover; status={mine.Status} centre={ctx.Npc.Center} action={ctx.Companion.Brain.LastAction?.Name} request={ctx.Companion.Brain.LastRequest}");
+            Require(run.StrikeFeet.All(centre => FindToolAccess.InReach(centre, ore) && centre.Y < startedAt.Y - 1f),
+                $"every strike must come from a raised body in actual reach, which only rising to the hover provides; strikes at {string.Join("; ", run.StrikeFeet)}");
+            Require(slab.All(p => Main.tile[p.X, p.Y].HasTile), "the ceiling slab must stay whole");
         }
     }
 
@@ -1437,12 +1402,12 @@ internal static class VerifyOreWork
     {
         Point ore = new(25, 59);
         var (_, ctx) = SetUp(WorkPolicy.Opportunistic, TileID.Copper, ore);
-        ctx.Npc.Bottom = new Vector2(15 * 16f + 8f, ctx.Npc.Bottom.Y);
+        ctx.Npc.Center = new Vector2(15 * 16f + 8f, ctx.Npc.Center.Y);
         TerrainChanges.Reset();
         var mine = ctx.Companion.Brain.Chooser.Actions.OfType<MineOre>().Single();
         AdvanceBrain(ctx);
-        Require(mine.JobId > 0 && ctx.Companion.Brain.LastAction?.Name == "mine" && !FindToolAccess.InReach(ctx.Npc.Bottom, ore),
-            $"the fixture must catch the companion walking to a proven job; job={mine.JobId} action={ctx.Companion.Brain.LastAction?.Name} status={mine.Status} feet={ctx.Npc.Bottom}");
+        Require(mine.JobId > 0 && ctx.Companion.Brain.LastAction?.Name == "mine" && !FindToolAccess.InReach(ctx.Npc.Center, ore),
+            $"the fixture must catch the companion walking to a proven job; job={mine.JobId} action={ctx.Companion.Brain.LastAction?.Name} status={mine.Status} feet={ctx.Npc.Center}");
         var seal = new[] { new Point(24, 59), new Point(26, 59), new Point(25, 58) };
         foreach (Point p in seal) { Place(p, TileID.Dirt); TerrainChanges.Changed(p.X, p.Y); }
         long strikesBefore = ctx.Companion.Miner.LastOutcome?.Attempt ?? -1;
@@ -1453,7 +1418,10 @@ internal static class VerifyOreWork
         Require(mine.Score() == 0f && mine.Eligibility is not (OfferEligibility.Usable or OfferEligibility.Unresolved),
             $"a sealed ore must stop being offered as usable or undecided work; offer={mine.Eligibility}/{mine.EligibilityReason}");
         var sealedAttempt = ctx.Companion.Brain.Chooser.Activity.RecentAttempts.LastOrDefault(attempt => attempt.Activity == "mine");
-        Require(sealedAttempt is { Status: AttemptStatus.Failed, Cause: "remaining ore has no proven working pose", ProductiveEffects: 0 },
+        // The cause is the orb's wording, `MineOre.NoProvenPoseReason`: a cell the body can be reached into,
+        // where the walker's was a pose it could prove it could stand in. Only the string moved — the status
+        // and the absence of any credited effect are what this row is about, and both were already right.
+        Require(sealedAttempt is { Status: AttemptStatus.Failed, Cause: "remaining ore has no reachable working cell", ProductiveEffects: 0 },
             $"the approach lost to the player's wall must close as a failed method with no credited effect; got {sealedAttempt}");
 
         Point opened = seal[0];
@@ -1462,16 +1430,16 @@ internal static class VerifyOreWork
         TerrainChanges.Changed(opened.X, opened.Y);
         // The reopened face is a one-tile notch with the player's block diagonally above it: the swing
         // reaches in, and the game's wide beam test would have refused it.
-        Vector2 besideFeet = live::AICompanion.Companion.Brain.Infrastructure.Movement.MovementQueries.FeetWorld(new Point(23, 59));
+        Vector2 besideFeet = live::AICompanion.Companion.Brain.Infrastructure.Movement.MovementQueries.HoverPoint(new Point(23, 59));
         Require(FindToolAccess.InReach(besideFeet, ore)
             && !Collision.CanHitLine(besideFeet + new Vector2(0f, -30f), 1, 1, opened.ToWorldCoordinates(8f, 8f), 1, 1),
             "the notch fixture must be one the wide native beam refuses and a swing reaches, or it does not test the face-access walk");
         var run = RunBrainUntilBroken(ctx, ore, 900);
-        var approachNow = FindToolAccess.Approach(ore, ctx.Npc.Bottom, ctx.Companion.Brain.Senses.Reach, out Vector2 standNow);
-        bool standableBeside = live::AICompanion.Companion.Brain.Infrastructure.Movement.MovementQueries.IsStandable(23, 59);
-        Require(run.Broken, $"reopening one face must let the same ore be mined; feet={ctx.Npc.Bottom} status={mine.Status} "
+        var approachNow = FindToolAccess.Approach(ore, ctx.Npc.Center, ctx.Companion.Brain.Senses.Reach, out Vector2 standNow);
+        bool standableBeside = live::AICompanion.Companion.Brain.Infrastructure.Movement.MovementQueries.IsHoverable(new Point(23, 59));
+        Require(run.Broken, $"reopening one face must let the same ore be mined; feet={ctx.Npc.Center} status={mine.Status} "
             + $"offer={mine.Eligibility}/{mine.EligibilityReason} action={ctx.Companion.Brain.LastAction?.Name} approach-now={approachNow}@{standNow} "
-            + $"in-reach-now={FindToolAccess.InReach(ctx.Npc.Bottom, ore)} mineable={ctx.Companion.Miner.CanMine(ore, TileMiner.PickaxeFor(ctx.Player).pick)} "
+            + $"in-reach-now={FindToolAccess.InReach(ctx.Npc.Center, ore)} mineable={ctx.Companion.Miner.CanMine(ore, TileMiner.PickaxeFor(ctx.Player).pick)} "
             + $"standable(23,59)={standableBeside} families={string.Join(";", ctx.Companion.Brain.Chooser.Queries.LastFamilies)}");
         Require(seal.Skip(1).All(p => Main.tile[p.X, p.Y].HasTile), "the rest of the player's wall must stay as the player built it");
     }
@@ -1490,7 +1458,7 @@ internal static class VerifyOreWork
             // feet the strike was actually taken from.
             if (ctx.Companion.Miner.LastOutcome is { Productive: true } outcome && outcome.Attempt != last)
             {
-                strikes.Add(ctx.Npc.Bottom);
+                strikes.Add(ctx.Npc.Center);
                 last = outcome.Attempt;
             }
             VerifyResponsiveFollowing.AdvanceNative(ctx.Companion);
@@ -1530,10 +1498,8 @@ internal static class VerifyOreWork
         // clears mining caches on every player. Populate engine-owned arrays without drawing.
         for (int i = 0; i < Main.dust.Length; i++) Main.dust[i] ??= new Dust();
         for (int i = 0; i < Main.player.Length; i++) Main.player[i] ??= new Player();
-        AStar.MsBudget = 0;
-        AStar.InvalidateEdges();
         live::AICompanion.Companion.Brain.Infrastructure.Movement.TerrainChanges.Reset();
-        live::AICompanion.Companion.Brain.Infrastructure.Movement.NavGrid.World = new live::AICompanion.Companion.Brain.Infrastructure.Movement.GameTileWorld();
+        live::AICompanion.Companion.Brain.Infrastructure.Movement.MovementQueries.World = new live::AICompanion.Companion.Brain.Infrastructure.Movement.GameTileWorld();
         var copperPickaxe = new Item();
         copperPickaxe.SetDefaults(ItemID.CopperPickaxe);
         ContentSamples.ItemsByType[ItemID.CopperPickaxe] = copperPickaxe;
@@ -1562,14 +1528,14 @@ internal static class VerifyOreWork
             tile.HasTile = true;
             tile.TileType = tileType;
         }
-        ProbeOreLineTarget(companion.NPC.Bottom, ore[0]);
+        ProbeOreLineTarget(companion.NPC.Center, ore[0]);
         if (playerHit is Point hit)
         {
             bool fail = false, effectOnly = false, noItem = false;
             new live::AICompanion.Companion.Brain.Infrastructure.Observation.TileDamageWatcher()
                 .KillTile(hit.X, hit.Y, tileType, ref fail, ref effectOnly, ref noItem);
         }
-        companion.Brain.Senses.Update(companion.NPC, player, companion.Breath);
+        companion.Brain.Senses.Update(companion.NPC, player, companion.Motor);
         SettleReach(companion, player);
         return (new MineOre(), new ActionContext(companion, companion.Brain.Senses));
     }

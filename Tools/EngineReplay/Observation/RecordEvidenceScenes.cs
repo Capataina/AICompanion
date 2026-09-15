@@ -9,6 +9,9 @@ using ActionContext = live::AICompanion.Companion.Brain.Activities.ActionContext
 using MineOre = live::AICompanion.Companion.Brain.Activities.Gathering.MineOre;
 using LiveMovementQueries = live::AICompanion.Companion.Brain.Infrastructure.Movement.MovementQueries;
 using LiveLimitPlanningWork = live::AICompanion.Companion.Brain.Infrastructure.Movement.LimitPlanningWork;
+using LiveTerrainChanges = live::AICompanion.Companion.Brain.Infrastructure.Movement.TerrainChanges;
+using LiveGameTileWorld = live::AICompanion.Companion.Brain.Infrastructure.Movement.GameTileWorld;
+using WorkPolicy = live::AICompanion.Companion.Brain.Activities.WorkPolicy;
 
 /// <summary>
 /// Records one unproductive native scene per purpose family through the real recorder and the real event writer, and
@@ -94,25 +97,30 @@ internal static class RecordEvidenceScenes
     }
 
     /// <summary>
-    /// The lost take-off of <see cref="VerifyMiningHops"/>: a ceiling ore whose only face is underneath, a proven hop take-off
-    /// the body has to walk to, and water poured onto it before the body arrives, so the dry jump it was proven with is gone.
+    /// The gathering stall, rebuilt for a body that flies. It used to be the lost take-off of the hop suite — a ceiling ore
+    /// reached by jumping from a spot elsewhere, with water poured onto that spot while the body walked to it — and neither
+    /// the take-off nor the jump exists now. The orb's version of "work it wants and cannot get to" is the same shape the
+    /// suite's other unreachable scenes use: an ore walled into a pocket the body does not fit through, close enough to be
+    /// seen and offered, with a way in one tile wide.
     /// </summary>
     private static ActionContext GatheringTakeOffDrownedUnderTheWalkingBody()
     {
         Point ore = new(25, 52);
-        var ctx = VerifyMiningHops.BuildCeilingScene(ore, slabTop: 51);
-        ctx.Npc.Bottom = new Vector2(10 * 16 + 8, 60 * 16);
-        var mine = ctx.Companion.Brain.Chooser.Actions.OfType<MineOre>().Single();
-        VerifyOreWork.AdvanceBrain(ctx);
-        if (mine.TargetStandPosition is not Vector2 takeOff)
-            throw new InvalidOperationException($"the ceiling scene offered no hop take-off; status={mine.Status}");
-        Point tile = LiveMovementQueries.FeetTile(takeOff);
-        for (int x = tile.X - 2; x <= tile.X + 2; x++)
-        {
-            Tile water = Main.tile[x, tile.Y];
-            water.LiquidType = LiquidID.Water;
-            water.LiquidAmount = 255;
-        }
+        var (_, ctx) = VerifyOreWork.SetUp(WorkPolicy.Opportunistic, TileID.Copper, ore);
+        // A box around the ore with a single tile of opening: no corner inside that opening has four free tiles
+        // around it, so the flood has no way in and the pocket is closed to a body ten pixels in radius.
+        for (int x = 23; x <= 27; x++)
+            for (int y = 50; y <= 54; y++)
+                if (new Point(x, y) != ore && (x is 23 or 27 || y is 50 or 54))
+                    VerifyOreWork.Place(new Point(x, y), TileID.Dirt);
+        for (int x = 24; x <= 26; x++)
+            for (int y = 51; y <= 53; y++)
+                if (new Point(x, y) != ore) Main.tile[x, y].ClearEverything();
+        Main.tile[25, 50].ClearEverything();
+        ctx.Npc.Center = LiveMovementQueries.HoverPoint(new Point(10, 59));
+        LiveTerrainChanges.Reset();
+        LiveMovementQueries.World = new LiveGameTileWorld();
+        VerifyOreWork.ResettleReach(ctx);
         return ctx;
     }
 

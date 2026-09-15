@@ -106,7 +106,9 @@ internal static class VerifySafetyAftermath
             if (wasSpacing && !brain.Safety.Active && brain.Safety.LastEndReason == "safe-state-observed")
             {
                 endedAfterSpacing++;
-                if (companion.Motor.State.OnGround && !companion.NPC.wet) landedAfterSpacing++;
+                // "Landed" for a body that hovers is being clear of terrain and out of anything that hurts it,
+                // which is the settled state the walker's ground flag stood for here.
+                if (companion.Motor.ClearOfTerrain && !companion.Motor.InHurtingLiquid) landedAfterSpacing++;
             }
             wasSpacing = isSpacing;
             VerifyResponsiveFollowing.AdvanceNative(companion);
@@ -215,7 +217,6 @@ internal static class VerifySafetyAftermath
         Main.player[0].Bottom = new Vector2(2024, 1376);
         companion.NPC.position = new Vector2(1356, 2016 - companion.NPC.height);
         companion.NPC.velocity = Vector2.Zero; companion.NPC.wet = true; companion.NPC.active = true;
-        typeof(live::AICompanion.Companion.CharacterBody.CompanionBreath).GetProperty("Breath")!.SetValue(companion.Breath, 40);
         if (shotAt is Vector2 at) HostileShot(at, Vector2.Zero);
         var kinds = new SortedSet<string>();
         int dry = 0;
@@ -228,10 +229,10 @@ internal static class VerifySafetyAftermath
             bool air = !Collision.DrownCollision(companion.NPC.position, companion.NPC.width, companion.NPC.height, 1f);
             if (air && dry == 0) firstAir = companion.NPC.Center;
             dry = air ? dry + 1 : 0;
-            if (companion.IsDowned || companion.NPC.life <= 0) return (-1, companion.NPC.life, companion.Breath.Breath, firstAir, string.Join(",", kinds));
-            if (dry >= 30) return (tick, companion.NPC.life, companion.Breath.Breath, firstAir, string.Join(",", kinds));
+            if (companion.IsDowned || companion.NPC.life <= 0) return (-1, companion.NPC.life, companion.Motor.LiquidContactTicks, firstAir, string.Join(",", kinds));
+            if (dry >= 30) return (tick, companion.NPC.life, companion.Motor.LiquidContactTicks, firstAir, string.Join(",", kinds));
         }
-        return (-1, companion.NPC.life, companion.Breath.Breath, firstAir, string.Join(",", kinds));
+        return (-1, companion.NPC.life, companion.Motor.LiquidContactTicks, firstAir, string.Join(",", kinds));
     }
 
     /// <summary>
@@ -270,7 +271,7 @@ internal static class VerifySafetyAftermath
         for (int tick = 0; tick < 40 && hitAt < 0; tick++)
         {
             Tick(companion);
-            controls.Add($"{companion.Brain.Senses.Projectiles.Threats.Count}{companion.Brain.Safety.Kind}:{companion.Motor.AppliedControls.MoveX:0.#}{(companion.Motor.AppliedControls.Jump ? "J" : "")}");
+            controls.Add($"{companion.Brain.Senses.Projectiles.Threats.Count}{companion.Brain.Safety.Kind}:{companion.Motor.AppliedControls.Desired.X:0.#},{companion.Motor.AppliedControls.Desired.Y:0.#}");
             VerifyResponsiveFollowing.AdvanceNative(companion);
             arrow.position += arrow.velocity;
             if (arrow.Hitbox.Intersects(companion.NPC.Hitbox)) hitAt = tick;

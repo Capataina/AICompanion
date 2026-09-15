@@ -8,7 +8,7 @@ using Terraria.Map;
 using BrainTelemetry = live::AICompanion.Companion.Brain.Infrastructure.Diagnostics.BrainTelemetry;
 using CompanionNPC = live::AICompanion.Companion.CharacterBody.CompanionNPC;
 using LimitPlanningWork = live::AICompanion.Companion.Brain.Infrastructure.Movement.LimitPlanningWork;
-using NavGrid = live::AICompanion.Companion.Brain.Infrastructure.Movement.NavGrid;
+using MovementQueries = live::AICompanion.Companion.Brain.Infrastructure.Movement.MovementQueries;
 using GameTileWorld = live::AICompanion.Companion.Brain.Infrastructure.Movement.GameTileWorld;
 using TerrainChanges = live::AICompanion.Companion.Brain.Infrastructure.Movement.TerrainChanges;
 
@@ -46,7 +46,7 @@ internal static class VerifyTravelEpisodes
         int failed = 0;
         try
         {
-            failed += VerifyMovementFailures.Case("a journey interrupted by a death is not charged the death's ticks",
+            failed += RunOneRow.Case("a journey interrupted by a death is not charged the death's ticks",
                 ADeathInsideAJourneyIsNotChargedToTravel, "travel episodes");
         }
         finally
@@ -163,7 +163,7 @@ internal static class VerifyTravelEpisodes
         }
         CompanionNPC companion = VerifyCompanionLifecycle.Create();
         TerrainChanges.Reset();
-        NavGrid.World = new GameTileWorld();
+        MovementQueries.World = new GameTileWorld();
         companion.NPC.position = new Vector2(30 * 16 + 8 - companion.NPC.width / 2f, FloorRow * 16 - companion.NPC.height);
         companion.NPC.velocity = Vector2.Zero;
         Player player = Main.player[0];

@@ -27,8 +27,8 @@ public sealed class BrainOverlay : ModSystem
     public static bool Enabled, ShowWorld = true;
     public static bool ShowThreats = true, ShowPredictions = true, ShowRoutes = true, ShowCandidates = true;
     public static bool ShowProjectiles = true, ShowAiming = true, ShowMovement = true, ShowAttention = true, ShowRegion = true;
-    public static bool ShowFollow = true, ShowSenses = true, ShowSafety = true, ShowCost = true;
-    public const int AllLayers = 1 | 2 | 4 | 8 | 16 | 32 | 64 | 128 | 256 | 512 | 1024 | 2048 | 4096 | 8192;
+    public static bool ShowFollow = true, ShowSenses = true, ShowSafety = true, ShowCost = true, ShowClearance = true;
+    public const int AllLayers = 1 | 2 | 4 | 8 | 16 | 32 | 64 | 128 | 256 | 512 | 1024 | 2048 | 4096 | 8192 | 16384;
 
     /// <summary>
     /// The layer switches as one integer, so the character save can carry which drawings the
@@ -39,22 +39,24 @@ public sealed class BrainOverlay : ModSystem
     /// The bit order is the menu order and must not be reshuffled, because an older save's integer
     /// is read against it; a new layer is appended at the next bit, which is how the success-region
     /// layer took bit 9 and the four intent layers took bits 10 to 13, and an older save simply
-    /// leaves it off. The three dense layers still to come — the candidate grid by rejection reason,
-    /// the reach flood tint and the light field — take bits 14 upward, so nothing below is reused.
+    /// leaves it off. The clearance field took bit 14; the two dense layers still to come — the
+    /// candidate grid by rejection reason and the light field — take bits 15 upward, so nothing
+    /// below is reused.
     /// </summary>
     public static int Layers
     {
         get => (ShowWorld ? 1 : 0) | (ShowThreats ? 2 : 0) | (ShowPredictions ? 4 : 0)
             | (ShowProjectiles ? 8 : 0) | (ShowRoutes ? 16 : 0) | (ShowCandidates ? 32 : 0)
             | (ShowAiming ? 64 : 0) | (ShowMovement ? 128 : 0) | (ShowAttention ? 256 : 0) | (ShowRegion ? 512 : 0)
-            | (ShowFollow ? 1024 : 0) | (ShowSenses ? 2048 : 0) | (ShowSafety ? 4096 : 0) | (ShowCost ? 8192 : 0);
+            | (ShowFollow ? 1024 : 0) | (ShowSenses ? 2048 : 0) | (ShowSafety ? 4096 : 0) | (ShowCost ? 8192 : 0)
+            | (ShowClearance ? 16384 : 0);
         set
         {
             ShowWorld = (value & 1) != 0; ShowThreats = (value & 2) != 0; ShowPredictions = (value & 4) != 0;
             ShowProjectiles = (value & 8) != 0; ShowRoutes = (value & 16) != 0; ShowCandidates = (value & 32) != 0;
             ShowAiming = (value & 64) != 0; ShowMovement = (value & 128) != 0; ShowAttention = (value & 256) != 0;
             ShowRegion = (value & 512) != 0; ShowFollow = (value & 1024) != 0; ShowSenses = (value & 2048) != 0;
-            ShowSafety = (value & 4096) != 0; ShowCost = (value & 8192) != 0;
+            ShowSafety = (value & 4096) != 0; ShowCost = (value & 8192) != 0; ShowClearance = (value & 16384) != 0;
         }
     }
 
@@ -73,15 +75,12 @@ public sealed class BrainOverlay : ModSystem
     public override void Load()
     {
         ToggleKey = KeybindLoader.RegisterKeybind(Mod, "BrainOverlay", "OemOpenBrackets");
-        PlanLocalMovement.CaptureRequested = () => MayCapture && ShowMovement;
-        PlanLocalMovement.CandidateEvaluated = BrainInspectorSamples.RecordMovement;
         TrajectoryAimer.CaptureRequested = () => MayCapture && ShowAiming;
         TrajectoryAimer.TraceEvaluated = BrainInspectorSamples.RecordTrace;
     }
     public override void Unload()
     {
         ToggleKey = null; Enabled = false;
-        PlanLocalMovement.CaptureRequested = null; PlanLocalMovement.CandidateEvaluated = null;
         TrajectoryAimer.CaptureRequested = null; TrajectoryAimer.TraceEvaluated = null;
         BrainInspectorSamples.Reset();
     }
@@ -115,7 +114,7 @@ public sealed class BrainOverlay : ModSystem
         => new(12, 12, Math.Max(200, Math.Min(440, width - 24)), Math.Max(180, Math.Min(540, height - 24)));
     private static Rectangle Bounds => PanelBounds((int)(Main.screenWidth / Main.UIScale), (int)(Main.screenHeight / Main.UIScale));
     private static Point Mouse => new((int)(Main.mouseX / Main.UIScale), (int)(Main.mouseY / Main.UIScale));
-    private static readonly string[] labels = { "Show world drawings", "Enemies and their velocity", "Predicted enemy movement", "Incoming projectiles", "Current route and destination", "Alternative destinations", "Aiming and rejected shots", "Movement and dodge choices", "Targets and attention", "Where the purpose succeeds", "Where following wants it", "What it senses", "Safety response", "Cost of thinking" };
+    private static readonly string[] labels = { "Show world drawings", "Enemies and their velocity", "Predicted enemy movement", "Incoming projectiles", "Current route and destination", "Alternative destinations", "Aiming and rejected shots", "Movement and dodge choices", "Targets and attention", "Where the purpose succeeds", "Where following wants it", "What it senses", "Safety response", "Cost of thinking", "Clearance field" };
     private static readonly string[] hints = {
         "Hide all drawings without losing your selected layers.", "Red boxes are observed bodies; arrows show current velocity.",
         "Yellow paths contain only samples the brain calculated. Future enemy decisions remain unknown.",
@@ -130,14 +129,15 @@ public sealed class BrainOverlay : ModSystem
         "Yellow is the continuation the brain predicts from your recent movement, labelled with its confidence and how many samples back it. A diamond is a drop: white it can reach, orange it has proven it cannot, hollow not yet flooded. The companion's own label carries its breath and the encounter pressure charged against optional work.",
         "Orange appears only while shared safety holds the body: the response's kind and phase join the companion's label, and the line runs to the air or landing tile it is escaping to. Nothing is drawn when no response is active.",
         "One column per tick of the last second: how long deciding, positioning and navigating took together. The hairline is eight milliseconds, half a frame, and the scale never moves, so a spike reads as a spike. White is under four milliseconds, orange at or above it.",
+        "Every free tile near the companion tinted by how far it is from the nearest wall: dark red is a tile the body cannot fit in, and the tint fades to nothing at the field's cap. This is the field the route search prices, so the route runs where the tint is faintest.",
     };
     // Every index is named and the default is false rather than the last layer, because a default arm holding a real layer
     // silently maps the next bit anyone appends onto that layer's toggle instead of onto its own — which is exactly what the
     // arm did when it read `_ => ShowRegion` and four layers were appended after it.
-    private static bool Value(int i) => i switch { 0 => ShowWorld, 1 => ShowThreats, 2 => ShowPredictions, 3 => ShowProjectiles, 4 => ShowRoutes, 5 => ShowCandidates, 6 => ShowAiming, 7 => ShowMovement, 8 => ShowAttention, 9 => ShowRegion, 10 => ShowFollow, 11 => ShowSenses, 12 => ShowSafety, 13 => ShowCost, _ => false };
+    private static bool Value(int i) => i switch { 0 => ShowWorld, 1 => ShowThreats, 2 => ShowPredictions, 3 => ShowProjectiles, 4 => ShowRoutes, 5 => ShowCandidates, 6 => ShowAiming, 7 => ShowMovement, 8 => ShowAttention, 9 => ShowRegion, 10 => ShowFollow, 11 => ShowSenses, 12 => ShowSafety, 13 => ShowCost, 14 => ShowClearance, _ => false };
     private static void Flip(int i)
     {
-        switch (i) { case 0: ShowWorld = !ShowWorld; break; case 1: ShowThreats = !ShowThreats; break; case 2: ShowPredictions = !ShowPredictions; break; case 3: ShowProjectiles = !ShowProjectiles; break; case 4: ShowRoutes = !ShowRoutes; break; case 5: ShowCandidates = !ShowCandidates; break; case 6: ShowAiming = !ShowAiming; break; case 7: ShowMovement = !ShowMovement; break; case 8: ShowAttention = !ShowAttention; break; case 9: ShowRegion = !ShowRegion; break; case 10: ShowFollow = !ShowFollow; break; case 11: ShowSenses = !ShowSenses; break; case 12: ShowSafety = !ShowSafety; break; case 13: ShowCost = !ShowCost; break; }
+        switch (i) { case 0: ShowWorld = !ShowWorld; break; case 1: ShowThreats = !ShowThreats; break; case 2: ShowPredictions = !ShowPredictions; break; case 3: ShowProjectiles = !ShowProjectiles; break; case 4: ShowRoutes = !ShowRoutes; break; case 5: ShowCandidates = !ShowCandidates; break; case 6: ShowAiming = !ShowAiming; break; case 7: ShowMovement = !ShowMovement; break; case 8: ShowAttention = !ShowAttention; break; case 9: ShowRegion = !ShowRegion; break; case 10: ShowFollow = !ShowFollow; break; case 11: ShowSenses = !ShowSenses; break; case 12: ShowSafety = !ShowSafety; break; case 13: ShowCost = !ShowCost; break; case 14: ShowClearance = !ShowClearance; break; }
     }
     public static void CaptureInput()
     {
@@ -333,21 +333,40 @@ public sealed class BrainOverlay : ModSystem
         if (ShowPredictions) foreach (var t in brain.Senses.Threats.Threats) Path(sb, Infrastructure.Observation.PredictObservedMotion.ExistingForecast(t.Npc), Color.Yellow * .7f);
         if (ShowProjectiles) foreach (var p in brain.Senses.Projectiles.Threats)
         { Border(sb, WorldRect(p.Hitbox), Color.Orange); Line(sb, p.Hitbox.Center.ToVector2(), p.Predict(30).Center.ToVector2(), Color.Orange); }
+        if (ShowClearance)
+        {
+            // The field the route search prices, drawn under the route so the route can be read
+            // against it: a tile the body cannot fit in is red, and the tint fades to nothing at the
+            // field's cap. Read from the shared field, never recomputed, so the drawing is the search's.
+            const int Radius = 14;
+            Point at = MovementQueries.Tile(c.NPC.Center);
+            var world = MovementQueries.World;
+            for (int dx = -Radius; dx <= Radius; dx++)
+                for (int dy = -Radius; dy <= Radius; dy++)
+                {
+                    int x = at.X + dx, y = at.Y + dy;
+                    if (!MovementQueries.IsFreeForOrb(x, y)) continue;
+                    float clearance = Infrastructure.Movement.ClearanceField.Shared.At(world, x, y);
+                    float share = 1f - Math.Clamp(clearance / Infrastructure.Movement.ClearanceField.MaxTiles, 0f, 1f);
+                    if (share <= 0f) continue;
+                    Fill(sb, WorldRect(new Rectangle(x * 16, y * 16, 16, 16)), Color.Red * (.5f * share));
+                }
+        }
         if (ShowRoutes && brain.Navigator.Path is { } route)
         {
-            Vector2 previous = c.NPC.Bottom;
-            for (int i = route.Index; i < Math.Min(route.Steps.Count, route.Index + 128); i++)
+            Vector2 previous = c.NPC.Center;
+            for (int i = route.Index + 1; i < Math.Min(route.Count, route.Index + 128); i++)
             {
-                var step = route.Steps[i]; Vector2 p = NavGrid.FeetWorld(step.Tile);
-                Color colour = step.Kind switch { MoveKind.Jump => Color.Gold, MoveKind.Drop => Color.SkyBlue, MoveKind.FallThrough => Color.Violet, _ => Color.LimeGreen };
-                Line(sb, previous, p, colour * .65f); Dot(sb, p, colour, 5); previous = p;
+                Vector2 p = route.Points[i];
+                Line(sb, previous, p, Color.LimeGreen * .65f); Dot(sb, p, Color.LimeGreen, 5); previous = p;
             }
+            Dot(sb, brain.Navigator.Lookahead, Color.Gold, 6);
         }
         if (ShowRoutes && brain.Positioner.Chosen is Vector2 chosen) Dot(sb, chosen, Color.White, 9);
         if (ShowCandidates) foreach (string sample in brain.Positioner.CandidateEvidence.Split('|'))
         {
             string[] fields = sample.Split(':'); string[] xy = fields[0].Split(',');
-            if (xy.Length == 2 && int.TryParse(xy[0], out int x) && int.TryParse(xy[1], out int y)) Dot(sb, NavGrid.FeetWorld(new Point(x, y)), Color.Cyan, 5);
+            if (xy.Length == 2 && int.TryParse(xy[0], out int x) && int.TryParse(xy[1], out int y)) Dot(sb, MovementQueries.HoverPoint(new Point(x, y)), Color.Cyan, 5);
         }
         if (ShowAiming) foreach (var trace in BrainInspectorSamples.AimTraces)
             if (Main.GameUpdateCount - trace.Tick <= 60 && trace.Points.Length > 0)
@@ -365,7 +384,7 @@ public sealed class BrainOverlay : ModSystem
         {
             foreach (var trace in BrainInspectorSamples.MovementTraces) if (Main.GameUpdateCount - trace.Tick <= 30 && trace.Points.Length > 0)
             { Path(sb, trace.Points, trace.Accepted ? Color.Cyan : Color.Red * .65f); HoverEvidence(trace.Points[^1], trace.Reason); }
-            if (BrainInspectorSamples.LastReflex is { } r && Main.GameUpdateCount - r.Tick <= 30) Dot(sb, r.Body.Feet, Color.OrangeRed, 12);
+            if (BrainInspectorSamples.LastReflex is { } r && Main.GameUpdateCount - r.Tick <= 30) Dot(sb, r.Body.Centre, Color.OrangeRed, 12);
         }
         if (ShowAttention)
         {
@@ -415,7 +434,7 @@ public sealed class BrainOverlay : ModSystem
         // on the box, so a body drifting to an edge is visible before it is a complaint.
         Vector2 player = brain.Senses.Player.Bottom;
         var region = brain.Senses.Intent.Region;
-        float pull = MathF.Min(1f, region.Pull(brain.Senses.Companion.Bottom));
+        float pull = MathF.Min(1f, region.Pull(brain.Senses.Companion.Center));
         Color regionTint = Color.Lerp(Color.LightGreen, Color.Orange, pull);
         Box(sb, region.Centre, region.HalfSize, regionTint);
         if (region.Lead.LengthSquared() > 1f)
@@ -424,7 +443,7 @@ public sealed class BrainOverlay : ModSystem
             ScreenRing(sb, Screen(region.LeadingEdge), MeetingRing * .5f, regionTint);
         }
         Label(sb, Screen(region.Centre) - new Vector2(0, region.HalfSize.Y),
-            $"intent {(region.IsTravelling ? "travelling" : "still")} pull {pull:F2} settled {brain.Senses.Intent.GroundedInsideTicks}", regionTint);
+            $"intent {(region.IsTravelling ? "travelling" : "still")} pull {pull:F2} settled {brain.Senses.Intent.RestingInsideTicks}", regionTint);
         DashedBox(sb, brain.LastRequest.Anchor, region.HalfSize * .25f, Color.LightGreen);
         Ring(sb, player, Infrastructure.Selection.Weights.CalmBandNear, Color.LightGreen * .3f);
         Ring(sb, player, Infrastructure.Selection.Weights.CalmBandFar, Color.LightGreen * .3f);
@@ -448,7 +467,7 @@ public sealed class BrainOverlay : ModSystem
         }
         foreach (var pickup in brain.Senses.Loot.Pickups)
         {
-            bool reachable = brain.Positioner.Reaches(NavGrid.FeetTile(pickup.Item.Bottom));
+            bool reachable = brain.Positioner.Reaches(MovementQueries.Tile(pickup.Item.Bottom));
             bool known = reachable || brain.Positioner.ReachComplete;
             Diamond(sb, pickup.Item.Center, LootDiamond, reachable ? Color.White : known ? Color.Orange : Color.LightSteelBlue, known);
         }
@@ -458,7 +477,7 @@ public sealed class BrainOverlay : ModSystem
     {
         string text = "";
         if (ShowSenses)
-            text = $"breath {brain.Senses.Self.BreathFraction:0.00}  pressure {brain.Senses.Encounter.PressureTicks}";
+            text = $"wet {brain.Senses.Self.LiquidContactTicks}  pressure {brain.Senses.Encounter.PressureTicks}";
         if (ShowSafety && brain.Safety.Active)
             text = (text.Length > 0 ? text + "  " : "")
                 + $"{brain.Safety.Kind}: {(brain.Safety.Escape.EscapeActive ? brain.Safety.Escape.EscapeStage : brain.Safety.Reason)}";

@@ -24,10 +24,9 @@ public static class GodsEyeEvents
     private static readonly Dictionary<int, int> projectileGenerations = new();
     private static readonly Dictionary<int, int> itemGenerations = new();
     private static int sequence;
-    private static int lastMovementEdges = -1;
+    private static int lastMovementSteps = -1;
     private static Navigator.ExecutionStatus lastMovementStatus;
-    private static PlanLocalMovement.Rejection? lastMovementRejection;
-    private static MovementFailureReport? lastMovementFailure;
+    private static AttemptEnding? lastMovementEnding;
     private static string? lastNavigationEvidence;
     private static string? lastActivityEvidence;
     private static string? lastControlEvidence;
@@ -121,8 +120,8 @@ public static class GodsEyeEvents
         writer = new StreamWriter(new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.Read));
         npcGenerations.Clear(); projectileGenerations.Clear(); itemGenerations.Clear(); sequence = 0;
         RecordTerrainChunks.Reset();
-        lastMovementEdges = -1;
-        lastMovementRejection = null;
+        lastMovementSteps = -1;
+        lastMovementEnding = null;
         lastNavigationEvidence = null;
         lastActivityEvidence = null;
         lastControlEvidence = null;
@@ -233,15 +232,13 @@ public static class GodsEyeEvents
 
     public static void RecordMovementState(NPC companion, Navigator navigator)
     {
-        if (navigator.Status == lastMovementStatus && navigator.EdgeCount == lastMovementEdges
-            && navigator.LastRejection == lastMovementRejection && navigator.LastFailure == lastMovementFailure
-            && Main.GameUpdateCount % 60 != 0) return;
+        if (navigator.Status == lastMovementStatus && navigator.RemainingRouteSteps == lastMovementSteps
+            && navigator.LastEnding == lastMovementEnding && Main.GameUpdateCount % 60 != 0) return;
         lastMovementStatus = navigator.Status;
-        lastMovementEdges = navigator.EdgeCount;
-        lastMovementRejection = navigator.LastRejection;
-        lastMovementFailure = navigator.LastFailure;
-        string detail = $"status={navigator.Status};search={navigator.LastSearchStop};goal={navigator.GoalTile};partial={navigator.Path?.Partial};edges={navigator.EdgeCount};last-edge={navigator.LastEdge};preparation={navigator.PreparationResult};last-rejection={navigator.LastRejection};failure={navigator.Failure};failure-reason={navigator.LastFailure?.Reason ?? "-"};attempt-ending={navigator.LastEnding?.ToString() ?? "-"}";
-        RecordMovementOutcome(companion, navigator.Path is { Finished: false } path ? path.Current.ToString() : "none", "state", detail);
+        lastMovementSteps = navigator.RemainingRouteSteps;
+        lastMovementEnding = navigator.LastEnding;
+        string detail = FormattableString.Invariant($"status={navigator.Status};search={navigator.LastSearchStop};goal={navigator.GoalTile};route-steps={navigator.Path?.Count ?? 0};route-index={navigator.Path?.Index ?? -1};remaining-steps={navigator.RemainingRouteSteps};progress={navigator.ProgressReason};stuck-ticks={navigator.StuckTicks};stuck-strikes={navigator.StuckStrikes};attempt-ending={navigator.LastEnding?.ToString() ?? "-"}");
+        RecordMovementOutcome(companion, navigator.Path is { } path ? "segment-" + path.Index.ToString(CultureInfo.InvariantCulture) : "none", "state", detail);
     }
 
     /// <summary>
@@ -265,8 +262,8 @@ public static class GodsEyeEvents
     /// <summary>
     /// One finished journey: one continuous stretch of wanting one kind of place, from the tick it began to the tick it
     /// ended. The three times are deliberately separate and not one ratio, because they answer different questions — the
-    /// proven total is what the route's own steps were priced at, the actual is what the body took, and the player's is
-    /// what a body that definitely can do it took over the same ground. A player comparison of "-" means the player's
+    /// planned total is the first route's length at the orb's top pace, the actual is what the body took, and the player's
+    /// is what a body that definitely can do it took over the same ground. A player comparison of "-" means the player's
     /// recorded trail never covered both ends, which is missing coverage rather than a player who was slower.
     ///
     /// The actual is the span between the two tick stamps less the ticks the body spent downed, which travel beside it so
@@ -278,7 +275,7 @@ public static class GodsEyeEvents
     {
         if (!Accepting()) return;
         Write("route-episode", Stable(npcGenerations, companion.whoAmI), "", request, outcome, companion.Bottom, Vector2.Zero, Vector2.Zero, actualTicks,
-            FormattableString.Invariant($"start-tick={startTick};end-tick={endTick};outcome={outcome};planned-ticks={plannedTicks};actual-ticks={actualTicks};downed-ticks={downedTicks};player-ticks={playerTicks};straight-tiles={straightTiles:0.00};path-tiles={pathTiles:0.00};mean-speed-px-per-tick={meanSpeed:0.00};planned-scope=sum-of-proven-step-ticks-for-steps-that-finished;actual-scope=span-less-downed-ticks;player-scope=tightest-recorded-trail-crossing-within-2-tiles-of-both-ends"));
+            FormattableString.Invariant($"start-tick={startTick};end-tick={endTick};outcome={outcome};planned-ticks={plannedTicks};actual-ticks={actualTicks};downed-ticks={downedTicks};player-ticks={playerTicks};straight-tiles={straightTiles:0.00};path-tiles={pathTiles:0.00};mean-speed-px-per-tick={meanSpeed:0.00};planned-scope=first-route-length-at-top-pace;actual-scope=span-less-downed-ticks;player-scope=tightest-recorded-trail-crossing-within-2-tiles-of-both-ends"));
     }
 
     /// <summary>
@@ -288,12 +285,12 @@ public static class GodsEyeEvents
     /// with it, so a finding built on this can be argued with.
     /// </summary>
     public static void RecordStop(NPC companion, ulong startTick, ulong endTick, int ticks, string reason,
-        bool grounded, bool airborne, bool sameStep, bool replanned, bool nextFromRest, float fastestSideways,
+        bool againstWall, bool sameSegment, bool replanned, float fastestSpeed,
         float stoppedPixelsPerTick, int stoppedTicks)
     {
         if (!Accepting()) return;
-        Write("stop", Stable(npcGenerations, companion.whoAmI), "", reason, reason, companion.Bottom, companion.velocity, Vector2.Zero, ticks,
-            FormattableString.Invariant($"start-tick={startTick};end-tick={endTick};ticks={ticks};reason={reason};grounded-throughout={grounded};airborne-throughout={airborne};same-step-throughout={sameStep};replanned-during={replanned};next-step-from-rest={nextFromRest};fastest-sideways-px-per-tick={fastestSideways:0.00};threshold-px-per-tick={stoppedPixelsPerTick:0.00};threshold-ticks={stoppedTicks};scope=ordinary-travel-owner-with-an-executable-or-partial-route"));
+        Write("stop", Stable(npcGenerations, companion.whoAmI), "", reason, reason, companion.Center, companion.velocity, Vector2.Zero, ticks,
+            FormattableString.Invariant($"start-tick={startTick};end-tick={endTick};ticks={ticks};reason={reason};against-wall-throughout={againstWall};same-segment-throughout={sameSegment};replanned-during={replanned};fastest-px-per-tick={fastestSpeed:0.00};threshold-px-per-tick={stoppedPixelsPerTick:0.00};threshold-ticks={stoppedTicks};scope=ordinary-travel-owner-with-an-executable-or-direct-route"));
     }
 
     public static void RecordTerrainSnapshot(int x, int y, string data)

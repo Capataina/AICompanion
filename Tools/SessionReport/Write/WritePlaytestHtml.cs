@@ -46,10 +46,12 @@ public static class WritePlaytestHtml
             {
                 float px = 0, py = 0;
                 bool player = session.Has("player_px") && Session.TryPair(session["player_px"].Text[i], out px, out py);
-                float? nx = Number(session, "observed_left", i), width = Number(session, "npc_width", i);
-                if (nx.HasValue && width.HasValue) nx += width / 2;
+                // The orb's centre, which is the only body position the record carries; there is no
+                // left edge and no width to reconstruct one from.
+                float nx = 0, ny = 0;
+                bool body = session.Has("npc_px") && Session.TryPair(session["npc_px"].Text[i], out nx, out ny);
                 samples.Add(new Sample(session.Tick(i), Number(session, "wall_elapsed_ms", i) ?? 0,
-                    player ? px : null, player ? py : null, nx, Number(session, "observed_bottom", i),
+                    player ? px : null, player ? py : null, body ? nx : null, body ? ny : null,
                     columns.Select(column => session[column].Text[i]).ToArray()));
             }
             var coverage = new Coverage();

@@ -159,6 +159,40 @@ internal static class VerifyHuntAdmissibility
             "the sealed case must settle its reachable region before a refusal means anything");
         Require(!companion.Arsenal.CanEngage(ctx, enemy),
             "the sealed case needs the chamber to actually block the shot from where the companion stands");
+        // A settled reachable region is not a settled firing sweep, and this row needs both. The stand sweep
+        // over candidate firing positions is bounded per preparation and grows across successive ones, exactly
+        // as the reach flood does, so one preparation reports `firing-position-undecided` — a question still
+        // open — rather than the proven absence this row is about. That is the production rule working: an
+        // exhausted bound is deliberately not a negative. The sibling rows in `VerifyOfferValidity` settle the
+        // same sweep the same way and record what it cost them (twenty scans on one scene, thirty-two passes on
+        // another), so the count is a property of the scene rather than a constant anyone can assume.
+        //
+        // The ceiling is a fixture guard and not a contract: it exists so a sweep that never settles fails as a
+        // broken premise naming its own pass count, instead of spinning for ever or, worse, falling out of the
+        // loop still undecided and reading as a behaviour result.
+        // The sweep resumes on the clock the firing cache is keyed to, so the loop runs that clock and nothing
+        // else: the threat list, the urgency and the terrain stay exactly as the scene built them, where a
+        // fresh `Senses.Update` would rebuild them. Re-preparing without moving the clock re-reads one cached
+        // answer for ever — four hundred preparations left the sweep on its first scan — which is the same
+        // driver `VerifyFiringPosition` uses for the stationary sealed threat, and it is copied rather than
+        // reinvented. The step is one past the cache's own window — `ResolveFiringOpportunity.FiringCacheTicks`
+        // is twenty and its test is `Tick - cached.at < FiringCacheTicks`, so twenty already expires an entry
+        // and twenty-one clears it with a tick to spare, which is the value the sibling uses. A step of zero
+        // would spin against one cached answer for ever, which is what four hundred stationary preparations did.
+        const int SweepPassCeiling = 400;
+        const int SweepClockStepTicks = 21;
+        var sensesClock = typeof(live::AICompanion.Companion.Brain.Infrastructure.Observation.Senses).GetProperty("Tick")!;
+        int passes = 1;
+        while (hunt.LastRejection == "firing-position-undecided" && passes < SweepPassCeiling)
+        {
+            sensesClock.SetValue(companion.Brain.Senses, (int)sensesClock.GetValue(companion.Brain.Senses)! + SweepClockStepTicks);
+            score = VerifyPreparedActivities.PrepareAndScore(hunt, ctx);
+            passes++;
+        }
+        Require(hunt.LastRejection != "firing-position-undecided",
+            $"the stand sweep must settle before a refusal can be read as a proven absence; "
+            + $"still undecided after {passes} preparations, rejection={hunt.LastRejection}");
+        Console.WriteLine($"hunt admissibility: a sealed enemy became a proven absence after {passes} preparations");
         Require(score == 0f,
             $"a sealed enemy no reachable position can shoot was still hunted: score={score}; target={hunt.Target?.Npc.whoAmI}; rejection={hunt.LastRejection}");
         Require(hunt.LastRejection == "no-reachable-firing-position",
@@ -225,7 +259,7 @@ internal static class VerifyHuntAdmissibility
         enemy.Bottom = new Vector2(enemyTileX * 16f + 8f, enemyTileY * 16f);
         Main.npc[25] = enemy;
 
-        companion.Brain.Senses.Update(companion.NPC, player, companion.Breath);
+        companion.Brain.Senses.Update(companion.NPC, player, companion.Motor);
         var threats = companion.Brain.Senses.Threats.Threats;
         threats.Clear();
         threats.Add(new T
@@ -253,7 +287,7 @@ internal static class VerifyHuntAdmissibility
     private static void Rebuild()
     {
         live::AICompanion.Companion.Brain.Infrastructure.Movement.TerrainChanges.Reset();
-        live::AICompanion.Companion.Brain.Infrastructure.Movement.NavGrid.World = new live::AICompanion.Companion.Brain.Infrastructure.Movement.GameTileWorld();
+        live::AICompanion.Companion.Brain.Infrastructure.Movement.MovementQueries.World = new live::AICompanion.Companion.Brain.Infrastructure.Movement.GameTileWorld();
     }
 
     private static void Solid(int x, int y)

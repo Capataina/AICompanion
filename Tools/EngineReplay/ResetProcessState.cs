@@ -45,15 +45,29 @@ internal static class ResetProcessState
         typeof(Terraria.Program).GetField("SavePath", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)!
             .SetValue(null, Path.GetTempPath());
         Main.dedServ = true;
+        RebuildTheMiniatureWorld();
+        Main.tileSolid[1] = true;
+        Main.tileSolid[19] = Main.tileSolidTop[19] = true;
+        FillActorSlots();
+    }
+
+    /// <summary>
+    /// The miniature world every fixture assumes: a hundred tiles square, empty, the surface at fifty.
+    /// It is rebuilt before every case rather than once per process, because a fixture that writes
+    /// walls into <c>Main.tile</c> and never clears them hands that terrain to whatever runs next —
+    /// the route-endings fixture's sealed pocket and open room sat across the row the projectile
+    /// fixture fires along, and the projectile case failed in the suite while passing alone. A case
+    /// that wants a different size builds its own map, as the pursuit scene does, and the next case
+    /// gets the empty hundred-square back.
+    /// </summary>
+    private static void RebuildTheMiniatureWorld()
+    {
         Main.maxTilesX = 100;
         Main.maxTilesY = 100;
         Main.worldSurface = 50;
         Main.tile = (Tilemap)Activator.CreateInstance(typeof(Tilemap),
             BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public, null,
             new object[] { (ushort)100, (ushort)100 }, null)!;
-        Main.tileSolid[1] = true;
-        Main.tileSolid[19] = Main.tileSolidTop[19] = true;
-        FillActorSlots();
     }
 
     /// <summary>
@@ -77,40 +91,50 @@ internal static class ResetProcessState
         live::AICompanion.Companion.Brain.Infrastructure.Movement.LimitPlanningWork.Unbounded = !keepProductionAllowances;
         live::AICompanion.Companion.Brain.Infrastructure.Movement.LimitPlanningWork.End();
 
-        // Every one of these is flat in ...Infrastructure.Movement: RoutePlanning/ and
-        // MovementExecution/ are folders that the files inside do not turn into namespaces, so a
-        // qualified name built from the path does not compile.
+        // Every one of these is flat in ...Infrastructure.Movement: Contact/, FreeSpace/ and
+        // Steering/ are folders that the files inside do not turn into namespaces, so a qualified
+        // name built from the path does not compile.
         TerrainChanges.Reset();
-        RememberExecutedRoutes.World.Clear();
         live::AICompanion.Companion.Brain.Infrastructure.Movement.TerrainChanges.Reset();
-        live::AICompanion.Companion.Brain.Infrastructure.Movement.RememberExecutedRoutes.World.Clear();
 
         BehaviourCensus.Reset();
         live::AICompanion.Companion.Brain.Infrastructure.Movement.BehaviourCensus.Reset();
 
+        // The map before the search policy, because the policy plugs a fresh world wrapper over
+        // whatever map is standing, and the wrapper has to wrap the empty one.
+        RebuildTheMiniatureWorld();
         ResetSearchPolicy();
         FillActorSlots();
     }
 
     /// <summary>
-    /// The search's own switches, which are set per request in production and per scene in a
-    /// fixture, so a case that sets one and returns leaves the next case searching under a rule it
-    /// never asked for. <c>AllowOneWayDrops</c> is the dangerous one: it defaults to true, a
-    /// collection fixture turns it off to prove a drop is refused, and a later fixture inheriting
-    /// that refuses routes it should take.
+    /// The orb's own per-process search state, which a case sets for its scene and would otherwise
+    /// leave standing for the next one.
+    ///
+    /// The terrain rules are the dangerous pair, for the reason the walker's one-way-drop switch was
+    /// dangerous: <see cref="OrbTerrain.Immunity"/> decides what counts as a wall for every flood,
+    /// route and clearance value in the process at once, so an escape fixture that opens water to
+    /// search through it leaves every later fixture planning straight through a lake.
+    ///
+    /// The world is rebuilt rather than merely reset, and the fresh object is the point. Every
+    /// clearance chunk holds the world it was built over and compares by reference, so a new
+    /// <c>GameTileWorld</c> invalidates the whole field without the field being told — which matters
+    /// because a case that rebuilds <c>Main.tile</c> changes every tile under a chunk whose revision
+    /// counter never moved. The getter also throws when nothing is plugged in, so setting it here is
+    /// what lets a fixture that never names a world run at all.
     /// </summary>
     private static void ResetSearchPolicy()
     {
-        AStar.AllowLava = false;
-        AStar.AllowOneWayDrops = true;
-        AStar.MsBudget = 0;
-        AStar.TraceClosed = null;
-        AStar.InvalidateEdges();
-        live::AICompanion.Companion.Brain.Infrastructure.Movement.AStar.AllowLava = false;
-        live::AICompanion.Companion.Brain.Infrastructure.Movement.AStar.AllowOneWayDrops = true;
-        live::AICompanion.Companion.Brain.Infrastructure.Movement.AStar.MsBudget = 0;
-        live::AICompanion.Companion.Brain.Infrastructure.Movement.AStar.TraceClosed = null;
-        live::AICompanion.Companion.Brain.Infrastructure.Movement.AStar.InvalidateEdges();
+        OrbTerrain.Immunity = LiquidImmunity.None;
+        FreeSpaceSearch.WorldOverride = null;
+        ClearanceField.Shared.Invalidate();
+        MovementQueries.World = new GameTileWorld();
+        live::AICompanion.Companion.Brain.Infrastructure.Movement.OrbTerrain.Immunity =
+            live::AICompanion.Companion.Brain.Infrastructure.Movement.LiquidImmunity.None;
+        live::AICompanion.Companion.Brain.Infrastructure.Movement.FreeSpaceSearch.WorldOverride = null;
+        live::AICompanion.Companion.Brain.Infrastructure.Movement.ClearanceField.Shared.Invalidate();
+        live::AICompanion.Companion.Brain.Infrastructure.Movement.MovementQueries.World =
+            new live::AICompanion.Companion.Brain.Infrastructure.Movement.GameTileWorld();
     }
 
     /// <summary>

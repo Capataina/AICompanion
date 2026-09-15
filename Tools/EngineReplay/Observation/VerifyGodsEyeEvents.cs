@@ -26,7 +26,7 @@ internal static class VerifyGodsEyeEvents
 
     private static int Verify(string path)
     {
-        NavGrid.World = new GameTileWorld();
+        MovementQueries.World = new GameTileWorld();
         GodsEyeEvents.Open(path);
         var source = new EntitySource_Misc("engine-replay");
         var npcHooks = new ObserveNativeNpcEvents();

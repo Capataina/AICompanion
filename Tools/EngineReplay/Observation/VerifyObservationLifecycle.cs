@@ -71,10 +71,6 @@ internal static class VerifyObservationLifecycle
         }
         recorder.OnWorldLoad();
         string path = Directory.GetFiles(BrainTelemetry.Folder, "*.tsv").OrderByDescending(File.GetLastWriteTimeUtc).First();
-        // Distinct values catch a recorder that duplicates one side or queries a later pose.
-        typeof(NPC).GetProperty("gravity")!.SetValue(companion.NPC, .1234f);
-        float modelGravity = live::AICompanion.Companion.Brain.Infrastructure.Movement.BodyMotion.GravityAt(
-            live::AICompanion.Companion.Brain.Infrastructure.Movement.MovementQueries.World, companion.Motor.State);
         VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
         VerifyCompanionLifecycle.TickWithOneControlGrant(companion); recorder.OnWorldUnload();
         string[] lines = File.ReadAllLines(path);
@@ -82,7 +78,12 @@ internal static class VerifyObservationLifecycle
         Require(header >= 0 && header + 1 < lines.Length, "real sample writer emitted no table row");
         string[] names = lines[header].Split('\t'), values = lines[header + 1].Split('\t');
         Require(names.Length == values.Length, $"sample/header widths disagree: {names.Length}/{values.Length}");
-        foreach (string name in new[] { "escape_stage", "state_search_pending", "head_submerged", "attack_value", "hunt_reason", "nav_status",
+        // `hurting` where the walker's list named `head_submerged`. That column was Terraria's own drowning
+        // rectangle over a forty-two-pixel body, and this body has no head; what the recorder carries instead is
+        // whether the liquid the circle is touching is liquid that hurts it, which is the same fact the escape
+        // fixtures read off the motor. The name is checked rather than assumed because the schema appends
+        // columns and a reader that names them survives a bump — but only if it names ones that exist.
+        foreach (string name in new[] { "escape_stage", "state_search_pending", "hurting", "attack_value", "hunt_reason", "nav_status",
             "player_intent_y", "player_intent_confidence", "player_intent_samples", "player_local_work_fraction", "collection_method" })
             Require(Array.IndexOf(names, name) >= 0, "causal sample field missing: " + name);
         float Number(string name) => float.Parse(values[Array.IndexOf(names, name)], System.Globalization.CultureInfo.InvariantCulture);
@@ -93,12 +94,24 @@ internal static class VerifyObservationLifecycle
         string events = File.ReadAllText(Path.ChangeExtension(path, null) + "-events.jsonl");
         foreach (string family in new[] { "Gathering", "Combat", "NearbyAssistance" })
             Require(events.Contains("family:" + family + "=child:"), "decision writer omitted a family nomination: " + family);
-        string navigation = File.ReadLines(Path.ChangeExtension(path, null) + "-events.jsonl")
-            .Single(line => line.Contains("\"kind\":\"navigation-state\"", StringComparison.Ordinal));
-        Require(navigation.Contains("engine-gravity=0.1234;")
-            && navigation.Contains(FormattableString.Invariant($"model-gravity={modelGravity:R};"))
-            && navigation.Contains($"gravity-observation-tick={Main.GameUpdateCount};"),
-            "navigation evidence must preserve separately captured engine/model gravity and its source tick");
+        // The gravity trio is gone from this row, and deleted rather than loosened.
+        //
+        // It used to set `NPC.gravity` to 0.1234 by reflection and a different model gravity beside it, then
+        // require the recorded event to carry both values and the tick they were read on — which proved that the
+        // recorder read the engine's side and the model's side of the same tick instead of writing one of them
+        // twice. That worked because the two numbers could differ. This body has no gravity on either side: the
+        // engine only adds its velocity, and the recorder writes `gravity-observation-tick=-1;engine-gravity=0;
+        // model-gravity=0;gravity-enabled=False` as fixed text to keep the columns a reader names. Asserting a
+        // constant against itself is a row that cannot fail, which is worse than no row.
+        //
+        // The one-row-per-tick property the surrounding fixture exists for is not lost with it: the header and
+        // sample widths, the single navigation-state event, the intent numbers and the three family nominations
+        // above all still come from one recorded tick. What is no longer covered anywhere is the two-sided read
+        // itself, and it is worth saying plainly that nothing replaces it, because the day this body gains any
+        // per-tick engine quantity worth capturing, this is the row that should have caught a duplicated read.
+        Require(File.ReadLines(Path.ChangeExtension(path, null) + "-events.jsonl")
+                .Count(line => line.Contains("\"kind\":\"navigation-state\"", StringComparison.Ordinal)) == 1,
+            "one AI update must record exactly one navigation-state event, never a duplicated read of the same tick");
     }
 
     private static void VerifyEndedOreJobRecording()
@@ -245,17 +258,31 @@ internal static class VerifyObservationLifecycle
         var recorder = new BrainTelemetry(); Attach(recorder);
         recorder.OnWorldLoad();
         string path = Directory.GetFiles(BrainTelemetry.Folder, "*.tsv").OrderByDescending(File.GetLastWriteTimeUtc).First();
-        VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
-        VerifyCompanionLifecycle.TickWithOneControlGrant(companion);
+        // The liquid is poured before the first recorded tick rather than between the first and the second,
+        // and the three rows this fixture asserts are unchanged by the move. The orb has no engine collision,
+        // so nothing sets `npc.wet` for it: the motor's `ReadLiquid` decides the liquid from the circle's own
+        // contact and then writes `wet`, `lavaWet` and the rest itself, which means a hand-set `wet` was both
+        // ignored and overwritten. It runs inside `Commit`, at the end of a tick, so `Motor.InHurtingLiquid`
+        // read at the top of the next tick describes where the body was when it was last moved. Pouring the
+        // liquid and asserting on the very next tick therefore asked the brain about a fact no Commit had
+        // published yet, and read the one-tick publication order as an absent danger.
+        //
+        // So the first recorded tick is the one that discovers the liquid and still reports no safety — which
+        // is what row 0 asserts — and the second is the one that acts on it, which is row 1. The row contract
+        // is the same three rows as before and the scene is the same scene; what changed is that the fact is
+        // published by its producer instead of arranged by the fixture.
         for (int x = 18; x <= 22; x++)
         for (int y = 84; y <= 89; y++) Main.tile[x, y].LiquidAmount = byte.MaxValue;
-        companion.NPC.wet = true;
-        typeof(live::AICompanion.Companion.CharacterBody.CompanionBreath).GetProperty("Breath")!.SetValue(companion.Breath, 20);
         live::AICompanion.Companion.Brain.Infrastructure.Movement.TerrainChanges.Reset();
         VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
         VerifyCompanionLifecycle.TickWithOneControlGrant(companion);
+        VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
+        VerifyCompanionLifecycle.TickWithOneControlGrant(companion);
         Require(companion.Brain.Safety.Active && companion.Brain.Chooser.Current == null,
-            "native environmental danger must create safety ownership with no ordinary activity");
+            "native environmental danger must create safety ownership with no ordinary activity; "
+            + $"centre={companion.NPC.Center} liquidKind={companion.Motor.LiquidKind} "
+            + $"hurting={companion.Motor.InHurtingLiquid} safety={companion.Brain.Safety.Active}/{companion.Brain.Safety.Kind} "
+            + $"activity={companion.Brain.Chooser.Current?.Name ?? "<none>"}");
         companion.CheckDead();
         VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
         VerifyCompanionLifecycle.TickWithOneControlGrant(companion);

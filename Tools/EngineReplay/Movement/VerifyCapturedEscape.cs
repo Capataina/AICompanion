@@ -2,235 +2,167 @@ extern alias live;
 #nullable enable
 
 using System;
-using AICompanion.Companion.Brain.Infrastructure.Selection;
-using AICompanion.Companion.Brain.Infrastructure.Movement;
 using Microsoft.Xna.Framework;
 using Terraria;
 
+using MovementQueries = live::AICompanion.Companion.Brain.Infrastructure.Movement.MovementQueries;
+using GameTileWorld = live::AICompanion.Companion.Brain.Infrastructure.Movement.GameTileWorld;
+using TerrainChanges = live::AICompanion.Companion.Brain.Infrastructure.Movement.TerrainChanges;
+using CircleContact = live::AICompanion.Companion.Brain.Infrastructure.Movement.CircleContact;
+
 /// <summary>
-/// Native regressions for the control-search failure observed at capture 23-50-24-14964.  The
-/// captured body was wet under an awning, so a stationary jump cannot change the clearance
-/// state. The full tile window drives production survival and the live time budget; mirrored
-/// synthetic awnings isolate sideways clearance. Native collision executes every chosen input.
+/// Whether the whole brain gets the body out of water it is being hurt by, on two scenes taken from
+/// play: the pool the walker drowned in at capture 23-50-24-14964, and a flooded low passage with a
+/// wall at one end so the only way out is sideways.
+///
+/// <para>What went with the walker. This file used to hold two isolated searches beside the
+/// full-brain scenes — a control-sequence search that chose jump-and-move inputs tick by tick, and a
+/// native-control dump that printed where four ticks of each input landed. Both existed because the
+/// walker's escape was a question about which sequence of jumps cleared an awning, and the orb has
+/// no sequence to search: it asks for a velocity and the motor applies it. The head-dry test went
+/// with them, because it was Terraria's own drowning rectangle over a forty-two-pixel body; the orb
+/// has no head, and what hurts it is the circle touching water or lava at all, which the motor
+/// already reports as <c>InHurtingLiquid</c>.</para>
+///
+/// <para>The awning is flooded to its ceiling here, where the walker's version left a dry row
+/// between the water's surface and the roof. For a body that walks, that row was unreachable
+/// without a jump the awning refused, so the scene was about sideways clearance; for a body that
+/// flies, the same row is one tick upward and the scene would pass without ever going sideways. The
+/// flood restores the scene's subject rather than preserving its tiles.</para>
+///
+/// <para>The pass line is deliberately sustained rather than instantaneous: a body that clips out of
+/// the water for one tick on its way through has not escaped, so the dry reading has to hold for
+/// sixty ticks with safety no longer claiming the body, and the companion has to be alive to the
+/// end of it.</para>
 /// </summary>
 internal static class VerifyCapturedEscape
 {
+    /// <summary>How long the body must read dry before the escape counts, so a body crossing a
+    /// surface on its way somewhere worse cannot satisfy it.</summary>
+    private const int SustainedDryTicks = 60;
+
     public static int Run()
     {
         int failed = 0;
-        for (int repeat = 0; repeat < 3; repeat++) failed += VerifyCapturedPoolEscape();
-        failed += VerifyAwning("captured-right-awning", mirrored: false);
-        failed += VerifyAwning("mirrored-left-awning", mirrored: true);
-        // The full-brain cases lift the live tick's wall-clock planning allowances: under them, how far each
-        // search got before its deadline decides the escape, so the verdict follows machine load rather than
-        // the brain. The isolated searches above keep the budgets they exist to exercise.
+        // The whole-brain scenes lift the live tick's wall-clock planning allowances: under them, how far
+        // each search got before its deadline decides the escape, so the verdict would follow machine load
+        // rather than the brain. The default suite's own reset lifts them too; this keeps the standalone
+        // --escape flag, which does not pass through that reset, running under the same regime.
         live::AICompanion.Companion.Brain.Infrastructure.Movement.LimitPlanningWork.Unbounded = true;
         try
         {
-            failed += VerifyFullBrainAwning(false, 200);
-            failed += VerifyFullBrainAwning(true, 30);
-            failed += VerifyFullBrainCapturedPool();
-            failed += VerifyFullBrainCapturedPool(emptyOffers: true);
+            failed += VerifyAwning(mirrored: false);
+            failed += VerifyAwning(mirrored: true);
+            failed += VerifyCapturedPool();
+            failed += VerifyCapturedPool(emptyOffers: true);
         }
         finally { live::AICompanion.Companion.Brain.Infrastructure.Movement.LimitPlanningWork.Unbounded = false; }
         return failed;
     }
 
-    private static int VerifyFullBrainCapturedPool(bool emptyOffers = false)
+    /// <summary>
+    /// The pool from the capture, unchanged terrain, with the body in the water and the player on the
+    /// shore. The empty-offers variant clears every ordinary activity, so nothing but shared safety
+    /// can move the body: an escape that only happens because following wanted to go that way anyway
+    /// is not an escape the safety response produced.
+    /// </summary>
+    private static int VerifyCapturedPool(bool emptyOffers = false)
     {
         BuildCapturedPool();
-        // The bare TerrainChanges in this file is EngineReplay's own copy, which the isolated searches use; the live
-        // brain keeps its route knowledge in the live assembly, so a rebuilt world must be announced there.
-        live::AICompanion.Companion.Brain.Infrastructure.Movement.TerrainChanges.Reset();
+        Replug();
         var companion = VerifyCompanionLifecycle.Create();
+        Replug();
         if (emptyOffers) companion.Brain.Chooser.Actions.Clear();
         Main.player[0].dead = false;
         Main.player[0].Bottom = new Vector2(2024, 1376);
-        companion.NPC.position = new Vector2(1356, 2016 - companion.NPC.height);
-        companion.NPC.velocity = Vector2.Zero; companion.NPC.wet = true; companion.NPC.active = true;
-        typeof(live::AICompanion.Companion.CharacterBody.CompanionBreath).GetProperty("Breath")!.SetValue(companion.Breath, 40);
-        int dry = 0;
-        for (int tick = 0; tick < 630; tick++)
-        {
-            VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
-            VerifyCompanionLifecycle.TickWithOneControlGrant(companion); VerifyResponsiveFollowing.AdvanceNative(companion);
-            dry = !Collision.DrownCollision(companion.NPC.position, companion.NPC.width, companion.NPC.height, 1f) ? dry + 1 : 0;
-            if (companion.IsDowned || companion.NPC.life <= 0) break;
-            if (dry >= 30)
-            {
-                Console.WriteLine($"full-brain captured pool emptyOffers={emptyOffers}: sustained air at {tick}, life={companion.NPC.life}, breath={companion.Breath.Breath}");
-                return 0;
-            }
-        }
-        AICompanion.Tools.Ledger.EmitLedgerRows.Detail($"full-brain captured pool emptyOffers={emptyOffers}: feet={companion.NPC.Bottom}, life={companion.NPC.life}, breath={companion.Breath.Breath}, action={companion.Brain.LastAction?.Name}");
-        return 1;
+        // The captured NPC's own centre, translated by the fixture's five-tile origin.
+        companion.NPC.Center = new Vector2(5 * 16f + (60540f - 3704 * 16f) + 10f, 5 * 16f + (9072f - 446 * 16f) - 10f);
+        companion.NPC.velocity = Vector2.Zero;
+        companion.NPC.active = true;
+        return RunEscape($"captured pool emptyOffers={emptyOffers}", companion, 900);
     }
 
-    private static int VerifyFullBrainAwning(bool mirrored, int breath)
+    /// <summary>
+    /// A flooded passage under a roof with a wall at one end: every free cell inside it is wet, so the
+    /// body has to travel along the passage and out of its open end rather than rising out of the
+    /// water where it stands.
+    /// </summary>
+    private static int VerifyAwning(bool mirrored)
     {
         BuildAwning(mirrored);
-        live::AICompanion.Companion.Brain.Infrastructure.Movement.TerrainChanges.Reset();
+        Replug();
         var companion = VerifyCompanionLifecycle.Create();
+        Replug();
         Main.player[0].dead = false;
         Main.player[0].position = new Vector2((mirrored ? 70 : 30) * 16, 70 * 16 - Main.player[0].height);
-        companion.NPC.position = new Vector2((mirrored ? 45 : 54) * 16, 70 * 16 - companion.NPC.height);
+        // Well inside the flooded passage, a tile clear of the wall at its closed end.
+        companion.NPC.Center = new Vector2((mirrored ? 46 : 53) * 16 + 8, 68 * 16 + 8);
         companion.NPC.velocity = Vector2.Zero;
-        companion.NPC.wet = true;
-        typeof(live::AICompanion.Companion.CharacterBody.CompanionBreath).GetProperty("Breath")!.SetValue(companion.Breath, breath);
-        int dryTicks = 0;
-        long landingResponse = -1;
-        for (int tick = 0; tick < 720; tick++)
+        companion.NPC.active = true;
+        return RunEscape($"flooded awning mirrored={mirrored}", companion, 900);
+    }
+
+    /// <summary>
+    /// Drive the whole brain until the body has read dry for <see cref="SustainedDryTicks"/> ticks
+    /// running with safety no longer holding it, and assert the scene's own premise first, because a
+    /// body that started dry would pass every row below without the escape ever running.
+    /// </summary>
+    private static int RunEscape(string name, live::AICompanion.Companion.CharacterBody.CompanionNPC companion, int limit)
+    {
+        companion.Motor.Track();
+        // The premise is asked of the geometry rather than of the motor, because the motor only learns which
+        // liquid it is touching inside an application — and driving one here to populate it would deal the
+        // first tick of contact damage before the brain has run at all.
+        var world = MovementQueries.World;
+        bool startsWet = CircleContact.Touches(companion.NPC.Center,
+            (x, y) => live::AICompanion.Companion.Brain.Infrastructure.Movement.OrbTerrain.WetWall(
+                world, x, y, live::AICompanion.Companion.Brain.Infrastructure.Movement.LiquidImmunity.None));
+        if (!startsWet)
+        {
+            AICompanion.Tools.Ledger.EmitLedgerRows.Detail(
+                $"{name}: the scene must start the body in liquid that hurts it; centre={companion.NPC.Center}");
+            return 1;
+        }
+        if (CircleContact.Overlaps(MovementQueries.World, companion.NPC.Center))
+        {
+            AICompanion.Tools.Ledger.EmitLedgerRows.Detail(
+                $"{name}: the scene must start the body in free space, not inside terrain; centre={companion.NPC.Center}");
+            return 1;
+        }
+
+        int dry = 0, startingLife = companion.NPC.life;
+        for (int tick = 0; tick < limit; tick++)
         {
             VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
             VerifyCompanionLifecycle.TickWithOneControlGrant(companion);
-            if (companion.Brain.Safety.Active && companion.Brain.Safety.Escape.EscapeStage == "dry-landing")
-                landingResponse = companion.Brain.Safety.Id;
-            if (companion.Brain.Safety.Active && companion.Brain.Safety.Id == landingResponse
-                && companion.Brain.Safety.Escape.EscapeStage == "breathing-air")
-                throw new InvalidOperationException("a retained landing response restarted its breathing jump after re-submersion");
             VerifyResponsiveFollowing.AdvanceNative(companion);
-            if (Environment.GetEnvironmentVariable("AIC_TRACE_SHARED_SAFETY") == "1" && mirrored && tick % 15 == 0)
-                Console.WriteLine($"SAFETY tick={tick} feet={companion.NPC.Bottom} velocity={companion.NPC.velocity} life={companion.NPC.life} breath={companion.Breath.Breath} headWet={companion.Brain.Senses.Self.HeadUnderwater} grounded={companion.Motor.State.OnGround} kind={companion.Brain.Safety.Kind} reason={companion.Brain.Safety.Reason} stage={companion.Brain.Safety.Escape.EscapeStage} target={companion.Brain.Safety.Escape.AirTarget} retained={companion.Brain.Movement.StateSearchRetainedTicks} pending={companion.Brain.Movement.StateSearchPending}");
-            dryTicks = !companion.NPC.wet ? dryTicks + 1 : 0;
-            if (dryTicks >= 60 && !companion.Brain.Safety.Active)
+            if (companion.IsDowned || companion.NPC.life <= 0)
             {
-                Console.WriteLine($"full-brain wet awning mirrored={mirrored} breath={breath}: stable dry exit at {tick}, action={companion.Brain.LastAction?.Name}");
-                return 0;
-            }
-            if (companion.IsDowned) break;
-        }
-        AICompanion.Tools.Ledger.EmitLedgerRows.Detail($"full-brain wet awning mirrored={mirrored} breath={breath}: {companion.NPC.Bottom}, action={companion.Brain.LastAction?.Name}, goal={companion.Brain.Positioner.Chosen}, status={companion.Brain.Navigator.Status}, controls={companion.Motor.AppliedControls}");
-        return 1;
-    }
-
-    private static int VerifyCapturedPoolEscape()
-    {
-        BuildCapturedPool();
-        TerrainChanges.Reset();
-        live::AICompanion.Companion.Brain.Infrastructure.Movement.TerrainChanges.Reset();
-        NavGrid.World = new GameTileWorld();
-        // Exact captured NPC box, translated by the fixture's five-tile origin.
-        BodyState live = new(5 * 16f + (60540f - 3704 * 16f), 5 * 16f + (9072f - 446 * 16f), 0f, 0f, true, Wet: true,
-            Capabilities: MovementCapabilities.Basic);
-        var companion = VerifyCompanionLifecycle.Create();
-        Main.player[0].dead = false;
-        companion.NPC.active = true;
-        // The captured row has 0.20 of the native 200-unit breath bar remaining.
-        // Surviving the escape is the contract; damage-free escape from a late
-        // rescue is not guaranteed, and a one-cell dry-head test was insufficient.
-        typeof(live::AICompanion.Companion.CharacterBody.CompanionBreath).GetProperty("Breath")!.SetValue(companion.Breath, 40);
-        var survival = new live::AICompanion.Companion.Brain.SharedBehaviours.Safety.ReachEnvironmentalSafety();
-        if (Environment.GetEnvironmentVariable("AIC_TRACE_POOL") == "1")
-        {
-            var search = new SearchControlSequences();
-            BodyState searched = live;
-            for (int t = 0; t < 1400; t++)
-            {
-                bool found = search.TryChoose(NavGrid.World, searched, HeadDry,
-                    s => Vector2.Distance(s.Feet, new Vector2(75 * 16, 109 * 16)), MovementCapabilities.Basic, 120, 0d, out Controls c);
-                BodyState prediction = BodyMotion.Step(NavGrid.World, searched, c);
-                searched = VerifyEngineMotion.RunEngine(searched, c);
-                if (t < 240 && t % 8 == 0) Console.WriteLine($"PROBE tick={t} input={c.MoveX},{c.Jump} feet={searched.Feet} retained={search.RetainedTicks} pending={search.Pending} error={Vector2.Distance(prediction.Feet, searched.Feet)}");
-                if (HeadDry(searched)) { Console.WriteLine($"PROBE search dry tick={t} feet={searched.Feet}"); break; }
-            }
-            Console.WriteLine($"PROBE search no-deadline final={searched.Feet}");
-            foreach (int direction in new[] { -1, 1 })
-            {
-                BodyState probe = live;
-                float highest = live.Bottom;
-                for (int t = 0; t < 600; t++)
-                {
-                    probe = VerifyEngineMotion.RunEngine(probe, new Controls(direction * BodyPhysics.WalkSpeed, Jump: true));
-                    highest = Math.Min(highest, probe.Bottom);
-                    if (HeadDry(probe)) { Console.WriteLine($"PROBE dry direction={direction} tick={t} feet={probe.Feet}"); break; }
-                }
-                Console.WriteLine($"PROBE direction={direction} highest={highest} final={probe.Feet}");
-            }
-        }
-        int maximumTicks = 40 * 7 + companion.NPC.life / 2 * 7;
-        for (int tick = 0; tick < maximumTicks; tick++)
-        {
-            VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
-            companion.NPC.position = new Vector2(live.Left, live.Bottom - BodyPhysics.Height);
-            companion.NPC.velocity = new Vector2(live.Vx, live.Vy);
-            companion.NPC.wet = live.Wet;
-            companion.NPC.collideX = live.CollideX;
-            companion.NPC.stairFall = live.StairFall;
-            companion.Motor.Track();
-            companion.Breath.Update(companion.NPC);
-            companion.Brain.Senses.Update(companion.NPC, Main.player[0], companion.Breath);
-            var context = new live::AICompanion.Companion.Brain.Activities.ActionContext(companion, companion.Brain.Senses);
-            bool chosen = survival.TryEscape(context, out var input, out bool pending);
-            if (!chosen && !pending) throw new InvalidOperationException($"production escape has no control or pending work at {tick}");
-            var controls = new Controls(input.MoveX, Jump: input.Jump, FallThrough: input.FallThrough, Descend: input.Descend);
-            live = VerifyEngineMotion.RunEngine(live, controls);
-            if (HeadDry(live) && companion.NPC.life > 0)
-            {
-                Console.WriteLine($"production captured-pool escape: head dry after {tick + 1} ticks, breath {companion.Breath.Breath}, final {live.Feet}");
-                return 0;
-            }
-        }
-        AICompanion.Tools.Ledger.EmitLedgerRows.Detail($"captured-pool escape: no living escape before the native breath/life allowance expired, final {live}; air target {survival.AirTarget}");
-        DumpNativeControls(live);
-        return 1;
-    }
-
-    private static void DumpNativeControls(BodyState state)
-    {
-        foreach (Controls controls in new[] { new Controls(-BodyPhysics.WalkSpeed), Controls.None, new Controls(BodyPhysics.WalkSpeed), new Controls(-BodyPhysics.WalkSpeed, Jump: true), new Controls(0f, Jump: true), new Controls(BodyPhysics.WalkSpeed, Jump: true) })
-        {
-            BodyState at = state;
-            for (int tick = 0; tick < 4; tick++) at = VerifyEngineMotion.RunEngine(at, controls);
-            Console.WriteLine($"captured-pool four ticks {controls}: {at}");
-        }
-    }
-
-    private static bool HeadDry(BodyState state)
-    {
-        return !Collision.DrownCollision(new Vector2(state.Left, state.Bottom - BodyPhysics.Height), BodyPhysics.Width, BodyPhysics.Height, 1f)
-            && !Collision.LavaCollision(new Vector2(state.Left, state.Bottom - BodyPhysics.Height), BodyPhysics.Width, BodyPhysics.Height);
-    }
-
-    private static int VerifyAwning(string name, bool mirrored)
-    {
-        BuildAwning(mirrored);
-        TerrainChanges.Reset();
-        NavGrid.World = new GameTileWorld();
-
-        // The body begins at the wall-side end of a water-filled low passage.  Its dimensions
-        // match the captured NPC (20 x 42); its feet are on the floor and its head is under
-        // liquid.  Only a sideways move opens the route to the dry passage.
-        BodyState live = new(
-            Left: (mirrored ? 45 : 54) * 16f,
-            Bottom: 70 * 16f,
-            Vx: 0f,
-            Vy: 0f,
-            OnGround: true,
-            Wet: true,
-            Capabilities: MovementCapabilities.Basic);
-        float drySide = (mirrored ? 56 : 45) * 16f;
-        Func<BodyState, bool> escaped = state => !state.Wet
-            && (mirrored ? state.CentreX > drySide : state.CentreX < drySide);
-        Func<BodyState, float> heuristic = state => mirrored ? -state.CentreX : state.CentreX;
-        var search = new SearchControlSequences();
-
-        for (int tick = 0; tick < 240; tick++)
-        {
-            if (!search.TryChoose(NavGrid.World, live, escaped, heuristic,
-                    MovementCapabilities.Basic, Weights.EscapeSearchWork, 0d, out Controls controls))
-            {
-                AICompanion.Tools.Ledger.EmitLedgerRows.Detail($"native escape {name}: no certified control at tick {tick}, state {live}");
+                AICompanion.Tools.Ledger.EmitLedgerRows.Detail(
+                    $"{name}: the body died in the liquid at tick {tick}; centre={companion.NPC.Center} life={companion.NPC.life}");
                 return 1;
             }
-            live = VerifyEngineMotion.RunEngine(live, controls);
-            if (escaped(live))
+            dry = !companion.Motor.InHurtingLiquid && !companion.Brain.Safety.Active ? dry + 1 : 0;
+            if (dry >= SustainedDryTicks)
             {
-                Console.WriteLine($"native escape {name}: dry after {tick + 1} ticks, final {live.Feet}");
+                Console.WriteLine($"{name}: sustained dry exit at tick {tick}, life {companion.NPC.life} of {startingLife}, "
+                    + $"contact ticks {companion.Motor.LiquidContactTicks}");
                 return 0;
             }
         }
-        AICompanion.Tools.Ledger.EmitLedgerRows.Detail($"native escape {name}: still wet after 240 ticks, final {live}");
+        AICompanion.Tools.Ledger.EmitLedgerRows.Detail(
+            $"{name}: never held {SustainedDryTicks} dry ticks in {limit}; centre={companion.NPC.Center} liquid={companion.Motor.LiquidKind} "
+            + $"life={companion.NPC.life} safety={companion.Brain.Safety.Active} stage={companion.Brain.Safety.Escape.EscapeStage} "
+            + $"action={companion.Brain.LastAction?.Name} status={companion.Brain.Navigator.Status}");
         return 1;
+    }
+
+    /// <summary>A rebuilt tile map is a different world to every clearance chunk and retained search,
+    /// and they compare it by reference, so the reference changes with it.</summary>
+    private static void Replug()
+    {
+        TerrainChanges.Reset();
+        MovementQueries.World = new GameTileWorld();
     }
 
     private static void BuildAwning(bool mirrored)
@@ -245,8 +177,10 @@ internal static class VerifyCapturedEscape
 
         for (int x = 10; x < 90; x++)
             Solid(x, 70);
+        // Flooded to the roof: every free cell between the roof at 62 and the floor at 70 is wet, so
+        // there is no dry cell inside the passage for a body that flies to rise into.
         for (int x = 45; x <= 55; x++)
-        for (int y = 64; y < 70; y++)
+        for (int y = 63; y < 70; y++)
             Main.tile[x, y].LiquidAmount = byte.MaxValue;
         for (int x = 45; x <= 55; x++)
             Solid(x, 62);

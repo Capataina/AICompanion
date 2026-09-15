@@ -6,7 +6,7 @@ using Terraria;
 using Terraria.ID;
 using CompanionNPC = live::AICompanion.Companion.CharacterBody.CompanionNPC;
 using TerrainChanges = live::AICompanion.Companion.Brain.Infrastructure.Movement.TerrainChanges;
-using NavGrid = live::AICompanion.Companion.Brain.Infrastructure.Movement.NavGrid;
+using MovementQueries = live::AICompanion.Companion.Brain.Infrastructure.Movement.MovementQueries;
 using GameTileWorld = live::AICompanion.Companion.Brain.Infrastructure.Movement.GameTileWorld;
 using LimitPlanningWork = live::AICompanion.Companion.Brain.Infrastructure.Movement.LimitPlanningWork;
 
@@ -31,7 +31,7 @@ internal static class VerifyStatMirroring
         LimitPlanningWork.Unbounded = true;
         try
         {
-            failed += VerifyMovementFailures.Case("a life crystal and an armour change reach the companion on the next tick, and a cut in maximum life clamps its life", LifeAndDefenceFollowThePlayer, "stat mirroring");
+            failed += RunOneRow.Case("a life crystal and an armour change reach the companion on the next tick, and a cut in maximum life clamps its life", LifeAndDefenceFollowThePlayer, "stat mirroring");
         }
         finally { LimitPlanningWork.Unbounded = false; }
         Console.WriteLine(failed == 0
@@ -56,7 +56,7 @@ internal static class VerifyStatMirroring
         }
         var companion = VerifyCompanionLifecycle.Create();
         TerrainChanges.Reset();
-        NavGrid.World = new GameTileWorld();
+        MovementQueries.World = new GameTileWorld();
         companion.NPC.position = new Vector2(50 * 16 + 8 - companion.NPC.width / 2f, FloorRow * 16 - companion.NPC.height);
         companion.NPC.velocity = Vector2.Zero;
         Player player = Main.player[0];

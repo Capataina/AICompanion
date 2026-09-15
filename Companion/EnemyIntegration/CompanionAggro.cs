@@ -33,18 +33,18 @@ public sealed class CompanionAggro : GlobalNPC
     public override bool PreAI(NPC npc)
     {
         if (Enabled && IsHostile(npc))
-            CompanionBody.Expose(true);
+            HostileTargetStandIn.Expose(true);
         return true;
     }
 
     public override void PostAI(NPC npc)
     {
-        CompanionBody.Expose(false);
+        HostileTargetStandIn.Expose(false);
     }
 
     public override void Unload()
     {
-        CompanionBody.Withdraw();
+        HostileTargetStandIn.Withdraw();
         Enabled = true;
     }
 
@@ -60,7 +60,7 @@ public sealed class CompanionAggro : GlobalNPC
 /// </summary>
 public sealed class CompanionAggroBackstop : ModSystem
 {
-    public override void PostUpdateNPCs() => CompanionBody.Expose(false);
+    public override void PostUpdateNPCs() => HostileTargetStandIn.Expose(false);
 
-    public override void OnWorldUnload() => CompanionBody.Withdraw();
+    public override void OnWorldUnload() => HostileTargetStandIn.Withdraw();
 }

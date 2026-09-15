@@ -33,14 +33,15 @@ public sealed class ChooseSafetyResponse
             request = new ActivityControlRequest(controls, "survival-escape", ObserveProgress: true);
             return true;
         }
-        if (imminentCollision || Active && Kind == "collision-avoidance" && !ctx.Companion.Motor.State.OnGround)
+        // An orb has no landing to wait for: the response lasts exactly as long as a collision is predicted.
+        if (imminentCollision)
         {
             Begin(ctx, "collision-avoidance");
             ctx.Companion.Brain.Chooser.Activity.Suspend(ctx, "combat-reflex");
-            Reason = imminentCollision ? "predicted-collision" : "awaiting-landing";
+            Reason = "predicted-collision";
             var movement = ctx.Companion.Brain.Movement;
             Controls controls = movement.AvoidThreats(ctx.Companion.Motor.State,
-                movement.Navigator.UnsafeAtTick ?? ((_, _) => false), ctx.Senses.Player.Bottom);
+                movement.Navigator.UnsafeAtTick ?? ((_, _) => false), ctx.Senses.PlayerEntity.Center);
             request = new ActivityControlRequest(controls, "combat-reflex");
             return true;
         }

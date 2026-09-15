@@ -17,9 +17,9 @@ internal static class VerifyPersonalDanger
             tile.HasTile = y <= 54 || y >= 60 || x <= 10 || x >= 50 || x == 30;
             tile.TileType = 1;
         }
-        NavGrid.World = new GameTileWorld();
-        AStar.InvalidateEdges();
-        AStar.MsBudget = 0;
+        // A fresh world object is what drops every clearance chunk: the chunks compare the world by
+        // reference, and the tiles above were rewritten under a revision counter that never moved.
+        MovementQueries.World = new GameTileWorld();
         Main.npc = Enumerable.Range(0, Main.maxNPCs + 1).Select(_ => new NPC()).ToArray();
         Main.projectile = Enumerable.Range(0, Main.maxProjectiles + 1).Select(_ => new Projectile()).ToArray();
         var enemy = Main.npc[0];

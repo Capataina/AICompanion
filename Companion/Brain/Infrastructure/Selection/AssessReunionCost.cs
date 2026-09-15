@@ -26,7 +26,7 @@ public sealed class AssessReunionCost
 
     public void Evaluate(float movingAway, float returnTicks, bool playerDead, bool stranded)
     {
-        Departure = Math.Clamp(movingAway / Infrastructure.Movement.BodyPhysics.WalkSpeed, 0, 1);
+        Departure = Math.Clamp(movingAway / Infrastructure.Movement.OrbPace.MaxSpeed, 0, 1);
         DelayCostPerTick = playerDead || stranded ? 0
             : Departure * (1 + returnTicks / Weights.RegroupFreeReturnTicks) / Weights.ReunionDelayToleranceTicks
                 + ApartTicks / (Weights.ReunionAbsenceScaleTicks * Weights.ReunionAbsenceScaleTicks);

@@ -16,7 +16,7 @@ using PositionRequest = live::AICompanion.Companion.Brain.Infrastructure.Positio
 using RequestKind = live::AICompanion.Companion.Brain.Infrastructure.Position.RequestKind;
 using TerrainChanges = live::AICompanion.Companion.Brain.Infrastructure.Movement.TerrainChanges;
 using LimitPlanningWork = live::AICompanion.Companion.Brain.Infrastructure.Movement.LimitPlanningWork;
-using AStar = live::AICompanion.Companion.Brain.Infrastructure.Movement.AStar;
+using GameTileWorld = live::AICompanion.Companion.Brain.Infrastructure.Movement.GameTileWorld;
 using Preferences = live::AICompanion.Companion.PlayerIntegration.CompanionPreferences;
 using TorchBearer = live::AICompanion.Companion.Brain.Infrastructure.Interactions.Torch.TorchBearer;
 
@@ -42,7 +42,6 @@ internal static class VerifyCapabilityRevision
         int reachX = Player.tileRangeX, reachY = Player.tileRangeY;
         WorkPolicy mining = WorkPolicies.Mining, chopping = WorkPolicies.Chopping;
         Preferences saved = Preferences.Current;
-        bool oneWay = AStar.AllowOneWayDrops;
         void Each(string name, Action fixture)
         {
             LimitPlanningWork.Unbounded = true;
@@ -56,7 +55,6 @@ internal static class VerifyCapabilityRevision
                 WorkPolicies.Mining = mining;
                 WorkPolicies.Chopping = chopping;
                 Preferences.Current = saved;
-                AStar.AllowOneWayDrops = oneWay;
                 VerifyUsefulAssistance.ClearMeasuredLight();
             }
         }
@@ -66,7 +64,6 @@ internal static class VerifyCapabilityRevision
         Each("chopping offers a trunk deferred under a smaller reach on the next preparation", ChoppingDeferralEndsOnReachIncrease);
         Each("chopping's remaining work follows the held axe on the next preparation", ChoppingRemainingWorkFollowsTheAxe);
         Each("lighting and pot work never walk to a stand the current reach cannot swing from", NearbyWorkStandFollowsReach);
-        Each("lighting and pot work search again on the preparation after reach grows", NearbyWorkRediscoversOnReachIncrease);
         Each("lighting and pot work offer a site refused with no return under a smaller reach on the next preparation", NearbyWorkNoReturnEndsOnReachIncrease);
         Each("known-drop collection is independent of tool reach", KnownDropIgnoresToolReach);
         Console.WriteLine(red == 0
@@ -81,26 +78,29 @@ internal static class VerifyCapabilityRevision
     {
         Point ore = new(25, 89);
         var (mine, ctx) = VerifyOreWork.SetUp(WorkPolicy.Opportunistic, TileID.Copper, ore);
-        Vector2 feet = ctx.Npc.Bottom;
-        Require(FindToolAccess.InReach(feet, ore), "premise: the ore must be inside reach 5 from the companion's feet");
-        Require(VerifyPreparedActivities.PrepareAndScore(mine, ctx) > 0 && mine.TargetStandPosition == feet,
-            $"premise: a vein in reach must be worked from the feet; stand={mine.TargetStandPosition} feet={feet} status={mine.Status}");
+        // The body's own position, which for this body is its centre. Reading `Bottom` here was the walker's
+        // question and is a whole tile lower on an orb, so the row asked about reach from a point the activity
+        // never works from and the premise failed on geometry rather than on reach.
+        Vector2 body = ctx.Npc.Center;
+        Require(FindToolAccess.InReach(body, ore), "premise: the ore must be inside reach 5 from where the body hovers");
+        Require(VerifyPreparedActivities.PrepareAndScore(mine, ctx) > 0 && mine.TargetStandPosition == body,
+            $"premise: a vein in reach must be worked from where the body already is; stand={mine.TargetStandPosition} body={body} status={mine.Status}");
         mine.Execute(ctx);
         Require(mine.HandsBusy, $"premise: the first execution must swing; status={mine.Status}");
 
         Player.tileRangeX = 2;
-        Require(!FindToolAccess.InReach(feet, ore), "premise: reach 2 must not reach the ore from the same feet");
+        Require(!FindToolAccess.InReach(body, ore), "premise: reach 2 must not reach the ore from the same spot");
         VerifyPreparedActivities.PrepareAndScore(mine, ctx);
         PositionRequest shrunk = mine.Execute(ctx);
         Require(!mine.HandsBusy, $"no swing may come from a pose the current reach cannot swing from; request={shrunk}");
-        Require(shrunk.Kind == RequestKind.Exact && Vector2.DistanceSquared(shrunk.Anchor, feet) > 4f
+        Require(shrunk.Kind == RequestKind.Exact && Vector2.DistanceSquared(shrunk.Anchor, body) > 4f
                 && FindToolAccess.InReach(shrunk.Anchor, ore),
-            $"the next preparation must re-derive a stand that reaches under the new reach, not hold the old one; request={shrunk} feet={feet} stand={mine.TargetStandPosition} status={mine.Status}");
+            $"the next preparation must re-derive a stand that reaches under the new reach, not hold the old one; request={shrunk} body={body} stand={mine.TargetStandPosition} status={mine.Status}");
 
         Player.tileRangeX = 5;
         VerifyPreparedActivities.PrepareAndScore(mine, ctx);
-        Require(mine.TargetStandPosition == feet,
-            $"once reach grows back, work from the feet again instead of walking to the smaller reach's stand; stand={mine.TargetStandPosition} feet={feet}");
+        Require(mine.TargetStandPosition == body,
+            $"once reach grows back, work from where the body is again instead of flying to the smaller reach's stand; stand={mine.TargetStandPosition} body={body}");
     }
 
     private static void MiningRediscoversOnReachIncrease()
@@ -110,9 +110,17 @@ internal static class VerifyCapabilityRevision
         Main.tile[placeholder.X, placeholder.Y].ClearEverything();
         VerifyOreWork.Place(ore, TileID.Copper);
         TerrainChanges.Reset();
-        Player.tileRangeX = Player.tileRangeY = 1;
+        // Reach zero, not reach one, and the difference is the whole orb story. For the walker, reach one refused
+        // ore twelve rows up because no standable tile was within a tile of it. A body that flies hovers beside
+        // any free cell, so at reach one it is already touching this ore and the row asserted nothing (it read
+        // value 0.7, Usable). What still refuses a flying body is reach zero, where the only pose within reach of
+        // a solid tile is inside that tile — which is exactly the rule the chopping row below establishes on a
+        // trunk, and this row now establishes on ore twelve rows off the floor, so that what it still tests is
+        // the thing it was written for: the offer arrives on the very next preparation rather than after the
+        // discovery cadence.
+        Player.tileRangeX = Player.tileRangeY = 0;
         float small = VerifyPreparedActivities.PrepareAndScore(mine, ctx);
-        Require(small == 0f, $"premise: ore twelve rows up is out of every pose and hop at reach 1; value={small} status={mine.Status} offer={mine.Eligibility}/{mine.EligibilityReason}");
+        Require(small == 0f, $"premise: no pose reaches a solid ore tile at reach 0, because the only one would be inside it; value={small} status={mine.Status} offer={mine.Eligibility}/{mine.EligibilityReason}");
 
         Player.tileRangeX = 5;
         Player.tileRangeY = 11;
@@ -161,7 +169,7 @@ internal static class VerifyCapabilityRevision
         Require(none == 0f, $"premise: no pose reaches a trunk at reach 0; value={none} offer={chop.Eligibility}/{chop.EligibilityReason}");
 
         Player.tileRangeX = Player.tileRangeY = 5;
-        Require(FindToolAccess.InReach(ctx.Npc.Bottom, trunk), "premise: reach 5 reaches the trunk from the feet");
+        Require(FindToolAccess.InReach(ctx.Npc.Center, trunk), "premise: reach 5 reaches the trunk from where the body hovers");
         float grown = VerifyPreparedActivities.PrepareAndScore(chop, ctx);
         Require(grown > 0f && chop.Eligibility == OfferEligibility.Usable,
             $"a trunk refused under a smaller reach must be offered once the reach covers it, not after its deferral expires; value={grown} offer={chop.Eligibility}/{chop.EligibilityReason}");
@@ -205,7 +213,7 @@ internal static class VerifyCapabilityRevision
         // capability these rows actually vary, is not what either sense holds, so priming here cannot hide
         // the very-next-preparation behaviour the rows are checking.
         var brain = ctx.Companion.Brain;
-        brain.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Breath);
+        brain.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Motor);
         var home = new live::AICompanion.Companion.Brain.Infrastructure.Position.PositionRequest(
             live::AICompanion.Companion.Brain.Infrastructure.Position.RequestKind.WithPlayer, ctx.Player.Bottom);
         for (int i = 0; i < 3000 && !brain.Positioner.ReachComplete; i++)
@@ -223,25 +231,35 @@ internal static class VerifyCapabilityRevision
         VerifyPreparedActivities.PrepareAndScore(light, ctx);
         PositionRequest request = light.Execute(ctx);
         Point? target = light.ActivityTarget?.ToTileCoordinates();
-        bool reachesFromFeet = target is Point t && FindToolAccess.InReach(ctx.Npc.Bottom, t);
+        // The body's own pose is its centre: `InReach` takes a centre and every production caller passes one.
+        bool reachesFromBody = target is Point t && FindToolAccess.InReach(ctx.Npc.Center, t);
         Require(request.Kind != RequestKind.Exact || target is Point walkTo && FindToolAccess.InReach(request.Anchor, walkTo),
-            $"a walk must end at a pose that reaches the site under the current reach; request={request} site={site} target={target} feet={ctx.Npc.Bottom}");
-        Require(request.Kind != RequestKind.Hold || request.JumpScale > 0f || reachesFromFeet || target == null,
-            $"holding still must mean swinging, jumping or having no site; request={request} target={target}");
+            $"a walk must end at a pose that reaches the site under the current reach; request={request} site={site} target={target} centre={ctx.Npc.Center}");
+        // The walker's version of this admitted a third case, a request holding still with a jump scale on it,
+        // which was the body about to leave the ground for a site above. There is no jump now, so holding still
+        // means either the site is already in reach or there is no site.
+        Require(request.Kind != RequestKind.Hold || reachesFromBody || target == null,
+            $"holding still must mean swinging or having no site; request={request} target={target}");
     }
 
-    private static void NearbyWorkRediscoversOnReachIncrease()
-    {
-        var (light, ctx) = SetUpDarkArea();
-        Player.tileRangeX = Player.tileRangeY = 0;
-        float none = VerifyPreparedActivities.PrepareAndScore(light, ctx);
-        Require(none == 0f, $"premise: no torch site is reachable at reach 0; value={none} offer={light.Eligibility}/{light.EligibilityReason} target={light.ActivityTarget}");
-
-        Player.tileRangeX = Player.tileRangeY = 5;
-        float grown = VerifyPreparedActivities.PrepareAndScore(light, ctx);
-        Require(grown > 0f && light.ActivityTarget != null,
-            $"a site the larger reach covers must be found on the next preparation, not after the search cadence; value={grown} offer={light.Eligibility}/{light.EligibilityReason}");
-    }
+    // DELETED, with the reason rather than the row, because the idea will be had again: "a torch site refused
+    // under a small reach is offered as soon as the reach grows" cannot be stated about this body.
+    //
+    // The walker's version shrank reach to zero and read no site, because a torch site is a piece of air and the
+    // walker could only ever stand on a floor under it — at reach zero the only pose within reach of a tile is
+    // inside that tile, and the walker could not be inside air it did not stand in. A body that flies can be. So
+    // the first orb run of this row read value 0.84 and a Usable offer at reach zero, from a pose in the site's
+    // own tile, and there is no smaller reach to shrink to.
+    //
+    // The property itself — a refusal derived under one capability is re-asked on the very next preparation
+    // rather than after the discovery cadence — is not lost: `ChoppingDeferralEndsOnReachIncrease` and
+    // `MiningRediscoversOnReachIncrease` both establish it, and both can because a trunk and an ore are solid
+    // tiles the body cannot occupy, which is what makes reach zero a real refusal. What no longer has a row is
+    // that same property on an air target, and the honest reason is that reach never refuses a flying body an
+    // air target at all.
+    //
+    // `NearbyWorkStandFollowsReach` and `NearbyWorkNoReturnEndsOnReachIncrease` below keep the two
+    // lighting and pot-collection capability claims that do survive the body change.
 
     // ── collection ───────────────────────────────────────────────────────────────────────────
 
@@ -282,9 +300,7 @@ internal static class VerifyCapabilityRevision
             ctx.Npc.Bottom = new Vector2(Rim * 16 + 8, 60 * 16);
             ctx.Npc.velocity = Vector2.Zero;
             ctx.Senses.Loot.Pickups.Clear();
-            // With drops refused the walker never reaches the pit floor, and the pot is an ordinary absence rather than a refusal.
-            AStar.AllowOneWayDrops = true;
-            ctx.Companion.Brain.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Breath);
+            ctx.Companion.Brain.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Motor);
             return ctx;
         }
 

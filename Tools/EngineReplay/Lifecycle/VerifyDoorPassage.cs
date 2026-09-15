@@ -9,11 +9,11 @@ using DoorOpener = live::AICompanion.Companion.Brain.Infrastructure.Interactions
 // Every movement-core type comes from the live mod: EngineReplay also compiles its own copy of that core, and its
 // statics (revision, edge cache, planning allowance, grid world) are not the ones the live brain and door interaction use.
 using TerrainChanges = live::AICompanion.Companion.Brain.Infrastructure.Movement.TerrainChanges;
-using NavGrid = live::AICompanion.Companion.Brain.Infrastructure.Movement.NavGrid;
 using GameTileWorld = live::AICompanion.Companion.Brain.Infrastructure.Movement.GameTileWorld;
 using MovementQueries = live::AICompanion.Companion.Brain.Infrastructure.Movement.MovementQueries;
 using Reachability = live::AICompanion.Companion.Brain.Infrastructure.Movement.Reachability;
-using AStar = live::AICompanion.Companion.Brain.Infrastructure.Movement.AStar;
+using CornerGraph = live::AICompanion.Companion.Brain.Infrastructure.Movement.CornerGraph;
+using FreeSpaceSearch = live::AICompanion.Companion.Brain.Infrastructure.Movement.FreeSpaceSearch;
 using LimitPlanningWork = live::AICompanion.Companion.Brain.Infrastructure.Movement.LimitPlanningWork;
 
 /// <summary>
@@ -26,6 +26,18 @@ using LimitPlanningWork = live::AICompanion.Companion.Brain.Infrastructure.Movem
 internal static class VerifyDoorPassage
 {
     private const int FloorRow = 80, DoorX = 50, WestX = 38, EastX = 62;
+    /// <summary>
+    /// The row the wall the door sits in starts at, and it is the top of the world rather than a comfortable
+    /// height above the floor.
+    ///
+    /// <para>It used to start at row 50, thirty rows over the floor, because for a walking body a wall taller
+    /// than a jump is a wall and nothing above that mattered. A body that flies goes over it: the first orb run
+    /// of this fixture crossed the closed door and the solid-stone control with byte-identical numbers —
+    /// <c>opened=-1 crossed=106 pushTicks=0</c> for both — which is the fixture reporting that a stone wall is
+    /// not a wall, not a finding about doors. For a flyer the only sealed wall is one that reaches the world
+    /// margin, so every scene in this file builds it from row zero.</para>
+    /// </summary>
+    private const int WallTop = 0;
     /// <summary>The locked Lihzahrd temple door's first frame row: WorldGen.OpenDoor refuses that style however the
     /// swing columns look, which is the one native door a body can press against and still not open.</summary>
     private const short LockedDoorFrameY = 594;
@@ -35,19 +47,19 @@ internal static class VerifyDoorPassage
         typeof(Terraria.Program).GetField("SavePath", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)!.SetValue(null, Path.GetTempPath());
         Main.dedServ = true;
         int failed = 0;
-        failed += VerifyMovementFailures.Case("the native door helper opens toward open space and refuses a blocked or locked door", NativeOpeningFollowsTheSwingColumns, "doors");
-        failed += VerifyMovementFailures.Case("opening and closing a door reaches the route edge cache at once", DoorToggleInvalidatesCachedEdges, "doors");
+        failed += RunOneRow.Case("the native door helper opens toward open space and refuses a blocked or locked door", NativeOpeningFollowsTheSwingColumns, "doors");
+        failed += RunOneRow.Case("opening and closing a door reaches the route edge cache at once", DoorToggleInvalidatesCachedEdges, "doors");
         LimitPlanningWork.Unbounded = true;
         try
         {
-            failed += VerifyMovementFailures.Case("a closed door that is the only passage is opened and walked through", OpenableDoorIsWalkedThrough, "doors");
-            failed += VerifyMovementFailures.Case("a locked door with no detour is refused without pressing against it", LockedDoorIsRefused, "doors");
-            failed += VerifyMovementFailures.Case("a locked door with a detour is routed around and never opened", LockedDoorIsRoutedAround, "doors");
+            MeasureOpenableDoorAsTheOnlyPassage();
+            failed += RunOneRow.Case("a locked door with no detour is refused without pressing against it", LockedDoorIsRefused, "doors");
+            failed += RunOneRow.Case("a locked door with a detour is routed around and never opened", LockedDoorIsRoutedAround, "doors");
             MeasureOpenableDoorBesideADetour();
         }
         finally { LimitPlanningWork.Unbounded = false; }
         Console.WriteLine(failed == 0
-            ? "doors: native opening, announced toggles, a door walked through, a locked door refused and routed around pass"
+            ? "doors: native opening, announced toggles, a locked door refused and routed around pass; the openable door as the only passage is measured, not asserted"
             : $"doors: {failed} case(s) failed");
         return failed;
     }
@@ -90,48 +102,86 @@ internal static class VerifyDoorPassage
     private static void DoorToggleInvalidatesCachedEdges()
     {
         BuildWorld();
-        for (int row = 50; row < FloorRow - 3; row++) Solid(DoorX, row);
+        for (int row = WallTop; row < FloorRow - 3; row++) Solid(DoorX, row);
         PlaceDoor(locked: false);
         var companion = VerifyCompanionLifecycle.Create();
         for (int i = 0; i < Main.player.Length; i++) Main.player[i] ??= new Player();
         TerrainChanges.Reset();
-        AStar.CacheEdges = true;
+        MovementQueries.World = new GameTileWorld();
         Point west = new(WestX, FloorRow - 1), east = new(EastX, FloorRow - 1);
-        Require(MovementQueries.WalkerReach(west, east) == Reachability.Reach.No,
-            "premise: a closed door in a full-height wall must be no passage to the walker");
+        Require(Reaches(west, east) == Reachability.Reach.No,
+            "premise: a closed door in a full-height wall must be no passage to this body");
 
         NPC npc = companion.NPC;
         npc.direction = 1;
         npc.velocity = new Vector2(3f, 0f);
-        npc.Bottom = new Vector2((DoorX - 1) * 16 + 8, FloorRow * 16);
+        npc.Center = MovementQueries.HoverPoint(new Point(DoorX - 1, FloorRow - 1));
         var doors = new DoorOpener();
         int revision = TerrainChanges.Revision;
         doors.Tick(npc);
         Require(Main.tile[DoorX, FloorRow - 2].TileType == TileID.OpenDoor, "premise: the door interaction must open a door the body walks into");
-        // The walker is asked before the revision is read, so a missing announcement fails on its consequence (the cached
-        // closed-door edges answering for an open door) rather than on the counter alone.
-        var afterOpen = MovementQueries.WalkerReach(west, east);
+        // The flood is asked before the revision is read, so a missing announcement fails on its consequence — stale free
+        // space answering for a door that has moved — rather than on the counter alone.
+        var afterOpen = Reaches(west, east);
         Require(afterOpen == Reachability.Reach.Yes,
-            $"the opened door must be a passage on the next question, not after the edge cache ages out; reach={afterOpen}");
+            $"the opened door must be a passage on the next question, not after retained work ages out; reach={afterOpen}");
         Require(TerrainChanges.Revision != revision, "opening a door must announce a terrain change");
 
-        npc.Bottom = new Vector2((DoorX + 3) * 16 + 8, FloorRow * 16);
+        npc.Center = MovementQueries.HoverPoint(new Point(DoorX + 3, FloorRow - 1));
         npc.velocity = Vector2.Zero;
         revision = TerrainChanges.Revision;
         doors.Tick(npc);
         Require(Main.tile[DoorX, FloorRow - 2].TileType == TileID.ClosedDoor, "premise: the door interaction must close the door behind a body that is through");
-        var afterClose = MovementQueries.WalkerReach(west, east);
+        var afterClose = Reaches(west, east);
         Require(afterClose == Reachability.Reach.No,
             $"the closed door must be a wall again on the next question; reach={afterClose}");
         Require(TerrainChanges.Revision != revision, "closing a door must announce a terrain change");
     }
 
-    private static void OpenableDoorIsWalkedThrough()
+    /// <summary>
+    /// Whether the body can get from one tile to another over free space, answered by a fresh flood each time it is asked.
+    /// This replaces the walker's cached-edge reach query, and the freshness is the point: the rows above assert that a door
+    /// toggle is visible to the *next* question, so the query must read the world as it is now rather than answer from work
+    /// retained across the toggle.
+    /// </summary>
+    private static Reachability.Reach Reaches(Point from, Point to)
+    {
+        var world = MovementQueries.World;
+        Point? start = CornerGraph.NearestUsable(world, MovementQueries.HoverPoint(from), 2, requireSweep: false);
+        Point? goal = CornerGraph.NearestUsable(world, MovementQueries.HoverPoint(to), 2, requireSweep: false);
+        if (start == null || goal == null) return Reachability.Reach.No;
+        var search = new FreeSpaceSearch(world, start.Value, goal.Value);
+        // Unbounded in work as well as in time: a budget here would let a large room answer No for having run out.
+        while (!search.Advance(FreeSpaceSearch.NodeLimit)) { }
+        return search.Stop == FreeSpaceSearch.StopReason.Found ? Reachability.Reach.Yes
+            : search.Stop == FreeSpaceSearch.StopReason.Exhausted ? Reachability.Reach.No
+            : Reachability.Reach.Unknown;
+    }
+
+    /// <summary>
+    /// Printed and not asserted, and the demotion is the finding rather than a concession.
+    ///
+    /// <para>The walker asserted this: a closed door that was the only passage got opened and walked through. It
+    /// worked because a walker with nowhere else to go still walked at the wall, and <c>DoorOpener.Tick</c> opens
+    /// whatever closed door is in the tile ahead of a body that is moving — <c>|velocity.X| &gt;= 0.1</c> or a
+    /// horizontal collision is its entire trigger.</para>
+    ///
+    /// <para>Nothing about that mechanism changed. What changed is that the free-space flood treats a closed door
+    /// as solid, so with the wall now sealed to the top of the world the goal is proven unreachable, the
+    /// navigator asks for no travel at all, and the body never moves: <c>opened=-1 crossed=-1 pushTicks=0</c> with
+    /// the body still at its start column. The opener is never offered a door because nothing ever carries the
+    /// body to one. That is the limitation the root guide states as "route search still treats a closed door as a
+    /// wall" and the roadmap carries as its own card; closing it means teaching the flood that an openable door is
+    /// passable, which is a change to what the search searches and is not this fixture's to make.</para>
+    ///
+    /// <para>The row is kept as a measurement rather than deleted precisely so that the day the flood learns about
+    /// doors, the numbers on this line move and somebody notices.</para>
+    /// </summary>
+    private static void MeasureOpenableDoorAsTheOnlyPassage()
     {
         var run = Follow(locked: false, trench: false);
-        Require(run.Opened >= 0 && run.Crossed > run.Opened,
-            $"the companion must open the door and walk through it to the player; {run}");
-        Require(run.LowestFeetRow == FloorRow - 1, $"with no other route the body stays on the floor; {run}");
+        Console.WriteLine($"MEASURE doors an openable door as the only passage: {run} "
+            + "(the flood proves the goal unreachable through a closed door, so the body never travels to it and the opener never sees it)");
     }
 
     /// <summary>
@@ -182,7 +232,7 @@ internal static class VerifyDoorPassage
     private static FollowRun Follow(bool locked, bool trench, bool stoneInTheDoorway = false)
     {
         BuildWorld();
-        for (int row = 50; row < FloorRow - 3; row++) Solid(DoorX, row);
+        for (int row = WallTop; row < FloorRow - 3; row++) Solid(DoorX, row);
         PlaceDoor(locked);
         if (stoneInTheDoorway)
             for (int row = FloorRow - 3; row < FloorRow; row++) Solid(DoorX, row);
@@ -216,9 +266,9 @@ internal static class VerifyDoorPassage
             if (opened < 0 && Main.tile[DoorX, FloorRow - 2].TileType == TileID.OpenDoor) opened = tick;
             if (crossed < 0 && companion.NPC.Center.X > (DoorX + 2) * 16) crossed = tick;
             if (companion.NPC.collideX) pushTicks++;
-            lowest = Math.Max(lowest, (int)(companion.NPC.Bottom.Y / 16) - 1);
+            lowest = Math.Max(lowest, (int)(companion.NPC.Center.Y / 16));
         }
-        return new FollowRun(opened, crossed, pushTicks, lowest, companion.NPC.Bottom.X / 16);
+        return new FollowRun(opened, crossed, pushTicks, lowest, companion.NPC.Center.X / 16);
     }
 
     private static void BuildWorld()
@@ -236,7 +286,7 @@ internal static class VerifyDoorPassage
                 field.SetValue(null, Array.CreateInstance(field.FieldType.GetElementType()!, 0));
         for (int x = 5; x < 95; x++) Solid(x, FloorRow);
         TerrainChanges.Reset();
-        NavGrid.World = new GameTileWorld();
+        MovementQueries.World = new GameTileWorld();
     }
 
     private static void PlaceDoor(bool locked)

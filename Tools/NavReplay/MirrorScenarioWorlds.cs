@@ -52,12 +52,12 @@ internal static class MirrorScenarioWorlds
     internal static int MirrorTile(int x, int originX, int width) => 2 * originX + width - 1 - x;
 
     /// <summary>
-    /// A pixel left edge reflected. A tile is a point and a body is a box, so the box's *left* edge
-    /// becomes the reflection of its *right* edge: without the width the body lands one box to the
-    /// side of where it stood, which is a whole tile and a bit on a twenty-pixel companion.
+    /// A pixel x reflected about the window's own span. The orb is a circle about its centre, so
+    /// the centre reflects as a point and nothing about the body's width enters: a reflected centre
+    /// is exactly as far from the far wall as the original was from the near one.
     /// </summary>
-    internal static float MirrorLeft(float left, float boxWidth, int originX, int width)
-        => (2 * originX + width) * 16f - left - boxWidth;
+    internal static float MirrorPixel(float x, int originX, int width)
+        => (2 * originX + width) * 16f - x;
 
     /// <summary>
     /// The block, reflected. Returns a new list; the input is not touched, because the caller runs
@@ -70,9 +70,9 @@ internal static class MirrorScenarioWorlds
         foreach (string raw in block)
         {
             string line = raw.TrimEnd('\r');
-            if (ReplayOneBlock.IsHeaderLine(line))
+            if (ReadScenarioBlocks.IsHeaderLine(line))
                 mirrored.Add(MirrorHeader(line, originX, width));
-            else if (ReplayOneBlock.IsExtraLine(line))
+            else if (ReadScenarioBlocks.IsExtraLine(line))
                 mirrored.Add(MirrorExtra(line, originX, width));
             else
                 mirrored.Add(MirrorRow(line, width));
@@ -93,7 +93,7 @@ internal static class MirrorScenarioWorlds
         foreach (string raw in block)
         {
             string line = raw.TrimEnd('\r');
-            if (ReplayOneBlock.IsHeaderLine(line))
+            if (ReadScenarioBlocks.IsHeaderLine(line))
             {
                 int at = line.IndexOf("window x ", StringComparison.Ordinal);
                 if (at >= 0)
@@ -104,7 +104,7 @@ internal static class MirrorScenarioWorlds
                 }
                 continue;
             }
-            if (ReplayOneBlock.IsExtraLine(line))
+            if (ReadScenarioBlocks.IsExtraLine(line))
                 continue;
             width = Math.Max(width, line.Length);
         }
@@ -129,18 +129,18 @@ internal static class MirrorScenarioWorlds
     }
 
     /// <summary>
-    /// The header's recorded positions, reflected in place. Only the four tile keys and the body box
-    /// are rewritten and the prose around them is left exactly as it was: the description is what a
-    /// person reads to know which failure this block is, and a transform that edited it would make
-    /// the reflection unidentifiable. <c>window x A..B</c> is unchanged because the reflection lands
-    /// in the same window by construction.
+    /// The header's recorded positions, reflected in place. Only the four tile keys and the orb's
+    /// centre are rewritten and the prose around them is left exactly as it was: the description is
+    /// what a person reads to know which failure this block is, and a transform that edited it would
+    /// make the reflection unidentifiable. <c>window x A..B</c> is unchanged because the reflection
+    /// lands in the same window by construction.
     /// </summary>
     internal static string MirrorHeader(string header, int originX, int width)
     {
         string line = header;
         foreach (string key in new[] { "start", "goal", "npc", "player" })
             line = ReplaceTile(line, key, originX, width);
-        return ReplaceBox(line, originX, width);
+        return ReplaceOrb(line, originX, width);
     }
 
     private static string ReplaceTile(string line, string key, int originX, int width)
@@ -158,9 +158,10 @@ internal static class MirrorScenarioWorlds
         return line[..valueStart] + $"{MirrorTile(x, originX, width)},{y}" + line[valueEnd..];
     }
 
-    private static string ReplaceBox(string line, int originX, int width)
+    /// <summary>The orb's recorded centre, <c>orb x,y</c> in pixels, reflected as the point it is.</summary>
+    private static string ReplaceOrb(string line, int originX, int width)
     {
-        const string Key = "npcbox ";
+        const string Key = "orb ";
         int at = line.IndexOf(Key, StringComparison.Ordinal);
         if (at < 0)
             return line;
@@ -168,20 +169,13 @@ internal static class MirrorScenarioWorlds
         int valueEnd = line.IndexOf(' ', valueStart);
         if (valueEnd < 0) valueEnd = line.Length;
         string[] parts = line[valueStart..valueEnd].Split(',');
-        if (parts.Length < 2
-            || !float.TryParse(parts[0], NumberStyles.Float, CultureInfo.InvariantCulture, out float left)
-            || !float.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out float bottom))
+        if (parts.Length != 2
+            || !float.TryParse(parts[0], NumberStyles.Float, CultureInfo.InvariantCulture, out float x)
+            || !float.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out float y))
             return line;
-        // The recorded width, never a constant: the box is written by the recorder and a hard-coded
-        // twenty is a claim about a body this tool does not own.
-        float boxWidth = parts.Length > 2 && float.TryParse(parts[2], NumberStyles.Float, CultureInfo.InvariantCulture, out float w) ? w : 0f;
-        var rebuilt = new List<string>
-        {
-            MirrorLeft(left, boxWidth, originX, width).ToString("0.0", CultureInfo.InvariantCulture),
-            bottom.ToString("0.0", CultureInfo.InvariantCulture),
-        };
-        rebuilt.AddRange(parts.Skip(2));
-        return line[..valueStart] + string.Join(',', rebuilt) + line[valueEnd..];
+        return line[..valueStart]
+            + MirrorPixel(x, originX, width).ToString("0.0", CultureInfo.InvariantCulture) + "," + y.ToString("0.0", CultureInfo.InvariantCulture)
+            + line[valueEnd..];
     }
 
     /// <summary>

@@ -137,55 +137,6 @@ public sealed class MeasureTerrainRevisionRate : IMeasure
 }
 
 /// <summary>
-/// A body that has arrived at a place that does not satisfy what was asked for, and then holds
-/// there. The shape in the record is exact: the navigator says Arrived, the positioner says the
-/// destination was a partial-progress candidate rather than a place that satisfies the request,
-/// and the chosen spot does not change for a long time. The companion is standing at its own tile
-/// with the player twenty tiles up, and nothing in the record is complaining.
-///
-/// It needs a run length rather than a per-row count because one row of this is ordinary — a
-/// partial destination reached is a step toward the real one. A stretch of it is the fallback
-/// having no exit condition.
-/// </summary>
-public sealed class MeasureArrivedWithFollowGap : IMeasure
-{
-    public string Name => "arrived-with-follow-gap";
-    public string[] Needs => new[] { "nav_status", "position_reason", "spot" };
-
-    /// <summary>
-    /// How many rows of standing still at a partial destination stop being progress and start
-    /// being a park. A second of game time is sixty rows, so this is "longer than a second", which
-    /// is the shortest span a person watching could call a stop.
-    /// </summary>
-    private const int Stretch = 60;
-
-    public IEnumerable<LedgerRow> Rows(Session session)
-    {
-        Column status = session["nav_status"], reason = session["position_reason"], spot = session["spot"];
-        var lengths = new List<int>();
-        int run = 0;
-        string held = "";
-        for (int row = 0; row < session.Count; row++)
-        {
-            bool qualifying = status.Text[row] == "Arrived"
-                && reason.Text[row] == "partial-progress-candidate"
-                && spot.Text[row].Length > 0 && spot.Text[row] != "-";
-            if (qualifying && spot.Text[row] == held) { run++; continue; }
-            if (run > Stretch) lengths.Add(run);
-            run = qualifying ? 1 : 0;
-            held = qualifying ? spot.Text[row] : "";
-        }
-        if (run > Stretch) lengths.Add(run);
-
-        yield return PlayRow.Count(Name + "/stretches", lengths.Count, "stretches", "down",
-            $"runs of more than {Stretch} rows with the navigator Arrived at an unchanged partial-progress destination — a stand that does not satisfy the request being treated as an arrival",
-            "R6", "pass-line:zero");
-        yield return PlayRow.Count(Name + "/longest-stretch", lengths.Count == 0 ? 0 : lengths.Max(), "rows", "down",
-            "the longest single stretch of the above, in rows", "R6");
-    }
-}
-
-/// <summary>
 /// Whether a journey ended where it was going, read from the census rather than from the rows.
 ///
 /// The census is the right source and the reason is worth keeping: it counts every category

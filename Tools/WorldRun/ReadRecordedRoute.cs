@@ -20,13 +20,14 @@ using Microsoft.Xna.Framework;
 /// </summary>
 internal static class ReadRecordedRoute
 {
-    /// <summary>One recorded tick: where both bodies were, and what the player was doing.</summary>
+    /// <summary>One recorded tick: where both bodies were, and what the player was doing. The companion is
+    /// its centre, which is the whole of an orb's position; the player is its feet.</summary>
     internal readonly record struct Step(
         int Tick,
         Vector2 PlayerFeet,
         Vector2 PlayerVelocity,
         bool PlayerGrounded,
-        Vector2 CompanionLeftBottom);
+        Vector2 CompanionCentre);
 
     /// <summary>
     /// What the capture says both bodies could do, or nothing at all.
@@ -82,12 +83,14 @@ internal static class ReadRecordedRoute
             if (tick < fromTick) continue;
             if (maxTicks > 0 && steps.Count >= maxTicks) break;
 
+            // `npc_px` is the body's centre in whole pixels in every schema the recorder has written,
+            // sampled inside the AI phase after the motor's own contact; for the orb it is the body.
             steps.Add(new Step(
                 tick,
                 Pair(cells, header, "player_px"),
                 Pair(cells, header, "player_vel"),
                 Cell(cells, header, "player_ground") == "1",
-                new Vector2(Number(cells, header, "observed_left"), Number(cells, header, "observed_bottom"))));
+                Pair(cells, header, "npc_px")));
         }
 
         if (header == null) throw new InvalidDataException($"{capturePath} has no TSV header");

@@ -15,7 +15,7 @@ Safety can run with no ordinary offer at all. Recovery requires a WithPlayer reu
 
 ## Recovery is separate from mastery flight
 
-Recovery flight is an explicit coordinator branch that starts when an activity or safety has no more work and the companion sits beyond the recovery distance. The unbuilt mastery tree may later add movement abilities like air jumps, dash, swimming or continuous flight; these would be methods the activities use while their own work is scoring, not a separate system that claims the feet like recovery does. Recovery cannot be started by combat, work or downing — it requires the condition that all ordinary options have closed and the companion is left to follow. A destination in Combat or Gathering does not grant recovery even if those coordinates equal the player's position, because a standing activity offer is not the same as no offer at all.
+Recovery flight is an explicit coordinator branch that starts when an activity or safety has no more work and the companion sits beyond the recovery distance. The unbuilt mastery tree may later change what movement costs the body — a dash, a faster pace, immunity to water or lava; those would change what the activities' own requests can reach, not add a separate system that claims the feet like recovery does. Recovery cannot be started by combat, work or downing — it requires the condition that all ordinary options have closed and the companion is left to follow. A destination in Combat or Gathering does not grant recovery even if those coordinates equal the player's position, because a standing activity offer is not the same as no offer at all.
 
 ## Traps
 
@@ -37,4 +37,4 @@ A reader who has just learned that the intent region answers "how far from the p
 
 ## Current state — 2026-09-14
 
-Safety runs after observation and can interrupt any activity to escape lava/breath loss or avoid immediate collision. Recovery is a coordinator-level reflex that flies the companion home when it sits beyond the recovery distance — the same threshold this file names above, not a second one — and has no ordinary work. Both are separate from the future mastery movement abilities, which would be scoring methods the activities invoke, not systems that own the feet at coordinator level.
+Safety runs after observation and can interrupt any activity to leave water or lava, which hurt the orb on contact, or to avoid an immediate collision. Recovery is a coordinator-level reflex that flies the companion home when it sits beyond the recovery distance — the same threshold this file names above, not a second one — and has no ordinary work. Both are separate from the future mastery movement abilities, which would be scoring methods the activities invoke, not systems that own the feet at coordinator level.

@@ -14,25 +14,33 @@ namespace AICompanion.Tools.SessionReport;
 ///
 /// The reason this is not a synthetic fixture is the one the whole harness rests on: a measure
 /// tuned on generated rows returns a perfect number against a capture shape that never occurs. Real
-/// play is sparse and clustered — a player stands still for eleven thousand rows of this capture,
-/// the reach flood is unfinished on nearly half of them, one activity owns three quarters of the
-/// session — and the defects these measures exist to track live in exactly that shape. So the
-/// fixture is the 13:27 capture of 14 September 2026, and the numbers below are the ones three
-/// independent readings of it agreed on.
+/// play is sparse and clustered — a player stands still for eleven thousand rows, the reach flood is
+/// unfinished on nearly half of them, one activity owns three quarters of the session — and the
+/// defects these measures exist to track live in exactly that shape.
 ///
-/// Two of the numbers quoted in the research around that capture are *not* reproduced here, and
-/// both are recorded in the return and the folder file rather than fitted to. The commit body of
-/// 8597628 says the companion led the travelling player by more than four tiles on 4.7% of moving
-/// rows; the instrument says 10.8%, and 4.7% is the eight-tile figure, so a percentage was paired
-/// with the wrong threshold. And the 13:27 read reports 23 stretches of arriving at a partial
-/// destination; under the definition that read states — navigator Arrived, position reason
-/// partial-progress-candidate, spot unchanged — this capture holds exactly one, of 328 rows, and
-/// three neighbouring definitions yield at most nine. The longest stretch, 328, reproduces.
+/// <b>Nothing is pinned at present, and that is a statement about the evidence rather than a gap
+/// somebody forgot to fill.</b> Every number this file used to hold was read off the 13:27 capture
+/// of 14 September 2026, which recorded the walking body at schema 0.33.0. The orb's row is a
+/// different row: the measures that fed four of those numbers are deleted because the quantities
+/// they counted do not exist for this body, and the ones that survive read columns that capture does
+/// not carry. Re-pinning them against it would be pinning the instrument to a body the game no
+/// longer has.
 ///
-/// That is the point of pinning them at all. Both wrong numbers came from a reader's own filter
-/// over the file rather than from an instrument, which is the failure this whole file exists to
-/// close: after this, the number in a report is the number the harness produced, and a disagreement
-/// with a hand reading is a defect in one of them that somebody can go and settle.
+/// So the gate is the capture's own schema, and a capture below <see cref="OrbSchema"/> files a
+/// <c>skipped</c> row naming the schema it found and the schema the pins want. That is the same rule
+/// the absent-capture branch already followed, extended to the case that is worse because it looks
+/// fine: an old capture has every column name a surviving measure asks for, so it would produce
+/// numbers, and those numbers would be a walking body's. The first orb playtest is what fills the
+/// table below, and until it exists these measures are unverified against real play and this file
+/// says so on every run.
+///
+/// The reason to pin them at all is worth keeping while the table is empty. Two numbers quoted in
+/// the research around the 13:27 capture were wrong, both because they came from a reader's own
+/// filter over the file rather than from an instrument: a share of rows on which the companion led
+/// the travelling player was paired with the wrong threshold, and a count of stretches at a partial
+/// destination was 23 by hand and 1 by the measure. After a pin exists, the number in a report is
+/// the number the harness produced, and a disagreement with a hand reading is a defect in one of
+/// them that somebody can go and settle.
 /// </summary>
 public static class PlayMeasureTests
 {
@@ -43,55 +51,29 @@ public static class PlayMeasureTests
     /// prints what is missing and what it would have proved; it never reads as green.
     /// </summary>
     private const string CaptureVariable = "AIC_PLAY_CAPTURE";
-    private const string DefaultCapture = "Telemetry/2026-09-14_13-27-46-345.tsv";
+    /// <summary>The recorder names each capture for the moment it was written, so the default is the
+    /// folder and the newest capture in it, resolved exactly as the tool's own folder argument is.</summary>
+    private const string DefaultCapture = "Telemetry";
+
+    /// <summary>
+    /// The schema whose row this reader is built for. A capture below it was written by the walking
+    /// body, whose columns this reader no longer names, so its numbers cannot be this instrument's
+    /// before-numbers however cleanly they come out.
+    /// </summary>
+    private static readonly Version OrbSchema = new(0, 34, 0);
 
     /// <summary>
     /// The before-numbers, by ledger case. A share is in percent and a count is a count, matching
     /// what the rows carry, so a figure here can be read straight against a figure in a report.
+    ///
+    /// Empty until an orb capture exists. An empty table never passes: the run below files a skip
+    /// naming what is unpinned, because a green row for a comparison of nothing against nothing is
+    /// exactly the hollow result this whole file was built to refuse.
     /// </summary>
-    private static readonly (string Case, double Expected, double Tolerance)[] Pinned =
-    {
-        // Following: the offset along the player's travel direction on rows where the player moves.
-        ("ahead-share/moving-rows", 7901, 0),
-        ("ahead-share/share-ahead-beyond-64px", 10.80, 0.01),
-        ("ahead-share/share-behind-beyond-48px", 71.48, 0.01),
-        ("ahead-share/median-offset-px", -181, 0),
+    private static readonly (string Case, double Expected, double Tolerance)[] Pinned = Array.Empty<(string, double, double)>();
 
-        // Commitment: moves released by their own owner with the body off the ground.
-        ("cancelled-in-flight/Jump-airborne-idle", 36, 0),
-        ("cancelled-in-flight/Drop-airborne-idle", 8, 0),
-        ("cancelled-in-flight/FallThrough-airborne-idle", 2, 0),
-        ("cancelled-in-flight/Walk-airborne-idle", 0, 0),
-
-        // The same defect seen from the body's side.
-        ("airborne-no-sideways-speed-stops/stops", 30, 0),
-        ("airborne-no-sideways-speed-stops/ticks", 114, 0),
-        ("stops-by-reason/inside-walk-step", 215, 0),
-        ("stops-by-reason/during-replan", 60, 0),
-
-        // Choice: which half of the switches a commitment margin could hold and which it could not.
-        ("validity-flips/switches", 250, 0),
-        ("validity-flips/share-invalid", 51.60, 0.01),
-        ("validity-flips/invalid/hunt", 64, 0),
-        ("validity-flips/invalid/guard", 53, 0),
-        ("validity-flips/outscored/keep-company", 101, 0),
-
-        // A budget cut reported as a proven impossibility.
-        ("hunt-known-unusable-share/share", 48.72, 0.01),
-
-        // Knowledge, arrival and journeys.
-        ("reach-complete-share/share-complete", 56.34, 0.01),
-        ("journeys-reached/WithPlayer", 5.86, 0.01),
-        ("arrived-with-follow-gap/stretches", 1, 0),
-        ("arrived-with-follow-gap/longest-stretch", 328, 0),
-
-        // The hands are not the defect; the feet never arrive.
-        ("hands-by-activity/keep-company/no-target", 97.94, 0.01),
-        ("hands-by-activity/hunt/fired-or-cooldown", 43.37, 0.01),
-    };
-
-    /// <summary>Cases that must report themselves skipped on this capture, never silently produce a number.</summary>
-    private static readonly string[] MustSkip = { "terrain-revision-rate/revisions-per-minute" };
+    /// <summary>Cases that must report themselves skipped on the pinning capture, never silently produce a number.</summary>
+    private static readonly string[] MustSkip = Array.Empty<string>();
 
     /// <summary>The ledger case this half of the self-test reports under, in the reader's own vocabulary.</summary>
     private const string CaseName = "the pinned before-numbers reproduce against a real capture";
@@ -115,12 +97,13 @@ public static class PlayMeasureTests
             return 0;
         }
 
-        string path = Environment.GetEnvironmentVariable(CaptureVariable) is { Length: > 0 } named
+        string wanted = Environment.GetEnvironmentVariable(CaptureVariable) is { Length: > 0 } named
             ? named
             : DefaultCapture;
-        if (!File.Exists(path))
+        string? path = Program.Resolve(wanted);
+        if (path is null || !File.Exists(path))
         {
-            string reason = $"no capture at {path}; Telemetry/ is gitignored, so set {CaptureVariable} to run this";
+            string reason = $"no capture at {wanted}; Telemetry/ is gitignored, so set {CaptureVariable} to run this";
             Console.WriteLine($"play measures: SKIPPED — {reason}. Until it runs, the before-numbers these measures reproduce are "
                 + "unverified in this checkout, which is missing coverage rather than a clean result.");
             EmitLedgerRows.Skipped(Instrument, Suite, CaseName, reason);
@@ -134,6 +117,31 @@ public static class PlayMeasureTests
             Console.Error.WriteLine($"play measures: could not read {path}: {e.Message}");
             EmitLedgerRows.Error(Instrument, Suite, CaseName, $"could not read {path}: {e.Message}");
             return 1;
+        }
+
+        // A capture older than the orb's row is the dangerous case rather than the missing one. Every
+        // column a surviving measure names still exists in it, so it would run to the end and produce
+        // a full set of confident numbers — about a body the game does not have. It is named as a skip
+        // for the same reason an absent capture is: a number nobody can act on must never read green.
+        string found = session.Metadata.TryGetValue("schema", out string? declared) ? declared : "unlabelled";
+        if (!Version.TryParse(found, out Version? schema) || schema < OrbSchema)
+        {
+            string reason = $"the capture at {Path.GetFileName(path)} declares schema {found} and the pinned numbers are the orb's, from {OrbSchema} onward; "
+                + "a walking-body capture still carries every column the surviving measures read, so it would produce numbers about a body this reader no longer describes";
+            Console.WriteLine($"play measures: SKIPPED — {reason}. The measures are unverified against real play in this checkout.");
+            EmitLedgerRows.Skipped(Instrument, Suite, CaseName, reason);
+            return 0;
+        }
+
+        // An empty pin table cannot pass. Every assertion below is a loop over `Pinned`, so a run with
+        // nothing in it satisfies all of them and files a pass for having compared nothing.
+        if (Pinned.Length == 0)
+        {
+            const string reason = "no before-number is pinned yet: every earlier pin was read off a walking-body capture, and the first orb "
+                + "playtest is what fills the table. Until then this instrument has never been run against real play";
+            Console.WriteLine($"play measures: SKIPPED — {reason}.");
+            EmitLedgerRows.Skipped(Instrument, Suite, CaseName, reason);
+            return 0;
         }
 
         // Rows are read out of the emitter's own record rather than out of the printed text,

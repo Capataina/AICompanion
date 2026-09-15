@@ -18,9 +18,6 @@ public sealed class DamageArrivesWhereDangerWasSeen : ICheck
     /// <summary>A danger reading this low is "nothing is happening", not "something small is happening".</summary>
     private const float Blind = 0.01f;
 
-    /// <summary>An empty breath bar. Above this the head being under water is swimming, not drowning.</summary>
-    private const float Suffocating = 0.01f;
-
     public string Name => "did it see the danger before the damage arrived";
     public string[] Needs => new[] { "life" };
 
@@ -36,7 +33,13 @@ public sealed class DamageArrivesWhereDangerWasSeen : ICheck
         // Read rather than required, the same way the danger column is: a file without them still
         // answers the question, less precisely, and the finding says so instead of being skipped.
         Column? selfDanger = session.Find("self_danger");
-        Column? breath = session.Find("breath");
+        // The orb is hurt by the liquid it touches rather than by running out of air, so `hurting` is
+        // what a drained breath bar used to be. `npc_hit` is required to be absent beside it for the
+        // same reason the old rule refused to exclude on submersion alone: a hit by something alive
+        // while the body happens to be in water is a true finding, and excluding on the liquid alone
+        // would suppress it exactly as the breath suffix once suppressed two.
+        Column? hurting = session.Find("hurting");
+        Column? hitEvent = session.Find("npc_hit");
 
         var hits = new List<(int Row, float Lost, float Danger)>();
         int environmental = 0;
@@ -45,15 +48,16 @@ public sealed class DamageArrivesWhereDangerWasSeen : ICheck
             float before = life.Number[i - 1], after = life.Number[i];
             if (float.IsNaN(before) || float.IsNaN(after) || after >= before)
                 continue;
-            // Lava, fire and a drained breath bar all take life with no hostile in the world, so the
+            // Lava, fire and a hurting liquid all take life with no hostile in the world, so the
             // threat sense is *correct* to read zero on those ticks and counting them as unseen hits
             // turns a cave session into a page of definitive findings. This is the same exclusion
-            // ScenarioCapture makes for the same reason, plus drowning, which it does not take damage
-            // from. Being under water is not the test: the session of 2026-09-08 holds two real hits
-            // at breath 0.85 and 0.98, so the suffix alone would have suppressed two true findings.
+            // ScenarioCapture makes for the same reason, plus the liquid contact, which it does not
+            // take damage from. Touching water is not the test on its own: a recorded hit event on the
+            // same tick means something alive dealt it, and that is a true finding wherever the body
+            // was floating at the time.
             bool burning = selfDanger != null && (selfDanger.Text[i].EndsWith('L') || selfDanger.Text[i].EndsWith('f'));
-            bool suffocating = breath != null && breath.Text[i].EndsWith('u') && breath.Number[i] <= Suffocating;
-            if (burning || suffocating)
+            bool scalded = hurting != null && hurting.Number[i] == 1f && (hitEvent == null || hitEvent.Text[i] == "-");
+            if (burning || scalded)
             {
                 environmental++;
                 continue;
@@ -62,10 +66,10 @@ public sealed class DamageArrivesWhereDangerWasSeen : ICheck
             hits.Add((i, before - after, reading));
         }
         string aside = environmental == 0
-            ? (selfDanger == null || breath == null
-                ? " This file carries no self_danger or breath column, so a hit from lava, fire or drowning cannot be told from a hit by something alive."
+            ? (selfDanger == null || hurting == null || hitEvent == null
+                ? " This file carries no self_danger or hurting column, so a hit from lava, fire or a hurting liquid cannot be told from a hit by something alive."
                 : "")
-            : $" A further {environmental} life loss(es) came from lava, fire or a drained breath bar and are excluded, "
+            : $" A further {environmental} life loss(es) came from lava, fire or a hurting liquid and are excluded, "
               + "because a threat sense is right to read zero when nothing alive is in the room.";
         if (hits.Count == 0)
             yield break;

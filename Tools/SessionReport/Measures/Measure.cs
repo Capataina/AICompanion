@@ -87,10 +87,13 @@ internal static class ReadPlay
     /// so a threshold test on "faster than 1.2" silently admitted 114 rows recorded at exactly the
     /// floor and changed the denominator of every share taken from them.
     ///
-    /// Both <c>npc_px</c> and <c>player_px</c> are the body's <c>Bottom</c>, whose X is the box's
-    /// *centre* rather than its left edge; reading either as a left edge shifts every offset by
-    /// half a body width, which produced a confident wrong diagnosis of the platform freeze once
-    /// already. Taking both from the same convention is what makes their difference mean anything.
+    /// The two positions are not written from the same point and the difference is deliberate:
+    /// <c>npc_px</c> is the orb's <c>Center</c>, which is the only point it has, while
+    /// <c>player_px</c> stays the player's <c>Bottom</c>, whose X is the box's centre rather than
+    /// its left edge. Both X values are therefore centres and their difference is a horizontal
+    /// offset that means what it says; the Y values differ by half the player's height, so a
+    /// vertical comparison between the two is a comparison of a centre against a pair of feet and
+    /// any measure making one says so.
     /// </summary>
     public static double? Leading(Column column, int row)
     {

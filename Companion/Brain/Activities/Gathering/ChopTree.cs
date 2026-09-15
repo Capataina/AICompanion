@@ -57,7 +57,7 @@ public sealed class ChopTree : CompanionAction
         prepared = value > 0 && RemainingWork is { } remaining && tree is { } found
             && BindTileTarget.Capture(found.Bottom) is { } binding
             ? new(found.Bottom.ToWorldCoordinates(), value,
-                Vector2.Distance(ctx.Npc.Bottom, found.StandPosition) / Companion.CompanionMotor.WalkSpeed + remaining.Ticks, binding)
+                Vector2.Distance(ctx.Npc.Center, found.StandPosition) / OrbPace.MaxSpeed + remaining.Ticks, binding)
             : null;
         if (value > 0 && prepared == null)
             Classify(OfferEligibility.KnownUnusable, RemainingWork == null ? "axe-cannot-damage-trunk" : "trunk-binding-unavailable");
@@ -207,17 +207,17 @@ public sealed class ChopTree : CompanionAction
         }
         // Retained work must still have a useful position after the body, terrain or
         // effective reach changes. Actual current access needs no representative node.
-        var key = (MovementQueries.FeetTile(ctx.Npc.Bottom),
+        var key = (MovementQueries.Tile(ctx.Npc.Center),
             tree.Value.Bottom, TerrainChanges.Revision, FindToolAccess.Reach.X, FindToolAccess.Reach.Y);
-        if (FindToolAccess.InReach(ctx.Npc.Bottom, tree.Value.Bottom))
+        if (FindToolAccess.InReach(ctx.Npc.Center, tree.Value.Bottom))
         {
-            tree = tree.Value with { StandPosition = ctx.Npc.Bottom };
+            tree = tree.Value with { StandPosition = ctx.Npc.Center };
             approachReach = Reachability.Reach.Yes;
             reachKey = null;
         }
         else if (reachKey != key || sinceReach >= SearchEveryTicks)
         {
-            approachReach = FindToolAccess.Approach(tree.Value.Bottom, ctx.Npc.Bottom, ctx.Senses.Reach, out Vector2 stand);
+            approachReach = FindToolAccess.Approach(tree.Value.Bottom, ctx.Npc.Center, ctx.Senses.Reach, out Vector2 stand);
             if (approachReach == Reachability.Reach.Yes)
                 tree = tree.Value with { StandPosition = stand };
             reachKey = key;
@@ -269,11 +269,12 @@ public sealed class ChopTree : CompanionAction
         }
         attemptTrunk = t.Bottom;
 
-        if (FindToolAccess.InReach(ctx.Npc.Bottom, t.Bottom))
+        if (FindToolAccess.InReach(ctx.Npc.Center, t.Bottom))
         {
             ctx.Companion.HoldItem(axe.type);
             swinging = true;
             ctx.Companion.Motor.Face(t.Bottom.X * 16f + 8f);
+            ctx.Companion.ShowBeam(t.Bottom.ToWorldCoordinates(8f, 8f));
             if (ctx.Companion.Chopper.Swing(t.Bottom, axe))
             {
                 ctx.Companion.StartAnimation(axe.type, axe.useAnimation);

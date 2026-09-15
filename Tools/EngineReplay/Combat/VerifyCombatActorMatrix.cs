@@ -23,6 +23,25 @@ using Weights = live::AICompanion.Companion.Brain.Infrastructure.Selection.Weigh
 internal static class VerifyCombatActorMatrix
 {
     private const int FloorY = 80, CompanionX = 38, PillarX = 40, PlayerX = 70, NearCompanionX = 43, NearPlayerX = 67;
+    // The pillar was three tiles, which was the walking body's own height and so exactly enough to seal the
+    // line from a walker's chest to a zombie's. It seals nothing for this body: the shot is fired by the orb's
+    // own mechanism from a centre one radius off the floor and it arcs, so a three-tile column dropped the
+    // companion-side value from 82.1 to 7.0 without ever making the enemy unshootable from here — the row read
+    // `FromHere` and failed at "the pillar alone must decide whether zombie 30 can be shot from here" while the
+    // valuation it exists to check was working. It is tall enough now that no arc clears it at these few tiles
+    // of range, and deliberately still short of the world margin, because the row wants a line that is blocked
+    // *and* a way around it: a column run to row 0 would seal the detour too and the verdict would become an
+    // absence rather than the priced `AfterMoving` wait both blocked arms are about.
+    //
+    // Twelve rather than anything taller, and the ceiling is as real as the floor. At twenty-four the arc was
+    // dead but the flight around the column cost 177 and 192 ticks against the arsenal's 180-tick horizon, so
+    // both blocked arms priced the detour at exactly zero — and the row asserting that pursuing an enemy is
+    // worth more when it can be shot from here than after going around still passed, against nothing, because
+    // any positive clear value beats zero. Twelve puts the waits at 107.7 and 108.8, inside the horizon, worth
+    // 7.2 and 15.5, so that row compares two priced detours the way it reads. The guard margin discriminates at
+    // either height because it reads access directly (4.31% measured against 4.31% expected here); the pursuit
+    // value does not, which is why the height is chosen against it.
+    private const int PillarHeightTiles = 12;
     private const int CompanionThreatSlot = 30, PlayerThreatSlot = 31;
 
     // The guarded zombie's life in the guard pairs. Guarding's share is GuardUsefulRemovalTicks over access plus
@@ -133,13 +152,11 @@ internal static class VerifyCombatActorMatrix
         for (int x = 5; x < 115; x++)
             for (int y = FloorY; y <= FloorY + 2; y++) { Tile rock = Main.tile[x, y]; rock.HasTile = true; rock.TileType = 1; }
         if (blocked)
-            for (int y = FloorY - 3; y < FloorY; y++) { Tile rock = Main.tile[PillarX, y]; rock.HasTile = true; rock.TileType = 1; }
+            for (int y = FloorY - PillarHeightTiles; y < FloorY; y++) { Tile rock = Main.tile[PillarX, y]; rock.HasTile = true; rock.TileType = 1; }
         live::AICompanion.Companion.Brain.Infrastructure.Movement.TerrainChanges.Reset();
-        live::AICompanion.Companion.Brain.Infrastructure.Movement.NavGrid.World = new live::AICompanion.Companion.Brain.Infrastructure.Movement.GameTileWorld();
-        live::AICompanion.Companion.Brain.Infrastructure.Movement.AStar.InvalidateEdges();
+        live::AICompanion.Companion.Brain.Infrastructure.Movement.MovementQueries.World = new live::AICompanion.Companion.Brain.Infrastructure.Movement.GameTileWorld();
 
         var companion = VerifyCompanionLifecycle.Create();
-        live::AICompanion.Companion.Brain.Infrastructure.Movement.AStar.MsBudget = 0;
         Player player = Main.player[0];
         player.dead = false;
         player.statLife = player.statLifeMax2;
@@ -171,7 +188,7 @@ internal static class VerifyCombatActorMatrix
         }
 
         var brain = companion.Brain;
-        brain.Senses.Update(companion.NPC, player, companion.Breath);
+        brain.Senses.Update(companion.NPC, player, companion.Motor);
         var ctx = new ActionContext(companion, brain.Senses);
         foreach (NPC npc in placed)
         {

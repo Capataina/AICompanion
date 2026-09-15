@@ -71,7 +71,8 @@ public sealed class DrawCompanionStatus : UIElement
         DrawCardPrimitives.Fill(sb, portrait, new Color(37, 41, 122) * .75f);
         // The portrait is the game's Destroyer probe, the texture the orb itself is drawn with
         // until its own art exists, so the card shows the thing that is actually in the world.
-        // One frame of the sheet, never the sheet.
+        // One frame of the sheet, never the sheet. The request is a no-op once the texture is
+        // loaded, and the render fixture preloads it because its Main is an uninitialised shell.
         Main.instance?.LoadNPC(NPCID.Probe);
         if (TextureAssets.Npc[NPCID.Probe]?.IsLoaded == true)
         {

@@ -30,7 +30,6 @@ public sealed class LightUsefulArea : PerformNearbyWorldWork
 {
     public override string Name => "place-torches";
     protected override float Utility => value;
-    protected override bool AllowJump => true;
     // A placed torch is observed; whether it lit anything useful is not measured by this method.
     protected override string CompletedEffect => "torch-placed-coverage-unmeasured";
 
@@ -69,7 +68,7 @@ public sealed class LightUsefulArea : PerformNearbyWorldWork
     /// </summary>
     protected override void GatherSearchTiles(in ActionContext ctx, List<(float Cost, int Order, Point Tile)> into)
     {
-        Point feet = MovementQueries.FeetTile(ctx.Npc.Bottom);
+        Point feet = MovementQueries.Tile(ctx.Npc.Center);
         var regions = ctx.Senses.Light.DarkRegionsNearest(feet, Weights.LightRegionSearchTiles);
         region = null;
         value = Weights.LightBaseValue;
@@ -85,9 +84,9 @@ public sealed class LightUsefulArea : PerformNearbyWorldWork
         // the passage he is walking into is in range before he gets there. The nearest-first
         // ordering below still starts from the companion's own feet, because that is about which
         // darkness it can walk to rather than which darkness is worth lighting.
-        Point player = MovementQueries.FeetTile(ctx.Senses.Intent.Region.Centre);
+        Point player = MovementQueries.Tile(ctx.Senses.Intent.Region.Centre);
         int work = (int)(Weights.FollowWorkRadius / 16f);
-        Vector2 fromFeet = ctx.Npc.Bottom;
+        Vector2 fromFeet = ctx.Npc.Center;
         int span = Weights.LightPlacementSearchTiles;
         var offered = new HashSet<Point>();
         var nearest = new List<(float Cost, int Order, Point Tile)>();
@@ -217,7 +216,7 @@ public sealed class LightUsefulArea : PerformNearbyWorldWork
         // patches this has to resolve. Unmeasured is refused with lit: a place nobody has read is not a
         // proven dark place, and a torch spent on it is a torch spent on a guess.
         if (!SiteIsDark(ctx, tile)) return false;
-        return RecommendTorchPlacement.Accepts(tile, torch, ctx.Companion.Body.Player);
+        return RecommendTorchPlacement.Accepts(tile, torch, ctx.Companion.StandIn.Player);
     }
 
     /// <summary>

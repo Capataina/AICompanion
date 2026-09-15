@@ -87,8 +87,10 @@ public sealed class ThreatSense
         // the end, which is what makes several threats add up while one big one still dominates.
         float playerMiss = 1f, companionMiss = 1f;
 
+        // The cell each body occupies, which is what a walking enemy's reach flood is asked about: the
+        // player stands, so it is the row above his feet; the orb hovers, so it is the cell its centre is in.
         Point playerFeet = MovementQueries.FeetTile(player.Bottom);
-        Point companionFeet = MovementQueries.FeetTile(companion.Bottom);
+        Point companionFeet = MovementQueries.Tile(companion.Center);
 
         foreach (NPC npc in Main.ActiveNPCs)
         {

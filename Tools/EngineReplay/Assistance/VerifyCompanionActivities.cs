@@ -43,7 +43,6 @@ internal static class VerifyCompanionActivities
             AmbientFallbackDoesNotInventSamples();
             AFamilyAllowanceDefersSiblingsFairly();
             TorchRecommendationsPreserveThePlayersCursor();
-            InteractionJumpsRequireClearanceAndSafeLanding();
             Console.WriteLine("companion activities: resource/follow competition, actor-specific danger charged once, remote job release, actual swing reach, bed protection and native torch inventory contracts pass");
             return 0;
         }
@@ -54,7 +53,7 @@ internal static class VerifyCompanionActivities
     {
         var (_, ctx) = VerifyOreWork.SetUp(Policy.Opportunistic, TileID.Copper, new Point(25, 59));
         ctx.Player.Bottom = new Vector2(50 * 16, 60 * 16);
-        ctx.Companion.Brain.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Breath);
+        ctx.Companion.Brain.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Motor);
         var chosen = ctx.Companion.Brain.Chooser.Choose(ctx);
         Require(chosen?.Name == "mine", $"reachable ore at 480px separation must beat ordinary following; got {chosen?.Name ?? "none"}");
     }
@@ -270,7 +269,7 @@ internal static class VerifyCompanionActivities
         // directly must let the sense see the move or it is measuring against where he used to be. A
         // still player carries no lead, so a refreshed region sits exactly on his feet and the
         // distances below mean what they meant when they were written.
-        void SeeThePlayer() => ctx.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Breath);
+        void SeeThePlayer() => ctx.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Motor);
         SeeThePlayer();
         var activity = new ActivityProbe { Target = ctx.Player.Bottom + new Vector2(500, 0) };
         Require(activity.Allows(ctx), "new target within acquisition radius must be admitted");
@@ -437,7 +436,7 @@ internal static class VerifyCompanionActivities
                         "spacing must operate without an offer or suspend the ordinary activity");
                 }
                 VerifyResponsiveFollowing.AdvanceNative(ctx.Companion);
-                if (observedSpacing && !safety.Active && ctx.Companion.Motor.State.OnGround)
+                if (observedSpacing && !safety.Active && ctx.Companion.Motor.ClearOfTerrain)
                 { observedRelease = true; break; }
             }
             Require(observedSpacing && observedRelease
@@ -528,7 +527,7 @@ internal static class VerifyCompanionActivities
                 if (scene.Player) Hostile(30, ctx.Player.Bottom - new Vector2(64, 0), attackable: false);
                 if (scene.Companion) Hostile(31, ctx.Npc.Bottom - new Vector2(64, 0), attackable: false);
                 var brain = ctx.Companion.Brain;
-                brain.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Breath);
+                brain.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Motor);
                 brain.Senses.SetInterventionEstimate(ctx.Companion.Arsenal.EstimateInterventionTicks(ctx));
                 // The light field must describe the frame this scene presented, not one measured before it.
                 Require(brain.Senses.Light.MeasuredSamples > 0,
@@ -612,11 +611,11 @@ internal static class VerifyCompanionActivities
             for (int tick = 0; tick <= live::AICompanion.Companion.Brain.Infrastructure.Selection.Weights.PositionRescoreTicks; tick++)
             {
                 VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
-                ctx.Companion.Brain.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Breath);
+                ctx.Companion.Brain.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Motor);
             }
             ctx.Companion.Brain.Chooser.Choose(ctx);
             Require(ctx.Companion.Brain.Chooser.RegroupUrgency == 0,
-                $"{mode} comfortable following must not request regrouping; settled={ctx.Companion.Brain.Senses.Intent.Settled} groundedInside={ctx.Companion.Brain.Senses.Intent.GroundedInsideTicks}");
+                $"{mode} comfortable following must not request regrouping; settled={ctx.Companion.Brain.Senses.Intent.Settled} restingInside={ctx.Companion.Brain.Senses.Intent.RestingInsideTicks}");
         }
         Preferences.Current.DistanceMode = live::AICompanion.Companion.PlayerIntegration.CompanionDistanceMode.Standard;
     }
@@ -644,7 +643,7 @@ internal static class VerifyCompanionActivities
         int window = live::AICompanion.Companion.Brain.Infrastructure.Selection.Weights.ObjectiveProgressWindowTicks;
         Vector2 origin = ctx.Npc.Bottom;
         ctx.Player.Bottom = origin + new Vector2(500, 0);
-        brain.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Breath);
+        brain.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Motor);
         void Tick(RequestKind kind, float offset = 0)
         {
             ctx.Npc.Bottom = origin + new Vector2(offset, 0);
@@ -664,7 +663,12 @@ internal static class VerifyCompanionActivities
         }
         Require(brain.MovementStalled, "local oscillation and behaviour churn must not reset continuing non-progress");
         Tick(RequestKind.Hold);
-        var route = new live::AICompanion.Companion.Brain.Infrastructure.Movement.NavPath(new(), new Point(50, 60));
+        // A two-point route the row advances by hand, so the stall watcher sees a body making route progress
+        // without the fixture having to fly one. Revision zero and no immunity: this route is never validated
+        // against the world, it only has to exist and have an index to move.
+        var route = new live::AICompanion.Companion.Brain.Infrastructure.Movement.Route(
+            new System.Collections.Generic.List<Vector2> { new(320f, 944f), new(800f, 944f), new(1200f, 944f) },
+            0, 0, live::AICompanion.Companion.Brain.Infrastructure.Movement.LiquidImmunity.None);
         brain.Navigator.GetType().GetProperty("Path")!.SetValue(brain.Navigator, route);
         for (int i = 0; i < window; i++)
         {
@@ -684,7 +688,7 @@ internal static class VerifyCompanionActivities
         // Place the next vein beyond the old job's continuation envelope from the new player.
         ctx.Player.Bottom = new Vector2(2000, 60 * 16);
         Tile ore = Main.tile[84, 59]; ore.HasTile = true; ore.TileType = TileID.Copper;
-        ctx.Companion.Brain.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Breath);
+        ctx.Companion.Brain.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Motor);
         for (int i = 0; i < 61; i++) VerifyPreparedActivities.PrepareAndScore(mine, ctx);
         Require(mine.JobId != oldJob && mine.TargetTile == new Point(84, 59), "an obsolete retained vein must not prevent discovering reachable local ore");
     }
@@ -696,9 +700,18 @@ internal static class VerifyCompanionActivities
         Require(VerifyPreparedActivities.PrepareAndScore(mine, ctx) > 0, "initial vein not found");
         // The recorded symptom was Mine.Execute returning Hold while its own reach test failed.
         // Supply a legitimate in-reach stand and an actual pose 19px short of the reach boundary.
-        Vector2 stand = new(ore.X * 16 + 8 - (Player.tileRangeX * 16 + 8) + 1, 60 * 16);
-        ctx.Npc.Bottom = stand - new Vector2(19, 0);
-        Require(!FindToolAccess.InReach(ctx.Npc.Bottom, ore) && FindToolAccess.InReach(stand, ore), "fixture must straddle the actual mining reach boundary");
+        //
+        // Both the stand and the body pose are centres, not feet. `FindToolAccess.InReach` names its first
+        // parameter `centre` and every production caller passes `ctx.Npc.Center`; so does the stand the ore
+        // target carries, which `MineOre` compares against `Center`. Read from `Bottom` the premise asked the
+        // reach question about a point one radius below the one the activity uses, which on this geometry put
+        // the body's nominal pose on the far side of the boundary the row exists to straddle — so the premise
+        // failed and the row never reached the behaviour it is about.
+        Vector2 stand = new(ore.X * 16 + 8 - (Player.tileRangeX * 16 + 8) + 1,
+            60 * 16 - live::AICompanion.Companion.Brain.Infrastructure.Movement.CircleContact.Radius);
+        ctx.Npc.Center = stand - new Vector2(19, 0);
+        Require(!FindToolAccess.InReach(ctx.Npc.Center, ore) && FindToolAccess.InReach(stand, ore),
+            $"fixture must straddle the actual mining reach boundary; centre={ctx.Npc.Center} stand={stand} ore={ore}");
         typeof(live::AICompanion.Companion.Brain.Activities.Gathering.MineOre).GetField("target", BindingFlags.Instance | BindingFlags.NonPublic)!
             .SetValue(mine, new OreFinder.OreTarget(ore, TileID.Copper, stand));
         Require(mine.Execute(ctx).Kind == RequestKind.Exact, "a non-swingable approximate arrival must keep approaching instead of holding");
@@ -710,7 +723,7 @@ internal static class VerifyCompanionActivities
         Require(VerifyPreparedActivities.PrepareAndScore(mine, ctx) > 0, "fixture must discover a mining job");
         mine.AdmitActivity();
         ctx.Npc.Bottom = ctx.Player.Bottom + new Vector2(Preferences.Current.ActiveActivityRadius + 1, 0);
-        ctx.Companion.Brain.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Breath);
+        ctx.Companion.Brain.Senses.Update(ctx.Npc, ctx.Player, ctx.Companion.Motor);
         Require(VerifyPreparedActivities.PrepareAndScore(mine, ctx) == 0 && mine.RemainingTiles == 0,
             "retained ore near the player must not keep a companion outside the active range in mining mode");
     }
@@ -843,21 +856,11 @@ internal static class VerifyCompanionActivities
         finally { targets.SetValue(null, original); Player.tileTargetX = x; Player.tileTargetY = y; }
     }
 
-    private static void InteractionJumpsRequireClearanceAndSafeLanding()
-    {
-        var (_, ctx) = VerifyOreWork.SetUp(Policy.Disabled, TileID.Copper, new Point(25, 59));
-        // The tiny world's row 60 is space under native gravity. Use a lower floor so this
-        // fixture tests a cave jump, not a deliberately unbounded low-gravity flight.
-        Main.worldSurface = 60;
-        for (int x = 5; x < 95; x++) { Tile t = Main.tile[x, 90]; t.HasTile = true; t.TileType = TileID.Dirt; }
-        var start = new live::AICompanion.Companion.Brain.Infrastructure.Movement.BodyState(320, 1440, 0, 0, true);
-        bool Reach(live::AICompanion.Companion.Brain.Infrastructure.Movement.BodyState body) => body.Bottom < start.Bottom - 48;
-        Require(live::AICompanion.Companion.Brain.Infrastructure.Movement.ProveInteractionJump.CanReach(
-            live::AICompanion.Companion.Brain.Infrastructure.Movement.NavGrid.World, start, Reach), "clear ground jump must reach an elevated interaction and return safely");
-        for (int x = 19; x <= 23; x++) { Tile t = Main.tile[x, 86]; t.HasTile = true; t.TileType = TileID.Stone; }
-        Require(!live::AICompanion.Companion.Brain.Infrastructure.Movement.ProveInteractionJump.CanReach(
-            live::AICompanion.Companion.Brain.Infrastructure.Movement.NavGrid.World, start, Reach), "low ceiling must refuse an interaction jump that cannot reach its target");
-    }
+    // The interaction-jump row went with the jump. It proved that a ground jump toward an interaction above
+    // the body cleared its ceiling and landed safely, and that a low ceiling refused it — a proof step that
+    // existed because a walker's arc is ballistic and either fits or does not. The orb steers, so an
+    // interaction above it is a hover the route search either reaches or does not, which is what
+    // `VerifyAssistanceTrips`'s hover rows and the ceiling-ore row in `VerifyOreWork` assert instead.
 
     private static void Require(bool condition, string message) { if (!condition) throw new InvalidOperationException(message); }
 }

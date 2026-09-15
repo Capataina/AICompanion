@@ -15,7 +15,7 @@ public class AICompanion : Mod
 {
     public override void Load()
     {
-        NavGrid.World = new GameTileWorld();
+        MovementQueries.World = new GameTileWorld();
         Logger.Info("Multi... Player? loaded. Type /companion in chat to spawn a companion.");
     }
 

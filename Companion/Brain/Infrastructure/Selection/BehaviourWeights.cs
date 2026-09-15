@@ -11,11 +11,51 @@ public static class Weights
     // Wall-clock budgets are live-brain policy. Headless core tests leave them disabled so
     // machine load cannot change a fixture's reachability verdict.
     public const double RouteSearchMilliseconds = 8d;
-    public const double MovementPreparationMilliseconds = 2d;
     public const double PositionReachMilliseconds = 2d;
     public const double PositionAimingMilliseconds = 2d;
     public const double EscapeSearchMilliseconds = 2d;
     public const int EscapeSearchWork = 120;
+    // The orb's pace is the player's, read live, times these: the cap is twice his maximum run
+    // speed after accessories (the owner's ruling, so a companion at the cap overtakes a running
+    // player), and the acceleration a multiple of his run acceleration chosen so the body reaches
+    // the cap in a fifth of a second and still reads as a thrown thing rather than a snap. The
+    // acceleration is also the turn authority, because momentum steering changes velocity by at
+    // most this much a tick whichever way: at three times the run acceleration a body at the cap
+    // turned with a radius of nine tiles and sailed past a corridor's last bend into the wall
+    // (Tools/NavReplay --self-test, corridor middle); at six the radius is half that and the bend
+    // slowdown brings it inside the two-tile gaps the body is meant to fit. The fallbacks are for a
+    // player whose numbers are not finite, which a fixture can produce, and mirror a plain
+    // player's run acceleration of 0.08 times the multiple.
+    public const float OrbSpeedPerRunSpeed = 2f;
+    public const float OrbAccelerationPerRunAcceleration = 6f;
+    public const float OrbFallbackSpeed = 6f;
+    public const float OrbFallbackAcceleration = 0.48f;
+    // The route search prices an edge at its length times one plus this over the clearance at its
+    // far corner, in tiles, so a corridor's middle is cheaper than its walls without a wall ever
+    // being refused: at one, a corner touching a wall costs twice its length and one three tiles
+    // clear a third more. Zero is the shortest path and the wall-hugging the owner refused.
+    public const float CorridorMiddlePreference = 1f;
+    // A corner inside a threat's inflated body costs this many times more, so a route goes around
+    // an enemy where a way around exists and through it only where none does.
+    public const float ThreatBodyRoutePenalty = 6f;
+    // How many corners the reach flood may close per resolve. Corner expansions are cheap — eight
+    // swept tests each — and a screen-sized window is a few thousand corners, so this closes one
+    // in a handful of resolves rather than the walker's several seconds.
+    public const int ReachFloodExpansions = 1500;
+    // How many corners a route search may close per tick; a search that runs out keeps its
+    // frontier and continues next tick while the body follows what it already had.
+    public const int RouteSearchExpansions = 2500;
+    // How far a goal may drift before its route is thrown away and planned afresh: a following
+    // anchor moves every tick, and a route re-aimed at a nearby goal is the same route.
+    public const float ReplanGoalPixels = 24f;
+    // The steering aims at a point this far ahead of the body's projection on its route. Longer
+    // cuts corners more and settles faster on straights; shorter tracks a winding route tighter.
+    public const float OrbLookaheadPixels = 40f;
+    // Into a bend the speed cap falls by this share of the turn's fraction of a half-turn, never
+    // below the minimum share of the cap, so a hairpin is taken slowly and a gentle curve barely
+    // slows the body at all.
+    public const float OrbBendSlowdown = 0.85f;
+    public const float OrbBendMinimumShare = 0.25f;
     public const int HuntRetryTicks = 180;
     // Useful damage remains valuable across the forecast window. Timely threat
     // removal earns extra value without letting kill count dominate healthy targets.
@@ -210,10 +250,6 @@ public static class Weights
     /// <summary>Beyond this the companion drops everything and comes back, whatever else is going on.</summary>
     public const float LeashHard = FollowRecoveryDistance;
 
-    /// <summary>Live walk and jump as a share of the player's current stats, so a buffed player can still be overtaken without predicting their next tile. The motor never goes slower than the body's nominal walk and jump.</summary>
-    public const float CompanionWalkPace = 1.10f;
-    public const float CompanionJumpPace = 1.05f;
-
     /// <summary>
     /// How far the companion may stray before hunting starts losing value, and how much further
     /// takes it to nothing. Hunting is the opportunistic behaviour — something to do when there is
@@ -321,13 +357,6 @@ public static class Weights
 
     // ---- P09: gathering cooperation and truthful completion ----
 
-    /// <summary>
-    /// Mining: how long ceiling ore stays out of discovery after its take-off, with the body at rest on
-    /// it, stopped proving a jump while the terrain has not changed. Any terrain change ends the wait at
-    /// once, because a changed world is the condition under which the same take-off can be worth asking
-    /// again; without a wait the next preparation re-proves the same take-off from rest and re-offers it.
-    /// </summary>
-    public const int HopTakeOffRetryTicks = 600;
 
     // P08 — purposeful combat and combined safety. Proposal 1's P08 tunables sit together at the end of
     // the class so parallel lanes adding their own blocks collide on nothing but position.
@@ -451,7 +480,7 @@ public static class Weights
     public const float IntentRegionCentralPull = .25f;
 
     /// <summary>
-    /// How long the body must be grounded inside the region before following reads as satisfied, and
+    /// How long the body must be at rest inside the region before following reads as satisfied, and
     /// how long a new keep-company regime must hold before the method changes. Leaving is immediate
     /// both times: this is a floor on entering a state, never a delay on leaving one. The authority
     /// is <c>ChooseUsefulPosition.RescoreInterval</c>, which is one rescore of the positioner; if the
@@ -459,6 +488,42 @@ public static class Weights
     /// pass, which is the flicker it exists to stop.
     /// </summary>
     public const int PositionRescoreTicks = 12;
+
+    /// <summary>
+    /// The speed, in pixels per tick, under which the orb counts as at rest for the settled streak.
+    /// A body that flies has no ground to stand on, so "has stopped" is the only arrival a streak can
+    /// count, and a body crossing the region at pace must never read as arrived. It sits above the
+    /// motor's braking residue: the steering brakes to the arrival radius and the motor then decays
+    /// the last of the velocity at the acceleration per tick, so a body that has arrived is under
+    /// this within a few ticks and a body tracking a walking player is never under it.
+    /// </summary>
+    public const float SettledSpeedPx = 1.5f;
+
+    /// <summary>
+    /// A positioning rule and never a wall: no scored candidate sits higher than this many tiles above
+    /// the player's feet. The orb can fly anywhere the flood reaches, so without this the openest
+    /// spot in a cavern is its roof and the companion hovers out of the player's sight. Following is
+    /// already bound tighter by the intent region's own vertical half-size; this binds the attack
+    /// requests, whose band is measured to the player and says nothing about height.
+    /// </summary>
+    public const int HoverCeilingTiles = 10;
+
+    /// <summary>
+    /// The clearance, in tiles, at which a candidate's openness factor reaches its full value. The
+    /// factor is the clearance field the route search prices — the same reading, so a spot the scorer
+    /// likes is one the route can reach the middle of — and it saturates here because a body two
+    /// tiles from every wall is as open as it needs to be, and preferring the exact middle of every
+    /// cavern would walk the companion further from the player for nothing.
+    /// </summary>
+    public const float OpennessFullClearanceTiles = 2f;
+
+    /// <summary>
+    /// The share of its score a follow spot keeps at or below the player's feet, rising to the whole
+    /// at his head height and above. An orb beside his feet is in his way and under his aim; one at
+    /// head height or a little over is where a companion that hovers reads as beside him. A share
+    /// rather than a veto, because a low ceiling can leave nothing above the feet at all.
+    /// </summary>
+    public const float HoverBelowHeadShare = .5f;
 
     /// <summary>Item physics, from the game's own <c>Item.UpdateItem</c>: gravity per tick and the fall
     /// speed it is capped at, dry and wet. A drop is forecast to its landing with these, so a falling

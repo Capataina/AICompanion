@@ -46,7 +46,7 @@ public static class ProjectileFlight
         {
             float gravity = motion.Gravity;
             float drag = motion.HorizontalDrag;
-            var world = Movement.NavGrid.World;
+            var world = Movement.MovementQueries.World;
             if (world != null)
             {
                 int tx = (int)(position.X / 16f);

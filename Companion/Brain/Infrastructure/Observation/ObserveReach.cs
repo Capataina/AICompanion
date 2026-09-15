@@ -11,28 +11,27 @@ namespace AICompanion.Companion.Brain.Infrastructure.Observation;
 /// answer one component owns.</summary>
 public enum ReachVerdict
 {
-    /// <summary>In the region flooded from the feet with the edges that have no way back refused.</summary>
+    /// <summary>In the region flooded from the body's own cell.</summary>
     Reachable,
     /// <summary>The flood has not finished and has not claimed this tile: unknown, not absent.</summary>
     NotYet,
-    /// <summary>The flood ran out of region before its budget and never claimed this tile.</summary>
+    /// <summary>The flood ran out of free space before its budget and never claimed this tile.</summary>
     Unreachable,
 }
 
 /// <summary>
-/// Where the body can walk to, flooded once per cadence from its feet and read by everyone who
-/// needs the answer. Two floods, exactly as the positioner ran them before this was a sense: one
-/// that refuses the edges with no way back, which is the region meaning "everywhere the body can
-/// go and come home from", and a raw one that allows them, advanced only to test the one exception
-/// — a player standing somewhere the body can only drop into. Being stuck is not having no way back
-/// to the take-off; it is having no way to the player (Caner's own definition, 2026-09-08), so a
-/// place he is standing in is by definition not somewhere the companion strands itself.
+/// Where the body can fly to: one free-space flood over corner nodes from the corner nearest the
+/// body, read by everyone who needs the answer. Because no cell needs a jump proved, the flood
+/// finishes within a few resolves on a whole window, and "not yet known" is the rare answer rather
+/// than the common one. There is one flood and not two: every edge of the corner graph is
+/// two-way for a body that flies, so "can go" and "can come home from" are the same region, and
+/// the walker's one-way exception for a player standing at the bottom of a drop has no meaning.
 ///
 /// <para>The sense is refreshed by the positioner's resolve rather than by <see cref="Senses.Update"/>,
-/// and that is deliberate: <see cref="AStar.AllowLava"/> and the one-way rule are set per request by
-/// the brain tick, so a flood run at the top of the tick would answer every consumer under the
-/// previous tick's rule. Consumers that read between resolves therefore read the flood the last
-/// resolve left, which is a tick or two stale and still the best answer to "where can I get to".</para>
+/// and that is deliberate: the immunities are copied into the terrain reading by the brain tick, so
+/// a flood run at the top of the tick would answer every consumer under the previous tick's rule.
+/// Consumers that read between resolves read the flood the last resolve left, which is a tick or
+/// two stale and still the best answer to "where can I get to".</para>
 ///
 /// <para>The tri-state is the whole point of exposing it. A tile missing from an unfinished flood is
 /// unknown rather than absent, so an activity that refuses <see cref="ReachVerdict.NotYet"/> is
@@ -40,177 +39,138 @@ public enum ReachVerdict
 /// </summary>
 public sealed class ReachSense
 {
-    /// <summary>How many ticks a flood is reused for. It mirrors the positioner's rescore interval,
+    /// <summary>How many resolves a flood is reused for. It mirrors the positioner's rescore interval,
     /// because the region a candidate is scored against and the region that candidate came from have
     /// to be the same one; if the two drift a spot is admitted against a region it was never in.</summary>
     private const int RefloodTicks = 12;
 
-    private HashSet<Point>? scored;
-    private HashSet<Point>? returnable;
-    private HashSet<Point>? raw;
-    private ContinueRouteSearch? returnSearch, rawSearch;
-    private bool floodLava;
-    private int sinceFlood = RefloodTicks;
+    /// <summary>How many resolves the body may sit at a corner the flood has not closed before the
+    /// flood is rooted afresh there: a body carried into another pocket by the recovery flight is
+    /// not connected to the region it left, and an unfinished flood would never say so.</summary>
+    private const int MissingRootPatience = 3;
 
-    /// <summary>How many times the floods have been thrown away and started again this session. It
+    private FreeSpaceSearch? flood;
+    private HashSet<Point>? tiles;
+    private int tilesBuiltAt = -1;
+    private int sinceFlood = RefloodTicks;
+    private int rootMissing;
+
+    /// <summary>How many times the flood has been thrown away and started again this session. It
     /// counts the discard rather than the advance, so a cadence that keeps growing one flood does
     /// not register: this is the number a terrain edit used to drive from anywhere in the world.</summary>
     public int Refloods { get; private set; }
 
-    /// <summary>Whether the two-way flood ran out of region before its budget, so a tile outside it is truly
-    /// absent. This is the flood <see cref="Reachable"/> answers from, and the two are deliberately tied: a
-    /// verdict of absent must rest on the exhaustion of the set it was looked up in, never on another set's.</summary>
+    /// <summary>Whether the flood ran out of free space before its budget, so a tile outside it is truly absent.</summary>
     public bool Complete { get; private set; }
 
-    /// <summary>The same question about <see cref="ScoredTiles"/>, which on a player-only-one-way tick is the
-    /// raw region rather than the two-way one. The positioner scores candidates against that set and so asks
-    /// this rather than <see cref="Complete"/>; every consumer asking whether the body can go somewhere and
-    /// come back asks <see cref="Complete"/>. Two names because they are two facts, and they diverge on
-    /// exactly the tick it matters.</summary>
-    public bool ScoredComplete { get; private set; }
+    /// <summary>The same fact under the name the positioner reads; one flood means one completeness.</summary>
+    public bool ScoredComplete => Complete;
 
-    /// <summary>
-    /// The refusing flood did not hold the player, so the region being scored is the raw one and the
-    /// companion is willing to go somewhere it cannot come back from. True is not a fault: it is the
-    /// companion following the player into a place he chose to be. It is worth recording because it is
-    /// the one state where prevention is deliberately switched off.
-    /// </summary>
-    public bool PlayerOnlyOneWay { get; private set; }
-
-    /// <summary>Wall-clock of the last flood, for the telemetry.</summary>
+    /// <summary>Wall-clock of the last flood slice, for the telemetry.</summary>
     public double LastFloodMs { get; private set; }
 
-    /// <summary>How many tiles the body can reach at all, and how many of those it can come home from.</summary>
-    public int AnyCount => scored?.Count ?? 0;
-    public int TwoWayCount => returnable?.Count ?? 0;
+    /// <summary>How many corners the flood has closed, and how many tiles those corners cover.</summary>
+    public int CornerCount => flood?.Reached.Count ?? 0;
+    public int AnyCount => Tiles.Count;
+    public int TwoWayCount => AnyCount;
 
-    /// <summary>The region the positioner scores candidates against: the two-way one, or the raw one on the
-    /// tick the player-only-one-way exception is granted.</summary>
-    public bool InScoredRegion(Point tile) => scored != null && scored.Contains(tile);
+    /// <summary>The region the positioner scores candidates against.</summary>
+    public bool InScoredRegion(Point tile) => Returnable(tile);
 
-    /// <summary>Every tile in the scored region, for a caller that draws from it rather than asking about
+    /// <summary>Every tile in the region, for a caller that draws from it rather than asking about
     /// one tile. Empty rather than null before the first flood, so no caller has to know the difference.</summary>
-    public IReadOnlyCollection<Point> ScoredTiles => (IReadOnlyCollection<Point>?)scored ?? System.Array.Empty<Point>();
+    public IReadOnlyCollection<Point> ScoredTiles => Tiles;
 
-    /// <summary>Whether the body can walk to this feet tile and come home from it.</summary>
-    public bool Returnable(Point tile) => returnable != null && returnable.Contains(tile);
+    /// <summary>Whether the body can fly to this tile: a corner of it is in the flood.</summary>
+    public bool Returnable(Point tile) => flood != null && CornerGraph.AnyCornerOf(tile, flood.Reached.Contains);
 
-    /// <summary>
-    /// Reachable, not yet known, or proven absent — against the two-way region, which is what
-    /// returnable means in this project: everywhere the body can go and come home from.
-    /// </summary>
+    /// <summary>Whether a corner node itself is in the flood.</summary>
+    public bool ReachesCorner(Point corner) => flood != null && flood.Reached.Contains(corner);
+
+    // The walker's one-way exception, kept as constants only until the positioner and the recorder
+    // that name it are rewritten for the orb: a flying body has no edge it cannot come back along.
+    public bool PlayerOnlyOneWay => false;
+    public bool ReachableOneWay(Point tile) => Returnable(tile);
+
+    /// <summary>Reachable, not yet known, or proven absent.</summary>
     public ReachVerdict Reachable(Point tile)
         => Returnable(tile) ? ReachVerdict.Reachable
             : Complete ? ReachVerdict.Unreachable
             : ReachVerdict.NotYet;
 
-    /// <summary>
-    /// Membership of the flood that allows edges with no way back. The raw flood is only advanced on a
-    /// tick where the two-way one failed to hold the player, because that is the only question it is
-    /// asked, so a false here means "not proven one-way reachable", never "proven unreachable".
-    /// </summary>
-    public bool ReachableOneWay(Point tile) => raw != null && raw.Contains(tile);
+    /// <summary>The flood's travel cost to the nearest reached corner of a tile, in ticks at the body's cap; null while unreached.</summary>
+    public float? EstimatedTravelTicks(Point from, Point tile)
+    {
+        if (flood == null) return null;
+        float? best = null;
+        foreach (Point corner in new[] { tile, new Point(tile.X + 1, tile.Y), new Point(tile.X, tile.Y + 1), new Point(tile.X + 1, tile.Y + 1) })
+            if (flood.CostTo(corner) is float cost && (best == null || cost < best)) best = cost;
+        return best is float found ? found / System.MathF.Max(0.1f, OrbPace.MaxSpeed) : null;
+    }
 
-    public float? EstimatedTravelTicks(Point from, Point tile) => rawSearch?.EstimatedTicks(from, tile)
-        ?? returnSearch?.EstimatedTicks(from, tile);
+    private HashSet<Point> Tiles
+    {
+        get
+        {
+            if (flood == null) return tiles ??= new HashSet<Point>();
+            if (tiles != null && tilesBuiltAt == flood.Reached.Count) return tiles;
+            tiles = new HashSet<Point>();
+            foreach (Point corner in flood.Reached)
+            {
+                tiles.Add(new Point(corner.X - 1, corner.Y - 1));
+                tiles.Add(new Point(corner.X, corner.Y - 1));
+                tiles.Add(new Point(corner.X - 1, corner.Y));
+                tiles.Add(corner);
+            }
+            tilesBuiltAt = flood.Reached.Count;
+            return tiles;
+        }
+    }
 
     /// <summary>
     /// Age the region by one resolve. The cadence counts resolves rather than game ticks, and that is
     /// load-bearing rather than incidental: the flood is bounded per advance and grows across successive
     /// resolves, so a caller that resolves repeatedly inside one tick is asking for the region to keep
-    /// expanding, and a cadence keyed to the tick would advance it once and never finish. It is called
-    /// by the resolve that owns the cadence and never by the readers, so a consumer asking a question
-    /// during a hold cannot age the region out from under the scoring it will be compared against.
+    /// expanding, and a cadence keyed to the tick would advance it once and never finish.
     /// </summary>
     public void Age() => sinceFlood++;
 
     /// <summary>
-    /// Reflood if the cadence has passed or the world has been edited inside the region either flood
-    /// has explored. The terrain check lives here rather than in the caller so every consumer of the
-    /// sense — not only the one that happens to drive the cadence — reads a region that survived the
-    /// dig, and it expires the cadence rather than waiting for the reuse test further down, because
-    /// an edit the flood read has to land on the next resolve and not up to a cadence later.
-    ///
-    /// <para>Both floods are asked, not only the two-way one. The raw flood allows edges with no way
-    /// back, so it can have explored further than the two-way flood and can hold stale work the
-    /// two-way flood's own bounds say nothing about.</para>
+    /// Advance the flood if the cadence has passed, or start it again where the world has been edited
+    /// inside what it read, where the immunities changed, or where the body has left its region. The
+    /// terrain check lives here rather than in the caller so every consumer of the sense reads a
+    /// region that survived the dig, and it expires the cadence rather than waiting for the reuse
+    /// test, because an edit the flood read has to land on the next resolve and not up to a cadence later.
     /// </summary>
     public void Refresh(Senses senses)
     {
-        if (returnSearch?.Valid == false || rawSearch?.Valid == false)
+        if (flood?.Valid == false)
             sinceFlood = RefloodTicks;
-        if (scored != null && sinceFlood < RefloodTicks)
+        if (flood != null && sinceFlood < RefloodTicks)
             return;
         sinceFlood = 0;
 
-        Point? feet = MovementQueries.NearestStandable(MovementQueries.FeetTile(senses.Companion.Bottom), 2);
-        if (feet == null)
+        ITileWorld world = MovementQueries.World;
+        Point? root = CornerGraph.NearestUsable(world, senses.Companion.Center, 2, requireSweep: false);
+        if (root == null)
         {
-            // In the air or inside something: keep the last flood, which is a tick or two stale
-            // and still the best answer to "where can I get to" until the body lands.
+            // Inside something, or in a liquid that is a wall: keep the last flood, which is a tick
+            // or two stale and still the best answer to "where can I get to" until the body is out.
             return;
         }
         var clock = System.Diagnostics.Stopwatch.StartNew();
-        // Reuse needs generated connectivity in both directions, not a distance allowance.
-        // A body can cross a one-way boundary while moving only one tile.
-        // The raw flood's validity is asked here as well as the two-way one's, and under a spatial rule that
-        // is load-bearing rather than belt-and-braces. The two searches are created together and share a
-        // revision, but they no longer share a region: the raw one allows edges with no way back, so on a
-        // one-way tick it explores ground the two-way flood never reaches, and an edit landing in exactly
-        // that extra ground invalidates the raw search alone. Reusing it then would run Advance on an invalid
-        // search, which marks it finished without expanding, and the union below would fold its pre-edit
-        // tiles into the scored region as though they had been proven. Under the world-global compare the two
-        // could not disagree, so this is a way for the pair to come apart that the counter never had.
-        if (returnSearch == null || !returnSearch.Valid || rawSearch?.Valid == false
-            || floodLava != AStar.AllowLava || !returnSearch.CanReuseFrom(feet.Value))
+        bool rooted = flood != null && flood.Valid && flood.Reached.Contains(root.Value);
+        if (flood != null && flood.Valid && !rooted && !flood.Finished && ++rootMissing < MissingRootPatience)
+            rooted = true;
+        if (!rooted)
         {
-            floodLava = AStar.AllowLava;
+            rootMissing = 0;
             Refloods++;
-            returnSearch?.Dispose(); rawSearch?.Dispose();
-            returnSearch = new ContinueRouteSearch(feet.Value, null, AStar.AllowLava, false);
-            rawSearch = new ContinueRouteSearch(feet.Value, null, AStar.AllowLava, true);
+            flood = new FreeSpaceSearch(world, root.Value, null);
         }
-        returnSearch.Advance(Weights.ReachFloodBudget, Weights.PositionReachMilliseconds / 2d);
-        returnable = returnSearch.Reached;
-        bool complete = returnSearch.Finished && returnSearch.Stop == AStar.SearchStopReason.Exhausted;
-        bool? scoredComplete = null;
-        scored = returnable;
-        raw = null;
-
-        // The raw region has to be read before the exception is granted, because "he is not in the
-        // returnable region" is also true of a player the body cannot reach at all — walled off behind
-        // a sand fall, which is a state the mod supports until he digs the body out. Opening the tier
-        // there refuses nothing and buys nothing: it hands the roam a region full of drops with no way
-        // back, so the pocket gets deeper, and it asserts a one-way route to a player no route reaches.
-        // The exception is for the drop that leads to him, so it is granted only where the region
-        // without the refusal actually holds him.
-        Point? player = MovementQueries.NearestStandable(MovementQueries.FeetTile(senses.Player.Bottom), 2);
-        PlayerOnlyOneWay = false;
-        if (player is Point p && !returnable.Contains(p))
-        {
-            rawSearch!.Advance(Weights.ReachFloodBudget, Weights.PositionReachMilliseconds / 2d);
-            HashSet<Point> anyReach = new(rawSearch.Reached);
-            bool rawComplete = rawSearch.Finished && rawSearch.Stop == AStar.SearchStopReason.Exhausted;
-            // Both bounded searches prove membership, but may spend their work on different
-            // branches. Preserve all previously proven reachable tiles when opening the tier.
-            anyReach.UnionWith(returnable);
-            raw = anyReach;
-            if (anyReach.Contains(p))
-            {
-                // Only the scored region moves to the one-way set, and only its completeness moves with it.
-                // `complete` stays the two-way flood's, because that is the flood `Reachable` answers from,
-                // and grading a tile Unreachable on a *different* flood's exhaustion is the same
-                // not-yet-is-not-no error one layer up — now with teeth, since a proven No is remembered for
-                // the no-return wait, so one tile missing from an unfinished two-way flood would be written
-                // off for that whole period on the strength of the raw flood having finished.
-                scored = anyReach;
-                scoredComplete = rawComplete;
-                PlayerOnlyOneWay = true;
-            }
-        }
-
+        else if (flood!.Reached.Contains(root.Value)) rootMissing = 0;
+        flood.Advance(Weights.ReachFloodExpansions, Weights.PositionReachMilliseconds);
+        Complete = flood.Finished && flood.Stop == FreeSpaceSearch.StopReason.Exhausted;
         LastFloodMs = clock.Elapsed.TotalMilliseconds;
-        Complete = complete;
-        ScoredComplete = scoredComplete ?? complete;
     }
 }

@@ -87,8 +87,10 @@ public static class ReadGodsEyeEvents
     /// <summary>
     /// The value of <paramref name="key"/> in a <c>key=value;key=value</c> payload, first occurrence
     /// winning, or null. First-wins is deliberate: a control grant embeds whole control strings
-    /// (<c>requested-controls=move=0.00;jump=0;…</c>) whose own <c>jump=</c> segments must not shadow
-    /// anything, and every identity key the reader uses is written before those strings.
+    /// (<c>requested-controls=desired=1.00,-2.00</c>) whose own nested <c>=</c> must not shadow
+    /// anything, and every identity key the reader uses is written before those strings. The control
+    /// string carries no semicolon of its own today, which makes the hazard smaller rather than
+    /// absent — the rule holds whatever shape the motor's controls take next.
     /// </summary>
     public static string? Field(string payload, string key)
     {

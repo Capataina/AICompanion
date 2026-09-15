@@ -7,7 +7,7 @@ namespace AICompanion.Companion.Brain.Infrastructure.Diagnostics;
 /// <summary>Small, opt-in retained facts from computations the inspector must not rerun.</summary>
 public static class BrainInspectorSamples
 {
-    public readonly record struct Reflex(ulong Tick, int UnsafeTick, BodyState Body);
+    public readonly record struct Reflex(ulong Tick, int UnsafeTick, OrbState Body);
     public readonly record struct Aim(ulong Tick, Vector2 Muzzle, Vector2 Target, string Weapon, Vector2? Launch, string Outcome);
     internal const int Capacity = 8;
     public readonly record struct Trace(ulong Tick, Vector2[] Points, bool Accepted, string Reason);
@@ -15,7 +15,7 @@ public static class BrainInspectorSamples
     public static readonly System.Collections.Generic.Queue<Trace> MovementTraces = new();
     public static Reflex? LastReflex { get; private set; }
     public static Aim? LastAim { get; private set; }
-    public static void RecordReflex(ulong tick, int unsafeTick, BodyState body)
+    public static void RecordReflex(ulong tick, int unsafeTick, OrbState body)
     {
         if (!BrainOverlay.MayCapture || !BrainOverlay.ShowMovement) return;
         LastReflex = new Reflex(tick, unsafeTick, body);

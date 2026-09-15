@@ -13,20 +13,19 @@ using Senses = AICompanion.Companion.Brain.Infrastructure.Observation;
 namespace AICompanion.Companion.Brain.Infrastructure.Position;
 
 /// <summary>
-/// Turns a position request into a feet position by scoring candidate standing spots.
-/// Candidates are standable tiles sampled around the request's anchor; each scores on
-/// distance band to the player (tight under threat), sight line to the player, line of
-/// fire to the target through the aimer, danger from predicted threat paths, openness
-/// and cliff safety, with the weights the request kind sets. Re-scored every few ticks
-/// so the companion does not twitch between two equal spots.
+/// Turns a position request into a point for the orb to hover at by scoring candidate spots.
+/// Candidates are the usable corner nodes of the free-space graph around the request's anchor —
+/// the same nodes the route search plans over, so a spot chosen here is one a route can end on —
+/// under a ceiling above the player's feet; each scores on distance band to the player (tight
+/// under threat), sight line to the player, line of fire to the target through the aimer, danger
+/// from predicted threat paths, clearance from the walls and height beside the player, with the
+/// weights the request kind sets. Re-scored every few ticks so the companion does not twitch
+/// between two equal spots.
 /// </summary>
 public sealed class Positioner
 {
     private const int RescoreInterval = 12;
     private const int SampleRadiusTiles = 14;
-    // A standable row can be only one tile high. Skipping alternate rows makes the same
-    // floor disappear whenever the moving anchor changes parity, especially at pool rims.
-    private const int SampleStride = 1;
     private const int MaxSolvesPerRescore = 8;
 
     private Vector2? chosen;
@@ -52,11 +51,11 @@ public sealed class Positioner
     private int lastInterferenceRevision;
     private int sinceScore = RescoreInterval;
 
-    // The feet tiles a walker can reach are the reach sense's, not this resolver's. A spot the walker
-    // cannot reach is not a spot: the fourth run of 2026-09-08 parked the companion above a sealed
-    // cavity the scorer had picked. This resolver drives the sense's cadence — the flood's lava and
-    // one-way rules are set per request, so it has to run inside a resolve — and every other consumer
-    // reads the same region instead of flooding its own.
+    // The corners the orb can reach are the reach sense's, not this resolver's. A spot the body
+    // cannot reach is not a spot: the fourth run of 2026-09-08 parked the walker above a sealed
+    // cavity the scorer had picked. This resolver drives the sense's cadence — the flood's liquid
+    // rules are set per tick, so it has to run inside a resolve — and every other consumer reads
+    // the same region instead of flooding its own.
     private ReachSense reachSense = null!;
     public int CandidateCount { get; private set; }
     public int ReachableCandidateCount { get; private set; }
@@ -81,9 +80,11 @@ public sealed class Positioner
     private int clock;
 
     /// <summary>
-    /// Refuse this feet tile for a while and pick again: the navigator stood still on the way to it
-    /// twice over, so the grid's opinion that it is reachable is wrong for the body in fact, and
-    /// the companion is better off somewhere else than standing.
+    /// Refuse the spots in this tile for a while and pick again: the navigator made no progress on
+    /// the way to it twice over, so the graph's opinion that it is reachable is wrong for the body
+    /// in fact, and the companion is better off somewhere else than pinned. A spot is keyed by the
+    /// tile its point floors into, which for a corner node is the tile below and right of it, and
+    /// the navigator's ban names the same tile of the same point.
     /// </summary>
     public void Ban(Point tile, int ticks)
     {
@@ -189,14 +190,26 @@ public sealed class Positioner
                 Region = SuccessRegion.None;
                 return null;
             case RequestKind.Exact:
-                // Exact still means a real place to stand: the nearest standable tile the walker can
-                // reach, which NavGrid refuses when it is in or over lava; when nothing reachable is
-                // near, the nearest standable tile at all, and the partial path walks as close as it can.
+                // Exact means the point itself where the body fits there: a tool stand was proven
+                // against the reach box at that point, and snapping it to a lattice node can move it
+                // out of the box it was proven in. The point is refused only where the body overlaps
+                // terrain there, where it is banned, or where a finished flood proves the corner
+                // beside it out of reach; then the nearest hoverable tile the body can reach stands
+                // in, and failing that the nearest hoverable tile at all, with the route flying as
+                // close as it can.
                 lastRequest = request;
                 senses.Reach.Refresh(senses);
-                Point around = MovementQueries.FeetTile(request.Anchor);
-                Point? tile = MovementQueries.NearestStandable(around, 3, t => InReach(t) && Allowed(t)) ?? MovementQueries.NearestStandable(around, 3, Allowed);
-                Chosen = tile is Point t ? MovementQueries.FeetWorld(t) : null;
+                Point around = MovementQueries.Tile(request.Anchor);
+                Point? beside = MovementQueries.NearestUsableCorner(request.Anchor, 1, requireSweep: false);
+                bool fits = !CircleContact.Overlaps(MovementQueries.World, request.Anchor) && Allowed(around)
+                    && !(ReachComplete && (beside is not Point b || !reachSense.ReachesCorner(b)));
+                if (fits)
+                    Chosen = request.Anchor;
+                else
+                {
+                    Point? tile = MovementQueries.NearestHoverable(around, 3, t => InReach(t) && Allowed(t)) ?? MovementQueries.NearestHoverable(around, 3, Allowed);
+                    Chosen = tile is Point t ? MovementQueries.HoverPoint(t) : null;
+                }
                 // Declared against the request's own stand rather than the substituted tile: the proof
                 // chose the stand, and the tile nearest it is where the walk happens to aim.
                 Region = Chosen == null ? SuccessRegion.None
@@ -215,7 +228,7 @@ public sealed class Positioner
                 lastRequest = request;
                 sinceScore = 0;
                 senses.Reach.Refresh(senses);
-                Chosen = RoamSpot(MovementQueries.FeetTile(request.Anchor));
+                Chosen = RoamSpot(MovementQueries.Tile(request.Anchor));
                 Region = Chosen == null ? SuccessRegion.None
                     : SuccessRegion.Unscored(SuccessRegionKind.Undeclared, request.Anchor, senses.Tick, TerrainChanges.Revision);
                 return Chosen;
@@ -228,13 +241,13 @@ public sealed class Positioner
             // along the route the meeting place had been chosen to avoid. It still has to be a place to
             // stand that this region has not proven unreachable; otherwise ordinary scoring applies.
             senses.Reach.Refresh(senses);
-            Point place = MovementQueries.FeetTile(request.Anchor);
-            if (MovementQueries.IsStandable(place.X, place.Y) && Allowed(place) && !ProvenUnreachable(place)
-                && CourtesyShare(MovementQueries.FeetWorld(place), senses) == 1f)
+            Point place = MovementQueries.Tile(request.Anchor);
+            if (MovementQueries.IsHoverable(place) && Allowed(place) && !ProvenUnreachable(place)
+                && CourtesyShare(MovementQueries.HoverPoint(place), senses) == 1f)
             {
                 lastRequest = request;
                 sinceScore = 0;
-                Chosen = MovementQueries.FeetWorld(place);
+                Chosen = MovementQueries.HoverPoint(place);
                 ChoiceReason = "priced-meeting-place";
                 Region = SuccessRegion.Unscored(SuccessRegionKind.MeetingPlace, request.Anchor, senses.Tick, TerrainChanges.Revision);
                 return Chosen;
@@ -262,14 +275,12 @@ public sealed class Positioner
         Chosen = Best(request, senses, fireProfile);
         // Every non-null answer from Best passed acceptance against this call's player feet and anchor (the
         // incumbent and every sampled candidate are gated alike), so these are the references it was admitted
-        // against even when the value did not change and the revision did not advance.
+        // against even when the value did not change and the revision did not advance. A follow request that
+        // accepts nothing answers nothing, and the brain hands the follow intent to the state search: there is
+        // no substitute tile, because a substitute the navigator can reach without satisfying the objective is
+        // a destination that is arrived at and achieves nothing, which is the fixed point the walker's
+        // partial-progress fallback produced.
         Region = Chosen == null ? SuccessRegion.None
-            // A partial-progress answer is the one destination that is deliberately outside the objective, so it
-            // cannot declare the follow region: that would publish a contract the navigator cannot meet. It does
-            // declare its own, the arrival radius around the tile it named, because being there is the whole of
-            // what it claimed — and a destination declaring nothing is one an arrival can never be judged against.
-            : ChoiceReason == "partial-progress-candidate"
-                ? SuccessRegion.Partial(Chosen.Value, senses.Tick, TerrainChanges.Revision)
             : request.Kind == RequestKind.WithPlayer
                 ? SuccessRegion.Follow(senses.Intent.Objective.At(request.Anchor), senses.Tick, TerrainChanges.Revision)
                 : SuccessRegion.Unscored(SuccessRegionKind.FiringPosition, request.Anchor, senses.Tick, TerrainChanges.Revision);
@@ -283,23 +294,25 @@ public sealed class Positioner
     /// <summary>
     /// Whether the destination already held still belongs to the region it was admitted against, in which case it is
     /// kept and no search runs. Each kind's membership is its own: a follow spot is inside the comfort box the
-    /// objective admits against now, a firing stand has an arc against a target that has not moved past the hold
-    /// slack, and a partial-progress tile is still somewhere the body has not reached and still closes the gap.
-    /// Every kind additionally needs the tile to be standable, un-banned and not proven out of the reachable region,
+    /// objective admits against now, and a firing stand has an arc against a target that has not moved past the hold
+    /// slack. Every kind additionally needs its corner usable, un-banned and not proven out of the reachable region,
     /// because a destination the body cannot get to is not a destination however well it once served the purpose.
+    /// The corner is tested rather than the tile the point floors into, because a point on a tile boundary floors
+    /// into one of four tiles and a hoverable test on that one tile can refuse a spot the body fits at.
     /// </summary>
     private bool RetainsHeldDestination(in PositionRequest request, Senses.Senses senses, WeaponProfile? fireProfile)
     {
         if (Chosen is not Vector2 spot) return false;
-        Point tile = MovementQueries.FeetTile(spot);
-        if (!Allowed(tile) || !MovementQueries.IsStandable(tile.X, tile.Y) || ProvenUnreachable(tile))
+        Point tile = MovementQueries.Tile(spot);
+        Point corner = CornerGraph.NearestCorner(spot);
+        if (!Allowed(tile) || !MovementQueries.IsUsableCorner(corner) || ProvenUnreachable(corner))
             return false;
         switch (Region.Kind)
         {
             case SuccessRegionKind.FollowComfort:
                 if (request.Kind != RequestKind.WithPlayer) return false;
                 var objective = senses.Intent.Objective.At(request.Anchor);
-                if (!objective.AcceptsDestination(spot, CanSeePlayer(spot + new Vector2(0f, -30f), senses)))
+                if (!objective.AcceptsDestination(spot, CanSeePlayer(spot, senses)))
                     return false;
                 if (StandsInPlayersWay(spot, senses)) return false;
                 ChoiceReason = PositionReasons.Retained;
@@ -314,10 +327,10 @@ public sealed class Positioner
                 if (Vector2.DistanceSquared(enemy.Center, admittedTargetCentre)
                     > Weights.FiringHoldTargetSlackPx * Weights.FiringHoldTargetSlackPx)
                     return false;
-                var held = SolveShotAtArrival(spot + new Vector2(0f, -30f), spot, enemy, profile, senses);
+                var held = SolveShotAtArrival(spot, enemy, profile, senses);
                 if (!held.Solved)
                 {
-                    RememberRefusal(tile, enemy, BodyBucket(senses.Companion.Bottom),
+                    RememberRefusal(tile, enemy, BodyBucket(senses.Companion.Center),
                         held.Reason.StartsWith(PositionReasons.ShotWindowShorterThanTrip, StringComparison.Ordinal));
                     return false;
                 }
@@ -325,43 +338,23 @@ public sealed class Positioner
                 admittedTargetCentre = enemy.Center;
                 Region = SuccessRegion.Unscored(SuccessRegionKind.FiringPosition, request.Anchor, senses.Tick, TerrainChanges.Revision);
                 return true;
-            case SuccessRegionKind.PartialProgress:
-                if (request.Kind != RequestKind.WithPlayer) return false;
-                // The tile exists only because nothing satisfied the objective, so a body that now satisfies it has
-                // no reason to walk anywhere: retaining on the gap alone would send it on to a tile whose only
-                // merit is a smaller gap than one already small enough. This flag is computed above, on this tick.
-                if (FollowObjectiveSatisfied) return false;
-                if (!ImprovesOnStandingHere(senses.Intent.Objective.At(request.Anchor), senses.Companion.Bottom, spot))
-                    return false;
-                if (StandsInPlayersWay(spot, senses)) return false;
-                ChoiceReason = "partial-progress-candidate";
-                Region = SuccessRegion.Partial(spot, senses.Tick, TerrainChanges.Revision);
-                return true;
             default:
                 return false;
         }
     }
 
-    /// <summary>
-    /// Whether a fallback tile is worth walking to from where the body actually stands: further than the navigator
-    /// will call arrived, and strictly closer on the objective's own two axes. Both halves are measured from the live
-    /// feet rather than from their tile, which is the arithmetic that produced the fixed point — the quantised feet
-    /// can sit most of a tile from the body, so a tile that "improves" on them can be one the navigator is already
-    /// arrived at, and the fallback then hands back the tile the body is standing on for as long as the gap lasts.
-    /// </summary>
-    private static bool ImprovesOnStandingHere(in FollowPlayerObjective objective, Vector2 feet, Vector2 destination)
-        => Vector2.Distance(destination, feet) > Navigator.ArriveDistance
-            && objective.HorizontalGap(destination) + objective.VerticalGap(destination)
-                < objective.HorizontalGap(feet) + objective.VerticalGap(feet);
-
+    /// <summary>Whether the flood holds any corner of this tile; the tile-shaped question the exact and roam kinds and the brain ask.</summary>
     private bool InReach(Point tile) => reachSense != null && reachSense.InScoredRegion(tile);
 
+    /// <summary>Whether the flood holds this corner node itself. A tile with one reached corner is not the same as
+    /// this corner being reached, and a scored candidate is a corner, so it is asked about as one.</summary>
+    private bool ReachesCorner(Point corner) => reachSense != null && reachSense.ReachesCorner(corner);
+
     /// <summary>
-    /// A missing tile in an unfinished flood is unknown, not unreachable. The following tier may
-    /// therefore begin toward a useful lower floor while the bounded flood is still expanding;
-    /// only an exhausted region can reject it as physically absent.
+    /// A missing corner in an unfinished flood is unknown, not unreachable. Following may therefore begin toward a
+    /// useful spot while the bounded flood is still expanding; only an exhausted region can reject it as absent.
     /// </summary>
-    private bool ProvenUnreachable(Point tile) => ReachComplete && !InReach(tile);
+    private bool ProvenUnreachable(Point corner) => ReachComplete && !ReachesCorner(corner);
 
     private void UpdateFollowObjective(in PositionRequest request, Senses.Senses senses)
     {
@@ -373,11 +366,12 @@ public sealed class Positioner
             return;
         }
         var objective = senses.Intent.Objective.At(request.Anchor);
-        bool connected = CanSeePlayer(senses.Companion.Bottom + new Vector2(0f, -30f), senses);
-        FollowObjectiveSatisfied = objective.IsSatisfied(senses.Companion.Bottom, connected);
-        FollowHorizontalGap = objective.HorizontalGap(senses.Companion.Bottom);
-        FollowVerticalGap = objective.VerticalGap(senses.Companion.Bottom);
-        FollowObjectiveReason = objective.Reason(senses.Companion.Bottom, connected);
+        Vector2 centre = senses.Companion.Center;
+        bool connected = CanSeePlayer(centre, senses);
+        FollowObjectiveSatisfied = objective.IsSatisfied(centre, connected);
+        FollowHorizontalGap = objective.HorizontalGap(centre);
+        FollowVerticalGap = objective.VerticalGap(centre);
+        FollowObjectiveReason = objective.Reason(centre, connected);
     }
 
     /// <summary>The last flood from the companion's feet holds this tile: the brain reads the player's feet against it to end a stranded count.</summary>
@@ -411,7 +405,7 @@ public sealed class Positioner
 
     /// <summary>Whether the spot last chosen is one the body can come home from; true when nothing is chosen.</summary>
     public bool ChosenReturnable
-        => Chosen is not Vector2 c || reachSense == null || reachSense.Returnable(MovementQueries.FeetTile(c));
+        => Chosen is not Vector2 c || reachSense == null || reachSense.Returnable(MovementQueries.Tile(c));
 
     /// <summary>Wall-clock of the last reach flood, for the telemetry.</summary>
     public double LastFloodMs => reachSense?.LastFloodMs ?? 0d;
@@ -440,42 +434,10 @@ public sealed class Positioner
                 bestDistance = distance;
             }
         }
-        return best is Point b ? MovementQueries.FeetWorld(b) : null;
+        return best is Point b ? MovementQueries.HoverPoint(b) : null;
     }
 
     private const int RoamSamples = 12;
-
-    /// <summary>
-    /// The reachable standable tile that most reduces the follow objective's own two gaps, or nothing when
-    /// none improves on where the body already stands. Measured as horizontal plus vertical gap rather than
-    /// straight-line distance, because that is what the objective is satisfied by: a tile on another floor
-    /// can be nearer as the crow flies and further from being with the player. Only tiles the flood has
-    /// actually claimed qualify, so this is a proven destination and not a hopeful direction.
-    ///
-    /// Both tests are taken from the body's live feet rather than from their tile, and that is the fix rather
-    /// than a tidy-up. The tile's own feet position can sit most of a tile from the body, so a tile that beat
-    /// the quantised position could be one the navigator was already arrived at: the 13:27 capture holds a
-    /// 328-row stretch at one spot with the navigator Arrived, the follow gap open and the flood complete, and
-    /// twenty-two more of the same shape. An answer must therefore be further away than the navigator's own
-    /// arrival radius as well as strictly closer on the objective, or there is no answer and the unresolved
-    /// follow intent goes to the shared state search, which is where it was always meant to go.
-    /// </summary>
-    private Vector2? PartialProgress(FollowPlayerObjective objective, Vector2 feetNow)
-    {
-        float best = objective.HorizontalGap(feetNow) + objective.VerticalGap(feetNow);
-        Vector2? found = null;
-        foreach (Point tile in reachSense?.ScoredTiles ?? (IReadOnlyCollection<Point>)System.Array.Empty<Point>())
-        {
-            if (!Allowed(tile) || !MovementQueries.IsStandable(tile.X, tile.Y)) continue;
-            Vector2 feet = MovementQueries.FeetWorld(tile);
-            if (Vector2.Distance(feet, feetNow) <= Navigator.ArriveDistance) continue;
-            float gap = objective.HorizontalGap(feet) + objective.VerticalGap(feet);
-            if (gap >= best) continue;
-            best = gap;
-            found = feet;
-        }
-        return found;
-    }
 
     /// <summary>What one stand's trajectory solve established, including whether the refusal is a fact about the
     /// geometry or only about the wait: a stand with no arc now has none whatever the trip, while a stand whose arc
@@ -483,22 +445,23 @@ public sealed class Positioner
     private readonly record struct ShotVerdict(bool Solved, string Reason, int TripTicks);
 
     /// <summary>
-    /// Whether this stand can shoot the target once the body has walked to it. The stand's arc used to be solved
+    /// Whether this stand can shoot the target once the body has flown to it. The stand's arc used to be solved
     /// against the target's current centre, which is a question about a slime that will not be there: the shot was
     /// proved at the moment of choosing and the body arrived a trip later. It is now solved against the forecast at
     /// the estimated arrival, and then at samples across a short window after it, and a stand whose shot holds for
     /// less than the trip is refused — because a shot that closes before the body gets there was never a reason to go.
+    /// The eye is the stand itself: the orb is a point body and fires from its centre.
     ///
     /// Where the forecast carries too little measured confidence to be evidence, the current position is asked
     /// instead and the reason says so, since refusing a stand on an unmeasured guess is worse than the staleness it
     /// replaces. The arrival sample is taken first and the window samples only on a pass, because three solves per
     /// candidate under an unchanged millisecond budget would otherwise cut the shortlist to a third of its depth.
     /// </summary>
-    private ShotVerdict SolveShotAtArrival(Vector2 eye, Vector2 feet, NPC target, WeaponProfile profile, Senses.Senses senses)
+    private ShotVerdict SolveShotAtArrival(Vector2 eye, NPC target, WeaponProfile profile, Senses.Senses senses)
     {
-        Point from = MovementQueries.FeetTile(senses.Companion.Bottom);
-        float trip = EstimatedTravelTicks(from, MovementQueries.FeetTile(feet))
-            ?? Vector2.Distance(senses.Companion.Bottom, feet) / Companion.CompanionMotor.WalkSpeed;
+        Point from = MovementQueries.Tile(senses.Companion.Center);
+        float trip = EstimatedTravelTicks(from, MovementQueries.Tile(eye))
+            ?? Vector2.Distance(senses.Companion.Center, eye) / OrbPace.MaxSpeed;
         int arrival = (int)MathHelper.Clamp(trip, 0f, 180f);
         bool forecastUsable = PredictObservedMotion.ErrorSamples(target) > 0
             && PredictObservedMotion.Confidence(target, arrival) >= Weights.ShotForecastConfidenceFloor;
@@ -573,10 +536,10 @@ public sealed class Positioner
     /// for a moving companion, because the memory stopped counting each time the body changed bucket and the cut
     /// fell in the same place every pass.</para>
     /// </summary>
-    private bool EveryRemainingAsked(List<(Vector2 feet, Vector2 eye, float baseScore)> candidates, int from, NPC target)
+    private bool EveryRemainingAsked(List<(Vector2 spot, float baseScore)> candidates, int from, NPC target)
     {
         for (int i = from; i < candidates.Count; i++)
-            if (!EverAsked(MovementQueries.FeetTile(candidates[i].feet), target)) return false;
+            if (!EverAsked(MovementQueries.Tile(candidates[i].spot), target)) return false;
         return true;
     }
 
@@ -606,11 +569,11 @@ public sealed class Positioner
     // stop. Whether some stand can shoot an enemy does not change from one tile of travel.
     private readonly Dictionary<(Point tile, int slot, int generation), (int terrain, Vector2 target, Point from, bool aboutTheTrip)> refused = new();
 
-    /// <summary>Where the body is standing, in the strides the refusal memory is scoped by.</summary>
-    private static Point BodyBucket(Vector2 bottom)
+    /// <summary>Where the body is, in the strides the refusal memory is scoped by.</summary>
+    private static Point BodyBucket(Vector2 centre)
     {
-        Point feet = MovementQueries.FeetTile(bottom);
-        return new Point(feet.X >> 2, feet.Y >> 2);
+        Point tile = MovementQueries.Tile(centre);
+        return new Point(tile.X >> 2, tile.Y >> 2);
     }
 
     /// <summary>When each target was first refused anything, so the cap evicts a whole target rather than everybody.</summary>
@@ -718,8 +681,12 @@ public sealed class Positioner
         // is why the chosen spot still changed a thousand times under requests that had not changed.
         FollowPlayerObjective? followObjective = request.Kind == RequestKind.WithPlayer
             ? senses.Intent.Objective.At(request.Anchor) : null;
-        Point centre = MovementQueries.FeetTile(request.Anchor);
+        Point centre = CornerGraph.NearestCorner(request.Anchor);
         Vector2 playerBottom = senses.Player.Bottom;
+        // The ceiling is a rule about where a companion hovers, never a wall: a corner above it is
+        // not offered, and nothing else about it changes. It is measured from the player's feet
+        // because that is what "above the player" means to him whatever he is standing on.
+        float ceiling = playerBottom.Y - Weights.HoverCeilingTiles * 16f;
         bool threatened = !senses.Threats.PlayerIsSafe;
         float bandNear = threatened ? Weights.ThreatBandNear : Weights.CalmBandNear;
         float bandFar = threatened ? Weights.ThreatBandFar : Weights.CalmBandFar;
@@ -731,63 +698,52 @@ public sealed class Positioner
         // Two passes: every candidate gets the cheap factors; only the best few then pay for an
         // aimer solve, which is the expensive one (up to 48 arcs × 150 ticks of tile checks).
         // Reachability is a tier, not a factor: while any candidate is inside the flooded region,
-        // only those are scored, because a spot the walker cannot reach is not a worse spot but no
+        // only those are scored, because a spot the body cannot reach is not a worse spot but no
         // spot. When none is (the flood ran out before it got here), every candidate stays, and the
-        // partial path walks the companion as close as it can, which is what it did before.
-        var candidates = new List<(Vector2 feet, Vector2 eye, float baseScore)>();
+        // route flies the companion as close as it can.
+        var candidates = new List<(Vector2 spot, float baseScore)>();
         CandidateCount = ReachableCandidateCount = RejectedCandidateCount = 0;
         bool anyReachable = false;
-        for (int dx = -SampleRadiusTiles; dx <= SampleRadiusTiles; dx += SampleStride)
+        for (int dx = -SampleRadiusTiles; dx <= SampleRadiusTiles; dx++)
         {
-            for (int dy = -SampleRadiusTiles; dy <= SampleRadiusTiles; dy += SampleStride)
+            for (int dy = -SampleRadiusTiles; dy <= SampleRadiusTiles; dy++)
             {
-                int x = centre.X + dx, y = centre.Y + dy;
+                var corner = new Point(centre.X + dx, centre.Y + dy);
+                Vector2 spot = CornerGraph.ToWorld(corner);
                 CandidateCount++;
-                if (!MovementQueries.IsStandable(x, y) || !Allowed(new Point(x, y)))
+                if (!MovementQueries.IsUsableCorner(corner) || !Allowed(MovementQueries.Tile(spot)) || spot.Y < ceiling)
                 {
                     RejectedCandidateCount++;
                     continue;
                 }
-                bool reachable = InReach(new Point(x, y));
+                bool reachable = ReachesCorner(corner);
                 if (reachable) ReachableCandidateCount++;
-                if (ProvenUnreachable(new Point(x, y)))
+                if (ProvenUnreachable(corner))
                     continue;
-                Vector2 feet = MovementQueries.FeetWorld(new Point(x, y));
-                if (followObjective is FollowPlayerObjective objective && !objective.AcceptsDestination(feet, CanSeePlayer(feet + new Vector2(0f, -30f), senses)))
+                if (followObjective is FollowPlayerObjective objective && !objective.AcceptsDestination(spot, CanSeePlayer(spot, senses)))
                     continue;
                 if (!reachable && anyReachable)
                     continue;
-                Vector2 eye = feet + new Vector2(0f, -30f);
-                float score = ScoreSpot(request, feet, eye, playerBottom, senses, bandNear, bandFar, SightToTarget(eye, request.Target), reach);
+                float score = ScoreSpot(request, spot, playerBottom, senses, bandNear, bandFar, SightToTarget(spot, request.Target), reach);
                 if (score <= 0f)
                     continue;
                 // The tier opens only on a reachable candidate the action accepts: a reachable
-                // tile the score vetoes must not empty the list and
+                // corner the score vetoes must not empty the list and
                 // turn a movement request into a hold.
                 if (reachable && !anyReachable)
                 {
                     anyReachable = true;
                     candidates.Clear();
                 }
-                candidates.Add((feet, eye, score));
+                candidates.Add((spot, score));
             }
         }
         if (candidates.Count == 0)
         {
-            // Following is the one request that must always produce somewhere to go. Its acceptance is a
-            // region around the player, so a companion outside that region with no candidate inside it has
-            // nothing accepted and used to answer nothing at all — which left the navigator with no proven
-            // destination and the brain reaching for a state search that jumps at the player. A reachable
-            // tile that closes the gap is not the destination the request wanted, and it is progress toward
-            // it, which is strictly better than standing still or leaping. Other request kinds keep the
-            // null: there is no partial credit for a firing position that cannot fire.
-            if (followObjective is FollowPlayerObjective partial
-                && PartialProgress(partial, senses.Companion.Bottom) is Vector2 step)
-            {
-                ChosenScore = 0f;
-                ChoiceReason = "partial-progress-candidate";
-                return step;
-            }
+            // Nothing accepted is nothing, for following as for the rest. The walker answered a follow request
+            // here with the reachable tile that most closed the gap, and that tile was arrived at without the
+            // objective being met and handed back to a body already on it for hundreds of ticks; the brain now
+            // carries an unaccepted follow intent to the state search, which flies toward the region itself.
             ChosenScore = -1f;
             ChoiceReason = "no-accepted-candidate";
             return null;
@@ -806,18 +762,18 @@ public sealed class Positioner
         // never reached is not, and the difference is the whole of what the offer's third value means.
         bool everyCandidateAnswered = true;
         int solved = 0;
-        // Where the body stands scopes every remembered refusal, because a stand refused for the length of the walk
+        // Where the body is scopes every remembered refusal, because a stand refused for the length of the trip
         // to it is refused from here and may be fine from somewhere else; the stride is set by BodyBucket.
-        Point bodyTile = BodyBucket(senses.Companion.Bottom);
+        Point bodyTile = BodyBucket(senses.Companion.Center);
         var solveClock = System.Diagnostics.Stopwatch.StartNew();
         for (int i = 0; i < candidates.Count; i++)
         {
-            (Vector2 feet, Vector2 eye, float baseScore) = candidates[i];
+            (Vector2 spot, float baseScore) = candidates[i];
             float score = baseScore;
             string shot = "not-required";
             if (needsFire)
             {
-                Point tile = MovementQueries.FeetTile(feet);
+                Point tile = MovementQueries.Tile(spot);
                 if (AlreadyRefused(tile, request.Target!, bodyTile))
                 {
                     // Counted as evaluated because it is answered: a real solve refused it, under this terrain
@@ -835,21 +791,21 @@ public sealed class Positioner
                 if (solved >= solves)
                 { everyCandidateAnswered = EveryRemainingAsked(candidates, i, request.Target!); break; } // unsolved candidates cannot beat a solved one above them
                 solved++;
-                var verdict = SolveShotAtArrival(eye, feet, request.Target!, fireProfile!.Value, senses);
+                var verdict = SolveShotAtArrival(spot, request.Target!, fireProfile!.Value, senses);
                 if (!verdict.Solved)
                     RememberRefusal(tile, request.Target!, bodyTile,
                         verdict.Reason.StartsWith(PositionReasons.ShotWindowShorterThanTrip, StringComparison.Ordinal));
                 shot = verdict.Reason;
-                score = ScoreSpot(request, feet, eye, playerBottom, senses, bandNear, bandFar, verdict.Solved ? 1f : 0f, reach);
+                score = ScoreSpot(request, spot, playerBottom, senses, bandNear, bandFar, verdict.Solved ? 1f : 0f, reach);
             }
             EvaluatedCandidates++;
-            evidence.Add((MovementQueries.FeetTile(feet), score, shot));
+            evidence.Add((MovementQueries.Tile(spot), score, shot));
             evidence.Sort((a, b) => b.score.CompareTo(a.score));
             if (evidence.Count > 4) evidence.RemoveAt(4);
             if (score > 0f && score > bestScore)
             {
                 bestScore = score;
-                best = feet;
+                best = spot;
             }
         }
         // The shortlist cap counts solves rather than list positions now, so remembered refusals do not consume the
@@ -877,36 +833,48 @@ public sealed class Positioner
     public int EvaluatedCandidates { get; private set; }
     public string CandidateEvidence { get; private set; } = "";
 
-    private static float ScoreSpot(in PositionRequest request, Vector2 feet, Vector2 eye, Vector2 playerBottom, Senses.Senses senses, float bandNear, float bandFar, float fire, float reach)
+    private static float ScoreSpot(in PositionRequest request, Vector2 spot, Vector2 playerBottom, Senses.Senses senses, float bandNear, float bandFar, float fire, float reach)
     {
         // The band is measured to the request's anchor (the player's predicted position when
-        // walking with them), with a gentle pull toward its centre so equal-band spots are not tied.
-        float toAnchor = Vector2.Distance(feet, request.Anchor);
-        float toPlayer = Vector2.Distance(feet, playerBottom);
+        // moving with them), with a gentle pull toward its centre so equal-band spots are not tied.
+        float toAnchor = Vector2.Distance(spot, request.Anchor);
+        float toPlayer = Vector2.Distance(spot, playerBottom);
         float band = Consideration.Band(toAnchor, bandNear, bandFar, 400f) * (0.6f + 0.4f * Consideration.Inverse(toAnchor, bandFar + 200f));
-        bool seesPlayer = CanSeePlayer(eye, senses);
+        bool seesPlayer = CanSeePlayer(spot, senses);
         float sight = seesPlayer ? 1f : 0.35f;
-        float danger = PredictedExposureAt(feet, senses);
-        float open = Openness(feet);
-        float travel = TravelBias(feet, senses);
+        float danger = PredictedExposureAt(spot, senses);
+        float open = Openness(spot);
+        float travel = TravelBias(spot, senses);
 
         return request.Kind switch
         {
-            // Getting back to him is a disengage, not a charge: the walk home gained the clear-way
+            // Getting back to him is a disengage, not a charge: the flight home gained the clear-way
             // test the firing requests already had, so a route that passes through a zombie is
             // discounted and the body goes round rather than paying for the shortest line. The
             // planner already prices reachable enemies on the route; this is the same idea applied
             // to choosing the destination, so the two agree instead of one undoing the other.
-            RequestKind.WithPlayer => band * sight * (1f - 0.8f * danger) * open * travel * ClearWayTo(feet, senses) * CourtesyShare(feet, senses),
+            RequestKind.WithPlayer => band * sight * (1f - 0.8f * danger) * open * travel * HoverHeight(spot, senses) * ClearWayTo(spot, senses) * CourtesyShare(spot, senses),
             // Guarding him is being able to shoot what is attacking him, which is not the same as
-            // standing where he stands. It carried neither a standoff from the target nor the
+            // hovering where he stands. It carried neither a standoff from the target nor the
             // clear-way test, so the only thing pulling the body anywhere was a band measured to
             // the player and the threats are on the player: every guard spot worth having was
             // inside the melee. It now scores the same two factors the line-of-fire request does.
-            RequestKind.Guard => Consideration.Band(toPlayer, Weights.GuardBandNear, Weights.GuardBandFar, 260f) * sight * fire * (1f - 0.7f * danger) * open * StandoffFromTarget(feet, request.Target, reach) * ClearWayTo(feet, senses, request.Target),
-            RequestKind.LineOfFire => fire * Consideration.AtLeast(band, 0.3f) * (1f - 0.7f * danger) * open * StandoffFromTarget(feet, request.Target, reach) * ClearWayTo(feet, senses, request.Target),
+            RequestKind.Guard => Consideration.Band(toPlayer, Weights.GuardBandNear, Weights.GuardBandFar, 260f) * sight * fire * (1f - 0.7f * danger) * open * StandoffFromTarget(spot, request.Target, reach) * ClearWayTo(spot, senses, request.Target),
+            RequestKind.LineOfFire => fire * Consideration.AtLeast(band, 0.3f) * (1f - 0.7f * danger) * open * StandoffFromTarget(spot, request.Target, reach) * ClearWayTo(spot, senses, request.Target),
             _ => 0f,
         };
+    }
+
+    /// <summary>
+    /// Where beside the player a hovering companion should sit: a spot at or under his feet keeps a share, and the
+    /// share rises to the whole at his head height and above. The band and the region say how far; neither says how
+    /// high, and without this the openest corner near his feet — the one on the floor beside him — wins as often as
+    /// the one at his shoulder. A share rather than a veto, because a low passage can leave nothing above his feet.
+    /// </summary>
+    private static float HoverHeight(Vector2 spot, Senses.Senses senses)
+    {
+        float rise = senses.Player.Bottom.Y - spot.Y;
+        return Weights.HoverBelowHeadShare + (1f - Weights.HoverBelowHeadShare) * Consideration.Rising(rise, senses.PlayerEntity.height);
     }
 
     /// <summary>
@@ -915,8 +883,8 @@ public sealed class Positioner
     /// among useful spots, one out of the player's way wins, and a spot that is the only usable one stays usable. Attack
     /// positions do not read it, because protection is not priced against courtesy.
     /// </summary>
-    private static float CourtesyShare(Vector2 feet, Senses.Senses senses)
-        => StandsInPlayersWay(feet, senses) ? Weights.CourtesyOccupancyShare : 1f;
+    private static float CourtesyShare(Vector2 spot, Senses.Senses senses)
+        => StandsInPlayersWay(spot, senses) ? Weights.CourtesyOccupancyShare : 1f;
 
     /// <summary>
     /// Whether a body standing here would overlap the player's interference footprint. Retention of a follow
@@ -927,12 +895,14 @@ public sealed class Positioner
     /// player is trying to walk down. Releasing it is not a veto — the scored pass that follows prices courtesy
     /// as a share, so the spot is chosen again where it is the only usable one.
     /// </summary>
-    private static bool StandsInPlayersWay(Vector2 feet, Senses.Senses senses)
+    private static bool StandsInPlayersWay(Vector2 spot, Senses.Senses senses)
         => senses.Player.Interference is Rectangle footprint
-            && PlayerSense.BodyTiles(feet, BodyPhysics.Width, BodyPhysics.Height).Intersects(footprint);
+            && PlayerSense.BodyTiles(spot + new Vector2(0f, CircleContact.Radius), (int)CircleContact.Diameter, (int)CircleContact.Diameter).Intersects(footprint);
 
-    private static bool CanSeePlayer(Vector2 eye, Senses.Senses senses)
-        => Collision.CanHitLine(eye, 1, 1, senses.PlayerEntity.position, senses.PlayerEntity.width, senses.PlayerEntity.height);
+    /// <summary>The orb's own box against the player's, which is the line the brain tick tests arrival with.</summary>
+    private static bool CanSeePlayer(Vector2 spot, Senses.Senses senses)
+        => Collision.CanHitLine(spot - new Vector2(CircleContact.Radius), (int)CircleContact.Diameter, (int)CircleContact.Diameter,
+            senses.PlayerEntity.position, senses.PlayerEntity.width, senses.PlayerEntity.height);
 
     /// <summary>
     /// A cheap stand-in for "could this spot shoot the target", used to decide which candidates are
@@ -948,19 +918,20 @@ public sealed class Positioner
     /// straight line. A projectile arcs, so a blocked ray is a lower bound rather than a refusal:
     /// such a candidate keeps a reduced rank and can still reach the shortlist and be solved properly.
     /// </summary>
-    private static float SightToTarget(Vector2 eye, NPC? target)
-        => target == null || Collision.CanHitLine(eye, 1, 1, target.position, target.width, target.height)
+    private static float SightToTarget(Vector2 spot, NPC? target)
+        => target == null || Collision.CanHitLine(spot, 1, 1, target.position, target.width, target.height)
             ? 1f
             : Weights.BlockedSightRank;
 
-    /// <summary>0..1: how much of the next second's predicted threat paths pass through this spot.</summary>
-    public static float PredictedExposureAt(Vector2 feet, Senses.Senses senses)
+    /// <summary>0..1: how much of the next second's predicted threat paths pass through this spot, the body being the
+    /// orb's own box centred on it.</summary>
+    public static float PredictedExposureAt(Vector2 centre, Senses.Senses senses)
     {
         float worst = 0f;
-        Rectangle body = new((int)feet.X - 10, (int)feet.Y - 42, 20, 42);
+        Rectangle body = new((int)(centre.X - CircleContact.Radius), (int)(centre.Y - CircleContact.Radius), (int)CircleContact.Diameter, (int)CircleContact.Diameter);
         foreach (ThreatRecord t in senses.Threats.Threats)
         {
-            float d = Vector2.Distance(t.Npc.Center, feet);
+            float d = Vector2.Distance(t.Npc.Center, centre);
             float proximity = Consideration.Inverse(d, 160f) * 0.6f;
             for (int tick = 0; tick <= 40; tick += 10)
                 if (t.PredictedHitbox(tick).Intersects(body))
@@ -973,24 +944,21 @@ public sealed class Positioner
         return worst;
     }
 
-    /// <summary>Penalise crevices: count solid tiles in the ring two tiles out at eye height.</summary>
-    private static float Openness(Vector2 feet)
-    {
-        Point p = MovementQueries.FeetTile(feet);
-        int solid = 0;
-        for (int dx = -2; dx <= 2; dx++)
-            for (int dy = -3; dy <= -1; dy++)
-                if (MovementQueries.IsBlock(p.X + dx, p.Y + dy))
-                    solid++;
-        return Consideration.Inverse(solid, 12f) * 0.7f + 0.3f;
-    }
+    /// <summary>
+    /// Prefer clearance: the clearance field the route search prices, read at the spot's corner, so the scorer and
+    /// the planner agree about what an open place is. A usable corner has at least a tile to every wall, so the
+    /// factor never reads a crevice as open; it saturates at a couple of tiles, because past that a spot is open
+    /// enough and the middle of a cavern is not worth a longer trip from the player.
+    /// </summary>
+    private static float Openness(Vector2 spot)
+        => 0.3f + 0.7f * Consideration.Rising(MovementQueries.ClearanceAt(spot), Weights.OpennessFullClearanceTiles);
 
-    private static float TravelBias(Vector2 feet, Senses.Senses senses)
+    private static float TravelBias(Vector2 spot, Senses.Senses senses)
     {
         var p = senses.Player;
         if (!p.IsTravelling)
             return 1f;
-        float along = (feet.X - p.Bottom.X) * p.TravelDirection;
+        float along = (spot.X - p.Bottom.X) * p.TravelDirection;
         return along >= 0f ? 1f : 0.6f;
     }
 
@@ -1003,7 +971,7 @@ public sealed class Positioner
     /// means every remaining distance is one the shot solves at, and the further of two is strictly
     /// better for a body that would rather not be reached.
     /// </summary>
-    private static float StandoffFromTarget(Vector2 feet, NPC? target, float reach)
+    private static float StandoffFromTarget(Vector2 spot, NPC? target, float reach)
     {
         if (target == null)
             return 1f;
@@ -1011,15 +979,15 @@ public sealed class Positioner
         // leaves room for target movement; the trajectory solve separately admits the shot.
         float far = MathF.Min(Weights.StandoffFar, reach * 0.85f);
         float near = MathF.Min(Weights.StandoffNear, far * 0.5f);
-        float d = Vector2.Distance(feet, target.Center);
+        float d = Vector2.Distance(spot, target.Center);
         float across = MathHelper.Clamp((d - near) / MathF.Max(1f, far - near), 0f, 1f);
         return Consideration.Band(d, near, far, 300f) * (0.55f + 0.45f * across);
     }
 
     /// <summary>
-    /// Near 1 when the straight line from where the companion stands to this spot passes no
+    /// Near 1 when the straight line from where the companion is to this spot passes no
     /// enemy closely, low when it runs through one, because a firing spot on the
-    /// far side of a zombie is reached by walking into the zombie.
+    /// far side of a zombie is reached by flying into the zombie.
     ///
     /// The thing being shot at is excluded, because it is already priced twice over — by
     /// <see cref="PredictedExposureAt"/> at the destination and by <see cref="StandoffFromTarget"/>, which is
@@ -1029,11 +997,11 @@ public sealed class Positioner
     /// asked whether it could shoot from there, leaving only near-side spots to choose between.
     /// Every other enemy on the way is still charged, which is the hazard this factor exists for.
     /// </summary>
-    private static float ClearWayTo(Vector2 feet, Senses.Senses senses, NPC? target = null)
+    private static float ClearWayTo(Vector2 spot, Senses.Senses senses, NPC? target = null)
     {
         const float Clearance = 40f;
-        Vector2 from = senses.Companion.Bottom;
-        Vector2 way = feet - from;
+        Vector2 from = senses.Companion.Center;
+        Vector2 way = spot - from;
         float length = way.Length();
         if (length < 1f)
             return 1f;

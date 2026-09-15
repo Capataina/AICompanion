@@ -41,17 +41,20 @@ if [ -n "$hits" ]; then
 fi
 echo "movement boundary holds: only TerrariaIntegration names game types"
 
-# The reach boundary. Observation owns the floods, Position and Movement are allowed to search
+# The reach boundary. Observation owns the flood, Position and Movement are allowed to search
 # because searching is what they are for, and the two folders below are the ones that must not.
 #
 # The pattern names the search entry points, never the verdict type: `Reachability.Reach` is the
 # three-valued answer every one of these folders passes around and returns, so a pattern matching
 # `Reachability\.` would fail every activity in the tree and the rule would be switched off within
-# the week. Only a leading word boundary is spelled out, so `RoundTripEvidence` is caught with
-# `RoundTrip`; the trailing one is left off deliberately for that reason. BSD and GNU grep disagree
-# about \b, so it is written out, as above.
+# the week. The entry points are the orb's: the one resumable search that is both the reach flood
+# and the route search, the navigator that owns a route, the corner graph the search walks, and the
+# clearance field it prices — an activity that constructs any of them is flooding for itself. The
+# contact and the terrain predicates are not named, because asking whether a tile is wet or whether
+# the body fits somewhere is a geometry question every activity may ask. Only a leading word
+# boundary is spelled out, because BSD and GNU grep disagree about \b.
 reach_dirs='Companion/Brain/Activities Companion/Brain/Infrastructure/Interactions'
-reach_pattern='(^|[^A-Za-z0-9_])(WalkerReach|WalkerCanReach|WalkerProvenReach|RoundTrip|FlyerCanReach|ContinueRouteSearch|BreathEnvelope)|MovementQueries\.Region|AStar\.(Find|Region)|Reachability\.Verdict'
+reach_pattern='(^|[^A-Za-z0-9_])(FreeSpaceSearch|CornerGraph\.|ClearanceField\.|new Navigator|Navigator\.MoveTo|SteerAlongRoute|Route\.Smooth|FlyerCanReach|WalkerCanReach)|Reachability\.Verdict'
 for dir in $reach_dirs; do
   test -d "$dir" || { echo "reach boundary source directory missing: $dir"; exit 1; }
 done
@@ -66,7 +69,7 @@ reach_hits=$(printf '%s\n' "$reach_found" | grep -v -E '^[^:]*:[0-9]+:[[:space:]
 if [ -n "$reach_hits" ]; then
   echo "an activity or interaction runs its own route search instead of reading the reach sense:"
   echo "$reach_hits"
-  echo "read Observation/ObserveReach.cs; the sense answers Reachable, NotYet or Unreachable for any feet tile."
+  echo "read Observation/ObserveReach.cs; the sense answers Reachable, NotYet or Unreachable for any tile."
   exit 1
 fi
 echo "reach boundary holds: activities and interactions read the reach sense, never a route search"

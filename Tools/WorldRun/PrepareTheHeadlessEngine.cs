@@ -102,7 +102,7 @@ internal static class PrepareTheHeadlessEngine
                         + "the engine dereferences these slots without a guard, so a run would throw from inside a game path");
     }
 
-    public static CompanionNPC AttachCompanion(Vector2 feet, Vector2 playerFeet)
+    public static CompanionNPC AttachCompanion(Vector2 centre, Vector2 playerFeet)
     {
         Main.myPlayer = 0;
         FillEveryEntitySlotTheEngineDereferences();
@@ -142,11 +142,10 @@ internal static class PrepareTheHeadlessEngine
         // lethal damage bypasses the companion's own death handling.
         typeof(NPC).GetProperty("ModNPC", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)!.SetValue(npc, companion);
         companion.SetDefaults();
-        npc.Bottom = feet;
+        npc.Center = centre;
         npc.velocity = Vector2.Zero;
-        // Rendering and first-tick logging want loader and graphics services this host does not have.
+        // First-tick logging wants loader services this host does not have.
         Set(companion, "loggedFirstTick", true);
-        Set(companion.Body, "rendererFailed", true);
 
         ForgetEverythingLearnedAboutTheWorld();
         return companion;
@@ -162,17 +161,20 @@ internal static class PrepareTheHeadlessEngine
     /// skipped this would start from everything the first pass learned and agree with it for
     /// reasons that have nothing to do with the run being deterministic.
     ///
-    /// The route archive is cleared through the mod's own world-load path rather than by reaching
-    /// into its fields, so it clears whatever that path clears today.
+    /// The terrain log is cleared through the mod's own world-load path rather than by reaching into
+    /// its fields, so it clears whatever that path clears today; the world the core reads is rebound
+    /// to the loaded tiles, the clearance field forgets every chunk it built, and the search's world
+    /// override — a headless tool's hook, never set here — is cleared in case a caller left it.
     /// </summary>
     public static void ForgetEverythingLearnedAboutTheWorld()
     {
         var world = new live::AICompanion.Companion.Brain.Infrastructure.Movement.ResetTerrainChanges();
         world.OnWorldLoad();
         world.LoadWorldData(new Terraria.ModLoader.IO.TagCompound());
-        live::AICompanion.Companion.Brain.Infrastructure.Movement.NavGrid.World =
+        live::AICompanion.Companion.Brain.Infrastructure.Movement.MovementQueries.World =
             new live::AICompanion.Companion.Brain.Infrastructure.Movement.GameTileWorld();
-        live::AICompanion.Companion.Brain.Infrastructure.Movement.AStar.InvalidateEdges();
+        live::AICompanion.Companion.Brain.Infrastructure.Movement.FreeSpaceSearch.WorldOverride = null;
+        live::AICompanion.Companion.Brain.Infrastructure.Movement.ClearanceField.Shared.Invalidate();
     }
 
     /// <summary>
@@ -283,32 +285,23 @@ internal static class PrepareTheHeadlessEngine
     }
 
     /// <summary>
-    /// Finishes a tick with the engine's own gravity and collision, after the brain and motor have
-    /// already applied their controls.
-    ///
-    /// This is <c>VerifyResponsiveFollowing.AdvanceNative</c>'s body, and the reason it is not
-    /// <c>NPC.UpdateNPC</c> is the reason that fixture gives: the production motor has already
-    /// applied the movement abilities and the step helpers, so a full engine update would apply the
-    /// same controls a second time. What remains — the engine's own gravity setup, its own fall
-    /// clamp and its own <c>UpdateCollision</c> — is the part this repository treats as its
-    /// independent oracle, and it is the same path every native collision fixture is checked
-    /// against.
+    /// Finishes a tick the way the engine finishes it for a no-gravity, no-tile-collide NPC, after
+    /// the brain and motor have already applied their controls: <c>NPC.UpdateNPC_Inner</c> skips
+    /// gravity and <c>UpdateCollision</c> for such a body and adds the velocity to the position,
+    /// after zeroing a horizontal velocity smaller than 0.005 px (`Terraria.NPC.cs`, the
+    /// <c>velocity.X &lt; 0.005</c> guard just above the <c>noTileCollide</c> branch), and nothing
+    /// else that moves it. The motor has already resolved contact on that displacement, so this is
+    /// the whole of what the engine contributes to the orb's motion, in the mod and here alike; the
+    /// snap is reproduced so a run here and a live capture cannot drift by a sub-pixel a tick.
     /// </summary>
     public static void AdvanceTheNativeBody(CompanionNPC companion)
     {
         NPC npc = companion.NPC;
-        // Suppresses the splash visual, whose dust and audio services do not exist headless; native
-        // wet detection, velocity changes and collision all still run.
-        npc.wetCount = 2;
-        Invoke(npc, "UpdateNPC_UpdateGravity");
-        npc.velocity.Y = MathF.Min(npc.velocity.Y + npc.gravity, npc.maxFallSpeed);
-        Invoke(npc, "UpdateCollision");
+        if (npc.velocity.X < 0.005f && npc.velocity.X > -0.005f)
+            npc.velocity.X = 0f;
+        npc.oldPosition = npc.position;
+        npc.position += npc.velocity;
     }
-
-    private static void Invoke(NPC npc, string method)
-        => (typeof(NPC).GetMethod(method, BindingFlags.Instance | BindingFlags.NonPublic)
-            ?? throw new MissingMethodException($"NPC.{method} is gone; the native body can no longer be advanced the way every collision fixture advances it"))
-           .Invoke(npc, null);
 
     private static void Set(object target, string field, object value)
         => (target.GetType().GetField(field, BindingFlags.Instance | BindingFlags.NonPublic)

@@ -106,7 +106,7 @@ internal static class VerifyFiringPosition
         enemy.Bottom = new Vector2(EnemyTileX * 16f + 8f, ShaftFloorY * 16f);
         Main.npc[30] = enemy;
 
-        companion.Brain.Senses.Update(companion.NPC, player, companion.Breath);
+        companion.Brain.Senses.Update(companion.NPC, player, companion.Motor);
         var threats = companion.Brain.Senses.Threats.Threats;
         threats.Clear();
         threats.Add(new T
@@ -311,7 +311,7 @@ internal static class VerifyFiringPosition
             for (int y = FloorY; y < ShaftFloorY; y++)
                 Open(x, y);
         live::AICompanion.Companion.Brain.Infrastructure.Movement.TerrainChanges.Reset();
-        live::AICompanion.Companion.Brain.Infrastructure.Movement.NavGrid.World = new live::AICompanion.Companion.Brain.Infrastructure.Movement.GameTileWorld();
+        live::AICompanion.Companion.Brain.Infrastructure.Movement.MovementQueries.World = new live::AICompanion.Companion.Brain.Infrastructure.Movement.GameTileWorld();
     }
 
     /// <summary>Whether a body standing on the main floor at this tile column has a straight line to the target.</summary>

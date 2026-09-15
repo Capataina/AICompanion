@@ -76,9 +76,9 @@ public sealed class RecordTerrainChunks : ModSystem
             for (int col = 0; col < Side; col++, index++)
             {
                 int tx = x + col, ty = y + row;
-                if (!NavGrid.World.InWorld(tx, ty)) { glyphs.Append('?'); clipped++; continue; }
+                if (!MovementQueries.World.InWorld(tx, ty)) { glyphs.Append('?'); clipped++; continue; }
                 Tile tile = Main.tile[tx, ty];
-                glyphs.Append(TextTileWorld.Glyph(NavGrid.World.Shape(tx, ty), NavGrid.World.Water(tx, ty), NavGrid.World.Lava(tx, ty), NavGrid.World.PassThrough(tx, ty)));
+                glyphs.Append(TextTileWorld.Glyph(MovementQueries.World.Shape(tx, ty), MovementQueries.World.Water(tx, ty), MovementQueries.World.Lava(tx, ty), MovementQueries.World.PassThrough(tx, ty)));
                 liquids[index * 2] = tile.LiquidAmount;
                 liquids[index * 2 + 1] = (byte)tile.LiquidType;
                 materials[index * 4] = (byte)tile.TileType;

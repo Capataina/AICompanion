@@ -45,11 +45,17 @@ internal static class VerifyFollowRecoveryAndProtection
         var companion = VerifyCompanionLifecycle.Create();
         companion.NPC.position = new Vector2(400, 900);
         companion.Motor.ApplyRecoveryFlight(new Vector2(3, -2));
-        Require(companion.NPC.noGravity && companion.NPC.noTileCollide, "native motor enables flight flags");
+        // The engine's own flags are not the observable any more, and asserting on them was the walker's
+        // question. This body sets `noGravity` and `noTileCollide` once when it spawns and never clears them —
+        // the engine does nothing to it but add its velocity, and contact is the mod's own circle test — so both
+        // flags read true in flight and true out of it, and the row said nothing either way. What flight
+        // actually is here is `RecoveryFlight`, which makes the motor commit its move phasing; leaving it is
+        // what puts the move back through `CircleContact`.
+        Require(companion.Motor.RecoveryFlight, "the motor must be in recovery flight");
         companion.CheckDead();
         Require(companion.NPC.velocity == Vector2.Zero, "downed flight stops immediately");
         companion.Motor.Apply(live::AICompanion.Companion.Brain.Infrastructure.Movement.Controls.None, "downed");
-        Require(!companion.NPC.noGravity && !companion.NPC.noTileCollide, "clear downed body restores ordinary collision");
+        Require(!companion.Motor.RecoveryFlight, "a clear downed body leaves flight, so its moves run through contact again");
         VerifyGuard();
         VerifyRecoveryThroughBrain();
         VerifyRecoveryAdmissionUsesReunionPurpose();
@@ -103,7 +109,7 @@ internal static class VerifyFollowRecoveryAndProtection
         Main.player[0].dead = false;
         Main.player[0].position = new Vector2(450, 900);
         var senses = companion.Brain.Senses;
-        senses.Update(companion.NPC, Main.player[0], companion.Breath);
+        senses.Update(companion.NPC, Main.player[0], companion.Motor);
         var npc = new NPC { whoAmI = 4, active = true, life = 100, damage = 20 };
         var threat = new Threat { Npc = npc, CanReachPlayer = true, Urgency = 1f, EffectiveTicksToPlayer = 0 };
         senses.Threats.Threats.Add(threat);
@@ -180,13 +186,22 @@ internal static class VerifyFollowRecoveryAndProtection
         Main.tile = (Tilemap)Activator.CreateInstance(typeof(Tilemap), System.Reflection.BindingFlags.Instance
             | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic,
             null, new object[] { (ushort)200, (ushort)100 }, null)!;
+        // The scene's own dimensions, stated rather than inherited. The tilemap is two hundred tiles wide because
+        // the flight is two thousand pixels long, but `Main.maxTilesX` is a static holding whatever the previous
+        // fixture left — a hundred, here — and everything that asks the world about a tile past that answers
+        // "solid". So the body flew the whole way, arrived within a pixel of the player, and `ClearOfTerrain` read
+        // false forever: recovery never landed, in an empty world, because the world said the empty half of it was
+        // rock. A rebuilt map is also a new world to every chunk and retained query, which compare it by
+        // reference, so the reference is replaced with it.
+        Main.maxTilesX = 200;
+        Main.maxTilesY = 100;
         TerrainChanges.Reset();
+        live::AICompanion.Companion.Brain.Infrastructure.Movement.MovementQueries.World
+            = new live::AICompanion.Companion.Brain.Infrastructure.Movement.GameTileWorld();
         var companion = VerifyCompanionLifecycle.Create();
         Main.player[0].dead = false;
         Main.player[0].Bottom = new Vector2(2200, 1200);
-        companion.NPC.Bottom = new Vector2(100, 1200);
-        var memory = live::AICompanion.Companion.Brain.Infrastructure.Movement.RememberExecutedRoutes.World;
-        memory.Clear();
+        companion.NPC.Center = new Vector2(100, 1200);
         bool started = false, landed = false;
         bool answeredThreat = false;
         for (int tick = 0; tick < 400; tick++)
@@ -203,16 +218,22 @@ internal static class VerifyFollowRecoveryAndProtection
                 Main.npc[1].active = false;
             }
             started |= companion.Brain.FollowRecovery.Active;
-            Require(memory.Count == 0, "recovery must not add any executed route to world memory");
             if (started && !companion.Brain.FollowRecovery.Active) { landed = true; break; }
-            Require(companion.NPC.noGravity && companion.NPC.noTileCollide,
+            // `noGravity` and `noTileCollide` are permanently on for this body and cannot witness anything, so
+            // what says the brain sent this through the flight motor is the motor's own flight state.
+            Require(!started || companion.Motor.RecoveryFlight,
                 "the real brain must send distant following through the flight motor");
             Require(companion.NPC.velocity.Length() <= Weights.FollowRecoverySpeed + .01f,
                 "brain recovery must remain continuous bounded motion");
             // The engine's no-collision translation, with the real brain/motor supplying it.
             companion.NPC.position += companion.NPC.velocity;
         }
-        Require(started && landed, "the production brain must enter and complete distant recovery");
+        Require(started && landed,
+            $"the production brain must enter and complete distant recovery; started={started} landed={landed} "
+            + $"centre={companion.NPC.Center} player={Main.player[0].Bottom} gap={Vector2.Distance(companion.NPC.Center, Main.player[0].Bottom):0} "
+            + $"world={Main.maxTilesX}x{Main.maxTilesY} recoveryActive={companion.Brain.FollowRecovery.Active} "
+            + $"flight={companion.Motor.RecoveryFlight} action={companion.Brain.LastAction?.Name} request={companion.Brain.LastRequest.Kind} "
+            + $"nav={companion.Brain.Navigator.Status}");
         Require(answeredThreat, "recovery flight must keep independent weapon targeting active when an enemy appears");
         Require(Vector2.Distance(companion.NPC.Bottom, Main.player[0].Bottom) <= Weights.FollowRecoveryArrival,
             "flight may complete only inside the owner arrival region");
@@ -240,10 +261,11 @@ internal static class VerifyFollowRecoveryAndProtection
         }
         Require(companion.IsDowned && companion.Motor.ClearOfTerrain && !companion.Motor.RecoveryFlight,
             "a downed interrupted flight must leave the wall without travelling to the owner");
-        Require(live::AICompanion.Companion.Brain.Infrastructure.Movement.RememberExecutedRoutes.World.Count == 0,
-            "cancelled-flight clearance must never teach world route memory");
-        Require(companion.NPC.position.X < 448 && !companion.NPC.noTileCollide && !companion.NPC.noGravity,
-            "clearance returns to the entry side and restores native collision");
+        // Only the position. The two engine flags this used to read are permanently on for this body, so they
+        // could never have witnessed clearance ending; `RecoveryFlight` above is what does, and it is already
+        // asserted on the line before.
+        Require(companion.NPC.position.X < 448,
+            $"clearance must return the body to the side it entered from; position={companion.NPC.position}");
     }
 
     private static void Require(bool condition, string message)
