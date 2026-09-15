@@ -18,7 +18,7 @@ The escape also drops movement's hold anchor when it starts, and that is not tid
 
 ## Avoiding a hit is a bend in the job's own flight, and safety only supplies the prediction
 
-The reflex predicts each incoming hostile and projectile against the orb's own coasting body — the contact circle integrated forward through the same contact the motor runs, so a body drifting toward a wall is predicted where the wall will leave it — and hands that predicate to movement. Movement's evade layer (`../../Infrastructure/Movement/Steering/EvadeWhileMoving.cs`) tests the tick's controls against it after navigation and bends them only when they would meet a hit. The activity is not suspended, its attempt stays open, its hands stay granted, and the grant names the tick `evade`. A body that flies dodges up and down as readily as back.
+The reflex predicts each incoming hostile and projectile against the orb's own coasting body — the contact circle integrated forward through the same contact the motor runs, so a body drifting toward a wall is predicted where the wall will leave it — and hands that predicate to movement. Movement's evade layer (`../../Infrastructure/Movement/Steering/EvadeWhileMoving.cs`) flies the job forward against it after navigation — this tick's controls, then what the job's own steering would ask from each simulated state — and bends the controls only when that flight would meet a hit or a liquid that hurts the body. The activity is not suspended, its attempt stays open, its hands stay granted, and the grant names the tick `evade`. A body that flies dodges up and down as readily as back.
 
 ## Two responses were deleted, and the property that deleted them outranks any trigger that brings them back
 

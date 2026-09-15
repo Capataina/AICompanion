@@ -74,10 +74,21 @@ public sealed class HoverAroundSpot
         LastTarget = target;
         Vector2 targetMotion = previousTarget is Vector2 last ? target - last : Vector2.Zero;
         previousTarget = target;
-        Vector2 desired = targetMotion + (target - live.Centre) * Weights.HoverGain;
+        return new Controls(Pursue(live.Centre, target, targetMotion, world));
+    }
+
+    /// <summary>
+    /// The pursuit alone, with nothing about the wander advanced: the target's motion plus a correction toward it, capped
+    /// under the settled threshold and turned off any wall it would press into. The evade layer's keep test flies a hover
+    /// through this against the last target held still, which is a fair forecast over a lookahead because the hover's own
+    /// speed cap keeps the target's path around the spot shorter than the body.
+    /// </summary>
+    public static Vector2 Pursue(Vector2 centre, Vector2 target, Vector2 targetMotion, ITileWorld world)
+    {
+        Vector2 desired = targetMotion + (target - centre) * Weights.HoverGain;
         if (desired.LengthSquared() > Weights.HoverSpeedPx * Weights.HoverSpeedPx)
             desired = Vector2.Normalize(desired) * Weights.HoverSpeedPx;
-        return new Controls(OffTheWall(live.Centre, desired, world));
+        return OffTheWall(centre, desired, world);
     }
 
     /// <summary>

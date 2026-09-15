@@ -25,13 +25,25 @@ public static class SteerAlongRoute
     /// </summary>
     public static Controls Steer(OrbState live, Route route, float maxSpeed, float speedChange, out Vector2 lookahead)
     {
+        int index = route.Index;
+        Controls controls = Steer(live, route, ref index, maxSpeed, speedChange, out lookahead);
+        route.Index = index;
+        return controls;
+    }
+
+    /// <summary>
+    /// The same law with the segment index carried by the caller rather than written to the route, so a forecast can fly the
+    /// route tick after tick from simulated states — the evade layer's keep test — without moving the segment the navigator is on.
+    /// </summary>
+    public static Controls Steer(OrbState live, Route route, ref int index, float maxSpeed, float speedChange, out Vector2 lookahead)
+    {
         Vector2 centre = live.Centre;
         // Project onto the current and the next few segments; take the nearest, and advance.
-        int best = route.Index;
+        int best = index;
         float bestDistance = float.PositiveInfinity;
         Vector2 bestProjection = centre;
-        int last = Math.Min(route.Points.Count - 2, route.Index + 3);
-        for (int i = Math.Max(0, route.Index); i <= last; i++)
+        int last = Math.Min(route.Points.Count - 2, index + 3);
+        for (int i = Math.Max(0, index); i <= last; i++)
         {
             Vector2 projection = Route.Project(centre, route.Points[i], route.Points[i + 1]);
             float distance = Vector2.DistanceSquared(centre, projection);
@@ -39,7 +51,7 @@ public static class SteerAlongRoute
             // past itself does not skip its own middle.
             if (distance < bestDistance - 1f) { best = i; bestDistance = distance; bestProjection = projection; }
         }
-        route.Index = best;
+        index = best;
 
         // The lookahead point: a distance along the route from the projection that grows with the body's
         // speed, or the goal. A slow body tracks a winding route closely; a fast one looks far enough
@@ -68,7 +80,7 @@ public static class SteerAlongRoute
         // straight distance to the goal is the floor, because a body that has overshot the goal
         // projects onto the goal itself, reads no route left, and would otherwise be told to stop
         // where it is rather than come back the few pixels it sailed past.
-        float remainingRoute = MathF.Max(route.RemainingLength(centre), Vector2.Distance(centre, route.Goal));
+        float remainingRoute = MathF.Max(route.RemainingLength(centre, index), Vector2.Distance(centre, route.Goal));
         float brake = OrbPace.ArrivalSpeed(remainingRoute);
         // Bend: at the next waypoint within braking distance, the turn between the segment
         // arriving and the one leaving; the cap through it falls with the turn's sharpness, and

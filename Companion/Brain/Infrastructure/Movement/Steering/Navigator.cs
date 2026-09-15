@@ -71,6 +71,12 @@ public sealed class Navigator
     public Vector2? Goal { get; private set; }
     public Point? GoalTile => Goal is Vector2 goal ? MovementQueries.Tile(goal) : null;
     public Vector2 Lookahead { get; private set; }
+
+    /// <summary>What produced the controls <see cref="MoveTo"/> last returned, so the evade layer can forecast the same steering.</summary>
+    public enum Steering { Hover, Route, Direct }
+
+    /// <summary>The branch <see cref="MoveTo"/> steered by on its last call: a route, a direct line to the goal, or a hover.</summary>
+    public Steering LastSteering { get; private set; }
     public bool Arrived { get; private set; }
     public bool LastPlanFailed { get; private set; }
     public bool LastPlanEmpty { get; private set; }
@@ -160,6 +166,7 @@ public sealed class Navigator
             Status = ExecutionStatus.Arrived;
             ProgressReason = "arrived";
             DropRoute();
+            LastSteering = Steering.Hover;
             return Hover.Around(live, goal, world);
         }
         Arrived = false;
@@ -191,6 +198,7 @@ public sealed class Navigator
             Vector2 end = Path.Goal;
             Status = search is { Finished: false } ? ExecutionStatus.Pending : ExecutionStatus.Unreachable;
             controls = Hover.Around(live, end, world);
+            LastSteering = Steering.Hover;
             Lookahead = end;
             ProgressReason = "at-nearest-known-place";
             if (search is not { Finished: false })
@@ -206,6 +214,7 @@ public sealed class Navigator
             Status = search is { Finished: false } ? ExecutionStatus.Pending
                 : PathIsPartial ? ExecutionStatus.Unreachable : ExecutionStatus.Executable;
             controls = SteerAlongRoute.Steer(live, Path, OrbPace.MaxSpeed, OrbPace.SpeedChange, out Vector2 ahead);
+            LastSteering = Steering.Route;
             Lookahead = ahead;
             ProgressReason = PathIsPartial ? "following-partial-route" : Status == ExecutionStatus.Pending ? "following-while-replanning" : "following";
         }
@@ -215,6 +224,7 @@ public sealed class Navigator
             Status = search is { Finished: false } ? ExecutionStatus.Pending : ExecutionStatus.Direct;
             Vector2 direction = (goal - live.Centre) / distanceToGoal;
             controls = new Controls(direction * OrbPace.ArrivalSpeed(distanceToGoal));
+            LastSteering = Steering.Direct;
             Lookahead = goal;
             ProgressReason = "direct";
         }
@@ -232,6 +242,7 @@ public sealed class Navigator
             if (waitAnchor is Vector2 w && !CircleContact.SweptClear(world, live.Centre, w, OrbTerrain.Wall)) waitAnchor = null;
             waitAnchor ??= live.Centre;
             controls = Hover.Around(live, waitAnchor.Value, world);
+            LastSteering = Steering.Hover;
             Lookahead = live.Centre;
             ProgressReason = Status == ExecutionStatus.Pending ? "waiting-for-route"
                 : settledShort != null ? "as-close-as-it-can-get" : "no-route";

@@ -632,7 +632,7 @@ public sealed class BrainTelemetry : ModSystem
 
         if (!headerWritten)
         {
-            var textColumns = new StringBuilder("# text_columns=state,action,reflex,top_threat,target,request,anchor,spot,lookahead,npc_tile,npc_px,npc_vel,wall_normal,liquid,held,weapon,fire,engage,torch,player_tile,spot_home,sample_phase,player_px,player_vel,player_liquid,player_hit,npc_hit,player_state,player_activity,player_support,control,control_source,desired_vel,follow_reason,recovery_reason,guard_reason,mine_policy,mine_status,mine_target,target_evidence,nav_status,position_reason,escape_stage,escape_target,hunt_reason,hand_grant,control_request_owner,safety_kind,safety_reason,safety_last_end,collection_method,mine_end_reason,attempt_end_activity,attempt_end_family,attempt_end_status,attempt_end_cause,attempt_end_attribution,pursuit_target,pursuit_evidence,aim_target,landed_hit_target,landed_hit_aimed,encounter_source,torch_reason,lighting_sites,intent_region,task_order,task_order_runner_up");
+            var textColumns = new StringBuilder("# text_columns=state,action,reflex,top_threat,target,request,anchor,spot,lookahead,npc_tile,npc_px,npc_vel,wall_normal,liquid,held,weapon,fire,engage,torch,player_tile,spot_home,sample_phase,player_px,player_vel,player_liquid,player_hit,npc_hit,player_state,player_activity,player_support,control,control_source,desired_vel,follow_reason,recovery_reason,guard_reason,mine_policy,mine_status,mine_target,target_evidence,nav_status,position_reason,escape_stage,escape_target,hunt_reason,hand_grant,control_request_owner,safety_kind,safety_reason,safety_last_end,collection_method,mine_end_reason,attempt_end_activity,attempt_end_family,attempt_end_status,attempt_end_cause,attempt_end_attribution,pursuit_target,pursuit_evidence,aim_target,landed_hit_target,landed_hit_aimed,encounter_source,torch_reason,lighting_sites,intent_region,task_order,task_order_runner_up,evade_reason,evade_choice");
             // Offer columns are named from the registered activities, like the raw/final pairs, so
             // the declaration and the header cannot disagree about which activities exist.
             foreach (var a in brain.Chooser.Actions) textColumns.Append(',').Append(a.Name).Append("_offer");
@@ -735,6 +735,11 @@ public sealed class BrainTelemetry : ModSystem
             // as names joined by '>' with the order's score, or '-' when fewer than two jobs were close. Appended with
             // the schema left where it is: nothing before it moved and every reader addresses columns by name.
             h.Append("\ttask_order\ttask_order_runner_up");
+            // Lane C (the evade layer), appended at the end with the schema left to the merge: why the layer kept or bent
+            // this tick's controls, the lookahead tick at which the job's own flight met a hit and met liquid (-1 for never),
+            // which candidate a bent tick flew, and how many candidates each refusal removed. `evade_reason` and
+            // `evade_choice` are textual and declared in the preamble.
+            h.Append("\tevade_reason\tevade_hit_tick\tevade_wet_tick\tevade_choice\tevade_refused_liquid\tevade_refused_nowhere\tevade_refused_danger");
             writer.WriteLine(h.ToString());
             headerWritten = true;
         }
@@ -1087,6 +1092,16 @@ public sealed class BrainTelemetry : ModSystem
             .Append('\t').Append(intent.Pull(companion.NPC.Bottom).ToString("0.000", CultureInfo.InvariantCulture));
         sb.Append('\t').Append(brain.Chooser.LastTaskOrder.Length == 0 ? "-" : brain.Chooser.LastTaskOrder)
             .Append('\t').Append(brain.Chooser.LastTaskOrderRunnerUp.Length == 0 ? "-" : brain.Chooser.LastTaskOrderRunnerUp);
+
+        // Lane C: the evade layer's verdict, matching the header block of the same name.
+        var evade = brain.Movement.LastEvade;
+        sb.Append('\t').Append(evade.Reason switch { EvadeReason.Kept => "kept", EvadeReason.Hit => "hit", EvadeReason.Liquid => "liquid", _ => "off" })
+            .Append('\t').Append(evade.HitTick)
+            .Append('\t').Append(evade.WetTick)
+            .Append('\t').Append(!evade.Bent ? "-" : evade.Choice switch { EvadeChoice.Stop => "stop", EvadeChoice.JobHeading => "job-heading", _ => "heading" })
+            .Append('\t').Append(evade.RefusedLiquid)
+            .Append('\t').Append(evade.RefusedNowhere)
+            .Append('\t').Append(evade.RefusedDanger);
 
         // A write that fails (disk full, a stream the OS closed) must not escape the NPC's AI
         // and take the companion with it; the record stops and the game goes on.
