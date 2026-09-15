@@ -284,7 +284,7 @@ public sealed class MineOre : CompanionAction
         // "Ore near the player" is measured from his intent region rather than his feet, for the
         // reason every work radius now is: a vein a few tiles ahead of a walking player is behind
         // the search centre the moment he starts walking towards it.
-        Vector2 nearPlayer = ctx.Senses.Intent.Region.Centre;
+        Vector2 nearPlayer = ctx.Senses.Intent.Region.Heading;
         Vector2 body = ctx.Npc.Center;
         if (WorkPolicies.Mining == WorkPolicy.Mimic)
         {

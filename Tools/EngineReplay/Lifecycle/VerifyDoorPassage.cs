@@ -253,7 +253,14 @@ internal static class VerifyDoorPassage
         Player player = Main.player[0];
         player.dead = false;
         player.statLife = player.statLifeMax2 = 100;
-        player.position = new Vector2(EastX * 16, FloorRow * 16 - player.height);
+        // Column 80, not EastX. With the player at column 62 his region reaches west to column 44, across the sealed wall at 50,
+        // and it reaches down past the trench, whose rows 81 to 83 sit inside the box. Being with the player needs a way to him
+        // inside his region, and here there is one: the trench. So a companion at column 48 on the wrong side is with him by the
+        // rule, keeps him company from there and never crosses (re-run on 15 September 2026 after that rule landed: finalFeetX
+        // 48.3, opened -1, crossed -1). The premise on the first tick keeps the whole admitted region past the trench, so these
+        // scenes stay about crossing the wall rather than about membership.
+        const int PlayerColumn = 80;
+        player.position = new Vector2(PlayerColumn * 16, FloorRow * 16 - player.height);
         player.velocity = Vector2.Zero;
         companion.NPC.position = new Vector2(WestX * 16, FloorRow * 16 - companion.NPC.height);
         companion.NPC.velocity = Vector2.Zero;
@@ -263,6 +270,13 @@ internal static class VerifyDoorPassage
             VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
             companion.AI();
             VerifyResponsiveFollowing.AdvanceNative(companion);
+            if (tick == 0)
+            {
+                var region = companion.Brain.Senses.Intent.Region;
+                float admittedWest = region.Centre.X - region.HalfSize.X + live::AICompanion.Companion.Brain.Infrastructure.Movement.Navigator.SettleRadius;
+                Require(admittedWest > 56 * 16f,
+                    $"the premise: no place the player's region admits may lie on the companion's side of the wall or in the trench; admitted west edge {admittedWest / 16:0.0} tiles, trench ends at column 55");
+            }
             if (opened < 0 && Main.tile[DoorX, FloorRow - 2].TileType == TileID.OpenDoor) opened = tick;
             if (crossed < 0 && companion.NPC.Center.X > (DoorX + 2) * 16) crossed = tick;
             if (companion.NPC.collideX) pushTicks++;

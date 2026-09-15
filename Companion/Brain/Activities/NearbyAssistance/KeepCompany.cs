@@ -13,7 +13,7 @@ using AICompanion.Companion.Brain.Infrastructure.Observation;
 namespace AICompanion.Companion.Brain.Activities.NearbyAssistance;
 
 /// <summary>
-/// Accompany the player's activity through reunion, resting or nearby movement.
+/// Accompany the player: rejoin his region from outside it, and move about it with him from inside it.
 /// These methods share one ordinary purpose rather than competing as separate jobs.
 /// </summary>
 public sealed class KeepCompany : CompanionAction
@@ -25,14 +25,6 @@ public sealed class KeepCompany : CompanionAction
 
     private float preparedValue;
     private bool reunite;
-
-    public override void Enter(in ActionContext ctx)
-    {
-        // A freshly entered activity has no method in flight to protect, so its first preparation
-        // adopts whatever the geometry asks for rather than holding the last run's method for a
-        // rescore first.
-        pendingTicks = Weights.PositionRescoreTicks;
-    }
 
     /// <summary>A meeting place belongs to an ongoing reunion; leaving company must not leave its flood
     /// and reason standing as if another activity were still heading for the player.</summary>
@@ -59,113 +51,73 @@ public sealed class KeepCompany : CompanionAction
         => new(AttemptStatus.Executed, reunite ? "reunion-method-executed" : "local-company-method-executed");
 
     /// <summary>
-    /// Whether the method changes, as opposed to whether it would. A method change is a change of
-    /// request kind, and a change of request kind cancels whatever the body is doing — at tick 8128
-    /// of the 2026-09-14 capture the flip from reunion to local turned a WithPlayer into a Hold, and
-    /// the Hold reached the navigator one tick after take-off and cut the jump. So a regime that
-    /// wants the other method has to hold for a rescore. The walker also refused the change while
-    /// its body was in the air; the orb is always in the air and drifts even when holding, so that
-    /// test went on 15 September 2026 — kept, it would have frozen the method for as long as the
-    /// body hovered. Entering the new method costs the wait; there is no wait on the wanted regime
-    /// going back to the one in force, because then nothing changes.
+    /// Which method is in force, decided by where the body is: outside the player's region it rejoins the region, inside it
+    /// moves about the region with him. A stranded body rejoins only where rejoining is worth more than roaming its pocket,
+    /// because a sealed pocket has no route home to ask for.
+    ///
+    /// <para>This was a comparison of rejoining's worth against the wander floor, guarded by a rescore's wait, an arrival test
+    /// and a check that the region had stopped sliding, and every one of those guards existed because the two methods asked
+    /// for different kinds of request and a change of kind cut whatever the body was doing: at tick 8128 of the 2026-09-14
+    /// capture a flip from reunion to local turned a follow into a Hold that cut a jump one tick after take-off, and on
+    /// 15 September 2026 at three times the player's speed the flip happened thirty-nine times in six hundred ticks. Both
+    /// methods now ask for the same kind and differ only in whether the body is inside, so a change cuts nothing and there
+    /// is nothing to wait for; the sense's inside latch gives the edge the width the wait used to give it.</para>
     /// </summary>
-    private bool ChooseMethod(in ActionContext ctx, bool wantsReunion)
-    {
-        if (ctx.Senses.Player.IsDead) { pendingTicks = 0; return reunite = wantsReunion; }
-        if (wantsReunion == reunite) { pendingTicks = 0; return reunite; }
-        // Reunion hands over to local company when the body has arrived, not when it is merely inside, and not at once when it
-        // is outside: arrived is the region's own settled state, at rest inside for a rescore, which already carries the wait
-        // below. It stands ahead of the outside exemption, because that exemption is for going after a player the body has lost,
-        // and a player who has stopped leaves a band just past the region's edge where the far slope has barely risen above the
-        // wander floor — local company won there, was granted at once for being outside, and the drifting region left the
-        // hovering body at its edge. Being inside was the whole test until 15 September 2026, and at three times the player's
-        // speed a reunion crossed the edge at two to three pixels a tick, the hold was issued mid-flight and the momentum coasted
-        // the body back out: thirty-nine method changes in six hundred ticks in VerifyResponsiveFollowing's settle row, nine
-        // with the settled test placed after the exemption, where the row's own trace showed every one outside at a pull of 1.01.
-        // A stranded body has no region to arrive in, so waiting for arrival would hold it in reunion for ever; it roams at once.
-        // A region still sliding back onto a player who has stopped is not yet a place to arrive in either: a body settled inside
-        // it and held still is outside it a second later, which was the last of the settle row's changes once the others were
-        // gone. So arrival also needs the region's centre moving slower than a settled body moves.
-        if (reunite && !wantsReunion && !ctx.Stranded)
-        {
-            pendingTicks = 0;
-            bool placeHasStopped = ctx.Senses.Intent.CentreSpeed <= Weights.SettledSpeedPx;
-            return reunite = !(ctx.Senses.Intent.Settled && placeHasStopped);
-        }
-        // The wait guards a body that is already where it is meant to be. Outside the region there
-        // is nothing to protect — a companion that has lost the player, or has just spawned and is
-        // still falling, has no business waiting a rescore per tick it stays in the air before it
-        // is allowed to go after him — so a change takes effect at once there. Inside, and only
-        // inside, the airborne tick is refused: that is where tick 8127's false arrival happened.
-        if (!ctx.Senses.Intent.Region.Contains(ctx.Npc.Bottom)) { pendingTicks = 0; return reunite = wantsReunion; }
-        // Standing in the tiles the player is asking for is the other case with nothing to protect:
-        // the body is in his way now, and a wait measured in rescores is a wait he spends walking
-        // into it. The wait exists to keep a move in flight from being cancelled, and a body being
-        // asked to move is not a move in flight.
-        if (ctx.Senses.Player.Interference is Rectangle asked
-            && PlayerSense.BodyTiles(ctx.Npc.Bottom, ctx.Npc.width, ctx.Npc.height).Intersects(asked))
-        { pendingTicks = 0; return reunite = wantsReunion; }
-        if (++pendingTicks < Weights.PositionRescoreTicks) return reunite;
-        pendingTicks = 0;
-        return reunite = wantsReunion;
-    }
-
-    /// <summary>Starts satisfied, because before the first preparation there is no method in flight to
-    /// protect: an activity whose very first tick had to wait a rescore would hold a body that had not
-    /// yet been told to do anything. Enter restores it for the same reason.</summary>
-    private int pendingTicks = Weights.PositionRescoreTicks;
+    private static bool ChooseMethod(in ActionContext ctx, bool rejoiningIsWorthMore)
+        => !ctx.Senses.Player.IsDead && !ctx.Senses.Intent.Inside && (!ctx.Stranded || rejoiningIsWorthMore);
 
     /// <summary>
-    /// How strongly the geometry alone asks for reunion, as one continuous curve from the region's
-    /// centre outward. Pure and internal so the contract can be sampled either side of the region's
-    /// edge directly, rather than inferred from a whole-brain walk that would also have to arrange
-    /// sight, regrouping and a stranded body to see it.
+    /// How strongly a place outside the player's region asks to be with him again: exactly zero anywhere inside the
+    /// rectangle, rising with the gap beyond its edge over the span out to fly-home distance, and capped at
+    /// <see cref="Weights.KeepCompanyFarCap"/>. Pure and public because it is one pull in two uses — keeping company's
+    /// rejoin value at the body, and the separation every job pays at its stand — and a second copy of the curve is how
+    /// the two would drift apart.
     ///
-    /// <para>Inside, the pull scales with the region's own normalised distance and reaches the
-    /// central-pull weight at the edge. A flat zero inside was the whole of the never-overtakes
-    /// defect: the box had no gradient, so a moving player was not itself a reason to move, the body
-    /// coasted to whichever edge it entered by, and keeping company scored its wander floor where any
-    /// rival offer beat it.</para>
-    ///
-    /// <para>Outside, the slope rises over the same span it always did, but it is measured on how far
-    /// beyond the region's edge the body is rather than on how far it is from the player's body. That
-    /// is what removes the step. Measured body-to-body the slope was already partway up at the
-    /// region's own leading edge, because a companion standing exactly where the region asks is a
-    /// lead plus a half-width from the player — so the curve jumped at the one boundary it had to be
-    /// continuous across, and the size of the jump grew with the lead, which is to say with the
-    /// screen. The two halves now meet at zero-beyond-the-edge, where the inside gradient is at its
-    /// largest, so <c>max</c> of the two is continuous rather than a choice between two regimes; the
-    /// ternary that used to pick between them is gone because there is nothing left to pick.</para>
+    /// <para>There is no pull inside the region, and that is the owner's ruling rather than an absence of design. The inside
+    /// gradient that stood here until 15 September 2026 existed because the old box was where a body arrived and stopped, so
+    /// a travelling player had to be a reason to move; the region is now where the companion lives and moves about, carried
+    /// by the region's own velocity, so a pull inside it would only drag a busy companion toward a centre nobody asked it to
+    /// sit at. Measured on the gap beyond the edge, the curve starts at zero where the region ends and has no step there.</para>
     /// </summary>
-    public static float GeometricPull(in FollowPlayerObjective objective, Vector2 feet, bool travelling)
+    public static float RejoinPull(in PlayerIntentRegion region, Vector2 point)
+        => MathF.Min(Weights.KeepCompanyFarCap, PullBeyond(region, point));
+
+    /// <summary>
+    /// The slope under <see cref="RejoinPull"/> before its cap: zero anywhere inside the region, rising with the gap beyond
+    /// its edge, and reaching one at fly-home distance beyond it, where the companion would lose the player altogether. The
+    /// cap belongs to rejoining's value and not to the distance: a job's separation reads this uncapped, because the ruling
+    /// that rejoining never on its own outweighs a job genuinely worth doing is about what rejoining is worth, while the
+    /// ruling that the pull takes all of the companion's attention at the distance where it would lose him is about how far
+    /// is far. Capped for the job as well, a fight the player has dropped four hundred pixels away from lost only half its
+    /// worth, and the discount on following while useful work exists took four fifths of rejoining's, so the orb stayed.
+    /// </summary>
+    public static float PullBeyond(in PlayerIntentRegion region, Vector2 point) => PullAtGap(region, region.GapBeyond(point));
+
+    /// <summary>The same slope read at a distance the caller measured, so a job's separation priced along the route home climbs
+    /// the one slope keeping company climbs rather than a second one.</summary>
+    public static float PullAtGap(in PlayerIntentRegion region, float gap)
     {
-        float inner = MathF.Max(objective.HorizontalComfort, objective.VerticalComfort);
-        float outer = MathF.Max(inner + 1f, PlayerIntegration.CompanionPreferences.Current.RecoveryRadius);
-        float central = travelling ? Weights.IntentRegionCentralPull * MathF.Min(1f, objective.Pull(feet)) : 0f;
-        float far = Consideration.Rising(objective.GapBeyond(feet), outer - inner);
-        return MathF.Max(central, far);
+        float inner = MathF.Max(region.HalfSize.X, region.HalfSize.Y);
+        float span = MathF.Max(1f, PlayerIntegration.CompanionPreferences.Current.RecoveryRadius - inner);
+        return Consideration.Rising(gap, span);
     }
 
+    /// <summary>
+    /// Rejoining's value: the larger of the pull and the regroup urgency, capped, beside the separate hard leash at fly-home
+    /// distance that still takes everything. Losing sight of the player and sitting in a passage he walks down each used to
+    /// floor this at 0.3; both were hand-written stand-ins for distance, and neither is distance — a companion behind a
+    /// pillar inside his region is with him, and courtesy is answered where the companion moves inside the region.
+    /// </summary>
     private float CalculateReunionValue(in ActionContext ctx)
     {
         var p = ctx.Senses.Player;
         if (p.IsDead)
             return 0f;
-        var objective = ctx.Senses.Intent.Objective;
         float hardLeash = Consideration.Step(ctx.Senses.DistanceToPlayer > Weights.LeashHard, 1f, 0f);
         float stranded = ctx.Stranded ? Weights.StrandedFollowDiscount : 1f;
         float regroup = ctx.Companion.Brain.Chooser.RegroupUrgency;
-        bool seen = global::AICompanion.Companion.Brain.Infrastructure.Observation.LineOfSight.Between(ctx.Npc, ctx.Player);
-        bool blocking = p.Interference is Rectangle footprint
-            && PlayerSense.BodyTiles(ctx.Npc.Bottom, ctx.Npc.width, ctx.Npc.height).Intersects(footprint);
-        float pull = GeometricPull(objective, ctx.Npc.Bottom, p.IsTravelling);
-        if (!seen)
-            pull = MathF.Max(pull, 0.3f);
-        // Occupying a passage the player is walking is not "already with them": the slope from the
-        // comfort box stays at zero while they overlap, and resting would park in the way. A still
-        // player aiming a block is the other courtesy, and that one steps aside without a reunion.
-        if (blocking && p.IsTravelling)
-            pull = MathF.Max(pull, 0.3f);
+        // The body's centre, because the orb is its centre; the walker's feet point sat a radius under it.
+        float pull = RejoinPull(ctx.Senses.Intent.Region, ctx.Npc.Center);
         float demand = MathF.Min(Weights.KeepCompanyFarCap, MathF.Max(pull, regroup));
         return MathF.Max(demand, hardLeash) * stranded;
     }
@@ -188,22 +140,17 @@ public sealed class KeepCompany : CompanionAction
             // finished having reached none of the tiles along the player's walk. A finished flood with no
             // candidate reached is reported as a proven absence, so the refusal read `no-reachable-meeting-place`
             // on open ground with the player walking straight at the companion, and reunion fell back to the
-            // region's leading edge on every tick of the journey it exists to price.
+            // region on every tick of the journey it exists to price.
             meeting.Resolve(ctx.Npc.Center, p, ctx.Senses.Intent.Region, Main.GameUpdateCount);
             return new PositionRequest(RequestKind.WithPlayer, meeting.Destination, MeetingPlace: meeting.HasPlace);
         }
         ctx.Companion.Brain.Meeting.Release();
         if (ctx.Stranded) return new PositionRequest(RequestKind.Roam, ctx.Npc.Bottom);
-        // Courtesy. A body over the tiles the player is building on or walking down hands the choice of spot to ordinary follow
-        // selection near the player, which prices spots overlapping that footprint down. Only company yields: work and protection
-        // keep their spot, which is what pricing courtesy against them means, and a body that overlaps nothing is left where it is.
-        if (p.Interference is Rectangle footprint
-            && PlayerSense.BodyTiles(ctx.Npc.Bottom, ctx.Npc.width, ctx.Npc.height).Intersects(footprint))
-            return new PositionRequest(RequestKind.WithPlayer, p.Bottom);
-        // Local company is a hold, and the brain's hold is a hover: the body drifts around where it is. A stroll picker lived here
-        // until 15 September 2026 — a random safe cell every one to four seconds, a third of the picks a rest, every arrival a
-        // brake to zero — and it went with the owner's ruling that the orb is never strictly standing still, because the hover the
-        // movement system now gives every held spot is the motion the strolls were for, without a destination to reach and stop on.
-        return PositionRequest.Hold;
+        // Inside the region, with him. The request is the kind rejoining asks for, aimed at the region's centre, and the brain
+        // answers it by moving the body about the region rather than by choosing a place in it. Courtesy — the tiles the player
+        // is building on or walking down — is answered by that motion refusing those tiles as places to move to; a request for
+        // a fresh spot near his feet stood here until 15 September 2026, and a hold before that, both of them a body that
+        // stopped somewhere.
+        return new PositionRequest(RequestKind.WithPlayer, ctx.Senses.Intent.Region.Centre);
     }
 }

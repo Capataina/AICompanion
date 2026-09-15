@@ -40,9 +40,15 @@ if (args.Length == 1 && args[0] == "--self-test")
         + EmitLedgerRows.Case("nav-replay", "NavReplay", "a dodge bends the job's flight only where the job's own flight would meet harm, and never presses the body into a wall",
             VerifyEvadeKeepsTheJob.Run,
             killedBy: "a keep test that holds one velocity in a straight line instead of flying the job's own steering, or a heading that goes nowhere scored above a stop")
+        + EmitLedgerRows.Case("nav-replay", "NavReplay", "an accompanying body is bent only where its own walk across the region would be hit, and kept everywhere else",
+            VerifyEvadeBendsAccompanying.Run,
+            killedBy: "an accompanying walk that never declares itself the tick's producer, so the keep test flies an earlier request's steering, or a forecast that holds the walking target still")
         + EmitLedgerRows.Case("nav-replay", "NavReplay", "the body flies toward a goal while its search runs, and a finished search is not run again for an unchanged goal",
             VerifyNavigatorKeepsMoving.Run,
             killedBy: "a navigator that hovers until a search returns, restarts a search that hit its node limit or proved an absence, or keeps a proven absence to itself instead of handing the goal back")
+        + EmitLedgerRows.Case("nav-replay", "NavReplay", "a kept conclusion about a goal is forgotten once its goal has moved or its terrain changed, and only a finished search settles the body short",
+            VerifyNavigatorConclusions.Run,
+            killedBy: "a conclusion compared against last tick's goal rather than the goal it concluded about, an edit that no longer invalidates a proven absence, a settled-short answer inferred from a missing conclusion, or a settled-short answer never kept")
         + EmitLedgerRows.Case("nav-replay", "NavReplay", "the corpus mirror is exact",
             VerifyMirrorExactness.Run,
             killedBy: "a reflection about the wrong column, an unpadded short row, or a dropped glyph flip");

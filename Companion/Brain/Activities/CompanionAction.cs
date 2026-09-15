@@ -51,8 +51,10 @@ public abstract class CompanionAction
         // walks backwards as he does: a vein or a dark region a few tiles ahead of a travelling
         // player is at the far edge of a circle centred behind him, and it drops out of range at the
         // moment he starts walking towards it. Anchored on the region it leads him, so work he is
-        // heading into comes into range before he arrives at it.
-        Microsoft.Xna.Framework.Vector2 anchor = ctx.Senses.Intent.Region.Centre;
+        // heading into comes into range before he arrives at it. It reads the region's heading — his
+        // centre carried by the lead — and not the box's centre, which sits a third of the box above
+        // him because that is where a companion idles, not where work near him is.
+        Microsoft.Xna.Framework.Vector2 anchor = ctx.Senses.Intent.Region.Heading;
         bool allowed = Microsoft.Xna.Framework.Vector2.DistanceSquared(target, anchor) <= radius * radius
             && Microsoft.Xna.Framework.Vector2.DistanceSquared(ctx.Npc.Bottom, anchor) <= radius * radius;
         return allowed;

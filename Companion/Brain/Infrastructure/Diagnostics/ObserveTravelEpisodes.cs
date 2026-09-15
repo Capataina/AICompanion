@@ -146,11 +146,18 @@ public static class TravelEpisodes
         bool onRoute = companion.Motor.ControlSource == "travel"
             && navigator.Status is Navigator.ExecutionStatus.Executable or Navigator.ExecutionStatus.Direct;
 
+        // Accompanying is being with the player: the body is inside his region and moves about it with no route to fly, so a
+        // journey that ends there ended by getting there, whatever the navigator's own arrival says. A route to a place
+        // inside the region may never be flown to its end, because being inside is enough.
+        if (companion.Motor.ControlSource == "accompany" && episodeKind != null)
+            episodeReached = true;
+
         string? kind = companion.Motor.ControlSource switch
         {
             "travel" or "seeking-destination" => brain.LastRequest.Kind.ToString(),
             // A Hold request is the ordinary way an episode ends, and the census treats it the same way.
             "hold" => null,
+            "accompany" => null,
             // Safety, recovery and downing leave the episode open: an ask does not stop being one because something else
             // took the body for a moment, and an episode interrupted by a dodge is one episode. What the census does with
             // those ticks is not a precedent here, though — it counts asks, and this counts time, so a boundary rule that

@@ -190,7 +190,7 @@ public sealed class ChooseMeetingPlace
             // which is the parallel-routes case it was built for.
             if (region.IsTravelling && !region.Contains(target))
             {
-                target = region.LeadingEdge;
+                target = region.NearestInside(companionCentre, Movement.Navigator.SettleRadius);
                 chosen = null;
                 Reason = "meeting-place-outside-intent-region";
             }
@@ -201,12 +201,12 @@ public sealed class ChooseMeetingPlace
             // aiming at the player's current feet instead trailed a travelling player for as long as a large
             // cave's flood took to finish, which was most of the time.
             chosen = null;
-            // The region's leading edge, not a fresh extrapolation of its own. The old fallback ran
-            // a second, shorter lead beside the one the region already carries, so two places in the
-            // brain claimed to be "where the player is going" and they disagreed by the difference
-            // between their two lead times; the region is the one that is filtered, clamped and
-            // grown, and a second copy of it could only ever be a worse version.
-            target = region.LeadingEdge;
+            // The nearest place inside the region to the body, not a point of its own. Rejoining means
+            // being inside the region again, and inside it the companion moves about with the region
+            // rather than aiming for anywhere in it, so the place to aim at is the nearest one that
+            // counts: the region's leading edge stood here until 15 September 2026, which sent a
+            // companion just behind a travelling player the whole length of the box to its front.
+            target = region.NearestInside(companionCentre, Movement.Navigator.SettleRadius);
             Reason = settled && best == null ? "no-reachable-meeting-place" : "meeting-undecided";
         }
         Destination = target;

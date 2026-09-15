@@ -64,20 +64,34 @@ internal static class RunTheScenario
         Console.WriteLine("SCENARIO " + note);
         EmitLedgerRows.Measure(ScoreTheRun.Instrument, suite, "ticks until the orb first came within the follow comfort of the player",
             outcome.ReachedAt < 0 ? ticks : outcome.ReachedAt, "ticks", "down", "unbounded-allowances", message: note);
+        EmitLedgerRows.Measure(ScoreTheRun.Instrument, suite, "ticks until the orb first entered the player's region",
+            outcome.EnteredAt < 0 ? ticks : outcome.EnteredAt, "ticks", "down", "unbounded-allowances", message: note);
+        EmitLedgerRows.Measure(ScoreTheRun.Instrument, suite, "ticks the orb spent inside the player's region",
+            outcome.InsideTicks, "ticks", "up", "unbounded-allowances", message: note);
         EmitLedgerRows.Measure(ScoreTheRun.Instrument, suite, "closest the orb came to the player's feet", outcome.Closest, "px", "down", "unbounded-allowances", message: note);
         EmitLedgerRows.Measure(ScoreTheRun.Instrument, suite, "minimum clearance the orb had from a wall", outcome.MinimumClearance, "px", "up", "unbounded-allowances", message: note);
 
+        // Reaching the player is being inside his region, which is what the brain itself calls being with him. Restated on
+        // 15 September 2026: the row required the orb within following's vertical comfort of his feet, which held while keeping
+        // company flew to a spot beside him. Once the orb moves about the whole region — as wide as a screen's third and
+        // reaching two-thirds of its height above his feet — that distance is where the walk happens to pass, not whether the
+        // orb got to him: on the water pocket at the merge of main (9de4f71) the orb entered the region at tick 50 and was
+        // inside it on 551 of 900 ticks, and never came within 96 px of his feet. The follow-comfort ticks and the closest
+        // distance stay as measures above. Entering is not enough on its own: the water pocket starts the orb a little under
+        // two hundred pixels below the region, and with rejoining made to hold where the body is the orb still grazed the
+        // region's edge on its way out on a lighting trip and ended 964 px away, so the row also asks it to be inside on at
+        // least a quarter of the run. A quarter leaves room for lighting trips a companion flies on purpose.
         int failures = 0;
-        float reach = live::AICompanion.Companion.Brain.Infrastructure.Selection.Weights.FollowVerticalComfort;
-        if (outcome.ReachedAt >= 0)
+        bool stayed = outcome.InsideTicks * 4 >= ticks;
+        if (outcome.EnteredAt >= 0 && stayed)
             EmitLedgerRows.Pass(ScoreTheRun.Instrument, suite, "the orb reaches the player from where the recording left it",
-                $"within {reach:0} px of his feet at tick {outcome.ReachedAt}; " + note, mode: "unbounded-allowances",
+                $"inside his region from tick {outcome.EnteredAt}, on {outcome.InsideTicks} of {ticks} ticks; " + note, mode: "unbounded-allowances",
                 killedBy: "a search that never finishes over the window, a route the steering cannot keep through the gap, or a positioner that answers nothing and a state search that never arrives");
         else
         {
             failures++;
             EmitLedgerRows.Fail(ScoreTheRun.Instrument, suite, "the orb reaches the player from where the recording left it",
-                $"never within {reach:0} px of his feet; " + note, mode: "unbounded-allowances");
+                (outcome.EnteredAt < 0 ? "never inside his region; " : $"inside his region on only {outcome.InsideTicks} of {ticks} ticks, under a quarter; ") + note, mode: "unbounded-allowances");
         }
         string liquidNote = wet == 0 ? "the world holds no wet tile in the window, so this row is vacuous here; " : "";
         if (outcome.WetTicks == 0)
@@ -93,7 +107,7 @@ internal static class RunTheScenario
         return failures;
     }
 
-    private sealed record Outcome(int ReachedAt, float Closest, int ClosestAt, float Final, float MinimumClearance,
+    private sealed record Outcome(int ReachedAt, int EnteredAt, int InsideTicks, float Closest, int ClosestAt, float Final, float MinimumClearance,
         int WetTicks, int FirstWetAt, Vector2 FirstWet, string LastAction, string LastStatus, double Seconds);
 
     private static Outcome Play(Scenario scenario, Vector2 playerFeet, int ticks, bool driveLight)
@@ -111,7 +125,7 @@ internal static class RunTheScenario
 
         var world = live::AICompanion.Companion.Brain.Infrastructure.Movement.MovementQueries.World;
         float reach = live::AICompanion.Companion.Brain.Infrastructure.Selection.Weights.FollowVerticalComfort;
-        int reachedAt = -1, closestAt = 0, wetTicks = 0, firstWetAt = -1;
+        int reachedAt = -1, enteredAt = -1, insideTicks = 0, closestAt = 0, wetTicks = 0, firstWetAt = -1;
         float closest = float.PositiveInfinity, minimumClearance = float.PositiveInfinity;
         Vector2 firstWet = Vector2.Zero;
         var clock = Stopwatch.StartNew();
@@ -136,6 +150,13 @@ internal static class RunTheScenario
             float apart = Vector2.Distance(centre, playerFeet);
             if (apart < closest) { closest = apart; closestAt = tick; }
             if (reachedAt < 0 && apart <= reach) reachedAt = tick;
+            // The region's own geometry at the body's centre, not the sense's latch, so a region that does not hold the body is
+            // not read as holding it because it held it last tick.
+            if (companion.Brain.Senses.Intent.Region.Contains(centre))
+            {
+                insideTicks++;
+                if (enteredAt < 0) enteredAt = tick;
+            }
             minimumClearance = MathF.Min(minimumClearance, live::AICompanion.Companion.Brain.Infrastructure.Movement.CircleContact.Clearance(world, centre));
             // The motor's own liquid reading, which is the contact circle against wet tiles: honey and
             // shimmer only slow the body and are not counted, water and lava are the two that hurt.
@@ -147,7 +168,7 @@ internal static class RunTheScenario
             }
         }
         clock.Stop();
-        return new Outcome(reachedAt, closest, closestAt, Vector2.Distance(companion.NPC.Center, playerFeet), minimumClearance,
+        return new Outcome(reachedAt, enteredAt, insideTicks, closest, closestAt, Vector2.Distance(companion.NPC.Center, playerFeet), minimumClearance,
             wetTicks, firstWetAt, firstWet, companion.Brain.LastAction?.Name ?? "-", companion.Brain.Navigator.Status.ToString(), clock.Elapsed.TotalSeconds);
     }
 

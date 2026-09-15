@@ -350,7 +350,7 @@ public sealed class CompletedTransferClaimsWereReceived : ICheck, ICheckCoverage
 /// </summary>
 public sealed class ControlGrantsAreCompatible : ICheck, ICheckCoverage
 {
-    internal static readonly HashSet<string> OrdinaryOwners = new(StringComparer.Ordinal) { "travel", "seeking-destination", "hold", "evade" };
+    internal static readonly HashSet<string> OrdinaryOwners = new(StringComparer.Ordinal) { "travel", "seeking-destination", "hold", "evade", "accompany" };
     internal static readonly HashSet<string> SuspendingOwners = new(StringComparer.Ordinal) { "survival-escape", "combat-reflex", "combat-spacing", "follow-recovery-flight", "downed" };
 
     public string Name => "could the producer have issued every control grant as recorded";
@@ -415,7 +415,7 @@ public sealed class ControlGrantsAreCompatible : ICheck, ICheckCoverage
                 "Owner, hand, phase, attempt and grant identity are all required; these occurrences were not checked.");
         if (unknownOwners.Count > 0)
             yield return new Finding(Severity.Oddity, Name, "control grants name requested owners the reader has no rule for",
-                string.Join(", ", unknownOwners.Select(p => $"{p.Key} ×{p.Value:n0}")) + ". The known ordinary owners are travel, seeking-destination and hold, and the suspending owners survival-escape, combat-reflex, combat-spacing, follow-recovery-flight and downed; these grants were judged only by the hand, phase and tick rules until the reader is told which branch issues them.",
+                string.Join(", ", unknownOwners.Select(p => $"{p.Key} ×{p.Value:n0}")) + ". The known ordinary owners are travel, seeking-destination, hold, evade and accompany, and the suspending owners survival-escape, combat-reflex, combat-spacing, follow-recovery-flight and downed; these grants were judged only by the hand, phase and tick rules until the reader is told which branch issues them.",
                 0, 0, unknownOwners.Values.Sum());
     }
 }

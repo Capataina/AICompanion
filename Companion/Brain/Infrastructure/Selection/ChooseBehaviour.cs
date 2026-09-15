@@ -60,7 +60,7 @@ public sealed class Chooser
     {
         var objective = ctx.Senses.Intent.Objective;
         Reunion.Observe(Terraria.Main.GameUpdateCount,
-            objective.IsSatisfied(ctx.Npc.Center, ctx.Senses.Player.CompanionCanSeePlayer), ctx.Senses.Player.IsDead);
+            objective.IsSatisfied(ctx.Npc.Center), ctx.Senses.Player.IsDead);
     }
     private Microsoft.Xna.Framework.Vector2? workSite;
     private ulong workSiteTick;
@@ -88,33 +88,27 @@ public sealed class Chooser
         var delta = region.Centre - ctx.Npc.Center;
         EstimatedReturnTicks = delta.Length() / Infrastructure.Movement.OrbPace.MaxSpeed;
         var navigator = ctx.Companion.Brain.Navigator;
-        // The route home is priced to the cell a body occupies at the region's centre — the centre is
-        // feet, so `FeetTile` — never to the tile those feet floor into: that is the solid floor row,
-        // which the flood never holds, and priced to it the estimate was null and the straight line
-        // silently won on every tick. The orb resting beside a standing player sits in that same cell.
+        // The route home is priced to the cell at the region's centre, which is air a third of the box
+        // above the player's centre rather than his feet, so it is the plain tile. It was `FeetTile` while
+        // the centre was his feet, because the tile feet floor into is the solid floor row the flood never
+        // holds, and priced to that the estimate was null and the straight line silently won every tick.
         if (ctx.Companion.Brain.Positioner.EstimatedTravelTicks(Infrastructure.Movement.MovementQueries.Tile(ctx.Npc.Center),
-            Infrastructure.Movement.MovementQueries.FeetTile(region.Centre)) is float knownTravel)
+            Infrastructure.Movement.MovementQueries.Tile(region.Centre)) is float knownTravel)
             EstimatedReturnTicks = MathF.Max(EstimatedReturnTicks, knownTravel);
         if (ctx.Companion.Brain.LastRequest.Kind is Infrastructure.Position.RequestKind.WithPlayer or Infrastructure.Position.RequestKind.Guard
             && navigator.Path != null)
             EstimatedReturnTicks = MathF.Max(EstimatedReturnTicks, navigator.RemainingEstimatedRouteTicks);
         float movingAway = delta.LengthSquared() > 1f ? Microsoft.Xna.Framework.Vector2.Dot(ctx.Senses.Player.Intent, Microsoft.Xna.Framework.Vector2.Normalize(delta)) : 0f;
         Reunion.Evaluate(movingAway, EstimatedReturnTicks, ctx.Senses.Player.IsDead, ctx.Stranded);
+        // Regrouping is measured on the gap beyond the region's rectangle, like every other separation, so it is exactly
+        // zero anywhere inside the region: the owner ruled there is no pull there, whatever the body is doing and whatever a
+        // route round a thin wall would cost. The travel pressure below is gated the same way for the same reason.
+        float gapBeyond = region.GapBeyond(ctx.Npc.Center);
+        bool insideRegion = gapBeyond <= 0f;
         RegroupUrgency = ctx.Senses.Player.IsDead ? 0f : Infrastructure.Observation.CalculateRegroupUrgency.Evaluate(
-            // Centre to centre, as before, with the player's centre moved along by the region's lead:
-            // the urgency curve subtracts the comfortable distance itself, so handing it a distance
-            // that is already zero inside the region would subtract the comfort twice and leave a
-            // companion a whole comfort width outside the box with no return pressure at all.
-            Microsoft.Xna.Framework.Vector2.Distance(ctx.Npc.Center, region.Centre + (ctx.Senses.Player.Position - ctx.Senses.Player.Bottom)),
-            EstimatedReturnTicks, movingAway, navigator.StuckTicks,
-            Weights.FollowHorizontalComfort * PlayerIntegration.CompanionPreferences.Current.FollowComfortScale,
+            gapBeyond, EstimatedReturnTicks, movingAway, navigator.StuckTicks, MathF.Max(region.HalfSize.X, region.HalfSize.Y),
             Weights.RegroupFullDistance, Weights.RegroupFreeReturnTicks, Weights.RegroupFullReturnTicks);
-        Microsoft.Xna.Framework.Vector2 followAnchor = ctx.Companion.Brain.Meeting.Anchor;
-        if (followAnchor == Microsoft.Xna.Framework.Vector2.Zero) followAnchor = region.LeadingEdge;
-        var follow = ctx.Senses.Intent.Objective.At(followAnchor);
-        bool arrived = follow.IsSatisfied(ctx.Npc.Center, Infrastructure.Observation.LineOfSight.Between(ctx.Npc, ctx.Player));
-        if (arrived) RegroupUrgency = 0f;
-        if (!ctx.Senses.Player.IsDead && !arrived)
+        if (!ctx.Senses.Player.IsDead && !insideRegion)
         {
             // A nearby player behind a floor can have a long route. Geometric closeness must
             // not suppress measured return pressure when companionship is still unsatisfied.
@@ -138,10 +132,15 @@ public sealed class Chooser
             float forecast = raw > 0 ? action.ForecastTicks() : 0;
             float taskTicks = raw > 0 ? action.TaskTicks() : 0;
             var site = action.ActivityTarget;
-            float fit = raw > 0 && site is { } place ? PlayerFit(context, place, MathF.Max(forecast, taskTicks)) : 1f;
+            float duration = MathF.Max(forecast, taskTicks);
+            float fit = raw > 0 && site is { } place ? PlayerFit(context, place, duration) : 1f;
+            // Where the job keeps the body: an excursion's site, or where the body already is for a job done from here —
+            // a hunt shooting from where the orb hovers pays for being outside the region only if the orb is.
+            float separation = raw > 0 && site is { } at
+                ? Separation(context, action.IsExcursion ? at : context.Npc.Center, duration) : 1f;
             prepared[i] = new(i, action.Name, raw, forecast,
                 action.IsExcursion, site != null, action is KeepCompany, action == Current, action.Eligibility,
-                action.Family == PurposeFamily.Combat, taskTicks, site, fit, action.ServesPlayerDirectly);
+                action.Family == PurposeFamily.Combat, taskTicks, site, fit, action.ServesPlayerDirectly, separation);
             bindings[i] = ValidatePreparedActivity.Capture(action);
         });
         for (int i = 0; i < Actions.Count; i++)
@@ -224,7 +223,7 @@ public sealed class Chooser
             // standing shrinks the ground in front of him as he walks into it.
             Microsoft.Xna.Framework.Vector2.Distance(ctx.Npc.Bottom, ctx.Senses.Intent.Region.Centre)
                 <= PlayerIntegration.CompanionPreferences.Current.ActiveActivityRadius,
-            Weights.FollowDuringUsefulWork, Reunion.DelayCostPerTick, ctx.Senses.Encounter.Intensity,
+            Weights.FollowDuringUsefulWork, ctx.Senses.Encounter.Intensity,
             Weights.TaskWindowTicks);
 
     /// <summary>The order the last comparison put its close jobs in, and the best order that started differently,
@@ -242,8 +241,68 @@ public sealed class Chooser
     {
         if (ctx.Senses.Player.IsDead) return 1f;
         var preferences = PlayerIntegration.CompanionPreferences.Current;
-        var projected = ctx.Senses.Intent.Region.Centre + ctx.Senses.Player.Intent * MathF.Min(ticks, Weights.PlayerProjectionCapTicks);
+        var projected = ctx.Senses.Intent.Region.Heading + ctx.Senses.Player.Intent * MathF.Min(ticks, Weights.PlayerProjectionCapTicks);
         return FitAt(Microsoft.Xna.Framework.Vector2.Distance(site, projected), preferences.NewActivityRadius, preferences.ActiveActivityRadius);
+    }
+
+    /// <summary>
+    /// The share of a job's worth left after paying for keeping the companion apart: one minus keeping company's own slope,
+    /// uncapped, read at the job's stand against the player's region carried along his observed travel for the job's duration.
+    /// The distance read on that slope is the gap beyond the region plus how much longer the way home runs than the straight
+    /// line, so a stand whose way back goes the long way round a floor pays for that walk and not for the crow's flight. A
+    /// stand inside the region pays nothing whatever its route, because the owner ruled there is no pull inside it; a stand
+    /// beyond it pays by the gap and the detour; a job whose stand is left at fly-home distance is worth nothing; and a player
+    /// leaving makes a long job pay more than a quick one. It is the one separation cost; the reunion delay charge it replaced
+    /// priced the same separation a second way and is still computed only because the recorder writes it.
+    /// </summary>
+    public static float Separation(in ActionContext ctx, Microsoft.Xna.Framework.Vector2 stand, float ticks)
+    {
+        if (ctx.Senses.Player.IsDead || ctx.Stranded) return 1f;
+        return SeparationAt(ctx.Senses.Intent.Region, ctx.Senses.Player.Intent, stand, ticks,
+            RouteDetour(ctx.Senses.Reach, ctx.Npc.Center, stand, ctx.Senses.Player.Position));
+    }
+
+    /// <summary>The same share from the numbers it reads, so a comparison can be checked against a region built by hand;
+    /// <paramref name="detour"/> is <see cref="RouteDetour"/>'s answer, and zero reads the straight line.</summary>
+    public static float SeparationAt(in Infrastructure.Observation.PlayerIntentRegion region, Microsoft.Xna.Framework.Vector2 playerTravel,
+        Microsoft.Xna.Framework.Vector2 stand, float ticks, float detour = 0f)
+    {
+        var shift = playerTravel * MathF.Min(ticks, Weights.PlayerProjectionCapTicks);
+        var projected = region with { Centre = region.Centre + shift, Heading = region.Heading + shift };
+        float gap = projected.GapBeyond(stand);
+        return 1f - (gap > 0f ? KeepCompany.PullAtGap(projected, gap + detour) : 0f);
+    }
+
+    /// <summary>
+    /// How much further than the straight line the way from a job's stand to the player runs, in pixels, read off the reach
+    /// flood. The flood is rooted at the body, so its cost to the player less its cost to the stand is a lower bound on the
+    /// route between the two — a route through the stand is one the flood could have taken — and the detour is that less the
+    /// straight line. The stand is priced at the nearest corner the body fits at, because a mining stand is the ore tile
+    /// itself and no flood of free space holds a solid tile; a stand with no such corner in the flood is priced from the body,
+    /// which is where a job done from here stands anyway.
+    ///
+    /// <para>Two answers are not a route, and neither reads as free. While the flood has not reached the player's tile the
+    /// detour is zero and the cost is the straight-line gap, which is a floor the real route can only exceed. When a finished
+    /// flood proves his tile out of reach the detour is twice the straight line, because the disc's own guarantee is that no
+    /// route to a place it proved absent is shorter than about three times its straight line. A body with no way home at all
+    /// is stranded, and that is answered before this is asked.</para>
+    /// </summary>
+    public static float RouteDetour(Infrastructure.Observation.ReachSense reach, Microsoft.Xna.Framework.Vector2 body,
+        Microsoft.Xna.Framework.Vector2 stand, Microsoft.Xna.Framework.Vector2 player)
+    {
+        Microsoft.Xna.Framework.Point playerTile = Movement.MovementQueries.Tile(player);
+        if (reach.EstimatedTravelTicks(playerTile, playerTile) is not float toPlayer)
+            return reach.Reachable(playerTile) == Infrastructure.Observation.ReachVerdict.Unreachable
+                ? 2f * Microsoft.Xna.Framework.Vector2.Distance(stand, player) : 0f;
+        Microsoft.Xna.Framework.Vector2 from = stand;
+        float atStand = 0f;
+        if (Movement.CornerGraph.NearestUsable(Movement.MovementQueries.World, stand, 2, requireSweep: false) is { } corner
+            && reach.TravelTicksToCorner(corner) is float ticks)
+            atStand = ticks;
+        else
+            from = body;
+        return MathF.Max(0f, (toPlayer - atStand) * MathF.Max(0.1f, Movement.OrbPace.MaxSpeed)
+            - Microsoft.Xna.Framework.Vector2.Distance(from, player));
     }
 
     public static float FitAt(float distance, float near, float far)

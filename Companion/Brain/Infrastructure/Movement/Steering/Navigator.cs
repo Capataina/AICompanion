@@ -126,9 +126,18 @@ public sealed class Navigator
     // goal when that search began, which is what a node-limited search must beat before it is asked again.
     private FreeSpaceSearch? spent;
     private float spentFromDistance, searchFromDistance;
-    // The end of a completed route to the free corner nearest a goal inside rock: the body is as close as it can get, and
-    // planning it again from there finds the same corner.
+    // The end of a completed route to the free corner nearest a goal the body cannot slide into: the body is as close as it
+    // can get, and planning it again from there finds the same corner.
     private Vector2? settledShort;
+    // The goal each kept conclusion was reached about. A conclusion is forgotten once the goal is further than the replan
+    // distance from this, never from last tick's goal: the drift branch re-aims the held goal a little every tick, so a goal
+    // compared tick to tick never moves far enough to count, and a conclusion kept that way outlived any distance of drift.
+    private Vector2 spentGoal, settledShortGoal;
+    // Whether the route being flown ends where a finished search chose to end it — the free corner beside a goal the body
+    // cannot slide into — as opposed to a partial route lent by a search that was still running or stopped at its node limit.
+    // Only the first is an answer about the goal. It used to be inferred from `spent == null`, which a tile edit invalidating
+    // a node-limit answer also produces, and that parked the body short of a goal it had never finished searching for.
+    private bool routeEndsWhereSearchChose;
     private Vector2? lastCentre;
     private Vector2 progressOrigin;
     private int progressTicks;
@@ -195,10 +204,13 @@ public sealed class Navigator
         }
         // A kept answer stops standing for the goal once the world changed where it read, or, for a proven absence, once
         // the body is somewhere that search never explored — carried across a wall, the question is a new one.
-        if (spent != null && (!spent.Valid
+        // Either kind is also forgotten once the goal has moved past the replan distance from the goal it was about.
+        float forget = Weights.ReplanGoalPixels * Weights.ReplanGoalPixels;
+        if (spent != null && (!spent.Valid || Vector2.DistanceSquared(goal, spentGoal) > forget
             || (spent.Stop == FreeSpaceSearch.StopReason.Exhausted && CornerGraph.NearestUsable(world, live.Centre, 2) is Point here && !spent.Reached.Contains(here))))
             spent = null;
-        if (settledShort is Vector2 shortEnd && Vector2.Distance(live.Centre, shortEnd) > SettleRadius) settledShort = null;
+        if (settledShort is Vector2 shortEnd && (Vector2.Distance(live.Centre, shortEnd) > SettleRadius || Vector2.DistanceSquared(goal, settledShortGoal) > forget))
+            settledShort = null;
 
         if (Path == null || search is { Finished: false })
             Plan(live, goal, world);
@@ -216,9 +228,14 @@ public sealed class Navigator
             ProgressReason = "at-nearest-known-place";
             if (search is not { Finished: false })
             {
-                if (spent == null) settledShort = end;
+                if (routeEndsWhereSearchChose)
+                {
+                    settledShort = end;
+                    settledShortGoal = goal;
+                }
                 Path = null;
                 PathIsPartial = false;
+                routeEndsWhereSearchChose = false;
                 waitAnchor = end;
             }
         }
@@ -329,6 +346,7 @@ public sealed class Navigator
             if (reachesGoal) raw.Add(goal);
             Path = new Route(Route.Smooth(world, raw), SearchId, world.Revision, OrbTerrain.Immunity);
             PathIsPartial = !reachesGoal;
+            routeEndsWhereSearchChose = !reachesGoal;
             search = null;
         }
         else if (finished)
@@ -341,6 +359,7 @@ public sealed class Navigator
             // not, because it proves nothing and the partial route is still making progress. Neither touches the stuck
             // strikes, which count windows without progress and mean exactly that to the route-endings fixture.
             spent = search;
+            spentGoal = goal;
             spentFromDistance = searchFromDistance;
             if (search.Stop == FreeSpaceSearch.StopReason.Exhausted)
             {
@@ -373,6 +392,7 @@ public sealed class Navigator
         if (CircleContact.SweptClear(world, live.Centre, goal, OrbTerrain.Wall)) return;
         Path = new Route(Route.Smooth(world, Joined(live, from.PathTo(nearest), world)), SearchId, world.Revision, OrbTerrain.Immunity);
         PathIsPartial = true;
+        routeEndsWhereSearchChose = false;
         settledShort = null;
     }
 
@@ -397,6 +417,7 @@ public sealed class Navigator
     {
         Path = null;
         PathIsPartial = false;
+        routeEndsWhereSearchChose = false;
         search = null;
         spent = null;
         settledShort = null;

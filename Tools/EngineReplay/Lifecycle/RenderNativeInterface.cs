@@ -238,7 +238,7 @@ internal static class RenderNativeInterface
                 new live::AICompanion.Companion.Brain.Infrastructure.Position.FollowPlayerObjective(
                     new live::AICompanion.Companion.Brain.Infrastructure.Observation.PlayerIntentRegion(
                         new Vector2(600, 400), new Vector2(240, 96), Vector2.Zero, IsTravelling: false),
-                    new Vector2(900, 400), Settled: true, AtRest: true), 100, 1);
+                    new Vector2(900, 400), Inside: true), 100, 1);
             int judged = 0, outside = 0;
             foreach (var region in new[] { tool, follow })
             {

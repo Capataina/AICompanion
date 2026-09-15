@@ -88,8 +88,8 @@ internal static class VerifySafetyAftermath
             if (recent.Count > 14) recent.Dequeue();
             if (stillRun == 10 && stillTrace == null) stillTrace = string.Join(" | ", recent);
             longestStill = Math.Max(longestStill, stillRun);
-            if (!walking && brain.Senses.Intent.Objective.IsSatisfied(ctx.Npc.Center,
-                    Collision.CanHitLine(ctx.Npc.position, ctx.Npc.width, ctx.Npc.height, player.position, player.width, player.height)))
+            // With him is inside the stopped player's region; sight of him stopped being a condition when losing it stopped being distance.
+            if (!walking && brain.Senses.Intent.Objective.IsSatisfied(ctx.Npc.Center))
                 arrivedAt = tick;
         }
         string ledger = $"suspended ticks {suspended}, safety-owned ticks {safetyOwned}, longest still run while walking {longestStill}, "

@@ -303,7 +303,7 @@ public sealed class Brain
         }
         bool wantsTravel = Safety.Active
             || (LastRequest.Kind == RequestKind.WithPlayer
-            ? !Senses.Intent.Objective.IsSatisfied(centre, LineOfSight.Between(companion.NPC, Senses.PlayerEntity))
+            ? !Senses.Intent.Objective.IsSatisfied(centre)
             : LastRequest.Kind != RequestKind.Hold && (Positioner.Chosen is not Vector2 spot
                 || Vector2.DistanceSquared(spot, centre) > Navigator.SettleRadius * Navigator.SettleRadius));
         if (!wantsTravel)
@@ -327,6 +327,24 @@ public sealed class Brain
 
     private Controls Navigate(CompanionNPC companion, Vector2? spot, out string owner)
     {
+        if (LastRequest.Kind == RequestKind.WithPlayer && Senses.Intent.Inside)
+        {
+            // Inside the player's region the companion is with him, so there is nowhere to go: the body moves about the region
+            // with the region. A journey that was open ends here as reached, because being inside is what it was for; nothing
+            // opens a new one, so a minute of company is not counted as thousands of asks.
+            BehaviourCensus.RequestReached();
+            BehaviourCensus.RequestEnded();
+            owner = "accompany";
+            var region = Senses.Intent.Region;
+            Rectangle? footprint = Senses.Player.Interference;
+            // Refused: the tiles the player is building on or walking down. The target is not asked about the reach flood as well.
+            // The flood holds lattice corners, and a place pressed against a wall can have none the circle fits at while the
+            // circle can still sweep straight to it; the walk is continuous and swept clear from its last target, which already
+            // keeps it inside the free space connected to the body, and that is what being held by the flood was for.
+            return Movement.Accompany(companion.Motor.State, region.Centre, region.HalfSize, region.Lead,
+                point => footprint is Rectangle asked && Infrastructure.Observation.PlayerSense.BodyTiles(point + new Vector2(0f, CircleContact.Radius),
+                    (int)CircleContact.Diameter, (int)CircleContact.Diameter).Intersects(asked));
+        }
         if (spot is Vector2 goal)
         {
             // One continuous stretch of wanting one kind of place is one ask, so the census reads
@@ -354,11 +372,8 @@ public sealed class Brain
             var objective = Senses.Intent.Objective.At(LastRequest.Anchor);
             BehaviourCensus.RequestBegan(LastRequest.Kind.ToString());
             owner = "seeking-destination";
-            Terraria.Player player = Senses.PlayerEntity;
-            return Movement.SeekDestination(companion.Motor.State, LastRequest.Anchor,
-                centre => objective.IsSatisfied(centre,
-                    Terraria.Collision.CanHitLine(centre - new Vector2(CircleContact.Radius),
-                        (int)CircleContact.Diameter, (int)CircleContact.Diameter, player.position, player.width, player.height)));
+            // Being inside the region is the whole of arrival; losing sight of the player is not distance.
+            return Movement.SeekDestination(companion.Motor.State, LastRequest.Anchor, centre => objective.IsSatisfied(centre));
         }
         else
         {

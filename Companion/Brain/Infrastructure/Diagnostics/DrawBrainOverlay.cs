@@ -430,20 +430,20 @@ public sealed class BrainOverlay : ModSystem
         if (brain.LastRequest.Kind != Infrastructure.Position.RequestKind.WithPlayer) return;
         // The heading box is the player's intent region now, so what is drawn is what every consumer
         // reads: the box where it actually sits (led, filtered, clamped and grown), the lead that put
-        // it there as a line from his feet, the leading edge the walk aims at, and the pull as a tint
-        // on the box, so a body drifting to an edge is visible before it is a complaint.
+        // it there as a line from his feet, the target the body is pursuing across the box while it
+        // accompanies him, and the pull as a tint on the box, so a body drifting to an edge is visible
+        // before it is a complaint.
         Vector2 player = brain.Senses.Player.Bottom;
         var region = brain.Senses.Intent.Region;
         float pull = MathF.Min(1f, region.Pull(brain.Senses.Companion.Center));
         Color regionTint = Color.Lerp(Color.LightGreen, Color.Orange, pull);
         Box(sb, region.Centre, region.HalfSize, regionTint);
         if (region.Lead.LengthSquared() > 1f)
-        {
             Line(sb, player, region.Centre, regionTint * .6f);
-            ScreenRing(sb, Screen(region.LeadingEdge), MeetingRing * .5f, regionTint);
-        }
+        if (brain.Senses.Intent.Inside)
+            ScreenRing(sb, Screen(brain.Navigator.Hover.LastTarget), MeetingRing * .5f, regionTint);
         Label(sb, Screen(region.Centre) - new Vector2(0, region.HalfSize.Y),
-            $"intent {(region.IsTravelling ? "travelling" : "still")} pull {pull:F2} settled {brain.Senses.Intent.RestingInsideTicks}", regionTint);
+            $"intent {(region.IsTravelling ? "travelling" : "still")} pull {pull:F2} {(brain.Senses.Intent.Inside ? "inside" : "outside")}", regionTint);
         DashedBox(sb, brain.LastRequest.Anchor, region.HalfSize * .25f, Color.LightGreen);
         Ring(sb, player, Infrastructure.Selection.Weights.CalmBandNear, Color.LightGreen * .3f);
         Ring(sb, player, Infrastructure.Selection.Weights.CalmBandFar, Color.LightGreen * .3f);

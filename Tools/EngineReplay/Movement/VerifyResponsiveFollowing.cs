@@ -67,38 +67,48 @@ internal static class VerifyResponsiveFollowing
         // Every row below reads the intent region, directly or through the brain, so the whole
         // fixture runs at the screen the game builds that region at rather than at the headless floor.
         using var screen = PlaySizedScreen.Declare();
-        VerifyLocalMotionDoesNotBecomeTravel();
-        VerifyIntentEvidenceAndRevision();
-        VerifyCompanyMethodsShareOneActivity();
-        VerifyTwoAxisObjective();
-        VerifyArrivalSlackCannotStrandFollowing();
-        VerifyVerticalPlayerMotionReachesTheProductionFollowAction();
-        VerifyOccludedPlayerStillProvidesADestination();
-        VerifyCturnCompletesThroughTheProductionBrain();
-        VerifyRecentActivityChangesTheMeetingPlace();
-        VerifyMeetingPlacesFollowTheCompanionsOwnRoutes();
-        VerifyAnUnfinishedMeetingFloodKeepsItsProgress();
-        VerifyADroppedMeetingPlaceIsNotWalkedTo();
-        VerifyAnAirborneTickCannotSatisfyFollowing();
-        // The two narrow region rows run before the whole-walk one. Assertions here throw, so the
-        // first failure takes every row after it: ordering the specific rows first means a change
-        // that breaks the pull is reported as the pull rather than as a walk that came in low, and
-        // the walk's own row is not the only thing anybody sees.
-        VerifyATravellingPlayerIsKeptUpWithFromInsideTheRegion();
-        VerifyTheReunionCurveHasNoStepAtTheRegionsEdge();
-        VerifyTheCompanionLeadsATravellingPlayer();
-        VerifyAClimbingPlayerGrowsTheRegionUpwards();
-        VerifyAGroundedTickOnSlopedGroundEntersSatisfaction();
-        // Last deliberately. This fixture aborts on its first throw, and this row is red on a brain finding
-        // that stays red until somebody decides which of two radii moves: an idle companion strolls a band of
-        // `CalmBandFar * 0.7` either side of the player while `FollowHorizontalComfort` is at its minimum for a
-        // player who has stopped, so the stroll carries the body out of the comfort box and reunion pulls it
-        // back, and the method changes three times over six hundred ticks against a ceiling of one. Standing
-        // fourteenth, it took the five region rows below it with it on every run, none of which had been seen
-        // at this body. A row waiting on a decision nobody has made goes last, so that decision is the only
-        // thing it holds up.
-        VerifyAStoppedPlayerDoesNotOscillateTheMethod();
-        Console.WriteLine("responsive following: vertical intent, two-axis arrival, live brain follow selection, activity-dependent meeting places, route-priced reunion, retained meeting floods, dropped meeting places, leading a travelling player, a reunion curve with no step at the region's edge, a settled companion keeping up with a travelling player, a region that grows up a hill, grounded satisfaction and a settling stop passed");
+        // Every row runs and reports, and the fixture fails afterwards if any did. The rows used to be called one after
+        // another and their assertions throw, so the first red took every row after it: on 15 September 2026 the region
+        // commit put four rows red and only the first was ever seen, until a copy of this fixture was run row by row. A
+        // row's order no longer decides whether the rows after it are read, so the ordering notes that lived here went.
+        var failures = new List<string>();
+        foreach (var (name, row) in new (string Name, Action Row)[]
+        {
+            (nameof(VerifyLocalMotionDoesNotBecomeTravel), VerifyLocalMotionDoesNotBecomeTravel),
+            (nameof(VerifyIntentEvidenceAndRevision), VerifyIntentEvidenceAndRevision),
+            (nameof(VerifyCompanyMethodsShareOneActivity), VerifyCompanyMethodsShareOneActivity),
+            (nameof(VerifyTwoAxisObjective), VerifyTwoAxisObjective),
+            (nameof(VerifyArrivalSlackCannotStrandFollowing), VerifyArrivalSlackCannotStrandFollowing),
+            (nameof(VerifyVerticalPlayerMotionReachesTheProductionFollowAction), VerifyVerticalPlayerMotionReachesTheProductionFollowAction),
+            (nameof(VerifyOccludedPlayerStillProvidesADestination), VerifyOccludedPlayerStillProvidesADestination),
+            (nameof(VerifyCturnCompletesThroughTheProductionBrain), VerifyCturnCompletesThroughTheProductionBrain),
+            (nameof(VerifyRecentActivityChangesTheMeetingPlace), VerifyRecentActivityChangesTheMeetingPlace),
+            (nameof(VerifyMeetingPlacesFollowTheCompanionsOwnRoutes), VerifyMeetingPlacesFollowTheCompanionsOwnRoutes),
+            (nameof(VerifyAnUnfinishedMeetingFloodKeepsItsProgress), VerifyAnUnfinishedMeetingFloodKeepsItsProgress),
+            (nameof(VerifyADroppedMeetingPlaceIsNotWalkedTo), VerifyADroppedMeetingPlaceIsNotWalkedTo),
+            (nameof(VerifyAMovingTickInsideTheRegionKeepsTheMethod), VerifyAMovingTickInsideTheRegionKeepsTheMethod),
+            (nameof(VerifyTheRejoinPullIsZeroInsideTheRegionAndHasNoStepAtItsEdge), VerifyTheRejoinPullIsZeroInsideTheRegionAndHasNoStepAtItsEdge),
+            (nameof(VerifyTheCompanionLeadsATravellingPlayer), VerifyTheCompanionLeadsATravellingPlayer),
+            (nameof(VerifyAClimbingPlayerGrowsTheRegionUpwards), VerifyAClimbingPlayerGrowsTheRegionUpwards),
+            (nameof(VerifyABodyOnSlopedGroundInsideTheRegionIsWithThePlayer), VerifyABodyOnSlopedGroundInsideTheRegionIsWithThePlayer),
+            (nameof(VerifyAStoppedPlayerDoesNotOscillateTheMethod), VerifyAStoppedPlayerDoesNotOscillateTheMethod),
+        })
+        {
+            try
+            {
+                row();
+                Console.WriteLine($"GREEN {name}");
+            }
+            catch (Exception e)
+            {
+                string message = e is InvalidOperationException ? e.Message : e.ToString();
+                failures.Add($"{name}: {message}");
+                Console.WriteLine($"RED {name}: {message}");
+            }
+        }
+        if (failures.Count > 0)
+            throw new InvalidOperationException($"{failures.Count} following rows red: {string.Join(" || ", failures)}");
+        Console.WriteLine("responsive following: vertical intent, two-axis objective, live brain follow selection, activity-dependent meeting places, route-priced reunion, retained meeting floods, dropped meeting places, a moving tick keeping the method, leading a travelling player, a rejoin pull with no step at the region's edge, a region that grows up a hill, being with the player on sloped ground and a settling stop passed");
         return 0;
     }
 
@@ -137,21 +147,24 @@ internal static class VerifyResponsiveFollowing
         brain.Senses.Update(companion.NPC, player, companion.Motor);
         Require(brain.Chooser.Choose(context) == company && company.Score() > 0, "company must be a positive ordinary offer while nearby");
         long identity = brain.Chooser.Activity.Id;
-        // Company beside a resting player holds, and the body hovers on that hold; there is no stroll to request. The hold must
-        // still grow the reach region to completion, because a companion whose only request is a hold is otherwise a companion
-        // with no flood, and every optional job refuses to start on an unanswered search.
-        bool onlyHeld = true;
+        // Company beside a resting player is the inside method: the body moves about his region, the request aims at the
+        // region's centre and the positioner chooses no place in it. Restated on 15 September 2026, when the inside method
+        // stopped being a hold; what the row protects is unchanged — calm co-location never asks to rejoin, and the request
+        // it does make must still grow the reach region to completion, because a companion whose only request picks no place
+        // is otherwise a companion with no flood, and every optional job refuses to start on an unanswered search.
+        bool accompanied = true;
         for (int tick = 0; tick < 2400; tick++)
         {
             var request = company.Execute(context);
             // Resolved every tick as the brain does, because the region is rooted and replaced on the resolver's own cadence.
             brain.Positioner.Resolve(request, brain.Senses, null);
-            onlyHeld &= request.Kind == RequestKind.Hold;
-            Require(request.Kind != RequestKind.WithPlayer, "calm co-location should not keep requesting reunion");
+            accompanied &= request.Kind == RequestKind.WithPlayer && brain.Positioner.Chosen == null
+                && company.EligibilityReason == "local-company-method";
+            Require(company.EligibilityReason != "reunion-method", "calm co-location should not keep requesting reunion");
         }
-        Require(onlyHeld && brain.Positioner.ReachComplete,
-            $"company beside a resting player must hold, and holding must still complete the reach region; onlyHeld={onlyHeld} "
-            + $"returnable={brain.Positioner.ReturnableCount} reach={brain.Positioner.ReachCount} complete={brain.Positioner.ReachComplete}");
+        Require(accompanied && brain.Positioner.ReachComplete,
+            $"company beside a resting player must accompany him from inside his region, and that must still complete the reach region; accompanied={accompanied} "
+            + $"returnable={brain.Positioner.ReturnableCount} reach={brain.Positioner.ReachCount} complete={brain.Positioner.ReachComplete} reason={brain.Positioner.ChoiceReason}");
         player.Bottom += new Vector2(480, 0);
         brain.Senses.Update(companion.NPC, player, companion.Motor);
         Require(brain.Chooser.Choose(context) == company && company.Execute(context).Kind == RequestKind.WithPlayer,
@@ -203,33 +216,45 @@ internal static class VerifyResponsiveFollowing
         Require(travel.Samples == 0, "an unobserved interval cannot become a traversed path");
     }
 
-    /// <summary>A settled objective over a region centred where the test wants it, so the geometry rules
-    /// can be exercised without driving a body for a rescore first. Settled is what an airborne body does
-    /// not have, and the fixture that cares about that says so by asking for it false.</summary>
-    private static FollowPlayerObjective ObjectiveAt(Vector2 centre, Vector2 anchor, bool settled = true, bool grounded = true)
+    /// <summary>An objective over a region centred where the test wants it, so the geometry rules can be exercised without
+    /// driving a body first. <paramref name="inside"/> is whether the body was inside on the tick before, which is what
+    /// gives the region's edge its width.</summary>
+    private static FollowPlayerObjective ObjectiveAt(Vector2 centre, Vector2 anchor, bool inside = false)
     {
         float scale = live::AICompanion.Companion.PlayerIntegration.CompanionPreferences.Current.FollowComfortScale;
         var region = new live::AICompanion.Companion.Brain.Infrastructure.Observation.PlayerIntentRegion(centre,
             new Vector2(live::AICompanion.Companion.Brain.Infrastructure.Selection.Weights.FollowHorizontalComfort * scale,
                 live::AICompanion.Companion.Brain.Infrastructure.Selection.Weights.FollowVerticalComfort * scale),
             Vector2.Zero, IsTravelling: false);
-        return new FollowPlayerObjective(region, anchor, settled, grounded);
+        return new FollowPlayerObjective(region, anchor, inside);
     }
 
     private static void VerifyTwoAxisObjective()
     {
         var objective = ObjectiveAt(new Vector2(480, 800), new Vector2(480, 752));
-        Require(!objective.IsSatisfied(new Vector2(480, 1120), locallyConnected: true),
+        Require(!objective.IsSatisfied(new Vector2(480, 1120)),
             "a companion directly below the player on another floor must not satisfy following");
         Require(!objective.AcceptsDestination(new Vector2(480, 1120), locallyConnected: true),
             "a different-floor incumbent must not remain a valid following destination");
         Require(objective.AcceptsDestination(new Vector2(640, 752), locallyConnected: true),
             "a nearby standable point in the predicted player region remains a valid following destination");
-        Require(!objective.IsSatisfied(new Vector2(480, 800), locallyConnected: false),
-            "a nearby but sealed floor must not satisfy following without a local connection");
-        Require(!ObjectiveAt(new Vector2(480, 800), new Vector2(480, 752), settled: false)
-                .IsSatisfied(new Vector2(480, 800), locallyConnected: true),
-            "a body standing at the region's own centre must not satisfy following before it has settled there");
+        Require(objective.IsSatisfied(new Vector2(480, 800)),
+            "a body at the region's own centre is with the player at once, with no settling to wait out");
+        // Restated on 15 September 2026. The row also required a nearby sealed floor to fail following without a local
+        // connection, and a body at the region's centre to fail it until it had settled there. Losing sight of the player
+        // is not distance and nothing waits for a rest any more, so both went. What they were for is the edge's width,
+        // which the inside latch now gives: asserted on both sides of the settle radius.
+        float slack = live::AICompanion.Companion.Brain.Infrastructure.Movement.Navigator.SettleRadius;
+        float edge = 480 + objective.HorizontalComfort;
+        var justBeyond = new Vector2(edge + slack * 0.5f, 800);
+        var farBeyond = new Vector2(edge + slack + 1f, 800);
+        var wasInside = ObjectiveAt(new Vector2(480, 800), new Vector2(480, 752), inside: true);
+        Require(!objective.IsSatisfied(justBeyond),
+            "a body just beyond the edge that was not inside has not joined the player");
+        Require(wasInside.IsSatisfied(justBeyond),
+            "a body that was inside is still with the player within the settle radius beyond the edge");
+        Require(!wasInside.IsSatisfied(farBeyond),
+            "a body more than the settle radius beyond the edge has left the player, whatever it was before");
     }
 
     private static void VerifyArrivalSlackCannotStrandFollowing()
@@ -253,7 +278,9 @@ internal static class VerifyResponsiveFollowing
             VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
             companion.AI();
             AdvanceNative(companion);
-            arrived = objective.IsSatisfied(companion.NPC.Bottom, true);
+            // The live sense's objective at the body's centre, the one the brain reads. The literal box above admits
+            // destinations; being with the player is the region the brain builds, not a box a fixture typed.
+            arrived = companion.Brain.Senses.Intent.Objective.IsSatisfied(companion.NPC.Center);
             if (arrived) break;
         }
         Require(arrived, $"the recorded boundary stall must finish following through the production brain: feet={companion.NPC.Bottom}; action={companion.Brain.LastAction?.Name}; goal={companion.Brain.Positioner.Chosen}; status={companion.Brain.Navigator.Status}; control={companion.Motor.AppliedControls}");
@@ -294,7 +321,10 @@ internal static class VerifyResponsiveFollowing
         var companion = VerifyCompanionLifecycle.Create();
         Player player = Main.player[0];
         player.dead = false;
-        player.position = new Vector2(70 * 16, 80 * 16 - player.height);
+        // Column 85, not 70. Restated on 15 September 2026: with the player at 70 his region, which always holds him and sits
+        // mostly above him, reached back over the whole shelf, so the body on it was already with him and never had a reason to
+        // take the away leg the row exists for. At 85 the region's near edge stands past the shelf's right wall.
+        player.position = new Vector2(85 * 16, 80 * 16 - player.height);
         // Twelve above the floor row, not eight: eight puts the ten-pixel circle two pixels inside the floor,
         // and the first contact resolve would shove the body before the scene's first tick.
         companion.NPC.Center = new Vector2(50 * 16 + 8, 70 * 16 - 12);
@@ -318,11 +348,9 @@ internal static class VerifyResponsiveFollowing
             AdvanceNative(companion);
             // Selection may already yield to idle after arrival, clearing the positioner's
             // request-scoped flag. The contract is the actual body reaching the usable floor.
-            // The live sense's own objective, so the fixture judges arrival by exactly what the brain
-            // judges it by — including the grounded settle, which is the point of the change.
-            arrived = companion.Brain.Senses.Intent.Objective.IsSatisfied(companion.NPC.Bottom,
-                Collision.CanHitLine(companion.NPC.position, companion.NPC.width, companion.NPC.height,
-                    player.position, player.width, player.height));
+            // The live sense's own objective at the body's centre, so the fixture judges arrival by exactly what the brain
+            // judges it by: being inside the player's region.
+            arrived = companion.Brain.Senses.Intent.Objective.IsSatisfied(companion.NPC.Center);
             if (arrived)
                 break;
         }
@@ -339,10 +367,20 @@ internal static class VerifyResponsiveFollowing
         Player player = Main.player[0];
         player.dead = false;
         player.position = new Vector2(54 * 16, 80 * 16 - player.height);
-        companion.NPC.position = new Vector2(46 * 16, 80 * 16 - companion.NPC.height);
+        // Restated when rejoining became a measure from the player's region: the companion used to stand eight tiles away,
+        // inside the region, and the row passed through a floor that raised rejoining whenever sight was lost. Losing sight
+        // is not distance, so that floor is gone and a companion inside the region is given no rejoin pull at all. What the
+        // row protects — a closed door does not veto a destination on the player's side — is asked where rejoining is
+        // asked, so the companion now starts beyond the region's edge with the door still between them.
+        companion.NPC.position = new Vector2(30 * 16, 80 * 16 - companion.NPC.height);
+        // The door at column 36, not 50. Restated a second time the same day, when a companion outside the region began
+        // rejoining at the nearest place inside it the flood holds: with the door at 50 the region reached back past the door,
+        // so the nearest held place inside it was on the companion's own side and the row asserted a veto that was really
+        // an arrival. At 36 the whole region, less the settle radius every destination reserves, lies on the player's side.
+        const int DoorColumn = 36;
         for (int y = 77; y < 80; y++)
         {
-            Tile door = Main.tile[50, y];
+            Tile door = Main.tile[DoorColumn, y];
             door.HasTile = true;
             door.TileType = Terraria.ID.TileID.ClosedDoor;
             door.TileFrameY = (short)((y - 77) * 18);
@@ -353,25 +391,38 @@ internal static class VerifyResponsiveFollowing
             player.position, player.width, player.height), "closed-door fixture must occlude the player");
         VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
         companion.AI();
+        Require(companion.Brain.Senses.Intent.Region.GapBeyond(companion.NPC.Center) > 0,
+            $"the occluded-player fixture must start the companion beyond the player's region; half={companion.Brain.Senses.Intent.Region.HalfSize} gap={companion.Brain.Senses.Intent.Region.GapBeyond(companion.NPC.Center)}");
         Require(companion.Brain.LastRequest.Kind == RequestKind.WithPlayer,
-            "nearby occluded player must still request following");
+            $"an occluded player beyond the region must still request following; kind={companion.Brain.LastRequest.Kind} action={companion.Brain.LastAction?.Name} half={companion.Brain.Senses.Intent.Region.HalfSize} gap={companion.Brain.Senses.Intent.Region.GapBeyond(companion.NPC.Center)}");
         // A closed door is a wall to the orb's flood, so no candidate on the player's side is reachable and
         // the positioner chooses nothing; a follow request with nothing chosen aims the navigator at the
         // anchor itself, which is how the body reaches the door for the door interaction to open. Either
         // shape puts the goal on the player's side; a hold or a goal on this side is the veto this row refuses.
         Vector2? chosen = companion.Brain.Positioner.Chosen;
         Point? aim = companion.Brain.Navigator.GoalTile;
-        Require((chosen is Vector2 goal && goal.X > 50 * 16) || (aim is Point at && at.X > 50),
+        var occludedRegion = companion.Brain.Senses.Intent.Region;
+        float nearestAdmittedX = occludedRegion.Centre.X - occludedRegion.HalfSize.X + live::AICompanion.Companion.Brain.Infrastructure.Movement.Navigator.SettleRadius;
+        Require(nearestAdmittedX > (DoorColumn + 1) * 16f,
+            $"the premise: no part of the region a destination may be admitted in may lie on the companion's side of the door; nearest admitted x={nearestAdmittedX} door's right edge={(DoorColumn + 1) * 16}");
+        Require((chosen is Vector2 goal && goal.X > DoorColumn * 16) || (aim is Point at && at.X > DoorColumn),
             $"a closed door must not veto player-side follow destinations; chosen={chosen} navigator-goal={aim} reason={companion.Brain.Positioner.ChoiceReason}");
     }
 
     /// <summary>
     /// The player ends on the same tile in four scenes whose recent activity differs, with the companion
-    /// ten tiles to its right on one floor. Walking right, the player will pass the companion, so the
-    /// priced meeting place lies on the journey ahead and the companion waits there; placing torches in
-    /// place, the player is met where they stand; a brief turn keeps the journey; having turned round for
-    /// good, the player is heading away and is met at or behind where they stand. The pairs come from the
-    /// proposal's intent-to-destination acceptance and exercise the production observer and selector.
+    /// ten tiles to its right on one floor. Walking right, the player is met where he is or ahead of him,
+    /// never behind; placing torches in place, he is met where he stands; a brief turn keeps the journey,
+    /// so he is still not met behind; having turned round for good, he is heading away and is met at or
+    /// behind where he stands. The pairs come from the proposal's intent-to-destination acceptance and
+    /// exercise the production observer and selector.
+    ///
+    /// <para>Restated on 15 September 2026. The travelling and brief-turn scenes required the meeting place three
+    /// tiles or more ahead of the player's feet, which held only while the region could be led off him: a region
+    /// that always holds the player contains every place at his feet, so the cheapest meeting — where he already
+    /// is — is inside it and wins. Being ahead of a travelling player is now what the companion does inside his
+    /// region rather than where it meets him, and `VerifyAccompanyingThePlayer`'s trailing share holds it; this row
+    /// keeps what the meeting place still owes, which is not meeting a travelling player behind him.</para>
     /// </summary>
     private static void VerifyRecentActivityChangesTheMeetingPlace()
     {
@@ -384,18 +435,15 @@ internal static class VerifyResponsiveFollowing
                 + $" flood={s.Item2.Flood} priced={s.Item2.Priced}"));
         Require(new[] { travel, torches, brief, backtrack }.All(s => MathF.Abs(s.PlayerX - 40 * 16) < 2f),
             $"every scene must end with the player on the same tile, or the pairs compare positions rather than activity; {ledger}");
-        // The property is that the anchor lies ahead on the journey; which of the two mechanisms put
-        // it there is not the contract. A priced place that does not reach at least as far along the
-        // travel direction as the intent region's centre now loses to the region's leading edge, which
-        // is further ahead rather than less far, so both answers satisfy the scene and the fixture
-        // names the property instead of the winner.
-        Require(travel.Reason is "meeting-ahead-priced" or "meeting-place-outside-intent-region"
-                && travel.Anchor.X >= travel.PlayerX + 3 * 16,
-            $"a player walking towards the companion is met on the journey ahead; {ledger}");
+        // A travelling player is met where he is or on the journey ahead, never behind him; which priced reason put the
+        // place there is not the contract. The summary above carries why "three tiles ahead" went.
+        Require(travel.Reason is "meeting-ahead-priced" or "player-position-priced" or "meeting-place-outside-intent-region"
+                && travel.Anchor.X >= travel.PlayerX - 16f,
+            $"a player walking towards the companion is met where he is or ahead, never behind; {ledger}");
         Require(torches.Reason == "player-not-travelling" && MathF.Abs(torches.Anchor.X - torches.PlayerX) < 16f,
             $"a player placing torches in place is met where they stand; {ledger}");
-        Require(brief.Anchor.X >= brief.PlayerX + 3 * 16,
-            $"a brief reversal must not replace the journey's meeting place; {ledger}");
+        Require(brief.Anchor.X >= brief.PlayerX - 16f,
+            $"a brief reversal must not turn the journey's meeting place round behind him; {ledger}");
         Require(backtrack.Anchor.X <= backtrack.PlayerX + 16f,
             $"sustained backtracking replaces the journey, so the meeting place is no longer ahead towards the companion; {ledger}");
     }
@@ -494,9 +542,7 @@ internal static class VerifyResponsiveFollowing
                 if (decidedAt >= 0 && (tick - decidedAt) % 30 == 0 && tick - decidedAt <= 240)
                     trace.Add($"+{tick - decidedAt}:{(companion.NPC.Bottom.X - startX) / 16:+0.0;-0.0}"
                         + $"/{companion.Brain.Navigator.Status}");
-                arrived = companion.Brain.Senses.Intent.Objective.IsSatisfied(companion.NPC.Bottom,
-                    Collision.CanHitLine(companion.NPC.position, companion.NPC.width, companion.NPC.height,
-                        player.position, player.width, player.height));
+                arrived = companion.Brain.Senses.Intent.Objective.IsSatisfied(companion.NPC.Center);
                 if (arrived && decidedAt >= 0 && tick > decidedAt + 60) break;
             }
             string evidence = $"reconnects={reconnects}; decision={decision} at tick {decidedAt}; anchorX={anchorX / 16:0.0}; playerX={playerX / 16:0.0}; "
@@ -560,8 +606,7 @@ internal static class VerifyResponsiveFollowing
     /// return from. Restarting it whenever the re-root cadence passed meant a flood needing more than one
     /// cadence never finished, so reunion in a large cave never got a priced place. Every call here arrives
     /// after the cadence with the body one tile along, which restarted the old flood on each call. While
-    /// nothing is decided the anchor is the bounded continuation of the player's travel rather than their
-    /// current feet, which a travelling player has already left.
+    /// nothing is decided the anchor is the nearest place inside the player's region to the body.
     /// </summary>
     private static void VerifyAnUnfinishedMeetingFloodKeepsItsProgress()
     {
@@ -588,13 +633,15 @@ internal static class VerifyResponsiveFollowing
             int cadence = live::AICompanion.Companion.Brain.Infrastructure.Selection.Weights.MeetingRerootTicks;
             var region = companion.Brain.Senses.Intent.Region;
             Vector2 first = meeting.Resolve(companion.NPC.Center, sense, region, start);
-            // The undecided anchor is the intent region's leading edge now, not a second extrapolation
-            // of the player's velocity with a lead time of its own.
-            Vector2 continuation = region.LeadingEdge;
+            // Restated on 15 September 2026. The undecided anchor was the region's leading edge, and the row also required it to
+            // stand off the player's feet, which was a property of that edge. It is now the nearest place inside the region to
+            // the body, because rejoining means being inside the region again and inside it the companion moves about with the
+            // region rather than aiming anywhere in it; the nearest place inside may be anywhere in the box, feet included.
+            Vector2 nearestInside = region.NearestInside(companion.NPC.Center, live::AICompanion.Companion.Brain.Infrastructure.Movement.Navigator.SettleRadius);
             Require(meeting.Reason == "meeting-undecided",
                 $"one slice must not finish the flood, or nothing about retaining its progress is tested; reason={meeting.Reason} flood={meeting.FloodState}");
-            Require(Vector2.Distance(first, continuation) < 1f && MathF.Abs(first.X - sense.Bottom.X) >= 16f,
-                $"an undecided meeting place must aim at the player's continued travel, not the feet they have left; anchor={first} continuation={continuation} feet={sense.Bottom}");
+            Require(Vector2.Distance(first, nearestInside) < 1f,
+                $"an undecided meeting place must aim at the nearest place inside the player's region; anchor={first} nearest-inside={nearestInside} feet={sense.Bottom}");
             int calls = 1;
             for (; calls < 200 && meeting.Reason == "meeting-undecided"; calls++)
                 meeting.Resolve(companion.NPC.Bottom + new Vector2(calls % 2 * 16, 0), sense, region, start + (ulong)(calls * (cadence + 1)));
@@ -622,8 +669,13 @@ internal static class VerifyResponsiveFollowing
         Player player = Main.player[0];
         player.dead = false;
         player.position = new Vector2(30 * 16 - player.width / 2f, 80 * 16 - player.height);
-        companion.NPC.position = new Vector2(40 * 16 - companion.NPC.width / 2f, 80 * 16 - companion.NPC.height);
+        // Column 55, beyond the player's region, not 40. Restated on 15 September 2026: a meeting place is what rejoining aims at,
+        // and a companion ten tiles from a still player is inside his region, where the positioner chooses no place at all, so
+        // the priced place this row drops could never have been taken in the first place.
+        companion.NPC.position = new Vector2(55 * 16 - companion.NPC.width / 2f, 80 * 16 - companion.NPC.height);
         companion.Brain.Senses.Update(companion.NPC, player, companion.Motor);
+        Require(companion.Brain.Senses.Intent.Region.GapBeyond(companion.NPC.Center) > 0,
+            $"the premise: the companion must begin beyond the player's region; gap={companion.Brain.Senses.Intent.Region.GapBeyond(companion.NPC.Center)} half={companion.Brain.Senses.Intent.Region.HalfSize}");
         var positioner = companion.Brain.Positioner;
         Vector2 place = live::AICompanion.Companion.Brain.Infrastructure.Movement.MovementQueries.HoverPoint(new Point(80, 79));
         positioner.Resolve(new live::AICompanion.Companion.Brain.Infrastructure.Position.PositionRequest(RequestKind.WithPlayer, place, MeetingPlace: true),
@@ -696,35 +748,18 @@ internal static class VerifyResponsiveFollowing
     }
 
     /// <summary>
-    /// The reunion curve has no step anywhere, sampled a pixel at a time straight out through the
-    /// region's own leading edge at the screen the game builds the region at.
+    /// The rejoin pull measured on the live region of a running player: exactly zero at every sampled point inside the
+    /// rectangle, no one-pixel step anywhere along a line out through its edge, and never above the far cap however far
+    /// out the line goes short of the hard leash.
     ///
-    /// <para>The claim was made in prose and held only headless, where the clamp floor keeps the lead
-    /// short enough that the two halves of the curve nearly meet by accident. At a play-sized screen
-    /// the lead is longer, so a companion standing on the leading edge is further from the player's
-    /// body — and the outside slope used to be measured on exactly that distance, so it was already
-    /// partway up at the boundary where the inside gradient tops out, and the curve jumped. The jump
-    /// grew with the lead, which is to say with the screen, which is why no headless row could see
-    /// it. The slope is measured on the gap beyond the region now, so it starts at zero where the
-    /// inside gradient finishes.</para>
-    ///
-    /// <para>Sampled rather than reasoned about: the assertion is that no one-pixel step along the
-    /// curve exceeds what a one-pixel step can account for on either half, which is a bound on the
-    /// steeper of the two gradients and not a number chosen to pass.</para>
-    ///
-    /// <para><b>The player runs, and that is the premise rather than a detail.</b> The step's size is
-    /// the lead's length: measured body-to-body the slope reads the lead plus a half-width at the
-    /// leading edge, and subtracting the region's own width leaves exactly the lead. So at a walking
-    /// pace the old slope reached about 0.18 at the edge against a central pull of 0.25 and there was
-    /// no step to find — planting the old rule back under a walking player leaves this row green,
-    /// measured. It takes a lead near seven hundred pixels before the outside slope overtakes the
-    /// inside gradient, which is a player with movement accessories on, and that lead only exists at
-    /// all because the clamp is half a real screen: the headless floor caps it at a third of that and
-    /// caps the defect with it. This row is therefore impossible to write without declaring the
-    /// screen, and it asserts the clamp it is standing on so that it fails rather than quietly
-    /// weakens if the declaration is ever removed.</para>
+    /// <para>The row it replaces sampled a curve with two halves, a central gradient inside and a slope outside, and asserted
+    /// they met without a step. The owner ruled on 15 September 2026 that there is no pull anywhere inside the region, so the
+    /// central half and the row that kept it alive went, and what is left to hold is simpler and stricter: the inside is flat
+    /// zero, the outside starts from zero at the edge, and the whole curve stops at the cap, because rejoining is the fallback
+    /// and never on its own outweighs a job genuinely worth doing. The player runs so the region is led and grown, which is
+    /// the shape the edge is hardest to get right in.</para>
     /// </summary>
-    private static void VerifyTheReunionCurveHasNoStepAtTheRegionsEdge()
+    private static void VerifyTheRejoinPullIsZeroInsideTheRegionAndHasNoStepAtItsEdge()
     {
         BuildLongFloor();
         var companion = VerifyCompanionLifecycle.Create();
@@ -733,8 +768,6 @@ internal static class VerifyResponsiveFollowing
         player.Bottom = new Vector2(240f, 1280f);
         companion.NPC.Bottom = new Vector2(240f, 1280f);
         companion.NPC.velocity = Vector2.Zero;
-        // A running pace rather than a walking one. The lead is a duration times the player's own
-        // observed speed, so this is what asks for the long lead the step lives in.
         const float RunningSpeed = 6f;
         for (int tick = 0; tick < 600; tick++)
         {
@@ -743,112 +776,38 @@ internal static class VerifyResponsiveFollowing
             VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
             companion.Brain.Senses.Update(companion.NPC, player, companion.Motor);
         }
-        var objective = companion.Brain.Senses.Intent.Objective;
         var region = companion.Brain.Senses.Intent.Region;
-        Require(companion.Brain.Senses.Player.IsTravelling,
-            "the curve row needs a travelling player, or the central half of it is zero by definition");
-        // The premise, in two parts, because either one missing makes the row green for free.
-        // First: the lead must be long enough that a body-to-body slope would overtake the inside
-        // gradient at the edge. That is the step, and a shorter lead simply has not got one.
-        float leadLength = region.Lead.Length();
-        float inner = MathF.Max(region.HalfSize.X, region.HalfSize.Y);
-        float span = MathF.Max(1f, live::AICompanion.Companion.PlayerIntegration.CompanionPreferences.Current.RecoveryRadius - inner);
-        float wouldStepTo = MathF.Min(1f, leadLength / span);
-        float centralAtEdge = live::AICompanion.Companion.Brain.Infrastructure.Selection.Weights.IntentRegionCentralPull;
-        Require(wouldStepTo > centralAtEdge * 1.2f, FormattableString.Invariant(
-            $"the scene must lead far enough for a step to exist at all: lead={leadLength:F0}px would put a body-relative slope at {wouldStepTo:F3} against a central pull of {centralAtEdge:F3} at the edge"));
-        // Second: that lead must be the play clamp's, not the headless floor's. At the floor the lead
-        // is capped well below the length above, so this row could not be written headless — which is
-        // the clamp's own contract, asserted here rather than assumed.
-        float headlessClamp = live::AICompanion.Companion.Brain.Infrastructure.Selection.Weights.IntentRegionMinimumClampX - region.HalfSize.X;
-        Require(leadLength > headlessClamp, FormattableString.Invariant(
-            $"the region must be built at a play-sized screen: lead={leadLength:F0}px is within the headless clamp of {headlessClamp:F0}px, so the screen declaration is not reaching the sense"));
-
-        float worstStep = 0f;
-        float worstAt = 0f;
-        float previous = live::AICompanion.Companion.Brain.Activities.NearbyAssistance.KeepCompany
-            .GeometricPull(objective, new Vector2(region.Centre.X, region.Centre.Y), true);
-        // Straight out along the lead, from the centre to well past the edge.
-        for (float offset = 1f; offset <= region.HalfSize.X * 3f; offset += 1f)
-        {
-            Vector2 feet = new(region.Centre.X + offset, region.Centre.Y);
-            float here = live::AICompanion.Companion.Brain.Activities.NearbyAssistance.KeepCompany
-                .GeometricPull(objective, feet, true);
-            float step = MathF.Abs(here - previous);
-            if (step > worstStep) { worstStep = step; worstAt = offset; }
-            previous = here;
-        }
-        // What one pixel can legitimately buy on the steeper of the two halves. Inside, the pull
-        // spans the central weight over a half-width; outside, it spans one over the slope's length.
-        float inside = live::AICompanion.Companion.Brain.Infrastructure.Selection.Weights.IntentRegionCentralPull / region.HalfSize.X;
-        float outside = 1f / MathF.Max(1f, live::AICompanion.Companion.PlayerIntegration.CompanionPreferences.Current.RecoveryRadius
+        Require(companion.Brain.Senses.Player.IsTravelling && region.Lead.Length() > 100f, FormattableString.Invariant(
+            $"the curve row needs a led region, or its edge is the easy case: lead={region.Lead}"));
+        float cap = live::AICompanion.Companion.Brain.Infrastructure.Selection.Weights.KeepCompanyFarCap;
+        float leash = live::AICompanion.Companion.Brain.Infrastructure.Selection.Weights.LeashHard;
+        float span = MathF.Max(1f, live::AICompanion.Companion.PlayerIntegration.CompanionPreferences.Current.RecoveryRadius
             - MathF.Max(region.HalfSize.X, region.HalfSize.Y));
-        float allowed = MathF.Max(inside, outside) * 1.5f;
-        Console.WriteLine(FormattableString.Invariant(
-            $"reunion curve: worst one-pixel step {worstStep:F5} at {worstAt:F0}px from the centre (edge at {region.HalfSize.X:F0}px), one pixel buys at most {allowed:F5}"));
-        Require(worstStep <= allowed, FormattableString.Invariant(
-            $"the reunion curve must have no step: worst one-pixel change {worstStep:F5} at {worstAt:F0}px from the centre, region half-width {region.HalfSize.X:F1}px, a pixel buys at most {allowed:F5}"));
-    }
-
-    /// <summary>
-    /// What the central pull is for, as the one row that dies without it: a companion already settled
-    /// inside the region beside a player who is still walking must want to keep up with him, not
-    /// stroll where it stands.
-    ///
-    /// <para>The constant had no row of its own. Deleting it left the straight walk green, because
-    /// the lead alone puts the body ahead often enough to pass a half-the-rows line, so the pull was
-    /// live with nothing measuring it. This scene removes the lead's help deliberately: the body is
-    /// placed inside the region and held grounded there until arrival is settled, which zeroes the
-    /// regroup urgency and satisfies the objective, so every reason to move except the pull itself
-    /// has been taken away. With the pull the offer is a reunion; with it at zero the wander floor is
-    /// the largest thing left and the companion strolls beside a departing player, which is the
-    /// behaviour the region was built to end.</para>
-    /// </summary>
-    private static void VerifyATravellingPlayerIsKeptUpWithFromInsideTheRegion()
-    {
-        BuildLongFloor();
-        var companion = VerifyCompanionLifecycle.Create();
-        var brain = companion.Brain;
-        Player player = Main.player[0];
-        player.dead = false;
-        player.Bottom = new Vector2(240f, 1280f);
-        companion.NPC.Bottom = new Vector2(240f, 1280f);
-        companion.NPC.velocity = Vector2.Zero;
-        var company = brain.Chooser.Actions.OfType<live::AICompanion.Companion.Brain.Activities.NearbyAssistance.KeepCompany>().Single();
-        var context = new live::AICompanion.Companion.Brain.Activities.ActionContext(companion, brain.Senses);
-        // The body is held at a fixed share of the way out from the region's centre, on the ground,
-        // while the player walks. Holding the share rather than the pixel keeps the pull constant as
-        // the region travels, so the streak settles at a known point on the curve rather than at
-        // whatever the body drifted to.
-        const float Share = 0.8f;
-        float pull = 0f;
-        for (int tick = 0; tick < 420; tick++)
+        float allowed = 1.5f / span;
+        float worstStep = 0f, worstAt = 0f, highest = 0f, insideMax = 0f;
+        int insideSamples = 0;
+        foreach (Vector2 direction in new[] { new Vector2(1, 0), new Vector2(-1, 0), new Vector2(0, -1), new Vector2(0, 1), Vector2.Normalize(new Vector2(1, -1)) })
         {
-            player.velocity = new Vector2(2.4f, 0f);
-            player.Bottom += player.velocity;
-            VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
-            var region = brain.Senses.Intent.Region;
-            companion.NPC.Bottom = new Vector2(region.Centre.X - region.HalfSize.X * Share, 1280f);
-            companion.NPC.velocity = Vector2.Zero;
-            brain.Senses.Update(companion.NPC, player, companion.Motor);
-            pull = brain.Senses.Intent.Region.Pull(companion.NPC.Bottom);
+            float previous = live::AICompanion.Companion.Brain.Activities.NearbyAssistance.KeepCompany.RejoinPull(region, region.Centre);
+            for (float offset = 1f; offset <= leash; offset += 1f)
+            {
+                Vector2 point = region.Centre + direction * offset;
+                float here = live::AICompanion.Companion.Brain.Activities.NearbyAssistance.KeepCompany.RejoinPull(region, point);
+                if (region.Contains(point)) { insideSamples++; insideMax = MathF.Max(insideMax, here); }
+                highest = MathF.Max(highest, here);
+                float step = MathF.Abs(here - previous);
+                if (step > worstStep) { worstStep = step; worstAt = offset; }
+                previous = here;
+            }
         }
-        Require(brain.Senses.Player.IsTravelling, "the player must read as travelling, or the central pull is zero by definition");
-        Require(brain.Senses.Intent.Settled, FormattableString.Invariant(
-            $"the body must have settled inside the region, or regrouping rather than the pull is what is being measured: resting-inside ticks={brain.Senses.Intent.RestingInsideTicks}"));
-        Require(pull > 0.5f && pull <= 1f, FormattableString.Invariant(
-            $"the body must sit well out from the centre and inside the edge, or the pull under test is near zero: pull={pull:F3}"));
-        Require(brain.Chooser.RegroupUrgency <= live::AICompanion.Companion.Brain.Infrastructure.Selection.Weights.WanderFloor,
-            FormattableString.Invariant(
-                $"a settled body must carry no regroup urgency, or that and not the pull is what beats the wander floor: urgency={brain.Chooser.RegroupUrgency:F3}"));
-        company.Prepare(context);
-        float floor = live::AICompanion.Companion.Brain.Infrastructure.Selection.Weights.WanderFloor;
         Console.WriteLine(FormattableString.Invariant(
-            $"central pull: settled at pull {pull:F3} beside a travelling player, keeping company offers {company.EligibilityReason} at {company.Score():F3} against a wander floor of {floor:F3}"));
-        Require(company.Score() > floor, FormattableString.Invariant(
-            $"a settled companion beside a travelling player must be worth more than standing about: value={company.Score():F3} floor={floor:F3} pull={pull:F3}"));
-        Require(company.EligibilityReason == "reunion-method", FormattableString.Invariant(
-            $"a travelling player must be kept up with rather than strolled beside: method={company.EligibilityReason} value={company.Score():F3} pull={pull:F3}"));
+            $"rejoin pull: {insideSamples} samples inside the region, highest there {insideMax:F5}; worst one-pixel step {worstStep:F5} at {worstAt:F0}px, a pixel buys at most {allowed:F5}; highest anywhere short of the leash {highest:F3} against a cap of {cap:F3}"));
+        Require(insideSamples > 0 && insideMax == 0f, FormattableString.Invariant(
+            $"there is no pull anywhere inside the region: highest inside {insideMax:F5} over {insideSamples} samples"));
+        Require(worstStep <= allowed, FormattableString.Invariant(
+            $"the rejoin pull must have no step: worst one-pixel change {worstStep:F5} at {worstAt:F0}px, a pixel buys at most {allowed:F5}"));
+        Require(highest <= cap + 1e-5f, FormattableString.Invariant(
+            $"the rejoin pull must never exceed the far cap short of the hard leash: highest {highest:F4} against {cap:F4}"));
     }
 
     /// <summary>
@@ -891,36 +850,38 @@ internal static class VerifyResponsiveFollowing
             $"the region must grow on both axes with the lead, not only along it: still={still.HalfSize} climbing={climbing.HalfSize}"));
         Require(climbing.HalfSize.Y <= still.HalfSize.Y * cap + 0.01f && climbing.HalfSize.X <= still.HalfSize.X * cap + 0.01f,
             FormattableString.Invariant($"growth must stop at the cap: still={still.HalfSize} climbing={climbing.HalfSize} cap={cap}"));
-        Require(climbing.LeadingEdge.Y < climbing.Centre.Y, FormattableString.Invariant(
-            $"the leading edge must be on the climb's own side of the region: edge={climbing.LeadingEdge} centre={climbing.Centre}"));
+        // Where the region says he is going, on the climb's own side of him. The row read the region's leading edge until
+        // 15 September 2026; the edge went when rejoining began aiming at the nearest place inside the region instead.
+        Require(climbing.Heading.Y < player.Center.Y, FormattableString.Invariant(
+            $"where the region says the player is going must be on the climb's own side of him: heading={climbing.Heading} player={player.Center}"));
     }
 
     /// <summary>
-    /// A body standing on real sloped ground must be able to arrive.
+    /// A body on real sloped ground inside the player's region is with him.
     ///
-    /// <para>Arrival needs a grounded streak and the grounded test is `velocity.Y == 0f`, which is the motor's own
-    /// expression on the same body — deliberately one definition, so the brain and the motor cannot disagree about
-    /// whether a body is standing. That test had never been asked on a slope. Every scene that exercised it stood
-    /// the body on flat ground, where the question is trivial, while the root guide records that `Collision.StepUp`
-    /// writes position without touching `velocity.Y` — which is exactly the kind of thing that leaves a resting
-    /// body carrying vertical velocity it is not using. A companion that could never read as settled on a hillside
-    /// would never satisfy following there, and the region's own growth on the vertical axis exists precisely so
-    /// that a companion on the slope below counts as being with the player.</para>
+    /// <para>Restated on 15 September 2026, when being with the player became being inside his region. The row used to ask
+    /// whether a body resting over a slope could build the settled streak arrival then waited for, because the rest test had
+    /// only ever been asked on flat ground, and a companion that could never settle on a hillside could never satisfy
+    /// following there. Nothing waits for a rest now. What the row was protecting is still asked: a companion over sloped
+    /// ground inside the player's region is with him. It is asked upslope of him rather than below. The region sits mostly
+    /// above the player by the owner's ruling, with a third of its half-height below his centre, and two columns down a 1:1
+    /// hill the body sat one pixel under the region's bottom edge on the first run of the restated row — outside, which is
+    /// that ruling working rather than a defect.</para>
     ///
     /// <para>The engine rests a body on a slope's diagonal rather than on a tile's top edge, so the hill is built
     /// from the game's own slope shapes and not from a staircase of full blocks, and the row asserts that it is
     /// standing on one before it reads anything. It deliberately does not walk the slope: a 1:1 slope walk still
     /// times out (AIC-212), and a row that required the climb would be red for a defect this lane does not own.</para>
     /// </summary>
-    private static void VerifyAGroundedTickOnSlopedGroundEntersSatisfaction()
+    private static void VerifyABodyOnSlopedGroundInsideTheRegionIsWithThePlayer()
     {
         BuildSlopedHill();
         var companion = VerifyCompanionLifecycle.Create();
         var brain = companion.Brain;
         Player player = Main.player[0];
         player.dead = false;
-        // Both on the hill, two columns apart, the companion downslope of the player.
-        const int PlayerColumn = 47, CompanionColumn = 45;
+        // Both on the hill, two columns apart, the companion upslope of the player.
+        const int PlayerColumn = 47, CompanionColumn = 49;
         player.Bottom = new Vector2(PlayerColumn * 16f + 8f, (80 - (PlayerColumn - HillLeft)) * 16f);
         player.velocity = Vector2.Zero;
         // Twelve pixels above the slope's own row rather than eighteen: the row below reads the tile under the
@@ -945,40 +906,28 @@ internal static class VerifyResponsiveFollowing
         Require(shape is live::AICompanion.Companion.Brain.Infrastructure.Movement.TileShape.SolidLowerLeft
                 or live::AICompanion.Companion.Brain.Infrastructure.Movement.TileShape.SolidLowerRight,
             FormattableString.Invariant($"the body must come to rest over a sloped tile, or the row is the flat one again; tile under it is {shape}"));
-        Require(companion.Motor.State.Velocity.Length() < live::AICompanion.Companion.Brain.Infrastructure.Selection.Weights.SettledSpeedPx,
-            FormattableString.Invariant(
-                $"a body left alone must come to rest, and the whole brain's arrival depends on it: v={companion.Motor.State.Velocity} at {companion.NPC.Center} over a {shape}"));
-
-        // Now the streak, which is the thing arrival actually reads. The body is left alone over the hill and the
-        // senses are rebuilt each tick, exactly as a resting companion's would be.
-        int rescore = live::AICompanion.Companion.Brain.Infrastructure.Selection.Weights.PositionRescoreTicks;
-        for (int tick = 0; tick < rescore + 4; tick++)
-        {
-            VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
-            AdvanceNative(companion);
-            brain.Senses.Update(companion.NPC, player, companion.Motor);
-        }
-        Console.WriteLine(FormattableString.Invariant(
-            $"sloped ground: atRest={brain.Senses.Intent.AtRest} streak={brain.Senses.Intent.RestingInsideTicks} settled={brain.Senses.Intent.Settled}"));
-        Require(brain.Senses.Intent.AtRest, FormattableString.Invariant(
-            $"the sense must read a body holding still over a slope as at rest: v={companion.Motor.State.Velocity}"));
-        Require(brain.Senses.Intent.Settled, FormattableString.Invariant(
-            $"a body holding still over a slope inside the region must enter satisfaction, or it can never arrive on a hillside; streak={brain.Senses.Intent.RestingInsideTicks} of {rescore}"));
-
-        // And the objective itself, which is what keeping company and the positioner both read.
+        // The body is observed once where it came to rest over the hill, exactly as the brain observes it every tick; being
+        // with the player is being inside his region, with no streak to build first.
+        VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
+        brain.Senses.Update(companion.NPC, player, companion.Motor);
         var objective = brain.Senses.Intent.Objective;
-        Require(objective.IsSatisfied(companion.NPC.Center, true), FormattableString.Invariant(
-            $"following must read as satisfied on the slope: reason={objective.Reason(companion.NPC.Center, true)}, companion={companion.NPC.Center}, player={player.Bottom}"));
+        var slopeRegion = brain.Senses.Intent.Region;
+        Console.WriteLine(FormattableString.Invariant(
+            $"sloped ground: inside={brain.Senses.Intent.Inside} gap={slopeRegion.GapBeyond(companion.NPC.Center):0.0} region={slopeRegion.Centre} half={slopeRegion.HalfSize}"));
+        Require(brain.Senses.Intent.Inside && objective.IsSatisfied(companion.NPC.Center), FormattableString.Invariant(
+            $"a body over a slope inside the region must be with the player: inside={brain.Senses.Intent.Inside} reason={objective.Reason(companion.NPC.Center)} companion={companion.NPC.Center} player={player.Bottom} region={slopeRegion.Centre} half={slopeRegion.HalfSize}"));
     }
 
     /// <summary>
-    /// Ticks 8127 and 8128 of the 2026-09-14 capture, as geometry. Both bodies are in the air and
-    /// the companion's feet sit inside the region, which the old symmetric box read as satisfied;
-    /// keeping company then flipped to its local method and issued a Hold that cancelled the jump
-    /// one tick after take-off. Satisfaction is judged from the ground, so an airborne tick cannot
-    /// enter it however close the two bodies are, and the method cannot change on that tick.
+    /// Ticks 8127 and 8128 of the 2026-09-14 capture, as geometry: both bodies in the air and moving, the companion inside
+    /// the region. Keeping company flipped to its local method there and issued a Hold that cancelled a jump one tick after
+    /// take-off, so for as long as the two methods asked for different requests a moving tick was refused as arrival.
+    ///
+    /// <para>Restated on 15 September 2026. A moving body inside the region is with the player now, because there is no
+    /// arrival to refuse and both methods ask for the same kind of request. What the capture's ticks still demand is the
+    /// harm itself: keeping company must not change method between two moving ticks inside the region.</para>
     /// </summary>
-    private static void VerifyAnAirborneTickCannotSatisfyFollowing()
+    private static void VerifyAMovingTickInsideTheRegionKeepsTheMethod()
     {
         BuildFloor();
         var companion = VerifyCompanionLifecycle.Create();
@@ -999,12 +948,8 @@ internal static class VerifyResponsiveFollowing
         var request = new live::AICompanion.Companion.Brain.Infrastructure.Position.PositionRequest(
             RequestKind.WithPlayer, player.Bottom);
         brain.Positioner.Resolve(request, brain.Senses, null);
-        Require(!brain.Positioner.FollowObjectiveSatisfied, FormattableString.Invariant(
-            $"a moving body must not read as having arrived with the player: companion={companion.NPC.Center} v={companion.Motor.State.Velocity} player={player.Bottom} vy={player.velocity.Y} reason={brain.Positioner.FollowObjectiveReason}"));
-        // The record has to say which kind of unsettled tick this was, because the body at rest
-        // standing out its first ticks of the streak is the same geometry and a different situation.
-        Require(brain.Positioner.FollowObjectiveReason == "follow-moving-deferred", FormattableString.Invariant(
-            $"a moving deferral must name itself in the record: reason={brain.Positioner.FollowObjectiveReason} v={companion.Motor.State.Velocity}"));
+        Require(brain.Positioner.FollowObjectiveSatisfied, FormattableString.Invariant(
+            $"a moving body inside the region is with the player: companion={companion.NPC.Center} v={companion.Motor.State.Velocity} player={player.Bottom} vy={player.velocity.Y} reason={brain.Positioner.FollowObjectiveReason} inside={brain.Senses.Intent.Inside}"));
         var company = brain.Chooser.Actions.OfType<live::AICompanion.Companion.Brain.Activities.NearbyAssistance.KeepCompany>().Single();
         var context = new live::AICompanion.Companion.Brain.Activities.ActionContext(companion, brain.Senses);
         company.Prepare(context);
@@ -1020,9 +965,12 @@ internal static class VerifyResponsiveFollowing
 
     /// <summary>
     /// The other end of the same rule. A player who stops leaves a region that drifts back over the
-    /// filter's time constant rather than snapping, and the companion must settle inside it without
-    /// the method flickering while it does. The ceiling is declared here rather than discovered: a
-    /// settle is allowed one change into the local method and nothing after it.
+    /// filter's time constant rather than snapping, and the companion must stay with him inside it without
+    /// the method flickering while it does. The ceiling is declared here rather than discovered: one change
+    /// into the inside method is allowed and nothing after it. Restated on 15 September 2026: the row also
+    /// counted resting ticks filed as moving deferrals, a reason the follow objective no longer has, and
+    /// required the body to end within the follow comfort of his feet, which a companion moving about the
+    /// whole region by design does not; it now requires the body to end inside his region.
     /// </summary>
     private static void VerifyAStoppedPlayerDoesNotOscillateTheMethod()
     {
@@ -1047,25 +995,13 @@ internal static class VerifyResponsiveFollowing
         player.velocity = Vector2.Zero;
         string method = "";
         int changes = 0;
-        int mislabelled = 0;
         var flips = new List<string>();
         for (int tick = 0; tick < 600; tick++)
         {
-            // The speed the brain is about to read, sampled before the tick rather than after it. The sense
-            // decides at rest from the velocity the motor wrote last tick, so that is the velocity this tick's
-            // reason is a statement about; reading it back after `AI` and `AdvanceNative` compares the reason
-            // against the velocity that replaced the one it was computed from. The two agree on every tick the
-            // body is plainly moving or plainly still and disagree only where it crosses the threshold, which
-            // is why the skew showed up as four ticks in six hundred rather than as a broken row.
-            float speedTheBrainReads = companion.Motor.State.Velocity.Length();
+            float speed = companion.Motor.State.Velocity.Length();
             VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
             companion.AI();
             AdvanceNative(companion);
-            // The other half of the moving fixture's assertion, and the half a resting body can check: a
-            // settling tick where the body is at rest must never be filed as a moving deferral, or the column
-            // sends whoever reads it looking for travel that never happened.
-            if (speedTheBrainReads < live::AICompanion.Companion.Brain.Infrastructure.Selection.Weights.SettledSpeedPx
-                && brain.Positioner.FollowObjectiveReason == "follow-moving-deferred") mislabelled++;
             // The method is read as the brain's own preparation left it. This loop used to call Prepare again after the tick,
             // which ran the method choice a second time per tick — advancing its rescore wait twice as fast and able to flip the
             // method itself — so the instrument was changing what it counted; removing it moved the count from 39 to 32 and was
@@ -1076,19 +1012,17 @@ internal static class VerifyResponsiveFollowing
                 {
                     changes++;
                     flips.Add(FormattableString.Invariant(
-                        $"+{tick}:{method}->{company.EligibilityReason} speed={speedTheBrainReads:0.00} follow={brain.Positioner.FollowObjectiveReason} spot={brain.Positioner.Chosen} settled={brain.Senses.Intent.Settled} resting={brain.Senses.Intent.RestingInsideTicks} inCentre={brain.Senses.Intent.Region.Contains(companion.NPC.Center)} inBottom={brain.Senses.Intent.Region.Contains(companion.NPC.Bottom)} pull={brain.Senses.Intent.Region.Pull(companion.NPC.Center):0.00} half={brain.Senses.Intent.Region.HalfSize} centre={brain.Senses.Intent.Region.Centre} body={companion.NPC.Center}"));
+                        $"+{tick}:{method}->{company.EligibilityReason} speed={speed:0.00} follow={brain.Positioner.FollowObjectiveReason} inside={brain.Senses.Intent.Inside} gap={brain.Senses.Intent.Region.GapBeyond(companion.NPC.Center):0.0} half={brain.Senses.Intent.Region.HalfSize} centre={brain.Senses.Intent.Region.Centre} body={companion.NPC.Center}"));
                 }
                 method = company.EligibilityReason;
             }
         }
-        Require(mislabelled == 0, FormattableString.Invariant(
-            $"a resting settling tick must not be recorded as a moving deferral: {mislabelled} of 600 ticks"));
         string flipTrace = string.Join(" | ", flips);
         const int SettleChangeCeiling = 1;
         Require(changes <= SettleChangeCeiling, FormattableString.Invariant(
             $"a stopped player must let the method settle: {changes} method changes over 600 ticks, ceiling {SettleChangeCeiling}, ending {method}; {flipTrace}"));
-        Require(Vector2.Distance(companion.NPC.Bottom, player.Bottom) < live::AICompanion.Companion.Brain.Infrastructure.Selection.Weights.FollowHorizontalComfort,
-            FormattableString.Invariant($"the companion must settle beside a stopped player: companion={companion.NPC.Bottom} player={player.Bottom}"));
+        Require(brain.Senses.Intent.Inside, FormattableString.Invariant(
+            $"the companion must end inside a stopped player's region: companion={companion.NPC.Center} player={player.Bottom} region={brain.Senses.Intent.Region.Centre} half={brain.Senses.Intent.Region.HalfSize}"));
     }
 
     private static void BuildParallelRoutes(int gapAt)
