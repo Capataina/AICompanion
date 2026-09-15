@@ -319,7 +319,7 @@ internal static class VerifyOreWork
     /// tall because the ore sits on its floor: under a three-row ceiling, stepping onto the ore put the
     /// body's head into the upper floor, the corridor was closed at the ore, and every route home left
     /// through the ledge whether the gap existed or not.</summary>
-    private static void BuildPlayersUpperFloor(int floorRow, bool gapNearPlayer)
+    internal static void BuildPlayersUpperFloor(int floorRow, bool gapNearPlayer)
     {
         int row = floorRow - 5;
         for (int x = 10; x <= 94; x++)
