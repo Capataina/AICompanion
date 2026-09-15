@@ -340,7 +340,9 @@ public sealed class Brain
             // nothing better, so the spot itself is the problem. Refuse it for a while and let the
             // positioner answer with another, which is Caner's "choose a different position to
             // unstick itself" (2026-09-08).
-            if (Navigator.StuckStrikes >= 2)
+            // A spot the navigator's search has proven unreachable is refused the same way and at once, because asking the
+            // same place again from here can only prove the same absence.
+            if (Navigator.StuckStrikes >= 2 || Navigator.GoalProvenUnreachable)
             {
                 Positioner.Ban(MovementQueries.Tile(goal), Weights.StuckSpotBanTicks);
                 Navigator.ResetStrikes();

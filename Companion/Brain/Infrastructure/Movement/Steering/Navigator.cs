@@ -20,12 +20,21 @@ public enum AttemptEnding { Completed, Failed, Preempted, Cancelled }
 /// holonomic: any route with clearance is followable at some speed, and the steering's bend cap
 /// is what makes that true in practice.
 ///
-/// <para>A search too large for one tick keeps its frontier and continues next tick; while it is
-/// unfinished the body keeps following the route it already had, steers straight at the goal when
-/// the straight line is clear, and otherwise holds. A search that exhausts the free space without
-/// finding the goal is a proven absence, reported as <see cref="ExecutionStatus.Unreachable"/>,
-/// and the difference between that and unfinished is what every "not yet is not no" rule upstream
-/// stands on.</para>
+/// <para>A search too large for one tick keeps its frontier and continues next tick, and while it is
+/// unfinished the body flies a partial route to the nearest place the search has already reached,
+/// unless the straight line to the goal is clear, when it steers straight. A search that stops at its
+/// node limit leaves that partial route behind it. Hovering in place until the search came back was
+/// the first shape, and in the second play of 0.27.0 it held the orb in open air for two seconds at a
+/// time while the search ran; a partial route is how Recast/Detour's path query answers the same case.</para>
+///
+/// <para>A search that exhausts the free space without finding the goal is a proven absence, reported
+/// as <see cref="ExecutionStatus.Unreachable"/>, and the difference between that and unfinished is what
+/// every "not yet is not no" rule upstream stands on. A proven absence is not flown toward: the body
+/// hovers where it waited and the goal is published as <see cref="GoalProvenUnreachable"/>, because another place is the
+/// positioner's answer. A search that ended without a route is kept for the goal it answered and is
+/// not asked again while the goal and the terrain it read stand — a proven absence while the body stays
+/// inside what it explored, a node limit until the partial route has brought the body materially
+/// nearer — because asking the same question every tick was the other half of that stall.</para>
 /// </summary>
 public sealed class Navigator
 {
@@ -40,6 +49,11 @@ public sealed class Navigator
     /// so a body drifting around a spot on a region's boundary is still inside the region.</summary>
     public const float SettleRadius = ArriveDistance + Weights.HoverRadiusPixels + 4f;
 
+    /// <summary>How close to the body a route corner must be to join the route there rather than at its start, in pixels. A
+    /// route found after the body has flown a partial route begins where the search began, and joining at its first corner
+    /// would fly the body back; four tiles is where the swept test per corner stays cheap.</summary>
+    private const float JoinPixels = 64f;
+
     /// <summary>The drift every reached or held spot gets. One instance, so arriving and holding share one
     /// wander and a hold that follows an arrival carries on circling rather than starting over.</summary>
     public HoverAroundSpot Hover { get; } = new();
@@ -51,6 +65,9 @@ public sealed class Navigator
 
     public ExecutionStatus Status { get; private set; }
     public Route? Path { get; private set; }
+    /// <summary>Whether <see cref="Path"/> ends short of the goal: at the nearest place a search has reached, or at the free
+    /// corner nearest a goal inside rock.</summary>
+    public bool PathIsPartial { get; private set; }
     public Vector2? Goal { get; private set; }
     public Point? GoalTile => Goal is Vector2 goal ? MovementQueries.Tile(goal) : null;
     public Vector2 Lookahead { get; private set; }
@@ -68,6 +85,9 @@ public sealed class Navigator
     public string ProgressReason { get; private set; } = "idle";
     public int StuckTicks { get; private set; }
     public int StuckStrikes { get; private set; }
+    /// <summary>Whether the held goal's last search exhausted the free space without reaching it, and that answer still stands:
+    /// the goal is proven unreachable from where the body is, so a spot the positioner chose is the positioner's to replace.</summary>
+    public bool GoalProvenUnreachable => spent is { Stop: FreeSpaceSearch.StopReason.Exhausted };
     public AttemptEnding? LastEnding { get; private set; }
     public int CompletedAttempts { get; private set; }
     public int FailedAttempts { get; private set; }
@@ -83,6 +103,13 @@ public sealed class Navigator
     public int RemainingRouteSteps => Path is { } route ? Math.Max(0, route.Count - 1 - route.Index) : 0;
 
     private FreeSpaceSearch? search;
+    // The last search that finished without a route, kept for the goal it answered, and how far the body was from the
+    // goal when that search began, which is what a node-limited search must beat before it is asked again.
+    private FreeSpaceSearch? spent;
+    private float spentFromDistance, searchFromDistance;
+    // The end of a completed route to the free corner nearest a goal inside rock: the body is as close as it can get, and
+    // planning it again from there finds the same corner.
+    private Vector2? settledShort;
     private Vector2? lastCentre;
     private Vector2 progressOrigin;
     private int progressTicks;
@@ -101,9 +128,7 @@ public sealed class Navigator
         {
             if (attemptOpen && Goal != null) EndAttempt(AttemptEnding.Cancelled);
             Goal = goal;
-            Path = null;
-            search = null;
-            Arrived = false;
+            DropRoute();
             // A wait anchor belongs to the goal that could not be reached, and dies with it.
             waitAnchor = null;
             StuckTicks = 0;
@@ -114,9 +139,10 @@ public sealed class Navigator
         }
         else if (Goal is Vector2 g && g != goal)
         {
-            // A goal that drifted a little keeps its route; the last segment is re-aimed at it.
+            // A goal that drifted a little keeps its route; the last segment is re-aimed at it, unless the route never
+            // reached the goal, when its end is a place of its own.
             Goal = goal;
-            if (Path != null) Path.Points[^1] = goal;
+            if (Path != null && !PathIsPartial) Path.Points[^1] = goal;
         }
 
         float distanceToGoal = Vector2.Distance(live.Centre, goal);
@@ -133,8 +159,7 @@ public sealed class Navigator
             }
             Status = ExecutionStatus.Arrived;
             ProgressReason = "arrived";
-            Path = null;
-            search = null;
+            DropRoute();
             return Hover.Around(live, goal, world);
         }
         Arrived = false;
@@ -143,19 +168,46 @@ public sealed class Navigator
         if (Path != null && (!Path.StillValid(world) || !SegmentAheadClear(world, live, Path)))
         {
             Path = null;
-            search = null;
+            PathIsPartial = false;
+            // A partial route is lent by a search that may still be running; only the route died, not the question.
+            if (search is not { Finished: false }) search = null;
             BehaviourCensus.Planned(replan: true);
         }
-        if (Path == null)
+        // A kept answer stops standing for the goal once the world changed where it read, or, for a proven absence, once
+        // the body is somewhere that search never explored — carried across a wall, the question is a new one.
+        if (spent != null && (!spent.Valid
+            || (spent.Stop == FreeSpaceSearch.StopReason.Exhausted && CornerGraph.NearestUsable(world, live.Centre, 2) is Point here && !spent.Reached.Contains(here))))
+            spent = null;
+        if (settledShort is Vector2 shortEnd && Vector2.Distance(live.Centre, shortEnd) > SettleRadius) settledShort = null;
+
+        if (Path == null || search is { Finished: false })
             Plan(live, goal, world);
 
         Controls controls;
-        if (Path != null)
+        if (Path != null && PathIsPartial && Vector2.Distance(live.Centre, Path.Goal) <= ArriveDistance)
         {
-            Status = search is { Finished: false } ? ExecutionStatus.Pending : ExecutionStatus.Executable;
+            // At the nearest place known: drift there while a search still runs, and once none does, let the next tick
+            // decide from here whether asking again has earned itself.
+            Vector2 end = Path.Goal;
+            Status = search is { Finished: false } ? ExecutionStatus.Pending : ExecutionStatus.Unreachable;
+            controls = Hover.Around(live, end, world);
+            Lookahead = end;
+            ProgressReason = "at-nearest-known-place";
+            if (search is not { Finished: false })
+            {
+                if (spent == null) settledShort = end;
+                Path = null;
+                PathIsPartial = false;
+                waitAnchor = end;
+            }
+        }
+        else if (Path != null)
+        {
+            Status = search is { Finished: false } ? ExecutionStatus.Pending
+                : PathIsPartial ? ExecutionStatus.Unreachable : ExecutionStatus.Executable;
             controls = SteerAlongRoute.Steer(live, Path, OrbPace.MaxSpeed, OrbPace.SpeedChange, out Vector2 ahead);
             Lookahead = ahead;
-            ProgressReason = Status == ExecutionStatus.Pending ? "following-while-replanning" : "following";
+            ProgressReason = PathIsPartial ? "following-partial-route" : Status == ExecutionStatus.Pending ? "following-while-replanning" : "following";
         }
         else if (CircleContact.SweptClear(world, live.Centre, goal, OrbTerrain.Wall))
         {
@@ -181,7 +233,8 @@ public sealed class Navigator
             waitAnchor ??= live.Centre;
             controls = Hover.Around(live, waitAnchor.Value, world);
             Lookahead = live.Centre;
-            ProgressReason = Status == ExecutionStatus.Pending ? "waiting-for-route" : "no-route";
+            ProgressReason = Status == ExecutionStatus.Pending ? "waiting-for-route"
+                : settledShort != null ? "as-close-as-it-can-get" : "no-route";
         }
         if (Status is not (ExecutionStatus.Pending or ExecutionStatus.Unreachable)) waitAnchor = null;
         WatchProgress(live);
@@ -191,40 +244,67 @@ public sealed class Navigator
     private void Plan(OrbState live, Vector2 goal, ITileWorld world)
     {
         var clock = System.Diagnostics.Stopwatch.StartNew();
-        PlannedThisTick = true;
         LastPlanFailed = LastPlanEmpty = false;
         if (search == null || !search.Valid)
         {
+            search = null;
+            if (settledShort != null)
+            {
+                LastPlanMs = clock.Elapsed.TotalMilliseconds;
+                return;
+            }
+            if (spent != null)
+            {
+                // The last search already answered this goal from about here. A proven absence is kept while the body
+                // stays inside what it explored; a node limit is asked again only once the partial route it lent has
+                // brought the body materially nearer, since from the same place it would stop at the same limit.
+                bool earned = spent.Stop != FreeSpaceSearch.StopReason.Exhausted && Path == null
+                    && Vector2.Distance(live.Centre, goal) <= spentFromDistance - Weights.ObjectiveProgressPixels;
+                if (!earned)
+                {
+                    LastPlanFailed = LastPlanEmpty = true;
+                    LastSearchStop = spent.Stop;
+                    LastExpansions = spent.Expansions;
+                    LastPlanMs = clock.Elapsed.TotalMilliseconds;
+                    return;
+                }
+                spent = null;
+            }
+            PlannedThisTick = true;
             Point? start = CornerGraph.NearestUsable(world, live.Centre, 2);
-            Point? end = CornerGraph.NearestUsable(world, goal, 2, requireSweep: false);
+            // A goal with no free corner beside it — a follow anchor projected into the rock under a floor — is planned to
+            // the free corner nearest it, so the body goes as close as it can instead of asking about a wall every tick.
+            Point? end = CornerGraph.NearestUsable(world, goal, 2, requireSweep: false)
+                ?? CornerGraph.NearestUsable(world, goal, Weights.RouteGoalCornerTiles, requireSweep: false);
             if (start == null || end == null)
             {
-                // Inside something, in a liquid that is a wall, or aiming at one: nothing to plan over.
-                // The direct steer or a hold answers this tick, and next tick asks again.
+                // Inside something, in a liquid that is a wall, or aiming at a goal buried deeper than the corner search
+                // looks: nothing to plan over. The direct steer or a hover answers this tick, and next tick asks again.
                 LastPlanFailed = true;
                 LastSearchStop = FreeSpaceSearch.StopReason.Exhausted;
                 LastExpansions = 0;
                 LastPlanMs = clock.Elapsed.TotalMilliseconds;
-                search = null;
                 if (start == null) ProgressReason = "no-corner-under-body";
                 return;
             }
             search = new FreeSpaceSearch(world, start.Value, end.Value) { Avoid = Avoid };
+            searchFromDistance = Vector2.Distance(live.Centre, goal);
             SearchId++;
             BehaviourCensus.Planned(replan: false);
         }
+        PlannedThisTick = true;
         bool finished = search.Advance(Weights.RouteSearchExpansions, PlanMsBudget);
         LastSearchStop = search.Stop;
         LastExpansions = search.Expansions;
         if (finished && search.Stop == FreeSpaceSearch.StopReason.Found)
         {
-            var corners = search.RouteCorners()!;
-            var raw = new List<Vector2>(corners.Count + 2) { live.Centre };
-            foreach (Point corner in corners) raw.Add(CornerGraph.ToWorld(corner));
-            // The goal itself is the last point when the body can slide to it from the last corner;
-            // otherwise the route ends at the corner and the goal drifts within arrival distance.
-            if (CircleContact.SweptClear(world, raw[^1], goal, OrbTerrain.Wall)) raw.Add(goal);
+            var raw = Joined(live, search.RouteCorners()!, world);
+            // The goal itself is the last point when the body can slide to it from the last corner; otherwise the route
+            // ends at that corner, which is the nearest free place to a goal inside rock or a goal just behind a thin wall.
+            bool reachesGoal = CircleContact.SweptClear(world, raw[^1], goal, OrbTerrain.Wall);
+            if (reachesGoal) raw.Add(goal);
             Path = new Route(Route.Smooth(world, raw), SearchId, world.Revision, OrbTerrain.Immunity);
+            PathIsPartial = !reachesGoal;
             search = null;
         }
         else if (finished)
@@ -233,13 +313,69 @@ public sealed class Navigator
             LastPlanFailed = true;
             BehaviourCensus.PlanFailed();
             PlanFailed?.Invoke(live.Tile, MovementQueries.Tile(goal), null, search.Expansions, search.Stop.ToString());
+            // A proven absence is published through GoalProvenUnreachable, which the brain bans a spot on; a node limit is
+            // not, because it proves nothing and the partial route is still making progress. Neither touches the stuck
+            // strikes, which count windows without progress and mean exactly that to the route-endings fixture.
+            spent = search;
+            spentFromDistance = searchFromDistance;
+            if (search.Stop == FreeSpaceSearch.StopReason.Exhausted)
+            {
+                Path = null;
+                PathIsPartial = false;
+            }
+            else if (Path == null)
+            {
+                TakePartialRoute(live, goal, world, search);
+            }
             search = null;
         }
         else
         {
             BehaviourCensus.PlanPending();
+            if (Path == null || (PathIsPartial && Vector2.Distance(live.Centre, Path.Goal) <= SettleRadius))
+                TakePartialRoute(live, goal, world, search);
         }
         LastPlanMs = clock.Elapsed.TotalMilliseconds;
+    }
+
+    /// <summary>
+    /// A route to the nearest place <paramref name="from"/> has reached, when that place is materially nearer the goal than
+    /// the body already is and the straight line to the goal is not clear, which the direct steer answers better.
+    /// </summary>
+    private void TakePartialRoute(OrbState live, Vector2 goal, ITileWorld world, FreeSpaceSearch from)
+    {
+        if (from.Closest is not Point nearest) return;
+        if (Vector2.Distance(CornerGraph.ToWorld(nearest), goal) > Vector2.Distance(live.Centre, goal) - Weights.ObjectiveProgressPixels) return;
+        if (CircleContact.SweptClear(world, live.Centre, goal, OrbTerrain.Wall)) return;
+        Path = new Route(Route.Smooth(world, Joined(live, from.PathTo(nearest), world)), SearchId, world.Revision, OrbTerrain.Immunity);
+        PathIsPartial = true;
+        settledShort = null;
+    }
+
+    /// <summary>The body's centre, then the corners from the one nearest the body that it can fly straight to, so a route a
+    /// search began somewhere else does not send the body back to where the search started.</summary>
+    private static List<Vector2> Joined(OrbState live, List<Point> corners, ITileWorld world)
+    {
+        int from = 0;
+        float best = JoinPixels * JoinPixels;
+        for (int i = 0; i < corners.Count; i++)
+        {
+            Vector2 at = CornerGraph.ToWorld(corners[i]);
+            float d = Vector2.DistanceSquared(live.Centre, at);
+            if (d < best && CircleContact.SweptClear(world, live.Centre, at, OrbTerrain.Wall)) { best = d; from = i; }
+        }
+        var raw = new List<Vector2>(corners.Count - from + 2) { live.Centre };
+        for (int i = from; i < corners.Count; i++) raw.Add(CornerGraph.ToWorld(corners[i]));
+        return raw;
+    }
+
+    private void DropRoute()
+    {
+        Path = null;
+        PathIsPartial = false;
+        search = null;
+        spent = null;
+        settledShort = null;
     }
 
     private static bool SegmentAheadClear(ITileWorld world, OrbState live, Route route)
@@ -264,6 +400,7 @@ public sealed class Navigator
         StuckStrikes++;
         ProgressReason = "no-progress";
         Path = null;
+        PathIsPartial = false;
         search = null;
     }
 
@@ -273,11 +410,10 @@ public sealed class Navigator
     public void Interrupt(OrbState live, AttemptEnding ending = AttemptEnding.Cancelled, string cause = "released")
     {
         waitAnchor = null;
-        if (Goal == null && Path == null && search == null) return;
+        if (Goal == null && Path == null && search == null && spent == null) return;
         if (attemptOpen && !Arrived) EndAttempt(ending);
         Goal = null;
-        Path = null;
-        search = null;
+        DropRoute();
         Arrived = false;
         Status = ExecutionStatus.Idle;
         ProgressReason = cause;
@@ -299,7 +435,7 @@ public sealed class Navigator
 
     public void Clear()
     {
-        Goal = null; Path = null; search = null; Arrived = false; attemptOpen = false; waitAnchor = null;
+        Goal = null; DropRoute(); Arrived = false; attemptOpen = false; waitAnchor = null;
         Status = ExecutionStatus.Idle; ProgressReason = "idle"; StuckStrikes = 0; StuckTicks = 0;
     }
 }

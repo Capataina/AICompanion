@@ -56,8 +56,10 @@ internal static class VerifyAnchorsAndEvade
     }
 
     /// <summary>
-    /// Two chambers either side of a thick wall, and the goal a one-tile hollow inside the wall that no orb fits, so the goal
-    /// is unreachable from both chambers and the navigator waits in whichever the body is in.
+    /// Two chambers either side of a thick wall, and the goals two corners of a sealed pocket inside the wall, so each goal
+    /// is proven unreachable from both chambers and the navigator waits in whichever the body is in. The goals were a
+    /// one-tile hollow no orb fits until 15 September 2026; the navigator now plans a goal with no free corner beside it
+    /// to the free corner nearest it, which made the hollow a place to fly to rather than an absence to wait on.
     /// </summary>
     private static int AStaleWaitAnchorNeverPullsTheBodyBack()
     {
@@ -70,15 +72,16 @@ internal static class VerifyAnchorsAndEvade
             {
                 bool border = y == 0 || y == height - 1 || x == 0 || x == width - 1;
                 bool wall = x is >= 26 and <= 33;
-                bool hollow = (x == 29 && y == 5) || (x == 30 && y == 2);
-                row[x] = border || (wall && !hollow) ? '#' : '.';
+                bool pocket = x is >= 28 and <= 31 && y is >= 3 and <= 6;
+                row[x] = border || (wall && !pocket) ? '#' : '.';
             }
             rows.Add(new string(row));
         }
         var world = new TextTileWorld(0, 0, rows);
         Plug(world);
 
-        Vector2 firstGoal = new(29 * 16 + 8, 5 * 16 + 8), secondGoal = new(30 * 16 + 8, 2 * 16 + 8);
+        // Two corners of the pocket, 32 px apart, so the second is a new goal rather than a drift of the first.
+        Vector2 firstGoal = new(29 * 16, 5 * 16), secondGoal = new(31 * 16, 5 * 16);
         var navigator = new Navigator();
         Vector2 centre = new(10 * 16 + 8, 6 * 16), velocity = Vector2.Zero;
         int failures = 0;

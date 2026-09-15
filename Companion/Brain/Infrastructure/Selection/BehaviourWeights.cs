@@ -86,6 +86,11 @@ public static class Weights
     // How many corners a route search may close per tick; a search that runs out keeps its
     // frontier and continues next tick while the body follows what it already had.
     public const int RouteSearchExpansions = 2500;
+    // How far from a goal, in tiles, the navigator looks for a free corner to plan to when none is within two. A follow
+    // anchor is a point the player's heading projects, and on 15 September 2026 it sat 256 px inside the rock under the
+    // floor he was walking on; the planner found no corner within two tiles and the orb hovered in open air. Sixteen
+    // covers that anchor's depth; a goal further into rock than this is still not planned to.
+    public const int RouteGoalCornerTiles = 16;
     // How far a goal may drift before its route is thrown away and planned afresh: a following
     // anchor moves every tick, and a route re-aimed at a nearby goal is the same route.
     public const float ReplanGoalPixels = 24f;

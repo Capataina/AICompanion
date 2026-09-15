@@ -104,6 +104,15 @@ public sealed class FreeSpaceSearch
     /// <summary>The corner a predicate goal accepted, once one has.</summary>
     public Point? FoundCorner { get; private set; }
 
+    /// <summary>
+    /// The closed corner nearest the goal so far by the straight line the heuristic measures, or null for a search with no
+    /// goal. It is Recast/Detour's <c>lastBestNode</c>: a route search that has not reached its goal, or never will, still
+    /// knows the nearest place it has proven the body can get to, and a route to that place is the partial result the body
+    /// flies while the rest of the question is still being asked.
+    /// </summary>
+    public Point? Closest { get; private set; }
+    private float closestDistance = float.PositiveInfinity;
+
     /// <summary>The corners closed so far; for the flood this is the reachable region.</summary>
     public IReadOnlySet<Point> Reached => closed;
 
@@ -191,6 +200,7 @@ public sealed class FreeSpaceSearch
             closed.Add(node);
             Expansions++;
             spent++;
+            if (Goal != null && Heuristic(node) is float toGoal && toGoal < closestDistance) { closestDistance = toGoal; Closest = node; }
             if (Goal is Point goal && node == goal) return Finish(StopReason.Found);
             if (Accept != null && Accept(node)) { FoundCorner = node; return Finish(StopReason.Found); }
             float here = cost[node];
