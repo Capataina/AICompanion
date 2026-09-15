@@ -148,7 +148,10 @@ public sealed class ItemWeapon : CompanionWeapon
         return Math.Max(0, (int)(perHit + 5E-06f));
     }
 
-    private float Knockback => Item.knockBack + (ammo?.knockBack ?? 0f);
+    /// <summary>The item's knockback plus its free ammo's, which is what <c>Player.PickAmmo</c> hands a shot and the swing passes the strike.</summary>
+    public override float Knockback => Item.knockBack + (ammo?.knockBack ?? 0f);
+
+    public override bool PushesAwayFromOwner => WeaponEffects.PushesAwayFromOwner(ProjectileType);
 
     public override bool InReach(Vector2 muzzle, NPC target)
         => IsSwing ? NearestDistance(muzzle, target.Hitbox) <= SwingReach
@@ -226,7 +229,15 @@ public sealed class ItemWeapon : CompanionWeapon
             NPC? npc = threat.Npc;
             if (npc == null || !npc.active || npc.life <= 0 || !npc.CanBeChasedBy() || !InSwing(muzzle, aim, npc))
                 continue;
+            // A swing passes through no NPC hit hook, so what it did is observed here around its own strike. The life it
+            // took is what the game dealt while the body lives; a killing strike's is capped at the life that was left and
+            // says nothing true about the damage, so it is not taught.
+            Vector2 before = npc.velocity;
+            int lifeBefore = npc.life;
             ctx.Player.ApplyDamageToNPC(npc, damage, Knockback, direction, crit: false, DamageClass.Melee);
+            int dealt = lifeBefore - npc.life;
+            if (dealt > 0 && npc.life > 0)
+                WeaponEffects.ObserveHit(Item.type, npc, before, npc.velocity, Knockback, direction, damage, dealt, crit: false);
             struck++;
         }
         return new FireResult(-1, struck);

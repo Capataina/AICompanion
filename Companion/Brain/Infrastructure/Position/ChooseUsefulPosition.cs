@@ -868,10 +868,38 @@ public sealed class Positioner
             // clear-way test, so the only thing pulling the body anywhere was a band measured to
             // the player and the threats are on the player: every guard spot worth having was
             // inside the melee. It now scores the same two factors the line-of-fire request does.
-            RequestKind.Guard => Consideration.Band(toPlayer, Weights.GuardBandNear, Weights.GuardBandFar, 260f) * sight * fire * (1f - 0.7f * danger) * open * StandoffFromTarget(spot, request.Target, reach) * ClearWayTo(spot, senses, request.Target),
-            RequestKind.LineOfFire => fire * Consideration.AtLeast(band, 0.3f) * (1f - 0.7f * danger) * open * StandoffFromTarget(spot, request.Target, reach) * ClearWayTo(spot, senses, request.Target),
+            RequestKind.Guard => Consideration.Band(toPlayer, Weights.GuardBandNear, Weights.GuardBandFar, 260f) * sight * fire * (1f - 0.7f * danger) * open * StandoffFromTarget(spot, request.Target, reach) * ClearWayTo(spot, senses, request.Target) * KnockbackSideShare(spot, request.Target, senses),
+            RequestKind.LineOfFire => fire * Consideration.AtLeast(band, 0.3f) * (1f - 0.7f * danger) * open * StandoffFromTarget(spot, request.Target, reach) * ClearWayTo(spot, senses, request.Target) * KnockbackSideShare(spot, request.Target, senses),
             _ => 0f,
         };
+    }
+
+    /// <summary>
+    /// The share of its score a firing spot keeps for where its shot would push the target. The game pushes a hit along the
+    /// flight or the swing, so a shot from one horizontal side of the target carries it toward the other side; a spot whose
+    /// push carries the target toward the player, or toward the spot itself, keeps less, scaled by how far the arsenal's
+    /// chosen weapon is expected to push this enemy, and a weapon that pushes nothing keeps everything. Only the horizontal
+    /// side is read, because the push is horizontal and a spot above or below the player is on his side all the same.
+    ///
+    /// One rule covers both bodies without a case for either: a shot's push points away from the spot it was fired from, so
+    /// for an ordinary weapon only the player can be pushed into and the rule prefers his side; a weapon the game pushes
+    /// away from its owner, the player, can never push into him, so the same rule prefers his side because the far side is
+    /// where the push comes back at the orb. A floor rather than a veto, like every other factor here.
+    /// </summary>
+    public static float KnockbackSideShare(Vector2 spot, NPC? target, Senses.Senses senses)
+    {
+        if (target == null || senses.Companion?.ModNPC is not global::AICompanion.Companion.CharacterBody.CompanionNPC companion)
+            return 1f;
+        Player player = senses.PlayerEntity;
+        float push = companion.Arsenal.ExpectedPushFrom(spot, target, player);
+        if (push == 0f)
+            return 1f;
+        float strength = MathHelper.Clamp(MathF.Abs(push) / Weights.KnockbackSideFullPushPx, 0f, 1f);
+        float playerSide = player.Center.X - target.Center.X;
+        float spotSide = spot.X - target.Center.X;
+        bool intoPlayer = !player.dead && playerSide != 0f && MathF.Sign(push) == MathF.Sign(playerSide);
+        bool intoSpot = spotSide != 0f && MathF.Sign(push) == MathF.Sign(spotSide);
+        return intoPlayer || intoSpot ? 1f - strength * (1f - Weights.KnockbackSideFloor) : 1f;
     }
 
     /// <summary>

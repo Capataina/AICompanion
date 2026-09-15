@@ -20,6 +20,7 @@ if (args.Contains("--orb-contact")) return VerifyOrbContact.SizeRule() + VerifyO
 if (args.Contains("--free-space")) return VerifyFreeSpace.CorridorsAndLiquids() + VerifyFreeSpace.FloodFinishes() + VerifyFreeSpace.FloodBounded();
 if (args.Contains("--route-endings")) return VerifyRouteEndings.Run() == 0 ? 0 : 1;
 if (args.Contains("--attack-outcomes")) return VerifyAttackOutcomes.Run();
+if (args.Contains("--knockback")) return VerifyKnockbackAwareness.Run();
 if (args.Contains("--offer-validity")) return VerifyOfferValidity.Run();
 if (args.Contains("--capability")) return VerifyCapabilityRevision.Run() == 0 ? 0 : 1;
 if (args.Contains("--light-senses")) return VerifyLightAndReachSenses.Run() == 0 ? 0 : 1;

@@ -100,6 +100,10 @@ internal static class ResetProcessState
         BehaviourCensus.Reset();
         live::AICompanion.Companion.Brain.Infrastructure.Movement.BehaviourCensus.Reset();
 
+        // What the weapons have learned about each enemy scales every hit the arsenal scores, so a case that swung a sword
+        // at a zombie would otherwise hand the next case a damage ratio and a push it never observed.
+        live::AICompanion.Companion.Weapons.WeaponEffects.Reset();
+
         // The map before the search policy, because the policy plugs a fresh world wrapper over
         // whatever map is standing, and the wrapper has to wrap the empty one.
         RebuildTheMiniatureWorld();

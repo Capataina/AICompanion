@@ -37,6 +37,10 @@ public sealed class ThreatRecord
     public float EffectiveDamageToCompanion;
     public bool HasSightOnPlayer;
 
+    /// <summary>Whether it can see the companion, tested only where it can reach the companion and is close enough for
+    /// the answer to matter; false wherever the test was not paid for, which reads the threat as half as urgent.</summary>
+    public bool HasSightOnCompanion;
+
     /// <summary>0..1: how much this threat endangers the player right now.</summary>
     public float Urgency;
 
