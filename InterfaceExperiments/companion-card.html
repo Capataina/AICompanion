@@ -31,9 +31,11 @@
  *     Survival and Gathering, ten nodes each: a circle, a circle, then a
  *     split whose ranks alternate — diamond on the left and circle on the
  *     right, circle on the left and diamond on the right, two circles —
- *     meeting at a third diamond and ending on a circle. A diamond unlocks
- *     something and opens nothing; there are no trees inside diamonds. A
- *     shared circle sits between neighbouring lanes;
+ *     meeting at a third diamond and ending on a circle. There are no trees
+ *     inside diamonds. A shared circle sits between neighbouring lanes.
+ *     Every node is a flat bonus to a number the companion already reads,
+ *     never a new thing it can do or choose; a circle that levels has five
+ *     levels, a diamond three, a weapon slot one;
  *   - the Mastery page is simple by the owner's ruling: with nothing picked
  *     the tree fills the page, centred; picking a node opens a panel on the
  *     right with its name and what it does, and Learn and a level bar in the
@@ -671,71 +673,78 @@ function drawGear() {
 // ---------------------------------------------------------------- mastery: content
 // One flat tree. Every lane is ten roles: [trunk, fork, left diamond, right circle, left circle,
 // right diamond, left circle, right circle, tip diamond, end circle], so the split's ranks alternate
-// diamond-circle then circle-diamond before two circles and the meeting diamond. A circle has ranks;
-// a diamond unlocks something once and opens nothing. Magnitudes are kept modest on purpose: a fully
-// learned lane is worth about one or two good accessories. Each node names what it was sized against,
-// or says nothing comparable was found rather than borrowing a number.
+// diamond-circle then circle-diamond before two circles and the meeting diamond.
+//
+// Every node is a flat bonus to a number something the companion already does reads, never a new thing it can do or
+// choose (the owner's ruling of 15 September 2026): a node that switched a capability on would have to be tested with
+// and without it after every later change, which is why the dash, the liquid immunities and every conditional bonus
+// such as "while at top speed" are off the tree, and the immunities are built in. A circle that levels has five
+// levels, a diamond that levels has three, and a weapon slot has one. Magnitudes stay modest: a fully learned lane is
+// worth about one or two good accessories. Each node names what it was sized against, or says nothing comparable was
+// found rather than borrowing a number.
 const S = (name, ranks, effect, desc, ref, needs) => ({name, ranks, effect, desc: desc || '', ref: ref || '', needs: needs || []});
-const A = (name, effect, desc, ref, needs) => ({name, ranks: 1, effect, desc: desc || '', ref: ref || '', needs: needs || []});
+const C = (name, effect, desc, ref, needs) => S(name, 5, effect, desc, ref, needs);  // a circle: five levels
+const D = (name, effect, desc, ref, needs) => S(name, 3, effect, desc, ref, needs);  // a diamond that levels: three
+const A = (name, effect, desc, ref, needs) => ({name, ranks: 1, effect, desc: desc || '', ref: ref || '', needs: needs || []});  // a one-level unlock
 const NO_REF = 'Nothing comparable in Terraria, Calamity or Thorium was found; the number is a first guess.';
 const SLOT_NOTE = 'It still fires one weapon at a time, choosing whichever suits the target, so a slot adds choice rather than a second stream of shots.';
 
 const LANES = [
   {name: 'Combat', color: 'rgb(237,132,146)', nodes: [
-    S('Damage', 3, '+3% damage per level', 'Every weapon it holds, the first slot included.', 'A Destroyer Emblem-class accessory gives a player 8–15%; a Wrath Potion 10%.'),
-    S('Attack speed', 3, '+3% attack speed per level', 'Every weapon fires or swings a little more often.', 'Thorium\'s Bard empowerment steps 3/6/9/12%; the Feral Claws line gives 12% melee speed.'),
+    C('Damage', '+2% damage per level', 'Every weapon it holds, the first slot included.', 'A Destroyer Emblem-class accessory gives a player 8–15%; a Wrath Potion 10%.'),
+    C('Attack speed', '+2% attack speed per level', 'Every weapon fires or swings a little more often, through the use time the weapons already read.', 'Thorium\'s Bard empowerment steps 3/6/9/12%; the Feral Claws line gives 12% melee speed.'),
     A('Second weapon slot', 'Opens the second weapon slot', SLOT_NOTE, 'Terraria never gives slots as a percentage: a Pygmy Necklace gives one more minion slot.'),
-    S('Piercing', 1, 'Its shots pass through one more enemy', 'A line of slimes takes one shot for two.', NO_REF),
-    S('Extra projectile', 1, 'Each shot fires one more projectile, at half damage', 'Crowds take more hits; a single target takes at most half as much again.', NO_REF),
+    C('Piercing', 'Shots pass through one more enemy, at 20% damage to it per level', 'A line of slimes takes one shot for two; the second hit grows to full damage at level 5.', NO_REF),
+    C('Extra projectile', 'One more projectile a fifth of the reload later, at 10% damage per level', 'Staggered by a fifth of the weapon\'s own reload so a bow\'s two arrows never overlap; half damage at level 5.', NO_REF),
     A('Third weapon slot', 'Opens the third weapon slot', SLOT_NOTE, 'Calamity\'s Statis\' Blessing gives two minion slots, and was cut down from three.', [2]),
-    S('Critical strike', 2, '+3% critical strike chance per level', 'More of its hits crit.', 'A Lucky reforge gives a player 4% per accessory.'),
-    S('Projectile speed', 2, '+10% projectile speed per level', 'Shots reach moving targets sooner, so fewer miss.', 'A Magic Quiver gives arrows 120% velocity, but velocity is that item\'s whole purpose.'),
+    C('Critical strike', '+1% critical strike chance per level', 'More of its hits crit.', 'A Lucky reforge gives a player 4% per accessory.'),
+    C('Projectile speed', '+4% projectile speed per level', 'Shots reach moving targets sooner, so fewer miss.', 'A Magic Quiver gives arrows 120% velocity, but velocity is that item\'s whole purpose.'),
     A('Fourth weapon slot', 'Opens the fourth weapon slot', SLOT_NOTE, 'Vanilla reaches eleven minion slots from one, always one or two at a time.', [2, 5]),
-    S('Damage', 2, '+4% damage per level', 'With the first Damage node, +17% in all: about one emblem.', 'A Destroyer Emblem-class accessory gives a player 8–15%.'),
+    C('Armour piercing', '+1 armour penetration per level', 'Its hits ignore a little of a tough enemy\'s defence.', 'A Shark Tooth Necklace gives a player 5 armour penetration.'),
   ]},
   {name: 'Movement', color: 'rgb(104,213,220)', nodes: [
-    S('Top speed', 3, '+3% top speed per level', 'It keeps up when you sprint.', 'An Aglet gives a player 5%, an Anklet of the Wind 10%.'),
-    S('Acceleration', 3, '+5% acceleration per level', 'It reaches top speed sooner.', 'Terraria does not publish acceleration as a percentage; the number is a first guess.'),
-    A('Dash', 'A short burst of about 10 tiles, every 4 seconds', 'It dashes when it needs to be somewhere fast or out of the way of a hit.', 'A Shield of Cthulhu dashes every 0.5 s; Calamity\'s Asgard\'s Valor covers 18 blocks.'),
-    S('Turning', 2, '+8% turn rate per level', 'Tighter curves around corners and shots.', NO_REF),
-    S('Dash cooldown', 2, 'The dash comes back 0.5 seconds sooner per level', 'Down to 3 seconds.', 'A Shield of Cthulhu waits 0.5 s and Master Ninja Gear 1 s, both for a player.'),
-    A('Slipstream', '+10% top speed while flying behind you as you move', 'Following you is easier than chasing you.', NO_REF),
-    S('Homing flight', 2, '+10% speed per level when flying back from far away', 'It rejoins you sooner after being left behind.', NO_REF),
-    S('Steady hull', 2, '−15% knockback taken per level', 'Hits shove it off course less.', 'Calamity\'s Asgard\'s Valor gives full knockback immunity in one item.'),
-    A('Afterburner', 'After 2 seconds without slowing, +10% top speed until it slows', 'Long trips go faster.', 'The Panic! buff gives a player 100% speed, but only briefly after a hit.'),
-    S('Top speed', 2, '+3% top speed per level', 'With the first Top speed node, +15% in all.', 'An Aglet gives a player 5%, an Anklet of the Wind 10%.'),
+    C('Top speed', '+2% top speed per level', 'It keeps up when you sprint.', 'An Aglet gives a player 5%, an Anklet of the Wind 10%.'),
+    C('Acceleration', '+3% acceleration per level', 'It reaches top speed and slows down sooner.', 'Terraria does not publish acceleration as a percentage; the number is a first guess.'),
+    D('Return flight', '+10% speed flying back to you from far away per level', 'Being left behind costs less time.', NO_REF),
+    C('Turning', '+3% turn rate per level', 'Tighter curves around corners and shots.', NO_REF),
+    C('Steady hull', '5% less knockback taken per level', 'Hits shove it off course less.', 'Calamity\'s Asgard\'s Valor gives full knockback immunity in one item.'),
+    D('Overdrive', '+4% top speed per level', 'A bigger step of the same speed, so a long trip takes less time.', 'An Anklet of the Wind gives a player 10%.'),
+    C('Return thrust', '+5% acceleration flying back to you per level', 'It gets up to speed sooner when it has to come home.', NO_REF),
+    C('Thrusters', '+2% acceleration and turn rate per level', 'Quicker to change direction.', NO_REF),
+    D('Anchor', '15% less knockback taken per level', 'With Steady hull, 70% less in all.', 'Calamity\'s Asgard\'s Valor gives full knockback immunity in one item.'),
+    C('Top speed', '+2% top speed per level', 'With the first Top speed node and Overdrive, +32% in all.', 'Hermes Boots and an Anklet of the Wind together give a player well past that.'),
   ]},
   {name: 'Survival', color: 'rgb(233,180,103)', nodes: [
-    S('Max life', 3, '+20 life per level', 'It survives longer in a fight.', 'A Life Crystal gives a player 20.'),
-    S('Plating', 3, '2% less damage taken per level', 'Every hit hurts a little less.', 'A Worm Scarf gives 17% and the Chlorophyte set 5%; Terraria keeps unconditional damage reduction small.'),
-    A('Waterproof', 'Flies through water and honey and takes no damage', 'Water stops being a wall to its routes.', 'Terraria goes from timed breathing to Neptune\'s Shell, which removes the limit for good.'),
-    S('Regeneration', 2, '+1 life per second per level', 'It heals between fights.', 'A Band of Regeneration gives a player 1 life per second.'),
-    S('Quick reboot', 3, 'Revives 5 seconds sooner per level', 'Less time without it after it goes down.', 'Nothing in Terraria shortens respawn: a player waits 10 s, or 15 s in Expert.'),
-    A('Magma core', 'Flies through lava and takes no damage', 'Lava stops being a wall to its routes.', 'A Lava Charm gives a player 7 seconds; Calamity\'s Void Striders give full immunity late in the game.'),
-    S('Last stand', 2, '5% less damage taken per level while below half life', 'Harder to finish off.', 'A Frozen Turtle Shell gives a player 25%, but only below half life.'),
-    S('Thick hull', 2, 'Debuffs on it wear off 20% faster per level', 'Poison and fire hold on to it less.', NO_REF),
-    A('Guardian link', '5% of the damage you take goes to the companion while it is within 25 tiles', 'It takes a small part of every hit for you.', 'A Paladin\'s Shield absorbs 25% of a teammate\'s damage within 50 tiles, at most once every 0.67 s.'),
-    S('Link share', 2, '+5% more of your damage per level', 'Stays under a Paladin\'s Shield even when full.', 'A Paladin\'s Shield absorbs 25%.'),
+    C('Max life', '+10 life per level', 'On top of the life it mirrors from you.', 'A Life Crystal gives a player 20.'),
+    C('Plating', '1% less damage taken per level', 'Every hit hurts a little less.', 'A Worm Scarf gives 17% and the Chlorophyte set 5%; Terraria keeps unconditional damage reduction small.'),
+    D('Guardian link', '5% of the damage you take goes to the companion per level', 'It takes part of every hit for you, wherever it is.', 'A Paladin\'s Shield absorbs 25% of a teammate\'s damage within 50 tiles, at most once every 0.67 s.'),
+    C('Regeneration', '+0.5 life per second per level', 'It heals between fights.', 'A Band of Regeneration gives a player 1 life per second.'),
+    C('Quick reboot', 'Revives 3 seconds sooner per level', 'From 20 seconds down to 5 at level 5.', 'Nothing in Terraria shortens respawn: a player waits 10 s, or 15 s in Expert.'),
+    D('Lifeline', '1% of the damage it deals heals you per level', 'Its fighting keeps you standing.', 'Vampire Knives heal a player from 7.5% of their own damage, capped per second.'),
+    C('Last stand', '3% less damage taken per level while below half life', 'Harder to finish off.', 'A Frozen Turtle Shell gives a player 25%, but only below half life.'),
+    C('Thick hull', 'Debuffs on it wear off 10% faster per level', 'Poison and fire hold on to it less.', NO_REF),
+    D('Emergency repair', 'Below 10% life it heals to full, once every 3, 2, then 1 minute', 'One big hit cannot take it out of a fight.', 'Like Calamity\'s revival accessories, but once a cooldown rather than once a life.'),
+    C('Toughness', '+2 defence per level', 'On top of the defence it mirrors from you.', 'A Cobalt Shield gives a player 1 defence; a Warrior emblem none.'),
   ]},
   {name: 'Gathering', color: 'rgb(109,201,178)', nodes: [
-    S('Mining speed', 3, '+5% mining speed per level', 'Ore comes out faster.', 'A Mining Potion and an Ancient Chisel each give a player 25%.'),
-    S('Chopping speed', 3, '+5% chopping speed per level', 'Trees come down faster.', 'Sized like mining speed.'),
-    A('Vein beam', 'Breaking an ore also breaks one touching tile of the same ore', 'Veins come out in fewer passes.', 'No Terraria item raises ore per tile; big tools break an area instead, like the Picksaw\'s 3×3.'),
-    S('Tool reach', 2, '+1 tile of tool reach per level', 'Works a tile from further away.', NO_REF),
-    S('Bag space', 2, '+10 bag slots per level', 'Carries more before you empty it.', NO_REF),
-    A('Tractor field', 'Pulls loot in from 6 tiles away', 'Fewer drops left behind.', 'A Treasure Magnet stretches a player\'s pickup range from about 2.6 to 12 tiles.'),
-    S('Flashlight reach', 2, '+10% flashlight reach per level', 'Lights dark places from further away.', 'No published light radius for the Mining Helmet or Shine Potion was found; the number is a first guess.'),
-    S('Pull range', 2, '+2 tiles of pull range per level', 'The tractor field reaches further.', 'A Treasure Magnet reaches 12 tiles.'),
-    A('Prospector\'s eye', 'Sees ore through walls within 15 tiles', 'It notices veins it would otherwise fly past.', 'Like a Spelunker Potion, for the companion.'),
-    S('Quick hands', 2, '+3% mining and chopping speed per level', 'With the first two nodes, +21% in all.', 'A Mining Potion gives a player 25%.'),
+    C('Mining speed', '+4% mining speed per level', 'Ore comes out faster.', 'A Mining Potion and an Ancient Chisel each give a player 25%.'),
+    C('Chopping speed', '+4% chopping speed per level', 'Trees come down faster.', 'Sized like mining speed.'),
+    D('Vein beam', 'Breaking an ore also breaks one more touching ore per level', 'Veins come out in fewer passes.', 'No Terraria item raises ore per tile; big tools break an area instead, like the Picksaw\'s 3×3.'),
+    C('Tool reach', '+1 tile of tool reach per level', 'Breaks ore and wood and places torches from further away.', 'A Toolbelt gives a player 1 tile; an Extendo Grip 3.'),
+    C('Lucky strike', '2% chance per level that an ore drops twice', 'Veins give a little more.', 'Calamity\'s and Thorium\'s double-drop effects sit around 5–10%.'),
+    D('Tractor field', 'Pulls loot in from 6 more tiles per level', 'Fewer drops left behind: 6, 12, then 18 tiles.', 'A Treasure Magnet stretches a player\'s pickup range from about 2.6 to 12 tiles.'),
+    C('Prospector\'s eye', 'Ore within 3 more tiles per level glows for you', 'You see the veins it is flying past.', 'A Spelunker Potion lights every ore on a player\'s screen.'),
+    C('Flashlight reach', '+10% flashlight reach per level', 'Lights dark places from further away.', 'No published light radius for the Mining Helmet or Shine Potion was found; the number is a first guess.'),
+    D('Bag space', '+15 bag slots per level', 'Carries more before you empty it.', NO_REF),
+    C('Quick hands', '+2% mining and chopping speed per level', 'With the first two nodes, +30% in all.', 'A Mining Potion gives a player 25%.'),
   ]},
 ];
 // A shared circle between each pair of neighbouring lanes, opened from either side.
 const JUNCTIONS = [
-  S('Strafe', 2, '+3% attack speed per level while flying at top speed', 'Shared by Combat and Movement.', NO_REF),
-  S('Evasive', 2, '+10% speed per level for 1 second after a hit misses it', 'Shared by Movement and Survival.', NO_REF),
-  S('Trap sense', 2, '20% less damage from traps per level', 'Shared by Survival and Gathering.', NO_REF),
-  S('Cutting beam', 1, 'Its mining beam deals 10 damage per second to enemies it crosses', 'Shared by Gathering and Combat.', NO_REF),
+  C('Impact', '+5% knockback dealt per level', 'Shared by Combat and Movement.', 'A Titan Glove gives a player 100% knockback.'),
+  C('Shock absorbers', '+0.1 seconds of invincibility after a hit per level', 'Shared by Movement and Survival.', 'A Cross Necklace gives a player 1 second.'),
+  C('Trap sense', '10% less damage from traps per level', 'Shared by Survival and Gathering.', NO_REF),
+  C('Scavenger', '3% more coins from enemies it kills per level', 'Shared by Gathering and Combat.', 'A Lucky Coin raises a player\'s coin drops.'),
 ];
 const COLORS = LANES.map(l => l.color);
 
@@ -880,7 +889,9 @@ function select(n) {
   $('#dname').textContent = n.def.name; $('#dname').style.color = COLORS[n.b];
   $('#deffect').textContent = n.def.effect;
   $('#learn').classList.toggle('off', !canLearn(n));
-  $('#levels').innerHTML = Array.from({length: n.def.ranks}, (_, i) => `<div class="seg${i < r ? ' on' : ''}">Level ${i + 1}</div>`).join('');
+  // "Level N" fits a segment up to three levels; five segments in the panel's width fit only the number
+  const label = i => n.def.ranks > 3 ? `${i + 1}` : `Level ${i + 1}`;
+  $('#levels').innerHTML = Array.from({length: n.def.ranks}, (_, i) => `<div class="seg${i < r ? ' on' : ''}">${label(i)}</div>`).join('');
 }
 function selectKey(key) { const n = nodeOfKey(key); if (n) select(n); }
 $('#learn').addEventListener('click', () => {
