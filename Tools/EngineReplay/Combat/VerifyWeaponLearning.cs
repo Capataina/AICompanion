@@ -598,6 +598,50 @@ internal static class VerifyWeaponLearning
     }
 
     /// <summary>
+    /// The push charge on a hit is weighted by the learned hit rate its damage is. The orb stands on the zombie's far side, so
+    /// the bow's push carries the zombie toward the player; the zombie has life enough that nothing is killed, and the threat's
+    /// urgency is held above the exploration ceiling so every forecast reads the posterior mean. Four values of the stand: the
+    /// untrained bow and the bow taught to land half its forecast, each against a zombie that ignores pushes and one that takes
+    /// them in full. Without a push nothing is charged, so the trained value over the untrained is the learned factor on the
+    /// damage, and the difference a push makes is the charge. Declared before the run: every value is positive, so no follow-up
+    /// was dropped for going negative, which would make the arithmetic nonlinear; the untrained charge is positive; and the
+    /// trained charge equals the untrained charge times the learned factor to within five percent.
+    /// </summary>
+    public static int APushIsChargedAtTheLearnedHitRate()
+    {
+        float Value(bool trained, float resist)
+        {
+            var scene = Scene(resist, new Vector2(96f, -8f), floating: false, (GearSlot.FirstWeapon, ItemID.WoodenBow));
+            scene.Enemy.lifeMax = scene.Enemy.life = 5000;
+            scene.Threats[0].Urgency = .9f;
+            Restate(scene.Companion, scene.Ctx.Player, scene.Threats);
+            L.Reset();
+            Arsenal arsenal = scene.Companion.Arsenal;
+            Vector2 stand = scene.Companion.NPC.Center;
+            if (trained)
+            {
+                float[] x = L.Context(Vector2.Distance(stand, scene.Enemy.Center), arsenal.Weapons[0].Reach, 0f, 0f, 0, 0f, OrbPace.MaxSpeed, debuffedByOther: false);
+                for (int i = 0; i < 40; i++) L.Observe(ItemID.WoodenBow, NPCID.Zombie, x, .5f);
+            }
+            Require(!Arsenal.Explore(scene.Ctx), "premise: the danger gate holds the forecast to the posterior mean");
+            return arsenal.BestShotValueFrom(scene.Ctx, stand, scene.Enemy);
+        }
+
+        float untrainedStill = Value(false, 0f), untrainedPushed = Value(false, 1f);
+        float trainedStill = Value(true, 0f), trainedPushed = Value(true, 1f);
+        float factor = trainedStill / untrainedStill;
+        float untrainedCharge = untrainedStill - untrainedPushed, trainedCharge = trainedStill - trainedPushed;
+        EmitLedgerRows.Detail(FormattableString.Invariant($"push charge: untrained value {untrainedStill:0.000} still, {untrainedPushed:0.000} pushed (charge {untrainedCharge:0.000}); trained value {trainedStill:0.000} still, {trainedPushed:0.000} pushed (charge {trainedCharge:0.000}); learned factor {factor:0.000}, charge ratio {trainedCharge / untrainedCharge:0.000}"));
+        Require(untrainedStill > 0f && untrainedPushed > 0f && trainedStill > 0f && trainedPushed > 0f,
+            $"premise: every value is positive; {untrainedStill} {untrainedPushed} {trainedStill} {trainedPushed}");
+        Require(untrainedCharge > 0f, $"premise: a push toward the player is charged; charge={untrainedCharge}");
+        Require(factor < .9f, $"premise: the bow learned it lands less than its forecast; factor={factor}");
+        Require(MathF.Abs(trainedCharge - factor * untrainedCharge) <= .05f * factor * untrainedCharge,
+            $"the push charge is weighted by the same learned factor as the damage; trained charge={trainedCharge}, untrained charge times factor={factor * untrainedCharge}");
+        return 0;
+    }
+
+    /// <summary>
     /// A shot whose target died to someone else before the shot could land teaches nothing about the weapon. Tested on the
     /// outcome windows directly, because the projectile hooks do not run headless: a window is opened against a zombie with a
     /// forecast landing twenty ticks later, and the zombie is taken out of the world in one of five ways. Declared before the

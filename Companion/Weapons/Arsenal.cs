@@ -486,7 +486,11 @@ public sealed class Arsenal
         bool debuffed = ShotOutcomes.DebuffedByOther(body, item);
         float now = AttackLearning.Factor(item, body.type, inputs.With(aim, debuffed), explore, tick);
         float ifDebuffed = debuffed ? now : AttackLearning.Factor(item, body.type, inputs.With(aim, true), explore, tick);
-        return new(body.whoAmI, perHit * now, danger, perHit * ifDebuffed, chance, ticks);
+        // The push is charged at the share of the forecast the weapon has been seen to land, the same factor its damage takes,
+        // so a weapon learned to miss is not charged for pushes it will not deliver. The factor is capped at one for the
+        // charge because what lands beyond the forecast is damage — a child projectile, a debuff paying off — and each
+        // hit's push is already learned per hit by the weapon-effects table.
+        return new(body.whoAmI, perHit * now, danger * MathF.Min(1f, now), perHit * ifDebuffed, chance, ticks);
     }
 
     /// <summary>
