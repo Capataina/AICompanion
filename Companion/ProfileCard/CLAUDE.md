@@ -9,7 +9,7 @@ ProfileCard/
 ├─ ControlWorkPreferences.cs      the three work controls on the strip's right: an item icon beside a joined segment control each
 ├─ DrawJoinedSegments.cs          the joined segment control, as a chooser and as a display
 ├─ DrawDronePortrait.cs           the drone as sixteen art pixels drawn from code
-├─ DrawCardPrimitives.cs          panel colours, hard-shadow text, lines, buttons, and the rounded-shape masks the notch shares
+├─ DrawCardPrimitives.cs          panel colours, hard-shadow text and its glyph count, wrapped text, lines, the card button, number labels, and the rounded-shape masks the notch shares
 ├─ ShowMiningList.cs              the Mining list page: known ores bright or dim, the hovered ore's wall look, Skip marked and Only marked
 ├─ DefineMasteryGraph.cs          the flat mastery tree: the lane template, the mock's node list as data with its per-level lines and costs, Core, edges, labels and the learning rule
 ├─ PreviewMasteryTree.cs          the Mastery page: the tree, a panel only while a node is picked, Learn naming the next cost, and the level bar
@@ -70,7 +70,17 @@ MagicPixel is an atlas. Lines and fills select a one-pixel source rectangle; str
 
 The rounded shapes are runtime-built textures in `DrawCardPrimitives`, shared with the HUD notch, and **no texture is ever keyed by a shape's width or height.** A rounded rectangle's anti-aliasing lives only in its four radius-sized corners, so `RoundedFill` draws one quadrant mask per radius, flipped into each rounded corner, around solid bands; the notch's fillets are keyed by their side and radius. A cache keyed by pixel size uploaded a new texture mid-draw for every fill width a bar reached and kept it until unload, which the render fixture now fails. The card system releases the cache at unload through `Main.QueueMainThreadAction`, because mod unload runs on a worker thread and FNA3D refuses to dispose a texture there.
 
-`UITextPanel`'s constructor measures its text through the game's font, so constructing any page (every one has buttons) needs fonts loaded; a check that must run without graphics tests the graph's rules, not a page.
+A page's construction measures text through the game's font, so constructing any page needs fonts loaded; a check that must run without graphics tests the graph's rules, not a page.
+
+## A page sitting open allocates nothing of its own
+
+The card draws every frame it is open, so anything a frame builds is garbage for as long as the player looks at it. Five rules keep a frame free of the card's own allocation, and the render fixture measures each page against them:
+
+- **Every piece of text goes through `DrawCardPrimitives.Text`**, which counts the glyphs it hands the game's font. The font itself allocates a fixed amount per glyph, because `ReLogic.Graphics.DynamicSpriteFont.InternalDraw` boxes two enums for every glyph through `Enum.HasFlag`; that cost is the game's, it disappears once the runtime recompiles that method at full optimisation, and the count is how the fixture tells it from the card's.
+- **A button is `CardButton`, a `UIPanel` carrying its own label, never a `UITextPanel`.** A `UITextPanel` draws its label through `Utils.DrawBorderString` on every frame whatever colour it is given, and that parses the label into chat snippets, tens of kilobytes a frame for a short label; the old button made that text transparent and drew its own on top.
+- **A reading built from numbers is a `NumberLabel`** with a `static` format lambda, so its string is rebuilt when a number changes rather than every frame; the tiles, the identity strip, the bag's count line and Learn all use one. Counts a tile shows are loops, never LINQ.
+- **No per-frame method declares a lambda that captures a local**, even on a branch that rarely runs: C# creates the closure where the captured variables come into scope, so the Mastery panel's `Refresh`, which returns early on almost every frame, allocated on every frame until its level-bar rebuild moved into a method of its own. Wrapped text is cached per text, width, scale and line count in `DrawCardPrimitives.WrappedText`.
+- **What cannot show is not drawn.** A bag slot wholly outside the grid's scrolled viewport, and a tree edge, node or label wholly outside the canvas, is skipped rather than drawn under a clip; zoomed in, the tree used to draw every node span by span at a cost that grew with the square of the zoom. `CompanionBagUI.SlotsDrawn` and `PreviewMasteryTree.NodesDrawn` report what the last frame drew.
 
 ## Verification
 

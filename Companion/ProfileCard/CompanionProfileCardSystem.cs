@@ -122,8 +122,8 @@ public sealed class CompanionProfileCardSystem : ModSystem
         private UIPanel frame = null!;
         private UIElement titleBar = null!, footer = null!, content = null!;
         private DrawCompanionStatus identity = null!;
-        private UITextPanel<string> back = null!, close = null!;
-        private readonly List<(UITextPanel<string> Button, CardAction Action)> actions = new();
+        private CardButton back = null!, close = null!;
+        private readonly List<(CardButton Button, CardAction Action)> actions = new();
         private readonly PreviewMasteryTree mastery = new();
         private UIElement? pageElement;
         private CardPage page = CardPage.Overview;
@@ -336,19 +336,24 @@ public sealed class CompanionProfileCardSystem : ModSystem
                 DrawCardPrimitives.Text(sb, name, new Vector2(r.X + 10, r.Y + 23), Color.White, .85f);
             }
 
+            /// <summary>One label per tile, rebuilt only when its numbers change, because a tile draws its reading on every frame.</summary>
+            private static readonly NumberLabel bagCount = new(), pointsSpent = new(), oresMined = new();
+
             private static (float Fill, string Count, Color Colour, string Name) Reading(CompanionProfileCard card, CardPage target)
             {
                 switch (target)
                 {
                     case CardPage.Inventory:
-                        var bag = Main.LocalPlayer.GetModPlayer<CompanionPlayer>().Bag;
-                        return (bag.Count / (float)CompanionInventory.Slots, $"{bag.Count}/{CompanionInventory.Slots}", Green, "Inventory");
+                        int held = Main.LocalPlayer.GetModPlayer<CompanionPlayer>().Bag.Count;
+                        return (held / (float)CompanionInventory.Slots, bagCount.Of(held, CompanionInventory.Slots, static (n, total) => $"{n}/{total}"), Green, "Inventory");
                     case CardPage.Mastery:
-                        return (card.mastery.LearnedCount / (float)DefineMasteryGraph.Nodes.Length, $"{card.mastery.Spent} pts", Color.Gold, "Mastery");
+                        return (card.mastery.LearnedCount / (float)DefineMasteryGraph.Nodes.Length, pointsSpent.Of(card.mastery.Spent, 0, static (spent, _) => $"{spent} pts"), Color.Gold, "Mastery");
                     default:
                         var list = CompanionPreferences.Current.MiningList;
-                        int known = list.Known.Count, mined = list.Known.Count(list.Allows);
-                        return (known == 0 ? 0 : mined / (float)known, $"{mined}/{known}", Color.Gold, "Mining list");
+                        int known = list.Known.Count, mined = 0;
+                        for (int i = 0; i < known; i++)
+                            if (list.Allows(list.Known[i])) mined++;
+                        return (known == 0 ? 0 : mined / (float)known, oresMined.Of(mined, known, static (m, k) => $"{m}/{k}"), Color.Gold, "Mining list");
                 }
             }
         }

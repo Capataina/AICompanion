@@ -53,26 +53,45 @@ public sealed class PreviewMasteryTree : UIElement, ICardPage
     public float Zoom => zoom;
     public Vector2 Origin => origin;
     public int Level(int node) => levels[node];
-    /// <summary>How many of the tree's nodes have a level, Core not counted, for the tile's fill.</summary>
-    public int LearnedCount => levels.Take(Nodes.Length).Count(level => level > 0);
-    /// <summary>The points every learned level cost, Core's included, for the tile's reading.</summary>
-    public int Spent => Enumerable.Range(0, levels.Length).Sum(node => ContentOf(node).PointsIn(levels[node]));
-    /// <summary>What Learn says: the next level's cost, or Learned once the node is full.</summary>
-    public string LearnLabel
+    /// <summary>How many of the tree's nodes have a level, Core not counted, for the tile's fill; a loop, because the tile asks every frame.</summary>
+    public int LearnedCount
     {
         get
         {
-            if (picked < 0) return "Learn";
-            NodeContent content = ContentOf(picked);
-            if (levels[picked] >= content.Levels) return "Learned";
-            int cost = content.CostOf(levels[picked] + 1);
-            return $"Learn · {cost} point{(cost == 1 ? "" : "s")}";
+            int learned = 0;
+            for (int node = 0; node < Nodes.Length; node++)
+                if (levels[node] > 0) learned++;
+            return learned;
         }
     }
+    /// <summary>The points every learned level cost, Core's included, for the tile's reading; a loop, because the tile asks every frame.</summary>
+    public int Spent
+    {
+        get
+        {
+            int spent = 0;
+            for (int node = 0; node < levels.Length; node++) spent += ContentOf(node).PointsIn(levels[node]);
+            return spent;
+        }
+    }
+    /// <summary>What Learn says: the next level's cost, or Learned once the node is full; the panel asks every frame, so the words are kept per node and level.</summary>
+    public string LearnLabel => picked < 0 ? "Learn" : learnLabel.Of(picked, levels[picked], static (node, level) => LearnLabelFor((int)node, (int)level));
+    private readonly NumberLabel learnLabel = new();
+
+    private static string LearnLabelFor(int node, int level)
+    {
+        NodeContent content = ContentOf(node);
+        if (level >= content.Levels) return "Learned";
+        int cost = content.CostOf(level + 1);
+        return $"Learn · {cost} point{(cost == 1 ? "" : "s")}";
+    }
+
+    /// <summary>How many tree nodes, the gold centre included, the last frame drew; a node whose shape lies wholly outside the canvas is not drawn.</summary>
+    public int NodesDrawn { get; private set; }
     public UIElement Canvas => canvas;
     public UIElement Panel => panel;
     public JoinedSegments? LevelBar => panel.LevelBar;
-    public UITextPanel<string> LearnButton => panel.Learn;
+    public CardButton LearnButton => panel.Learn;
     /// <summary>The effect line the panel draws now; the fixture reads the same method the drawing does.</summary>
     public string EffectLine => panel.EffectLine();
 
@@ -243,13 +262,24 @@ public sealed class PreviewMasteryTree : UIElement, ICardPage
     private static float Boundary(NodeKind kind, float radius, float angle)
         => kind == NodeKind.Diamond ? radius * MathF.Sqrt(2) / (MathF.Abs(MathF.Cos(angle)) + MathF.Abs(MathF.Sin(angle))) : radius;
 
+    /// <summary>
+    /// The tree at the current view, skipping what cannot show: an edge whose extent lies wholly outside the canvas, a node or
+    /// the centre whose shape does, and a label whose box does. Zoomed in, most of the tree is outside the canvas and was drawn
+    /// span by span under the canvas's clip for nothing, at a cost that grew with the square of the zoom.
+    /// </summary>
     private void DrawTree(SpriteBatch sb)
     {
         float r = NodeRadius * zoom;
+        CalculatedStyle view = canvas.GetDimensions();
+        float left = view.X, top = view.Y, right = view.X + view.Width, bottom = view.Y + view.Height;
+        // One pixel of slack, because a shape's spans are rounded outward to whole pixels.
+        bool Shows(float minX, float minY, float maxX, float maxY) => maxX + 1 >= left && minX - 1 <= right && maxY + 1 >= top && minY - 1 <= bottom;
+        NodesDrawn = 0;
         foreach (Edge edge in Edges)
         {
             Node to = Nodes[edge.To];
             Vector2 a = Screen(edge.From < 0 ? Vector2.Zero : Nodes[edge.From].Position), b = Screen(to.Position);
+            if (!Shows(MathF.Min(a.X, b.X), MathF.Min(a.Y, b.Y), MathF.Max(a.X, b.X), MathF.Max(a.Y, b.Y))) continue;
             float angle = (b - a).ToRotation();
             float fromBoundary = edge.From < 0 ? Boundary(NodeKind.Diamond, r, angle) : Boundary(Nodes[edge.From].Kind, r, angle);
             float toBoundary = Boundary(to.Kind, r, angle);
@@ -268,15 +298,26 @@ public sealed class PreviewMasteryTree : UIElement, ICardPage
                 : node.Kind == NodeKind.Shared ? Color.White * .12f : Color.Transparent;
             bool diamond = node.Kind == NodeKind.Diamond;
             Vector2 at = Screen(node.Position);
+            float extent = diamond ? r * MathF.Sqrt(2) : r;
+            if (!Shows(at.X - extent, at.Y - extent, at.X + extent, at.Y + extent)) continue;
+            NodesDrawn++;
             if (fill.A > 0) DrawShape(sb, at, r, float.MaxValue, diamond, fill * alpha);
             DrawShape(sb, at, r, Math.Max(1f, (i == picked ? 6f : 3.5f) * zoom), diamond, colour * alpha);
         }
-        DrawShape(sb, Screen(Vector2.Zero), r, float.MaxValue, true, Gold);
+        Vector2 centre = Screen(Vector2.Zero);
+        float centreExtent = r * MathF.Sqrt(2);
+        if (Shows(centre.X - centreExtent, centre.Y - centreExtent, centre.X + centreExtent, centre.Y + centreExtent))
+        {
+            NodesDrawn++;
+            DrawShape(sb, centre, r, float.MaxValue, true, Gold);
+        }
         float textScale = LabelHeight * zoom / FontAssets.MouseText.Value.MeasureString("A").Y;
         for (int lane = 0; lane < Lanes.Length; lane++)
         {
-            var (min, _) = LabelBox(lane);
-            DrawCardPrimitives.Text(sb, Labels[lane].Text, Screen(min), Colors[lane], textScale);
+            var (min, max) = LabelBox(lane);
+            Vector2 from = Screen(min), to = Screen(max);
+            if (!Shows(from.X, from.Y, to.X, to.Y)) continue;
+            DrawCardPrimitives.Text(sb, Labels[lane].Text, from, Colors[lane], textScale);
         }
     }
 
@@ -317,7 +358,7 @@ public sealed class PreviewMasteryTree : UIElement, ICardPage
     {
         private readonly PreviewMasteryTree owner;
         private int built = -2, builtLevel = -1;
-        public UITextPanel<string> Learn { get; }
+        public CardButton Learn { get; }
         public JoinedSegments? LevelBar { get; private set; }
 
         public DetailPanel(PreviewMasteryTree owner)
@@ -344,6 +385,16 @@ public sealed class PreviewMasteryTree : UIElement, ICardPage
             int node = owner.picked;
             int reached = node >= 0 ? owner.levels[node] : 0;
             if (built == node && (node != Core || builtLevel == reached)) return;
+            Rebuild(node, reached);
+        }
+
+        /// <summary>
+        /// The level bar rebuilt for a newly picked node, or for Core's new level. It is its own method because its lambdas
+        /// capture the node and the level count, and a closure is created where the captured variables come into scope: inside
+        /// <see cref="Refresh"/>, which runs every frame and nearly always returns before rebuilding, it allocated on every frame.
+        /// </summary>
+        private void Rebuild(int node, int reached)
+        {
             built = node; builtLevel = reached;
             LevelBar?.Remove();
             if (node < 0) { LevelBar = null; return; }

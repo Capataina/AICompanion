@@ -1,7 +1,6 @@
 #nullable enable
 using System;
 using System.Globalization;
-using System.Linq;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Terraria;
@@ -46,10 +45,16 @@ public sealed class DrawCompanionStatus : UIElement
     public static Rectangle Portrait(Rectangle strip) => new(strip.X + 2, strip.Y + 3, 66, 92);
 
     /// <summary>The three bars' boxes inside a strip: health, mana, experience.</summary>
-    public static Rectangle[] Bars(Rectangle strip)
-        => Enumerable.Range(0, 3).Select(i => new Rectangle(strip.X + (int)NameLeft, strip.Y + (int)(BarsTop + i * BarStep), (int)BarWidth, (int)BarHeight)).ToArray();
+    public static Rectangle[] Bars(Rectangle strip) => new[] { Bar(strip, 0), Bar(strip, 1), Bar(strip, 2) };
 
-    private static string Number(int value) => value.ToString("N0", CultureInfo.InvariantCulture);
+    /// <summary>One bar's box inside a strip, 0 health, 1 mana, 2 experience; the drawing asks for each, so a frame builds no array.</summary>
+    public static Rectangle Bar(Rectangle strip, int index)
+        => new(strip.X + (int)NameLeft, strip.Y + (int)(BarsTop + index * BarStep), (int)BarWidth, (int)BarHeight);
+
+    private static string Number(long value) => value.ToString("N0", CultureInfo.InvariantCulture);
+
+    /// <summary>The strip's readings, each rebuilt only when its numbers change, because the strip draws them on every frame.</summary>
+    private readonly NumberLabel level = new(), health = new(), reviving = new(), mana = new(), experience = new();
 
     protected override void DrawSelf(SpriteBatch sb)
     {
@@ -65,27 +70,42 @@ public sealed class DrawCompanionStatus : UIElement
         float nameWidth = FontAssets.MouseText.Value.MeasureString(name).X;
         DrawCardPrimitives.Text(sb, name, new Vector2(x, r.Y + 1), Color.White, 1f);
         if (companion != null)
-            DrawCardPrimitives.Text(sb, $"Level {save.Experience.Level}", new Vector2(x + nameWidth + 10, r.Y + 5), Gold, .8f);
+            DrawCardPrimitives.Text(sb, level.Of(save.Experience.Level, 0, static (n, _) => $"Level {n}"), new Vector2(x + nameWidth + 10, r.Y + 5), Gold, .8f);
 
-        Rectangle[] bars = Bars(r);
-        (float Fraction, string Reading, Color Fill)[] rows = companion == null
-            ? new[] { (0f, "", HealthFill), (0f, "", ManaFill), (0f, "", ExperienceFill) }
-            : new[]
-            {
-                // Downed, the health bar is grey and fills with revival, the same reading the notch gives.
-                companion.IsDowned
-                    ? (Math.Clamp(companion.RevivePercent / 100f, 0, 1), $"Reviving {companion.RevivePercent}%", DownedFill)
-                    : (Math.Clamp((float)companion.NPC.life / Math.Max(1, companion.NPC.lifeMax), 0, 1), $"{Number(companion.NPC.life)} / {Number(companion.NPC.lifeMax)} HP", HealthFill),
-                (companion.Mana.Fraction, $"{Number((int)MathF.Round(companion.Mana.Current))} / {Number(companion.Mana.Max)} MP", ManaFill),
-                (save.Experience.Fraction, $"{Number(save.Experience.IntoLevel)} / {Number(save.Experience.NeededNow)} XP", ExperienceFill),
-            };
         float textHeight = FontAssets.MouseText.Value.MeasureString("0").Y * ReadingScale;
         for (int i = 0; i < 3; i++)
         {
-            Rectangle bar = bars[i];
+            float fraction = 0;
+            string reading = "";
+            Color fill = i == 0 ? HealthFill : i == 1 ? ManaFill : ExperienceFill;
+            if (companion != null)
+            {
+                switch (i)
+                {
+                    // Downed, the health bar is grey and fills with revival, the same reading the notch gives.
+                    case 0 when companion.IsDowned:
+                        fraction = Math.Clamp(companion.RevivePercent / 100f, 0, 1);
+                        reading = reviving.Of(companion.RevivePercent, 0, static (percent, _) => $"Reviving {percent}%");
+                        fill = DownedFill;
+                        break;
+                    case 0:
+                        fraction = Math.Clamp((float)companion.NPC.life / Math.Max(1, companion.NPC.lifeMax), 0, 1);
+                        reading = health.Of(companion.NPC.life, companion.NPC.lifeMax, static (life, max) => $"{Number(life)} / {Number(max)} HP");
+                        break;
+                    case 1:
+                        fraction = companion.Mana.Fraction;
+                        reading = mana.Of((int)MathF.Round(companion.Mana.Current), companion.Mana.Max, static (current, max) => $"{Number(current)} / {Number(max)} MP");
+                        break;
+                    default:
+                        fraction = save.Experience.Fraction;
+                        reading = experience.Of(save.Experience.IntoLevel, save.Experience.NeededNow, static (into, needed) => $"{Number(into)} / {Number(needed)} XP");
+                        break;
+                }
+            }
+            Rectangle bar = Bar(r, i);
             DrawCardPrimitives.Fill(sb, bar, BarTrack);
-            DrawCardPrimitives.Fill(sb, bar with { Width = (int)(bar.Width * rows[i].Fraction) }, rows[i].Fill);
-            DrawCardPrimitives.Text(sb, rows[i].Reading, new Vector2(bar.Right + ReadingGap, bar.Center.Y - textHeight / 2 + 2), rows[i].Fill, ReadingScale);
+            DrawCardPrimitives.Fill(sb, bar with { Width = (int)(bar.Width * fraction) }, fill);
+            DrawCardPrimitives.Text(sb, reading, new Vector2(bar.Right + ReadingGap, bar.Center.Y - textHeight / 2 + 2), fill, ReadingScale);
         }
     }
 }

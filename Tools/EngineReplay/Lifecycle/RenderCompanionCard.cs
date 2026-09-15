@@ -3,6 +3,7 @@ using System.Reflection;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using ReLogic.Content;
+using ReLogic.Graphics;
 using Terraria;
 using Terraria.GameContent;
 using Terraria.GameContent.UI.Elements;
@@ -19,6 +20,7 @@ using Graph = live::AICompanion.Companion.ProfileCard.DefineMasteryGraph;
 using Bag = live::AICompanion.Companion.Inventory.CompanionBagUI;
 using Preferences = live::AICompanion.Companion.PlayerIntegration.CompanionPreferences;
 using Hud = live::AICompanion.Companion.HeadsUpDisplay.CompanionHealthBar;
+using CardButton = live::AICompanion.Companion.ProfileCard.CardButton;
 
 /// <summary>
 /// The companion card at one render viewport: every region measured against the mock's logical sizes, the 12px rhythm
@@ -110,6 +112,18 @@ internal static class RenderCompanionCard
             }
         }
 
+        // A page sitting open allocates nothing of the card's own: what a frame takes from the heap is the game font's fixed
+        // cost per glyph and nothing more. At the first viewport the sources are printed by element as well.
+        void Allocation(string page)
+        {
+            var (perFrame, glyphsPerFrame, perGlyph, ownPerFrame) = MeasureCardAllocation(graphics, batch, rasterizer, target, ui);
+            Console.WriteLine($"allocation {suffix} {page}: {perFrame} bytes per frame, {glyphsPerFrame} glyphs a frame at {perGlyph} bytes each through the game's font, {ownPerFrame} bytes per frame the card's own");
+            if (size == new Point(1280, 720)) Console.WriteLine($"allocation sources {suffix} {page}: {AllocationByElement(graphics, batch, rasterizer, target, ui, card)}");
+            Step($"allocation on the {page} page", () => Require(ownPerFrame <= OwnBytesPerFrameAllowed,
+                $"{suffix}: a frame on the {page} page allocates {ownPerFrame} bytes beyond the font's {perGlyph} per glyph ({perFrame} in all for {glyphsPerFrame} glyphs); the card's own drawing and update must allocate nothing per frame"));
+        }
+        if (size == new Point(1280, 720)) Console.WriteLine($"allocation floor {suffix}: {GameTextCost(graphics, batch, rasterizer, target)}");
+
         // ---- placement: centred under the docked notch, never closer to it than the clearance ----
         float notchBottom = Hud.Bounds(save).Bottom / scale;
         Rectangle frame = Rect(frameElement);
@@ -191,6 +205,7 @@ internal static class RenderCompanionCard
         Invoke(card, "ShowOverview");
         frame = Rect(frameElement);
         Render(graphics, batch, rasterizer, target, ui, size, output, $"Overview-{suffix}");
+        Allocation("Overview");
         if (scale == 1f) Step("overview pixels", () => OverviewPixels(target, size, identity, suffix));
         if (scale == 1f) Step("no back on the overview", () => NoBackPixels(target, size, frame, (UIElement)Field(card, "close"), suffix));
 
@@ -209,7 +224,7 @@ internal static class RenderCompanionCard
                 RequireActions(suffix, card, title, expected, "Inventory");
                 Expect(measures, "page content", Rect(content), Rect(frameElement), Inset, Inset + TitleHeight + Rhythm, InnerWidth, PageHeightAt(frameElement.GetDimensions().Y, view) - PageOverhead);
                 RequireRhythm(suffix, "title bar", Rect(title), "page content", Rect(content));
-                var back = (UITextPanel<string>)Field(card, "back");
+                var back = (CardButton)Field(card, "back");
                 Require(back.Parent == title && back.Text == "<", $"{suffix}: a page's title bar must carry the back button");
                 Expect(measures, "back", Rect(back), Rect(frameElement), Inset, Inset, 30, 30);
             });
@@ -228,9 +243,19 @@ internal static class RenderCompanionCard
                 finally { bag.Scrollbar.ViewPosition = 0; bag.Update(new GameTime()); }
                 RequireOnScreen(suffix, "Inventory", view, elements);
             });
+            Step("clipped bag slots are not drawn", () =>
+            {
+                DrawOnce(graphics, batch, rasterizer, target, ui);
+                Rectangle viewport = Rect(bag.Viewport);
+                int total = bag.Grid.Children.Count(), showing = bag.Grid.Children.Count(slot => Rect(slot).Intersects(viewport));
+                Console.WriteLine($"bag slots drawn {suffix}: {bag.SlotsDrawn} of {total}, the {showing} inside the grid's viewport at the top of the grid");
+                Require(showing < total, $"{suffix}: premise: some bag slots must lie outside the grid's viewport; all {total} are inside it");
+                Require(bag.SlotsDrawn == showing, $"{suffix}: a frame drew {bag.SlotsDrawn} bag slots where {showing} lie inside the grid's viewport; a slot clipped away entirely must not be drawn");
+            });
             Step("chest buttons", () => VerifyNativeCard.ChestButtons(card, bag));
             Step("page title bar drag guard", () => VerifyNativeCard.TitleBarDragGuard(card, frameElement, title, suffix, dragBar: false));
             Render(graphics, batch, rasterizer, target, ui, size, output, $"Inventory-{suffix}");
+            Allocation("Inventory");
         }
 
         Invoke(card, "Show", live::AICompanion.Companion.ProfileCard.CardPage.MiningList);
@@ -256,6 +281,7 @@ internal static class RenderCompanionCard
         });
         Step("mining list page", () => VerifyNativeCard.MiningList(card, mining));
         Render(graphics, batch, rasterizer, target, ui, size, output, $"MiningList-{suffix}");
+        Allocation("Mining list");
         if (scale == 1f) Step("mining list pixels", () => MiningPixels(target, size, mining, suffix));
 
         Invoke(card, "Show", live::AICompanion.Companion.ProfileCard.CardPage.Mastery);
@@ -269,7 +295,34 @@ internal static class RenderCompanionCard
         });
         Step("mastery unpicked", () => MasteryUnpicked(suffix, tree, pageContent));
         Render(graphics, batch, rasterizer, target, ui, size, output, $"Mastery-{suffix}");
+        Allocation("Mastery");
         if (scale == 1f) Step("zoom glyphs", () => ZoomGlyphPixels(target, size, title, suffix));
+        Step("off-canvas tree nodes are not drawn", () =>
+        {
+            CardButton Button(string label) => title.Children.OfType<CardButton>().Single(b => b.Text == label);
+            // Zoomed all the way in about the canvas's centre, most of the tree lies outside the canvas.
+            for (int i = 0; i < 12; i++) Button("+").LeftClick(new UIMouseEvent(Button("+"), Button("+").GetDimensions().Center()));
+            try
+            {
+                DrawOnce(graphics, batch, rasterizer, target, ui);
+                Rectangle canvas = Rect(tree.Canvas);
+                float radius = Graph.NodeRadius * tree.Zoom;
+                int inside = 0, touching = 0, shapes = Graph.Nodes.Length + 1;
+                for (int i = 0; i < shapes; i++)
+                {
+                    bool centre = i == Graph.Nodes.Length;
+                    Vector2 at = tree.Screen(centre ? Vector2.Zero : Graph.Nodes[i].Position);
+                    float extent = centre || Graph.Nodes[i].Kind == Graph.NodeKind.Diamond ? radius * MathF.Sqrt(2) : radius;
+                    if (at.X - extent >= canvas.Left && at.X + extent <= canvas.Right && at.Y - extent >= canvas.Top && at.Y + extent <= canvas.Bottom) inside++;
+                    if (at.X + extent + 2 >= canvas.Left && at.X - extent - 2 <= canvas.Right && at.Y + extent + 2 >= canvas.Top && at.Y - extent - 2 <= canvas.Bottom) touching++;
+                }
+                Console.WriteLine($"tree nodes drawn {suffix}: {tree.NodesDrawn} of {shapes} at zoom {tree.Zoom:0.00}, with {inside} wholly inside the canvas and {touching} touching it");
+                Require(touching < shapes, $"{suffix}: premise: zoomed in, some of the tree must lie outside the canvas; all {shapes} shapes touch it");
+                Require(tree.NodesDrawn >= inside && tree.NodesDrawn <= touching,
+                    $"{suffix}: a frame drew {tree.NodesDrawn} tree shapes where {inside} lie wholly inside the canvas and {touching} touch it; a shape wholly outside must not be drawn, and none inside may be skipped");
+            }
+            finally { Button("Reset view").LeftClick(new UIMouseEvent(Button("Reset view"), Button("Reset view").GetDimensions().Center())); }
+        });
         Step("mastery interaction", () => VerifyNativeCard.MasteryInteraction(card, tree, pageContent));
         // Piercing, which the interaction left at level 2 of 5, picked with its panel open: a numbered five-segment bar and
         // the line for its third level.
@@ -283,8 +336,7 @@ internal static class RenderCompanionCard
             Require(Enumerable.Range(0, 5).Select(i => tree.LevelBar!.Label(i)).SequenceEqual(new[] { "1", "2", "3", "4", "5" }) && Enumerable.Range(0, 5).Count(tree.LevelBar!.IsSelected) == 2,
                 $"{suffix}: Piercing's bar must be five numbered segments with two selected");
             Require(tree.EffectLine == lines[2], $"{suffix}: Piercing at level 2 must say its third level's line, '{lines[2]}'; it says '{tree.EffectLine}'");
-            Console.WriteLine($"mastery picked {suffix}: Piercing at level 2 of 5, segments 1 to 5 with two selected, the panel says \"{tree.EffectLine}\"");
-        });
+            Console.WriteLine($"mastery picked {suffix}: Piercing at level 2 of 5, segments 1 to 5 with two selected, the panel says \"{tree.EffectLine}\"");        });
         Step("mastery on screen", () =>
         {
             var elements = TitleBarButtons(title).ToList();
@@ -294,6 +346,7 @@ internal static class RenderCompanionCard
             RequireOnScreen(suffix, "Mastery", view, elements);
         });
         Render(graphics, batch, rasterizer, target, ui, size, output, $"MasteryPicked-{suffix}");
+        Allocation("Mastery picked");
         // The second weapon slot, a one-level node, picked: its level bar is one segment rounded at both ends.
         tree.Pick(2);
         card.Update(new GameTime());
@@ -400,7 +453,7 @@ internal static class RenderCompanionCard
     }
 
     private static IEnumerable<(string Name, Rectangle Rect)> TitleBarButtons(UIElement title)
-        => title.Children.OfType<UITextPanel<string>>().Select(button => ($"title-bar {button.Text}", Rect(button)));
+        => title.Children.OfType<CardButton>().Select(button => ($"title-bar {button.Text}", Rect(button)));
 
     /// <summary>
     /// Every interactive element of a page lies inside the viewport, measured against the screen rather than against the
@@ -424,7 +477,7 @@ internal static class RenderCompanionCard
     {
         var close = (UIElement)Field(card, "close");
         var back = (UIElement)Field(card, "back");
-        var buttons = title.Children.OfType<UITextPanel<string>>().Where(b => b != close && b != back).OrderBy(b => Rect(b).X).ToArray();
+        var buttons = title.Children.OfType<CardButton>().Where(b => b != close && b != back).OrderBy(b => Rect(b).X).ToArray();
         Require(buttons.Select(b => b.Text).SequenceEqual(labels), $"{suffix}: the title bar's actions are [{string.Join(", ", buttons.Select(b => b.Text))}], not [{string.Join(", ", labels)}]");
         Rectangle last = Rect(buttons[^1]);
         Require(Math.Abs(Rect(close).Left - last.Right - 8) <= Tolerance, $"{suffix}: the last action ends {Rect(close).Left - last.Right}px before the close button, not 8");
@@ -538,6 +591,152 @@ internal static class RenderCompanionCard
         Console.WriteLine("RENDER " + file);
     }
 
+    /// <summary>
+    /// Slack for the whole-frame subtraction below, in bytes per frame averaged over the measured frames. It is rounding, not
+    /// room for an allocation: the smallest string a frame could build is larger than this.
+    /// </summary>
+    private const long OwnBytesPerFrameAllowed = 8;
+
+    /// <summary>
+    /// A page's steady frames split into the game font's share and the card's own. The glyphs the card hands the font over the
+    /// measured frames are counted by <c>DrawCardPrimitives.GlyphsDrawn</c>; the font's cost per glyph is measured live on either
+    /// side of the frames rather than written down, because it is a property of the font assembly and its compiled state, and
+    /// the two readings must agree or the measurement is refused. Returns bytes per frame in all, glyphs per frame, bytes per
+    /// glyph, and bytes per frame that are not the font's.
+    /// </summary>
+    internal static (long PerFrame, long GlyphsPerFrame, long PerGlyph, long OwnPerFrame) MeasureCardAllocation(GraphicsDevice graphics, SpriteBatch batch,
+        RasterizerState rasterizer, RenderTarget2D target, UserInterface ui, int frames = 60)
+    {
+        var time = new GameTime();
+        void Frame()
+        {
+            ui.Update(time);
+            batch.Begin(SpriteSortMode.Deferred, BlendState.AlphaBlend, SamplerState.PointClamp, DepthStencilState.None, rasterizer, null, Main.UIScaleMatrix);
+            ui.Draw(batch, time);
+            batch.End();
+        }
+        graphics.SetRenderTarget(target);
+        try
+        {
+            for (int i = 0; i < 30; i++) Frame();
+            for (int attempt = 0; ; attempt++)
+            {
+                long glyphCostBefore = FontCostPerGlyph(batch, rasterizer);
+                long glyphs = Primitives.GlyphsDrawn;
+                long bytes = GC.GetAllocatedBytesForCurrentThread();
+                for (int i = 0; i < frames; i++) Frame();
+                bytes = GC.GetAllocatedBytesForCurrentThread() - bytes;
+                glyphs = Primitives.GlyphsDrawn - glyphs;
+                long glyphCostAfter = FontCostPerGlyph(batch, rasterizer);
+                if (glyphCostBefore == glyphCostAfter)
+                    return (bytes / frames, glyphs / frames, glyphCostBefore, (bytes - glyphs * glyphCostBefore) / frames);
+                if (attempt == 2)
+                    throw new InvalidOperationException($"the font's cost per glyph changed during the measurement ({glyphCostBefore} then {glyphCostAfter} bytes) three times running, so the card's share cannot be separated");
+            }
+        }
+        finally { graphics.SetRenderTarget(null); }
+    }
+
+    /// <summary>Bytes the mouse-text font allocates per glyph drawn, from a nine-glyph string drawn many times.</summary>
+    private static long FontCostPerGlyph(SpriteBatch batch, RasterizerState rasterizer)
+    {
+        var font = FontAssets.MouseText.Value;
+        const string word = "Companion";
+        batch.Begin(SpriteSortMode.Deferred, BlendState.AlphaBlend, SamplerState.PointClamp, DepthStencilState.None, rasterizer, null, Main.UIScaleMatrix);
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        for (int i = 0; i < 20; i++) batch.DrawString(font, word, new Vector2(10, 10), Color.White, 0, Vector2.Zero, .8f, SpriteEffects.None, 0);
+        long bytes = GC.GetAllocatedBytesForCurrentThread() - before;
+        batch.End();
+        return bytes / (20 * word.Length);
+    }
+
+    /// <summary>
+    /// The same measurement split by who allocates: bytes per frame of the interface's update, and of each element's own
+    /// drawing (its subtree less its children's subtrees), the largest first. This names the source of whatever a page still
+    /// allocates, so a residue is attributed rather than argued.
+    /// </summary>
+    internal static string AllocationByElement(GraphicsDevice graphics, SpriteBatch batch, RasterizerState rasterizer, RenderTarget2D target, UserInterface ui, UIState card, int frames = 20)
+    {
+        var time = new GameTime();
+        long Measure(Action action)
+        {
+            void Once()
+            {
+                batch.Begin(SpriteSortMode.Deferred, BlendState.AlphaBlend, SamplerState.PointClamp, DepthStencilState.None, rasterizer, null, Main.UIScaleMatrix);
+                action();
+                batch.End();
+            }
+            for (int i = 0; i < 5; i++) Once();
+            long before = GC.GetAllocatedBytesForCurrentThread();
+            for (int i = 0; i < frames; i++) Once();
+            return (GC.GetAllocatedBytesForCurrentThread() - before) / frames;
+        }
+        var own = new List<(string Name, long Bytes)>();
+        var ownUpdate = new List<(string Name, long Bytes)>();
+        static string NameOf(UIElement element) => element is CardButton text ? $"{element.GetType().Name}('{text.Text}')" : element.GetType().Name;
+        long Walk(UIElement element, bool update)
+        {
+            long whole = Measure(update ? () => element.Update(time) : () => element.Draw(batch));
+            long children = 0;
+            foreach (UIElement child in element.Children.ToArray()) children += Walk(child, update);
+            (update ? ownUpdate : own).Add((NameOf(element), whole - children));
+            return whole;
+        }
+        static string Top(List<(string Name, long Bytes)> list) => string.Join(", ", list.Where(e => e.Bytes > 0).GroupBy(e => e.Name)
+            .Select(g => (Name: $"{g.Key}{(g.Count() > 1 ? $" x{g.Count()}" : "")}", Bytes: g.Sum(e => e.Bytes))).OrderByDescending(e => e.Bytes).Take(8).Select(e => $"{e.Name} {e.Bytes}"));
+        graphics.SetRenderTarget(target);
+        try
+        {
+            long update = Measure(() => ui.Update(time));
+            Walk(card, update: true);
+            long draw = Walk(card, update: false);
+            return $"update {update} (by element: {Top(ownUpdate)}), draw {draw}; by element: {Top(own)}";
+        }
+        finally { graphics.SetRenderTarget(null); }
+    }
+
+    /// <summary>
+    /// What the game's own text drawing allocates per call, measured with nothing of the card involved: the mouse-text font's
+    /// <c>DrawString</c> and <c>MeasureString</c> on a nine-character string, and <c>Utils.DrawBorderString</c>, which every
+    /// <c>UITextPanel</c> draws its label through, on that string and on an empty one. Whatever the card allocates beyond
+    /// these per drawn string is its own.
+    /// </summary>
+    internal static string GameTextCost(GraphicsDevice graphics, SpriteBatch batch, RasterizerState rasterizer, RenderTarget2D target)
+    {
+        var font = FontAssets.MouseText.Value;
+        long PerCall(Action action)
+        {
+            batch.Begin(SpriteSortMode.Deferred, BlendState.AlphaBlend, SamplerState.PointClamp, DepthStencilState.None, rasterizer, null, Main.UIScaleMatrix);
+            for (int i = 0; i < 10; i++) action();
+            long before = GC.GetAllocatedBytesForCurrentThread();
+            for (int i = 0; i < 100; i++) action();
+            long bytes = (GC.GetAllocatedBytesForCurrentThread() - before) / 100;
+            batch.End();
+            return bytes;
+        }
+        graphics.SetRenderTarget(target);
+        try
+        {
+            const string word = "Companion";
+            long draw = PerCall(() => batch.DrawString(font, word, new Vector2(10, 10), Color.White, 0, Vector2.Zero, .8f, SpriteEffects.None, 0));
+            long measure = PerCall(() => font.MeasureString(word));
+            long border = PerCall(() => Utils.DrawBorderString(batch, word, new Vector2(10, 10), Color.White, .8f));
+            long empty = PerCall(() => Utils.DrawBorderString(batch, "", new Vector2(10, 10), Color.White, .8f));
+            return $"font DrawString('{word}') {draw} bytes a call, MeasureString {measure}, Utils.DrawBorderString('{word}') {border}, Utils.DrawBorderString('') {empty}";
+        }
+        finally { graphics.SetRenderTarget(null); }
+    }
+
+    /// <summary>One frame of the interface drawn into the target and not saved, for a check that reads what the frame did.</summary>
+    private static void DrawOnce(GraphicsDevice graphics, SpriteBatch batch, RasterizerState rasterizer, RenderTarget2D target, UserInterface ui)
+    {
+        graphics.SetRenderTarget(target);
+        batch.Begin(SpriteSortMode.Deferred, BlendState.AlphaBlend, SamplerState.PointClamp, DepthStencilState.None, rasterizer, null, Main.UIScaleMatrix);
+        ui.Draw(batch, new GameTime());
+        batch.End();
+        graphics.SetRenderTarget(null);
+    }
+
     private static Color[] Pixels(RenderTarget2D target, Point size)
     {
         var pixels = new Color[size.X * size.Y];
@@ -640,7 +839,7 @@ internal static class RenderCompanionCard
                     if (x >= 0 && y >= 0 && x < size.X && y < size.Y && pixels[y * size.X + x] is { R: > 200, G: > 200, B: > 200 }) count++;
             return count;
         }
-        var buttons = title.Children.OfType<UITextPanel<string>>().ToArray();
+        var buttons = title.Children.OfType<CardButton>().ToArray();
         Rectangle plus = Rect(buttons.Single(b => b.Text == "+")), minus = Rect(buttons.Single(b => b.Text == "-"));
         int plusStroke = Ink(plus, -6, -3) + Ink(plus, 3, 6), minusStroke = Ink(minus, -6, -3) + Ink(minus, 3, 6), minusBar = Ink(minus, -1, 1);
         Require(minusBar >= 3, $"{suffix}: premise: the - button must draw ink across its middle ({minusBar} pixels)");

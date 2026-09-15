@@ -15,6 +15,7 @@ using Preferences = live::AICompanion.Companion.PlayerIntegration.CompanionPrefe
 using ListMode = live::AICompanion.Companion.PlayerIntegration.MiningListMode;
 using WorkPolicies = live::AICompanion.Companion.Brain.Activities.WorkPolicies;
 using WorkPolicy = live::AICompanion.Companion.Brain.Activities.WorkPolicy;
+using CardButton = live::AICompanion.Companion.ProfileCard.CardButton;
 
 /// <summary>
 /// Drives the production card's own controls and pages, never a second layout model: the work preferences through
@@ -67,7 +68,7 @@ internal static class VerifyNativeCard
         var back = (UIElement)Field(card, "back");
         // Every button the title bar carries right now: close alone on the overview, and on a page back and the page's
         // actions too.
-        UIElement[] buttons = title.Children.OfType<UITextPanel<string>>().ToArray<UIElement>();
+        UIElement[] buttons = title.Children.OfType<CardButton>().ToArray<UIElement>();
         Require(buttons.Contains(close) && buttons.Contains(back) == (back.Parent == title), $"{suffix}: premise: the drag guard presses every title-bar button");
         foreach (UIElement button in buttons)
         {
@@ -103,7 +104,7 @@ internal static class VerifyNativeCard
     public static void ChestButtons(UIState card, Bag page)
     {
         var title = (UIElement)Field(card, "titleBar");
-        UITextPanel<string> Button(string label) => title.Children.OfType<UITextPanel<string>>().Single(b => b.Text == label);
+        CardButton Button(string label) => title.Children.OfType<CardButton>().Single(b => b.Text == label);
         Player player = Main.LocalPlayer;
         var bag = player.GetModPlayer<live::AICompanion.Companion.PlayerIntegration.CompanionPlayer>().Bag;
         Item[] savedBag = bag.Items.Select(item => item.Clone()).ToArray();
@@ -296,7 +297,7 @@ internal static class VerifyNativeCard
     {
         var list = Preferences.Current.MiningList;
         var title = (UIElement)Field(card, "titleBar");
-        UITextPanel<string> Button(string label) => title.Children.OfType<UITextPanel<string>>().Single(b => b.Text == label);
+        CardButton Button(string label) => title.Children.OfType<CardButton>().Single(b => b.Text == label);
         Require(list.Known.Count > 8, "premise: the seeded list must be longer than one row");
         Require(!list.Known.Contains(TileID.Adamantite), "premise: an ore the player never held is not known");
         CalculatedStyle viewport = page.Children.First().GetDimensions();
@@ -323,7 +324,7 @@ internal static class VerifyNativeCard
     public static void MasteryInteraction(UIState card, Mastery tree, Rectangle content)
     {
         var title = (UIElement)Field(card, "titleBar");
-        UITextPanel<string> Button(string label) => title.Children.OfType<UITextPanel<string>>().Single(b => b.Text == label);
+        CardButton Button(string label) => title.Children.OfType<CardButton>().Single(b => b.Text == label);
         float fitted = tree.Zoom;
         Click(Button("+")); Require(tree.Zoom > fitted, "the + button did not zoom in");
         Click(Button("-")); Click(Button("-")); Require(tree.Zoom < fitted, "the - button did not zoom out");
