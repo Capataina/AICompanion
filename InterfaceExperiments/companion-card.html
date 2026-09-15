@@ -514,7 +514,9 @@ function show(p) {
   $$('.acts').forEach(x => x.classList.toggle('on', x.dataset.for === p));
   frame.classList.toggle('full', p !== 'overview');
   titleName.textContent = names[p];
-  back.textContent = p === 'overview' ? '+' : '<';
+  // back exists only on a page; the overview has nothing to go back to, and a "+" there did nothing
+  back.textContent = '<';
+  back.style.visibility = p === 'overview' ? 'hidden' : 'visible';
   openCard(); syncBench();
 }
 $$('.tile').forEach(t => t.addEventListener('click', () => show(t.dataset.page)));
