@@ -23,7 +23,8 @@ using RequestKind = live::AICompanion.Companion.Brain.Infrastructure.Position.Re
 using SuccessRegionKind = live::AICompanion.Companion.Brain.Infrastructure.Position.SuccessRegionKind;
 using TerrainChanges = live::AICompanion.Companion.Brain.Infrastructure.Movement.TerrainChanges;
 using TorchBearer = live::AICompanion.Companion.Brain.Infrastructure.Interactions.Torch.TorchBearer;
-using TransientLights = live::AICompanion.Companion.Brain.Infrastructure.Observation.TransientLights;
+using CaptureWorldLight = live::AICompanion.Companion.Brain.Infrastructure.Observation.CaptureWorldLight;
+using WorldLight = live::AICompanion.Companion.Brain.Infrastructure.Observation.WorldLight;
 using Weights = live::AICompanion.Companion.Brain.Infrastructure.Selection.Weights;
 
 /// <summary>
@@ -37,8 +38,8 @@ using Weights = live::AICompanion.Companion.Brain.Infrastructure.Selection.Weigh
 /// raises it again for dark air on the heading alone, which no single scalar could express</item>
 /// <item>an unmeasured neighbourhood casts no vote: a companion off the computed screen beside a player in
 /// daylight keeps its torch, because a silent answer is not a bright one</item>
-/// <item>the companion's own shown torch cannot make its neighbourhood read lit, because the engine merges
-/// lights by maximum and the field removes its own by the same inverse</item>
+/// <item>light anybody carries, the companion's own torch included, cannot make a neighbourhood read lit, because
+/// the field reads the world's own light from the engine's scan, taken before the blur merges what a body carries</item>
 /// <item>a dark wing away from a lit body is an offered lighting job whose site the reach sense calls
 /// Reachable, rather than a site proven by a round trip of its own</item>
 /// <item>two placeable sites in one dark region are worked one after the other without the body going back to
@@ -83,17 +84,17 @@ internal static class VerifyLightAndReachSenses
         Each("a: dark air on the heading alone raises the torch over a lit body", DarkAheadRaisesOverALitBody);
         Each("a: one unmeasured neighbourhood beside one bright one holds the torch", AnUnmeasuredNeighbourhoodCastsNoVote);
         Each("a: the companion's own shown torch cannot light its own neighbourhood", ItsOwnTorchIsNotEvidenceOfLight);
-        Each("a: the light sense reads the torch the map was written with, through the real AI tick", TheSenseReadsTheTorchTheMapWasWrittenWith);
+        Each("a: the world's own light is taken once per scan whether the game draws once or twice per tick", TheWorldLightIsTakenOncePerScanAtEveryCadence);
+        Each("a: the scan the sense reads holds none of the light the engine's own blur then merges in", TheScanHoldsNoneOfTheLightTheBlurMerges);
         Each("a: a carried torch does not blind the placement search that would replace it", ACarriedTorchDoesNotBlindThePlacementSearch);
-        // A torch's own colour, so the numbers reproduce the own-torch discount exactly, and then a pet-like
-        // source that is a different colour and a different strength, so the row cannot be passing on a
-        // constant that happens to match the torch.
+        // A torch's own colour, and then a pet-like source that is a different colour and a different strength, so
+        // the row cannot be passing on a constant that happens to match the torch.
         TorchID.TorchColor(TorchID.Torch, out float tr, out float tg, out float tb);
         Each("a: a player's held torch never makes a passage read lit",
             () => ACarriedLightNeverMakesAPassageReadLit("player torch", tr, tg, tb));
         Each("a: a light pet never makes a passage read lit",
             () => ACarriedLightNeverMakesAPassageReadLit("light pet", .45f, .75f, .95f));
-        Each("a: two hundred dust lights cost nothing", ManyWeakLightsCostNothing);
+        Each("a: taking and blurring a large screen's world light costs a small part of a tick", TheWorldLightCostsLittle);
         Each("b: a dark wing away from a lit body is offered with a Reachable site", ADarkWingIsOfferedWithAReachableSite);
         Each("b: nearer darkness the body cannot reach does not hide the darkness it can", NearerUnreachableDarknessDoesNotHideAReachableSite);
         Each("c: two sites in one dark region are worked without going back to the player", TwoSitesAreWorkedWithoutReturning);
@@ -190,164 +191,182 @@ internal static class VerifyLightAndReachSenses
     }
 
     /// <summary>
-    /// The property the torch removal exists for, and the one nothing else exercises. The engine merges lights
-    /// with <c>Vector3.Max</c> and blurs them separably, so a carried torch's contribution at a tile is the
-    /// source decayed by Manhattan distance and taken as a maximum, never a quantity added on. Subtracting it
-    /// instead — which is what the first version did — leaves a pitch-dark blob at the hand, and the companion
-    /// walks to its own feet to light them.
+    /// The companion's own torch, shining in a cave dark everywhere else. The engine presents the torch's colour decayed by
+    /// Manhattan distance over the cave, and the scan under it is the cave's own dark. Every sample the field keeps inside the
+    /// hold radius must read dark, and every open-air tile the torch lights must still be measured and dark, because none of
+    /// them is unknown: the world's light under a carried light is read rather than guessed at. A field built from the presented
+    /// map reads the hand's glow as a lit room; a field that dropped what a carried light could account for keeps nothing near
+    /// the hand, which is the state that hid every pocket beside a torch from placement.
     /// </summary>
     private static void ItsOwnTorchIsNotEvidenceOfLight()
     {
         var ctx = Scene(null);
         Point body = ctx.Npc.Center.ToTileCoordinates();
-        Vector2 handAt = ctx.Npc.Center + new Vector2(ctx.Npc.direction * 10f, -6f);
-        Point hand = handAt.ToTileCoordinates();
-        // The torch as the engine would present it: its own colour at the source, decayed per tile of Manhattan
-        // distance through air, over a world that is otherwise dark.
-        TorchID.TorchColor(TorchID.Torch, out float r, out float g, out float b);
-        float source = (r + g + b) / 3f;
-        VerifyUsefulAssistance.WriteMeasuredLight(Window, (x, y) =>
-            Math.Max(.02f, source * MathF.Pow(.91f, Math.Abs(x - hand.X) + Math.Abs(y - hand.Y))));
-        // The torch is announced the way the game announces it, through AddLight, and the map above is what
-        // the blur makes of that announcement. Setting the bearer's `Shown` instead is what this row used to
-        // do, and it stopped meaning anything the moment the sense started reading the engine's own list
-        // rather than asking us which lights exist — which is the point of reading the list.
-        AddCarriedLight(hand, r, g, b);
-        var senses = ctx.Companion.Brain.Senses;
+        Point hand = (ctx.Npc.Center + new Vector2(ctx.Npc.direction * 10f, -6f)).ToTileCoordinates();
+        VerifyUsefulAssistance.WriteMeasuredLight(Window, (_, _) => .02f, carried: CarriedFrom(hand, TorchStrength()));
+        typeof(TorchBearer).GetProperty("Shown")!.GetSetMethod(true)!.Invoke(ctx.Companion.Torch, new object[] { true });
         ForceRefresh(ctx);
-        var light = senses.Light;
-
-        // The field must be non-empty before anything below means anything. Without this the two assertions
-        // that follow are both satisfied by a sense that read nothing at all, which is exactly the state this
-        // scene produces when the torch flag it depends on is false — so the escape hatches these replace
-        // turned the one row covering the torch removal into a row covering nothing.
+        var light = ctx.Companion.Brain.Senses.Light;
         Require(light.MeasuredSamples > 0,
             $"the scene must present a field for this row to test anything; samples={light.MeasuredSamples}");
+        Require(Lighting.Brightness(hand.X, hand.Y) >= Weights.LightDarkBelow,
+            $"premise: the torch lights its own hand as presented; engine {Lighting.Brightness(hand.X, hand.Y):0.000} at {hand}");
 
-        // Not "unmeasured": the hold radius is a box, so its far corners sit beyond the torch's own reach in
-        // Manhattan terms, and a sample there is genuinely dark and genuinely not explained by the torch.
-        // Which of the two happens depends on where the stride-4 lattice lands, and a row that depends on
-        // lattice alignment is a row that will flake. The property that does not is that the companion's own
-        // glow never becomes evidence of a lit room: every sample the sense keeps inside its own hold radius
-        // reads dark, because each one is either beyond the torch or dropped as the torch's own.
         var here = light.DarkAirNear(body, Weights.TorchHoldRadiusTiles);
-        Require(here.Dark == here.Measured,
+        Require(!here.Unmeasured && here.Dark == here.Measured,
             $"the companion's own torchlight is being kept as room light: {here.Measured - here.Dark} of "
             + $"{here.Measured} samples inside the hold radius read lit; {Show(here)} at hand {hand}");
 
-        // And the region search must find real darkness away from the body. Asserted rather than skipped when
-        // absent: "found nothing" is the answer a sense that read nothing gives, and it is also the answer a
-        // sense that swallowed the whole cavern into its own glow gives.
-        var region = light.NearestDarkRegion(body, Weights.LightRegionSearchTiles);
-        Require(region is not null,
-            "a dark cavern lit only by the companion's own torch must still hold a dark region beyond the torch's reach");
-        int manhattan = Math.Abs(region!.Value.Centre.X - hand.X) + Math.Abs(region.Value.Centre.Y - hand.Y);
-        Require(manhattan > 4,
-            $"the nominated dark region {region.Value.Centre} sits on the companion's own hand {hand}: the torch was removed by subtraction rather than by the engine's own maximum");
+        var unknownOrLit = new List<string>();
+        int litByTheTorch = 0;
+        for (int dx = -4; dx <= 4; dx++)
+            for (int dy = -4; dy <= 4; dy++)
+            {
+                Point tile = new(hand.X + dx, hand.Y + dy);
+                if (!LightSense.IsOpenAir(tile.X, tile.Y) || Lighting.Brightness(tile.X, tile.Y) < Weights.LightDarkBelow) continue;
+                litByTheTorch++;
+                if (light.MeasuredBrightnessAt(tile) is not float read || read >= Weights.LightDarkBelow)
+                    unknownOrLit.Add($"{tile} read {(light.MeasuredBrightnessAt(tile)?.ToString("0.000") ?? "unknown")}");
+            }
+        Require(litByTheTorch > 10, $"premise: the torch lights the air around its hand; lit tiles {litByTheTorch}");
+        Require(unknownOrLit.Count == 0,
+            $"every tile the companion's own torch lights must be measured at the cave's own dark; {unknownOrLit.Count} of {litByTheTorch} were not: {string.Join("; ", unknownOrLit.Take(4))}");
+        Require(light.NearestDarkRegion(body, Weights.LightRegionSearchTiles) is not null,
+            "a dark cavern lit only by the companion's own torch must still hold a dark region");
     }
 
     /// <summary>
-    /// The ordering this whole discount rests on, driven through the real <c>CompanionNPC.AI</c> rather than
-    /// reconstructed. The sense must be discounting the light that is actually in the map it is reading, and
-    /// it learns that from the engine's own per-frame list rather than from a flag we maintain — which is
-    /// what closed the defect class rather than the one instance. Before the list, the sense asked the torch
-    /// bearer whether its torch was out, and the tick cleared that flag one call before the brain read it, so
-    /// the answer was false on every live tick and the whole discount was dead in the game.
-    ///
-    /// <para>Nothing here sets a flag or paints a glow. A fixture that arranges the state it then checks
-    /// cannot see an ordering defect at all, which is why every earlier torch row passed throughout.</para>
+    /// Why the world light is observed from the draw and not only from the brain. Each draw's lighting call advances the engine
+    /// one state, and a scan can be taken only while the state reads Blur. At one draw per tick every observer takes every scan.
+    /// At two draws per tick, which is frame skip off on a 120 Hz display, an observer at the brain tick alone sees the engine at
+    /// the same two phases every tick, so at some starting phases it never takes a scan at all; the draw's own observation still
+    /// takes every one. And a scan the draw took is not taken again by the brain.
     /// </summary>
-    private static void TheSenseReadsTheTorchTheMapWasWrittenWith()
+    private static void TheWorldLightIsTakenOncePerScanAtEveryCadence()
+    {
+        Scene((_, _) => .02f);
+        object engine = VerifyUsefulAssistance.ColourEngine();
+        string[] cycle = { "MinimapUpdate", "ExportMetrics", "Scan", "Blur" };
+        var draw = new CaptureWorldLight();
+        const int draws = 16, scans = draws / 4;
+        int Run(int drawsPerTick, bool drawObserves, bool tickObserves, int startState)
+        {
+            VerifyUsefulAssistance.ForgetEngineLight();
+            engine.GetType().GetField("_workingProcessedArea", InstanceField)!.SetValue(engine, Window);
+            int state = startState;
+            for (int i = 1; i <= draws; i++)
+            {
+                state = (state + 1) % cycle.Length;
+                VerifyUsefulAssistance.SetEngineState(engine, cycle[state]);
+                if (drawObserves) draw.PostDrawTiles();
+                if (tickObserves && i % drawsPerTick == 0) WorldLight.Observe();
+            }
+            return WorldLight.Captures;
+        }
+
+        var ledger = new List<string>();
+        int tickAloneMissed = 0;
+        for (int start = 0; start < cycle.Length; start++)
+        {
+            int both1 = Run(1, true, true, start), both2 = Run(2, true, true, start), draw2 = Run(2, true, false, start);
+            int tick1 = Run(1, false, true, start), tick2 = Run(2, false, true, start);
+            ledger.Add($"start {cycle[start]}: both at 1/tick {both1}, both at 2/tick {both2}, draw alone at 2/tick {draw2}, tick alone at 1/tick {tick1}, at 2/tick {tick2}");
+            Require(both1 == scans && both2 == scans && draw2 == scans && tick1 == scans,
+                $"every scan must be taken exactly once whenever the draw observes, or at one draw per tick; {ledger[^1]}");
+            if (tick2 == 0) tickAloneMissed++;
+        }
+        Require(tickAloneMissed > 0,
+            $"premise: at two draws per tick a brain-tick observer alone misses every scan at some phase, or the draw's observation guards nothing; {string.Join("; ", ledger)}");
+        Console.WriteLine($"        world light cadence over {draws} draws: {string.Join("; ", ledger)}");
+    }
+
+    /// <summary>
+    /// The engine fact the world light rests on, asked of the engine rather than of its decompile. The scene's world light is
+    /// left in the working map between a scan and its blur, a torch is announced through <c>Lighting.AddLight</c> the way
+    /// anything carried is, and the draw's observation takes the scan. Then the engine's own <c>ProcessArea</c> runs its blur
+    /// state: its decay update, its merge of the per-frame lights, its blur and the swap that presents the map. The presented
+    /// map must show the torch above the dark level at its tile, and the world light taken before it must still read the scene's
+    /// dark there. A game version that merged carried lights during the scan, or presented before the blur state, turns this red.
+    /// </summary>
+    private static void TheScanHoldsNoneOfTheLightTheBlurMerges()
     {
         var ctx = Scene((_, _) => .02f);
-        var brain = ctx.Companion.Brain;
-        // Keeping company only, so no tool ever claims the hand and the torch is free to come up.
-        brain.Chooser.Actions.RemoveAll(a => a.Name != "keep-company");
-
-        int ticksWithTorchOut = 0, refreshes = 0, refreshesSeeingTheTorch = 0;
-        ulong? lastRead = brain.Senses.Light.ReadTick;
-        for (int tick = 0; tick < 400; tick++)
+        var engine = (LightingEngine)VerifyUsefulAssistance.ColourEngine();
+        var perFrame = (System.Collections.IList)engine.GetType().GetField("_perFrameLights", InstanceField)!.GetValue(engine)!;
+        perFrame.Clear();
+        try
         {
-            VerifyOreWork.AdvanceBrain(ctx);
-            if (ctx.Companion.Torch.Shown) ticksWithTorchOut++;
-            ulong? read = brain.Senses.Light.ReadTick;
-            if (read == lastRead) continue;
-            lastRead = read;
-            refreshes++;
-            // The torch the companion is holding must be among the transients the field discounted. Its
-            // AddLight runs after the brain, so what the field sees is the previous tick's emission — which
-            // is exactly the emission the light map in front of it was blurred from.
-            if (ticksWithTorchOut > 0 && NearestTransient(ctx.Npc.Center.ToTileCoordinates()) <= 3)
-                refreshesSeeingTheTorch++;
+            LightMap scan = VerifyUsefulAssistance.EngineMap(engine, "_workingLightMap");
+            scan.SetSize(Window.Width, Window.Height);
+            scan.Clear();
+            scan.NonVisiblePadding = 0;
+            for (int x = 0; x < Window.Width; x++)
+                for (int y = 0; y < Window.Height; y++)
+                    scan[x, y] = new Vector3(.02f);
+            VerifyUsefulAssistance.RestoreEngineDecay(VerifyUsefulAssistance.EngineMap(engine, "_activeLightMap"));
+            Point torch = ctx.Npc.Center.ToTileCoordinates() + new Point(4, -1);
+            TorchID.TorchColor(TorchID.Torch, out float r, out float g, out float b);
+            Lighting.AddLight(torch.ToWorldCoordinates(), r, g, b);
+            Require(perFrame.Count > 0, "premise: the announced torch must reach the engine's per-frame list");
+            VerifyUsefulAssistance.TakeTheScan(engine, Window);
+            float? taken = WorldLight.Brightness(torch.X, torch.Y);
+
+            // ProcessArea times each phase through TimeLogger, whose buffers are allocated by a graphical launch and are null in
+            // this shell: without this the call dies with a null reference inside TimeLogger.LightingTime before reaching any
+            // lighting at all. Initialising it is allocation and nothing else.
+            Terraria.TimeLogger.Initialize();
+            engine.ProcessArea(Window);
+            float presented = Lighting.Brightness(torch.X, torch.Y);
+            Require(presented >= Weights.LightDarkBelow,
+                $"premise: the engine's own blur state must merge the announced torch into the map it presents; presented {presented:0.000} at {torch}");
+            Require(taken is float t && Math.Abs(t - .02f) < 1e-3f && WorldLight.Brightness(torch.X, torch.Y) is float still && Math.Abs(still - .02f) < 1e-3f,
+                $"the world light taken between the scan and the blur must hold none of the torch the blur merged; taken {taken?.ToString("0.000") ?? "unknown"}, presented {presented:0.000} at {torch}");
+            Console.WriteLine($"        engine order: the torch's tile reads {presented:0.000} as presented and {taken:0.000} in the world light taken before the blur");
         }
-        Require(ticksWithTorchOut > 0,
-            $"the torch must actually come out somewhere in a dark cavern, or this row proves nothing; refreshes={refreshes}");
-        Require(refreshesSeeingTheTorch > 0,
-            $"the field must discount the torch the companion is carrying: no refresh after it came out found a "
-            + $"transient source at the companion; refreshes={refreshes} ticks-with-torch-out={ticksWithTorchOut} "
-            + $"sources={TransientLights.Count}");
-        Console.WriteLine($"        torch ordering: {ticksWithTorchOut} of 400 ticks emitted light; {refreshes} field refreshes, "
-            + $"{refreshesSeeingTheTorch} of them with the companion's own torch among the discounted transients");
+        finally { perFrame.Clear(); }
     }
 
-    /// <summary>Manhattan distance from <paramref name="tile"/> to the nearest transient the field is
-    /// discounting, or a large number where there is none.</summary>
-    private static int NearestTransient(Point tile)
+    /// <summary>A carried light's colour as the engine presents it: its mean at the source, decayed per tile of Manhattan
+    /// distance through air, at a global brightness of one.</summary>
+    private static Func<int, int, float> CarriedFrom(Point source, float strength)
+        => (x, y) => strength * MathF.Pow(.91f, Math.Abs(x - source.X) + Math.Abs(y - source.Y));
+
+    private static float TorchStrength()
     {
-        int best = int.MaxValue;
-        foreach (var source in TransientLights.Sources)
-            best = Math.Min(best, Math.Abs(source.Tile.X - tile.X) + Math.Abs(source.Tile.Y - tile.Y));
-        return best;
+        TorchID.TorchColor(TorchID.Torch, out float r, out float g, out float b);
+        return (r + g + b) / 3f;
     }
 
     /// <summary>
-    /// A companion already carrying a torch must still be able to see that a place needs a permanent one.
-    /// The two readings of the same sample are deliberately opposite: for holding the torch, light the
-    /// companion is itself emitting is unknown and skipped, so it cannot decide from its own glow; for placing
-    /// one, that same light counts as darkness, because it is leaving when the companion does. Reading it as
-    /// room light in both places is a deadlock rather than caution — the torch comes out because the cavern is
-    /// dark, and every site then reads lit precisely because the torch is out, so nothing is ever placed.
+    /// A companion already carrying a torch must still be able to see that a place needs a permanent one. Reading its own
+    /// light as the room's is a deadlock rather than caution: the torch comes out because the cavern is dark, and every site
+    /// then reads lit precisely because the torch is out, so nothing is ever placed.
     ///
-    /// <para>The torch here is brought out by the real decision over a real dark scene, not set: the defect
-    /// only exists once the sense is reading a torch that is genuinely emitting.</para>
+    /// <para>The torch here is brought out by the real decision over a real dark scene, not set. Headless nothing lights the map
+    /// from it, so the frame the engine would present next is presented by the row: the torch's colour decayed from the hand
+    /// over the cave's own dark. Lighting must still offer a site, and a tile that light stands over, asked of the sense
+    /// directly, must read dark.</para>
     /// </summary>
     private static void ACarriedTorchDoesNotBlindThePlacementSearch()
     {
         // Dark everywhere, so the assertions below hold wherever keeping company has walked the body by the
-        // time the torch is up. A dark pocket was tried instead, to make the offer itself the discriminator,
-        // and it failed for two compounding reasons worth recording: a pocket wide enough to raise the torch
-        // is wider than the torch's own glow, so its edge is offered either way, and the body walks out of a
-        // narrow one before the field has read the torch at all.
+        // time the torch is up.
         var ctx = Scene((_, _) => .02f);
         GiveTorches(ctx);
         Settle(ctx);
         var brain = ctx.Companion.Brain;
-        // The upper band of air read before the torch is up, as the engine reads the screen before a light reaches it;
-        // the lower band is left unread, so under the torch the row can tell remembered darkness from a guess.
-        Point start = ctx.Npc.Center.ToTileCoordinates();
-        var readBeforeTheTorch = new HashSet<Point>();
-        for (int x = start.X - 24; x <= start.X + 24; x++)
-            for (int y = start.Y - 6; y <= start.Y - 4; y++)
-                if (brain.Senses.Light.ReadForPlacement(new Point(x, y), LightSense.Coverage.Current()).IsDark)
-                    readBeforeTheTorch.Add(new Point(x, y));
-        Require(readBeforeTheTorch.Count > 20, $"premise: the dark band above the body reads dark before the torch; {readBeforeTheTorch.Count} tiles");
         // Keeping company only, so the hand stays free and nothing places a torch while we wait for one to
         // come up; lighting is prepared directly afterwards.
         brain.Chooser.Actions.RemoveAll(a => a.Name != "keep-company");
-        // Driven until the field has resampled *while* the torch was emitting, not merely until the torch is
-        // out. The sense only learns about the torch when it next reads the world, so a check made in the gap
-        // between the torch coming up and the next refresh tests the scene before the defect can exist — which
-        // is how this row first passed against the very code it was written to fail on.
-        bool sensedTheTorch = false;
-        for (int tick = 0; tick < 600 && !sensedTheTorch; tick++)
-        {
+        for (int tick = 0; tick < 600 && !ctx.Companion.Torch.Shown; tick++)
             VerifyOreWork.AdvanceBrain(ctx);
-            sensedTheTorch = ctx.Companion.Torch.Shown
-                && NearestTransient(ctx.Npc.Center.ToTileCoordinates()) <= 3;
-        }
-        Require(sensedTheTorch,
-            $"the premise is a companion carrying light in a dark cavern, with the field having read that torch; "
+        Require(ctx.Companion.Torch.Shown,
+            $"the premise is a companion carrying light in a dark cavern; "
             + $"lit={ctx.Companion.Torch.Lit} shown={ctx.Companion.Torch.Shown} reason={ctx.Companion.Torch.Reason}");
+
+        Point hand = (ctx.Npc.Center + new Vector2(ctx.Npc.direction * 10f, -6f)).ToTileCoordinates();
+        VerifyUsefulAssistance.WriteMeasuredLight(Window, (_, _) => .02f, carried: CarriedFrom(hand, TorchStrength()));
+        ForceRefresh(ctx);
 
         var action = new LightUsefulArea();
         float score = VerifyPreparedActivities.PrepareAndScore(action, ctx);
@@ -356,46 +375,29 @@ internal static class VerifyLightAndReachSenses
             + $"the cave is lit, and reading it as such leaves the ability unable to fire in the dark it exists for; "
             + $"score={score:0.000} {action.Eligibility}:{action.EligibilityReason} torch shown={ctx.Companion.Torch.Shown}");
 
-        // And the mechanism, asked of the sense directly at a tile the carried torch is certainly lighting.
-        // Going through the search alone does not discriminate here and two attempts to make it do so failed
-        // honestly: on an all-dark floor the search walks past its own glow to a site beyond it, and a dark
-        // pocket wide enough to raise the torch at all is wider than the glow, so its edge is offered either
-        // way. The end-to-end wiring of this into the placement predicate is covered by the J08 pair in
-        // VerifyAssistanceTrips, which was red before the flag and green after; this row covers the sense's
-        // own answers. Under the torch the world's own light cannot be read, so the placing question has two honest
-        // answers there and never a guess: a tile read dark before the torch came up is still dark, and a tile never
-        // read is unknown — not dark, which offered torches in every lit room a carried light crossed.
-        Point body = ctx.Npc.Center.ToTileCoordinates();
-        Point? remembered = null, neverRead = null;
-        for (int x = body.X - 6; x <= body.X + 6 && (remembered is null || neverRead is null); x++)
-            for (int y = body.Y - 6; y <= body.Y - 1; y++)
+        Point? under = null;
+        for (int dx = -3; dx <= 3 && under is null; dx++)
+            for (int dy = -3; dy <= 3 && under is null; dy++)
             {
-                Point tile = new(x, y);
-                if (!LightSense.IsOpenAir(x, y) || brain.Senses.Light.MeasuredBrightnessAt(tile) is not null) continue;
-                if (readBeforeTheTorch.Contains(tile)) remembered ??= tile;
-                else neverRead ??= tile;
+                Point tile = new(hand.X + dx, hand.Y + dy);
+                if (LightSense.IsOpenAir(tile.X, tile.Y) && Lighting.Brightness(tile.X, tile.Y) >= Weights.LightDarkBelow) under = tile;
             }
-        Require(remembered is Point && neverRead is Point,
-            $"the premise is a tile the torch accounts for in each band, which the hold decision must refuse to read; "
-            + $"remembered {remembered} never read {neverRead} around {body}");
-        var fromMemory = brain.Senses.Light.ReadForPlacement(remembered!.Value, LightSense.Coverage.Current());
-        var guessed = brain.Senses.Light.ReadForPlacement(neverRead!.Value, LightSense.Coverage.Current());
-        Require(fromMemory.IsDark && fromMemory.Remembered,
-            $"a tile read dark before the torch came up must still read dark under it, or a companion holding a torch never "
-            + $"leaves one behind; {fromMemory} at {remembered}");
-        Require(guessed.Light == LightSense.PlacementLight.Carried && !guessed.IsDark,
-            $"a tile the torch lit before anything read it is unknown to placing, never dark; {guessed} at {neverRead}");
+        Require(under is Point, $"premise: the torch lights open air around its hand {hand}");
+        var reading = brain.Senses.Light.ReadForPlacement(under!.Value, LightSense.Coverage.Current());
+        Require(reading.IsDark,
+            $"a tile the companion's own torch lights must read dark to placing by the cave's own light; {reading} at {under}, "
+            + $"engine {Lighting.Brightness(under.Value.X, under.Value.Y):0.000}");
     }
 
-    // ---- every carried light is discounted, not only the companion's own --------------------------------
+    // ---- every carried light leaves the world's light as it was, not only the companion's own ------------
 
     /// <summary>
     /// The behaviour this lane exists for, stated as a comparison of the same scene with and without a light
     /// somebody is carrying through it. The companion follows a player holding a torch into a dark passage;
-    /// under a rule that only knew about the companion's own torch, everything around him read lit, nothing
-    /// was placed, and the passage went dark the moment he walked on — the opposite of lighting a mine as you
-    /// go. The sense never learns which source this is: it reads the engine's own per-frame list, so a light
-    /// pet, a mining helmet and a lantern from a mod nobody here has heard of arrive by the same door.
+    /// under a rule that read the presented light, everything around him read lit, nothing was placed, and the
+    /// passage went dark the moment he walked on — the opposite of lighting a mine as you go. The sense never
+    /// learns which source this is: whatever a body carries reaches the engine after the scan the sense reads, so a
+    /// light pet, a mining helmet and a lantern from a mod nobody here has heard of are all absent from it alike.
     /// </summary>
     private static void ACarriedLightNeverMakesAPassageReadLit(string what, float r, float g, float b)
     {
@@ -413,79 +415,79 @@ internal static class VerifyLightAndReachSenses
         Require(!darkBefore.Unmeasured && darkBefore.DarkFraction > Weights.TorchRaiseDarkShare,
             $"{what}: the premise is a passage that reads dark with nobody carrying anything; {Show(darkBefore)}");
 
-        // Now the same world with somebody standing in it holding a light.
-        AddCarriedLight(carrier, r, g, b);
+        // Now the same world with somebody standing in it holding a light, as the engine presents it.
+        VerifyUsefulAssistance.WriteMeasuredLight(Window, (_, _) => .02f, carried: CarriedFrom(carrier, (r + g + b) / 3f));
         ForceRefresh(ctx);
-        Require(TransientLights.Count > 0,
-            $"{what}: the carried light must reach the sense through the engine's list, or nothing below is being "
-            + $"tested; engine list holds {RawTransientCount()} entries, mode={Lighting.Mode}, netMode={Main.netMode}, "
-            + $"paused={Main.gamePaused}, global brightness={Lighting.GlobalBrightness:0.000}");
+        Require(Lighting.Brightness(carrier.X, carrier.Y) >= Weights.LightDarkBelow,
+            $"{what}: premise: the carried light must light the passage as presented, or nothing below is being tested; "
+            + $"engine {Lighting.Brightness(carrier.X, carrier.Y):0.000} at {carrier}");
 
-        // Every tile still measured must read exactly what it read before. The carried light may remove tiles
-        // from measurement — under the engine's maximum the world light beneath it cannot be recovered, and an
-        // unknown is honest — but it must never change one. A value that moved means carried light is being
-        // reported as the room's.
-        int kept = 0, dropped = 0;
+        // Every tile measured before must read exactly what it read before, and none may become unknown. A value that
+        // moved means carried light is being reported as the room's; a tile that went unknown is one placement would refuse
+        // to light, which is how every pocket beside a torch stayed dark.
+        int litByTheCarrier = 0;
         foreach (var (tile, was) in before)
         {
             float? now = light.MeasuredBrightnessAt(tile);
-            if (now is null) { dropped++; continue; }
-            kept++;
-            Require(Math.Abs(now.Value - was) < 1e-4f,
+            Require(now is float,
+                $"{what}: the world-light reading at {tile} became unknown when somebody walked in carrying a light; it read {was:0.0000} before");
+            Require(Math.Abs(now!.Value - was) < 1e-4f,
                 $"{what}: the world-light reading at {tile} changed from {was:0.0000} to {now.Value:0.0000} when somebody "
                 + $"walked in carrying a light; the sense is reporting their light as the room's");
+            if (Lighting.Brightness(tile.X, tile.Y) >= Weights.LightDarkBelow) litByTheCarrier++;
         }
-        Require(dropped > 0,
-            $"{what}: the carrier must actually occlude something, or the row would pass against a sense that "
-            + $"discounts nothing at all; kept={kept} dropped={dropped} sources={TransientLights.Count}");
+        Require(litByTheCarrier > 0,
+            $"{what}: the carrier must light some of the measured tiles as presented, or the row would pass against a sense "
+            + $"that read the presented map; {before.Count} tiles measured");
 
         // And the passage still reads dark around the body, which is the behaviour the objective names: a
         // companion beside a player holding a torch must not conclude the place is lit.
         var darkAfter = light.DarkAirNear(body, Weights.TorchHoldRadiusTiles);
         Require(!darkAfter.Unmeasured && darkAfter.DarkFraction > Weights.TorchRaiseDarkShare,
             $"{what}: a passage lit only by a light somebody is carrying through it must still read dark; "
-            + $"before {Show(darkBefore)} after {Show(darkAfter)} sources={TransientLights.Count}");
-        // One named tile, read both ways, because a share is a summary and the question this lane answers is
-        // about a tile: what does the sense say about the ground beside somebody holding a torch.
-        string underTheCarrier = before.TryGetValue(carrier, out float wasThere)
-            ? $"{wasThere:0.0000} before, {(light.MeasuredBrightnessAt(carrier) is float after ? after.ToString("0.0000") : "unknown")} after"
-            : "outside the sampled band";
-        Console.WriteLine($"        {what}: {kept} tiles unchanged, {dropped} dropped as unknown, dark share "
-            + $"{darkBefore.DarkFraction:0.000} -> {darkAfter.DarkFraction:0.000}; the carrier's own tile {carrier} reads {underTheCarrier}");
+            + $"before {Show(darkBefore)} after {Show(darkAfter)}");
+        Console.WriteLine($"        {what}: {before.Count} tiles unchanged, {litByTheCarrier} of them lit by the carrier as presented, dark share "
+            + $"{darkBefore.DarkFraction:0.000} -> {darkAfter.DarkFraction:0.000}");
     }
 
     /// <summary>
-    /// Cost, on the scene the discount is worst on: a fiery room full of dust and gore lights. Each is an
-    /// entry in the same list, so the guard is that reading two hundred of them costs no more than the
-    /// refresh is already allowed. Entries too weak to reach the dark threshold at their own tile are
-    /// dropped where they are read rather than carried into the per-sample loop, which is what makes this
-    /// affordable; the row would catch that filter being lost.
+    /// What reading the world's own light costs on the scan of a large screen: its tiles plus the engine's margin on every side,
+    /// a few torches among dark air and rock. The sense pays the copy taken between scan and blur on every scan, and the engine's
+    /// own blur of it once per scan that something asks about. The ceiling is the whole tick's planning allowance, so the row
+    /// fails on a read that has become a tick's work rather than on a figure that records today's machine.
     /// </summary>
-    private static void ManyWeakLightsCostNothing()
+    private static void TheWorldLightCostsLittle()
     {
-        var ctx = Scene((_, _) => .02f);
-        Point body = ctx.Npc.Center.ToTileCoordinates();
-        var random = new Random(20260914);
-        for (int i = 0; i < 200; i++)
+        Scene((_, _) => .02f);
+        // A 3840 by 2160 screen in tiles, with ProcessScan's 28-tile inflation on each side.
+        Rectangle area = new(0, 0, 3840 / 16 + 56, 2160 / 16 + 56);
+        object engine = VerifyUsefulAssistance.ColourEngine();
+        LightMap scan = VerifyUsefulAssistance.EngineMap(engine, "_workingLightMap");
+        scan.SetSize(area.Width, area.Height);
+        var random = new Random(20260916);
+        for (int x = 0; x < area.Width; x++)
+            for (int y = 0; y < area.Height; y++)
+            {
+                scan.SetMaskAt(x, y, random.Next(3) == 0 ? LightMaskMode.Solid : LightMaskMode.None);
+                scan[x, y] = random.Next(100) == 0 ? new Vector3(1f, .95f, .8f) : new Vector3(.02f);
+            }
+        VerifyUsefulAssistance.RestoreEngineDecay(VerifyUsefulAssistance.EngineMap(engine, "_activeLightMap"));
+        const int scans = 30;
+        int capturedBefore = WorldLight.Captures;
+        double take = 0, blur = 0;
+        for (int i = 0; i < scans; i++)
         {
-            Point at = new(body.X - 30 + random.Next(60), body.Y - 20 + random.Next(20));
-            // Dust-bright: real, in the list, and below the dark level at its own tile, so it can never make
-            // anything read lit and the sense should refuse to spend anything on it.
-            AddCarriedLight(at, .05f, .04f, .03f);
+            long start = System.Diagnostics.Stopwatch.GetTimestamp();
+            VerifyUsefulAssistance.TakeTheScan(engine, area);
+            take += (System.Diagnostics.Stopwatch.GetTimestamp() - start) * 1000.0 / System.Diagnostics.Stopwatch.Frequency;
+            Require(WorldLight.Brightness(area.Width / 2, area.Height / 2) is float, "premise: the scan covers its own middle");
+            blur += WorldLight.LastBlurMs;
         }
-        ForceRefresh(ctx);
-        var clock = System.Diagnostics.Stopwatch.StartNew();
-        for (int i = 0; i < 60; i++) ForceRefresh(ctx);
-        double perRefresh = clock.Elapsed.TotalMilliseconds / 60;
-        Require(ctx.Companion.Brain.Senses.Light.MeasuredSamples > 0,
-            "two hundred lights too weak to matter must not empty the field");
-        // The refresh is one part of the tick's planning allowance and has never been near it; the ceiling is
-        // that allowance, so the row fails on a refresh that has become a tick's work rather than on a figure
-        // that records today's machine.
-        Require(perRefresh < Weights.TotalPlanningMilliseconds,
-            $"a refresh with two hundred dust lights in the window took {perRefresh:0.000} ms, past the whole tick's "
-            + $"planning allowance of {Weights.TotalPlanningMilliseconds:0.000} ms");
-        Console.WriteLine($"        200 dust lights: {perRefresh:0.000} ms per full refresh, {TransientLights.Count} kept of 200 (this machine)");
+        Require(WorldLight.Captures - capturedBefore == scans, $"premise: every scan is taken once; taken {WorldLight.Captures - capturedBefore} of {scans}");
+        double perScan = (take + blur) / scans;
+        Require(perScan < Weights.TotalPlanningMilliseconds,
+            $"taking and blurring a {area.Width}x{area.Height} scan took {perScan:0.000} ms, past the whole tick's planning allowance of {Weights.TotalPlanningMilliseconds:0.000} ms");
+        Console.WriteLine($"        world light on a {area.Width}x{area.Height} scan: {take / scans:0.000} ms to take and {blur / scans:0.000} ms to blur, per scan (this machine)");
     }
 
     // ---- (b) a dark wing is offered, and its site is Reachable rather than round-tripped ---------------
@@ -1038,7 +1040,6 @@ internal static class VerifyLightAndReachSenses
         ctx.Player.selectedItem = 1;
         if (light == null) VerifyUsefulAssistance.ClearMeasuredLight();
         else VerifyUsefulAssistance.WriteMeasuredLight(Window, light);
-        ForgetTransients();
         TerrainChanges.Reset();
         MovementQueries.World = new GameTileWorld();
         ctx.Companion.Brain.Senses.Update(ctx.Npc, ctx.Player);
@@ -1046,28 +1047,6 @@ internal static class VerifyLightAndReachSenses
     }
 
     private static bool InChamber(int x, int y) => Math.Abs(x - 20) <= 14 && Math.Abs(y - StandRow) <= 14;
-
-    /// <summary>Empties both the engine's per-frame light list and the sense's memory of it. Headless nothing
-    /// drives <c>ProcessArea</c>, so the engine never clears that list itself and one scene's carried lights
-    /// would otherwise still be discounted in the next — a leak between rows that reads as a sense defect.</summary>
-    private static void ForgetTransients()
-    {
-        RawTransientList().Clear();
-        TransientLights.Forget();
-    }
-
-    private static System.Collections.IList RawTransientList()
-    {
-        object engine = typeof(Lighting).GetField("NewEngine", BindingFlags.NonPublic | BindingFlags.Static)!.GetValue(null)!;
-        return (System.Collections.IList)engine.GetType().GetField("_perFrameLights", InstanceField)!.GetValue(engine)!;
-    }
-
-    private static int RawTransientCount() => RawTransientList().Count;
-
-    /// <summary>Adds a light the way anything carried adds one — the player's torch, a pet, a helmet, a mod's
-    /// lantern. The sense is never told which it is, and that is the point: it reads the engine's list.</summary>
-    private static void AddCarriedLight(Point tile, float r, float g, float b)
-        => Lighting.AddLight(tile.ToWorldCoordinates(), r, g, b);
 
     /// <summary>Observes the world and makes the field resample, rather than serve the samples it already
     /// holds. The field refreshes on a cadence, so two `Senses.Update` calls in one scene read the world once;

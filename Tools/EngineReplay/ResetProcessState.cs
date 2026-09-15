@@ -116,6 +116,9 @@ internal static class ResetProcessState
         live::AICompanion.Companion.Progression.CompanionExperience.NormalEnemyLife = () => live::AICompanion.Companion.Progression.CompanionExperience.GreenSlimeLife(Terraria.DataStructures.GameModeData.NormalMode);
         live::AICompanion.Companion.Brain.Infrastructure.Interactions.Torch.CompanionTorches.Clear();
         live::AICompanion.Companion.Progression.CreditWork.ForgetPaidTorches();
+        // The world's light is a scan of the last case's tiles, and the engine's state would hand that scan to the next case's
+        // first observation; both go back to a process that has drawn nothing.
+        VerifyUsefulAssistance.ForgetEngineLight();
 
         // The map before the search policy, because the policy plugs a fresh world wrapper over
         // whatever map is standing, and the wrapper has to wrap the empty one.

@@ -60,8 +60,8 @@ public static class PlaceTorches
         bool landed = placed.HasTile && placed.TileType == item.createTile;
         if (!landed) return false;
         // WorldGen.PlaceTile runs no tile hook (the player's PlaceInWorld belongs to Player.PlaceThing), so nothing announces
-        // this edit unless it is announced here, and the light sense's memory of dark tiles is forgotten only by announced
-        // edits: an unannounced torch leaves the tiles it lights remembered dark under a carried light.
+        // this edit unless it is announced here, and every retained search that read this tile — the reach flood, a route,
+        // the clearance field — is discarded only by an announced edit.
         Movement.TerrainChanges.Changed(tile.X, tile.Y);
         CompanionTorches.NotePlaced(tile);
         // Nor does it call TileLoader.PlaceInWorld for other mods, deliberately: that hook's contract is a player placing an

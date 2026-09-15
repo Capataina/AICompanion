@@ -82,7 +82,11 @@ public sealed class BrainTelemetry : ModSystem
     // takes, so a capture shows the bar moving and which kill, fight or piece of work moved it. The liquids and experience
     // lanes each moved the schema to 0.36.0 on their own branches; merging both made this bump, so no two captures with
     // different sidecars share a number.
-    private const string Schema = "0.37.0";
+    // 0.38.0 removes `transient_lights`. The light sense reads the world's own light from the engine's scan, taken before the
+    // blur merges anything a body carries, so it discounts no carried light and a count of them describes nothing the brain
+    // reads. `torch_reference_dark` no longer writes `carried`: a tile a carried light stands over reads dark or lit by the
+    // world's own light like any other tile, and a 0.35.0 to 0.37.0 capture that wrote `carried` is read as it was written.
+    private const string Schema = "0.38.0";
 
     /// <summary>
     /// One activity's factors from one comparison, as <c>name:value</c> pairs joined by commas: every multiplier its final
@@ -740,13 +744,6 @@ public sealed class BrainTelemetry : ModSystem
             // tick on a route, because a rate over no travel is not zero, it is unmeasured. The route-episode and stop
             // occurrences beside them carry the individual journeys; these two are the shape of the session.
             h.Append("\tstops_per_minute\troute_speed_mean");
-            // How many lights somebody was carrying inside the light field's window this tick — the player's
-            // torch, a pet, a helmet, anything a mod adds — each of which the field discounted rather than
-            // reading as the room's. Appended at the end and the schema left where it is, because nothing
-            // before it moved and the reader addresses columns by name. It is here because the failure it
-            // describes is otherwise invisible in a capture: a companion that walks a lit-looking passage
-            // beside a torch-carrying player and places nothing looks exactly like one with nothing to do.
-            h.Append("\ttransient_lights");
             // What lighting's last discovery search actually asked and what the reach sense answered, as
             // `x,y=verdict` pairs, beside the number of sites it put to the query. Without them a starved
             // search and a search over a genuinely sealed screen produce the same offer string, which is how
@@ -1121,7 +1118,6 @@ public sealed class BrainTelemetry : ModSystem
             .Append('\t').Append(RecordTerrainChunks.Evictions);
         sb.Append('\t').Append(TravelEpisodes.StopsPerMinute.ToString("0.00", CultureInfo.InvariantCulture))
             .Append('\t').Append(TravelEpisodes.RouteSpeedMean.ToString("0.00", CultureInfo.InvariantCulture));
-        sb.Append('\t').Append(Observation.TransientLights.Count);
         var lighting = brain.Chooser.Actions.OfType<Activities.NearbyAssistance.LightUsefulArea>().FirstOrDefault();
         sb.Append('\t').Append(string.IsNullOrEmpty(lighting?.LastSearchSites) ? "-" : lighting!.LastSearchSites)
             .Append('\t').Append(lighting?.LastSearchAsked ?? 0);
@@ -1159,7 +1155,6 @@ public sealed class BrainTelemetry : ModSystem
             .Append('\t').Append(referenceReading?.Light switch
             {
                 Observation.LightSense.PlacementLight.Dark => "dark",
-                Observation.LightSense.PlacementLight.Carried => "carried",
                 Observation.LightSense.PlacementLight.Lit => "lit",
                 Observation.LightSense.PlacementLight.Sky => "sky",
                 Observation.LightSense.PlacementLight.Unread => "unread",

@@ -14,9 +14,9 @@ namespace AICompanion.Companion.Brain.Infrastructure.Observation;
 
 /// <summary>
 /// How dark it is, as a field rather than a number. Every open-air tile on a coarse lattice through a
-/// screen-sized window around the companion carries the brightness the engine computed there, with every
-/// sample the companion's own carried torch could account for dropped, so the answer to "is it dark here"
-/// does not depend on whether the companion is currently holding the thing that makes it look light.
+/// screen-sized window around the companion carries the world's own brightness there (<see cref="WorldLight"/>),
+/// so the answer to "is it dark here" does not depend on whether anybody — the companion, the player, a pet —
+/// is carrying the thing that makes it look light.
 ///
 /// <para>A field rather than a mean because a mean cannot answer the question anyone actually asks. The
 /// mean over a window holding a lit chamber and three dark wings is somewhere in the middle, and it is
@@ -28,18 +28,18 @@ namespace AICompanion.Companion.Brain.Infrastructure.Observation;
 /// <para>The window follows the companion, not the camera: a companion sent into a cave while the player
 /// stands in daylight must read the cave. The engine only computes light for the visible screen and
 /// answers zero outside it, so a zero alone is not darkness — spending a torch on it spends one on a
-/// place nobody measured. Every sample is therefore taken against the active engine's own computed
-/// bounds, and an uncomputed tile is unmeasured rather than dark.</para>
+/// place nobody measured. Every sample is therefore taken against the bounds of the scan it reads, and a
+/// tile outside them is unmeasured rather than dark.</para>
 /// </summary>
 public sealed class LightSense
 {
     private const int SampleStrideTiles = 4;
     private const int RefreshTicks = 10;
 
-    /// <summary>Brightness at the player's tile, 0..1.</summary>
+    /// <summary>Brightness at the player's tile, 0..1, as presented, carried light included; shown for the overlay only.</summary>
     public float AtPlayer { get; private set; } = 1f;
 
-    /// <summary>Brightness at the companion's tile, 0..1; includes its own torch, shown for the overlay only.</summary>
+    /// <summary>Brightness at the companion's tile, 0..1, as presented, its own torch included; shown for the overlay only.</summary>
     public float AtCompanion { get; private set; } = 1f;
 
     /// <summary>Tick of the retained reads; not the lighting engine's calculation time.</summary>
@@ -49,9 +49,8 @@ public sealed class LightSense
     /// answers nothing, which is a different state from answering "dark" and is never treated as one.</summary>
     public int MeasuredSamples { get; private set; }
 
-    // The field, as a lattice over the window: one entry per sampled cell, in row-major order, with
-    // brightness already less the companion's own torch. A cell that is not open air, or that the engine
-    // had not computed, is absent rather than dark.
+    // The field, as a lattice over the window: one entry per sampled cell, in row-major order, with the world's
+    // own brightness. A cell that is not open air, or that no scan covers, is absent rather than dark.
     private readonly List<Sample> samples = new();
     private int sinceRefresh = RefreshTicks;
     private Rectangle lastFrame = Rectangle.Empty;
@@ -60,6 +59,10 @@ public sealed class LightSense
 
     public void Update(NPC companion, Player player)
     {
+        // Every tick and ahead of the cadence, because the engine's scan can be taken for only one lighting call in four;
+        // the draw observes it as well, and a scan is taken once however often it is seen.
+        WorldLight.Observe();
+
         // The cadence is a cost saving, not a statement that the field is still true. A lighting frame that
         // has only just started being presented, or that has changed size, is a different instrument reading
         // from the one the field was built against, and answering from the old one is answering about a
@@ -94,28 +97,16 @@ public sealed class LightSense
         int left = c.X - halfWidth, top = c.Y - halfHeight;
         int right = c.X + halfWidth, bottom = c.Y + halfHeight;
 
-        // Every light that is only in the world while something carries it, taken from the engine's own
-        // per-frame list. This replaced a model of the companion's own torch alone, and the generalisation
-        // is what the behaviour needed rather than tidiness: the companion follows a player holding a torch,
-        // so under the old rule everything around him read lit, nothing was ever placed there, and the
-        // passage went dark the moment he walked on.
-        TransientLights.Snapshot(new Rectangle(left, top, right - left + 1, bottom - top + 1));
-        bool anyTransient = TransientLights.Count > 0;
-
         samples.Clear();
         for (int x = left; x <= right; x += SampleStrideTiles)
             for (int y = top; y <= bottom; y += SampleStrideTiles)
             {
-                if (!IsOpenAir(x, y) || !coverage.Contains(x, y))
-                    continue;
-                float lit = EngineBrightness(x, y);
-                if (anyTransient && Occluded(lit, x, y))
+                if (!IsOpenAir(x, y) || !coverage.Contains(x, y) || WorldBrightness(x, y) is not float lit)
                     continue;
                 samples.Add(new Sample(new Point(x, y), Math.Clamp(lit, 0f, 1f)));
             }
         MeasuredSamples = samples.Count;
         ReadTick = Main.GameUpdateCount;
-        ForgetDarkFarFrom(c);
     }
 
     /// <summary>
@@ -264,9 +255,8 @@ public sealed class LightSense
     }
 
     /// <summary>
-    /// What the engine says about one exact tile, under the same two rules the field is built from: open
-    /// air the engine has computed, and not a reading the companion's own torch could account for. Absent
-    /// means unmeasured, never bright.
+    /// The world's own light at one exact tile, under the same two rules the field is built from: open air, inside a scan of
+    /// the world's light. Absent means unmeasured, never bright.
     ///
     /// <para>This exists beside the lattice because a lattice cannot answer a question narrower than its
     /// own stride. Asking whether one candidate site is dark by counting samples within a few tiles of it
@@ -277,30 +267,20 @@ public sealed class LightSense
     public float? MeasuredBrightnessAt(Point tile)
     {
         if (!IsOpenAir(tile.X, tile.Y) || !Coverage.Current().Contains(tile.X, tile.Y)) return null;
-        float lit = EngineBrightness(tile.X, tile.Y);
-        return Occluded(lit, tile.X, tile.Y) ? null : Math.Clamp(lit, 0f, 1f);
+        return WorldBrightness(tile.X, tile.Y) is float lit ? Math.Clamp(lit, 0f, 1f) : null;
     }
 
     /// <summary>What one tile's light says to the question of leaving a torch there.</summary>
     public enum PlacementLight
     {
-        /// <summary>Not open air, or not a tile the engine computed: nobody has read it, which is never darkness.</summary>
+        /// <summary>Not open air, or not a tile a scan of the world's light covers: nobody has read it, which is never darkness.</summary>
         Unread,
         /// <summary>The world's own light there is at or above the dark level.</summary>
         Lit,
-        /// <summary>The world's own light there is known to be below the dark level: read so now, or read so earlier and
-        /// nothing since has been able to say otherwise (<see cref="PlacementReading.Remembered"/>).</summary>
+        /// <summary>The world's own light there is below the dark level. Light anybody carries is not in that reading
+        /// (<see cref="WorldLight"/>), so the ground beside a player holding a torch reads as dark as the cave it is in, and a
+        /// room a standing torch lights reads lit whoever walks through it.</summary>
         Dark,
-        /// <summary>
-        /// A light somebody is carrying accounts for the reading, so the world's own light there is at most that and could
-        /// be anything below it. To placing, as to holding, such a tile is unknown and is not a target: the world's light
-        /// under a carried light was twice guessed at, and each guess was a defect. Reading it as lit made a dark room beside
-        /// a player holding a torch read lit, so nothing was placed; reading it as dark made every lit room he walked through
-        /// holding a torch take torches, and a room a standing torch already lit take a second one at the game's spacing.
-        /// What escapes the deadlock the first guess fell into is memory rather than a guess: a tile read dark before the
-        /// light arrived stays <see cref="Dark"/> while the light stands over it.
-        /// </summary>
-        Carried,
         /// <summary>
         /// Daylight reaches the tile: the engine gives it the sky's own light as a source (<see cref="DaylightReaches"/>),
         /// so whatever it reads at night it will read lit at dawn. Never a torch site, by the owner's ruling of 15 September
@@ -329,150 +309,54 @@ public sealed class LightSense
         return Main.wallLight[wall] || wall == 73 || wall == 227 || (wall >= 88 && wall <= 93) || wall == 241;
     }
 
-    /// <summary>One tile's placement reading and the brightness it read, clamped to 0..1. <paramref name="Remembered"/> means
-    /// a carried light stands over the tile now and the darkness is the tile's own earlier exact reading.</summary>
-    public readonly record struct PlacementReading(PlacementLight Light, float Brightness, bool Remembered = false)
+    /// <summary>One tile's placement reading and the world's own brightness it read, clamped to 0..1.</summary>
+    public readonly record struct PlacementReading(PlacementLight Light, float Brightness)
     {
         public bool IsDark => Light == PlacementLight.Dark;
     }
 
-    // Tiles whose world light was last read exactly and below the dark level, with that reading, against the terrain edit
-    // revision the memory is current to. A carried light only bounds the world light from above, so it can never contradict
-    // an earlier dark reading; what can is new world light — a torch, a lamp, anything placed — and every such placement is
-    // a tile edit, so an edit within a light's reach of a remembered tile forgets it. A record too old to answer forgets
-    // everything, because an unanswered question about the world is not the answer "unchanged".
-    private readonly Dictionary<Point, float> knownDark = new();
-    private int knownDarkRevision;
-    private readonly List<Point> editsSince = new();
-
     /// <summary>
-    /// Whether one tile wants a torch by its own light: the engine's reading at that tile below the dark level, unread where
-    /// the engine computed nothing, and unknown where a light somebody is carrying accounts for the reading and the tile was
-    /// never read dark before it arrived. This is the placement question the lighting search asks of every tile the player's
+    /// Whether one tile wants a torch by the world's own light there: below the dark level, unread where no scan covers it,
+    /// and never a tile daylight reaches. This is the placement question the lighting search asks of every tile the player's
     /// own smart cursor could place on, and it is a point rather than a neighbourhood deliberately: a neighbourhood mean
     /// refused a dark tile three tiles of rock away from a lit room, because the mean counts the room's air, while the
     /// engine's own light there — which already carries whatever reaches through the rock — is below the level at which a
-    /// person would reach for a torch. Every exact reading is remembered or forgotten as it is taken, so this is a read of
-    /// the world that also keeps the sense's memory of it current. <paramref name="coverage"/> is taken once by a caller
-    /// asking about many tiles, because reading it is reflection.
+    /// person would reach for a torch. <paramref name="coverage"/> is taken once by a caller asking about many tiles, because
+    /// reading it is reflection in the legacy modes.
     /// </summary>
     public PlacementReading ReadForPlacement(Point tile, in Coverage coverage)
     {
-        if (!IsOpenAir(tile.X, tile.Y) || !coverage.Contains(tile.X, tile.Y)) return new(PlacementLight.Unread, 0f);
-        ForgetDarkTheWorldHasEdited();
-        float engine = EngineBrightness(tile.X, tile.Y);
-        float lit = Math.Clamp(engine, 0f, 1f);
+        if (!IsOpenAir(tile.X, tile.Y) || !coverage.Contains(tile.X, tile.Y) || WorldBrightness(tile.X, tile.Y) is not float world)
+            return new(PlacementLight.Unread, 0f);
+        float lit = Math.Clamp(world, 0f, 1f);
         if (DaylightReaches(tile.X, tile.Y)) return new(PlacementLight.Sky, lit);
-        if (TransientLights.Count > 0 && Occluded(engine, tile.X, tile.Y))
-            return knownDark.TryGetValue(tile, out float remembered)
-                ? new(PlacementLight.Dark, remembered, Remembered: true)
-                : new(PlacementLight.Carried, lit);
-        if (lit < Weights.LightDarkBelow)
-        {
-            knownDark[tile] = lit;
-            return new(PlacementLight.Dark, lit);
-        }
-        knownDark.Remove(tile);
-        return new(PlacementLight.Lit, lit);
+        return lit < Weights.LightDarkBelow ? new(PlacementLight.Dark, lit) : new(PlacementLight.Lit, lit);
     }
 
-    /// <summary>How many tiles the sense remembers as dark, for a fixture proving what an edit forgot.</summary>
-    public int RememberedDarkTiles => knownDark.Count;
-
-    private void ForgetDarkTheWorldHasEdited()
-    {
-        var edits = Movement.TerrainChanges.Edits;
-        if (knownDarkRevision == edits.Revision) return;
-        if (knownDark.Count == 0) { knownDarkRevision = edits.Revision; return; }
-        editsSince.Clear();
-        var verdict = edits.ChangedSince(knownDarkRevision, (x, y) => { editsSince.Add(new Point(x, y)); return false; });
-        knownDarkRevision = edits.Revision;
-        if (verdict != Movement.TerrainEditVerdict.Unchanged) { knownDark.Clear(); return; }
-        int reach = TransientLights.MaxReachTiles;
-        foreach (Point edit in editsSince)
-            ForgetDarkWhere(p => Math.Abs(p.X - edit.X) <= reach && Math.Abs(p.Y - edit.Y) <= reach);
-    }
-
-    private readonly List<Point> forgetting = new();
-
-    private void ForgetDarkWhere(Func<Point, bool> gone)
-    {
-        forgetting.Clear();
-        foreach (Point p in knownDark.Keys) if (gone(p)) forgetting.Add(p);
-        foreach (Point p in forgetting) knownDark.Remove(p);
-    }
-
-    /// <summary>Forgets remembered darkness farther from <paramref name="centre"/> than any search asks about, so the memory
-    /// holds the places the companion is working and not every place it has ever been.</summary>
-    private void ForgetDarkFarFrom(Point centre)
-    {
-        if (knownDark.Count < RememberedDarkPruneAt) return;
-        int keep = Weights.LightRegionSearchTiles + Math.Max(Main.screenWidth / 16, Weights.LightWindowMinimumHalfWidthTiles * 2);
-        ForgetDarkWhere(p => Math.Abs(p.X - centre.X) > keep || Math.Abs(p.Y - centre.Y) > keep);
-    }
-
-    /// <summary>The size at which the memory is pruned: far above what one work area's candidate tiles hold, so pruning is
-    /// the rare case of a companion that has worked across a large part of the world, not a per-refresh cost.</summary>
-    private const int RememberedDarkPruneAt = 8192;
+    /// <summary>The world's own light at a tile, unclamped: the scan <see cref="WorldLight"/> took in colour mode, null where
+    /// no scan covers the tile; the presented light in the legacy modes, which keep no scan and so read carried light as the
+    /// room's.</summary>
+    private static float? WorldBrightness(int x, int y)
+        => Lighting.Mode == LightMode.Color ? WorldLight.Brightness(x, y) : EngineBrightness(x, y);
 
     private static float RawBrightness(int x, int y) => MathHelper.Clamp(EngineBrightness(x, y), 0f, 1f);
 
-    /// <summary>
-    /// The engine's own brightness, unclamped. It is what <see cref="Occluded"/> compares against a modelled
-    /// transient, and it has to stay unclamped for that comparison to mean anything in both directions: the engine
-    /// reports above one near a torch at its default global brightness, so clamping only this side makes daylight
-    /// look like the carrier's own light, and clamping only the model makes the carrier's light look like the
-    /// world's. Everything stored or compared against the dark level is clamped afterwards.
-    /// </summary>
+    /// <summary>The engine's presented brightness, unclamped, carried light included: what a person sees, which is the
+    /// overlay's two readings and the legacy modes' only reading.</summary>
     private static float EngineBrightness(int x, int y)
         => WorldGen.InWorld(x, y, 1) ? Math.Max(0f, Lighting.Brightness(x, y)) : 0f;
 
     /// <summary>
-    /// Whether a transient light accounts for this reading, in which case the world's own light under it
-    /// cannot be recovered and the sample is dropped.
-    ///
-    /// <para>The engine merges a light into the map by maximum and propagates it by maximum —
-    /// <c>LightMap.BlurLine</c> keeps a running value per channel, replaces it where the tile is brighter
-    /// and writes it back where the tile is darker, decaying by 0.91 per tile of air — so a transient never
-    /// added to a tile: it either lost to what was already there, or it replaced it. A reading brighter than
-    /// the brightest transient could produce is therefore the world's own light, exactly, and is kept whole.
-    /// A reading a transient could account for tells us only that the world's light is no brighter than the
-    /// transient. That answers the question when the transient is itself below the dark level — the place is
-    /// dark and reads dark either way — and destroys it when the transient is above it, because every world
-    /// light from pitch black up to the transient looks identical. That last case is neither dark nor lit: it
-    /// is unmeasured, and is dropped rather than stored, so no query counts it either way.</para>
-    ///
-    /// <para>Subtraction would be the right arithmetic if the engine summed lights, and it is not what the
-    /// engine does; subtracting a modelled light from a maximum produced a false pitch-dark blob at the
-    /// carrier and a companion that walked to its own feet to light them.</para>
-    /// </summary>
-    private static bool Occluded(float lit, int x, int y)
-    {
-        float transient = TransientLights.BrightestAt(x, y);
-        return lit <= transient + TransientModelTolerance && transient >= Weights.LightDarkBelow;
-    }
-
-    /// <summary>Slack on the comparison against a modelled transient, for the difference between the
-    /// engine's per-channel blur and this mean-of-channels model of it. Without it a tile a light lit to
-    /// exactly its modelled value reads as the world's own light through floating-point noise.</summary>
-    private const float TransientModelTolerance = 0.02f;
-
-    /// <summary>
-    /// Reads light only where the game's lighting engine has computed it. `Lighting.Brightness` answers zero
-    /// for a dark tile and also for a tile outside the engine's buffers, so a zero alone is not darkness.
-    /// Colour mode presents a processed area and its GetColor answers zero outside it; the legacy modes index
-    /// a camera-sized state buffer from the requested rectangle widened by the off-screen margin and answer
-    /// zero beyond it. This asks the active engine that same bounds question, through fields the engine keeps
-    /// private, and fails loudly at first use if they move rather than silently treating the whole world as
-    /// measured.
+    /// Reads light only where it was computed. `Lighting.Brightness` answers zero for a dark tile and also for a tile outside
+    /// the engine's buffers, so a zero alone is not darkness. Colour mode reads the scan <see cref="WorldLight"/> took, whose
+    /// area is the engine's own processed area for that scan; the legacy modes index a camera-sized state buffer from the
+    /// requested rectangle widened by the off-screen margin and answer zero beyond it. The legacy bounds are asked through
+    /// fields the engine keeps private, and fail loudly at first use if they move rather than silently treating the whole
+    /// world as measured.
     /// </summary>
     public readonly record struct Coverage(bool Legacy, Rectangle Area, float LegacyColumns, float LegacyRows)
     {
         private const BindingFlags InstanceField = BindingFlags.NonPublic | BindingFlags.Instance;
-        private static readonly object ColourEngine = typeof(Lighting).GetField("NewEngine", BindingFlags.NonPublic | BindingFlags.Static)?.GetValue(null)
-            ?? throw new MissingFieldException(typeof(Lighting).FullName, "NewEngine");
-        private static readonly FieldInfo ProcessedArea = ColourEngine.GetType().GetField("_activeProcessedArea", InstanceField)
-            ?? throw new MissingFieldException(ColourEngine.GetType().FullName, "_activeProcessedArea");
         private static readonly FieldInfo RequestedLeft = LegacyField("_requestedRectLeft");
         private static readonly FieldInfo RequestedRight = LegacyField("_requestedRectRight");
         private static readonly FieldInfo RequestedTop = LegacyField("_requestedRectTop");
@@ -491,11 +375,11 @@ public sealed class LightSense
             return column >= 0 && row >= 0 && column < LegacyColumns && row < LegacyRows;
         }
 
-        /// <summary>The active engine's computed bounds, snapshotted once so a sweep reads one consistent frame.</summary>
+        /// <summary>The bounds of the light being read, snapshotted once so a sweep reads one consistent frame.</summary>
         public static Coverage Current()
         {
             if (Lighting.Mode == LightMode.Color)
-                return new Coverage(false, (Rectangle)ProcessedArea.GetValue(ColourEngine)!, 0f, 0f);
+                return new Coverage(false, WorldLight.Area, 0f, 0f);
             LegacyLighting engine = Lighting.LegacyEngine;
             if (LegacyCamera.GetValue(engine) is not Camera camera) return new Coverage(true, Rectangle.Empty, 0f, 0f);
             int left = (int)RequestedLeft.GetValue(engine)!, right = (int)RequestedRight.GetValue(engine)!, top = (int)RequestedTop.GetValue(engine)!;
