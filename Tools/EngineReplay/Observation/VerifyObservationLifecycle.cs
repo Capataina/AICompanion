@@ -29,7 +29,6 @@ internal static class VerifyObservationLifecycle
             VerifyRecordingSwitch();
             VerifyInspectorGeometry();
             VerifyNotchOpeningConsumesThePress();
-            VerifyCompanionHud.Verify();
             VerifyOneCompleteSample();
             VerifyEndedOreJobRecording();
             VerifyRecoveryDoesNotRefreshTheChoice();
@@ -375,9 +374,9 @@ internal static class VerifyObservationLifecycle
             {
                 Main.mouseX = x; Main.mouseY = box.Center.Y; Main.mouseLeft = true;
                 Main.LocalPlayer.mouseInterface = false;
-                // No Draw has run: both icon wings must consume the opening press too.
+                // No Draw has run: the press at either edge of the notch must be consumed before item use too.
                 owner.PreUpdate();
-                Require(Main.LocalPlayer.mouseInterface, "the notch and both icon wings must capture before item use");
+                Require(Main.LocalPlayer.mouseInterface, "a press anywhere on the notch, edges included, must capture before item use");
             }
         }
         finally { Main.gameMenu = menu; Main.mouseX = oldX; Main.mouseY = oldY; Main.mouseLeft = oldLeft; Main.npc[0].active = false; }

@@ -65,7 +65,7 @@ The standalone flags are the fourth row's cause and it is structural rather than
 --light-senses         the light field and the reach flood, and their three-valued answers
 --doors                the native door helper, announced toggles, locked doors
 --courtesy             placement and passage footprints moving the body out of the way
---render-ui            the profile, inventory, mastery and inspector pages, offscreen
+--render-ui            the HUD notch, the card's overview and its Inventory, Mining list and Mastery pages, and the inspector, offscreen
 --ore-work             the work-selection group: ore, preferences, activities, assistance,
                        cooperation, accounting, collection, trips, capability, the senses
 --follow               responsive following, company local motion, courtesy

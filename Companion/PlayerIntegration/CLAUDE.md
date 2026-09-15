@@ -4,7 +4,9 @@
 PlayerIntegration/
 ├─ CLAUDE.md                 this guide
 ├─ PersistCompanionState.cs  `CompanionPlayer` fields plus stable save/load keys and world entry
-├─ ConfigureCompanionPreferences.cs  per-character optional-work and follow-distance choices
+├─ ConfigureCompanionPreferences.cs  per-character optional-work and follow-distance choices, and the mining list they carry
+├─ KeepMiningList.cs         the ores this character has held, the marks on them and what a mark means, saved by name
+├─ RecordOresHeld.cs         `CompanionPlayer.PostUpdate`: every ore in the inventory joins the list
 ├─ HandleCompanionInput.cs   saved inspector keybind and pre-item-use notch/card/bag input handling
 ├─ ObservePlayerEvents.cs    `CompanionPlayer` authoritative player-event observation
 └─ CompanionCommand.cs       /companion setup and explicit recovery command
@@ -17,6 +19,8 @@ PlayerIntegration/
 This folder forwards player facts to the brain and HUD but does not own the NPC. `CharacterBody/` creates and controls the live body; `Inventory/` defines cargo behaviour; `HeadsUpDisplay/` draws the notch; diagnostics owns its own overlay input contract.
 
 Distance preferences separate ordinary comfort, new activity admission and ongoing recovery allowance. Standard and Free admit work out to their recovery radius; Close deliberately tightens new work further while retaining a wider recovery threshold, matching the user's close-mode example. Ongoing allowance derives from recovery, so changing the preference moves both safety boundaries coherently. Values are defined in `ConfigureCompanionPreferences` and `BehaviourWeights`, never copied into behaviour-specific gates.
+
+**The mining list is the one allow/deny list the companion has, and it is three things that must not be confused.** The known ores are what the card's Mining list page shows: an ore joins the moment the player holds one, by any route, because `RecordOresHeld` scans the inventory and cursor after every tick rather than hooking pickup, and nothing ever leaves it, so selling the last copper does not hide copper and a world's ores are not spoiled before he finds them. The marks and the one mode (Skip marked, Only marked) are the instruction. `Allows` reads only the mark and the mode, never whether an ore is known, so under Skip marked an ore he has never held is mined like any other unmarked ore and under Only marked it is left. The brain reads `Allows` through `../Brain/Activities/WorkPolicies.cs`, and mining applies it where ore is looked for and to a job already under way; `../Brain/Activities/Gathering/CLAUDE.md` says how. An ore is a tile in `TileID.Sets.Ore`, the set the miner classifies with, so the list and the miner agree about what an ore is. Ores are saved by name, a vanilla tile by its `TileID` field name and a modded one by its mod-qualified name, because a modded tile's number is assigned at load; a name whose mod is not loaded is kept and written back, so a player's marks survive a mod being switched off for a session. The list lives inside the preferences compound, so a save written before it existed, or a malformed one, loads as an empty list, which mines everything.
 
 **One preference here feeds two differently-anchored questions, which is why a value that feels right for work can feel wrong for rescue.** The work-admission radii are measured to the player's intent region rather than to his body; the recovery threshold and the safety distances are measured to his body. `../Brain/Activities/CLAUDE.md` owns the work half and `../Brain/SharedBehaviours/CLAUDE.md` the safety half, each with its reason.
 

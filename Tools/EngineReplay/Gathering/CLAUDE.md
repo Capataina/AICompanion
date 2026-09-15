@@ -1,14 +1,19 @@
 # Gathering fixtures — ore, trees, and who is credited for the work
 
-Three files, all driving the whole brain against native tiles, and all of them diffing or counting what the world actually lost so that "it mined" cannot be satisfied by an intention.
+Four files, all driving the live mining and chopping code against native tiles, and all of them diffing or counting what the world actually lost, or what was actually offered, so that "it mined" cannot be satisfied by an intention.
 
 ```
 Gathering/
 ├─ CLAUDE.md
 ├─ VerifyOreWork.cs              ore jobs end to end: approach, reach, seals, attribution, departure
+├─ VerifyMiningList.cs           the list's known ores, marks and mode, and mining refusing what it leaves
 ├─ VerifyGatheringCooperation.cs working beside the player without competing with him
 └─ VerifyWorkAccounting.cs       what a job reports against what the world shows
 ```
+
+## The mining list: every refusal carries its own control
+
+`VerifyMiningList` builds its scenes with `VerifyOreWork.SetUp` and gives every row that shows an ore not being offered a second half in the same scene: the same ore offered once the mark or the mode says so, on the very next preparation. A refusal alone passes against a scene whose ore was never reachable, and the next-preparation timing is itself a property, because it is what the list's revision in the approach key buys. The allowed-ore-beside-a-left-one row first proves, list-blind, that the nearer ore is the one taken, so it cannot pass by the allowed ore simply being nearest. The known-ores row drives the real `CompanionPlayer.PostUpdate` rather than calling the list directly, so it fails if the hook is ever unwired. Each row was shown red against a planted mutation of the mechanism it names before it was trusted; the commit that added the file lists them.
 
 `--ore-work` runs this group plus the assistance group; the default suite runs each file as its own named case.
 

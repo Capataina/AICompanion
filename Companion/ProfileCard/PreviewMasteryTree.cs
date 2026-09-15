@@ -1,5 +1,6 @@
 #nullable enable
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
@@ -13,222 +14,296 @@ using static AICompanion.Companion.ProfileCard.DefineMasteryGraph;
 namespace AICompanion.Companion.ProfileCard;
 
 /// <summary>
-/// A navigable design preview of the wheel and of the tree any diamond opens. Selection is local
-/// UI state, never an earned upgrade. The first click on a node selects it and says what putting a
-/// point there would mean; the second click on a selected diamond of the wheel swaps the wheel for
-/// that diamond's own tree, and so does the button that appears while a diamond is selected. In the
-/// tree the same button reads back to the wheel, and so does Reset view.
+/// The Mastery page: the tree, and while a node is picked a panel beside it with the node's name, its effect, Learn
+/// and a level bar. It is simple by the owner's ruling of 15 September 2026, which called the earlier page "so
+/// crowded for no reason": no kind or rank line, no purpose sentence, no "sized against", no needs, no hint above the
+/// graph, no legend and no status line under it, and no Unlearn, because a learned level stays learned. −, + and
+/// Reset view are the page's title-bar actions. Learn names what the next level costs, or says Learned once the node is
+/// full, and the gold centre is Core, picked by a click like any node. Everything here is local preview state: the
+/// points a level costs are counted for the Mastery tile, but nothing is gated on them, spent from a budget or saved.
+///
+/// <para>The view is a scale and the screen position of the graph's origin measured from the canvas's top-left corner.
+/// Anchoring at the corner rather than the centre is what lets the panel open without anything moving: the canvas
+/// narrows by the panel's width and every node keeps its place, and only if the panel would cover the picked node is
+/// the view panned to bring it back.</para>
 /// </summary>
-public sealed class PreviewMasteryTree : UIElement
+public sealed class PreviewMasteryTree : UIElement, ICardPage
 {
-    public static Node[] Nodes => DefineMasteryGraph.Nodes;
-    private readonly int[] tiers = new int[Nodes.Length];
-    /// <summary>Preview ranks inside each diamond's own tree, rowed by the diamond's wheel index; a stat's row is never used.</summary>
-    private readonly int[,] subTiers = new int[Nodes.Length, SubNodes.Length];
-    private int selected = -1, opened = -1;
-    private Vector2 pan, mouseDown, panDown;
-    private float zoom = .7f;
-    private bool dragging;
-    private Point fittedSize;
-    private readonly UIElement viewport;
-    private readonly UITextPanel<string> upgrade, open;
-    public int OpenedCount => tiers.Count(tier => tier > 0);
-    private Rectangle Canvas => viewport.GetDimensions().ToRectangle();
+    public const float PanelWidth = 220, PanelGap = 12, PanelPadding = 12, LearnHeight = 34, LevelHeight = 22, LearnGap = 8;
+    /// <summary>A press that travels less than this before release is a click; farther, it is a pan.</summary>
+    public const float DragThreshold = 6;
+    private const float FitMargin = 12;
+
+    /// <summary>Every node's learned level, and Core's in the last place.</summary>
+    private readonly int[] levels = new int[Nodes.Length + 1];
+    private static readonly Color Gold = new(255, 224, 102);
+    private readonly UIElement canvas;
+    private readonly DetailPanel panel;
+    private int picked = -1;
+    private float zoom = .3f, fittedZoom = .3f;
+    private Vector2 origin;
+    private bool pressing, panning;
+    private Vector2 fittedFor;
+    private Vector2 pressAt, originAtPress;
+
+    public string Title => "Mastery";
+    public IReadOnlyList<CardAction> Actions { get; }
+
+    public int Picked => picked;
+    public float Zoom => zoom;
+    public Vector2 Origin => origin;
+    public int Level(int node) => levels[node];
+    /// <summary>How many of the tree's nodes have a level, Core not counted, for the tile's fill.</summary>
+    public int LearnedCount => levels.Take(Nodes.Length).Count(level => level > 0);
+    /// <summary>The points every learned level cost, Core's included, for the tile's reading.</summary>
+    public int Spent => Enumerable.Range(0, levels.Length).Sum(node => ContentOf(node).PointsIn(levels[node]));
+    /// <summary>What Learn says: the next level's cost, or Learned once the node is full.</summary>
+    public string LearnLabel
+    {
+        get
+        {
+            if (picked < 0) return "Learn";
+            NodeContent content = ContentOf(picked);
+            if (levels[picked] >= content.Levels) return "Learned";
+            int cost = content.CostOf(levels[picked] + 1);
+            return $"Learn · {cost} point{(cost == 1 ? "" : "s")}";
+        }
+    }
+    public UIElement Canvas => canvas;
+    public UIElement Panel => panel;
+    public JoinedSegments? LevelBar => panel.LevelBar;
+    public UITextPanel<string> LearnButton => panel.Learn;
+    /// <summary>The effect line the panel draws now; the fixture reads the same method the drawing does.</summary>
+    public string EffectLine => panel.EffectLine();
+
     private static Vector2 Mouse => Main.MouseScreen;
-    private Vector2 Screen(Vector2 position) => Canvas.Center.ToVector2() + pan + position * zoom;
-    private bool InTree => opened >= 0;
-    private Node[] Current => InTree ? SubNodes : Nodes;
-    private Edge[] CurrentEdges => InTree ? SubEdges : Edges;
-    private int Tier(int index) => InTree ? subTiers[opened, index] : tiers[index];
-    /// <summary>Every node of an opened tree wears its diamond's branch colour; on the wheel each node wears its own.</summary>
-    private Color ColourOf(Node node) => Colors[InTree ? Nodes[opened].Branch : node.Branch];
 
     public PreviewMasteryTree()
     {
-        OverflowHidden = true;
-        viewport = new UIElement { OverflowHidden = true };
-        viewport.Top.Set(32, 0); viewport.Width.Set(0, 1); viewport.Height.Set(-120, 1);
-        var graph = new Graph(this); graph.Width.Set(0, 1); graph.Height.Set(0, 1);
-        viewport.Append(graph); Append(viewport);
-        viewport.OnLeftMouseDown += (_, _) => { mouseDown = Mouse; panDown = pan; dragging = true; };
-        viewport.OnLeftMouseUp += (_, _) =>
+        canvas = new UIElement { OverflowHidden = true };
+        canvas.Width.Set(0, 1f); canvas.Height.Set(0, 1f);
+        var graph = new Graph(this);
+        graph.Width.Set(0, 1f); graph.Height.Set(0, 1f);
+        canvas.Append(graph);
+        Append(canvas);
+        canvas.OnLeftMouseDown += (_, _) => { pressing = true; panning = false; pressAt = Mouse; originAtPress = origin; };
+        canvas.OnLeftMouseUp += (_, _) =>
         {
-            if (dragging && Vector2.DistanceSquared(Mouse, mouseDown) < 16) SelectAt(Mouse);
-            dragging = false;
+            if (pressing && !panning) ClickAt(Mouse);
+            pressing = false; panning = false;
         };
-        var minus = DrawCardPrimitives.Button("-", 30, () => Zoom(.85f, Canvas.Center.ToVector2()));
-        minus.HAlign = 1; minus.Left.Set(-138, 0); Append(minus);
-        var plus = DrawCardPrimitives.Button("+", 30, () => Zoom(1.18f, Canvas.Center.ToVector2()));
-        plus.HAlign = 1; plus.Left.Set(-103, 0); Append(plus);
-        var reset = DrawCardPrimitives.Button("Reset view", 98, () => { opened = -1; selected = -1; FitTree(); });
-        reset.HAlign = 1; Append(reset);
-        upgrade = DrawCardPrimitives.Button("Preview rank", 140, PreviewRank);
-        upgrade.HAlign = 1; upgrade.Top.Set(-32, 1); Append(upgrade);
-        open = DrawCardPrimitives.Button("Open upgrades", 140, () => { if (InTree) CloseTree(); else OpenSelected(); });
-        open.HAlign = 1; open.Top.Set(-68, 1);
+        panel = new DetailPanel(this);
+        panel.HAlign = 1; panel.Width.Set(PanelWidth, 0); panel.Height.Set(0, 1f);
+        Actions = new[]
+        {
+            new CardAction("-", () => ZoomBy(.85f, CanvasCentre)),
+            new CardAction("+", () => ZoomBy(1.15f, CanvasCentre)),
+            new CardAction("Reset view", Fit),
+        };
     }
 
+    private Vector2 CanvasTopLeft => canvas.GetDimensions().Position();
+    private Vector2 CanvasCentre => canvas.GetDimensions().Center();
+
+    /// <summary>Where a graph position is drawn on screen under the current view.</summary>
+    public Vector2 Screen(Vector2 position) => CanvasTopLeft + origin + position * zoom;
+
+    /// <summary>
+    /// Fit whenever the page itself changes size, never when only the canvas does. The card appends a page before it grows
+    /// the frame to the page's height, and a UI element's height is capped at its parent's, so the first recalculation sees
+    /// the overview's short frame; a fit taken once at that moment left the tree centred in a canvas less than half the
+    /// page's height. Picking a node narrows the canvas and leaves the page's size alone, so it never refits.
+    /// </summary>
     public override void Recalculate()
     {
         base.Recalculate();
-        Point size = new(Canvas.Width, Canvas.Height);
-        if (size.X > 0 && size.Y > 0 && size != fittedSize) { fittedSize = size; FitTree(); }
+        if (canvas == null) return;
+        CalculatedStyle page = GetDimensions();
+        var size = new Vector2(page.Width, page.Height);
+        if (size.X > 0 && size.Y > 0 && size != fittedFor) { fittedFor = size; Fit(); }
     }
 
-    /// <summary>
-    /// Both graphs are round, so the fit is half the smaller axis against the graph's reach, its
-    /// label radius, less a label's text height and a margin, because text is drawn at screen
-    /// scale rather than graph scale and would otherwise hang off the edge at a small fit. The
-    /// floor is low enough that a canvas a hundred pixels tall still holds the whole wheel: a
-    /// floor of a tenth put the tip nodes outside the 640x480 fixture's canvas, which the card
-    /// fixture caught and the render's truncated output had hidden.
-    /// </summary>
-    private void FitTree()
+    /// <summary>A lane label's box in graph units: its text measured once at the label height, placed by its pivot.</summary>
+    public static (Vector2 Min, Vector2 Max) LabelBox(int lane)
     {
-        pan = Vector2.Zero;
-        float halfAxis = Math.Min(Canvas.Width, Canvas.Height) / 2f;
-        zoom = Math.Max(.03f, (halfAxis - LabelTextHeight - 4) / (InTree ? SubLabelRadius : LabelRadius));
+        LaneLabel label = Labels[lane];
+        Vector2 size = FontAssets.MouseText.Value.MeasureString(label.Text) * (LabelHeight / FontAssets.MouseText.Value.MeasureString("A").Y);
+        Vector2 min = label.Anchor - label.Pivot * size;
+        return (min, min + size);
     }
 
-    private const float LabelScale = .65f;
-    private static float LabelTextHeight => FontAssets.MouseText.Value.LineSpacing * LabelScale;
-
-    /// <summary>A lane label is centred on its authored point, so the four read as spokes of one wheel rather than hanging off its right.</summary>
-    private static void DrawLabel(SpriteBatch sb, string text, Vector2 at, Color colour)
+    /// <summary>The tree's real extent in graph units, every node's shape and every lane label included.</summary>
+    public static (Vector2 Min, Vector2 Max) TreeBounds()
     {
-        Vector2 size = FontAssets.MouseText.Value.MeasureString(text) * LabelScale;
-        DrawCardPrimitives.Text(sb, text, at - size / 2, colour, LabelScale);
+        Vector2 min = new(float.MaxValue), max = new(float.MinValue);
+        foreach (Node node in Nodes)
+        {
+            float extent = node.Kind == NodeKind.Diamond ? NodeRadius * MathF.Sqrt(2) : NodeRadius;
+            min = Vector2.Min(min, node.Position - new Vector2(extent));
+            max = Vector2.Max(max, node.Position + new Vector2(extent));
+        }
+        for (int lane = 0; lane < Lanes.Length; lane++)
+        {
+            var (lo, hi) = LabelBox(lane);
+            min = Vector2.Min(min, lo);
+            max = Vector2.Max(max, hi);
+        }
+        return (min, max);
     }
 
-    public bool CanPreview(int index)
+    /// <summary>Reset view: the whole tree, labels included, centred in the canvas as it is now.</summary>
+    public void Fit()
     {
-        foreach (Edge edge in CurrentEdges)
-            if (edge.To == index && (edge.From < 0 || Tier(edge.From) > 0)) return true;
-        return false;
+        CalculatedStyle c = canvas.GetDimensions();
+        var (min, max) = TreeBounds();
+        Vector2 size = max - min;
+        zoom = fittedZoom = Math.Max(.01f, Math.Min((c.Width - 2 * FitMargin) / size.X, (c.Height - 2 * FitMargin) / size.Y));
+        origin = new Vector2(c.Width, c.Height) / 2 - (min + max) / 2 * zoom;
     }
 
-    private void PreviewRank()
+    private void ZoomBy(float factor, Vector2 about)
     {
-        if (selected < 0 || !CanPreview(selected)) return;
-        int next = Math.Min(Current[selected].MaxTier, Tier(selected) + 1);
-        if (InTree) subTiers[opened, selected] = next; else tiers[selected] = next;
+        Vector2 at = (about - CanvasTopLeft - origin) / zoom;
+        zoom = Math.Clamp(zoom * factor, fittedZoom * .2f, fittedZoom * 4f);
+        origin = about - CanvasTopLeft - at * zoom;
     }
-
-    private void OpenSelected()
-    {
-        if (InTree || selected < 0 || Nodes[selected].Kind != NodeKind.Ability) return;
-        opened = selected; selected = -1; FitTree();
-    }
-
-    private void CloseTree() { opened = -1; selected = -1; FitTree(); }
 
     public override void Update(GameTime time)
     {
         base.Update(time);
-        if (dragging && Main.mouseLeft) pan = panDown + Mouse - mouseDown;
-        if (!Main.mouseLeft) dragging = false;
-        if (IsMouseHovering) PlayerInput.LockVanillaMouseScroll("AICompanion/Mastery");
-        bool available = selected >= 0 && CanPreview(selected) && Tier(selected) < Current[selected].MaxTier;
-        upgrade.TextColor = available ? Color.LightGreen : DrawCardPrimitives.Muted;
-        bool diamondSelected = !InTree && selected >= 0 && Nodes[selected].Kind == NodeKind.Ability;
-        string label = InTree ? "Back to wheel" : "Open upgrades";
-        if (open.Text != label) open.SetText(label);
-        if ((InTree || diamondSelected) && open.Parent == null) Append(open);
-        if (!InTree && !diamondSelected) open.Remove();
+        if (pressing && Main.mouseLeft)
+        {
+            if (!panning && Vector2.Distance(Mouse, pressAt) >= DragThreshold) panning = true;
+            if (panning) origin = originAtPress + Mouse - pressAt;
+        }
+        if (IsMouseHovering)
+        {
+            Main.LocalPlayer.mouseInterface = true;
+            PlayerInput.LockVanillaMouseScroll("AICompanion/Mastery");
+        }
     }
 
     public override void ScrollWheel(UIScrollWheelEvent evt)
     {
-        if (Canvas.Contains(Mouse.ToPoint())) Zoom(evt.ScrollWheelValue > 0 ? 1.12f : .89f, Mouse);
+        if (canvas.ContainsPoint(Mouse)) ZoomBy(evt.ScrollWheelValue > 0 ? 1.12f : .89f, Mouse);
     }
 
-    private void Zoom(float factor, Vector2 mouse)
-    {
-        Vector2 at = (mouse - Canvas.Center.ToVector2() - pan) / zoom;
-        zoom = Math.Clamp(zoom * factor, .1f, 2f);
-        pan = mouse - Canvas.Center.ToVector2() - at * zoom;
-    }
-
-    /// <summary>A node is hit anywhere inside its shape; the nearest wins where shapes could overlap at a small zoom.</summary>
-    private void SelectAt(Vector2 mouse)
+    /// <summary>The node under a screen point, the gold centre (Core) included, the nearest where shapes could overlap at a small zoom, else -1.</summary>
+    public int NodeAt(Vector2 point)
     {
         int hit = -1;
         float nearest = float.MaxValue;
-        Node[] nodes = Current;
-        for (int i = 0; i < nodes.Length; i++)
+        for (int i = 0; i <= Nodes.Length; i++)
         {
-            float distance = Vector2.DistanceSquared(mouse, Screen(nodes[i].Position));
-            float radius = Radius(nodes[i]) + 4;
-            if (distance > radius * radius || distance >= nearest) continue;
+            float distance = Vector2.Distance(point, Screen(PositionOf(i)));
+            bool diamond = i == Core || Nodes[i].Kind == NodeKind.Diamond;
+            float radius = Math.Max(6, NodeRadius * zoom * (diamond ? 1.3f : 1f) + 3);
+            if (distance > radius || distance >= nearest) continue;
             nearest = distance; hit = i;
         }
-        if (hit >= 0 && hit == selected && !InTree && nodes[hit].Kind == NodeKind.Ability) { OpenSelected(); return; }
-        selected = hit;
+        return hit;
     }
 
-    protected override void DrawSelf(SpriteBatch sb)
+    /// <summary>A click on a node picks it; a click on empty background unpicks and closes the panel.</summary>
+    private void ClickAt(Vector2 point) => Pick(NodeAt(point));
+
+    /// <summary>Pick a node, or -1 for none. Opening the panel keeps the view's left edge and scale, then pans only if the panel would cover the node.</summary>
+    public void Pick(int node)
     {
-        Rectangle r = GetDimensions().ToRectangle();
-        string heading = InTree ? Branches[Nodes[opened].Branch] + " · " + Nodes[opened].Name + " · its own upgrades" : "Preview · drag to pan";
-        DrawCardPrimitives.Text(sb, heading, new Vector2(r.X + 4, r.Y + 6), DrawCardPrimitives.Muted, .7f);
-        DrawCardPrimitives.Fill(sb, new Rectangle(r.X, r.Bottom - 84, r.Width, 1), DrawCardPrimitives.Edge * .6f);
-        string title = InTree ? "Circle: upgrade rank   Diamond: mastery   Small: shared" : "Circle: stat   Diamond: ability   Small: shared";
-        string detail = InTree ? "Select an upgrade. Nothing is spent here." : "Select a node. Click a selected diamond again to open its upgrades.";
-        if (selected >= 0)
+        picked = node;
+        if (node < 0)
         {
-            Node n = Current[selected]; title = $"{n.Name}  {Tier(selected)}/{n.MaxTier}"; detail = n.Description;
+            panel.Remove();
+            canvas.Width.Set(0, 1f);
+            Recalculate();
+            return;
         }
-        DrawCardPrimitives.Text(sb, title, new Vector2(r.X + 4, r.Bottom - 76), Color.White, .73f);
-        DrawCardPrimitives.WrappedText(sb, detail, new Rectangle(r.X + 4, r.Bottom - 54, r.Width - 160, 42), DrawCardPrimitives.Muted, .64f);
-        DrawCardPrimitives.Text(sb, "No stats, points or materials changed", new Vector2(r.X + 4, r.Bottom - 17), DrawCardPrimitives.Muted, .6f);
+        if (panel.Parent == null) Append(panel);
+        canvas.Width.Set(-(PanelWidth + PanelGap), 1f);
+        Recalculate();
+        panel.Refresh();
+        CalculatedStyle c = canvas.GetDimensions();
+        Vector2 at = Screen(PositionOf(node));
+        float margin = NodeRadius * zoom * 1.5f + 8;
+        if (at.X + margin > c.X + c.Width) origin.X -= at.X + margin - (c.X + c.Width);
+        if (at.X - margin < c.X) origin.X += c.X - (at.X - margin);
+        if (at.Y + margin > c.Y + c.Height) origin.Y -= at.Y + margin - (c.Y + c.Height);
+        if (at.Y - margin < c.Y) origin.Y += c.Y - (at.Y - margin);
     }
 
-    private float Radius(Node node) => Math.Max(node.Kind == NodeKind.Shared ? 2.4f : 3.5f, (node.Kind == NodeKind.Ability ? 12 : node.Kind == NodeKind.Shared ? 5 : 9) * zoom);
+    /// <summary>Whether a node can take a level in this preview; the rule is the graph's own.</summary>
+    public bool CanLearn(int node) => DefineMasteryGraph.CanLearn(levels, node);
 
-    /// <summary>
-    /// How far a node's boundary sits from its centre along a direction, so an edge stops at the
-    /// side of the shape rather than running through to the centre. A circle is its radius
-    /// everywhere; a diamond with its vertices a radius out along the axes has sides that pass
-    /// radius over root two from the centre, and the distance along an angle is radius over the
-    /// sum of the absolute cosine and sine.
-    /// </summary>
-    private static float Boundary(bool diamond, float radius, float angle)
-        => diamond ? radius / (MathF.Abs(MathF.Cos(angle)) + MathF.Abs(MathF.Sin(angle))) : radius;
+    public void Learn()
+    {
+        if (picked >= 0 && CanLearn(picked)) levels[picked]++;
+        panel.Refresh();
+    }
+
+    private static float Boundary(NodeKind kind, float radius, float angle)
+        => kind == NodeKind.Diamond ? radius * MathF.Sqrt(2) / (MathF.Abs(MathF.Cos(angle)) + MathF.Abs(MathF.Sin(angle))) : radius;
 
     private void DrawTree(SpriteBatch sb)
     {
-        Node[] nodes = Current;
-        float centreRadius = Math.Max(3, 14 * zoom);
-        foreach (Edge edge in CurrentEdges)
+        float r = NodeRadius * zoom;
+        foreach (Edge edge in Edges)
         {
-            Node to = nodes[edge.To];
-            Vector2 a = Screen(edge.From < 0 ? Vector2.Zero : nodes[edge.From].Position), b = Screen(to.Position);
+            Node to = Nodes[edge.To];
+            Vector2 a = Screen(edge.From < 0 ? Vector2.Zero : Nodes[edge.From].Position), b = Screen(to.Position);
             float angle = (b - a).ToRotation();
-            float fromBoundary = edge.From < 0 ? Boundary(true, centreRadius, angle) : Boundary(nodes[edge.From].Kind == NodeKind.Ability, Radius(nodes[edge.From]), angle);
-            float toBoundary = Boundary(to.Kind == NodeKind.Ability, Radius(to), angle);
+            float fromBoundary = edge.From < 0 ? Boundary(NodeKind.Diamond, r, angle) : Boundary(Nodes[edge.From].Kind, r, angle);
+            float toBoundary = Boundary(to.Kind, r, angle);
             Vector2 direction = new(MathF.Cos(angle), MathF.Sin(angle));
-            bool openEdge = edge.From < 0 || Tier(edge.From) > 0;
-            Line(sb, a + direction * fromBoundary, b - direction * toBoundary, ColourOf(to) * (openEdge ? .85f : .33f));
+            bool lit = (edge.From < 0 || levels[edge.From] > 0) && levels[edge.To] > 0;
+            DrawCardPrimitives.Line(sb, a + direction * fromBoundary, b - direction * toBoundary,
+                Colors[to.Lane] * (lit ? 1f : .6f), Math.Max(1f, (lit ? 5f : 2.5f) * zoom));
         }
-        for (int i = 0; i < nodes.Length; i++)
+        for (int i = 0; i < Nodes.Length; i++)
         {
-            Node n = nodes[i];
-            Color color = selected == i ? Color.White : Tier(i) > 0 ? Color.LightGreen : ColourOf(n) * (CanPreview(i) ? 1f : .65f);
-            DrawNode(sb, Screen(n.Position), n.Kind == NodeKind.Ability, Radius(n), color, Tier(i) > 0);
+            Node node = Nodes[i];
+            Color colour = Colors[node.Lane];
+            int level = levels[i];
+            float alpha = level > 0 || CanLearn(i) ? 1f : .45f;
+            Color fill = level > 0 ? colour * (level < node.Content.Levels ? .45f : 1f)
+                : node.Kind == NodeKind.Shared ? Color.White * .12f : Color.Transparent;
+            bool diamond = node.Kind == NodeKind.Diamond;
+            Vector2 at = Screen(node.Position);
+            if (fill.A > 0) DrawShape(sb, at, r, float.MaxValue, diamond, fill * alpha);
+            DrawShape(sb, at, r, Math.Max(1f, (i == picked ? 6f : 3.5f) * zoom), diamond, colour * alpha);
         }
-        if (InTree)
+        DrawShape(sb, Screen(Vector2.Zero), r, float.MaxValue, true, Gold);
+        float textScale = LabelHeight * zoom / FontAssets.MouseText.Value.MeasureString("A").Y;
+        for (int lane = 0; lane < Lanes.Length; lane++)
         {
-            Color branch = Colors[Nodes[opened].Branch];
-            for (int i = 0; i < SubLines; i++)
-                DrawLabel(sb, SubLineNames[i], Screen(SubLabels[i]), branch);
-            // The opened diamond sits filled at the centre where the wheel has its root.
-            DrawNode(sb, Screen(Vector2.Zero), true, centreRadius, branch, true);
+            var (min, _) = LabelBox(lane);
+            DrawCardPrimitives.Text(sb, Labels[lane].Text, Screen(min), Colors[lane], textScale);
         }
-        else
+    }
+
+    /// <summary>
+    /// A circle, or a diamond whose vertices sit radius times root two out (a square of half-size radius turned a
+    /// quarter), drawn as horizontal spans; <paramref name="stroke"/> is the ring's thickness, and a stroke wider than the
+    /// shape fills it.
+    /// </summary>
+    private static void DrawShape(SpriteBatch sb, Vector2 centre, float radius, float stroke, bool diamond, Color colour)
+    {
+        float outer = diamond ? radius * MathF.Sqrt(2) : radius;
+        float inner = outer - (diamond ? stroke * MathF.Sqrt(2) : stroke);
+        for (int y = (int)MathF.Floor(centre.Y - outer); y <= (int)MathF.Ceiling(centre.Y + outer); y++)
         {
-            for (int i = 0; i < Branches.Length; i++)
-                DrawLabel(sb, Branches[i], Screen(Labels[i]), Colors[i]);
-            DrawNode(sb, Screen(Vector2.Zero), true, centreRadius, Color.Gold, true);
+            float dy = MathF.Abs(y + .5f - centre.Y);
+            if (dy > outer) continue;
+            float o = diamond ? outer - dy : MathF.Sqrt(outer * outer - dy * dy);
+            float i = inner <= 0 || dy > inner ? -1 : diamond ? inner - dy : MathF.Sqrt(inner * inner - dy * dy);
+            int left = (int)MathF.Round(centre.X - o), right = (int)MathF.Round(centre.X + o);
+            if (i < 0)
+            {
+                DrawCardPrimitives.Fill(sb, new Rectangle(left, y, Math.Max(1, right - left), 1), colour);
+                continue;
+            }
+            int innerLeft = (int)MathF.Round(centre.X - i), innerRight = (int)MathF.Round(centre.X + i);
+            DrawCardPrimitives.Fill(sb, new Rectangle(left, y, Math.Max(1, innerLeft - left), 1), colour);
+            DrawCardPrimitives.Fill(sb, new Rectangle(innerRight, y, Math.Max(1, right - innerRight), 1), colour);
         }
     }
 
@@ -237,20 +312,80 @@ public sealed class PreviewMasteryTree : UIElement
         protected override void DrawSelf(SpriteBatch sb) => owner.DrawTree(sb);
     }
 
-    private static void DrawNode(SpriteBatch sb, Vector2 p, bool diamond, float radius, Color color, bool filled)
+    /// <summary>The picked node's name and effect at the top, Learn and the level bar at the very bottom.</summary>
+    private sealed class DetailPanel : UIPanel
     {
-        int sides = diamond ? 4 : 16;
-        if (filled) DrawCardPrimitives.Fill(sb, new Rectangle((int)p.X - 2, (int)p.Y - 2, 4, 4), color);
-        for (int i = 0; i < sides; i++)
-        {
-            float a = i * MathF.Tau / sides, b = (i + 1) * MathF.Tau / sides;
-            Line(sb, p + new Vector2(MathF.Cos(a), MathF.Sin(a)) * radius, p + new Vector2(MathF.Cos(b), MathF.Sin(b)) * radius, color);
-        }
-    }
+        private readonly PreviewMasteryTree owner;
+        private int built = -2, builtLevel = -1;
+        public UITextPanel<string> Learn { get; }
+        public JoinedSegments? LevelBar { get; private set; }
 
-    private static void Line(SpriteBatch sb, Vector2 a, Vector2 b, Color c)
-    {
-        Vector2 d = b - a;
-        sb.Draw(TextureAssets.MagicPixel.Value, a, new Rectangle(0, 0, 1, 1), c, d.ToRotation(), Vector2.Zero, new Vector2(d.Length(), 1.3f), SpriteEffects.None, 0);
+        public DetailPanel(PreviewMasteryTree owner)
+        {
+            this.owner = owner;
+            BackgroundColor = DrawCardPrimitives.Panel;
+            BorderColor = DrawCardPrimitives.Edge;
+            SetPadding(PanelPadding);
+            Learn = DrawCardPrimitives.Button("Learn", 0, owner.Learn);
+            Learn.Width.Set(0, 1f); Learn.Height.Set(LearnHeight, 0);
+            Learn.VAlign = 1; Learn.Top.Set(-(LevelHeight + LearnGap), 0);
+            Append(Learn);
+        }
+
+        /// <summary>
+        /// Name Learn's next cost, and rebuild the level bar for the picked node, one segment per level. Core's bar is one
+        /// segment naming the level it has reached, because an unbounded node has no last segment to draw, so it is rebuilt
+        /// whenever that level changes.
+        /// </summary>
+        public void Refresh()
+        {
+            string label = owner.LearnLabel;
+            if (Learn.Text != label) Learn.SetText(label);
+            int node = owner.picked;
+            int reached = node >= 0 ? owner.levels[node] : 0;
+            if (built == node && (node != Core || builtLevel == reached)) return;
+            built = node; builtLevel = reached;
+            LevelBar?.Remove();
+            if (node < 0) { LevelBar = null; return; }
+            // "Level N" fits a segment of a three-level bar; a fifth of the panel's width fits only the number.
+            int count = ContentOf(node).Levels;
+            string[] labels = node == Core ? new[] { $"Level {reached}" }
+                : Enumerable.Range(1, count).Select(level => count > DiamondLevels ? $"{level}" : $"Level {level}").ToArray();
+            LevelBar = new JoinedSegments(labels, segment => segment < owner.levels[node], null);
+            LevelBar.Width.Set(0, 1f); LevelBar.Height.Set(LevelHeight, 0); LevelBar.VAlign = 1;
+            Append(LevelBar);
+            Recalculate();
+        }
+
+        public override void Update(GameTime gameTime)
+        {
+            base.Update(gameTime);
+            Refresh();
+            bool can = owner.picked >= 0 && owner.CanLearn(owner.picked);
+            Learn.TextColor = can ? Color.White : DrawCardPrimitives.Muted * .6f;
+            Learn.BorderColor = can && Learn.IsMouseHovering ? Color.Gold : can ? DrawCardPrimitives.Edge : DrawCardPrimitives.Edge * .4f;
+        }
+
+        /// <summary>
+        /// The one effect line the panel says: a node whose levels step unevenly says the next level's line, or its last
+        /// once full, and a hovered level segment says that level's own line until the pointer leaves it.
+        /// </summary>
+        public string EffectLine()
+        {
+            if (owner.picked < 0) return "";
+            NodeContent content = ContentOf(owner.picked);
+            if (content.LevelLines is { } lines && LevelBar?.HoveredIndex is int hovered) return lines[hovered];
+            return NextLevelLine(owner.picked, owner.levels[owner.picked]);
+        }
+
+        protected override void DrawSelf(SpriteBatch sb)
+        {
+            base.DrawSelf(sb);
+            if (owner.picked < 0) return;
+            int node = owner.picked;
+            Rectangle r = GetInnerDimensions().ToRectangle();
+            DrawCardPrimitives.WrappedText(sb, ContentOf(node).Name, new Rectangle(r.X, r.Y, r.Width, 26), node == Core ? Gold : Colors[Nodes[node].Lane], 1f);
+            DrawCardPrimitives.WrappedText(sb, EffectLine(), new Rectangle(r.X, r.Y + 32, r.Width, 90), Gold, .75f);
+        }
     }
 }

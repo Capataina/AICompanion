@@ -19,4 +19,11 @@ public static class WorkPolicies
 {
     public static WorkPolicy Mining { get => PlayerIntegration.CompanionPreferences.Current.Mining; set => PlayerIntegration.CompanionPreferences.Current.Mining = value; }
     public static WorkPolicy Chopping { get => PlayerIntegration.CompanionPreferences.Current.Chopping; set => PlayerIntegration.CompanionPreferences.Current.Chopping = value; }
+
+    /// <summary>Whether the player's mining list lets the companion take this ore tile as work.</summary>
+    public static bool MinesOre(int tileType) => PlayerIntegration.CompanionPreferences.Current.MiningList.Allows(tileType);
+
+    /// <summary>The list instance and its revision, so a retained answer about which ores are allowed can tell it is stale; another character's list is another instance.</summary>
+    public static (object List, int Revision) MiningListVersion
+        => (PlayerIntegration.CompanionPreferences.Current.MiningList, PlayerIntegration.CompanionPreferences.Current.MiningList.Revision);
 }

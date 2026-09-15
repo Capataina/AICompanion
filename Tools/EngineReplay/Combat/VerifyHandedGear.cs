@@ -6,6 +6,7 @@ using Terraria;
 using Terraria.ID;
 using AICompanion.Tools.Ledger;
 using CompanionGear = live::AICompanion.Companion.Inventory.CompanionGear;
+using CompanionInventory = live::AICompanion.Companion.Inventory.CompanionInventory;
 using GearSlot = live::AICompanion.Companion.Inventory.GearSlot;
 using CompanionNPC = live::AICompanion.Companion.CharacterBody.CompanionNPC;
 using CompanionPlayer = live::AICompanion.Companion.PlayerIntegration.CompanionPlayer;
@@ -24,9 +25,44 @@ internal static class VerifyHandedGear
         VerifyCompanionLifecycle.Create();
         FiveItemsFindTheirSlots();
         GearPersistsAndKeepsWhatNoLongerFits();
+        AHundredSlotBagLoadsIntoTheLargerBag();
         ToolPowerIsWhatTheGameGatesWith();
         Console.WriteLine("handed gear: a bow, a sword and a wand fit a weapon slot, a pickaxe only its own, a yoyo nowhere, and the pick power the slot reads is the one the game gates a tile with");
         return 0;
+    }
+
+    /// <summary>
+    /// The bag grew from 100 slots to 120. A character saved with a full 100-slot bag must load with every item in the
+    /// slot it was saved in, at its stack, and the twenty new slots empty. The save is built the way a 100-slot bag wrote
+    /// it, one entry per slot index; each stack is distinct so an item moved to another slot shows, and the loading bag
+    /// starts with its last twenty slots full so a load that clears only the old hundred leaves them behind.
+    /// </summary>
+    private static void AHundredSlotBagLoadsIntoTheLargerBag()
+    {
+        const int oldSize = 100;
+        var entries = new List<Terraria.ModLoader.IO.TagCompound>();
+        for (int slot = 0; slot < oldSize; slot++)
+        {
+            // Built rather than cloned from the content samples, which the headless shell fills only for the items other rows read.
+            var item = new Item();
+            item.SetDefaults(ItemID.Wood);
+            item.stack = slot + 1;
+            var entry = Terraria.ModLoader.IO.ItemIO.Save(item);
+            entry["slot"] = slot;
+            entries.Add(entry);
+        }
+        var saved = new Terraria.ModLoader.IO.TagCompound { ["items"] = entries };
+
+        var bag = new CompanionInventory();
+        Require(CompanionInventory.Slots == 120 && bag.Items.Length == 120, $"the bag's base size is 120 slots; it is {CompanionInventory.Slots}");
+        for (int slot = oldSize; slot < CompanionInventory.Slots; slot++) { bag.Items[slot] = new Item(); bag.Items[slot].SetDefaults(ItemID.DirtBlock); }
+        bag.Load(saved);
+
+        int misplaced = Enumerable.Range(0, oldSize).Count(slot => bag.Items[slot].type != ItemID.Wood || bag.Items[slot].stack != slot + 1);
+        int filledPastOld = Enumerable.Range(oldSize, CompanionInventory.Slots - oldSize).Count(slot => !bag.Items[slot].IsAir);
+        Require(misplaced == 0, $"a 100-slot save must load every item into the slot it was saved in, at its stack; {misplaced} of 100 are not");
+        Require(filledPastOld == 0 && bag.Count == oldSize, $"the 20 slots past the old bag must load empty; {filledPastOld} hold an item, and the bag counts {bag.Count}");
+        Console.WriteLine("bag load: a full 100-slot save loads all 100 items into their own slots of the 120-slot bag, stacks intact, and slots 101 to 120 empty");
     }
 
     private static CompanionGear Gear() => Main.player[0].GetModPlayer<CompanionPlayer>().Gear;
