@@ -84,6 +84,10 @@ internal static class VerifyOreWork
     {
         var fresh = new System.Collections.Generic.Dictionary<int, float>();
         var finishing = new System.Collections.Generic.Dictionary<int, float>();
+        // The separation share each job keeps: one minus the pull beyond the player's region at the stand, carried along his
+        // travel for the job's own duration. It is what separates a fresh job from a finishing one here, so it is recorded.
+        var freshSeparation = new System.Collections.Generic.Dictionary<int, float>();
+        var finishingSeparation = new System.Collections.Generic.Dictionary<int, float>();
         // DELETED: the half of this row that required fresh work to lose to reunion while a one-hit finish
         // still won, at the same separation. It is deleted rather than re-tuned because it was measured across
         // nine separations and there is no value at which it can hold — the band it needs does not exist for
@@ -112,10 +116,15 @@ internal static class VerifyOreWork
         // 800 is the veto scene rather than another gradient scene: it is the first measured separation at
         // which the ore has left the work radius, and it is carried here so the emptiness of the band is a
         // row rather than a claim in a comment.
-        // Since 15 September 2026 the work radius is 1000 px rather than 1120, so the ore leaves it between 576 and 640
-        // rather than between 640 and 800: 640 is the first measured separation outside, and the three gradient scenes sit
-        // inside at 400, 480 and 576. The table above was measured at the old radius and is kept for its shape.
-        const int VetoSeparation = 640;
+        // Since 15 September 2026 the work radius is 1000 px rather than 1120, and it is measured from where the player's
+        // region says he is going: his centre carried by the region's applied lead. The same day the lead stopped being
+        // clamped at half the screen and started being clamped so the player stays inside his own region — at most the grown
+        // box's half-width less the settle radius, which from the geometry is about 343 px. This scene walks him four pixels a
+        // tick for two seconds, which fills that clamp, so the ore at 640 is about 983 px from the heading, inside the radius:
+        // mining kept a value there (0.22 at the region commit, 0.26 after it) where the commit before the region change
+        // vetoed it. At 720 it is about 1063 px away, outside. The three gradient scenes sit inside at 400, 480 and 576. The
+        // table above was measured at the old radius and is kept for its shape.
+        const int VetoSeparation = 720;
         foreach (int separation in new[] { 400, 480, 576, VetoSeparation })
         foreach (bool nearlyDone in new[] { false, true })
         {
@@ -155,15 +164,28 @@ internal static class VerifyOreWork
             Require(selected?.Name == "mine",
                 $"inside the work radius a proven job must still be chosen over resting company: separation={separation}; nearlyDone={nearlyDone}; selected={selected?.Name}; scores={scores}");
             if (nearlyDone) finishing[separation] = mineValue; else fresh[separation] = mineValue;
+            // The factors behind the value, so a flattened gradient says which one flattened it instead of leaving it to inference.
+            var mineScore = brain.Chooser.LastScores.Single(s => s.Action.Name == "mine");
+            Console.WriteLine(FormattableString.Invariant(
+                $"MEASURE ore factors separation={separation} nearlyDone={nearlyDone}: raw={mineScore.Raw:0.0000} final={mineScore.Final:0.0000} reunion={mineScore.Reunion:0.0000} horizon={mineScore.Horizon:0.0000} commitment={mineScore.Commitment:0.0000} protection={mineScore.Protection:0.0000}"));
+            if (nearlyDone) finishingSeparation[separation] = mineScore.Reunion; else freshSeparation[separation] = mineScore.Reunion;
         }
-        // The gradient that survives: on identical geometry, with the player at the same distance, a job with
-        // one hit left is worth substantially more than a fresh one. The margin is asserted as a ratio rather
-        // than a difference so it does not encode the scores' absolute scale, and it is well clear of the
-        // measured values above — about 3.1x at every separation — so a change that flattened remaining work
-        // into the valuation would redden this rather than drifting past it.
+        // The gradient that survives: on identical geometry, with the player walking away from the same distance, a job with
+        // one hit left is worth more than a fresh one, because the fresh job keeps the companion apart from a leaving player for
+        // longer and pays more separation for it. Restated on 15 September 2026. The row required the finishing job to be worth
+        // more than twice the fresh one, set against about 3.1x measured under the reunion delay charge, which priced every
+        // tick of a job at a per-tick cost and so docked a long job heavily. The owner's ruling that every job pays one
+        // separation cost removed that charge as a second price for the same separation (920b2e0): the scene then reads 0.53
+        // against 0.42 at 400 px, raw worth 0.70 for both, the whole gap in the separation share (0.76 against 0.66), and
+        // the same scene passes the twice-margin at 40478e5, before the charge went. So the row now asserts the mechanism
+        // that produces the gradient rather than the size the removed charge gave it.
         foreach (int separation in fresh.Keys)
-            Require(finishing[separation] > fresh[separation] * 2f, FormattableString.Invariant(
+        {
+            Require(finishing[separation] > fresh[separation], FormattableString.Invariant(
                 $"a job with one hit left must be worth more than a fresh one at the same separation: separation={separation}; fresh={fresh[separation]}; finishing={finishing[separation]}"));
+            Require(freshSeparation[separation] < finishingSeparation[separation], FormattableString.Invariant(
+                $"a fresh job keeps the companion apart from a leaving player for longer, so it must keep less of its worth after separation: separation={separation}; fresh keeps {freshSeparation[separation]}; finishing keeps {finishingSeparation[separation]}"));
+        }
         // The veto itself is asserted in the loop above, at VetoSeparation, so "the band is empty" is a row
         // rather than a sentence: mining is chosen at every separation inside the radius and worth exactly
         // nothing at the first one outside it, with nothing in between for the deleted half to have held at.
