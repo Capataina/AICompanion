@@ -159,6 +159,15 @@ internal static class VerifyFreeSpace
             Require(flood.Reached.Count == 41 + 39, $"a twenty-tile ball in a three-row corridor holds eighty corners; the flood closed {flood.Reached.Count}");
             Require(flood.CostTo(new Point(220, 2)) is float cost && Math.Abs(cost - radius) < 0.01f,
                 "an unpriced flood's cost is the path length in pixels, so the radius corner costs the radius");
+            // The disc is geometric, so pricing the edges by clearance, as the reach sense does, closes
+            // the same corners at higher costs; this is the configuration the sense actually runs in.
+            var priced = new FreeSpaceSearch(corridor, new Point(200, 2), null, priceClearance: true, radius: radius);
+            priced.Advance(int.MaxValue);
+            Require(priced.Stop == FreeSpaceSearch.StopReason.Exhausted && priced.Reached.Count == flood.Reached.Count
+                && priced.Reached.SetEquals(flood.Reached),
+                $"a priced flood exhausts the same disc: {priced.Stop}, {priced.Reached.Count} corners against {flood.Reached.Count}");
+            Require(priced.CostTo(new Point(220, 2)) is float pricedCost && pricedCost > radius,
+                "a priced flood's cost is above the length, which is why the bound is a disc and not a cost ball");
             return 0;
         }
         finally

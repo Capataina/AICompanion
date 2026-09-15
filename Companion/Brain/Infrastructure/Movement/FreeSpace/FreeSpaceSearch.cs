@@ -45,7 +45,7 @@ public sealed class FreeSpaceSearch
     /// The most corners one search may close, a backstop rather than a bound the design relies on. A flood
     /// that stops here has not exhausted anything: it finishes without proving an absence, and a reach sense
     /// that sat on such a flood could never say "unreachable" again. The reach flood is bounded by
-    /// <see cref="Radius"/> instead, and this limit only has to sit above the corners a travel ball of that
+    /// <see cref="Radius"/> instead, and this limit only has to sit above the corners a disc of that
     /// radius can hold in fully open air, which for the sense's radius is about sixty-five thousand.
     /// </summary>
     public const int NodeLimit = 80000;
@@ -86,7 +86,21 @@ public sealed class FreeSpaceSearch
     /// <summary>A goal given as a predicate rather than a corner: the search finishes Found at the first closed corner it accepts.</summary>
     public Func<Point, bool>? Accept { get; set; }
     /// <summary>An ordering value for a predicate goal, used as the heuristic so the flood leans toward what the caller prefers.</summary>
-    public Func<Point, float>? Prefer { get; set; }
+    public Func<Point, float>? Prefer
+    {
+        get => prefer;
+        set
+        {
+            // A preference reorders the queue away from cost order, and a disc-bounded flood's "exhausted
+            // inside the disc" is argued from closing every reachable corner inside it, which a preference
+            // does not break — but a bounded flood is the reach sense's and answers "where can I get to";
+            // leaning it toward a caller's goal would make one consumer's preference everyone's region.
+            if (value != null && !float.IsPositiveInfinity(Radius))
+                throw new InvalidOperationException("a bounded flood is a region, not a search; it takes no preference");
+            prefer = value;
+        }
+    }
+    private Func<Point, float>? prefer;
     /// <summary>The corner a predicate goal accepted, once one has.</summary>
     public Point? FoundCorner { get; private set; }
 

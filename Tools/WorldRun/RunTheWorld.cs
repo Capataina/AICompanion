@@ -65,7 +65,11 @@ internal static class RunTheWorld
         /// of the only instrument that asked it, so a rule reading the flags there was reading a default.
         /// </summary>
         bool ImmuneToWater,
-        bool ImmuneToLava)
+        bool ImmuneToLava,
+        /// <summary>Ticks the body's own tile sat outside the reach sense's known radius, so nothing near it could be proven absent.</summary>
+        int TicksOutsideKnownRadius,
+        /// <summary>Ticks the reach flood read complete.</summary>
+        int TicksReachComplete)
     {
         /// <summary>
         /// One number standing for the whole run's decisions and positions, so two runs can be
@@ -137,6 +141,7 @@ internal static class RunTheWorld
         var centres = new List<Vector2>(route.Count);
         var trace = new List<string>(route.Count);
         var claims = new List<live::AICompanion.Companion.Brain.Infrastructure.Observation.ReachVerdict>(route.Count);
+        int ticksOutsideKnownRadius = 0, ticksReachComplete = 0;
         var clock = Stopwatch.StartNew();
 
         for (int index = 0; index < route.Count; index++)
@@ -179,14 +184,21 @@ internal static class RunTheWorld
             // positioner's resolve rather than by the senses' own update, so asking before it would
             // read the previous tick's region under the previous tick's rules.
             claims.Add(brain.Senses.Reach.Reachable(player.Center.ToTileCoordinates()));
+            // The reach sense's verdicts are only given inside its known radius of the flood's root, and
+            // the root trails a travelling body; these count the ticks the body itself sat outside that
+            // radius, where nothing near it could be proven absent, and the ticks the flood read complete.
+            if (!brain.Senses.Reach.WithinKnownRadius(live::AICompanion.Companion.Brain.Infrastructure.Movement.MovementQueries.Tile(companion.NPC.Center)))
+                ticksOutsideKnownRadius++;
+            if (brain.Senses.Reach.Complete) ticksReachComplete++;
             trace.Add(string.Create(CultureInfo.InvariantCulture,
-                $"{step.Tick}|{brain.LastAction?.Name ?? "-"}|{brain.LastRequest.Kind}|{companion.Motor.AppliedControls}|{brain.Navigator.Status}|{companion.NPC.position.X:R},{companion.NPC.position.Y:R}"));
+                $"{step.Tick}|{brain.LastAction?.Name ?? "-"}|{brain.LastRequest.Kind}|{companion.Motor.AppliedControls}|{brain.Navigator.Status}|{companion.NPC.position.X:R},{companion.NPC.position.Y:R}"
+                + $"|reach {(brain.Senses.Reach.Complete ? "complete" : "growing")} {brain.Senses.Reach.CornerCount} {(brain.Senses.Reach.WithinKnownRadius(live::AICompanion.Companion.Brain.Infrastructure.Movement.MovementQueries.Tile(companion.NPC.Center)) ? "in" : "out")} reroots {brain.Senses.Reach.Reroots} refloods {brain.Senses.Reach.Refloods}"));
         }
 
         clock.Stop();
         var light = companion.Brain.Senses.Light;
         return new Outcome(centres, trace, claims, route.Count, clock.Elapsed.TotalSeconds, worldSource,
             light.ReadTick, light.MeasuredSamples, light.AtCompanion, light.AtPlayer,
-            companion.ImmuneToWater, companion.ImmuneToLava);
+            companion.ImmuneToWater, companion.ImmuneToLava, ticksOutsideKnownRadius, ticksReachComplete);
     }
 }

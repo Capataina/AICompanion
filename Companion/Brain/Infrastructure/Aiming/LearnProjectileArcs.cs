@@ -2,6 +2,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Microsoft.Xna.Framework;
 using Terraria;
 using Terraria.ID;
@@ -40,13 +41,15 @@ public static class ProjectileArcs
     public const int MinPairsToFit = 4;
 
     /// <summary>
-    /// How many velocity pairs a type keeps, the newest kept: eight full flights' worth. Unbounded, the
-    /// list grew for the life of the session and the fit, a median over every pair, was measured at
-    /// twelve times its early cost after a few thousand shots, paid inside the projectile hooks on the
-    /// main thread. Eight flights is more evidence than a median needs and few enough that a projectile
-    /// whose mod changed its gravity is re-learned from what it does now rather than what it did an hour ago.
+    /// How many flights a type keeps, the newest kept, and every fact the fit reads comes from them —
+    /// onset, pairs and plateau alike — so all of it ages together. Unbounded, the pairs grew for the
+    /// life of the session and the fit, a median over every pair, was measured at twelve times its early
+    /// cost after a few thousand shots, paid inside the projectile hooks on the main thread; and an onset
+    /// kept as the earliest ever seen, or a cap as the fastest fall ever seen, would have pinned a type to
+    /// what it did an hour ago however its mod changed it since. Eight flights is more evidence than a
+    /// median needs and few enough that a changed projectile is re-learned from what it does now.
     /// </summary>
-    public const int MaxPairsKept = SamplesPerShot * 8;
+    public const int MaxFlightsKept = 8;
 
     /// <summary>Two velocities closer than this are the same velocity; the game's arithmetic is single precision.</summary>
     private const float SameVelocity = 1e-4f;
@@ -57,16 +60,29 @@ public static class ProjectileArcs
         public readonly List<Vector2> Velocities = new();
     }
 
+    /// <summary>One watched flight, reduced to what the fit reads.</summary>
+    private sealed class Flight
+    {
+        /// <summary>The AI step at which the velocity first changed, or -1 for a flight watched to its full length with no change.</summary>
+        public int Onset = -1;
+        /// <summary>Consecutive post-onset velocities, (before, after).</summary>
+        public readonly List<(Vector2 Before, Vector2 After)> Pairs = new();
+        /// <summary>The fastest fall this flight held steady at, or zero if it never reached a cap.</summary>
+        public float Plateau;
+    }
+
+    /// <summary>The last <see cref="MaxFlightsKept"/> flights of a type; every derived fact is read across them and nothing outlives the ring.</summary>
     private sealed class Record
     {
-        /// <summary>The earliest AI step at which any watched flight of this type changed velocity, or none yet.</summary>
-        public int Onset = int.MaxValue;
-        /// <summary>Consecutive post-onset velocities, (before, after), across every watched flight.</summary>
-        public readonly List<(Vector2 Before, Vector2 After)> Pairs = new();
-        /// <summary>Flights watched to the full sample count with no change at all.</summary>
-        public int StraightFlights;
-        /// <summary>The fastest fall seen, for the cap where a flight reached it.</summary>
-        public float Plateau;
+        public readonly List<Flight> Flights = new();
+        /// <summary>The earliest step at which any kept flight changed velocity, or none yet.</summary>
+        public int Onset => Flights.Where(f => f.Onset >= 0).Select(f => f.Onset).DefaultIfEmpty(int.MaxValue).Min();
+        public IEnumerable<(Vector2 Before, Vector2 After)> Pairs => Flights.SelectMany(f => f.Pairs);
+        public int PairCount => Flights.Sum(f => f.Pairs.Count);
+        /// <summary>Kept flights watched to the full sample count with no change at all.</summary>
+        public int StraightFlights => Flights.Count(f => f.Onset < 0);
+        /// <summary>The fastest fall any kept flight held steady at.</summary>
+        public float Plateau => Flights.Select(f => f.Plateau).DefaultIfEmpty(0f).Max();
     }
 
     private static readonly Dictionary<int, Watch> watching = new();
@@ -83,7 +99,7 @@ public static class ProjectileArcs
 
     /// <summary>How many velocity pairs past the onset back this type's fit.</summary>
     public static int Evidence(int projectileType)
-        => records.TryGetValue(projectileType, out Record? record) ? record.Pairs.Count : 0;
+        => records.TryGetValue(projectileType, out Record? record) ? record.PairCount : 0;
 
     /// <summary>
     /// What the game's own AI says about a vanilla style, so a wooden arrow's first shot need not
@@ -163,28 +179,30 @@ public static class ProjectileArcs
         int onset = -1;
         for (int k = 1; k < v.Count; k++)
             if (Vector2.Distance(v[k], v[k - 1]) > SameVelocity) { onset = k; break; }
+        var flight = new Flight { Onset = onset };
         if (onset < 0)
         {
             // Only a flight watched to its full length says "straight"; one that struck something
-            // on its third tick says nothing about gravity that had not started yet.
-            if (v.Count > SamplesPerShot) record.StraightFlights++;
-            Fit(watch.Type, record);
-            return;
+            // on its third tick says nothing about gravity that had not started yet, and is not kept.
+            if (v.Count <= SamplesPerShot) return;
         }
-        record.Onset = Math.Min(record.Onset, onset);
-        for (int k = onset; k < v.Count; k++)
+        else
         {
-            // A pair whose fall did not change past a positive speed is at the cap; it names the cap
-            // and is kept out of the gravity estimate, which would otherwise read a zero.
-            if (v[k].Y > 0f && MathF.Abs(v[k].Y - v[k - 1].Y) <= SameVelocity)
+            for (int k = onset; k < v.Count; k++)
             {
-                record.Plateau = MathF.Max(record.Plateau, v[k].Y);
-                continue;
+                // A pair whose fall did not change past a positive speed is at the cap; it names the cap
+                // and is kept out of the gravity estimate, which would otherwise read a zero.
+                if (v[k].Y > 0f && MathF.Abs(v[k].Y - v[k - 1].Y) <= SameVelocity)
+                {
+                    flight.Plateau = MathF.Max(flight.Plateau, v[k].Y);
+                    continue;
+                }
+                flight.Pairs.Add((v[k - 1], v[k]));
             }
-            record.Pairs.Add((v[k - 1], v[k]));
         }
-        if (record.Pairs.Count > MaxPairsKept)
-            record.Pairs.RemoveRange(0, record.Pairs.Count - MaxPairsKept);
+        record.Flights.Add(flight);
+        if (record.Flights.Count > MaxFlightsKept)
+            record.Flights.RemoveRange(0, record.Flights.Count - MaxFlightsKept);
         Fit(watch.Type, record);
     }
 
@@ -196,6 +214,9 @@ public static class ProjectileArcs
     /// is watched, and the type is dead for the session with nothing left that could correct it.
     /// </summary>
     public static bool Flyable(LearnedMotion motion)
+        // Of these, only the gravity sign and the finiteness can fail a motion the fit produces: the fit
+        // clamps drag into [0, 1] and derives the cap from a plateau or the game's sixteen. The drag and
+        // cap bounds are here for a motion handed in through Assume, which a fixture may make anything.
         => float.IsFinite(motion.Gravity) && motion.Gravity >= 0f
             && float.IsFinite(motion.HorizontalDrag) && motion.HorizontalDrag > 0f && motion.HorizontalDrag <= 1f
             && float.IsFinite(motion.MaxFallSpeed) && motion.MaxFallSpeed > 0f;
@@ -217,7 +238,7 @@ public static class ProjectileArcs
             if (record.StraightFlights > 0) learned[type] = LearnedMotion.Straight;
             return;
         }
-        if (record.Pairs.Count < MinPairsToFit) return;
+        if (record.PairCount < MinPairsToFit) return;
         var ratios = new List<float>();
         var gravities = new List<float>();
         foreach (var (before, after) in record.Pairs)

@@ -468,7 +468,10 @@ public sealed class BrainOverlay : ModSystem
         foreach (var pickup in brain.Senses.Loot.Pickups)
         {
             bool reachable = brain.Positioner.Reaches(MovementQueries.Tile(pickup.Item.Bottom));
-            bool known = reachable || brain.Positioner.ReachComplete;
+            // Known is the sense's own answer, not "the flood finished": beyond its known radius a
+            // finished flood has proven nothing, and painting those diamonds as absent would show
+            // the owner a refusal the brain never made.
+            bool known = reachable || brain.Positioner.ProvenUnreachableTile(MovementQueries.Tile(pickup.Item.Bottom));
             Diamond(sb, pickup.Item.Center, LootDiamond, reachable ? Color.White : known ? Color.Orange : Color.LightSteelBlue, known);
         }
     }

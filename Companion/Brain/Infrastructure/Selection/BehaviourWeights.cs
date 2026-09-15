@@ -49,8 +49,10 @@ public static class Weights
     /// this distance around its root, so "unreachable within the radius" means every route to the tile is a
     /// detour of about three times its straight line, which the reunion charge would refuse anyway. It sits above every
     /// distance a consumer asks about from the body: the hunt reach and an on-screen enemy beyond it, the
-    /// work radius around the intent region, the loot reach. The flood is rerooted once the body has
-    /// travelled half this distance from the root, so the verdict is always good for at least half of it.
+    /// work radius around the intent region, the loot reach. It is measured from the flood's root and not
+    /// from the body: a replacement flood is grown once the body is half this distance from the root and
+    /// advanced every brain tick so the root trails the body by little, but a body that outruns it reads
+    /// not yet near itself until the replacement has caught up, never a false absence.
     /// </summary>
     public const int ReachKnownRadiusTiles = 72;
     // How many corners a route search may close per tick; a search that runs out keeps its

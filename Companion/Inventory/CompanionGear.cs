@@ -142,6 +142,15 @@ public sealed class CompanionGear
                 reason = "fires a projectile the game has not loaded";
                 return false;
             }
+            // The arc learner watched this projectile fly and found nothing the aimer can fly: a bubble
+            // that rises, a shot that homes. The item keeps firing until the gear next changes, which is
+            // when the arsenal re-runs this predicate; then the slot dims with the reason.
+            int flown = DefaultAmmo(item) is { shoot: > 0 } ammo ? ammo.shoot : item.shoot;
+            if (Brain.Infrastructure.Aiming.ProjectileArcs.Unfittable(flown))
+            {
+                reason = "its projectile flies no arc the companion can aim";
+                return false;
+            }
             if (ProjectileID.Sets.IsAWhip[item.shoot] || projectile.aiStyle is ProjAIStyleID.Flail or ProjAIStyleID.Spear or ProjAIStyleID.Yoyo or ProjAIStyleID.Whip)
             {
                 reason = "held weapons are steered by the player";

@@ -161,6 +161,9 @@ public sealed class Brain
     {
         phase.Restart();
         Senses.Update(companion.NPC, player, companion.Motor);
+        // The reach flood grows every tick under this tick's terrain rules; where it is rooted and when a
+        // replacement takes over is decided on the positioner's rescore, which is where it is refreshed.
+        Senses.Reach.Grow();
         ProtectCompanionHomes.Refresh(player.Bottom, companion.NPC.Center);
         companion.Arsenal.Tick();
         companion.Chopper.Tick();

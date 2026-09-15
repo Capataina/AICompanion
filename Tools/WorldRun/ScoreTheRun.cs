@@ -139,6 +139,14 @@ internal static class ScoreTheRun
         EmitLedgerRows.Measure(Instrument, suite, "ticks reproduced before the track parts by a body",
             firstApart < 0 ? steps : firstApart - route[0].Tick, "ticks", direction: "up",
             mode: "unbounded-allowances", message: note);
+        // The reach sense's verdict boundary is measured from its flood's root, and a travelling body can
+        // outrun the root; on the first disc-bounded tree the body sat outside its own known radius for
+        // 152 consecutive ticks of this route while the replacement flood grew on the cadence.
+        EmitLedgerRows.Measure(Instrument, suite, "ticks the body sat outside the reach sense's known radius",
+            run.TicksOutsideKnownRadius, "ticks", direction: "down", mode: "unbounded-allowances",
+            message: note + "; nothing near the body can be proven absent on such a tick");
+        EmitLedgerRows.Measure(Instrument, suite, "ticks the reach flood read complete",
+            run.TicksReachComplete, "ticks", direction: "up", mode: "unbounded-allowances", message: note);
         // The denominator of the row above, emitted as its own row rather than only as prose,
         // because a comparison whose baseline is zero movement has to be visible on the scoreboard
         // and not only to someone who read the message.

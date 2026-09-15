@@ -192,6 +192,8 @@ public sealed class ReachSense
             sinceFlood = RefloodTicks;
         if (pending?.Valid == false)
             pending = null;
+        if (pending?.Finished == true)
+            TakeOver();
         if (flood != null && sinceFlood < RefloodTicks)
             return;
         sinceFlood = 0;
@@ -206,6 +208,13 @@ public sealed class ReachSense
         }
         var clock = System.Diagnostics.Stopwatch.StartNew();
         bool rooted = flood != null && flood.Valid && flood.Reached.Contains(root.Value);
+        // A body that has outrun the flood answering for it but is already inside the replacement
+        // takes the replacement now, unfinished: its answers are not yet rather than nothing.
+        if (!rooted && pending != null && pending.Reached.Contains(root.Value))
+        {
+            TakeOver();
+            rooted = true;
+        }
         if (flood != null && flood.Valid && !rooted && !flood.Finished && ++rootMissing < MissingRootPatience)
             rooted = true;
         if (!rooted)
@@ -217,33 +226,49 @@ public sealed class ReachSense
             Refloods++;
             flood = Flood(world, root.Value);
             pending = null;
+            tiles = null;
         }
         else
         {
             if (flood!.Reached.Contains(root.Value)) rootMissing = 0;
-            // The body has travelled far from the root of a finished flood: grow the replacement here
-            // while the old one keeps answering, so ordinary travel never reads as an empty region.
-            if (pending == null && flood.Finished
+            // The body has travelled far from the root: grow the replacement here while the old flood
+            // keeps answering, so ordinary travel never reads as an empty region.
+            if (pending == null
                 && Vector2.Distance(CornerGraph.ToWorld(root.Value), CornerGraph.ToWorld(flood.Start)) > RerootDistance)
             {
                 pending = Flood(world, root.Value);
                 Reroots++;
             }
         }
-        if (pending != null)
-        {
-            pending.Advance(Weights.ReachFloodExpansions, Weights.PositionReachMilliseconds);
-            if (pending.Finished)
-            {
-                flood = pending;
-                pending = null;
-                tiles = null;
-            }
-        }
-        else
-            flood.Advance(Weights.ReachFloodExpansions, Weights.PositionReachMilliseconds);
+        flood.Advance(Weights.ReachFloodExpansions, Weights.PositionReachMilliseconds);
         Complete = flood.Finished && flood.Stop == FreeSpaceSearch.StopReason.Exhausted;
         LastFloodMs = clock.Elapsed.TotalMilliseconds;
+    }
+
+    /// <summary>
+    /// Grow whichever flood is unfinished by one slice, once per brain tick. Refresh runs on the rescore
+    /// cadence and decides where the flood is rooted and when a replacement takes over, because the
+    /// region a candidate is scored against has to hold still for a rescore; growth only adds corners
+    /// to a region and breaks no admission, so it need not wait. Growing only on the cadence took the
+    /// first flood of the recorded route three hundred ticks to complete and its replacement a hundred
+    /// and fifty to catch the body, during which nothing near the body could be proven absent.
+    /// </summary>
+    public void Grow()
+    {
+        FreeSpaceSearch? growing = pending ?? flood;
+        if (growing == null || growing.Finished || !growing.Valid) return;
+        growing.Advance(Weights.ReachFloodExpansions, Weights.PositionReachMilliseconds);
+        if (ReferenceEquals(growing, flood))
+            Complete = flood.Finished && flood.Stop == FreeSpaceSearch.StopReason.Exhausted;
+    }
+
+    /// <summary>The replacement flood becomes the flood; the tile set derived from the old one goes with it.</summary>
+    private void TakeOver()
+    {
+        flood = pending;
+        pending = null;
+        tiles = null;
+        Complete = flood!.Finished && flood.Stop == FreeSpaceSearch.StopReason.Exhausted;
     }
 
     /// <summary>A reach flood: goalless, priced like the route search so its estimates stay calibrated, and bounded to the disc.</summary>

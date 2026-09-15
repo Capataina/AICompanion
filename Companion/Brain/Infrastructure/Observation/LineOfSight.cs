@@ -7,8 +7,9 @@ namespace AICompanion.Companion.Brain.Infrastructure.Observation;
 
 /// <summary>
 /// Thin names over the game's own sight test, so the brain reads as prose. The test is
-/// <see cref="Collision.CanHit"/>, a single-tile walk between the two centres that refuses only a
-/// closed one-tile slot, and not <see cref="Collision.CanHitLine"/>: that one is a beam three rows
+/// <see cref="Collision.CanHit"/>, a single-tile walk between the two centres that refuses any solid
+/// tile on the walk, slopes included, plus a pinch check that refuses only a closed one-tile slot,
+/// and not <see cref="Collision.CanHitLine"/>: that one is a beam three rows
 /// tall on a horizontal line — it refuses if the row above *or* below the line is solid — which is
 /// right for a three-tile player and wrong for a twenty-pixel body resting one row above a floor,
 /// whose every horizontal line the floor itself then breaks. A slime beside a resting orb sits in

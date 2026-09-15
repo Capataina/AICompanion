@@ -51,6 +51,60 @@ internal static class VerifyArcLearning
         // that distance, and a lob still reaches it.
         failures += AnUnknownArcIsLearnedFromItsOwnShots("knife", ProjectileID.ThrowingKnife, 10f, 20,
             Arcs.Prior(ProjectileID.ThrowingKnife), onsetTolerance: 0, gravityTolerance: .005f, dragTolerance: .005f);
+        failures += AFitOutsideTheModelKeepsThePriorAndTheRingForgets();
+        Arcs.Reset();
+        return failures;
+    }
+
+    /// <summary>
+    /// Flights fed to the learner by hand, through the same register-observe path the projectile hooks
+    /// use. A rising flight fits a negative gravity, which the aimer cannot fly: it must not be installed,
+    /// the type is named unfittable, and a falling flight afterwards installs a fit and clears the name.
+    /// Then the ring: after more flights with a later onset than the ring holds, the learned onset is the
+    /// later one, because an onset kept as the earliest ever seen would pin the type to its first flight.
+    /// </summary>
+    private static int AFitOutsideTheModelKeepsThePriorAndTheRingForgets()
+    {
+        int failures = 0;
+        void Require(bool condition, string message)
+        {
+            if (condition) return;
+            failures++;
+            EmitLedgerRows.Detail("arc domain: " + message);
+        }
+        Arcs.Reset();
+        const int type = ProjectileID.WoodenArrowFriendly;
+        const int slot = 5;
+        var shot = new Projectile { whoAmI = slot, type = type, active = true };
+
+        void Fly(Func<int, Vector2> velocityAt)
+        {
+            Arcs.Register(slot, type, velocityAt(0));
+            for (int k = 1; k <= Arcs.SamplesPerShot + 1; k++)
+            {
+                shot.velocity = velocityAt(k);
+                Arcs.Observe(shot);
+            }
+        }
+
+        Fly(k => new Vector2(8f, -0.05f * Math.Max(0, k - 10)));
+        Require(Arcs.Learned(type) == null, $"a rising flight must not install a motion; learned {Arcs.Learned(type)}");
+        Require(Arcs.Unfittable(type), "a rising flight names its type unfittable");
+        Require(Arcs.MotionFor(type) == Arcs.Prior(type), "an unfittable type flies its prior");
+
+        // The rising flight stays in the ring as evidence, so falling flights have to outnumber it under
+        // the median and outlast it in the ring before the type is fittable again: a ring's worth.
+        for (int i = 0; i < Arcs.MaxFlightsKept; i++)
+            Fly(k => new Vector2(8f, 0.1f * Math.Max(0, k - 15)));
+        LearnedMotion? fitted = Arcs.Learned(type);
+        Require(fitted is { } f && Arcs.Flyable(f) && MathF.Abs(f.Gravity - 0.1f) < 0.005f && f.GravityStartsAtPhase == 16,
+            $"falling flights afterwards install a flyable fit once the rising one has left the ring; learned {fitted}");
+        Require(!Arcs.Unfittable(type), "and the name is cleared");
+
+        for (int i = 0; i < Arcs.MaxFlightsKept; i++)
+            Fly(k => new Vector2(8f, 0.1f * Math.Max(0, k - 25)));
+        Require(Arcs.Learned(type) is { GravityStartsAtPhase: 26 },
+            $"after a ring's worth of flights with a later onset the learned onset is the later one; learned {Arcs.Learned(type)}");
         Arcs.Reset();
         return failures;
     }
