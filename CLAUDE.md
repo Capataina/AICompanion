@@ -74,7 +74,7 @@ AICompanion/
 │  │     │  ├─ Torch/             carrying and placing light
 │  │     │  ├─ Doors/             opening what the route treats as a wall
 │  │     │  └─ WorldProtection/   what autonomous edits may not touch
-│  │     ├─ Aiming/         projectile trajectory solver
+│  │     ├─ Aiming/         projectile trajectory solver, and the arc it learns per projectile type from the companion's own shots
 │  │     ├─ Grants/         one packet for feet and hand
 │  │     └─ Diagnostics/    overlay layers, cost strip, telemetry, scenario capture
 │  ├─ Weapons/               the arsenal's target-and-weapon choice, the item-backed weapon, and the mana pool
@@ -89,10 +89,10 @@ AICompanion/
 ├─ Tools/                    headless replay, report, reshape and verification tools
 │  ├─ NavReplay/             portable route replay and movement contract tests
 │  ├─ EngineReplay/          native fixtures, in folders by what they ask
-│  │  ├─ Combat/             guarding, hunting, firing and encounter context
+│  │  ├─ Combat/             guarding, hunting, firing, handed gear, the item weapon, learned arcs and encounter context
 │  │  ├─ Gathering/          ore and tree work, and work accounting
 │  │  ├─ Assistance/         lighting, collection, keeping company, the light and reach senses
-│  │  ├─ Movement/           engine motion, following, mislandings, projectiles
+│  │  ├─ Movement/           engine motion, following, mislandings
 │  │  ├─ Observation/        the senses' lifecycle, family offers, evidence scenes
 │  │  └─ Lifecycle/          spawn, death, preferences, the HUD and the native card
 │  ├─ SessionReport/         chronological reader
@@ -106,7 +106,6 @@ AICompanion/
 │  ├─ Scenarios/             committed terrain fixtures from play
 │  └─ Decompiled/            gitignored; game source written on demand by Tools/decompile.sh
 ├─ InterfaceExperiments/     selectable visual prototypes outside game code
-├─ WeaponExperiments/        closed-kit weapon design prototypes
 ├─ research/                architectural questions, evidence and trade-offs for discussion
 │  ├─ Decision Architecture/       what chooses, when it commits, what it costs
 │  ├─ Navigation Research/         how platformer bodies are routed elsewhere

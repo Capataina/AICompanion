@@ -1,6 +1,6 @@
 # Movement fixtures
 
-Native NPC collision, portable route persistence, follow, recovery, escape, round-trip evidence and projectile motion. `VerifyEngineMotion.cs` is the default entry that then calls the other groups.
+Native NPC collision, portable route persistence, follow, recovery, escape and round-trip evidence. `VerifyEngineMotion.cs` is the default entry that then calls the other groups; the projectile-arc fixture it once held is `../Combat/VerifyArcLearning.cs`, because what it asks is a combat question.
 
 ## Door passage
 
@@ -13,10 +13,6 @@ Native NPC collision, portable route persistence, follow, recovery, escape, roun
 ## Round-trip evidence
 
 `VerifyRoundTripEvidence` (`--round-trip`, in the default run) holds the shared round-trip query's verdicts against what the native body does on the same tiles. A ten-row drop into a walled pit must read outward yes and return no, and the native body driven into it must end absent without arriving; a two-row drop must read return yes and the body must walk back. The deep pit asked with a one-expansion budget must answer unknown both ways. A flooded basin with a submerged staircase out must cost no breath for a dry trip at any reserve, fit a full bar for its far end, and be refused with a reserve that covers outward submersion but not return's. The movement-failure corridor flooded to its floor must read yes both ways with every step charged as submerged, and the native body walked out and back must spend no more head-underwater ticks than charged.
-
-## Projectile motion
-
-The same executable verifies every projectile in the current companion kit against native `Projectile.VanillaAI` for a bounded free-flight run. It compares phase, gravity, drag, terminal velocity and default hitbox, then checks that a swept trace rejects a thin blocking tile, reopens when that tile is removed, and rejects an accuracy-rotated launch that no longer reaches its target. This establishes the solver's supported projectile profiles and collision sampling; it does not prove every possible modded projectile or a live combat playtest.
 
 ## Observed motion
 
