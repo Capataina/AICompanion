@@ -50,6 +50,9 @@ public sealed class MineOre : CompanionAction
     private int approachRevision;
     private int approachPickPower;
     private (int X, int Y) approachReach;
+    private (object? List, int Revision) approachMiningList;
+    /// <summary>The status, and so the offer's reason, when the only ore near enough is ore the player's mining list leaves.</summary>
+    private const string LeftByMiningList = "ore left by mining list";
 
     private bool swinging;
 
@@ -168,6 +171,14 @@ public sealed class MineOre : CompanionAction
                 sinceSearch = SearchEveryTicks;
             }
         }
+        // A mark the player sets on the card while a vein of that ore is under way ends the job on the next
+        // preparation, the way turning mining off does: the list is a standing instruction, not a filter on
+        // where a new job may start.
+        if (patch.Count > 0 && !WorkPolicies.MinesOre(jobType))
+        {
+            ClearJob(LeftByMiningList);
+            sinceSearch = SearchEveryTicks;
+        }
         if (patch.Count > 0)
         {
             var context = ctx;
@@ -178,7 +189,7 @@ public sealed class MineOre : CompanionAction
         }
         Point origin = MovementQueries.Tile(ctx.Npc.Center);
         if (origin != approachOrigin || TerrainChanges.Revision != approachRevision || pick != approachPickPower
-            || FindToolAccess.Reach != approachReach)
+            || FindToolAccess.Reach != approachReach || WorkPolicies.MiningListVersion != approachMiningList)
         {
             // A route computed from the old cell is stale the moment the body moves, so the hover
             // has to be re-derived. The ore does not go stale, and discarding it here was the defect:
@@ -206,6 +217,10 @@ public sealed class MineOre : CompanionAction
             // A different reach is the same kind of evidence: a larger one can reach ore the last search ruled out, and a
             // smaller one strands the hover just re-derived above.
             if (FindToolAccess.Reach != approachReach) sinceSearch = SearchEveryTicks;
+            // A changed mark or mode is new evidence about which ores are work, so an ore the player has just
+            // allowed is taken on this preparation rather than after the search cadence.
+            if (WorkPolicies.MiningListVersion != approachMiningList) sinceSearch = SearchEveryTicks;
+            approachMiningList = WorkPolicies.MiningListVersion;
             approachOrigin = origin;
             approachRevision = TerrainChanges.Revision;
             approachPickPower = pick;
@@ -246,6 +261,7 @@ public sealed class MineOre : CompanionAction
         {
             "approach unknown" or "approaching unproven ore" or "no eligible approach" => OfferEligibility.Unresolved,
             "no mineable ore" or NoProvenPoseReason => OfferEligibility.KnownUnusable,
+            LeftByMiningList => OfferEligibility.PolicyForbidden,
             _ => OfferEligibility.NoOpportunity,
         };
         Classify(eligibility, status.Replace(' ', '-'));
@@ -259,7 +275,10 @@ public sealed class MineOre : CompanionAction
         int pick = TileMiner.PickaxeFor(ctx.Player).pick;
         var miner = ctx.Companion.Miner;
         var context = ctx;
-        bool Mineable(Point tile) => miner.CanMine(tile, pick) && AllowsTarget(context, tile.ToWorldCoordinates())
+        // The mining list is the first question because it is the cheapest and the player's own: an ore it leaves
+        // is never a candidate, in either policy, so no approach or tool question is spent on it.
+        bool Listed(Point tile) => WorkPolicies.MinesOre(Main.tile[tile.X, tile.Y].TileType);
+        bool Mineable(Point tile) => Listed(tile) && miner.CanMine(tile, pick) && AllowsTarget(context, tile.ToWorldCoordinates())
             && !Infrastructure.Interactions.WorldProtection.ProtectCompanionHomes.IsProtected(tile);
         OreFinder.SearchResult result = default;
         // "Ore near the player" is measured from his intent region rather than his feet, for the
@@ -298,10 +317,21 @@ public sealed class MineOre : CompanionAction
             // Search once without the tool predicate only after every mineable candidate was
             // rejected, so a closer weak-pick ore cannot mask a farther usable one. This pass only
             // names why nothing was offered.
-            OreFinder.SearchResult anyOre = WorkPolicies.Mining == WorkPolicy.Mimic && playerHit is (Point _, int anyType)
-                ? OreFinder.FindNearest(body, nearPlayer, ctx.Senses.Reach, SearchRadiusTiles, anyType)
-                : OreFinder.FindNearest(body, body, ctx.Senses.Reach, SearchRadiusTiles);
+            // The list stays applied here so a weak pick is still reported as the reason for an ore the player
+            // wants; only when no listed ore is near at all does a last pass ask whether the list is why.
+            bool mimicType = WorkPolicies.Mining == WorkPolicy.Mimic && playerHit is (Point _, int _);
+            int anyType = playerHit is (Point _, int hitType) ? hitType : -1;
+            OreFinder.SearchResult anyOre = mimicType
+                ? OreFinder.FindNearest(body, nearPlayer, ctx.Senses.Reach, SearchRadiusTiles, anyType, Listed)
+                : OreFinder.FindNearest(body, body, ctx.Senses.Reach, SearchRadiusTiles, accept: Listed);
             status = anyOre.Target != null ? "no mineable ore" : anyOre.ApproachUnknown ? "no eligible approach" : "no reachable ore";
+            if (anyOre.Target == null && !anyOre.ApproachUnknown)
+            {
+                OreFinder.SearchResult leftOre = mimicType
+                    ? OreFinder.FindNearest(body, nearPlayer, ctx.Senses.Reach, SearchRadiusTiles, anyType, tile => !Listed(tile))
+                    : OreFinder.FindNearest(body, body, ctx.Senses.Reach, SearchRadiusTiles, accept: tile => !Listed(tile));
+                if (leftOre.Target != null) status = LeftByMiningList;
+            }
         }
     }
 

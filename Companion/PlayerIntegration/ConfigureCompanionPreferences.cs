@@ -30,6 +30,8 @@ public sealed class CompanionPreferences
     public bool PotBreaking { get; set; } = true;
     public bool TorchPlacement { get; set; } = true;
     public CompanionDistanceMode DistanceMode { get; set; } = CompanionDistanceMode.Standard;
+    /// <summary>Which ores this character has held, which carry a mark, and whether a mark means skip or only.</summary>
+    public CompanionMiningList MiningList { get; set; } = new();
 
     public float NewActivityRadius => Weights.FollowWorkRadius * (DistanceMode == CompanionDistanceMode.Close ? .5f : DistanceFactor);
     public float RecoveryRadius => Weights.FollowRecoveryDistance * DistanceFactor;
@@ -58,6 +60,7 @@ public sealed class CompanionPreferences
         tag["potBreaking"] = (byte)(PotBreaking ? 1 : 0);
         tag["torchPlacement"] = (byte)(TorchPlacement ? 1 : 0);
         tag["distanceMode"] = (int)DistanceMode;
+        tag["miningList"] = MiningList.Save();
     }
 
     public static CompanionPreferences Load(TagCompound tag)
@@ -69,6 +72,7 @@ public sealed class CompanionPreferences
         preferences.PotBreaking = ReadBool(tag, "potBreaking", true);
         preferences.TorchPlacement = ReadBool(tag, "torchPlacement", true);
         preferences.DistanceMode = ReadEnum(tag, "distanceMode", CompanionDistanceMode.Standard);
+        preferences.MiningList = tag.ContainsKey("miningList") ? CompanionMiningList.Load(tag.GetCompound("miningList")) : new CompanionMiningList();
         return preferences;
     }
 

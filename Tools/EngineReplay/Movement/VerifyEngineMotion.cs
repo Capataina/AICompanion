@@ -94,6 +94,7 @@ internal static class VerifyEngineMotion
         ("following responds to a player who departs", VerifyResponsiveFollowing.Run),
         ("recovery flight and protection admit only what may start them", VerifyFollowRecoveryAndProtection.Run),
         ("ore work breaks ore without excavating ordinary terrain", VerifyOreWork.Run),
+        ("the mining list decides which ores are work, and remembers every ore the player has held", VerifyMiningList.Run),
         ("gathering beside the player is cooperative rather than competing", VerifyGatheringCooperation.Run),
         ("remaining work is accounted to whoever did it", VerifyWorkAccounting.Run),
         ("a collected drop is claimed only for what arrived", VerifyCollectionContracts.Run),

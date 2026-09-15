@@ -1488,7 +1488,7 @@ internal static class VerifyOreWork
         placed.TileType = type;
     }
 
-    private static (MineOre Action, ActionContext Context) SetUp(WorkPolicy policy, ushort tileType, Point ore, Point? playerHit)
+    internal static (MineOre Action, ActionContext Context) SetUp(WorkPolicy policy, ushort tileType, Point ore, Point? playerHit)
         => SetUp(policy, tileType, new[] { ore }, playerHit);
 
     private static (MineOre Action, ActionContext Context) SetUp(WorkPolicy policy, ushort tileType, Point[] ore, Point? playerHit)
