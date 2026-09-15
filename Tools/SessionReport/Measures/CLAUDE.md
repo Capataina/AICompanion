@@ -9,7 +9,8 @@ Measures/
 ├─ CLAUDE.md
 ├─ Measure.cs                     the contract, the row shapes, and the reading conventions all three share
 ├─ MeasureFollowingAndPlaces.cs   where the companion sat, what it knew it could reach, where its journeys ended
-└─ MeasureCommitmentAndChoice.cs  where the body stopped for nothing the record names, why the chosen activity changed, what the hands did
+├─ MeasureCommitmentAndChoice.cs  where the body stopped for nothing the record names, why the chosen activity changed, what the hands did
+└─ MeasureStillnessAndMotion.cs   how often the orb sat still while the player moved and who held it, how far it trailed, how roughly it moved, how long safety owned it
 ```
 
 `../Program.cs` runs them in the ordinary report and alone under `--measures <capture>`, which is what `../../backfill-capture.sh` calls.
@@ -38,10 +39,24 @@ After these files, the number in a report is the number the harness produced, an
 
 `airborne-no-sideways-speed-stops` survives as `unexplained-stops`, and the rename is the same point in the other direction. The producer attributes a stop in a strict precedence — `during-replan` for a route replaced under a still body, `against-wall` for a body pressed against a wall throughout, `other` for anything it cannot explain — so the row worth a pass line is the one named by exclusion. Keeping the old case name would have kept a row that could only ever read zero.
 
-## The before-numbers are unpinned, and the file says so on every run
+## Stillness is counted whoever owns it, because a stop is only visible on a route
 
-`../Tests/PlayMeasureTests.cs` used to assert twenty-four values against the 13:27 capture of 14 September 2026. Every one of them was read off a walking-body recording at schema 0.33.0, so none survives the change of body: four fed measures that no longer exist, and the rest were taken from columns whose meanings moved. The table is empty until the first orb playtest.
+The first orb play, `2026-09-15_08-30-31-684`, was hated on sight: the orb sat still on most ticks while the player walked, froze for thirteen seconds beside zombies, and moved in stop-start bursts. The report said no definitive issue and `unexplained-stops` read zero, because the producer writes a stop occurrence only against a navigator route, and a body held still by a safety response or by an arrived hold has no route to stop on. `MeasureStillnessAndMotion.cs` reads the stillness from the rows instead, so it does not depend on which owner held the body.
 
-Two rules keep that emptiness honest, and both exist because the alternative looks like success. An empty table files a `skipped` row rather than a pass, because every assertion in that file is a loop over the table and a run with nothing in it satisfies all of them. And a capture below schema 0.34.0 files a `skipped` row naming the schema it found, because an old capture still carries every column name a surviving measure asks for — it would run to the end and produce a full set of confident numbers about a body the game does not have. That second case is the dangerous one precisely because it does not look damaged.
+Its definitions are the contract, and each has a reason a reader would otherwise undo:
 
-`Telemetry/` is gitignored, so an absent capture skips loudly too and names what would have been proved. None of the three paths ever reads as green.
+- **A tick is alive when `state` is neither `player-dead` nor `downed`.** Both hold the body still for the game's reasons rather than a choice, and counting them measures the respawn timer: over every row the run rule finds 33 still runs on that capture, and over alive rows 28.
+- **The floors are the definition, not tunables, and they are not `ahead-share`'s.** Player moving is above 1 px/tick and a still orb below 0.3, which is a lower bar than the 1.2 px/tick of *travelling*; unifying them moves every denominator in both, and a before-number under one floor is not comparable with an after-number under another.
+- **A still run ends at a moving tick, a dead or downed tick, or a gap in the ticks, and a smoothness pair needs two alive rows exactly one tick apart.** The capture the pins read has no gap, so this rule is proven by `StillnessAndMotionPairsBreakAtAGapAndAtDeath` in `../Tests/ChronicleTests.cs`, never by the pins.
+- **Percentiles are the floor of the rank**, `sorted[floor(p·(n−1))]`, which is what `DescribeSession` prints for recording cost; never `ReadPlay.Median`, which averages two middle values on an even count.
+- **The distance is orb centre to the player's `Bottom`**, measured as written: the half player height in it is constant across captures and cancels in any comparison.
+- **The safety rows are a fixed set and file zero rather than vanish.** The live owners are the ones `ChooseSafetyResponse` issues, and the self-test pins the set against that file in both directions, so a renamed response goes red instead of reading 0% for ever and a new response goes red instead of owning ticks no row counts. `combat-spacing` and `combat-reflex` are declared retired: safety stopped taking the body for them on 15 September 2026, but the pinned play holds both, so they are still counted and the pin requires them *absent* from the producer, which makes reviving one a decision rather than an accident of an old list. Beside the set, `share-of-ticks-bent/evade` counts the ticks the evade layer bent the job's own controls — safety acting without taking the body — and carries no good direction, because a bent tick is a hit avoided and a high share is a body that rarely flies straight; it is read beside the hits taken.
+- **Each of the stillness, distance and smoothness measures names `desired_vel` in its `Needs`** as the orb's witness, because `npc_px` and `npc_vel` kept their names when their meaning moved with the body.
+
+## The first orb play is pinned for the measures written against it, and only for those
+
+`../Tests/PlayMeasureTests.cs` pins the stillness, distance, smoothness and safety values of `2026-09-15_08-30-31-684` (schema 0.34.0, mod 0.26.0 from `6a2e59e`), and every one was reproduced by an independent reading of the file before it was pinned. The capture is named rather than resolved as the newest in `Telemetry/`, because pins are facts about one recording and the next playtest would otherwise become the default and turn them all red. The older measures in this folder run on that capture and stay unpinned until somebody reads their numbers against the play; the twenty-four walker pins they once had came from a schema 0.33.0 recording and none survived the body.
+
+Two rules keep the unpinned paths honest, and both exist because the alternative looks like success. An empty table files a `skipped` row rather than a pass, because every assertion in that file is a loop over the table. And a capture below schema 0.34.0 files a `skipped` row naming the schema it found, because an old capture still carries every column name a measure asks for and would produce a full set of confident numbers about a body the game does not have.
+
+`Telemetry/` is gitignored, so in a fresh clone or an agent worktree the named capture is absent and the self-test skips loudly, naming what would have been proved; run it with `AIC_PLAY_CAPTURE` pointing at the capture to exercise the pins. None of the skip paths ever reads as green.
