@@ -395,8 +395,11 @@ internal static class VerifyEncounterContext
             new Prepared(1, "hunt", .3f, 60, IsExcursion: true, HasTarget: true, IsFollowing: false, IsIncumbent: false, Eligibility.Usable, ServesEncounter: true),
             new Prepared(2, "keep-company", .2f, 0, IsExcursion: false, HasTarget: false, IsFollowing: true, IsIncumbent: false, Eligibility.Usable),
         };
+        // Named, because the context gains and loses parameters: written positionally, removing the reunion delay cost on
+        // 15 September 2026 slid this encounter into the task window and a one-tick window cut every task's worth to a sixtieth.
         Comparison Context(float urgency, float encounter, bool stranded = false)
-            => new(urgency, stranded, float.PositiveInfinity, 30, 600, 1, false, 1, 0, encounter);
+            => new(ProtectionUrgency: urgency, Stranded: stranded, ThreatHorizonTicks: float.PositiveInfinity, InterruptibleTicks: 30,
+                HorizonOverrunTicks: 600, Commitment: 1, WithinActivityAllowance: false, FollowDuringUsefulWork: 1, EncounterIntensity: encounter);
 
         var calm = Evaluate.Evaluate(board, Context(0, 0));
         var full = Evaluate.Evaluate(board, Context(0, 1));
