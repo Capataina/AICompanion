@@ -71,13 +71,32 @@ public sealed class Navigator
     public Vector2? Goal { get; private set; }
     public Point? GoalTile => Goal is Vector2 goal ? MovementQueries.Tile(goal) : null;
     public Vector2 Lookahead { get; private set; }
+
+    /// <summary>What produced the controls <see cref="MoveTo"/> last returned, so the evade layer can forecast the same steering.</summary>
+    public enum Steering { Hover, Route, Direct }
+
+    /// <summary>The branch <see cref="MoveTo"/> steered by on its last call: a route, a direct line to the goal, or a hover.</summary>
+    public Steering LastSteering { get; private set; }
     public bool Arrived { get; private set; }
     public bool LastPlanFailed { get; private set; }
     public bool LastPlanEmpty { get; private set; }
     public bool PlannedThisTick { get; private set; }
     public FreeSpaceSearch.StopReason LastSearchStop { get; private set; }
     public int LastExpansions { get; private set; }
-    public double LastPlanMs { get; private set; }
+    // Wall-clock spent planning since the recorder last asked, accumulated over every plan call in between.
+    private double planMsUnread;
+
+    /// <summary>
+    /// What planning has cost since the last call, and zero when nothing planned; the recorder calls it once per row, so a
+    /// row carries its own tick's cost. It replaced a last-plan figure that was repeated on every row until the next plan,
+    /// so a sum over a stretch of rows counted one plan once per row and a tick that planned nothing looked like one that did.
+    /// </summary>
+    public double TakePlanMs()
+    {
+        double spent = planMsUnread;
+        planMsUnread = 0;
+        return spent;
+    }
     public long SearchId { get; private set; }
     public long AttemptId { get; private set; }
     public int SearchExpansions => search?.Expansions ?? 0;
@@ -169,6 +188,7 @@ public sealed class Navigator
             Status = ExecutionStatus.Arrived;
             ProgressReason = "arrived";
             DropRoute();
+            LastSteering = Steering.Hover;
             return Hover.Around(live, goal, world);
         }
         Arrived = false;
@@ -203,6 +223,7 @@ public sealed class Navigator
             Vector2 end = Path.Goal;
             Status = search is { Finished: false } ? ExecutionStatus.Pending : ExecutionStatus.Unreachable;
             controls = Hover.Around(live, end, world);
+            LastSteering = Steering.Hover;
             Lookahead = end;
             ProgressReason = "at-nearest-known-place";
             if (search is not { Finished: false })
@@ -223,6 +244,7 @@ public sealed class Navigator
             Status = search is { Finished: false } ? ExecutionStatus.Pending
                 : PathIsPartial ? ExecutionStatus.Unreachable : ExecutionStatus.Executable;
             controls = SteerAlongRoute.Steer(live, Path, OrbPace.MaxSpeed, OrbPace.SpeedChange, out Vector2 ahead);
+            LastSteering = Steering.Route;
             Lookahead = ahead;
             ProgressReason = PathIsPartial ? "following-partial-route" : Status == ExecutionStatus.Pending ? "following-while-replanning" : "following";
         }
@@ -232,6 +254,7 @@ public sealed class Navigator
             Status = search is { Finished: false } ? ExecutionStatus.Pending : ExecutionStatus.Direct;
             Vector2 direction = (goal - live.Centre) / distanceToGoal;
             controls = new Controls(direction * OrbPace.ArrivalSpeed(distanceToGoal));
+            LastSteering = Steering.Direct;
             Lookahead = goal;
             ProgressReason = "direct";
         }
@@ -249,6 +272,7 @@ public sealed class Navigator
             if (waitAnchor is Vector2 w && !CircleContact.SweptClear(world, live.Centre, w, OrbTerrain.Wall)) waitAnchor = null;
             waitAnchor ??= live.Centre;
             controls = Hover.Around(live, waitAnchor.Value, world);
+            LastSteering = Steering.Hover;
             Lookahead = live.Centre;
             ProgressReason = Status == ExecutionStatus.Pending ? "waiting-for-route"
                 : settledShort != null ? "as-close-as-it-can-get" : "no-route";
@@ -267,7 +291,7 @@ public sealed class Navigator
             search = null;
             if (settledShort != null)
             {
-                LastPlanMs = clock.Elapsed.TotalMilliseconds;
+                planMsUnread += clock.Elapsed.TotalMilliseconds;
                 return;
             }
             if (spent != null)
@@ -282,7 +306,7 @@ public sealed class Navigator
                     LastPlanFailed = LastPlanEmpty = true;
                     LastSearchStop = spent.Stop;
                     LastExpansions = spent.Expansions;
-                    LastPlanMs = clock.Elapsed.TotalMilliseconds;
+                    planMsUnread += clock.Elapsed.TotalMilliseconds;
                     return;
                 }
                 spent = null;
@@ -300,7 +324,7 @@ public sealed class Navigator
                 LastPlanFailed = true;
                 LastSearchStop = FreeSpaceSearch.StopReason.Exhausted;
                 LastExpansions = 0;
-                LastPlanMs = clock.Elapsed.TotalMilliseconds;
+                planMsUnread += clock.Elapsed.TotalMilliseconds;
                 if (start == null) ProgressReason = "no-corner-under-body";
                 return;
             }
@@ -354,7 +378,7 @@ public sealed class Navigator
             if (Path == null || (PathIsPartial && Vector2.Distance(live.Centre, Path.Goal) <= SettleRadius))
                 TakePartialRoute(live, goal, world, search);
         }
-        LastPlanMs = clock.Elapsed.TotalMilliseconds;
+        planMsUnread += clock.Elapsed.TotalMilliseconds;
     }
 
     /// <summary>

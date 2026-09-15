@@ -356,15 +356,14 @@ internal static class VerifyLightAndReachSenses
         // own two answers, which is where the asymmetry lives.
         Point body = ctx.Npc.Center.ToTileCoordinates();
         Point nearHand = new(body.X + 2, body.Y - 2);
-        var holding = brain.Senses.Light.MeasuredAround(nearHand, Weights.LightSiteRadiusTiles, Weights.LightSiteStrideTiles);
-        var placing = brain.Senses.Light.MeasuredAround(nearHand, Weights.LightSiteRadiusTiles, Weights.LightSiteStrideTiles,
-            carriedCountsAsDark: true);
-        Require(holding.Unmeasured,
-            $"the premise is a neighbourhood the companion's own torch accounts for, which the hold decision must "
-            + $"refuse to read; {Show(holding)} at {nearHand}");
-        Require(!placing.Unmeasured && placing.MeanBrightness < Weights.LightDarkBelow,
-            $"the same neighbourhood must read dark when the question is whether to leave a torch behind, because the "
-            + $"light in it is the light that leaves with the companion; {Show(placing)} at {nearHand}");
+        float? holding = brain.Senses.Light.MeasuredBrightnessAt(nearHand);
+        var placing = brain.Senses.Light.ReadForPlacement(nearHand, LightSense.Coverage.Current());
+        Require(holding is null,
+            $"the premise is a tile the companion's own torch accounts for, which the hold decision must refuse to read; "
+            + $"read {holding} at {nearHand}");
+        Require(placing.Light == LightSense.PlacementLight.Carried && placing.IsDark,
+            $"the same tile must read dark when the question is whether to leave a torch behind, because the light in it "
+            + $"is the light that leaves with the companion; {placing} at {nearHand}");
     }
 
     // ---- every carried light is discounted, not only the companion's own --------------------------------

@@ -132,6 +132,28 @@ public static class TrajectoryAimer
     public static bool TryTrace(Vector2 muzzle, Vector2 launch, NPC target, FlightModel weapon, out TrajectorySolution solution)
         => Trace(muzzle, launch, target, weapon, out solution);
 
+    /// <summary>
+    /// Whether a launch flies clear of terrain and the world edge for <paramref name="ticks"/> ticks, whatever it meets on
+    /// the way. A launch deliberately aimed off the intercept is not meant to reach the target's box — whether aiming off
+    /// costs anything is what the caller is finding out — so it is held only to not flying into a wall for as long as the
+    /// intercept's own flight lasted.
+    /// </summary>
+    public static bool TryClear(Vector2 muzzle, Vector2 launch, FlightModel weapon, int ticks)
+    {
+        Vector2 position = muzzle;
+        Vector2 velocity = launch;
+        int phase = 0;
+        int ignored = 0;
+        for (int tick = 1; tick <= Math.Min(ticks, weapon.MaxFlightTicks); tick++)
+        {
+            Vector2 start = position;
+            ProjectileFlight.Advance(ref position, ref velocity, weapon, ref phase);
+            if (!TraceSegment(start, position, weapon, tick, null, null, ref ignored, null, out _))
+                return false;
+        }
+        return true;
+    }
+
     /// <summary>Counts the hostile bodies a valid projectile trace crosses, in flight order.</summary>
     public static int PathHits(Vector2 muzzle, Vector2 launch, FlightModel weapon, IReadOnlyList<NPC> hostiles, NPC[] into)
     {

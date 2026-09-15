@@ -168,7 +168,8 @@ internal static class VerifyAnchorsAndEvade
                         return true;
                 return false;
             }
-            Controls controls = EvadeWhileMoving.Bend(new OrbState(centre, velocity), Controls.None, Unsafe, world, out bool bent);
+            Controls controls = EvadeWhileMoving.Bend(new OrbState(centre, velocity), Controls.None, Unsafe, world, out EvadeVerdict verdict);
+            bool bent = verdict.Bent;
             if (bent) bentTicks++;
             Vector2 before = centre, velocityBefore = velocity;
             velocity = OrbPace.Step(velocity, controls.Desired, controls.Burst);

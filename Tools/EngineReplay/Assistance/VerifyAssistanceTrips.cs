@@ -355,8 +355,8 @@ internal static class VerifyAssistanceTrips
                     // in the middle of the chamber reads dark to the same measurement the site test uses, and
                     // whether the torch policy will take it at all.
                     + $" regions=[{string.Join(" ", brain.Senses.Light.DarkRegionsNearest(MovementQueries.Tile(ctx.Npc.Center), 64).Select(r => $"{r.Centre}:{r.DarkSamples}"))}]"
-                    + $" chamberDark={brain.Senses.Light.MeasuredAround(new Point((PitLeft + PitRight) / 2, PitFloor - 2), 4, 1)}"
-                    + $" chamberCandidate={(live::AICompanion.Companion.Brain.Infrastructure.Interactions.Torch.PlaceSuppliedTorches.Candidate(new Point((PitLeft + PitRight) / 2, PitFloor - 2)))}";
+                    + $" chamberDark={brain.Senses.Light.ReadForPlacement(new Point((PitLeft + PitRight) / 2, PitFloor - 2), live::AICompanion.Companion.Brain.Infrastructure.Observation.LightSense.Coverage.Current())}"
+                    + $" chamberCandidate={(live::AICompanion.Companion.Brain.Infrastructure.Interactions.Torch.PlaceTorches.Candidate(new Point((PitLeft + PitRight) / 2, PitFloor - 2)))}";
                 if (!open)
                 {
                     Require(score == 0 && light.ActivityTarget == null,

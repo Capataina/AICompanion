@@ -90,6 +90,10 @@ public static class Program
         new DecisionsSurviveLongEnoughToPayOff(),
         new TheActionBoardGetsUsed(),
         new TheTorchGivesUpTheHand(),
+        // The player as the reference: his own smart cursor's dark tile left unlit, and a usable hunt beside him while he
+        // stood idle, each while keeping company won. Both read columns only 0.35.0 writes and skip an older capture by name.
+        new TorchesGoWhereHisCursorWould(),
+        new HuntsWorthTakingAreTaken(),
         new TheBrainFitsInAFrame(),
     };
 

@@ -22,12 +22,39 @@ public abstract class PerformNearbyWorldWork : CompanionAction
     /// <summary>Whether this search passed over a site because the reach flood had not settled on its working
     /// pose yet, as opposed to having proven anything about it.</summary>
     private bool standUnresolved;
+    /// <summary>Whether the tick's planning deadline stopped this search before it had put every site to the
+    /// approach query. A cut is an answer that has not arrived, and it is a different one from an unsettled flood:
+    /// the flood beside the cut may be finished and holding every answer, which is exactly what the capture of 15
+    /// September 2026 showed under the one name both used to share.</summary>
+    private bool searchCut;
+    // Whether this search proved a site's stand unreachable, or met a stand outside the flood's known radius.
+    private bool sawNoReturn, sawBeyondKnownRadius;
 
-    /// <summary>The shared name for a search that reached the end of its sites with nothing proven and at
-    /// least one pose the flood had not claimed yet. A subclass that can say which of its own exits this was
-    /// says so through <see cref="SearchRefusal"/>; this is what a subclass with no opinion reports, and it is
-    /// an answer that has not arrived rather than an answer of "no".</summary>
+    /// <summary>The name for a search that passed over a site whose pose the flood had not claimed yet, while the flood
+    /// was still growing. An answer that has not arrived rather than an answer of "no".</summary>
     private const string StandUnresolvedReason = "interaction-stand-not-yet-known-reachable";
+
+    /// <summary>The name for a search the tick's planning deadline stopped. It used to be reported as an unsettled stand,
+    /// which it is not: on 3,607 rows of the 15 September capture every site that search had asked was proven
+    /// unreachable and the flood beside it was complete, and the offer said the question was not finished.</summary>
+    private const string SearchCutReason = "interaction-search-cut-by-planning-deadline";
+
+    /// <summary>The name for a site whose every working pose lies outside the finished flood's known radius. A finished
+    /// flood proves absence only inside that radius, so this is not a refusal, and it is not unfinished either: nothing
+    /// the flood will do answers it. It answers again when a different flood does, which is when the body has moved.</summary>
+    private const string BeyondKnownRadiusReason = "interaction-stand-beyond-known-radius";
+
+    /// <summary>The executor's own funnel stages, declared by a subclass that keeps a funnel after its own candidate
+    /// stages, in this order; see <see cref="CandidateFunnel"/>.</summary>
+    protected const string StageAllowance = "activity-allowance";
+    protected const string StageSearchCut = "search-cut";
+    protected const string StageStandNotYetKnown = "stand-not-yet-known";
+    protected const string StageStandBeyondKnownRadius = "stand-beyond-known-radius";
+    protected const string StageStandUnreachable = "stand-unreachable";
+    /// <summary>What a tile that every stage would accept is called when it was not the one offered: a nearer site was, or
+    /// the search has not run since. Never a funnel stage, because a searched candidate that passes everything is offered.</summary>
+    protected const string StagePassedEveryStage = "passed-every-stage";
+
     // Tiles whose approach was tried and did not arrive, with the tick they may be offered again.
     private readonly System.Collections.Generic.Dictionary<Point, ulong> deferred = new();
     private Vector2 approachOrigin;
@@ -50,17 +77,23 @@ public abstract class PerformNearbyWorldWork : CompanionAction
     /// target and waiting out the search cadence; one pot is one pot, so pot collection does not.</summary>
     protected virtual bool ContinueAfterInteraction => false;
     /// <summary>Why this search found no site, where the subclass knows something more specific than "nothing
-    /// in the window". Null keeps the shared answer.</summary>
+    /// in the window". Null keeps the shared answer. Every exit about a site's stand is the executor's and has one
+    /// shared name; this is for what the subclass's own gathering found.</summary>
     protected virtual (OfferEligibility Eligibility, string Reason)? SearchRefusal(in ActionContext ctx) => null;
-    /// <summary>
-    /// What the approach query answered about a site this search then passed over, for a subclass that names
-    /// its exits more precisely than the shared ones. It is called with <c>No</c> or <c>Unknown</c> only, and
-    /// the two are a real distinction rather than a shade of one: a proven <c>No</c> is remembered, so the
-    /// next search advances past the site, while an <c>Unknown</c> is a flood that has not settled and must be
-    /// re-asked. Writing an unsettled flood off as a refusal is what kept every search on the same nearest
-    /// sites, and it is the failure this whole path exists to have removed.
-    /// </summary>
-    protected virtual void NoteApproach(in ActionContext ctx, Reachability.Reach verdict) { }
+
+    /// <summary>The stage that refuses this tile as a candidate, or null when it is one. A subclass that keeps a funnel
+    /// names its stages here; the default is <see cref="Candidate"/> with one name for every refusal.</summary>
+    protected virtual string? RefusingStage(in ActionContext ctx, Point tile) => Candidate(ctx, tile) ? null : "candidate-refused";
+
+    /// <summary>The name of the last candidate stage a tile passes before its stand is asked about.</summary>
+    protected virtual string CandidateStagePassed => "candidate";
+
+    /// <summary>What the candidate stages read for this tile, for the funnel.</summary>
+    protected virtual string CandidateReadings(in ActionContext ctx, Point tile) => "";
+
+    /// <summary>The funnel this executor's search fills, or null for a subclass that keeps none.</summary>
+    protected virtual CandidateFunnel? SearchFunnel => null;
+
     /// <summary>The classification for a method its enabling conditions currently refuse; the
     /// subclass knows whether that refusal is a player setting, missing supplies or the world.</summary>
     protected virtual (OfferEligibility Eligibility, string Reason) DisabledOffer(in ActionContext ctx)
@@ -74,7 +107,7 @@ public abstract class PerformNearbyWorldWork : CompanionAction
     protected virtual float CandidateCost(Vector2 feet, Point tile) => Vector2.DistanceSquared(feet, tile.ToWorldCoordinates());
 
     /// <summary>Tiles this search will consider, nearest-first by <see cref="CandidateCost"/>. Pots keep a small
-    /// window around the body; lighting overrides this to the visible screen of dark air.</summary>
+    /// window around the body; lighting overrides this to the work area around the player.</summary>
     protected virtual void GatherSearchTiles(in ActionContext ctx, System.Collections.Generic.List<(float Cost, int Order, Point Tile)> into)
     {
         Point centre = ctx.Npc.Center.ToTileCoordinates();
@@ -82,36 +115,46 @@ public abstract class PerformNearbyWorldWork : CompanionAction
             for (int y = centre.Y - 14; y <= centre.Y + 14; y++)
             {
                 Point p = new(x, y);
-                if (deferred.TryGetValue(p, out ulong until) && Main.GameUpdateCount < until) continue;
-                if (NoReturnDeferred(p)) continue;
+                if (SearchTileDeferred(p)) continue;
                 into.Add((CandidateCost(ctx.Npc.Center, p), into.Count, p));
             }
     }
 
-    /// <summary>Whether this tile is currently deferred for a failed approach or a proven no-return trip.</summary>
+    /// <summary>Whether this tile is currently deferred for a failed approach or a proven refusal of its stand.</summary>
     protected bool SearchTileDeferred(Point tile)
     {
         if (deferred.TryGetValue(tile, out ulong until) && Main.GameUpdateCount < until) return true;
-        return NoReturnDeferred(tile);
+        return RefusalDeferred(tile);
+    }
+
+    /// <summary>The funnel stage a deferred tile was set aside at, or null when it is not deferred.</summary>
+    protected string? DeferredStage(Point tile)
+    {
+        if (deferred.TryGetValue(tile, out ulong until) && Main.GameUpdateCount < until) return "approach-abandoned";
+        if (!RefusalDeferred(tile)) return null;
+        return refused[tile].BeyondKnownRadius ? StageStandBeyondKnownRadius : StageStandUnreachable;
     }
 
     // Search-window tiles in the order they are asked, reused across searches: the brain is single-threaded.
     private readonly System.Collections.Generic.List<(float Cost, int Order, Point Tile)> ordered = new();
-    // Sites whose trip was proven to have no way back, or not enough breath, with the terrain revision and tick they may be
-    // asked again. Without it the same nearest one-way site spends the bounded trip checks on every search and a farther site
-    // with a way back is never reached.
-    private readonly System.Collections.Generic.Dictionary<Point, (int Revision, ulong Until)> noReturn = new();
-    // Why the last search found no site, when the reason was the trip rather than the absence of a candidate.
-    private (OfferEligibility Eligibility, string Reason)? tripRefusal;
 
-    /// <summary>The last refusal this method actually proved about a site, kept for as long as the deferral
-    /// that carries it. <see cref="tripRefusal"/> is cleared at the start of every search, which is right for
-    /// a claim about *this* search and wrong for a proof: the search that proves a pit has no way back often
-    /// also runs out of site budget, so it must report the budget, and by the next search every proven site is
-    /// deferred and never rebuilt — leaving the offer to say the placer accepted nothing, an absence, where
-    /// the truth is that everything findable was proven unusable. Cleared with the deferrals themselves, so it
-    /// cannot outlive the evidence.</summary>
-    private (OfferEligibility Eligibility, string Reason)? provenRefusal;
+    /// <summary>
+    /// Sites whose stand a finished flood refused, with the flood that refused them and the tick they may be asked again:
+    /// a stand proven outside the flood, or one lying beyond the flood's known radius. Without it the same nearest refused
+    /// sites spend every search's allowance and a farther site with a way back is never reached, which is the whole
+    /// defect this store exists to prevent.
+    ///
+    /// <para>Kept against the flood rather than the terrain revision, and pruned rather than emptied. Both used to be the
+    /// other way, and both starved the search the store was built for: the terrain revision moves on every edit
+    /// anywhere, the companion's own torch included, and the store emptied itself whole past a fixed size, so under a
+    /// floor of sealed dark pockets every search re-proved the same nearest pockets until the deadline cut it and never
+    /// reached a reachable site (15 September 2026, 2,347 rows asking 13 to 64 sites, every one unreachable).</para>
+    /// </summary>
+    private readonly System.Collections.Generic.Dictionary<Point, (int Generation, ulong Until, bool BeyondKnownRadius)> refused = new();
+    /// <summary>Past this many remembered refusals a new one first prunes the stale ones. It bounds the cost of the pass,
+    /// not what is remembered: a refusal still true is never dropped to make room.</summary>
+    private const int PruneRefusalsAbove = 64;
+    private int floodGeneration;
 
     /// <summary>The shared name for a site the body cannot get to and come home from. It was the round trip's
     /// name for the same fact and it is kept, because the fact did not change when the evidence for it did.</summary>
@@ -133,19 +176,28 @@ public abstract class PerformNearbyWorldWork : CompanionAction
     private const int LedgerEntries = 12;
     private readonly System.Text.StringBuilder ledger = new();
 
-    /// <summary>Keep a site whose trip was proven impossible (no way back, or no take-off for the only hop that could
-    /// reach it) out of discovery until the terrain changes or the wait passes. A named reason also becomes the offer's refusal.</summary>
-    private void DeferRefusedTrip(Point tile, string? reason)
+    /// <summary>Keep a site whose stand a finished flood refused out of discovery while that flood answers and the wait
+    /// has not passed.</summary>
+    private void DeferRefusedStand(Point tile, bool beyondKnownRadius)
     {
-        if (noReturn.Count > 64) { noReturn.Clear(); provenRefusal = null; }
-        noReturn[tile] = (TerrainChanges.Revision, Main.GameUpdateCount + (ulong)Infrastructure.Selection.Weights.NearbyWorkNoReturnRetryTicks);
-        if (reason != null) tripRefusal = provenRefusal = (OfferEligibility.KnownUnusable, reason);
+        if (refused.Count > PruneRefusalsAbove) PruneRefusals();
+        refused[tile] = (floodGeneration, Main.GameUpdateCount + (ulong)Infrastructure.Selection.Weights.NearbyWorkNoReturnRetryTicks, beyondKnownRadius);
     }
+
+    private void PruneRefusals()
+    {
+        ulong now = Main.GameUpdateCount;
+        stale.Clear();
+        foreach (var (tile, entry) in refused)
+            if (entry.Generation != floodGeneration || now >= entry.Until) stale.Add(tile);
+        foreach (Point tile in stale) refused.Remove(tile);
+    }
+    private readonly System.Collections.Generic.List<Point> stale = new();
 
     /// <summary>Add one asked site and its verdict to the ledger. The count always advances; the text stops at
     /// <see cref="LedgerEntries"/>, so a row stays readable and the two together say "these are the first
     /// twelve of this many" rather than quietly presenting a sample as the whole search.</summary>
-    private void RecordAsked(Point tile, Reachability.Reach verdict)
+    private void RecordAsked(Point tile, Reachability.Reach verdict, bool beyondKnownRadius)
     {
         LastSearchAsked++;
         if (LastSearchAsked > LedgerEntries) return;
@@ -155,17 +207,37 @@ public abstract class PerformNearbyWorldWork : CompanionAction
             {
                 Reachability.Reach.Yes => "reachable",
                 Reachability.Reach.No => "unreachable",
-                _ => "not-yet-known",
+                _ => beyondKnownRadius ? "beyond-known-radius" : "not-yet-known",
             });
     }
 
-    private bool NoReturnDeferred(Point tile)
+    private bool RefusalDeferred(Point tile)
     {
-        if (!noReturn.TryGetValue(tile, out var entry)) return false;
-        if (entry.Revision == TerrainChanges.Revision && Main.GameUpdateCount < entry.Until) return true;
-        noReturn.Remove(tile);
+        if (!refused.TryGetValue(tile, out var entry)) return false;
+        if (entry.Generation == floodGeneration && Main.GameUpdateCount < entry.Until) return true;
+        refused.Remove(tile);
         return false;
     }
+
+    /// <summary>Whether a refusal proven on an earlier search still stands, and whether any of those is a stand beyond
+    /// the known radius; null when none does.</summary>
+    private bool? StandingRefusal()
+    {
+        bool any = false, beyond = false;
+        ulong now = Main.GameUpdateCount;
+        foreach (var entry in refused.Values)
+        {
+            if (entry.Generation != floodGeneration || now >= entry.Until) continue;
+            any = true;
+            beyond |= entry.BeyondKnownRadius;
+        }
+        return any ? beyond : null;
+    }
+
+    // The offered site's funnel entry waits for its trip, which Prepare prices after the search.
+    private bool offeredPending;
+    private float offeredCost;
+    private string offeredReadings = "";
 
     public override void Prepare(in ActionContext ctx)
     {
@@ -177,23 +249,28 @@ public abstract class PerformNearbyWorldWork : CompanionAction
         preparedTrip = preparedTarget is { } site
             ? Vector2.Distance(ctx.Npc.Center, site) / OrbPace.MaxSpeed + Infrastructure.Selection.Weights.NearbyInteractionTicks
             : 0f;
+        if (offeredPending && target is Point chosen)
+            SearchFunnel?.Add("tile", chosen, offeredCost, "stand", "", offeredReadings
+                + FormattableString.Invariant($";trip={preparedTrip:0.0};value={preparedValue:0.000}"));
+        offeredPending = false;
         if (!enabledAtPreparation) { var (eligibility, reason) = DisabledOffer(ctx); Classify(eligibility, reason); }
-        // An unsettled flood outranks a refusal proven earlier in the same search, because proving site one
-        // unreachable and then meeting a site the flood has not claimed is not "the companion cannot come back
-        // from there", it is "the question is not finished". Reported the other way round, the offer and the
-        // telemetry both name a proven impossibility for a search that has more to learn, which is the one
-        // reading that would stop anyone looking again. A subclass naming its own unresolved exit wins, because
-        // it knows which of its exits this was; the shared name is what a subclass with no opinion reports.
-        else if (target == null && standUnresolved)
-            Classify(OfferEligibility.Unresolved,
-                SearchRefusal(ctx) is { Eligibility: OfferEligibility.Unresolved } named ? named.Reason : StandUnresolvedReason);
-        else if (target == null && tripRefusal is { } refusal) Classify(refusal.Eligibility, refusal.Reason);
+        // The exits are ordered by how much of the question is still open. A cut search and an unsettled flood have
+        // not answered at all; a site beyond the known radius has an answer that will change once the body moves;
+        // a refused stand is proven for as long as its flood answers; and only then does the subclass's own account
+        // of what it gathered speak. A search whose gathering itself could not answer (no light measured, a scan the
+        // deadline cut) asked no stand at all and says so before any earlier proof, which is about somewhere else.
+        else if (target == null && searchCut) Classify(OfferEligibility.Unresolved, SearchCutReason);
+        else if (target == null && standUnresolved) Classify(OfferEligibility.Unresolved, StandUnresolvedReason);
+        else if (target == null && LastSearchAsked == 0 && SearchRefusal(ctx) is { Eligibility: OfferEligibility.Unresolved } unanswered)
+            Classify(unanswered.Eligibility, unanswered.Reason);
+        else if (target == null && (sawBeyondKnownRadius || StandingRefusal() == true))
+            Classify(OfferEligibility.Deferred, BeyondKnownRadiusReason);
         // A search that reached the end of its list and found nothing, where every site it could find was
         // proven unusable on an earlier search and is still deferred. Without this the offer reports the scan's
         // own absence and the proof is thrown away, which is how "the companion cannot come back from there"
         // became "the placer accepted nothing" one search after it was established.
-        else if (target == null && noReturn.Count > 0 && provenRefusal is { } earlier)
-            Classify(earlier.Eligibility, earlier.Reason);
+        else if (target == null && (sawNoReturn || StandingRefusal() != null))
+            Classify(OfferEligibility.KnownUnusable, NoReturnReason);
         else if (target == null)
         {
             var (eligibility, reason) = SearchRefusal(ctx) ?? (OfferEligibility.NoOpportunity, "no-candidate-in-search-window");
@@ -241,11 +318,11 @@ public abstract class PerformNearbyWorldWork : CompanionAction
     {
         enabledAtPreparation = RefreshEligibility(ctx);
         if (!enabledAtPreparation) return 0f;
+        floodGeneration = ctx.Senses.Reach.FloodGeneration;
         // Everything this executor retains about a site was derived under the reach it was computed with: the held stand, the
-        // wait before the next search, the failed-approach deferrals, and the proven refusals in noReturn (no way back and not
-        // enough breath from the working pose that reach chose, and no take-off for a hop that reach needed). A smaller reach
-        // walked to a stand it could no longer swing from; a larger one waited out the cadence, and kept refusing a site whose
-        // pit-floor pose had no return although the larger reach works it from the rim. So a reach change releases every store
+        // wait before the next search, the failed-approach deferrals, and the refused stands. A smaller reach walked to a
+        // stand it could no longer swing from; a larger one waited out the cadence, and kept refusing a site whose pit-floor
+        // pose had no return although the larger reach works it from the rim. So a reach change releases every store
         // together and this preparation searches again. The capability is this one comparison: a capability added to it
         // releases all of them, where a key added to one store and not the other refuses under the old value for its hold time.
         if (FindToolAccess.Reach != derivedReach)
@@ -254,19 +331,15 @@ public abstract class PerformNearbyWorldWork : CompanionAction
             target = null;
             nextSearch = 0;
             deferred.Clear();
-            noReturn.Clear();
-            // The proof went with the deferrals it described; keeping the sentence after deleting its evidence
-            // would report a refusal under a reach that never produced it.
-            provenRefusal = null;
+            refused.Clear();
         }
         if (target is Point old && (!Candidate(ctx, old) || !AllowsTarget(ctx, old.ToWorldCoordinates())))
         { target = null; }
         if (target == null && Main.GameUpdateCount >= nextSearch)
         {
             nextSearch = Main.GameUpdateCount + 90;
-            tripRefusal = null;
             // Nearest first by the method's own cost, stopping at the first site whose access is proven. Every site in
-            // the list is asked, and that is the change: the question behind the approach is now membership of a flood
+            // the list is asked, and that is the change: the question behind the approach is membership of a flood
             // one sense has already run, so there is nothing left to ration. While it was a fresh bounded A* per pose
             // this loop stopped after three sites, and because an A* that runs out of expansions answers Unknown rather
             // than No, and an Unknown was passed over without being remembered, the same three nearest sites were asked
@@ -274,14 +347,36 @@ public abstract class PerformNearbyWorldWork : CompanionAction
             // an answer — was 79% of the lighting offers, and 7,003 of those rows had a finished flood sitting beside
             // them with the answer already in it.
             ordered.Clear();
-            standUnresolved = false;
+            standUnresolved = searchCut = sawNoReturn = sawBeyondKnownRadius = false;
             ledger.Clear();
             LastSearchAsked = 0;
+            CandidateFunnel? funnel = SearchFunnel;
+            funnel?.Begin();
             GatherSearchTiles(ctx, ordered);
             ordered.Sort(static (a, b) => a.Cost != b.Cost ? a.Cost.CompareTo(b.Cost) : a.Order.CompareTo(b.Order));
-            foreach (var (_, _, p) in ordered)
+            int looked = 0;
+            foreach (var (cost, _, p) in ordered)
             {
-                if (!AllowsTarget(ctx, p.ToWorldCoordinates(), p) || !Candidate(ctx, p)) continue;
+                // The candidate stages are cheap and can run for every tile of a dark floor, so the deadline is read
+                // every so often between them as well as before each approach, which is the expensive half.
+                if ((++looked & 63) == 0 && LimitPlanningWork.Expired)
+                {
+                    searchCut = true;
+                    funnel?.Add("tile", p, cost, "", StageSearchCut, "");
+                    break;
+                }
+                if (!AllowsTarget(ctx, p.ToWorldCoordinates(), p))
+                {
+                    funnel?.Add("tile", p, cost, "", StageAllowance, "");
+                    continue;
+                }
+                string? refusedAt = RefusingStage(ctx, p);
+                if (refusedAt != null)
+                {
+                    funnel?.Add("tile", p, cost, null, refusedAt, CandidateReadings(ctx, p));
+                    continue;
+                }
+                string readings = funnel == null ? "" : CandidateReadings(ctx, p);
                 Vector2 candidateStand;
                 if (FindToolAccess.InReach(ctx.Npc.Center, p)) candidateStand = ctx.Npc.Center;
                 else
@@ -291,44 +386,57 @@ public abstract class PerformNearbyWorldWork : CompanionAction
                     // ranking poses is still a scan of every standable tile in reach of the site, each asking the
                     // engine for a line to an exposed face. On a floor dark everywhere that is hundreds of sites,
                     // and with nothing bounding it one preparation measured 25.5 ms against a twelve-millisecond
-                    // tick. The count is the wrong bound now: it was there to ration route searches, and rationing
-                    // by three sites a search is what let three undecided sites hide every site behind them. A
-                    // deadline rations the same cost without an ordering, and a cut scan is an answer that has not
-                    // arrived — reported Unresolved and retried in a rescore, which is what the sites past the cut
-                    // actually are. The general shape, which this file has now met twice: when a cheaper proof
-                    // replaces a dearer one, find what the dearer one's bound was standing in front of.
-                    if (LimitPlanningWork.Expired) { standUnresolved = true; break; }
+                    // tick. A cut scan is an answer that has not arrived, reported under its own name and retried
+                    // in a rescore; the refusals it proved before the cut are remembered, so the next search starts
+                    // past them rather than on them.
+                    if (LimitPlanningWork.Expired)
+                    {
+                        searchCut = true;
+                        funnel?.Add("tile", p, cost, CandidateStagePassed, StageSearchCut, readings);
+                        break;
+                    }
                     // One question, asked once, of the sense. The approach ranks working poses by geometry and
                     // answers reach from the two-way flood, which is membership rather than a search, so the
-                    // answer it gives already means "the body can get to this pose and come home from it" —
-                    // exactly what the round trip that used to run here proved, per site, with two fresh route
-                    // searches. There is no second check after it because there is nothing left to check: a
-                    // stand the flood claimed is in the flood.
+                    // answer it gives already means "the body can get to this pose and come home from it".
                     var standing = FindToolAccess.Approach(p, ctx.Npc.Center, ctx.Senses.Reach, out candidateStand);
-                    RecordAsked(p, standing);
+                    // An Unknown from a finished flood can only be a pose outside its known radius, because inside it a
+                    // finished flood answers yes or no; nothing that flood will do answers it, so it is remembered like a
+                    // refusal rather than re-asked every retry for as long as the body stays put.
+                    bool beyond = standing == Reachability.Reach.Unknown && ctx.Senses.Reach.Complete;
+                    RecordAsked(p, standing, beyond);
                     if (standing != Reachability.Reach.Yes)
                     {
-                        NoteApproach(ctx, standing);
-                        // A proven No is remembered and an Unknown is not, and that asymmetry is the whole
-                        // correctness of a search over a flood that grows. Remembering an Unknown writes a site
-                        // off for the deferral's whole life on the strength of a flood that had not finished;
-                        // forgetting a No leaves the nearest refused sites in front of every later search.
+                        string stage;
+                        // A proven No is remembered and an unfinished Unknown is not, and that asymmetry is the whole
+                        // correctness of a search over a flood that grows. Remembering an unfinished Unknown writes a
+                        // site off on the strength of a flood that had not finished; forgetting a No leaves the nearest
+                        // refused sites in front of every later search.
                         if (standing == Reachability.Reach.No)
                         {
-                            // The reason has to outlive the scan that found it: once the site is deferred the next
-                            // scan never builds it, so an unnamed refusal decays into "the placer accepted nothing"
-                            // — an absence, where a proven no-return is knowledge. A subclass that names it more
-                            // precisely wins; one that does not gets the shared name rather than silence, which is
-                            // what pot collection used to get.
-                            DeferRefusedTrip(p, NoReturnReason);
-                            if (SearchRefusal(ctx) is { } proven) tripRefusal = provenRefusal = proven;
+                            DeferRefusedStand(p, beyondKnownRadius: false);
+                            sawNoReturn = true;
+                            stage = StageStandUnreachable;
                         }
-                        else standUnresolved = true;
+                        else if (beyond)
+                        {
+                            DeferRefusedStand(p, beyondKnownRadius: true);
+                            sawBeyondKnownRadius = true;
+                            stage = StageStandBeyondKnownRadius;
+                        }
+                        else
+                        {
+                            standUnresolved = true;
+                            stage = StageStandNotYetKnown;
+                        }
+                        funnel?.Add("tile", p, cost, CandidateStagePassed, stage, readings + ";stand=" + standing);
                         continue;
                     }
                 }
                 target = p; stand = candidateStand;
                 approachOrigin = ctx.Npc.Center; approachTicks = 0;
+                offeredPending = funnel != null;
+                offeredCost = cost;
+                offeredReadings = readings;
                 break;
             }
             // A search that could not answer waits a fraction of the time a search that answered "nothing
@@ -338,12 +446,8 @@ public abstract class PerformNearbyWorldWork : CompanionAction
             // after one refuse on "not yet known" while the body keeps moving. Waiting the full cadence
             // then re-asks from wherever the companion has since wandered, which is how a proven site a few
             // tiles away becomes a different, worse site by the time anyone can prove anything about it.
-            // A search that passed over a site on an unsettled flood is the same kind of result and retries the
-            // same way, whether the subclass has a name for it or not. Waiting the full cadence on it re-asks
-            // from wherever the body has since walked, which is the failure that turned the J08 lighting trip's
-            // site into the wrong one: the scene moves while the evidence is being gathered.
             LastSearchSites = ledger.ToString();
-            if (target == null && (standUnresolved || SearchRefusal(ctx) is { Eligibility: OfferEligibility.Unresolved }))
+            if (target == null && (standUnresolved || searchCut || SearchRefusal(ctx) is { Eligibility: OfferEligibility.Unresolved }))
                 nextSearch = Main.GameUpdateCount + (ulong)Infrastructure.Selection.Weights.NearbyWorkUnresolvedRetryTicks;
         }
         if (deferred.Count > 0)

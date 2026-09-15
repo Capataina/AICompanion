@@ -74,10 +74,21 @@ public sealed class HoverAroundSpot
         LastTarget = target;
         Vector2 targetMotion = previousTarget is Vector2 last ? target - last : Vector2.Zero;
         previousTarget = target;
-        Vector2 desired = targetMotion + (target - live.Centre) * Weights.HoverGain;
+        return new Controls(Pursue(live.Centre, target, targetMotion, world));
+    }
+
+    /// <summary>
+    /// The pursuit alone, with nothing about the wander advanced: the target's motion plus a correction toward it, capped
+    /// under the settled threshold and turned off any wall it would press into. The evade layer's keep test flies a hover
+    /// through this against the last target held still, which is a fair forecast over a lookahead because the hover's own
+    /// speed cap keeps the target's path around the spot shorter than the body.
+    /// </summary>
+    public static Vector2 Pursue(Vector2 centre, Vector2 target, Vector2 targetMotion, ITileWorld world)
+    {
+        Vector2 desired = targetMotion + (target - centre) * Weights.HoverGain;
         if (desired.LengthSquared() > Weights.HoverSpeedPx * Weights.HoverSpeedPx)
             desired = Vector2.Normalize(desired) * Weights.HoverSpeedPx;
-        return new Controls(OffTheWall(live.Centre, desired, world));
+        return OffTheWall(centre, desired, world);
     }
 
     /// <summary>
@@ -192,11 +203,27 @@ public sealed class HoverAroundSpot
         acrossOffset = next;
         LastTarget = target;
         Vector2 targetMotion = previousTarget is Vector2 last ? target - last : Vector2.Zero;
+        LastTargetMotion = targetMotion;
         previousTarget = target;
-        Vector2 desired = targetMotion + (target - live.Centre) * Weights.AccompanyGain;
+        return new Controls(PursueAcross(live.Centre, target, targetMotion, world));
+    }
+
+    /// <summary>How far the accompanying target moved on the last call to <see cref="Across"/>, so the evade layer's keep
+    /// test can carry the target on along the walk while it flies the pursuit forward.</summary>
+    public Vector2 LastTargetMotion { get; private set; }
+
+    /// <summary>
+    /// The accompanying pursuit alone, with nothing about the walk advanced: the target's motion plus a correction toward it,
+    /// capped at the body's top speed and turned off any wall it would press into. The evade layer's keep test flies this
+    /// against the last target carried on by its last motion each simulated tick, because the accompanying target moves at
+    /// the region's pace and a target held still would forecast a body slowing to it that the real walk never flies.
+    /// </summary>
+    public static Vector2 PursueAcross(Vector2 centre, Vector2 target, Vector2 targetMotion, ITileWorld world)
+    {
+        Vector2 desired = targetMotion + (target - centre) * Weights.AccompanyGain;
         if (desired.LengthSquared() > OrbPace.MaxSpeed * OrbPace.MaxSpeed)
             desired = Vector2.Normalize(desired) * OrbPace.MaxSpeed;
-        return new Controls(OffTheWall(live.Centre, desired, world));
+        return OffTheWall(centre, desired, world);
     }
 
     private Vector2 acrossOffset;

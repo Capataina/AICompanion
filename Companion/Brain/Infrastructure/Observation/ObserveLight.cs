@@ -22,8 +22,8 @@ namespace AICompanion.Companion.Brain.Infrastructure.Observation;
 /// mean over a window holding a lit chamber and three dark wings is somewhere in the middle, and it is
 /// wrong about every part of the window: the chamber reads dark enough to light and the wings read light
 /// enough to leave. Both consumers want a local answer — the torch wants "is there dark air near me or
-/// on my heading", the lighting activity wants "where is the nearest dark region I can reach" — and both
-/// are queries over a field.</para>
+/// on my heading", the lighting activity wants "is this tile dark", tile by tile over the work area — and
+/// both are local questions a single number cannot answer.</para>
 ///
 /// <para>The window follows the companion, not the camera: a companion sent into a cave while the player
 /// stands in daylight must read the cave. The engine only computes light for the visible screen and
@@ -108,7 +108,7 @@ public sealed class LightSense
             {
                 if (!IsOpenAir(x, y) || !coverage.Contains(x, y))
                     continue;
-                float lit = RawBrightness(x, y);
+                float lit = EngineBrightness(x, y);
                 if (anyTransient && Occluded(lit, x, y))
                     continue;
                 samples.Add(new Sample(new Point(x, y), Math.Clamp(lit, 0f, 1f)));
@@ -135,9 +135,8 @@ public sealed class LightSense
     public readonly record struct DarkReading(int Measured, int Dark, float Total)
     {
         public float DarkFraction => Measured == 0 ? 0f : Dark / (float)Measured;
-        /// <summary>Mean brightness of the measured air. The share above answers "is there dark air here",
-        /// which is the torch-holding question; this answers "is this area dark", which is the
-        /// torch-placing one, and a half-lit neighbourhood fails it while passing the share.</summary>
+        /// <summary>Mean brightness of the measured air, for a reader asking how dark an area is rather than whether
+        /// any of it is. Torch placement asks neither: it reads one tile at a time through <see cref="ReadForPlacement"/>.</summary>
         public float MeanBrightness => Measured == 0 ? 0f : Total / Measured;
         public bool Unmeasured => Measured == 0;
     }
@@ -277,62 +276,65 @@ public sealed class LightSense
     public float? MeasuredBrightnessAt(Point tile)
     {
         if (!IsOpenAir(tile.X, tile.Y) || !Coverage.Current().Contains(tile.X, tile.Y)) return null;
-        float lit = RawBrightness(tile.X, tile.Y);
-        return Occluded(lit, tile.X, tile.Y) ? null : lit;
+        float lit = EngineBrightness(tile.X, tile.Y);
+        return Occluded(lit, tile.X, tile.Y) ? null : Math.Clamp(lit, 0f, 1f);
+    }
+
+    /// <summary>What one tile's light says to the question of leaving a torch there.</summary>
+    public enum PlacementLight
+    {
+        /// <summary>Not open air, or not a tile the engine computed: nobody has read it, which is never darkness.</summary>
+        Unread,
+        /// <summary>The world's own light there is at or above the dark level.</summary>
+        Lit,
+        /// <summary>The world's own light there is below the dark level.</summary>
+        Dark,
+        /// <summary>
+        /// A light somebody is carrying accounts for the reading, so the world's own light there is at most that. To the
+        /// hold question such a tile is unknown, because the world's light lies anywhere between nothing and the carried
+        /// light and guessing either end lets the torch decide itself; to this question it is dark, because the bound runs
+        /// the useful way and the light is about to walk off with its carrier. Reading it as lit here is a deadlock rather
+        /// than caution: a companion holding a torch would never see that the place it lights needs a permanent one. The
+        /// error this can make is a torch where the world already lit the tile to just under the carried level.
+        /// </summary>
+        Carried,
+    }
+
+    /// <summary>One tile's placement reading and the brightness it read, clamped to 0..1.</summary>
+    public readonly record struct PlacementReading(PlacementLight Light, float Brightness)
+    {
+        public bool IsDark => Light is PlacementLight.Dark or PlacementLight.Carried;
     }
 
     /// <summary>
-    /// The measured open air in a disc around one tile, sampled from the engine at its own stride rather
-    /// than read off the lattice, and its mean brightness. This is what decides whether a particular spot
-    /// wants a torch, and it is a neighbourhood rather than a point because a torch lights an area: a tile
-    /// that is itself dark but sits against a lit room needs no torch, and asking only about the tile says
-    /// it does. It cannot come from the lattice, whose stride is wider than the lit patches that have to be
-    /// resolved here — a lit disc narrower than the stride can sit entirely between two samples.
+    /// Whether one tile wants a torch by its own light: the engine's reading at that tile, with light somebody is carrying
+    /// counted as darkness, below the dark level, and unread where the engine computed nothing. This is the placement
+    /// question the lighting search asks of every tile the player's own smart cursor could place on, and it is a point
+    /// rather than a neighbourhood deliberately: a neighbourhood mean refused a dark tile three tiles of rock away from a
+    /// lit room, because the mean counts the room's air, while the engine's own light there — which already carries
+    /// whatever reaches through the rock — is below the level at which a person would reach for a torch.
+    /// <paramref name="coverage"/> is taken once by a caller asking about many tiles, because reading it is reflection.
     /// </summary>
-    /// <param name="carriedCountsAsDark">
-    /// What to do with a sample the companion's own torch accounts for. The two consumers want opposite
-    /// things and both are right. Deciding whether to <em>hold</em> a torch, such a sample is unknown and is
-    /// skipped: the world's own light there is somewhere between nothing and the torch's own contribution,
-    /// and guessing either end makes the torch decide itself. Deciding whether to <em>place</em> one, the same
-    /// sample is evidence to act on, because the bound runs the useful way — the world's light there is at
-    /// most what the companion is carrying, and the companion is about to walk off with it. Skipping it
-    /// instead makes a companion holding a torch unable to see that a place needs a permanent one, which is a
-    /// deadlock rather than caution: the held torch is exactly the reason the site looks lit. The error this
-    /// can make is a redundant torch in a spot the world already lit to just under the carried level; the
-    /// error it avoids is never lighting anything while carrying a light, which is the whole ability.
-    /// </param>
-    public DarkReading MeasuredAround(Point centre, int radiusTiles, int strideTiles, bool carriedCountsAsDark = false)
+    public PlacementReading ReadForPlacement(Point tile, in Coverage coverage)
     {
-        Coverage coverage = Coverage.Current();
-        int stride = Math.Max(1, strideTiles);
-        int measured = 0, dark = 0;
-        float total = 0f;
-        for (int dx = -radiusTiles; dx <= radiusTiles; dx += stride)
-            for (int dy = -radiusTiles; dy <= radiusTiles; dy += stride)
-            {
-                if (dx * dx + dy * dy > radiusTiles * radiusTiles) continue;
-                int x = centre.X + dx, y = centre.Y + dy;
-                if (!IsOpenAir(x, y) || !coverage.Contains(x, y)) continue;
-                float lit = RawBrightness(x, y);
-                if (Occluded(lit, x, y))
-                {
-                    if (!carriedCountsAsDark) continue;
-                    // Counted at nothing rather than at `lit`, because `lit` here is a light somebody is
-                    // carrying and it leaves when they do. What stays behind is bounded above by this sample
-                    // and is not measured any closer than that.
-                    measured++;
-                    dark++;
-                    continue;
-                }
-                measured++;
-                total += lit;
-                if (lit < Weights.LightDarkBelow) dark++;
-            }
-        return new DarkReading(measured, dark, total);
+        if (!IsOpenAir(tile.X, tile.Y) || !coverage.Contains(tile.X, tile.Y)) return new(PlacementLight.Unread, 0f);
+        float engine = EngineBrightness(tile.X, tile.Y);
+        float lit = Math.Clamp(engine, 0f, 1f);
+        if (TransientLights.Count > 0 && Occluded(engine, tile.X, tile.Y)) return new(PlacementLight.Carried, lit);
+        return new(lit < Weights.LightDarkBelow ? PlacementLight.Dark : PlacementLight.Lit, lit);
     }
 
-    private static float RawBrightness(int x, int y)
-        => WorldGen.InWorld(x, y, 1) ? MathHelper.Clamp(Lighting.Brightness(x, y), 0f, 1f) : 0f;
+    private static float RawBrightness(int x, int y) => MathHelper.Clamp(EngineBrightness(x, y), 0f, 1f);
+
+    /// <summary>
+    /// The engine's own brightness, unclamped. It is what <see cref="Occluded"/> compares against a modelled
+    /// transient, and it has to stay unclamped for that comparison to mean anything in both directions: the engine
+    /// reports above one near a torch at its default global brightness, so clamping only this side makes daylight
+    /// look like the carrier's own light, and clamping only the model makes the carrier's light look like the
+    /// world's. Everything stored or compared against the dark level is clamped afterwards.
+    /// </summary>
+    private static float EngineBrightness(int x, int y)
+        => WorldGen.InWorld(x, y, 1) ? Math.Max(0f, Lighting.Brightness(x, y)) : 0f;
 
     /// <summary>
     /// Whether a transient light accounts for this reading, in which case the world's own light under it

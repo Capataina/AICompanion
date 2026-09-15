@@ -20,7 +20,7 @@ namespace AICompanion.Companion.Brain.Activities.NearbyAssistance;
 /// in <see cref="Inventory.CompanionInventory"/>. A known drop is its own excursion: it proves
 /// its own contact pose, walker reach and return, and is valued for the quantity the cargo can take.
 /// </summary>
-public sealed class CollectNearbyItems : PerformNearbyWorldWork
+public sealed class CollectNearbyItems : PerformNearbyWorldWork, ICandidateFunnelSource
 {
     public override string Name => "collect";
     public override PurposeFamily Family => PurposeFamily.NearbyAssistance;
@@ -88,6 +88,19 @@ public sealed class CollectNearbyItems : PerformNearbyWorldWork
     }
 
     private bool capacityRefused;
+
+    // The known-drop method's stages, in the order a drop meets them.
+    private const string StageCapacity = "cargo-capacity";
+    private const string StageLanding = "landing-undecided";
+    private const string StageContactPose = "no-contact-pose";
+    private const string StageApproachUndecided = "approach-undecided";
+    private const string StageUnreachable = "unreachable";
+
+    /// <summary>What the last preparation did with each drop it looked at, nearest first: the drop that stayed unoffered
+    /// for want of a contact pose and the one the cargo could not take read the same in the offer string and apart here.
+    /// Pot contents are not in it, because a pot is a site the shared executor searches, not a drop.</summary>
+    public CandidateFunnel Funnel { get; } = new(6,
+        StageAllowance, StageCapacity, StageLanding, StageContactPose, StageApproachUndecided, StageUnreachable, CandidateFunnel.Offered);
     // Why the nearest drops that fit were not offered. Undecided outranks known-unusable, because a search that declined to
     // answer is the one refusal that may resolve into an offer from somewhere else.
     private (OfferEligibility Eligibility, string Reason)? dropRefusal;
@@ -103,6 +116,7 @@ public sealed class CollectNearbyItems : PerformNearbyWorldWork
         candidate = null;
         capacityRefused = false;
         dropRefusal = null;
+        Funnel.Begin();
         if (ctx.Senses.Player.IsDead || ctx.Senses.Loot.Pickups.Count == 0)
             return;
         // Nearest first, and each drop proven for itself: the cargo takes some of it, a pose in pickup contact exists, the
@@ -112,13 +126,23 @@ public sealed class CollectNearbyItems : PerformNearbyWorldWork
         foreach (var pickup in ctx.Senses.Loot.Pickups)
         {
             Item item = pickup.Item;
-            if (!LootSense.IsWorldDrop(item) || !AllowsTarget(ctx, item.Bottom, item)) continue;
+            if (!LootSense.IsWorldDrop(item)) continue;
+            string identity = FormattableString.Invariant($"item{item.whoAmI}:{item.type}");
+            Point at = item.Center.ToTileCoordinates();
+            float cost = pickup.DistanceToCompanion;
+            if (!AllowsTarget(ctx, item.Bottom, item))
+            {
+                Funnel.Add(identity, at, cost, "", StageAllowance, "");
+                continue;
+            }
             int acceptable = ctx.Companion.Bag.AcceptableQuantity(item, ctx.Player);
             if (acceptable <= 0)
             {
                 capacityRefused = true;
+                Funnel.Add(identity, at, cost, StageAllowance, StageCapacity, FormattableString.Invariant($"stack={item.stack};fits=0"));
                 continue;
             }
+            string readings = FormattableString.Invariant($"stack={item.stack};fits={acceptable}");
             // Where the drop will be, not where it is. A drop released in the air had its contact pose
             // searched around its instantaneous bottom with a tolerance of one tile, so a falling item
             // had no pose at all until it landed — 431 rows of the 2026-09-14 capture were refused as
@@ -128,6 +152,7 @@ public sealed class CollectNearbyItems : PerformNearbyWorldWork
             if (ForecastLanding(item) is not Vector2 landing)
             {
                 Refuse(OfferEligibility.Unresolved, "drop-landing-undecided");
+                Funnel.Add(identity, at, cost, StageCapacity, StageLanding, readings);
                 continue;
             }
             Vector2 pose;
@@ -138,6 +163,8 @@ public sealed class CollectNearbyItems : PerformNearbyWorldWork
                 if (ContactPose(item, landing) is not Point contact)
                 {
                     Refuse(OfferEligibility.KnownUnusable, "drop-has-no-contact-pose");
+                    Funnel.Add(identity, at, cost, StageLanding, StageContactPose,
+                        readings + FormattableString.Invariant($";landing={landing.X:0},{landing.Y:0}"));
                     continue;
                 }
                 // Every drop is asked, in distance order, because the question costs a hash lookup rather than a
@@ -145,11 +172,22 @@ public sealed class CollectNearbyItems : PerformNearbyWorldWork
                 // never offered before a nearer one had been asked about; with nothing to ration, every drop is
                 // asked about and the ordering property holds for free.
                 Reachability.Reach reach = Excursion(ctx, contact);
-                if (reach == Reachability.Reach.Unknown) { Refuse(OfferEligibility.Unresolved, "drop-approach-undecided"); continue; }
+                readings += FormattableString.Invariant($";pose={contact.X},{contact.Y}");
+                if (reach == Reachability.Reach.Unknown)
+                {
+                    Refuse(OfferEligibility.Unresolved, "drop-approach-undecided");
+                    Funnel.Add(identity, at, cost, StageContactPose, StageApproachUndecided, readings);
+                    continue;
+                }
                 // One name, because the two-way region proves one thing: a drop outside it is either one the body
                 // cannot get to or one it could not come home from, and the flood does not distinguish them. The
                 // separate `drop-would-strand-return` was the marginal proof's name and went with that proof.
-                if (reach == Reachability.Reach.No) { Refuse(OfferEligibility.KnownUnusable, "drop-unreachable"); continue; }
+                if (reach == Reachability.Reach.No)
+                {
+                    Refuse(OfferEligibility.KnownUnusable, "drop-unreachable");
+                    Funnel.Add(identity, at, cost, StageContactPose, StageUnreachable, readings);
+                    continue;
+                }
                 pose = MovementQueries.HoverPoint(contact);
             }
             float near = Consideration.Inverse(pickup.DistanceToCompanion, Weights.LootReach);
@@ -163,6 +201,8 @@ public sealed class CollectNearbyItems : PerformNearbyWorldWork
             // the guard in Execute asks whether the *forecast* moved. A drop falling exactly as
             // predicted keeps one landing all the way down and is walked to without a single hold.
             candidate = new(item, item.type, landing, pose, Consideration.AtLeast(near, 0.2f), pickup.Value * fits, trip);
+            Funnel.Add(identity, at, cost, "approach", "",
+                readings + FormattableString.Invariant($";trip={trip:0.0};value={candidate.Value.Near * candidate.Value.Value:0.000}"));
             return;
         }
     }

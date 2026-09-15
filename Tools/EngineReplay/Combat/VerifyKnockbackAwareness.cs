@@ -52,9 +52,9 @@ internal static class VerifyKnockbackAwareness
         LearnedPushesReplaceThePriorForTheirPairOnly();
         TheOwnerSideRuleIsTheGamesList();
         AShotIsChargedForPushingAnEnemyIntoThePlayer();
-        AFiringSpotPrefersThePlayersSideInProportionToThePush();
+        AFiringStandIsWorthLessWhereItsShotPushesTheTargetIntoThePlayer();
         AWoundIsCreditedByDangerAndAKillIsNeverChargedForItsPush();
-        Console.WriteLine("knockback awareness: the prior is the game's strike on both branches, a swing teaches its pair, a push into the player is charged and a push away is not, the stand prefers the player's side in proportion to the push, and a wound to a dangerous enemy earns credit");
+        Console.WriteLine("knockback awareness: the prior is the game's strike on both branches, a swing teaches its pair, a push into the player is charged and a push away is not, a stand whose shot pushes into the player keeps less of its score, and a wound to a dangerous enemy earns credit");
         return 0;
     }
 
@@ -295,42 +295,43 @@ internal static class VerifyKnockbackAwareness
     }
 
     /// <summary>
-    /// The acceptance scene's second half. With the bow chosen, a firing spot on the player's side of the zombie keeps its
-    /// whole score and its mirror on the far side keeps the push's share of it, and the full score of the two spots —
-    /// symmetric in every other factor — orders the same way. With a learned push of nothing the two are equal again.
+    /// The acceptance scene's second half, restated when position selection stopped reading the chosen weapon's push and
+    /// started pricing a stand by the best attack any weapon in hand makes from it. With the bow, a firing stand on the
+    /// player's side of the zombie keeps a larger share of its score than its mirror on the far side, because the far
+    /// stand's shot carries the push charge, and the full line-of-fire scores order the same way. The control compares the
+    /// far stand with itself rather than with its mirror: with a learned push of nothing its share rises by the charge it no
+    /// longer pays. Mirrored stands are never compared for equality, because the aim sweep can land mirrored arcs a tick
+    /// apart and a tick moves a value past any sane tolerance.
     /// </summary>
-    private static void AFiringSpotPrefersThePlayersSideInProportionToThePush()
+    private static void AFiringStandIsWorthLessWhereItsShotPushesTheTargetIntoThePlayer()
     {
         var (companion, enemy, ctx) = Scene(1f, (GearSlot.FirstWeapon, ItemID.WoodenBow));
         Arsenal arsenal = companion.Arsenal;
-        Require(arsenal.ProfileFor(ctx, enemy) != null && arsenal.LastChosen != null, "premise: the bow is the arsenal's choice");
         var senses = companion.Brain.Senses;
         Vector2 near = enemy.Center - new Vector2(96f, 0f), far = enemy.Center + new Vector2(96f, 0f);
 
-        float shareNear = Positioner.KnockbackSideShare(near, enemy, senses);
-        float shareFar = Positioner.KnockbackSideShare(far, enemy, senses);
-        float push = arsenal.ExpectedPushFrom(far, enemy, ctx.Player);
-        float expectedFar = 1f - MathHelper.Clamp(MathF.Abs(push) / Weights.KnockbackSideFullPushPx, 0f, 1f) * (1f - Weights.KnockbackSideFloor);
-        EmitLedgerRows.Detail(FormattableString.Invariant($"side share: near {shareNear:0.000} far {shareFar:0.000}; push from far {push:0.0}px"));
-        Require(push < 0f, $"premise: a shot from the far side pushes the zombie toward the player; push={push}");
-        Require(shareNear == 1f, $"a spot whose push carries the zombie away from the player and the spot keeps its score; share={shareNear}");
-        Require(shareFar <= .9f && MathF.Abs(shareFar - expectedFar) < 1e-4f, $"a spot whose push carries the zombie into the player keeps the push's share; share={shareFar} expected={expectedFar}");
+        float shareNear = Positioner.FiringStandShare(near, enemy, senses, 0);
+        float shareFar = Positioner.FiringStandShare(far, enemy, senses, 0);
+        EmitLedgerRows.Detail(FormattableString.Invariant($"stand share: near {shareNear:0.0000} far {shareFar:0.0000}; value near {arsenal.BestShotValueFrom(ctx, near, enemy):0.000} far {arsenal.BestShotValueFrom(ctx, far, enemy):0.000} ideal {arsenal.IdealShotValue(ctx, enemy):0.000}"));
+        Require(shareFar >= Weights.FiringStandValueFloor && shareNear <= 1f, $"a stand's share is a floor rather than a veto; near={shareNear} far={shareFar}");
+        Require(shareNear > shareFar + .005f, $"the stand whose shot pushes the zombie away from the player keeps more of its score; near={shareNear} far={shareFar}");
 
-        float Score(Vector2 spot)
+        float Score(Vector2 spot, float share)
         {
             MethodInfo score = typeof(Positioner).GetMethod("ScoreSpot", BindingFlags.NonPublic | BindingFlags.Static)!;
             var request = new PositionRequest(RequestKind.LineOfFire, enemy.Center, enemy);
             return (float)score.Invoke(null, new object[] { request, spot, ctx.Player.Bottom, senses,
-                Weights.ThreatBandNear, Weights.ThreatBandFar, 1f, arsenal.MaxReach })!;
+                Weights.ThreatBandNear, Weights.ThreatBandFar, share, arsenal.MaxReach })!;
         }
-        float scoreNear = Score(near), scoreFar = Score(far);
+        float scoreNear = Score(near, shareNear), scoreFar = Score(far, shareFar);
         EmitLedgerRows.Detail(FormattableString.Invariant($"line-of-fire score: near {scoreNear:0.0000} far {scoreFar:0.0000}"));
         Require(scoreNear > 0f && scoreFar > 0f, $"premise: both spots score; near={scoreNear} far={scoreFar}");
         Require(scoreNear > scoreFar, $"the player's side of the zombie scores higher than its mirror; near={scoreNear} far={scoreFar}");
 
         W.AssumePush(ItemID.WoodenBow, enemy.type, 0f);
-        Require(Positioner.KnockbackSideShare(far, enemy, senses) == 1f && MathF.Abs(Score(near) - Score(far)) < 1e-5f,
-            $"a weapon that pushes nothing prefers neither side; near={Score(near)} far={Score(far)}");
+        float shareFarNoPush = Positioner.FiringStandShare(far, enemy, senses, 0);
+        Require(shareFarNoPush > shareFar + .005f,
+            $"the far stand's lost share is its push charge: without the push it keeps more; with={shareFar} without={shareFarNoPush}");
     }
 
     /// <summary>

@@ -20,9 +20,12 @@ public readonly record struct ActivityComparisonContext(float ProtectionUrgency,
     bool WithinActivityAllowance, float FollowDuringUsefulWork, float EncounterIntensity = 0,
     float TaskWindowTicks = 0);
 
+/// <param name="Order">What <see cref="OrderNearbyTasks"/> did to <paramref name="Final"/> after the product was taken: the
+/// placed value over the value before ordering, one where ordering did not apply. Recorded as a factor so the recorded
+/// factors multiply to the recorded final on the ticks ordering reshapes, which are the ticks a reader asks about.</param>
 public readonly record struct EvaluatedActivity(int Index, string Name, float Raw, float Final,
     float Protection, float Commitment, float Horizon, float UsefulWork, string Error, float Reunion = 1,
-    float Time = 1, float PlayerFit = 1);
+    float Time = 1, float PlayerFit = 1, float Order = 1);
 
 /// <summary>Shared utility arithmetic over a captured board. Discovery and activation belong
 /// to their callers; repeated evaluation of the same values has no side effects.</summary>

@@ -209,29 +209,11 @@ public static class Weights
     // further; a larger number was rejected because it lets the companion walk out of the player's area
     // chasing darkness, which is the behaviour recovery flight exists to undo.
     public const int LightRegionSearchTiles = (int)(FollowWorkRadius / 16f);
-    // How far around one candidate torch site its own darkness is read, in tiles. Smaller than the torch
-    // hold radius on purpose: this asks "is this particular spot dark", where the hold radius asks "is this
-    // neighbourhood dark", and a site veto as wide as the hold radius refuses every site in a small dark
-    // pocket beside a lit room.
-    public const int LightSiteRadiusTiles = 5;
-    // How finely that neighbourhood is sampled. Half the light field's own lattice stride, because this
-    // veto has to resolve lit patches the field cannot: a torch's own glow is a few tiles across, and a
-    // sampling step as wide as the field's would step over one entirely.
-    public const int LightSiteStrideTiles = 2;
-    // A site's neighbourhood is judged by its mean brightness against LightDarkBelow, not by a share of
-    // dark samples. The share is the right question for holding a torch — is there dark air near me — and
-    // the wrong one for placing one: beside a lit room a majority of a site's neighbourhood can be dark
-    // while the room's own light already reaches the spot, and a share passes that where a mean refuses it.
     // How long a nearby-work search waits before asking again when it could not answer, as opposed to when
     // it answered that there is nothing. It is a rescore or two, which is what the reach region needs to
     // settle after a world change; longer and the body has wandered somewhere else before the evidence it
     // was waiting for arrives, so the site it then proves is a different and worse one.
     public const int NearbyWorkUnresolvedRetryTicks = 15;
-    // How many tiles around each dark sample in the nominated region are offered to the game's own placer.
-    // It only has to bridge the gaps the light field's lattice leaves between its own samples, because the
-    // scan runs around every member rather than around one point; wider would re-create the screen-wide
-    // search this replaced, and narrower would leave unsampled tiles between members unconsidered.
-    public const int LightPlacementSearchTiles = 3;
     // What one dark sample in the nominated region is worth, and the ceiling that stops a cavern from
     // outbidding everything. A count rather than a flat value because a torch in the larger dark space is
     // worth more, and the ceiling because without it a big enough cave beats protecting the player.
@@ -686,18 +668,64 @@ public static class Weights
     /// </summary>
     public const float AttackPartialHarmShare = .5f;
 
-    /// <summary>
-    /// The share of its score a firing spot keeps when the weapon's push from there carries the target toward the player
-    /// or toward the spot itself, at full push. A floor rather than a veto, like every other factor: a spot on the wrong
-    /// side is still the answer when it is the only one with a shot. Lower, and a guard would give up a clear shot to stand
-    /// on the player's side behind a wall; higher, and a push of any size changes nothing about where the orb stands.
-    /// </summary>
-    public const float KnockbackSideFloor = .5f;
+    // Lane D — weapon, target, stand and aim valued by what the companion's own shots achieved.
 
     /// <summary>
-    /// The settled push, px, at which the side preference is at full strength; a smaller push scales it down linearly and
-    /// no push at all is no preference. About three tiles, which is the distance that takes a zombie from beside the player
-    /// into contact with him.
+    /// The share of its score a firing stand keeps when the best attack any weapon in hand could make from there is worth
+    /// nothing, rising to the whole score as that attack approaches the best the weapons could do with no geometry in the
+    /// way. A floor rather than a veto, like every other factor: a stand whose only shot pushes the target into the player
+    /// is still the answer when it is the only stand with a shot. It replaced a side preference read off the weapon chosen
+    /// last, which priced a stand by one weapon's push and ignored the other weapon entirely.
     /// </summary>
-    public const float KnockbackSideFullPushPx = 48f;
+    public const float FiringStandValueFloor = .5f;
+
+    /// <summary>
+    /// The prior variance of each learned coefficient, on the context's unit scale and the outcome ratio's scale. One means
+    /// a coefficient is expected to move a forecast by up to about its whole value across an input's range — a straight
+    /// arrow aimed at the widest offset losing its whole damage is exactly that size — and a weapon's first few outcomes
+    /// move the posterior a long way, which is wanted because the learner starts every session empty.
+    /// </summary>
+    public const float WeaponLearningPriorVariance = 1f;
+
+    /// <summary>
+    /// The outcome noise the learner assumes, as a variance of the outcome ratio. A shot either lands or misses, so a ratio
+    /// swings between about zero and about one from shot to shot even for a weapon whose average is well known; a quarter
+    /// is that swing's variance for a weapon that lands half the time, which is the noisiest ordinary case.
+    /// </summary>
+    public const float WeaponLearningNoiseVariance = .25f;
+
+    /// <summary>
+    /// The prior variance of an enemy type's bias away from its weapon's average. Smaller than the coefficients' because a
+    /// new enemy type should start at the weapon's average and move off it only with evidence of its own.
+    /// </summary>
+    public const float WeaponLearningEnemyTypeVariance = .25f;
+
+    /// <summary>
+    /// What one enemy struck is worth in an outcome's yield, as damage: a starter weapon's hit, so a second body struck
+    /// counts on the scale of damage and a piercing or splitting weapon earns for its crowd without a count swamping what
+    /// its hits actually took off.
+    /// </summary>
+    public const float ShotOutcomeStruckEnemyValue = 5f;
+
+    /// <summary>
+    /// The longest a shot's outcome window stays open, ticks: past the arsenal's own evaluation horizon, so a slow or
+    /// lingering projectile is still counted for the damage the horizon credited it with, and bounded so a projectile that
+    /// never dies cannot hold a window open for the session.
+    /// </summary>
+    public const int ShotOutcomeWindowTicks = 240;
+
+    /// <summary>
+    /// The threat urgency above which decisions stop exploring and use the posterior mean. Urgency is the threat sense's
+    /// zero-to-one scale; half is a threat that will reach a body soon with a hit that matters, which is the point at which a
+    /// sampled worse attack costs the player rather than a moment.
+    /// </summary>
+    public const float WeaponExploreDangerCeiling = .5f;
+
+    /// <summary>
+    /// The step between aim candidates off the solver's intercept, radians, and how many steps each way. Three degrees is
+    /// under the companion's own aim noise, so the widest candidate is a deliberate miss for a straight shot at range and
+    /// harmless for anything that steers — which is the difference the learner has to be able to see.
+    /// </summary>
+    public const float WeaponAimOffsetRadians = (float)(System.Math.PI / 60.0);
+    public const int WeaponAimOffsetSteps = 2;
 }

@@ -93,6 +93,13 @@ public sealed class ReachSense
     /// answering. Counted apart from <see cref="Refloods"/> because a reroot empties nothing.</summary>
     public int Reroots { get; private set; }
 
+    /// <summary>Which flood is answering, advanced every time a different flood object starts answering: a reflood, and a
+    /// replacement taking over from a reroot. A refusal proved from one finished flood stays true while that flood answers,
+    /// because a finished flood does not grow and an edit it read would have replaced it; so this, not the world's terrain
+    /// revision, is what a remembered proof is keyed on. The terrain revision moves on every edit anywhere, including the
+    /// torch the companion just placed, and a proof keyed on it was thrown away by the companion's own work.</summary>
+    public int FloodGeneration { get; private set; }
+
     /// <summary>Whether the flood ran out of free space inside its travel radius, so a tile inside the known
     /// radius that it never claimed is truly absent. Says nothing about a tile beyond the known radius.</summary>
     public bool Complete { get; private set; }
@@ -224,6 +231,7 @@ public sealed class ReachSense
             // empty until the new flood has grown — the one case where travel empties it.
             rootMissing = 0;
             Refloods++;
+            FloodGeneration++;
             flood = Flood(world, root.Value);
             pending = null;
             tiles = null;
@@ -266,6 +274,7 @@ public sealed class ReachSense
     private void TakeOver()
     {
         flood = pending;
+        FloodGeneration++;
         pending = null;
         tiles = null;
         Complete = flood!.Finished && flood.Stop == FreeSpaceSearch.StopReason.Exhausted;

@@ -77,7 +77,7 @@ AICompanion/
 │  │     ├─ Aiming/         projectile trajectory solver, and the arc it learns per projectile type from the companion's own shots
 │  │     ├─ Grants/         one packet for feet and hand
 │  │     └─ Diagnostics/    overlay layers, cost strip, telemetry, scenario capture
-│  ├─ Weapons/               the arsenal's target-and-weapon choice, the item-backed weapon, and the mana pool
+│  ├─ Weapons/               the arsenal's target, weapon and aim choice valued by what its shots achieved, the item-backed weapon, and the mana pool
 │  ├─ Progression/           the experience total and level curve the notch draws and the tree will spend
 │  ├─ Inventory/             persistent cargo bag, the four gear slots, and their panel
 │  ├─ PlayerIntegration/     persistence, input, player events and /companion
@@ -200,7 +200,8 @@ the hands       four slots (two weapons, a pickaxe, an axe) holding real items r
                 one item-backed weapon that spawns or swings; free default ammo; mana mirroring the
                 player's on a gradient that never refuses; arcs learned per projectile type from its shots
 the notch       health, mana and experience with the level; the mastery wheel a generated four-lane preview
-the record      schema 0.34.0, the orb's columns; experience credited from attempt outcomes by attribution
+the record      schema 0.35.0, the orb's columns with a candidate funnel per searching activity and the player's own
+                cursor as a reference; experience credited from attempt outcomes by attribution
 ```
 
 Two properties of that shape are the ones a stranger has to know. **Any route with clearance is followable by construction**: the body is holonomic and every edge between two usable corners is swept clear, so there is no proof step between planning and moving and no class of "the planner proved it and the body could not", which is the property every one of the walker's negative captures lacked. And **the orb has one body**: the contact in the motor is the contact in every headless tool, from the same source, so a headless integration is integrating the body the game has and the walker's two-body parity measurement has no subject.

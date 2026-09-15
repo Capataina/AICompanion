@@ -38,6 +38,7 @@ public sealed class CoordinateMovement
     public bool SeekState(OrbState live, Func<Vector2, bool> safe, Func<Vector2, float> heuristic,
         int workBudget, bool throughLiquid, out Controls controls, out bool pending)
     {
+        Produced(Producer.None);
         Navigator.Interrupt(live, AttemptEnding.Preempted, "state-search");
         // A hold's anchor does not survive another owner moving the body: the escape takes the body out of the pool the
         // hold began in, and a hover that kept the anchor would float it straight back in the moment the escape let go.
@@ -53,6 +54,7 @@ public sealed class CoordinateMovement
     {
         CancelStateSearch();
         holdAnchor = null;
+        Produced(Producer.Navigator);
         return Navigator.MoveTo(live, goal);
     }
 
@@ -68,6 +70,7 @@ public sealed class CoordinateMovement
     {
         CancelStateSearch();
         holdAnchor = null;
+        Produced(Producer.None);
         Navigator.Interrupt(live, preemptedBy == null ? AttemptEnding.Cancelled : AttemptEnding.Preempted, preemptedBy ?? "released");
         return Controls.None;
     }
@@ -80,6 +83,7 @@ public sealed class CoordinateMovement
     public Controls HoverHere(OrbState live)
     {
         CancelStateSearch();
+        Produced(Producer.Hover);
         Navigator.Interrupt(live, AttemptEnding.Cancelled, "released");
         return Navigator.Hover.Around(live, HoldAnchor(live), MovementQueries.World);
     }
@@ -94,6 +98,7 @@ public sealed class CoordinateMovement
     {
         CancelStateSearch();
         holdAnchor = null;
+        Produced(Producer.Accompany);
         Navigator.Interrupt(live, AttemptEnding.Completed, "accompanying");
         return Navigator.Hover.Across(live, centre, halfSize, lead, refused, MovementQueries.World);
     }
@@ -105,24 +110,96 @@ public sealed class CoordinateMovement
         unresolvedGoal = anchor;
         if (arrived(live.Centre))
         {
+            Produced(Producer.Hover);
             Navigator.Interrupt(live, AttemptEnding.Completed, "objective-satisfied");
             // Anchored once, where the objective was first met: an anchor taken from the body every tick moves with the
             // body, and the drift around it becomes a slow wander away from the place it arrived.
             return Navigator.Hover.Around(live, HoldAnchor(live), MovementQueries.World);
         }
         holdAnchor = null;
+        Produced(Producer.Navigator);
         return Navigator.MoveTo(live, anchor);
     }
 
     /// <summary>
-    /// Safety on top of the job: the tick's controls, bent away from a predicted hit when following them would
-    /// meet one. <paramref name="bent"/> says whether they were, so the record can name the tick.
+    /// Safety on top of the job: the tick's controls, bent away from a predicted hit when the job's own flight would
+    /// meet one. <paramref name="bent"/> says whether they were, so the record can name the tick, and
+    /// <see cref="LastEvade"/> says why.
     /// </summary>
     public Controls Evade(OrbState live, Controls wanted, Func<OrbState, int, bool>? unsafeAtTick, out bool bent)
     {
-        bent = false;
-        if (unsafeAtTick == null) return wanted;
-        return EvadeWhileMoving.Bend(live, wanted, unsafeAtTick, MovementQueries.World, out bent);
+        if (unsafeAtTick == null)
+        {
+            LastEvade = EvadeVerdict.Off;
+            bent = false;
+            return wanted;
+        }
+        Controls controls = EvadeWhileMoving.Bend(live, wanted, unsafeAtTick, MovementQueries.World, out EvadeVerdict verdict, ForecastJob());
+        LastEvade = verdict;
+        bent = verdict.Bent;
+        return controls;
+    }
+
+    /// <summary>The evade layer's verdict on the last tick that produced controls, or <see cref="EvadeVerdict.Off"/> when it did not run.</summary>
+    public EvadeVerdict LastEvade { get; private set; } = EvadeVerdict.Off;
+
+    // Which request produced this tick's controls, so the evade layer's keep test flies the same steering. Every request
+    // method sets it and clears the last verdict, so a tick whose owner never reaches Evade — an escape, a downed body,
+    // recovery flight — records no verdict from an earlier tick.
+    private enum Producer { None, Navigator, Hover, Accompany }
+    private Producer producer;
+
+    private void Produced(Producer by)
+    {
+        producer = by;
+        LastEvade = EvadeVerdict.Off;
+    }
+
+    /// <summary>
+    /// What the job this tick would ask for from a hypothetical state, for the evade layer to fly forward. It reads the
+    /// navigator and the hover and changes neither: a route is steered with its own copy of the segment index, a direct line
+    /// is the same eased ask toward the goal, a hover pursues the target it last chose, held still for the lookahead, and
+    /// keeping the player company pursues its walking target carried on by the target's last motion each simulated tick.
+    /// Null when nothing forecastable produced the tick, which the layer answers by holding this tick's controls.
+    /// </summary>
+    private Func<OrbState, Controls>? ForecastJob()
+    {
+        ITileWorld world = MovementQueries.World;
+        if (producer == Producer.None) return null;
+        if (producer == Producer.Accompany)
+        {
+            // The accompanying target moves at the region's pace, so it is carried on rather than held still: held still, the
+            // forecast is a body slowing onto a point the real walk has already left, and a hit the walk is flying into reads
+            // as a hit it stops short of. The closure advances once per simulated tick, which is how Bend flies it.
+            Vector2 target = Navigator.Hover.LastTarget, motion = Navigator.Hover.LastTargetMotion;
+            return state =>
+            {
+                target += motion;
+                return new Controls(HoverAroundSpot.PursueAcross(state.Centre, target, motion, world));
+            };
+        }
+        Navigator.Steering steering = producer == Producer.Hover ? Navigator.Steering.Hover : Navigator.LastSteering;
+        switch (steering)
+        {
+            case Navigator.Steering.Route when Navigator.Path is Route route:
+            {
+                int index = route.Index;
+                return state => SteerAlongRoute.Steer(state, route, ref index, OrbPace.MaxSpeed, OrbPace.SpeedChange, out _);
+            }
+            case Navigator.Steering.Direct when Navigator.Goal is Vector2 goal:
+                return state =>
+                {
+                    float distance = Vector2.Distance(state.Centre, goal);
+                    return distance < 1e-3f ? Controls.None : new Controls((goal - state.Centre) / distance * OrbPace.ArrivalSpeed(distance));
+                };
+            case Navigator.Steering.Hover:
+            {
+                Vector2 target = Navigator.Hover.LastTarget;
+                return state => new Controls(HoverAroundSpot.Pursue(state.Centre, target, Vector2.Zero, world));
+            }
+            default:
+                return null;
+        }
     }
 
     private Vector2? holdAnchor;

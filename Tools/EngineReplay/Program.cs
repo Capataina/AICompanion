@@ -21,9 +21,12 @@ if (args.Contains("--free-space")) return VerifyFreeSpace.CorridorsAndLiquids() 
 if (args.Contains("--route-endings")) return VerifyRouteEndings.Run() == 0 ? 0 : 1;
 if (args.Contains("--attack-outcomes")) return VerifyAttackOutcomes.Run();
 if (args.Contains("--knockback")) return VerifyKnockbackAwareness.Run();
+if (args.Contains("--weapon-learning")) return VerifyWeaponLearning.Run();
 if (args.Contains("--offer-validity")) return VerifyOfferValidity.Run();
 if (args.Contains("--capability")) return VerifyCapabilityRevision.Run() == 0 ? 0 : 1;
 if (args.Contains("--light-senses")) return VerifyLightAndReachSenses.Run() == 0 ? 0 : 1;
+if (args.Contains("--torch-rule")) return VerifyTorchPlacementRule.Run() == 0 ? 0 : 1;
+if (args.Contains("--candidate-funnel")) return VerifyCandidateFunnel.Run() == 0 ? 0 : 1;
 if (args.Contains("--doors")) return VerifyDoorPassage.Run() == 0 ? 0 : 1;
 if (args.Contains("--courtesy")) return VerifyCourtesy.Run() == 0 ? 0 : 1;
 if (args.Contains("--render-ui")) return RenderNativeInterface.Run(root);

@@ -6,7 +6,7 @@ The parser, stretch finder, God's Eye sidecar, attempt-identity join, chronicle 
 Read/
 ├─ Chronicle.cs             coalesces identical state into intervals and names the inference it earns
 ├─ DescribeGodsEyeEvents.cs reads the `-events.jsonl` sidecar for projectile and terrain contact records
-├─ DescribeSession.cs       session metadata, schema witness, closure status, recording cost and loss distribution
+├─ DescribeSession.cs       session metadata, schema witness, closure status, recording cost, loss distribution, and each activity's candidate funnel by stage
 ├─ FindStretches.cs         runs of consecutive rows satisfying a predicate, with an optional gap allowance
 ├─ JoinAttemptEvidence.cs   reads attempt outcomes, grants and strikes by their process-wide identity counters
 └─ ReadGodsEyeEvents.cs     keeps the last file read while path, write time and length are unchanged; streams events by line

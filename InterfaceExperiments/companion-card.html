@@ -3,92 +3,65 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Companion card — the agreed revision of the native card (2026-09-13)</title>
+<title>Companion card — the notch, the card and the mastery draft (2026-09-15)</title>
 <style>
 /* ------------------------------------------------------------------ *
- * The companion card as it should be built next, iterated here before
- * it is built in CompanionProfileCardSystem. It started as a one-to-one
- * replica of the native card (Tools/EngineReplay --render-ui, 2026-09-13)
- * and three rounds of the owner's review produced this shape:
+ * The companion's interface as it should be built next, iterated here
+ * before it is built natively. It started as a one-to-one replica of the
+ * native card (Tools/EngineReplay --render-ui, 2026-09-13); rounds of the
+ * owner's review produced this shape. The 2026-09-15 revisions:
  *
- *   - the overview is short: a 720x284 card holding the title bar, the
- *     identity strip and three tiles. The strip carries the portrait,
- *     name and level, then health, mana and experience bars each with
- *     its reading in the bar's own colour, the same column and colours
- *     as the HUD notch, and the current action on the left; on the right the
- *     three controls that survive — mining and chopping at
- *     Off/Mimic/Auto, torches at Off/On — each an icon with a joined
- *     segment control beside it. Hunting and pot breaking are not
- *     toggles in the first version and following distance never
- *     changes, so none of them is drawn;
- *   - the three tiles — Inventory, Mastery, Mining list — each take over
- *     the whole card at 720x580 when clicked, with only back and close
- *     in the title bar; the frame keeps its top-left so the title bar
- *     does not jump. The height change is kept on purpose;
- *   - one spacing rhythm, 12px, separates every stacked region: the
- *     title rule from what follows, a button row from the grid under it,
- *     a grid from the line under it, the strip from the tiles, and the
- *     last region from the card's edge, so nothing sits closer to the
- *     rule above it than to the content below it;
- *   - the Mining list is the only allow/deny control in the card. An
- *     ore appears once the player has picked one up (a saved set, so
- *     selling the last copper does not remove it), never before, so the
- *     list does not spoil what a world or a mod holds. A mode says what
- *     a mark means — skip the marked ores, or mine only the marked ones;
- *     whatever the mode, an ore the companion will mine is bright and one
- *     it will leave is dim. The grid scrolls with a bar on its right
- *     like the inventory, and the hovered ore's wall preview sits in a
- *     panel beside the grid;
- *   - the Inventory page is the grid alone with Terraria's own chest
- *     buttons above it — Loot All, Deposit All, Quick Stack, Restock —
- *     and no filters, no detail panel; the bag sorts itself after every
- *     transfer, so there is no Sort button either;
- *   - the Mastery graph is authored round and holds no small path
- *     ranks: four spokes from the centre, the lanes the orb can grow
- *     since the orb pivot of 2026-09-14 — Guarding, Movement, Survival,
- *     Gathering — each a trunk that forks into two paths of eight
- *     whose diamonds alternate sides rank by rank with a circle-circle
- *     rank between each, meeting at the branch's fifth diamond at the
- *     tip, with a shared junction between neighbouring spokes. The
- *     four weapon-class lanes went with the authored weapon kit. The
- *     template's radii and offsets are chosen so that no two nodes can
- *     come within a node's width of each other, and the page computes
- *     that nearest distance from the node table; at a quarter turn the
- *     eight-spoke fork read as a plus sign, so the offsets are widened
- *     threefold and each spoke is a leaf. Every diamond opens: the
- *     first click selects it and asks whether to put a point there, the
- *     second click on the same diamond swaps the wheel for that
- *     diamond's own tree, which is the wheel's shape at fifteen points
- *     — the opened diamond filled at the centre, three branches of
- *     circle, an unconnected pair of circles, and a diamond at the tip,
- *     with a shared circle in each gap joining one branch's pair to the
- *     next branch's pair. Edges stop at each node's boundary rather than
- *     passing through it, and a node is hit anywhere inside its shape,
- *     never only on its stroke, so a press inside a node cannot start a
- *     pan. The node table below is what DefineMasteryGraph.cs generates;
- *     every name here is a placeholder;
- *   - the Inventory page gains four gear slots above the bag — two
- *     weapons, a pickaxe, an axe — each a game item slot that accepts
- *     only what the companion can use and dims the rest; a handed item
- *     is chosen by putting it in the slot, the way every other equipment
- *     choice in the game is made. They replaced, on 2026-09-14, the
- *     carried pair's chips and the Weapons page of the twenty-weapon
- *     kit, which died with the kit. The native build carries them; this
- *     page does not yet draw them;
- *   - there is no minimise button.
+ *   - the page opens on the HUD notch, not on the card. The notch is
+ *     health, mana and experience as three stacked bars and nothing
+ *     else: no name, no level, no numbers, no icons; the numbers live on
+ *     the card. Clicking the notch opens the card; dragging frees it from
+ *     the edge; right-clicking docks it again;
+ *   - the companion is called Lumen in the mock (the name is a proposal)
+ *     and the card's portrait is the drone, a rough symmetrical pixel
+ *     disc drawn from Assets/. The overview has no action line: the strip
+ *     is the portrait, the name and level, and the three bars made large
+ *     with their readings. Each tile is its bar, its count and its name,
+ *     because a sentence under a tile only repeated the count;
+ *   - the Inventory page's top row is two bordered sections spanning the
+ *     page, Weapons with four slots and Tools with two, and nothing else:
+ *     no picture of the companion and no hover text. The first weapon
+ *     slot is open and the other three are locked behind Combat's
+ *     diamonds, a proposal, since the game today has two weapon slots;
+ *   - the mastery wheel is one flat tree. Its lanes are Combat, Movement,
+ *     Survival and Gathering, ten nodes each: a circle, a circle, then a
+ *     split whose ranks alternate — diamond on the left and circle on the
+ *     right, circle on the left and diamond on the right, two circles —
+ *     meeting at a third diamond and ending on a circle. A diamond unlocks
+ *     something and opens nothing; there are no trees inside diamonds. A
+ *     shared circle sits between neighbouring lanes;
+ *   - the Mastery page is simple by the owner's ruling: with nothing picked
+ *     the tree fills the page, centred; picking a node opens a panel on the
+ *     right with its name and what it does, and Learn and a level bar in the
+ *     joined-segment shape at the panel's foot; a click on empty background
+ *     closes it, a pan does not. No Unlearn, no hint line, no legend, no
+ *     status line. The same rule trims explanatory copy on every page;
+ *   - a page's actions live in the title bar, right-aligned before the X:
+ *     the chest buttons, the Mining list's mode, and −, + and Reset view;
+ *   - magnitudes are deliberately modest: a fully learned lane is worth
+ *     about one or two good accessories, not a new character. Every name
+ *     and number is a draft for the owner to edit.
+ *
+ * Kept from earlier rounds: the overview is short (title bar, identity
+ * strip, three tiles); each tile turns the whole card into its page;
+ * one 12px rhythm separates every stacked region;
+ * the Mining list is the only allow/deny control; the Inventory page has
+ * Terraria's chest buttons and a self-sorting bag; there is no minimise.
  *
  * Every size is the logical pixel the C# layout will use:
- *   overview 720x274, full pages 720x580, padding 10, title bar 34,
- *   rhythm 12, identity 100, tiles 100, joined segments 22 tall,
- *   buttons 30 tall, pills 34 tall, slots 48 with 4 gap.
+ *   notch 232x50, overview 720x244, full pages 720x580, padding 10,
+ *   title bar 34, rhythm 12, identity 100, tiles 60, joined segments 22
+ *   tall, buttons 30 tall, pills 34 tall (30 in the title bar), slots 48
+ *   with 4 gap.
  *
- * Terraria's own interface language, kept from the first mockup because
- * it is what makes this read as the game and not as a web page: every
- * string has a hard black drop shadow, panels are the saturated
- * blue-violet at 86% over a dark world, slots are a lighter blue with a
- * bright thin border, and nothing animates — hover and selection change
- * instantly. The game draws text in its own Andy font; the browser has
- * no copy, so a rounded humanist face stands in.
+ * Terraria's interface language: every string has a hard black drop
+ * shadow, panels are saturated blue-violet at 86%, slots are a lighter
+ * blue with a bright thin border, and nothing animates. The game draws
+ * text in its own Andy font; a rounded humanist face stands in.
  * ------------------------------------------------------------------ */
 :root{
   --panel:rgba(43,48,153,.86);
@@ -98,7 +71,6 @@
   --tile-bar-bg:#14184b;
   --selected:#565bc2;
   --edge:#8f93f0;
-  --edge-soft:rgba(143,147,240,.6);
   --ink:#ffffff;
   --muted:#c3c6f5;
   --gold:#ffe066;
@@ -107,6 +79,10 @@
   --hp:#8cf08c;
   --mana:#6aa8ff;
   --xp:#ffd24a;
+  --notch:#121215;
+  --notch-edge:#70707a;
+  --notch-track:#2c2c32;
+  --notch-hp:#34c759;
   --ui:"Trebuchet MS","Lucida Grande",Verdana,sans-serif;
   --z:1;
   --gap:12px;
@@ -116,7 +92,7 @@ html,body{margin:0;height:100%;background:#0d1524;overflow:hidden}
 body{font-family:var(--ui);color:var(--ink);text-shadow:2px 2px 0 #000;font-weight:bold;
   display:grid;grid-template-rows:auto 1fr;height:100%;user-select:none}
 
-/* the strip above the card is the mockup's own control, never part of the design */
+/* the strip above the stage is the mockup's own control, never part of the design */
 #bench{display:flex;gap:14px;align-items:center;padding:10px 16px;font-size:12px;
   color:#8f93cc;text-shadow:none;font-weight:normal;border-bottom:1px solid #1e2748;background:#0a1020}
 #bench b{color:#c3c6f5}
@@ -124,8 +100,25 @@ body{font-family:var(--ui);color:var(--ink);text-shadow:2px 2px 0 #000;font-weig
 #bench button.on{background:#2b3099;color:#fff;border-color:#8f93f0}
 #bench .sp{flex:1}
 
-#stage{position:relative;overflow:hidden}
-#frame{zoom:var(--z);width:720px;height:284px;position:absolute;left:0;top:0;
+#stage{position:relative;overflow:hidden;
+  background:linear-gradient(#1b2a4a 0 55%,#3a2c22 55% 100%)}
+
+/* ---- the HUD notch: name, level and three bars; docked it hangs from the top edge with fillets ---- */
+#notch{zoom:var(--z);position:absolute;width:232px;height:50px;background:var(--notch);border-radius:0 0 12px 12px;
+  cursor:pointer;z-index:5;color:#ebebf0}
+#notch::before,#notch::after{content:"";position:absolute;top:0;width:10px;height:10px}
+#notch::before{left:-10px;background:radial-gradient(circle at 0 100%,transparent 10px,var(--notch) 10.5px)}
+#notch::after{right:-10px;background:radial-gradient(circle at 100% 100%,transparent 10px,var(--notch) 10.5px)}
+#notch.free{border-radius:12px;outline:1px solid var(--notch-edge)}
+#notch.free::before,#notch.free::after{display:none}
+/* three bars and nothing else, 8px padding round them and 5px between */
+#notch .nbar{position:absolute;left:10px;right:10px;height:8px;background:var(--notch-track);border-radius:4px;overflow:hidden}
+#notch .nbar i{display:block;height:100%;border-radius:4px}
+#nhp{top:8px}#nhp i{background:var(--notch-hp)}
+#nmp{top:21px}#nmp i{background:var(--mana)}
+#nxp{top:34px}#nxp i{background:var(--xp)}
+
+#frame{zoom:var(--z);width:720px;height:244px;position:absolute;left:0;top:0;z-index:4;
   background:var(--panel);border:2px solid var(--edge);border-radius:9px;padding:10px}
 #frame.full{height:580px}
 #frame.hidden{display:none}
@@ -142,6 +135,8 @@ body{font-family:var(--ui);color:var(--ink);text-shadow:2px 2px 0 #000;font-weig
   display:grid;place-items:center;cursor:pointer;line-height:1;position:relative}
 .pill:hover{border-color:var(--gold)}
 .pill.on{color:var(--gold);background:var(--selected)}
+.pill.off{opacity:.4;cursor:default}
+.pill.off:hover{border-color:var(--edge)}
 
 /* ---- title bar: 34 tall, a 1px edge line under it; the bar itself is the drag grip ---- */
 #title{height:34px;position:relative;border-bottom:1px solid var(--edge);cursor:grab}
@@ -149,24 +144,32 @@ body{font-family:var(--ui);color:var(--ink);text-shadow:2px 2px 0 #000;font-weig
 #title .name{position:absolute;left:42px;top:3px;pointer-events:none}
 #title .rb{position:absolute;top:0}
 #back{left:0}#close{right:0}
+/* a page's own actions sit in the title bar, right-aligned before the X, at the round buttons' 30px height, so the
+   page below them is only its content; the overview has none */
+#acts{position:absolute;right:42px;top:0;height:30px}
+.acts{display:none;height:30px;gap:6px}.acts.on{display:flex}
+#acts .pill{height:30px;border-radius:15px;padding:0 12px}
+#acts .rb{position:static}
+
+/* the drone, everywhere the companion is pictured: a rough symmetrical pixel disc */
+.drone{image-rendering:pixelated;display:block}
 
 /* ---- identity strip: one rhythm below the title rule, 100 tall; the controls sit on its right ---- */
 #identity{position:absolute;left:10px;right:10px;top:56px;height:100px}
 #portrait{position:absolute;left:2px;top:3px;width:66px;height:92px;background:var(--sunk);display:grid;place-items:center}
-#portrait svg{image-rendering:pixelated;width:44px;height:56px}
+#portrait .drone{width:48px;height:48px}
 #who{position:absolute;left:80px;top:1px}
-#lvl{position:absolute;left:130px;top:5px;color:var(--gold)}
-.meter{position:absolute;left:80px;width:220px;height:8px;background:var(--bar-bg)}
+#lvl{position:absolute;left:150px;top:5px;color:var(--gold)}
+.meter{position:absolute;left:80px;width:220px;height:16px;background:var(--bar-bg)}
 .meter i{display:block;height:100%}
-/* health, mana and experience stacked in the notch's order, a 12px row step, each reading in its bar's colour */
-#hpbar{top:27px}#hpbar i{background:var(--hp)}
-#mpbar{top:39px}#mpbar i{background:var(--mana)}
-#xpbar{top:51px}#xpbar i{background:var(--xp)}
-.reading{position:absolute;left:308px;width:112px;text-align:left;line-height:1}
-#hp{top:24px;color:var(--hp)}
-#mp{top:36px;color:var(--mana)}
-#xp{top:48px;color:var(--xp)}
-#action{position:absolute;left:80px;width:340px;top:64px;line-height:1.35}
+/* health, mana and experience in the notch's order, filling the strip under the name where the action line was, each reading beside its bar in the bar's colour */
+#hpbar{top:32px}#hpbar i{background:var(--hp)}
+#mpbar{top:54px}#mpbar i{background:var(--mana)}
+#xpbar{top:76px}#xpbar i{background:var(--xp)}
+.reading{position:absolute;left:310px;width:112px;text-align:left;line-height:16px}
+#hp{top:32px;color:var(--hp)}
+#mp{top:54px;color:var(--mana)}
+#xp{top:76px;color:var(--xp)}
 #frame.full #identity,#frame.full #footer{display:none}
 
 /* three controls: a 26px icon and a joined segment control, 26 tall with 8 between */
@@ -180,19 +183,18 @@ body{font-family:var(--ui);color:var(--ink);text-shadow:2px 2px 0 #000;font-weig
   cursor:pointer;line-height:1;margin-left:-2px}
 .joined .seg:first-child{margin-left:0;border-radius:11px 0 0 11px}
 .joined .seg:last-child{border-radius:0 11px 11px 0}
+.joined .seg:only-child{border-radius:11px}  /* one segment is both ends, and :last-child alone would square its left */
 .joined .seg:hover{border-color:var(--gold);z-index:1}
 .joined .seg.on{border-color:var(--gold);color:var(--gold);background:var(--selected);z-index:1}
 
 /* ---- tiles: three across, 100 tall, one rhythm under the strip and one above the card's edge ---- */
-#footer{position:absolute;left:10px;right:10px;top:168px;height:100px;display:flex;gap:10px}
+#footer{position:absolute;left:10px;right:10px;top:168px;height:60px;display:flex;gap:10px}
 .tile{flex:1;position:relative;border:2px solid var(--edge);border-radius:9px;background:var(--panel);cursor:pointer}
 .tile:hover{border-color:var(--gold)}
 .tile .bar{position:absolute;left:10px;top:10px;right:64px;height:6px;background:var(--tile-bar-bg)}
 .tile .bar i{display:block;height:100%}
-.tile .count{position:absolute;right:10px;top:4px;color:var(--muted);width:50px;text-align:right}
+.tile .count{position:absolute;right:10px;top:4px;color:var(--muted);width:60px;text-align:right}
 .tile .t{position:absolute;left:10px;top:23px}
-.tile .d{position:absolute;left:10px;top:47px;color:var(--muted);white-space:nowrap;overflow:hidden;right:6px}
-.tile .d2{position:absolute;left:10px;top:69px;color:var(--muted);white-space:nowrap;overflow:hidden;right:6px}
 
 /* ---- full pages: one rhythm below the title rule, one above the card's edge ---- */
 #content{position:absolute;left:10px;right:10px;top:56px;bottom:12px;display:none}
@@ -206,27 +208,32 @@ body{font-family:var(--ui);color:var(--ink);text-shadow:2px 2px 0 #000;font-weig
 .sb i{display:block;background:#d7d9ff;border-radius:6px;position:absolute;left:2px;right:2px;cursor:grab}
 .sb i:hover{background:#ffffff}
 
-/* ---- inventory: chest buttons, one rhythm, the grid, one rhythm, the count line ---- */
-#chest{position:absolute;left:23px;width:650px;top:0;height:34px;display:flex;gap:6px}
-#chest .pill{flex:1;padding:0}
-#gridview{left:23px;top:46px;width:620px;bottom:36px}
-#grid{display:grid;grid-template-columns:repeat(12,48px);gap:4px}
+/* ---- inventory: the gear row with the drone, one rhythm, chest buttons, one rhythm, the grid, the count line ---- */
+/* the top row is two bordered sections spanning the page, weapons and tools, slots evenly spaced in each at their fixed size */
+/* no caption: the two boxes and what is in them say which is which, and a caption row only pushed the slots off centre */
+.gearsection{position:absolute;top:0;height:64px;border:2px solid var(--edge);border-radius:9px}
+.gearsection .row{position:absolute;left:0;right:0;top:6px;display:flex;justify-content:space-evenly}
+#gearweapons{left:23px;width:425px}#geartools{left:460px;width:213px}
 .slot{width:48px;height:48px;border:2px solid var(--edge);border-radius:6px;background:var(--panel-solid);position:relative}
 .slot:hover{border-color:var(--gold)}
+.gearslot{cursor:pointer}
+.gearslot svg{position:absolute;left:9px;top:9px;width:26px;height:26px;image-rendering:pixelated}
+.gearslot.locked{background:var(--sunk);border-color:rgba(143,147,240,.35)}
+.gearslot.locked svg{opacity:.55}
+#gridview{left:23px;top:76px;width:620px;bottom:36px}
+#grid{display:grid;grid-template-columns:repeat(12,48px);gap:4px}
 .slot .n{position:absolute;left:5px;bottom:3px;color:var(--gold)}
 .slot .it{position:absolute;right:6px;top:6px;width:12px;height:12px}
 .slot .it.ore{background:#c47a3a;box-shadow:2px 2px 0 #8a4a1e inset}
 .slot .it.wood{background:#a8703a;box-shadow:0 3px 0 #6b4520 inset}
 .slot .it.gel{background:#4f7fff;border-radius:50%}
 .slot .it.torch{background:#ffb347;box-shadow:0 -4px 0 #7a4a1a inset}
-#invbar{left:653px;top:46px;bottom:36px}
+#invbar{left:653px;top:76px;bottom:36px}
 #invcount{position:absolute;right:23px;bottom:0;height:24px;line-height:24px;color:var(--muted)}
 #invlast{position:absolute;left:23px;bottom:0;height:24px;line-height:24px;color:var(--muted)}
 
-/* ---- mining list: a mode, a scrolling grid of found ores, the hovered ore's wall preview beside it ---- */
-#mode{position:absolute;left:0;top:0;width:280px;height:34px;display:flex;gap:4px}
-#mode .pill{flex:1;padding:0}
-#oreview{left:0;top:46px;width:412px;bottom:36px}
+/* ---- mining list: a scrolling grid of found ores, the hovered ore's wall preview beside it; the mode is in the title bar ---- */
+#oreview{left:0;top:0;width:412px;bottom:0}
 #ores{display:grid;grid-template-columns:repeat(8,48px);gap:4px}
 .oretile{width:48px;height:48px;border:2px solid var(--edge);border-radius:6px;background:var(--panel-solid);position:relative;cursor:pointer}
 .oretile:hover{border-color:var(--gold)}
@@ -235,72 +242,101 @@ body{font-family:var(--ui);color:var(--ink);text-shadow:2px 2px 0 #000;font-weig
 .oretile.off .sw{opacity:.35}
 .oretile.off .mk{color:var(--red)}
 .oretile.on .mk{color:var(--gold)}
-#orebar{left:416px;top:46px;bottom:36px}
-#orepanel{position:absolute;left:456px;right:0;top:46px;height:214px;border:2px solid var(--edge);border-radius:9px;padding:12px}
+#orebar{left:416px;top:0;bottom:0}
+#orepanel{position:absolute;left:456px;right:0;top:0;height:214px;border:2px solid var(--edge);border-radius:9px;padding:12px}
 #orepanel .sw{display:block;width:96px;height:96px;border:2px solid var(--edge);border-radius:6px;image-rendering:pixelated;margin-bottom:12px}
 #orepanel .nm{margin-bottom:6px}
 #orepanel .st{margin-bottom:4px}
-#orepanel .how{color:var(--muted)}
-#orenote{position:absolute;left:456px;right:0;top:272px;color:var(--muted);line-height:1.4}
-#orecount{position:absolute;left:0;bottom:0;height:24px;line-height:24px;color:var(--muted)}
 
-/* ---- mastery: the whole card; the wheel, or one diamond's own tree ---- */
-#mast .hint{position:absolute;left:0;top:10px;color:var(--muted)}
-#mast .zoom{position:absolute;right:0;top:0;height:34px;display:flex;gap:8px;align-items:flex-start}
-#graph{position:absolute;left:0;right:0;top:46px;bottom:70px;overflow:hidden;cursor:grab}
+/* ---- mastery: the graph fills the page; a picked node's panel takes the right and the graph gives it the room ---- */
+#graph{position:absolute;left:0;right:0;top:0;bottom:0;overflow:hidden;cursor:grab}
+#mast.picked #graph{right:232px}
 #graph.dragging{cursor:grabbing}
 #graph svg{width:100%;height:100%;display:block}
 #graph .node{cursor:pointer}
-#graph .node.sel{stroke-width:5}
-#mast .legend{position:absolute;left:0;bottom:36px;line-height:1.5}
-#mast .legend2{position:absolute;left:0;bottom:10px;color:var(--muted);right:180px;white-space:nowrap;overflow:hidden}
-#open{position:absolute;right:0;bottom:0;height:34px;padding:0 24px;display:none}
-#open.show{display:grid}
+#graph .node.sel{stroke-width:6}
+#detail{position:absolute;right:0;width:220px;top:0;bottom:0;border:2px solid var(--edge);border-radius:9px;padding:12px;
+  display:none;flex-direction:column;gap:8px;overflow:hidden}
+#mast.picked #detail{display:flex}
+#detail .dn{line-height:1.15}
+#detail .de{color:var(--gold);line-height:1.3}
+#detail .sp{flex:1}
+/* the level bar is the joined-segment control's shape used as a display: one segment per level, learned ones selected */
+/* flex:none because the joined control's own flex:1 would, in this column, split the free space with the spacer and
+   lift Learn and the bar off the card's bottom edge */
+#levels{flex:none}
+#levels .seg{cursor:default}
+#levels .seg:hover{border-color:var(--edge)}
+#levels .seg.on:hover{border-color:var(--gold)}
 </style>
 </head>
 <body>
 <div id="bench">
-  <b>Companion card</b>
-  <span>the agreed revision · built to the sizes in the file header</span>
+  <b>Companion interface</b>
+  <span>notch, card and mastery draft · built to the sizes in the file header</span>
   <span>scale</span>
   <button class="on" data-z="1">1×</button><button data-z="1.5">1.5×</button>
   <span>page</span>
-  <button data-page="overview" class="on">Companion</button><button data-page="inv">Inventory</button><button data-page="mast">Mastery</button><button data-page="ore">Mining list</button>
+  <button data-page="overview">Companion</button><button data-page="inv">Inventory</button><button data-page="mast">Mastery</button><button data-page="ore">Mining list</button>
   <span class="sp"></span>
   <span id="yours"></span>
-  <button id="reopen">Open card</button>
+  <button id="reopen">Toggle card</button>
 </div>
 
+<!-- the drone, drawn once and reused: a rough symmetrical pixel disc from the concept sheet, shell, core and four crystals -->
+<svg width="0" height="0" style="position:absolute">
+  <defs>
+    <g id="drone-art" shape-rendering="crispEdges">
+      <rect x="7" y="0" width="2" height="1" fill="#e6c8ff"/><rect x="7" y="1" width="2" height="2" fill="#a64dff"/>
+      <rect x="7" y="13" width="2" height="2" fill="#a64dff"/><rect x="7" y="15" width="2" height="1" fill="#e6c8ff"/>
+      <rect x="0" y="7" width="1" height="2" fill="#e6c8ff"/><rect x="1" y="7" width="2" height="2" fill="#a64dff"/>
+      <rect x="13" y="7" width="2" height="2" fill="#a64dff"/><rect x="15" y="7" width="1" height="2" fill="#e6c8ff"/>
+      <rect x="5" y="3" width="6" height="1" fill="#3a3750"/><rect x="4" y="4" width="8" height="1" fill="#3a3750"/>
+      <rect x="3" y="5" width="10" height="6" fill="#2a2838"/><rect x="3" y="5" width="4" height="2" fill="#3a3750"/>
+      <rect x="4" y="11" width="8" height="1" fill="#211f2c"/><rect x="5" y="12" width="6" height="1" fill="#211f2c"/>
+      <rect x="2" y="6" width="1" height="4" fill="#8f8aa6"/><rect x="13" y="6" width="1" height="4" fill="#8f8aa6"/>
+      <rect x="6" y="6" width="4" height="4" fill="#7a2fd0"/><rect x="7" y="7" width="2" height="2" fill="#c88dff"/>
+      <rect x="7" y="7" width="1" height="1" fill="#f3e6ff"/>
+    </g>
+  </defs>
+</svg>
+
 <div id="stage">
-<div id="frame">
+<div id="notch" title="Click to open the companion card · drag to move · right-click to dock">
+  <div id="nhp" class="nbar"><i style="width:100%"></i></div>
+  <div id="nmp" class="nbar"><i style="width:65%"></i></div>
+  <div id="nxp" class="nbar"><i style="width:62%"></i></div>
+</div>
+
+<div id="frame" class="hidden">
   <div id="title">
     <div id="back" class="rb s80">+</div>
     <div class="name s100">Companion</div>
+    <div id="acts">
+      <div id="chest" class="acts s75" data-for="inv">
+        <div class="pill" data-op="loot" title="Everything in the bag goes to you">Loot All</div>
+        <div class="pill" data-op="deposit" title="Everything you carry goes into the bag">Deposit All</div>
+        <div class="pill" data-op="quick" title="What you carry that the bag already holds goes into the bag">Quick Stack</div>
+        <div class="pill" data-op="restock" title="What the bag holds that you already carry comes to you">Restock</div>
+      </div>
+      <div id="mode" class="acts s75" data-for="ore"><div class="pill on" data-mode="black">Skip marked</div><div class="pill" data-mode="white">Only marked</div></div>
+      <div class="acts zoom s80" data-for="mast"><div class="rb" id="zout">-</div><div class="rb" id="zin">+</div><div class="pill" id="zreset">Reset view</div></div>
+    </div>
     <div id="close" class="rb s80">X</div>
   </div>
 
   <div id="identity">
-    <div id="portrait">
-      <!-- the companion's head and body from the player renderer, stood in by a pixel figure -->
-      <svg viewBox="0 0 22 28" shape-rendering="crispEdges">
-        <rect x="6" y="1" width="10" height="4" fill="#a24b28"/><rect x="5" y="3" width="12" height="3" fill="#b85a30"/>
-        <rect x="7" y="6" width="8" height="5" fill="#f2c9a0"/><rect x="8" y="7" width="2" height="2" fill="#2a2a2a"/>
-        <rect x="6" y="11" width="10" height="8" fill="#6f7f5a"/><rect x="4" y="11" width="2" height="6" fill="#f2c9a0"/><rect x="16" y="11" width="2" height="6" fill="#f2c9a0"/>
-        <rect x="6" y="19" width="10" height="5" fill="#3f4d7a"/><rect x="6" y="24" width="4" height="3" fill="#8a3a2a"/><rect x="12" y="24" width="4" height="3" fill="#8a3a2a"/>
-      </svg>
-    </div>
-    <div id="who" class="s100">Aria</div>
+    <div id="portrait"><svg class="drone" viewBox="0 0 16 16"><use href="#drone-art"/></svg></div>
+    <div id="who" class="s100">Lumen</div>
     <div id="lvl" class="s80">Level 12</div>
     <div id="hpbar" class="meter"><i style="width:100%"></i></div>
-    <div id="hp" class="reading s66">400 / 400 HP</div>
+    <div id="hp" class="reading s75">400 / 400 HP</div>
     <div id="mpbar" class="meter"><i style="width:65%"></i></div>
-    <div id="mp" class="reading s66">78 / 120 MP</div>
+    <div id="mp" class="reading s75">78 / 120 MP</div>
     <div id="xpbar" class="meter"><i style="width:62%"></i></div>
-    <div id="xp" class="reading s66">1,240 / 2,000 XP</div>
-    <div id="action" class="s75">Mining · Copper vein · 12 tiles below · opportunistic</div>
+    <div id="xp" class="reading s75">1,240 / 2,000 XP</div>
 
     <div id="controls" class="s68">
-      <!-- the three controls that survive, each an item icon in the game's own pixel style and a joined segment control -->
       <div class="ctlrow" data-hint="Mimic: mine when you do. Auto: find ore nearby on its own.">
         <div class="ico" title="Mining"><svg viewBox="0 0 13 13" shape-rendering="crispEdges">
           <rect x="2" y="1" width="8" height="2" fill="#b9b3c9"/><rect x="1" y="2" width="2" height="2" fill="#b9b3c9"/><rect x="9" y="2" width="2" height="3" fill="#b9b3c9"/>
@@ -315,7 +351,7 @@ body{font-family:var(--ui);color:var(--ink);text-shadow:2px 2px 0 #000;font-weig
         </svg></div>
         <div class="joined"><div class="seg">Off</div><div class="seg">Mimic</div><div class="seg on">Auto</div></div>
       </div>
-      <div class="ctlrow" data-hint="Places torches in dark places, the companion's first, then yours.">
+      <div class="ctlrow" data-hint="Lights dark places with torches of its own; it never uses up yours.">
         <div class="ico" title="Torches"><svg viewBox="0 0 13 13" shape-rendering="crispEdges">
           <rect x="5" y="1" width="3" height="2" fill="#ffe066"/><rect x="4" y="2" width="5" height="3" fill="#ffb347"/><rect x="5" y="4" width="3" height="2" fill="#ff7a3d"/>
           <rect x="5" y="6" width="3" height="6" fill="#8a5a2b"/><rect x="6" y="6" width="1" height="6" fill="#6b4520"/>
@@ -330,34 +366,24 @@ body{font-family:var(--ui);color:var(--ink);text-shadow:2px 2px 0 #000;font-weig
       <div class="bar"><i id="invfill" style="background:var(--hp)"></i></div>
       <div class="count s65" id="invtilecount"></div>
       <div class="t s85">Inventory</div>
-      <div class="d s68" id="invtiledetail"></div>
-      <div class="d2 s64" id="invtilelast">No recent pickup</div>
     </div>
     <div class="tile" data-page="mast">
-      <div class="bar"><i style="width:0;background:var(--gold)"></i></div>
+      <div class="bar"><i id="mastfill" style="width:0;background:var(--gold)"></i></div>
       <div class="count s65" id="masttilecount"></div>
       <div class="t s85">Mastery</div>
-      <div class="d s68">Explore the preview</div>
-      <div class="d2 s64">No points or materials spent</div>
     </div>
     <div class="tile" data-page="ore">
       <div class="bar"><i id="orefill" style="background:var(--gold)"></i></div>
       <div class="count s65" id="oretilecount"></div>
       <div class="t s85">Mining list</div>
-      <div class="d s68" id="oretiledetail"></div>
-      <div class="d2 s64" id="oretilemode"></div>
     </div>
   </div>
 
   <div id="content">
     <!-- Inventory page -->
     <div id="inv" class="page">
-      <div id="chest" class="s80">
-        <div class="pill" data-op="loot" title="Everything in the bag goes to you">Loot All</div>
-        <div class="pill" data-op="deposit" title="Everything you carry goes into the bag">Deposit All</div>
-        <div class="pill" data-op="quick" title="What you carry that the bag already holds goes into the bag">Quick Stack</div>
-        <div class="pill" data-op="restock" title="What the bag holds that you already carry comes to you">Restock</div>
-      </div>
+      <div id="gearweapons" class="gearsection"><div class="row"></div></div>
+      <div id="geartools" class="gearsection"><div class="row"></div></div>
       <div id="gridview" class="viewport"><div class="inner"><div id="grid" class="s75"></div></div></div>
       <div id="invbar" class="sb"><i></i></div>
       <div id="invlast" class="s68"></div>
@@ -366,30 +392,27 @@ body{font-family:var(--ui);color:var(--ink);text-shadow:2px 2px 0 #000;font-weig
 
     <!-- Mining list page -->
     <div id="ore" class="page">
-      <div id="mode" class="s80"><div class="pill on" data-mode="black">Skip marked</div><div class="pill" data-mode="white">Only marked</div></div>
       <div id="oreview" class="viewport"><div class="inner"><div id="ores"></div></div></div>
       <div id="orebar" class="sb"><i></i></div>
       <div id="orepanel">
         <i class="sw"></i>
         <div class="nm s100"></div>
         <div class="st s80"></div>
-        <div class="how s68"></div>
       </div>
-      <div id="orenote" class="s68">An ore appears here once you have picked one up. Click an ore to mark it.</div>
-      <div id="orecount" class="s80"></div>
     </div>
 
     <!-- Mastery page -->
     <div id="mast" class="page">
-      <div class="hint s75" id="masthint">Preview · drag to pan · wheel to zoom · nothing is spent</div>
-      <div class="zoom s80"><div class="rb" id="zout">-</div><div class="rb" id="zin">+</div><div class="pill" id="zreset">Reset view</div></div>
       <div id="graph">
-        <!-- the wheel, or one diamond's tree; both generated below -->
         <svg id="graphsvg" preserveAspectRatio="none" font-family="inherit" font-weight="bold"></svg>
       </div>
-      <div class="legend s80" id="mastlegend">Circle: stat &nbsp; Diamond: ability &nbsp; Filled circle: shared</div>
-      <div class="legend2 s75" id="mastline">Select a node. Click a selected diamond again to open its upgrades.</div>
-      <div id="open" class="pill s85">Open upgrades</div>
+      <div id="detail">
+        <div class="dn s100" id="dname"></div>
+        <div class="de s75" id="deffect"></div>
+        <div class="sp"></div>
+        <div class="pill s80 off" id="learn">Learn</div>
+        <div class="joined s68" id="levels"></div>
+      </div>
     </div>
   </div>
 </div>
@@ -399,21 +422,59 @@ body{font-family:var(--ui);color:var(--ink);text-shadow:2px 2px 0 #000;font-weig
 // ---------------------------------------------------------------- helpers
 const $ = s => document.querySelector(s), $$ = s => [...document.querySelectorAll(s)];
 const z = () => Number(getComputedStyle(document.documentElement).getPropertyValue('--z')) || 1;
-const frame = $('#frame'), stage = $('#stage');
-const W = 720, H_OVERVIEW = 284, H_FULL = 580;
+const frame = $('#frame'), stage = $('#stage'), notch = $('#notch');
+const W = 720, H_OVERVIEW = 244, H_FULL = 580, NOTCH_W = 232, NOTCH_H = 50, NOTCH_MARGIN = 8;
+
+// ---------------------------------------------------------------- the notch
+// Docked, the notch sits top-centre flush with the screen edge, as the game draws it when no
+// position is saved. A press that travels past the drag threshold moves it and frees it from the
+// edge; a press released before that is a click and opens or closes the card; right-click docks it.
+let notchPos = null, notchPress = null;
+function placeNotch() {
+  const zz = z(), sw = stage.clientWidth / zz, sh = stage.clientHeight / zz;
+  const docked = !notchPos;
+  const x = docked ? (sw - NOTCH_W) / 2 : Math.min(Math.max(NOTCH_MARGIN, notchPos.x), Math.max(NOTCH_MARGIN, sw - NOTCH_W - NOTCH_MARGIN));
+  const y = docked ? 0 : Math.min(Math.max(0, notchPos.y), Math.max(0, sh - NOTCH_H));
+  if (!docked) notchPos = {x, y};
+  notch.style.left = x + 'px'; notch.style.top = y + 'px';
+  notch.classList.toggle('free', !docked);
+}
+notch.addEventListener('pointerdown', e => {
+  if (e.button !== 0) return;
+  const r = notch.getBoundingClientRect();
+  notchPress = {x: e.clientX, y: e.clientY, ox: r.left, oy: r.top, moved: false};
+  notch.setPointerCapture(e.pointerId);
+});
+notch.addEventListener('pointermove', e => {
+  if (!notchPress) return;
+  const dx = e.clientX - notchPress.x, dy = e.clientY - notchPress.y;
+  if (!notchPress.moved && Math.hypot(dx, dy) < 6) return;
+  notchPress.moved = true;
+  const s = stage.getBoundingClientRect(), zz = z();
+  notchPos = {x: (notchPress.ox - s.left + dx) / zz, y: (notchPress.oy - s.top + dy) / zz};
+  placeNotch();
+});
+notch.addEventListener('pointerup', () => {
+  if (notchPress && !notchPress.moved) toggleCard();
+  notchPress = null;
+});
+notch.addEventListener('contextmenu', e => { e.preventDefault(); notchPos = null; placeNotch(); });
 
 // ---------------------------------------------------------------- scale and placement
-// The frame is placed in stage pixels divided by the zoom, the way the game places it in UI
-// coordinates; it opens centred as the full card would, and keeps its top-left after, so opening
-// a tile grows the card downward without moving the title bar.
+// The card opens centred under the docked notch and keeps its top-left after, so opening a tile
+// grows the card downward without moving the title bar.
 let framePos = null;
 function place() {
   const zz = z(), sw = stage.clientWidth / zz, sh = stage.clientHeight / zz;
   const h = frame.classList.contains('full') ? H_FULL : H_OVERVIEW;
-  if (!framePos) framePos = {x: Math.max(0, (sw - W) / 2), y: Math.max(0, (sh - H_FULL) / 2)};
+  if (!framePos) framePos = {x: Math.max(0, (sw - W) / 2), y: NOTCH_H + 24};
+  // A docked notch owns the top of the screen, so the card never rises under it: on a short screen the
+  // card's foot runs past the bottom edge rather than its title bar sliding beneath the notch.
+  const top = notchPos ? 0 : NOTCH_H + 12;
   framePos.x = Math.min(Math.max(0, framePos.x), Math.max(0, sw - W));
-  framePos.y = Math.min(Math.max(0, framePos.y), Math.max(0, sh - h));
+  framePos.y = Math.max(top, Math.min(framePos.y, Math.max(0, sh - h)));
   frame.style.left = framePos.x + 'px'; frame.style.top = framePos.y + 'px';
+  placeNotch();
 }
 $$('#bench [data-z]').forEach(b => b.addEventListener('click', () => {
   document.documentElement.style.setProperty('--z', b.dataset.z);
@@ -422,10 +483,10 @@ $$('#bench [data-z]').forEach(b => b.addEventListener('click', () => {
 }));
 window.addEventListener('resize', place);
 
-// drag by the title bar, never by its buttons
+// drag the card by the title bar, never by its buttons
 const title = $('#title'); let drag = null;
 title.addEventListener('pointerdown', e => {
-  if (e.target.classList.contains('rb')) return;
+  if (e.target.closest('.rb, .pill')) return;
   drag = {x: e.clientX, y: e.clientY, ox: framePos.x, oy: framePos.y};
   title.classList.add('dragging'); title.setPointerCapture(e.pointerId);
 });
@@ -436,35 +497,31 @@ title.addEventListener('pointermove', e => {
 title.addEventListener('pointerup', () => { drag = null; title.classList.remove('dragging'); });
 
 // ---------------------------------------------------------------- pages
-// The overview is the short card; each tile turns the whole card into its page, with back and
-// close the only buttons left in the title bar. Inside Mastery, back first leaves an opened
-// diamond's tree, then leaves the page.
 const names = {overview: 'Companion', inv: 'Inventory', mast: 'Mastery', ore: 'Mining list'};
 const back = $('#back'), titleName = $('#title .name');
 let page = 'overview';
+function openCard() { frame.classList.remove('hidden'); place(); scrollers.forEach(s => s.layout()); if (page === 'mast') fitGraph(); }
+function toggleCard() { if (frame.classList.contains('hidden')) openCard(); else frame.classList.add('hidden'); syncBench(); }
+function syncBench() {
+  const open = !frame.classList.contains('hidden');
+  $$('#bench [data-page]').forEach(b => b.classList.toggle('on', open && b.dataset.page === page));
+}
 function show(p) {
   page = p;
   $$('.page').forEach(x => x.classList.toggle('on', x.id === p));
+  $$('.acts').forEach(x => x.classList.toggle('on', x.dataset.for === p));
   frame.classList.toggle('full', p !== 'overview');
   titleName.textContent = names[p];
   back.textContent = p === 'overview' ? '+' : '<';
-  $$('#bench [data-page]').forEach(b => b.classList.toggle('on', b.dataset.page === p));
-  place();
-  scrollers.forEach(s => s.layout());
-  if (p === 'mast') fitGraph();
+  openCard(); syncBench();
 }
 $$('.tile').forEach(t => t.addEventListener('click', () => show(t.dataset.page)));
 $$('#bench [data-page]').forEach(b => b.addEventListener('click', () => show(b.dataset.page)));
-back.addEventListener('click', () => {
-  if (page === 'mast' && opened) { closeSubtree(); return; }
-  if (frame.classList.contains('full')) show('overview');
-});
-$('#close').addEventListener('click', () => frame.classList.add('hidden'));
-$('#reopen').addEventListener('click', () => { frame.classList.remove('hidden'); place(); });
+back.addEventListener('click', () => { if (frame.classList.contains('full')) show('overview'); });
+$('#close').addEventListener('click', () => { frame.classList.add('hidden'); syncBench(); });
+$('#reopen').addEventListener('click', toggleCard);
 
 // ---------------------------------------------------------------- scrollers
-// A viewport clips an inner block; the wheel and the thumb move it. The thumb's size is the
-// visible share of the content, as the native UIScrollbar draws it.
 class Scroller {
   constructor(viewport, bar) {
     this.v = viewport; this.inner = viewport.querySelector('.inner'); this.bar = bar; this.thumb = bar.querySelector('i');
@@ -499,10 +556,6 @@ $$('.joined .seg').forEach(s => s.addEventListener('click', () => {
 $$('.ctlrow').forEach(r => r.title = r.dataset.hint);
 
 // ---------------------------------------------------------------- mining list
-// Only ores the player has picked up at least once are listed, in the order they were found;
-// nothing here says what else the world holds. Each tile is a mark; the mode says what a mark
-// means. Whatever the mode, an ore the companion will mine is bright and one it will not is dim,
-// so the picture answers "what will it dig" without reading the mode.
 const ORES = [
   ['Copper Ore', '#c8763a', '#8e4c22'], ['Tin Ore', '#c9c1a2', '#8c8468'], ['Iron Ore', '#b9aea4', '#7d7167'], ['Lead Ore', '#7f86a3', '#4d536b'],
   ['Silver Ore', '#dfe6ee', '#96a3b3'], ['Tungsten Ore', '#7fb59a', '#4c7a62'], ['Gold Ore', '#f2c94c', '#b08a1e'], ['Platinum Ore', '#cfd8f0', '#8a95b8'],
@@ -526,17 +579,13 @@ function drawOres() {
     oresEl.appendChild(t);
   });
   const n = ORES.filter(mines).length, found = ORES.length;
-  $('#orecount').textContent = `${found} found · will mine ${n}`;
   $('#oretilecount').textContent = `${n}/${found}`; $('#orefill').style.width = Math.round(100 * n / found) + '%';
-  $('#oretiledetail').textContent = `${found} ores found · will mine ${n}`;
-  $('#oretilemode').textContent = mode === 'black' ? `Skips the ${found - n} marked` : `Mines only the ${n} marked`;
   scrollers.forEach(s => s.layout());
 }
 function describe(o) {
   orepanel.querySelector('.sw').style = swatch(o);
   orepanel.querySelector('.nm').textContent = o.name;
   orepanel.querySelector('.st').textContent = mines(o) ? 'Will mine' : 'Will leave';
-  orepanel.querySelector('.how').textContent = 'How it looks in the wall';
   orepanel.querySelector('.st').style.color = mines(o) ? 'var(--green)' : 'var(--red)';
 }
 $$('#mode .pill').forEach(s => s.addEventListener('click', () => {
@@ -544,12 +593,7 @@ $$('#mode .pill').forEach(s => s.addEventListener('click', () => {
 }));
 drawOres(); describe(ORES[0]);
 
-// ---------------------------------------------------------------- inventory
-// The bag is 120 slots in twelve columns and sorts itself after every transfer: by kind, then by
-// count, packed to the front. The four buttons are Terraria's own chest buttons and do what they
-// do at a chest: Loot All empties the bag to you, Deposit All empties you into the bag, Quick
-// Stack sends what you carry that the bag already has, Restock brings what the bag has that you
-// already carry. Your own carry is mocked in the bench strip so every button visibly does something.
+// ---------------------------------------------------------------- inventory: the bag
 const KIND = {ore: 'Copper Ore', wood: 'Wood', gel: 'Gel', torch: 'Torch'};
 const ORDER = ['ore', 'wood', 'gel', 'torch'], STACK = 99, SLOTS = 120;
 let bag = []; for (let i = 0; i < 60; i++) bag.push({kind: ['ore', 'wood', 'gel'][i % 3], n: 8 + (i * 7) % 40});
@@ -571,8 +615,7 @@ function drawBag(last) {
   const used = bag.length, pct = Math.round(100 * used / SLOTS);
   $('#invcount').textContent = `${used} / ${SLOTS}`;
   $('#invtilecount').textContent = `${used}/${SLOTS}`; $('#invfill').style.width = pct + '%';
-  $('#invtiledetail').textContent = `${used} of ${SLOTS} slots occupied`;
-  if (last) { $('#invtilelast').textContent = last; $('#invlast').textContent = last; }
+  if (last) $('#invlast').textContent = last;
   $('#yours').textContent = 'you carry: ' + (Object.entries(yours).filter(([, n]) => n > 0).map(([k, n]) => `${KIND[k]} ${n}`).join(' · ') || 'nothing');
   scrollers.forEach(s => s.layout());
 }
@@ -593,200 +636,278 @@ const ops = {
 $$('#chest .pill').forEach(p => p.addEventListener('click', () => { const msg = ops[p.dataset.op](); sortBag(); drawBag(msg); }));
 sortBag(); drawBag();
 
-// ---------------------------------------------------------------- mastery: the wheel
-// Four spokes a quarter turn apart with Guarding at the top and the rest clockwise: the lanes the
-// orb can grow since the orb pivot of 2026-09-14. Each spoke has nineteen roles: a trunk stat, a
-// fork stat, two paths of eight ranks whose diamonds alternate sides with a circle-circle rank
-// between each, and the branch's fifth diamond at the tip where the paths meet. Every role has
-// one [radius, angular offset] in the template, the same for every spoke, so the wheel is
-// fourfold symmetric. Shared junctions sit between neighbouring spokes. The geometry is what the
-// native DefineMasteryGraph.cs generates; every name is a placeholder.
-// Movement is speed, acceleration and the dash (no jumps and no flight rank, the orb already
-// flies); Survival is life, armour, regen, resistances and the water and lava immunities as
-// diamonds in that order; Gathering is all tool use (the drill, its reach and light, the pickup
-// and the bag); Guarding is the companion's protection duties (reach, threat awareness, revival,
-// cleansing). The four weapon-class lanes went with the authored weapon kit.
-const BRANCHES = ["Guarding","Movement","Survival","Gathering"];
-const COLORS = ['rgb(233,180,103)','rgb(104,213,220)','rgb(237,132,146)','rgb(109,201,178)'];
-const SPACING = 360 / BRANCHES.length;
-// Names in role order: [trunk, fork, left x8, right x8, tip].
-const NAMES = [
-  // Guarding is effects, never behaviours: a share of the player's damage taken instead, less damage for both the
-  // closer they stand, a share of the companion's damage healing the player, its hits cleansing burns and poisons
-  ["Protection reach","Threat awareness","Shared pain","Revival speed","Vigilance","Guard endurance","Close guard","Steadfast","Cover","Watchful","Calm","Mending","Lifelink","Quick revive","Resolve","Bulwark","Cleanse","Guardian","Sanctuary"],
-  ["Speed","Acceleration","Dash","Top speed","Sharp turn","Sustained pace","Chain dash","Quick stop","Drift control","Burst","Momentum","Steady climb","Slipstream","Recovery speed","Overtake","Dash cooldown","Phase dash","Cruise","Flight mastery"],
-  ["Maximum life","Defence","Quick respawn","Life regen","Armour","Thick skin","Water immunity","Knockback resistance","Poison resistance","Iron will","Steady hull","Burn resistance","Second wind","Chill resistance","Bounce back","Last stand","Lava immunity","Endurance","Resilience"],
-  ["Mining speed","Chopping speed","Torch hat","Tool reach","Careful work","Vein reach","Brighter hat","Pickup reach","Bag capacity","Coin sense","Search reach","Keen eye","Wide beam","Ore sense","Wood sense","Quick hands","Night sight","Sorting","Auto torch"],
+// ---------------------------------------------------------------- inventory: the gear row
+// Four weapon slots, a pickaxe and an axe. The first weapon slot is always open; each of the other
+// three is opened by one of Combat's three diamonds, and learning that diamond in the mastery preview
+// unlocks the slot here. Clicking a locked slot goes to the diamond.
+const ICON = {
+  bow: '<rect x="3" y="1" width="2" height="2" fill="#cfd8f0"/><rect x="5" y="3" width="2" height="2" fill="#cfd8f0"/><rect x="7" y="5" width="2" height="3" fill="#cfd8f0"/><rect x="5" y="8" width="2" height="2" fill="#cfd8f0"/><rect x="3" y="10" width="2" height="2" fill="#cfd8f0"/><rect x="3" y="3" width="1" height="7" fill="#e8e2c9"/>',
+  pick: '<rect x="2" y="1" width="8" height="2" fill="#f2c94c"/><rect x="1" y="2" width="2" height="2" fill="#f2c94c"/><rect x="9" y="2" width="2" height="3" fill="#f2c94c"/><rect x="6" y="3" width="2" height="2" fill="#8a5a2b"/><rect x="5" y="5" width="2" height="2" fill="#8a5a2b"/><rect x="4" y="7" width="2" height="2" fill="#8a5a2b"/><rect x="3" y="9" width="2" height="2" fill="#8a5a2b"/><rect x="2" y="11" width="2" height="1" fill="#8a5a2b"/>',
+  axe: '<rect x="7" y="1" width="4" height="2" fill="#f2c94c"/><rect x="6" y="2" width="6" height="3" fill="#f2c94c"/><rect x="8" y="5" width="3" height="1" fill="#f2c94c"/><rect x="6" y="5" width="2" height="2" fill="#8a5a2b"/><rect x="5" y="7" width="2" height="2" fill="#8a5a2b"/><rect x="4" y="9" width="2" height="2" fill="#8a5a2b"/><rect x="3" y="11" width="2" height="1" fill="#8a5a2b"/>',
+  lock: '<rect x="4" y="2" width="5" height="1" fill="#c3c6f5"/><rect x="3" y="3" width="1" height="3" fill="#c3c6f5"/><rect x="9" y="3" width="1" height="3" fill="#c3c6f5"/><rect x="2" y="6" width="9" height="6" fill="#c3c6f5"/><rect x="6" y="8" width="1" height="2" fill="#2b3099"/>',
+};
+const SLOT_DIAMONDS = ['w2', 'w5', 'w8'];   // Combat's three diamonds, in unlock order
+const GEAR = [
+  {kind: 'weapon', item: 'Platinum Bow', icon: 'bow'},
+  {kind: 'weapon', lockedBy: 0}, {kind: 'weapon', lockedBy: 1}, {kind: 'weapon', lockedBy: 2},
+  {kind: 'pickaxe', item: 'Gold Pickaxe', icon: 'pick'},
+  {kind: 'axe', item: 'Gold Axe', icon: 'axe'},
 ];
-// [radius, angular offset in degrees] per role, the eight-spoke offsets widened threefold: at a
-// quarter turn the original fork read as a plus sign with empty quadrants, and at three times
-// each spoke is a leaf whose paths open to 36 degrees so the four leaves fill the disc.
-// Consecutive nodes on a path are 70 apart; neighbouring spokes keep 90 - 2 x 36 = 18 degrees
-// between their facing paths, about 100 units at the innermost path radius; the tip sits 80
-// beyond the last rank. Nodes are 32 units across, so no two can touch at any zoom, and the
-// page computes the nearest pair to prove it.
-const OFFSET_WIDEN = 3;
-const TEMPLATE = [[100,0],[180,2],
-  [250,10],[320,12],[390,12],[460,11],[530,10],[600,9],[670,8],[740,7],
-  [250,-10],[320,-12],[390,-12],[460,-11],[530,-10],[600,-9],[670,-8],[740,-7],
-  [820,0]];
-const DIAMOND_ROLES = new Set([2, 6, 12, 16, 18]); // left ranks 1 and 5, right ranks 3 and 7, the tip
-const ROLE_KIND = n => DIAMOND_ROLES.has(n) ? 'side' : 'stat';
-const EDGES_PER_SPOKE = [[-1,0],[0,1],[1,2],[2,3],[3,4],[4,5],[5,6],[6,7],[7,8],[8,9],[9,18],[1,10],[10,11],[11,12],[12,13],[13,14],[14,15],[15,16],[16,17],[17,18]];
-const LABEL_R = 910, JUNCTION_R = 495, ROLES = TEMPLATE.length, NODE_R = 16;
+function slotOpen(g) { return g.lockedBy === undefined || !!learned[SLOT_DIAMONDS[g.lockedBy]]; }
+function drawGear() {
+  const weapons = $('#gearweapons .row'), tools = $('#geartools .row');
+  weapons.innerHTML = ''; tools.innerHTML = '';
+  GEAR.forEach(g => {
+    const s = document.createElement('div'), open = slotOpen(g);
+    s.className = 'slot gearslot' + (open ? '' : ' locked');
+    const icon = open ? (g.icon ? ICON[g.icon] : '') : ICON.lock;
+    if (icon) s.innerHTML = `<svg viewBox="0 0 13 13" shape-rendering="crispEdges">${icon}</svg>`;
+    // a locked slot goes to the diamond that opens it; nothing is written about it anywhere
+    if (!open) s.addEventListener('click', () => { show('mast'); selectKey(SLOT_DIAMONDS[g.lockedBy]); });
+    (g.kind === 'weapon' ? weapons : tools).appendChild(s);
+  });
+}
+
+// ---------------------------------------------------------------- mastery: content
+// One flat tree. Every lane is ten roles: [trunk, fork, left diamond, right circle, left circle,
+// right diamond, left circle, right circle, tip diamond, end circle], so the split's ranks alternate
+// diamond-circle then circle-diamond before two circles and the meeting diamond. A circle has ranks;
+// a diamond unlocks something once and opens nothing. Magnitudes are kept modest on purpose: a fully
+// learned lane is worth about one or two good accessories. Each node names what it was sized against,
+// or says nothing comparable was found rather than borrowing a number.
+const S = (name, ranks, effect, desc, ref, needs) => ({name, ranks, effect, desc: desc || '', ref: ref || '', needs: needs || []});
+const A = (name, effect, desc, ref, needs) => ({name, ranks: 1, effect, desc: desc || '', ref: ref || '', needs: needs || []});
+const NO_REF = 'Nothing comparable in Terraria, Calamity or Thorium was found; the number is a first guess.';
+const SLOT_NOTE = 'It still fires one weapon at a time, choosing whichever suits the target, so a slot adds choice rather than a second stream of shots.';
+
+const LANES = [
+  {name: 'Combat', color: 'rgb(237,132,146)', nodes: [
+    S('Damage', 3, '+3% damage per level', 'Every weapon it holds, the first slot included.', 'A Destroyer Emblem-class accessory gives a player 8–15%; a Wrath Potion 10%.'),
+    S('Attack speed', 3, '+3% attack speed per level', 'Every weapon fires or swings a little more often.', 'Thorium\'s Bard empowerment steps 3/6/9/12%; the Feral Claws line gives 12% melee speed.'),
+    A('Second weapon slot', 'Opens the second weapon slot', SLOT_NOTE, 'Terraria never gives slots as a percentage: a Pygmy Necklace gives one more minion slot.'),
+    S('Piercing', 1, 'Its shots pass through one more enemy', 'A line of slimes takes one shot for two.', NO_REF),
+    S('Extra projectile', 1, 'Each shot fires one more projectile, at half damage', 'Crowds take more hits; a single target takes at most half as much again.', NO_REF),
+    A('Third weapon slot', 'Opens the third weapon slot', SLOT_NOTE, 'Calamity\'s Statis\' Blessing gives two minion slots, and was cut down from three.', [2]),
+    S('Critical strike', 2, '+3% critical strike chance per level', 'More of its hits crit.', 'A Lucky reforge gives a player 4% per accessory.'),
+    S('Projectile speed', 2, '+10% projectile speed per level', 'Shots reach moving targets sooner, so fewer miss.', 'A Magic Quiver gives arrows 120% velocity, but velocity is that item\'s whole purpose.'),
+    A('Fourth weapon slot', 'Opens the fourth weapon slot', SLOT_NOTE, 'Vanilla reaches eleven minion slots from one, always one or two at a time.', [2, 5]),
+    S('Damage', 2, '+4% damage per level', 'With the first Damage node, +17% in all: about one emblem.', 'A Destroyer Emblem-class accessory gives a player 8–15%.'),
+  ]},
+  {name: 'Movement', color: 'rgb(104,213,220)', nodes: [
+    S('Top speed', 3, '+3% top speed per level', 'It keeps up when you sprint.', 'An Aglet gives a player 5%, an Anklet of the Wind 10%.'),
+    S('Acceleration', 3, '+5% acceleration per level', 'It reaches top speed sooner.', 'Terraria does not publish acceleration as a percentage; the number is a first guess.'),
+    A('Dash', 'A short burst of about 10 tiles, every 4 seconds', 'It dashes when it needs to be somewhere fast or out of the way of a hit.', 'A Shield of Cthulhu dashes every 0.5 s; Calamity\'s Asgard\'s Valor covers 18 blocks.'),
+    S('Turning', 2, '+8% turn rate per level', 'Tighter curves around corners and shots.', NO_REF),
+    S('Dash cooldown', 2, 'The dash comes back 0.5 seconds sooner per level', 'Down to 3 seconds.', 'A Shield of Cthulhu waits 0.5 s and Master Ninja Gear 1 s, both for a player.'),
+    A('Slipstream', '+10% top speed while flying behind you as you move', 'Following you is easier than chasing you.', NO_REF),
+    S('Homing flight', 2, '+10% speed per level when flying back from far away', 'It rejoins you sooner after being left behind.', NO_REF),
+    S('Steady hull', 2, '−15% knockback taken per level', 'Hits shove it off course less.', 'Calamity\'s Asgard\'s Valor gives full knockback immunity in one item.'),
+    A('Afterburner', 'After 2 seconds without slowing, +10% top speed until it slows', 'Long trips go faster.', 'The Panic! buff gives a player 100% speed, but only briefly after a hit.'),
+    S('Top speed', 2, '+3% top speed per level', 'With the first Top speed node, +15% in all.', 'An Aglet gives a player 5%, an Anklet of the Wind 10%.'),
+  ]},
+  {name: 'Survival', color: 'rgb(233,180,103)', nodes: [
+    S('Max life', 3, '+20 life per level', 'It survives longer in a fight.', 'A Life Crystal gives a player 20.'),
+    S('Plating', 3, '2% less damage taken per level', 'Every hit hurts a little less.', 'A Worm Scarf gives 17% and the Chlorophyte set 5%; Terraria keeps unconditional damage reduction small.'),
+    A('Waterproof', 'Flies through water and honey and takes no damage', 'Water stops being a wall to its routes.', 'Terraria goes from timed breathing to Neptune\'s Shell, which removes the limit for good.'),
+    S('Regeneration', 2, '+1 life per second per level', 'It heals between fights.', 'A Band of Regeneration gives a player 1 life per second.'),
+    S('Quick reboot', 3, 'Revives 5 seconds sooner per level', 'Less time without it after it goes down.', 'Nothing in Terraria shortens respawn: a player waits 10 s, or 15 s in Expert.'),
+    A('Magma core', 'Flies through lava and takes no damage', 'Lava stops being a wall to its routes.', 'A Lava Charm gives a player 7 seconds; Calamity\'s Void Striders give full immunity late in the game.'),
+    S('Last stand', 2, '5% less damage taken per level while below half life', 'Harder to finish off.', 'A Frozen Turtle Shell gives a player 25%, but only below half life.'),
+    S('Thick hull', 2, 'Debuffs on it wear off 20% faster per level', 'Poison and fire hold on to it less.', NO_REF),
+    A('Guardian link', '5% of the damage you take goes to the companion while it is within 25 tiles', 'It takes a small part of every hit for you.', 'A Paladin\'s Shield absorbs 25% of a teammate\'s damage within 50 tiles, at most once every 0.67 s.'),
+    S('Link share', 2, '+5% more of your damage per level', 'Stays under a Paladin\'s Shield even when full.', 'A Paladin\'s Shield absorbs 25%.'),
+  ]},
+  {name: 'Gathering', color: 'rgb(109,201,178)', nodes: [
+    S('Mining speed', 3, '+5% mining speed per level', 'Ore comes out faster.', 'A Mining Potion and an Ancient Chisel each give a player 25%.'),
+    S('Chopping speed', 3, '+5% chopping speed per level', 'Trees come down faster.', 'Sized like mining speed.'),
+    A('Vein beam', 'Breaking an ore also breaks one touching tile of the same ore', 'Veins come out in fewer passes.', 'No Terraria item raises ore per tile; big tools break an area instead, like the Picksaw\'s 3×3.'),
+    S('Tool reach', 2, '+1 tile of tool reach per level', 'Works a tile from further away.', NO_REF),
+    S('Bag space', 2, '+10 bag slots per level', 'Carries more before you empty it.', NO_REF),
+    A('Tractor field', 'Pulls loot in from 6 tiles away', 'Fewer drops left behind.', 'A Treasure Magnet stretches a player\'s pickup range from about 2.6 to 12 tiles.'),
+    S('Flashlight reach', 2, '+10% flashlight reach per level', 'Lights dark places from further away.', 'No published light radius for the Mining Helmet or Shine Potion was found; the number is a first guess.'),
+    S('Pull range', 2, '+2 tiles of pull range per level', 'The tractor field reaches further.', 'A Treasure Magnet reaches 12 tiles.'),
+    A('Prospector\'s eye', 'Sees ore through walls within 15 tiles', 'It notices veins it would otherwise fly past.', 'Like a Spelunker Potion, for the companion.'),
+    S('Quick hands', 2, '+3% mining and chopping speed per level', 'With the first two nodes, +21% in all.', 'A Mining Potion gives a player 25%.'),
+  ]},
+];
+// A shared circle between each pair of neighbouring lanes, opened from either side.
+const JUNCTIONS = [
+  S('Strafe', 2, '+3% attack speed per level while flying at top speed', 'Shared by Combat and Movement.', NO_REF),
+  S('Evasive', 2, '+10% speed per level for 1 second after a hit misses it', 'Shared by Movement and Survival.', NO_REF),
+  S('Trap sense', 2, '20% less damage from traps per level', 'Shared by Survival and Gathering.', NO_REF),
+  S('Cutting beam', 1, 'Its mining beam deals 10 damage per second to enemies it crosses', 'Shared by Gathering and Combat.', NO_REF),
+];
+const COLORS = LANES.map(l => l.color);
+
+// ---------------------------------------------------------------- mastery: geometry
+// [radius, angular offset in degrees] per role, the same for every lane, so the wheel is fourfold
+// symmetric. The paths open 15 degrees either side of the lane at radius 250, 13 at 340 and 11 at 430,
+// so the facing pair at each rank is at least 129 units apart; the closest pairs are the straight
+// steps of 80 units. The shared circle sits at radius 290 halfway between two lanes, about 145 units
+// from the nearest side node. Nodes are 44 units across, and the page computes the nearest pair to prove
+// none touch. The lane is kept short against the node on purpose: an earlier wheel at radius 590 with
+// 32-unit nodes drew them about six pixels wide beside the detail panel, too small to read or hit.
+const TEMPLATE = [[80, 0], [160, 0], [250, 15], [250, -15], [340, 13], [340, -13], [430, 11], [430, -11], [520, 0], [600, 0]];
+const DIAMOND_ROLES = new Set([2, 5, 8]);
+const LANE_EDGES = [[-1, 0], [0, 1], [1, 2], [1, 3], [2, 4], [3, 5], [4, 6], [5, 7], [6, 8], [7, 8], [8, 9]];
+const ROLES = TEMPLATE.length, NODE_R = 22, LABEL_R = 680, JUNCTION_R = 290, SPACING = 90;
 const rad = d => d * Math.PI / 180;
 const polar = (r, deg) => ({x: Math.round(r * Math.cos(rad(deg))), y: Math.round(r * Math.sin(rad(deg)))});
-const wheel = {nodes: [], edges: [], labels: []};
-for (let b = 0; b < BRANCHES.length; b++) {
-  // every spoke is the template rotated by its own multiple of the spacing and nothing else, so the
-  // wheel is fourfold symmetric: any spoke turned onto any other lands node for node
+const nearestPair = nodes => Math.min(...nodes.flatMap((a, i) => nodes.slice(i + 1).map(b => Math.hypot(a.x - b.x, a.y - b.y))));
+
+// extent is replaced by the drawn tree's own measured bounds the first time the page is visible (see measureExtent),
+// so a label's real text width, which no constant here knows, is what the fit leaves room for
+const wheel = {nodes: [], edges: [], labels: [], root: {x: 0, y: 0, b: -1, kind: 'root'}, extent: 2 * (LABEL_R + 140)};
+LANES.forEach((lane, b) => {
   const base = b * SPACING - 90;
   TEMPLATE.forEach(([r, d], n) => {
-    const p = polar(r, base + d * OFFSET_WIDEN);
-    const kind = ROLE_KIND(n);
-    wheel.nodes.push({x: p.x, y: p.y, b, kind: kind === 'side' ? 'ability' : kind, name: NAMES[b][n]});
+    const p = polar(r, base + d), def = lane.nodes[n];
+    wheel.nodes.push({x: p.x, y: p.y, b, lane: b, role: n, key: 'w' + (b * ROLES + n), def,
+      kind: DIAMOND_ROLES.has(n) ? 'unlock' : 'stat', needs: def.needs.map(k => 'w' + (b * ROLES + k))});
   });
-  EDGES_PER_SPOKE.forEach(([f, t]) => wheel.edges.push([f < 0 ? -1 : b * ROLES + f, b * ROLES + t]));
-}
-for (let i = 0; i < BRANCHES.length; i++) {
-  // a junction joins spoke i's left path to spoke i+1's right path at their fourth rank, and opens the fifth rank of each
-  const a = i * ROLES, c = ((i + 1) % BRANCHES.length) * ROLES, j = wheel.nodes.length;
+  LANE_EDGES.forEach(([f, t]) => wheel.edges.push([f < 0 ? -1 : b * ROLES + f, b * ROLES + t]));
+  // A label stands past its lane's last node. Across a vertical lane the text is short in the lane's direction and can
+  // centre on it; along a horizontal lane it is long, so centred it lay on the last node, and it is anchored at its
+  // near end instead, one node radius and a gap beyond the node.
+  const end = TEMPLATE[ROLES - 1][0], along = Math.cos(rad(base));
+  const side = Math.abs(along) > 0.5, p = polar(side ? end + NODE_R + 24 : LABEL_R, base);
+  wheel.labels.push({x: p.x, y: p.y + 14, text: lane.name, b, anchor: !side ? 'middle' : along > 0 ? 'start' : 'end'});
+});
+JUNCTIONS.forEach((def, i) => {
+  // joined to lane i's clockwise first-rank node and lane i+1's counter-clockwise first-rank node
+  const a = i * ROLES, c = ((i + 1) % LANES.length) * ROLES, j = wheel.nodes.length;
   const p = polar(JUNCTION_R, i * SPACING - 90 + SPACING / 2);
-  wheel.nodes.push({x: p.x, y: p.y, b: i, kind: 'junction', name: 'Shared ' + NAMES[i][0].toLowerCase()});
-  wheel.edges.push([a + 5, j], [c + 13, j], [j, a + 6], [j, c + 14]);
-}
-BRANCHES.forEach((_, b) => { const p = polar(LABEL_R, b * SPACING - 90); wheel.labels.push({x: p.x, y: p.y + 12, text: BRANCHES[b], b}); });
-wheel.extent = 2 * (LABEL_R + 70);
-// the layout's own proof: the nearest two nodes, in graph units, against the node diameter
-wheel.nearest = Math.min(...wheel.nodes.flatMap((a, i) => wheel.nodes.slice(i + 1).map(b => Math.hypot(a.x - b.x, a.y - b.y))));
-$('#masttilecount').textContent = '0/' + wheel.nodes.length;
+  wheel.nodes.push({x: p.x, y: p.y, b: i, lane: i, role: -1, key: 'w' + j, def, kind: 'junction', needs: [], between: [i, (i + 1) % LANES.length]});
+  wheel.edges.push([a + 2, j], [c + 3, j]);
+});
+wheel.nearest = nearestPair(wheel.nodes);
+// the layout's own proof, kept as a check rather than on-screen text: no two nodes may touch
+console.assert(wheel.nearest > 2 * NODE_R, `mastery nodes touch: nearest pair ${wheel.nearest} against ${2 * NODE_R}`);
 
-// ---------------------------------------------------------------- mastery: one diamond's tree
-// Opening a diamond replaces the wheel with that diamond's own tree, drawn in the wheel's own
-// grammar so the two read as one system at two scales: the opened diamond filled at the centre
-// where the wheel has its root, three branches at 120 degrees, each a circle that forks into an
-// unconnected pair of circles which meet again at a diamond at the tip, and a shared circle in
-// each of the three gaps joining one branch's pair to the next branch's pair — fifteen points
-// around the centre. The three lines are a generic trio for an ability; every name and count is
-// a placeholder.
-// [radius, angular offset] per role, read as the wheel's template is: rank one on the axis, the
-// pair either side of it, the tip on the axis. The pair sits 22 degrees off the axis at radius 230,
-// which is 172 units apart; the shared circle sits at the same radius exactly between two branches,
-// 38 degrees and 150 units from the nearest pair node. Nodes are 32 units across.
-const SUB_TEMPLATE = [[120, 0], [230, -22], [230, 22], [340, 0]];
-const SUB_ROLES = SUB_TEMPLATE.length, SUB_JUNCTION_R = 230, SUB_LABEL_R = 410;
-function subtree(node) {
-  const lines = [['Strength', ['Strength I', 'Strength II', 'Efficiency', 'Strength mastery']],
-       ['Speed', ['Speed I', 'Speed II', 'Recovery', 'Speed mastery']],
-       ['Reach', ['Reach I', 'Reach II', 'Control', 'Reach mastery']]];
-  const t = {nodes: [], edges: [], labels: [], extent: 2 * (SUB_LABEL_R + 70), root: {b: node.b, kind: node.kind}};
-  lines.forEach(([label, names], li) => {
-    const base = li * 120 - 90, first = t.nodes.length;
-    SUB_TEMPLATE.forEach(([r, d], n) => {
-      const p = polar(r, base + d);
-      t.nodes.push({x: p.x, y: p.y, b: node.b, kind: n === 3 ? 'ability' : 'stat', name: names[n]});
-    });
-    // the centre to rank one, rank one to each of the pair, each of the pair to the tip; the
-    // pair is deliberately not joined to itself
-    t.edges.push([-1, first], [first, first + 1], [first, first + 2], [first + 1, first + 3], [first + 2, first + 3]);
-    const p = polar(SUB_LABEL_R, base);
-    t.labels.push({x: p.x, y: p.y + 10, text: label, b: node.b});
-  });
-  for (let i = 0; i < 3; i++) {
-    // a shared circle between branch i and branch i+1, joined to the clockwise node of i's pair
-    // and the counter-clockwise node of i+1's pair
-    const a = i * SUB_ROLES, c = ((i + 1) % 3) * SUB_ROLES, j = t.nodes.length;
-    const p = polar(SUB_JUNCTION_R, i * 120 - 90 + 60);
-    t.nodes.push({x: p.x, y: p.y, b: node.b, kind: 'junction', name: 'Shared ' + lines[i][0].toLowerCase() + ' and ' + lines[(i + 1) % 3][0].toLowerCase()});
-    t.edges.push([a + 2, j], [c + 1, j]);
-  }
-  t.nearest = Math.min(...t.nodes.flatMap((a, i) => t.nodes.slice(i + 1).map(b => Math.hypot(a.x - b.x, a.y - b.y))));
-  return t;
+// ---------------------------------------------------------------- mastery: the preview's learning
+// A node can be learned when an edge into it comes from something learned (the centre always is) and
+// everything it names under needs is learned. Nothing is ever unlearned.
+const learned = {};
+const rankOf = n => learned[n.key] || 0;
+const nodeOfKey = key => wheel.nodes.find(n => n.key === key);
+function parentsLearned(i) {
+  return wheel.edges.some(([f, t]) => t === i && (f < 0 || !!learned[wheel.nodes[f].key]));
 }
+function canLearn(n) {
+  return rankOf(n) < n.def.ranks && parentsLearned(wheel.nodes.indexOf(n)) && n.needs.every(k => learned[k]);
+}
+const spent = () => Object.values(learned).reduce((a, b) => a + b, 0);
 
-// ---------------------------------------------------------------- mastery: drawing either
+// ---------------------------------------------------------------- mastery: drawing
 const svg = $('#graphsvg'), NS = 'http://www.w3.org/2000/svg';
 const el = (t, a) => { const e = document.createElementNS(NS, t); for (const k in a) e.setAttribute(k, a[k]); return e; };
-let current = wheel, opened = null, openedFrom = null, selectedNode = null;
-const isDiamond = n => n.kind === 'ability';
-// How far a node's boundary sits from its centre along a direction, so an edge can stop at the
-// side of the shape rather than run through to the centre. A circle is its radius everywhere; a
-// diamond is a square of half-side R turned 45 degrees, whose vertices sit R*sqrt(2) out along the
-// axes and whose sides pass R from the centre, and the distance along an angle a is
-// R*sqrt(2) / (|cos a| + |sin a|).
-const boundary = (kind, a) => (kind === 'ability' || kind === 'root')
+let selectedNode = null;
+const isDiamond = n => n.kind === 'unlock' || n.kind === 'root';
+// how far a node's boundary sits from its centre along an angle, so an edge stops at the shape's side
+const boundary = (kind, a) => (kind === 'unlock' || kind === 'root')
   ? NODE_R * Math.SQRT2 / (Math.abs(Math.cos(a)) + Math.abs(Math.sin(a)))
   : NODE_R;
-function draw(g) {
-  current = g; selectedNode = null; $('#open').classList.remove('show');
+function draw(keepView) {
   svg.innerHTML = '';
   const defs = el('defs', {}), filter = el('filter', {id: 'hard', x: '-10%', y: '-10%', width: '130%', height: '130%'});
   filter.appendChild(el('feDropShadow', {dx: 3, dy: 3, stdDeviation: 0, 'flood-color': '#000'}));
   defs.appendChild(filter); svg.appendChild(defs);
-  const at = i => i < 0 ? {x: 0, y: 0, b: -1, kind: 'root'} : g.nodes[i];
-  // edges first so every node draws over them, each shortened to the boundary at both ends so the
-  // line joins the sides and never shows inside a shape; an edge never takes a click
-  g.edges.forEach(([f, t]) => { const a = at(f), q = at(t);
+  const at = i => i < 0 ? wheel.root : wheel.nodes[i];
+  wheel.edges.forEach(([f, t]) => { const a = at(f), q = at(t);
     const ang = Math.atan2(q.y - a.y, q.x - a.x), sa = boundary(a.kind, ang), sq = boundary(q.kind, ang);
+    const lit = (f < 0 || learned[a.key]) && learned[q.key];
     svg.appendChild(el('line', {x1: a.x + sa * Math.cos(ang), y1: a.y + sa * Math.sin(ang), x2: q.x - sq * Math.cos(ang), y2: q.y - sq * Math.sin(ang),
-      stroke: COLORS[q.b], 'stroke-width': 2.5, opacity: .85, 'pointer-events': 'none'})); });
+      stroke: COLORS[q.b], 'stroke-width': lit ? 5 : 2.5, opacity: lit ? 1 : .6, 'pointer-events': 'none'})); });
   const R = NODE_R;
-  g.nodes.forEach(n => {
-    const c = COLORS[n.b]; let e;
-    // a transparent fill rather than none: SVG hit-tests painted area only, and an unfilled shape
-    // was clickable on its stroke alone while a press inside it fell through to the pan
-    if (isDiamond(n)) e = el('rect', {x: n.x - R, y: n.y - R, width: 2 * R, height: 2 * R, fill: 'transparent', stroke: c, 'stroke-width': 3.5, transform: `rotate(45 ${n.x} ${n.y})`});
-    else e = el('circle', {cx: n.x, cy: n.y, r: R, fill: n.kind === 'junction' ? 'rgba(255,255,255,.12)' : 'transparent', stroke: c, 'stroke-width': 3.5});
-    e.classList.add('node'); svg.appendChild(e);
-    e.addEventListener('click', ev => {
-      ev.stopPropagation();
-      // the second click on an already selected diamond of the wheel opens its tree; the first
-      // click on anything selects it and says what putting a point there would mean
-      if (selectedNode === n && isDiamond(n) && !opened) { openSubtree(n, 'mast'); return; }
-      svg.querySelectorAll('.node').forEach(x => x.classList.remove('sel')); e.classList.add('sel'); selectedNode = n;
-      $('#mastline').textContent = n.name + ' · ' + (
-        opened ? (isDiamond(n) ? 'mastery · put a point here?' : n.kind === 'junction' ? 'shared, opens from either line · put a point here?' : 'upgrade rank 0 of 5 · put a point here?')
-               : (n.kind === 'ability' ? 'ability · put a point here? · click again for its upgrades'
-                : n.kind === 'stat' ? 'repeatable stat, rank 0 of 5 · put a point here?' : 'shared node, opens from either path · put a point here?'));
-      $('#open').classList.toggle('show', isDiamond(n) && !opened); });
+  wheel.nodes.forEach(n => {
+    const c = COLORS[n.b], r = rankOf(n), open = r > 0 || canLearn(n);
+    const fill = r > 0 ? c : n.kind === 'junction' ? 'rgba(255,255,255,.12)' : 'transparent';
+    const common = {fill, 'fill-opacity': r > 0 && r < n.def.ranks ? .45 : 1, stroke: c, 'stroke-width': 3.5, opacity: open ? 1 : .45};
+    const e = isDiamond(n)
+      ? el('rect', {...common, x: n.x - R, y: n.y - R, width: 2 * R, height: 2 * R, transform: `rotate(45 ${n.x} ${n.y})`})
+      : el('circle', {...common, cx: n.x, cy: n.y, r: R});
+    e.classList.add('node'); if (n === selectedNode) e.classList.add('sel');
+    svg.appendChild(e);
+    e.addEventListener('click', ev => { ev.stopPropagation(); select(n); });
   });
-  // the centre: the wheel's root in gold, or the opened diamond filled in its branch colour
-  const rootColor = g === wheel ? '#ffe066' : COLORS[g.root.b];
-  svg.appendChild(el('rect', {x: -16, y: -16, width: 32, height: 32, fill: rootColor, stroke: rootColor, transform: 'rotate(45 0 0)'}));
-  g.labels.forEach(l => { const t = el('text', {x: l.x, y: l.y, fill: COLORS[l.b], 'text-anchor': 'middle', 'font-size': g === wheel ? 40 : 28, filter: 'url(#hard)'});
+  // the centre, in gold
+  svg.appendChild(el('rect', {x: -R, y: -R, width: 2 * R, height: 2 * R, fill: '#ffe066', stroke: '#ffe066', 'stroke-width': 3.5, transform: 'rotate(45 0 0)'}));
+  wheel.labels.forEach(l => { const t = el('text', {x: l.x, y: l.y, fill: COLORS[l.b], 'text-anchor': l.anchor, 'font-size': 40, filter: 'url(#hard)'});
     t.textContent = l.text; svg.appendChild(t); });
-  fitGraph();
+  if (!keepView) fitGraph();
+  refreshStatus();
 }
-// Opening a diamond's tree from the wheel; back returns to the wheel.
-function openSubtree(n, from) {
-  opened = n; openedFrom = from; draw(subtree(n));
-  titleName.textContent = 'Mastery · ' + n.name;
-  $('#masthint').textContent = n.name + ' · its own upgrades · back returns to the wheel';
-  $('#mastlegend').innerHTML = 'Circle: upgrade rank &nbsp; Diamond: mastery &nbsp; Filled circle: shared';
-  $('#mastline').textContent = 'Select an upgrade. Click a diamond once to select it; nothing is spent here.';
+function refreshStatus() {
+  const have = wheel.nodes.filter(n => learned[n.key]).length;
+  $('#masttilecount').textContent = `${spent()} pts`;
+  $('#mastfill').style.width = Math.round(100 * have / wheel.nodes.length) + '%';
 }
-function closeSubtree() {
-  const from = openedFrom; opened = null; openedFrom = null; draw(wheel);
-  titleName.textContent = names.mast;
-  $('#masthint').textContent = 'Preview · drag to pan · wheel to zoom · nothing is spent';
-  $('#mastlegend').innerHTML = 'Circle: stat &nbsp; Diamond: ability &nbsp; Filled circle: shared';
-  $('#mastline').textContent = 'Select a node. Click a selected diamond again to open its upgrades.';
+
+// ---------------------------------------------------------------- mastery: the detail panel
+// The panel says the node's name and what it does and nothing else, because the owner ruled the page must be simple:
+// no kind or rank line, no purpose sentence, no "sized against", no needs, no hint, legend or status line anywhere on
+// the page. Learn and the level bar sit at the panel's foot; the bar is the joined-segment control's shape with one
+// segment per level, learned levels selected. There is no Unlearn: a learned level stays learned.
+//
+// The panel exists only while a node is picked. With nothing picked the tree has the whole page and Reset view centres
+// it there; picking a node narrows the graph by the panel's width, and a click on empty background (a press released
+// without dragging) unpicks it. The narrowing keeps the view's left edge and scale, so nothing on screen moves when
+// the panel opens and the tree is centred again when it closes, and a picked node the panel would cover is panned in.
+const mast = $('#mast');
+function setPicked(on) {
+  if (mast.classList.contains('picked') === on) return;
+  const before = graph.clientWidth, s = view.w / (before || 1);
+  mast.classList.toggle('picked', on);
+  const after = graph.clientWidth;
+  if (!before || !after) return;
+  view.w = after * s; applyView();
 }
-$('#open').addEventListener('click', () => { if (selectedNode && isDiamond(selectedNode) && !opened) openSubtree(selectedNode, 'mast'); });
+function panIntoView(n) {
+  const cw = graph.clientWidth, s = view.w / cw, margin = 2 * NODE_R + 12;
+  if (n.x + margin > view.x + view.w) view.x = n.x + margin - view.w;
+  if (n.x - margin < view.x) view.x = n.x - margin;
+  applyView();
+}
+function deselect() {
+  if (!selectedNode) return;
+  selectedNode = null; setPicked(false); draw(true);
+}
+function select(n) {
+  selectedNode = n;
+  setPicked(true); panIntoView(n);
+  draw(true);
+  const r = rankOf(n);
+  $('#dname').textContent = n.def.name; $('#dname').style.color = COLORS[n.b];
+  $('#deffect').textContent = n.def.effect;
+  $('#learn').classList.toggle('off', !canLearn(n));
+  $('#levels').innerHTML = Array.from({length: n.def.ranks}, (_, i) => `<div class="seg${i < r ? ' on' : ''}">Level ${i + 1}</div>`).join('');
+}
+function selectKey(key) { const n = nodeOfKey(key); if (n) select(n); }
+$('#learn').addEventListener('click', () => {
+  const n = selectedNode; if (!n || !canLearn(n)) return;
+  learned[n.key] = rankOf(n) + 1; select(n); drawGear();
+});
 
 // pan and zoom as the game does them: wheel 1.12 / 0.89 about the pointer, buttons 1.15 / 0.85
-// about the canvas centre, reset fits the current graph's extent
+// about the canvas centre, reset fits the wheel's extent
 const graph = $('#graph'); let view = {x: -600, y: -600, w: 1200, h: 1200};
 function applyView() { svg.setAttribute('viewBox', `${view.x} ${view.y} ${view.w} ${view.h}`); }
+// the tree's bounds as drawn, labels included, as a square about the centre; getBBox reads nothing while the page is
+// hidden, so the last measured value stands until it can
+function measureExtent() {
+  const b = svg.getBBox(); if (!b.width) return;
+  wheel.extent = 2 * Math.max(-b.x, b.x + b.width, -b.y, b.y + b.height) + 40;
+}
 function fitGraph() {
   const cw = graph.clientWidth, ch = graph.clientHeight; if (!cw || !ch) return;
-  const s = Math.max(current.extent / cw, current.extent / ch);
+  measureExtent();
+  const s = Math.max(wheel.extent / cw, wheel.extent / ch);
   view = {w: cw * s, h: ch * s, x: -cw * s / 2, y: -ch * s / 2}; applyView();
 }
 function zoomAt(factor, px, py) {
   const ux = view.x + px / graph.clientWidth * view.w, uy = view.y + py / graph.clientHeight * view.h;
   const nw = view.w / factor;
-  const fit = Math.max(current.extent / graph.clientWidth, current.extent / graph.clientHeight);
+  const fit = Math.max(wheel.extent / graph.clientWidth, wheel.extent / graph.clientHeight);
   const s = Math.min(Math.max(nw / graph.clientWidth, fit * 0.2), fit * 2);
   view = {w: graph.clientWidth * s, h: graph.clientHeight * s, x: ux - px * s, y: uy - py * s};
   applyView();
@@ -797,18 +918,23 @@ $('#zout').addEventListener('click', () => zoomAt(0.85, graph.clientWidth / 2, g
 $('#zreset').addEventListener('click', fitGraph);
 let pan = null;
 graph.addEventListener('pointerdown', e => {
-  // a press that begins on a node is a click on that node, never the start of a pan
   if (e.target.classList && e.target.classList.contains('node')) return;
-  pan = {x: e.clientX, y: e.clientY, vx: view.x, vy: view.y}; graph.classList.add('dragging'); graph.setPointerCapture(e.pointerId); });
+  pan = {x: e.clientX, y: e.clientY, vx: view.x, vy: view.y, moved: false}; graph.classList.add('dragging'); graph.setPointerCapture(e.pointerId); });
 graph.addEventListener('pointermove', e => {
   if (!pan) return;
+  // the notch's drag threshold: under six pixels a press is still a click
+  if (Math.hypot(e.clientX - pan.x, e.clientY - pan.y) >= 6) pan.moved = true;
   view.x = pan.vx - (e.clientX - pan.x) / z() * (view.w / graph.clientWidth);
   view.y = pan.vy - (e.clientY - pan.y) / z() * (view.h / graph.clientHeight); applyView();
 });
-graph.addEventListener('pointerup', () => { pan = null; graph.classList.remove('dragging'); });
+graph.addEventListener('pointerup', () => {
+  const clicked = pan && !pan.moved;
+  pan = null; graph.classList.remove('dragging');
+  if (clicked) deselect();  // a click on the background unpicks; a pan never does
+});
 
-// ---------------------------------------------------------------- start
-draw(wheel); place(); scrollers.forEach(s => s.layout());
+// ---------------------------------------------------------------- start: the notch, the card closed
+draw(); drawGear(); place(); scrollers.forEach(s => s.layout()); syncBench();
 </script>
 </body>
 </html>

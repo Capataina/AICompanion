@@ -18,7 +18,8 @@ public sealed class Chooser
 {
     public readonly record struct Scored(CompanionAction Action, float Raw, float Final,
         float Protection = 1f, float Commitment = 1f, float Horizon = 1f, float UsefulWork = 1f, string Error = "", float Reunion = 1f,
-        string MethodEvidence = "", OfferEligibility Eligibility = OfferEligibility.NoOpportunity, string EligibilityReason = "");
+        string MethodEvidence = "", OfferEligibility Eligibility = OfferEligibility.NoOpportunity, string EligibilityReason = "",
+        float Time = 1f, float PlayerFit = 1f, float Order = 1f);
 
     public readonly List<CompanionAction> Actions;
 
@@ -175,7 +176,8 @@ public sealed class Chooser
                     : evaluatedScore;
                 CompanionAction action = Actions[score.Index];
                 LastScores.Add(new(action, score.Raw, score.Final, score.Protection, score.Commitment, score.Horizon, score.UsefulWork, score.Error, score.Reunion,
-                    methods[score.Index] ?? "", offers[score.Index].Eligibility, offers[score.Index].Reason));
+                    methods[score.Index] ?? "", offers[score.Index].Eligibility, offers[score.Index].Reason,
+                    score.Time, score.PlayerFit, score.Order));
                 candidates[score.Index] = new(action.Family, score);
             }
             LastNominations = NominateFamilyActivities.Nominate(candidates);
