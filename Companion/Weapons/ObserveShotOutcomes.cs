@@ -40,15 +40,24 @@ namespace AICompanion.Companion.Weapons;
 /// </summary>
 public static class ShotOutcomes
 {
-    /// <summary>One closed use: the weapon, its realised yield over the forecast's, the reward, and what went into both.</summary>
+    /// <summary>
+    /// One closed use: the weapon, its realised yield over the forecast's, the reward, and what went into both.
+    /// <paramref name="Taught"/> is false for a use whose aimed body was gone before the forecast had it landing and was
+    /// never struck by the use, which taught the learner nothing.
+    /// </summary>
     public readonly record struct Outcome(int ItemType, int AimedNpcType, float Ratio, float Reward, float Dealt, int Struck,
-        int DebuffsApplied, int LifeTicks, bool Bounded);
+        int DebuffsApplied, int LifeTicks, bool Bounded, bool Taught);
 
     private sealed class Window
     {
         public int Id;
         public int ItemType;
         public int AimedNpcType;
+        public int AimedSlot;
+        public int AimedGeneration;
+        public ulong Lands;
+        public bool StruckAimed;
+        public ulong? AimedGoneAt;
         public float[] Context = Array.Empty<float>();
         public float PredictedDamage;
         public int PredictedStruck;
@@ -78,14 +87,17 @@ public static class ShotOutcomes
     /// <summary>
     /// Open a window for a use that has just happened. The prediction is the forecast's own, before any learned
     /// correction: the sum of its hits' damage, how many bodies it expected to strike, and the push charge it carried.
+    /// <paramref name="impactTicks"/> is when the forecast has the use landing on <paramref name="aimed"/>, ticks from now.
     /// </summary>
-    public static int Open(int itemType, int aimedNpcType, float[] context, float predictedDamage, int predictedStruck,
-        float predictedCharge, int useTicks, ulong now)
+    public static int Open(int itemType, NPC aimed, float[] context, float predictedDamage, int predictedStruck,
+        float predictedCharge, int useTicks, int impactTicks, ulong now)
     {
         int id = nextId++;
         open[id] = new Window
         {
-            Id = id, ItemType = itemType, AimedNpcType = aimedNpcType, Context = context, PredictedDamage = predictedDamage,
+            Id = id, ItemType = itemType, AimedNpcType = aimed.type, AimedSlot = aimed.whoAmI,
+            AimedGeneration = HostileAttackSources.Generation(aimed), Lands = now + (ulong)Math.Max(0, impactTicks),
+            Context = context, PredictedDamage = predictedDamage,
             PredictedStruck = predictedStruck, PredictedCharge = predictedCharge, UseTicks = Math.Max(1, useTicks), Opened = now,
         };
         return id;
@@ -160,20 +172,24 @@ public static class ShotOutcomes
         if (!open.TryGetValue(windowId, out Window? window)) return;
         window.Dealt += Math.Max(0, dealt);
         var key = (npc.whoAmI, HostileAttackSources.Generation(npc));
+        if (key.whoAmI == window.AimedSlot && key.Item2 == window.AimedGeneration) window.StruckAimed = true;
         int applied = buffTypes == null || buffTimes == null ? 0 : AddedBuffTicks(window.ItemType, npc, buffTypes, buffTimes);
         window.Struck[key] = window.Struck.TryGetValue(key, out var seen)
             ? (seen.NpcType, Math.Max(seen.AppliedTicks, applied))
             : (npc.type, applied);
     }
 
-    /// <summary>Close windows whose bound has elapsed.</summary>
+    /// <summary>Note each window's aimed body leaving the world, and close windows whose bound has elapsed.</summary>
     public static void Tick(ulong now)
     {
         if (open.Count == 0) return;
         List<int>? expired = null;
         foreach (Window window in open.Values)
+        {
+            NoteAimedGone(window, now);
             if (now - window.Opened >= (ulong)Weights.ShotOutcomeWindowTicks)
                 (expired ??= new List<int>()).Add(window.Id);
+        }
         if (expired != null)
             foreach (int id in expired) Close(id, now, bounded: true);
     }
@@ -183,10 +199,20 @@ public static class ShotOutcomes
     /// forecast predicted, clamped, taught to the learner against the context the use was fired in, and each struck
     /// body's debuff taught to the debuff rate. A use that struck nothing still teaches its ratio of zero; it teaches no
     /// debuff, since nothing was there to carry one.
+    ///
+    /// <para><b>A use whose aimed body was gone before the forecast had it landing, and which never struck that body, teaches
+    /// the learner nothing.</b> The player, a trap or another shot killed it, or its slot was taken by a new enemy, before the
+    /// shot could arrive, so a zero here would be an outcome of the fight rather than of the weapon, and a companion fighting
+    /// beside the player would learn that it misses whatever the player finishes first. A body that leaves after the landing
+    /// tick is a miss as usual: the shot had its chance. The landing tick is the forecast's, so a shot that arrives a few ticks
+    /// late on a body killed in those ticks is still taught as a miss. The struck bodies' debuffs are taught either way,
+    /// because what a hit added to a body is true whoever finished it.</para>
     /// </summary>
     public static Outcome? Close(int windowId, ulong now, bool bounded)
     {
-        if (!open.Remove(windowId, out Window? window)) return null;
+        if (!open.TryGetValue(windowId, out Window? window)) return null;
+        NoteAimedGone(window, now);
+        open.Remove(windowId);
         foreach (int slot in window.Live)
             if (slotWindow[slot] == windowId) slotWindow[slot] = 0;
         float seconds = window.UseTicks / 60f;
@@ -194,7 +220,9 @@ public static class ShotOutcomes
         float predicted = (window.PredictedDamage + Weights.ShotOutcomeStruckEnemyValue * window.PredictedStruck) / seconds;
         float ratio = predicted <= 0f ? (realised > 0f ? AttackLearning.MaxOutcomeRatio : 1f)
             : Math.Clamp(realised / predicted, 0f, AttackLearning.MaxOutcomeRatio);
-        AttackLearning.Observe(window.ItemType, window.AimedNpcType, window.Context, ratio);
+        bool taught = window.StruckAimed || window.AimedGoneAt is not ulong gone || gone > window.Lands;
+        if (taught)
+            AttackLearning.Observe(window.ItemType, window.AimedNpcType, window.Context, ratio);
         int debuffed = 0;
         foreach (var struck in window.Struck.Values)
         {
@@ -203,9 +231,18 @@ public static class ShotOutcomes
         }
         float reward = realised - Weights.KnockbackInducedDangerWeight * window.PredictedCharge / seconds;
         var outcome = new Outcome(window.ItemType, window.AimedNpcType, ratio, reward, window.Dealt, window.Struck.Count,
-            debuffed, (int)Math.Min(int.MaxValue, now - window.Opened), bounded);
+            debuffed, (int)Math.Min(int.MaxValue, now - window.Opened), bounded, taught);
         LastClosed = outcome;
         return outcome;
+    }
+
+    /// <summary>The first tick a window's aimed body, by slot and spawn generation, is seen dead, inactive or replaced, while the window has not struck it.</summary>
+    private static void NoteAimedGone(Window window, ulong now)
+    {
+        if (window.StruckAimed || window.AimedGoneAt != null || (uint)window.AimedSlot >= (uint)Main.maxNPCs) return;
+        NPC npc = Main.npc[window.AimedSlot];
+        if (npc == null || !npc.active || npc.life <= 0 || HostileAttackSources.Generation(npc) != window.AimedGeneration)
+            window.AimedGoneAt = now;
     }
 
     /// <summary>

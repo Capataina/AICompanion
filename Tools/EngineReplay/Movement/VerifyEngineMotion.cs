@@ -114,6 +114,7 @@ internal static class VerifyEngineMotion
         ("the item in a weapon slot fires or swings through the arsenal with the item's own numbers", VerifyItemWeapon.Run),
         ("a hit's push is the game's until the companion learns it, is charged for the danger it adds, and the stand prefers the player's side", VerifyKnockbackAwareness.Run),
         ("weapon, target, stand and aim are valued by what the companion's own shots achieved", VerifyWeaponLearning.Run),
+        ("a shot whose target died to someone else before it could land teaches nothing", VerifyWeaponLearning.AShotWhoseTargetDiedToSomeoneElseTeachesNothing),
         ("combat keeps its purpose across a substituted enemy", VerifyCombatPurpose.Run),
         ("safety releases the body after the danger passes", VerifySafetyAftermath.Run),
         ("an assistance trip goes and returns", VerifyAssistanceTrips.Run),

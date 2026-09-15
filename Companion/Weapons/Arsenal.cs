@@ -855,7 +855,7 @@ public sealed class Arsenal
         }
         LastAimOffset = weapon.IsSwing ? 0f : MathHelper.WrapAngle(launch.ToRotation() - solution.LaunchVelocity.ToRotation());
         if (forecast != null)
-            OpenOutcome(weapon, target, prior, LastAimOffset, result);
+            OpenOutcome(weapon, target, prior, forecast.ImpactTicks, LastAimOffset, result);
         cooldown = weapon.UseTime;
         ctx.Companion.StartAnimation(weapon.ItemType, Math.Max(10, weapon.BaseUseTime));
         ctx.Companion.SetAimRotation(launch);
@@ -868,10 +868,10 @@ public sealed class Arsenal
     /// actually left, noise included, because that is the offset whose outcome is about to be observed. A shot's window
     /// holds its projectile until it and its descendants die; a swing's strikes are already known, so its window closes now.
     /// </summary>
-    private static void OpenOutcome(CompanionWeapon weapon, NPC target, in ForecastPrior prior, float firedAim, FireResult result)
+    private static void OpenOutcome(CompanionWeapon weapon, NPC target, in ForecastPrior prior, int impactTicks, float firedAim, FireResult result)
     {
         float[] context = prior.Inputs.With(firedAim, prior.AimedDebuffed);
-        int window = ShotOutcomes.Open(weapon.ItemType, target.type, context, prior.Damage, prior.Struck, prior.Charge, weapon.UseTime, Main.GameUpdateCount);
+        int window = ShotOutcomes.Open(weapon.ItemType, target, context, prior.Damage, prior.Struck, prior.Charge, weapon.UseTime, impactTicks, Main.GameUpdateCount);
         if (result.IsShot)
         {
             ShotOutcomes.AddSlot(window, result.ProjectileSlot);

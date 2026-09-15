@@ -21,6 +21,13 @@ using Arsenal = live::AICompanion.Companion.Weapons.Arsenal;
 using Positioner = live::AICompanion.Companion.Brain.Infrastructure.Position.Positioner;
 using PositionRequest = live::AICompanion.Companion.Brain.Infrastructure.Position.PositionRequest;
 using RequestKind = live::AICompanion.Companion.Brain.Infrastructure.Position.RequestKind;
+using Landed = live::AICompanion.Companion.Weapons.TrackLandedHits;
+using SpawnHook = live::AICompanion.Companion.Weapons.ForgetReusedShotSlots;
+using Credit = live::AICompanion.Companion.Progression.CreditKillsAndFights;
+using Striker = live::AICompanion.Companion.Progression.Striker;
+using Generations = live::AICompanion.Companion.Brain.Infrastructure.Observation.HostileAttackSources;
+using OrbPace = live::AICompanion.Companion.Brain.Infrastructure.Movement.OrbPace;
+using ItemWeapon = live::AICompanion.Companion.Weapons.ItemWeapon;
 
 /// <summary>
 /// Weapon choice, target choice, firing position and aim are one decision valued by what the companion's own shots
@@ -285,7 +292,7 @@ internal static class VerifyWeaponLearning
         }
         Projectile parent = Slot(5), child = Slot(9), grandchild = Slot(11), stranger = Slot(20);
         float[] x = L.Context(300f, 800f, 0f, 0f, 0, 0f, 6f, debuffedByOther: false);
-        int window = S.Open(ItemID.WoodenBow, NPCID.Zombie, x, predictedDamage: 10f, predictedStruck: 1, predictedCharge: 0f, useTicks: 60, now: 0);
+        int window = S.Open(ItemID.WoodenBow, zombie, x, predictedDamage: 10f, predictedStruck: 1, predictedCharge: 0f, useTicks: 60, impactTicks: 20, now: 0);
         S.AddSlot(window, parent.whoAmI);
 
         Require(S.AttributeSpawn(child.whoAmI, new EntitySource_Parent(parent)) == window, "a projectile spawned by the shot's projectile joins the shot's window");
@@ -476,6 +483,60 @@ internal static class VerifyWeaponLearning
         double untrained = Math.Max(coldUntrained.Mean, warmUntrained.Mean);
         EmitLedgerRows.Detail(FormattableString.Invariant($"cost per ranking of 8 hostiles, 2 weapons, ms (lower is better): untrained mean {coldUntrained.Mean:0.000} then {warmUntrained.Mean:0.000} (p95 {warmUntrained.P95:0.000}); trained mean {trainedArm.Mean:0.000} (p95 {trainedArm.P95:0.000}); one sampled factor with a fresh draw {factorClock.Elapsed.TotalMilliseconds * 1000.0 / 10000:0.0} us"));
         Require(trainedArm.Mean - untrained < 1.0, $"the learner adds under a millisecond to a full ranking; trained={trainedArm.Mean} untrained={untrained}");
+    }
+
+    /// <summary>
+    /// A shot whose target died to someone else before the shot could land teaches nothing about the weapon. Tested on the
+    /// outcome windows directly, because the projectile hooks do not run headless: a window is opened against a zombie with a
+    /// forecast landing twenty ticks later, and the zombie is taken out of the world in one of five ways. Declared before the
+    /// run: killed by someone else before the landing tick and never struck by the shot, nothing is taught; its slot reused by
+    /// a new enemy before the landing, nothing is taught; left alive and missed, the miss is taught as a ratio of zero; killed
+    /// by someone else after the landing tick, the miss is still taught; and struck by the shot, which then kills it, the hit
+    /// is taught. The death seen only when the window closes counts at the close, so a window closed before the landing tick
+    /// on a body already gone teaches nothing either.
+    /// </summary>
+    public static int AShotWhoseTargetDiedToSomeoneElseTeachesNothing()
+    {
+        const ulong Opened = 1000;
+        const int Impact = 20;
+        (int Evidence, float Ratio) Arm(Action<NPC, int> during, ulong closeAt)
+        {
+            L.Reset();
+            S.Clear();
+            var zombie = Zombie(25, new Vector2(36 * 16f, FloorY * 16f), .5f);
+            float[] x = L.Context(300f, 800f, 0f, 0f, 0, 0f, 6f, debuffedByOther: false);
+            int window = S.Open(ItemID.WoodenBow, zombie, x, predictedDamage: 10f, predictedStruck: 1, predictedCharge: 0f, useTicks: 60, impactTicks: Impact, now: Opened);
+            S.AddSlot(window, 5);
+            for (ulong tick = Opened; tick < closeAt; tick++)
+            {
+                during(zombie, (int)(tick - Opened));
+                S.Tick(tick);
+            }
+            S.Close(window, closeAt, bounded: false);
+            return (L.Evidence(ItemID.WoodenBow), S.LastClosed?.Ratio ?? float.NaN);
+        }
+        void Die(NPC npc) { npc.life = 0; npc.active = false; }
+
+        var killedEarly = Arm((npc, age) => { if (age == 8) Die(npc); }, Opened + 60);
+        var reused = Arm((npc, age) => { if (age == 8) Generations.Spawn(npc); }, Opened + 60);
+        var missed = Arm((_, _) => { }, Opened + 60);
+        var killedLate = Arm((npc, age) => { if (age == Impact + 10) Die(npc); }, Opened + 60);
+        var goneAtClose = Arm((npc, age) => { if (age == 4) Die(npc); }, Opened + 5);
+        var struckAndKilled = Arm((npc, age) =>
+        {
+            if (age != 18) return;
+            S.BeforeStrike(npc, 5);
+            S.Landed(npc, 5, 10);
+            Die(npc);
+        }, Opened + 60);
+        EmitLedgerRows.Detail(FormattableString.Invariant($"evidence taught: killed by another before landing {killedEarly.Evidence}, slot reused {reused.Evidence}, gone at an early close {goneAtClose.Evidence}; missed {missed.Evidence} (ratio {missed.Ratio:0.000}), killed by another after landing {killedLate.Evidence} (ratio {killedLate.Ratio:0.000}), struck and killed {struckAndKilled.Evidence} (ratio {struckAndKilled.Ratio:0.000})"));
+        Require(missed.Evidence == 1 && missed.Ratio == 0f, $"premise: a miss at a living target is taught as zero; evidence={missed.Evidence} ratio={missed.Ratio}");
+        Require(killedEarly.Evidence == 0, $"a target killed by someone else before the shot could land teaches nothing; evidence={killedEarly.Evidence}");
+        Require(reused.Evidence == 0, $"a target whose slot a new enemy took before the landing teaches nothing; evidence={reused.Evidence}");
+        Require(goneAtClose.Evidence == 0, $"a target found gone when the window closes before the landing teaches nothing; evidence={goneAtClose.Evidence}");
+        Require(killedLate.Evidence == 1 && killedLate.Ratio == 0f, $"a target killed by someone else after the shot should have landed is still a miss; evidence={killedLate.Evidence} ratio={killedLate.Ratio}");
+        Require(struckAndKilled.Evidence == 1 && MathF.Abs(struckAndKilled.Ratio - 1f) < 1e-4f, $"a shot that struck its target and killed it teaches its hit; evidence={struckAndKilled.Evidence} ratio={struckAndKilled.Ratio}");
+        return 0;
     }
 
     private static void Require(bool value, string message)
