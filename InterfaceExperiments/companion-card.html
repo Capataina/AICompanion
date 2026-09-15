@@ -686,6 +686,9 @@ const S = (name, ranks, effect, desc, ref, needs) => ({name, ranks, effect, desc
 const C = (name, effect, desc, ref, needs) => S(name, 5, effect, desc, ref, needs);  // a circle: five levels
 const D = (name, effect, desc, ref, needs) => S(name, 3, effect, desc, ref, needs);  // a diamond that levels: three
 const A = (name, effect, desc, ref, needs) => ({name, ranks: 1, effect, desc: desc || '', ref: ref || '', needs: needs || []});  // a one-level unlock
+// A node whose levels do not step evenly says what each level does; the panel shows the next level's line, and hovering
+// a segment of the level bar shows that level's
+const L = (node, levels) => ({...node, levels});
 const NO_REF = 'Nothing comparable in Terraria, Calamity or Thorium was found; the number is a first guess.';
 const SLOT_NOTE = 'It still fires one weapon at a time, choosing whichever suits the target, so a slot adds choice rather than a second stream of shots.';
 
@@ -694,24 +697,36 @@ const LANES = [
     C('Damage', '+2% damage per level', 'Every weapon it holds, the first slot included.', 'A Destroyer Emblem-class accessory gives a player 8–15%; a Wrath Potion 10%.'),
     C('Attack speed', '+2% attack speed per level', 'Every weapon fires or swings a little more often, through the use time the weapons already read.', 'Thorium\'s Bard empowerment steps 3/6/9/12%; the Feral Claws line gives 12% melee speed.'),
     A('Second weapon slot', 'Opens the second weapon slot', SLOT_NOTE, 'Terraria never gives slots as a percentage: a Pygmy Necklace gives one more minion slot.'),
-    C('Piercing', 'Shots pass through one more enemy, at 20% damage to it per level', 'A line of slimes takes one shot for two; the second hit grows to full damage at level 5.', NO_REF),
-    C('Extra projectile', 'One more projectile a fifth of the reload later, at 10% damage per level', 'Staggered by a fifth of the weapon\'s own reload so a bow\'s two arrows never overlap; half damage at level 5.', NO_REF),
+    L(C('Piercing', 'Shots pass through more enemies, each taking less damage', 'The extra enemies come after the weapon\'s own last hit, which keeps its own damage; a weapon that already pierces without limit, and a swing, gain nothing.', NO_REF), [
+      'Passes through 1 more enemy, which takes 20% damage',
+      'Passes through 1 more enemy, which takes 40% damage',
+      'Passes through 2 more enemies, taking 60% and 15% damage',
+      'Passes through 2 more enemies, taking 70% and 30% damage',
+      'Passes through 3 more enemies, taking 75%, 50% and 25% damage',
+    ]),
+    L(C('Extra projectile', 'Fires more projectiles after each shot, each weaker', 'Each extra projectile leaves a fifth of the weapon\'s own reload after the one before, so a bow\'s arrows never overlap.', NO_REF), [
+      'A second projectile at 30% damage',
+      'A second projectile at 40% damage',
+      'Two more projectiles, at 40% and 15% damage',
+      'Two more projectiles, at 45% and 20% damage',
+      'Three more projectiles, at 50%, 25% and 10% damage',
+    ]),
     A('Third weapon slot', 'Opens the third weapon slot', SLOT_NOTE, 'Calamity\'s Statis\' Blessing gives two minion slots, and was cut down from three.', [2]),
     C('Critical strike', '+1% critical strike chance per level', 'More of its hits crit.', 'A Lucky reforge gives a player 4% per accessory.'),
     C('Projectile speed', '+4% projectile speed per level', 'Shots reach moving targets sooner, so fewer miss.', 'A Magic Quiver gives arrows 120% velocity, but velocity is that item\'s whole purpose.'),
     A('Fourth weapon slot', 'Opens the fourth weapon slot', SLOT_NOTE, 'Vanilla reaches eleven minion slots from one, always one or two at a time.', [2, 5]),
-    C('Armour piercing', '+1 armour penetration per level', 'Its hits ignore a little of a tough enemy\'s defence.', 'A Shark Tooth Necklace gives a player 5 armour penetration.'),
+    C('Armour piercing', 'Ignores 2% of an enemy\'s defence per level', 'A share rather than a flat amount, so it still counts against an enemy with enormous defence.', 'Terraria\'s armour penetration is flat: a Shark Tooth Necklace ignores 5 defence whatever the enemy has.'),
   ]},
   {name: 'Movement', color: 'rgb(104,213,220)', nodes: [
     C('Top speed', '+2% top speed per level', 'It keeps up when you sprint.', 'An Aglet gives a player 5%, an Anklet of the Wind 10%.'),
     C('Acceleration', '+3% acceleration per level', 'It reaches top speed and slows down sooner.', 'Terraria does not publish acceleration as a percentage; the number is a first guess.'),
     D('Return flight', '+10% speed flying back to you from far away per level', 'Being left behind costs less time.', NO_REF),
-    C('Turning', '+3% turn rate per level', 'Tighter curves around corners and shots.', NO_REF),
+    C('Job rush', '+3% acceleration flying to a job per level', 'It gets moving sooner when there is work to go to.', NO_REF),
     C('Steady hull', '5% less knockback taken per level', 'Hits shove it off course less.', 'Calamity\'s Asgard\'s Valor gives full knockback immunity in one item.'),
     D('Overdrive', '+4% top speed per level', 'A bigger step of the same speed, so a long trip takes less time.', 'An Anklet of the Wind gives a player 10%.'),
     C('Return thrust', '+5% acceleration flying back to you per level', 'It gets up to speed sooner when it has to come home.', NO_REF),
-    C('Thrusters', '+2% acceleration and turn rate per level', 'Quicker to change direction.', NO_REF),
-    D('Anchor', '15% less knockback taken per level', 'With Steady hull, 70% less in all.', 'Calamity\'s Asgard\'s Valor gives full knockback immunity in one item.'),
+    C('Thrusters', '+2% acceleration per level', 'Quicker to get up to speed and to slow down.', NO_REF),
+    D('Errand speed', '+5% top speed flying to a job per level', 'Work across the screen starts sooner.', NO_REF),
     C('Top speed', '+2% top speed per level', 'With the first Top speed node and Overdrive, +32% in all.', 'Hermes Boots and an Anklet of the Wind together give a player well past that.'),
   ]},
   {name: 'Survival', color: 'rgb(233,180,103)', nodes: [
@@ -727,16 +742,20 @@ const LANES = [
     C('Toughness', '+2 defence per level', 'On top of the defence it mirrors from you.', 'A Cobalt Shield gives a player 1 defence; a Warrior emblem none.'),
   ]},
   {name: 'Gathering', color: 'rgb(109,201,178)', nodes: [
-    C('Mining speed', '+4% mining speed per level', 'Ore comes out faster.', 'A Mining Potion and an Ancient Chisel each give a player 25%.'),
-    C('Chopping speed', '+4% chopping speed per level', 'Trees come down faster.', 'Sized like mining speed.'),
+    C('Tool speed', '+4% mining and chopping speed per level', 'Ore comes out and trees come down faster.', 'A Mining Potion and an Ancient Chisel each give a player 25%.'),
+    C('Timber', '2% chance per level that a tree drops twice its wood', 'Trees give a little more.', 'Sized like Lucky strike.'),
     D('Vein beam', 'Breaking an ore also breaks one more touching ore per level', 'Veins come out in fewer passes.', 'No Terraria item raises ore per tile; big tools break an area instead, like the Picksaw\'s 3×3.'),
     C('Tool reach', '+1 tile of tool reach per level', 'Breaks ore and wood and places torches from further away.', 'A Toolbelt gives a player 1 tile; an Extendo Grip 3.'),
     C('Lucky strike', '2% chance per level that an ore drops twice', 'Veins give a little more.', 'Calamity\'s and Thorium\'s double-drop effects sit around 5–10%.'),
     D('Tractor field', 'Pulls loot in from 6 more tiles per level', 'Fewer drops left behind: 6, 12, then 18 tiles.', 'A Treasure Magnet stretches a player\'s pickup range from about 2.6 to 12 tiles.'),
     C('Prospector\'s eye', 'Ore within 3 more tiles per level glows for you', 'You see the veins it is flying past.', 'A Spelunker Potion lights every ore on a player\'s screen.'),
-    C('Flashlight reach', '+10% flashlight reach per level', 'Lights dark places from further away.', 'No published light radius for the Mining Helmet or Shine Potion was found; the number is a first guess.'),
-    D('Bag space', '+15 bag slots per level', 'Carries more before you empty it.', NO_REF),
-    C('Quick hands', '+2% mining and chopping speed per level', 'With the first two nodes, +30% in all.', 'A Mining Potion gives a player 25%.'),
+    C('Flashlight reach', '+10% flashlight reach per level', 'Lights dark places from further away; the beam is brightest at the source and fades toward its end.', 'No published light radius for the Mining Helmet or Shine Potion was found; the number is a first guess.'),
+    L(D('Bag space', 'More bag slots', 'Carries more before you empty it: 120 slots become 200.', NO_REF), [
+      '+15 bag slots',
+      '+25 more bag slots',
+      '+40 more bag slots',
+    ]),
+    C('Quick hands', '+2% mining and chopping speed per level', 'With Tool speed, +30% in all.', 'A Mining Potion gives a player 25%.'),
   ]},
 ];
 // A shared circle between each pair of neighbouring lanes, opened from either side.
@@ -887,11 +906,18 @@ function select(n) {
   draw(true);
   const r = rankOf(n);
   $('#dname').textContent = n.def.name; $('#dname').style.color = COLORS[n.b];
-  $('#deffect').textContent = n.def.effect;
+  // an even node says its per-level effect; an uneven one says what the next level to learn does (the last once full),
+  // and a hovered segment says what its own level does
+  const resting = n.def.levels ? n.def.levels[Math.min(r, n.def.ranks - 1)] : n.def.effect;
+  $('#deffect').textContent = resting;
   $('#learn').classList.toggle('off', !canLearn(n));
   // "Level N" fits a segment up to three levels; five segments in the panel's width fit only the number
   const label = i => n.def.ranks > 3 ? `${i + 1}` : `Level ${i + 1}`;
   $('#levels').innerHTML = Array.from({length: n.def.ranks}, (_, i) => `<div class="seg${i < r ? ' on' : ''}">${label(i)}</div>`).join('');
+  if (n.def.levels) $$('#levels .seg').forEach((s, i) => {
+    s.addEventListener('mouseenter', () => $('#deffect').textContent = n.def.levels[i]);
+    s.addEventListener('mouseleave', () => $('#deffect').textContent = resting);
+  });
 }
 function selectKey(key) { const n = nodeOfKey(key); if (n) select(n); }
 $('#learn').addEventListener('click', () => {
