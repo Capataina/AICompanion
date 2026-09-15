@@ -1,11 +1,12 @@
 # Gathering fixtures — ore, trees, and who is credited for the work
 
-Four files, all driving the live mining and chopping code against native tiles, and all of them diffing or counting what the world actually lost, or what was actually offered, so that "it mined" cannot be satisfied by an intention.
+Four of these files drive the live mining and chopping code against native tiles, diffing or counting what the world actually lost, or what was actually offered, so that "it mined" cannot be satisfied by an intention. The fifth, `VerifyRouteHomeFromEitherEnd`, drives no work at all: it builds the route-home scene and reads the chooser's detour from beside the ore and from beside the player, because the separation cost a job pays is decided from wherever the body happens to be when the job is chosen.
 
 ```
 Gathering/
 ├─ CLAUDE.md
 ├─ VerifyOreWork.cs              ore jobs end to end: approach, reach, seals, attribution, departure
+├─ VerifyRouteHomeFromEitherEnd.cs the route home a job pays for, read from beside the ore and from beside the player
 ├─ VerifyMiningList.cs           the list's known ores, marks and mode, and mining refusing what it leaves
 ├─ VerifyGatheringCooperation.cs working beside the player without competing with him
 └─ VerifyWorkAccounting.cs       what a job reports against what the world shows

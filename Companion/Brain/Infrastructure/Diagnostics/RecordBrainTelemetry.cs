@@ -1175,7 +1175,7 @@ public sealed class BrainTelemetry : ModSystem
 
         // Lane C: the evade layer's verdict, matching the header block of the same name.
         var evade = brain.Movement.LastEvade;
-        sb.Append('\t').Append(evade.Reason switch { EvadeReason.Kept => "kept", EvadeReason.Hit => "hit", _ => "off" })
+        sb.Append('\t').Append(evade.Reason switch { EvadeReason.Kept => "kept", EvadeReason.Hit => "hit", EvadeReason.Spent => "spent", _ => "off" })
             .Append('\t').Append(evade.HitTick)
             .Append('\t').Append(!evade.Bent ? "-" : evade.Choice switch { EvadeChoice.Stop => "stop", EvadeChoice.JobHeading => "job-heading", _ => "heading" })
             .Append('\t').Append(evade.RefusedNowhere)

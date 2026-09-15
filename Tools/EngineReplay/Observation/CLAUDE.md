@@ -12,6 +12,7 @@ Observation/
 ├─ VerifyFamilyOffers.cs              each purpose family nominates its best child
 ├─ VerifyTravelEpisodes.cs            a journey recorded against the ticks the body could travel
 ├─ VerifyIntentRegionHoldsThePlayer.cs the region's ruled shape on every distance mode, and a recorded player inside it on every row
+├─ VerifyWayToPlayerIsAnsweredInThreeValues.cs the way to the player resumed until answered, never read as proven before, and its cost under production allowances
 ├─ RecordEvidenceScenes.cs            four stalls driven through the real recorder, captures kept
 ├─ MeasureBrainCost.cs                per-phase timings, and the recording-invariance proof
 └─ GodsEyeTestStubs.cs                test-local telemetry and mod stubs for the writer

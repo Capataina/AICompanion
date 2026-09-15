@@ -49,11 +49,19 @@ public sealed class HoverAroundSpot
     /// <summary>The point the body was steered at on the last call, for the overlay and for a fixture that has to say what the hover asked for.</summary>
     public Vector2 LastTarget { get; private set; }
 
-    /// <summary>Forget the spot, so a later hover anchors wherever it is then asked to.</summary>
+    /// <summary>
+    /// Forget everything a hover or a walk kept about where it was going, so the next call starts from the body: the spot, the
+    /// last target and its motion, and the walk's place in the box and the part of the box it had open. The movement boundary
+    /// calls this whenever a tick's request is not the kind the tick before made, because every piece of this state describes a
+    /// motion that request produced and none of it survives another request honestly — the walk's place in the box outlived a
+    /// job and put the first accompanying target 434 px from the body, which the body then sprinted to.
+    /// </summary>
     public void Release()
     {
         Anchor = null;
         previousTarget = null;
+        acrossCentre = null;
+        LastTargetMotion = Vector2.Zero;
     }
 
     /// <summary>The controls that keep the body drifting around <paramref name="spot"/> this tick.</summary>
@@ -122,19 +130,33 @@ public sealed class HoverAroundSpot
     {
         float inset = Navigator.SettleRadius;
         Vector2 room = new(MathF.Max(0f, halfSize.X - inset), MathF.Max(0f, halfSize.Y - inset));
-        float minX = -room.X, maxX = room.X;
-        if (lead.X > Weights.AccompanyLeadPixels) minX = -room.X * Weights.AccompanyRearShare;
-        else if (lead.X < -Weights.AccompanyLeadPixels) maxX = room.X * Weights.AccompanyRearShare;
-        Vector2 InBox(Vector2 offset) => new(Math.Clamp(offset.X, minX, maxX), Math.Clamp(offset.Y, -room.Y, room.Y));
+        Vector2 wantMin = -room, wantMax = room;
+        if (lead.X > Weights.AccompanyLeadPixels) wantMin.X = -room.X * Weights.AccompanyRearShare;
+        else if (lead.X < -Weights.AccompanyLeadPixels) wantMax.X = room.X * Weights.AccompanyRearShare;
 
-        // A box that jumped — a teleport, a respawn, a new region — is a new place, and the walk starts from where the
-        // body sits in it rather than from an offset that described somewhere else.
+        // The walk starts from the body whenever there is no walk to continue: released by another request, never begun, or a box
+        // that jumped — a teleport, a respawn, a new region — so an offset describing somewhere else never places the target. It
+        // starts from the body itself, unclamped, and the open part is widened to hold it: the inside latch counts a body up to the
+        // settle radius beyond the edge as with the player, and a body behind a travelling player sits in the part the lead
+        // closes, so clamping first put the target hundreds of pixels from the body it was about to be pursued by.
         float jump = OrbPace.MaxSpeed * Weights.AccompanyJumpTicks;
         if (acrossCentre is not Vector2 was || Vector2.DistanceSquared(was, centre) > jump * jump)
         {
-            acrossOffset = InBox(live.Centre - centre);
+            acrossOffset = live.Centre - centre;
+            openMin = Vector2.Min(wantMin, acrossOffset);
+            openMax = Vector2.Max(wantMax, acrossOffset);
             previousTarget = null;
         }
+        else
+        {
+            // The open part eases toward what the lead asks for at the walk's own pace, because an edge that snaps moves a target
+            // standing in the part it closes by as much as the edge moved: with the rear closed at a fifth of the room, a player
+            // turning round moved the target 200 px in one tick when his lead crossed the threshold.
+            openMin = new Vector2(Toward(openMin.X, wantMin.X), Toward(openMin.Y, wantMin.Y));
+            openMax = new Vector2(Toward(openMax.X, wantMax.X), Toward(openMax.Y, wantMax.Y));
+        }
+        float minX = openMin.X, maxX = openMax.X, minY = openMin.Y, maxY = openMax.Y;
+        Vector2 InBox(Vector2 offset) => new(Math.Clamp(offset.X, minX, maxX), Math.Clamp(offset.Y, minY, maxY));
         acrossCentre = centre;
         Anchor = centre;
 
@@ -151,7 +173,7 @@ public sealed class HoverAroundSpot
         // Reflection at the box reverses the axis's part of the heading and the direction of turning together, for the
         // reason the spot's target does: reflecting a circular path reverses its angular velocity.
         if (next.X < minX || next.X > maxX) { acrossHeading = MathF.PI - acrossHeading; acrossRate = -acrossRate; }
-        if (next.Y < -room.Y || next.Y > room.Y) { acrossHeading = -acrossHeading; acrossRate = -acrossRate; }
+        if (next.Y < minY || next.Y > maxY) { acrossHeading = -acrossHeading; acrossRate = -acrossRate; }
         next = InBox(next);
 
         Vector2 from = previousTarget ?? live.Centre;
@@ -185,13 +207,21 @@ public sealed class HoverAroundSpot
                 target = live.Centre;
                 next = live.Centre - centre;
                 float reachOut = MathF.Max(room.X, room.Y) * 2f;
+                // A place the escape may take is one no further outside the open part, on either axis, than the body already is. Exact
+                // membership is the wrong test, because the inside latch lets a body sit beyond the open part: a body resting on a
+                // passage floor below the inset box shares that overshoot with every place along the passage, and requiring
+                // membership refused all of them, so the body stayed on the tile the player was walking into for sixty ticks.
+                Vector2 body = live.Centre - centre;
+                bool NoFurtherOut(Vector2 offset)
+                    => Beyond(offset.X, minX, maxX) <= Beyond(body.X, minX, maxX) + 1e-3f
+                        && Beyond(offset.Y, minY, maxY) <= Beyond(body.Y, minY, maxY) + 1e-3f;
                 for (float distance = EscapeStepPixels; distance <= reachOut && target == live.Centre; distance += EscapeStepPixels)
                 {
                     foreach (Vector2 axis in Axes)
                     {
                         Vector2 point = live.Centre + axis * distance;
                         Vector2 offset = point - centre;
-                        if (InBox(offset) != offset || refused(point) || !CircleContact.SweptClear(world, live.Centre, point, OrbTerrain.Wall))
+                        if (!NoFurtherOut(offset) || refused(point) || !CircleContact.SweptClear(world, live.Centre, point, OrbTerrain.Wall))
                             continue;
                         target = point;
                         next = offset;
@@ -229,6 +259,15 @@ public sealed class HoverAroundSpot
     private Vector2 acrossOffset;
     private Vector2? acrossCentre;
     private float acrossHeading, acrossRate;
+    /// <summary>The part of the box, in its own frame, the walk may use this tick: eased toward what the lead asks for.</summary>
+    private Vector2 openMin, openMax;
+
+    /// <summary>How far a coordinate lies outside an interval, zero inside it.</summary>
+    private static float Beyond(float value, float low, float high) => MathF.Max(0f, MathF.Max(low - value, value - high));
+
+    /// <summary>One tick of an open-part edge moving toward where the lead wants it, no faster than the walk steps.</summary>
+    private static float Toward(float from, float to)
+        => from < to ? MathF.Min(to, from + Weights.AccompanyWanderSpeedPx) : MathF.Max(to, from - Weights.AccompanyWanderSpeedPx);
 
     /// <summary>The turns a blocked step tries, in order: round, across to either side, then back past either side.</summary>
     private static readonly float[] Turns = { MathF.PI, MathF.PI / 2f, -MathF.PI / 2f, 3f * MathF.PI / 4f, -3f * MathF.PI / 4f, MathF.PI / 4f, -MathF.PI / 4f };

@@ -94,14 +94,43 @@ public sealed class CoordinateMovement
         if (unsafeAtTick == null)
         {
             LastEvade = EvadeVerdict.Off;
+            retreat = 0f;
+            spent = false;
             bent = false;
             return wanted;
         }
         Controls controls = EvadeWhileMoving.Bend(live, wanted, unsafeAtTick, MovementQueries.World, out EvadeVerdict verdict, ForecastJob());
+        // A bend is a dodge only while it leaves the job somewhere to go. The lookahead is all the layer can see, and a body fleeing
+        // ahead of a threat that keeps coming reads clear for every one of those ticks however far it flees, so on the tick it
+        // decides, a corridor's retreat and a turn from a single passing shot look the same and the stateless layer cannot tell
+        // them apart. What tells them apart is where the bends have taken the body: its net retreat along the way the job asks,
+        // counted on every tick the layer runs and paid back by every tick the body makes way again. Once that exceeds a lookahead
+        // of full-speed flight, the bends are carrying the body away from the job further than any single dodge needs to, which is
+        // postponing the hit rather than avoiding it, so the job takes the body back and keeps it until the lost way is made up.
+        // A body dodging about a place it holds retreats nothing net and is never spent, however long the threat stays.
+        //
+        // The retreat is not forgotten on a tick whose flight reads clear. The first build forgot it there and a corridor body
+        // never arrived: fleeing at full speed ahead of a slower shot, the job's forecast from that momentum flees too and reads
+        // clear, so a clear tick fell between every two bends and the retreat never summed past one dodge.
+        // Counted only from a bend on, so ordinary steering lag — a body carrying momentum through a route's turn — owes nothing.
+        if ((verdict.Bent || retreat > 0f) && wanted.Desired.LengthSquared() > 0.01f)
+            retreat =MathF.Max(0f, retreat - Vector2.Dot(live.Velocity, Vector2.Normalize(wanted.Desired)));
+        if (retreat > Selection.Weights.DodgeLookaheadTicks * OrbPace.MaxSpeed) spent = true;
+        else if (retreat <= 0f) spent = false;
+        if (spent && verdict.Bent)
+        {
+            verdict = verdict with { Reason = EvadeReason.Spent, Choice = EvadeChoice.Job };
+            controls = wanted;
+        }
         LastEvade = verdict;
         bent = verdict.Bent;
         return controls;
     }
+
+    // How far, net, the evade layer's bends have carried the body back against the job's asked way and not yet made up, and
+    // whether that retreat has been judged postponement. A tick with no predicate or a different kind of request ends both.
+    private float retreat;
+    private bool spent;
 
     /// <summary>The evade layer's verdict on the last tick that produced controls, or <see cref="EvadeVerdict.Off"/> when it did not run.</summary>
     public EvadeVerdict LastEvade { get; private set; } = EvadeVerdict.Off;
@@ -114,6 +143,18 @@ public sealed class CoordinateMovement
 
     private void Produced(Producer by)
     {
+        // A request of a different kind from the last tick's starts the hover and the walk afresh from the body. Every brain tick
+        // reaches exactly one request method here, so a change of kind is exactly a tick on which the previous motion was not
+        // driven, and any state that motion kept describes somewhere the body no longer is. This is the one place that rule is
+        // enforced, rather than a staleness test inside each piece of state, because the state that outlived its request was found
+        // three times — a wait anchor, a per-goal memory under a drifting goal, and the accompanying walk's place in the box.
+        // What it cannot see is a tick on which the brain did not run at all; the walk's own jump test covers a box that moved far.
+        if (by != producer)
+        {
+            Navigator.Hover.Release();
+            retreat = 0f;
+            spent = false;
+        }
         producer = by;
         LastEvade = EvadeVerdict.Off;
     }

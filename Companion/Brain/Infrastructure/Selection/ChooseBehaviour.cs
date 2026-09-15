@@ -275,9 +275,14 @@ public sealed class Chooser
 
     /// <summary>
     /// How much further than the straight line the way from a job's stand to the player runs, in pixels, read off the reach
-    /// flood. The flood is rooted at the body, so its cost to the player less its cost to the stand is a lower bound on the
-    /// route between the two — a route through the stand is one the flood could have taken — and the detour is that less the
-    /// straight line. The stand is priced at the nearest corner the body fits at, because a mining stand is the ore tile
+    /// flood. The flood is rooted at the body, so its costs to the player and to the stand are two distances from one point, and
+    /// the route between the stand and the player is at least their difference taken either way round — the triangle inequality
+    /// in both directions — and the detour is that less the straight line. Taken one way only, as the player's cost less the
+    /// stand's floored at zero, it is right with the body at the stand and reads nothing with the body beside the player, which
+    /// is where every job is chosen from while the companion keeps him company: a sentinel measured zero there for jobs whose
+    /// detour was 188 and 2,387 px. The two readings of one route are not equal, because the flood prices each edge by the
+    /// clearance at its far corner, so the way out and the way back through one corridor cost differently; from beside the
+    /// player a route read 998 px that read 817 px from the stand. The stand is priced at the nearest corner the body fits at, because a mining stand is the ore tile
     /// itself and no flood of free space holds a solid tile; a stand with no such corner in the flood is priced from the body,
     /// which is where a job done from here stands anyway.
     ///
@@ -301,7 +306,7 @@ public sealed class Chooser
             atStand = ticks;
         else
             from = body;
-        return MathF.Max(0f, (toPlayer - atStand) * MathF.Max(0.1f, Movement.OrbPace.MaxSpeed)
+        return MathF.Max(0f, MathF.Abs(toPlayer - atStand) * MathF.Max(0.1f, Movement.OrbPace.MaxSpeed)
             - Microsoft.Xna.Framework.Vector2.Distance(from, player));
     }
 

@@ -87,6 +87,11 @@ public static class Weights
     // swept tests each — and a screen-sized window is a few thousand corners, so this closes one
     // in a handful of resolves rather than the walker's several seconds.
     public const int ReachFloodExpansions = 1500;
+    // How many corners, and how many milliseconds, the intent sense's way-to-the-player flood may spend in one brain tick. It runs
+    // inside the senses, ahead of the positioner and the navigator on the same shared deadline, so it has its own slice and resumes
+    // on later ticks; its flood is unpriced and bounded by the player's grown region, a few thousand corners in open air.
+    public const int PlayerSideFloodExpansions = 1500;
+    public const double PlayerSideFloodMilliseconds = 1d;
     /// <summary>
     /// How far from the reach flood's root, in straight-line tiles, the sense gives a verdict at all. Inside
     /// it a tile the finished flood never claimed is proven unreachable; beyond it the answer is not yet,

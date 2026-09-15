@@ -160,61 +160,124 @@ public sealed class PlayerIntentRegionSense
     /// <summary>The follow objective every consumer shares, anchored on the region's own centre.
     /// A caller with an anchor of its own — a priced meeting place, a request's anchor — refines it
     /// with <see cref="FollowPlayerObjective.At"/> rather than building a second objective.</summary>
-    public Position.FollowPlayerObjective Objective => new(Region, Region.Centre, Inside, Connected);
+    public Position.FollowPlayerObjective Objective => new(Region, Region.Centre, Inside, CutOff);
 
     /// <summary>
-    /// Whether the body has a way to the player that stays inside his region, grown by the width the latch gives its edge. The
-    /// owner ruled on 15 September 2026 that being with the player requires the companion can reach him, so a body inside the
-    /// box on the far side of a sealed wall is outside and rejoining sends it round. It is asked of a flood bounded by the
-    /// region and not of the reach disc, because a way round outside the region joins both sides of a wall inside it: the disc
-    /// holds the player from either side and cannot tell them apart.
+    /// Whether the body has a way to the player that stays inside his region, grown by the width the latch gives its edge, in the
+    /// three values every sense answers in. The owner ruled on 15 September 2026 that being with the player requires the companion
+    /// can reach him, so a body inside the box on the far side of a sealed wall is outside and rejoining sends it round. It is asked
+    /// of a flood bounded by the region and not of the reach disc, because a way round outside the region joins both sides of a
+    /// wall inside it: the disc holds the player from either side and cannot tell them apart.
     ///
-    /// <para>Not yet known reads as connected. It never means an unfinished flood — the side flood is bounded by the region and
-    /// run to exhaustion on the tick the region or the player's corner changes — so it arises only when no corner the orb fits
-    /// at roots a proof: the body pressed into a gap it cannot centre in, the player in a shaft, or no world at all.
-    /// A body the sense cannot prove cut off keeps the box's answer, because reading it outside would send rejoining to find a
-    /// place its own route search cannot root either, and a companion beside the player would seek for somewhere it already is.</para>
+    /// <para><see cref="ReachVerdict.Reachable"/> and <see cref="ReachVerdict.Unreachable"/> are proofs, read only off a flood that
+    /// exhausted the bounds it was given, joined the corner the player stands at now, and contains the corner the body is at now in
+    /// its bounds. Anything else is <see cref="ReachVerdict.NotYet"/>: no flood has finished, the player has moved to a corner the
+    /// finished one never joined, the body stands outside what it was asked about, or no corner the orb fits at roots a proof — the
+    /// body pressed into a gap it cannot centre in, the player in a shaft, no world at all. An unfinished flood is never read as
+    /// either proof. The first build ran the flood to exhaustion in one call on every tick the region or the player's corner changed,
+    /// and a sentinel measured that at four to ten milliseconds of the twelve the whole tick shares, rebuilt on more than half the
+    /// ticks of a walking player; under the live deadline the call stopped short, was never resumed, and read connected for as long as
+    /// the player stood still.</para>
+    ///
+    /// <para>Its consumers read the middle value the way the reach sense's consumers read theirs: nothing is refused on it.
+    /// <see cref="Inside"/> loses only a proven cut-off, because reading an unanswered question as outside would send rejoining to find
+    /// a place its own route search cannot root either, and a companion beside the player would seek for somewhere it already is; and
+    /// the positioner passes over only a corner <see cref="ProvenCutOff"/> names.</para>
     /// </summary>
-    public bool Connected { get; private set; } = true;
+    public ReachVerdict WayToPlayer { get; private set; } = ReachVerdict.NotYet;
 
-    /// <summary>The corners inside the grown region that join the player without leaving it, or null when nothing is proven.
-    /// The positioner offers only these as the way back in, so rejoining does not arrive on the wrong side of a wall.</summary>
-    public IReadOnlySet<Point>? PlayerSide => side is { Stop: Movement.FreeSpaceSearch.StopReason.Exhausted } found ? found.Reached : null;
+    /// <summary>Whether the body is proven to have no way to the player inside his region.</summary>
+    public bool CutOff => WayToPlayer == ReachVerdict.Unreachable;
 
-    private Movement.FreeSpaceSearch? side;
-    private Point sideRoot;
-    private Rectangle sideBounds;
+    /// <summary>
+    /// Whether a corner inside the grown region is proven not to join the player without leaving it: the finished flood answering
+    /// for the player's current corner was bounded to hold it and never reached it. The positioner passes over such a corner as the
+    /// way back in, so rejoining does not arrive on the wrong side of a wall; a corner nothing has proven either way is not passed over.
+    /// </summary>
+    public bool ProvenCutOff(Point corner)
+        => Answering is Movement.FreeSpaceSearch found && sideBounds.Contains(corner.X * 16, corner.Y * 16) && !found.Reached.Contains(corner);
+
+    /// <summary>The finished flood, while it still answers for the corner the player stands at; null when nothing is proven.</summary>
+    private Movement.FreeSpaceSearch? Answering
+        => side is { Stop: Movement.FreeSpaceSearch.StopReason.Exhausted } found && playerCorner is Point at && found.Reached.Contains(at) ? found : null;
+
+    // The finished flood that answers, and the replacement grown under it. A replacement is started only when none is growing and
+    // is never abandoned for a newer target: the box slides a tile at a time under a walking player, and restarting on every tile
+    // would never let one finish. A flood the world changed under is dropped, because its answer no longer describes the world.
+    private Movement.FreeSpaceSearch? side, growing;
+    private Point sideRoot, growingRoot;
+    private Rectangle sideBounds, growingBounds;
+    private Point? playerCorner;
 
     public void Update(NPC companion, PlayerSense player)
     {
         Update(companion.Center, player.Position, player.Intent, player.IsTravelling, player.IsDead, player.Activity.Samples);
-        Connected = ConnectedToPlayer(companion.Center, player.Position);
-        Inside &= Connected;
+        ObserveWayToPlayer(companion.Center, player.Position);
     }
 
-    private bool ConnectedToPlayer(Vector2 body, Vector2 playerCentre)
+    /// <summary>
+    /// One tick of the way-to-the-player sense, after the region has been rebuilt: grow the replacement flood by one slice, let a
+    /// finished one take over, and answer about the body. Public so a fixture can drive it over a text world with the numeric update.
+    /// </summary>
+    public ReachVerdict ObserveWayToPlayer(Vector2 body, Vector2 playerCentre)
     {
-        if (!Movement.MovementQueries.HasWorld) { side = null; return true; }
-        var world = Movement.MovementQueries.World;
-        if (Movement.CornerGraph.NearestUsable(world, playerCentre, 2) is not Point root) { side = null; return true; }
-        // Grown by the latch's width and a tile, so a body the latch still counts inside has a corner the flood may hold, and
-        // snapped to whole tiles, so a box sliding with a walking player refloods once a tile rather than once a tick.
-        float grow = Movement.Navigator.SettleRadius + 16f;
-        int left = (int)MathF.Floor((Region.Centre.X - Region.HalfSize.X - grow) / 16f) * 16;
-        int top = (int)MathF.Floor((Region.Centre.Y - Region.HalfSize.Y - grow) / 16f) * 16;
-        int right = (int)MathF.Ceiling((Region.Centre.X + Region.HalfSize.X + grow) / 16f) * 16;
-        int bottom = (int)MathF.Ceiling((Region.Centre.Y + Region.HalfSize.Y + grow) / 16f) * 16;
-        var bounds = new Rectangle(left, top, right - left + 1, bottom - top + 1);
-        if (side == null || root != sideRoot || bounds != sideBounds || !side.Valid)
+        WayToPlayer = Grow(body, playerCentre);
+        Inside &= WayToPlayer != ReachVerdict.Unreachable;
+        return WayToPlayer;
+    }
+
+    /// <summary>How long the last tick's work on the flood took, in milliseconds, for the cost measure.</summary>
+    public double LastFloodMs { get; private set; }
+
+    private ReachVerdict Grow(Vector2 body, Vector2 playerCentre)
+    {
+        long started = System.Diagnostics.Stopwatch.GetTimestamp();
+        try
         {
-            side = new Movement.FreeSpaceSearch(world, root, null, priceClearance: false) { Bounds = bounds };
-            side.Advance(int.MaxValue);
-            sideRoot = root;
-            sideBounds = bounds;
+            if (!Movement.MovementQueries.HasWorld) { side = growing = null; playerCorner = null; return ReachVerdict.NotYet; }
+            var world = Movement.MovementQueries.World;
+            playerCorner = Movement.CornerGraph.NearestUsable(world, playerCentre, 2);
+            if (playerCorner is not Point root) return ReachVerdict.NotYet;
+            // Grown by the latch's width and a tile, so a body the latch still counts inside has a corner the flood may hold, and
+            // snapped to whole tiles, so a box sliding with a walking player asks a new question once a tile rather than once a tick.
+            float grow = Movement.Navigator.SettleRadius + 16f;
+            int left = (int)MathF.Floor((Region.Centre.X - Region.HalfSize.X - grow) / 16f) * 16;
+            int top = (int)MathF.Floor((Region.Centre.Y - Region.HalfSize.Y - grow) / 16f) * 16;
+            int right = (int)MathF.Ceiling((Region.Centre.X + Region.HalfSize.X + grow) / 16f) * 16;
+            int bottom = (int)MathF.Ceiling((Region.Centre.Y + Region.HalfSize.Y + grow) / 16f) * 16;
+            var bounds = new Rectangle(left, top, right - left + 1, bottom - top + 1);
+
+            if (side != null && !side.Valid) side = null;
+            if (growing != null && !growing.Valid) growing = null;
+            if (growing == null && (side == null || sideRoot != root || sideBounds != bounds))
+            {
+                growing = new Movement.FreeSpaceSearch(world, root, null, priceClearance: false) { Bounds = bounds };
+                growingRoot = root;
+                growingBounds = bounds;
+            }
+            if (growing != null)
+            {
+                // Its own slice rather than the tick's whole allowance: this runs inside the senses, ahead of the positioner and the
+                // navigator that share the same deadline, and a flood allowed to run until the deadline spends their share first.
+                growing.Advance(Weights.PlayerSideFloodExpansions, Weights.PlayerSideFloodMilliseconds);
+                if (growing.Finished)
+                {
+                    side = growing;
+                    sideRoot = growingRoot;
+                    sideBounds = growingBounds;
+                    growing = null;
+                }
+            }
+
+            if (Answering is not Movement.FreeSpaceSearch found) return ReachVerdict.NotYet;
+            if (Movement.CornerGraph.NearestUsable(world, body, 2) is not Point at) return ReachVerdict.NotYet;
+            if (!sideBounds.Contains(at.X * 16, at.Y * 16)) return ReachVerdict.NotYet;
+            return found.Reached.Contains(at) ? ReachVerdict.Reachable : ReachVerdict.Unreachable;
         }
-        if (side.Stop != Movement.FreeSpaceSearch.StopReason.Exhausted) return true;
-        if (Movement.CornerGraph.NearestUsable(world, body, 2) is not Point at) return true;
-        return side.Reached.Contains(at);
+        finally
+        {
+            LastFloodMs = System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+        }
     }
 
     /// <summary>The same update from the numbers it reads, so a recorded player track can be replayed through the real filter

@@ -43,6 +43,7 @@ internal static class VerifyEvadeKeepsTheJob
             failures += AHitAlongTheRouteNeverPinsTheBodyToTheSlope();
             failures += ARouteRunningAboveAHitIsNotBent();
             failures += ACorneredBodyInAPoolStillTurnsFromTheShot();
+            failures += AHeadingIntoAWallNeverBeatsOneThatMoves();
         }
         finally
         {
@@ -110,7 +111,8 @@ internal static class VerifyEvadeKeepsTheJob
     // arrival hover's vertical reach dips the body toward the water.
     private static readonly Vector2 PinGoal = new(3383 * 16 + 8, 677 * 16 + 8);
 
-    private readonly record struct Flight(int LongestStill, int BentTicks, int ArrivedTick, float Nearest, List<string> Trace);
+    private readonly record struct Flight(int LongestStill, int BentTicks, int ArrivedTick, float Nearest, List<string> Trace,
+        List<OrbState> States, List<Controls> Jobs, float LowestY);
 
     /// <summary>
     /// Drive the movement boundary the way the brain tick does: the job's controls from <see cref="CoordinateMovement.MoveTo"/>,
@@ -122,12 +124,16 @@ internal static class VerifyEvadeKeepsTheJob
         var movement = new CoordinateMovement();
         Vector2 centre = start, velocity = Vector2.Zero;
         int still = 0, longest = 0, bent = 0, arrived = -1;
-        float nearest = Vector2.Distance(centre, goal);
+        float nearest = Vector2.Distance(centre, goal), lowest = centre.Y;
         var trace = new List<string>();
+        var states = new List<OrbState>(ticks);
+        var jobs = new List<Controls>(ticks);
         for (int tick = 0; tick < ticks; tick++)
         {
             var live = new OrbState(centre, velocity);
             Controls job = movement.MoveTo(live, goal);
+            states.Add(live);
+            jobs.Add(job);
             Controls controls = movement.Evade(live, job, unsafeAtTick, out bool bentThisTick);
             if (bentThisTick) bent++;
             velocity = OrbPace.Step(velocity, controls.Desired, controls.Burst);
@@ -136,10 +142,11 @@ internal static class VerifyEvadeKeepsTheJob
             still = velocity.Length() < StillSpeed ? still + 1 : 0;
             longest = Math.Max(longest, still);
             nearest = MathF.Min(nearest, Vector2.Distance(centre, goal));
+            lowest = MathF.Max(lowest, centre.Y);
             if (arrived < 0 && movement.Navigator.Arrived) arrived = tick;
             trace.Add($"tick {tick,3}: job {job.Desired.X:0.00},{job.Desired.Y:0.00} asked {controls.Desired.X:0.00},{controls.Desired.Y:0.00}{(bentThisTick ? " bent" : "")} -> {centre.X:0.0},{centre.Y:0.0} v {velocity.X:0.00},{velocity.Y:0.00} {movement.Navigator.Status}");
         }
-        return new Flight(longest, bent, arrived, nearest, trace);
+        return new Flight(longest, bent, arrived, nearest, trace, states, jobs, lowest);
     }
 
     private static void Print(List<string> trace, int from, int count)
@@ -147,28 +154,92 @@ internal static class VerifyEvadeKeepsTheJob
         for (int i = Math.Max(0, from); i < Math.Min(trace.Count, from + count); i++) Console.WriteLine("      " + trace[i]);
     }
 
+    /// <summary>How far below the lowest point the route's own flight reached a predicted hit sits in the captured pin: far enough
+    /// that the flight's own arrival hover does not touch it, near enough that a velocity held in a straight line does.</summary>
+    private const float BelowTheRoutePixels = 8f;
+
     /// <summary>
-    /// The pin itself. Pass line, declared before the fix: over three hundred ticks the body is never under the still speed
-    /// for ten ticks running, and the navigator reports arrival at the goal. At 530b16d the body asks for <c>-9,0</c> into the
-    /// slope and sits still from its first ticks. The pool under the pin is space the route may use since every liquid became
-    /// air to the orb, so whether the body enters it is no longer part of the line.
+    /// The pin itself, with a hit waiting just below everywhere the route's own flight goes. Pass line, declared before the fix:
+    /// over three hundred ticks the body is never under the still speed for ten ticks running, the navigator reports arrival at
+    /// the goal, and no tick is bent. At 530b16d the body asks for <c>-9,0</c> into the slope and sits still from its first ticks.
+    ///
+    /// <para>The hit is what makes the row exercise the route forecast. A sentinel's review of the evade layer found this row's
+    /// predicate predicted nothing anywhere, so its keep test never ran and the row passed with the forecast deleted. The pin was a
+    /// route read as a straight line: the route descends down and left along the top of the pool, and holding one tick's velocity
+    /// for the lookahead flies below it. So the predicate is the band just under the lowest point an unbent run of the same scene
+    /// reaches, and a premise requires that the straight-line reading — the layer with no forecast — would have bent on some tick of
+    /// that run; without the premise a predicate the straight line never meets would pass with the forecast deleted again.</para>
     /// </summary>
     private static int TheCapturedPinFliesTheRoute()
     {
         var world = CapturedPin();
         Plug(world);
-        var flight = Fly(world, PinnedCentre, PinGoal, (_, _) => false, 300);
+        var clear = Fly(world, PinnedCentre, PinGoal, (_, _) => false, 300);
+        float below = clear.LowestY + BelowTheRoutePixels;
+        bool BelowTheRoute(OrbState state, int _) => state.Centre.Y > below;
+        int straightLineBends = 0;
+        for (int i = 0; i < clear.States.Count; i++)
+        {
+            EvadeWhileMoving.Bend(clear.States[i], clear.Jobs[i], BelowTheRoute, world, out EvadeVerdict held, forecast: null);
+            if (held.Bent) straightLineBends++;
+        }
         int failures = 0;
-        // Never bent as well as never still: with an active predicate that predicts no hit anywhere, a bent tick can only be the
-        // keep test refusing a flight for a reason that is not a hit, which is exactly what the pin was.
+        if (straightLineBends == 0)
+            return Fail($"the captured pin premise: holding a tick's job velocity in a straight line must meet the band {BelowTheRoutePixels} px under the route's lowest point ({clear.LowestY:0.0}) on some tick, or the row proves nothing about the forecast");
+        Plug(world);
+        var flight = Fly(world, PinnedCentre, PinGoal, BelowTheRoute, 300);
         if (flight.LongestStill >= StillRunTicks || flight.ArrivedTick < 0 || flight.BentTicks > 0)
         {
-            failures += Fail($"the captured pin: longest still run {flight.LongestStill} ticks (must be under {StillRunTicks}), arrived at tick {flight.ArrivedTick} (must arrive), bent {flight.BentTicks} ticks (must be none), nearest {flight.Nearest:0.0} px");
-            Print(flight.Trace, 0, 24);
+            failures += Fail($"the captured pin: longest still run {flight.LongestStill} ticks (must be under {StillRunTicks}), arrived at tick {flight.ArrivedTick} (must arrive), bent {flight.BentTicks} ticks (must be none; the straight-line reading bent {straightLineBends}), nearest {flight.Nearest:0.0} px");
+            int firstBent = flight.Trace.FindIndex(line => line.Contains(" bent"));
+            Print(flight.Trace, firstBent < 0 ? 0 : firstBent - 8, 24);
         }
         else
-            Console.WriteLine($"evade keeps the job: the captured pin flew its route and arrived at tick {flight.ArrivedTick}, longest still run {flight.LongestStill}, bent {flight.BentTicks} ticks");
+            Console.WriteLine($"evade keeps the job: the captured pin flew its route above a hit and arrived at tick {flight.ArrivedTick}, longest still run {flight.LongestStill}, bent {flight.BentTicks} ticks where a straight-line reading bent {straightLineBends}");
         return failures;
+    }
+
+    /// <summary>
+    /// A body resting against a wall whose job asks into the wall this tick and back out into a hit on the next. Every heading
+    /// into the wall is as safe as the stop, because the contact holds the body where no hit is, and it agrees with the job's
+    /// heading more than any heading that moves, so without the rule that a heading going nowhere is scored as the stop it wins
+    /// and the body shoves the wall for the whole lookahead. Pass line, declared before the first run: the layer bends (the
+    /// premise), at least one heading is refused for going nowhere (the premise), and the chosen controls, flown for the lookahead
+    /// through the motor's law and the contact, carry the body at least <see cref="EvadeWhileMoving.NowhereDistance"/>. A
+    /// sentinel switched the rule off and every evade row stayed green although it refused 102 headings across them; this is the
+    /// scene where it decides the choice.
+    /// </summary>
+    private static int AHeadingIntoAWallNeverBeatsOneThatMoves()
+    {
+        const int width = 40, height = 20;
+        var rows = new List<string>();
+        for (int y = 0; y < height; y++)
+        {
+            char[] row = new char[width];
+            for (int x = 0; x < width; x++) row[x] = y == 0 || y == height - 1 || x == 0 || x == width - 1 ? '#' : '.';
+            rows.Add(new string(row));
+        }
+        var world = new TextTileWorld(0, 0, rows);
+        Plug(world);
+        Vector2 start = new(16f + CircleContact.Radius, 10 * 16 + 8);
+        float hitBeyond = start.X + 3f;
+        bool OutFromTheWall(OrbState state, int _) => state.Centre.X > hitBeyond;
+        Controls chosen = EvadeWhileMoving.Bend(new OrbState(start, Vector2.Zero), new Controls(new Vector2(-9f, 0f)), OutFromTheWall, world,
+            out EvadeVerdict verdict, _ => new Controls(new Vector2(9f, 0f)));
+        Vector2 centre = start, velocity = Vector2.Zero;
+        for (int tick = 1; tick <= AICompanion.Companion.Brain.Infrastructure.Selection.Weights.DodgeLookaheadTicks; tick++)
+        {
+            velocity = OrbPace.Step(velocity, chosen.Desired, chosen.Burst);
+            centre += velocity;
+            CircleContact.Resolve(world, ref centre, ref velocity);
+        }
+        float moved = Vector2.Distance(centre, start);
+        if (!verdict.Bent || verdict.RefusedNowhere == 0)
+            return Fail($"a heading into a wall premise: the layer must bend ({verdict.Bent}) and refuse some heading for going nowhere ({verdict.RefusedNowhere}), or the scene decides nothing about the rule");
+        if (moved < EvadeWhileMoving.NowhereDistance)
+            return Fail($"a heading into a wall: the chosen controls {chosen.Desired.X:0.00},{chosen.Desired.Y:0.00} ({verdict.Choice}) moved the body {moved:0.0} px over the lookahead (at least {EvadeWhileMoving.NowhereDistance})");
+        Console.WriteLine($"evade never shoves a wall: refused {verdict.RefusedNowhere} headings for going nowhere and chose {chosen.Desired.X:0.00},{chosen.Desired.Y:0.00}, which moved the body {moved:0.0} px");
+        return 0;
     }
 
     /// <summary>
