@@ -8,7 +8,7 @@ using Terraria.ModLoader;
 using Preferences = live::AICompanion.Companion.PlayerIntegration.CompanionPreferences;
 using Policy = live::AICompanion.Companion.Brain.Activities.WorkPolicy;
 using Protection = live::AICompanion.Companion.Brain.Infrastructure.Interactions.WorldProtection.ProtectCompanionHomes;
-using Torches = live::AICompanion.Companion.Brain.Infrastructure.Interactions.Torch.PlaceSuppliedTorches;
+using Torches = live::AICompanion.Companion.Brain.Infrastructure.Interactions.Torch.PlaceTorches;
 using OreFinder = live::AICompanion.Companion.Brain.Infrastructure.Interactions.Mining.OreFinder;
 using RequestKind = live::AICompanion.Companion.Brain.Infrastructure.Position.RequestKind;
 
@@ -39,7 +39,7 @@ internal static class VerifyCompanionActivities
             ApproximateArrivalMustContinueApproaching();
             BedsProtectTheRoomAndItsBoundary();
             DoorsKeepTheWholeBedroomProtected();
-            TorchSupplyIsDebitedOnlyAfterPlacement();
+            TorchPlacementNeverUsesUpATorch();
             AmbientFallbackDoesNotInventSamples();
             AFamilyAllowanceDefersSiblingsFairly();
             TorchRecommendationsPreserveThePlayersCursor();
@@ -785,26 +785,40 @@ internal static class VerifyCompanionActivities
         finally { Main.screenPosition = position; Main.screenWidth = width; Main.screenHeight = height; }
     }
 
-    private static void TorchSupplyIsDebitedOnlyAfterPlacement()
+    /// <summary>
+    /// The companion's torches are its own (the owner's ruling, 15 September 2026): no placement uses up a torch. A handed
+    /// torch still decides the kind that goes in — the bag's first, then the player's — and with none anywhere it places an
+    /// ordinary torch. The game's own spacing and an occupied tile still refuse.
+    /// </summary>
+    private static void TorchPlacementNeverUsesUpATorch()
     {
         var (_, ctx) = VerifyOreWork.SetUp(Policy.Opportunistic, TileID.Copper, new Point(25, 59));
-        Item bagTorch = new(); bagTorch.SetDefaults(ItemID.Torch); bagTorch.stack = 2;
+        Item bagTorch = new(); bagTorch.SetDefaults(ItemID.PurpleTorch); bagTorch.stack = 2;
         Item playerTorch = new(); playerTorch.SetDefaults(ItemID.Torch); playerTorch.stack = 3;
         Item[] bag = { bagTorch };
         for (int i = 0; i < ctx.Player.inventory.Length; i++) ctx.Player.inventory[i] = new Item();
         ctx.Player.inventory[0] = playerTorch;
+        Require(bagTorch.placeStyle != playerTorch.placeStyle, "premise: the bag's torch and the player's torch are different kinds");
         Require(!Torches.Place(new Point(10, 30), bag, ctx.Player, out _) && bagTorch.stack == 2 && playerTorch.stack == 3,
-            "unsupported placement must consume no torch");
-        Require(Torches.Place(new Point(10, 59), bag, ctx.Player, out string source) && source == "companion bag" && bagTorch.stack == 1 && playerTorch.stack == 3,
-            "native floor placement must consume exactly one companion torch first");
+            "an unsupported placement places nothing and touches no torch");
+        Require(Torches.Place(new Point(10, 59), bag, ctx.Player, out string source) && source == "companion bag's torch"
+            && bagTorch.stack == 2 && playerTorch.stack == 3 && StyleAt(new Point(10, 59)) == bagTorch.placeStyle,
+            $"a floor placement puts in the bag's kind of torch and uses none up; source={source} bag={bagTorch.stack} player={playerTorch.stack} style={StyleAt(new Point(10, 59))}");
         bagTorch.TurnToAir();
-        Require(!Torches.Place(new Point(12, 59), bag, ctx.Player, out _) && playerTorch.stack == 3,
-            "Smart Cursor must reject a second torch within eight tiles without consuming it");
-        Require(Torches.Place(new Point(30, 59), bag, ctx.Player, out source) && source == "player inventory" && playerTorch.stack == 2,
-            "empty companion bag must use exactly one player torch");
-        Require(!Torches.Place(new Point(30, 59), bag, ctx.Player, out _) && playerTorch.stack == 2,
-            "already occupied placement must not consume another torch");
+        Require(!Torches.Place(new Point(12, 59), bag, ctx.Player, out _),
+            "Smart Cursor still refuses a second torch within its spacing");
+        Require(Torches.Place(new Point(30, 59), bag, ctx.Player, out source) && source == "player's torch" && playerTorch.stack == 3
+            && StyleAt(new Point(30, 59)) == playerTorch.placeStyle,
+            $"with the bag empty it puts in the player's kind of torch and uses none of his; source={source} player={playerTorch.stack}");
+        playerTorch.TurnToAir();
+        Require(Torches.Place(new Point(50, 59), bag, ctx.Player, out source) && source == "its own torch",
+            $"with no torch anywhere it still places a torch of its own; source={source}");
+        Require(!Torches.Place(new Point(50, 59), bag, ctx.Player, out _),
+            "an occupied tile takes no second torch");
     }
+
+    /// <summary>A torch tile's style is its row in the torch sheet, 22 pixels a row.</summary>
+    private static int StyleAt(Point tile) => Main.tile[tile.X, tile.Y].TileFrameY / 22;
 
     private static void DoorsKeepTheWholeBedroomProtected()
     {

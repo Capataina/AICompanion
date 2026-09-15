@@ -95,7 +95,7 @@ That means **the movement core's statics exist in two copies**, and a reset or a
 Three consequences that cost real time:
 
 - **A new file that one of the listed sources calls must be added to the list too.** The mod's own build compiles everything and passes; this project fails with the new name missing, and every run afterwards silently uses the previous binary.
-- **Types in a fixture are `live::`-qualified or they do not resolve.** `MovementQueries`, `CircleContact`, `OrbTerrain` and `PlaceSuppliedTorches` are the ones that bite, as CS0103.
+- **Types in a fixture are `live::`-qualified or they do not resolve.** `MovementQueries`, `CircleContact`, `OrbTerrain` and `PlaceTorches` are the ones that bite, as CS0103.
 - **Inside an interpolated string an alias-qualified expression must be parenthesised.** `{live::….Count}` compiles as the value `live` followed by a format specifier and fails with *"'&lt;global namespace&gt;' is a namespace but is used like a variable"* (CS0118); `{(live::….Count)}` is the expression. Hoisting the value into a local above the string is clearer than parenthesising and is what most fixtures now do. Search a file for `{live::` before building rather than finding each hole through its own compile error.
 
 One more C# shape costs a build every time it is written: `FormattableString.Invariant($"…" + $"…")` does not compile, because concatenating two interpolated strings yields a `string`. Write one interpolated string, or build the pieces into locals first.

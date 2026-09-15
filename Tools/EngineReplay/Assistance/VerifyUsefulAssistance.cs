@@ -17,7 +17,7 @@ using TorchBearer = live::AICompanion.Companion.Brain.Infrastructure.Interaction
 /// is no opportunity however deep the companion stands; a measured dark area is; a measured lit area is not.
 /// Carried light — the companion's shown torch, or a torch the player holds — does not make an area look lit,
 /// while the same light with nobody carrying it does. A site whose neighbourhood is already lit loses to one that
-/// is not. With no torch left, a dark area offers nothing to walk to.
+/// is not. The companion's torches are its own, so a dark area is worth a trip whether or not anyone carries one.
 /// </summary>
 internal static class VerifyUsefulAssistance
 {
@@ -33,7 +33,7 @@ internal static class VerifyUsefulAssistance
             Preferences.Current = new Preferences { TorchPlacement = true, PotBreaking = false };
             LightingReadsOnlyMeasuredDarkness();
             DistantDarkAirIsOfferedWhenFeetAreInLight();
-            Console.WriteLine("useful assistance: unmeasured light, measured dark and lit areas, carried torches, lit neighbourhoods, distant dark air and an exhausted supply pass");
+            Console.WriteLine("useful assistance: unmeasured light, measured dark and lit areas, carried torches, lit neighbourhoods, distant dark air and a dark area with no torch anywhere pass");
             return 0;
         }
         finally
@@ -80,8 +80,8 @@ internal static class VerifyUsefulAssistance
             $"world light in a disc must not hide dark air outside it; {ledger}");
         Require(playerHoldsTorch.Score > 0 && playerHoldsTorch.Eligibility == Offer.Usable,
             $"a torch the player holds lights the area only while it is carried there; {ledger}");
-        Require(exhaustedDark.Score == 0 && exhaustedDark.Target == null && exhaustedDark.Eligibility == Offer.KnownUnusable && exhaustedDark.Reason == "no-torch-supply",
-            $"with the last torch gone a dark area offers no trip; {ledger}");
+        Require(exhaustedDark.Score > 0 && exhaustedDark.Eligibility == Offer.Usable && exhaustedDark.Target != null,
+            $"the companion's torches are its own, so a measured dark area with no torch anywhere is still a lighting opportunity; {ledger}");
         Require(exhaustedUnmeasured.Score == 0 && exhaustedUnmeasured.Target == null,
             $"with no torch and nothing measured there is no phantom lighting trip; {ledger}");
 

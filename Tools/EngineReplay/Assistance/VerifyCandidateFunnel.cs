@@ -186,7 +186,7 @@ internal static class VerifyCandidateFunnel
     /// The player stands in a dark room holding a torch. The reference is the tile his own cursor would offer, worked out
     /// here from his reach box independently of the production code, read dark, and lighting's own stage for it is that it
     /// is offered or would pass every stage. The same room in daylight records the same tile read lit and refused as lit,
-    /// and with no torch anywhere there is no tile and the reason says why.
+    /// and with no torch anywhere the reference is still that tile, because the companion's torches are its own.
     /// </summary>
     private static void HisCursorsTileIsTheReference()
     {
@@ -222,8 +222,8 @@ internal static class VerifyCandidateFunnel
         ctx.Player.inventory[0] = new Item();
         var none = new LightUsefulArea();
         VerifyPreparedActivities.PrepareAndScore(none, ctx);
-        Require(none.PlayerReferenceTile is null && none.PlayerReferenceStage == "no-torch-supply",
-            $"with no torch anywhere there is no reference tile and the stage says why; reference={none.PlayerReferenceTile} stage={none.PlayerReferenceStage}");
+        Require(none.PlayerReferenceTile == his && none.PlayerReferenceStage == "lit",
+            $"with no torch anywhere the reference is still the tile his cursor would offer for an ordinary torch, refused as lit in daylight; expected={his} reference={none.PlayerReferenceTile} stage={none.PlayerReferenceStage}");
     }
 
     /// <summary>

@@ -7,7 +7,7 @@ NearbyAssistance/
 ├─ CLAUDE.md           activity purpose, method choice and evidence limits
 ├─ KeepCompany.cs      reunion, resting, nearby movement and sealed-pocket roaming
 ├─ CollectNearbyItems.cs known drops and uncertain pot-content opportunities
-├─ LightUsefulArea.cs   supplied permanent lighting offered through native placement rules
+├─ LightUsefulArea.cs   permanent lighting with the companion's own torches, offered through native placement rules
 └─ PerformNearbyWorldWork.cs shared pot/torch discovery, approach and interaction methods
 ```
 
@@ -71,7 +71,7 @@ After a torch is placed the activity keeps its job the way mining keeps a vein: 
 
 Both lighting and pots reach a site the way mining does: `FindToolAccess.Approach` answers the body's own centre when it already reaches the tile, and otherwise the nearest hoverable cell within the player's reach box whose centre has a line to an exposed face and whose tile the reach sense claims. A site the flood has finished without is refused as `interaction-site-has-no-return` and kept out of discovery while the flood that refused it answers; a site outside a finished flood's known radius is set aside the same way under its own name; a site a still-growing flood has not reached yet is re-asked. There is no hop, no take-off and no proof between choosing the hover and flying to it, because any hover the flood holds is one the orb can fly to; the arrival test is the tool's own reach box, the same for every tile-tool activity. Pot and torch operations recheck home protection at mutation rather than treating discovery permission as permanent.
 
-The shared interaction executor classifies a found candidate as usable and asks its subclass why a refused method is refused: lighting separates the torch setting (a prohibition) from an empty supply (known-unusable), and overrides `SearchRefusal` to name its gathering's exits where a pot still answers `no-candidate-in-search-window`; pot collection separates the pot setting from a full bag.
+The shared interaction executor classifies a found candidate as usable and asks its subclass why a refused method is refused: lighting's only refusal of that kind is the torch setting (a prohibition), because its torches never run out, and it overrides `SearchRefusal` to name its gathering's exits where a pot still answers `no-candidate-in-search-window`; pot collection separates the pot setting from a full bag.
 
 The hooks on the shared executor exist for a subclass that knows more than the executor does: `ContinueAfterInteraction` keeps a job after a productive interaction, `SearchRefusal` names why its gathering found nothing, `RefusingStage` names which of its candidate stages refused a tile (`Candidate` is that stage being null), `CandidateReadings` says what those stages read, and `SearchFunnel` hands the executor the funnel to fill. **The stand exits are not a subclass's to name.** The hook that let lighting name them, `NoteApproach`, was handed each site's verdict in turn and kept the last, so a stand beyond the known radius followed by a refused one reported the refused one's name, and a search the deadline cut reported that the flood had not settled while every site it had asked was proven.
 

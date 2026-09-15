@@ -43,7 +43,6 @@ public sealed class LightUsefulArea : PerformNearbyWorldWork, ICandidateFunnelSo
     protected override bool ContinueAfterInteraction => true;
 
     // Lighting's own candidate stages, in the order a tile meets them.
-    private const string StageNoSupply = "no-torch-supply";
     private const string StageOutsideWorkArea = "outside-work-area";
     private const string StageOccupied = "occupied-or-protected";
     private const string StageUnread = "light-unread";
@@ -53,7 +52,7 @@ public sealed class LightUsefulArea : PerformNearbyWorldWork, ICandidateFunnelSo
     /// <summary>What the last search did with each tile it looked at. Lit and unread tiles are recorded by the gathering
     /// scan, which is where they are refused; the rest by the executor.</summary>
     public CandidateFunnel Funnel { get; } = new(FunnelEntries,
-        StageAllowance, StageNoSupply, StageOccupied, StageUnread, StageLit, StagePlacerRefused,
+        StageAllowance, StageOccupied, StageUnread, StageLit, StagePlacerRefused,
         StageSearchCut, StageStandNotYetKnown, StageStandBeyondKnownRadius, StageStandUnreachable, CandidateFunnel.Offered);
     private const int FunnelEntries = 6;
     protected override CandidateFunnel? SearchFunnel => Funnel;
@@ -74,8 +73,8 @@ public sealed class LightUsefulArea : PerformNearbyWorldWork, ICandidateFunnelSo
     protected override bool Enabled(in ActionContext ctx)
     {
         MeasureArea(ctx);
-        return PlayerIntegration.CompanionPreferences.Current.TorchPlacement
-            && PlaceSuppliedTorches.Supply(ctx.Companion.Bag.Items, ctx.Player.inventory) != null;
+        // No supply check: the companion's torches are its own and never run out (the owner's ruling, 15 September 2026).
+        return PlayerIntegration.CompanionPreferences.Current.TorchPlacement;
     }
 
     private void MeasureArea(in ActionContext ctx)
@@ -140,7 +139,7 @@ public sealed class LightUsefulArea : PerformNearbyWorldWork, ICandidateFunnelSo
                 Tile tile = Main.tile[x, y];
                 if (tile.HasTile || tile.LiquidAmount > 0) continue;
                 Point p = new(x, y);
-                if (!RecommendTorchPlacement.MayAccept(p) || !PlaceSuppliedTorches.Candidate(p) || SearchTileDeferred(p)) continue;
+                if (!RecommendTorchPlacement.MayAccept(p) || !PlaceTorches.Candidate(p) || SearchTileDeferred(p)) continue;
                 placeable++;
                 var reading = light.ReadForPlacement(p, coverage);
                 float cost = CandidateCost(fromFeet, p);
@@ -184,8 +183,7 @@ public sealed class LightUsefulArea : PerformNearbyWorldWork, ICandidateFunnelSo
 
     protected override (OfferEligibility Eligibility, string Reason) DisabledOffer(in ActionContext ctx)
         => ctx.Player.dead ? (OfferEligibility.NoOpportunity, "player-dead")
-            : !PlayerIntegration.CompanionPreferences.Current.TorchPlacement ? (OfferEligibility.PolicyForbidden, "torch-placement-disabled")
-            : (OfferEligibility.KnownUnusable, "no-torch-supply");
+            : (OfferEligibility.PolicyForbidden, "torch-placement-disabled");
 
     /// <summary>
     /// Why the gathering found nothing to ask about. Nothing measured and a scan the deadline cut are unanswered
@@ -203,16 +201,15 @@ public sealed class LightUsefulArea : PerformNearbyWorldWork, ICandidateFunnelSo
     protected override bool Candidate(in ActionContext ctx, Point tile) => RefusingStage(ctx, tile) == null;
 
     /// <summary>
-    /// The stage that refuses a tile, in the order the search meets them: a torch to place, a tile the companion may
-    /// place into, light the engine computed, darkness there by the tile's own light, and the game's own torch step.
-    /// Unread is refused with lit: a place nobody has read is not a proven dark place, and a torch spent on it is spent
-    /// on a guess.
+    /// The stage that refuses a tile, in the order the search meets them: a tile the companion may place into, light the
+    /// engine computed, darkness there by the tile's own light, and the game's own torch step. There is no supply stage,
+    /// because the companion's torches never run out. Unread is refused with lit: a place nobody has read is not a proven
+    /// dark place, and a torch put there is put on a guess.
     /// </summary>
     protected override string? RefusingStage(in ActionContext ctx, Point tile)
     {
-        Item? torch = PlaceSuppliedTorches.Supply(ctx.Companion.Bag.Items, ctx.Player.inventory);
-        if (torch == null) return StageNoSupply;
-        if (!PlaceSuppliedTorches.Candidate(tile)) return StageOccupied;
+        Item torch = PlaceTorches.TorchToPlace(ctx.Companion.Bag.Items, ctx.Player.inventory);
+        if (!PlaceTorches.Candidate(tile)) return StageOccupied;
         var reading = ctx.Senses.Light.ReadForPlacement(tile, searchCoverage ?? LightSense.Coverage.Current());
         if (reading.Light == LightSense.PlacementLight.Unread) return StageUnread;
         if (!reading.IsDark) return StageLit;
@@ -231,7 +228,7 @@ public sealed class LightUsefulArea : PerformNearbyWorldWork, ICandidateFunnelSo
 
     protected override bool Perform(in ActionContext ctx, Point tile)
     {
-        bool placed = PlaceSuppliedTorches.Place(tile, ctx.Companion.Bag.Items, ctx.Player, out string source);
+        bool placed = PlaceTorches.Place(tile, ctx.Companion.Bag.Items, ctx.Player, out string source);
         Infrastructure.Diagnostics.GodsEyeEvents.RecordWorldInteraction(ctx.Npc, tile, placed ? "place-torch" : "placement-refused", PerformNote + source);
         return placed;
     }
@@ -248,7 +245,7 @@ public sealed class LightUsefulArea : PerformNearbyWorldWork, ICandidateFunnelSo
     private ulong nextReference;
 
     /// <summary>The tile the player's own smart cursor would offer for the torch the companion would place, with the
-    /// cursor at his centre; null when his reach holds none, or there is no torch.</summary>
+    /// cursor at his centre; null when his reach holds none.</summary>
     public Point? PlayerReferenceTile { get; private set; }
 
     /// <summary>What that tile's own light reads to the placement question; null with no tile.</summary>
@@ -264,9 +261,8 @@ public sealed class LightUsefulArea : PerformNearbyWorldWork, ICandidateFunnelSo
         nextReference = Main.GameUpdateCount + ReferenceTicks;
         PlayerReferenceTile = null;
         PlayerReferenceReading = null;
-        Item? torch = PlaceSuppliedTorches.Supply(ctx.Companion.Bag.Items, ctx.Player.inventory);
+        Item torch = PlaceTorches.TorchToPlace(ctx.Companion.Bag.Items, ctx.Player.inventory);
         if (ctx.Player.dead) { PlayerReferenceStage = "player-dead"; return; }
-        if (torch == null) { PlayerReferenceStage = StageNoSupply; return; }
         if (RecommendTorchPlacement.PlayerCursorTorch(ctx.Player, torch) is not Point tile)
         {
             PlayerReferenceStage = "cursor-offers-nothing";
