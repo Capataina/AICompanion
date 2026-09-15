@@ -84,8 +84,7 @@ internal static class VerifyResponsiveFollowing
         // first failure takes every row after it: ordering the specific rows first means a change
         // that breaks the pull is reported as the pull rather than as a walk that came in low, and
         // the walk's own row is not the only thing anybody sees.
-        VerifyATravellingPlayerIsKeptUpWithFromInsideTheRegion();
-        VerifyTheReunionCurveHasNoStepAtTheRegionsEdge();
+        VerifyTheRejoinPullIsZeroInsideTheRegionAndHasNoStepAtItsEdge();
         VerifyTheCompanionLeadsATravellingPlayer();
         VerifyAClimbingPlayerGrowsTheRegionUpwards();
         VerifyAGroundedTickOnSlopedGroundEntersSatisfaction();
@@ -339,7 +338,12 @@ internal static class VerifyResponsiveFollowing
         Player player = Main.player[0];
         player.dead = false;
         player.position = new Vector2(54 * 16, 80 * 16 - player.height);
-        companion.NPC.position = new Vector2(46 * 16, 80 * 16 - companion.NPC.height);
+        // Restated when rejoining became a measure from the player's region: the companion used to stand eight tiles away,
+        // inside the region, and the row passed through a floor that raised rejoining whenever sight was lost. Losing sight
+        // is not distance, so that floor is gone and a companion inside the region is given no rejoin pull at all. What the
+        // row protects — a closed door does not veto a destination on the player's side — is asked where rejoining is
+        // asked, so the companion now starts beyond the region's edge with the door still between them.
+        companion.NPC.position = new Vector2(30 * 16, 80 * 16 - companion.NPC.height);
         for (int y = 77; y < 80; y++)
         {
             Tile door = Main.tile[50, y];
@@ -353,8 +357,10 @@ internal static class VerifyResponsiveFollowing
             player.position, player.width, player.height), "closed-door fixture must occlude the player");
         VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
         companion.AI();
+        Require(companion.Brain.Senses.Intent.Region.GapBeyond(companion.NPC.Center) > 0,
+            $"the occluded-player fixture must start the companion beyond the player's region; half={companion.Brain.Senses.Intent.Region.HalfSize} gap={companion.Brain.Senses.Intent.Region.GapBeyond(companion.NPC.Center)}");
         Require(companion.Brain.LastRequest.Kind == RequestKind.WithPlayer,
-            "nearby occluded player must still request following");
+            $"an occluded player beyond the region must still request following; kind={companion.Brain.LastRequest.Kind} action={companion.Brain.LastAction?.Name} half={companion.Brain.Senses.Intent.Region.HalfSize} gap={companion.Brain.Senses.Intent.Region.GapBeyond(companion.NPC.Center)}");
         // A closed door is a wall to the orb's flood, so no candidate on the player's side is reachable and
         // the positioner chooses nothing; a follow request with nothing chosen aims the navigator at the
         // anchor itself, which is how the body reaches the door for the door interaction to open. Either
@@ -696,35 +702,18 @@ internal static class VerifyResponsiveFollowing
     }
 
     /// <summary>
-    /// The reunion curve has no step anywhere, sampled a pixel at a time straight out through the
-    /// region's own leading edge at the screen the game builds the region at.
+    /// The rejoin pull measured on the live region of a running player: exactly zero at every sampled point inside the
+    /// rectangle, no one-pixel step anywhere along a line out through its edge, and never above the far cap however far
+    /// out the line goes short of the hard leash.
     ///
-    /// <para>The claim was made in prose and held only headless, where the clamp floor keeps the lead
-    /// short enough that the two halves of the curve nearly meet by accident. At a play-sized screen
-    /// the lead is longer, so a companion standing on the leading edge is further from the player's
-    /// body — and the outside slope used to be measured on exactly that distance, so it was already
-    /// partway up at the boundary where the inside gradient tops out, and the curve jumped. The jump
-    /// grew with the lead, which is to say with the screen, which is why no headless row could see
-    /// it. The slope is measured on the gap beyond the region now, so it starts at zero where the
-    /// inside gradient finishes.</para>
-    ///
-    /// <para>Sampled rather than reasoned about: the assertion is that no one-pixel step along the
-    /// curve exceeds what a one-pixel step can account for on either half, which is a bound on the
-    /// steeper of the two gradients and not a number chosen to pass.</para>
-    ///
-    /// <para><b>The player runs, and that is the premise rather than a detail.</b> The step's size is
-    /// the lead's length: measured body-to-body the slope reads the lead plus a half-width at the
-    /// leading edge, and subtracting the region's own width leaves exactly the lead. So at a walking
-    /// pace the old slope reached about 0.18 at the edge against a central pull of 0.25 and there was
-    /// no step to find — planting the old rule back under a walking player leaves this row green,
-    /// measured. It takes a lead near seven hundred pixels before the outside slope overtakes the
-    /// inside gradient, which is a player with movement accessories on, and that lead only exists at
-    /// all because the clamp is half a real screen: the headless floor caps it at a third of that and
-    /// caps the defect with it. This row is therefore impossible to write without declaring the
-    /// screen, and it asserts the clamp it is standing on so that it fails rather than quietly
-    /// weakens if the declaration is ever removed.</para>
+    /// <para>The row it replaces sampled a curve with two halves, a central gradient inside and a slope outside, and asserted
+    /// they met without a step. The owner ruled on 15 September 2026 that there is no pull anywhere inside the region, so the
+    /// central half and the row that kept it alive went, and what is left to hold is simpler and stricter: the inside is flat
+    /// zero, the outside starts from zero at the edge, and the whole curve stops at the cap, because rejoining is the fallback
+    /// and never on its own outweighs a job genuinely worth doing. The player runs so the region is led and grown, which is
+    /// the shape the edge is hardest to get right in.</para>
     /// </summary>
-    private static void VerifyTheReunionCurveHasNoStepAtTheRegionsEdge()
+    private static void VerifyTheRejoinPullIsZeroInsideTheRegionAndHasNoStepAtItsEdge()
     {
         BuildLongFloor();
         var companion = VerifyCompanionLifecycle.Create();
@@ -733,8 +722,6 @@ internal static class VerifyResponsiveFollowing
         player.Bottom = new Vector2(240f, 1280f);
         companion.NPC.Bottom = new Vector2(240f, 1280f);
         companion.NPC.velocity = Vector2.Zero;
-        // A running pace rather than a walking one. The lead is a duration times the player's own
-        // observed speed, so this is what asks for the long lead the step lives in.
         const float RunningSpeed = 6f;
         for (int tick = 0; tick < 600; tick++)
         {
@@ -743,106 +730,38 @@ internal static class VerifyResponsiveFollowing
             VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
             companion.Brain.Senses.Update(companion.NPC, player, companion.Motor);
         }
-        var objective = companion.Brain.Senses.Intent.Objective;
         var region = companion.Brain.Senses.Intent.Region;
-        Require(companion.Brain.Senses.Player.IsTravelling,
-            "the curve row needs a travelling player, or the central half of it is zero by definition");
-        // The premise, in two parts, because either one missing makes the row green for free.
-        // First: the lead must be long enough that a body-to-body slope would overtake the inside
-        // gradient at the edge. That is the step, and a shorter lead simply has not got one.
-        float leadLength = region.Lead.Length();
-        float inner = MathF.Max(region.HalfSize.X, region.HalfSize.Y);
-        float span = MathF.Max(1f, live::AICompanion.Companion.PlayerIntegration.CompanionPreferences.Current.RecoveryRadius - inner);
-        float wouldStepTo = MathF.Min(1f, leadLength / span);
-        float centralAtEdge = live::AICompanion.Companion.Brain.Infrastructure.Selection.Weights.IntentRegionCentralPull;
-        Require(wouldStepTo > centralAtEdge * 1.2f, FormattableString.Invariant(
-            $"the scene must lead far enough for a step to exist at all: lead={leadLength:F0}px would put a body-relative slope at {wouldStepTo:F3} against a central pull of {centralAtEdge:F3} at the edge"));
-
-        float worstStep = 0f;
-        float worstAt = 0f;
-        float previous = live::AICompanion.Companion.Brain.Activities.NearbyAssistance.KeepCompany
-            .GeometricPull(objective, new Vector2(region.Centre.X, region.Centre.Y), true);
-        // Straight out along the lead, from the centre to well past the edge.
-        for (float offset = 1f; offset <= region.HalfSize.X * 3f; offset += 1f)
-        {
-            Vector2 feet = new(region.Centre.X + offset, region.Centre.Y);
-            float here = live::AICompanion.Companion.Brain.Activities.NearbyAssistance.KeepCompany
-                .GeometricPull(objective, feet, true);
-            float step = MathF.Abs(here - previous);
-            if (step > worstStep) { worstStep = step; worstAt = offset; }
-            previous = here;
-        }
-        // What one pixel can legitimately buy on the steeper of the two halves. Inside, the pull
-        // spans the central weight over a half-width; outside, it spans one over the slope's length.
-        float inside = live::AICompanion.Companion.Brain.Infrastructure.Selection.Weights.IntentRegionCentralPull / region.HalfSize.X;
-        float outside = 1f / MathF.Max(1f, live::AICompanion.Companion.PlayerIntegration.CompanionPreferences.Current.RecoveryRadius
+        Require(companion.Brain.Senses.Player.IsTravelling && region.Lead.Length() > 100f, FormattableString.Invariant(
+            $"the curve row needs a led region, or its edge is the easy case: lead={region.Lead}"));
+        float cap = live::AICompanion.Companion.Brain.Infrastructure.Selection.Weights.KeepCompanyFarCap;
+        float leash = live::AICompanion.Companion.Brain.Infrastructure.Selection.Weights.LeashHard;
+        float span = MathF.Max(1f, live::AICompanion.Companion.PlayerIntegration.CompanionPreferences.Current.RecoveryRadius
             - MathF.Max(region.HalfSize.X, region.HalfSize.Y));
-        float allowed = MathF.Max(inside, outside) * 1.5f;
-        Console.WriteLine(FormattableString.Invariant(
-            $"reunion curve: worst one-pixel step {worstStep:F5} at {worstAt:F0}px from the centre (edge at {region.HalfSize.X:F0}px), one pixel buys at most {allowed:F5}"));
-        Require(worstStep <= allowed, FormattableString.Invariant(
-            $"the reunion curve must have no step: worst one-pixel change {worstStep:F5} at {worstAt:F0}px from the centre, region half-width {region.HalfSize.X:F1}px, a pixel buys at most {allowed:F5}"));
-    }
-
-    /// <summary>
-    /// What the central pull is for, as the one row that dies without it: a companion already settled
-    /// inside the region beside a player who is still walking must want to keep up with him, not
-    /// stroll where it stands.
-    ///
-    /// <para>The constant had no row of its own. Deleting it left the straight walk green, because
-    /// the lead alone puts the body ahead often enough to pass a half-the-rows line, so the pull was
-    /// live with nothing measuring it. This scene removes the lead's help deliberately: the body is
-    /// placed inside the region and held grounded there until arrival is settled, which zeroes the
-    /// regroup urgency and satisfies the objective, so every reason to move except the pull itself
-    /// has been taken away. With the pull the offer is a reunion; with it at zero the wander floor is
-    /// the largest thing left and the companion strolls beside a departing player, which is the
-    /// behaviour the region was built to end.</para>
-    /// </summary>
-    private static void VerifyATravellingPlayerIsKeptUpWithFromInsideTheRegion()
-    {
-        BuildLongFloor();
-        var companion = VerifyCompanionLifecycle.Create();
-        var brain = companion.Brain;
-        Player player = Main.player[0];
-        player.dead = false;
-        player.Bottom = new Vector2(240f, 1280f);
-        companion.NPC.Bottom = new Vector2(240f, 1280f);
-        companion.NPC.velocity = Vector2.Zero;
-        var company = brain.Chooser.Actions.OfType<live::AICompanion.Companion.Brain.Activities.NearbyAssistance.KeepCompany>().Single();
-        var context = new live::AICompanion.Companion.Brain.Activities.ActionContext(companion, brain.Senses);
-        // The body is held at a fixed share of the way out from the region's centre, on the ground,
-        // while the player walks. Holding the share rather than the pixel keeps the pull constant as
-        // the region travels, so the streak settles at a known point on the curve rather than at
-        // whatever the body drifted to.
-        const float Share = 0.8f;
-        float pull = 0f;
-        for (int tick = 0; tick < 420; tick++)
+        float allowed = 1.5f / span;
+        float worstStep = 0f, worstAt = 0f, highest = 0f, insideMax = 0f;
+        int insideSamples = 0;
+        foreach (Vector2 direction in new[] { new Vector2(1, 0), new Vector2(-1, 0), new Vector2(0, -1), new Vector2(0, 1), Vector2.Normalize(new Vector2(1, -1)) })
         {
-            player.velocity = new Vector2(2.4f, 0f);
-            player.Bottom += player.velocity;
-            VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
-            var region = brain.Senses.Intent.Region;
-            companion.NPC.Bottom = new Vector2(region.Centre.X - region.HalfSize.X * Share, 1280f);
-            companion.NPC.velocity = Vector2.Zero;
-            brain.Senses.Update(companion.NPC, player, companion.Motor);
-            pull = brain.Senses.Intent.Region.Pull(companion.NPC.Bottom);
+            float previous = live::AICompanion.Companion.Brain.Activities.NearbyAssistance.KeepCompany.RejoinPull(region, region.Centre);
+            for (float offset = 1f; offset <= leash; offset += 1f)
+            {
+                Vector2 point = region.Centre + direction * offset;
+                float here = live::AICompanion.Companion.Brain.Activities.NearbyAssistance.KeepCompany.RejoinPull(region, point);
+                if (region.Contains(point)) { insideSamples++; insideMax = MathF.Max(insideMax, here); }
+                highest = MathF.Max(highest, here);
+                float step = MathF.Abs(here - previous);
+                if (step > worstStep) { worstStep = step; worstAt = offset; }
+                previous = here;
+            }
         }
-        Require(brain.Senses.Player.IsTravelling, "the player must read as travelling, or the central pull is zero by definition");
-        Require(brain.Senses.Intent.Settled, FormattableString.Invariant(
-            $"the body must have settled inside the region, or regrouping rather than the pull is what is being measured: resting-inside ticks={brain.Senses.Intent.RestingInsideTicks}"));
-        Require(pull > 0.5f && pull <= 1f, FormattableString.Invariant(
-            $"the body must sit well out from the centre and inside the edge, or the pull under test is near zero: pull={pull:F3}"));
-        Require(brain.Chooser.RegroupUrgency <= live::AICompanion.Companion.Brain.Infrastructure.Selection.Weights.WanderFloor,
-            FormattableString.Invariant(
-                $"a settled body must carry no regroup urgency, or that and not the pull is what beats the wander floor: urgency={brain.Chooser.RegroupUrgency:F3}"));
-        company.Prepare(context);
-        float floor = live::AICompanion.Companion.Brain.Infrastructure.Selection.Weights.WanderFloor;
         Console.WriteLine(FormattableString.Invariant(
-            $"central pull: settled at pull {pull:F3} beside a travelling player, keeping company offers {company.EligibilityReason} at {company.Score():F3} against a wander floor of {floor:F3}"));
-        Require(company.Score() > floor, FormattableString.Invariant(
-            $"a settled companion beside a travelling player must be worth more than standing about: value={company.Score():F3} floor={floor:F3} pull={pull:F3}"));
-        Require(company.EligibilityReason == "reunion-method", FormattableString.Invariant(
-            $"a travelling player must be kept up with rather than strolled beside: method={company.EligibilityReason} value={company.Score():F3} pull={pull:F3}"));
+            $"rejoin pull: {insideSamples} samples inside the region, highest there {insideMax:F5}; worst one-pixel step {worstStep:F5} at {worstAt:F0}px, a pixel buys at most {allowed:F5}; highest anywhere short of the leash {highest:F3} against a cap of {cap:F3}"));
+        Require(insideSamples > 0 && insideMax == 0f, FormattableString.Invariant(
+            $"there is no pull anywhere inside the region: highest inside {insideMax:F5} over {insideSamples} samples"));
+        Require(worstStep <= allowed, FormattableString.Invariant(
+            $"the rejoin pull must have no step: worst one-pixel change {worstStep:F5} at {worstAt:F0}px, a pixel buys at most {allowed:F5}"));
+        Require(highest <= cap + 1e-5f, FormattableString.Invariant(
+            $"the rejoin pull must never exceed the far cap short of the hard leash: highest {highest:F4} against {cap:F4}"));
     }
 
     /// <summary>

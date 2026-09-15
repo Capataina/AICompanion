@@ -339,12 +339,13 @@ public static class Weights
 
     public const float WanderFloor = 0.05f;
     /// <summary>
-    /// The ceiling of far reunion pull. It sat at 0.8 while the walking body under-acted, so a proven job further
-    /// across the screen could still win; the orb over-acts far from the player instead, so the owner put it back at
-    /// 1 on 15 September 2026, and a companion far enough outside the player's region now wants to rejoin as much as
-    /// any job can be worth. The hard leash at fly-home distance is a separate step and still drops everything.
+    /// The most rejoining the player can be worth short of the hard leash, and the most a job's separation can take from it.
+    /// The owner ruled 0.5 after the third orb play of 15 September 2026, where rejoining at the full value any job can have
+    /// out-bid a slime hunt beside an idle player: keeping company is the fallback for when nothing is worth doing, so on its
+    /// own it never outweighs a job genuinely worth doing, and only the hard leash at fly-home distance, a separate step,
+    /// takes everything.
     /// </summary>
-    public const float KeepCompanyFarCap = 1f;
+    public const float KeepCompanyFarCap = .5f;
     public const float FollowIntentDistance = 140f;
     public const float RegroupFullDistance = 640f;
     public const float RegroupFreeReturnTicks = 60f;
@@ -527,17 +528,6 @@ public static class Weights
     /// the base scale.
     /// </summary>
     public const float IntentRegionGrowthCap = .25f;
-
-    /// <summary>
-    /// The pull keeping company reads while the companion is inside the region and the player is
-    /// travelling, at the region's edge; it scales to nothing at the centre. It is the gradient the
-    /// old box did not have: a flat zero inside meant a moving player was never a reason to move,
-    /// so the body coasted to whichever edge it entered by and any rival offer won. It sits above
-    /// <see cref="WanderFloor"/>, or a travelling player would be strolled beside rather than kept
-    /// up with, and well below <see cref="KeepCompanyFarCap"/> and any proven job's value, so
-    /// walking with a moving player still loses to work worth stopping for.
-    /// </summary>
-    public const float IntentRegionCentralPull = .25f;
 
     /// <summary>
     /// How long the body must be at rest inside the region before following reads as satisfied, and

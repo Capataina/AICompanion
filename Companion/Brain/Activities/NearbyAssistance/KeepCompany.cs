@@ -116,56 +116,53 @@ public sealed class KeepCompany : CompanionAction
     private int pendingTicks = Weights.PositionRescoreTicks;
 
     /// <summary>
-    /// How strongly the geometry alone asks for reunion, as one continuous curve from the region's
-    /// centre outward. Pure and internal so the contract can be sampled either side of the region's
-    /// edge directly, rather than inferred from a whole-brain walk that would also have to arrange
-    /// sight, regrouping and a stranded body to see it.
+    /// How strongly a place outside the player's region asks to be with him again: exactly zero anywhere inside the
+    /// rectangle, rising with the gap beyond its edge over the span out to fly-home distance, and capped at
+    /// <see cref="Weights.KeepCompanyFarCap"/>. Pure and public because it is one pull in two uses — keeping company's
+    /// rejoin value at the body, and the separation every job pays at its stand — and a second copy of the curve is how
+    /// the two would drift apart.
     ///
-    /// <para>Inside, the pull scales with the region's own normalised distance and reaches the
-    /// central-pull weight at the edge. A flat zero inside was the whole of the never-overtakes
-    /// defect: the box had no gradient, so a moving player was not itself a reason to move, the body
-    /// coasted to whichever edge it entered by, and keeping company scored its wander floor where any
-    /// rival offer beat it.</para>
-    ///
-    /// <para>Outside, the slope rises over the same span it always did, but it is measured on how far
-    /// beyond the region's edge the body is rather than on how far it is from the player's body. That
-    /// is what removes the step. Measured body-to-body the slope was already partway up at the
-    /// region's own leading edge, because a companion standing exactly where the region asks is a
-    /// lead plus a half-width from the player — so the curve jumped at the one boundary it had to be
-    /// continuous across, and the size of the jump grew with the lead, which is to say with the
-    /// screen. The two halves now meet at zero-beyond-the-edge, where the inside gradient is at its
-    /// largest, so <c>max</c> of the two is continuous rather than a choice between two regimes; the
-    /// ternary that used to pick between them is gone because there is nothing left to pick.</para>
+    /// <para>There is no pull inside the region, and that is the owner's ruling rather than an absence of design. The inside
+    /// gradient that stood here until 15 September 2026 existed because the old box was where a body arrived and stopped, so
+    /// a travelling player had to be a reason to move; the region is now where the companion lives and moves about, carried
+    /// by the region's own velocity, so a pull inside it would only drag a busy companion toward a centre nobody asked it to
+    /// sit at. Measured on the gap beyond the edge, the curve starts at zero where the region ends and has no step there.</para>
     /// </summary>
-    public static float GeometricPull(in FollowPlayerObjective objective, Vector2 feet, bool travelling)
+    public static float RejoinPull(in PlayerIntentRegion region, Vector2 point)
+        => MathF.Min(Weights.KeepCompanyFarCap, PullBeyond(region, point));
+
+    /// <summary>
+    /// The slope under <see cref="RejoinPull"/> before its cap: zero anywhere inside the region, rising with the gap beyond
+    /// its edge, and reaching one at fly-home distance beyond it, where the companion would lose the player altogether. The
+    /// cap belongs to rejoining's value and not to the distance: a job's separation reads this uncapped, because the ruling
+    /// that rejoining never on its own outweighs a job genuinely worth doing is about what rejoining is worth, while the
+    /// ruling that the pull takes all of the companion's attention at the distance where it would lose him is about how far
+    /// is far. Capped for the job as well, a fight the player has dropped four hundred pixels away from lost only half its
+    /// worth, and the discount on following while useful work exists took four fifths of rejoining's, so the orb stayed.
+    /// </summary>
+    public static float PullBeyond(in PlayerIntentRegion region, Vector2 point)
     {
-        float inner = MathF.Max(objective.HorizontalComfort, objective.VerticalComfort);
-        float outer = MathF.Max(inner + 1f, PlayerIntegration.CompanionPreferences.Current.RecoveryRadius);
-        float central = travelling ? Weights.IntentRegionCentralPull * MathF.Min(1f, objective.Pull(feet)) : 0f;
-        float far = Consideration.Rising(objective.GapBeyond(feet), outer - inner);
-        return MathF.Max(central, far);
+        float inner = MathF.Max(region.HalfSize.X, region.HalfSize.Y);
+        float span = MathF.Max(1f, PlayerIntegration.CompanionPreferences.Current.RecoveryRadius - inner);
+        return Consideration.Rising(region.GapBeyond(point), span);
     }
 
+    /// <summary>
+    /// Rejoining's value: the larger of the pull and the regroup urgency, capped, beside the separate hard leash at fly-home
+    /// distance that still takes everything. Losing sight of the player and sitting in a passage he walks down each used to
+    /// floor this at 0.3; both were hand-written stand-ins for distance, and neither is distance — a companion behind a
+    /// pillar inside his region is with him, and courtesy is answered where the companion's place in the region is chosen.
+    /// </summary>
     private float CalculateReunionValue(in ActionContext ctx)
     {
         var p = ctx.Senses.Player;
         if (p.IsDead)
             return 0f;
-        var objective = ctx.Senses.Intent.Objective;
         float hardLeash = Consideration.Step(ctx.Senses.DistanceToPlayer > Weights.LeashHard, 1f, 0f);
         float stranded = ctx.Stranded ? Weights.StrandedFollowDiscount : 1f;
         float regroup = ctx.Companion.Brain.Chooser.RegroupUrgency;
-        bool seen = global::AICompanion.Companion.Brain.Infrastructure.Observation.LineOfSight.Between(ctx.Npc, ctx.Player);
-        bool blocking = p.Interference is Rectangle footprint
-            && PlayerSense.BodyTiles(ctx.Npc.Bottom, ctx.Npc.width, ctx.Npc.height).Intersects(footprint);
-        float pull = GeometricPull(objective, ctx.Npc.Bottom, p.IsTravelling);
-        if (!seen)
-            pull = MathF.Max(pull, 0.3f);
-        // Occupying a passage the player is walking is not "already with them": the slope from the
-        // comfort box stays at zero while they overlap, and resting would park in the way. A still
-        // player aiming a block is the other courtesy, and that one steps aside without a reunion.
-        if (blocking && p.IsTravelling)
-            pull = MathF.Max(pull, 0.3f);
+        // The body's centre, because the orb is its centre; the walker's feet point sat a radius under it.
+        float pull = RejoinPull(ctx.Senses.Intent.Region, ctx.Npc.Center);
         float demand = MathF.Min(Weights.KeepCompanyFarCap, MathF.Max(pull, regroup));
         return MathF.Max(demand, hardLeash) * stranded;
     }

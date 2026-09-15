@@ -12,8 +12,20 @@ Assistance/
 ├─ VerifyCollectionContracts.cs   a drop is claimed only for what arrived
 ├─ VerifyCapabilityRevision.cs    a capability change reaches the next preparation
 ├─ VerifyCompanyLocalMotion.cs    strolling without walking into hazards
-└─ VerifyCourtesy.cs              getting out of the player's way, and staying out
+├─ VerifyCourtesy.cs              getting out of the player's way, and staying out
+└─ VerifyCompanyIsTheFallback.cs  keeping company loses to a job worth doing and wins only against nothing
 ```
+
+## Keeping company is the fallback, measured on the native brain
+
+`VerifyCompanyIsTheFallback` holds the ruling that keeping company is what the companion does when nothing is worth doing, never a job that out-competes one. The scene hands the companion a wooden bow and declares a play-sized screen that follows the player, so the new-job radius and the intent region are the ones play builds. Four rows, each printing its numbers before its verdict:
+
+- a slime above an idle player is hunted within a bound of ticks, rather than hovered beside;
+- the same slime, starting past the new-job radius and moving away, is never hunted;
+- keeping company's raw value, sampled out to just short of the hard leash, stays at or under the far cap and strictly below what the leash takes past it. The second comparison exists because the first reads the constant it guards: a cap raised back to one passed the first unchanged, and only the second went red;
+- inside the region with a column between the orb and the player, keeping company is worth only the floor, because losing sight of the player is not distance.
+
+It does not establish the hunt's own stand refusals seen in play, or how the companion moves inside the region.
 
 ## The two senses, and why every row is written to fail on the code before them
 

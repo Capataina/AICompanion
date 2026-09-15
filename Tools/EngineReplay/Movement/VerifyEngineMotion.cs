@@ -115,6 +115,7 @@ internal static class VerifyEngineMotion
         ("an assistance trip goes and returns", VerifyAssistanceTrips.Run),
         ("the light and reach senses answer in three values", VerifyLightAndReachSenses.Run),
         ("keeping company strolls without walking into hazards", VerifyCompanyLocalMotion.Run),
+        ("keeping company is the fallback: a slime worth hunting is hunted, a far one is not, rejoining is capped and sight is not distance", VerifyCompanyIsTheFallback.Run),
         ("an immunity change invalidates what depended on it", VerifyCapabilityRevision.Run),
         ("a closed door is opened rather than treated as a wall", VerifyDoorPassage.Run),
         ("courtesy stillness does not depend on what ran before", VerifyCourtesy.Run),

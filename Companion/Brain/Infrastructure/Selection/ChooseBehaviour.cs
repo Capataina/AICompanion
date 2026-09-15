@@ -99,21 +99,15 @@ public sealed class Chooser
             EstimatedReturnTicks = MathF.Max(EstimatedReturnTicks, navigator.RemainingEstimatedRouteTicks);
         float movingAway = delta.LengthSquared() > 1f ? Microsoft.Xna.Framework.Vector2.Dot(ctx.Senses.Player.Intent, Microsoft.Xna.Framework.Vector2.Normalize(delta)) : 0f;
         Reunion.Evaluate(movingAway, EstimatedReturnTicks, ctx.Senses.Player.IsDead, ctx.Stranded);
+        // Regrouping is measured on the gap beyond the region's rectangle, like every other separation, so it is exactly
+        // zero anywhere inside the region: the owner ruled there is no pull there, whatever the body is doing and whatever a
+        // route round a thin wall would cost. The travel pressure below is gated the same way for the same reason.
+        float gapBeyond = region.GapBeyond(ctx.Npc.Center);
+        bool insideRegion = gapBeyond <= 0f;
         RegroupUrgency = ctx.Senses.Player.IsDead ? 0f : Infrastructure.Observation.CalculateRegroupUrgency.Evaluate(
-            // Centre to centre, as before, with the player's centre moved along by the region's lead, which
-            // is the region's heading: the urgency curve subtracts the comfortable distance itself, so
-            // handing it a distance that is already zero inside the region would subtract the comfort twice
-            // and leave a companion a whole comfort width outside the box with no return pressure at all.
-            Microsoft.Xna.Framework.Vector2.Distance(ctx.Npc.Center, region.Heading),
-            EstimatedReturnTicks, movingAway, navigator.StuckTicks,
-            Weights.FollowHorizontalComfort * PlayerIntegration.CompanionPreferences.Current.FollowComfortScale,
+            gapBeyond, EstimatedReturnTicks, movingAway, navigator.StuckTicks, MathF.Max(region.HalfSize.X, region.HalfSize.Y),
             Weights.RegroupFullDistance, Weights.RegroupFreeReturnTicks, Weights.RegroupFullReturnTicks);
-        Microsoft.Xna.Framework.Vector2 followAnchor = ctx.Companion.Brain.Meeting.Anchor;
-        if (followAnchor == Microsoft.Xna.Framework.Vector2.Zero) followAnchor = region.LeadingEdge;
-        var follow = ctx.Senses.Intent.Objective.At(followAnchor);
-        bool arrived = follow.IsSatisfied(ctx.Npc.Center, Infrastructure.Observation.LineOfSight.Between(ctx.Npc, ctx.Player));
-        if (arrived) RegroupUrgency = 0f;
-        if (!ctx.Senses.Player.IsDead && !arrived)
+        if (!ctx.Senses.Player.IsDead && !insideRegion)
         {
             // A nearby player behind a floor can have a long route. Geometric closeness must
             // not suppress measured return pressure when companionship is still unsatisfied.
@@ -137,10 +131,15 @@ public sealed class Chooser
             float forecast = raw > 0 ? action.ForecastTicks() : 0;
             float taskTicks = raw > 0 ? action.TaskTicks() : 0;
             var site = action.ActivityTarget;
-            float fit = raw > 0 && site is { } place ? PlayerFit(context, place, MathF.Max(forecast, taskTicks)) : 1f;
+            float duration = MathF.Max(forecast, taskTicks);
+            float fit = raw > 0 && site is { } place ? PlayerFit(context, place, duration) : 1f;
+            // Where the job keeps the body: an excursion's site, or where the body already is for a job done from here —
+            // a hunt shooting from where the orb hovers pays for being outside the region only if the orb is.
+            float separation = raw > 0 && site is { } at
+                ? Separation(context, action.IsExcursion ? at : context.Npc.Center, duration) : 1f;
             prepared[i] = new(i, action.Name, raw, forecast,
                 action.IsExcursion, site != null, action is KeepCompany, action == Current, action.Eligibility,
-                action.Family == PurposeFamily.Combat, taskTicks, site, fit, action.ServesPlayerDirectly);
+                action.Family == PurposeFamily.Combat, taskTicks, site, fit, action.ServesPlayerDirectly, separation);
             bindings[i] = ValidatePreparedActivity.Capture(action);
         });
         for (int i = 0; i < Actions.Count; i++)
@@ -222,7 +221,7 @@ public sealed class Chooser
             // standing shrinks the ground in front of him as he walks into it.
             Microsoft.Xna.Framework.Vector2.Distance(ctx.Npc.Bottom, ctx.Senses.Intent.Region.Centre)
                 <= PlayerIntegration.CompanionPreferences.Current.ActiveActivityRadius,
-            Weights.FollowDuringUsefulWork, Reunion.DelayCostPerTick, ctx.Senses.Encounter.Intensity,
+            Weights.FollowDuringUsefulWork, ctx.Senses.Encounter.Intensity,
             Weights.TaskWindowTicks);
 
     /// <summary>The order the last comparison put its close jobs in, and the best order that started differently,
@@ -240,8 +239,31 @@ public sealed class Chooser
     {
         if (ctx.Senses.Player.IsDead) return 1f;
         var preferences = PlayerIntegration.CompanionPreferences.Current;
-        var projected = ctx.Senses.Intent.Region.Centre + ctx.Senses.Player.Intent * MathF.Min(ticks, Weights.PlayerProjectionCapTicks);
+        var projected = ctx.Senses.Intent.Region.Heading + ctx.Senses.Player.Intent * MathF.Min(ticks, Weights.PlayerProjectionCapTicks);
         return FitAt(Microsoft.Xna.Framework.Vector2.Distance(site, projected), preferences.NewActivityRadius, preferences.ActiveActivityRadius);
+    }
+
+    /// <summary>
+    /// The share of a job's worth left after paying for keeping the companion apart: one minus the pull beyond the player's
+    /// region at the job's stand — keeping company's own slope, uncapped — measured against the region carried along his
+    /// observed travel for the job's duration. So a stand inside the region pays nothing, a stand beyond it pays by the gap,
+    /// a job whose stand the player's travel will leave at fly-home distance is worth nothing, and a player leaving makes a
+    /// long job pay more than a quick one. It is the one separation cost; the reunion delay charge it replaced priced the
+    /// same separation a second way and is still computed only because the recorder writes it.
+    /// </summary>
+    public static float Separation(in ActionContext ctx, Microsoft.Xna.Framework.Vector2 stand, float ticks)
+    {
+        if (ctx.Senses.Player.IsDead || ctx.Stranded) return 1f;
+        return SeparationAt(ctx.Senses.Intent.Region, ctx.Senses.Player.Intent, stand, ticks);
+    }
+
+    /// <summary>The same share from the numbers it reads, so a comparison can be checked against a region built by hand.</summary>
+    public static float SeparationAt(in Infrastructure.Observation.PlayerIntentRegion region, Microsoft.Xna.Framework.Vector2 playerTravel,
+        Microsoft.Xna.Framework.Vector2 stand, float ticks)
+    {
+        var shift = playerTravel * MathF.Min(ticks, Weights.PlayerProjectionCapTicks);
+        var projected = region with { Centre = region.Centre + shift, Heading = region.Heading + shift };
+        return 1f - KeepCompany.PullBeyond(projected, stand);
     }
 
     public static float FitAt(float distance, float near, float far)

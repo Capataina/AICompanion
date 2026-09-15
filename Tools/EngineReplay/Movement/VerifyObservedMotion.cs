@@ -155,15 +155,18 @@ internal static class VerifyObservedMotion
 
     private static int RegroupUrgencyOrdersItsInputs()
     {
-        const float calm = 160f, fullDistance = 640f, freeReturn = 60f, fullReturn = 240f;
-        float calmNear = CalculateRegroupUrgency.Evaluate(80f, 10f, 0f, 0, calm, fullDistance, freeReturn, fullReturn);
-        float farther = CalculateRegroupUrgency.Evaluate(320f, 10f, 0f, 0, calm, fullDistance, freeReturn, fullReturn);
-        float slowReturn = CalculateRegroupUrgency.Evaluate(320f, 180f, 0f, 0, calm, fullDistance, freeReturn, fullReturn);
-        float movingAway = CalculateRegroupUrgency.Evaluate(320f, 10f, 4f, 0, calm, fullDistance, freeReturn, fullReturn);
-        float stalled = CalculateRegroupUrgency.Evaluate(320f, 10f, 0f, 120, calm, fullDistance, freeReturn, fullReturn);
-        float far = CalculateRegroupUrgency.Evaluate(1200f, 400f, 0f, 0, calm, fullDistance, freeReturn, fullReturn);
-        return Require(calmNear == 0f && farther > calmNear && slowReturn > farther && movingAway > farther && stalled > farther && far > .99f,
-            $"regroup urgency lost ordering: near={calmNear:0.00}, far={farther:0.00}, slow={slowReturn:0.00}, away={movingAway:0.00}, stalled={stalled:0.00}, extreme={far:0.00}");
+        // The first argument is the gap beyond the player's region since 15 September 2026, when the owner ruled there is no
+        // pull anywhere inside it; the ramp is how far beyond the edge travel pressure takes to count in full.
+        const float ramp = 160f, fullDistance = 640f, freeReturn = 60f, fullReturn = 240f;
+        float inside = CalculateRegroupUrgency.Evaluate(0f, 400f, 6f, 180, ramp, fullDistance, freeReturn, fullReturn);
+        float justOutside = CalculateRegroupUrgency.Evaluate(40f, 10f, 0f, 0, ramp, fullDistance, freeReturn, fullReturn);
+        float farther = CalculateRegroupUrgency.Evaluate(160f, 10f, 0f, 0, ramp, fullDistance, freeReturn, fullReturn);
+        float slowReturn = CalculateRegroupUrgency.Evaluate(160f, 180f, 0f, 0, ramp, fullDistance, freeReturn, fullReturn);
+        float movingAway = CalculateRegroupUrgency.Evaluate(160f, 10f, 4f, 0, ramp, fullDistance, freeReturn, fullReturn);
+        float stalled = CalculateRegroupUrgency.Evaluate(160f, 10f, 0f, 120, ramp, fullDistance, freeReturn, fullReturn);
+        float far = CalculateRegroupUrgency.Evaluate(1200f, 400f, 0f, 0, ramp, fullDistance, freeReturn, fullReturn);
+        return Require(inside == 0f && justOutside > 0f && farther > justOutside && slowReturn > farther && movingAway > farther && stalled > farther && far > .99f,
+            $"regroup urgency lost ordering: inside the region with a leaving player, a long route and a stall={inside:0.00}, just outside={justOutside:0.00}, farther={farther:0.00}, slow={slowReturn:0.00}, away={movingAway:0.00}, stalled={stalled:0.00}, extreme={far:0.00}");
     }
 
     private static NPC Npc(int slot, Vector2 position, Vector2 velocity, bool noGravity = false, bool noTileCollide = false)
