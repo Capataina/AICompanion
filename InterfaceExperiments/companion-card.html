@@ -714,8 +714,8 @@ const LANES = [
       'Three more projectiles, at 50%, 25% and 10% damage',
     ]),
     A('Extra weapon slot', 'Opens one more weapon slot', SLOT_NOTE, 'Calamity\'s Statis\' Blessing gives two minion slots, and was cut down from three.', [2]),
-    C('Critical strike', '+1% critical strike chance per level', 'More of its hits crit.', 'A Lucky reforge gives a player 4% per accessory.'),
-    C('Projectile speed', '+4% projectile speed per level', 'Shots reach moving targets sooner, so fewer miss.', 'A Magic Quiver gives arrows 120% velocity, but velocity is that item\'s whole purpose.'),
+    C('Mana focus', 'Out of mana, its damage drops 2% less per level', 'An empty pool costs 50% of its damage, and 40% at level 5.', 'Nothing in Terraria softens running dry; a Mana Flower refills the pool instead.'),
+    C('Mana flow', '+0.6% of its mana back every second per level, even while casting', '3% a second at level 5; without it the pool only refills after a second without casting.', 'A Mana Regeneration Band speeds a player\'s mana recovery.'),
     A('Extra weapon slot', 'Opens one more weapon slot', SLOT_NOTE, 'Vanilla reaches eleven minion slots from one, always one or two at a time.', [2, 5]),
     C('Armour piercing', 'Ignores 2% of an enemy\'s defence per level', 'A share rather than a flat amount, so it still counts against an enemy with enormous defence.', 'Terraria\'s armour penetration is flat: a Shark Tooth Necklace ignores 5 defence whatever the enemy has.'),
   ]},
@@ -823,10 +823,26 @@ const nodeOfKey = key => wheel.nodes.find(n => n.key === key);
 function parentsLearned(i) {
   return wheel.edges.some(([f, t]) => t === i && (f < 0 || !!learned[wheel.nodes[f].key]));
 }
+// The centre is a node too: once every other node is full it takes points without limit, each level +1% life, mana and
+// damage, so points earned after the tree is complete still buy something (the owner's ruling of 15 September 2026).
+wheel.root.key = 'core';
+wheel.root.def = {name: 'Core', ranks: Infinity, effect: '+1% life, mana and damage per level', desc: 'Opens once every other node is full.', ref: '', needs: []};
+wheel.root.needs = [];
+const treeFull = () => wheel.nodes.every(n => rankOf(n) === n.def.ranks);
 function canLearn(n) {
+  if (n.kind === 'root') return treeFull();
   return rankOf(n) < n.def.ranks && parentsLearned(wheel.nodes.indexOf(n)) && n.needs.every(k => learned[k]);
 }
-const spent = () => Object.values(learned).reduce((a, b) => a + b, 0);
+// What a level costs in points, by the owner's ruling: a five-level node 1, 2, 2, 3, 3; a three-level node 1, 2, 3; a
+// one-level unlock (an extra weapon slot) 3; a level of the centre 1. Filling the tree costs 415 points.
+function costOf(n, level) {
+  if (n.kind === 'root') return 1;
+  if (n.def.ranks === 5) return [1, 2, 2, 3, 3][level - 1];
+  if (n.def.ranks === 3) return level;
+  return 3;
+}
+const pointsIn = n => Array.from({length: rankOf(n)}, (_, i) => costOf(n, i + 1)).reduce((a, b) => a + b, 0);
+const spent = () => wheel.nodes.concat([wheel.root]).reduce((a, n) => a + pointsIn(n), 0);
 
 // ---------------------------------------------------------------- mastery: drawing
 const svg = $('#graphsvg'), NS = 'http://www.w3.org/2000/svg';
@@ -861,7 +877,10 @@ function draw(keepView) {
     e.addEventListener('click', ev => { ev.stopPropagation(); select(n); });
   });
   // the centre, in gold
-  svg.appendChild(el('rect', {x: -R, y: -R, width: 2 * R, height: 2 * R, fill: '#ffe066', stroke: '#ffe066', 'stroke-width': 3.5, transform: 'rotate(45 0 0)'}));
+  const core = el('rect', {x: -R, y: -R, width: 2 * R, height: 2 * R, fill: '#ffe066', stroke: '#ffe066', 'stroke-width': 3.5, transform: 'rotate(45 0 0)'});
+  core.classList.add('node'); if (selectedNode === wheel.root) core.classList.add('sel');
+  core.addEventListener('click', ev => { ev.stopPropagation(); select(wheel.root); });
+  svg.appendChild(core);
   wheel.labels.forEach(l => { const t = el('text', {x: l.x, y: l.y, fill: COLORS[l.b], 'text-anchor': l.anchor, 'font-size': 40, filter: 'url(#hard)'});
     t.textContent = l.text; svg.appendChild(t); });
   if (!keepView) fitGraph();
@@ -907,15 +926,21 @@ function select(n) {
   setPicked(true); panIntoView(n);
   draw(true);
   const r = rankOf(n);
-  $('#dname').textContent = n.def.name; $('#dname').style.color = COLORS[n.b];
+  $('#dname').textContent = n.def.name; $('#dname').style.color = n.kind === 'root' ? '#ffe066' : COLORS[n.b];
   // an even node says its per-level effect; an uneven one says what the next level to learn does (the last once full),
   // and a hovered segment says what its own level does
   const resting = n.def.levels ? n.def.levels[Math.min(r, n.def.ranks - 1)] : n.def.effect;
   $('#deffect').textContent = resting;
   $('#learn').classList.toggle('off', !canLearn(n));
-  // "Level N" fits a segment up to three levels; five segments in the panel's width fit only the number
+  // the button says what the next level costs, and nothing once the node is full
+  const full = r >= n.def.ranks, cost = costOf(n, r + 1);
+  $('#learn').textContent = full ? 'Learned' : `Learn · ${cost} point${cost === 1 ? '' : 's'}`;
+  // "Level N" fits a segment up to three levels; five segments in the panel's width fit only the number; the centre has
+  // no last level, so its bar is one segment naming the level it has reached
   const label = i => n.def.ranks > 3 ? `${i + 1}` : `Level ${i + 1}`;
-  $('#levels').innerHTML = Array.from({length: n.def.ranks}, (_, i) => `<div class="seg${i < r ? ' on' : ''}">${label(i)}</div>`).join('');
+  $('#levels').innerHTML = n.kind === 'root'
+    ? `<div class="seg${r > 0 ? ' on' : ''}">Level ${r}</div>`
+    : Array.from({length: n.def.ranks}, (_, i) => `<div class="seg${i < r ? ' on' : ''}">${label(i)}</div>`).join('');
   if (n.def.levels) $$('#levels .seg').forEach((s, i) => {
     s.addEventListener('mouseenter', () => $('#deffect').textContent = n.def.levels[i]);
     s.addEventListener('mouseleave', () => $('#deffect').textContent = resting);
