@@ -97,47 +97,72 @@ public static class DrawCardPrimitives
         }
     }
 
-    // ---- rounded shapes: runtime-built white alpha masks, tinted when drawn and cached per pixel size ----
+    // ---- rounded shapes: runtime-built white alpha masks, tinted when drawn, one per radius and never one per size ----
 
-    /// <summary>Bits for <see cref="RoundedMask"/>'s corners: 1 top-left, 2 top-right, 4 bottom-left, 8 bottom-right.</summary>
+    /// <summary>Bits for <see cref="RoundedFill"/>'s corners: 1 top-left, 2 top-right, 4 bottom-left, 8 bottom-right.</summary>
     public const int AllCorners = 0b1111, BottomCorners = 0b1100, LeftCorners = 0b0101, RightCorners = 0b1010;
 
-    private static readonly Dictionary<(int w, int h, int r, int corners), Texture2D> masks = new();
+    /// <summary>
+    /// Every mask the card and the notch have built, keyed by what shapes it: a corner quadrant by its radius, a fillet by
+    /// its side, radius and side of the notch. No key carries a width or a height, so the number of textures does not
+    /// depend on how wide a bar's fill is; a cache keyed by pixel size uploaded a texture for every new fill width a bar
+    /// reached in play and kept it until unload.
+    /// </summary>
+    private static readonly Dictionary<(int Kind, int A, int B, int C), Texture2D> masks = new();
+    private const int CornerKind = 0, FilletKind = 1;
 
-    /// <summary>A rounded rectangle filled with a colour; a radius larger than half the short side is clamped to it.</summary>
+    /// <summary>
+    /// A rounded rectangle filled with a colour; a radius larger than half the short side is clamped to it. Only the four
+    /// radius-sized corners of a rounded rectangle carry anti-aliasing and everything between them is solid, so the shape is
+    /// drawn as its corners, each the radius's one quadrant mask flipped into place or a solid square where that corner is
+    /// not rounded, around three solid bands. That is pixel-for-pixel the image of a whole mask built at the shape's size,
+    /// which the render fixture holds against a copy of that per-size mask.
+    /// </summary>
     public static void RoundedFill(SpriteBatch sb, Rectangle r, int radius, int corners, Color color)
     {
         if (r.Width <= 0 || r.Height <= 0) return;
         radius = Math.Max(0, Math.Min(radius, Math.Min(r.Width, r.Height) / 2));
-        sb.Draw(RoundedMask(sb, r.Width, r.Height, radius, corners), r, color);
+        if (radius == 0) { Fill(sb, r, color); return; }
+        Texture2D quadrant = CornerMask(sb, radius);
+        Corner(sb, quadrant, new Rectangle(r.X, r.Y, radius, radius), (corners & 1) != 0, SpriteEffects.None, color);
+        Corner(sb, quadrant, new Rectangle(r.Right - radius, r.Y, radius, radius), (corners & 2) != 0, SpriteEffects.FlipHorizontally, color);
+        Corner(sb, quadrant, new Rectangle(r.X, r.Bottom - radius, radius, radius), (corners & 4) != 0, SpriteEffects.FlipVertically, color);
+        Corner(sb, quadrant, new Rectangle(r.Right - radius, r.Bottom - radius, radius, radius), (corners & 8) != 0,
+            SpriteEffects.FlipHorizontally | SpriteEffects.FlipVertically, color);
+        int middle = r.Width - 2 * radius;
+        if (middle > 0)
+        {
+            Fill(sb, new Rectangle(r.X + radius, r.Y, middle, radius), color);
+            Fill(sb, new Rectangle(r.X + radius, r.Bottom - radius, middle, radius), color);
+        }
+        if (r.Height - 2 * radius > 0)
+            Fill(sb, new Rectangle(r.X, r.Y + radius, r.Width, r.Height - 2 * radius), color);
     }
 
-    /// <summary>A white alpha mask of a rectangle with the chosen corners rounded and a one-pixel anti-aliased edge.</summary>
-    public static Texture2D RoundedMask(SpriteBatch sb, int w, int h, int r, int corners)
+    private static void Corner(SpriteBatch sb, Texture2D quadrant, Rectangle at, bool rounded, SpriteEffects flip, Color color)
     {
-        var key = (w, h, r, corners);
+        if (rounded) sb.Draw(quadrant, at, null, color, 0f, Vector2.Zero, flip, 0f);
+        else Fill(sb, at, color);
+    }
+
+    /// <summary>
+    /// The top-left quadrant of a rounded corner, <paramref name="r"/> pixels square, with a one-pixel anti-aliased edge about
+    /// the centre (r, r); the other three corners are this quadrant flipped, because a corner's distance from its own two
+    /// edges is the same in every direction.
+    /// </summary>
+    private static Texture2D CornerMask(SpriteBatch sb, int r)
+    {
+        var key = (CornerKind, r, 0, 0);
         if (masks.TryGetValue(key, out Texture2D? cached))
             return cached;
-        var data = new Color[w * h];
-        for (int y = 0; y < h; y++)
-        {
-            for (int x = 0; x < w; x++)
+        var data = new Color[r * r];
+        for (int y = 0; y < r; y++)
+            for (int x = 0; x < r; x++)
             {
-                float a = 1f;
-                (int cx, int cy)? corner = null;
-                if (x < r && y < r && (corners & 1) != 0) corner = (r, r);
-                else if (x >= w - r && y < r && (corners & 2) != 0) corner = (w - r - 1, r);
-                else if (x < r && y >= h - r && (corners & 4) != 0) corner = (r, h - r - 1);
-                else if (x >= w - r && y >= h - r && (corners & 8) != 0) corner = (w - r - 1, h - r - 1);
-                if (corner is (int cx, int cy))
-                {
-                    float d = MathF.Sqrt((x - cx) * (x - cx) + (y - cy) * (y - cy));
-                    a = MathHelper.Clamp(r - d + 0.5f, 0f, 1f);
-                }
-                data[y * w + x] = Color.White * a;
+                float d = MathF.Sqrt((x - r) * (x - r) + (y - r) * (y - r));
+                data[y * r + x] = Color.White * MathHelper.Clamp(r - d + 0.5f, 0f, 1f);
             }
-        }
-        var tex = new Texture2D(sb.GraphicsDevice, w, h);
+        var tex = new Texture2D(sb.GraphicsDevice, r, r);
         tex.SetData(data);
         masks[key] = tex;
         return tex;
@@ -150,7 +175,7 @@ public static class DrawCardPrimitives
     /// </summary>
     public static Texture2D FilletMask(SpriteBatch sb, int s, int radius, bool flipX)
     {
-        var key = (s, radius, -1, flipX ? 1 : 0);
+        var key = (FilletKind, s, radius, flipX ? 1 : 0);
         if (masks.TryGetValue(key, out Texture2D? cached))
             return cached;
         var data = new Color[s * s];

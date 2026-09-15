@@ -139,6 +139,8 @@ internal static class VerifyCompanionHud
             string file = Path.Combine(output, "Hud-" + suffix + ".png");
             using (var stream = File.Create(file)) target.SaveAsPng(stream, size.X, size.Y);
             Console.WriteLine("RENDER " + file);
+            TexturesDoNotGrowWithFillValues(graphics, batch, target, hud, draw, companion, save, scale, suffix);
+            if (scale == 1f) RoundedFillMatchesTheReferenceMask(graphics, batch);
             graphics.SetRenderTarget(target);
             batch.Begin();
             downed.SetValue(companion, false);
@@ -160,6 +162,141 @@ internal static class VerifyCompanionHud
             masks.Clear();
             hud.OnWorldUnload();
         }
+    }
+
+    private static System.Collections.IDictionary Masks()
+        => (System.Collections.IDictionary)typeof(Primitives).GetField("masks", BindingFlags.Static | BindingFlags.NonPublic)!.GetValue(null)!;
+
+    /// <summary>
+    /// The notch's textures do not depend on the fill values it has drawn. The docked notch is drawn once, then once per
+    /// health and mana value across every pixel width the bars can fill, through the real layer method; the shared mask
+    /// cache must hold as many textures afterwards as it did after the first draw. A cache keyed by a fill's pixel width
+    /// uploads a texture for every new width a bar reaches in play and keeps it until unload.
+    /// </summary>
+    private static void TexturesDoNotGrowWithFillValues(GraphicsDevice graphics, SpriteBatch batch, RenderTarget2D target, Hud hud, MethodInfo draw,
+        live::AICompanion.Companion.CharacterBody.CompanionNPC companion, live::AICompanion.Companion.PlayerIntegration.CompanionPlayer save, float scale, string suffix)
+    {
+        var downed = companion.GetType().GetProperty("IsDowned")!;
+        var mana = companion.Mana;
+        var manaCurrent = mana.GetType().GetProperty("Current")!;
+        float manaBefore = (float)manaCurrent.GetValue(mana)!;
+        int lifeBefore = companion.NPC.life;
+        bool wasDowned = companion.IsDowned;
+        Vector2? position = save.HealthBarPosition;
+        var masks = Masks();
+        try
+        {
+            save.HealthBarPosition = null;
+            downed.SetValue(companion, false);
+            graphics.SetRenderTarget(target);
+            batch.Begin(SpriteSortMode.Deferred, BlendState.AlphaBlend, SamplerState.PointClamp, DepthStencilState.None, RasterizerState.CullNone, null, Matrix.Identity);
+            draw.Invoke(hud, null);
+            int afterOne = masks.Count;
+            int width = Hud.Bars(Hud.Bounds(save), scale).Health.Width;
+            var widths = new HashSet<int>();
+            // Every life value, so every pixel width the fill can take is reached; mana walks its pool alongside.
+            for (int life = 1; life <= companion.NPC.lifeMax; life++)
+            {
+                companion.NPC.life = life;
+                manaCurrent.SetValue(mana, mana.Max * (float)life / companion.NPC.lifeMax);
+                widths.Add((int)(width * Math.Clamp(companion.NPC.life / (float)companion.NPC.lifeMax, 0f, 1f)));
+                draw.Invoke(hud, null);
+            }
+            batch.End();
+            graphics.SetRenderTarget(null);
+            Require(widths.Count >= width, $"premise: the sweep must reach every one of the bar's {width} fill widths; it reached {widths.Count}");
+            Console.WriteLine($"native HUD textures {suffix}: {afterOne} after one notch, {masks.Count} after {widths.Count} distinct health widths and as many mana widths");
+            Require(masks.Count == afterOne, $"{suffix}: the notch created {masks.Count - afterOne} more textures while drawing {widths.Count} fill widths; its texture count must not depend on the fill values drawn");
+        }
+        finally
+        {
+            manaCurrent.SetValue(mana, manaBefore);
+            companion.NPC.life = lifeBefore;
+            downed.SetValue(companion, wasDowned);
+            save.HealthBarPosition = position;
+        }
+    }
+
+    /// <summary>
+    /// Every rounded shape the notch and the card draw is the pixel-for-pixel image it was when each size had its own mask.
+    /// <see cref="ReferenceMask"/> is that per-size mask, kept here as the reference; each size, radius and corner set is
+    /// drawn once from it and once through the production fill, onto two cleared targets, and every pixel must agree.
+    /// </summary>
+    private static void RoundedFillMatchesTheReferenceMask(GraphicsDevice graphics, SpriteBatch batch)
+    {
+        const int sheetW = 640, sheetH = 400;
+        using var expected = new RenderTarget2D(graphics, sheetW, sheetH);
+        using var actual = new RenderTarget2D(graphics, sheetW, sheetH);
+        var references = new List<Texture2D>();
+        var shapes = new List<(Rectangle Box, int Radius, int Corners)>();
+        int x = 2, y = 2, rowHeight = 0;
+        foreach (int h in new[] { 3, 6, 9, 22, 48, 72 })
+            foreach (int w in new[] { 3, 6, 7, 9, 13, 18, 22, 41, 150, 166 })
+                foreach (int corners in new[] { Primitives.AllCorners, Primitives.BottomCorners, Primitives.LeftCorners, Primitives.RightCorners, 0 })
+                {
+                    if (x + w + 2 > sheetW) { x = 2; y += rowHeight + 2; rowHeight = 0; }
+                    if (y + h + 2 > sheetH) break;
+                    int radius = h == 48 ? 12 : h == 72 ? 18 : h / 2;
+                    shapes.Add((new Rectangle(x, y, w, h), radius, corners));
+                    x += w + 2; rowHeight = Math.Max(rowHeight, h);
+                }
+        var colour = new Color(255, 210, 74);
+        try
+        {
+            graphics.SetRenderTarget(expected); graphics.Clear(Color.Transparent);
+            batch.Begin(SpriteSortMode.Deferred, BlendState.AlphaBlend, SamplerState.PointClamp, DepthStencilState.None, RasterizerState.CullNone, null, Matrix.Identity);
+            foreach (var (box, radius, corners) in shapes)
+            {
+                int r = Math.Max(0, Math.Min(radius, Math.Min(box.Width, box.Height) / 2));
+                var texture = ReferenceMask(graphics, box.Width, box.Height, r, corners);
+                references.Add(texture);
+                batch.Draw(texture, box, colour);
+            }
+            batch.End();
+            graphics.SetRenderTarget(actual); graphics.Clear(Color.Transparent);
+            batch.Begin(SpriteSortMode.Deferred, BlendState.AlphaBlend, SamplerState.PointClamp, DepthStencilState.None, RasterizerState.CullNone, null, Matrix.Identity);
+            foreach (var (box, radius, corners) in shapes) Primitives.RoundedFill(batch, box, radius, corners, colour);
+            batch.End();
+            graphics.SetRenderTarget(null);
+            var a = new Color[sheetW * sheetH]; expected.GetData(a);
+            var b = new Color[sheetW * sheetH]; actual.GetData(b);
+            int differ = 0, painted = 0;
+            Point first = new(-1, -1);
+            for (int i = 0; i < a.Length; i++)
+            {
+                if (a[i].A != 0) painted++;
+                if (a[i] != b[i]) { if (differ++ == 0) first = new Point(i % sheetW, i / sheetW); }
+            }
+            Require(painted > 10000, $"premise: the reference sheet must paint the shapes; it painted {painted} pixels");
+            Require(differ == 0, $"the rounded fill differs from the per-size reference mask at {differ} pixels, the first at {first}");
+            Console.WriteLine($"rounded fill: {shapes.Count} shapes, sizes 3 to 166 wide and 3 to 72 tall in five corner sets, pixel-identical to the per-size reference mask ({painted} painted pixels)");
+        }
+        finally { foreach (var t in references) t.Dispose(); }
+    }
+
+    /// <summary>The per-size rounded mask the notch and card drew from before one corner mask per radius replaced it, unchanged, as the reference image.</summary>
+    private static Texture2D ReferenceMask(GraphicsDevice graphics, int w, int h, int r, int corners)
+    {
+        var data = new Color[w * h];
+        for (int y = 0; y < h; y++)
+            for (int x = 0; x < w; x++)
+            {
+                float a = 1f;
+                (int cx, int cy)? corner = null;
+                if (x < r && y < r && (corners & 1) != 0) corner = (r, r);
+                else if (x >= w - r && y < r && (corners & 2) != 0) corner = (w - r - 1, r);
+                else if (x < r && y >= h - r && (corners & 4) != 0) corner = (r, h - r - 1);
+                else if (x >= w - r && y >= h - r && (corners & 8) != 0) corner = (w - r - 1, h - r - 1);
+                if (corner is (int cx, int cy))
+                {
+                    float d = MathF.Sqrt((x - cx) * (x - cx) + (y - cy) * (y - cy));
+                    a = MathHelper.Clamp(r - d + 0.5f, 0f, 1f);
+                }
+                data[y * w + x] = Color.White * a;
+            }
+        var texture = new Texture2D(graphics, w, h);
+        texture.SetData(data);
+        return texture;
     }
 
     private static Rectangle Inflate(Rectangle r) { r.Inflate(1, 1); return r; }
