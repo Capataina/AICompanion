@@ -34,6 +34,18 @@ internal static class RenderCompanionCard
 {
     private const int FrameWidth = 720, OverviewHeight = 240, PageHeight = 580, Inset = 12, TitleHeight = 34, Rhythm = 12;
     private const int IdentityHeight = 100, TileHeight = 56, ContentHeight = 508, InnerWidth = 696, Tolerance = 1;
+    /// <summary>What a page spends outside its content: the frame's padding, the title bar, one rhythm and the two-pixel border allowance.</summary>
+    private const int PageOverhead = PageHeight - ContentHeight;
+    /// <summary>The bag page's fixed rows around its grid: the gear boxes, a rhythm above and below the grid, and the bottom line.</summary>
+    private const int BagRowsAroundGrid = 64 + Rhythm + Rhythm + 24;
+
+    /// <summary>
+    /// A page's height at a frame top and viewport: the mock's 580 wherever that fits under the frame, otherwise everything
+    /// from the frame's top to the screen's bottom edge, and never shorter than the overview. The card keeps its title bar
+    /// where the overview put it, so a page too tall for the screen shortens instead of running past the bottom edge.
+    /// </summary>
+    /// <param name="top">The frame's unrounded top in UI units; at a fractional UI scale a rounded top moves the answer by a pixel.</param>
+    private static float PageHeightAt(float top, Vector2 view) => Math.Min(PageHeight, Math.Max(OverviewHeight, view.Y - top));
     private static readonly Color Background = new(18, 27, 40);
     private const BindingFlags Private = BindingFlags.Instance | BindingFlags.NonPublic;
 
@@ -183,23 +195,39 @@ internal static class RenderCompanionCard
         if (scale == 1f) Step("no back on the overview", () => NoBackPixels(target, size, frame, (UIElement)Field(card, "close"), suffix));
 
         // ---- pages: the frame keeps its top-left, grows to the page height, and the title bar carries the page's actions ----
+        Rectangle drawnPage = default;
         foreach (var (method, expected) in new[] { ("ShowInventory", new[] { "Loot All", "Deposit All", "Quick Stack", "Restock" }) })
         {
             Invoke(card, method);
             card.Update(new GameTime());
             var content = (UIElement)Field(card, "content");
             var bag = VerifyNativeCard.Descendants(card).OfType<Bag>().Single();
+            drawnPage = Rect(frameElement);
             Step("inventory frame and actions", () =>
             {
-                RequirePageFrame(suffix, frameElement, frame);
+                RequirePageFrame(suffix, frameElement, frame, view);
                 RequireActions(suffix, card, title, expected, "Inventory");
-                Expect(measures, "page content", Rect(content), Rect(frameElement), Inset, Inset + TitleHeight + Rhythm, InnerWidth, ContentHeight);
+                Expect(measures, "page content", Rect(content), Rect(frameElement), Inset, Inset + TitleHeight + Rhythm, InnerWidth, PageHeightAt(frameElement.GetDimensions().Y, view) - PageOverhead);
                 RequireRhythm(suffix, "title bar", Rect(title), "page content", Rect(content));
                 var back = (UITextPanel<string>)Field(card, "back");
                 Require(back.Parent == title && back.Text == "<", $"{suffix}: a page's title bar must carry the back button");
                 Expect(measures, "back", Rect(back), Rect(frameElement), Inset, Inset, 30, 30);
             });
             Step("inventory layout", () => InventoryLayout(suffix, bag, Rect(content)));
+            Step("inventory on screen", () =>
+            {
+                // The last bag row is only on the page once the grid is scrolled to its end, so it is measured there.
+                var elements = TitleBarButtons(title).ToList();
+                foreach (UIElement box in bag.Boxes)
+                    elements.AddRange(box.Children.Select((slot, i) => ($"gear slot {i}", Rect(slot))));
+                elements.Add(("bag scrollbar", Rect(bag.Scrollbar)));
+                elements.Add(("first bag slot", Rect(bag.Grid.Children.First())));
+                bag.Scrollbar.ViewPosition = float.MaxValue;
+                bag.Update(new GameTime());
+                try { elements.Add(("last bag slot at full scroll", Rect(bag.Grid.Children.Last()))); }
+                finally { bag.Scrollbar.ViewPosition = 0; bag.Update(new GameTime()); }
+                RequireOnScreen(suffix, "Inventory", view, elements);
+            });
             Step("chest buttons", () => VerifyNativeCard.ChestButtons(card, bag));
             Step("page title bar drag guard", () => VerifyNativeCard.TitleBarDragGuard(card, frameElement, title, suffix, dragBar: false));
             Render(graphics, batch, rasterizer, target, ui, size, output, $"Inventory-{suffix}");
@@ -210,10 +238,22 @@ internal static class RenderCompanionCard
         var mining = VerifyNativeCard.Descendants(card).OfType<MiningPage>().Single();
         Step("mining list frame and actions", () =>
         {
-            RequirePageFrame(suffix, frameElement, frame);
+            RequirePageFrame(suffix, frameElement, frame, view);
             RequireActions(suffix, card, title, new[] { "Skip marked", "Only marked" }, "Mining list");
         });
         Step("mining list layout", () => MiningLayout(suffix, mining, Rect((UIElement)Field(card, "content"))));
+        Step("mining list on screen", () =>
+        {
+            var parts = mining.Children.ToArray();
+            var scrollbar = (UIScrollbar)parts[1];
+            var elements = TitleBarButtons(title).ToList();
+            elements.Add(("ore grid", Rect(parts[0])));
+            elements.Add(("ore scrollbar", Rect(scrollbar)));
+            scrollbar.ViewPosition = float.MaxValue;
+            try { elements.Add(("last ore at full scroll", mining.TileBounds(Preferences.Current.MiningList.Known.Count - 1))); }
+            finally { scrollbar.ViewPosition = 0; }
+            RequireOnScreen(suffix, "Mining list", view, elements);
+        });
         Step("mining list page", () => VerifyNativeCard.MiningList(card, mining));
         Render(graphics, batch, rasterizer, target, ui, size, output, $"MiningList-{suffix}");
         if (scale == 1f) Step("mining list pixels", () => MiningPixels(target, size, mining, suffix));
@@ -224,7 +264,7 @@ internal static class RenderCompanionCard
         Rectangle pageContent = Rect((UIElement)Field(card, "content"));
         Step("mastery frame and actions", () =>
         {
-            RequirePageFrame(suffix, frameElement, frame);
+            RequirePageFrame(suffix, frameElement, frame, view);
             RequireActions(suffix, card, title, new[] { "-", "+", "Reset view" }, "Mastery");
         });
         Step("mastery unpicked", () => MasteryUnpicked(suffix, tree, pageContent));
@@ -244,6 +284,14 @@ internal static class RenderCompanionCard
                 $"{suffix}: Piercing's bar must be five numbered segments with two selected");
             Require(tree.EffectLine == lines[2], $"{suffix}: Piercing at level 2 must say its third level's line, '{lines[2]}'; it says '{tree.EffectLine}'");
             Console.WriteLine($"mastery picked {suffix}: Piercing at level 2 of 5, segments 1 to 5 with two selected, the panel says \"{tree.EffectLine}\"");
+        });
+        Step("mastery on screen", () =>
+        {
+            var elements = TitleBarButtons(title).ToList();
+            elements.Add(("graph", Rect(tree.Canvas)));
+            elements.Add(("Learn", Rect(tree.LearnButton)));
+            elements.AddRange(tree.LevelBar!.Segments.Select((segment, i) => ($"level segment {i + 1}", Rect(segment))));
+            RequireOnScreen(suffix, "Mastery", view, elements);
         });
         Render(graphics, batch, rasterizer, target, ui, size, output, $"MasteryPicked-{suffix}");
         // The second weapon slot, a one-level node, picked: its level bar is one segment rounded at both ends.
@@ -271,12 +319,21 @@ internal static class RenderCompanionCard
         Render(graphics, batch, rasterizer, target, ui, size, output, $"MasteryCore-{suffix}");
 
         Invoke(card, "ShowOverview");
+        Step("overview on screen", () =>
+        {
+            var elements = TitleBarButtons(title).ToList();
+            elements.AddRange(footer.Children.Select((tile, i) => ($"tile {i}", Rect(tile))));
+            for (int row = 0; row < 3; row++)
+                elements.AddRange(controls.Control(row).Segments.Select((segment, i) => ($"control {row} segment {i}", Rect(segment))));
+            RequireOnScreen(suffix, "Overview", view, elements);
+        });
         Step("back to the overview", () =>
         {
             Require(Rect(frameElement).Location == frame.Location && Rect(frameElement).Height == OverviewHeight, $"{suffix}: back to the overview moved or resized the card");
-            float overflow = Math.Max(0, frame.Y + PageHeight - view.Y);
-            Console.WriteLine($"card pages {suffix}: Inventory, Mining list and Mastery keep the frame at {frame.Location} and grow to {PageHeight}; a page's foot runs {overflow:0}px past the bottom edge"
+            // The page frame the production card drew, not this file's formula for it, so a card that still runs past the edge fails.
+            Console.WriteLine($"card pages {suffix}: Inventory, Mining list and Mastery keep the frame at {frame.Location} and are {drawnPage.Height} tall, ending {view.Y - drawnPage.Bottom:0} above the bottom edge of {view.Y:0}"
                 + (belowMinimum ? $" (this viewport is below the game's minimum {minWidth}x{minHeight}, so the card's fixed 720 width is not required to fit)" : ""));
+            Require(drawnPage.Height > 0 && drawnPage.Bottom <= view.Y + Tolerance, $"{suffix}: a page's foot runs {drawnPage.Bottom - view.Y:0}px past the bottom edge");
             if (!belowMinimum)
                 Require(frame.X >= 0 && frame.Right <= view.X + Tolerance, $"{suffix}: at a resolution the game allows, the card must fit the screen's width");
         });
@@ -331,11 +388,33 @@ internal static class RenderCompanionCard
                 $"{suffix}: segment {i} of {parts.Length} rounds the wrong corners");
     }
 
-    private static void RequirePageFrame(string suffix, UIElement frameElement, Rectangle overview)
+    private static void RequirePageFrame(string suffix, UIElement frameElement, Rectangle overview, Vector2 view)
     {
         Rectangle page = Rect(frameElement);
-        Require(page.Location == overview.Location && page.Width == FrameWidth && page.Height == PageHeight,
-            $"{suffix}: a page must keep the card's top-left {overview.Location} and be {FrameWidth}x{PageHeight}; got {page}");
+        CalculatedStyle drawn = frameElement.GetDimensions();
+        float height = PageHeightAt(drawn.Y, view);
+        Require(page.Location == overview.Location && page.Width == FrameWidth && Math.Abs(drawn.Height - height) <= Tolerance,
+            $"{suffix}: a page must keep the card's top-left {overview.Location} and be {FrameWidth}x{height:0}; got {page}");
+    }
+
+    private static IEnumerable<(string Name, Rectangle Rect)> TitleBarButtons(UIElement title)
+        => title.Children.OfType<UITextPanel<string>>().Select(button => ($"title-bar {button.Text}", Rect(button)));
+
+    /// <summary>
+    /// Every interactive element of a page lies inside the viewport, measured against the screen rather than against the
+    /// frame: a button placed correctly on its page is still unreachable below the bottom edge. Horizontally the check applies
+    /// wherever the viewport is at least as wide as the card, because the card's width is fixed by the mock.
+    /// </summary>
+    private static void RequireOnScreen(string suffix, string page, Vector2 view, List<(string Name, Rectangle Rect)> elements)
+    {
+        bool widthFits = view.X >= FrameWidth;
+        var off = elements.Where(e => e.Rect.Top < -Tolerance || e.Rect.Bottom > view.Y + Tolerance
+            || (widthFits && (e.Rect.Left < -Tolerance || e.Rect.Right > view.X + Tolerance))).ToArray();
+        Require(elements.Count > 0, $"{suffix}: premise: the {page} page must offer elements to measure");
+        int lowest = elements.Max(e => e.Rect.Bottom);
+        Console.WriteLine($"on screen {suffix} {page}: {elements.Count - off.Length} of {elements.Count} interactive elements inside the {view.X:0}x{view.Y:0} viewport, the lowest ending at {lowest}");
+        Require(off.Length == 0, $"{suffix}: on the {page} page {off.Length} interactive element(s) are off the {view.X:0}x{view.Y:0} screen: "
+            + string.Join("; ", off.Take(6).Select(e => $"{e.Name} at {e.Rect}")));
     }
 
     /// <summary>The page's actions in the title bar, in order, right-aligned to end one gap before the close button, 30 tall, clear of the title.</summary>
@@ -377,8 +456,8 @@ internal static class RenderCompanionCard
             int left = slots[0].Left - box.Left, middle = slots[1].Left - slots[0].Right, right = box.Right - slots[1].Right;
             Require(Math.Abs(left - middle) <= Tolerance && Math.Abs(middle - right) <= Tolerance, $"{suffix}: gear slots are not evenly spaced: {left}/{middle}/{right}");
         }
-        Expect(measures, "bag grid", Rect(bag.Viewport), content, 23, 76, 620, 396);
-        Expect(measures, "bag scrollbar", Rect(bag.Scrollbar), content, 653, 76, 20, 396);
+        Expect(measures, "bag grid", Rect(bag.Viewport), content, 23, 76, 620, content.Height - BagRowsAroundGrid);
+        Expect(measures, "bag scrollbar", Rect(bag.Scrollbar), content, 653, 76, 20, content.Height - BagRowsAroundGrid);
         RequireRhythm(suffix, "gear boxes", weapons, "bag grid", Rect(bag.Viewport));
         Require(Math.Abs(content.Bottom - 24 - Rect(bag.Viewport).Bottom - Rhythm) <= Tolerance, $"{suffix}: the grid does not end one rhythm above the bottom line");
         Rectangle[] grid = bag.Grid.Children.Select(Rect).ToArray();
@@ -387,25 +466,25 @@ internal static class RenderCompanionCard
         Require(bag.CountLine == $"{held} / 120", $"{suffix}: the bottom line must count against the bag's 120 slots; it reads '{bag.CountLine}'");
         Require(grid.Count(r => r.Y == grid[0].Y) == 12 && grid[1].X - grid[0].X == 52, $"{suffix}: the bag grid must be 12 columns at a 52px pitch");
         RequireNoOverlap(suffix, ("weapons box", weapons), ("tools box", tools), ("bag grid", Rect(bag.Viewport)), ("bag scrollbar", Rect(bag.Scrollbar)));
-        Console.WriteLine($"inventory layout {suffix}: two gear boxes {weapons.Width}x{weapons.Height} from the grid's left edge x {weapons.Left} to the scrollbar's right edge x {tools.Right}, evenly spaced slots, grid 620x396 twelve columns, 12px rhythm above and below the grid");
+        Console.WriteLine($"inventory layout {suffix}: two gear boxes {weapons.Width}x{weapons.Height} from the grid's left edge x {weapons.Left} to the scrollbar's right edge x {tools.Right}, evenly spaced slots, grid 620x{Rect(bag.Viewport).Height} twelve columns, 12px rhythm above and below the grid");
     }
 
     private static void MiningLayout(string suffix, MiningPage page, Rectangle content)
     {
         var measures = new List<string>();
         var parts = page.Children.ToArray();
-        Expect(measures, "ore grid", Rect(parts[0]), content, 0, 0, 412, ContentHeight);
-        Expect(measures, "ore scrollbar", Rect(parts[1]), content, 416, 0, 20, ContentHeight);
-        Expect(measures, "ore preview", Rect(parts[2]), content, 456, 0, 240, 214);
+        Expect(measures, "ore grid", Rect(parts[0]), content, 0, 0, 412, content.Height);
+        Expect(measures, "ore scrollbar", Rect(parts[1]), content, 416, 0, 20, content.Height);
+        Expect(measures, "ore preview", Rect(parts[2]), content, 456, 0, 240, Math.Min(214, content.Height));
         RequireNoOverlap(suffix, ("ore grid", Rect(parts[0])), ("ore scrollbar", Rect(parts[1])), ("ore preview", Rect(parts[2])));
-        Console.WriteLine($"mining list layout {suffix}: grid 412 wide and scrollbar at the page's full {ContentHeight}px height, preview 240x214 under the mock's swatch, name and verdict");
+        Console.WriteLine($"mining list layout {suffix}: grid 412 wide and scrollbar at the page's full {content.Height}px height, preview 240x{Rect(parts[2]).Height} under the mock's swatch, name and verdict");
     }
 
     private static void MasteryUnpicked(string suffix, Mastery tree, Rectangle content)
     {
         Require(tree.Picked == -1 && tree.Panel.Parent == null, $"{suffix}: the Mastery page must open with nothing picked and no panel");
         var measures = new List<string>();
-        Expect(measures, "mastery graph", Rect(tree.Canvas), content, 0, 0, InnerWidth, ContentHeight);
+        Expect(measures, "mastery graph", Rect(tree.Canvas), content, 0, 0, InnerWidth, content.Height);
         Rectangle canvas = Rect(tree.Canvas);
         var (min, max) = Mastery.TreeBounds();
         Vector2 centre = tree.Screen((min + max) / 2);
@@ -431,11 +510,11 @@ internal static class RenderCompanionCard
     private static void MasteryPicked(string suffix, Mastery tree, Rectangle content)
     {
         var measures = new List<string>();
-        Expect(measures, "narrowed graph", Rect(tree.Canvas), content, 0, 0, InnerWidth - 232, ContentHeight);
-        Expect(measures, "detail panel", Rect(tree.Panel), content, InnerWidth - 220, 0, 220, ContentHeight);
+        Expect(measures, "narrowed graph", Rect(tree.Canvas), content, 0, 0, InnerWidth - 232, content.Height);
+        Expect(measures, "detail panel", Rect(tree.Panel), content, InnerWidth - 220, 0, 220, content.Height);
         Rectangle panel = Rect(tree.Panel);
         Rectangle learn = Rect(tree.LearnButton), levels = Rect(tree.LevelBar!);
-        Require(levels.Bottom == panel.Bottom - 12 && Math.Abs(levels.Top - learn.Bottom - 8) <= Tolerance && learn.Height == 34 && levels.Height == 22,
+        Require(Math.Abs(levels.Bottom - (panel.Bottom - 12)) <= Tolerance && Math.Abs(levels.Top - learn.Bottom - 8) <= Tolerance && learn.Height == 34 && levels.Height == 22,
             $"{suffix}: Learn and the level bar must sit at the panel's very bottom: learn {learn}, levels {levels}, panel {panel}");
         RequireJoined(suffix, tree.LevelBar!);
         Require(Rect(tree.Canvas).Contains(tree.Screen(Graph.Nodes[tree.Picked].Position).ToPoint()), $"{suffix}: the picked node is covered by its own panel");
@@ -576,10 +655,11 @@ internal static class RenderCompanionCard
     {
         Color[] pixels = Pixels(target, size);
         Rectangle r = Rect(bar.Segments[0]);
-        if (!new Rectangle(0, 0, size.X, size.Y).Contains(r))
+        Require(r.Top >= 0 && r.Bottom <= size.Y, $"{suffix}: premise: the lone level segment must be on screen top to bottom to be read; it is at {r}");
+        if (r.Left < 0 || r.Right > size.X)
         {
-            // On a screen shorter than a page the panel's foot, and the level bar with it, is below the bottom edge by design.
-            Console.WriteLine($"lone level segment {suffix}: below the screen's edge at {r}, so its pixels are read at the taller viewports");
+            // Only a screen narrower than the card's fixed 720 width puts it past a side edge; the wider viewports read it.
+            Console.WriteLine($"lone level segment {suffix}: past the side of a screen narrower than the card at {r}, so its pixels are read at the wider viewports");
             return;
         }
         Color border = bar.IsSelected(0) ? Color.Gold : Primitives.Edge;

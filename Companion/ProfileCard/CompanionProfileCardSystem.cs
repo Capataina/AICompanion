@@ -181,6 +181,7 @@ public sealed class CompanionProfileCardSystem : ModSystem
             }
             content = new UIElement();
             content.Top.Set(CardRegions.BodyTop, 0); content.Width.Set(0, 1); content.Height.Set(CardRegions.ContentHeight, 0);
+            // The page's height is decided with its position, in Layout, which ShowOverview calls below.
             ShowOverview();
         }
 
@@ -189,14 +190,16 @@ public sealed class CompanionProfileCardSystem : ModSystem
         private static Vector2 ViewportSize => PlayerInput.OriginalScreenSize / Main.UIScale;
 
         /// <summary>
-        /// Where the card sits. A card never dragged opens centred, a gap below a docked notch; a docked notch owns the
-        /// top of the screen, so the title bar never rises closer to it than the clearance, and on a short screen the
-        /// card's foot runs past the bottom edge instead. The vertical clamp uses the overview's height, not the
-        /// current page's, so opening a tall page grows the card downward and never moves its title bar.
+        /// Where the card sits and how tall a page is. A card never dragged opens centred, a gap below a docked notch; a
+        /// docked notch owns the top of the screen, so the title bar never rises closer to it than the clearance. The
+        /// vertical clamp uses the overview's height, not the current page's, so opening a page grows the card downward and
+        /// never moves its title bar. A page is the mock's height wherever that fits between the title bar and the bottom
+        /// edge; where it does not, the page ends at the bottom edge and its content is shorter, because every page lays
+        /// itself out from its content's height and scrolls what no longer fits, so nothing it offers is left off screen.
+        /// A page is never shorter than the overview.
         /// </summary>
         private void Layout()
         {
-            float height = page == CardPage.Overview ? CardRegions.OverviewHeight : CardRegions.PageHeight;
             Vector2 view = ViewportSize;
             float? notch = DockedNotchBottom();
             float top = notch is float n ? n + CardRegions.NotchClearance : 0;
@@ -204,7 +207,9 @@ public sealed class CompanionProfileCardSystem : ModSystem
             p.X = Math.Clamp(p.X, 0, Math.Max(0, view.X - CardRegions.Width));
             p.Y = Math.Max(top, Math.Min(p.Y, Math.Max(0, view.Y - CardRegions.OverviewHeight)));
             owner.position = p;
-            frame.Width.Set(CardRegions.Width, 0); frame.Height.Set(height, 0);
+            float pageHeight = Math.Min(CardRegions.PageHeight, Math.Max(CardRegions.OverviewHeight, view.Y - p.Y));
+            content.Height.Set(pageHeight - CardRegions.PageOverhead, 0);
+            frame.Width.Set(CardRegions.Width, 0); frame.Height.Set(page == CardPage.Overview ? CardRegions.OverviewHeight : pageHeight, 0);
             frame.Left.Set(p.X, 0); frame.Top.Set(p.Y, 0);
             Recalculate();
         }

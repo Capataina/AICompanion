@@ -93,7 +93,9 @@ internal static class RenderNativeInterface
             string output = Path.Combine(Path.GetTempPath(), "aic-native-ui");
             if (Directory.Exists(output)) Directory.Delete(output, recursive: true);
             Directory.CreateDirectory(output);
-            foreach (var view in new[] { (new Point(1280, 720), 1f), (new Point(960, 540), 1f), (new Point(800, 600), 1f), (new Point(640, 480), 1f), (new Point(1600, 1000), 1.5f) })
+            // 1920x1080 at 183% is 1049x590 UI units tall, the size at which a page of the mock's height first stopped fitting
+            // under a docked notch on a common screen; 960x540 is the same height at scale 1.
+            foreach (var view in new[] { (new Point(1280, 720), 1f), (new Point(960, 540), 1f), (new Point(800, 600), 1f), (new Point(640, 480), 1f), (new Point(1600, 1000), 1.5f), (new Point(1920, 1080), 1.83f) })
             {
                 var (size, scale) = view;
                 string suffix = $"{size.X}x{size.Y}" + (scale == 1 ? "" : $"-scale{scale * 100:0}");
