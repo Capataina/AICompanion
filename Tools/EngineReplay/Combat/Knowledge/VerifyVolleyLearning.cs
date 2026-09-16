@@ -81,8 +81,10 @@ internal static class VerifyVolleyLearning
     }
 
     /// <summary>
-    /// K0: flights the player fired teach the law the companion's shot flies. Watching companion shots only —
-    /// the behaviour before phase B — would leave the prior standing, which is the mutation this row kills.
+    /// K0: flights the player fired teach the law the companion's shot flies, and the companion's own flights
+    /// teach it nothing — they were aimed by the law, so fitting on them would teach it its own aim back.
+    /// Watching companion shots only — the behaviour before phase B — would leave the prior standing, which
+    /// is the mutation this row kills.
     /// </summary>
     public static int ArcsAreLearnedFromThePlayersFlights()
     {
@@ -94,6 +96,30 @@ internal static class VerifyVolleyLearning
         Main.mouseY = 1000;
         var item = new Item();
         item.SetDefaults(ItemID.ThrowingKnife);
+
+        for (int flight = 0; flight < 2; flight++)
+        {
+            int useId = Recording.GroupSpawnsIntoUses.OpenCompanionUse(50, ItemID.ThrowingKnife, muzzle + new Vector2(100f, 0f), muzzle, 10f, 10f);
+            var aimed = new Projectile();
+            aimed.SetDefaults(ProjectileID.ThrowingKnife);
+            aimed.whoAmI = 20 + flight;
+            aimed.active = true;
+            aimed.owner = Main.myPlayer;
+            aimed.Center = muzzle;
+            aimed.velocity = new Vector2(10f, 0f);
+            Recording.RecordProjectileFlights.NoteCompanionSpawn(aimed.whoAmI, aimed, useId,
+                live::AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Simulation.ModifierState.None);
+            for (int tick = 1; tick <= 46; tick++)
+            {
+                aimed.VanillaAI();
+                aimed.position += aimed.velocity;
+                Recording.RecordProjectileFlights.NoteStep(aimed);
+            }
+            Recording.RecordProjectileFlights.NoteDeath(aimed);
+            Recording.GroupSpawnsIntoUses.CloseCompanionUse(useId, 51);
+        }
+        Require(Laws.LawFor(ProjectileID.ThrowingKnife).Revision == 0,
+            "two companion flights must leave the prior standing; the law learns from the player's flights only");
 
         for (int flight = 0; flight < 2; flight++)
         {

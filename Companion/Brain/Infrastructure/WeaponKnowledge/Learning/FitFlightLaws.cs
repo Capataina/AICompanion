@@ -70,7 +70,11 @@ public static class FitFlightLaws
     /// <summary>One trace closed: refit its type unless the trace is a child or spawned under a modifier.</summary>
     public static void Notice(Recording.FlightTrace trace)
     {
-        if (!trace.UseSample || !trace.Modifiers.IsNone) return;
+        // Player flights only (row K0): the companion's shots are aimed by the law, so fitting on them
+        // would teach the law its own aim back. Modified traces are excluded beside it, as the plan's
+        // "exclude or normalise" rule asks; every modified trace is the companion's, so the shooter
+        // gate subsumes it, and it stays as the belt to the gate's braces.
+        if (!trace.UseSample || trace.Shooter != Recording.Shooter.Player || !trace.Modifiers.IsNone) return;
         Refit(trace.ProjectileType);
     }
 
@@ -122,7 +126,9 @@ public static class FitFlightLaws
         var diffs = new List<Diff>();
         foreach (Recording.FlightTrace trace in Recording.RecordProjectileFlights.ClosedFor(projectileType))
         {
-            if (!trace.UseSample || !trace.Modifiers.IsNone) continue;
+            // The shooter gate lives here too, not only at Notice: a player's close refits over every
+            // closed trace of the type, and the companion's flights among them must not join the diffs.
+            if (!trace.UseSample || trace.Shooter != Recording.Shooter.Player || !trace.Modifiers.IsNone) continue;
             Recording.FlightStep? before = null;
             foreach (Recording.FlightStep step in trace.Steps)
             {

@@ -134,7 +134,9 @@ public static class RecordProjectileFlights
 
     /// <summary>
     /// A shot the companion's own hand just spawned: open its trace and join its use, which <c>ItemWeapon.Fire</c>
-    /// opened first. The arc learner watches it from the launch on, exactly as it watched single shots before volleys.
+    /// opened first. The wall, hit and child responses learn from it, and its death writes the shot-event the
+    /// knowledge audit pairs against the shot — but the law fitter never reads it (row K0): the shot was aimed
+    /// by the law, so fitting on it would teach the law its own aim back.
     /// The trace records the modifier state the hand applied, so the learners that could absorb it exclude it.
     /// </summary>
     public static void NoteCompanionSpawn(int projectileSlot, Projectile projectile, int useId, Simulation.ModifierState modifiers)

@@ -234,7 +234,11 @@ internal static class VerifyFlightLaws
 
     /// <summary>
     /// K7: a trace spawned under a +1 pierce modifier leaves the learned law and hit response unchanged.
-    /// Letting modified traces update the hit response is the mutation this row kills.
+    /// The setup flies the player's flight, because companion flights never fit laws (row K0) and the first
+    /// version of this row flew the companion's, which passed only while the shooter gate was missing. The
+    /// law half rides that gate; the hit response half is the modifier gate's own proof, because responses
+    /// learn from every shooter's traces and only the modifier excludes this one. Letting modified traces
+    /// update the hit response is the mutation this row kills.
     /// </summary>
     public static int ModifiedTracesLeaveLawAndHitResponseUnchanged()
     {
@@ -244,14 +248,13 @@ internal static class VerifyFlightLaws
         Main.screenPosition = Vector2.Zero;
         Main.mouseX = 1400;
         Main.mouseY = 1000;
-        var mods = live::AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Simulation.ModifierState.None;
         var pierced = new live::AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Simulation.ModifierState(0, 1);
 
-        FlyCompanionFlight(30, muzzle, new Vector2(10f, 0f), mods);
+        FlyPlayerFlight(30, ProjectileID.ThrowingKnife, ItemID.ThrowingKnife, muzzle, new Vector2(10f, 0f), 46);
         FlightLaw before = Laws.LawFor(ProjectileID.ThrowingKnife);
         var hits = live::AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Learning.LearnHitResponses.ResponseFor(ProjectileID.ThrowingKnife);
         int hitEvidence = hits.Evidence;
-        Require(before.Revision >= 1, "one clean flight must fit a law to compare against");
+        Require(before.Revision >= 1, "one clean player flight must fit a law to compare against");
 
         FlyCompanionFlight(31, muzzle, new Vector2(10f, 0f), pierced);
         FlightLaw after = Laws.LawFor(ProjectileID.ThrowingKnife);
