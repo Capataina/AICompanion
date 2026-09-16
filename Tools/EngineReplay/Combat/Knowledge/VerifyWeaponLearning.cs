@@ -9,25 +9,25 @@ using Terraria.ID;
 using AICompanion.Tools.Ledger;
 using C = live::AICompanion.Companion.Brain.Activities.ActionContext;
 using T = live::AICompanion.Companion.Brain.Infrastructure.Observation.ThreatRecord;
-using W = live::AICompanion.Companion.Weapons.WeaponEffects;
-using L = live::AICompanion.Companion.Weapons.AttackLearning;
-using S = live::AICompanion.Companion.Weapons.ShotOutcomes;
+using W = live::AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Learning.WeaponEffects;
+using L = live::AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Learning.AttackLearning;
+using S = live::AICompanion.Companion.Brain.Infrastructure.Interactions.Firing.ShotOutcomes;
 using Weights = live::AICompanion.Companion.Brain.Infrastructure.Selection.Weights;
 using CompanionGear = live::AICompanion.Companion.Inventory.CompanionGear;
 using GearSlot = live::AICompanion.Companion.Inventory.GearSlot;
 using CompanionNPC = live::AICompanion.Companion.CharacterBody.CompanionNPC;
 using CompanionPlayer = live::AICompanion.Companion.PlayerIntegration.CompanionPlayer;
-using Arsenal = live::AICompanion.Companion.Weapons.Arsenal;
+using Arsenal = live::AICompanion.Companion.Brain.Infrastructure.Interactions.Firing.Arsenal;
 using Positioner = live::AICompanion.Companion.Brain.Infrastructure.Position.Positioner;
 using PositionRequest = live::AICompanion.Companion.Brain.Infrastructure.Position.PositionRequest;
 using RequestKind = live::AICompanion.Companion.Brain.Infrastructure.Position.RequestKind;
-using Landed = live::AICompanion.Companion.Weapons.TrackLandedHits;
-using SpawnHook = live::AICompanion.Companion.Weapons.ForgetReusedShotSlots;
+using Landed = live::AICompanion.Companion.Brain.Infrastructure.Interactions.Firing.TrackLandedHits;
+using SpawnHook = live::AICompanion.Companion.Brain.Infrastructure.Interactions.Firing.ForgetReusedShotSlots;
 using Credit = live::AICompanion.Companion.Progression.CreditKillsAndFights;
 using Striker = live::AICompanion.Companion.Progression.Striker;
 using Generations = live::AICompanion.Companion.Brain.Infrastructure.Observation.HostileAttackSources;
 using OrbPace = live::AICompanion.Companion.Brain.Infrastructure.Movement.OrbPace;
-using ItemWeapon = live::AICompanion.Companion.Weapons.ItemWeapon;
+using ItemWeapon = live::AICompanion.Companion.Brain.Infrastructure.Interactions.Firing.ItemWeapon;
 
 /// <summary>
 /// Weapon choice, target choice, firing position and aim are one decision valued by what the companion's own shots
@@ -45,10 +45,17 @@ internal static class VerifyWeaponLearning
     private const int FloorY = 60;
     private const int AirRow = 50;
 
+    /// <summary>
+    /// The volley cone the synthetic contexts below were fired under. The regression scales an aim offset by the
+    /// cone the arsenal hands it — the volley's learned spread, not a constant — and these rows teach no volley,
+    /// so they declare the cone instead; near the old authored cone's scale, so the declared margins still read.
+    /// </summary>
+    private const float AssumedCone = 0.1f;
+
     public static int Run()
     {
         AnAimCoefficientIsLearnedFromWhetherAimMattered();
-        TheHandsAimWhereTheLearnerSaysAimPays();
+        TheHandsFireTheSimulatorsBestAim();
         ADebuffThenBurstPairIsOpenedWithTheDebuff();
         AChildProjectileBelongsToTheShotThatFiredItsParent();
         ASwingIsTaughtTheMomentItLands();
@@ -159,11 +166,11 @@ internal static class VerifyWeaponLearning
         L.Reset();
         var random = new Random(7);
         const int Shots = 40;
-        float widest = Weights.WeaponAimOffsetRadians * Weights.WeaponAimOffsetSteps;
+        float widest = AssumedCone;
         for (int i = 0; i < Shots; i++)
         {
             float share = (i % 3) / 2f;
-            float[] x = L.Context(100f + 500f * (float)random.NextDouble(), 800f, share * widest, 4f * (float)random.NextDouble(), 0,
+            float[] x = L.Context(100f + 500f * (float)random.NextDouble(), 800f, share * widest, widest, 4f * (float)random.NextDouble(), 0,
                 3f * (float)random.NextDouble(), 6f, debuffedByOther: false);
             float noise = .15f * (2f * (float)random.NextDouble() - 1f);
             L.Observe(ItemID.MagicMissile, NPCID.Zombie, x, 1f + noise);
@@ -177,47 +184,66 @@ internal static class VerifyWeaponLearning
 
         // Every draw a decision reads is kept for the decision, including the bias of an enemy type the weapon has never
         // struck: a fresh number per ask made the aim candidates of one forecast compete against different noise.
-        float[] probe = L.Context(300f, 800f, 0f, 0f, 0, 0f, 6f, debuffedByOther: false);
+        float[] probe = L.Context(300f, 800f, 0f, AssumedCone, 0f, 0, 0f, 6f, debuffedByOther: false);
         float firstAsk = L.Factor(ItemID.WoodenBow, NPCID.BlueSlime, probe, explore: true, tick: 5);
         float secondAsk = L.Factor(ItemID.WoodenBow, NPCID.BlueSlime, probe, explore: true, tick: 5);
         Require(firstAsk == secondAsk, $"two asks in one tick about an enemy type never struck read one draw; first={firstAsk} second={secondAsk}");
     }
 
     /// <summary>
-    /// The hands fire where the learner says the aim pays. A posterior planted with a positive aim coefficient makes the widest
-    /// candidate the best, so the shot leaves exactly the widest offset off the intercept; one with a negative coefficient
-    /// keeps the intercept, so it leaves exactly on it. The bow's own aim noise is set to nothing for the row, because the
-    /// noise is wider than the gap between the two answers and the first version of this row passed both arms at the same
-    /// noisy angle. The zombie floats five hundred pixels away in open air, where the widest offset misses its box by more
-    /// than the box is tall, so the offset shot can only be fired through the terrain-only clearance check, which is what the
-    /// row therefore also proves. Either shot opens one outcome window.
+    /// The hands fire the aim the simulator prices best, and the learner no longer moves the shot. A posterior planted
+    /// with a positive aim coefficient — aim off and be rewarded — still leaves on the intercept in the open, because the
+    /// winner among the solver's aims is the most simulated damage on the target, never the largest learned factor; the
+    /// learner scales the value and teaches the outcome, and the aim it is taught against is the one that left. The bow's
+    /// own aim noise is set to nothing for the row, because the noise is wider than the gap between the intercept and the
+    /// solver's spread and the first version of this row passed both arms at the same noisy angle. The shot opens one
+    /// outcome window. Behind a wall nothing is fired at all: no aim's use lands, so there is no proved shot to take.
     /// </summary>
-    private static void TheHandsAimWhereTheLearnerSaysAimPays()
+    private static void TheHandsFireTheSimulatorsBestAim()
     {
-        float widest = Weights.WeaponAimOffsetRadians * Weights.WeaponAimOffsetSteps;
-        foreach (float coefficient in new[] { .8f, -.8f })
+        // The orb stands to the zombie's right: five hundred pixels to its left is inside the five-tile margin the
+        // trace refuses at the world's edge, which read as a bow with no arc rather than as a scene built too close
+        // to it.
+        var scene = Scene(0f, new Vector2(500f, 0f), floating: true, (GearSlot.FirstWeapon, ItemID.WoodenBow));
+        // The zombie hangs in the air and stays there: with gravity on, its forecast falls to the floor and the
+        // intercept honestly meets it there, which is a different scene than the one either arm describes.
+        scene.Enemy.noGravity = true;
+        L.Reset();
+        var mean = new float[L.FeatureCount];
+        mean[L.AimOffset] = .8f;
+        L.Assume(ItemID.WoodenBow, mean, 1e-6f);
+        Arsenal arsenal = scene.Companion.Arsenal;
+        Require(arsenal.Weapons.Count == 1, "premise: the bow is the one weapon in hand");
+        arsenal.Weapons[0].AimNoise = 0f;
+        Require(arsenal.TryFire(scene.Ctx, scene.Enemy), $"premise: the bow fires; outcome={arsenal.LastFireOutcome}");
+        float offset = MathF.Abs(arsenal.LastAimOffset);
+        EmitLedgerRows.Detail(FormattableString.Invariant($"the planted aim reward leaves {MathHelper.ToDegrees(offset):0.000} deg off the intercept, and the shot opened {S.OpenCount} outcome window"));
+        Require(offset < 1e-3f, $"a learner that says aiming off pays must not move the shot; offset={offset}");
+        Require(S.OpenCount == 1, $"the shot opened one outcome window; open={S.OpenCount}");
+
+        // The same scene with a wall between the muzzle and the zombie. The arrow dies on contact, so every aim's
+        // use ends on the wall and none lands: the hands hold, report no arc, and open no window.
+        var walled = Scene(0f, new Vector2(500f, 0f), floating: true, (GearSlot.FirstWeapon, ItemID.WoodenBow));
+        walled.Enemy.noGravity = true;
+        int wallX = (int)(walled.Enemy.Center.X / 16f) + 8;
+        // From the top of the cleared air down into the floor: a short wall is a lob over, and the solver is
+        // allowed its lob, so the wall has to outstand every launch angle the intercept search may propose —
+        // and a gap at its foot is a thread under, which the first version of this arm fired through.
+        for (int y = AirRow - 20; y <= AirRow + 10; y++)
         {
-            // The orb stands to the zombie's right: five hundred pixels to its left is inside the five-tile margin the trace
-            // refuses at the world's edge, which read as a bow with no arc rather than as a scene built too close to it.
-            var scene = Scene(0f, new Vector2(500f, 0f), floating: true, (GearSlot.FirstWeapon, ItemID.WoodenBow));
-            L.Reset();
-            var mean = new float[L.FeatureCount];
-            mean[L.AimOffset] = coefficient;
-            L.Assume(ItemID.WoodenBow, mean, 1e-6f);
-            Arsenal arsenal = scene.Companion.Arsenal;
-            Require(arsenal.Weapons.Count == 1, "premise: the bow is the one weapon in hand");
-            arsenal.Weapons[0].AimNoise = 0f;
-            float missBy = 500f * MathF.Tan(widest);
-            Require(missBy > scene.Enemy.height, $"premise: the widest offset misses the zombie's box at this range; miss={missBy} height={scene.Enemy.height}");
-            Require(arsenal.TryFire(scene.Ctx, scene.Enemy), $"premise: the bow fires; outcome={arsenal.LastFireOutcome}");
-            float offset = MathF.Abs(arsenal.LastAimOffset);
-            EmitLedgerRows.Detail(FormattableString.Invariant($"aim coefficient {coefficient:0.0}: left {MathHelper.ToDegrees(offset):0.000} deg off the intercept, widest candidate {MathHelper.ToDegrees(widest):0.000} deg"));
-            if (coefficient > 0f)
-                Require(MathF.Abs(offset - widest) < 1e-3f, $"a learner that says aiming off pays fires at the widest offset; offset={offset} widest={widest}");
-            else
-                Require(offset < 1e-3f, $"a learner that says aiming off costs fires on the intercept; offset={offset}");
-            Require(S.OpenCount == 1, $"the shot opened one outcome window; open={S.OpenCount}");
+            Tile wall = Main.tile[wallX, y];
+            wall.HasTile = true;
+            wall.TileType = 1;
+            wall.Slope = 0;
+            wall.IsHalfBlock = false;
         }
+        live::AICompanion.Companion.Brain.Infrastructure.Movement.TerrainChanges.Reset();
+        L.Reset();
+        Arsenal walledArsenal = walled.Companion.Arsenal;
+        walledArsenal.Weapons[0].AimNoise = 0f;
+        Require(!walledArsenal.TryFire(walled.Ctx, walled.Enemy), $"behind a wall the bow must hold; outcome={walledArsenal.LastFireOutcome}");
+        Require(walledArsenal.LastFireOutcome == "no-arc", $"holding reports no arc; outcome={walledArsenal.LastFireOutcome}");
+        Require(S.OpenCount == 0, $"the held shot opened no outcome window; open={S.OpenCount}");
     }
 
     /// <summary>
@@ -233,8 +259,8 @@ internal static class VerifyWeaponLearning
     {
         L.Reset();
         TeachBurst(ItemID.PlatinumBow);
-        float[] plain = L.Context(300f, 800f, 0f, 0f, 0, 0f, 6f, debuffedByOther: false);
-        float[] debuffed = L.Context(300f, 800f, 0f, 0f, 0, 0f, 6f, debuffedByOther: true);
+        float[] plain = L.Context(300f, 800f, 0f, AssumedCone, 0f, 0, 0f, 6f, debuffedByOther: false);
+        float[] debuffed = L.Context(300f, 800f, 0f, AssumedCone, 0f, 0, 0f, 6f, debuffedByOther: true);
         float factorPlain = L.Factor(ItemID.PlatinumBow, NPCID.Zombie, plain, explore: false, 0);
         float factorDebuffed = L.Factor(ItemID.PlatinumBow, NPCID.Zombie, debuffed, explore: false, 0);
         EmitLedgerRows.Detail(FormattableString.Invariant($"burst factor: plain {factorPlain:0.000}, against the other weapon's debuff {factorDebuffed:0.000}"));
@@ -265,7 +291,7 @@ internal static class VerifyWeaponLearning
         for (int i = 0; i < 40; i++)
         {
             bool debuffed = i % 2 == 0;
-            float[] x = L.Context(150f + 400f * (float)random.NextDouble(), 800f, 0f, (float)random.NextDouble(), 0,
+            float[] x = L.Context(150f + 400f * (float)random.NextDouble(), 800f, 0f, AssumedCone, (float)random.NextDouble(), 0,
                 (float)random.NextDouble(), 6f, debuffed);
             L.Observe(item, NPCID.Zombie, x, (debuffed ? 1.6f : .6f) + .05f * (2f * (float)random.NextDouble() - 1f));
         }
@@ -291,7 +317,7 @@ internal static class VerifyWeaponLearning
             return projectile;
         }
         Projectile parent = Slot(5), child = Slot(9), grandchild = Slot(11), stranger = Slot(20);
-        float[] x = L.Context(300f, 800f, 0f, 0f, 0, 0f, 6f, debuffedByOther: false);
+        float[] x = L.Context(300f, 800f, 0f, AssumedCone, 0f, 0, 0f, 6f, debuffedByOther: false);
         int window = S.Open(ItemID.WoodenBow, zombie, x, predictedDamage: 10f, predictedStruck: 1, predictedCharge: 0f, useTicks: 60, impactTicks: 20, now: 0);
         S.AddSlot(window, parent.whoAmI);
 
@@ -476,7 +502,7 @@ internal static class VerifyWeaponLearning
         var warmUntrained = Arm(trained: false);
         Require(trainedArm.Target != null && warmUntrained.Target != null, "premise: every arm ranks a target");
         var factorClock = Stopwatch.StartNew();
-        float[] x = L.Context(300f, 800f, 0f, 1f, 1, 1f, 6f, debuffedByOther: false);
+        float[] x = L.Context(300f, 800f, 0f, AssumedCone, 1f, 1, 1f, 6f, debuffedByOther: false);
         TeachBurst(ItemID.PlatinumBow);
         for (int i = 0; i < 10000; i++) L.Factor(ItemID.PlatinumBow, NPCID.Zombie, x, explore: true, i);
         factorClock.Stop();
@@ -506,9 +532,9 @@ internal static class VerifyWeaponLearning
             Arsenal arsenal = scene.Companion.Arsenal;
             Require(arsenal.Weapons.Count == 1, "premise: the bow is the one weapon in hand");
             float reach = arsenal.Weapons[0].Reach;
-            float[] eyeContext = L.Context(260f, reach, 0f, 5f, 0, 2f, OrbPace.MaxSpeed, debuffedByOther: false);
+            float[] eyeContext = L.Context(260f, reach, 0f, AssumedCone, 5f, 0, 2f, OrbPace.MaxSpeed, debuffedByOther: false);
             for (int i = 0; i < 3; i++) L.Observe(ItemID.WoodenBow, NPCID.DemonEye, eyeContext, eyeRatio);
-            float[] zombieContext = L.Context(300f, reach, 0f, 0f, 0, 0f, OrbPace.MaxSpeed, debuffedByOther: false);
+            float[] zombieContext = L.Context(300f, reach, 0f, AssumedCone, 0f, 0, 0f, OrbPace.MaxSpeed, debuffedByOther: false);
             float zombie = L.Factor(ItemID.WoodenBow, NPCID.Zombie, zombieContext, explore: false, 0);
             float eye = L.Factor(ItemID.WoodenBow, NPCID.DemonEye, eyeContext, explore: false, 0);
             int noTarget = 0;
@@ -620,7 +646,7 @@ internal static class VerifyWeaponLearning
             Vector2 stand = scene.Companion.NPC.Center;
             if (trained)
             {
-                float[] x = L.Context(Vector2.Distance(stand, scene.Enemy.Center), arsenal.Weapons[0].Reach, 0f, 0f, 0, 0f, OrbPace.MaxSpeed, debuffedByOther: false);
+                float[] x = L.Context(Vector2.Distance(stand, scene.Enemy.Center), arsenal.Weapons[0].Reach, 0f, AssumedCone, 0f, 0, 0f, OrbPace.MaxSpeed, debuffedByOther: false);
                 for (int i = 0; i < 40; i++) L.Observe(ItemID.WoodenBow, NPCID.Zombie, x, .5f);
             }
             Require(!Arsenal.Explore(scene.Ctx), "premise: the danger gate holds the forecast to the posterior mean");
@@ -660,7 +686,7 @@ internal static class VerifyWeaponLearning
             L.Reset();
             S.Clear();
             var zombie = Zombie(25, new Vector2(36 * 16f, FloorY * 16f), .5f);
-            float[] x = L.Context(300f, 800f, 0f, 0f, 0, 0f, 6f, debuffedByOther: false);
+            float[] x = L.Context(300f, 800f, 0f, AssumedCone, 0f, 0, 0f, 6f, debuffedByOther: false);
             int window = S.Open(ItemID.WoodenBow, zombie, x, predictedDamage: 10f, predictedStruck: 1, predictedCharge: 0f, useTicks: 60, impactTicks: Impact, now: Opened);
             S.AddSlot(window, 5);
             for (ulong tick = Opened; tick < closeAt; tick++)
@@ -797,7 +823,7 @@ internal static class VerifyWeaponLearning
         stranger.friendly = true;
         Projectile fromStranger = Spawn(13, stranger);
 
-        float[] x = L.Context(300f, 800f, 0f, 0f, 0, 0f, 6f, debuffedByOther: false);
+        float[] x = L.Context(300f, 800f, 0f, AssumedCone, 0f, 0, 0f, 6f, debuffedByOther: false);
         Projectile windowed = Spawn(30, companionBody);
         Landed.Register(windowed.whoAmI, zombie, ItemID.WoodenBow);
         int window = S.Open(ItemID.WoodenBow, zombie, x, predictedDamage: 10f, predictedStruck: 1, predictedCharge: 0f, useTicks: 60, impactTicks: 20, now: 0);

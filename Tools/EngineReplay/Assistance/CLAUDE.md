@@ -8,7 +8,7 @@ Assistance/
 ├─ VerifyLightAndReachSenses.cs   the acceptance set for light and reach as two senses
 ├─ VerifyTorchPlacementRule.cs    torches wherever his smart cursor could place one in the dark, and every search exit named
 ├─ VerifyCandidateFunnel.cs       each refusal named with its stage, his cursor's tile as the reference, the recorded factors
-├─ VerifyCompanionActivities.cs   the seven activities offered and chosen, and danger charged once
+├─ VerifyCompanionActivities.cs   the six activities offered and chosen, and danger charged once
 ├─ VerifyUsefulAssistance.cs      assistance that is useful rather than merely nearby
 ├─ VerifyAssistanceTrips.cs       a trip goes and returns; hover sites; incidental pots
 ├─ VerifyCollectionContracts.cs   a drop is claimed only for what arrived

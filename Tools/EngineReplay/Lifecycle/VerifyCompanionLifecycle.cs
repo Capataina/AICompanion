@@ -14,16 +14,27 @@ internal static class VerifyCompanionLifecycle
         // Occupy cosmetic slots: StrikeNPC still applies real damage without attempting
         // to measure a damage popup using fonts that a headless simulation never loads.
         for (int i = 0; i < Main.combatText.Length; i++) Main.combatText[i] = new CombatText { active = true };
+        // Dust-spawning AI (a water bolt's trail) needs somewhere to put it; the game fills this at start-up.
+        Main.dust ??= new Dust[6000];
+        for (int i = 0; i < Main.dust.Length; i++) Main.dust[i] ??= new Dust();
         foreach (int item in new[] { Terraria.ID.ItemID.WoodenBow, Terraria.ID.ItemID.WoodenArrow, Terraria.ID.ItemID.ThrowingKnife,
             Terraria.ID.ItemID.CopperPickaxe, Terraria.ID.ItemID.CopperAxe, Terraria.ID.ItemID.CopperBroadsword, Terraria.ID.ItemID.WandofSparking,
-            Terraria.ID.ItemID.FlintlockPistol, Terraria.ID.ItemID.MusketBall, Terraria.ID.ItemID.WoodYoyo, Terraria.ID.ItemID.GoldPickaxe })
+            Terraria.ID.ItemID.FlintlockPistol, Terraria.ID.ItemID.MusketBall, Terraria.ID.ItemID.WoodYoyo, Terraria.ID.ItemID.GoldPickaxe,
+            Terraria.ID.ItemID.Boomstick, Terraria.ID.ItemID.ClockworkAssaultRifle, Terraria.ID.ItemID.DemonBow,
+            Terraria.ID.ItemID.DemonScythe, Terraria.ID.ItemID.CrystalBullet })
         {
             var sample = new Item();
             sample.SetDefaults(item);
             Terraria.ID.ContentSamples.ItemsByType[item] = sample;
         }
+        // The demon sickle (S1's unlimited pierce), the demon scythe (S4's piercing child), the crystal
+        // bullet and shard (K5's splitting pair; the shard is also K4's pass-through): a sim without its
+        // type's sample reads declared pierce one and dies on its first body, which is a missing sample
+        // wearing the shape of a pierce bug.
         foreach (int type in new[] { Terraria.ID.ProjectileID.WoodenArrowFriendly, Terraria.ID.ProjectileID.ThrowingKnife,
-            Terraria.ID.ProjectileID.Bullet, Terraria.ID.ProjectileID.WandOfSparkingSpark, Terraria.ID.ProjectileID.WoodYoyo })
+            Terraria.ID.ProjectileID.Bullet, Terraria.ID.ProjectileID.WandOfSparkingSpark, Terraria.ID.ProjectileID.WoodYoyo,
+            Terraria.ID.ProjectileID.DemonSickle, Terraria.ID.ProjectileID.DemonScythe,
+            Terraria.ID.ProjectileID.CrystalBullet, Terraria.ID.ProjectileID.CrystalShard })
         {
             var sample = new Projectile();
             sample.SetDefaults(type);

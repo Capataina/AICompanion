@@ -73,7 +73,7 @@ public static class MultiRunReport
 
     /// <summary>The preferences and diagnostics switches a run started under (the <c>config</c> line, from schema 0.28.0).
     /// A difference is stated but never refuses a join: it changes what the companion chose to do, not which code chose.</summary>
-    private static readonly string[] ConfigurationKeys = { "mining", "chopping", "hunting", "pot_breaking", "torch_placement", "distance_mode", "inspector", "record_telemetry" };
+    private static readonly string[] ConfigurationKeys = { "mining", "chopping", "hunting", "combat", "pot_breaking", "torch_placement", "distance_mode", "inspector", "record_telemetry" };
 
     /// <summary>
     /// Which recorded build, loader and mod identities the selected runs share and which they do not.

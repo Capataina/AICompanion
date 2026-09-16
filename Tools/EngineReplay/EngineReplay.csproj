@@ -9,7 +9,6 @@
   <ItemGroup>
     <ProjectReference Include="../../AICompanion.csproj" Aliases="live" AdditionalProperties="BuildMod=false" />
     <Compile Include="../../Companion/Brain/Infrastructure/Movement/**/*.cs" Exclude="../../Companion/Brain/Infrastructure/Movement/TerrariaIntegration/ApplyControlsToCompanion.cs" />
-    <Compile Include="../../Companion/Brain/Infrastructure/Aiming/**/*.cs" />
     <Compile Include="../../Companion/Brain/Infrastructure/Observation/PredictObservedMotion.cs" />
     <Compile Include="../../Companion/Brain/Infrastructure/Observation/ObserveThreats.cs" />
     <Compile Include="../../Companion/Brain/Infrastructure/Observation/WeighThreatUrgency.cs" />

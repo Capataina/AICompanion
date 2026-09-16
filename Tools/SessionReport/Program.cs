@@ -80,6 +80,7 @@ public static class Program
         new DamageArrivesWhereDangerWasSeen(),
         new TheHandsWorkWhileThreatened(),
         new TheChosenWeaponIsTheBetterOne(),
+        new WeaponKnowledgeIsCalibrated(),
         new TheCompanionStaysUp(),
         new HuntingStaysOnHisScreen(),
         // How long a decision lasts, which sits beside the other choice checks because every one

@@ -160,13 +160,16 @@ public sealed class ClaimedArrivalsStayInsideTheirSuccessRegion : ICheck
     }
 }
 
+/// <summary>A selected fight that neither moves the body a pixel nor fires for two seconds.
+/// Matches `combat` as well as `hunt`: the orb hovers rather than standing still, so a
+/// pixel-identical stretch is a stuck body under either side of the merged stance.</summary>
 public sealed class HuntingProducesAnOutcome : ICheck
 {
     public string Name => "does hunting move or attack";
     public string[] Needs => new[] { "action", "brain_fresh", "fire", "npc_px", "control_source", "wall_elapsed_ms" };
     public IEnumerable<Finding> Run(Session s)
     {
-        foreach (var span in FindStretches.Where(s.Count, i => i > 0 && s["action"].Text[i] == "hunt" && s["brain_fresh"].Number[i] == 1
+        foreach (var span in FindStretches.Where(s.Count, i => i > 0 && s["action"].Text[i] is "hunt" or "combat" && s["brain_fresh"].Number[i] == 1
             && s["fire"].Text[i] is not ("fired" or "cooldown")
             // The centre is written in whole pixels, so an unchanged cell is an unmoved body and there is
             // no sub-pixel drift to threshold away.

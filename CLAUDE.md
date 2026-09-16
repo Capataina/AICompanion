@@ -2,7 +2,7 @@
 
 This singleplayer tModLoader mod makes an NPC companion that behaves as a second presence in Terraria: it keeps roughly with the player, fights, collects nearby drops, helps with work already underway, and lights dark places. It is deliberately neither a second player nor a pet. **Since the night of 14 September 2026 its body is a flying orb**, twenty pixels across, that plans over free space and is handed two weapons, a pickaxe and an axe by the player; the player-shaped walking body, its tile-graph route search and its authored weapon kit were retired that night after six negative captures whose every defect was a route the planner proved and the body then did not perform (the Slate Record carries the decision and what lost). The companion's *mechanisms* are a closed set rather than calls into real item use — it fires a handed weapon's projectile itself, swings a handed sword in its own arc, drills with a handed pickaxe's power — so each is reliable and written explicitly; the *items* those mechanisms read are open, any weapon or tool whose use is aiming and releasing.
 
-The lanes that built that body landed on 15 September 2026 (`806a998` the body and its navigation, `c94c797` the gear, the notch and the mastery wheel on main between them), and every folder guide describes the orb. Its description at the level of the product is the Slate Architecture field and README's Expected Behaviour and System In Place; at the depth of a walkthrough it is `Companion/Brain/Infrastructure/Movement/CLAUDE.md` for the body and its navigation, `Companion/Inventory/CLAUDE.md` for the four slots and `Companion/Weapons/CLAUDE.md` for what the hands do with them.
+The lanes that built that body landed on 15 September 2026 (`806a998` the body and its navigation, `c94c797` the gear, the notch and the mastery wheel on main between them), and every folder guide describes the orb. Its description at the level of the product is the Slate Architecture field and README's Expected Behaviour and System In Place; at the depth of a walkthrough it is `Companion/Brain/Infrastructure/Movement/CLAUDE.md` for the body and its navigation, `Companion/Inventory/CLAUDE.md` for the four slots and `Companion/Brain/Infrastructure/Interactions/Firing/CLAUDE.md` for what the hands do with them.
 
 **What the companion is supposed to do lives in `README.md`, and reading it is the first move on any behaviour work.** That file carries four things in the order they have to be read: Expected Behaviour, a half-hour of play written as a story with no reference to any system; Current Behaviour, what it actually does, sourced only from named telemetry sessions; The System In Place, the machinery read from source; and a table of named responsibilities carrying all three per row. Each section opens with its own rules for maintaining it. This guide describes how the code is arranged; that file describes what it is for, and the two disagree only when one of them is stale.
 
@@ -23,7 +23,7 @@ Terraria world ─► Brain/Infrastructure/Observation
                      ├─► SharedBehaviours/Safety ─► Infrastructure/Movement ─► motor ─► NPC
                      └─► Activities ─► Infrastructure/Selection ─► Infrastructure/Position ─┘
                                   │
-                                  └─► Infrastructure/Interactions and Companion/Weapons
+                                  └─► Infrastructure/Interactions (incl. Firing) and Infrastructure/WeaponKnowledge
 ```
 
 **A fact the whole brain needs is a sense, not a private answer.** Light, reach and the player's intent region are the three that were extracted, and they are the pattern for the next one. The region is the newest: "how far from the player" used to be answered in five places with five radii (the reunion pull, the work radius, the meeting place's anchor, the lighting search's centre, the collect radius), and it is now one box carried ahead of the player's feet by his own observed pace that every one of them measures to. Reachability used to be the positioner's own: everyone else either asked the positioner for the one shape it happened to expose or ran a route search of their own, so five callers each paid a fresh bounded search for a question one flood had already answered. Both now sit in Observation beside the threat sense, and the positioner is a consumer like everybody else — it keeps its whole public surface as one-line delegations, deliberately, because renaming it would have been a sweep through files for no behaviour.
@@ -48,7 +48,7 @@ Both senses answer in three values rather than two, and the middle one is the re
 ```
 AICompanion/
 ├─ Companion/                the complete companion gameplay subsystem
-│  ├─ CharacterBody/         the orb NPC's lifecycle, its drawing, its immunity to every liquid and the stand-in hostiles aim at
+│  ├─ CharacterBody/         the orb NPC's lifecycle, its drawing, its immunity to every liquid, the stand-in hostiles aim at and the mana pool
 │  ├─ EnemyIntegration/      hostile targeting bridge and spawn-rate adjustment
 │  ├─ Brain/                 observe, choose, request movement
 │  │  ├─ Activities/         the seven jobs and their shared contract
@@ -68,16 +68,17 @@ AICompanion/
 │  │     │  ├─ Steering/           the body's state and controls, the route, the steering law, the navigator and the census
 │  │     │  ├─ TerrainModel/       the tile world every search reads, and the record of where it was edited
 │  │     │  └─ TerrariaIntegration/ the live tile reader, the edit announcements and the motor, outside the game-free core
-│  │     ├─ Interactions/   chop, mine, torch, doors, homes
+│  │     ├─ Interactions/   chop, mine, torch, doors, homes, firing
 │  │     │  ├─ Chopping/          trees and their trunks
 │  │     │  ├─ Mining/            ore tiles through the game's own PickTile
 │  │     │  ├─ Torch/             carrying and placing light
 │  │     │  ├─ Doors/             opening what the route treats as a wall
-│  │     │  └─ WorldProtection/   what autonomous edits may not touch
+│  │     │  ├─ WorldProtection/   what autonomous edits may not touch
+│  │     │  └─ Firing/            the item-backed weapon, the arsenal's choice and the landed-hit ledger
 │  │     ├─ Aiming/         projectile trajectory solver, and the arc it learns per projectile type from the companion's own shots
+│  │     ├─ WeaponKnowledge/ what each weapon does, learned from its own shots
 │  │     ├─ Grants/         one packet for feet and hand
 │  │     └─ Diagnostics/    overlay layers, cost strip, telemetry, scenario capture
-│  ├─ Weapons/               the arsenal's target, weapon and aim choice valued by what its shots achieved, the item-backed weapon, and the mana pool
 │  ├─ Progression/           the level priced by the game's own numbers: kills, boss fights and work credited to the companion or the player
 │  ├─ Inventory/             persistent cargo bag, the four gear slots, and their panel
 │  ├─ PlayerIntegration/     persistence, input, player events and /companion

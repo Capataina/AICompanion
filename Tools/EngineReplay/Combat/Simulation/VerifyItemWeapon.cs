@@ -11,8 +11,8 @@ using CompanionGear = live::AICompanion.Companion.Inventory.CompanionGear;
 using GearSlot = live::AICompanion.Companion.Inventory.GearSlot;
 using CompanionNPC = live::AICompanion.Companion.CharacterBody.CompanionNPC;
 using CompanionPlayer = live::AICompanion.Companion.PlayerIntegration.CompanionPlayer;
-using ItemWeapon = live::AICompanion.Companion.Weapons.ItemWeapon;
-using Arsenal = live::AICompanion.Companion.Weapons.Arsenal;
+using ItemWeapon = live::AICompanion.Companion.Brain.Infrastructure.Interactions.Firing.ItemWeapon;
+using Arsenal = live::AICompanion.Companion.Brain.Infrastructure.Interactions.Firing.Arsenal;
 
 /// <summary>
 /// The arsenal fed by the gear rather than by an authored pair. Each row puts one real item in a
@@ -171,7 +171,7 @@ internal static class VerifyItemWeapon
         Require(arsenal.CooldownTicks == 0, "the reload has been waited out");
         Require(arsenal.TryFire(ctx, enemy), $"an empty pool never refuses a cast; outcome={arsenal.LastFireOutcome}");
         Projectile tired = TheOneActiveProjectile();
-        int half = (int)(wand.damage * live::AICompanion.Companion.Weapons.CompanionMana.EmptyDamageFactor);
+        int half = (int)(wand.damage * live::AICompanion.Companion.CharacterBody.CompanionMana.EmptyDamageFactor);
         Require(tired.damage == half, $"an empty pool lands at the empty factor: expected {half}, got {tired.damage}");
         Require(((ItemWeapon)arsenal.LastChosen!).DamagePerHit(ctx) == half, "the scorer reads the same tired damage the cast landed");
     }

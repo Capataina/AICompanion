@@ -1,5 +1,5 @@
 extern alias live;
-using E = live::AICompanion.Companion.Weapons.EvaluateAttackOutcomes;
+using E = live::AICompanion.Companion.Brain.Activities.Combat.Planning.EvaluateAttackOutcomes;
 
 internal static class VerifyAttackOutcomes
 {

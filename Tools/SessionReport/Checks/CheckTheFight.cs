@@ -291,6 +291,8 @@ public sealed class TheChosenWeaponIsTheBetterOne : ICheck
 /// Finds sustained fresh range-only rejections even while the body moves. Arsenal.BestTarget
 /// records a bounded shortlist, independent of the pursuit target; this evidence can suggest an
 /// unproductive approach but cannot establish that all possible attacks or destinations failed.
+/// Matches `combat` as well as `hunt`: the merged stance closes either side for a proven absence
+/// of any firing position, so a sustained stretch under it is the same shape whatever side runs.
 /// </summary>
 public sealed class HuntingHadAWeaponThatCouldReach : ICheck
 {
@@ -302,7 +304,7 @@ public sealed class HuntingHadAWeaponThatCouldReach : ICheck
 
     public IEnumerable<Finding> Run(Session s)
     {
-        foreach (var span in FindStretches.Where(s.Count, i => s["action"].Text[i] == "hunt"
+        foreach (var span in FindStretches.Where(s.Count, i => s["action"].Text[i] is "hunt" or "combat"
             && s["brain_fresh"].Number[i] == 1
             && s["fire"].Text[i] is not ("fired" or "cooldown")
             && s["target_evidence_age"].Number[i] == 0

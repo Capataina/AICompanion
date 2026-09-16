@@ -171,12 +171,13 @@ public sealed class MeasureValidityFlips : IMeasure
 /// It is read from the decision occurrences rather than from the rows on purpose. The offer column
 /// is retained between comparisons, so it stands unchanged across every row until the next one and
 /// counting rows would weight each decision by how long it happened to be held. A decision
-/// occurrence is one comparison.
+/// occurrence is one comparison. Reads the `combat` factors with the `hunt` ones as fallback,
+/// because the merged stance renamed them.
 /// </summary>
 public sealed class MeasureHuntKnownUnusableShare : IMeasure
 {
     public string Name => "hunt-known-unusable-share";
-    public string[] Needs => new[] { "hunt_offer" };
+    public string[] Needs => new[] { "action" };
 
     public string? Missing(Session session)
         => CheckEvents.SidecarUnavailable(session, "the decision occurrences, one per completed comparison");
@@ -189,7 +190,8 @@ public sealed class MeasureHuntKnownUnusableShare : IMeasure
         {
             if (e.kind != "decision") continue;
             decisions++;
-            string factors = EventDetail.Between(e.detail, "factors:hunt=", ";factors:");
+            string factors = EventDetail.Between(e.detail, "factors:combat=", ";factors:");
+            if (factors.Length == 0) factors = EventDetail.Between(e.detail, "factors:hunt=", ";factors:");
             if (factors.Length == 0) { unreadable++; continue; }
             string offer = EventDetail.Between(factors, "offer:", ",");
             if (offer.Length == 0) { unreadable++; continue; }

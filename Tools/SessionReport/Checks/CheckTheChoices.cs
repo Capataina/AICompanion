@@ -9,7 +9,8 @@ namespace AICompanion.Tools.SessionReport;
 /// companion stays on his screen, and a hunt is the opportunistic thing it does when little else is
 /// going on; a hunt that walks it off the screen has inverted that. On 2026-09-09 the hunt action
 /// held for half the session at a mean of thirty-five tiles and a maximum of eighty-eight, which is
-/// two screens away, and it died out there.
+/// two screens away, and it died out there. Matches `combat` as well as `hunt`: the merged stance's
+/// guard side holds a leashed stand by the player and never reaches this range, so only its hunts trigger.
 /// </summary>
 public sealed class HuntingStaysOnHisScreen : ICheck
 {
@@ -31,7 +32,7 @@ public sealed class HuntingStaysOnHisScreen : ICheck
         Column distance = TheCompanionStaysUp.DistanceColumn(session);
 
         var away = FindStretches.Where(session.Count, i =>
-            action.Text[i] == "hunt" && distance.Number[i] > OffScreenTiles,
+            action.Text[i] is "hunt" or "combat" && distance.Number[i] > OffScreenTiles,
             MinTicks, allowGap: 30);
 
         foreach (var stretch in away)

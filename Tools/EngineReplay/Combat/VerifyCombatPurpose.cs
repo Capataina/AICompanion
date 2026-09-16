@@ -6,8 +6,7 @@ using Terraria.ID;
 using Terraria.ModLoader;
 using Policy = live::AICompanion.Companion.Brain.Activities.WorkPolicy;
 using LineOfSight = live::AICompanion.Companion.Brain.Infrastructure.Observation.LineOfSight;
-using Guard = live::AICompanion.Companion.Brain.Activities.Combat.ProtectPlayer;
-using Hunt = live::AICompanion.Companion.Brain.Activities.Combat.PursueAttackOpportunity;
+using Combat = live::AICompanion.Companion.Brain.Activities.Combat.FightEnemies;
 using Weights = live::AICompanion.Companion.Brain.Infrastructure.Selection.Weights;
 
 /// <summary>
@@ -63,7 +62,7 @@ internal static class VerifyCombatPurpose
         }
         Hostile(30, 200f);
         Hostile(31, 110f);
-        live::AICompanion.Companion.Weapons.TrackLandedHits.Clear();
+        live::AICompanion.Companion.Brain.Infrastructure.Interactions.Firing.TrackLandedHits.Clear();
         ctx.Companion.Brain.Senses.Update(ctx.Npc, ctx.Player);
         var arsenal = ctx.Companion.Arsenal;
         NPC? aimed = arsenal.BestTarget(ctx);
@@ -74,30 +73,30 @@ internal static class VerifyCombatPurpose
         Projectile shot = airborne[0];
         NPC other = aimed!.whoAmI == 30 ? Main.npc[31] : Main.npc[30];
 
-        var hook = new live::AICompanion.Companion.Weapons.ObserveLandedCompanionHits();
+        var hook = new live::AICompanion.Companion.Brain.Infrastructure.Interactions.Firing.ObserveLandedCompanionHits();
         hook.OnHitByProjectile(other, shot, new NPC.HitInfo { Damage = 7 }, 7);
-        var first = live::AICompanion.Companion.Weapons.TrackLandedHits.Last;
+        var first = live::AICompanion.Companion.Brain.Infrastructure.Interactions.Firing.TrackLandedHits.Last;
         Require(first is { } strayHit && strayHit.HitSlot == other.whoAmI && strayHit.AimSlot == aimed.whoAmI
             && !strayHit.StruckAimedTarget && strayHit.Damage == 7,
             $"a shot landing on the enemy in front must record that enemy as hit and the chosen one as aimed; got {first}");
         hook.OnHitByProjectile(aimed, shot, new NPC.HitInfo { Damage = 9 }, 9);
-        Require(live::AICompanion.Companion.Weapons.TrackLandedHits.Last is { StruckAimedTarget: true, Damage: 9 }
-            && live::AICompanion.Companion.Weapons.TrackLandedHits.Count == 2,
-            $"the same shot reaching its aimed enemy must record a hit on the aimed target; got {(live::AICompanion.Companion.Weapons.TrackLandedHits.Last)}, count={(live::AICompanion.Companion.Weapons.TrackLandedHits.Count)}");
+        Require(live::AICompanion.Companion.Brain.Infrastructure.Interactions.Firing.TrackLandedHits.Last is { StruckAimedTarget: true, Damage: 9 }
+            && live::AICompanion.Companion.Brain.Infrastructure.Interactions.Firing.TrackLandedHits.Count == 2,
+            $"the same shot reaching its aimed enemy must record a hit on the aimed target; got {(live::AICompanion.Companion.Brain.Infrastructure.Interactions.Firing.TrackLandedHits.Last)}, count={(live::AICompanion.Companion.Brain.Infrastructure.Interactions.Firing.TrackLandedHits.Count)}");
 
         int foreignSlot = shot.whoAmI == 0 ? 1 : 0;
         Main.projectile[foreignSlot] = new Projectile { whoAmI = foreignSlot, active = true, friendly = true, damage = 11, owner = Main.myPlayer };
         hook.OnHitByProjectile(aimed, Main.projectile[foreignSlot], new NPC.HitInfo { Damage = 11 }, 11);
-        Require(live::AICompanion.Companion.Weapons.TrackLandedHits.Count == 2,
+        Require(live::AICompanion.Companion.Brain.Infrastructure.Interactions.Firing.TrackLandedHits.Count == 2,
             "a projectile the companion never fired must not be attributed to it, even when it is the player's own");
 
-        new live::AICompanion.Companion.Weapons.ForgetReusedShotSlots().OnSpawn(shot, new Terraria.DataStructures.EntitySource_Misc("engine-replay"));
+        new live::AICompanion.Companion.Brain.Infrastructure.Interactions.Firing.ForgetReusedShotSlots().OnSpawn(shot, new Terraria.DataStructures.EntitySource_Misc("engine-replay"));
         hook.OnHitByProjectile(aimed, shot, new NPC.HitInfo { Damage = 13 }, 13);
-        Require(live::AICompanion.Companion.Weapons.TrackLandedHits.Count == 2,
+        Require(live::AICompanion.Companion.Brain.Infrastructure.Interactions.Firing.TrackLandedHits.Count == 2,
             "a new projectile spawned into the shot's slot must not inherit the companion's shot");
         Main.projectile[foreignSlot].active = false;
         shot.active = false;
-        live::AICompanion.Companion.Weapons.TrackLandedHits.Clear();
+        live::AICompanion.Companion.Brain.Infrastructure.Interactions.Firing.TrackLandedHits.Clear();
     }
 
     /// <summary>
@@ -139,12 +138,12 @@ internal static class VerifyCombatPurpose
             enemy.SetDefaults(NPCID.Zombie);
             enemy.whoAmI = 30; enemy.active = true; enemy.velocity = Vector2.Zero;
             enemy.Bottom = ctx.Npc.Bottom + new Vector2(200, 0);
-            live::AICompanion.Companion.Weapons.TrackLandedHits.Clear();
+            live::AICompanion.Companion.Brain.Infrastructure.Interactions.Firing.TrackLandedHits.Clear();
             ctx.Companion.Brain.Senses.Update(ctx.Npc, ctx.Player);
             NPC? aimed = ctx.Companion.Arsenal.BestTarget(ctx);
             Require(aimed != null && ctx.Companion.Arsenal.TryFire(ctx, aimed), "the recorded identity scene needs a real shot");
             Projectile shot = Main.projectile.First(p => p.active);
-            new live::AICompanion.Companion.Weapons.ObserveLandedCompanionHits().OnHitByProjectile(enemy, shot, new NPC.HitInfo { Damage = 5 }, 5);
+            new live::AICompanion.Companion.Brain.Infrastructure.Interactions.Firing.ObserveLandedCompanionHits().OnHitByProjectile(enemy, shot, new NPC.HitInfo { Damage = 5 }, 5);
 
             var recorder = new live::AICompanion.Companion.Brain.Infrastructure.Diagnostics.BrainTelemetry();
             VerifyObservationLifecycle.Attach(recorder);
@@ -172,19 +171,19 @@ internal static class VerifyCombatPurpose
             string Value(string name) => values[Array.IndexOf(names, name)];
             string Identity(NPC? npc) => npc != null && npc.active
                 ? $"{npc.whoAmI}:{(live::AICompanion.Companion.Brain.Infrastructure.Observation.HostileAttackSources.Generation(npc))}" : "-";
-            var hunt = ctx.Companion.Brain.Chooser.Actions.OfType<Hunt>().Single();
-            var landed = live::AICompanion.Companion.Weapons.TrackLandedHits.Last;
+            var combat = ctx.Companion.Brain.Chooser.Actions.OfType<Combat>().Single();
+            var landed = live::AICompanion.Companion.Brain.Infrastructure.Interactions.Firing.TrackLandedHits.Last;
             Require(landed is { } hit && Value("landed_hit_target") == $"{hit.HitSlot}:{hit.HitGeneration}"
                 && Value("landed_hit_aimed") == $"{hit.AimSlot}:{hit.AimGeneration}" && Value("landed_hit_damage") == "5"
                 && Value("landed_hits") == "1",
                 $"the recorded landed hit must be the ledger's; row={Value("landed_hit_target")}/{Value("landed_hit_aimed")}/{Value("landed_hit_damage")}/{Value("landed_hits")}, ledger={landed}");
             Require(Value("aim_target") == Identity(ctx.Companion.Brain.EngageTarget),
                 $"the recorded aim must be the hands' target; row={Value("aim_target")}, hands={Identity(ctx.Companion.Brain.EngageTarget)}");
-            Require(Value("pursuit_target") == Identity(hunt.Target?.Npc)
-                && Math.Abs(float.Parse(Value("pursuit_value"), System.Globalization.CultureInfo.InvariantCulture) - hunt.PursuitValue) < 1e-3f,
-                $"the recorded pursuit must be the hunt's retained choice; row={Value("pursuit_target")}/{Value("pursuit_value")}, hunt={Identity(hunt.Target?.Npc)}/{hunt.PursuitValue}");
+            Require(Value("pursuit_target") == Identity(combat.Target?.Npc)
+                && Math.Abs(float.Parse(Value("pursuit_value"), System.Globalization.CultureInfo.InvariantCulture) - combat.PursuitValue) < 1e-3f,
+                $"the recorded pursuit must be the hunt side's retained choice; row={Value("pursuit_target")}/{Value("pursuit_value")}, combat={Identity(combat.Target?.Npc)}/{combat.PursuitValue}");
             Main.projectile.Where(p => p.active).ToList().ForEach(p => p.active = false);
-            live::AICompanion.Companion.Weapons.TrackLandedHits.Clear();
+            live::AICompanion.Companion.Brain.Infrastructure.Interactions.Firing.TrackLandedHits.Clear();
         }
         finally
         {
@@ -223,11 +222,9 @@ internal static class VerifyCombatPurpose
         Require(threat != null && threat.CanReachPlayer && threat.Urgency > 0f,
             $"the guard scene's hostile (type {type}) must threaten the player before protection is read; urgency={threat?.Urgency}");
         brain.Senses.SetInterventionEstimate(ctx.Companion.Arsenal.EstimateInterventionTicks(ctx));
-        var guard = brain.Chooser.Actions.OfType<Guard>().Single();
-        var hunt = brain.Chooser.Actions.OfType<Hunt>().Single();
-        float guardValue = VerifyPreparedActivities.PrepareAndScore(guard, ctx);
-        float huntValue = VerifyPreparedActivities.PrepareAndScore(hunt, ctx);
-        return new(guardValue, huntValue, threat!.Urgency, guard.RemovalTicks, guard.InterventionUsefulness);
+        var combat = brain.Chooser.Actions.OfType<Combat>().Single();
+        VerifyPreparedActivities.PrepareAndScore(combat, ctx);
+        return new(combat.GuardValue, combat.HuntValue, threat!.Urgency, combat.RemovalTicks, combat.InterventionUsefulness);
     }
 
     /// <summary>
@@ -336,20 +333,21 @@ internal static class VerifyCombatPurpose
         // Settled, so a proven absence is the flood's finished answer rather than its budget.
         for (int i = 0; i < 400; i++) brain.Positioner.Resolve(request, brain.Senses, profile);
         brain.Senses.SetInterventionEstimate(companion.Arsenal.EstimateInterventionTicks(ctx));
-        var guard = brain.Chooser.Actions.OfType<Guard>().Single();
+        var combat = brain.Chooser.Actions.OfType<Combat>().Single();
         // The firing query's proven absence costs a completed sweep of every sampled stand rather than the first
         // handful, so one preparation answers Unknown for a sealed threat and only a sweep all the way round
         // establishes the absence this row reads a zero from. The sweep resumes on each scan and its cache is
         // keyed to the sense's clock, so the clock is what has to run; nothing else about the scene moves.
         var clock = typeof(live::AICompanion.Companion.Brain.Infrastructure.Observation.Senses).GetProperty("Tick")!;
-        float guardValue = VerifyPreparedActivities.PrepareAndScore(guard, ctx);
-        for (int scan = 0; scan < 400 && guard.Access == live::AICompanion.Companion.Brain.Activities.Combat.FiringAccess.Unknown; scan++)
+        VerifyPreparedActivities.PrepareAndScore(combat, ctx);
+        for (int scan = 0; scan < 400 && combat.Access == live::AICompanion.Companion.Brain.Activities.Combat.FiringAccess.Unknown; scan++)
         {
             clock.SetValue(brain.Senses, (int)clock.GetValue(brain.Senses)! + 21);
-            guardValue = VerifyPreparedActivities.PrepareAndScore(guard, ctx);
+            VerifyPreparedActivities.PrepareAndScore(combat, ctx);
         }
-        return new(guardValue, guard.InterventionUsefulness, guard.RemovalTicks, guard.Access?.ToString() ?? "unasked", guard.AccessTicks,
-            threat!.Urgency, brain.Senses.Threats.ProtectionUrgency, brain.Positioner.ReachComplete, (guard.ActivityIdentity as NPC)?.whoAmI ?? -1);
+        float guardValue = combat.GuardValue;
+        return new(guardValue, combat.InterventionUsefulness, combat.RemovalTicks, combat.Access?.ToString() ?? "unasked", combat.AccessTicks,
+            threat!.Urgency, brain.Senses.Threats.ProtectionUrgency, brain.Positioner.ReachComplete, (combat.ActivityIdentity as NPC)?.whoAmI ?? -1);
     }
 
     /// <summary>
@@ -509,8 +507,8 @@ internal static class VerifyCombatPurpose
         brain.Senses.SetInterventionEstimate(companion.Arsenal.EstimateInterventionTicks(ctx));
         // The hands rank their shots before the feet prepare, as the previous tick's hands step would have.
         NPC? aim = companion.Arsenal.BestTarget(ctx);
-        var hunt = brain.Chooser.Actions.OfType<live::AICompanion.Companion.Brain.Activities.Combat.PursueAttackOpportunity>().Single();
-        VerifyPreparedActivities.PrepareAndScore(hunt, ctx);
+        var combat = brain.Chooser.Actions.OfType<live::AICompanion.Companion.Brain.Activities.Combat.FightEnemies>().Single();
+        VerifyPreparedActivities.PrepareAndScore(combat, ctx);
 
         // The firing-stand sweep behind each pursuit candidate resumes on `Senses.Tick`, which is the clock
         // `ResolveFiringOpportunity` caches its verdict against, so one preparation reads one bounded scan.
@@ -534,7 +532,7 @@ internal static class VerifyCombatPurpose
         {
             hiddenVerdict = "unexamined";
             hiddenAccess = hiddenValue = visibleValue = float.NaN;
-            foreach (string entry in hunt.PursuitEvidence.Split('|', StringSplitOptions.RemoveEmptyEntries))
+            foreach (string entry in combat.PursuitEvidence.Split('|', StringSplitOptions.RemoveEmptyEntries))
             {
                 string[] field = entry.Split(':');
                 int slot = int.Parse(field[0]);
@@ -545,14 +543,14 @@ internal static class VerifyCombatPurpose
             }
             if (hiddenVerdict != "Unknown" || passes >= SweepPassCeiling) break;
             sensesClock.SetValue(brain.Senses, (int)sensesClock.GetValue(brain.Senses)! + SweepClockStepTicks);
-            VerifyPreparedActivities.PrepareAndScore(hunt, ctx);
+            VerifyPreparedActivities.PrepareAndScore(combat, ctx);
             passes++;
         }
         string threatLedger = string.Join("|", brain.Senses.Threats.Threats.Select(t =>
             FormattableString.Invariant($"{t.Npc.whoAmI}:urgency={t.Urgency:0.000}:reachPlayer={t.CanReachPlayer}:reachCompanion={t.CanReachCompanion}:toCompanion={t.DistanceToCompanion:0}")));
         Console.WriteLine($"  pursuit scene at x={companionX}: the stand sweep settled after {passes} preparation(s), hidden verdict={hiddenVerdict}; threats={threatLedger}");
-        return new(hunt.Target?.Npc.whoAmI ?? -1, aim?.whoAmI ?? -1, hiddenVerdict, hiddenAccess, hiddenValue, visibleValue, hiddenDanger,
-            hiddenThreat.Urgency, hunt.PursuitEvidence);
+        return new(combat.Target?.Npc.whoAmI ?? -1, aim?.whoAmI ?? -1, hiddenVerdict, hiddenAccess, hiddenValue, visibleValue, hiddenDanger,
+            hiddenThreat.Urgency, combat.PursuitEvidence);
     }
 
     /// <summary>
@@ -579,7 +577,7 @@ internal static class VerifyCombatPurpose
                 $"{name}: the hidden enemy must need a reachable reposition and the visible one must be examined, or the row tests nothing; {scene.Evidence}");
         Require(cheapDangerous.HiddenAccess < middleDangerous.HiddenAccess,
             $"the reposition rows must lengthen the wait in order; cheap={cheapDangerous.HiddenAccess}, middle={middleDangerous.HiddenAccess}");
-        Require(middleDangerous.HiddenAccess < live::AICompanion.Companion.Weapons.Arsenal.HorizonTicks && middleDangerous.HiddenValue > 0f,
+        Require(middleDangerous.HiddenAccess < live::AICompanion.Companion.Brain.Infrastructure.Interactions.Firing.Arsenal.HorizonTicks && middleDangerous.HiddenValue > 0f,
             $"the middle row must be a priced wait inside the arsenal's evaluation window, not a second truncation; wait={middleDangerous.HiddenAccess}, value={middleDangerous.HiddenValue}");
         // The costly row used to price a wait longer than the arsenal's whole evaluation window, so that an enemy behind
         // a long walk was worth nothing now. That case no longer exists in play and the row no longer tests it: on

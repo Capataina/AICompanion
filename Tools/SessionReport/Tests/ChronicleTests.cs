@@ -52,9 +52,10 @@ public static class ChronicleTests
             StillnessAndMotionPairsBreakAtAGapAndAtDeath();
             ThePlayersReferenceChecksFindWhatTheyClaim();
             TheFunnelSectionTalliesEachActivity();
+            WeaponKnowledgeCalibrationIsGraded();
             // Last, because it writes a chronicle and an events sibling into the temp directory and
             // the multi-run cases above read that directory for runs to join.
-            Console.WriteLine("Chronicle self-tests passed (35 assertion groups).");
+            Console.WriteLine("Chronicle self-tests passed (36 assertion groups).");
             return 0;
         }
         catch (Exception error)
@@ -218,6 +219,9 @@ public static class ChronicleTests
             Require(!new ArrivalDoesNotStrandFollowing().Run(Write()).Any(), "flight was called a normal arrival failure");
             row["recovery_active"] = "0"; row["action"] = "hunt";
             Require(new HuntingProducesAnOutcome().Run(Write()).Any(), "ineffective hunt was missed");
+            row["action"] = "combat";
+            Require(new HuntingProducesAnOutcome().Run(Write()).Any(), "ineffective combat was missed");
+            row["action"] = "hunt";
             Require(!new HuntingProducesAnOutcome().Run(Write(moving: true)).Any(), "travelling hunt was called stalled");
             row["fire"] = "cooldown";
             Require(!new HuntingProducesAnOutcome().Run(Write()).Any(), "weapon cooldown was called an ineffective hunt");
@@ -553,6 +557,15 @@ public static class ChronicleTests
             Finding? idle = huntFindings.FirstOrDefault(f => f.Check == huntName);
             Require(idle != null && idle.Detail.Contains("hunt_time 0.420", StringComparison.Ordinal) && idle.Detail.Contains("hunt_fin", StringComparison.Ordinal),
                 "a usable hunt near an idle player while keeping company won was not reported with hunting's factors");
+            string combatFile = Path.GetTempFileName(); files.Add(combatFile);
+            var combatTrace = new StringBuilder("# schema=0.39.0\n# text_columns=action,combat_offer,player_vel,combat_funnel\n"
+                + "tick\taction\tcombat_offer\tnear_threat\tplayer_vel\tcombat_raw\tcombat_fin\tcombat_time\tkeep-company_fin\tcombat_funnel\n");
+            for (int tick = 0; tick < 300; tick++)
+                combatTrace.AppendLine($"{tick}\tkeep-company\tUsable:reachable-firing-position\t12.0\t0.10,0.00\t0.55\t0.21\t0.420\t0.30\toffered");
+            File.WriteAllText(combatFile, combatTrace.ToString());
+            Finding? combatIdle = new HuntsWorthTakingAreTaken().Run(Session.Load(combatFile)).FirstOrDefault();
+            Require(combatIdle != null && combatIdle.Detail.Contains("combat_time 0.420", StringComparison.Ordinal) && combatIdle.Detail.Contains("combat_fin", StringComparison.Ordinal),
+                "a usable fight near an idle player under the merged stance's columns was not reported with combat's factors");
             foreach (var (label, file) in new[]
             {
                 ("a hostile thirty tiles away", Capture(300, t => NearHunt(t, near: "30.0"))),
@@ -589,11 +602,11 @@ public static class ChronicleTests
         string file = Path.GetTempFileName();
         try
         {
-            Finding[] Read(string evidence, int age = 0, string fire = "no-target")
+            Finding[] Read(string evidence, int age = 0, string fire = "no-target", string action = "hunt")
             {
                 var trace = new StringBuilder("tick\taction\tbrain_fresh\tfire\ttarget_evidence_age\ttarget_evidence\n");
                 for (int tick = 0; tick < 301; tick++)
-                    trace.AppendLine($"{tick}\thunt\t1\t{fire}\t{age}\t{evidence}");
+                    trace.AppendLine($"{tick}\t{action}\t1\t{fire}\t{age}\t{evidence}");
                 File.WriteAllText(file, trace.ToString());
                 return new HuntingHadAWeaponThatCouldReach().Run(Session.Load(file)).ToArray();
             }
@@ -613,6 +626,8 @@ public static class ChronicleTests
                 "a bounded range-only interval must remain a potential issue, not proof of impossible pursuit");
             Require(findings[0].Detail.Contains("recorded", StringComparison.Ordinal),
                 "range diagnosis lost its bounded evidence qualification");
+            Require(Read("7:12:0:0:weapon=0:outside-reach|" + distant, action: "combat").Length == 1,
+                "the same interval under the merged stance's label was not read as a fight");
         }
         finally { File.Delete(file); }
     }
@@ -1521,6 +1536,10 @@ public static class ChronicleTests
             string configured = MultiRunReport.Of(new[] { closed, reconfigured });
             Require(configured.Contains("differs     pot_breaking: true", StringComparison.Ordinal) && configured.Contains("joinable", StringComparison.Ordinal),
                 "a configuration difference was not stated, or refused a join that only differing code refuses: " + configured);
+            string newStance = Write("0.28.0", "# end=world-unload;rows=2\n", config: $"# config={configuration.Replace("hunting=true", "combat=true", StringComparison.Ordinal)}\n");
+            string crossStance = MultiRunReport.Of(new[] { closed, newStance });
+            Require(crossStance.Contains("unrecorded  hunting in ", StringComparison.Ordinal) && crossStance.Contains("unrecorded  combat in ", StringComparison.Ordinal) && crossStance.Contains("joinable", StringComparison.Ordinal),
+                "a stance-key change across runs was not stated per run with the join kept: " + crossStance);
 
             // The producer literals these rules rest on.
             string project = File.ReadAllText("AICompanion.csproj");
@@ -1529,7 +1548,7 @@ public static class ChronicleTests
                     && project.Contains("<_Parameter1>SourceRevision</_Parameter1>", StringComparison.Ordinal) && project.Contains("<_Parameter1>SourceTree</_Parameter1>", StringComparison.Ordinal),
                 "the build no longer stamps the source revision and tree state the recorder reads");
             Require(telemetry.Contains("writer.WriteLine($\"# source_revision={SourceProvenance}\");", StringComparison.Ordinal)
-                    && telemetry.Contains("$\"character;mining={Mining};chopping={Chopping};hunting=", StringComparison.Ordinal)
+                    && telemetry.Contains("$\"character;mining={Mining};chopping={Chopping};combat=", StringComparison.Ordinal)
                     && telemetry.Split("# end=").Length == 2 && telemetry.Contains("writer?.WriteLine($\"# end={reason};rows={rowsWritten};", StringComparison.Ordinal),
                 "the recorder's source line, configuration shape or single end-marker writer has changed");
         }
@@ -1915,6 +1934,104 @@ public static class ChronicleTests
             foreach (string file in files)
                 if (File.Exists(file))
                     File.Delete(file);
+        }
+    }
+
+    /// <summary>
+    /// The weapon-knowledge check grades per-type timing and per-weapon pairing, and stays quiet
+    /// where both are inside tolerance. Six bow shots landing a tick from their predicted impact
+    /// produce nothing; six musket shots landing forty updates late produce a timing finding that
+    /// names the standing law; six grenade shots with one flight on record produce a pairing finding.
+    /// A volley sibling's shot-event without a shot record must not count as an unpaired shot.
+    /// </summary>
+    private static void WeaponKnowledgeCalibrationIsGraded()
+    {
+        string file = Path.GetTempFileName();
+        string events = Path.ChangeExtension(file, null) + "-events.jsonl";
+        try
+        {
+            var lines = new System.Collections.Generic.List<string>();
+            void Add(string kind, int subject = 0, string related = "", string label = "", string channel = "",
+                int amount = 0, string detail = "", long tick = 0)
+                => lines.Add(System.Text.Json.JsonSerializer.Serialize(new
+                {
+                    v = 1,
+                    seq = lines.Count,
+                    tick,
+                    wall_elapsed_ms = (double)tick,
+                    kind,
+                    subject,
+                    related,
+                    label,
+                    channel,
+                    pos_x = 0,
+                    pos_y = 0,
+                    vel_x = 0,
+                    vel_y = 0,
+                    expected_x = 0,
+                    expected_y = 0,
+                    amount,
+                    detail
+                }));
+            Add("session");
+            Add("npc-spawn", subject: 7, related: "3", label: "Zombie", tick: 1);
+            Add("npc-spawn", subject: 8, related: "3", label: "Zombie", tick: 2);
+            Add("flight-law", related: "2", label: "1", channel: "predictable", amount: 12,
+                detail: "residual=0.0100;evidence=12;terms=gravity@14:0.10", tick: 3);
+            Add("flight-law", related: "1", label: "2", channel: "unpredictable", amount: 4,
+                detail: "residual=3.5840;evidence=4;terms=drag", tick: 4);
+            for (int i = 0; i < 6; i++)
+            {
+                Add("shot", subject: 1, related: "7", label: "Wooden Bow", channel: $"projectile={101 + i}",
+                    detail: "expected-flight-ticks=30;sequence-value=1.000;sequence-kills=0;sequence-prevented-harm=0.000",
+                    tick: 10 + i);
+                Add("shot-event", subject: 101 + i, label: "1", channel: "piercespent", amount: 1,
+                    detail: "death=piercespent;walls=0;first-wall=-;hits=1;first-hit=type=3;tick=31;damage=10;children=0;child-types=-",
+                    tick: 50 + i);
+            }
+            for (int i = 0; i < 6; i++)
+            {
+                Add("shot", subject: 1, related: "8", label: "Musket", channel: $"projectile={201 + i}",
+                    detail: "expected-flight-ticks=30;sequence-value=1.000;sequence-kills=0;sequence-prevented-harm=0.000",
+                    tick: 100 + i);
+                Add("shot-event", subject: 201 + i, label: "2", channel: "piercespent", amount: 1,
+                    detail: "death=piercespent;walls=1;first-wall=tick=20;in=9.0,0.0;out=9.0,0.0;hits=1;first-hit=type=3;tick=70;damage=8;children=0;child-types=-",
+                    tick: 200 + i);
+            }
+            for (int i = 0; i < 6; i++)
+            {
+                Add("shot", subject: 1, related: "7", label: "Grenade", channel: $"projectile={301 + i}",
+                    detail: "expected-flight-ticks=40;sequence-value=1.000;sequence-kills=0;sequence-prevented-harm=0.000",
+                    tick: 300 + i);
+                if (i == 0)
+                    Add("shot-event", subject: 301, label: "3", channel: "expired", amount: 1,
+                        detail: "death=expired;walls=0;first-wall=-;hits=1;first-hit=type=3;tick=42;damage=20;children=0;child-types=-",
+                        tick: 350);
+            }
+            // A volley sibling: a flight on record with no shot of its own, which must not read as a lost pairing.
+            Add("shot-event", subject: 399, label: "3", channel: "expired", amount: 0,
+                detail: "death=expired;walls=0;first-wall=-;hits=0;first-hit=-;children=0;child-types=-", tick: 351);
+            Add("session-end", tick: 400);
+            File.WriteAllLines(events, lines);
+            File.WriteAllText(file, "tick\n1\n");
+            Finding[] findings = new WeaponKnowledgeIsCalibrated().Run(Session.Load(file)).ToArray();
+            Require(findings.Length == 2, $"expected the musket timing and grenade pairing findings, got {findings.Length}");
+            Finding timing = findings.Single(f => f.Title.Contains("type 2", StringComparison.Ordinal));
+            Require(timing.Severity == Severity.Potential, "a calibration miss is a pattern to look at, not a contradiction in the record");
+            Require(timing.Title.Contains("40 updates", StringComparison.Ordinal), $"timing title lost its median gap: {timing.Title}");
+            Require(timing.Detail.Contains("Law revision 1 (unpredictable", StringComparison.Ordinal),
+                $"timing finding does not name the standing law: {timing.Detail}");
+            Require(timing.Detail.Contains("6 of 6 first hits", StringComparison.Ordinal),
+                $"timing finding lost its aimed share: {timing.Detail}");
+            Finding pairing = findings.Single(f => f.Title.Contains("Grenade", StringComparison.Ordinal));
+            Require(pairing.Title.Contains("1 of 6", StringComparison.Ordinal), $"pairing title lost its count: {pairing.Title}");
+            Require(findings.All(f => !f.Title.Contains("type 1", StringComparison.Ordinal) && !f.Title.Contains("Wooden Bow", StringComparison.Ordinal)),
+                "a calibrated type inside tolerance produced a finding");
+        }
+        finally
+        {
+            File.Delete(file);
+            File.Delete(events);
         }
     }
 

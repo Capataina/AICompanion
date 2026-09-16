@@ -71,7 +71,9 @@ public sealed class TorchesGoWhereHisCursorWould : ICheck
 /// Whether keeping company won while the player stood idle beside a hostile hunting itself rated usable. Hunting is the
 /// opportunistic thing the companion does when little else is going on, and an idle player with a killable enemy nearby is
 /// exactly that; the 15 September capture kept company through stretches like it. Reported with hunting's own factors, so
-/// a hunt that lost on its value can be told from one that lost on the time it would take or on the ordering.
+/// a hunt that lost on its value can be told from one that lost on the time it would take or on the ordering. Reads the
+/// `combat_*` columns with the `hunt_*` ones as fallback, because the merged stance renamed them; a capture with neither
+/// has no offer to judge and the check stays quiet.
 /// </summary>
 public sealed class HuntsWorthTakingAreTaken : ICheck
 {
@@ -88,11 +90,13 @@ public sealed class HuntsWorthTakingAreTaken : ICheck
     private const int AllowGap = 10;
 
     public string Name => "did keeping company win while an idle player stood near a hunt rated usable";
-    public string[] Needs => new[] { "action", "hunt_offer", "near_threat", "player_vel" };
+    public string[] Needs => new[] { "action", "near_threat", "player_vel" };
 
     public IEnumerable<Finding> Run(Session session)
     {
-        Column action = session["action"], offer = session["hunt_offer"], near = session["near_threat"], velocity = session["player_vel"];
+        string prefix = session.Has("combat_offer") ? "combat" : "hunt";
+        if (!session.Has(prefix + "_offer")) yield break;
+        Column action = session["action"], offer = session[prefix + "_offer"], near = session["near_threat"], velocity = session["player_vel"];
         bool Holds(int i)
             => action.Text[i] == "keep-company"
                 && offer.Text[i].StartsWith("Usable:", StringComparison.Ordinal)
@@ -101,11 +105,11 @@ public sealed class HuntsWorthTakingAreTaken : ICheck
         foreach (Stretch stretch in FindStretches.Where(session.Count, Holds, MinTicks, AllowGap))
         {
             var factors = new List<string>();
-            foreach (string column in new[] { "hunt_raw", "hunt_fin", "hunt_time", "keep-company_fin" })
+            foreach (string column in new[] { prefix + "_raw", prefix + "_fin", prefix + "_time", "keep-company_fin" })
                 if (session.Has(column)) factors.Add($"{column} {FindStretches.Mean(session[column], stretch):0.000}");
             string offers = string.Join(", ", FindStretches.Tally(offer, stretch).Take(2).Select(p => $"{p.Key} {100f * p.Value / stretch.Length:0}%"));
-            string funnel = session.Has("hunt_funnel")
-                ? $" Hunting's furthest candidate stopped at: {string.Join(", ", FindStretches.Tally(session["hunt_funnel"], stretch).Take(2).Select(p => $"{p.Key} {100f * p.Value / stretch.Length:0}%"))}."
+            string funnel = session.Has(prefix + "_funnel")
+                ? $" Hunting's furthest candidate stopped at: {string.Join(", ", FindStretches.Tally(session[prefix + "_funnel"], stretch).Take(2).Select(p => $"{p.Key} {100f * p.Value / stretch.Length:0}%"))}."
                 : "";
             yield return new Finding(
                 Severity.Potential,

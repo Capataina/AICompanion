@@ -53,7 +53,7 @@ echo "movement boundary holds: only TerrariaIntegration names game types"
 # contact and the terrain predicates are not named, because asking whether a tile is wet or whether
 # the body fits somewhere is a geometry question every activity may ask. Only a leading word
 # boundary is spelled out, because BSD and GNU grep disagree about \b.
-reach_dirs='Companion/Brain/Activities Companion/Brain/Infrastructure/Interactions'
+reach_dirs='Companion/Brain/Activities Companion/Brain/Infrastructure/Interactions Companion/Brain/Infrastructure/WeaponKnowledge'
 reach_pattern='(^|[^A-Za-z0-9_])(FreeSpaceSearch|CornerGraph\.|ClearanceField\.|new Navigator|Navigator\.MoveTo|SteerAlongRoute|Route\.Smooth|FlyerCanReach|WalkerCanReach)|Reachability\.Verdict'
 for dir in $reach_dirs; do
   test -d "$dir" || { echo "reach boundary source directory missing: $dir"; exit 1; }

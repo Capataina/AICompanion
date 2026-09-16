@@ -581,7 +581,7 @@ internal static class VerifyCompanionExperience
         NPC shot = Spawn(40, NPCID.Zombie, normal);
         var projectile = new Projectile { whoAmI = 20, active = true, friendly = true, owner = Main.myPlayer };
         Main.projectile[20] = projectile;
-        live::AICompanion.Companion.Weapons.TrackLandedHits.Register(20, null, ItemID.WoodenBow);
+        live::AICompanion.Companion.Brain.Infrastructure.Interactions.Firing.TrackLandedHits.Register(20, null, ItemID.WoodenBow);
         try
         {
             Credit.BeforeStrike(shot, Credit.StrikerOf(projectile));          // NPCLoader.ModifyHitByProjectile
@@ -590,7 +590,7 @@ internal static class VerifyCompanionExperience
             Credit.AfterStrike(shot);
             Credit.AfterStrike(shot);
         }
-        finally { live::AICompanion.Companion.Weapons.TrackLandedHits.Clear(); }
+        finally { live::AICompanion.Companion.Brain.Infrastructure.Interactions.Firing.TrackLandedHits.Clear(); }
         Require(!shot.active && Near(ledger.Into, full.Into),
             $"the companion's shot passes through the player's hooks and must stay the companion's; into {ledger.Into / Unit} against {full.Into / Unit}");
 
@@ -872,17 +872,17 @@ internal static class VerifyCompanionExperience
         {
             var projectile = new Projectile { whoAmI = slot, active = true, friendly = friendly, hostile = !friendly, owner = Main.myPlayer, trap = trap, npcProj = npcProj };
             Main.projectile[slot] = projectile;
-            live::AICompanion.Companion.Weapons.TrackLandedHits.Forget(slot);
+            live::AICompanion.Companion.Brain.Infrastructure.Interactions.Firing.TrackLandedHits.Forget(slot);
             return projectile;
         }
         Projectile companion = Shot(10, friendly: true);
-        live::AICompanion.Companion.Weapons.TrackLandedHits.Register(10, null, ItemID.WoodenBow);
+        live::AICompanion.Companion.Brain.Infrastructure.Interactions.Firing.TrackLandedHits.Register(10, null, ItemID.WoodenBow);
         Require(Credit.StrikerOf(companion) == Striker.Companion, "a shot the arsenal registered is the companion's, though the player owns it");
         Require(Credit.StrikerOf(Shot(11, friendly: true)) == Striker.Player, "the player's own friendly projectile is his");
         Require(Credit.StrikerOf(Shot(12, friendly: true, trap: true)) == Striker.Other, "a trap's dart is nobody's");
         Require(Credit.StrikerOf(Shot(13, friendly: true, npcProj: true)) == Striker.Other, "a town NPC's shot is nobody's");
         Require(Credit.StrikerOf(Shot(14, friendly: false)) == Striker.Other, "a hostile projectile is nobody's");
-        live::AICompanion.Companion.Weapons.TrackLandedHits.Clear();
+        live::AICompanion.Companion.Brain.Infrastructure.Interactions.Firing.TrackLandedHits.Clear();
         Console.WriteLine("  a registered shot is the companion's, an unregistered friendly one the player's, a trap's, a town NPC's and a hostile's nobody's");
     }
 

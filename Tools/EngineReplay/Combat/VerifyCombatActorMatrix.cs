@@ -4,8 +4,7 @@ using Microsoft.Xna.Framework;
 using Terraria;
 using Terraria.ID;
 using Terraria.ModLoader;
-using Hunt = live::AICompanion.Companion.Brain.Activities.Combat.PursueAttackOpportunity;
-using Guard = live::AICompanion.Companion.Brain.Activities.Combat.ProtectPlayer;
+using Combat = live::AICompanion.Companion.Brain.Activities.Combat.FightEnemies;
 using ActionContext = live::AICompanion.Companion.Brain.Activities.ActionContext;
 using PositionRequest = live::AICompanion.Companion.Brain.Infrastructure.Position.PositionRequest;
 using RequestKind = live::AICompanion.Companion.Brain.Infrastructure.Position.RequestKind;
@@ -210,14 +209,13 @@ internal static class VerifyCombatActorMatrix
         }
         brain.Senses.SetInterventionEstimate(companion.Arsenal.EstimateInterventionTicks(ctx));
         NPC? aim = companion.Arsenal.BestTarget(ctx);
-        var hunt = brain.Chooser.Actions.OfType<Hunt>().Single();
-        VerifyPreparedActivities.PrepareAndScore(hunt, ctx);
-        var guard = brain.Chooser.Actions.OfType<Guard>().Single();
-        float guardValue = VerifyPreparedActivities.PrepareAndScore(guard, ctx);
+        var combat = brain.Chooser.Actions.OfType<Combat>().Single();
+        VerifyPreparedActivities.PrepareAndScore(combat, ctx);
+        float guardValue = combat.GuardValue;
 
         var enemies = new Dictionary<int, (bool, string, float, float)>();
         foreach (NPC npc in placed) enemies[npc.whoAmI] = (companion.Arsenal.CanEngage(ctx, npc), "unexamined", float.NaN, float.NaN);
-        foreach (string entry in hunt.PursuitEvidence.Split('|', StringSplitOptions.RemoveEmptyEntries))
+        foreach (string entry in combat.PursuitEvidence.Split('|', StringSplitOptions.RemoveEmptyEntries))
         {
             string[] field = entry.Split(':');
             int slot = int.Parse(field[0]);
@@ -228,10 +226,10 @@ internal static class VerifyCombatActorMatrix
         }
         return new Row(actor, blocked, brain.Senses.Threats.PlayerDanger, brain.Senses.Threats.CompanionDanger,
             enemies.ToDictionary(e => e.Key, e => ((bool CanEngage, string Verdict, float Access, float Value))e.Value),
-            aim?.whoAmI ?? -1, guardValue, guard.RemovalTicks, brain.Senses.Threats.InterventionTicks,
-            brain.Senses.Threats.ProtectionUrgency, hunt.PursuitEvidence,
-            (guard.ActivityIdentity as NPC)?.whoAmI ?? -1, guard.Access?.ToString() ?? "unasked", guard.AccessTicks,
-            guard.InterventionUsefulness, brain.Senses.Threats.MostUrgent?.Urgency ?? 0f);
+            aim?.whoAmI ?? -1, guardValue, combat.RemovalTicks, brain.Senses.Threats.InterventionTicks,
+            brain.Senses.Threats.ProtectionUrgency, combat.PursuitEvidence,
+            combat.GuardTarget?.whoAmI ?? -1, combat.Access?.ToString() ?? "unasked", combat.AccessTicks,
+            combat.InterventionUsefulness, brain.Senses.Threats.MostUrgent?.Urgency ?? 0f);
     }
 
     private static void Require(bool condition, string message)

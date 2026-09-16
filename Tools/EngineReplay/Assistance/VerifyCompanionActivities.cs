@@ -470,6 +470,7 @@ internal static class VerifyCompanionActivities
             { ("neither", false, false), ("player", true, false), ("companion", false, true), ("both", true, true) };
         var seen = new Dictionary<string, (float Raw, float Protection, float Reunion, float DelayCost, float Guard, float PlayerDanger, float CompanionDanger)>();
         var excursions = new Dictionary<string, Dictionary<string, float>>();
+        var huntSide = new Dictionary<string, float>();
         var offers = new Dictionary<string, string>();
         bool torchPlacement = Preferences.Current.TorchPlacement;
         var lightMode = Lighting.Mode;
@@ -490,6 +491,19 @@ internal static class VerifyCompanionActivities
                 trunk.TileType = TileID.Trees;
                 Main.tileAxe[TileID.Trees] = true;
                 Main.tileSolid[TileID.Trees] = false;
+                // A wall between the companion's stand and the hunt target, so the hunt is not a
+                // shot from here: a local hunt pays no approach and reads its own danger at one by
+                // design, which is what the yield below turns on. No lob from the muzzle clears
+                // thirty tiles, and the flood still completes over the top, so the verdict is a
+                // reposition rather than an absence. Constant in every scene, so each relational
+                // assertion still compares scenes that differ only in whom the added hostile threatens.
+                for (int y = 30; y < 60; y++)
+                {
+                    Tile wall = Main.tile[28, y];
+                    wall.ClearEverything();
+                    wall.HasTile = true;
+                    wall.TileType = TileID.Dirt;
+                }
                 live::AICompanion.Companion.Brain.Infrastructure.Movement.TerrainChanges.Reset();
                 for (int i = 0; i < ctx.Player.inventory.Length; i++) ctx.Player.inventory[i] = new Item();
                 Item torches = new();
@@ -532,12 +546,32 @@ internal static class VerifyCompanionActivities
                     brain.Positioner.Resolve(primeHome, brain.Senses, null);
                 Require(brain.Positioner.ReachComplete,
                     $"the reach region must settle before the comparison, or a refusal reads as an absence: {scene.Name}");
-                brain.Chooser.Choose(ctx);
+                var combatPreview = brain.Chooser.Actions.OfType<live::AICompanion.Companion.Brain.Activities.Combat.FightEnemies>().Single();
+                int ticks = 0;
+                // The stand sweep answers across successive scans, and the wall means the first scans
+                // find no arc on the companion's side. The query caches each answer for twenty ticks,
+                // so the scene is ticked in production order — observe, price intervention, compare —
+                // until the sweep decides; one comparison would read the hunt as undecided at value
+                // zero, which is the sweep's budget rather than its answer. The intervention estimate
+                // is repriced every tick because observing resets the protection urgency it feeds.
+                do
+                {
+                    brain.Senses.Update(ctx.Npc, ctx.Player);
+                    brain.Senses.SetInterventionEstimate(ctx.Companion.Arsenal.EstimateInterventionTicks(ctx));
+                    brain.Chooser.Choose(ctx); ticks++;
+                }
+                while (combatPreview.LastRejection == "firing-position-undecided" && ticks < 500);
+                Require(combatPreview.LastRejection != "firing-position-undecided",
+                    $"the stand sweep must decide within five hundred ticks, or the scene's hunt is not the reposition it claims: {scene.Name}");
                 var mine = brain.Chooser.LastScores.Single(s => s.Action.Name == "mine");
-                var guard = brain.Chooser.LastScores.Single(s => s.Action.Name == "guard");
-                seen[scene.Name] = (mine.Raw, mine.Protection, mine.Reunion, brain.Chooser.Reunion.DelayCostPerTick, guard.Raw,
+                var combat = brain.Chooser.Actions.OfType<live::AICompanion.Companion.Brain.Activities.Combat.FightEnemies>().Single();
+                seen[scene.Name] = (mine.Raw, mine.Protection, mine.Reunion, brain.Chooser.Reunion.DelayCostPerTick, combat.GuardValue,
                     brain.Senses.Threats.PlayerDanger, brain.Senses.Threats.CompanionDanger);
-                excursions[scene.Name] = brain.Chooser.LastScores.Where(s => s.Action.IsExcursion).ToDictionary(s => s.Action.Name, s => s.Raw);
+                huntSide[scene.Name] = combat.HuntValue;
+                // Combat's winning raw legitimately reads the player's danger through its guard side, so it is
+                // not one of the excursion raws the invariance loop below holds fixed; its sides are read
+                // directly instead, the guard side above and the hunt side beside it.
+                excursions[scene.Name] = brain.Chooser.LastScores.Where(s => s.Action.IsExcursion && s.Action.Name != "combat").ToDictionary(s => s.Action.Name, s => s.Raw);
                 offers[scene.Name] = string.Join(",", brain.Chooser.LastScores.Where(s => s.Action.IsExcursion)
                     .Select(s => $"{s.Action.Name}:{s.Action.Eligibility}/{s.Action.EligibilityReason}"));
             }
@@ -562,9 +596,8 @@ internal static class VerifyCompanionActivities
             foreach (var (name, raw) in excursions[calm])
                 Require(excursions[threatened][name] == raw,
                     $"{name}'s raw value must not read the player's danger: {calm}={raw} against {threatened}={excursions[threatened][name]}; {excursionLedger}");
-        if (excursions["neither"].ContainsKey("hunt") && excursions["companion"].ContainsKey("hunt"))
-            Require(excursions["companion"]["hunt"] < excursions["neither"]["hunt"],
-                $"hunting must still yield to the companion's own danger, a different risk from the player's; {excursionLedger}");
+        Require(huntSide["neither"] > 0f && huntSide["companion"] < huntSide["neither"],
+            $"combat's hunt side must still yield to the companion's own danger, a different risk from the player's; calm={huntSide["neither"]} threatened={huntSide["companion"]}; {excursionLedger}");
         Console.WriteLine($"danger charged once: {excursionLedger}");
         var (neither, player, companion, both) = (seen["neither"], seen["player"], seen["companion"], seen["both"]);
         static bool Same(float a, float b) => MathF.Abs(a - b) < 1e-6f;
@@ -642,7 +675,7 @@ internal static class VerifyCompanionActivities
         for (int i = 0; i < window; i++)
         {
             brain.Chooser.Activity.Select(i % 2 == 0
-                ? new live::AICompanion.Companion.Brain.Activities.Combat.PursueAttackOpportunity()
+                ? new live::AICompanion.Companion.Brain.Activities.Combat.FightEnemies()
                 : new live::AICompanion.Companion.Brain.Activities.NearbyAssistance.KeepCompany(), ctx);
             Tick(i % 2 == 0 ? RequestKind.WithPlayer : RequestKind.Guard, i % 8 - 4);
         }

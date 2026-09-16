@@ -102,12 +102,27 @@ internal static class ResetProcessState
 
         // What the weapons have learned about each enemy scales every hit the arsenal scores, so a case that swung a sword
         // at a zombie would otherwise hand the next case a damage ratio and a push it never observed.
-        live::AICompanion.Companion.Weapons.WeaponEffects.Reset();
+        live::AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Learning.WeaponEffects.Reset();
         // What each weapon's attacks achieved scales every forecast the same way, the outcome windows hold projectile slots a
         // rebuilt world reuses, and the landed-hit ledger holds shot identities for those slots: a case inherits none of them.
-        live::AICompanion.Companion.Weapons.AttackLearning.Reset();
-        live::AICompanion.Companion.Weapons.ShotOutcomes.Clear();
-        live::AICompanion.Companion.Weapons.TrackLandedHits.Clear();
+        live::AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Learning.AttackLearning.Reset();
+        live::AICompanion.Companion.Brain.Infrastructure.Interactions.Firing.ShotOutcomes.Clear();
+        live::AICompanion.Companion.Brain.Infrastructure.Interactions.Firing.TrackLandedHits.Clear();
+        // The flight recorder's open traces and grouped uses, the volley shapes they taught, the arcs the
+        // traces fed and the cursor the spoof may be holding: a case inherits none of the previous case's sky.
+        live::AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Recording.RecordProjectileFlights.Clear();
+        live::AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Recording.GroupSpawnsIntoUses.Clear();
+        live::AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Learning.LearnVolleyShapes.Reset();
+        live::AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Learning.FitFlightLaws.Reset();
+        live::AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Learning.LearnWallResponses.Reset();
+        live::AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Learning.LearnHitResponses.Reset();
+        live::AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Learning.LearnChildSpawns.Reset();
+        // The revision and the sim cache it keys: a case that refitted laws and a later case that reset them would
+        // otherwise share revision numbers with different beliefs behind them, and the later case would read sims
+        // priced under the earlier case's laws.
+        live::AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.KnowledgeRevision.Reset();
+        live::AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Simulation.CacheSimulatedUses.Clear();
+        live::AICompanion.Companion.Brain.Infrastructure.Interactions.Firing.SpoofOwnerInputForShots.Clear();
         // Which strike is in flight and the open boss fight are slot memories a rebuilt world reuses; a fixture that repriced
         // either slime reading restores the game's own. The companion's torches, the spots the player cleared of one and the
         // torch tiles already paid for are world memories, which a rebuilt world does not have.

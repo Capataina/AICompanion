@@ -24,7 +24,7 @@ internal static class VerifyCompanionPreferences
         {
             Mining = WorkPolicy.Mimic,
             Chopping = WorkPolicy.Disabled,
-            Hunting = false,
+            Combat = false,
             PotBreaking = false,
             TorchPlacement = false,
             DistanceMode = Distance.Free,
@@ -36,13 +36,13 @@ internal static class VerifyCompanionPreferences
         stream.Position = 0;
         Preferences copy = Preferences.Load(TagIO.FromStream(stream));
         Require(copy.Mining == WorkPolicy.Mimic && copy.Chopping == WorkPolicy.Disabled, "work policies did not round-trip");
-        Require(!copy.Hunting && !copy.PotBreaking && !copy.TorchPlacement && copy.DistanceMode == Distance.Free, "boolean or distance preferences did not round-trip");
+        Require(!copy.Combat && !copy.PotBreaking && !copy.TorchPlacement && copy.DistanceMode == Distance.Free, "boolean or distance preferences did not round-trip");
     }
 
     private static void MalformedValuesFallBack()
     {
         Preferences defaults = Preferences.Load(new TagCompound());
-        Require(defaults.Mining == WorkPolicy.Opportunistic && defaults.Chopping == WorkPolicy.Opportunistic && defaults.Hunting && defaults.PotBreaking && defaults.TorchPlacement && defaults.DistanceMode == Distance.Standard, "absent legacy settings did not retain defaults");
+        Require(defaults.Mining == WorkPolicy.Opportunistic && defaults.Chopping == WorkPolicy.Opportunistic && defaults.Combat && defaults.PotBreaking && defaults.TorchPlacement && defaults.DistanceMode == Distance.Standard, "absent legacy settings did not retain defaults");
         var invalid = new TagCompound { ["mining"] = 99, ["chopping"] = -1, ["distanceMode"] = 42 };
         Preferences safe = Preferences.Load(invalid);
         Require(safe.Mining == WorkPolicy.Opportunistic && safe.Chopping == WorkPolicy.Opportunistic && safe.DistanceMode == Distance.Standard, "invalid enum scalars escaped their fallback");

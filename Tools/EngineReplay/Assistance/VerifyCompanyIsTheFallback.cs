@@ -90,7 +90,7 @@ internal static class VerifyCompanyIsTheFallback
         {
             FollowTheScreen(player);
             VerifyOreWork.AdvanceBrain(ctx);
-            if (companion.Brain.LastAction?.Name == "hunt") chosenAt = tick;
+            if (companion.Brain.LastAction?.Name == "combat") chosenAt = tick;
             if (tick % 20 == 0 || chosenAt >= 0) ledger = Board(companion, $"tick {tick}");
         }
         Console.WriteLine($"slime above an idle player: hunting chosen at tick {chosenAt}; {ledger}");
@@ -115,7 +115,7 @@ internal static class VerifyCompanyIsTheFallback
             slime.position.X += 2f;
             FollowTheScreen(player);
             VerifyOreWork.AdvanceBrain(ctx);
-            if (companion.Brain.LastAction?.Name == "hunt") { hunting++; ledger = Board(companion, $"tick {tick}"); }
+            if (companion.Brain.LastAction?.Name == "combat") { hunting++; ledger = Board(companion, $"tick {tick}"); }
             if (tick == 0) Require(Main.screenPosition.X + Main.screenWidth + 200 > slime.Center.X,
                 $"the scene premise: the slime must start inside hunting's on-screen rectangle, at the screen's edge; slime {slime.Center} screen right {Main.screenPosition.X + Main.screenWidth}");
         }
@@ -199,7 +199,7 @@ internal static class VerifyCompanyIsTheFallback
         var scores = companion.Brain.Chooser.LastScores;
         string Of(string name) => scores.FirstOrDefault(s => s.Action.Name == name) is { Action: not null } s
             ? $"{name} {s.Raw:0.000}/{s.Final:0.000} {s.Action.Eligibility}:{s.Action.EligibilityReason}" : $"{name} -";
-        return $"{when}: chosen {companion.Brain.LastAction?.Name ?? "none"}; {Of("hunt")}; {Of("keep-company")}";
+        return $"{when}: chosen {companion.Brain.LastAction?.Name ?? "none"}; {Of("combat")}; {Of("keep-company")}";
     }
 
     private static (CompanionNPC Companion, Player Player, ActionContext Ctx) Scene()

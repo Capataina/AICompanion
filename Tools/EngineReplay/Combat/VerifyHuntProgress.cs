@@ -1,7 +1,7 @@
 extern alias live;
 using Microsoft.Xna.Framework;
 using Terraria;
-using H = live::AICompanion.Companion.Brain.Activities.Combat.PursueAttackOpportunity;
+using Combat = live::AICompanion.Companion.Brain.Activities.Combat.FightEnemies;
 using T = live::AICompanion.Companion.Brain.Infrastructure.Observation.ThreatRecord;
 using C = live::AICompanion.Companion.Brain.Activities.ActionContext;
 
@@ -12,6 +12,7 @@ internal static class VerifyHuntProgress
         var companion = VerifyCompanionLifecycle.Create();
         Main.LocalPlayer.dead = false;
         Main.LocalPlayer.Bottom = companion.NPC.Bottom;
+        ClearHostileSlots();
         companion.Brain.Senses.Update(companion.NPC, Main.LocalPlayer);
         var target = new NPC(); target.SetDefaults(Terraria.ID.NPCID.Zombie);
         target.whoAmI = 12; target.active = true; target.Bottom = companion.NPC.Bottom + new Vector2(160, 0);
@@ -19,22 +20,22 @@ internal static class VerifyHuntProgress
         companion.Brain.Senses.Threats.Threats.Clear();
         companion.Brain.Senses.Threats.Threats.Add(new T { Npc = target, DistanceToCompanion = 160, DistanceToPlayer = 160 });
         var context = new C(companion, companion.Brain.Senses);
-        var hunt = new H();
-        if (VerifyPreparedActivities.PrepareAndScore(hunt, context) <= 0) throw new InvalidOperationException("Hunt progress fixture must offer a live target");
-        for (int i = 0; i < 182; i++) hunt.ObserveOutcome(context);
-        if (VerifyPreparedActivities.PrepareAndScore(hunt, context) != 0) throw new InvalidOperationException("Stationary hunt without attacks retained its ineffective target");
+        var combat = new Combat();
+        if (VerifyPreparedActivities.PrepareAndScore(combat, context) <= 0) throw new InvalidOperationException("Combat progress fixture must offer a live target");
+        for (int i = 0; i < 182; i++) combat.ObserveOutcome(context);
+        if (VerifyPreparedActivities.PrepareAndScore(combat, context) != 0) throw new InvalidOperationException("Stationary combat without attacks retained its ineffective target");
         target.position.X += 64;
-        if (VerifyPreparedActivities.PrepareAndScore(hunt, context) <= 0) throw new InvalidOperationException("Moved target did not reopen a deferred engagement");
+        if (VerifyPreparedActivities.PrepareAndScore(combat, context) <= 0) throw new InvalidOperationException("Moved target did not reopen a deferred engagement");
         for (int i = 0; i < 182; i++)
         {
             companion.NPC.position.X += 1;
-            hunt.ObserveOutcome(context);
+            combat.ObserveOutcome(context);
         }
-        if (VerifyPreparedActivities.PrepareAndScore(hunt, context) <= 0) throw new InvalidOperationException("Travelling hunt was deferred despite progress");
+        if (VerifyPreparedActivities.PrepareAndScore(combat, context) <= 0) throw new InvalidOperationException("Travelling combat was deferred despite progress");
         VerifyChurnDoesNotDefeatTheGuard(companion);
         VerifyIndependentHandsDoNotRenewPursuit();
         VerifySuspensionDoesNotConsumePursuitBudget();
-        Console.WriteLine("hunt progress: ineffective target deferred, moving target reconsidered, travelling hunt retained, alternating targets still defer");
+        Console.WriteLine("combat progress: ineffective target deferred, moving target reconsidered, travelling combat retained, alternating targets still defer");
         return 0;
     }
 
@@ -46,6 +47,7 @@ internal static class VerifyHuntProgress
             var companion = VerifyCompanionLifecycle.Create();
             Main.LocalPlayer.dead = false;
             Main.LocalPlayer.Bottom = companion.NPC.Bottom;
+            ClearHostileSlots();
             companion.Brain.Senses.Update(companion.NPC, Main.LocalPlayer);
             var target = new NPC(); target.SetDefaults(Terraria.ID.NPCID.Zombie);
             target.whoAmI = 12; target.active = true;
@@ -58,15 +60,15 @@ internal static class VerifyHuntProgress
             threats.Clear();
             threats.Add(new T { Npc = target, DistanceToCompanion = 160, DistanceToPlayer = 160 });
             var context = new C(companion, companion.Brain.Senses);
-            var hunt = new H();
-            if (VerifyPreparedActivities.PrepareAndScore(hunt, context) <= 0)
+            var combat = new Combat();
+            if (VerifyPreparedActivities.PrepareAndScore(combat, context) <= 0)
                 throw new InvalidOperationException("Independent-hands fixture must offer a pursuit");
             // Supply the hands boundary's outcome without creating projectiles. This tests
             // attribution, not native firing or whether a projectile subsequently hits.
             companion.Brain.GetType().GetProperty("EngageTarget")!.SetValue(companion.Brain, sameEnemy ? target : other);
             companion.Arsenal.GetType().GetProperty("LastFireOutcome")!.SetValue(companion.Arsenal, outcome);
-            for (int i = 0; i < 182; i++) hunt.ObserveOutcome(context);
-            bool stillOffered = VerifyPreparedActivities.PrepareAndScore(hunt, context) > 0;
+            for (int i = 0; i < 182; i++) combat.ObserveOutcome(context);
+            bool stillOffered = VerifyPreparedActivities.PrepareAndScore(combat, context) > 0;
             if (stillOffered != retained)
                 throw new InvalidOperationException($"Pursuit attribution: outcome={outcome}, sameEnemy={sameEnemy}, retained={stillOffered}, expected={retained}");
         }
@@ -77,6 +79,7 @@ internal static class VerifyHuntProgress
         var companion = VerifyCompanionLifecycle.Create();
         Main.LocalPlayer.dead = false;
         Main.LocalPlayer.Bottom = companion.NPC.Bottom;
+        ClearHostileSlots();
         companion.Brain.Senses.Update(companion.NPC, Main.LocalPlayer);
         var target = new NPC(); target.SetDefaults(Terraria.ID.NPCID.Zombie);
         target.whoAmI = 12; target.active = true;
@@ -86,23 +89,23 @@ internal static class VerifyHuntProgress
         threats.Clear();
         threats.Add(new T { Npc = target, DistanceToCompanion = 160, DistanceToPlayer = 160 });
         var context = new C(companion, companion.Brain.Senses);
-        var hunt = new H();
-        if (VerifyPreparedActivities.PrepareAndScore(hunt, context) <= 0)
+        var combat = new Combat();
+        if (VerifyPreparedActivities.PrepareAndScore(combat, context) <= 0)
             throw new InvalidOperationException("Suspension fixture must offer a pursuit");
         var owner = companion.Brain.Chooser.Activity;
-        owner.Select(hunt, context);
+        owner.Select(combat, context);
         owner.BeginExecution();
         owner.ObserveOutcome(context);
         owner.ObserveOutcome(context);
-        int before = hunt.NoProgressTicks;
+        int before = combat.NoProgressTicks;
         owner.Suspend(context, "follow-recovery-flight");
         for (int i = 0; i < 182; i++) owner.ObserveOutcome(context);
-        if (hunt.NoProgressTicks != before || VerifyPreparedActivities.PrepareAndScore(hunt, context) <= 0)
-            throw new InvalidOperationException($"Suspended pursuit consumed failure budget: before={before}, after={hunt.NoProgressTicks}, rejection={hunt.LastRejection}");
-        owner.Select(hunt, context);
+        if (combat.NoProgressTicks != before || VerifyPreparedActivities.PrepareAndScore(combat, context) <= 0)
+            throw new InvalidOperationException($"Suspended pursuit consumed failure budget: before={before}, after={combat.NoProgressTicks}, rejection={combat.LastRejection}");
+        owner.Select(combat, context);
         owner.BeginExecution();
         for (int i = 0; i < 182; i++) owner.ObserveOutcome(context);
-        if (VerifyPreparedActivities.PrepareAndScore(hunt, context) != 0)
+        if (VerifyPreparedActivities.PrepareAndScore(combat, context) != 0)
             throw new InvalidOperationException("Resumed stationary pursuit no longer expires");
     }
 
@@ -118,6 +121,7 @@ internal static class VerifyHuntProgress
     {
         Main.LocalPlayer.dead = false;
         Main.LocalPlayer.Bottom = companion.NPC.Bottom;
+        ClearHostileSlots();
         companion.Brain.Senses.Update(companion.NPC, Main.LocalPlayer);
         var threats = companion.Brain.Senses.Threats.Threats;
         threats.Clear();
@@ -132,8 +136,8 @@ internal static class VerifyHuntProgress
             threats.Add(new T { Npc = npc, DistanceToCompanion = 150, DistanceToPlayer = 150 });
         }
         var context = new C(companion, companion.Brain.Senses);
-        var hunt = new H();
-        if (VerifyPreparedActivities.PrepareAndScore(hunt, context) <= 0) throw new InvalidOperationException("Churn fixture must offer a live target");
+        var combat = new Combat();
+        if (VerifyPreparedActivities.PrepareAndScore(combat, context) <= 0) throw new InvalidOperationException("Churn fixture must offer a live target");
 
         // Comfortably past one progress window, with the selection forced to alternate and the body
         // and the weapon both idle. Scoring each tick is what re-picks the target, exactly as the
@@ -143,11 +147,22 @@ internal static class VerifyHuntProgress
         for (int i = 0; i < 300; i++)
         {
             threats.Reverse();
-            VerifyPreparedActivities.PrepareAndScore(hunt, context);
-            hunt.ObserveOutcome(context);
+            VerifyPreparedActivities.PrepareAndScore(combat, context);
+            combat.ObserveOutcome(context);
         }
-        if (VerifyPreparedActivities.PrepareAndScore(hunt, context) != 0)
+        if (VerifyPreparedActivities.PrepareAndScore(combat, context) != 0)
             throw new InvalidOperationException(
-                "Alternating targets defeated the no-progress deferral: a stationary, non-firing hunt retained a target across a full window");
+                "Alternating targets defeated the no-progress deferral: a stationary, non-firing combat retained a target across a full window");
+    }
+
+    /// <summary>
+    /// The hostile slots this file plants into, wiped before each observation. Every scene here
+    /// hand-builds its threat list after observing, so a hostile an earlier scene left behind would
+    /// still be read: MostUrgent and the urgencies survive Threats.Clear, and the guard side would
+    /// bind a body the scene never placed and steal the execution a hunt-stall scene needs.
+    /// </summary>
+    private static void ClearHostileSlots()
+    {
+        foreach (int slot in new[] { 12, 13, 20, 21 }) Main.npc[slot] = new NPC();
     }
 }

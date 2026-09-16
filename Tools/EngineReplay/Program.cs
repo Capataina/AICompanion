@@ -23,6 +23,24 @@ if (args.Contains("--attack-outcomes")) return VerifyAttackOutcomes.Run();
 if (args.Contains("--knockback")) return VerifyKnockbackAwareness.Run();
 if (args.Contains("--experience")) return VerifyCompanionExperience.Run();
 if (args.Contains("--weapon-learning")) return VerifyWeaponLearning.Run();
+if (args.Contains("--volley-learning"))
+    return RunOneRow.Case("spread and burst group into one use each", () => VerifyVolleyLearning.SpreadAndBurstGroupIntoOneUseEach())
+        + RunOneRow.Case("arcs are learned from the player's flights", () => VerifyVolleyLearning.ArcsAreLearnedFromThePlayersFlights())
+        + RunOneRow.Case("companion shots read the companion's aim", () => VerifyVolleyLearning.CompanionShotsReadTheCompanionsAimAsTheirCursor());
+if (args.Contains("--flight-laws"))
+    return RunOneRow.Case("delayed gravity matches native tick for tick", () => VerifyFlightLaws.DelayedGravityMatchesNativeTickForTick())
+        + RunOneRow.Case("bounce points are predicted in a fixture box", () => VerifyFlightLaws.BouncePointsArePredictedInAFixtureBox())
+        + RunOneRow.Case("modified traces leave law and hit response unchanged", () => VerifyFlightLaws.ModifiedTracesLeaveLawAndHitResponseUnchanged())
+        + RunOneRow.Case("an unpredictable type still fires", () => VerifyFlightLaws.AnUnpredictableTypeStillFires())
+        + RunOneRow.Case("homing predicts its path to a placed body", () => VerifyFlightLaws.HomingPredictsItsPathToAPlacedBody())
+        + RunOneRow.Case("pass-through is predicted through a wall", () => VerifyFlightLaws.PassThroughIsPredictedThroughAWall())
+        + RunOneRow.Case("splitting shots children are predicted by trigger and count", () => VerifyFlightLaws.SplittingShotsChildrenArePredictedByTriggerAndCount());
+if (args.Contains("--simulated-uses"))
+    return RunOneRow.Case("quarter shares land a quarter per pellet", () => VerifySimulatedUses.QuarterSharesLandAQuarterPerPellet())
+        + RunOneRow.Case("unlimited pierce strikes twenty", () => VerifySimulatedUses.UnlimitedPierceStrikesTwenty())
+        + RunOneRow.Case("four pellets on a low body record four hits", () => VerifySimulatedUses.FourPelletsOnALowBodyRecordFourHits())
+        + RunOneRow.Case("timed children land after their parent", () => VerifySimulatedUses.TimedChildrenLandAfterTheirParent())
+        + RunOneRow.Case("the same decision simulated twice is identical", () => VerifySimulatedUses.TheSameDecisionSimulatedTwiceIsIdentical());
 if (args.Contains("--weapon-outcome-credit"))
     return RunOneRow.Case("misses stay with their enemy type", () => VerifyWeaponLearning.MissesAgainstOneEnemyTypeStayWithThatType())
         + RunOneRow.Case("a swing kill is the strike", () => VerifyWeaponLearning.ASwingKillIsRecordedAsTheStrike())
@@ -30,6 +48,14 @@ if (args.Contains("--weapon-outcome-credit"))
         + RunOneRow.Case("a target killed by someone else teaches nothing", () => VerifyWeaponLearning.AShotWhoseTargetDiedToSomeoneElseTeachesNothing())
         + RunOneRow.Case("the target hold survives ordinary motion", () => VerifyWeaponLearning.TheTargetHoldSurvivesOrdinaryMotion())
         + RunOneRow.Case("every companion projectile is the companion's", () => VerifyWeaponLearning.EveryProjectileTheCompanionSpawnsIsTheCompanions());
+if (args.Contains("--combat-activity"))
+    return RunOneRow.Case("only combat fires", () => VerifyCombatActivity.OnlyCombatFires())
+        + RunOneRow.Case("shared eagerness", () => VerifyCombatActivity.SharedEagerness())
+        + RunOneRow.Case("danger over work", () => VerifyCombatActivity.DangerLiftsCombatOverWork())
+        + RunOneRow.Case("distant idle enemy", () => VerifyCombatActivity.DistantIdleEnemyKeepsOffTheVein())
+        + RunOneRow.Case("dodge bends mining", () => VerifyCombatActivity.DodgeBendsMiningWithoutStoppingIt())
+        + RunOneRow.Case("unarmed offers nothing", () => VerifyCombatActivity.UnarmedOffersNoCombat())
+        + RunOneRow.Case("hunting-off migration", () => VerifyCombatActivity.HuntingOffMigration());
 if (args.Contains("--offer-validity")) return VerifyOfferValidity.Run();
 if (args.Contains("--capability")) return VerifyCapabilityRevision.Run() == 0 ? 0 : 1;
 if (args.Contains("--light-senses")) return VerifyLightAndReachSenses.Run() == 0 ? 0 : 1;

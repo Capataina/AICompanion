@@ -11,9 +11,18 @@ using SuccessRegionKind = live::AICompanion.Companion.Brain.Infrastructure.Posit
 using Navigator = live::AICompanion.Companion.Brain.Infrastructure.Movement.Navigator;
 using MovementQueries = live::AICompanion.Companion.Brain.Infrastructure.Movement.MovementQueries;
 using CompanionNPC = live::AICompanion.Companion.CharacterBody.CompanionNPC;
-using FlightModel = live::AICompanion.Companion.Brain.Infrastructure.Aiming.FlightModel;
+using FlightModel = live::AICompanion.Companion.Brain.Infrastructure.Interactions.Firing.FlightModel;
 using T = live::AICompanion.Companion.Brain.Infrastructure.Observation.ThreatRecord;
 using C = live::AICompanion.Companion.Brain.Activities.ActionContext;
+using SolveAims = live::AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Simulation.SolveAims;
+using Simulate = live::AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Simulation.SimulateUse;
+using CombatWorld = live::AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Simulation.CombatWorld;
+using ForecastEnemies = live::AICompanion.Companion.Brain.Infrastructure.Observation.ForecastEnemies;
+using EnemyForecast = live::AICompanion.Companion.Brain.Infrastructure.Observation.EnemyForecast;
+using PlanningBudget = live::AICompanion.Companion.Brain.Activities.Combat.Planning.PlanningBudget;
+using TerrainChanges = live::AICompanion.Companion.Brain.Infrastructure.Movement.TerrainChanges;
+using PredictObservedMotion = live::AICompanion.Companion.Brain.Infrastructure.Observation.PredictObservedMotion;
+using Weights = live::AICompanion.Companion.Brain.Infrastructure.Selection.Weights;
 
 /// <summary>
 /// Offer validity is three-valued and time-aware, and a chosen destination holds.
@@ -320,9 +329,9 @@ internal static class VerifyOfferValidity
         // ignored the forecast entirely would pass this row.
         Vector2 eyeBehind = MuzzleAt(new Point(60, FloorY - 1));
         Vector2 eyeBeyond = MuzzleAt(new Point(70, FloorY - 1));
-        bool behindNow = live::AICompanion.Companion.Brain.Infrastructure.Aiming.TrajectoryAimer.Solve(eyeBehind, enemy, profile!.Value) != null;
-        bool behindLater = live::AICompanion.Companion.Brain.Infrastructure.Aiming.TrajectoryAimer.Solve(eyeBehind, enemy, profile.Value, ArrivalTicks) != null;
-        bool beyondLater = live::AICompanion.Companion.Brain.Infrastructure.Aiming.TrajectoryAimer.Solve(eyeBeyond, enemy, profile.Value, ArrivalTicks) != null;
+        bool behindNow = CanShoot(companion, enemy, eyeBehind, 0);
+        bool behindLater = CanShoot(companion, enemy, eyeBehind, ArrivalTicks);
+        bool beyondLater = CanShoot(companion, enemy, eyeBeyond, ArrivalTicks);
         Console.WriteLine($"offer validity: behind the pillar now={behindNow} at+{ArrivalTicks}={behindLater}, beyond it at+{ArrivalTicks}={beyondLater}");
         Require(behindNow && !behindLater,
             $"the pillar scene must offer a stand whose shot closes before arrival; now={behindNow}, later={behindLater}");
@@ -363,8 +372,7 @@ internal static class VerifyOfferValidity
         Point feet = MovementQueries.Tile(companion.NPC.Center);
         float trip = positioner.EstimatedTravelTicks(feet, stand)
             ?? Vector2.Distance(companion.NPC.Center, chosen.Value) / live::AICompanion.Companion.Brain.Infrastructure.Movement.OrbPace.MaxSpeed;
-        Require(live::AICompanion.Companion.Brain.Infrastructure.Aiming.TrajectoryAimer
-                .Solve(MuzzleAt(stand), enemy, profile.Value, (int)MathF.Min(180f, trip)) != null,
+        Require(CanShoot(companion, enemy, MuzzleAt(stand), (int)MathF.Min(180f, trip)),
             $"the chosen stand cannot shoot the target at its forecast arrival, so the shot was solved against a "
             + $"position the target will have left; stand={stand.X},{stand.Y}, trip={trip:0.0}, evidence={positioner.CandidateEvidence}");
     }
@@ -436,7 +444,32 @@ internal static class VerifyOfferValidity
     private const int ArrivalTicks = 45;
 
     private static Vector2 MuzzleAt(Point tile)
-        => live::AICompanion.Companion.Weapons.Arsenal.MuzzleAt(MovementQueries.HoverPoint(tile));
+        => live::AICompanion.Companion.Brain.Infrastructure.Interactions.Firing.Arsenal.MuzzleAt(MovementQueries.HoverPoint(tile));
+
+    /// <summary>
+    /// Whether any weapon in hand lands a simulated use on the target from this eye, asked the way the positioner
+    /// asks it: the forecast at the arrival tick, or the current position where the forecast carries too little
+    /// measured confidence to be evidence. The probe sweeps launch angles and simulates each until one lands, so a
+    /// true answer is a use the sim flew onto the target rather than a ray that looked clear.
+    /// </summary>
+    private static bool CanShoot(CompanionNPC companion, NPC enemy, Vector2 eye, int fireTick)
+    {
+        var weapons = companion.Arsenal.Weapons;
+        if (weapons.Count == 0) return false;
+        bool usable = fireTick <= 0 || (PredictObservedMotion.ErrorSamples(enemy) > 0
+            && PredictObservedMotion.Confidence(enemy, fireTick) >= Weights.ShotForecastConfidenceFloor);
+        int tick = usable ? fireTick : 0;
+        EnemyForecast forecast = ForecastEnemies.ForSingle(enemy);
+        var enemies = new[] { forecast };
+        CombatWorld world = CombatWorld.Current(eye, Main.LocalPlayer.Center, TerrainChanges.Revision);
+        for (int slot = 0; slot < weapons.Count; slot++)
+        {
+            PlanningBudget budget = PlanningBudget.Unbounded();
+            if (SolveAims.FirstLanding(Simulate.IdentifyGeometry(weapons[slot], slot), eye, forecast, world, enemies, tick, ref budget) != null)
+                return true;
+        }
+        return false;
+    }
 
     /// <summary>
     /// A flat floor with a pillar on it and an enemy walking past that pillar. Stands short of the pillar can see

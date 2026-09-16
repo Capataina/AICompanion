@@ -141,17 +141,18 @@ internal static class VerifySafetyIsALayerOnTheJob
     /// <summary>
     /// Attacks while keeping its job. A wounded companion beside a damageable zombie used to take combat spacing, and this
     /// row required a tick where spacing owned the feet while the hands fired. Since 15 September 2026 no enemy takes the
-    /// body, so the row asks what survived the change: over the same scene the hands are granted and fire at the zombie on
-    /// some tick, and the ordinary activity is never suspended.
+    /// body; since the combat stance landed the hands fire only while combat runs, so the player stands nearby and the row
+    /// asks the reframed scene: combat takes the body against the zombie beside it, the hands are granted and fire at that
+    /// zombie on some tick, and the job is never suspended.
     /// </summary>
     private static void TheHandsKeepFiringWhileTheBodyKeepsItsJob()
     {
         var (companion, player) = OpenFloor();
-        player.Bottom = new Vector2(80 * 16, 90 * 16);
+        player.Bottom = companion.NPC.Bottom + new Vector2(200, 0);
         companion.NPC.life = 12;
         Hostile(30, NPCID.Zombie, companion.NPC.Bottom + new Vector2(64, 0), damage: 20, life: 400);
         VerifyResponsiveFollowing.AdvanceNative(companion);
-        int fired = 0, firedAtZombie = 0, suspendedTicks = 0;
+        int fired = 0, firedAtZombie = 0, suspendedTicks = 0, combatTicks = 0;
         for (int tick = 0; tick < 180; tick++)
         {
             Tick(companion);
@@ -159,10 +160,12 @@ internal static class VerifySafetyIsALayerOnTheJob
             bool shot = companion.Arsenal.LastFireOutcome == "fired";
             fired += shot ? 1 : 0;
             if (shot && brain.EngageTarget?.whoAmI == 30 && brain.ControlGrants.Last?.Hand == HandGrant.Available) firedAtZombie++;
+            if (brain.Chooser.Current?.Name == "combat") combatTicks++;
             if (brain.Chooser.Current != null && brain.Chooser.Activity.Phase == ActivityPhase.Suspended) suspendedTicks++;
             VerifyResponsiveFollowing.AdvanceNative(companion);
         }
-        Console.WriteLine($"  keep-the-job rows: fired ticks {fired}, fired at the zombie {firedAtZombie}, suspended ticks {suspendedTicks}");
+        Console.WriteLine($"  keep-the-job rows: combat ticks {combatTicks}, fired ticks {fired}, fired at the zombie {firedAtZombie}, suspended ticks {suspendedTicks}");
+        Require(combatTicks > 60, $"the scene must be combat against the zombie beside the body, or firing proves nothing; combat ticks={combatTicks}");
         Require(firedAtZombie > 0, $"on some tick the hands must be granted, aimed at the zombie and fire; fired={fired} at the zombie={firedAtZombie}");
         Require(suspendedTicks == 0,
             $"an enemy beside a wounded companion must not suspend its job; suspended ticks={suspendedTicks}");
@@ -184,12 +187,12 @@ internal static class VerifySafetyIsALayerOnTheJob
         Hostile(30, NPCID.Zombie, player.Bottom + new Vector2(40, 0));
         VerifyResponsiveFollowing.AdvanceNative(companion);
         var chooser = companion.Brain.Chooser;
-        for (int tick = 0; tick < 60 && !(chooser.Current?.Name == "guard" && chooser.Activity.Phase == ActivityPhase.Executing); tick++)
+        for (int tick = 0; tick < 60 && !(chooser.Current?.Name == "combat" && chooser.Activity.Phase == ActivityPhase.Executing); tick++)
         {
             Tick(companion);
             VerifyResponsiveFollowing.AdvanceNative(companion);
         }
-        Require(chooser.Current?.Name == "guard" && chooser.Activity.Phase == ActivityPhase.Executing,
+        Require(chooser.Current?.Name == "combat" && chooser.Activity.Phase == ActivityPhase.Executing,
             $"the shot scene must first be guarding, or keeping the job proves nothing; current={chooser.Current?.Name} phase={chooser.Activity.Phase}");
         var guard = chooser.Current;
         long id = chooser.Activity.Id;
@@ -238,7 +241,7 @@ internal static class VerifySafetyIsALayerOnTheJob
         for (int tick = 0; tick < 480; tick++)
         {
             Tick(companion);
-            guarding += companion.Brain.Chooser.Current?.Name == "guard" ? 1 : 0;
+            guarding += companion.Brain.Chooser.Current?.Name == "combat" ? 1 : 0;
             VerifyResponsiveFollowing.AdvanceNative(companion);
             between.velocity = Vector2.Zero;
             if (companion.NPC.Hitbox.Intersects(between.Hitbox)) contact++;
