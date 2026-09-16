@@ -210,10 +210,11 @@ public static class GodsEyeEvents
     public static void RecordNpcSpawn(NPC npc) => Write("npc-spawn", Next(npcGenerations, npc.whoAmI), npc.type.ToString(CultureInfo.InvariantCulture), npc.TypeName, "", npc.Center, npc.velocity, Vector2.Zero, npc.life, "");
     public static void RecordNpcDeath(NPC npc) => Write("npc-death", Stable(npcGenerations, npc.whoAmI), npc.type.ToString(CultureInfo.InvariantCulture), npc.TypeName, "", npc.Center, npc.velocity, Vector2.Zero, npc.life, "");
 
-    public static void RecordShot(NPC shooter, NPC? target, int projectileIndex, Vector2 muzzle, Vector2 launchVelocity, Vector2 expectedImpact, string weapon, int impactTicks = -1, float attackValue = 0f, int expectedKills = 0, float preventedHarm = 0f)
+    public static void RecordShot(NPC shooter, NPC? target, int projectileIndex, Vector2 muzzle, Vector2 launchVelocity, Vector2 expectedImpact, string weapon, int impactTicks = -1, float attackValue = 0f, int expectedKills = 0, float preventedHarm = 0f,
+        int planId = -1, int planSegment = -1, int planUse = -1)
     {
         int projectile = Stable(projectileGenerations, projectileIndex);
-        Write("shot", Stable(npcGenerations, shooter.whoAmI), target == null ? "" : Stable(npcGenerations, target.whoAmI).ToString(CultureInfo.InvariantCulture), weapon, $"projectile={projectile}", muzzle, launchVelocity, expectedImpact, 0, FormattableString.Invariant($"expected-flight-ticks={impactTicks};sequence-value={attackValue:0.000};sequence-kills={expectedKills};sequence-prevented-harm={preventedHarm:0.000}"));
+        Write("shot", Stable(npcGenerations, shooter.whoAmI), target == null ? "" : Stable(npcGenerations, target.whoAmI).ToString(CultureInfo.InvariantCulture), weapon, $"projectile={projectile}", muzzle, launchVelocity, expectedImpact, 0, FormattableString.Invariant($"expected-flight-ticks={impactTicks};sequence-value={attackValue:0.000};sequence-kills={expectedKills};sequence-prevented-harm={preventedHarm:0.000};plan={planId};segment={planSegment};use={planUse}"));
     }
 
     /// <summary>

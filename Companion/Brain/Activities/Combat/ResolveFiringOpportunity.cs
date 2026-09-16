@@ -135,8 +135,8 @@ public sealed class ResolveFiringOpportunity
 
     private (FiringAccess Verdict, float AccessTicks, float Value) Scan(in ActionContext ctx, NPC enemy)
     {
-        var arsenal = ctx.Companion.Arsenal;
-        Vector2 here = Arsenal.Muzzle(ctx.Npc);
+        var arsenal = ctx.Companion.Combat;
+        Vector2 here = CompanionCombat.Muzzle(ctx.Npc);
         if (arsenal.ShotSolves(ctx, here, enemy))
             return (FiringAccess.FromHere, 0f, arsenal.BestShotValueFrom(ctx, here, enemy));
 
@@ -155,7 +155,7 @@ public sealed class ResolveFiringOpportunity
                     continue;
                 // The arsenal's muzzle is expressed from a feet point; the orb's feet are its centre plus its radius.
                 Vector2 hover = Infrastructure.Movement.MovementQueries.HoverPoint(tile);
-                Vector2 eye = Arsenal.MuzzleAt(hover);
+                Vector2 eye = CompanionCombat.MuzzleAt(hover);
                 if (Vector2.Distance(eye, enemy.Center) > reach)
                     continue;
                 stands.Add((Vector2.DistanceSquared(ctx.Npc.Center, hover), tile, eye));

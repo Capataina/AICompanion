@@ -49,7 +49,7 @@ public class CompanionNPC : ModNPC
 
     public Brain.Brain Brain { get; private set; } = new();
     public CompanionMotor Motor { get; private set; } = null!;
-    public Arsenal Arsenal { get; } = new();
+    public CompanionCombat Combat { get; } = new();
     public TileChopper Chopper { get; } = new();
     public TileMiner Miner { get; }
     public TorchBearer Torch { get; } = new();

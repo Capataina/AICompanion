@@ -138,9 +138,15 @@ public static class EvaluateAttackOutcomes
     /// marginal gain and the result is the objective vector: every simulated hit applied in tick order to the
     /// plan's own copy of the enemies, overkill and duplicate pellets earning nothing twice. The scalar
     /// <see cref="Evaluate"/> stays beside it while the sides price offers; it goes when they do.
+    ///
+    /// The planner reads the continuation back through the collectors: <paramref name="sequence"/> takes the
+    /// attacks the continuation applied with their absolute fire ticks, and <paramref name="killTicks"/> the
+    /// absolute tick each target died at. Both are written only on the applied path, never on a marginal probe.
     /// </summary>
     public static CombatOutcome EvaluateVector(Attack first, IReadOnlyList<Attack> alternatives,
-        IReadOnlyList<Target> targets, int cooldown, int horizon, PlanContext context, CombatWeights weights)
+        IReadOnlyList<Target> targets, int cooldown, int horizon, PlanContext context, CombatWeights weights,
+        int searchTick = 0, ICollection<(Attack Attack, int FireTick)>? sequence = null,
+        ICollection<(int Target, int Tick)>? killTicks = null)
     {
         var remaining = new Dictionary<int, float>();
         var facts = new Dictionary<int, Target>();
@@ -155,7 +161,8 @@ public static class EvaluateAttackOutcomes
         Attack? attack = first;
         for (int step = 0; step < MaxAttacks && attack != null && fireAt < horizon; step++)
         {
-            AttackParts parts = ValueParts(attack, fireAt, horizon, remaining, facts, ref debuffs, apply: true);
+            AttackParts parts = ValueParts(attack, fireAt, horizon, remaining, facts, ref debuffs, apply: true, searchTick, killTicks);
+            sequence?.Add((attack, searchTick + fireAt));
             damage += parts.Damage; threat += parts.Threat; prevented += parts.Prevented; push += parts.Push;
             mana += Math.Max(0f, attack.ManaCost);
             if (parts.Damage > 0f)
@@ -168,7 +175,7 @@ public static class EvaluateAttackOutcomes
             float best = 0f;
             foreach (Attack candidate in alternatives)
             {
-                AttackParts next = ValueParts(candidate, fireAt, horizon, remaining, facts, ref debuffs, apply: false);
+                AttackParts next = ValueParts(candidate, fireAt, horizon, remaining, facts, ref debuffs, apply: false, searchTick, killTicks);
                 float gain = weights.Weighted(Marginal(next, candidate, fireAt, horizon, context, encounterLife));
                 if (gain > best) { best = gain; attack = candidate; }
             }
@@ -214,7 +221,8 @@ public static class EvaluateAttackOutcomes
 
     private static AttackParts ValueParts(Attack attack, int fireAt, int horizon,
         Dictionary<int, float> remaining, Dictionary<int, Target> targets,
-        ref Dictionary<(int Target, int Weapon), (float Chance, int Until)>? debuffs, bool apply)
+        ref Dictionary<(int Target, int Weapon), (float Chance, int Until)>? debuffs, bool apply,
+        int searchTick = 0, ICollection<(int Target, int Tick)>? killTicks = null)
     {
         int impact = fireAt + Math.Max(1, attack.ImpactTicks);
         if (impact >= horizon) return default;
@@ -238,6 +246,7 @@ public static class EvaluateAttackOutcomes
             {
                 threat += danger;
                 prevented += Math.Max(0f, target.ExpectedHarm) * danger * timing;
+                if (apply) killTicks?.Add((hit.Target, searchTick + impact));
             }
             else
             {

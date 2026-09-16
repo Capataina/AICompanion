@@ -1,6 +1,8 @@
 #nullable enable
 
 using System;
+using AICompanion.Companion.Brain.Activities;
+using AICompanion.Companion.Brain.Infrastructure.Observation;
 using AICompanion.Companion.Brain.Infrastructure.Selection;
 
 namespace AICompanion.Companion.Brain.Activities.Combat.Planning;
@@ -61,6 +63,24 @@ public readonly record struct CombatWeights(float Damage, float ThreatRemoved, f
 /// </summary>
 public static class WeighCombatObjectives
 {
+    /// <summary>The weights for this tick's senses: the one place the activity, the search and the travelling hands agree on what matters.</summary>
+    public static CombatWeights ForSenses(in ActionContext ctx)
+    {
+        var threats = ctx.Senses.Threats;
+        float total = 0f, alive = 0f;
+        foreach (ThreatRecord threat in threats.Threats)
+        {
+            float danger = MathF.Max(threat.Urgency, threat.UrgencyToCompanion);
+            total += danger;
+            if (threat.Npc != null && threat.Npc.active && threat.Npc.life > 0)
+                alive += danger;
+        }
+        float missing = ctx.Npc.lifeMax > 0 ? 1f - ctx.Npc.life / (float)ctx.Npc.lifeMax : 0f;
+        float mana = ctx.Companion.Mana.Max > 0 ? ctx.Companion.Mana.Current / ctx.Companion.Mana.Max : 1f;
+        return For(threats.PlayerDanger, threats.CompanionDanger, missing,
+            ctx.Senses.Intent.Region.IsTravelling, total > 0f ? alive / total : 1f, mana);
+    }
+
     /// <param name="playerDanger">The threat sense's danger to the player, 0..1.</param>
     /// <param name="companionDanger">The threat sense's danger to the body, 0..1.</param>
     /// <param name="missingLifeShare">The companion's missing life as a share of his maximum.</param>

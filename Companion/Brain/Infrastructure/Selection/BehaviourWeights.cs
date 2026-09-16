@@ -330,6 +330,33 @@ public static class Weights
     /// <summary>The floor under the damage and threat weights when the encounter is nearly dead: they scale from this to one with the danger share still alive.</summary>
     public const float CombatAliveShareFloor = 0.25f;
 
+    /// <summary>Guarding's interruption kept: the combat offer is lifted by one plus this times PlayerDanger, so a threat on the player takes the body from a vein.</summary>
+    public const float CombatPlayerDangerLift = 2f;
+
+    /// <summary>How long a committed plan may go without a planned use firing or a planned hit landing before it stalls and defers every body it targeted: the hunt window, kept.</summary>
+    public const int CombatPlanStallTicks = 180;
+
+    /// <summary>How long a stalled plan's bodies wait before the planner considers them again: the hunt retry, kept.</summary>
+    public const int CombatDeferRetryTicks = 180;
+
+    /// <summary>How close to the committed stand the body must be before the hands fire the plan's due use rather than the best from where the body is.</summary>
+    public const float CombatStandArrivalPx = 24f;
+
+    /// <summary>How many targets, by urgency then distance, the depth-one search proposes stands for: a crowd must not turn one tick into a search.</summary>
+    public const int CombatMaxProposalTargets = 3;
+
+    /// <summary>How many candidate attacks one stand prices before the search moves on: the intercept-first ordering means the cap costs banks and far spread, never the direct shot.</summary>
+    public const int CombatMaxAttacksPerStand = 12;
+
+    /// <summary>The milliseconds one rescore may spend searching attack plans; a cut search offers unresolved, never known-unusable.</summary>
+    public const float CombatPlanningMilliseconds = 4f;
+
+    /// <summary>The distance scale the proposal-target score falls over: the hunt reach, kept.</summary>
+    public const float CombatProposalReach = 1100f;
+
+    /// <summary>A plan whose stand takes longer than this to reach is an excursion and pays separation at the target; inside it the body is already there.</summary>
+    public const float CombatLocalTripTicks = 120f;
+
     /// <summary>How fast the horizon charge falls once an action would outlast the horizon, in ticks of overrun to zero.</summary>
     public const float HorizonOverrunToZero = 240f;
 

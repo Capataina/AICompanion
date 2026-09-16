@@ -25,13 +25,9 @@ public sealed class Chooser
 
     public Chooser()
     {
-        // Combat's two sides ask one firing-opportunity query, so a threat on the player is judged
-        // shootable or not by the same terrain scan and cache the hunt side reads; the guard side
-        // evaluates first and warms that cache for the hunt side on the same tick.
-        var firingAccess = new ResolveFiringOpportunity();
         Actions = new()
         {
-            new FightEnemies(firingAccess),
+            new FightEnemies(),
             new CollectNearbyItems(),
             new ChopTree(),
             new MineOre(),
@@ -185,7 +181,7 @@ public sealed class Chooser
             if (reason.Length == 0 && Actions[winner.Index].PreparedPositionRequest is { } request)
             {
                 var method = ctx.Companion.Brain.Positioner.PrepareOffer(request, ctx.Senses,
-                    ctx.Companion.Arsenal.ProfileFor(ctx, request.Target));
+                    ctx.Companion.Combat.ProfileFor(ctx, request.Target));
                 Infrastructure.Diagnostics.GodsEyeEvents.RecordMethodAssessment(ctx.Npc, request.Target,
                     bindings[winner.Index].Generation, EvaluationId + 1, Actions[winner.Index].Name,
                     Actions[winner.Index].Family.ToString(), request.Kind.ToString(), method.SourceTick,

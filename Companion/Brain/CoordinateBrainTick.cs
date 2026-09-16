@@ -53,7 +53,7 @@ public sealed class Brain
     public string ActivityStatus => FollowRecovery.Active ? "Catching up" : MovementStalled ? "Stuck: not making progress" : LastAction?.Name switch
     {
         "keep-company" => "Keeping company",
-        "combat" => LastAction is FightEnemies stance && stance.GuardWon ? "Guarding you" : "Hunting",
+        "combat" => LastAction is FightEnemies stance && stance.ServesPlayerDirectly ? "Guarding you" : "Hunting",
         "mine" => "Mining ore", "chop" => "Chopping a tree", "collect" => "Collecting",
         "place-torches" => "Lighting the way", _ => "Resting"
     };
@@ -162,12 +162,12 @@ public sealed class Brain
         // replacement takes over is decided on the positioner's rescore, which is where it is refreshed.
         Senses.Reach.Grow();
         ProtectCompanionHomes.Refresh(player.Bottom, companion.NPC.Center);
-        companion.Arsenal.Tick();
+        companion.Combat.Tick();
         companion.Chopper.Tick();
         SensesMs = Lap();
 
         var ctx = new ActionContext(companion, Senses, Roaming);
-        Senses.SetInterventionEstimate(companion.Arsenal.EstimateInterventionTicks(ctx));
+        Senses.SetInterventionEstimate(companion.Combat.EstimateInterventionTicks(ctx));
         Chooser.ObserveCompanionship(ctx);
 
         if (FollowRecovery.Active && TryFollowRecovery(companion, player, false, out var initialRecovery)) return initialRecovery;
@@ -188,7 +188,7 @@ public sealed class Brain
         bool reunionRequested = LastRequest.Kind == RequestKind.WithPlayer && action?.HandsBusy != true;
         if (TryFollowRecovery(companion, player, reunionRequested, out var selectedRecovery)) return selectedRecovery;
 
-        var profile = companion.Arsenal.ProfileFor(ctx, LastRequest.Target);
+        var profile = companion.Combat.ProfileFor(ctx, LastRequest.Target);
         Vector2? spot = Positioner.Resolve(LastRequest, Senses, profile);
         PositionMs = Lap();
         // Enemy bodies are hazards wherever the route passes them, even when neither actor
@@ -257,18 +257,18 @@ public sealed class Brain
         if (hand != HandGrant.Available)
         {
             EngageTarget = null;
-            companion.Arsenal.NoteHandsBusy();
+            companion.Combat.NoteHandsBusy();
             return false;
         }
-        if (Chooser.Current is not FightEnemies)
+        if (Chooser.Current is not FightEnemies fight)
         {
             EngageTarget = null;
-            companion.Arsenal.NoteNotFighting();
+            companion.Combat.NoteNotFighting();
             return false;
         }
-        EngageTarget = companion.Arsenal.BestTarget(ctx);
         // Whether the arm was used this tick: a grant that leaves the hand Available permits a shot, and one arm cannot also break a pot.
-        return companion.Arsenal.TryFire(ctx, EngageTarget);
+        EngageTarget = fight.CommittedPlanTarget;
+        return companion.Combat.Hands.Fire(ctx, companion.Combat, fight.CommittedPlan);
     }
 
     /// <summary>What the hands are shooting at on a tick combat runs; null on every other tick.</summary>

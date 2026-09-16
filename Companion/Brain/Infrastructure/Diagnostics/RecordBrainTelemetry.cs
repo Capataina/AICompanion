@@ -12,6 +12,7 @@ using Terraria.ModLoader;
 using Terraria.ModLoader.IO;
 using AICompanion.Companion.Brain.Infrastructure.Interactions.Firing;
 using AICompanion.Companion.Brain.Infrastructure.Movement;
+using AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Learning;
 using AICompanion.Companion.CharacterBody;
 
 namespace AICompanion.Companion.Brain.Infrastructure.Diagnostics;
@@ -93,7 +94,7 @@ public sealed class BrainTelemetry : ModSystem
     // `hunting=`. The `guard_*`, `hunt_*` and `pursuit_*` columns keep their names and meanings, now written from the one
     // activity. A 0.38.0 capture reads as it was written: every check addresses columns by name, accepts the old activity
     // labels, and skips one whose columns are absent.
-    private const string Schema = "0.39.0";
+    private const string Schema = "0.40.0";
 
     /// <summary>
     /// One activity's factors from one comparison, as <c>name:value</c> pairs joined by commas: every multiplier its final
@@ -667,7 +668,7 @@ public sealed class BrainTelemetry : ModSystem
             brain.Positioner.CandidateCount, brain.Positioner.ReachableCandidateCount, brain.Positioner.RejectedCandidateCount, brain.Positioner.ChoiceReason,
             senses.Threats.InterventionTicks, senses.Threats.ProtectionUrgency,
             senses.Threats.MostUrgent?.PredictionConfidence ?? 0f, senses.Threats.MostUrgent?.PredictionSamples ?? 0,
-            $"route-completed-steps={brain.Navigator.Path?.Index ?? 0};route-remaining-estimated-ticks={brain.Navigator.RemainingEstimatedRouteTicks:0.000};follow-objective-valid={brain.Positioner.FollowObjectiveSatisfied};follow-horizontal-gap={brain.Positioner.FollowHorizontalGap:0.000};follow-vertical-gap={brain.Positioner.FollowVerticalGap:0.000};follow-objective={brain.Positioner.FollowObjectiveReason};recovery-active={brain.FollowRecovery.Active};recovery-reason={brain.FollowRecovery.Reason};recovery-flights={brain.FollowRecovery.Flights};guard-threat={combat?.ProtectedThreatId ?? -1};guard-pressure={(combat?.RetainedPressure ?? 0f).ToString("0.000", CultureInfo.InvariantCulture)};guard-reason={combat?.CommitmentReason ?? "unavailable"};mine-job={mine?.JobId ?? 0};mine-policy={mine?.Policy.ToString() ?? "unavailable"};mine-status={mine?.Status ?? "unavailable"};mine-remaining={mine?.RemainingTiles ?? 0};mine-target={mine?.TargetTile?.ToString() ?? "-"};control-source={companion.Motor.ControlSource};position-evidence-tick={brain.Positioner.EvidenceTick};positions-evaluated={brain.Positioner.EvaluatedCandidates};reach-complete={senses.Reach.Complete};position-alternatives={brain.Positioner.CandidateEvidence};target-evidence-tick={companion.Arsenal.TargetEvidenceTick};target-evidence-age={senses.Tick - companion.Arsenal.TargetEvidenceTick};target-alternatives={companion.Arsenal.TargetEvidence}");
+            $"route-completed-steps={brain.Navigator.Path?.Index ?? 0};route-remaining-estimated-ticks={brain.Navigator.RemainingEstimatedRouteTicks:0.000};follow-objective-valid={brain.Positioner.FollowObjectiveSatisfied};follow-horizontal-gap={brain.Positioner.FollowHorizontalGap:0.000};follow-vertical-gap={brain.Positioner.FollowVerticalGap:0.000};follow-objective={brain.Positioner.FollowObjectiveReason};recovery-active={brain.FollowRecovery.Active};recovery-reason={brain.FollowRecovery.Reason};recovery-flights={brain.FollowRecovery.Flights};plan-id={combat?.OfferedPlan?.Id ?? -1};plan-segment={combat?.OfferedSegment ?? -1};plan-stand={PlanStand(combat)};mine-job={mine?.JobId ?? 0};mine-policy={mine?.Policy.ToString() ?? "unavailable"};mine-status={mine?.Status ?? "unavailable"};mine-remaining={mine?.RemainingTiles ?? 0};mine-target={mine?.TargetTile?.ToString() ?? "-"};control-source={companion.Motor.ControlSource};position-evidence-tick={brain.Positioner.EvidenceTick};positions-evaluated={brain.Positioner.EvaluatedCandidates};reach-complete={senses.Reach.Complete};position-alternatives={brain.Positioner.CandidateEvidence};plan-invalid={companion.Combat.Planner.LastInvalidation};plan-value={(combat?.OfferedPlan?.Weighted ?? 0f).ToString("0.000", CultureInfo.InvariantCulture)};plan-front={combat?.OfferedFrontSize ?? 0}");
         SessionMap.Watch(
             MovementQueries.Tile(npc.Center),
             MovementQueries.Tile(senses.Player.Bottom),
@@ -676,7 +677,7 @@ public sealed class BrainTelemetry : ModSystem
 
         if (!headerWritten)
         {
-            var textColumns = new StringBuilder("# text_columns=state,action,reflex,top_threat,target,request,anchor,spot,lookahead,npc_tile,npc_px,npc_vel,wall_normal,liquid,held,weapon,fire,engage,torch,player_tile,spot_home,sample_phase,player_px,player_vel,player_liquid,player_hit,npc_hit,player_state,player_activity,player_support,control,control_source,desired_vel,follow_reason,recovery_reason,guard_reason,mine_policy,mine_status,mine_target,target_evidence,nav_status,position_reason,hunt_reason,hand_grant,control_request_owner,collection_method,mine_end_reason,attempt_end_activity,attempt_end_family,attempt_end_status,attempt_end_cause,attempt_end_attribution,pursuit_target,pursuit_evidence,aim_target,landed_hit_target,landed_hit_aimed,encounter_source,torch_reason,lighting_sites,intent_region,task_order,task_order_runner_up,evade_reason,evade_choice");
+            var textColumns = new StringBuilder("# text_columns=state,action,reflex,top_threat,target,request,anchor,spot,lookahead,npc_tile,npc_px,npc_vel,wall_normal,liquid,held,weapon,fire,engage,torch,player_tile,spot_home,sample_phase,player_px,player_vel,player_liquid,player_hit,npc_hit,player_state,player_activity,player_support,control,control_source,desired_vel,follow_reason,recovery_reason,plan_stand,mine_policy,mine_status,mine_target,plan_invalid,nav_status,position_reason,plan_reason,hand_grant,control_request_owner,collection_method,mine_end_reason,attempt_end_activity,attempt_end_family,attempt_end_status,attempt_end_cause,attempt_end_attribution,plan_targets,plan_uses,aim_target,landed_hit_target,landed_hit_aimed,encounter_source,torch_reason,lighting_sites,intent_region,task_order,task_order_runner_up,evade_reason,evade_choice,plan_vector,knowledge_residual");
             // Offer columns are named from the registered activities, like the raw/final pairs, so
             // the declaration and the header cannot disagree about which activities exist.
             foreach (var a in brain.Chooser.Actions) textColumns.Append(',').Append(a.Name).Append("_offer");
@@ -705,7 +706,7 @@ public sealed class BrainTelemetry : ModSystem
             // one contact, so there is no second body to diverge from and no ground to stand on: those
             // columns went with the walker, and the liquid's hurt and contact count went when every
             // liquid became air to the orb.
-            h.Append("\tnpc_tile\tnpc_px\tnpc_vel\ttouched_wall\twall_normal\twet\tliquid\tclearance\tmoved\tpinned\tdir\tlife\tself_danger\theld\tweapon\tshot\tfire\texp_bow\texp_knife\texp_target\tnear_threat\tweapon_reach\tengage\ttorch\tdark_near\tdark_ahead\ttorch_reason\tlight_samples\tlight_read_tick\tlight_region");
+            h.Append("\tnpc_tile\tnpc_px\tnpc_vel\ttouched_wall\twall_normal\twet\tliquid\tclearance\tmoved\tpinned\tdir\tlife\tself_danger\theld\tweapon\tshot\tfire\tplan_value\tplan_front\tplan_cut\tnear_threat\tweapon_reach\tengage\ttorch\tdark_near\tdark_ahead\ttorch_reason\tlight_samples\tlight_read_tick\tlight_region");
             h.Append("\tplayer_tile\tplayer_intent\tplayer_dead\tplayer_attacking\tplayer_chopping\tplayer_mining");
             h.Append("\tplan_ms\tflood_ms\tsenses_ms\treflex_ms\tdecide_ms\tposition_ms\tnavigate_ms\tbrain_ms\tclearance_builds\tstranded");
             // The reachability tier, which is where the companion decides whether to enter somewhere
@@ -713,11 +714,11 @@ public sealed class BrainTelemetry : ModSystem
             // reach, how many of those it can come home from, whether the spot it picked is one of
             // them, and whether the refusing flood was discarded because the player was outside it.
             h.Append("\treach_any\treach_two_way\treach_complete\tspot_home\tplayer_one_way");
-            h.Append("\tguard_threat\tguard_pressure\tguard_reason\tmine_job\tmine_policy\tmine_status\tmine_remaining\tmine_target\ttarget_evidence_tick\ttarget_evidence_age\ttarget_evidence");
+            h.Append("\tplan_id\tplan_segment\tplan_stand\tmine_job\tmine_policy\tmine_status\tmine_remaining\tmine_target\tplan_invalid\tknowledge_residual\tshot_error");
             // `control` is what the motor applied this tick and `desired_vel` the velocity it accelerated
             // toward after capping; the two differ where the request exceeded the cap.
             h.Append("\twall_elapsed_ms\tsample_phase\tplayer_px\tplayer_vel\tplayer_ground\tplayer_liquid\tplayer_life\tplayer_hit\tnpc_hit\tplayer_state\tplayer_activity\tplayer_support\tcontrol\tcontrol_source\tbrain_fresh\tdesired_vel");
-            h.Append("\tnav_status\tposition_reason\tmovement_stalled\tattack_value\tattack_kills\tattack_harm\tweapon_cooldown\thunt_idle_ticks\thunt_reason");
+            h.Append("\tnav_status\tposition_reason\tmovement_stalled\tplan_vector\tplan_kills\tplan_prevented\tweapon_cooldown\tplan_remaining\tplan_reason");
             h.Append("\tchoice_fresh\tchoice_id\tchoice_tick");
             h.Append("\tcontrol_grant_fresh\tcontrol_grant_id\tcontrol_grant_tick\thand_grant\tcontrol_request_owner\tcontrol_motor_applications\tfinalise_ms");
             h.Append("\tplayer_intent_y\tplayer_intent_confidence\tplayer_intent_samples\tplayer_local_work_fraction");
@@ -735,7 +736,7 @@ public sealed class BrainTelemetry : ModSystem
             }
             h.Append("\tmeeting_reason\tmeeting_anchor\tmeeting_player_ticks\tmeeting_companion_ticks\tmeeting_candidates\tmeeting_priced\tmeeting_flood");
             h.Append("\tnav_failure\tnav_failure_reason\tnav_failure_search_id\tnav_failure_attempt_id\tnav_attempt_ending\tnav_attempts_completed\tnav_attempts_failed\tnav_attempts_preempted\tnav_attempts_cancelled");
-            h.Append("\tpursuit_target\tpursuit_value\tpursuit_access_ticks\tpursuit_evidence\taim_target\tlanded_hit_target\tlanded_hit_aimed\tlanded_hit_damage\tlanded_hit_tick\tlanded_hits\tguard_removal_ticks\tguard_usefulness\ttop_threat_effective_player\ttop_threat_effective_companion\tencounter_intensity\tencounter_source\tencounter_recognised\tencounter_pressure_ticks\tguard_access_ticks");
+            h.Append("\tplan_targets\tplan_dps\tplan_travel\tplan_uses\taim_target\tlanded_hit_target\tlanded_hit_aimed\tlanded_hit_damage\tlanded_hit_tick\tlanded_hits\tplan_kill_tick\tplan_threat_removed\ttop_threat_effective_player\ttop_threat_effective_companion\tencounter_intensity\tencounter_source\tencounter_recognised\tencounter_pressure_ticks\tplan_first_damage");
             // The success region the positioner admitted its destination against, and whether a claimed arrival lies
             // inside it. The region is the positioner's own snapshot from the resolve that admitted it, so the report
             // judges arrival against what the destination was chosen for, not against the world some ticks later.
@@ -870,16 +871,16 @@ public sealed class BrainTelemetry : ModSystem
         sb.Append('\t').Append(npc.life).Append('/').Append(npc.lifeMax);
         sb.Append('\t').Append(senses.Self.SelfDanger.ToString("0.00")).Append(senses.Self.OnFire ? "f" : "");
         sb.Append('\t').Append(companion.HeldItemType == 0 ? "-" : Lang.GetItemNameValue(companion.HeldItemType));
-        sb.Append('\t').Append(companion.Arsenal.LastChosen?.Name ?? "-");
-        sb.Append('\t').Append(companion.Arsenal.LastShotSolved ? 1 : 0);
+        sb.Append('\t').Append(PlanWeaponName(combat, companion));
+        sb.Append('\t').Append(companion.Combat.LastShotSolved ? 1 : 0);
         // Why no projectile left the hands, which the shot flag alone cannot say: a reload and a
-        // target with no reachable arc both read as a zero there, and they want opposite fixes.
-        sb.Append('\t').Append(companion.Arsenal.LastFireOutcome);
-        // Both weapons' expected damage, the rejected one included, so the choice can be read back
-        // instead of re-derived: a row where the loser scored higher is a defect with no other tell.
-        sb.Append('\t').Append(companion.Arsenal.LastPrimaryExpected.ToString("0.0"));
-        sb.Append('\t').Append(companion.Arsenal.LastSecondaryExpected.ToString("0.0"));
-        sb.Append('\t').Append(companion.Arsenal.LastTargetExpected.ToString("0.0"));
+        // plan with nothing worth firing both read as a zero there, and they want opposite fixes.
+        sb.Append('\t').Append(companion.Combat.LastFireOutcome);
+        // The offered plan's weighted value, the front it survived, and whether a cut search offered
+        // nothing: a row where combat runs with no plan id beside it is a defect with no other tell.
+        sb.Append('\t').Append((combat?.OfferedPlan?.Weighted ?? 0f).ToString("0.000", CultureInfo.InvariantCulture));
+        sb.Append('\t').Append(combat?.OfferedFrontSize ?? 0);
+        sb.Append('\t').Append(combat?.OfferedCut == true ? 1 : 0);
         // How far the nearest reachable hostile is, and how far the hands can actually throw,
         // both in tiles. These exist because "no target" is ambiguous without them and the
         // 2026-09-09 session could not be read: the hands reported no-target on 78.3% of ticks
@@ -893,7 +894,7 @@ public sealed class BrainTelemetry : ModSystem
             if (t.CanReachEither && t.Npc != null && t.Npc.active)
                 nearest = MathF.Min(nearest, t.DistanceToCompanion);
         sb.Append('\t').Append(nearest == float.MaxValue ? "-" : (nearest / 16f).ToString("0.0", CultureInfo.InvariantCulture));
-        sb.Append('\t').Append((companion.Arsenal.MaxReach / 16f).ToString("0.0", CultureInfo.InvariantCulture));
+        sb.Append('\t').Append((companion.Combat.MaxReach / 16f).ToString("0.0", CultureInfo.InvariantCulture));
         // What the hands are shooting at, which is now independent of what the feet were told, so
         // "it was following me and not attacking" is a row where engage reads "-" beside threats.
         sb.Append('\t').Append(brain.EngageTarget is NPC eng && eng.active ? eng.TypeName : "-");
@@ -938,17 +939,17 @@ public sealed class BrainTelemetry : ModSystem
           .Append('\t').Append(brain.Positioner.ChosenReturnable ? 1 : 0)
           .Append('\t').Append(brain.Positioner.PlayerOnlyOneWay ? 1 : 0);
 
-        sb.Append('\t').Append(combat?.ProtectedThreatId ?? -1);
-        sb.Append('\t').Append((combat?.RetainedPressure ?? 0f).ToString("0.000", CultureInfo.InvariantCulture));
-        sb.Append('\t').Append(combat?.CommitmentReason ?? "unavailable");
+        sb.Append('\t').Append(combat?.OfferedPlan?.Id ?? -1);
+        sb.Append('\t').Append(combat?.OfferedSegment ?? -1);
+        sb.Append('\t').Append(PlanStand(combat));
         sb.Append('\t').Append(mine?.JobId ?? 0);
         sb.Append('\t').Append(mine?.Policy.ToString() ?? "unavailable");
         sb.Append('\t').Append(mine?.Status ?? "unavailable");
         sb.Append('\t').Append(mine?.RemainingTiles ?? 0);
         sb.Append('\t').Append(mine?.TargetTile?.ToString() ?? "-");
-        sb.Append('\t').Append(companion.Arsenal.TargetEvidenceTick);
-        sb.Append('\t').Append(senses.Tick - companion.Arsenal.TargetEvidenceTick);
-        sb.Append('\t').Append(companion.Arsenal.TargetEvidence);
+        sb.Append('\t').Append(companion.Combat.Planner.LastInvalidation);
+        sb.Append('\t').Append(FormattableString.Invariant($"{AttackLearning.LastSampledFactor:0.000},{AttackLearning.LastMeanFactor:0.000}"));
+        sb.Append('\t').Append(ShotOutcomes.LastClosed is { } closed ? closed.Ratio.ToString("0.000", CultureInfo.InvariantCulture) : "-1");
 
         Player player = Main.LocalPlayer;
         sb.Append('\t').Append(sessionClock.Elapsed.TotalMilliseconds.ToString("0.000", CultureInfo.InvariantCulture));
@@ -975,9 +976,10 @@ public sealed class BrainTelemetry : ModSystem
         sb.Append('\t').Append(Pair(companion.Motor.DesiredVelocity));
         sb.Append('\t').Append(brain.Navigator.Status).Append('\t').Append(brain.Positioner.ChoiceReason);
         sb.Append('\t').Append(brain.MovementStalled ? 1 : 0);
-        sb.Append('\t').Append(companion.Arsenal.LastAttackValue.ToString("0.000", CultureInfo.InvariantCulture));
-        sb.Append('\t').Append(companion.Arsenal.LastExpectedKills).Append('\t').Append(companion.Arsenal.LastPreventedHarm.ToString("0.000", CultureInfo.InvariantCulture));
-        sb.Append('\t').Append(companion.Arsenal.CooldownTicks).Append('\t').Append(combat?.NoProgressTicks ?? 0).Append('\t').Append(combat?.LastRejection ?? "unavailable");
+        sb.Append('\t').Append(PlanVector(combat));
+        sb.Append('\t').Append(combat?.OfferedPlan?.TargetKillTicks?.Length ?? 0)
+            .Append('\t').Append((combat?.OfferedPlan?.Outcome.PlayerHarmPrevented ?? 0f).ToString("0.000", CultureInfo.InvariantCulture));
+        sb.Append('\t').Append(companion.Combat.CooldownTicks).Append('\t').Append((int)(combat?.ForecastTicks() ?? 0)).Append('\t').Append(combat?.EligibilityReason ?? "unavailable");
         sb.Append('\t').Append(choiceEvaluated ? 1 : 0).Append('\t').Append(brain.Chooser.EvaluationId)
             .Append('\t').Append(brain.Chooser.EvaluationTick?.ToString(CultureInfo.InvariantCulture) ?? "-1");
         sb.Append('\t').Append(controlFresh ? 1 : 0).Append('\t').Append(controlGrant?.Id ?? 0)
@@ -1074,10 +1076,10 @@ public sealed class BrainTelemetry : ModSystem
         // so every numeric column parses as a number.
         static string Identity(NPC? subject) => subject != null && subject.active
             ? string.Create(CultureInfo.InvariantCulture, $"{subject.whoAmI}:{Infrastructure.Observation.HostileAttackSources.Generation(subject)}") : "-";
-        sb.Append('\t').Append(Identity(combat?.Target?.Npc));
-        sb.Append('\t').Append((combat?.PursuitValue ?? 0f).ToString("0.000", CultureInfo.InvariantCulture));
-        sb.Append('\t').Append((combat?.PursuitAccessTicks ?? 0f).ToString("0.0", CultureInfo.InvariantCulture));
-        sb.Append('\t').Append(string.IsNullOrEmpty(combat?.PursuitEvidence) ? "-" : combat!.PursuitEvidence);
+        sb.Append('\t').Append(PlanTargets(combat));
+        sb.Append('\t').Append((combat?.OfferedPlan?.Outcome.DamagePerSecond ?? 0f).ToString("0.000", CultureInfo.InvariantCulture));
+        sb.Append('\t').Append(PlanTravel(combat).ToString("0.0", CultureInfo.InvariantCulture));
+        sb.Append('\t').Append(PlanUses(combat));
         sb.Append('\t').Append(Identity(brain.EngageTarget));
         var landed = TrackLandedHits.Last;
         sb.Append('\t').Append(landed is { } hit ? string.Create(CultureInfo.InvariantCulture, $"{hit.HitSlot}:{hit.HitGeneration}") : "-");
@@ -1085,9 +1087,8 @@ public sealed class BrainTelemetry : ModSystem
         sb.Append('\t').Append(landed?.Damage ?? 0);
         sb.Append('\t').Append(landed?.Tick.ToString(CultureInfo.InvariantCulture) ?? "-1");
         sb.Append('\t').Append(TrackLandedHits.Count);
-        float removal = combat?.RemovalTicks ?? float.PositiveInfinity;
-        sb.Append('\t').Append(float.IsFinite(removal) ? removal.ToString("0.0", CultureInfo.InvariantCulture) : "-1");
-        sb.Append('\t').Append((combat?.InterventionUsefulness ?? 1f).ToString("0.000", CultureInfo.InvariantCulture));
+        sb.Append('\t').Append(PlanKillTick(combat, senses.Tick));
+        sb.Append('\t').Append((combat?.OfferedPlan?.Outcome.ThreatRemoved ?? 0f).ToString("0.000", CultureInfo.InvariantCulture));
         sb.Append('\t').Append((top?.EffectiveDamageToPlayer ?? 0f).ToString("0.0", CultureInfo.InvariantCulture));
         sb.Append('\t').Append((top?.EffectiveDamageToCompanion ?? 0f).ToString("0.0", CultureInfo.InvariantCulture));
         var encounter = brain.Senses.Encounter;
@@ -1095,10 +1096,7 @@ public sealed class BrainTelemetry : ModSystem
         sb.Append('\t').Append(encounter.Source);
         sb.Append('\t').Append(encounter.Recognised ? 1 : 0);
         sb.Append('\t').Append(encounter.PressureTicks);
-        // The firing access guard's share counted: zero from here, the walk after moving, -1 for an
-        // unsettled region, a proven absence or a threat nothing can damage (read the share beside it).
-        float access = combat?.AccessTicks ?? float.NaN;
-        sb.Append('\t').Append(float.IsFinite(access) ? access.ToString("0.0", CultureInfo.InvariantCulture) : "-1");
+        sb.Append('\t').Append((combat?.OfferedPlan?.Outcome.TimeToFirstDamage ?? 1f).ToString("0.000", CultureInfo.InvariantCulture));
         var region = brain.Positioner.Region;
         // A claimed arrival is the navigator reporting Arrived on a tick the ordinary branch asked it to travel;
         // any other owner leaves the status from an earlier MoveTo, which is not a claim about this tick.
@@ -1201,6 +1199,88 @@ public sealed class BrainTelemetry : ModSystem
             writer = null;
         }
         lastRecordMs = recordClock.Elapsed.TotalMilliseconds;
+    }
+
+    private static string PlanWeaponName(Activities.Combat.FightEnemies? combat, CompanionNPC companion)
+    {
+        var plan = combat?.OfferedPlan;
+        if (plan == null)
+            return "-";
+        var weapons = companion.Combat.Weapons;
+        foreach (var segment in plan.Segments)
+            foreach (var use in segment.Uses)
+                if ((uint)use.WeaponSlot < (uint)weapons.Count)
+                    return weapons[use.WeaponSlot].Name;
+        return "-";
+    }
+
+    private static string PlanStand(Activities.Combat.FightEnemies? combat)
+    {
+        var plan = combat?.OfferedPlan;
+        if (plan == null || combat!.OfferedSegment < 0 || combat.OfferedSegment >= plan.Segments.Length)
+            return "-";
+        Vector2 stand = plan.Segments[combat.OfferedSegment].Stand.Stand;
+        return FormattableString.Invariant($"{stand.X:0},{stand.Y:0}");
+    }
+
+    private static string PlanVector(Activities.Combat.FightEnemies? combat)
+    {
+        var plan = combat?.OfferedPlan;
+        if (plan == null)
+            return "-";
+        var outcome = plan.Outcome;
+        return FormattableString.Invariant($"{outcome.DamagePerSecond:0.000},{outcome.ThreatRemoved:0.000},{outcome.PlayerHarmPrevented:0.000},{outcome.CompanionHarmTaken:0.000},{outcome.PushDangerAdded:0.000},{outcome.CompanyGap:0.000},{outcome.TimeToFirstDamage:0.000},{outcome.ManaSpent:0.000}");
+    }
+
+    private static string PlanTargets(Activities.Combat.FightEnemies? combat)
+    {
+        var targets = combat?.OfferedPlan?.Validity.Targets;
+        if (targets == null || targets.Length == 0)
+            return "-";
+        var sb = new StringBuilder();
+        foreach ((int slot, int generation) in targets)
+        {
+            if (sb.Length > 0) sb.Append('|');
+            sb.Append(FormattableString.Invariant($"{slot}:{generation}"));
+        }
+        return sb.ToString();
+    }
+
+    private static string PlanUses(Activities.Combat.FightEnemies? combat)
+    {
+        var plan = combat?.OfferedPlan;
+        if (plan == null || combat!.OfferedSegment < 0 || combat.OfferedSegment >= plan.Segments.Length)
+            return "-";
+        var uses = plan.Segments[combat.OfferedSegment].Uses;
+        if (uses.Length == 0)
+            return "-";
+        var sb = new StringBuilder();
+        foreach (var use in uses)
+        {
+            if (sb.Length > 0) sb.Append('|');
+            sb.Append(FormattableString.Invariant($"{use.WeaponSlot}>{use.TargetSlot}@{use.FireTick}"));
+        }
+        return sb.ToString();
+    }
+
+    private static float PlanTravel(Activities.Combat.FightEnemies? combat)
+    {
+        var plan = combat?.OfferedPlan;
+        if (plan == null || combat!.OfferedSegment < 0 || combat.OfferedSegment >= plan.Segments.Length)
+            return 0f;
+        return plan.Segments[combat.OfferedSegment].Verdict.TravelTicks;
+    }
+
+    private static string PlanKillTick(Activities.Combat.FightEnemies? combat, int tick)
+    {
+        var plan = combat?.OfferedPlan;
+        var kills = plan?.TargetKillTicks;
+        if (plan == null || kills == null)
+            return "-1";
+        foreach ((int slot, int at) in kills)
+            if (slot == plan.PrimaryTarget)
+                return Math.Max(0, at - tick).ToString(CultureInfo.InvariantCulture);
+        return "-1";
     }
 
     private static string Tile(Vector2 world) => $"{(int)(world.X / 16f)},{(int)(world.Y / 16f)}";

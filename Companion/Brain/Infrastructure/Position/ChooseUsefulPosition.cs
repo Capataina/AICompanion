@@ -223,6 +223,33 @@ public sealed class Positioner
                     : request.WorkTile is Point work ? SuccessRegion.ToolStand(request.Anchor, work, senses.Tick, TerrainChanges.Revision)
                     : SuccessRegion.Unscored(SuccessRegionKind.Undeclared, request.Anchor, senses.Tick, TerrainChanges.Revision);
                 return Chosen;
+            case RequestKind.FireFrom:
+                // The combat stance's firing stand: the named point, hovered at, because the plan's uses
+                // were priced from exactly there and a substituted tile is a different plan. Refused with
+                // a reason when the stand is no longer reachable — the flood proves it out, the tile is
+                // banned, or terrain now overlaps it — which the activity reads as plan invalidity.
+                lastRequest = request;
+                senses.Reach.Refresh(senses);
+                Point fireTile = MovementQueries.Tile(request.Anchor);
+                bool fireFits = !CircleContact.Overlaps(MovementQueries.World, request.Anchor) && Allowed(fireTile)
+                    && ReachOf(fireTile) != ReachVerdict.Unreachable;
+                LastResolveFailed = !fireFits;
+                if (!fireFits)
+                {
+                    Chosen = null;
+                    ChosenScore = 0f;
+                    ChoiceReason = "fire-stand-unreachable";
+                    CandidateEvidence = "";
+                    EvaluatedCandidates = CandidateCount = ReachableCandidateCount = RejectedCandidateCount = 0;
+                    EvidenceTick = senses.Tick;
+                    Region = SuccessRegion.None;
+                    return null;
+                }
+                Chosen = request.Anchor;
+                ChosenScore = 1f;
+                ChoiceReason = "fire-from-stand";
+                Region = SuccessRegion.Unscored(SuccessRegionKind.Undeclared, request.Anchor, senses.Tick, TerrainChanges.Revision);
+                return Chosen;
             case RequestKind.Roam:
                 // Anywhere in the region the body can reach, the further from its feet the better,
                 // kept for a while so the walk is a walk and not a twitch between picks. The region
@@ -441,6 +468,12 @@ public sealed class Positioner
 
     /// <summary>A tile the reach sense has proven absent, for a caller deciding whether an unreached stand is a proven refusal or a not-yet.</summary>
     public bool ProvenUnreachableTile(Point tile) => reachSense?.Reachable(tile) == ReachVerdict.Unreachable;
+
+    /// <summary>The reach sense's three-valued verdict for a tile: reached, proven absent, or not yet known.</summary>
+    public ReachVerdict ReachOf(Point tile) => reachSense?.Reachable(tile) ?? ReachVerdict.NotYet;
+
+    /// <summary>Whether the last FireFrom resolution refused its stand; the combat activity reads it as plan invalidity.</summary>
+    public bool LastResolveFailed { get; private set; }
 
     private void UpdateFollowObjective(in PositionRequest request, Senses.Senses senses)
     {
@@ -975,10 +1008,10 @@ public sealed class Positioner
         if (target == null || senses.Companion?.ModNPC is not global::AICompanion.Companion.CharacterBody.CompanionNPC companion)
             return 1f;
         var ctx = new global::AICompanion.Companion.Brain.Activities.ActionContext(companion, senses);
-        float ideal = companion.Arsenal.IdealShotValue(ctx, target);
+        float ideal = companion.Combat.IdealShotValue(ctx, target);
         if (ideal <= 0f)
             return 1f;
-        float value = companion.Arsenal.BestShotValueFrom(ctx, global::AICompanion.Companion.Brain.Infrastructure.Interactions.Firing.Arsenal.MuzzleAt(stand), target, arrivalTicks);
+        float value = companion.Combat.BestShotValueFrom(ctx, global::AICompanion.Companion.Brain.Infrastructure.Interactions.Firing.CompanionCombat.MuzzleAt(stand), target, arrivalTicks);
         return Weights.FiringStandValueFloor + (1f - Weights.FiringStandValueFloor) * MathHelper.Clamp(value / ideal, 0f, 1f);
     }
 
@@ -994,9 +1027,9 @@ public sealed class Positioner
         tried = 0;
         ShotVerdict refusal = new(false, "no-weapon", 0);
         if (senses.Companion?.ModNPC is not global::AICompanion.Companion.CharacterBody.CompanionNPC companion
-            || companion.Arsenal.Weapons.Count == 0)
+            || companion.Combat.Weapons.Count == 0)
             return refusal;
-        var weapons = companion.Arsenal.Weapons;
+        var weapons = companion.Combat.Weapons;
         for (int slot = 0; slot < weapons.Count; slot++)
         {
             tried++;
@@ -1012,7 +1045,7 @@ public sealed class Positioner
     /// <summary>What the weapons in hand are, as a number that changes when they do: the gear's signature for the companion, the handed profile for a bare NPC.</summary>
     private static int WeaponSignature(Senses.Senses senses, FlightModel? fireProfile)
         => senses.Companion?.ModNPC is global::AICompanion.Companion.CharacterBody.CompanionNPC companion
-            ? companion.Arsenal.GearSignature
+            ? companion.Combat.GearSignature
             : fireProfile?.GetHashCode() ?? 0;
 
     /// <summary>The furthest any weapon in hand shoots, or the handed profile's reach for a bare NPC; the wide default with nothing to shoot.</summary>
@@ -1020,8 +1053,8 @@ public sealed class Positioner
     {
         if (fireProfile is not { } profile)
             return Weights.StandoffFar;
-        return senses.Companion?.ModNPC is global::AICompanion.Companion.CharacterBody.CompanionNPC companion && companion.Arsenal.MaxReach > 0f
-            ? companion.Arsenal.MaxReach
+        return senses.Companion?.ModNPC is global::AICompanion.Companion.CharacterBody.CompanionNPC companion && companion.Combat.MaxReach > 0f
+            ? companion.Combat.MaxReach
             : profile.Reach;
     }
 
