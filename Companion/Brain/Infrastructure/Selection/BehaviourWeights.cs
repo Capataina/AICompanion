@@ -304,6 +304,32 @@ public static class Weights
     /// </summary>
     public const float CombatValueScale = 1.0f;
 
+    /// <summary>
+    /// The objective vector's base weights: the blend phase C priced damage, prevention and pushes at,
+    /// kept as ratios so the planner's first decisions match the scalar's. Prevention and push carry
+    /// today's constants directly; threat removal prices a kill's full danger against a plan's damage;
+    /// the companion's own harm, the company gap, time to first damage and mana are new and start small.
+    /// The shapes that move them with the senses live in <c>WeighCombatObjectives</c>; the audit's weight
+    /// sweeps tune these offline, never a player setting.
+    /// </summary>
+    public const float CombatWeightDamage = 1f;
+    public const float CombatWeightThreatRemoved = 6f;
+    public const float CombatWeightPlayerHarmPrevented = AttackPreventedHarmWeight;
+    public const float CombatWeightCompanionHarm = 2f;
+    public const float CombatWeightPushDanger = KnockbackInducedDangerWeight;
+    public const float CombatWeightCompanyGap = 0.25f;
+    public const float CombatWeightTimeToFirstDamage = 0.5f;
+    public const float CombatWeightMana = 0.25f;
+
+    /// <summary>How much PlayerDanger lifts the harm-prevention and time weights: each is scaled by one plus this times the danger.</summary>
+    public const float CombatDangerWeightLift = 1f;
+
+    /// <summary>How the company weight answers travel: doubled while the player travels, halved while he stands, before the danger falloff.</summary>
+    public const float CombatCompanyTravelFactor = 2f;
+
+    /// <summary>The floor under the damage and threat weights when the encounter is nearly dead: they scale from this to one with the danger share still alive.</summary>
+    public const float CombatAliveShareFloor = 0.25f;
+
     /// <summary>How fast the horizon charge falls once an action would outlast the horizon, in ticks of overrun to zero.</summary>
     public const float HorizonOverrunToZero = 240f;
 

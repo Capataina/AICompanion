@@ -98,6 +98,7 @@ internal static class VerifyEngineMotion
         ("homing predicts its path to a placed body", VerifyFlightLaws.HomingPredictsItsPathToAPlacedBody),
         ("pass-through is predicted through a wall", VerifyFlightLaws.PassThroughIsPredictedThroughAWall),
         ("a splitting shot's children are predicted by trigger and count", VerifyFlightLaws.SplittingShotsChildrenArePredictedByTriggerAndCount),
+        ("a dominated plan never survives the front, whatever the weights", VerifyAttackPlanning.ADominatedPlanNeverSurvivesTheFront),
         ("an unlimited-pierce use strikes twenty bodies", VerifySimulatedUses.UnlimitedPierceStrikesTwenty),
         ("four pellets on a dying body record four full hits", VerifySimulatedUses.FourPelletsOnALowBodyRecordFourHits),
         ("a timed child's hits land after its parent's", VerifySimulatedUses.TimedChildrenLandAfterTheirParent),

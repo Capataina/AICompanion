@@ -57,6 +57,8 @@ if (args.Contains("--combat-activity"))
         + RunOneRow.Case("unarmed offers nothing", () => VerifyCombatActivity.UnarmedOffersNoCombat())
         + RunOneRow.Case("hunting-off migration", () => VerifyCombatActivity.HuntingOffMigration());
 if (args.Contains("--offer-validity")) return VerifyOfferValidity.Run();
+if (args.Contains("--attack-planning"))
+    return RunOneRow.Case("a dominated plan never survives the front, whatever the weights", () => VerifyAttackPlanning.ADominatedPlanNeverSurvivesTheFront());
 if (args.Contains("--capability")) return VerifyCapabilityRevision.Run() == 0 ? 0 : 1;
 if (args.Contains("--light-senses")) return VerifyLightAndReachSenses.Run() == 0 ? 0 : 1;
 if (args.Contains("--torch-rule")) return VerifyTorchPlacementRule.Run() == 0 ? 0 : 1;

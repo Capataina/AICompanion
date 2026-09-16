@@ -41,8 +41,18 @@ public static class EvaluateAttackOutcomes
         float DebuffChance = 0f, int DebuffTicks = 0);
 
     /// <summary>One use of a weapon at a target. <paramref name="AimOffset"/> is how far off the solver's intercept the hands would aim, radians, as the learner chose it.</summary>
-    public sealed record Attack(int Weapon, int Target, int UseTicks, int ImpactTicks, Hit[] Hits, float AimOffset = 0f);
+    public sealed record Attack(int Weapon, int Target, int UseTicks, int ImpactTicks, Hit[] Hits, float AimOffset = 0f, float ManaCost = 0f);
     public readonly record struct Outcome(float Damage, int Kills, float PreventedHarm, float Value);
+
+    /// <summary>
+    /// What the vector needs beyond the attacks themselves, all as numbers so this class still reads no world:
+    /// the ticks to reach the stand, the exposure at the stand and along the travel as shares of threat paths,
+    /// the hardest hit any threat lands on the body, the bodies' lives, the mana pool, and the company gap the
+    /// planner integrated over the segment, already in region-size times horizon units.
+    /// </summary>
+    public readonly record struct PlanContext(int TravelTicks, float StandExposure, float TravelExposure,
+        float WorstHit, float PlayerLife, float CompanionLife, float ManaPool, float CompanyGap);
+
     private const int MaxAttacks = 16;
 
     public static Outcome Evaluate(Attack first, IReadOnlyList<Attack> alternatives,
@@ -121,6 +131,133 @@ public static class EvaluateAttackOutcomes
             if (apply) remaining[hit.Target] = life - dealt;
         }
         return new Outcome(damage, kills, prevented, value);
+    }
+
+    /// <summary>
+    /// The same greedy continuation as <see cref="Evaluate"/>, but the continuation takes the largest weighted
+    /// marginal gain and the result is the objective vector: every simulated hit applied in tick order to the
+    /// plan's own copy of the enemies, overkill and duplicate pellets earning nothing twice. The scalar
+    /// <see cref="Evaluate"/> stays beside it while the sides price offers; it goes when they do.
+    /// </summary>
+    public static CombatOutcome EvaluateVector(Attack first, IReadOnlyList<Attack> alternatives,
+        IReadOnlyList<Target> targets, int cooldown, int horizon, PlanContext context, CombatWeights weights)
+    {
+        var remaining = new Dictionary<int, float>();
+        var facts = new Dictionary<int, Target>();
+        Dictionary<(int Target, int Weapon), (float Chance, int Until)>? debuffs = null;
+        float encounterLife = 0f;
+        foreach (Target target in targets) { remaining[target.Id] = target.Life; facts[target.Id] = target; encounterLife += Math.Max(0f, target.Life); }
+        encounterLife = Math.Max(1f, encounterLife);
+        int fireAt0 = Math.Max(0, cooldown);
+        int fireAt = fireAt0;
+        float damage = 0f, threat = 0f, prevented = 0f, push = 0f, mana = 0f;
+        int firstLanded = -1, lastImpact = fireAt0;
+        Attack? attack = first;
+        for (int step = 0; step < MaxAttacks && attack != null && fireAt < horizon; step++)
+        {
+            AttackParts parts = ValueParts(attack, fireAt, horizon, remaining, facts, ref debuffs, apply: true);
+            damage += parts.Damage; threat += parts.Threat; prevented += parts.Prevented; push += parts.Push;
+            mana += Math.Max(0f, attack.ManaCost);
+            if (parts.Damage > 0f)
+            {
+                if (firstLanded < 0) firstLanded = parts.FirstImpact;
+                lastImpact = Math.Max(lastImpact, parts.LastImpact);
+            }
+            fireAt += Math.Max(1, attack.UseTicks);
+            attack = null;
+            float best = 0f;
+            foreach (Attack candidate in alternatives)
+            {
+                AttackParts next = ValueParts(candidate, fireAt, horizon, remaining, facts, ref debuffs, apply: false);
+                float gain = weights.Weighted(Marginal(next, candidate, fireAt, horizon, context, encounterLife));
+                if (gain > best) { best = gain; attack = candidate; }
+            }
+        }
+        int duration = Math.Max(1, context.TravelTicks + lastImpact - fireAt0);
+        float playerLife = Math.Max(1f, context.PlayerLife);
+        float companionLife = Math.Max(1f, context.CompanionLife);
+        return new CombatOutcome(
+            DamagePerSecond: damage / (duration / 60f) / encounterLife,
+            ThreatRemoved: threat,
+            PlayerHarmPrevented: prevented / playerLife,
+            CompanionHarmTaken: (context.StandExposure * duration + context.TravelExposure * context.TravelTicks) / 60f
+                * Math.Max(0f, context.WorstHit) / companionLife,
+            PushDangerAdded: push,
+            CompanyGap: Math.Max(0f, context.CompanyGap),
+            TimeToFirstDamage: firstLanded < 0 ? 1f : Math.Clamp((context.TravelTicks + firstLanded) / (float)Math.Max(1, horizon), 0f, 1f),
+            ManaSpent: mana / Math.Max(1f, context.ManaPool));
+    }
+
+    /// <summary>One attack's raw parts: what it deals, removes, prevents and adds, and when its hits land.</summary>
+    private readonly record struct AttackParts(float Damage, float Threat, float Prevented, float Push,
+        int FirstImpact, int LastImpact);
+
+    /// <summary>
+    /// One attack as a marginal vector for the continuation choice: its damage over its own span, its removal
+    /// and prevention, its push, its mana. The stand-level terms are zero here on purpose — every continuation
+    /// from this stand shares the stand, so they cannot rank uses against each other.
+    /// </summary>
+    private static CombatOutcome Marginal(AttackParts parts, Attack attack, int fireAt, int horizon,
+        PlanContext context, float encounterLife)
+    {
+        int span = Math.Max(1, attack.UseTicks + attack.ImpactTicks);
+        return new CombatOutcome(
+            DamagePerSecond: parts.Damage / (span / 60f) / encounterLife,
+            ThreatRemoved: parts.Threat,
+            PlayerHarmPrevented: parts.Prevented / Math.Max(1f, context.PlayerLife),
+            CompanionHarmTaken: 0f,
+            PushDangerAdded: parts.Push,
+            CompanyGap: 0f,
+            TimeToFirstDamage: parts.Damage > 0f ? Math.Clamp((context.TravelTicks + parts.FirstImpact) / (float)Math.Max(1, horizon), 0f, 1f) : 1f,
+            ManaSpent: Math.Max(0f, attack.ManaCost) / Math.Max(1f, context.ManaPool));
+    }
+
+    private static AttackParts ValueParts(Attack attack, int fireAt, int horizon,
+        Dictionary<int, float> remaining, Dictionary<int, Target> targets,
+        ref Dictionary<(int Target, int Weapon), (float Chance, int Until)>? debuffs, bool apply)
+    {
+        int impact = fireAt + Math.Max(1, attack.ImpactTicks);
+        if (impact >= horizon) return default;
+        float timing = 1f - (float)impact / horizon;
+        float damage = 0f, threat = 0f, prevented = 0f, push = 0f;
+        int first = -1, last = impact;
+        for (int index = 0; index < attack.Hits.Length; index++)
+        {
+            Hit hit = attack.Hits[index];
+            if (!remaining.TryGetValue(hit.Target, out float life) || life <= 0f) continue;
+            if (!targets.TryGetValue(hit.Target, out Target target)) continue;
+            if (!apply)
+                for (int previous = 0; previous < index; previous++)
+                    if (attack.Hits[previous].Target == hit.Target) life -= Math.Max(0f, Effective(attack.Hits[previous], attack.Weapon, impact, debuffs));
+            if (life <= 0f) continue;
+            float dealt = Math.Min(life, Math.Max(0f, Effective(hit, attack.Weapon, impact, debuffs)));
+            if (dealt <= 0f) continue;
+            damage += dealt;
+            float danger = Math.Clamp(target.Danger, 0f, 1f);
+            if (dealt >= life)
+            {
+                threat += danger;
+                prevented += Math.Max(0f, target.ExpectedHarm) * danger * timing;
+            }
+            else
+            {
+                threat += danger * (dealt / life);
+                prevented += Math.Max(0f, target.ExpectedHarm) * danger
+                    * (dealt / life) * Weights.AttackPartialHarmShare * timing;
+                push += Math.Max(0f, hit.InducedDanger);
+                if (apply && hit.DebuffChance > 0f && hit.DebuffTicks > 0)
+                {
+                    debuffs ??= new();
+                    var key = (hit.Target, attack.Weapon);
+                    float chance = debuffs.TryGetValue(key, out var held) && held.Until > impact
+                        ? MathF.Max(held.Chance, hit.DebuffChance) : hit.DebuffChance;
+                    debuffs[key] = (Math.Clamp(chance, 0f, 1f), impact + hit.DebuffTicks);
+                }
+            }
+            if (first < 0) first = impact;
+            if (apply) remaining[hit.Target] = life - dealt;
+        }
+        return new AttackParts(damage, threat, prevented, push, first, last);
     }
 
     /// <summary>
