@@ -460,9 +460,12 @@ internal static class VerifyCompanionActivities
     /// premise is relational: each added threat raises exactly the danger of the actor it names and leaves
     /// the other's unchanged. No excursion's raw value may move between the
     /// scenes that differ only in the player's danger, because the player's need for help reaches optional
-    /// work once, through the shared protection factor; hunting must still yield to the companion's own
-    /// danger, which is a different risk. A threat to the companion alone must change neither protection,
-    /// the reunion charge nor the value of guarding.
+    /// work once, through the shared protection factor. Combat's one offer reads the player's danger through
+    /// its danger lift and the companion's through its stands' exposure, so a threat to the companion alone
+    /// never raises the fight while a threat to the player lifts it net; a threat to the companion alone
+    /// must change neither protection nor the reunion charge. The old hunt side's global yield to the
+    /// companion's danger is gone with the split: avoiding a hit is a bend in whatever the body is already
+    /// doing, owned by the safety layer rather than the offer.
     /// </summary>
     private static void DangerIsChargedOnceToTheActorItThreatens()
     {
@@ -470,7 +473,6 @@ internal static class VerifyCompanionActivities
             { ("neither", false, false), ("player", true, false), ("companion", false, true), ("both", true, true) };
         var seen = new Dictionary<string, (float Raw, float Protection, float Reunion, float DelayCost, float Guard, float PlayerDanger, float CompanionDanger)>();
         var excursions = new Dictionary<string, Dictionary<string, float>>();
-        var huntSide = new Dictionary<string, float>();
         var offers = new Dictionary<string, string>();
         bool torchPlacement = Preferences.Current.TorchPlacement;
         var lightMode = Lighting.Mode;
@@ -532,7 +534,7 @@ internal static class VerifyCompanionActivities
                 if (scene.Companion) Hostile(31, ctx.Npc.Bottom - new Vector2(64, 0), attackable: false);
                 var brain = ctx.Companion.Brain;
                 brain.Senses.Update(ctx.Npc, ctx.Player);
-                brain.Senses.SetInterventionEstimate(ctx.Companion.Arsenal.EstimateInterventionTicks(ctx));
+                brain.Senses.SetInterventionEstimate(ctx.Companion.Combat.EstimateInterventionTicks(ctx));
                 // The light field must describe the frame this scene presented, not one measured before it.
                 Require(brain.Senses.Light.MeasuredSamples > 0,
                     $"the light field must hold this scene's presented frame, or every lighting offer below is vacuous: {scene.Name}");
@@ -548,29 +550,28 @@ internal static class VerifyCompanionActivities
                     $"the reach region must settle before the comparison, or a refusal reads as an absence: {scene.Name}");
                 var combatPreview = brain.Chooser.Actions.OfType<live::AICompanion.Companion.Brain.Activities.Combat.FightEnemies>().Single();
                 int ticks = 0;
-                // The stand sweep answers across successive scans, and the wall means the first scans
-                // find no arc on the companion's side. The query caches each answer for twenty ticks,
-                // so the scene is ticked in production order — observe, price intervention, compare —
-                // until the sweep decides; one comparison would read the hunt as undecided at value
-                // zero, which is the sweep's budget rather than its answer. The intervention estimate
-                // is repriced every tick because observing resets the protection urgency it feeds.
+                // The plan search decides once its stands do, and the wall means the stands on the
+                // companion's side never solve: the scene is ticked in production order — observe,
+                // price intervention, compare — until the search decides, so the comparison reads the
+                // hunt's answer rather than an unfinished search at value zero. The reach region was
+                // primed above, so this is one pass when the shot past the wall solves immediately.
                 do
                 {
                     brain.Senses.Update(ctx.Npc, ctx.Player);
-                    brain.Senses.SetInterventionEstimate(ctx.Companion.Arsenal.EstimateInterventionTicks(ctx));
+                    brain.Senses.SetInterventionEstimate(ctx.Companion.Combat.EstimateInterventionTicks(ctx));
                     brain.Chooser.Choose(ctx); ticks++;
                 }
-                while (combatPreview.LastRejection == "firing-position-undecided" && ticks < 500);
-                Require(combatPreview.LastRejection != "firing-position-undecided",
-                    $"the stand sweep must decide within five hundred ticks, or the scene's hunt is not the reposition it claims: {scene.Name}");
+                while (combatPreview.EligibilityReason == "stands-undecided" && ticks < 500);
+                Require(combatPreview.EligibilityReason != "stands-undecided",
+                    $"the stand search must decide within five hundred ticks, or the scene's hunt is not the reposition it claims: {scene.Name}");
                 var mine = brain.Chooser.LastScores.Single(s => s.Action.Name == "mine");
                 var combat = brain.Chooser.Actions.OfType<live::AICompanion.Companion.Brain.Activities.Combat.FightEnemies>().Single();
-                seen[scene.Name] = (mine.Raw, mine.Protection, mine.Reunion, brain.Chooser.Reunion.DelayCostPerTick, combat.GuardValue,
+                seen[scene.Name] = (mine.Raw, mine.Protection, mine.Reunion, brain.Chooser.Reunion.DelayCostPerTick, combat.Score(),
                     brain.Senses.Threats.PlayerDanger, brain.Senses.Threats.CompanionDanger);
-                huntSide[scene.Name] = combat.HuntValue;
-                // Combat's winning raw legitimately reads the player's danger through its guard side, so it is
-                // not one of the excursion raws the invariance loop below holds fixed; its sides are read
-                // directly instead, the guard side above and the hunt side beside it.
+                // Combat's offer legitimately reads the player's danger through its danger lift, so it is
+                // not one of the excursion raws the invariance loop below holds fixed; it is read directly
+                // instead, above. There is no hunt side any more: the stance is one plan, and the companion's
+                // own danger bends the body through the safety layer rather than discounting the offer.
                 excursions[scene.Name] = brain.Chooser.LastScores.Where(s => s.Action.IsExcursion && s.Action.Name != "combat").ToDictionary(s => s.Action.Name, s => s.Raw);
                 offers[scene.Name] = string.Join(",", brain.Chooser.LastScores.Where(s => s.Action.IsExcursion)
                     .Select(s => $"{s.Action.Name}:{s.Action.Eligibility}/{s.Action.EligibilityReason}"));
@@ -596,8 +597,9 @@ internal static class VerifyCompanionActivities
             foreach (var (name, raw) in excursions[calm])
                 Require(excursions[threatened][name] == raw,
                     $"{name}'s raw value must not read the player's danger: {calm}={raw} against {threatened}={excursions[threatened][name]}; {excursionLedger}");
-        Require(huntSide["neither"] > 0f && huntSide["companion"] < huntSide["neither"],
-            $"combat's hunt side must still yield to the companion's own danger, a different risk from the player's; calm={huntSide["neither"]} threatened={huntSide["companion"]}; {excursionLedger}");
+        foreach (var scene in scenes)
+            Require(offers[scene.Name].Contains("combat:Usable/planned-attack", StringComparison.Ordinal),
+                $"danger reprices the fight but never removes the offer; {scene.Name} offers {offers[scene.Name]}; {excursionLedger}");
         Console.WriteLine($"danger charged once: {excursionLedger}");
         var (neither, player, companion, both) = (seen["neither"], seen["player"], seen["companion"], seen["both"]);
         static bool Same(float a, float b) => MathF.Abs(a - b) < 1e-6f;
@@ -612,8 +614,8 @@ internal static class VerifyCompanionActivities
             $"only a threat to the player may discount optional work for protection, and a companion threat must not add to it; {ledger}");
         Require(seen.Values.All(v => v.DelayCost == neither.DelayCost && v.Reunion == neither.Reunion),
             $"no threat to either actor may change the separation charge while reunion evidence is unchanged; {ledger}");
-        Require(Same(companion.Guard, neither.Guard) && player.Guard > neither.Guard,
-            $"a threat to the companion alone must not change the player-protection offer; {ledger}");
+        Require(neither.Guard > 0 && companion.Guard <= neither.Guard && player.Guard > neither.Guard,
+            $"a threat to the companion alone must never raise the fight's offer, while a threat to the player must lift it net of the exposure it adds; {ledger}");
     }
 
     private static void ComfortableFollowingHasNoRegroupPressure()

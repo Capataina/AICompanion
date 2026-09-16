@@ -444,7 +444,7 @@ internal static class VerifyOfferValidity
     private const int ArrivalTicks = 45;
 
     private static Vector2 MuzzleAt(Point tile)
-        => live::AICompanion.Companion.Brain.Infrastructure.Interactions.Firing.Arsenal.MuzzleAt(MovementQueries.HoverPoint(tile));
+        => live::AICompanion.Companion.Brain.Infrastructure.Interactions.Firing.CompanionCombat.MuzzleAt(MovementQueries.HoverPoint(tile));
 
     /// <summary>
     /// Whether any weapon in hand lands a simulated use on the target from this eye, asked the way the positioner
@@ -454,7 +454,7 @@ internal static class VerifyOfferValidity
     /// </summary>
     private static bool CanShoot(CompanionNPC companion, NPC enemy, Vector2 eye, int fireTick)
     {
-        var weapons = companion.Arsenal.Weapons;
+        var weapons = companion.Combat.Weapons;
         if (weapons.Count == 0) return false;
         bool usable = fireTick <= 0 || (PredictObservedMotion.ErrorSamples(enemy) > 0
             && PredictObservedMotion.Confidence(enemy, fireTick) >= Weights.ShotForecastConfidenceFloor);
@@ -535,7 +535,7 @@ internal static class VerifyOfferValidity
             DistanceToPlayer = Vector2.Distance(player.Bottom, enemy.Bottom),
         });
         var ctx = new C(companion, companion.Brain.Senses);
-        var profile = companion.Arsenal.ProfileFor(ctx, enemy);
+        var profile = companion.Combat.ProfileFor(ctx, enemy);
         Require(profile != null, "the pillar scene needs an equipped weapon profile to solve with");
         return (companion, enemy, profile);
     }
@@ -592,7 +592,7 @@ internal static class VerifyOfferValidity
             DistanceToPlayer = Vector2.Distance(player.Bottom, enemy.Bottom),
         });
         var ctx = new C(companion, companion.Brain.Senses);
-        var profile = companion.Arsenal.ProfileFor(ctx, enemy);
+        var profile = companion.Combat.ProfileFor(ctx, enemy);
         Require(profile != null, "the offer-validity fixture needs an equipped weapon profile to solve with");
         return (companion, enemy, profile, ctx);
     }

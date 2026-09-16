@@ -47,7 +47,8 @@ public static class ForecastUses
     /// where the intercept meets a wall wins outright. Null when no aim's use strikes anything.
     /// </summary>
     public static AimedUse? BestAimUse(in ActionContext ctx, CompanionWeapon weapon, int slot, NPC target,
-        Vector2 muzzle, IReadOnlyList<EnemyForecast> enemies, CombatWorld world, int fireTick, bool record)
+        Vector2 muzzle, IReadOnlyList<EnemyForecast> enemies, CombatWorld world, int fireTick, bool record,
+        bool planning = false)
     {
         EnemyForecast? forecast = null;
         foreach (EnemyForecast enemy in enemies)
@@ -56,6 +57,9 @@ public static class ForecastUses
         WeaponId id = SimulateUse.Identify(weapon, ctx, slot);
         ModifierState modifiers = ApplyCompanionModifiers.Current();
         int knowledge = KnowledgeRevision.Current;
+        if (planning && CachePlannedSims.TryGetBest(id, modifiers, target.whoAmI, HostileAttackSources.Generation(target),
+            muzzle, fireTick, knowledge, world.RefreshCount, enemies, out AimedUse? planned))
+            return planned;
         PlanningBudget budget = PlanningBudget.Unbounded();
         IReadOnlyList<AimCandidate> aims = SolveAims.For(id, muzzle, forecast, world, enemies, fireTick, ref budget);
         if (aims.Count == 0) return null;
@@ -63,7 +67,18 @@ public static class ForecastUses
         AimedUse? best = null;
         foreach (AimCandidate aim in aims)
         {
-            if (!CacheSimulatedUses.TryGet(id, modifiers, muzzle, aim.AimPoint, fireTick, knowledge, world.RefreshCount, out SimulatedUse? use) || use == null)
+            SimulatedUse? use;
+            if (planning)
+            {
+                if (!CachePlannedSims.TryGet(id, modifiers, muzzle, aim.AimPoint, fireTick, knowledge, world.RefreshCount, enemies, out use) || use == null)
+                {
+                    PlanningBudget simBudget = PlanningBudget.Unbounded();
+                    use = SimulateUse.Simulate(id, muzzle, aim.AimPoint, aim.LaunchDirection, world, enemies, modifiers, fireTick, ref simBudget);
+                    CachePlannedSims.Store(id, modifiers, muzzle, aim.AimPoint, fireTick, knowledge, world.RefreshCount, enemies, use);
+                    CacheSimulatedUses.Store(id, modifiers, muzzle, aim.AimPoint, fireTick, knowledge, world.RefreshCount, use);
+                }
+            }
+            else if (!CacheSimulatedUses.TryGet(id, modifiers, muzzle, aim.AimPoint, fireTick, knowledge, world.RefreshCount, out use) || use == null)
             {
                 PlanningBudget simBudget = PlanningBudget.Unbounded();
                 use = SimulateUse.Simulate(id, muzzle, aim.AimPoint, aim.LaunchDirection, world, enemies, modifiers, fireTick, ref simBudget);
@@ -84,7 +99,10 @@ public static class ForecastUses
                 || (MathF.Abs(onTarget - best.Value.TargetDamage) <= 1e-6f && use.TotalDamage > best.Value.Use.TotalDamage))
                 best = candidate;
         }
-        if (best == null || best.Value.Use.Hits.Count == 0) return null;
+        if (best == null || best.Value.Use.Hits.Count == 0) best = null;
+        if (planning)
+            CachePlannedSims.StoreBest(id, modifiers, target.whoAmI, HostileAttackSources.Generation(target),
+                muzzle, fireTick, knowledge, world.RefreshCount, enemies, best);
         return best;
     }
 

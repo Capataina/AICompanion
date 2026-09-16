@@ -41,24 +41,20 @@ internal static class VerifyFiringPosition
                 .Where(row => row.GetProperty("kind").GetString() == "method-assessment"
                     && row.GetProperty("label").GetString() == "combat").ToArray();
             Require(records.Length == comparisons, "every queried combat method must produce exactly one occurrence record");
-            Require(records.Count(row => row.GetProperty("channel").GetString() == "not-established") >= 3,
-                "unchanged unavailable combat must be recorded across comparisons, not only on an activity-label transition");
-            Require(records.Last().GetProperty("channel").GetString() == "admitted", "opening must record admission separately from rejection");
+            Require(records.Length > 0 && records.All(row => row.GetProperty("channel").GetString() == "admitted"),
+                "every queried combat method must be admitted: the plan's stand is settled before nomination, so a refusal at query time would mean preparation and nomination disagreed");
+            Require(records.Last().GetProperty("channel").GetString() == "admitted", "opening must record admission");
             for (int i = 0; i < records.Length; i++)
             {
                 string detail = records[i].GetProperty("detail").GetString()!;
-                // The fourth comparison is the damageable sealed threat, whose combat offer is worth nothing and is never
-                // queried, so it takes a comparison identity and writes no record.
-                int choice = i < 3 ? i + 1 : i + 2;
+                // Three undamageable comparisons and one sealed-damageable comparison precede the reopening; none
+                // is queried, but each takes a comparison identity, so the reopening records start at choice-id 5.
+                int choice = i + 5;
                 Require(detail.Contains($"choice-id={choice};") && detail.Contains("choice-phase=pre-activation;")
                     && detail.Contains("target-slot=30;") && detail.Contains("native-effect=unobserved"),
                     $"method occurrences need comparison/target identity and explicit execution limits; expected choice-id={choice}, detail={detail}");
-                bool rejected = records[i].GetProperty("channel").GetString() == "not-established";
-                // The first three are the undamageable sealed threat, which admission refuses before solving; any later
-                // rejection is the reopened shaft's tested arc.
-                string failure = i < 3 ? "attack-target-not-attackable" : "no-arc";
-                Require(!rejected || detail.Contains("selectable=0;") && detail.Contains(failure),
-                    $"a rejection must preserve the method's own failure ({failure}) rather than claim low desirability or native success; detail={detail}");
+                Require(detail.Contains("request=FireFrom;") && detail.Contains("reason=fire-from-stand;") && !detail.Contains("selectable=0;"),
+                    $"the admitted method must be the plan's firing stand with a live selection value; detail={detail}");
             }
             Console.WriteLine("firing position: usable method admission, terrain invalidation and every-query occurrence evidence pass");
             return 0;
@@ -117,8 +113,9 @@ internal static class VerifyFiringPosition
         });
 
         var ctx = new C(companion, companion.Brain.Senses);
-        var profile = companion.Arsenal.ProfileFor(ctx, enemy);
-        Require(profile != null, "the firing-position fixture needs an equipped weapon profile to solve with");
+        var combatGear = companion.Combat;
+        Require(combatGear.Weapons.Count > 0, "the firing-position fixture needs an equipped weapon profile to solve with");
+        var profile = combatGear.Weapons[0].Model;
 
         var request = new PositionRequest(RequestKind.LineOfFire, enemy.Center, enemy);
         // The reachable region is flooded incrementally across rescores rather than in one call, so
@@ -198,73 +195,86 @@ internal static class VerifyFiringPosition
         Require(heldDestination != null, "the admission fixture needs an existing ordinary destination to preserve");
         string heldExplanation = companion.Brain.Positioner.CandidateEvidence;
 
-        // Positive desirability beside a rejected method needs a threat guarding still values. Under the sealed rock
-        // a damageable zombie is a proven absence of any firing position once its stand sweep has been all the way
-        // round, and then guarding is worth nothing against it and is never nominated or queried; the block below
-        // drives that sweep to completion, because a settled reach flood alone no longer establishes the absence.
-        // An undamageable one has no removal to estimate, keeps its full share without asking whether it can be shot,
-        // and still has to establish a destination, so it carries the rejection and occurrence contract.
+        // A threat no weapon can damage is not a target at all: the planner proposes nothing against it,
+        // so combat offers no opportunity, is never nominated or queried, and the held destination stands.
+        // Protection against it is worth nothing because there is no fight that reduces it.
         enemy.dontTakeDamage = true;
         for (int tick = 0; tick < 3; tick++)
         {
             var selected = companion.Brain.Chooser.Choose(ctx);
             var combatScore = companion.Brain.Chooser.LastScores.Single(s => ReferenceEquals(s.Action, combat));
-            Require(combat.Access == null && float.IsPositiveInfinity(combat.RemovalTicks),
-                $"the rejection phase needs a threat no weapon can damage, which guarding never asks the firing query about; access={combat.Access}, removal={combat.RemovalTicks}");
-            Require(combatScore.Raw > 0f, "the sealed undamageable threat must remain worth protecting against");
-            Require(!ReferenceEquals(selected, combat) && combatScore.Final == 0f && combatScore.Error.Length > 0,
-                $"unestablished protective access must reject the method without erasing urgency: selected={selected?.Name}, raw={combatScore.Raw}, final={combatScore.Final}, reason={combatScore.Error}");
-            // Admission refuses a target no weapon can damage before solving any candidate, so the retained evidence
-            // names that refusal rather than a tested arc; the sealed shaft's no-arc evidence is required above, on the
-            // positioner's own combat resolution, and again after reopening.
-            Require(combatScore.MethodEvidence.Contains("attack-target-not-attackable") && combatScore.Error == "method-attack-target-not-attackable",
-                $"the rejected offer must retain the method's own refusal separately from its raw value; evidence={combatScore.MethodEvidence}, error={combatScore.Error}");
+            Require(combat.OfferedPlan == null
+                && combat.Eligibility == live::AICompanion.Companion.Brain.Activities.OfferEligibility.NoOpportunity
+                && combat.EligibilityReason == "no-eligible-target",
+                $"a threat no weapon can damage must offer no combat; plan={combat.OfferedPlan?.Id}, eligibility={combat.Eligibility}/{combat.EligibilityReason}");
+            Require(combatScore.Raw == 0f && !ReferenceEquals(selected, combat),
+                $"an undamageable threat must be worth no fight; selected={selected?.Name}, raw={combatScore.Raw}");
+            Require(combatScore.MethodEvidence.Length == 0,
+                $"a combat offer worth nothing must not be queried for a destination; evidence={combatScore.MethodEvidence}");
             Require(companion.Brain.Positioner.Chosen == heldDestination
                 && companion.Brain.Positioner.CandidateEvidence == heldExplanation,
-                "a rejected nomination must preserve the previous ordinary destination and explanation");
+                "an unqueried combat offer must preserve the previous ordinary destination and explanation");
         }
 
-        // The same threat damageable again: nothing the companion can reach has a line to it, so protection is access
-        // that never arrives. Guarding yields — getting away from such a threat is shared safety's job — without a
-        // method query, so this comparison writes no method occurrence and is not counted in the returned total.
+        // The same threat damageable again: nothing the companion can reach has a line to it, so no plan
+        // solves and combat is a proven absence of firing positions — worth nothing, named unusable, never
+        // queried for a destination, so this comparison writes no method occurrence and is not counted in
+        // the returned total.
         enemy.dontTakeDamage = false;
         {
-            // A proven absence now costs a completed sweep of every sampled stand, not the first eight of them. The
-            // stand sample is sorted by distance and only a handful are solved per scan, so a scan that stopped at
-            // the cap and answered None was reporting an exhausted budget as a fact about the world — the same
-            // mistake the positioner's shortlist made one layer up, and the one this build exists to remove. The
-            // sweep resumes where the last scan stopped and its answer stays Unknown until it has been all the way
-            // round, so this loop runs the clock the firing cache is keyed to and nothing else: the threat list,
-            // the urgency and the terrain are exactly as the rows above left them, which a fresh Senses.Update
-            // would rebuild. The first comparison is asserted undecided rather than skipped, because "not yet
-            // proven" reading as "proven impossible" is precisely the defect.
-            // Combat's combat side preparation is what reaches the firing query, so the sweep is driven through it rather
-            // than through a comparison: a comparison would query a method and write an occurrence record, and the
-            // record assertions above are indexed against a fixed comparison count.
             combat.Prepare(ctx);
-            Require(combat.Access == live::AICompanion.Companion.Brain.Activities.Combat.FiringAccess.Unknown,
-                $"a stand sweep cut by its solve cap must not claim a proven absence on its first scan; access={combat.Access}");
-            var clock = typeof(live::AICompanion.Companion.Brain.Infrastructure.Observation.Senses).GetProperty("Tick")!;
-            int scans = 1;
-            for (; scans < 400 && combat.Access != live::AICompanion.Companion.Brain.Activities.Combat.FiringAccess.None; scans++)
-            {
-                clock.SetValue(companion.Brain.Senses, (int)clock.GetValue(companion.Brain.Senses)! + 21);
-                combat.Prepare(ctx);
-            }
-            Console.WriteLine($"firing sweep: a sealed damageable threat became a proven absence after {scans} scans, undecided before that");
+            Require(combat.OfferedPlan == null
+                && combat.Eligibility == live::AICompanion.Companion.Brain.Activities.OfferEligibility.KnownUnusable
+                && combat.EligibilityReason == "no-use-reaches-target",
+                $"the damageable sealed threat must be a proven absence of firing positions; eligibility={combat.Eligibility}/{combat.EligibilityReason}");
             var selected = companion.Brain.Chooser.Choose(ctx);
             var combatScore = companion.Brain.Chooser.LastScores.Single(s => ReferenceEquals(s.Action, combat));
-            Require(combat.Access == live::AICompanion.Companion.Brain.Activities.Combat.FiringAccess.None && float.IsFinite(combat.RemovalTicks),
-                $"the damageable sealed threat must be a proven absence of firing positions once its sweep completes; access={combat.Access}, removal={combat.RemovalTicks}, reach-complete={companion.Brain.Positioner.ReachComplete}");
             Require(combatScore.Raw == 0f && !ReferenceEquals(selected, combat)
                 && combatScore.Eligibility == live::AICompanion.Companion.Brain.Activities.OfferEligibility.KnownUnusable
-                && combatScore.EligibilityReason == "no-reachable-firing-position",
+                && combatScore.EligibilityReason == "no-use-reaches-target",
                 $"a threat no reachable position can shoot must be worth no protection and named unusable; selected={selected?.Name}, raw={combatScore.Raw}, eligibility={combatScore.Eligibility}/{combatScore.EligibilityReason}");
             Require(combatScore.MethodEvidence.Length == 0,
                 $"a combat offer worth nothing must not be queried for a destination; evidence={combatScore.MethodEvidence}");
             Require(companion.Brain.Positioner.Chosen == heldDestination
                 && companion.Brain.Positioner.CandidateEvidence == heldExplanation,
                 "an unqueried combat offer must preserve the previous ordinary destination and explanation");
+        }
+
+        // The same sealed world under a fresh flood: verdicts still unanswered, so the search is undecided
+        // rather than unusable, and only the grown flood settles it. "Not yet proven" reading as "proven
+        // impossible" is precisely the defect the old sweep row held the line against.
+        {
+            var fresh = VerifyCompanionLifecycle.Create();
+            // Creating a companion wipes the NPC table; the shaft zombie belongs back in its slot,
+            // or the seal below is tested against a dummy and the reopening after it against nothing.
+            Main.npc[30] = enemy;
+            // Beside the player on open floor: a body spawned inside the rock below would root the
+            // reach flood nowhere, and the undecided arm would prove nothing about the flood.
+            fresh.NPC.Bottom = new Vector2(28 * 16f, FloorY * 16f);
+            fresh.NPC.velocity = Vector2.Zero;
+            fresh.Brain.Senses.Update(fresh.NPC, player);
+            var freshThreats = fresh.Brain.Senses.Threats.Threats;
+            freshThreats.Clear();
+            freshThreats.Add(new T
+            {
+                Npc = enemy,
+                DistanceToCompanion = Vector2.Distance(fresh.NPC.Bottom, enemy.Bottom),
+                DistanceToPlayer = Vector2.Distance(player.Bottom, enemy.Bottom),
+            });
+            var freshCtx = new C(fresh, fresh.Brain.Senses);
+            var freshCombat = fresh.Brain.Chooser.Actions.OfType<live::AICompanion.Companion.Brain.Activities.Combat.FightEnemies>().Single();
+            Require(!fresh.Brain.Positioner.ReachComplete, "the fresh flood must still be growing, or the undecided arm proves nothing");
+            freshCombat.Prepare(freshCtx);
+            Require(freshCombat.Eligibility == live::AICompanion.Companion.Brain.Activities.OfferEligibility.Unresolved
+                && freshCombat.EligibilityReason == "stands-undecided",
+                $"a sealed threat under an unfinished flood must be undecided, not unusable; eligibility={freshCombat.Eligibility}/{freshCombat.EligibilityReason}");
+            for (int tick = 0; tick < 400; tick++)
+                fresh.Brain.Positioner.Resolve(new PositionRequest(RequestKind.LineOfFire, enemy.Center, enemy), fresh.Brain.Senses, profile);
+            freshCombat.Prepare(freshCtx);
+            Require(freshCombat.Eligibility == live::AICompanion.Companion.Brain.Activities.OfferEligibility.KnownUnusable
+                && freshCombat.EligibilityReason == "no-use-reaches-target",
+                $"the grown flood must settle the sealed threat as unusable; eligibility={freshCombat.Eligibility}/{freshCombat.EligibilityReason}");
+            Console.WriteLine("firing sweep: a sealed damageable threat read undecided under a fresh flood and unusable once it grew");
         }
 
         // Reopening is fresh evidence, not a permanent unreachable verdict on the enemy.
@@ -275,7 +285,7 @@ internal static class VerifyFiringPosition
         Require(chosen != null && companion.Brain.Positioner.CandidateEvidence.Contains(":clear-arc"),
             "opening the shot must restore a useful firing destination");
         bool protectionRestored = false;
-        int comparisons = 3;
+        int comparisons = 0;
         for (int tick = 0; tick < 80 && !protectionRestored; tick++)
         {
             protectionRestored = ReferenceEquals(companion.Brain.Chooser.Choose(ctx), combat);
@@ -283,7 +293,7 @@ internal static class VerifyFiringPosition
         }
         Require(protectionRestored, "opening the shot must allow the still-useful combat offer to win again");
         Require(companion.Brain.Chooser.LastScores.Single(s => ReferenceEquals(s.Action, combat))
-            .MethodEvidence.Contains("clear-arc"), "accepted protection must retain the method that admitted it");
+            .MethodEvidence.Contains("fire-stand"), "accepted protection must retain the method that admitted it");
         Require(companion.Brain.Positioner.Resolve(request, companion.Brain.Senses, null) == null,
             "removing the weapon profile must invalidate a retained firing position immediately");
         return comparisons;

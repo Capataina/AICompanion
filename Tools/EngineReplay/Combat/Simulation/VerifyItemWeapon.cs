@@ -12,16 +12,16 @@ using GearSlot = live::AICompanion.Companion.Inventory.GearSlot;
 using CompanionNPC = live::AICompanion.Companion.CharacterBody.CompanionNPC;
 using CompanionPlayer = live::AICompanion.Companion.PlayerIntegration.CompanionPlayer;
 using ItemWeapon = live::AICompanion.Companion.Brain.Infrastructure.Interactions.Firing.ItemWeapon;
-using Arsenal = live::AICompanion.Companion.Brain.Infrastructure.Interactions.Firing.Arsenal;
+using Combat = live::AICompanion.Companion.Brain.Infrastructure.Interactions.Firing.CompanionCombat;
 
 /// <summary>
-/// The arsenal fed by the gear rather than by an authored pair. Each row puts one real item in a
-/// weapon slot, stands a zombie where that item can reach it, and asks the arsenal to fire: the
-/// projectile that appears must be the item's (or its free ammo's), player-owned, at the item's
+/// The hands fed by the gear rather than by an authored pair. Each row puts one real item in a
+/// weapon slot, stands a zombie where that item can reach it, and searches a real plan and fires it:
+/// the projectile that appears must be the item's (or its free ammo's), player-owned, at the item's
 /// composed speed and damage; a magic cast must spend the pool and land at the pool's factor, and
 /// still land at an empty pool; a swing must strike the body in its arc through the game's own
 /// strike path and refuse a body out of reach; a refused item forced into a slot must never reach
-/// the arsenal; and an empty gear must say so rather than throw.
+/// the hands; and an empty gear must say so rather than throw.
 ///
 /// Enemy AI does not run and the spawned projectiles are never advanced, so these establish what
 /// leaves the muzzle and what a swing does on contact, not a fight.
@@ -109,11 +109,13 @@ internal static class VerifyItemWeapon
     private static void ABowFiresItsFreeArrowPlayerOwned()
     {
         var (companion, enemy, ctx) = Scene(10, (GearSlot.FirstWeapon, ItemID.WoodenBow));
-        Arsenal arsenal = companion.Arsenal;
-        Require(arsenal.BestTarget(ctx) == enemy, "the zombie ten tiles away must be the best target for a bow");
-        Require(arsenal.TryFire(ctx, enemy), $"the bow must fire; outcome={arsenal.LastFireOutcome}");
-        Require(arsenal.LastFireOutcome == "fired" && arsenal.LastChosen is ItemWeapon { ItemType: ItemID.WoodenBow },
-            $"the shot must be recorded as fired by the bow; outcome={arsenal.LastFireOutcome} chosen={arsenal.LastChosen?.Name}");
+        Combat combat = companion.Combat;
+        var plan = CombatFixture.Search(companion, ctx);
+        Require(plan?.PrimaryTarget == enemy.whoAmI, "the zombie ten tiles away must be the plan's target for a bow");
+        var use = CombatFixture.FireOnce(companion, ctx);
+        Require(use.Fired, $"the bow must fire; outcome={combat.LastFireOutcome}");
+        Require(combat.LastFireOutcome == "fired" && use.Weapon is ItemWeapon { ItemType: ItemID.WoodenBow },
+            $"the shot must be recorded as fired by the bow; outcome={combat.LastFireOutcome} chosen={use.Weapon?.Name}");
         Projectile arrow = TheOneActiveProjectile();
         Item bow = ContentSamples.ItemsByType[ItemID.WoodenBow], woodenArrow = ContentSamples.ItemsByType[ItemID.WoodenArrow];
         Require(arrow.type == woodenArrow.shoot, $"a bow with free ammo fires the wooden arrow's projectile; got {arrow.type}");
@@ -121,18 +123,19 @@ internal static class VerifyItemWeapon
         float speed = arrow.velocity.Length();
         Require(MathF.Abs(speed - (bow.shootSpeed + woodenArrow.shootSpeed)) < .01f,
             $"launch speed is the bow's plus the arrow's ({bow.shootSpeed + woodenArrow.shootSpeed}); got {speed}");
-        int expected = ((ItemWeapon)arsenal.LastChosen!).DamagePerHit(ctx);
+        int expected = ((ItemWeapon)use.Weapon!).DamagePerHit(ctx);
         Require(arrow.damage == expected && expected == bow.damage + woodenArrow.damage,
             $"the arrow carries the bow's plus the arrow's damage as the weapon scored it; projectile={arrow.damage} weapon={expected} items={bow.damage + woodenArrow.damage}");
-        Require(arsenal.CooldownTicks == arsenal.LastChosen!.UseTime, "a shot starts the weapon's own cooldown");
-        Require(arsenal.MaxReach > 0f && arsenal.Weapons.Count == 1, "one weapon in hand, with a reach");
+        Require(combat.CooldownTicks == use.Weapon!.UseTime, "a shot starts the weapon's own cooldown");
+        Require(combat.MaxReach > 0f && combat.Weapons.Count == 1, "one weapon in hand, with a reach");
     }
 
     private static void APistolFiresTheMusketBallsProjectileAtTheComposedSpeed()
     {
         var (companion, enemy, ctx) = Scene(10, (GearSlot.SecondWeapon, ItemID.FlintlockPistol));
-        Arsenal arsenal = companion.Arsenal;
-        Require(arsenal.TryFire(ctx, enemy), $"the pistol must fire; outcome={arsenal.LastFireOutcome}");
+        Combat combat = companion.Combat;
+        var use = CombatFixture.FireOnce(companion, ctx);
+        Require(use.Fired, $"the pistol must fire; outcome={combat.LastFireOutcome}");
         Projectile bullet = TheOneActiveProjectile();
         Item pistol = ContentSamples.ItemsByType[ItemID.FlintlockPistol], ball = ContentSamples.ItemsByType[ItemID.MusketBall];
         Require(bullet.type == ball.shoot && bullet.type == ProjectileID.Bullet, $"a gun with free ammo fires the musket ball's projectile; got {bullet.type}");
@@ -145,18 +148,19 @@ internal static class VerifyItemWeapon
         // at a different height from a walker's eye, and the noise alone is four degrees.
         float direct = (enemy.Center - companion.NPC.Center).ToRotation();
         float fired = bullet.velocity.ToRotation();
-        Require(MathF.Abs(MathHelper.WrapAngle(fired - direct)) <= arsenal.LastChosen!.AimNoise + .02f,
-            $"a bullet is solved on the direct line; fired {MathHelper.ToDegrees(fired):0.0} deg against direct {MathHelper.ToDegrees(direct):0.0} deg, noise {MathHelper.ToDegrees(arsenal.LastChosen!.AimNoise):0.0} deg");
+        Require(MathF.Abs(MathHelper.WrapAngle(fired - direct)) <= use.Weapon!.AimNoise + .02f,
+            $"a bullet is solved on the direct line; fired {MathHelper.ToDegrees(fired):0.0} deg against direct {MathHelper.ToDegrees(direct):0.0} deg, noise {MathHelper.ToDegrees(use.Weapon!.AimNoise):0.0} deg");
     }
 
     private static void AWandSpendsManaAndLandsAtTheGradient()
     {
         var (companion, enemy, ctx) = Scene(6, (GearSlot.FirstWeapon, ItemID.WandofSparking));
-        Arsenal arsenal = companion.Arsenal;
+        Combat combat = companion.Combat;
         Item wand = ContentSamples.ItemsByType[ItemID.WandofSparking];
         var mana = companion.Mana;
         Require(mana.Fraction == 1f && mana.DamageFactor == 1f, "the premise: a full pool lands at full strength");
-        Require(arsenal.TryFire(ctx, enemy), $"the wand must fire; outcome={arsenal.LastFireOutcome}");
+        var first = CombatFixture.FireOnce(companion, ctx);
+        Require(first.Fired, $"the wand must fire; outcome={combat.LastFireOutcome}");
         Projectile spark = TheOneActiveProjectile();
         Require(spark.type == wand.shoot, $"the wand fires its own projectile; got {spark.type}");
         Require(spark.damage == wand.damage, $"a full pool lands the wand's own damage {wand.damage}; got {spark.damage}");
@@ -166,23 +170,24 @@ internal static class VerifyItemWeapon
         mana.Spend(mana.Max);
         Require(mana.Fraction == 0f, "the pool is empty");
         foreach (Projectile projectile in Main.projectile) projectile.active = false;
-        int reload = arsenal.CooldownTicks;
-        for (int tick = 0; tick <= reload; tick++) arsenal.Tick();
-        Require(arsenal.CooldownTicks == 0, "the reload has been waited out");
-        Require(arsenal.TryFire(ctx, enemy), $"an empty pool never refuses a cast; outcome={arsenal.LastFireOutcome}");
+        int reload = combat.CooldownTicks;
+        for (int tick = 0; tick <= reload; tick++) combat.Tick();
+        Require(combat.CooldownTicks == 0, "the reload has been waited out");
+        var second = CombatFixture.FireOnce(companion, ctx);
+        Require(second.Fired, $"an empty pool never refuses a cast; outcome={combat.LastFireOutcome}");
         Projectile tired = TheOneActiveProjectile();
         int half = (int)(wand.damage * live::AICompanion.Companion.CharacterBody.CompanionMana.EmptyDamageFactor);
         Require(tired.damage == half, $"an empty pool lands at the empty factor: expected {half}, got {tired.damage}");
-        Require(((ItemWeapon)arsenal.LastChosen!).DamagePerHit(ctx) == half, "the scorer reads the same tired damage the cast landed");
+        Require(((ItemWeapon)second.Weapon!).DamagePerHit(ctx) == half, "the scorer reads the same tired damage the cast landed");
     }
 
     private static void ASwordStrikesTheBodyInItsArcAndRefusesOneOutOfReach()
     {
         var (companion, enemy, ctx) = Scene(1, (GearSlot.FirstWeapon, ItemID.CopperBroadsword));
-        Arsenal arsenal = companion.Arsenal;
-        var sword = (ItemWeapon)arsenal.Weapons[0];
+        Combat combat = companion.Combat;
+        var sword = (ItemWeapon)combat.Weapons[0];
         Require(sword.IsSwing && sword.ProjectileType == 0, "a broadsword is a swing with no projectile");
-        Require(sword.InReach(Arsenal.Muzzle(companion.NPC), enemy), $"the premise: the zombie a tile away is inside the swing's reach of {sword.SwingReach}px");
+        Require(sword.InReach(Combat.Muzzle(companion.NPC), enemy), $"the premise: the zombie a tile away is inside the swing's reach of {sword.SwingReach}px");
         // A second zombie a tile and a half behind the orb, inside the swing's reach and outside its
         // sector: a swing that struck it would be a swing that hits behind the body, which a sentinel's
         // mutation of the half angle to nearly a full circle once passed this fixture unnoticed.
@@ -199,12 +204,14 @@ internal static class VerifyItemWeapon
             DistanceToCompanion = Vector2.Distance(companion.NPC.Bottom, behind.Bottom),
             DistanceToPlayer = Vector2.Distance(Main.player[0].Bottom, behind.Bottom),
         });
-        Require(sword.InReach(Arsenal.Muzzle(companion.NPC), behind), "the premise: the zombie behind is inside the swing's reach");
+        Require(sword.InReach(Combat.Muzzle(companion.NPC), behind), "the premise: the zombie behind is inside the swing's reach");
         int lifeBefore = enemy.life, behindBefore = behind.life;
         int damage = sword.DamagePerHit(ctx);
-        Require(arsenal.BestTarget(ctx) == enemy, "the adjacent zombie is the best target for a sword");
-        Require(arsenal.TryFire(ctx, enemy), $"the sword must swing; outcome={arsenal.LastFireOutcome}");
-        Require(arsenal.LastFireOutcome == "fired", $"a swing is recorded as fired; got {arsenal.LastFireOutcome}");
+        var plan = CombatFixture.Search(companion, ctx);
+        Require(plan?.PrimaryTarget == enemy.whoAmI, "the adjacent zombie is the plan's target for a sword");
+        var use = CombatFixture.FireOnce(companion, ctx);
+        Require(use.Fired, $"the sword must swing; outcome={combat.LastFireOutcome}");
+        Require(combat.LastFireOutcome == "fired", $"a swing is recorded as fired; got {combat.LastFireOutcome}");
         Require(enemy.life < lifeBefore, $"the swing struck the zombie through the game's strike path; life {lifeBefore} -> {enemy.life}");
         // One strike per body per swing: the drop cannot exceed the strike's own damage, and a second
         // strike on the same body would, since the zombie's defence takes less than half of it.
@@ -219,16 +226,17 @@ internal static class VerifyItemWeapon
         // The same sword against a zombie ten tiles off: nothing to swing at, and nothing struck.
         var (far, farEnemy, farCtx) = Scene(10, (GearSlot.FirstWeapon, ItemID.CopperBroadsword));
         int farLife = farEnemy.life;
-        Require(far.Arsenal.BestTarget(farCtx) == null, "a zombie out of the swing's reach is not a target for a sword alone");
-        Require(!far.Arsenal.TryFire(farCtx, farEnemy) && farEnemy.life == farLife,
-            $"the sword refuses a body out of reach and strikes nothing; outcome={far.Arsenal.LastFireOutcome}");
+        Require(CombatFixture.Search(far, farCtx) == null, "a zombie out of the swing's reach is not a target for a sword alone");
+        var refused = CombatFixture.FireOnce(far, farCtx);
+        Require(!refused.Fired && farEnemy.life == farLife,
+            $"the sword refuses a body out of reach and strikes nothing; outcome={far.Combat.LastFireOutcome}");
 
         // A body inside the sector but behind a wall is not in the swing: the sector test carries its
         // own sight test per body, because only the aim's ray is traced by the flight model, and
         // without it a sword struck through a one-tile floor at everything in the sector but its target.
         var (walled, walledEnemy, _) = Scene(2, (GearSlot.FirstWeapon, ItemID.CopperBroadsword));
-        var walledSword = (ItemWeapon)walled.Arsenal.Weapons[0];
-        Vector2 muzzle = Arsenal.Muzzle(walled.NPC);
+        var walledSword = (ItemWeapon)walled.Combat.Weapons[0];
+        Vector2 muzzle = Combat.Muzzle(walled.NPC);
         Vector2 aim = walledEnemy.Center - muzzle;
         Require(walledSword.InSwing(muzzle, aim, walledEnemy), "the premise: two tiles off, the zombie is in the swing with nothing between");
         for (int row = 1; row <= 3; row++)
@@ -245,22 +253,24 @@ internal static class VerifyItemWeapon
     {
         // The UI never lets a yoyo in; a save written by hand could. The arsenal is the second gate.
         var (companion, enemy, ctx) = Scene(10, (GearSlot.FirstWeapon, ItemID.WoodYoyo), (GearSlot.SecondWeapon, ItemID.WoodenBow));
-        Arsenal arsenal = companion.Arsenal;
-        Require(arsenal.TryFire(ctx, enemy), $"the bow beside the yoyo still fires; outcome={arsenal.LastFireOutcome}");
-        Require(arsenal.Weapons.Count == 1 && arsenal.Weapons[0].ItemType == ItemID.WoodenBow,
-            $"only the bow is enumerated; got {arsenal.Weapons.Count} weapon(s)");
+        Combat combat = companion.Combat;
+        var use = CombatFixture.FireOnce(companion, ctx);
+        Require(use.Fired, $"the bow beside the yoyo still fires; outcome={combat.LastFireOutcome}");
+        Require(combat.Weapons.Count == 1 && combat.Weapons[0].ItemType == ItemID.WoodenBow,
+            $"only the bow is enumerated; got {combat.Weapons.Count} weapon(s)");
     }
 
     private static void AnEmptyGearSaysNoWeapon()
     {
         var (companion, enemy, ctx) = Scene(10);
-        Arsenal arsenal = companion.Arsenal;
-        Require(arsenal.Weapons.Count == 0 && arsenal.MaxReach == 0f, "no weapons, no reach");
-        Require(arsenal.BestTarget(ctx) == null, "nothing is a target with nothing to fire");
-        Require(!arsenal.CanEngage(ctx, enemy), "nothing can be engaged with nothing to fire");
-        Require(!arsenal.TryFire(ctx, enemy) && arsenal.LastFireOutcome == "no-weapon", $"the outcome names the empty hands; got {arsenal.LastFireOutcome}");
-        Require(float.IsPositiveInfinity(arsenal.EstimateRemovalTicks(ctx, enemy)), "a target cannot be removed with nothing to fire");
-        Require(arsenal.ProfileFor(ctx, enemy) == null, "no flight model with nothing to fire");
+        Combat combat = companion.Combat;
+        Require(combat.Weapons.Count == 0 && combat.MaxReach == 0f, "no weapons, no reach");
+        Require(CombatFixture.Search(companion, ctx) == null, "nothing is a target with nothing to fire");
+        Require(!combat.ShotSolves(ctx, Combat.Muzzle(companion.NPC), enemy), "nothing can be engaged with nothing to fire");
+        var use = CombatFixture.FireOnce(companion, ctx);
+        Require(!use.Fired && combat.LastFireOutcome == "no-weapon", $"the outcome names the empty hands; got {combat.LastFireOutcome}");
+        Require(float.IsPositiveInfinity(combat.EstimateInterventionTicks(ctx)), "a target cannot be removed with nothing to fire");
+        Require(combat.ProfileFor(ctx, enemy) == null, "no flight model with nothing to fire");
     }
 
     private static void Require(bool value, string message)

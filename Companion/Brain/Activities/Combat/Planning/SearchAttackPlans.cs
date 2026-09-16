@@ -43,7 +43,14 @@ public static class SearchAttackPlans
             return new SearchResult(null, OfferEligibility.NoOpportunity, "no-eligible-target", 0);
         }
 
-        List<StandProposal> proposals = ProposeToday(ctx, positioner, targets);
+        // The approach resolve needs a flight profile or the positioner refuses the request: the
+        // longest reach in hand, so the approach considers every stand the best weapon could shoot from.
+        // The profile only proposes — every weapon is simulated from the stand before a plan is priced.
+        FlightModel? approachProfile = null;
+        foreach (CompanionWeapon weapon in weapons)
+            if (approachProfile == null || weapon.Model.Reach > approachProfile.Value.Reach)
+                approachProfile = weapon.Model;
+        List<StandProposal> proposals = ProposeToday(ctx, combat, positioner, targets, approachProfile);
         if (proposals.Count == 0)
             return new SearchResult(null, OfferEligibility.NoOpportunity, "no-eligible-target", 0);
 
@@ -74,7 +81,13 @@ public static class SearchAttackPlans
             return new SearchResult(null, OfferEligibility.KnownUnusable, "no-reachable-stand", 0);
         }
         if (candidates.Count == 0)
+        {
+            // A reachable stand with no solving use settles nothing about the stands still undecided:
+            // answering unusable would report an unanswered search as a proven absence.
+            if (sawUndecided)
+                return new SearchResult(null, OfferEligibility.Unresolved, "stands-undecided", 0);
             return new SearchResult(null, OfferEligibility.KnownUnusable, "no-use-reaches-target", 0);
+        }
         List<AttackPlan> front = KeepOnlyUndominated.Filter(candidates, plan => plan.Outcome);
         AttackPlan best = front[0];
         foreach (AttackPlan plan in front)
@@ -123,8 +136,8 @@ public static class SearchAttackPlans
     /// not price one rock three times. Phase E's generators replace this set; the verdicts and the search
     /// above them stay.
     /// </summary>
-    private static List<StandProposal> ProposeToday(in ActionContext ctx, Positioner positioner,
-        List<ThreatRecord> targets)
+    private static List<StandProposal> ProposeToday(in ActionContext ctx, CompanionCombat combat, Positioner positioner,
+        List<ThreatRecord> targets, FlightModel? approachProfile)
     {
         var proposals = new List<StandProposal>();
         var seen = new HashSet<(int X, int Y)>();
@@ -139,14 +152,23 @@ public static class SearchAttackPlans
         foreach (ThreatRecord threat in targets)
         {
             NPC npc = threat.Npc;
-            Vector2 toThreat = npc.Bottom - ctx.Senses.Player.Bottom;
+            // The air the enemy is in, not the floor under it: a grounded enemy's feet tile is solid rock,
+            // and hovering that tile's centre is hovering inside the floor — unreachable, so the anchor never
+            // proposed anything for exactly the enemies that need a reposition.
+            Vector2 toThreat = npc.Center - ctx.Senses.Player.Bottom;
             Vector2 anchor = toThreat.LengthSquared() <= leash * leash
-                ? npc.Bottom
+                ? npc.Center
                 : ctx.Senses.Player.Bottom + Vector2.Normalize(toThreat) * leash;
             Vector2 hover = MovementQueries.HoverPoint(MovementQueries.Tile(anchor));
             if (seen.Add(HalfTile(hover)))
                 proposals.Add(new StandProposal(hover, StandReason.GuardAnchor, -1, new[] { npc.whoAmI }));
-            Vector2? approach = positioner.Resolve(new PositionRequest(RequestKind.LineOfFire, npc.Center, npc), ctx.Senses, null);
+            if (!combat.TryGetApproach(npc.whoAmI, HostileAttackSources.Generation(npc), npc.Center, ctx.Npc.Center,
+                TerrainChanges.Revision, out Vector2? approach))
+            {
+                approach = positioner.QueryAttackStand(new PositionRequest(RequestKind.LineOfFire, npc.Center, npc), ctx.Senses, approachProfile);
+                combat.StoreApproach(npc.whoAmI, HostileAttackSources.Generation(npc), npc.Center, ctx.Npc.Center,
+                    TerrainChanges.Revision, approach);
+            }
             if (approach is { } resolved && seen.Add(HalfTile(resolved)))
                 proposals.Add(new StandProposal(resolved, StandReason.HuntApproach, -1, new[] { npc.whoAmI }));
         }
@@ -238,7 +260,7 @@ public static class SearchAttackPlans
             CompanionWeapon weapon = weapons[weaponSlot];
             if (!weapon.InReach(muzzle, npc)) continue;
             ForecastUses.AimedUse? aimed = ForecastUses.BestAimUse(ctx, weapon, weaponSlot, npc, muzzle,
-                enemies, world, travel, record: false);
+                enemies, world, travel, record: false, planning: true);
             if (aimed == null || !budget.Check())
                 continue;
             EvaluateAttackOutcomes.Attack? attack = ForecastUses.AttackFromUse(ctx, weapon, weaponSlot, npc,

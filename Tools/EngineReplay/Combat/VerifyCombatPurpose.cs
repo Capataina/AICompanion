@@ -28,24 +28,21 @@ internal static class VerifyCombatPurpose
         VerifyEncounterContext.Run();
         VerifyCombatActorMatrix.Run();
         // Last deliberately, and it is the only row here whose position is chosen rather than incidental.
-        // This fixture aborts on its first throw, and this row is red on a brain finding that will stay red
-        // until combat spacing is changed: it wants a companion at twelve life to create space from a slime
-        // whose danger comes to 0.411 against a `CompanionInTrouble` threshold of 0.45. Standing second, as it
-        // did, it took the seven rows below it with it every run — the pursuit valuation, both protection rows,
-        // the two identity rows, the whole encounter context and the whole actor matrix — none of which had run
-        // at this body since the change, and two of which turned out to be carrying walker-era defects of their
-        // own once they could be seen. A row that cannot pass until somebody changes the brain goes last, so
-        // that what it is waiting on is the only thing it hides.
+        // This fixture aborts on its first throw. This row once went red on a brain finding — it wanted a
+        // companion at twelve life to create space from a slime — and standing second it took the seven rows
+        // below it with it every run, two of which turned out to be carrying walker-era defects of their own
+        // once they could be seen. A row that can go red on the brain goes last, so that what it reports is
+        // the only thing it hides.
         TheSameSmallAttackWeighsMoreAtLowHealthWithoutTakingTheBody();
-        Console.WriteLine("combat purpose: effective damage and remaining life decide threat consequence, low health turns a tolerable attack into an escape, pursuit weighs a reposition against the shots it delays, protection is worth only the harm an intervention can remove, pursuit, aim and landed-hit identities are recorded apart, and a boss or world event stops optional work only where it reaches, once, from native facts or observed pressure");
+        Console.WriteLine("combat purpose: effective damage and remaining life decide threat consequence, low health reads more danger without taking the body, pursuit weighs a reposition against the shots it delays, protection is worth only the harm an intervention can remove, plan, aim and landed-hit identities are recorded apart, and a boss or world event stops optional work only where it reaches, once, from native facts or observed pressure");
         return 0;
     }
 
     /// <summary>
-    /// Pursuit target, aim target and landed hit are three facts. A real shot leaves the arsenal aimed at
-    /// one of two zombies; the native hit hook then reports the projectile striking the other one — the
-    /// piercing or blocking case — and then the aimed one. The ledger must name the struck NPC and the
-    /// aimed one separately each time, ignore a projectile the companion never fired, and forget the
+    /// Plan target, aim target and landed hit are three facts. A real shot leaves the hand under a searched
+    /// plan aimed at one of two zombies; the native hit hook then reports the projectile striking the other
+    /// one — the piercing or blocking case — and then the aimed one. The ledger must name the struck NPC and
+    /// the aimed one separately each time, ignore a projectile the companion never fired, and forget the
     /// companion's shot once a new projectile spawns into its slot, so slot reuse cannot inherit it.
     /// </summary>
     private static void LandedHitsAreRecordedApartFromTheAimedTarget()
@@ -64,10 +61,9 @@ internal static class VerifyCombatPurpose
         Hostile(31, 110f);
         live::AICompanion.Companion.Brain.Infrastructure.Interactions.Firing.TrackLandedHits.Clear();
         ctx.Companion.Brain.Senses.Update(ctx.Npc, ctx.Player);
-        var arsenal = ctx.Companion.Arsenal;
-        NPC? aimed = arsenal.BestTarget(ctx);
-        Require(aimed != null, "the identity scene needs the arsenal to choose a target");
-        Require(arsenal.TryFire(ctx, aimed!), $"the identity scene needs a real shot; fire={arsenal.LastFireOutcome}");
+        CombatFixture.FiredUse fired = CombatFixture.FireOnce(ctx.Companion, ctx);
+        Require(fired.Fired && fired.Plan != null, "the identity scene needs a real shot under a searched plan");
+        NPC aimed = Main.npc[fired.Plan!.PrimaryTarget];
         Projectile[] airborne = Main.projectile.Where(p => p.active).ToArray();
         Require(airborne.Length == 1, $"exactly one projectile must be in the air after the shot; active={airborne.Length}");
         Projectile shot = airborne[0];
@@ -101,9 +97,9 @@ internal static class VerifyCombatPurpose
 
     /// <summary>
     /// The appended identity columns carry the brain's own facts on a real recorded row. One shot is fired
-    /// and its landing reported through the native hook, the whole brain then runs one recorded tick, and
-    /// the row is read by column name — as every reader must, because columns are appended — against the
-    /// hunt, the hands and the ledger as they stand after that tick.
+    /// under a searched plan and its landing reported through the native hook, the whole brain then runs one
+    /// recorded tick, and the row is read by column name — as every reader must, because columns are appended —
+    /// against the offered plan, the hands and the ledger as they stand after that tick.
     /// </summary>
     private static void TheRecordCarriesPursuitAimAndHitApart()
     {
@@ -140,8 +136,8 @@ internal static class VerifyCombatPurpose
             enemy.Bottom = ctx.Npc.Bottom + new Vector2(200, 0);
             live::AICompanion.Companion.Brain.Infrastructure.Interactions.Firing.TrackLandedHits.Clear();
             ctx.Companion.Brain.Senses.Update(ctx.Npc, ctx.Player);
-            NPC? aimed = ctx.Companion.Arsenal.BestTarget(ctx);
-            Require(aimed != null && ctx.Companion.Arsenal.TryFire(ctx, aimed), "the recorded identity scene needs a real shot");
+            CombatFixture.FiredUse fired = CombatFixture.FireOnce(ctx.Companion, ctx);
+            Require(fired.Fired && fired.Plan != null, "the recorded identity scene needs a real shot under a searched plan");
             Projectile shot = Main.projectile.First(p => p.active);
             new live::AICompanion.Companion.Brain.Infrastructure.Interactions.Firing.ObserveLandedCompanionHits().OnHitByProjectile(enemy, shot, new NPC.HitInfo { Damage = 5 }, 5);
 
@@ -159,14 +155,14 @@ internal static class VerifyCombatPurpose
             Require(header >= 0 && header + 1 < lines.Length, "the recorder wrote no row for the identity scene");
             string[] names = lines[header].Split('\t'), values = lines[header + 1].Split('\t');
             Require(names.Length == values.Length, $"identity row and header widths disagree: {names.Length}/{values.Length}");
-            string[] appended = { "pursuit_target", "pursuit_value", "pursuit_access_ticks", "pursuit_evidence", "aim_target",
-                "landed_hit_target", "landed_hit_aimed", "landed_hit_damage", "landed_hit_tick", "landed_hits",
-                "guard_removal_ticks", "guard_usefulness", "top_threat_effective_player", "top_threat_effective_companion",
-                "guard_access_ticks" };
+            string[] appended = { "plan_id", "plan_segment", "plan_stand", "plan_targets", "plan_dps", "plan_travel",
+                "plan_uses", "aim_target", "landed_hit_target", "landed_hit_aimed", "landed_hit_damage",
+                "landed_hit_tick", "landed_hits", "plan_kill_tick", "plan_threat_removed",
+                "top_threat_effective_player", "top_threat_effective_companion", "plan_invalid" };
             foreach (string name in appended)
                 Require(Array.IndexOf(names, name) >= 0, "identity column missing from the recording: " + name);
             string declaration = lines.First(l => l.StartsWith("# text_columns="));
-            foreach (string text in new[] { "pursuit_target", "pursuit_evidence", "aim_target", "landed_hit_target", "landed_hit_aimed" })
+            foreach (string text in new[] { "plan_stand", "plan_targets", "plan_uses", "aim_target", "landed_hit_target", "landed_hit_aimed", "plan_invalid" })
                 Require(declaration.Split('=')[1].Split(',').Contains(text), "textual identity column not declared as text: " + text);
             string Value(string name) => values[Array.IndexOf(names, name)];
             string Identity(NPC? npc) => npc != null && npc.active
@@ -179,9 +175,35 @@ internal static class VerifyCombatPurpose
                 $"the recorded landed hit must be the ledger's; row={Value("landed_hit_target")}/{Value("landed_hit_aimed")}/{Value("landed_hit_damage")}/{Value("landed_hits")}, ledger={landed}");
             Require(Value("aim_target") == Identity(ctx.Companion.Brain.EngageTarget),
                 $"the recorded aim must be the hands' target; row={Value("aim_target")}, hands={Identity(ctx.Companion.Brain.EngageTarget)}");
-            Require(Value("pursuit_target") == Identity(combat.Target?.Npc)
-                && Math.Abs(float.Parse(Value("pursuit_value"), System.Globalization.CultureInfo.InvariantCulture) - combat.PursuitValue) < 1e-3f,
-                $"the recorded pursuit must be the hunt side's retained choice; row={Value("pursuit_target")}/{Value("pursuit_value")}, combat={Identity(combat.Target?.Npc)}/{combat.PursuitValue}");
+            var plan = combat.OfferedPlan;
+            Require(plan != null, "the recorded identity scene needs the tick to offer a plan");
+            Require(Value("plan_id") == plan!.Id.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                && Value("plan_segment") == combat.OfferedSegment.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                $"the recorded plan must be the offered one; row={Value("plan_id")}/{Value("plan_segment")}, combat={plan.Id}/{combat.OfferedSegment}");
+            Vector2 stand = plan.Segments[combat.OfferedSegment].Stand.Stand;
+            string expectedStand = FormattableString.Invariant($"{stand.X:0},{stand.Y:0}");
+            string expectedTargets = string.Join("|", plan.Validity.Targets.Select(t =>
+                FormattableString.Invariant($"{t.Slot}:{t.Generation}")));
+            if (expectedTargets.Length == 0) expectedTargets = "-";
+            var segment = plan.Segments[combat.OfferedSegment];
+            string expectedUses = segment.Uses.Length == 0 ? "-" : string.Join("|", segment.Uses.Select(use =>
+                FormattableString.Invariant($"{use.WeaponSlot}>{use.TargetSlot}@{use.FireTick}")));
+            Require(Value("plan_stand") == expectedStand && Value("plan_targets") == expectedTargets && Value("plan_uses") == expectedUses,
+                $"the recorded stand, targets and uses must be the offered segment's; row={Value("plan_stand")}/{Value("plan_targets")}/{Value("plan_uses")}");
+            Require(Value("plan_travel") == segment.Verdict.TravelTicks.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture)
+                && Value("plan_dps") == plan.Outcome.DamagePerSecond.ToString("0.000", System.Globalization.CultureInfo.InvariantCulture)
+                && Value("plan_threat_removed") == plan.Outcome.ThreatRemoved.ToString("0.000", System.Globalization.CultureInfo.InvariantCulture),
+                $"the recorded plan numbers must be the offered outcome's; row={Value("plan_travel")}/{Value("plan_dps")}/{Value("plan_threat_removed")}");
+            string expectedKill = "-1";
+            int rowTick = int.Parse(values[Array.IndexOf(names, "tick")], System.Globalization.CultureInfo.InvariantCulture);
+            if (plan.TargetKillTicks != null)
+                foreach ((int slot, int at) in plan.TargetKillTicks)
+                    if (slot == plan.PrimaryTarget)
+                        expectedKill = Math.Max(0, at - rowTick).ToString(System.Globalization.CultureInfo.InvariantCulture);
+            Require(Value("plan_kill_tick") == expectedKill,
+                $"the recorded kill tick must be the plan's predicted kill of its primary; row={Value("plan_kill_tick")}, expected={expectedKill}");
+            Require(Value("plan_invalid") == ctx.Companion.Combat.Planner.LastInvalidation,
+                $"the recorded invalidation must be the planner's; row={Value("plan_invalid")}");
             Main.projectile.Where(p => p.active).ToList().ForEach(p => p.active = false);
             live::AICompanion.Companion.Brain.Infrastructure.Interactions.Firing.TrackLandedHits.Clear();
         }
@@ -197,12 +219,12 @@ internal static class VerifyCombatPurpose
         }
     }
 
-    private readonly record struct GuardScene(float Guard, float Hunt, float Urgency, float Removal, float Usefulness);
+    private readonly record struct GuardScene(float Guard, float Urgency, float ThreatRemoved, float KillIn, bool Offered);
 
     /// <summary>
     /// One hostile beside the player, with the companion across an open floor. Only the hostile differs
-    /// between rows — its type, or for the matched pair only its life — so a change in guarding's value is
-    /// the fight's length acting through the removal estimate. Enemy AI does not run; this values the
+    /// between rows — its type, or for the matched pair only its life — so a change in the fight's value is
+    /// the fight's length acting through what the plan removes. Enemy AI does not run; this values the
     /// arrangement, it does not stage a fight.
     /// </summary>
     private static GuardScene GuardAgainst(int type, int life = 0)
@@ -211,6 +233,9 @@ internal static class VerifyCombatPurpose
         Main.tile[25, 89].ClearEverything();
         ctx.Player.Bottom = new Vector2(60 * 16, 90 * 16);
         ctx.Player.DefenseEffectiveness = MultipliableFloat.One * .5f;
+        // The scene owns the threat list: every hostile slot starts inactive, so earlier scenes' zombies
+        // are never scanned in beside the planted one.
+        for (int i = 0; i < Main.npc.Length; i++) Main.npc[i] = new NPC { whoAmI = i, active = false };
         NPC enemy = Main.npc[30];
         enemy.SetDefaults(type);
         enemy.whoAmI = 30; enemy.active = true; enemy.velocity = Vector2.Zero;
@@ -221,20 +246,55 @@ internal static class VerifyCombatPurpose
         var threat = brain.Senses.Threats.Threats.Find(t => t.Npc == enemy);
         Require(threat != null && threat.CanReachPlayer && threat.Urgency > 0f,
             $"the guard scene's hostile (type {type}) must threaten the player before protection is read; urgency={threat?.Urgency}");
-        brain.Senses.SetInterventionEstimate(ctx.Companion.Arsenal.EstimateInterventionTicks(ctx));
+        brain.Senses.SetInterventionEstimate(ctx.Companion.Combat.EstimateInterventionTicks(ctx));
         var combat = brain.Chooser.Actions.OfType<Combat>().Single();
+        PrimeAndSettle(brain, ctx, combat);
+        var settled = brain.Senses.Threats.Threats.Find(t => t.Npc == enemy);
+        var plan = combat.OfferedPlan;
+        float killIn = float.PositiveInfinity;
+        if (plan?.TargetKillTicks != null)
+            foreach ((int slot, int at) in plan.TargetKillTicks)
+                if (slot == enemy.whoAmI)
+                    killIn = at - plan.Validity.LastProgressTick;
+        return new(combat.Score(), settled?.Urgency ?? 0f, plan?.Outcome.ThreatRemoved ?? 0f, killIn,
+            combat.Eligibility == live::AICompanion.Companion.Brain.Activities.OfferEligibility.Usable);
+    }
+
+    /// <summary>
+    /// Settles the reach flood before preparing, so the offer is the search's finished answer rather than
+    /// what the first flood slice happened to reach. Preparing on a growing flood reads whatever is reachable
+    /// *so far* — usually the shot from here — and a row comparing values across scenes would then compare
+    /// flood budgets, not fights. The resolves only pump the flood; the threat list, the urgency and the
+    /// terrain stay as the scene built them, where a fresh `Senses.Update` would rebuild them.
+    /// </summary>
+    private static void PrimeAndSettle(live::AICompanion.Companion.Brain.Brain brain,
+        live::AICompanion.Companion.Brain.Activities.ActionContext ctx, Combat combat)
+    {
+        // WithPlayer, not the LineOfFire the search itself will ask: a firing request without a flight
+        // profile early-outs before it refreshes the flood, so three thousand of them prime nothing.
+        var request = new live::AICompanion.Companion.Brain.Infrastructure.Position.PositionRequest(
+            live::AICompanion.Companion.Brain.Infrastructure.Position.RequestKind.WithPlayer, ctx.Player.Bottom);
+        // The flood is bounded per advance and grows across resolves: three thousand, the count the
+        // assistance matrix uses, because four hundred no longer completes it. Nothing else about the scene
+        // moves — the threat list, the urgency and the terrain stay as the scene built them.
+        for (int i = 0; i < 3000 && !brain.Positioner.ReachComplete; i++)
+            brain.Positioner.Resolve(request, brain.Senses, null);
+        Require(brain.Positioner.ReachComplete, "the reach flood must complete before the offer can be read as the search's answer");
         VerifyPreparedActivities.PrepareAndScore(combat, ctx);
-        return new(combat.GuardValue, combat.HuntValue, threat!.Urgency, combat.RemovalTicks, combat.InterventionUsefulness);
+        Require(combat.Eligibility != live::AICompanion.Companion.Brain.Activities.OfferEligibility.Unresolved,
+            $"the stand search must decide on a completed flood; still {combat.EligibilityReason}");
     }
 
     /// <summary>
     /// Protection is worth the harm an intervention can remove. The matched pair holds one zombie beside
     /// the player at its ordinary life and at a hundred times it: the urgency is identical and only the
-    /// fight's length differs, so guarding the tank must be worth exactly the usefulness share of guarding
-    /// the ordinary zombie. The second pair is the owner's boss story — against the Eye of Cthulhu there is
+    /// fight's length differs, so the ordinary zombie dies inside the plan's horizon and the tank survives
+    /// it, and guarding the tank is worth less. The length acts through the outcome the evaluator priced —
+    /// a nonlinear simulation, not the old linear share — so the pair pins the direction and the kill, not
+    /// an exact formula. The second pair is the owner's boss story — against the Eye of Cthulhu there is
     /// no version where standing between it and the player helps, while the small eyes on the player are
     /// things the companion can remove — and it must hold on starting weapons without any boss flag being
-    /// read. Hunting must still offer the long fight: making protection pointless is not a refusal to fight.
+    /// read. Combat must still offer the long fight: making protection pointless is not a refusal to fight.
     /// </summary>
     private static void ProtectionIsWorthTheHarmAnInterventionCanRemove()
     {
@@ -243,32 +303,34 @@ internal static class VerifyCombatPurpose
         var eye = GuardAgainst(NPCID.EyeofCthulhu);
         var servant = GuardAgainst(NPCID.ServantofCthulhu);
         foreach (var (name, scene) in new[] { ("ordinary", ordinary), ("tank", tank), ("eye", eye), ("servant", servant) })
-            Console.WriteLine($"  guard row {name}: guard={scene.Guard:0.000} hunt={scene.Hunt:0.000} urgency={scene.Urgency:0.000} removal-ticks={scene.Removal:0.0} usefulness={scene.Usefulness:0.000}");
+            Console.WriteLine($"  guard row {name}: guard={scene.Guard:0.000} urgency={scene.Urgency:0.000} threat-removed={scene.ThreatRemoved:0.000} kill-in={scene.KillIn:0.0} offered={scene.Offered}");
 
-        Require(ordinary.Removal < Weights.GuardUsefulRemovalTicks && tank.Removal > Weights.GuardUsefulRemovalTicks
-            && servant.Removal < Weights.GuardUsefulRemovalTicks && eye.Removal > Weights.GuardUsefulRemovalTicks,
-            $"the rows must sit on the stated sides of the useful fight length; ordinary={ordinary.Removal}, tank={tank.Removal}, servant={servant.Removal}, eye={eye.Removal}");
+        Require(float.IsFinite(ordinary.KillIn) && float.IsPositiveInfinity(tank.KillIn),
+            $"the ordinary zombie must die inside the plan's horizon and the tank must survive it; ordinary={ordinary.KillIn}, tank={tank.KillIn}");
+        Require(ordinary.ThreatRemoved > tank.ThreatRemoved,
+            $"the same danger over a longer fight must remove less of it; ordinary={ordinary.ThreatRemoved}, tank={tank.ThreatRemoved}");
         Require(MathF.Abs(tank.Urgency - ordinary.Urgency) < 1e-5f,
             $"the matched pair must threaten the player identically; tank={tank.Urgency}, ordinary={ordinary.Urgency}");
         Require(tank.Guard < ordinary.Guard,
             $"a threat the weapons would need far longer to remove must be worth less protection than the same threat they can remove; tank={tank.Guard}, ordinary={ordinary.Guard}");
-        Require(MathF.Abs(tank.Guard - ordinary.Guard * tank.Usefulness) < 1e-4f,
-            $"the fight's length must be the only difference between the matched guard values; tank={tank.Guard}, ordinary×usefulness={ordinary.Guard * tank.Usefulness}");
         Require(servant.Guard > eye.Guard,
             $"the small eyes on the player must be worth more protection than the boss itself; servant={servant.Guard}, eye={eye.Guard}");
-        Require(tank.Hunt > 0f && eye.Hunt > 0f,
-            $"a fight too long to protect through must still be a fight hunting offers; tank={tank.Hunt}, eye={eye.Hunt}");
+        Require(tank.Offered && eye.Offered,
+            $"a fight too long to protect through must still be a fight combat offers; tank={tank.Offered}, eye={eye.Offered}");
     }
 
     private enum ShaftAccess { Sealed, Lip, InSight }
 
-    private readonly record struct ShaftGuard(float Guard, float Usefulness, float Removal, string Access, float AccessTicks,
-        float PlayerUrgency, float ProtectionUrgency, bool ReachComplete, int Target);
+    private readonly record struct ShaftGuard(float Guard, float Weighted, bool Offered, string Reason, float Travel, bool SolvesFromHere,
+        float ThreatRemoved, float KillIn, float PlayerUrgency, float ProtectionUrgency, bool ReachComplete, int Target, string Funnel);
 
-    // The guarded zombie's life in the shaft pair, chosen so removal is already past GuardUsefulRemovalTicks on
-    // starting weapons. Below that length every access that leaves the sum inside it is guarded identically,
-    // which is correct and would make "the lip reads below in-sight" unreachable rather than tested.
-    private const int ShaftGuardedLife = 600, ShaftGuardPlayerX = 58;
+    // The guarded zombie is one shot from dead in every row, so both open rows end the same kill and
+    // differ only in when — the reposition priced as pure delay. At ordinary life the "shot from here" is a
+    // grazing knife throw the plan cannot repeat, while the lip drops cleanly down the shaft, so the rows
+    // differed in shot quality rather than access and the lip won. One hit kills either way, so quality drops
+    // out and only the flight remains. The old rows needed 600 life for the share formula's saturation; the
+    // evaluator prices time linearly and saturates nothing, so the premise is gone with the formula.
+    private const int ShaftGuardPlayerX = 58;
 
     /// <summary>
     /// The shaft geometry with one zombie on its floor that passes through rock and hits hard, so it threatens the
@@ -289,8 +351,12 @@ internal static class VerifyCombatPurpose
         // The capped shaft keeps its mouth row solid, so the floor is continuous and the cavity below is sealed.
         for (int x = ShaftLeft; x <= ShaftRight; x++)
             for (int y = access == ShaftAccess.Sealed ? PitFloorY + 1 : PitFloorY; y < ShaftFloorY; y++) { Tile air = Main.tile[x, y]; air.HasTile = false; }
+        // A trench from under the companion to the shaft, not a slot: a three-wide cut lets one grazing arc
+        // through while the plan's other aims clip its edges, so the "shot from here" removed a tenth of the
+        // zombie and read as worthless beside the lip's clean drop. The row compares access, not aim quality,
+        // so the opened line must shoot as cleanly as the lip it is measured against.
         if (access == ShaftAccess.InSight)
-            for (int x = ShaftLeft - 3; x < ShaftLeft; x++)
+            for (int x = ShaftLeft - 5; x < ShaftLeft; x++)
                 for (int y = PitFloorY; y < ShaftFloorY; y++) { Tile air = Main.tile[x, y]; air.HasTile = false; }
         live::AICompanion.Companion.Brain.Infrastructure.Movement.TerrainChanges.Reset();
         live::AICompanion.Companion.Brain.Infrastructure.Movement.MovementQueries.World = new live::AICompanion.Companion.Brain.Infrastructure.Movement.GameTileWorld();
@@ -312,12 +378,18 @@ internal static class VerifyCombatPurpose
         companion.NPC.position = new Vector2(NearStart * 16f, PitFloorY * 16f - companion.NPC.height - 16f);
         companion.NPC.velocity = Vector2.Zero;
 
-        Main.npc[VisibleSlot] = new NPC();
+        // The scene owns the threat list: every hostile slot starts inactive, so earlier scenes' zombies
+        // are never scanned in beside the planted one.
+        for (int i = 0; i < Main.npc.Length; i++) Main.npc[i] = new NPC { whoAmI = i, active = false };
         NPC hidden = Main.npc[HiddenSlot];
         hidden.SetDefaults(NPCID.Zombie);
         hidden.whoAmI = HiddenSlot; hidden.active = true; hidden.velocity = Vector2.Zero;
-        hidden.lifeMax = hidden.life = ShaftGuardedLife;
+        hidden.life = Math.Max(1, hidden.lifeMax / 20);
         hidden.noTileCollide = true;
+        // It flies as well as phases: the forecast integrates the NPC's own gravity, so a phasing walker
+        // with gravity is predicted falling through the floor it no longer collides with, and a use aimed
+        // at its arrival position aims into rock and never solves.
+        hidden.noGravity = true;
         hidden.damage = 100;
         hidden.Bottom = new Vector2(HiddenX * 16f + 8f, ShaftFloorY * 16f);
 
@@ -327,36 +399,35 @@ internal static class VerifyCombatPurpose
         var threat = brain.Senses.Threats.Threats.Find(t => t.Npc == hidden);
         Require(threat != null && threat.CanReachPlayer && threat.Urgency > 0f,
             $"shaft guard {access}: the zombie must threaten the player before protection is read; urgency={threat?.Urgency}");
-        var profile = companion.Arsenal.ProfileFor(ctx, hidden);
-        var request = new live::AICompanion.Companion.Brain.Infrastructure.Position.PositionRequest(
-            live::AICompanion.Companion.Brain.Infrastructure.Position.RequestKind.LineOfFire, hidden.Center, hidden);
-        // Settled, so a proven absence is the flood's finished answer rather than its budget.
-        for (int i = 0; i < 400; i++) brain.Positioner.Resolve(request, brain.Senses, profile);
-        brain.Senses.SetInterventionEstimate(companion.Arsenal.EstimateInterventionTicks(ctx));
+        brain.Senses.SetInterventionEstimate(companion.Combat.EstimateInterventionTicks(ctx));
         var combat = brain.Chooser.Actions.OfType<Combat>().Single();
-        // The firing query's proven absence costs a completed sweep of every sampled stand rather than the first
-        // handful, so one preparation answers Unknown for a sealed threat and only a sweep all the way round
-        // establishes the absence this row reads a zero from. The sweep resumes on each scan and its cache is
-        // keyed to the sense's clock, so the clock is what has to run; nothing else about the scene moves.
-        var clock = typeof(live::AICompanion.Companion.Brain.Infrastructure.Observation.Senses).GetProperty("Tick")!;
-        VerifyPreparedActivities.PrepareAndScore(combat, ctx);
-        for (int scan = 0; scan < 400 && combat.Access == live::AICompanion.Companion.Brain.Activities.Combat.FiringAccess.Unknown; scan++)
-        {
-            clock.SetValue(brain.Senses, (int)clock.GetValue(brain.Senses)! + 21);
-            VerifyPreparedActivities.PrepareAndScore(combat, ctx);
-        }
-        float guardValue = combat.GuardValue;
-        return new(guardValue, combat.InterventionUsefulness, combat.RemovalTicks, combat.Access?.ToString() ?? "unasked", combat.AccessTicks,
-            threat!.Urgency, brain.Senses.Threats.ProtectionUrgency, brain.Positioner.ReachComplete, (combat.ActivityIdentity as NPC)?.whoAmI ?? -1);
+        // Settled, so a proven absence is the flood's finished answer rather than its budget.
+        PrimeAndSettle(brain, ctx, combat);
+        var plan = combat.OfferedPlan;
+        float killIn = float.PositiveInfinity;
+        if (plan?.TargetKillTicks != null)
+            foreach ((int slot, int at) in plan.TargetKillTicks)
+                if (slot == hidden.whoAmI)
+                    killIn = at - plan.Validity.LastProgressTick;
+        var settled = brain.Senses.Threats.Threats.Find(t => t.Npc == hidden);
+        Vector2 muzzle = live::AICompanion.Companion.Brain.Infrastructure.Interactions.Firing.CompanionCombat.Muzzle(companion.NPC);
+        return new(combat.Score(), plan?.Weighted ?? 0f,
+            combat.Eligibility == live::AICompanion.Companion.Brain.Activities.OfferEligibility.Usable,
+            combat.EligibilityReason,
+            plan?.Current(brain.Senses.Tick).Verdict.TravelTicks ?? float.NaN,
+            companion.Combat.ShotSolves(ctx, muzzle, hidden),
+            plan?.Outcome.ThreatRemoved ?? 0f, killIn,
+            settled?.Urgency ?? 0f, brain.Senses.Threats.ProtectionUrgency, brain.Positioner.ReachComplete,
+            plan?.PrimaryTarget ?? -1, combat.Funnel.Describe());
     }
 
     /// <summary>
     /// Proposal 1's P03 on protection: an intervention's time includes getting to where it can be made. One threat
-    /// on the player, removal past the useful length, and three ways of shooting it. A shaft capped so nothing the
-    /// companion can reach has a line is access that never arrives, so guarding is worth nothing and yields to
-    /// safety and company; a lip a short walk away is worth protecting, less than a shot from here by exactly the
-    /// walk's part of access plus removal. The danger the guard value multiplies is required identical across the
-    /// open rows, because opening terrain can change what the zombie threatens and that must not pass for access.
+    /// on the player, an ordinary zombie both open rows kill, and three ways of shooting it. A shaft capped so
+    /// nothing the companion can reach has a line is refused as a proven absence, and the funnel names the zombie
+    /// it was about; a lip a short flight away ends the same kill later than a shot from here, so it is worth
+    /// protecting and worth less. The danger is required identical across the open rows, because opening terrain
+    /// can change what the zombie threatens and that must not pass for access.
     /// </summary>
     private static void ProtectionCountsTheTimeToReachAFiringPosition()
     {
@@ -370,28 +441,28 @@ internal static class VerifyCombatPurpose
         }
         finally { live::AICompanion.Companion.Brain.Infrastructure.Movement.LimitPlanningWork.Unbounded = false; }
         foreach (var (name, scene) in new[] { ("sealed", sealedShaft), ("lip", lip), ("in-sight", inSight) })
-            Console.WriteLine($"  guard access row {name}: guard={scene.Guard:0.0000} target={scene.Target} access={scene.Access} {scene.AccessTicks:0.0} removal={scene.Removal:0.0} share={scene.Usefulness:0.0000} player-urgency={scene.PlayerUrgency:0.000} protection-urgency={scene.ProtectionUrgency:0.000} reach-complete={scene.ReachComplete}");
+            Console.WriteLine($"  guard access row {name}: guard={scene.Guard:0.0000} offered={scene.Offered} reason={scene.Reason} target={scene.Target} travel={scene.Travel:0.0} solves-here={scene.SolvesFromHere} threat-removed={scene.ThreatRemoved:0.000} kill-in={scene.KillIn:0.0} player-urgency={scene.PlayerUrgency:0.000} protection-urgency={scene.ProtectionUrgency:0.000} reach-complete={scene.ReachComplete} funnel={scene.Funnel}");
 
-        foreach (var (name, scene) in new[] { ("sealed", sealedShaft), ("lip", lip), ("in-sight", inSight) })
-            Require(scene.Target == HiddenSlot && scene.Removal > Weights.GuardUsefulRemovalTicks && MathF.Abs(scene.Removal - lip.Removal) < 0.01f,
-                $"shaft guard {name}: guarding must hold the shaft zombie with an identical removal already past the useful length; target={scene.Target}, removal={scene.Removal}, lip removal={lip.Removal}");
-        Require(sealedShaft.Access == "None" && sealedShaft.ReachComplete,
-            $"shaft guard sealed: the capped shaft must be a proven absence from a settled flood, or a zero proves nothing; access={sealedShaft.Access}, reach-complete={sealedShaft.ReachComplete}");
-        Require(lip.Access == "AfterMoving" && float.IsFinite(lip.AccessTicks) && lip.AccessTicks > 0f,
-            $"shaft guard lip: the open shaft must be a finite walk to its lip; access={lip.Access} {lip.AccessTicks}");
-        Require(inSight.Access == "FromHere" && inSight.AccessTicks == 0f,
-            $"shaft guard in-sight: the opened rock must let a weapon solve from where the companion stands; access={inSight.Access} {inSight.AccessTicks}");
-        float lipDanger = lip.Guard / (lip.Usefulness * Weights.GuardUrgency), inSightDanger = inSight.Guard / (inSight.Usefulness * Weights.GuardUrgency);
-        Require(MathF.Abs(lipDanger - inSightDanger) < 1e-4f,
-            $"shaft guard: the danger guarding multiplies must be identical with the lip and in sight, or the pair measures danger rather than access; lip={lipDanger}, in-sight={inSightDanger}");
+        Require(!sealedShaft.Offered && sealedShaft.ReachComplete,
+            $"shaft guard sealed: the capped shaft must be refused from a settled flood, or a zero proves nothing; reason={sealedShaft.Reason}, reach-complete={sealedShaft.ReachComplete}");
+        Require(sealedShaft.Funnel.Contains($"npc{HiddenSlot}:", StringComparison.Ordinal) && sealedShaft.Funnel.Contains("unplannable", StringComparison.Ordinal),
+            $"shaft guard sealed: the funnel must name the sealed zombie as refused for want of a stand; funnel={sealedShaft.Funnel}");
+        Require(lip.Offered && lip.Target == HiddenSlot && float.IsFinite(lip.Travel) && lip.Travel > 0f && !lip.SolvesFromHere,
+            $"shaft guard lip: the open shaft must be a finite flight to a stand that shoots down it; offered={lip.Offered} target={lip.Target} travel={lip.Travel} solves-here={lip.SolvesFromHere} reason={lip.Reason}");
+        Require(inSight.Offered && inSight.Target == HiddenSlot && inSight.SolvesFromHere && inSight.Travel < lip.Travel,
+            $"shaft guard in-sight: the opened rock must let a weapon solve from where the companion hovers, sooner than the lip's flight; offered={inSight.Offered} target={inSight.Target} solves-here={inSight.SolvesFromHere} travel={inSight.Travel} reason={inSight.Reason}");
+        Require(float.IsFinite(lip.KillIn) && float.IsFinite(inSight.KillIn) && lip.KillIn > inSight.KillIn
+            && lip.ThreatRemoved > 0.2f && inSight.ThreatRemoved > 0.2f,
+            $"shaft guard: both open rows must end the same fight, the lip's kill later by its flight; lip kill={lip.KillIn} removed={lip.ThreatRemoved}, in-sight kill={inSight.KillIn} removed={inSight.ThreatRemoved}");
+        Require(MathF.Abs(lip.PlayerUrgency - inSight.PlayerUrgency) < 1e-4f,
+            $"shaft guard: the danger must be identical with the lip and in sight, or the pair measures danger rather than access; lip={lip.PlayerUrgency}, in-sight={inSight.PlayerUrgency}");
 
-        Require(sealedShaft.Guard == 0f && sealedShaft.Usefulness == 0f,
-            $"a threat no reachable position can shoot must be worth no protection; guard={sealedShaft.Guard}, share={sealedShaft.Usefulness}");
-        Require(MathF.Abs(lip.Usefulness - Weights.GuardUsefulRemovalTicks / (lip.Removal + lip.AccessTicks)) < 1e-4f
-            && MathF.Abs(inSight.Usefulness - Weights.GuardUsefulRemovalTicks / inSight.Removal) < 1e-4f,
-            $"the share must be the useful length over access plus removal; lip={lip.Usefulness}, in-sight={inSight.Usefulness}");
-        Require(lip.Guard > 0f && lip.Guard < inSight.Guard,
-            $"a threat the companion must walk to the lip to shoot must be worth protecting, and less than the same threat it can shoot now; lip={lip.Guard}, in-sight={inSight.Guard}");
+        Require(sealedShaft.Guard == 0f,
+            $"a threat no reachable position can shoot must be worth no protection; guard={sealedShaft.Guard}, reason={sealedShaft.Reason}");
+        // The ordering is read on the plans' unclamped value, not the offers: both plans saturate the
+        // offer's clamp, so the chooser sees two maxed fights and the better-priced one only in the plans.
+        Require(lip.Guard > 0f && inSight.Guard > 0f && lip.Weighted < inSight.Weighted,
+            $"a threat the companion must fly to the lip to shoot must be worth protecting, and less than the same threat it can shoot now; lip={lip.Guard}/{lip.Weighted}, in-sight={inSight.Guard}/{inSight.Weighted}");
     }
 
     private const int PitFloorY = 80, ShaftLeft = 49, ShaftRight = 53, ShaftFloorY = 86, HiddenX = 51;
@@ -405,8 +476,8 @@ internal static class VerifyCombatPurpose
 
     // The pursuit scene needs its own world, twice as wide, and the reason is the body rather than the scene.
     // Its three rows are a near, a middle and a far reposition, and the far one exists to price a wait longer
-    // than `Arsenal.HorizonTicks` — the window the arsenal evaluates inside — so that an enemy the companion
-    // could only reach after it is worth nothing now. A walker reached that wait inside a 120-tile world; the
+    // than `CompanionCombat.HorizonTicks` — the window the evaluator prices inside — so that an enemy the
+    // companion could only reach after it is worth nothing now. A walker reached that wait inside a 120-tile world; the
     // orb flies the same detour at about 3.2 ticks a tile and the old far start priced 137.6 against a horizon
     // of 180, so the row asserted a truncation that no longer happened and the wait it measured sat comfortably
     // inside the window. The distances are the only thing that grew: the shaft, the pit and the hidden enemy
@@ -415,7 +486,12 @@ internal static class VerifyCombatPurpose
     // those, and it is about a guard's access rather than about a wait against the horizon.
     private const int PursuitWorldWidth = 240, PursuitShift = 120;
     private const int PursuitShaftLeft = ShaftLeft + PursuitShift, PursuitShaftRight = ShaftRight + PursuitShift;
-    private const int PursuitHiddenX = HiddenX + PursuitShift, PursuitPlayerX = PlayerTileX + PursuitShift;
+    // The player stands at the shaft's own edge rather than beside the near start: the hidden zombie must be
+    // the severe threat and the visible one the mild one, and with the player beside the near start the visible
+    // zombie's two tiles beat the hidden one's hundred damage in the urgency the planner trusts (0.507 against
+    // 0.294), so every row pursued the visible zombie and the pairs tested nothing. At the shaft's edge the
+    // hidden enemy is adjacent to the player and genuinely severe, the visible one eight tiles off and mild.
+    private const int PursuitHiddenX = HiddenX + PursuitShift, PursuitPlayerX = ShaftLeft + PursuitShift;
     private const int PursuitNearStart = NearStart + PursuitShift, PursuitMiddleStart = MiddleStart + PursuitShift;
     // Sixty-six tiles behind the near start rather than the walker's thirty-six, which is what carries the wait
     // past 180. Sixty priced 212.2 under the three-row sight beam and 176.3 once sight became the single-tile
@@ -428,8 +504,8 @@ internal static class VerifyCombatPurpose
     // radius, which is what its row now asserts.
     private const int PursuitFarStart = PursuitNearStart - 66;
 
-    private readonly record struct PursuitScene(int Pursuit, int Aim, string HiddenVerdict, float HiddenAccess,
-        float HiddenValue, float VisibleValue, float HiddenDanger, float HiddenPlayerUrgency, string Evidence);
+    private readonly record struct PursuitScene(int Pursuit, bool SolvesFromHere, float Travel, float Weighted,
+        float HiddenDanger, float HiddenPlayerUrgency, string Evidence);
 
     /// <summary>
     /// A 5%-health zombie on the floor of a narrow shaft the companion cannot see into, and a full-health
@@ -438,10 +514,9 @@ internal static class VerifyCombatPurpose
     /// The shaft-geometry discrimination is inherited from the firing-position fixture: the near floor is
     /// blind and the lip is sighted. A dangerous hidden enemy hits for a hundred and passes through rock,
     /// so it can reach both actors; a harmless one passes through rock too but hits for one. The difference
-    /// matters through prevented harm, which the arsenal values as expected hit × danger × timing × a
-    /// weight, so a hard hitter is worth a short reposition by a clear margin rather than a sliver a weapon
-    /// retune could erase. The headless screen is empty, so hunting's on-screen rule plays no part here and
-    /// a result says nothing about it.
+    /// matters through prevented harm, which the evaluator prices as expected hits no longer landing, so a
+    /// hard hitter is worth a short reposition by a clear margin rather than a sliver a weapon retune could
+    /// erase. The hands fire the running plan's uses, so there is no independent aim to diverge from the feet.
     /// </summary>
     /// <param name="hoverTiles">
     /// How far above the floor the orb hovers. The reposition rows sit it on the floor, where their
@@ -476,11 +551,19 @@ internal static class VerifyCombatPurpose
         player.position = new Vector2(PursuitPlayerX * 16f, PitFloorY * 16f - player.height);
         companion.NPC.position = new Vector2(companionX * 16f, PitFloorY * 16f - companion.NPC.height - hoverTiles * 16f);
 
+        // The scene owns the threat list: every hostile slot starts inactive, so earlier scenes' zombies
+        // are never scanned in beside the planted pair.
+        for (int i = 0; i < Main.npc.Length; i++) Main.npc[i] = new NPC { whoAmI = i, active = false };
         NPC hidden = Main.npc[HiddenSlot];
         hidden.SetDefaults(NPCID.Zombie);
         hidden.whoAmI = HiddenSlot; hidden.active = true; hidden.velocity = Vector2.Zero;
         hidden.life = Math.Max(1, hidden.lifeMax / 20);
         hidden.noTileCollide = true;
+        // It flies as well as phases: the forecast integrates the NPC's own gravity, so a phasing walker
+        // with gravity is predicted falling through the floor it no longer collides with, and a use aimed
+        // at its arrival position aims into rock and never solves. The offer-validity fixture phases the
+        // same way for the same reason.
+        hidden.noGravity = true;
         hidden.damage = hiddenDangerous ? 100 : 1;
         hidden.Bottom = new Vector2(PursuitHiddenX * 16f + 8f, ShaftFloorY * 16f);
         NPC visible = Main.npc[VisibleSlot];
@@ -497,70 +580,30 @@ internal static class VerifyCombatPurpose
         var hiddenThreat = brain.Senses.Threats.Threats.Find(t => t.Npc == hidden);
         var visibleThreat = brain.Senses.Threats.Threats.Find(t => t.Npc == visible);
         Require(hiddenThreat != null && visibleThreat != null, "both zombies must be observed threats before pursuit is read");
-        float hiddenDanger = MathF.Max(hiddenThreat!.Urgency, hiddenThreat.UrgencyToCompanion);
-        var profile = companion.Arsenal.ProfileFor(ctx, hidden);
-        var request = new live::AICompanion.Companion.Brain.Infrastructure.Position.PositionRequest(
-            live::AICompanion.Companion.Brain.Infrastructure.Position.RequestKind.LineOfFire, hidden.Center, hidden);
-        // The reachable region floods incrementally across rescores; settle it so the lip's reachability
-        // is a fact rather than a flood budget.
-        for (int i = 0; i < 400; i++) brain.Positioner.Resolve(request, brain.Senses, profile);
-        brain.Senses.SetInterventionEstimate(companion.Arsenal.EstimateInterventionTicks(ctx));
-        // The hands rank their shots before the feet prepare, as the previous tick's hands step would have.
-        NPC? aim = companion.Arsenal.BestTarget(ctx);
+        brain.Senses.SetInterventionEstimate(companion.Combat.EstimateInterventionTicks(ctx));
         var combat = brain.Chooser.Actions.OfType<live::AICompanion.Companion.Brain.Activities.Combat.FightEnemies>().Single();
-        VerifyPreparedActivities.PrepareAndScore(combat, ctx);
+        PrimeAndSettle(brain, ctx, combat);
 
-        // The firing-stand sweep behind each pursuit candidate resumes on `Senses.Tick`, which is the clock
-        // `ResolveFiringOpportunity` caches its verdict against, so one preparation reads one bounded scan.
-        // A sweep that has not settled reports `Unknown` *with a wait already priced*, which on the printed
-        // evidence is indistinguishable from a reposition the brain examined and refused. The near start
-        // settled in a single preparation and the middle and far starts did not, so a single preparation made
-        // this premise a function of how far the reposition was rather than of anything the brain decided —
-        // three of the five rows failed at "the row tests nothing" while the behaviour under them was never
-        // reached. Driving that clock is the only thing the loop does: the threat list, the urgency and the
-        // terrain stay as the scene built them, where a fresh `Senses.Update` would rebuild them. The step is
-        // one past the cache's own twenty-tick window, which is what `VerifyHuntAdmissibility` uses for the
-        // same sweep. The ceiling is a fixture guard, so a sweep that never settles fails as a broken premise
-        // naming its pass count rather than falling out still undecided and reading as a behaviour result.
-        const int SweepPassCeiling = 400;
-        const int SweepClockStepTicks = 21;
-        var sensesClock = typeof(live::AICompanion.Companion.Brain.Infrastructure.Observation.Senses).GetProperty("Tick")!;
-
-        string hiddenVerdict; float hiddenAccess, hiddenValue, visibleValue;
-        int passes = 1;
-        while (true)
-        {
-            hiddenVerdict = "unexamined";
-            hiddenAccess = hiddenValue = visibleValue = float.NaN;
-            foreach (string entry in combat.PursuitEvidence.Split('|', StringSplitOptions.RemoveEmptyEntries))
-            {
-                string[] field = entry.Split(':');
-                int slot = int.Parse(field[0]);
-                float access = float.Parse(field[3], System.Globalization.CultureInfo.InvariantCulture);
-                float value = float.Parse(field[4], System.Globalization.CultureInfo.InvariantCulture);
-                if (slot == HiddenSlot) { hiddenVerdict = field[2]; hiddenAccess = access; hiddenValue = value; }
-                if (slot == VisibleSlot) visibleValue = value;
-            }
-            if (hiddenVerdict != "Unknown" || passes >= SweepPassCeiling) break;
-            sensesClock.SetValue(brain.Senses, (int)sensesClock.GetValue(brain.Senses)! + SweepClockStepTicks);
-            VerifyPreparedActivities.PrepareAndScore(combat, ctx);
-            passes++;
-        }
+        var plan = combat.OfferedPlan;
+        var settled = brain.Senses.Threats.Threats.Find(t => t.Npc == hidden);
+        Vector2 muzzle = live::AICompanion.Companion.Brain.Infrastructure.Interactions.Firing.CompanionCombat.Muzzle(companion.NPC);
         string threatLedger = string.Join("|", brain.Senses.Threats.Threats.Select(t =>
             FormattableString.Invariant($"{t.Npc.whoAmI}:urgency={t.Urgency:0.000}:reachPlayer={t.CanReachPlayer}:reachCompanion={t.CanReachCompanion}:toCompanion={t.DistanceToCompanion:0}")));
-        Console.WriteLine($"  pursuit scene at x={companionX}: the stand sweep settled after {passes} preparation(s), hidden verdict={hiddenVerdict}; threats={threatLedger}");
-        return new(combat.Target?.Npc.whoAmI ?? -1, aim?.whoAmI ?? -1, hiddenVerdict, hiddenAccess, hiddenValue, visibleValue, hiddenDanger,
-            hiddenThreat.Urgency, combat.PursuitEvidence);
+        Console.WriteLine($"  pursuit scene at x={companionX}: pursuit={plan?.PrimaryTarget}, threats={threatLedger}");
+        return new(plan?.PrimaryTarget ?? -1, companion.Combat.ShotSolves(ctx, muzzle, hidden),
+            plan?.Current(brain.Senses.Tick).Verdict.TravelTicks ?? float.NaN, plan?.Weighted ?? 0f,
+            MathF.Max(settled?.Urgency ?? 0f, settled?.UrgencyToCompanion ?? 0f), settled?.Urgency ?? 0f,
+            $"offer={combat.Eligibility}/{combat.EligibilityReason} funnel={combat.Funnel.Describe()}");
     }
 
     /// <summary>
-    /// Proposal 1's hidden-5%-versus-visible-100% pairs. The arsenal already shoots whatever it can reach
-    /// from where the companion stands; the question here is only where the feet go. Four rows, each a
-    /// matched change of one input from the first: reposition cost, the hidden enemy's threat, and whether
-    /// the hidden enemy can be seen from where the companion already stands. The expected outcomes follow
-    /// the arsenal's own unchanged valuation rather than a rule about low health: a short step to remove a
-    /// hard-hitting enemy is worth the arrows it delays, a long walk is not, and finishing a harmless enemy
-    /// is not worth an arrow into a healthy one.
+    /// Proposal 1's hidden-5%-versus-visible-100% pairs. The planner chooses stand, weapons, targets and aims
+    /// together, and the hands fire the running plan's uses; the question here is which enemy the offered plan
+    /// pursues. Five rows, each a matched change of one input from the first: reposition cost, the hidden
+    /// enemy's threat, and whether the hidden enemy can be shot from where the companion already stands. The
+    /// expected outcomes follow the evaluator's own valuation rather than a rule about low health: a short
+    /// step to remove a hard-hitting enemy is worth the arrows it delays, a long walk lowers the value, and
+    /// finishing a harmless enemy is not worth an arrow into a healthy one.
     /// </summary>
     private static void PursuitWeighsARepositionAgainstTheShotsItDelays()
     {
@@ -571,21 +614,25 @@ internal static class VerifyCombatPurpose
         var cheapDangerousInSight = HuntPair(PursuitNearStart, hiddenDangerous: true, lineFromHere: true, hoverTiles: 1);
 
         foreach (var (name, scene) in new[] { ("cheap", cheapDangerous), ("middle", middleDangerous), ("costly", costlyDangerous), ("harmless", cheapHarmless), ("in-sight", cheapDangerousInSight) })
-            Console.WriteLine($"  pursuit row {name}: pursuit={scene.Pursuit} aim={scene.Aim} hidden-danger={scene.HiddenDanger:0.000} hidden-player-urgency={scene.HiddenPlayerUrgency:0.000} candidates={scene.Evidence}");
+            Console.WriteLine($"  pursuit row {name}: pursuit={scene.Pursuit} solves-here={scene.SolvesFromHere} travel={scene.Travel:0.0} weighted={scene.Weighted:0.000} hidden-danger={scene.HiddenDanger:0.000} hidden-player-urgency={scene.HiddenPlayerUrgency:0.000} candidates={scene.Evidence}");
         foreach (var (name, scene) in new[] { ("cheap", cheapDangerous), ("middle", middleDangerous), ("harmless", cheapHarmless) })
-            Require(scene.HiddenVerdict == "AfterMoving" && float.IsFinite(scene.VisibleValue),
-                $"{name}: the hidden enemy must need a reachable reposition and the visible one must be examined, or the row tests nothing; {scene.Evidence}");
-        Require(cheapDangerous.HiddenAccess < middleDangerous.HiddenAccess,
-            $"the reposition rows must lengthen the wait in order; cheap={cheapDangerous.HiddenAccess}, middle={middleDangerous.HiddenAccess}");
-        Require(middleDangerous.HiddenAccess < live::AICompanion.Companion.Brain.Infrastructure.Interactions.Firing.Arsenal.HorizonTicks && middleDangerous.HiddenValue > 0f,
-            $"the middle row must be a priced wait inside the arsenal's evaluation window, not a second truncation; wait={middleDangerous.HiddenAccess}, value={middleDangerous.HiddenValue}");
-        // The costly row used to price a wait longer than the arsenal's whole evaluation window, so that an enemy behind
+            Require(!scene.SolvesFromHere,
+                $"{name}: the hidden enemy must need a reposition, or the row tests nothing; {scene.Evidence}");
+        foreach (var (name, scene) in new[] { ("cheap", cheapDangerous), ("middle", middleDangerous) })
+            Require(scene.Pursuit == HiddenSlot && float.IsFinite(scene.Travel) && scene.Travel > 0f,
+                $"{name}: the dangerous hidden enemy must be pursued by a reachable reposition; pursuit={scene.Pursuit} travel={scene.Travel}; {scene.Evidence}");
+        Require(cheapDangerous.Travel < middleDangerous.Travel,
+            $"the reposition rows must lengthen the wait in order; cheap={cheapDangerous.Travel}, middle={middleDangerous.Travel}");
+        Require(middleDangerous.Travel < live::AICompanion.Companion.Brain.Infrastructure.Interactions.Firing.CompanionCombat.HorizonTicks
+            && middleDangerous.Weighted > 0f,
+            $"the middle row must be a priced wait inside the evaluation window, not a second truncation; wait={middleDangerous.Travel}, value={middleDangerous.Weighted}");
+        // The costly row used to price a wait longer than the whole evaluation window, so that an enemy behind
         // a long walk was worth nothing now. That case no longer exists in play and the row no longer tests it: on
         // 15 September 2026 the owner put the orb at three times the player's speed and the new-job radius at 1000 px, and
         // the longest reposition that radius admits is priced well inside the window at that speed. What the far start
         // witnesses now is the radius itself: the same dangerous enemy, far enough away, is not examined or pursued.
-        Require(costlyDangerous.HiddenVerdict == "unexamined" && costlyDangerous.Pursuit != HiddenSlot,
-            $"costly: the same dangerous enemy beyond the new-job radius must not be examined or pursued; verdict={costlyDangerous.HiddenVerdict}, pursuit={costlyDangerous.Pursuit}, {costlyDangerous.Evidence}");
+        Require(costlyDangerous.Pursuit != HiddenSlot && costlyDangerous.Evidence.Contains("activity-allowance", StringComparison.Ordinal),
+            $"costly: the same dangerous enemy beyond the new-job radius must not be examined or pursued; pursuit={costlyDangerous.Pursuit}, {costlyDangerous.Evidence}");
         // The companion's own exposure moves with its start, which is the physical cost of standing near
         // an enemy; the threat to the player must not, or the rows would differ in more than the reposition.
         Require(cheapDangerous.HiddenPlayerUrgency > 0f
@@ -594,17 +641,20 @@ internal static class VerifyCombatPurpose
             $"the reposition rows must hold the hidden enemy's threat to the player fixed; cheap={cheapDangerous.HiddenPlayerUrgency}, middle={middleDangerous.HiddenPlayerUrgency}, costly={costlyDangerous.HiddenPlayerUrgency}");
         Require(cheapDangerous.HiddenDanger > cheapHarmless.HiddenDanger,
             $"the dangerous hidden enemy must threaten more than the harmless one; {cheapDangerous.HiddenDanger} vs {cheapHarmless.HiddenDanger}");
-        Require(cheapDangerous.HiddenValue > middleDangerous.HiddenValue,
-            $"a longer reposition must lower the hidden enemy's delayed value; cheap={cheapDangerous.HiddenValue}, middle={middleDangerous.HiddenValue}");
-        Require(cheapDangerousInSight.HiddenVerdict == "FromHere",
+        Require(cheapDangerous.Pursuit == HiddenSlot && middleDangerous.Pursuit == HiddenSlot
+            && cheapDangerous.Weighted > middleDangerous.Weighted,
+            $"a longer reposition must lower the hidden enemy's delayed value; cheap={cheapDangerous.Weighted}, middle={middleDangerous.Weighted}");
+        Require(cheapDangerousInSight.SolvesFromHere,
             $"opening the line must let the hidden enemy be shot from where the companion stands; {cheapDangerousInSight.Evidence}");
 
-        Require(cheapDangerous.Pursuit == HiddenSlot && cheapDangerous.Aim == VisibleSlot,
-            $"a short step to remove a hard-hitting enemy must be pursued while the hands shoot the visible one; pursuit={cheapDangerous.Pursuit}, aim={cheapDangerous.Aim}, {cheapDangerous.Evidence}");
+        Require(cheapDangerous.Pursuit == HiddenSlot,
+            $"a short step to remove a hard-hitting enemy must be pursued over the healthy zombie beside the body; pursuit={cheapDangerous.Pursuit}, {cheapDangerous.Evidence}");
+        Require(middleDangerous.Pursuit == HiddenSlot,
+            $"an imminent rescue of the player must beat the fight beside the body: the middle walk is long but the hidden enemy hits for a hundred and dies to one arrow; pursuit={middleDangerous.Pursuit}, {middleDangerous.Evidence}");
         Require(cheapHarmless.Pursuit == VisibleSlot,
             $"a nearly dead harmless enemy must not pull pursuit off a healthy one it would cost an arrow to finish; pursuit={cheapHarmless.Pursuit}, {cheapHarmless.Evidence}");
-        Require(cheapDangerousInSight.Pursuit == HiddenSlot && cheapDangerousInSight.Aim == HiddenSlot,
-            $"once the dangerous enemy is visible from here, feet and hands must both take it; pursuit={cheapDangerousInSight.Pursuit}, aim={cheapDangerousInSight.Aim}, {cheapDangerousInSight.Evidence}");
+        Require(cheapDangerousInSight.Pursuit == HiddenSlot,
+            $"once the dangerous enemy is visible from here, the plan must take it; pursuit={cheapDangerousInSight.Pursuit}, {cheapDangerousInSight.Evidence}");
     }
 
     private readonly record struct Consequence(float PlayerUrgency, float CompanionUrgency, float PlayerDanger, float CompanionDanger, float OldPlayerUrgency, float OldCompanionUrgency);

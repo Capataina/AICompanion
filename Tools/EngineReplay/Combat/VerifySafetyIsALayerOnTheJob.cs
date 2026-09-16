@@ -157,7 +157,7 @@ internal static class VerifySafetyIsALayerOnTheJob
         {
             Tick(companion);
             var brain = companion.Brain;
-            bool shot = companion.Arsenal.LastFireOutcome == "fired";
+            bool shot = companion.Combat.LastFireOutcome == "fired";
             fired += shot ? 1 : 0;
             if (shot && brain.EngageTarget?.whoAmI == 30 && brain.ControlGrants.Last?.Hand == HandGrant.Available) firedAtZombie++;
             if (brain.Chooser.Current?.Name == "combat") combatTicks++;

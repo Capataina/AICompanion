@@ -22,9 +22,11 @@ public static class PositionReasons
     public const string Retained = "retained-position";
     /// <summary>A stand whose arc exists now and not by the time the body would arrive.</summary>
     public const string ShotWindowShorterThanTrip = "shot-window-shorter-than-trip";
+    /// <summary>The combat stand's tile is not yet claimed by the reach flood, so the method is neither admitted nor refused.</summary>
+    public const string FireStandUndecided = "fire-stand-undecided";
 
     /// <summary>Whether the reason says the search ran out rather than that it answered.</summary>
-    public static bool Undecided(string reason) => reason == SearchUnfinished;
+    public static bool Undecided(string reason) => reason == SearchUnfinished || reason == FireStandUndecided;
 }
 
 /// <summary>Bounded destination evidence at nomination time. A solved firing position

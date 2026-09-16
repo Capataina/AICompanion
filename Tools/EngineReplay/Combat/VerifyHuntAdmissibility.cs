@@ -7,18 +7,16 @@ using Terraria;
 using Combat = live::AICompanion.Companion.Brain.Activities.Combat.FightEnemies;
 using T = live::AICompanion.Companion.Brain.Infrastructure.Observation.ThreatRecord;
 using C = live::AICompanion.Companion.Brain.Activities.ActionContext;
-using PositionRequest = live::AICompanion.Companion.Brain.Infrastructure.Position.PositionRequest;
-using RequestKind = live::AICompanion.Companion.Brain.Infrastructure.Position.RequestKind;
 
 /// <summary>
-/// A combat target is admissible only if a standing position exists that the walker can reach and
-/// from which a weapon has a line to it. The owner's rule: can I hit this enemy, if not can I move
-/// to hit it, and if neither then it should not be hunted at all.
+/// A combat target is admissible only if the planner can stand somewhere it can reach and shoot
+/// from. The owner's rule: can I hit this enemy, if not can I move to hit it, and if neither then
+/// it should not be hunted at all.
 ///
 /// Both halves are checked, and the second is the one that matters. Applying the from-here shot
 /// test to every target is the obvious change and rejects every enemy the companion would simply
-/// have had to walk toward — worse than the behaviour it replaces. So a target with no shot from
-/// where the companion stands, but a reachable tile that can see it, must stay admissible.
+/// have had to fly toward — worse than the behaviour it replaces. So a target with no shot from
+/// where the companion floats, but a reachable place that can see it, must stay admissible.
 /// </summary>
 internal static class VerifyHuntAdmissibility
 {
@@ -26,18 +24,18 @@ internal static class VerifyHuntAdmissibility
     {
         VerifyWalkableFiringPositionKeepsTheTarget();
         VerifySealedTargetIsRefused();
-        VerifyUnfinishedFloodWithASolvableStandIsHunted();
+        VerifyUnfinishedSearchIsUndecidedNotRefused();
         VerifyTheCheckIsAffordableOnAHopelessCrowd();
-        Console.WriteLine("combat admissibility: a repositionable target is kept, an unshootable target is refused, a solvable stand is hunted before the flood finishes, and the check stays affordable");
+        Console.WriteLine("combat admissibility: a repositionable target is kept, an unshootable target is refused, an unfinished search is undecided rather than refused, and the check stays affordable");
         return 0;
     }
 
     /// <summary>
-    /// Establishing a firing opportunity samples terrain, and it runs inside the per-tick score of
-    /// every combat, so it is exactly the kind of addition that has made this brain unplayable before.
-    /// The worst case is a crowd where nothing is shootable and the companion is walking: every
-    /// target is refused, the retry limit is reached each tick, and a body in motion keeps moving
-    /// out from under the verdict cache.
+    /// Establishing a firing opportunity runs inside the per-tick score of every combat, so it is
+    /// exactly the kind of addition that has made this brain unplayable before. The worst case is a
+    /// crowd where nothing is shootable and the companion is moving: every target is refused, the
+    /// retry limit is reached each tick, and a body in motion keeps moving out from under the
+    /// verdict cache.
     ///
     /// The bound is loose on purpose. It is here to catch an order-of-magnitude regression — a cache
     /// key that stops holding, a sample stride that collapses to one — rather than to police a few
@@ -68,7 +66,6 @@ internal static class VerifyHuntAdmissibility
             Main.npc[slot] = extra;
             threats.Add(new T { Npc = extra, DistanceToCompanion = 210, DistanceToPlayer = 210 });
         }
-        SettleReach(companion, first);
 
         var combat = new Combat();
         VerifyPreparedActivities.PrepareAndScore(combat, ctx); // first call warms the terrain caches this is not trying to measure
@@ -76,7 +73,7 @@ internal static class VerifyHuntAdmissibility
         const int Ticks = 240;
         for (int tick = 0; tick < Ticks; tick++)
         {
-            // Walking, so the verdict cache cannot simply hold a single answer for the whole run.
+            // Moving, so the verdict cache cannot simply hold a single answer for the whole run.
             companion.NPC.position.X += 2f;
             VerifyPreparedActivities.PrepareAndScore(combat, ctx);
         }
@@ -89,8 +86,8 @@ internal static class VerifyHuntAdmissibility
     private const int FloorY = 80;
 
     /// <summary>
-    /// The trap case. A wall between the companion and the enemy blocks the shot from where it
-    /// stands, while the open floor beyond the wall's end has a clear line. Walking there is the
+    /// The trap case. A pillar between the companion and the enemy blocks the shot from where it
+    /// floats, while the open floor beyond the pillar's end has a clear line. Flying there is the
     /// whole point of hunting, so the target must survive selection.
     /// </summary>
     private static void VerifyWalkableFiringPositionKeepsTheTarget()
@@ -102,43 +99,45 @@ internal static class VerifyHuntAdmissibility
         Rebuild();
 
         var companion = Place(companionTileX: 38, enemyTileX: 60, enemyTileY: FloorY, out NPC enemy, out C ctx);
-        SettleReach(companion, enemy);
 
-        // Without this the case could pass trivially by the companion already having a shot, which
-        // is the one situation the trap is not about.
-        Require(!companion.Arsenal.CanEngage(ctx, enemy),
-            "the trap case needs the pillar to actually block the shot from where the companion stands");
-
+        // The first preparation may honestly be undecided — the stands past the pillar are an unanswered
+        // search — so the row settles the senses the way the brain does and asserts on the verdict.
         var combat = new Combat();
-        float score = VerifyPreparedActivities.PrepareAndScore(combat, ctx);
+        float score = SettleUntilDecided(companion, ctx, combat, out int passes);
+        Console.WriteLine($"combat admissibility: a repositionable target settled to {combat.EligibilityReason} after priming ({passes} resolves)");
         Require(score > 0f,
             "an enemy with no shot from here but a reachable sighted floor beyond a pillar was refused: " +
-            $"applying the from-here test to every target rejects exactly the enemies hunting exists to walk toward. rejection={combat.LastRejection}");
-        Require(combat.Target != null && combat.Target.Npc == enemy,
-            $"the repositionable enemy was not the selected target; rejection={combat.LastRejection}");
-        var capturedTarget = combat.ActivityTarget;
+            $"applying the from-here test to every target rejects exactly the enemies hunting exists to fly toward. reason={combat.EligibilityReason}");
+        Require(combat.OfferedPlan != null && combat.OfferedPlan.PrimaryTarget == enemy.whoAmI,
+            $"the repositionable enemy was not the offered plan's target; reason={combat.EligibilityReason}");
+        var capturedPlan = combat.OfferedPlan;
         float capturedTrip = combat.ForecastTicks();
         ctx.Senses.Threats.Threats.Clear();
         enemy.position.X += 48;
-        Require(combat.Score() == score && combat.ForecastTicks() == capturedTrip && combat.ActivityTarget == capturedTarget,
+        Require(combat.Score() == score && combat.ForecastTicks() == capturedTrip && ReferenceEquals(combat.OfferedPlan, capturedPlan),
             "combat comparison must retain its prepared values when live observation changes");
+        // Committed, then the target dies: the request must carry no target, so the positioner holds
+        // rather than pursuing a corpse.
+        combat.Enter(ctx);
+        Require(combat.CommittedPlan != null, "Enter must commit the offered plan");
         enemy.active = false;
-        Require(combat.Execute(ctx).Kind == live::AICompanion.Companion.Brain.Infrastructure.Position.RequestKind.Hold,
-            "a disappeared prepared enemy must not receive a pursuit request");
+        var request = combat.Execute(ctx);
+        Require(request.Target == null,
+            "a dead committed target must not be handed to the positioner as a pursuit target");
     }
 
     /// <summary>
     /// The playtest case. The enemy sits in a sealed chamber with solid rock all around its own
-    /// level, so no standable tile within weapon reach has a line to it. The 2026-09-11 session
-    /// stood in combat mode at exactly this shape rather than refusing it.
+    /// level, so no place within weapon reach has a line to it. The 2026-09-11 session stood in
+    /// combat mode at exactly this shape rather than refusing it.
     /// </summary>
     private static void VerifySealedTargetIsRefused()
     {
         BuildFloor();
         // A sealed chamber below the main floor: two tiles of air inside thick rock, with no opening
-        // at all, so nothing standable outside it can see in. The companion stands almost directly
-        // above it, because an enemy placed far away is refused on activity radius long before the
-        // shot question is asked and the check would pass without testing anything it claims to.
+        // at all, so nothing outside it can see in. The companion floats almost directly above it,
+        // because an enemy placed far away is refused on activity radius long before the shot
+        // question is asked and the check would pass without testing anything it claims to.
         for (int x = 5; x < 115; x++)
             for (int y = FloorY; y <= FloorY + 30; y++)
                 Solid(x, y);
@@ -148,102 +147,83 @@ internal static class VerifyHuntAdmissibility
         Rebuild();
 
         var companion = Place(companionTileX: 58, enemyTileX: 60, enemyTileY: FloorY + 13, out NPC enemy, out C ctx);
-        SettleReach(companion, enemy);
 
+        // The refusal must be earned against finished searches, not against planning that never
+        // grew: an undecided stand is deliberately not a refusal, so a green result here on
+        // unfinished searches would be measuring nothing. Each pass runs the senses the way the
+        // brain does — the reach flood grows a slice per update — and re-prepares.
         var combat = new Combat();
-        float score = VerifyPreparedActivities.PrepareAndScore(combat, ctx);
-        // The refusal must be earned against a settled region, not against a flood that never grew:
-        // an unfinished region is deliberately Unknown rather than a refusal, so a green result
-        // here with an unsettled region would be measuring nothing.
-        Require(companion.Brain.Positioner.ReachComplete,
-            "the sealed case must settle its reachable region before a refusal means anything");
-        Require(!companion.Arsenal.CanEngage(ctx, enemy),
-            "the sealed case needs the chamber to actually block the shot from where the companion stands");
-        // A settled reachable region is not a settled firing sweep, and this row needs both. The stand sweep
-        // over candidate firing positions is bounded per preparation and grows across successive ones, exactly
-        // as the reach flood does, so one preparation reports `firing-position-undecided` — a question still
-        // open — rather than the proven absence this row is about. That is the production rule working: an
-        // exhausted bound is deliberately not a negative. The sibling rows in `VerifyOfferValidity` settle the
-        // same sweep the same way and record what it cost them (twenty scans on one scene, thirty-two passes on
-        // another), so the count is a property of the scene rather than a constant anyone can assume.
-        //
-        // The ceiling is a fixture guard and not a contract: it exists so a sweep that never settles fails as a
-        // broken premise naming its own pass count, instead of spinning for ever or, worse, falling out of the
-        // loop still undecided and reading as a behaviour result.
-        // The sweep resumes on the clock the firing cache is keyed to, so the loop runs that clock and nothing
-        // else: the threat list, the urgency and the terrain stay exactly as the scene built them, where a
-        // fresh `Senses.Update` would rebuild them. Re-preparing without moving the clock re-reads one cached
-        // answer for ever — four hundred preparations left the sweep on its first scan — which is the same
-        // driver `VerifyFiringPosition` uses for the stationary sealed threat, and it is copied rather than
-        // reinvented. The step is one past the cache's own window — `ResolveFiringOpportunity.FiringCacheTicks`
-        // is twenty and its test is `Tick - cached.at < FiringCacheTicks`, so twenty already expires an entry
-        // and twenty-one clears it with a tick to spare, which is the value the sibling uses. A step of zero
-        // would spin against one cached answer for ever, which is what four hundred stationary preparations did.
-        const int SweepPassCeiling = 400;
-        const int SweepClockStepTicks = 21;
-        var sensesClock = typeof(live::AICompanion.Companion.Brain.Infrastructure.Observation.Senses).GetProperty("Tick")!;
-        int passes = 1;
-        while (combat.LastRejection == "firing-position-undecided" && passes < SweepPassCeiling)
-        {
-            sensesClock.SetValue(companion.Brain.Senses, (int)sensesClock.GetValue(companion.Brain.Senses)! + SweepClockStepTicks);
-            score = VerifyPreparedActivities.PrepareAndScore(combat, ctx);
-            passes++;
-        }
-        Require(combat.LastRejection != "firing-position-undecided",
-            $"the stand sweep must settle before a refusal can be read as a proven absence; "
-            + $"still undecided after {passes} preparations, rejection={combat.LastRejection}");
-        Console.WriteLine($"combat admissibility: a sealed enemy became a proven absence after {passes} preparations");
+        float score = SettleUntilDecided(companion, ctx, combat, out int passes);
+        Console.WriteLine($"combat admissibility: a sealed enemy became a proven absence on a completed flood ({combat.EligibilityReason}, {passes} resolves)");
         Require(score == 0f,
-            $"a sealed enemy no reachable position can shoot was still hunted: score={score}; target={combat.Target?.Npc.whoAmI}; rejection={combat.LastRejection}");
-        Require(combat.LastRejection == "no-reachable-firing-position",
-            $"the refusal must name its reason so a session can be read for it; got {combat.LastRejection}");
-        Require(combat.Eligibility == live::AICompanion.Companion.Brain.Activities.OfferEligibility.KnownUnusable
-            && combat.EligibilityReason == "no-reachable-firing-position",
-            $"a proven absence of firing positions is a known-unusable method, not an absent enemy; got {combat.Eligibility}/{combat.EligibilityReason}");
-        // The offer names the family's refusal; the funnel names the threat it was about and what the firing query read, which
-        // is what the 7,910 rows of `firing-position-undecided` on the 15 September capture could not say.
+            $"a sealed enemy no reachable position can shoot was still hunted: score={score}; plan={combat.OfferedPlan?.Id}; reason={combat.EligibilityReason}");
+        Require(combat.Eligibility == live::AICompanion.Companion.Brain.Activities.OfferEligibility.KnownUnusable,
+            $"a proven absence of firing stands is a known-unusable search, not an absent enemy; got {combat.Eligibility}/{combat.EligibilityReason}");
+        // The offer names the search's refusal; the funnel names the threat it was about and what the planner
+        // read, which is what thousands of rows of an undecided stand on the 15 September capture could not say.
         var furthest = combat.Funnel.Best;
-        Require(furthest is { RefusedAt: "no-reachable-firing-position" } refused && refused.Identity.StartsWith($"npc{enemy.whoAmI}:", StringComparison.Ordinal)
-            && refused.Readings.Contains("opportunity=None", StringComparison.Ordinal),
-            $"hunting's funnel names the sealed enemy as refused for want of a firing position, with the query's verdict; best={furthest} counts={combat.Funnel.Summary()}");
+        Require(furthest is { RefusedAt: "unplannable" } refused && refused.Identity.StartsWith($"npc{enemy.whoAmI}:", StringComparison.Ordinal)
+            && refused.Readings.Contains("reason=" + combat.EligibilityReason, StringComparison.Ordinal),
+            $"hunting's funnel names the sealed enemy as refused for want of a firing stand, with the planner's verdict; best={furthest} counts={combat.Funnel.Summary()}");
     }
 
     /// <summary>
-    /// The pillar case without a settled flood. A real arc exists on the open floor past the pillar,
-    /// so combat may start walking toward that region without waiting for the walker to finish. Existence
-    /// is the arsenal forecast, not a proven path to a frozen tile.
+    /// The tall-pillar case on the first preparation. Nothing solves from where the body hovers — a sword
+    /// in hand, whose reach ends twenty tiles short of the enemy — and the stands past it are an unanswered
+    /// search, so the offer is undecided rather than a refusal: a bound that ran out is a third value, never
+    /// a negative. Once the search settles, the same scene offers the plan past the pillar. A bow would arc
+    /// over this pillar from here under the honest simulator, so the bow no longer produces the premise.
     /// </summary>
-    private static void VerifyUnfinishedFloodWithASolvableStandIsHunted()
+    private static void VerifyUnfinishedSearchIsUndecidedNotRefused()
     {
         BuildFloor();
-        for (int y = FloorY - 3; y < FloorY; y++) Solid(40, y);
+        for (int y = FloorY - 8; y < FloorY; y++) Solid(40, y);
         Rebuild();
 
         var companion = Place(companionTileX: 38, enemyTileX: 60, enemyTileY: FloorY, out NPC enemy, out C ctx);
-        Require(!companion.Arsenal.CanEngage(ctx, enemy),
-            "the unfinished-flood case needs the pillar to block the shot from where the companion stands");
-        Require(!companion.Brain.Positioner.ReachComplete,
-            "the unfinished-flood case needs the reachable region still unfinished");
+        var gear = Main.LocalPlayer.GetModPlayer<live::AICompanion.Companion.PlayerIntegration.CompanionPlayer>().Gear;
+        gear.Slots[0] = new Item();
+        gear.Slots[1] = new Item();
+        gear.Slots[0].SetDefaults(Terraria.ID.ItemID.CopperBroadsword);
 
         var combat = new Combat();
-        float score = VerifyPreparedActivities.PrepareAndScore(combat, ctx);
-        Require(score > 0f && combat.Target != null,
-            $"a solvable stand past a pillar was not hunted before the flood finished: score={score}; rejection={combat.LastRejection}");
+        float first = VerifyPreparedActivities.PrepareAndScore(combat, ctx);
+        Require(combat.Eligibility == live::AICompanion.Companion.Brain.Activities.OfferEligibility.Unresolved
+            && combat.EligibilityReason == "stands-undecided",
+            $"an unanswered stand search is undecided, never a refusal and never a plan from here; got {combat.Eligibility}/{combat.EligibilityReason} score={first}");
+
+        float score = SettleUntilDecided(companion, ctx, combat, out int passes);
+        Require(score > 0f && combat.OfferedPlan != null && combat.OfferedPlan.PrimaryTarget == enemy.whoAmI,
+            $"a solvable stand past a pillar was not hunted once the search settled: score={score}; reason={combat.EligibilityReason}");
         Require(combat.Eligibility == live::AICompanion.Companion.Brain.Activities.OfferEligibility.Usable,
-            $"a found arc is a combat even while the path is unfinished; got {combat.Eligibility}/{combat.EligibilityReason}");
+            $"a settled plan past a pillar is a combat; got {combat.Eligibility}/{combat.EligibilityReason}");
     }
 
     /// <summary>
-    /// Grows the positioner's reachable region, which is flooded incrementally across rescores. The
-    /// admissibility rule reads that region, and an unfinished one is deliberately Unknown rather
-    /// than a refusal, so a fixture that did not settle it would prove nothing about the refusal.
+    /// Primes the reach flood to completion and prepares once, so the offer is the search's finished answer
+    /// rather than what the first flood slice happened to reach. Updates alone grow nothing headlessly — the
+    /// flood grows across resolves — so looping updates and preparations would read the shot from here for
+    /// ever while the stands past the pillar stayed unexamined.
     /// </summary>
-    private static void SettleReach(live::AICompanion.Companion.CharacterBody.CompanionNPC companion, NPC enemy)
+    private static float SettleUntilDecided(
+        live::AICompanion.Companion.CharacterBody.CompanionNPC companion, C ctx, Combat combat, out int passes)
     {
-        var request = new PositionRequest(RequestKind.LineOfFire, enemy.Center, enemy);
-        var profile = companion.Arsenal.ProfileFor(new C(companion, companion.Brain.Senses), enemy);
-        for (int tick = 0; tick < 400; tick++)
-            companion.Brain.Positioner.Resolve(request, companion.Brain.Senses, profile);
+        // WithPlayer, not a firing request: LineOfFire without a flight profile early-outs before it
+        // refreshes the flood, so three thousand of those prime nothing.
+        var request = new live::AICompanion.Companion.Brain.Infrastructure.Position.PositionRequest(
+            live::AICompanion.Companion.Brain.Infrastructure.Position.RequestKind.WithPlayer, Main.player[0].Bottom);
+        passes = 0;
+        for (int i = 0; i < 3000 && !companion.Brain.Positioner.ReachComplete; i++)
+        {
+            companion.Brain.Positioner.Resolve(request, companion.Brain.Senses, null);
+            passes++;
+        }
+        Require(companion.Brain.Positioner.ReachComplete, "the reach flood must complete before the offer can be read as the search's answer");
+        float score = VerifyPreparedActivities.PrepareAndScore(combat, ctx);
+        passes++;
+        Require(combat.Eligibility != live::AICompanion.Companion.Brain.Activities.OfferEligibility.Unresolved,
+            $"the stand search must decide on a completed flood; still {combat.EligibilityReason}");
+        return score;
     }
 
     private static live::AICompanion.Companion.CharacterBody.CompanionNPC Place(

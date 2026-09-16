@@ -14,7 +14,8 @@ using CompanionGear = live::AICompanion.Companion.Inventory.CompanionGear;
 using GearSlot = live::AICompanion.Companion.Inventory.GearSlot;
 using CompanionNPC = live::AICompanion.Companion.CharacterBody.CompanionNPC;
 using CompanionPlayer = live::AICompanion.Companion.PlayerIntegration.CompanionPlayer;
-using Arsenal = live::AICompanion.Companion.Brain.Infrastructure.Interactions.Firing.Arsenal;
+using Combat = live::AICompanion.Companion.Brain.Infrastructure.Interactions.Firing.CompanionCombat;
+using Forecasts = live::AICompanion.Companion.Brain.Infrastructure.Interactions.Firing.ForecastUses;
 using Positioner = live::AICompanion.Companion.Brain.Infrastructure.Position.Positioner;
 using PositionRequest = live::AICompanion.Companion.Brain.Infrastructure.Position.PositionRequest;
 using RequestKind = live::AICompanion.Companion.Brain.Infrastructure.Position.RequestKind;
@@ -180,10 +181,11 @@ internal static class VerifyKnockbackAwareness
     {
         var (companion, enemy, ctx) = Scene(.5f, (GearSlot.FirstWeapon, ItemID.CopperBroadsword));
         companion.NPC.Center = enemy.Center + new Vector2(-22f, -4f);
-        Arsenal arsenal = companion.Arsenal;
+        Combat combat = companion.Combat;
         Require(W.PushEvidence(ItemID.CopperBroadsword, NPCID.Zombie) == 0, "premise: nothing learned before the swing");
         int lifeBefore = enemy.life;
-        Require(arsenal.TryFire(ctx, enemy), $"premise: the sword must swing; outcome={arsenal.LastFireOutcome}");
+        var swung = CombatFixture.FireOnce(companion, ctx);
+        Require(swung.Fired, $"premise: the sword must swing; outcome={combat.LastFireOutcome}");
         Require(enemy.life < lifeBefore && enemy.life > 0, $"premise: the swing wounds without killing; life {lifeBefore} -> {enemy.life}");
         Require(W.PushEvidence(ItemID.CopperBroadsword, NPCID.Zombie) == 1 && W.DamageEvidence(ItemID.CopperBroadsword, NPCID.Zombie) == 1,
             $"a landed swing files one push and one damage sample; push={W.PushEvidence(ItemID.CopperBroadsword, NPCID.Zombie)} damage={W.DamageEvidence(ItemID.CopperBroadsword, NPCID.Zombie)}");
@@ -259,17 +261,17 @@ internal static class VerifyKnockbackAwareness
     private static void AShotIsChargedForPushingAnEnemyIntoThePlayer()
     {
         var (companion, enemy, ctx) = Scene(1f, (GearSlot.FirstWeapon, ItemID.WoodenBow));
-        Arsenal arsenal = companion.Arsenal;
-        var bow = arsenal.Weapons[0];
+        Combat combat = companion.Combat;
+        var bow = combat.Weapons[0];
         Vector2 far = enemy.Center + new Vector2(96f, 0f), near = enemy.Center - new Vector2(96f, 0f);
         Require(ctx.Player.Center.X < enemy.Center.X && near.X < enemy.Center.X, "premise: the player and the near muzzle are left of the zombie");
-        Require(arsenal.ShotSolves(ctx, far, enemy) && arsenal.ShotSolves(ctx, near, enemy), "premise: both muzzles have a shot");
+        Require(combat.ShotSolves(ctx, far, enemy) && combat.ShotSolves(ctx, near, enemy), "premise: both muzzles have a shot");
 
         float perHit = MathF.Max(1f, bow.DamagePerHit(ctx) - enemy.defense / 2f);
-        float chargeFar = Arsenal.InducedDanger(ctx, bow, enemy, far, new Vector2(-1f, 0f), perHit);
-        float chargeNear = Arsenal.InducedDanger(ctx, bow, enemy, near, new Vector2(1f, 0f), perHit);
-        float valueFar = arsenal.BestShotValueFrom(ctx, far, enemy);
-        float valueNear = arsenal.BestShotValueFrom(ctx, near, enemy);
+        float chargeFar = Forecasts.InducedDanger(ctx, bow, enemy, far, new Vector2(-1f, 0f), perHit);
+        float chargeNear = Forecasts.InducedDanger(ctx, bow, enemy, near, new Vector2(1f, 0f), perHit);
+        float valueFar = combat.BestShotValueFrom(ctx, far, enemy);
+        float valueNear = combat.BestShotValueFrom(ctx, near, enemy);
         EmitLedgerRows.Detail(FormattableString.Invariant($"push charge: far {chargeFar:0.000} near {chargeNear:0.000}; value far {valueFar:0.000} near {valueNear:0.000}; settled push {W.SettledPush(bow.ItemType, enemy, bow.Knockback, perHit, -1):0.0}px"));
         Require(chargeFar >= .2f, $"a push into the player is charged for the danger it adds; charge={chargeFar}");
         Require(chargeNear == 0f, $"a push away from the player and not toward the orb adds no danger; charge={chargeNear}");
@@ -278,8 +280,8 @@ internal static class VerifyKnockbackAwareness
         // The orb's half is weighed at the muzzle the forecast is asked about, not at the live body hovering above: the same
         // leftward push from a stand left of the zombie carries the zombie toward that stand, and from a stand to its right
         // carries it away. The player's half is the same push both times, so any difference is the orb's.
-        float intoStand = Arsenal.InducedDanger(ctx, bow, enemy, near, new Vector2(-1f, 0f), perHit);
-        float awayFromStand = Arsenal.InducedDanger(ctx, bow, enemy, far, new Vector2(-1f, 0f), perHit);
+        float intoStand = Forecasts.InducedDanger(ctx, bow, enemy, near, new Vector2(-1f, 0f), perHit);
+        float awayFromStand = Forecasts.InducedDanger(ctx, bow, enemy, far, new Vector2(-1f, 0f), perHit);
         EmitLedgerRows.Detail(FormattableString.Invariant($"orb half at the stand: into the stand {intoStand:0.000} away from it {awayFromStand:0.000}"));
         Require(intoStand > awayFromStand + .05f,
             $"a push into the stand the orb would fire from is charged for the orb as well as the player; into={intoStand} away={awayFromStand}");
@@ -288,8 +290,8 @@ internal static class VerifyKnockbackAwareness
         // Compared against itself rather than against the mirrored muzzle, because the aim sweep may land the two mirrored
         // arcs a tick apart, and a tick of timing is worth more than the tolerance an equality would need.
         W.AssumePush(bow.ItemType, enemy.type, 0f);
-        Require(Arsenal.InducedDanger(ctx, bow, enemy, far, new Vector2(-1f, 0f), perHit) == 0f, "a weapon that pushes nothing is charged nothing");
-        float valueFarNoPush = arsenal.BestShotValueFrom(ctx, far, enemy);
+        Require(Forecasts.InducedDanger(ctx, bow, enemy, far, new Vector2(-1f, 0f), perHit) == 0f, "a weapon that pushes nothing is charged nothing");
+        float valueFarNoPush = combat.BestShotValueFrom(ctx, far, enemy);
         Require(valueFarNoPush - valueFar >= .25f,
             $"the far shot's lost value is its push charge: without the push it is worth more; with={valueFar} without={valueFarNoPush}");
     }
@@ -306,13 +308,13 @@ internal static class VerifyKnockbackAwareness
     private static void AFiringStandIsWorthLessWhereItsShotPushesTheTargetIntoThePlayer()
     {
         var (companion, enemy, ctx) = Scene(1f, (GearSlot.FirstWeapon, ItemID.WoodenBow));
-        Arsenal arsenal = companion.Arsenal;
+        Combat combat = companion.Combat;
         var senses = companion.Brain.Senses;
         Vector2 near = enemy.Center - new Vector2(96f, 0f), far = enemy.Center + new Vector2(96f, 0f);
 
         float shareNear = Positioner.FiringStandShare(near, enemy, senses, 0);
         float shareFar = Positioner.FiringStandShare(far, enemy, senses, 0);
-        EmitLedgerRows.Detail(FormattableString.Invariant($"stand share: near {shareNear:0.0000} far {shareFar:0.0000}; value near {arsenal.BestShotValueFrom(ctx, near, enemy):0.000} far {arsenal.BestShotValueFrom(ctx, far, enemy):0.000} ideal {arsenal.IdealShotValue(ctx, enemy):0.000}"));
+        EmitLedgerRows.Detail(FormattableString.Invariant($"stand share: near {shareNear:0.0000} far {shareFar:0.0000}; value near {combat.BestShotValueFrom(ctx, near, enemy):0.000} far {combat.BestShotValueFrom(ctx, far, enemy):0.000} ideal {combat.IdealShotValue(ctx, enemy):0.000}"));
         Require(shareFar >= Weights.FiringStandValueFloor && shareNear <= 1f, $"a stand's share is a floor rather than a veto; near={shareNear} far={shareFar}");
         Require(shareNear > shareFar + .005f, $"the stand whose shot pushes the zombie away from the player keeps more of its score; near={shareNear} far={shareFar}");
 
@@ -321,7 +323,7 @@ internal static class VerifyKnockbackAwareness
             MethodInfo score = typeof(Positioner).GetMethod("ScoreSpot", BindingFlags.NonPublic | BindingFlags.Static)!;
             var request = new PositionRequest(RequestKind.LineOfFire, enemy.Center, enemy);
             return (float)score.Invoke(null, new object[] { request, spot, ctx.Player.Bottom, senses,
-                Weights.ThreatBandNear, Weights.ThreatBandFar, share, arsenal.MaxReach })!;
+                Weights.ThreatBandNear, Weights.ThreatBandFar, share, combat.MaxReach })!;
         }
         float scoreNear = Score(near, shareNear), scoreFar = Score(far, shareFar);
         EmitLedgerRows.Detail(FormattableString.Invariant($"line-of-fire score: near {scoreNear:0.0000} far {scoreFar:0.0000}"));

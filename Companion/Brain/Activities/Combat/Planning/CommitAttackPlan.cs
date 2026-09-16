@@ -36,11 +36,20 @@ public sealed class CommitAttackPlan
     /// <summary>Bodies a planned hit has landed on under the committed plan, by slot and generation: killed by the plan.</summary>
     private readonly HashSet<(int Slot, int Generation)> hitByPlan = new();
 
+    /// <summary>
+    /// The tick the committed plan last made progress. It lives here rather than on the plan because the plan
+    /// is the search's immutable product: writing progress into it copies the record and the commitment no
+    /// longer holds the plan the search returned. Seeded from the plan's search tick at commit.
+    /// </summary>
+    private int progressTick;
+
     public void Commit(AttackPlan plan)
     {
         Committed = plan;
         hitByPlan.Clear();
-        LastInvalidation = "committed";
+        progressTick = plan.Validity.LastProgressTick;
+        // LastInvalidation is untouched: it names why the last plan ended, and a fresh commitment
+        // overwriting it would hide the segment-complete or stall the record is owed for the old one.
     }
 
     /// <summary>Ends the commitment with the reason the record reads.</summary>
@@ -54,7 +63,7 @@ public sealed class CommitAttackPlan
     public void NoteUseFired(int tick)
     {
         if (Committed == null) return;
-        Committed = Committed with { Validity = Committed.Validity with { LastProgressTick = tick } };
+        progressTick = tick;
     }
 
     /// <summary>A hit landed on a body the plan targets: progress, and the kill is the plan's if the body goes.</summary>
@@ -96,7 +105,7 @@ public sealed class CommitAttackPlan
         AttackPlan? plan = Committed;
         if (plan == null)
             return false;
-        if (!CheckPlan(ctx, positioner, inAllowance, plan, running, out string reason))
+        if (!CheckPlan(ctx, positioner, inAllowance, plan, running, progressTick, out string reason))
         {
             if (reason == "stall")
                 DeferTargets(ctx, plan);
@@ -111,10 +120,10 @@ public sealed class CommitAttackPlan
     /// that never ran stalls nothing and defers nobody. Outlives its tick only while combat does not run.
     /// </summary>
     public bool CheckPrepared(in ActionContext ctx, Positioner positioner, Func<Vector2, bool> inAllowance, AttackPlan plan)
-        => CheckPlan(ctx, positioner, inAllowance, plan, running: false, out _);
+        => CheckPlan(ctx, positioner, inAllowance, plan, running: false, plan.Validity.LastProgressTick, out _);
 
     private bool CheckPlan(in ActionContext ctx, Positioner positioner, Func<Vector2, bool> inAllowance,
-        AttackPlan plan, bool running, out string reason)
+        AttackPlan plan, bool running, int lastProgress, out string reason)
     {
         int tick = ctx.Senses.Tick;
         AttackSegment segment = plan.Current(tick);
@@ -127,8 +136,14 @@ public sealed class CommitAttackPlan
         }
 
         // The stand still has a reachable verdict, and its allowance admission still describes it.
+        // Reachability is re-read only when travel is still needed: the body within arrival tolerance
+        // of the stand is already there, and no flood, however young or newly rooted, can unprove that.
+        // Without the exception every plan searched from here would invalidate on the next rescore in a
+        // fixture whose flood never grew — and churn in play whenever the flood re-rooted.
         Point tile = MovementQueries.Tile(segment.Stand.Stand);
-        if (positioner.ReachOf(tile) != ReachVerdict.Reachable)
+        bool arrived = Vector2.DistanceSquared(ctx.Npc.Center, segment.Stand.Stand)
+            <= Weights.CombatStandArrivalPx * Weights.CombatStandArrivalPx;
+        if (!arrived && positioner.ReachOf(tile) != ReachVerdict.Reachable)
         {
             reason = "stand-unreachable";
             return false;
@@ -178,8 +193,11 @@ public sealed class CommitAttackPlan
             return false;
         }
 
-        // The hands made progress within the stall window.
-        if (running && tick - plan.Validity.LastProgressTick > Weights.CombatPlanStallTicks)
+        // The hands made progress within the stall window. The clock runs from the segment's start rather
+        // than the search: the travel the plan ordained is the plan working, and a far stand would otherwise
+        // stall en route. A use fired during travel still counts — progress is progress.
+        int idleSince = Math.Max(lastProgress, segment.StartTick);
+        if (running && tick - idleSince > Weights.CombatPlanStallTicks)
         {
             reason = "stall";
             return false;

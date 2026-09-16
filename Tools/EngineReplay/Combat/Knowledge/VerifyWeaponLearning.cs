@@ -1,6 +1,7 @@
 extern alias live;
 
 using System.Diagnostics;
+using System.Linq;
 using System.Reflection;
 using Microsoft.Xna.Framework;
 using Terraria;
@@ -17,7 +18,9 @@ using CompanionGear = live::AICompanion.Companion.Inventory.CompanionGear;
 using GearSlot = live::AICompanion.Companion.Inventory.GearSlot;
 using CompanionNPC = live::AICompanion.Companion.CharacterBody.CompanionNPC;
 using CompanionPlayer = live::AICompanion.Companion.PlayerIntegration.CompanionPlayer;
-using Arsenal = live::AICompanion.Companion.Brain.Infrastructure.Interactions.Firing.Arsenal;
+using Combat = live::AICompanion.Companion.Brain.Infrastructure.Interactions.Firing.CompanionCombat;
+using Forecasts = live::AICompanion.Companion.Brain.Infrastructure.Interactions.Firing.ForecastUses;
+using Fight = live::AICompanion.Companion.Brain.Activities.Combat.FightEnemies;
 using Positioner = live::AICompanion.Companion.Brain.Infrastructure.Position.Positioner;
 using PositionRequest = live::AICompanion.Companion.Brain.Infrastructure.Position.PositionRequest;
 using RequestKind = live::AICompanion.Companion.Brain.Infrastructure.Position.RequestKind;
@@ -198,6 +201,9 @@ internal static class VerifyWeaponLearning
     /// own aim noise is set to nothing for the row, because the noise is wider than the gap between the intercept and the
     /// solver's spread and the first version of this row passed both arms at the same noisy angle. The shot opens one
     /// outcome window. Behind a wall nothing is fired at all: no aim's use lands, so there is no proved shot to take.
+    /// Aims compete on simulated damage only — the simulator is authoritative for geometry — while the learner
+    /// prices weapons, targets and stands; the plan searches each pair at its simulated-best aim for the same
+    /// reason the old choice did, and this row holds that ruling against the new hands.
     /// </summary>
     private static void TheHandsFireTheSimulatorsBestAim()
     {
@@ -212,11 +218,12 @@ internal static class VerifyWeaponLearning
         var mean = new float[L.FeatureCount];
         mean[L.AimOffset] = .8f;
         L.Assume(ItemID.WoodenBow, mean, 1e-6f);
-        Arsenal arsenal = scene.Companion.Arsenal;
-        Require(arsenal.Weapons.Count == 1, "premise: the bow is the one weapon in hand");
-        arsenal.Weapons[0].AimNoise = 0f;
-        Require(arsenal.TryFire(scene.Ctx, scene.Enemy), $"premise: the bow fires; outcome={arsenal.LastFireOutcome}");
-        float offset = MathF.Abs(arsenal.LastAimOffset);
+        Combat combat = scene.Companion.Combat;
+        Require(combat.Weapons.Count == 1, "premise: the bow is the one weapon in hand");
+        combat.Weapons[0].AimNoise = 0f;
+        var use = CombatFixture.FireOnce(scene.Companion, scene.Ctx);
+        Require(use.Fired, $"premise: the bow fires; outcome={combat.LastFireOutcome}");
+        float offset = MathF.Abs(combat.LastAimOffset);
         EmitLedgerRows.Detail(FormattableString.Invariant($"the planted aim reward leaves {MathHelper.ToDegrees(offset):0.000} deg off the intercept, and the shot opened {S.OpenCount} outcome window"));
         Require(offset < 1e-3f, $"a learner that says aiming off pays must not move the shot; offset={offset}");
         Require(S.OpenCount == 1, $"the shot opened one outcome window; open={S.OpenCount}");
@@ -239,10 +246,11 @@ internal static class VerifyWeaponLearning
         }
         live::AICompanion.Companion.Brain.Infrastructure.Movement.TerrainChanges.Reset();
         L.Reset();
-        Arsenal walledArsenal = walled.Companion.Arsenal;
-        walledArsenal.Weapons[0].AimNoise = 0f;
-        Require(!walledArsenal.TryFire(walled.Ctx, walled.Enemy), $"behind a wall the bow must hold; outcome={walledArsenal.LastFireOutcome}");
-        Require(walledArsenal.LastFireOutcome == "no-arc", $"holding reports no arc; outcome={walledArsenal.LastFireOutcome}");
+        Combat walledCombat = walled.Companion.Combat;
+        walledCombat.Weapons[0].AimNoise = 0f;
+        var held = CombatFixture.FireOnce(walled.Companion, walled.Ctx);
+        Require(!held.Fired, $"behind a wall the bow must hold; outcome={walledCombat.LastFireOutcome}");
+        Require(walledCombat.LastFireOutcome == "no-use-worth-firing", $"holding reports no use worth firing; outcome={walledCombat.LastFireOutcome}");
         Require(S.OpenCount == 0, $"the held shot opened no outcome window; open={S.OpenCount}");
     }
 
@@ -274,14 +282,14 @@ internal static class VerifyWeaponLearning
             TeachBurst(ItemID.PlatinumBow);
             if (debuffLearned)
                 for (int i = 0; i < 8; i++) L.ObserveDebuff(ItemID.WoodenBow, NPCID.Zombie, applied: true, 600);
-            Arsenal arsenal = scene.Companion.Arsenal;
-            var weapon = arsenal.Choose(scene.Ctx, scene.Enemy);
-            EmitLedgerRows.Detail(FormattableString.Invariant($"debuff {(debuffLearned ? "learned" : "unlearned")}: opens with {weapon?.Name}; expected damage first slot {arsenal.LastPrimaryExpected:0.0}, second slot {arsenal.LastSecondaryExpected:0.0}"));
+            var plan = CombatFixture.Search(scene.Companion, scene.Ctx);
+            var weapon = CombatFixture.OpeningWeapon(scene.Companion, plan);
+            EmitLedgerRows.Detail(FormattableString.Invariant($"debuff {(debuffLearned ? "learned" : "unlearned")}: opens with {weapon?.Name}; plan {(plan == null ? "none" : FormattableString.Invariant($"weighted {plan.Weighted:0.0}"))}"));
             Require(weapon != null, "premise: a weapon is chosen");
             return weapon!.ItemType;
         }
         Require(Opening(debuffLearned: false) == ItemID.PlatinumBow, "premise: with no debuff learned the burst bow opens");
-        Require(Opening(debuffLearned: true) == ItemID.WoodenBow, "with the weaker bow's debuff learned, the arsenal opens with the debuff");
+        Require(Opening(debuffLearned: true) == ItemID.WoodenBow, "with the weaker bow's debuff learned, the plan opens with the debuff");
     }
 
     /// <summary>Forty outcomes for the burst weapon, debuffed and plain in turn, from a seeded generator.</summary>
@@ -354,8 +362,9 @@ internal static class VerifyWeaponLearning
     {
         var scene = Scene(.5f, new Vector2(-22f, -4f), floating: false, (GearSlot.FirstWeapon, ItemID.CopperBroadsword));
         L.Reset();
-        Arsenal arsenal = scene.Companion.Arsenal;
-        Require(arsenal.TryFire(scene.Ctx, scene.Enemy), $"premise: the sword swings; outcome={arsenal.LastFireOutcome}");
+        Combat combat = scene.Companion.Combat;
+        var swung = CombatFixture.FireOnce(scene.Companion, scene.Ctx);
+        Require(swung.Fired, $"premise: the sword swings; outcome={combat.LastFireOutcome}");
         Require(S.OpenCount == 0 && S.LastClosed is { Struck: 1 } outcome && outcome.Dealt > 0f,
             $"the swing's window closed on its strike; open={S.OpenCount} closed={S.LastClosed}");
         Require(L.Evidence(ItemID.CopperBroadsword) == 1, $"the swing taught the learner once; evidence={L.Evidence(ItemID.CopperBroadsword)}");
@@ -366,7 +375,7 @@ internal static class VerifyWeaponLearning
     /// mean that ranks it below the wooden bow and a wide variance, the wooden bow's with a mean of the prior and almost no
     /// variance. At no danger, some seed of the sampler draws the platinum bow above the wooden one — the premise that
     /// exploration is live in this scene — and that seed repeats its choice. At the same seed with the zombie's urgency above
-    /// the declared ceiling the choice is the wooden bow, which is the mean's, and the arsenal says it did not explore.
+    /// the declared ceiling the choice is the wooden bow, which is the mean's, and the forecast gate says it did not explore.
     /// </summary>
     private static void UnderRealDangerTheChoiceIsThePosteriorMean()
     {
@@ -376,7 +385,6 @@ internal static class VerifyWeaponLearning
         low[L.Bias] = -.7f;
         L.Assume(ItemID.PlatinumBow, low, 1f);
         L.Assume(ItemID.WoodenBow, new float[L.FeatureCount], 1e-6f);
-        Arsenal arsenal = scene.Companion.Arsenal;
         Player player = scene.Ctx.Player;
 
         int ChoiceAt(float urgency, int seed)
@@ -384,7 +392,8 @@ internal static class VerifyWeaponLearning
             scene.Threats[0].Urgency = urgency;
             for (int i = 0; i < 13; i++) Restate(scene.Companion, player, scene.Threats);
             L.Seed(seed);
-            return arsenal.Choose(scene.Ctx, scene.Enemy)!.ItemType;
+            var plan = CombatFixture.Search(scene.Companion, scene.Ctx);
+            return CombatFixture.OpeningWeapon(scene.Companion, plan)!.ItemType;
         }
 
         Require(Weights.WeaponExploreDangerCeiling < .9f, "premise: the danger this row uses is above the ceiling");
@@ -392,11 +401,11 @@ internal static class VerifyWeaponLearning
         for (int seed = 0; seed < 200 && found < 0; seed++)
             if (ChoiceAt(0f, seed) == ItemID.PlatinumBow) found = seed;
         Require(found >= 0, "premise: at no danger some draw explores to the weapon the mean ranks lower");
-        Require(ChoiceAt(0f, found) == ItemID.PlatinumBow && arsenal.LastForecastExplored, "premise: that draw repeats and the arsenal explored");
+        Require(ChoiceAt(0f, found) == ItemID.PlatinumBow && Forecasts.Explore(scene.Ctx), "premise: that draw repeats and the forecast explored");
         int underDanger = ChoiceAt(.9f, found);
         EmitLedgerRows.Detail(FormattableString.Invariant($"danger gate: seed {found} explores to the platinum bow at no danger; under danger it chooses item {underDanger}"));
-        Require(underDanger == ItemID.WoodenBow && !arsenal.LastForecastExplored,
-            $"under danger above the ceiling the choice is the posterior mean's and nothing is explored; chose={underDanger} explored={arsenal.LastForecastExplored}");
+        Require(underDanger == ItemID.WoodenBow && !Forecasts.Explore(scene.Ctx),
+            $"under danger above the ceiling the choice is the posterior mean's and nothing is explored; chose={underDanger} explored={Forecasts.Explore(scene.Ctx)}");
     }
 
     /// <summary>
@@ -405,7 +414,7 @@ internal static class VerifyWeaponLearning
     /// nothing, so from the stand on the player's side the strong bow's shot is safe, and from the far stand only the weak
     /// bow's is. On paper: the player's side is worth the strong shot, the far side the larger of the weak shot and the strong
     /// shot less its push charge, so the player's side wins whenever the charge is positive and the strong shot outvalues the
-    /// weak. The arsenal's last choice is the weak bow, made for a slime the strong bow barely hurts, which is the premise that
+    /// weak. The plan against a slime the strong bow barely hurts opens with the weak bow, which is the premise that
     /// made this red on the proxy: the side share read that weak bow's push of nothing and scored both stands identically.
     /// </summary>
     private static void AStandIsPricedByEveryHandedWeapon()
@@ -414,7 +423,7 @@ internal static class VerifyWeaponLearning
         L.Reset();
         W.AssumePush(ItemID.WoodenBow, scene.Enemy.type, 0f);
         var senses = scene.Companion.Brain.Senses;
-        Arsenal arsenal = scene.Companion.Arsenal;
+        Combat combat = scene.Companion.Combat;
         NPC enemy = scene.Enemy;
         Vector2 playerSide = enemy.Center - new Vector2(96f, 0f), farSide = enemy.Center + new Vector2(96f, 0f);
 
@@ -433,11 +442,15 @@ internal static class VerifyWeaponLearning
         });
         for (int i = 0; i < W.SamplesKept; i++)
             W.ObserveHit(ItemID.PlatinumBow, slime, Vector2.Zero, Vector2.Zero, 0f, 1, 40f, 1, crit: false);
-        arsenal.Choose(scene.Ctx, slime);
-        Require(arsenal.LastChosen?.ItemType == ItemID.WoodenBow, $"premise: the arsenal's last choice is the weak bow; chosen={arsenal.LastChosen?.Name}");
+        var slimeOnly = new List<T> { senses.Threats.Threats[senses.Threats.Threats.Count - 1] };
+        Restate(scene.Companion, scene.Ctx.Player, slimeOnly);
+        var slimePlan = CombatFixture.Search(scene.Companion, scene.Ctx);
+        var slimeOpener = CombatFixture.OpeningWeapon(scene.Companion, slimePlan);
+        Restate(scene.Companion, scene.Ctx.Player, scene.Threats);
+        Require(slimeOpener?.ItemType == ItemID.WoodenBow, $"premise: the plan against the slime opens with the weak bow; chosen={slimeOpener?.Name}");
 
-        float valuePlayerSide = arsenal.BestShotValueFrom(scene.Ctx, playerSide, enemy);
-        float valueFarSide = arsenal.BestShotValueFrom(scene.Ctx, farSide, enemy);
+        float valuePlayerSide = combat.BestShotValueFrom(scene.Ctx, playerSide, enemy);
+        float valueFarSide = combat.BestShotValueFrom(scene.Ctx, farSide, enemy);
         float sharePlayerSide = Positioner.FiringStandShare(playerSide, enemy, senses, 0);
         float shareFarSide = Positioner.FiringStandShare(farSide, enemy, senses, 0);
         float Score(Vector2 spot, float share)
@@ -445,7 +458,7 @@ internal static class VerifyWeaponLearning
             MethodInfo score = typeof(Positioner).GetMethod("ScoreSpot", BindingFlags.NonPublic | BindingFlags.Static)!;
             var request = new PositionRequest(RequestKind.LineOfFire, enemy.Center, enemy);
             return (float)score.Invoke(null, new object[] { request, spot, scene.Ctx.Player.Bottom, senses,
-                Weights.ThreatBandNear, Weights.ThreatBandFar, share, arsenal.MaxReach })!;
+                Weights.ThreatBandNear, Weights.ThreatBandFar, share, combat.MaxReach })!;
         }
         float scorePlayerSide = Score(playerSide, sharePlayerSide), scoreFarSide = Score(farSide, shareFarSide);
         EmitLedgerRows.Detail(FormattableString.Invariant($"stand pricing: value player side {valuePlayerSide:0.000} far {valueFarSide:0.000}; share {sharePlayerSide:0.0000} / {shareFarSide:0.0000}; score {scorePlayerSide:0.0000} / {scoreFarSide:0.0000}"));
@@ -457,11 +470,11 @@ internal static class VerifyWeaponLearning
     }
 
     /// <summary>
-    /// The learner's cost per decision, where a decision is one full target ranking: eight zombies across the floor, both
-    /// bows, the shortlist the arsenal bounds itself to. Three arms back to back in one process — untrained, trained on forty
+    /// The learner's cost per decision, where a decision is one full plan search: eight zombies across the floor, both
+    /// bows, the proposal targets the search bounds itself to. Three arms back to back in one process — untrained, trained on forty
     /// outcomes per weapon with a debuff rate, untrained again — so neither JIT nor the machine's load is credited to the
-    /// learner. The senses are advanced between decisions outside the stopwatch so every ranking runs rather than returning a
-    /// held target. Declared before the run: the trained arm's mean is within a millisecond of the slower untrained arm's.
+    /// learner. The senses are advanced between decisions outside the stopwatch so every search runs on a fresh tick.
+    /// Declared before the run: the trained arm's mean is within a millisecond of the slower untrained arm's.
     /// </summary>
     private static void TheLearnersCostPerDecisionIsMeasured()
     {
@@ -471,7 +484,7 @@ internal static class VerifyWeaponLearning
         for (int i = 0; i < columns.Length; i++)
             scene.Threats.Add(Threat(Zombie(40 + i, new Vector2(columns[i] * 16f, FloorY * 16f), 0f), scene.Companion, player));
         for (int i = 0; i < scene.Threats.Count; i++) scene.Threats[i].Urgency = .05f * i;
-        Arsenal arsenal = scene.Companion.Arsenal;
+        Combat combat = scene.Companion.Combat;
 
         (double Mean, double P95, NPC? Target) Arm(bool trained)
         {
@@ -489,7 +502,8 @@ internal static class VerifyWeaponLearning
             {
                 for (int i = 0; i < 16; i++) Restate(scene.Companion, player, scene.Threats);
                 stopwatch.Restart();
-                target = arsenal.BestTarget(scene.Ctx);
+                var plan = CombatFixture.Search(scene.Companion, scene.Ctx);
+                target = plan == null || plan.PrimaryTarget < 0 ? null : Main.npc[plan.PrimaryTarget];
                 stopwatch.Stop();
                 if (decision >= 10) samples.Add(stopwatch.Elapsed.TotalMilliseconds);
             }
@@ -529,9 +543,9 @@ internal static class VerifyWeaponLearning
         {
             var scene = Scene(0f, new Vector2(-300f, 0f), floating: true, (GearSlot.FirstWeapon, ItemID.WoodenBow));
             L.Reset();
-            Arsenal arsenal = scene.Companion.Arsenal;
-            Require(arsenal.Weapons.Count == 1, "premise: the bow is the one weapon in hand");
-            float reach = arsenal.Weapons[0].Reach;
+            Combat combat = scene.Companion.Combat;
+            Require(combat.Weapons.Count == 1, "premise: the bow is the one weapon in hand");
+            float reach = combat.Weapons[0].Reach;
             float[] eyeContext = L.Context(260f, reach, 0f, AssumedCone, 5f, 0, 2f, OrbPace.MaxSpeed, debuffedByOther: false);
             for (int i = 0; i < 3; i++) L.Observe(ItemID.WoodenBow, NPCID.DemonEye, eyeContext, eyeRatio);
             float[] zombieContext = L.Context(300f, reach, 0f, AssumedCone, 0f, 0, 0f, OrbPace.MaxSpeed, debuffedByOther: false);
@@ -543,8 +557,9 @@ internal static class VerifyWeaponLearning
             for (int decision = 0; decision < Decisions; decision++)
             {
                 for (int i = 0; i < 16; i++) Restate(scene.Companion, scene.Ctx.Player, scene.Threats);
-                if (arsenal.BestTarget(scene.Ctx) == null) noTarget++;
-                value += arsenal.LastAttackValue;
+                var plan = CombatFixture.Search(scene.Companion, scene.Ctx);
+                if (plan == null) noTarget++;
+                value += plan?.Weighted ?? 0f;
             }
             return (zombie, eye, noTarget, value / Decisions);
         }
@@ -586,7 +601,7 @@ internal static class VerifyWeaponLearning
             scene.Enemy.knockBackResist = .5f;
             scene.Enemy.Bottom = bottom;
             if (lifeLeft > 0) scene.Enemy.life = lifeLeft;
-            Arsenal arsenal = scene.Companion.Arsenal;
+            Combat combat = scene.Companion.Combat;
             // The strike is the game's own hit modifiers and NPC.StrikeNPC under the two headless allowances
             // VerifyCompanionExperience's strike uses, neither of which touches the life taken: the game skips a killing hit
             // effect's gore while paused, and NPCLoot, which reads the bestiary, the drop database and the achievements nothing
@@ -606,9 +621,9 @@ internal static class VerifyWeaponLearning
                 finally { Main.gamePaused = paused; Main.netMode = netMode; }
             };
             bool fired;
-            try { fired = arsenal.TryFire(scene.Ctx, scene.Enemy); }
+            try { fired = CombatFixture.FireOnce(scene.Companion, scene.Ctx).Fired; }
             finally { ItemWeapon.DeliverStrike = deliver; }
-            Require(fired, $"premise: the sword swings; outcome={arsenal.LastFireOutcome}");
+            Require(fired, $"premise: the sword swings; outcome={combat.LastFireOutcome}");
             Require(S.LastClosed is { Struck: 1 }, $"premise: the swing's window closed on one strike; closed={S.LastClosed}");
             return (S.LastClosed!.Value.Dealt, S.LastClosed!.Value.Ratio, !scene.Enemy.active || scene.Enemy.life <= 0);
         }
@@ -642,15 +657,15 @@ internal static class VerifyWeaponLearning
             scene.Threats[0].Urgency = .9f;
             Restate(scene.Companion, scene.Ctx.Player, scene.Threats);
             L.Reset();
-            Arsenal arsenal = scene.Companion.Arsenal;
+            Combat combat = scene.Companion.Combat;
             Vector2 stand = scene.Companion.NPC.Center;
             if (trained)
             {
-                float[] x = L.Context(Vector2.Distance(stand, scene.Enemy.Center), arsenal.Weapons[0].Reach, 0f, AssumedCone, 0f, 0, 0f, OrbPace.MaxSpeed, debuffedByOther: false);
+                float[] x = L.Context(Vector2.Distance(stand, scene.Enemy.Center), combat.Weapons[0].Reach, 0f, AssumedCone, 0f, 0, 0f, OrbPace.MaxSpeed, debuffedByOther: false);
                 for (int i = 0; i < 40; i++) L.Observe(ItemID.WoodenBow, NPCID.Zombie, x, .5f);
             }
-            Require(!Arsenal.Explore(scene.Ctx), "premise: the danger gate holds the forecast to the posterior mean");
-            return arsenal.BestShotValueFrom(scene.Ctx, stand, scene.Enemy);
+            Require(!Forecasts.Explore(scene.Ctx), "premise: the danger gate holds the forecast to the posterior mean");
+            return combat.BestShotValueFrom(scene.Ctx, stand, scene.Enemy);
         }
 
         float untrainedStill = Value(false, 0f), untrainedPushed = Value(false, 1f);
@@ -722,36 +737,40 @@ internal static class VerifyWeaponLearning
     }
 
     /// <summary>
-    /// The fifteen-tick target hold survives ordinary motion and breaks on a change that should change the choice. A held
-    /// target is visible as the evidence tick staying where the last ranking stamped it. Declared before the run: the zombie
-    /// drifting two pixels a tick with a velocity of its own, and the orb drifting a pixel a tick, keep the hold for three
-    /// ticks; a second hostile appearing, that hostile leaving, the learner revising and the zombie jumping a hundred pixels
-    /// each re-rank on the tick they happen. Before this row the stamp hashed every hostile's centre and velocity, so the
-    /// hold was renewed never.
+    /// The committed plan survives ordinary motion and re-searches on a change that should change the choice, driven
+    /// through the real activity with combat selected so preparations commit like a running fight. A held plan is visible
+    /// as the committed plan id staying where the search stamped it. Declared before the run: the zombie drifting two pixels
+    /// a tick with a velocity of its own, and the orb drifting a pixel a tick, keep the plan for three ticks; a second
+    /// hostile appearing with urgency above what the plan admitted, the plan's primary leaving, the learner revising, and
+    /// the zombie jumping a hundred pixels each re-search on the tick they happen — the jump through the re-evaluation,
+    /// whose re-flown uses no longer solve, rather than through validity, which ordinary motion also survives.
+    /// Before this row the stamp hashed every hostile's centre and velocity, so the hold was renewed never.
     /// </summary>
     public static int TheTargetHoldSurvivesOrdinaryMotion()
     {
         var scene = Scene(0f, new Vector2(-300f, 0f), floating: true, (GearSlot.FirstWeapon, ItemID.WoodenBow));
         L.Reset();
-        Arsenal arsenal = scene.Companion.Arsenal;
+        Combat combat = scene.Companion.Combat;
         Player player = scene.Ctx.Player;
-        var senses = scene.Companion.Brain.Senses;
+        var fight = scene.Companion.Brain.Chooser.Actions.OfType<Fight>().Single();
+        scene.Companion.Brain.Chooser.Activity.Select(fight, scene.Ctx);
+        T zombieThreat = scene.Threats[0];
 
         int Establish()
         {
             for (int i = 0; i < 16; i++) Restate(scene.Companion, player, scene.Threats);
-            NPC? target = arsenal.BestTarget(scene.Ctx);
-            // A target rather than the first zombie: while the second hostile is listed it can outvalue the first.
-            Require(target != null, $"premise: a target is ranked; evidence={arsenal.TargetEvidence}");
-            Require(arsenal.TargetEvidenceTick == senses.Tick, "premise: a fresh ranking stamps this tick");
-            return senses.Tick;
+            fight.Prepare(scene.Ctx);
+            int id = combat.Planner.Committed?.Id ?? -1;
+            Require(id >= 0, "premise: a plan is committed");
+            return id;
         }
         bool Reranked(Action change)
         {
+            int before = combat.Planner.Committed?.Id ?? -1;
             change();
             Restate(scene.Companion, player, scene.Threats);
-            arsenal.BestTarget(scene.Ctx);
-            return arsenal.TargetEvidenceTick == senses.Tick;
+            fight.Prepare(scene.Ctx);
+            return (combat.Planner.Committed?.Id ?? -2) != before;
         }
 
         int held = Establish();
@@ -765,14 +784,19 @@ internal static class VerifyWeaponLearning
                     scene.Companion.NPC.velocity = new Vector2(1f, 0f);
                 }))
                 keptTicks++;
-        bool motionHeld = keptTicks == 3 && arsenal.TargetEvidenceTick == held;
+        bool motionHeld = keptTicks == 3 && combat.Planner.Committed?.Id == held;
 
         Establish();
         var second = Zombie(27, new Vector2(40 * 16f, AirRow * 16f), 0f);
         var secondThreat = Threat(second, scene.Companion, player);
+        secondThreat.Urgency = .5f;
         bool appearing = Reranked(() => scene.Threats.Add(secondThreat));
         Establish();
-        bool leaving = Reranked(() => scene.Threats.Remove(secondThreat));
+        int primary = combat.Planner.Committed!.PrimaryTarget;
+        T victim = scene.Threats.First(t => t.Npc.whoAmI == primary);
+        bool leaving = Reranked(() => scene.Threats.Remove(victim));
+        scene.Threats.Clear();
+        scene.Threats.Add(zombieThreat);
         Establish();
         bool revising = Reranked(() => L.ObserveDebuff(ItemID.WoodenBow, NPCID.Zombie, applied: false, 0));
         Establish();

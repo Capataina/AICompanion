@@ -97,30 +97,59 @@ public sealed class Positioner
 
     private bool Allowed(Point tile) => !banned.TryGetValue(tile, out int until) || until < clock;
 
-    /// <summary>Refine a nominated attack method through the ordinary resolver. A rejected
-    /// nomination must not erase another activity's held destination or its explanation.
-    /// Reach-search work survives rejection so yielding cannot starve refinement.</summary>
-    public PositionOffer PrepareOffer(in PositionRequest request, Senses.Senses senses, FlightModel? profile)
+    /// <summary>The held destination and everything describing it, so a query that must not disturb
+    /// another activity's hold can put it all back. The reach sense's growth is not held: a query
+    /// advancing the shared flood is progress every consumer reads, not a hold to restore.</summary>
+    private (Vector2? Chosen, float ChosenScore, PositionRequest LastRequest, int LastWeaponSignature,
+        int LastTerrainRevision, int SinceScore, int LastInterferenceRevision,
+        string ChoiceReason, bool FollowObjectiveSatisfied, float FollowHorizontalGap, float FollowVerticalGap,
+        string FollowObjectiveReason, int CandidateCount, int ReachableCandidateCount, int RejectedCandidateCount,
+        int EvidenceTick, int EvaluatedCandidates, string CandidateEvidence, long ChosenRevision, SuccessRegion Region)
+        SaveHeld() => (Chosen, ChosenScore, lastRequest, lastWeaponSignature, lastTerrainRevision, sinceScore,
+            lastInterferenceRevision,
+            ChoiceReason, FollowObjectiveSatisfied, FollowHorizontalGap, FollowVerticalGap,
+            FollowObjectiveReason, CandidateCount, ReachableCandidateCount, RejectedCandidateCount,
+            EvidenceTick, EvaluatedCandidates, CandidateEvidence, ChosenRevision, Region);
+
+    private void RestoreHeld((Vector2? Chosen, float ChosenScore, PositionRequest LastRequest, int LastWeaponSignature,
+        int LastTerrainRevision, int SinceScore, int LastInterferenceRevision,
+        string ChoiceReason, bool FollowObjectiveSatisfied, float FollowHorizontalGap, float FollowVerticalGap,
+        string FollowObjectiveReason, int CandidateCount, int ReachableCandidateCount, int RejectedCandidateCount,
+        int EvidenceTick, int EvaluatedCandidates, string CandidateEvidence, long ChosenRevision, SuccessRegion Region) held)
     {
-        if (request.Kind is not (RequestKind.Guard or RequestKind.LineOfFire))
-            throw new ArgumentException("Only attack-position requests require this admission query.", nameof(request));
         // lastInterferenceRevision is restored with the rest, and it is the one piece of this state whose
         // consumption is not idempotent. A new footprint forces exactly one rescore, and Resolve spends that
         // force by stamping the revision as seen; a rejected query that put back sinceScore but not the stamp
         // therefore ate the forced rescore on behalf of whoever asked next. Keeping company resolving on the
         // same tick then saw no change, retained the tile it was standing on, and waited out the cadence in
         // the player's way — courtesy defeated by a combat query that momentarily won nomination and lost.
-        var held = (Chosen, ChosenScore, lastRequest, lastWeaponSignature, lastTerrainRevision, sinceScore,
+        (Chosen, ChosenScore, lastRequest, lastWeaponSignature, lastTerrainRevision, sinceScore,
             lastInterferenceRevision,
             ChoiceReason, FollowObjectiveSatisfied, FollowHorizontalGap, FollowVerticalGap,
             FollowObjectiveReason, CandidateCount, ReachableCandidateCount, RejectedCandidateCount,
-            EvidenceTick, EvaluatedCandidates, CandidateEvidence, ChosenRevision, Region);
+            // The revision and region come last: restoring Chosen above advances the revision, and a
+            // rejected query must leave the held destination's identity exactly as it found it.
+            EvidenceTick, EvaluatedCandidates, CandidateEvidence, ChosenRevision, Region) = held;
+    }
+
+    /// <summary>Refine a nominated attack method through the ordinary resolver. A rejected
+    /// nomination must not erase another activity's held destination or its explanation.
+    /// Reach-search work survives rejection so yielding cannot starve refinement.</summary>
+    public PositionOffer PrepareOffer(in PositionRequest request, Senses.Senses senses, FlightModel? profile)
+    {
+        if (request.Kind is not (RequestKind.Guard or RequestKind.LineOfFire or RequestKind.FireFrom))
+            throw new ArgumentException("Only attack-position requests require this admission query.", nameof(request));
+        reachSense = senses.Reach;
+        var held = SaveHeld();
         int previousClock = clock;
         bool admitted = false;
         try
         {
             if (request.Target is not { } enemy || !enemy.CanBeChasedBy())
                 return new(null, "attack-target-not-attackable", "", senses.Tick);
+            if (request.Kind == RequestKind.FireFrom
+                && ReachOf(MovementQueries.Tile(request.Anchor)) == ReachVerdict.NotYet)
+                return new(null, PositionReasons.FireStandUndecided, "", senses.Tick);
             Vector2? destination = Resolve(request, senses, profile);
             admitted = destination != null;
             return new(destination, ChoiceReason, CandidateEvidence, EvidenceTick);
@@ -130,17 +159,35 @@ public sealed class Positioner
             // Querying candidates must not age temporary bans as extra executed ticks.
             clock = previousClock;
             if (!admitted)
-                (Chosen, ChosenScore, lastRequest, lastWeaponSignature, lastTerrainRevision, sinceScore,
-                    lastInterferenceRevision,
-                    ChoiceReason, FollowObjectiveSatisfied, FollowHorizontalGap, FollowVerticalGap,
-                    FollowObjectiveReason, CandidateCount, ReachableCandidateCount, RejectedCandidateCount,
-                    // The revision and region come last: restoring Chosen above advances the revision, and a
-                    // rejected query must leave the held destination's identity exactly as it found it.
-                    EvidenceTick, EvaluatedCandidates, CandidateEvidence, ChosenRevision, Region) = held;
+                RestoreHeld(held);
         }
     }
 
-    public Vector2? Resolve(in PositionRequest request, Senses.Senses senses, FlightModel? fireProfile)
+    /// <summary>
+    /// The planner's proposal question through the ordinary resolver: where the resolver would stand to
+    /// answer this request, without holding anything and without paying for trajectory solves. Preparation
+    /// runs for every activity every rescore, so a proposal that held its destination would erase the running
+    /// activity's hold and explanation sixty times a second, and a proposal that paid the shortlist's solves
+    /// would spend whole frames deciding not to fight; the flood it grows on the way stays grown, which is
+    /// the shared sense working, and the segment simulation prices every proposal honestly afterwards, so a
+    /// cheap-best stand that cannot shoot dies there rather than here.
+    /// </summary>
+    public Vector2? QueryAttackStand(in PositionRequest request, Senses.Senses senses, FlightModel? profile)
+    {
+        var held = SaveHeld();
+        int previousClock = clock;
+        try
+        {
+            return Resolve(request, senses, profile, maxSolves: 0);
+        }
+        finally
+        {
+            clock = previousClock;
+            RestoreHeld(held);
+        }
+    }
+
+    public Vector2? Resolve(in PositionRequest request, Senses.Senses senses, FlightModel? fireProfile, int maxSolves = MaxSolvesPerRescore)
     {
         reachSense = senses.Reach;
         if (lastTerrainRevision != TerrainChanges.Revision)
@@ -248,6 +295,10 @@ public sealed class Positioner
                 Chosen = request.Anchor;
                 ChosenScore = 1f;
                 ChoiceReason = "fire-from-stand";
+                CandidateEvidence = FormattableString.Invariant($"{fireTile.X},{fireTile.Y}:1.000:fire-stand");
+                EvaluatedCandidates = CandidateCount = ReachableCandidateCount = 1;
+                RejectedCandidateCount = 0;
+                EvidenceTick = senses.Tick;
                 Region = SuccessRegion.Unscored(SuccessRegionKind.Undeclared, request.Anchor, senses.Tick, TerrainChanges.Revision);
                 return Chosen;
             case RequestKind.Roam:
@@ -325,7 +376,7 @@ public sealed class Positioner
         // only where this test fails, which is the only moment a different place is actually needed.
         if (!kindChanged && RetainsHeldDestination(request, senses, fireProfile))
             return Chosen;
-        Chosen = request.Kind == RequestKind.WithPlayer ? NearestInsideCorner(senses) : Best(request, senses, fireProfile);
+        Chosen = request.Kind == RequestKind.WithPlayer ? NearestInsideCorner(senses) : Best(request, senses, fireProfile, maxSolves);
         // Every non-null answer from Best passed acceptance against this call's player feet and anchor (the
         // incumbent and every sampled candidate are gated alike), so these are the references it was admitted
         // against even when the value did not change and the revision did not advance. A follow request that
@@ -794,7 +845,7 @@ public sealed class Positioner
                 <= Weights.FiringHoldTargetSlackPx * Weights.FiringHoldTargetSlackPx
             ? mark : null;
 
-    private Vector2? Best(in PositionRequest request, Senses.Senses senses, FlightModel? fireProfile)
+    private Vector2? Best(in PositionRequest request, Senses.Senses senses, FlightModel? fireProfile, int maxSolves)
     {
         EvidenceTick = senses.Tick;
         CandidateEvidence = "";
@@ -878,7 +929,7 @@ public sealed class Positioner
         // solver refuses them. Shared safety searches body states independently of a shot.
         bool needsFire = request.Kind is RequestKind.LineOfFire or RequestKind.Guard;
         candidates.Sort((a, b) => b.baseScore.CompareTo(a.baseScore));
-        int solves = needsFire ? Math.Min(MaxSolvesPerRescore, candidates.Count) : 0;
+        int solves = needsFire ? Math.Min(maxSolves, candidates.Count) : 0;
 
         Vector2? best = null;
         float bestScore = -1f;
@@ -911,20 +962,30 @@ public sealed class Positioner
                     if (evidence.Count > 4) evidence.RemoveAt(4);
                     continue;
                 }
-                if (solved > 0 && Infrastructure.Movement.LimitPlanningWork.Spent(solveClock, Weights.PositionAimingMilliseconds))
-                { everyCandidateAnswered = EveryRemainingAsked(candidates, i, request.Target!); break; }
-                if (solved >= solves)
-                { everyCandidateAnswered = EveryRemainingAsked(candidates, i, request.Target!); break; } // unsolved candidates cannot beat a solved one above them
-                var verdict = SolveShotAtArrivalWithAnyWeapon(spot, request.Target!, senses, out int tried);
-                // Every weapon asked is a solve paid for, so the count the budget reads is the expense rather than the
-                // candidates; counting one per candidate would let two weapons silently double the pass's cost.
-                solved += Math.Max(1, tried);
-                if (!verdict.Solved)
-                    RememberRefusal(tile, request.Target!, bodyTile,
-                        verdict.Reason.StartsWith(PositionReasons.ShotWindowShorterThanTrip, StringComparison.Ordinal));
-                shot = verdict.Reason;
-                score = ScoreSpot(request, spot, playerBottom, senses, bandNear, bandFar,
-                    verdict.Solved ? FiringStandShare(spot, request.Target!, senses, verdict.TripTicks) : 0f, reach);
+                // A proposal pass pays for no solves: the base score's straight-ray sight, standoff, band,
+                // danger and openness rank the stands, and the planner's own simulation prices the winner
+                // honestly afterwards. An unsolved stand refuses nothing and remembers nothing.
+                if (solves == 0)
+                {
+                    shot = "proposal-unsolved";
+                }
+                else
+                {
+                    if (solved > 0 && Infrastructure.Movement.LimitPlanningWork.Spent(solveClock, Weights.PositionAimingMilliseconds))
+                    { everyCandidateAnswered = EveryRemainingAsked(candidates, i, request.Target!); break; }
+                    if (solved >= solves)
+                    { everyCandidateAnswered = EveryRemainingAsked(candidates, i, request.Target!); break; } // unsolved candidates cannot beat a solved one above them
+                    var verdict = SolveShotAtArrivalWithAnyWeapon(spot, request.Target!, senses, out int tried);
+                    // Every weapon asked is a solve paid for, so the count the budget reads is the expense rather than the
+                    // candidates; counting one per candidate would let two weapons silently double the pass's cost.
+                    solved += Math.Max(1, tried);
+                    if (!verdict.Solved)
+                        RememberRefusal(tile, request.Target!, bodyTile,
+                            verdict.Reason.StartsWith(PositionReasons.ShotWindowShorterThanTrip, StringComparison.Ordinal));
+                    shot = verdict.Reason;
+                    score = ScoreSpot(request, spot, playerBottom, senses, bandNear, bandFar,
+                        verdict.Solved ? FiringStandShare(spot, request.Target!, senses, verdict.TripTicks) : 0f, reach);
+                }
             }
             EvaluatedCandidates++;
             evidence.Add((MovementQueries.Tile(spot), score, shot));

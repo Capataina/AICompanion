@@ -33,9 +33,9 @@ internal static class VerifyCombatActivity
         {
             Tick(companion);
             if (companion.Brain.Chooser.Current?.Name == "mine") mineTicks++;
-            if (companion.Arsenal.LastFireOutcome == "fired") fired++;
-            if (companion.Arsenal.LastFireOutcome == "not-fighting") notFighting++;
-            if (companion.Arsenal.ShotSolves(ctx, live::AICompanion.Companion.Brain.Infrastructure.Interactions.Firing.Arsenal.Muzzle(companion.NPC), zombie)) shootable++;
+            if (companion.Combat.LastFireOutcome == "fired") fired++;
+            if (companion.Combat.LastFireOutcome == "not-fighting") notFighting++;
+            if (companion.Combat.ShotSolves(ctx, live::AICompanion.Companion.Brain.Infrastructure.Interactions.Firing.CompanionCombat.Muzzle(companion.NPC), zombie)) shootable++;
             VerifyResponsiveFollowing.AdvanceNative(companion);
         }
         Console.WriteLine($"  only-combat-fires: mine ticks {mineTicks}, fired {fired}, not-fighting {notFighting}, shootable {shootable} of 120");
@@ -51,11 +51,10 @@ internal static class VerifyCombatActivity
         var (companion, player) = OpenFloor();
         // The companion trails 750px behind a standing player — outside the region, so keeping
         // company pulls reunion — with a motionless zombie 400px ahead of it and 150px up: 380px
-        // from the player, where a body that has never moved reads no urgency and the guard side
-        // stays at zero, and close enough overhead that a bow shot solves from where the companion
-        // stands (the row asserts it) yet low enough that the stands sampled round the target clear
-        // the hover ceiling. Only the hunt side can take the body, and only the stance's own
-        // eagerness lifts it over that pull. The screen is centred on the player as the live game
+        // from the player, where a body that has never moved reads no urgency, and close enough
+        // overhead that a bow shot solves from where the companion stands (the row asserts it) yet
+        // low enough that the stands sampled round the target clear the hover ceiling. Only the
+        // stance's own eagerness lifts combat over that pull. The screen is centred on the player as the live game
         // centres it, because the hunt side's nearness reads the screen. The scene is static: full
         // ticks run, with the body held where it stands after each, so the matchup is measured
         // rather than chased and the positioner still rescores onto it.
@@ -67,12 +66,12 @@ internal static class VerifyCombatActivity
         VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
         companion.Brain.Senses.Update(companion.NPC, player);
         var reachCtx = new live::AICompanion.Companion.Brain.Activities.ActionContext(companion, companion.Brain.Senses);
-        var muzzle = live::AICompanion.Companion.Brain.Infrastructure.Interactions.Firing.Arsenal.Muzzle(companion.NPC);
-        Require(companion.Arsenal.ShotSolves(reachCtx, muzzle, zombie),
+        var muzzle = live::AICompanion.Companion.Brain.Infrastructure.Interactions.Firing.CompanionCombat.Muzzle(companion.NPC);
+        Require(companion.Combat.ShotSolves(reachCtx, muzzle, zombie),
             "the eagerness scene needs the zombie shotable from where the companion stands, or it is not in reach");
         var combatAction = companion.Brain.Chooser.Actions.OfType<Combat>().Single();
-        int combatWins = 0, guardWon = 0;
-        float combatFinal = 0f, companyFinal = 0f, companyRaw = 0f, guardSide = 0f, huntSide = 0f;
+        int combatWins = 0, planId = -1, planFront = 0;
+        float combatFinal = 0f, companyFinal = 0f, companyRaw = 0f, planValue = 0f;
         string companyEligibility = "";
         Vector2 heldBottom = companion.NPC.Bottom;
         for (int tick = 0; tick < 60; tick++)
@@ -87,12 +86,15 @@ internal static class VerifyCombatActivity
                 if (score.Action.Name == "combat") combatFinal = score.Final;
                 if (score.Action.Name == "keep-company") { companyFinal = score.Final; companyRaw = score.Raw; companyEligibility = $"{score.Eligibility}/{score.EligibilityReason}"; }
             }
-            guardSide = MathF.Max(guardSide, combatAction.GuardValue);
-            huntSide = combatAction.HuntValue;
-            if (combatAction.GuardWon) guardWon++;
+            if (combatAction.OfferedPlan != null)
+            {
+                planId = combatAction.OfferedPlan.Id;
+                planValue = combatAction.OfferedPlan.Weighted;
+                planFront = combatAction.OfferedFrontSize;
+            }
         }
-        Console.WriteLine($"  shared-eagerness: combat wins {combatWins}/30 (guard side {guardWon}), combat final {combatFinal:0.000}, company final {companyFinal:0.000} raw {companyRaw:0.000} {companyEligibility}, guard side max {guardSide:0.000}, hunt side {huntSide:0.000}");
-        Require(guardWon == 0, $"the zombie must threaten nobody, so the guard side never wins; guard won {guardWon} comparisons");
+        Console.WriteLine($"  shared-eagerness: combat wins {combatWins}/30, combat final {combatFinal:0.000}, company final {companyFinal:0.000} raw {companyRaw:0.000} {companyEligibility}, plan {planId} value {planValue:0.000} front {planFront}");
+        Require(planId >= 0, "combat's wins must come from a committed plan, not a scoreless offer");
         Require(combatWins == 30, $"a damageable hostile in reach must take the body off keeping company; combat won {combatWins}/30");
         return 0;
     }
@@ -189,7 +191,7 @@ internal static class VerifyCombatActivity
         {
             Tick(companion);
             if (companion.Brain.Chooser.Current?.Name == "combat") combatTicks++;
-            if (companion.Arsenal.LastFireOutcome == "fired") fired++;
+            if (companion.Combat.LastFireOutcome == "fired") fired++;
             VerifyResponsiveFollowing.AdvanceNative(companion);
         }
         Require(combatTicks == 0 && fired == 0, $"unarmed ticks must never run combat nor fire; combat={combatTicks} fired={fired}");

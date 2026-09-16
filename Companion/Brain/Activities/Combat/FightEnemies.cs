@@ -37,7 +37,7 @@ public sealed class FightEnemies : CompanionAction, ICandidateFunnelSource
     public override object? ActivityIdentity => CommittedPlanTarget;
     public override Vector2? ActivityTarget => CommittedPlanTarget?.Bottom;
     public override PositionRequest? PreparedPositionRequest => OfferedPlan is { } plan
-        ? new PositionRequest(RequestKind.FireFrom, plan.Current(PlanTick).Stand.Stand, CommittedPlanTarget)
+        ? new PositionRequest(RequestKind.FireFrom, plan.Current(PlanTick).Stand.Stand, OfferedPlanTarget(plan))
         : null;
 
     /// <summary>The plan the last preparation offered, committed or held for entry; null when it offered none.</summary>
@@ -54,16 +54,21 @@ public sealed class FightEnemies : CompanionAction, ICandidateFunnelSource
     public AttackPlan? CommittedPlan => combat?.Planner.Committed;
 
     /// <summary>What the hands are shooting at: the committed plan's primary target while it lives.</summary>
-    public NPC? CommittedPlanTarget
+    public NPC? CommittedPlanTarget => PlanTarget(CommittedPlan);
+
+    /// <summary>
+    /// The offered plan's primary target for the pre-nomination method query, which runs before combat wins
+    /// anything: the committed target does not exist yet on the tick combat is first nominated, so asking the
+    /// query with it refuses every first nomination and combat can never win its way into a commitment.
+    /// </summary>
+    private static NPC? OfferedPlanTarget(AttackPlan plan) => PlanTarget(plan);
+
+    private static NPC? PlanTarget(AttackPlan? plan)
     {
-        get
-        {
-            AttackPlan? plan = CommittedPlan;
-            if (plan == null || plan.PrimaryTarget < 0 || plan.PrimaryTarget >= Main.maxNPCs)
-                return null;
-            NPC npc = Main.npc[plan.PrimaryTarget];
-            return npc != null && npc.active && npc.life > 0 ? npc : null;
-        }
+        if (plan == null || plan.PrimaryTarget < 0 || plan.PrimaryTarget >= Main.maxNPCs)
+            return null;
+        NPC npc = Main.npc[plan.PrimaryTarget];
+        return npc != null && npc.active && npc.life > 0 ? npc : null;
     }
 
     private CompanionCombat? combat;
@@ -75,10 +80,14 @@ public sealed class FightEnemies : CompanionAction, ICandidateFunnelSource
     private const string StageDeferred = "engagement-deferred";
     private const string StageAllowance = "activity-allowance";
     private const string StageNotChaseable = "not-chaseable";
+    private const string StageUnplannable = "unplannable";
     private const string StageOutvalued = "outvalued";
 
+    /// <summary>Declared in the order the preparation meets them, earliest first, so "furthest" means latest check
+    /// reached: a threat the search refused got further than one the deferral held, which got further than one the
+    /// allowance never admitted.</summary>
     public CandidateFunnel Funnel { get; } = new(6,
-        StageDeferred, StageAllowance, StageNotChaseable, StageOutvalued,
+        StageNotChaseable, StageAllowance, StageDeferred, StageUnplannable, StageOutvalued,
         CandidateFunnel.Offered);
 
     private static string Identity(ThreatRecord threat) => FormattableString.Invariant($"npc{threat.Npc.whoAmI}:{threat.Npc.type}");
@@ -110,7 +119,7 @@ public sealed class FightEnemies : CompanionAction, ICandidateFunnelSource
             Classify(OfferEligibility.NoOpportunity, "player-dead");
             return;
         }
-        bool anyAllowed = false;
+        var eligible = new List<ThreatRecord>();
         foreach (ThreatRecord threat in ctx.Senses.Threats.Threats)
         {
             NPC npc = threat.Npc;
@@ -132,9 +141,9 @@ public sealed class FightEnemies : CompanionAction, ICandidateFunnelSource
                 Funnel.Add(Identity(threat), npc.Center.ToTileCoordinates(), threat.DistanceToCompanion, StageAllowance, StageDeferred, "");
                 continue;
             }
-            anyAllowed = true;
+            eligible.Add(threat);
         }
-        if (!anyAllowed)
+        if (eligible.Count == 0)
         {
             preparedPlan = null;
             Classify(OfferEligibility.NoOpportunity, "no-eligible-target");
@@ -195,6 +204,17 @@ public sealed class FightEnemies : CompanionAction, ICandidateFunnelSource
         preparedPlan = null;
         OfferedFrontSize = result.FrontSize;
         OfferedCut = result.Reason == "budget-cut";
+        if (result.Eligibility != OfferEligibility.Unresolved)
+        {
+            // A decided search names the threat it was about and what the planner read, which is what thousands of
+            // rows of an undecided stand on a capture cannot say. An undecided search records nothing: no verdict yet.
+            foreach (ThreatRecord refused in eligible)
+            {
+                NPC npc = refused.Npc;
+                Funnel.Add(Identity(refused), npc.Center.ToTileCoordinates(), refused.DistanceToCompanion,
+                    StageDeferred, StageUnplannable, FormattableString.Invariant($"reason={result.Reason}"));
+            }
+        }
         Classify(result.Eligibility, result.Reason);
     }
 
@@ -326,7 +346,9 @@ public sealed class FightEnemies : CompanionAction, ICandidateFunnelSource
     public override void Suspend(in ActionContext ctx)
     {
         ctx.Companion.Combat.Planner.NoteSuspended(ctx.Senses.Tick);
-        base.Suspend(ctx);
+        // Not base.Suspend: the base exits, and combat's exit releases the plan, but a suspended
+        // fight keeps its plan — only the admission is re-captured, so resuming stays the same job.
+        AdmitActivity();
     }
 
     // Attempt-local evidence, written only while combat executes and cleared when an attempt opens.

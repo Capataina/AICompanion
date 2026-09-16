@@ -312,7 +312,10 @@ public static class Weights
     /// The shapes that move them with the senses live in <c>WeighCombatObjectives</c>; the audit's weight
     /// sweeps tune these offline, never a player setting.
     /// </summary>
-    public const float CombatWeightDamage = 1f;
+    /// <summary>Damage is in units of the encounter's life per second, so a wounding fight reads hundredths: the weight
+    /// maps the shared-eagerness wounding fight (0.042) into the old hunting band above keeping company and below the
+    /// vein, which the danger lift then carries over work. The audit's weight sweeps and the play tune own this number.</summary>
+    public const float CombatWeightDamage = 16f;
     public const float CombatWeightThreatRemoved = 6f;
     public const float CombatWeightPlayerHarmPrevented = AttackPreventedHarmWeight;
     public const float CombatWeightCompanionHarm = 2f;
@@ -321,8 +324,12 @@ public static class Weights
     public const float CombatWeightTimeToFirstDamage = 0.5f;
     public const float CombatWeightMana = 0.25f;
 
-    /// <summary>How much PlayerDanger lifts the harm-prevention and time weights: each is scaled by one plus this times the danger.</summary>
-    public const float CombatDangerWeightLift = 1f;
+    /// <summary>How much PlayerDanger lifts the harm-prevention and time weights: each is scaled by one plus
+    /// this times the danger. Two, so prevention meets removal when the player is in mortal danger: at one the
+    /// shape maxed below removal and an imminent rescue of the player lost to killing the body's own attacker,
+    /// which is the shape failing the purpose its own document states. Calibrated by the pursuit middle row,
+    /// where an 82-tick walk to one-shot a 100-damage threat on the player must beat the fight beside the body.</summary>
+    public const float CombatDangerWeightLift = 2f;
 
     /// <summary>How the company weight answers travel: doubled while the player travels, halved while he stands, before the danger falloff.</summary>
     public const float CombatCompanyTravelFactor = 2f;
@@ -333,8 +340,12 @@ public static class Weights
     /// <summary>Guarding's interruption kept: the combat offer is lifted by one plus this times PlayerDanger, so a threat on the player takes the body from a vein.</summary>
     public const float CombatPlayerDangerLift = 2f;
 
-    /// <summary>How long a committed plan may go without a planned use firing or a planned hit landing before it stalls and defers every body it targeted: the hunt window, kept.</summary>
-    public const int CombatPlanStallTicks = 180;
+    /// <summary>How long a committed plan's firing phase may go without a planned use firing or a planned hit
+    /// landing before it stalls and defers every body it targeted. Shorter than the horizon on purpose: the
+    /// segment ends at the horizon, so a window as long as it would never bind — the plan would always end
+    /// complete first and the stall, with its deferral, would be dead code. Ordained travel does not consume
+    /// the window; the clock runs from the segment's start.</summary>
+    public const int CombatPlanStallTicks = 120;
 
     /// <summary>How long a stalled plan's bodies wait before the planner considers them again: the hunt retry, kept.</summary>
     public const int CombatDeferRetryTicks = 180;

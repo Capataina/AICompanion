@@ -41,6 +41,34 @@ public sealed class CompanionCombat
     /// <summary>The gear's signature as combat last enumerated it, so a consumer holding a choice made for these weapons can tell when they changed.</summary>
     public int GearSignature { get { Refresh(Main.LocalPlayer); return gearSignature; } }
 
+    private readonly record struct ApproachKey(int TargetSlot, int TargetGeneration, int TargetX, int TargetY,
+        int BodyX, int BodyY, int Terrain, int Gear);
+    private readonly Dictionary<ApproachKey, Vector2?> approaches = new();
+
+    /// <summary>
+    /// The hunt approach the resolver proposed for this target from this body tile: a cached point, not a
+    /// verdict. The verdict is re-read live against the flood, the exposure and the allowance on every
+    /// preparation, so a stale point is refused or priced honestly rather than trusted; the cache only
+    /// skips re-scoring the lattice while neither body has moved tiles, which is what keeps a hopeless
+    /// crowd affordable. A stored null is a target the resolver had no approach for.
+    /// </summary>
+    public bool TryGetApproach(int targetSlot, int targetGeneration, Vector2 targetCentre, Vector2 bodyCentre,
+        int terrain, out Vector2? approach)
+    {
+        var key = new ApproachKey(targetSlot, targetGeneration, (int)(targetCentre.X / 16f), (int)(targetCentre.Y / 16f),
+            (int)(bodyCentre.X / 16f), (int)(bodyCentre.Y / 16f), terrain, GearSignature);
+        return approaches.TryGetValue(key, out approach);
+    }
+
+    public void StoreApproach(int targetSlot, int targetGeneration, Vector2 targetCentre, Vector2 bodyCentre,
+        int terrain, Vector2? approach)
+    {
+        if (approaches.Count >= 64)
+            approaches.Clear();
+        approaches[new ApproachKey(targetSlot, targetGeneration, (int)(targetCentre.X / 16f), (int)(targetCentre.Y / 16f),
+            (int)(bodyCentre.X / 16f), (int)(bodyCentre.Y / 16f), terrain, GearSignature)] = approach;
+    }
+
     /// <summary>
     /// Why the last tick did or did not use a weapon, as one word: <c>fired</c>, <c>cooldown</c>,
     /// <c>no-use-worth-firing</c> (combat runs and nothing priced a shot), <c>no-weapon</c> (both weapon

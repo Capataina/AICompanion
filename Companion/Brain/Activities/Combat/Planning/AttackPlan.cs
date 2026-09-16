@@ -45,7 +45,8 @@ public readonly record struct StandProposal(Vector2 Stand, StandReason Reason, i
 /// <summary>
 /// What the plan was admitted against: the terrain it was searched on, the learner's revision, the targets
 /// with their spawn generations, the highest urgency to either body it saw, the intent region it priced
-/// company against with the gap it admitted, and the tick progress was last made. The commitment holds while
+/// company against with the gap it admitted, and the search tick, which is the progress the commitment seeds
+/// its own clock from — later progress lives on the commitment, never on this immutable product. The commitment holds while
 /// all of these still describe the world; any one failing re-searches rather than re-scores, because a
 /// destination is kept by membership, never by a bonus. The learner's revision is admitted because a plan
 /// that outlives what a shot just taught visibly ignores its own evidence: three seconds of firing a weapon

@@ -130,8 +130,17 @@ internal static class VerifyThreatAnticipation
             $"a walker must not reach an orb hovering far above its highest jump, and the orb must read no danger from it; reaches={high.Reaches} danger={high.Danger}");
     }
 
+    /// <summary>
+    /// Attackability under the planner: a solving use from the body's muzzle, a committed plan kept by
+    /// membership across ticks, an intervention estimate that counts its predicted kill down with the clock,
+    /// a reused hostile slot re-planned rather than retained, and current unattackability ending the plan.
+    /// The per-tick forecast cache is the freshness contract now — the arsenal's immediate invalidation is
+    /// gone with it — so a moved target is re-asked on the next tick, the way the brain would ask it.
+    /// </summary>
     private static void VerifyAttackability()
     {
+        BuildOpenWorld();
+        for (int i = 0; i < Main.npc.Length; i++) Main.npc[i] = new NPC { whoAmI = i, active = false };
         var companion = VerifyCompanionLifecycle.Create();
         Main.player[0].dead = false;
         companion.NPC.position = new Vector2(400, 800);
@@ -141,18 +150,34 @@ internal static class VerifyThreatAnticipation
         Main.npc[1] = target;
         companion.Brain.Senses.Update(companion.NPC, Main.player[0]);
         var context = new live::AICompanion.Companion.Brain.Activities.ActionContext(companion, companion.Brain.Senses);
-        Require(companion.Arsenal.CanEngage(context, target), "open fixture must initially have an attackable shot");
-        float estimate = companion.Arsenal.EstimateInterventionTicks(context);
+        var combat = companion.Combat;
+        Vector2 muzzle = live::AICompanion.Companion.Brain.Infrastructure.Interactions.Firing.CompanionCombat.Muzzle(companion.NPC);
+        Require(combat.ShotSolves(context, muzzle, target), "open fixture must initially have an attackable shot");
+
+        var fight = new live::AICompanion.Companion.Brain.Activities.Combat.FightEnemies();
+        companion.Brain.Chooser.Activity.Select(fight, context);
+        Require(VerifyPreparedActivities.PrepareAndScore(fight, context) > 0f && fight.OfferedPlan != null,
+            $"the attackable target must be offered a plan; reason={fight.EligibilityReason}");
+        float estimate = combat.EstimateInterventionTicks(context);
         Require(float.IsFinite(estimate) && estimate > 0f,
-            "first intervention estimate must include flight time rather than overflow its uninitialised cache");
+            "the first intervention estimate must count down to a predicted kill rather than read infinite with a plan committed");
+
+        // Protection budgets repeat hits: one life left dies sooner than a hundred.
         target.life = 1;
-        float singleHit = companion.Arsenal.EstimateInterventionTicks(context);
+        combat.Planner.Release("fixture-replan");
+        Require(VerifyPreparedActivities.PrepareAndScore(fight, context) > 0f && fight.OfferedPlan != null,
+            $"the weakened target must be offered a fresh plan; reason={fight.EligibilityReason}");
+        float singleHit = combat.EstimateInterventionTicks(context);
         Require(singleHit < estimate, "protection must budget repeat hits to remove a healthy threat, not only first impact");
-        companion.Arsenal.NoteHandsBusy();
-        typeof(live::AICompanion.Companion.Brain.Infrastructure.Observation.Senses).GetProperty("Tick")!.SetValue(
-            companion.Brain.Senses, companion.Brain.Senses.Tick + 5);
-        Require(companion.Arsenal.EstimateInterventionTicks(context) == singleHit,
-            "time holding a tool must not count down a projectile that was never fired");
+
+        // The kill approaches with the clock; holding a tool does not freeze it, because the estimate is a
+        // predicted tick rather than a projectile in flight.
+        combat.NoteHandsBusy();
+        SetTick(companion, companion.Brain.Senses.Tick + 5);
+        Require(combat.EstimateInterventionTicks(context) == singleHit - 5,
+            "the intervention estimate must count its predicted kill down with the clock, hands busy or not");
+
+        // Inside solid rock nothing solves; back in the open the next tick solves again.
         target.life = 100;
         Vector2 openPosition = target.position;
         for (int x = 39; x <= 43; x++)
@@ -164,21 +189,66 @@ internal static class VerifyThreatAnticipation
         }
         live::AICompanion.Companion.Brain.Infrastructure.Movement.TerrainChanges.Changed(40, 50);
         target.position = new Vector2(40 * 16, 50 * 16);
-        Require(!companion.Arsenal.CanEngage(context, target), "target inside solid terrain must invalidate a cached clear shot");
+        SetTick(companion, companion.Brain.Senses.Tick + 1);
+        Require(!combat.ShotSolves(context, muzzle, target), "a target inside solid terrain must have no solving use");
         target.position = openPosition;
-        Require(companion.Arsenal.CanEngage(context, target),
-            "an opening firing window must invalidate a negative answer immediately without waiting for cache age");
-        Require(companion.Arsenal.BestTarget(context) == target, "single attackable target must initially win retention");
-        typeof(live::AICompanion.Companion.Brain.Infrastructure.Observation.Senses).GetProperty("Tick")!.SetValue(
-            companion.Brain.Senses, companion.Brain.Senses.Tick + 1);
+        SetTick(companion, companion.Brain.Senses.Tick + 1);
+        Require(combat.ShotSolves(context, muzzle, target),
+            "an opening firing window must solve again on the next tick rather than inherit the negative answer");
+
+        // Retention is membership: the committed plan survives re-preparation while it still describes the world.
+        var held = combat.Planner.Committed;
+        Require(held != null, "the attackable scene must hold a committed plan before the retention checks");
+        VerifyPreparedActivities.PrepareAndScore(fight, context);
+        Require(ReferenceEquals(combat.Planner.Committed, held) && fight.OfferedPlan != null && fight.OfferedPlan.PrimaryTarget == target.whoAmI,
+            "a single attackable target's plan must be kept across preparations while it still describes the world");
+
+        // A reused hostile slot is re-planned, never retained: the generation the plan was admitted against
+        // is gone, so the commitment ends and the search offers the new occupant fresh.
         live::AICompanion.Companion.Brain.Infrastructure.Observation.HostileAttackSources.Spawn(target);
-        companion.Arsenal.BestTarget(context);
-        Require(companion.Arsenal.TargetEvidenceTick == companion.Brain.Senses.Tick,
-            "a reused hostile slot must be reranked instead of inheriting prior target retention");
+        float score = VerifyPreparedActivities.PrepareAndScore(fight, context);
+        Require(combat.Planner.LastInvalidation == "target-gone-unplanned",
+            $"a reused slot must end the commitment admitted against its old occupant; invalidation={combat.Planner.LastInvalidation}");
+        Require(score > 0f && fight.OfferedPlan != null && !ReferenceEquals(fight.OfferedPlan, held),
+            $"the new occupant must be offered a fresh plan rather than inherit retention; score={score} reason={fight.EligibilityReason}");
+
+        // Current unattackability ends the plan: no remaining use solves, so the commitment is released and
+        // the search refuses the body rather than offering a fight that cannot happen.
         target.dontTakeDamage = true;
-        Require(!companion.Arsenal.CanEngage(context, target) && !companion.Arsenal.TryFire(context, target)
-            && float.IsPositiveInfinity(companion.Arsenal.EstimateInterventionTicks(context)),
-            "current attackability must override a previously cached clear shot");
+        score = VerifyPreparedActivities.PrepareAndScore(fight, context);
+        Require(!combat.ShotSolves(context, muzzle, target),
+            "an unattackable target must have no solving use whatever the plan once held");
+        Require(score == 0f && combat.Planner.Committed == null
+            && combat.Planner.LastInvalidation == "uses-stopped-solving"
+            && float.IsPositiveInfinity(combat.EstimateInterventionTicks(context)),
+            $"current unattackability must release the plan and read infinite protection; score={score} reason={fight.EligibilityReason} invalidation={combat.Planner.LastInvalidation}");
+    }
+
+    /// <summary>Open air where the shots fly, with a floor far below the sight line.</summary>
+    private static void BuildOpenWorld()
+    {
+        Main.maxTilesX = Main.maxTilesY = 140;
+        Main.worldSurface = 50;
+        Main.tile = (Tilemap)Activator.CreateInstance(typeof(Tilemap),
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public,
+            null, new object[] { (ushort)140, (ushort)140 }, null)!;
+        Main.tileSolid[1] = true;
+        for (int x = 5; x < 115; x++)
+            for (int y = 80; y <= 82; y++)
+            {
+                Tile tile = Main.tile[x, y];
+                tile.HasTile = true;
+                tile.TileType = 1;
+            }
+        live::AICompanion.Companion.Brain.Infrastructure.Movement.TerrainChanges.Reset();
+        live::AICompanion.Companion.Brain.Infrastructure.Movement.MovementQueries.World = new live::AICompanion.Companion.Brain.Infrastructure.Movement.GameTileWorld();
+    }
+
+    private static void SetTick(live::AICompanion.Companion.CharacterBody.CompanionNPC companion, int tick)
+    {
+        var setTick = typeof(live::AICompanion.Companion.Brain.Infrastructure.Observation.Senses)
+            .GetProperty("Tick")!.GetSetMethod(true)!;
+        setTick.Invoke(companion.Brain.Senses, new object[] { tick });
     }
 
     private static void Require(bool condition, string message)

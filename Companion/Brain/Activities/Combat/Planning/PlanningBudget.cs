@@ -30,10 +30,13 @@ public sealed class PlanningBudget
     public static PlanningBudget FromMilliseconds(float milliseconds)
         => new((long)(milliseconds * System.TimeSpan.TicksPerMillisecond / 1000f));
 
-    /// <summary>True while the budget remains. Marks the budget cut the first time it does not.</summary>
+    /// <summary>True while the budget remains. Marks the budget cut the first time it does not. The suite
+    /// lifts every millisecond allowance, so a lifted budget never cuts; rows about a cut search run with
+    /// production allowances instead, the way every other cut row does.</summary>
     public bool Check()
     {
         if (Cut) return false;
+        if (Infrastructure.Movement.LimitPlanningWork.Unbounded) return true;
         if (System.Environment.TickCount64 - startedAt > allowanceTicks)
         {
             Cut = true;

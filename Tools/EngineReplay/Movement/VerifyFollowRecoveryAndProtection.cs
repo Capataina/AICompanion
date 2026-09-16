@@ -103,82 +103,130 @@ internal static class VerifyFollowRecoveryAndProtection
             => new(kind, ctx.Player.Bottom);
     }
 
+    /// <summary>
+    /// Protection under the one combat stance: immediate danger offers a plan that interrupts commitment,
+    /// entry commits the prepared plan's enemy rather than a later urgent one, execution retains the scored
+    /// stand and target, and a dead target is handed on as no target. Irrelevance collapses the offer's value
+    /// without ending its membership — the committed plan is kept while it still describes the world, and the
+    /// chooser's comparison, not a release timer, sends the body back to work. A disappeared threat releases.
+    /// </summary>
     private static void VerifyGuard()
     {
+        BuildGuardFloor();
         var companion = VerifyCompanionLifecycle.Create();
         Main.player[0].dead = false;
         Main.player[0].position = new Vector2(450, 900);
+        companion.NPC.position = new Vector2(400, 900);
+        for (int i = 0; i < Main.npc.Length; i++) Main.npc[i] = new NPC { whoAmI = i, active = false };
         var senses = companion.Brain.Senses;
-        senses.Update(companion.NPC, Main.player[0]);
         var npc = new NPC { whoAmI = 4, active = true, life = 100, damage = 20, position = new Vector2(450, 880) };
-        var threat = new Threat { Npc = npc, CanReachPlayer = true, Urgency = 1f, EffectiveTicksToPlayer = 0 };
-        senses.Threats.Threats.Add(threat);
-        typeof(live::AICompanion.Companion.Brain.Infrastructure.Observation.ThreatSense).GetProperty("MostUrgent")!.SetValue(senses.Threats, threat);
+        Main.npc[4] = npc;
+        senses.Update(companion.NPC, Main.player[0]);
         senses.SetInterventionEstimate(float.PositiveInfinity);
         var context = new Context(companion, senses);
         var combat = new Combat();
-        float entry = VerifyPreparedActivities.PrepareAndScore(combat, context);
+        // Prime the reach flood to completion, then prepare once: the search's finished answer rather than
+        // what the first flood slice happened to reach. WithPlayer pumps the flood; a firing request without
+        // a flight profile early-outs before it refreshes anything.
+        var primeRequest = new live::AICompanion.Companion.Brain.Infrastructure.Position.PositionRequest(
+            live::AICompanion.Companion.Brain.Infrastructure.Position.RequestKind.WithPlayer, Main.player[0].Bottom);
+        for (int i = 0; i < 3000 && !companion.Brain.Positioner.ReachComplete; i++)
+            companion.Brain.Positioner.Resolve(primeRequest, senses, null);
+        Require(companion.Brain.Positioner.ReachComplete, "the guard scene needs a completed flood before the plan can be read");
+        VerifyPreparedActivities.PrepareAndScore(combat, context);
+        Require(combat.OfferedPlan != null, $"the guard scene must offer a plan; reason={combat.EligibilityReason}");
+        float entry = combat.Score();
         Require(entry > Weights.Commitment, "immediate danger can interrupt committed following even nearby");
-        Require(ReferenceEquals(combat.ActivityIdentity, npc), "combat must bind its prepared offer to the protected enemy");
+        Require(combat.OfferedPlan.PrimaryTarget == npc.whoAmI, "combat must bind its prepared offer to the protected enemy");
+        Threat threat = senses.Threats.Threats.Find(t => t.Npc == npc)
+            ?? throw new InvalidOperationException("the guard scene must observe its planted hostile as a threat");
+        combat.Enter(context);
         var preparedRequest = combat.Execute(context);
         var unrelated = new Threat { Npc = new NPC { whoAmI = 6, active = true, life = 100,
             position = new Vector2(800, 900) }, CanReachPlayer = true, Urgency = 1f };
         typeof(live::AICompanion.Companion.Brain.Infrastructure.Observation.ThreatSense).GetProperty("MostUrgent")!.SetValue(senses.Threats, unrelated);
         Require(combat.Score() == entry && combat.Execute(context) == preparedRequest,
             "combat execution must retain the scored target and anchor until preparation refreshes them");
-        combat.Enter(context);
-        Require(combat.ProtectedThreatId == npc.whoAmI, "combat entry must commit the prepared enemy, not the later urgent enemy");
+        Require(combat.CommittedPlan != null && combat.CommittedPlan.PrimaryTarget == npc.whoAmI,
+            "combat entry must commit the prepared enemy, not the later urgent enemy");
         companion.Brain.Chooser.Activity.Select(combat, context);
         long firstProtection = companion.Brain.Chooser.Activity.Id;
         typeof(live::AICompanion.Companion.Brain.Infrastructure.Observation.ThreatSense).GetProperty("MostUrgent")!.SetValue(senses.Threats, threat);
         threat.Urgency = .15f;
         threat.EffectiveTicksToPlayer = 150;
         senses.SetInterventionEstimate(1);
-        Require(VerifyPreparedActivities.PrepareAndScore(combat, context) >= entry, "small retreat retains protection of the same relevant threat");
+        var held = combat.CommittedPlan;
+        float retreat = VerifyPreparedActivities.PrepareAndScore(combat, context);
+        Require(retreat > 0 && ReferenceEquals(combat.CommittedPlan, held),
+            "a small retreat retains the committed protection of the same relevant threat");
         threat.CanReachPlayer = false;
         threat.Urgency = 0;
         senses.SetInterventionEstimate(float.PositiveInfinity);
         int firstClear = senses.Tick;
         Require(VerifyPreparedActivities.PrepareAndScore(combat, context) > 0, "one safe frame must not abandon protection");
-        typeof(live::AICompanion.Companion.Brain.Infrastructure.Observation.Senses).GetProperty("Tick")!.SetValue(senses,
-            firstClear + Weights.GuardClearTicks);
-        Require(VerifyPreparedActivities.PrepareAndScore(combat, context) == 0 && combat.ProtectedThreatId == -1,
-            "sustained irrelevance releases a living threat");
+        typeof(live::AICompanion.Companion.Brain.Infrastructure.Observation.Senses).GetProperty("Tick")!.GetSetMethod(true)!.Invoke(senses,
+            new object[] { firstClear + Weights.GuardClearTicks });
+        float cold = VerifyPreparedActivities.PrepareAndScore(combat, context);
+        Require(cold > 0 && cold < entry && ReferenceEquals(combat.CommittedPlan, held),
+            $"sustained irrelevance collapses the offer's value without ending its membership; entry={entry} cold={cold}");
         threat.CanReachPlayer = true;
         threat.Urgency = 1;
         VerifyPreparedActivities.PrepareAndScore(combat, context);
         combat.Enter(context);
         npc.active = false;
-        Require(combat.Execute(context) == live::AICompanion.Companion.Brain.Infrastructure.Position.PositionRequest.Hold,
-            "an unavailable prepared combat target must be refused at execution");
+        Require(combat.Execute(context).Target == null,
+            "a dead committed target must be handed to the positioner as no target rather than pursued");
         senses.Threats.Threats.Clear();
         senses.SetInterventionEstimate(float.PositiveInfinity);
-        Require(VerifyPreparedActivities.PrepareAndScore(combat, context) == 0 && combat.ProtectedThreatId == -1, "disappeared threat releases commitment");
+        Require(VerifyPreparedActivities.PrepareAndScore(combat, context) == 0 && combat.CommittedPlan == null, "disappeared threat releases commitment");
         companion.Brain.Chooser.Activity.Select(combat, context);
         var replacement = new NPC { whoAmI = 5, active = true, life = 100, damage = 20, position = new Vector2(500, 880) };
+        Main.npc[5] = replacement;
         var second = new Threat { Npc = replacement, CanReachPlayer = true, Urgency = 1f, EffectiveTicksToPlayer = 0 };
         senses.Threats.Threats.Add(second);
         typeof(live::AICompanion.Companion.Brain.Infrastructure.Observation.ThreatSense).GetProperty("MostUrgent")!.SetValue(senses.Threats, second);
         float renewed = VerifyPreparedActivities.PrepareAndScore(combat, context);
+        Require(renewed > 0 && combat.CommittedPlan != null && combat.CommittedPlan.PrimaryTarget == 5,
+            $"the replacement threat must be offered and committed a fresh plan; renewed={renewed} reason={combat.EligibilityReason}");
         companion.Brain.Chooser.Activity.Select(combat, context);
         Require(companion.Brain.Chooser.Activity.Id != firstProtection,
             "guarding a different enemy must start a distinct protection activity in the shared owner");
         second.Urgency = .15f;
-        Require(VerifyPreparedActivities.PrepareAndScore(combat, context) >= renewed && combat.ProtectedThreatId == 5,
+        var secondHeld = combat.CommittedPlan;
+        Require(VerifyPreparedActivities.PrepareAndScore(combat, context) > 0 && ReferenceEquals(combat.CommittedPlan, secondHeld),
             "a second threat must inherit commitment while guarding stays selected");
 
         // Attempt boundaries: the first threat's release above happened before this attempt opened,
-        // so it cannot conclude it; the committed second threat vanishing while the player lives
-        // completes protection without naming who removed it.
+        // so it cannot conclude it; the committed second threat vanishing before any attack invalidates
+        // the attempt rather than completing it, because nothing the plan did removed it.
         combat.BeginAttempt();
         Require(combat.ConcludeAttempt(0).Status == live::AICompanion.Companion.Brain.Activities.AttemptStatus.Attempted,
             $"an attempt opened after an earlier release must not conclude from it; got {combat.ConcludeAttempt(0)}");
         replacement.active = false;
         senses.Threats.Threats.Clear();
         VerifyPreparedActivities.PrepareAndScore(combat, context);
-        Require(combat.ConcludeAttempt(0) is { Status: live::AICompanion.Companion.Brain.Activities.AttemptStatus.Complete,
-                Attribution: live::AICompanion.Companion.Brain.Activities.AttemptAttribution.Unattributed, Cause: "protected-threat-gone" },
-            $"a committed threat gone while the player lives completes protection, unattributed; got {combat.ConcludeAttempt(0)}");
+        Require(combat.ConcludeAttempt(0) is { Status: live::AICompanion.Companion.Brain.Activities.AttemptStatus.Invalid,
+                Cause: "planned-targets-gone-before-attack" },
+            $"a committed threat gone before any attack invalidates the attempt; got {combat.ConcludeAttempt(0)}");
+    }
+
+    private static void BuildGuardFloor()
+    {
+        Main.maxTilesX = Main.maxTilesY = 140;
+        Main.worldSurface = 50;
+        Main.tile = (Tilemap)Activator.CreateInstance(typeof(Tilemap), System.Reflection.BindingFlags.Instance
+            | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic,
+            null, new object[] { (ushort)140, (ushort)140 }, null)!;
+        Main.tileSolid[1] = true;
+        for (int x = 5; x < 115; x++)
+            for (int y = 80; y <= 82; y++)
+            {
+                Tile tile = Main.tile[x, y];
+                tile.HasTile = true;
+                tile.TileType = 1;
+            }
+        TerrainChanges.Reset();
+        live::AICompanion.Companion.Brain.Infrastructure.Movement.MovementQueries.World = new live::AICompanion.Companion.Brain.Infrastructure.Movement.GameTileWorld();
     }
 
     private static void VerifyRecoveryThroughBrain()
@@ -214,7 +262,7 @@ internal static class VerifyFollowRecoveryAndProtection
             VerifyCompanionLifecycle.TickWithOneControlGrant(companion);
             if (tick == 15)
             {
-                quietHands = companion.Brain.EngageTarget == null && companion.Arsenal.LastFireOutcome != "fired";
+                quietHands = companion.Brain.EngageTarget == null && companion.Combat.LastFireOutcome != "fired";
                 Main.npc[1].active = false;
             }
             started |= companion.Brain.FollowRecovery.Active;
