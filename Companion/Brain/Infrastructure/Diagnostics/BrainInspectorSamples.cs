@@ -28,7 +28,10 @@ public static class BrainInspectorSamples
     public static void RecordMovement(Controls controls, Vector2[] points, float score)
         => Add(MovementTraces, points, score < float.MaxValue, controls + ";score=" + score);
     public static void RecordTrace(Vector2[] points, string outcome)
-        => Add(AimTraces, points, outcome == "target intercepted", outcome);
+    {
+        if (!BrainOverlay.MayCapture || !BrainOverlay.ShowAiming) return;
+        Add(AimTraces, points, outcome == "target intercepted", outcome);
+    }
     private static void Add(System.Collections.Generic.Queue<Trace> traces, Vector2[] points, bool accepted, string reason)
     {
         if (traces.Count >= Capacity) traces.Dequeue();

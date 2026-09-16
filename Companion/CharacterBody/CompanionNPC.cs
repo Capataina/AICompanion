@@ -6,7 +6,7 @@ using Microsoft.Xna.Framework.Graphics;
 using Terraria;
 using Terraria.ID;
 using Terraria.ModLoader;
-using AICompanion.Companion.Weapons;
+using AICompanion.Companion.Brain.Infrastructure.Interactions.Firing;
 using AICompanion.Companion.Inventory;
 using AICompanion.Companion.PlayerIntegration;
 using AICompanion.Companion.Brain.Infrastructure.Movement;
@@ -270,7 +270,7 @@ public class CompanionNPC : ModNPC
     /// The companion's mana pool, mirrored from the player like life and defence and spent by the
     /// weapons; the notch reads its fraction. Session state, not saved.
     /// </summary>
-    public Weapons.CompanionMana Mana { get; } = new();
+    public CompanionMana Mana { get; } = new();
 
     private void MirrorStats(Player player)
     {

@@ -4,11 +4,13 @@ using System;
 using System.Collections.Generic;
 using Microsoft.Xna.Framework;
 using Terraria;
-using AICompanion.Companion.Brain.Infrastructure.Aiming;
 using AICompanion.Companion.Brain.Infrastructure.Selection;
 using AICompanion.Companion.Brain.Infrastructure.Movement;
 using AICompanion.Companion.Brain.Infrastructure.Observation;
+using AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Simulation;
+using AICompanion.Companion.Brain.Activities.Combat.Planning;
 using Senses = AICompanion.Companion.Brain.Infrastructure.Observation;
+using FlightModel = AICompanion.Companion.Brain.Infrastructure.Interactions.Firing.FlightModel;
 
 namespace AICompanion.Companion.Brain.Infrastructure.Position;
 
@@ -17,7 +19,7 @@ namespace AICompanion.Companion.Brain.Infrastructure.Position;
 /// Candidates are the usable corner nodes of the free-space graph around the request's anchor —
 /// the same nodes the route search plans over, so a spot chosen here is one a route can end on —
 /// under a ceiling above the player's feet; each scores on distance band to the player (tight
-/// under threat), sight line to the player, line of fire to the target through the aimer, danger
+/// under threat), sight line to the player, line of fire to the target through the simulator, danger
 /// from predicted threat paths, clearance from the walls and height beside the player, with the
 /// weights the request kind sets. Re-scored every few ticks so the companion does not twitch
 /// between two equal spots.
@@ -402,12 +404,12 @@ public sealed class Positioner
                 // The kind declares no box because the arc belongs to a moving target, so membership is the arc
                 // itself. Re-proving it costs one solve per handed weapon and it is taken outside the shortlist budget, which is
                 // what makes a budget cut incapable of dropping a stand that still works.
-                if (request.Target is not { active: true, life: > 0 } enemy || fireProfile is not { } profile)
+                if (request.Target is not { active: true, life: > 0 } enemy || fireProfile is null)
                     return false;
                 if (Vector2.DistanceSquared(enemy.Center, admittedTargetCentre)
                     > Weights.FiringHoldTargetSlackPx * Weights.FiringHoldTargetSlackPx)
                     return false;
-                var held = SolveShotAtArrivalWithAnyWeapon(spot, enemy, profile, senses, out _);
+                var held = SolveShotAtArrivalWithAnyWeapon(spot, enemy, senses, out _);
                 if (!held.Solved)
                 {
                     RememberRefusal(tile, enemy, BodyBucket(senses.Companion.Center),
@@ -540,7 +542,7 @@ public sealed class Positioner
     /// replaces. The arrival sample is taken first and the window samples only on a pass, because three solves per
     /// candidate under an unchanged millisecond budget would otherwise cut the shortlist to a third of its depth.
     /// </summary>
-    private ShotVerdict SolveShotAtArrival(Vector2 eye, NPC target, FlightModel profile, Senses.Senses senses)
+    private ShotVerdict SolveShotAtArrival(Vector2 eye, NPC target, Interactions.Firing.CompanionWeapon weapon, int slot, Senses.Senses senses)
     {
         Point from = MovementQueries.Tile(senses.Companion.Center);
         float trip = EstimatedTravelTicks(from, MovementQueries.Tile(eye))
@@ -548,12 +550,20 @@ public sealed class Positioner
         int arrival = (int)MathHelper.Clamp(trip, 0f, 180f);
         bool forecastUsable = PredictObservedMotion.ErrorSamples(target) > 0
             && PredictObservedMotion.Confidence(target, arrival) >= Weights.ShotForecastConfidenceFloor;
+        WeaponId id = SimulateUse.IdentifyGeometry(weapon, slot);
+        IReadOnlyList<EnemyForecast> enemies = ForecastEnemies.FromThreats(senses.Threats.Threats);
+        EnemyForecast? forecast = null;
+        foreach (EnemyForecast enemy in enemies)
+            if (enemy.Slot == target.whoAmI) { forecast = enemy; break; }
+        forecast ??= ForecastEnemies.ForSingle(target);
+        CombatWorld world = CombatWorld.Current(eye, Main.LocalPlayer.Center, TerrainChanges.Revision);
+        PlanningBudget budget = PlanningBudget.Unbounded();
         if (!forecastUsable || arrival <= 0)
         {
-            bool now = TrajectoryAimer.Solve(eye, target, profile) != null;
+            bool now = SolveAims.FirstLanding(id, eye, forecast, world, enemies, 0, ref budget) != null;
             return new(now, now ? (forecastUsable ? "clear-arc" : "clear-arc-unforecast") : "no-arc", arrival);
         }
-        if (TrajectoryAimer.Solve(eye, target, profile, arrival) == null)
+        if (SolveAims.FirstLanding(id, eye, forecast, world, enemies, arrival, ref budget) == null)
             return new(false, "no-arc", arrival);
         // The window is the trip's own length, bounded above so a walk across the world does not ask
         // for a shot that holds for ever. The rule as it stood read the other way round: it took the
@@ -566,7 +576,7 @@ public sealed class Positioner
         // and a short walk is still a walk.
         int window = ShotWindow(trip);
         foreach (int held in ShotWindowOffsets(trip))
-            if (TrajectoryAimer.Solve(eye, target, profile, Math.Min(180, arrival + held)) == null)
+            if (SolveAims.FirstLanding(id, eye, forecast, world, enemies, Math.Min(180, arrival + held), ref budget) == null)
                 return new(false, WindowRefusal(window), arrival);
         return new(true, "clear-arc", arrival);
     }
@@ -872,7 +882,7 @@ public sealed class Positioner
                 { everyCandidateAnswered = EveryRemainingAsked(candidates, i, request.Target!); break; }
                 if (solved >= solves)
                 { everyCandidateAnswered = EveryRemainingAsked(candidates, i, request.Target!); break; } // unsolved candidates cannot beat a solved one above them
-                var verdict = SolveShotAtArrivalWithAnyWeapon(spot, request.Target!, fireProfile!.Value, senses, out int tried);
+                var verdict = SolveShotAtArrivalWithAnyWeapon(spot, request.Target!, senses, out int tried);
                 // Every weapon asked is a solve paid for, so the count the budget reads is the expense rather than the
                 // candidates; counting one per candidate would let two weapons silently double the pass's cost.
                 solved += Math.Max(1, tried);
@@ -968,7 +978,7 @@ public sealed class Positioner
         float ideal = companion.Arsenal.IdealShotValue(ctx, target);
         if (ideal <= 0f)
             return 1f;
-        float value = companion.Arsenal.BestShotValueFrom(ctx, global::AICompanion.Companion.Weapons.Arsenal.MuzzleAt(stand), target, arrivalTicks);
+        float value = companion.Arsenal.BestShotValueFrom(ctx, global::AICompanion.Companion.Brain.Infrastructure.Interactions.Firing.Arsenal.MuzzleAt(stand), target, arrivalTicks);
         return Weights.FiringStandValueFloor + (1f - Weights.FiringStandValueFloor) * MathHelper.Clamp(value / ideal, 0f, 1f);
     }
 
@@ -979,31 +989,24 @@ public sealed class Positioner
     /// weapons were asked is returned so the shortlist budget counts the solves actually paid for. A bare NPC with no arsenal
     /// is asked about the profile it was handed.
     /// </summary>
-    private ShotVerdict SolveShotAtArrivalWithAnyWeapon(Vector2 eye, NPC target, FlightModel fallback, Senses.Senses senses, out int tried)
+    private ShotVerdict SolveShotAtArrivalWithAnyWeapon(Vector2 eye, NPC target, Senses.Senses senses, out int tried)
     {
         tried = 0;
-        ShotVerdict refusal = new(false, "no-arc", 0);
-        foreach (FlightModel model in HandedModels(senses, fallback))
+        ShotVerdict refusal = new(false, "no-weapon", 0);
+        if (senses.Companion?.ModNPC is not global::AICompanion.Companion.CharacterBody.CompanionNPC companion
+            || companion.Arsenal.Weapons.Count == 0)
+            return refusal;
+        var weapons = companion.Arsenal.Weapons;
+        for (int slot = 0; slot < weapons.Count; slot++)
         {
             tried++;
-            ShotVerdict verdict = SolveShotAtArrival(eye, target, model, senses);
+            ShotVerdict verdict = SolveShotAtArrival(eye, target, weapons[slot], slot, senses);
             if (verdict.Solved)
                 return verdict;
             if (tried == 1 || verdict.Reason.StartsWith(PositionReasons.ShotWindowShorterThanTrip, StringComparison.Ordinal))
                 refusal = verdict;
         }
         return refusal;
-    }
-
-    private static IEnumerable<FlightModel> HandedModels(Senses.Senses senses, FlightModel fallback)
-    {
-        if (senses.Companion?.ModNPC is global::AICompanion.Companion.CharacterBody.CompanionNPC companion && companion.Arsenal.Weapons.Count > 0)
-        {
-            foreach (var weapon in companion.Arsenal.Weapons)
-                yield return weapon.Model;
-            yield break;
-        }
-        yield return fallback;
     }
 
     /// <summary>What the weapons in hand are, as a number that changes when they do: the gear's signature for the companion, the handed profile for a bare NPC.</summary>

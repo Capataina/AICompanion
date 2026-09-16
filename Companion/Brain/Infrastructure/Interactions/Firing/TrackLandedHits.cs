@@ -4,10 +4,11 @@ using Microsoft.Xna.Framework;
 using Terraria;
 using Terraria.DataStructures;
 using Terraria.ModLoader;
-using AICompanion.Companion.Brain.Infrastructure.Aiming;
 using AICompanion.Companion.Brain.Infrastructure.Observation;
+using AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Learning;
+using AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Recording;
 
-namespace AICompanion.Companion.Weapons;
+namespace AICompanion.Companion.Brain.Infrastructure.Interactions.Firing;
 
 /// <summary>
 /// Which NPC a companion projectile actually struck, kept beside the target it was aimed at. Pursuit
@@ -138,36 +139,32 @@ public static class TrackLandedHits
 }
 
 /// <summary>
-/// Clears a projectile slot's shot identity and its arc watch at every native spawn, and feeds the arc
-/// learner every post-AI velocity of a registered companion projectile until it dies. The learner
-/// (<c>../Brain/Infrastructure/Aiming/LearnProjectileArcs.cs</c>) owns what is done with the samples; this
-/// hook only delivers them, under the same slot-reuse discipline as the shot ledger: a spawn forgets first,
-/// the arsenal registers after its own spawn has cleared the slot, and a death retires the watch.
+/// Clears a projectile slot's shot identity and outcome window at every native spawn, and joins a child to its
+/// parent projectile's window, so a splitting or star-calling shot is credited with what its children land. The
+/// arc-learner feed — the forget, the post-AI velocities, the retire — moved to the flight recorder's own hook in
+/// phase B, which watches every use's samples rather than only registered companion shots; this hook keeps the
+/// ledgers, which still attribute only to a registered slot.
 /// </summary>
 public sealed class ForgetReusedShotSlots : GlobalProjectile
 {
     public override void OnSpawn(Projectile projectile, IEntitySource source)
     {
         TrackLandedHits.AttributeSpawn(projectile.whoAmI, source);
-        ProjectileArcs.Forget(projectile.whoAmI);
-        // Forgets the slot's outcome window first and then joins a child to its parent projectile's window, so a
-        // splitting or star-calling shot is credited with what its children land.
         ShotOutcomes.AttributeSpawn(projectile.whoAmI, source);
     }
 
-    public override void PostAI(Projectile projectile) => ProjectileArcs.Observe(projectile);
-
     public override void OnKill(Projectile projectile, int timeLeft)
     {
-        ProjectileArcs.Retire(projectile.whoAmI);
         ShotOutcomes.Retire(projectile.whoAmI);
     }
 }
 
 /// <summary>
 /// Attributes a native projectile hit to the companion shot registered in that slot, if any, feeds the weapon-effects
-/// table the velocity the hit was added to and the velocity it left, and feeds the outcome window the damage and the buffs
-/// the hit added — for the shot's own projectile and for every descendant attributed to it.
+/// table the velocity the hit was added to and the velocity it left, feeds the outcome window the damage and the buffs
+/// the hit added — for the shot's own projectile and for every descendant attributed to it — and files the hit on the
+/// projectile's flight trace, if it is watched. The trace takes every watched hit, either shooter's; the tables still
+/// take only registered companion shots.
 /// </summary>
 public sealed class ObserveLandedCompanionHits : GlobalNPC
 {
@@ -182,5 +179,6 @@ public sealed class ObserveLandedCompanionHits : GlobalNPC
         TrackLandedHits.ObserveHit(npc, projectile, damageDone);
         TrackLandedHits.AfterStrike(npc, projectile, hit, damageDone);
         ShotOutcomes.Landed(npc, projectile.whoAmI, damageDone);
+        RecordProjectileFlights.NoteHit(projectile.whoAmI, npc, projectile, damageDone);
     }
 }

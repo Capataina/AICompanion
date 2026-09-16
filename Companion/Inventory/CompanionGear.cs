@@ -20,7 +20,7 @@ public enum GearSlot { FirstWeapon = 0, SecondWeapon = 1, Pickaxe = 2, Axe = 3 }
 /// more — no armour, no accessory, no ammo, no mount — and that a handed item is read for its
 /// numbers and never run through the player's item-use code. This class holds the items and
 /// answers what each slot accepts; what a weapon does with those numbers is the arsenal's
-/// (<c>../Weapons/ItemWeapon.cs</c>), and what a tool's power gates is the interactions'.
+/// (<c>../Brain/Infrastructure/Interactions/Firing/ItemWeapon.cs</c>), and what a tool's power gates is the interactions'.
 ///
 /// Gear is equipment and never cargo: nothing here is picked up, stacked or handed over, and the
 /// bag beside it never holds a weapon the companion fights with. A slot refuses by predicate, and
@@ -142,15 +142,9 @@ public sealed class CompanionGear
                 reason = "fires a projectile the game has not loaded";
                 return false;
             }
-            // The arc learner watched this projectile fly and found nothing the aimer can fly: a bubble
-            // that rises, a shot that homes. The item keeps firing until the gear next changes, which is
-            // when the arsenal re-runs this predicate; then the slot dims with the reason.
-            int flown = DefaultAmmo(item) is { shoot: > 0 } ammo ? ammo.shoot : item.shoot;
-            if (Brain.Infrastructure.Aiming.ProjectileArcs.Unfittable(flown))
-            {
-                reason = "its projectile flies no arc the companion can aim";
-                return false;
-            }
+            // A projectile the arc learner cannot fit — a bubble that rises, a shot that homes — is still
+            // fired, at the intercept, and valued by what its uses achieve: the refusal used to sit here and
+            // phase B removed it, because the residual learner already prices outcomes the geometry cannot see.
             if (ProjectileID.Sets.IsAWhip[item.shoot] || projectile.aiStyle is ProjAIStyleID.Flail or ProjAIStyleID.Spear or ProjAIStyleID.Yoyo or ProjAIStyleID.Whip)
             {
                 reason = "held weapons are steered by the player";

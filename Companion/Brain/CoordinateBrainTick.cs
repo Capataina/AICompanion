@@ -2,6 +2,7 @@
 
 using Microsoft.Xna.Framework;
 using AICompanion.Companion.Brain.Activities;
+using AICompanion.Companion.Brain.Activities.Combat;
 using AICompanion.Companion.Brain.Infrastructure.Selection;
 using AICompanion.Companion.Brain.Infrastructure.Movement;
 using AICompanion.Companion.Brain.Infrastructure.Position;
@@ -51,7 +52,8 @@ public sealed class Brain
     public bool MovementStalled { get; private set; }
     public string ActivityStatus => FollowRecovery.Active ? "Catching up" : MovementStalled ? "Stuck: not making progress" : LastAction?.Name switch
     {
-        "keep-company" => "Keeping company", "guard" => "Guarding you", "hunt" => "Hunting",
+        "keep-company" => "Keeping company",
+        "combat" => LastAction is FightEnemies stance && stance.GuardWon ? "Guarding you" : "Hunting",
         "mine" => "Mining ore", "chop" => "Chopping a tree", "collect" => "Collecting",
         "place-torches" => "Lighting the way", _ => "Resting"
     };
@@ -237,13 +239,11 @@ public sealed class Brain
     }
 
     /// <summary>
-    /// The hands, run every tick whatever the feet were told. A player does not choose between
-    /// walking and shooting and neither does this: attacking used to live inside three actions —
-    /// hunt, guard and kite — which meant the companion was literally incapable of shooting while
-    /// following the player, looting, wandering or working, and "it should be attacking things
-    /// regardless" was impossible to satisfy by any amount of scoring. So firing left the actions
-    /// and came here, and hunting is now only the decision to walk toward something rather than
-    /// the decision to fight at all.
+    /// The hands, run on a tick combat is the running activity and quiet on every other. Firing
+    /// used to live here unconditionally — attacking had once lived inside three actions, which made
+    /// the companion incapable of shooting while following, looting or working, so firing left the
+    /// actions for the tick. The combat stance reverses that: fighting is one activity's decision
+    /// again, and the hands fire only while it runs, because a body mining a vein is not fighting.
     ///
     /// It runs after Navigate on purpose. The motor has already been told where to go, so facing
     /// the target wins the tick and the body aims where it shoots while walking somewhere else,
@@ -260,12 +260,18 @@ public sealed class Brain
             companion.Arsenal.NoteHandsBusy();
             return false;
         }
+        if (Chooser.Current is not FightEnemies)
+        {
+            EngageTarget = null;
+            companion.Arsenal.NoteNotFighting();
+            return false;
+        }
         EngageTarget = companion.Arsenal.BestTarget(ctx);
         // Whether the arm was used this tick: a grant that leaves the hand Available permits a shot, and one arm cannot also break a pot.
         return companion.Arsenal.TryFire(ctx, EngageTarget);
     }
 
-    /// <summary>What the hands are shooting at, independent of what the feet were told to do.</summary>
+    /// <summary>What the hands are shooting at on a tick combat runs; null on every other tick.</summary>
     public Terraria.NPC? EngageTarget { get; private set; }
 
     private void CountStranded()

@@ -1,12 +1,13 @@
 #nullable enable
 
+using System;
 using System.Collections.Generic;
 using Microsoft.Xna.Framework;
 using Terraria;
 using AICompanion.Companion.Brain.Activities;
-using AICompanion.Companion.Brain.Infrastructure.Aiming;
+using AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Learning;
 
-namespace AICompanion.Companion.Weapons;
+namespace AICompanion.Companion.Brain.Infrastructure.Interactions.Firing;
 
 /// <summary>
 /// One body a swing struck: how much its life fell, and the buffs it carried just before, so the outcome observer can read
@@ -15,25 +16,26 @@ namespace AICompanion.Companion.Weapons;
 public readonly record struct SwingStrike(NPC Npc, int Dealt, int[] BuffTypesBefore, int[] BuffTimesBefore);
 
 /// <summary>
-/// What one use of a weapon put into the world: the projectile slot the game gave a shot, or the
-/// bodies a swing struck. A swing has no projectile and a shot has struck nothing yet, so the two
-/// numbers are never both meaningful and <see cref="Landed"/> is what a caller asks. A swing also carries
-/// its strikes, because no hit hook will report them later.
+/// What one use of a weapon put into the world: the projectile slots the game gave a shot's volley, or the
+/// bodies a swing struck. <see cref="ProjectileSlot"/> is the first slot the use spawned — the capacity sentinel
+/// when the game had no slot — and <see cref="AllSlots"/> every spawn that landed. A swing has no projectile and
+/// a shot has struck nothing yet, so slots and strikes are never both meaningful and <see cref="Landed"/> is what
+/// a caller asks. A swing also carries its strikes, because no hit hook will report them later.
 /// </summary>
-public readonly record struct FireResult(int ProjectileSlot, int Struck, IReadOnlyList<SwingStrike>? Strikes = null)
+public readonly record struct FireResult(int ProjectileSlot, int Struck, IReadOnlyList<SwingStrike>? Strikes = null, IReadOnlyList<int>? Slots = null)
 {
     public static readonly FireResult Nothing = new(-1, 0);
     public bool IsShot => ProjectileSlot >= 0;
     public bool Landed => IsShot || Struck > 0;
+    public IReadOnlyList<int> AllSlots => Slots ?? (IsShot ? new[] { ProjectileSlot } : Array.Empty<int>());
 }
 
 /// <summary>
-/// A weapon in the companion's hands, as the arsenal sees it: facts about itself and the two
-/// geometric questions the arsenal asks of every weapon in the same words. It holds no opinion
-/// about when it should be used, because the arsenal decides that by working out what each weapon
-/// would actually land in the next few seconds, and a weapon that carried its own view of "suits a
-/// crowd" would be overruling that arithmetic with a guess. That separation is what lets any item
-/// arrive as numbers rather than as a rule.
+/// A weapon in the companion's hands, as the arsenal sees it: facts about itself, read from the item,
+/// and one use. It holds no opinion about when it should be used, because the arsenal decides that by
+/// simulating what each weapon would actually land in the next few seconds, and a weapon that carried
+/// its own view of "suits a crowd" would be overruling that arithmetic with a guess. That separation
+/// is what lets any item arrive as numbers rather than as a rule.
 ///
 /// Fire rate is halved until the mastery tree raises it, and a few degrees of aim noise are added
 /// for the same reason; both are companion facts rather than item facts.
@@ -50,7 +52,7 @@ public abstract class CompanionWeapon
 
     public abstract bool IsSwing { get; }
 
-    /// <summary>How the aimer flies one use of this weapon, read fresh each time because a learned motion changes under it.</summary>
+    /// <summary>The pre-gate facts one use of this weapon is checked against before anything is simulated.</summary>
     public abstract FlightModel Model { get; }
 
     /// <summary>Ticks between uses before the fire-rate nerf.</summary>
@@ -61,6 +63,9 @@ public abstract class CompanionWeapon
 
     /// <summary>The knockback one hit hands the game's strike, before the enemy's resistance and the game's falloff.</summary>
     public abstract float Knockback { get; }
+
+    /// <summary>The mana one use spends; zero for a weapon that costs none.</summary>
+    public abstract int ManaCost { get; }
 
     /// <summary>
     /// Whether the game pushes this weapon's hits away from their owner, the player, rather than along the flight or the
@@ -77,9 +82,6 @@ public abstract class CompanionWeapon
     /// <summary>Furthest a use is worth attempting, px, which is the model's own reach.</summary>
     public float Reach => Model.Reach;
 
-    /// <summary>How many hostiles one use can hurt.</summary>
-    public abstract int Pierce { get; }
-
     /// <summary>
     /// What one hit takes off, with every factor the actual use will apply. The scorer and the use
     /// read this same method on purpose: a weapon scored on one damage number and used with another
@@ -87,14 +89,15 @@ public abstract class CompanionWeapon
     /// </summary>
     public abstract int DamagePerHit(in ActionContext ctx);
 
-    /// <summary>Whether the target is close enough for a use to be worth tracing at all.</summary>
+    /// <summary>Whether the target is close enough for a use to be worth simulating at all.</summary>
     public abstract bool InReach(Vector2 muzzle, NPC target);
 
-    /// <summary>The hostiles one use from this muzzle along this launch would hurt, in the order it reaches them.</summary>
-    public abstract int Hits(Vector2 muzzle, Vector2 launch, IReadOnlyList<NPC> hostiles, NPC[] into);
-
-    /// <summary>Use the weapon: spawn the projectile, or strike the bodies in the swing.</summary>
-    public abstract FireResult Fire(in ActionContext ctx, Vector2 muzzle, Vector2 launch);
+    /// <summary>
+    /// Use the weapon: spawn the learned volley, or strike the bodies in the swing. <paramref name="aim"/> is the
+    /// point the use is aimed at — the target's centre on the tick it leaves — which the volley is expanded around
+    /// and the traces remember; a swing aims its sector by <paramref name="launch"/> as before.
+    /// </summary>
+    public abstract FireResult Fire(in ActionContext ctx, Vector2 muzzle, Vector2 launch, Vector2 aim);
 
     public int UseTime => (int)(BaseUseTime * FireRateFactor);
 }

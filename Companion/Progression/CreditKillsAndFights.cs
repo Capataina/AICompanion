@@ -7,6 +7,7 @@ using Terraria.DataStructures;
 using Terraria.ID;
 using Terraria.ModLoader;
 using AICompanion.Companion.Brain.Infrastructure.Diagnostics;
+using AICompanion.Companion.Brain.Infrastructure.Interactions.Firing;
 
 namespace AICompanion.Companion.Progression;
 
@@ -134,7 +135,7 @@ public static class CreditKillsAndFights
     /// </summary>
     public static Striker StrikerOf(Projectile projectile)
     {
-        if (Weapons.TrackLandedHits.IsCompanionShot(projectile.whoAmI)) return Striker.Companion;
+        if (TrackLandedHits.IsCompanionShot(projectile.whoAmI)) return Striker.Companion;
         return projectile.friendly && projectile.owner == Main.myPlayer && !projectile.trap && !projectile.npcProj ? Striker.Player : Striker.Other;
     }
 

@@ -6,8 +6,9 @@ using Terraria;
 using Terraria.DataStructures;
 using AICompanion.Companion.Brain.Infrastructure.Observation;
 using AICompanion.Companion.Brain.Infrastructure.Selection;
+using AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Learning;
 
-namespace AICompanion.Companion.Weapons;
+namespace AICompanion.Companion.Brain.Infrastructure.Interactions.Firing;
 
 /// <summary>
 /// What one use of a weapon actually achieved, gathered over the use's whole life and handed to

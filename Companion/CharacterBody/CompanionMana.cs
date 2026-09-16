@@ -3,7 +3,7 @@
 using System;
 using Terraria;
 
-namespace AICompanion.Companion.Weapons;
+namespace AICompanion.Companion.CharacterBody;
 
 /// <summary>
 /// The companion's mana: a pool mirroring the player's maximum, spent per cast, regenerating on

@@ -25,14 +25,13 @@ public sealed class Chooser
 
     public Chooser()
     {
-        // Guarding and hunting ask one firing-opportunity query, so a threat on the player is judged
-        // shootable or not by the same terrain scan and cache the hunt reads; guard prepares first and
-        // warms that cache for the hunt on the same tick.
+        // Combat's two sides ask one firing-opportunity query, so a threat on the player is judged
+        // shootable or not by the same terrain scan and cache the hunt side reads; the guard side
+        // evaluates first and warms that cache for the hunt side on the same tick.
         var firingAccess = new ResolveFiringOpportunity();
         Actions = new()
         {
-            new ProtectPlayer(firingAccess),
-            new PursueAttackOpportunity(firingAccess),
+            new FightEnemies(firingAccess),
             new CollectNearbyItems(),
             new ChopTree(),
             new MineOre(),

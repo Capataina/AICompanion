@@ -5,10 +5,9 @@
 ```
 Companion/
 ├─ CLAUDE.md                 this guide
-├─ CharacterBody/            the orb NPC's lifecycle, its drawing, its immunity to every liquid and the stand-in hostiles aim at
+├─ CharacterBody/            the orb NPC's lifecycle, its drawing, its immunity to every liquid, the stand-in hostiles aim at and the mana pool
 ├─ EnemyIntegration/         temporary targeting stand-in and spawn-rate changes
 ├─ Brain/                    Activities, SharedBehaviours (Safety, Recovery) and Infrastructure
-├─ Weapons/                  the item-backed weapon, outcome-based arsenal selection and the mana pool
 ├─ Inventory/                the cargo bag, the four gear slots and their page
 ├─ PlayerIntegration/        persistence, input, player events and /companion
 ├─ ProfileCard/              native per-character behaviour controls and inventory access

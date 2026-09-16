@@ -7,29 +7,34 @@ using Terraria;
 using Terraria.ID;
 using Terraria.ModLoader;
 using AICompanion.Companion.Brain.Activities;
+using AICompanion.Companion.Brain.Activities.Combat.Planning;
 using AICompanion.Companion.Brain.Infrastructure.Diagnostics;
-using AICompanion.Companion.Brain.Infrastructure.Aiming;
 using AICompanion.Companion.Brain.Infrastructure.Movement;
 using AICompanion.Companion.Brain.Infrastructure.Observation;
 using AICompanion.Companion.Brain.Infrastructure.Selection;
+using AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge;
+using AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Learning;
+using AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Recording;
+using AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Simulation;
 using AICompanion.Companion.Inventory;
 using AICompanion.Companion.PlayerIntegration;
 
-namespace AICompanion.Companion.Weapons;
+namespace AICompanion.Companion.Brain.Infrastructure.Interactions.Firing;
 
 /// <summary>
 /// Compares feasible weapon/target pairs by useful damage, timely threat removal and
-/// follow-up attacks. Geometry supplies actual predicted intersections; the outcome
-/// evaluator reserves health so an in-flight shot cannot earn its kill twice. The
-/// bounded candidate set is ordered by danger before distance. Neither a weapon nor
-/// an enemy type owns a special suitability rule. The final, accuracy-adjusted arc is
-/// checked again before firing because the forecast is not permission to hit a wall.
+/// follow-up attacks. The simulator supplies actual predicted uses — the learned volley flown
+/// under the fitted laws against the tick's enemy forecast — and the outcome evaluator reserves
+/// health so an in-flight shot cannot earn its kill twice. The bounded candidate set is ordered
+/// by danger before distance. Neither a weapon nor an enemy type owns a special suitability rule.
+/// No use is re-checked before firing, because the sim that chose its aim already flew it through
+/// terrain; the forecast is the permission.
 ///
 /// The weapons are whatever the two weapon slots of the gear hold, enumerated again only when
 /// the gear's signature changes, and a slot the predicate refuses — an item that stopped passing
 /// after it was saved — is skipped here as well, so a refused item never reaches a forecast.
 ///
-/// Every forecast's hit damage is the arithmetic's prior times what <see cref="AttackLearning"/> has learned that
+/// Every forecast's hit damage is the simulated prior times what <see cref="AttackLearning"/> has learned that
 /// weapon's attacks actually achieve in that context, so weapon, target, stand and aim are ranked by one learned value;
 /// every use opens an outcome window in <see cref="ShotOutcomes"/> that teaches the learner when it closes.
 /// </summary>
@@ -38,10 +43,7 @@ public sealed class Arsenal
     /// <summary>The window the damage is counted over: three seconds, in ticks.</summary>
     public const int HorizonTicks = 180;
 
-    /// <summary>How many bodies one use is walked for, and the cap for unlimited-pierce projectiles and swings.</summary>
-    public const int MaxPierceCounted = 8;
-
-    /// <summary>How long a weapon choice is kept before the arcs are simulated again.</summary>
+    /// <summary>How long a weapon choice is kept before the uses are simulated again.</summary>
     private const int ChoiceCacheTicks = 12;
 
     private readonly List<CompanionWeapon> weapons = new();
@@ -82,8 +84,9 @@ public sealed class Arsenal
     /// <summary>
     /// Why the last tick did or did not use a weapon, as one word: <c>fired</c>, <c>cooldown</c>,
     /// <c>no-arc</c> (a target, and no launch angle that reaches it), <c>no-target</c> (nothing worth
-    /// shooting), <c>no-weapon</c> (both weapon slots empty or refused) or <c>hands-busy</c> (a tool is in
-    /// the arm). A record that says only whether a shot happened cannot separate "it was reloading"
+    /// shooting), <c>no-weapon</c> (both weapon slots empty or refused), <c>hands-busy</c> (a tool is in
+    /// the arm) or <c>not-fighting</c> (combat is not the running activity, so the hands never aimed).
+    /// A record that says only whether a shot happened cannot separate "it was reloading"
     /// from "it stood there with a bow it could not fire", and those two want opposite fixes.
     /// </summary>
     public string LastFireOutcome { get; private set; } = "-";
@@ -92,6 +95,13 @@ public sealed class Arsenal
     public void NoteHandsBusy()
     {
         LastFireOutcome = "hands-busy";
+        LastShotSolved = false;
+    }
+
+    /// <summary>Combat is not the running activity this tick, so the hands never aimed at anything.</summary>
+    public void NoteNotFighting()
+    {
+        LastFireOutcome = "not-fighting";
         LastShotSolved = false;
     }
 
@@ -109,8 +119,9 @@ public sealed class Arsenal
     private int failedUntilTick;
     private const int FailedTraceFreshnessTicks = 6;
 
-    private readonly NPC[] pierced = new NPC[MaxPierceCounted];
-    private readonly List<NPC> hostiles = new();
+    /// <summary>The tick's enemy forecast, built once and read by every forecast, so every weapon and target in one decision meets the same enemies.</summary>
+    private int forecastTick = int.MinValue;
+    private IReadOnlyList<EnemyForecast> forecastEnemies = Array.Empty<EnemyForecast>();
 
     /// <summary>Ages the reload and closes outcome windows whose bound has elapsed.</summary>
     public void Tick()
@@ -166,7 +177,7 @@ public sealed class Arsenal
         if (chosenFor == slot && now - chosenAt < ChoiceCacheTicks && chosen != null && state == chosenState)
             return chosen;
 
-        Collect(ctx);
+        EnsureForecast(ctx);
         var options = new List<EvaluateAttackOutcomes.Attack>();
         var forecasts = new EvaluateAttackOutcomes.Attack?[weapons.Count];
         for (int w = 0; w < weapons.Count; w++)
@@ -225,7 +236,7 @@ public sealed class Arsenal
         if (held != null && now - heldAt < TargetHoldTicks && stamp == heldStamp && !MovedPastHold(ctx) && !newlyUrgent && CanEngage(ctx, held))
             return held;
 
-        Collect(ctx);
+        EnsureForecast(ctx);
         Vector2 muzzle = Muzzle(ctx.Npc);
         candidates.Clear();
         foreach (ThreatRecord t in ctx.Senses.Threats.Threats)
@@ -361,7 +372,8 @@ public sealed class Arsenal
             CompanionWeapon weapon = weapons[w];
             float distance = Vector2.Distance(muzzle, target.Center);
             int flight = Math.Max(1, (int)(distance / MathF.Max(1f, weapon.Model.Speed)));
-            var inputs = new ContextInputs(distance, weapon.Reach, (target.velocity - ctx.Npc.velocity).Length(), 0, ctx.Npc.velocity.Length());
+            var inputs = new ContextInputs(distance, weapon.Reach, (target.velocity - ctx.Npc.velocity).Length(), 0, ctx.Npc.velocity.Length(),
+                LearnVolleyShapes.SpreadCone(weapon.ItemType));
             assumed.Add(new EvaluateAttackOutcomes.Attack(w, target.whoAmI, weapon.UseTime, flight,
                 new[] { LearnedHit(ctx, weapon, target, PerHit(ctx, weapon, target), 0f, inputs, 0f, explore) }));
         }
@@ -400,14 +412,66 @@ public sealed class Arsenal
         => Forecast(ctx, weapon, slot, target, Muzzle(ctx.Npc), record: true, 0, out rejection, out _);
 
     /// <summary>The raw inputs of a learning context other than the aim and the debuff, which differ per candidate and per body.</summary>
-    private readonly record struct ContextInputs(float Distance, float Reach, float RelativeSpeed, int LaneHostiles, float OrbSpeed)
+    private readonly record struct ContextInputs(float Distance, float Reach, float RelativeSpeed, int LaneHostiles, float OrbSpeed, float WidestAim)
     {
         public float[] With(float aimOffset, bool debuffedByOther)
-            => AttackLearning.Context(Distance, Reach, aimOffset, RelativeSpeed, LaneHostiles, OrbSpeed, OrbPace.MaxSpeed, debuffedByOther);
+            => AttackLearning.Context(Distance, Reach, aimOffset, WidestAim, RelativeSpeed, LaneHostiles, OrbSpeed, OrbPace.MaxSpeed, debuffedByOther);
     }
 
     /// <summary>What a forecast predicted before any learned correction, and the context it was made in, so a use can be taught against it.</summary>
     private readonly record struct ForecastPrior(float Damage, int Struck, float Charge, ContextInputs Inputs, float AimOffset, bool AimedDebuffed);
+
+    /// <summary>One weapon's best simulated use at one target: the aim it leaves at, the intercept it is measured from, the use, and what the use puts on the target.</summary>
+    private readonly record struct AimedUse(AimCandidate Aim, AimCandidate Intercept, SimulatedUse Use, float TargetDamage);
+
+    /// <summary>
+    /// The best use one weapon has at one target from one muzzle: every aim the solver proposes, each simulated
+    /// against the tick's enemy forecast — from the cache where another question already priced it — and the one
+    /// that puts the most prior damage on the target wins, breaking ties toward the most damage anywhere. The
+    /// intercept is only the fallback all aims are measured from, never the answer by privilege: a bank that lands
+    /// where the intercept meets a wall wins outright. Null when no aim's use strikes anything.
+    /// </summary>
+    private static AimedUse? BestAimUse(in ActionContext ctx, CompanionWeapon weapon, int slot, NPC target,
+        Vector2 muzzle, IReadOnlyList<EnemyForecast> enemies, CombatWorld world, int fireTick, bool record)
+    {
+        EnemyForecast? forecast = null;
+        foreach (EnemyForecast enemy in enemies)
+            if (enemy.Slot == target.whoAmI) { forecast = enemy; break; }
+        if (forecast == null) return null;
+        WeaponId id = SimulateUse.Identify(weapon, ctx, slot);
+        ModifierState modifiers = ApplyCompanionModifiers.Current();
+        int knowledge = KnowledgeRevision.Current;
+        PlanningBudget budget = PlanningBudget.Unbounded();
+        IReadOnlyList<AimCandidate> aims = SolveAims.For(id, muzzle, forecast, world, enemies, fireTick, ref budget);
+        if (aims.Count == 0) return null;
+        AimCandidate intercept = aims[0];
+        AimedUse? best = null;
+        foreach (AimCandidate aim in aims)
+        {
+            if (!CacheSimulatedUses.TryGet(id, modifiers, muzzle, aim.AimPoint, fireTick, knowledge, world.RefreshCount, out SimulatedUse? use) || use == null)
+            {
+                PlanningBudget simBudget = PlanningBudget.Unbounded();
+                use = SimulateUse.Simulate(id, muzzle, aim.AimPoint, aim.LaunchDirection, world, enemies, modifiers, fireTick, ref simBudget);
+                CacheSimulatedUses.Store(id, modifiers, muzzle, aim.AimPoint, fireTick, knowledge, world.RefreshCount, use);
+            }
+            float onTarget = 0f;
+            foreach (SimHit hit in use.Hits)
+                if (hit.Slot == target.whoAmI) onTarget += hit.Damage;
+            if (record)
+            {
+                bool lands = onTarget > 0f;
+                foreach (IReadOnlyList<Vector2> path in use.Paths)
+                    if (path.Count > 1)
+                        BrainInspectorSamples.RecordTrace(new List<Vector2>(path).ToArray(), lands ? "target intercepted" : "no hit on the target");
+            }
+            var candidate = new AimedUse(aim, intercept, use, onTarget);
+            if (best == null || onTarget > best.Value.TargetDamage + 1e-6f
+                || (MathF.Abs(onTarget - best.Value.TargetDamage) <= 1e-6f && use.TotalDamage > best.Value.Use.TotalDamage))
+                best = candidate;
+        }
+        if (best == null || best.Value.Use.Hits.Count == 0) return null;
+        return best;
+    }
 
     /// <summary>
     /// The same forecast the hands fire from, evaluated at an arbitrary muzzle — and against the target as it will be
@@ -415,12 +479,11 @@ public sealed class Arsenal
     /// actually shoot rather than whether a straight ray would.
     ///
     /// The geometry is the prior: the solve, the bodies the flight crosses, each hit's damage after armour and the push
-    /// charge. The learner then scales each hit's damage by what this weapon has achieved in this context, and picks the
-    /// aim. Aim candidates share the intercept's geometry on purpose — the prior for an offset shot is the intercept's
-    /// forecast, and only the learner knows whether aiming off it costs anything — so the choice among them is the
-    /// candidate whose learned factor on the aimed target is largest, taken before any value is computed. Because the aim
-    /// input is the offset's size, a linear model's answer is either the intercept or the widest candidate; a swing has no
-    /// launch to aim and a weapon with no evidence has nothing to say, so both keep the intercept.
+    /// charge. The aim is the solver's best — the most simulated damage on the target, ties to the most anywhere —
+    /// and the learner scales each hit's damage by what this weapon has achieved in this context; it no longer moves
+    /// the shot, and the aim offset it is taught against is the one the winning aim left at. The intercept is only
+    /// what the winner is measured from; a swing has no launch to be imprecise about, so the solver offers it its
+    /// single aim and the noise is a shot's.
     /// </summary>
     private EvaluateAttackOutcomes.Attack? Forecast(in ActionContext ctx, CompanionWeapon weapon, int slot, NPC target, Vector2 muzzle,
         bool record, int targetTickOffset, out string rejection, out ForecastPrior prior)
@@ -428,46 +491,43 @@ public sealed class Arsenal
         prior = default;
         rejection = "outside-reach";
         if (!weapon.InReach(muzzle, target)) return null;
-        rejection = "no-clear-trajectory";
-        FlightModel model = weapon.Model;
-        if (!TrajectoryAimer.TrySolve(muzzle, target, model, Math.Max(0, targetTickOffset), out TrajectorySolution solution))
+        int fireTick = Math.Max(0, targetTickOffset);
+        IReadOnlyList<EnemyForecast> enemies = EnsureForecast(ctx);
+        CombatWorld world = CombatWorld.Current(muzzle, ctx.Player.Center, TerrainChanges.Revision);
+        AimedUse? aimed = BestAimUse(ctx, weapon, slot, target, muzzle, enemies, world, fireTick, record);
+        if (aimed == null)
         {
+            rejection = "no-clear-trajectory";
             if (record) BrainInspectorSamples.RecordAim(muzzle, target.Center, weapon.Name, null, rejection);
             return null;
         }
-        if (record) BrainInspectorSamples.RecordAim(muzzle, target.Center, weapon.Name, solution.LaunchVelocity, "solved");
-        int crossed = Math.Min(weapon.Hits(muzzle, solution.LaunchVelocity, hostiles, pierced), weapon.Pierce);
+        SimulatedUse use = aimed.Value.Use;
+        AimCandidate aim = aimed.Value.Aim;
+        if (record) BrainInspectorSamples.RecordAim(muzzle, target.Center, weapon.Name,
+            aim.LaunchDirection * weapon.Model.Speed, "solved");
         bool explore = Explore(ctx);
         LastForecastExplored = explore;
         var inputs = new ContextInputs(Vector2.Distance(muzzle, target.Center), weapon.Reach,
-            (target.velocity - ctx.Npc.velocity).Length(), Math.Max(0, crossed - 1), ctx.Npc.velocity.Length());
+            (target.velocity - ctx.Npc.velocity).Length(), Math.Max(0, use.Struck - 1), ctx.Npc.velocity.Length(),
+            LearnVolleyShapes.SpreadCone(weapon.ItemType));
         bool aimedDebuffed = ShotOutcomes.DebuffedByOther(target, weapon.ItemType);
-        float aim = 0f;
-        if (!weapon.IsSwing && AttackLearning.Evidence(weapon.ItemType) > 0)
-        {
-            int tick = ctx.Senses.Tick;
-            float bestFactor = AttackLearning.Factor(weapon.ItemType, target.type, inputs.With(0f, aimedDebuffed), explore, tick);
-            for (int step = 1; step <= Weights.WeaponAimOffsetSteps; step++)
-            {
-                float offset = step * Weights.WeaponAimOffsetRadians;
-                float factor = AttackLearning.Factor(weapon.ItemType, target.type, inputs.With(offset, aimedDebuffed), explore, tick);
-                if (factor > bestFactor) { bestFactor = factor; aim = offset; }
-            }
-        }
+        float aimOffset = MathHelper.WrapAngle(aim.LaunchDirection.ToRotation() - aimed.Value.Intercept.LaunchDirection.ToRotation());
         var hits = new List<EvaluateAttackOutcomes.Hit>();
         float priorDamage = 0f, charge = 0f;
-        for (int i = 0; i < crossed; i++)
+        foreach (SimHit sim in use.Hits)
         {
-            float perHit = PerHit(ctx, weapon, pierced[i]);
-            float danger = InducedDanger(ctx, weapon, pierced[i], muzzle, solution.LaunchVelocity, perHit);
-            priorDamage += perHit;
+            if ((uint)sim.Slot >= (uint)Main.maxNPCs) continue;
+            NPC body = Main.npc[sim.Slot];
+            if (body == null || !body.active || body.life <= 0 || !body.CanBeChasedBy()) continue;
+            float danger = InducedDanger(ctx, weapon, body, muzzle, aim.LaunchDirection, sim.Damage);
+            priorDamage += sim.Damage;
             charge += danger;
-            hits.Add(LearnedHit(ctx, weapon, pierced[i], perHit, danger, inputs, aim, explore));
+            hits.Add(LearnedHit(ctx, weapon, body, sim.Damage, danger, inputs, aimOffset, explore));
         }
         rejection = hits.Count == 0 ? "no-damageable-intercept" : "accepted";
         if (hits.Count == 0) return null;
-        prior = new ForecastPrior(priorDamage, hits.Count, charge, inputs, aim, aimedDebuffed);
-        return new(slot, target.whoAmI, weapon.UseTime, solution.ImpactTick, hits.ToArray(), aim);
+        prior = new ForecastPrior(priorDamage, hits.Count, charge, inputs, aimOffset, aimedDebuffed);
+        return new(slot, target.whoAmI, weapon.UseTime, Math.Max(1, use.ImpactTick - fireTick), hits.ToArray(), aimOffset);
     }
 
     /// <summary>
@@ -513,7 +573,7 @@ public sealed class Arsenal
     {
         Refresh(ctx);
         if (!target.active || target.life <= 0 || !target.CanBeChasedBy()) return false;
-        Collect(ctx);
+        EnsureForecast(ctx);
         for (int w = 0; w < weapons.Count; w++)
             if (Forecast(ctx, weapons[w], w, target, muzzle, record: false, 0, out _, out _) != null) return true;
         return false;
@@ -529,7 +589,7 @@ public sealed class Arsenal
     {
         Refresh(ctx);
         if (!target.active || target.life <= 0 || !target.CanBeChasedBy()) return 0f;
-        Collect(ctx);
+        EnsureForecast(ctx);
         var attacks = new List<EvaluateAttackOutcomes.Attack>();
         for (int w = 0; w < weapons.Count; w++)
         {
@@ -605,19 +665,21 @@ public sealed class Arsenal
 
     /// <summary>
     /// The facts whose change should change the held choice at once: which hostiles are listed, by slot and spawn generation,
-    /// the terrain's revision, and what the weapon-effects table and the attack learner believe. Hostiles are combined by
-    /// addition so the list's order, which the threat sense may rebuild every tick, is not a fact. Position is not in it,
-    /// because a hash of every centre and velocity changed on every tick anything moved and so the hold was renewed never;
-    /// movement large enough to matter is <see cref="MovedPastHold"/>'s. Life and urgency are not in it either: the
-    /// companion's own hits advance the learner's and the table's revisions when they land, a more urgent threat already
-    /// breaks the hold on its own test, and a wound from the player waits at most the hold's length to be re-ranked.
+    /// the terrain's revision, and what the weapon knowledge, the weapon-effects table and the attack learner believe.
+    /// Hostiles are combined by addition so the list's order, which the threat sense may rebuild every tick, is not a
+    /// fact. Position is not in it, because a hash of every centre and velocity changed on every tick anything moved and
+    /// so the hold was renewed never; movement large enough to matter is <see cref="MovedPastHold"/>'s. Life and urgency
+    /// are not in it either: the companion's own hits advance the learner's and the table's revisions when they land, a
+    /// more urgent threat already breaks the hold on its own test, and a wound from the player waits at most the hold's
+    /// length to be re-ranked.
     /// </summary>
     private static int CombatStamp(in ActionContext ctx)
     {
         int hostiles = 0;
         foreach (var t in ctx.Senses.Threats.Threats)
             hostiles += HashCode.Combine(t.Npc.whoAmI, HostileAttackSources.Generation(t.Npc));
-        return HashCode.Combine(hostiles, ctx.Senses.Threats.Threats.Count, TerrainChanges.Revision, WeaponEffects.Revision, AttackLearning.Revision);
+        return HashCode.Combine(hostiles, ctx.Senses.Threats.Threats.Count, TerrainChanges.Revision,
+            KnowledgeRevision.Current, WeaponEffects.Revision, AttackLearning.Revision);
     }
 
     /// <summary>
@@ -703,12 +765,18 @@ public sealed class Arsenal
         interventionState = state;
         interventionCooldown = cooldown;
         CompanionWeapon? weapon = Choose(ctx, target);
-        if (weapon == null || !TrajectoryAimer.TrySolve(Muzzle(ctx.Npc), target, weapon.Model, out TrajectorySolution solution))
+        if (weapon == null)
+            return interventionTicks = float.PositiveInfinity;
+        Vector2 muzzle = Muzzle(ctx.Npc);
+        IReadOnlyList<EnemyForecast> enemies = EnsureForecast(ctx);
+        CombatWorld world = CombatWorld.Current(muzzle, ctx.Player.Center, TerrainChanges.Revision);
+        AimedUse? aimed = BestAimUse(ctx, weapon, weapons.IndexOf(weapon), target, muzzle, enemies, world, 0, record: false);
+        if (aimed == null)
             return interventionTicks = float.PositiveInfinity;
         // Protection needs the threat removed, not merely the first projectile arriving.
         // This remains an optimistic estimate: misses and target motion can only delay it.
         int hits = (int)MathF.Ceiling(target.life / PerHit(ctx, weapon, target));
-        return interventionTicks = Math.Max(0, cooldown) + solution.ImpactTick
+        return interventionTicks = Math.Max(0, cooldown) + Math.Max(1, aimed.Value.Use.ImpactTick)
             + Math.Max(0, hits - 1) * Math.Max(1, weapon.UseTime);
     }
 
@@ -742,13 +810,21 @@ public sealed class Arsenal
     private readonly Dictionary<int, Vector2> heldCentres = new();
     private readonly List<ThreatRecord> candidates = new();
 
-    /// <summary>The hostiles worth simulating against: the threat sense's own list, alive and hostile.</summary>
-    private void Collect(in ActionContext ctx)
+    /// <summary>
+    /// The hostiles worth simulating against, forecast once per tick: the threat sense's own list, alive and
+    /// hostile, with their predicted boxes. The simulation cache is cleared with it, because a use cached
+    /// against last tick's enemies is a use priced for bodies that have moved.
+    /// </summary>
+    private IReadOnlyList<EnemyForecast> EnsureForecast(in ActionContext ctx)
     {
-        hostiles.Clear();
-        foreach (ThreatRecord t in ctx.Senses.Threats.Threats)
-            if (t.Npc != null && t.Npc.active && t.Npc.life > 0 && t.Npc.CanBeChasedBy())
-                hostiles.Add(t.Npc);
+        int now = ctx.Senses.Tick;
+        if (now != forecastTick)
+        {
+            forecastTick = now;
+            forecastEnemies = ForecastEnemies.FromThreats(ctx.Senses.Threats.Threats);
+            CacheSimulatedUses.ClearAtTick(now);
+        }
+        return forecastEnemies;
     }
 
     private readonly int[] engageCheckedAt = new int[Main.maxNPCs];
@@ -815,69 +891,49 @@ public sealed class Arsenal
             return false;
         }
 
-        bool solved = TrajectoryAimer.TrySolve(muzzle, target, weapon.Model, out TrajectorySolution solution);
-        if (!solved)
+        IReadOnlyList<EnemyForecast> enemies = EnsureForecast(ctx);
+        CombatWorld world = CombatWorld.Current(muzzle, ctx.Player.Center, TerrainChanges.Revision);
+        AimedUse? aimed = BestAimUse(ctx, weapon, weapons.IndexOf(weapon), target, muzzle, enemies, world, 0, record: true);
+        if (aimed == null)
         {
-            // The choice is a dozen ticks old and the world has moved: the arc that scored is gone.
+            // The choice is a dozen ticks old and the world has moved: the use that scored is gone.
             // The other weapons are tried before giving up, because standing still holding an unusable
             // weapon is how the companion died with thirteen hostiles on it and a bow in its hand.
             foreach (CompanionWeapon other in weapons)
             {
                 if (ReferenceEquals(other, weapon)) continue;
-                if (TrajectoryAimer.TrySolve(muzzle, target, other.Model, out TrajectorySolution fallback))
+                aimed = BestAimUse(ctx, other, weapons.IndexOf(other), target, muzzle, enemies, world, 0, record: true);
+                if (aimed != null)
                 {
                     weapon = other;
                     chosen = other;
                     LastChosen = other;
-                    solution = fallback;
-                    solved = true;
                     break;
                 }
             }
         }
 
         ctx.Companion.HoldItem(weapon.ItemType);
-        LastShotSolved = solved;
-        if (!solved)
+        LastShotSolved = aimed != null;
+        if (aimed == null)
         {
             LastFireOutcome = "no-arc";
             RememberFailedTrace(ctx, target, muzzle);
             return false;
         }
 
-        // The forecast the use is taught against: the prior it predicted and the aim the learner chose. Taken here rather
+        // The forecast the use is taught against: the prior it predicted and the context it was fired in. Taken here rather
         // than carried from the choice, because the choice may be a dozen ticks old and the use happens from this muzzle.
-        Collect(ctx);
+        // Its aims come from the cache the solve above filled, so pricing them twice costs one simulation.
         var forecast = Forecast(ctx, weapon, weapons.IndexOf(weapon), target, muzzle, record: false, 0, out _, out ForecastPrior prior);
 
-        // A swing has no launch to be imprecise about or to aim off: the noise and the offset are a shot's, and rotating a
-        // sector's centre only moved which bodies at the sector's edge were struck.
-        float aim = weapon.IsSwing || forecast == null ? 0f : prior.AimOffset * (Main.rand.NextBool() ? 1f : -1f);
+        // A swing has no launch to be imprecise about: the noise is a shot's, and rotating a sector's
+        // centre only moved which bodies at the sector's edge were struck. No re-trace follows, because
+        // the sim that chose this aim already flew it through terrain.
         float noise = weapon.IsSwing ? 0f : (Main.rand.NextFloat() * 2f - 1f) * weapon.AimNoise;
-        Vector2 launch = solution.LaunchVelocity.RotatedBy(aim + noise);
-        bool traced = TrajectoryAimer.TryTrace(muzzle, launch, target, weapon.Model, out TrajectorySolution finalShot);
-        if (!traced && aim != 0f && TrajectoryAimer.TryClear(muzzle, launch, weapon.Model, solution.ImpactTick))
-        {
-            // An offset aim is off the intercept on purpose, so reaching the target's box is what the learner is finding
-            // out rather than a condition of firing; it is held only to flying clear of terrain for the intercept's flight.
-            traced = true;
-            finalShot = solution with { LaunchVelocity = launch };
-        }
-        if (!traced && aim != 0f)
-        {
-            // An offset that meets a wall falls back to the intercept, where the ordinary check decides.
-            aim = 0f;
-            launch = solution.LaunchVelocity.RotatedBy(noise);
-            traced = TrajectoryAimer.TryTrace(muzzle, launch, target, weapon.Model, out finalShot);
-        }
-        if (!traced)
-        {
-            LastShotSolved = false;
-            LastFireOutcome = "no-arc";
-            return false;
-        }
+        Vector2 launch = aimed.Value.Aim.LaunchDirection.RotatedBy(noise) * weapon.Model.Speed;
 
-        FireResult result = weapon.Fire(ctx, muzzle, launch);
+        FireResult result = weapon.Fire(ctx, muzzle, launch, aimed.Value.Aim.AimPoint);
         if (result.IsShot && result.ProjectileSlot >= Main.maxProjectiles)
         {
             LastFireOutcome = "projectile-capacity";
@@ -885,13 +941,18 @@ public sealed class Arsenal
         }
         // A swing files the same shot record with no projectile slot, so the log reads a swing beside a shot
         // in one vocabulary; a landed swing is counted from the strike itself, since no projectile hit will follow.
-        GodsEyeEvents.RecordShot(ctx.Npc, target, result.ProjectileSlot, muzzle, launch, finalShot.ExpectedImpact, weapon.Name, finalShot.ImpactTick, LastAttackValue, LastExpectedKills, LastPreventedHarm);
+        GodsEyeEvents.RecordShot(ctx.Npc, target, result.ProjectileSlot, muzzle, launch, aimed.Value.Aim.AimPoint, weapon.Name, aimed.Value.Use.ImpactTick, LastAttackValue, LastExpectedKills, LastPreventedHarm);
         if (result.IsShot)
         {
-            TrackLandedHits.Register(result.ProjectileSlot, target, weapon.ItemType);
-            ProjectileArcs.Register(result.ProjectileSlot, weapon.ProjectileType, launch);
+            // The arc watch for each spawn opened inside Fire, beside its trace; what the hand adds here is
+            // the identity the spawn cannot know — what it was aimed at — for the ledger and the spoof.
+            foreach (int slot in result.AllSlots)
+            {
+                TrackLandedHits.Register(slot, target, weapon.ItemType);
+                RecordProjectileFlights.NoteCompanionAim(slot, target.Center);
+            }
         }
-        LastAimOffset = weapon.IsSwing ? 0f : MathHelper.WrapAngle(launch.ToRotation() - solution.LaunchVelocity.ToRotation());
+        LastAimOffset = weapon.IsSwing ? 0f : MathHelper.WrapAngle(launch.ToRotation() - aimed.Value.Intercept.LaunchDirection.ToRotation());
         if (forecast != null)
             OpenOutcome(weapon, target, prior, forecast.ImpactTicks, LastAimOffset, result);
         cooldown = weapon.UseTime;
@@ -912,7 +973,8 @@ public sealed class Arsenal
         int window = ShotOutcomes.Open(weapon.ItemType, target, context, prior.Damage, prior.Struck, prior.Charge, weapon.UseTime, impactTicks, Main.GameUpdateCount);
         if (result.IsShot)
         {
-            ShotOutcomes.AddSlot(window, result.ProjectileSlot);
+            foreach (int slot in result.AllSlots)
+                ShotOutcomes.AddSlot(window, slot);
             return;
         }
         if (result.Strikes != null)

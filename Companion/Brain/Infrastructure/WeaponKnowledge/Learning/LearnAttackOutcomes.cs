@@ -2,9 +2,10 @@
 
 using System;
 using System.Collections.Generic;
+using AICompanion.Companion.Brain.Infrastructure.Interactions.Firing;
 using AICompanion.Companion.Brain.Infrastructure.Selection;
 
-namespace AICompanion.Companion.Weapons;
+namespace AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Learning;
 
 /// <summary>
 /// What a weapon's attacks actually achieve against what the arsenal's arithmetic predicted, learned online from the
@@ -144,19 +145,20 @@ public static class AttackLearning
 
     /// <summary>
     /// The context vector for one attack, each input scaled to roughly unit range. Distance and aim are shares of the
-    /// weapon's own reach and of the widest aim candidate, so the same coefficient means the same thing on a sword and
-    /// on a rifle.
+    /// weapon's own reach and of its volley cone, so the same coefficient means the same thing on a sword and on a
+    /// rifle; an aim further off than the cone — a bank, a pierce line — reads past one, clamped. The lane counts the
+    /// other bodies the use is predicted to strike as a diminishing share, uncapped, because the sim that counts them
+    /// has no pierce cap to scale by.
     /// </summary>
-    public static float[] Context(float distance, float reach, float aimOffset, float relativeSpeed, int laneHostiles, float orbSpeed, float orbMaxSpeed, bool debuffedByOther)
+    public static float[] Context(float distance, float reach, float aimOffset, float widestAim, float relativeSpeed, int laneHostiles, float orbSpeed, float orbMaxSpeed, bool debuffedByOther)
     {
-        float widestAim = Weights.WeaponAimOffsetRadians * Math.Max(1, Weights.WeaponAimOffsetSteps);
         return new[]
         {
             1f,
             Math.Clamp(distance / MathF.Max(1f, reach), 0f, 1.5f),
-            Math.Clamp(MathF.Abs(aimOffset) / widestAim, 0f, 1.5f),
+            Math.Clamp(MathF.Abs(aimOffset) / MathF.Max(0.01f, widestAim), 0f, 1.5f),
             Math.Clamp(relativeSpeed / RelativeSpeedScale, 0f, 3f),
-            Math.Clamp(laneHostiles / (float)Arsenal.MaxPierceCounted, 0f, 1f),
+            Math.Clamp(laneHostiles / (laneHostiles + 4f), 0f, 1f),
             Math.Clamp(orbSpeed / MathF.Max(.01f, orbMaxSpeed), 0f, 1.5f),
             debuffedByOther ? 1f : 0f,
         };
@@ -167,7 +169,7 @@ public static class AttackLearning
     /// with no draw, while the weapon has no evidence. With <paramref name="explore"/> the coefficients are the tick's
     /// Thompson draw; without it they are the posterior mean, which the arsenal uses while its exploration gate is closed: a boss, a
     /// hit that would take a large share of a hurt player's or companion's remaining life, or a close shooter with a clear
-    /// line, and never merely ordinary enemies against a healthy player (Companion/Weapons/CLAUDE.md).
+    /// line, and never merely ordinary enemies against a healthy player (Companion/Brain/Infrastructure/WeaponKnowledge/CLAUDE.md).
     /// </summary>
     public static float Factor(int itemType, int npcType, ReadOnlySpan<float> x, bool explore, int tick)
     {

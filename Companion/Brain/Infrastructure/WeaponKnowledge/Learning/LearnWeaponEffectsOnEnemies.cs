@@ -6,7 +6,7 @@ using Microsoft.Xna.Framework;
 using Terraria;
 using AICompanion.Companion.Brain.Infrastructure.Selection;
 
-namespace AICompanion.Companion.Weapons;
+namespace AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Learning;
 
 /// <summary>
 /// What a hit from a weapon actually does to an enemy — how far it pushes and how much of its damage lands — learned
@@ -15,7 +15,7 @@ namespace AICompanion.Companion.Weapons;
 ///
 /// It is learned rather than read because nothing an item says settles it: knockback resistance differs per enemy,
 /// bosses resist entirely, and a mod can change a hit's knockback or damage inside a hook no headless reading
-/// reaches. The same stance as the arc learner in <c>../Brain/Infrastructure/Aiming/LearnProjectileArcs.cs</c>: a
+/// reaches. The same stance as the law fitter in <c>FitFlightLaws.cs</c>: a
 /// prior from the decompiled game, a correction from what the companion watched happen, medians over a bounded ring
 /// so one odd hit cannot drag the answer and a changed enemy is re-learned from what it does now, and session state
 /// that is never saved. <see cref="Reset"/> exists for fixtures.
@@ -106,14 +106,18 @@ public static class WeaponEffects
     /// second time — the resist lands squared on this branch — and sets the vertical to an upward pop times the resist.
     /// </summary>
     public static Vector2 PriorVelocityAfter(Vector2 before, float knockback, int direction, int damage, NPC npc)
+        => PriorVelocityAfter(before, knockback, direction, damage, npc.type, npc.knockBackResist, npc.onFire2, npc.lifeMax, npc.noGravity);
+
+    /// <summary>The same arithmetic over snapshot scalars, for the simulator's forecasted enemies.</summary>
+    public static Vector2 PriorVelocityAfter(Vector2 before, float knockback, int direction, int damage,
+        int npcType, float resist, bool onFire2, int lifeMax, bool noGravity)
     {
-        float resist = npc.knockBackResist;
         if (knockback <= 0f || resist == 0f) return before;
-        float k = Compress(knockback * (npc.onFire2 ? 1.1f : 1f) * resist);
+        float k = Compress(knockback * (onFire2 ? 1.1f : 1f) * resist);
         if (k <= 0f) return before;
         Vector2 v = before;
         int heavy = damage * (Main.expertMode ? 15 : 10);
-        if (heavy > npc.lifeMax)
+        if (heavy > lifeMax)
         {
             if (direction < 0 && v.X > -k)
             {
@@ -127,7 +131,7 @@ public static class WeaponEffects
                 v.X += k;
                 if (v.X > k) v.X = k;
             }
-            float pop = (npc.type == 185 ? k * 1.5f : k) * (npc.noGravity ? -0.5f : -0.75f);
+            float pop = (npcType == 185 ? k * 1.5f : k) * (noGravity ? -0.5f : -0.75f);
             if (v.Y > pop)
             {
                 v.Y += pop;
@@ -136,14 +140,17 @@ public static class WeaponEffects
         }
         else
         {
-            v.Y = -k * (npc.noGravity ? 0.5f : 0.75f) * resist;
+            v.Y = -k * (noGravity ? 0.5f : 0.75f) * resist;
             v.X = k * direction * resist;
         }
         return v;
     }
 
     /// <summary>What the arsenal predicts one hit takes off after armour, before anything learned: the damage less half the defence, at least one.</summary>
-    public static float PriorDamage(float perHit, NPC npc) => MathF.Max(1f, perHit - npc.defense / 2f);
+    public static float PriorDamage(float perHit, NPC npc) => PriorDamage(perHit, npc.defense);
+
+    /// <summary>The same arithmetic over a snapshot defence, for the simulator's forecasted enemies.</summary>
+    public static float PriorDamage(float perHit, int defense) => MathF.Max(1f, perHit - defense / 2f);
 
     /// <summary>The learned signed push factor for this pair, or 1 while the prior stands.</summary>
     public static float PushFactor(int itemType, int npcType)
@@ -166,10 +173,16 @@ public static class WeaponEffects
     /// stand.
     /// </summary>
     public static float SettledPush(int itemType, NPC npc, float knockback, float perHitAfterArmour, int direction)
+        => SettledPush(itemType, npc.type, npc.velocity, npc.knockBackResist, npc.onFire2, npc.lifeMax, npc.noGravity,
+            knockback, perHitAfterArmour, direction);
+
+    /// <summary>The same settled push over snapshot scalars, for the simulator's forecasted enemies.</summary>
+    public static float SettledPush(int itemType, int npcType, Vector2 velocity, float resist, bool onFire2,
+        int lifeMax, bool noGravity, float knockback, float perHitAfterArmour, int direction)
     {
-        Vector2 before = npc.velocity;
-        float change = PriorVelocityAfter(before, knockback, direction, (int)MathF.Max(1f, perHitAfterArmour), npc).X - before.X;
-        return change * PushFactor(itemType, npc.type) * Weights.KnockbackSettleTicks;
+        float change = PriorVelocityAfter(velocity, knockback, direction, (int)MathF.Max(1f, perHitAfterArmour),
+            npcType, resist, onFire2, lifeMax, noGravity).X - velocity.X;
+        return change * PushFactor(itemType, npcType) * Weights.KnockbackSettleTicks;
     }
 
     /// <summary>
@@ -201,6 +214,7 @@ public static class WeaponEffects
         record.Push.Clear();
         record.Push.Add(factor);
         Revision++;
+        KnowledgeRevision.Bump();
     }
 
     private static void Add(List<float> samples, float value)
@@ -209,6 +223,9 @@ public static class WeaponEffects
         if (samples.Count > SamplesKept)
             samples.RemoveRange(0, samples.Count - SamplesKept);
         Revision++;
+        // The sim prices pushes and damage from this table, and its cache keys on the knowledge revision rather
+        // than this one, so every sample bumps that too or a learned effect would not move already-cached sims.
+        KnowledgeRevision.Bump();
     }
 
     private static float Median(List<float> values)
@@ -224,5 +241,6 @@ public static class WeaponEffects
     {
         records.Clear();
         Revision++;
+        KnowledgeRevision.Bump();
     }
 }

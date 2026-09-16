@@ -216,6 +216,48 @@ public static class GodsEyeEvents
         Write("shot", Stable(npcGenerations, shooter.whoAmI), target == null ? "" : Stable(npcGenerations, target.whoAmI).ToString(CultureInfo.InvariantCulture), weapon, $"projectile={projectile}", muzzle, launchVelocity, expectedImpact, 0, FormattableString.Invariant($"expected-flight-ticks={impactTicks};sequence-value={attackValue:0.000};sequence-kills={expectedKills};sequence-prevented-harm={preventedHarm:0.000}"));
     }
 
+    /// <summary>
+    /// One projectile use grouped, either shooter's: what the item put into the world this time. Plain values
+    /// rather than the use itself, because the headless tools compile this file on its own. <paramref name="slots"/>
+    /// is the use's measured decomposition, one <c>slot=i,type=,angle=,speed=,share=,origin=,delay=</c> entry per
+    /// spawn ordered by delay then angle; <paramref name="buffs"/> the shooter's buffs at the use's start.
+    /// </summary>
+    public static void RecordVolleyObserved(int itemType, string shooter, int useId, bool complete, int spawnCount, string slots, string buffs)
+    {
+        if (!Accepting()) return;
+        string name = Terraria.ID.ItemID.Search.TryGetName(itemType, out string? found) && found != null ? found : $"item-{itemType}";
+        Write("volley-observed", 0, useId.ToString(CultureInfo.InvariantCulture), name, shooter,
+            Vector2.Zero, Vector2.Zero, Vector2.Zero, spawnCount,
+            FormattableString.Invariant($"item={itemType};complete={(complete ? 1 : 0)};buffs={buffs};slots={slots}"));
+    }
+
+    /// <summary>
+    /// One companion projectile's whole flight in one record, written at its death: the bounded-per-shot form of
+    /// the wall contacts, body hits, child spawns and death the trace holds. Counts for all three, firsts for the
+    /// wall (tick, velocity in and out) and the hit (NPC stable id, tick, damage), types for the children.
+    /// </summary>
+    public static void RecordShotEvent(int projectileSlot, int projectileType, string death, int walls, string firstWall,
+        int hits, string firstHit, int children, string childTypes)
+    {
+        if (!Accepting()) return;
+        Write("shot-event", Stable(projectileGenerations, projectileSlot), "", projectileType.ToString(CultureInfo.InvariantCulture), death,
+            Vector2.Zero, Vector2.Zero, Vector2.Zero, hits,
+            FormattableString.Invariant($"death={death};walls={walls};first-wall={firstWall};hits={hits};first-hit={firstHit};children={children};child-types={childTypes}"));
+    }
+
+    /// <summary>
+    /// One projectile type's flight law at a new revision: the terms kept and their parameters, the residual,
+    /// the evidence behind it and whether it predicts. Plain values, because the headless tools compile this file
+    /// on its own. <paramref name="terms"/> is the law's semicolon-joined description.
+    /// </summary>
+    public static void RecordFlightLaw(int projectileType, int revision, string terms, float residual, int evidence, bool predictable)
+    {
+        if (!Accepting()) return;
+        Write("flight-law", 0, revision.ToString(CultureInfo.InvariantCulture), projectileType.ToString(CultureInfo.InvariantCulture),
+            predictable ? "predictable" : "unpredictable", Vector2.Zero, Vector2.Zero, Vector2.Zero, evidence,
+            FormattableString.Invariant($"residual={residual:0.0000};evidence={evidence};terms={terms}"));
+    }
+
     public static void RecordProjectileOutcome(Projectile projectile, NPC? hit, string outcome)
     {
         // Neutral, non-damaging projectiles create harmless terrain contacts continuously.

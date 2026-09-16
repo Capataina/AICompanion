@@ -16,7 +16,7 @@ namespace AICompanion.Companion.ProfileCard;
 /// <summary>
 /// The three work controls on the right of the identity strip: mining and chopping at Off, Mimic and Auto, and
 /// torches at Off and On, each an item icon beside a joined segment control. These are the only preferences the
-/// card offers. Hunting and pot breaking are not toggles in the first version and following distance never
+/// card offers. Combat and pot breaking are not toggles in the first version and following distance never
 /// changes, by the owner's ruling, so the card draws none of them; their saved values are still honoured by the
 /// brain, which is recorded in this folder's guide.
 /// </summary>

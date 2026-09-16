@@ -5,8 +5,8 @@ using System.Collections.Generic;
 using Microsoft.Xna.Framework;
 using Terraria;
 using AICompanion.Companion.Brain.Activities;
+using AICompanion.Companion.Brain.Infrastructure.Interactions.Firing;
 using AICompanion.Companion.Brain.Infrastructure.Observation;
-using AICompanion.Companion.Weapons;
 
 namespace AICompanion.Companion.Brain.Activities.Combat;
 

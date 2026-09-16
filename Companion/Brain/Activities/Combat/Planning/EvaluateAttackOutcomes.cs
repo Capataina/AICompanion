@@ -3,7 +3,7 @@ using System;
 using System.Collections.Generic;
 using AICompanion.Companion.Brain.Infrastructure.Selection;
 
-namespace AICompanion.Companion.Weapons;
+namespace AICompanion.Companion.Brain.Activities.Combat.Planning;
 
 /// <summary>
 /// Bounded comparison of a first attack plus greedy follow-up attacks. Geometry supplies legal

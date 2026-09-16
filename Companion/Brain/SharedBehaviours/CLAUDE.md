@@ -1,6 +1,6 @@
 # Shared behaviours — outside the family comparison: recovery takes the body, safety only predicts
 
-These are not the seven activities and they do not compete in the comparison. Recovery steals the feet when the companion is left far behind; safety takes nothing and hands movement the hit it predicts.
+These are not the six activities and they do not compete in the comparison. Recovery steals the feet when the companion is left far behind; safety takes nothing and hands movement the hit it predicts.
 
 ```
 SharedBehaviours/
@@ -9,7 +9,7 @@ SharedBehaviours/
 └─ Recovery/    distant flight home
 ```
 
-Shooting is not here. A free hand asks `Companion/Weapons/Arsenal.cs` after movement; that kit is equipment, not a brain behaviour. Movement and aiming are infrastructure those behaviours call.
+Shooting is not here. A free hand asks the arsenal in `Companion/Brain/Infrastructure/Interactions/Firing/Arsenal.cs` after movement; the choice is a brain behaviour whose joint evaluator lives under the Combat activity, and this folder owns neither. Movement and aiming are infrastructure those behaviours call.
 
 Safety's prediction is built every tick, with or without an ordinary offer, and submits nothing. Recovery requires a WithPlayer reunion request with a free hand and a distance beyond the recovery threshold; it submits one request to Grants and never writes the NPC.
 

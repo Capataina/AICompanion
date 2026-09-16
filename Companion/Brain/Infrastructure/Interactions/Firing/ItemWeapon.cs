@@ -7,11 +7,14 @@ using Terraria;
 using Terraria.ID;
 using Terraria.ModLoader;
 using AICompanion.Companion.Brain.Activities;
-using AICompanion.Companion.Brain.Infrastructure.Aiming;
 using AICompanion.Companion.Brain.Infrastructure.Movement;
+using AICompanion.Companion.Brain.Infrastructure.Observation;
+using AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Learning;
+using AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Recording;
+using AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Simulation;
 using AICompanion.Companion.Inventory;
 
-namespace AICompanion.Companion.Weapons;
+namespace AICompanion.Companion.Brain.Infrastructure.Interactions.Firing;
 
 /// <summary>
 /// The one weapon the companion has: whatever item sits in a weapon slot, read for its numbers.
@@ -91,19 +94,18 @@ public sealed class ItemWeapon : CompanionWeapon
     {
         get
         {
-            // A swing's box is the orb's own diameter, not the item's drawn height. The box is what the
-            // trace sweeps against terrain and what it intercepts the aimed target with, and a forty-pixel
-            // sword box straddled the floor from an orb hovering low over it, so a zombie standing on that
-            // floor could not be swung at from any angle. The sector test in InSwing, with its own sight
-            // test per body, decides what a swing actually strikes.
+            // A swing's box is the orb's own diameter, not the item's drawn height, because the reach gate
+            // measures from the orb: a forty-pixel sword box straddled the floor from an orb hovering low
+            // over it, so a zombie standing on that floor could not be swung at from any angle. The sector
+            // test in InSwing, with its own sight test per body, decides what a swing actually strikes.
             if (IsSwing)
-                return new FlightModel(Speed: SwingReach, Motion: LearnedMotion.Straight, MaxFlightTicks: 1,
-                    HitboxSize: (int)CircleContact.Diameter, Reach: SwingReach);
+                return new FlightModel(Speed: SwingReach, HitboxSize: (int)CircleContact.Diameter,
+                    MaxFlightTicks: 1, Reach: SwingReach);
             float speed = Item.shootSpeed + (ammo?.shootSpeed ?? 0f);
             int flight = sample == null ? MaxTraceTicks : Math.Clamp(sample.timeLeft, 1, MaxTraceTicks);
             int box = sample == null ? 8 : Math.Max(1, sample.width);
-            return new FlightModel(Speed: speed, Motion: ProjectileArcs.MotionFor(ProjectileType), MaxFlightTicks: flight,
-                HitboxSize: box, Reach: MathF.Min(MaxShotReach, speed * flight));
+            return new FlightModel(Speed: speed, HitboxSize: box, MaxFlightTicks: flight,
+                Reach: MathF.Min(MaxShotReach, speed * flight));
         }
     }
 
@@ -111,19 +113,6 @@ public sealed class ItemWeapon : CompanionWeapon
     public override int BaseUseTime => Math.Max(1, IsSwing ? Item.useAnimation : Item.useTime);
 
     public override int BaseDamage => Item.damage + (ammo?.damage ?? 0);
-
-    /// <summary>
-    /// A swing hurts everything in its arc, so its pierce is the widest the arsenal counts; a
-    /// projectile pierces what its sample says, with unlimited penetration reported as that same width.
-    /// </summary>
-    public override int Pierce
-    {
-        get
-        {
-            if (IsSwing || sample == null) return Arsenal.MaxPierceCounted;
-            return sample.penetrate < 0 ? Arsenal.MaxPierceCounted : Math.Max(1, sample.penetrate);
-        }
-    }
 
     /// <summary>
     /// The player's class modifier for the item's class, with the arrow and bullet bonuses where the
@@ -151,29 +140,16 @@ public sealed class ItemWeapon : CompanionWeapon
     /// <summary>The item's knockback plus its free ammo's, which is what <c>Player.PickAmmo</c> hands a shot and the swing passes the strike.</summary>
     public override float Knockback => Item.knockBack + (ammo?.knockBack ?? 0f);
 
+    public override int ManaCost => Item.mana;
+
+    /// <summary>The launch speed one use fires at: the item's plus its free ammo's, the number the volley is expanded and the model flown with.</summary>
+    public float LaunchSpeed => Item.shootSpeed + (ammo?.shootSpeed ?? 0f);
+
     public override bool PushesAwayFromOwner => WeaponEffects.PushesAwayFromOwner(ProjectileType);
 
     public override bool InReach(Vector2 muzzle, NPC target)
         => IsSwing ? NearestDistance(muzzle, target.Hitbox) <= SwingReach
             : Vector2.Distance(muzzle, target.Center) <= Reach;
-
-    /// <summary>
-    /// A swing counts every hostile whose box is inside the sector; a shot flies the model and
-    /// counts what the flight crosses, in flight order.
-    /// </summary>
-    public override int Hits(Vector2 muzzle, Vector2 launch, IReadOnlyList<NPC> hostiles, NPC[] into)
-    {
-        if (!IsSwing)
-            return TrajectoryAimer.PathHits(muzzle, launch, Model, hostiles, into);
-        int found = 0;
-        for (int i = 0; i < hostiles.Count && found < into.Length; i++)
-        {
-            NPC npc = hostiles[i];
-            if (npc != null && npc.active && npc.life > 0 && InSwing(muzzle, launch, npc))
-                into[found++] = npc;
-        }
-        return found;
-    }
 
     /// <summary>
     /// Whether a body is inside the swing: its box within reach of the orb, its centre within the half
@@ -190,7 +166,7 @@ public sealed class ItemWeapon : CompanionWeapon
             float cos = Vector2.Dot(Vector2.Normalize(toBody), Vector2.Normalize(aim));
             if (MathF.Acos(Math.Clamp(cos, -1f, 1f)) > SwingHalfAngle) return false;
         }
-        return Brain.Infrastructure.Observation.LineOfSight.Between(muzzle, npc);
+        return LineOfSight.Between(muzzle, npc);
     }
 
     private static float NearestDistance(Vector2 point, Rectangle box)
@@ -200,7 +176,7 @@ public sealed class ItemWeapon : CompanionWeapon
         return MathF.Sqrt(dx * dx + dy * dy);
     }
 
-    public override FireResult Fire(in ActionContext ctx, Vector2 muzzle, Vector2 launch)
+    public override FireResult Fire(in ActionContext ctx, Vector2 muzzle, Vector2 launch, Vector2 aim)
     {
         int damage = DamagePerHit(ctx);
         // Read before spend, so the cast that empties the pool lands at the strength the pool had; and
@@ -210,8 +186,40 @@ public sealed class ItemWeapon : CompanionWeapon
             ctx.Companion.Mana.Spend(Item.mana);
         if (IsSwing)
             return Swing(ctx, muzzle, launch, damage);
-        int slot = Projectile.NewProjectile(ctx.Npc.GetSource_FromAI(), muzzle, launch, ProjectileType, damage, Knockback, Main.myPlayer);
-        return new FireResult(slot, 0);
+        int tick = (int)Main.GameUpdateCount;
+        float composedSpeed = Item.shootSpeed + (ammo?.shootSpeed ?? 0f);
+        ModifierState modifiers = ApplyCompanionModifiers.Current();
+        int useId = GroupSpawnsIntoUses.OpenCompanionUse(tick, Item.type, aim, muzzle, damage, composedSpeed);
+        // An item the player has never fired has no shape: one projectile, exactly as before, so an
+        // unobserved item fires bit-identically to the single shot it always fired rather than through a
+        // normalise-and-rescale round trip. Every spawn still joins the use and opens its trace, so arcs
+        // keep learning from default shots and the cursor spoof knows their aim.
+        if (!LearnVolleyShapes.HasShape(Item.type))
+        {
+            int only = Projectile.NewProjectile(ctx.Npc.GetSource_FromAI(), muzzle, launch, ProjectileType, damage, Knockback, Main.myPlayer);
+            var landed = new List<int>();
+            if ((uint)only < (uint)Main.maxProjectiles)
+            {
+                RecordProjectileFlights.NoteCompanionSpawn(only, Main.projectile[only], useId, modifiers);
+                landed.Add(only);
+            }
+            GroupSpawnsIntoUses.CloseCompanionUse(useId, tick);
+            return new FireResult(only, 0, null, landed);
+        }
+        Vector2 aimDirection = launch == Vector2.Zero ? Vector2.UnitX : Vector2.Normalize(launch);
+        var slots = new List<int>();
+        int first = -1;
+        foreach (VolleySpawn spec in LearnVolleyShapes.ShapeFor(Item.type)
+            .Expand(muzzle, aim, aimDirection, ProjectileType, damage, composedSpeed))
+        {
+            int slot = Projectile.NewProjectile(ctx.Npc.GetSource_FromAI(), spec.Position, spec.Velocity, spec.ProjectileType, spec.Damage, Knockback, Main.myPlayer);
+            if (first < 0) first = slot;
+            if ((uint)slot >= (uint)Main.maxProjectiles) continue;
+            RecordProjectileFlights.NoteCompanionSpawn(slot, Main.projectile[slot], useId, modifiers);
+            slots.Add(slot);
+        }
+        GroupSpawnsIntoUses.CloseCompanionUse(useId, tick);
+        return new FireResult(first, 0, null, slots);
     }
 
     /// <summary>

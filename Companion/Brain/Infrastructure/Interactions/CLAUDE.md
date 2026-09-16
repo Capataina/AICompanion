@@ -14,7 +14,8 @@ Interactions/
 ├─ Mining/               ore discovery and the game pickaxe path
 ├─ Doors/                open or close a route obstruction
 ├─ Torch/                free-hand light and supplied permanent torch placement
-└─ WorldProtection/      bed-room protection for autonomous edits
+├─ WorldProtection/      bed-room protection for autonomous edits
+└─ Firing/               the item-backed weapon, the arsenal's choice and the landed-hit ledger
 ```
 
 Tools read the player’s held-item numbers but do not invoke the player item-use pipeline. That boundary is why a companion ability works consistently while preserving player upgrades that are explicitly read. A terrain-changing interaction invalidates shared movement’s cached terrain facts.

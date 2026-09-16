@@ -291,6 +291,19 @@ public static class Weights
     /// </summary>
     public const float GuardUrgency = 1.25f;   // > 1.00 × Commitment
 
+    /// <summary>
+    /// The one combat activity offers the larger of the old guarding and hunting values under their
+    /// existing terms, times this. The stance must be eager enough that a damageable hostile in reach
+    /// takes the body off keeping company, without lifting a distant, unthreatening enemy above the
+    /// work beside the player. Measured on the combat-activity rows with the screen centred on the
+    /// player as the live game centres it: shared-eagerness is red at 0.4 (combat 0.076, under the
+    /// 0.1 usefulness that discounts company) and green at 0.6 (combat 0.131), and mining still holds
+    /// the vein against it at 4.0, so one sits with nearly twice the floor beneath it and more than
+    /// four times the ceiling above on those rows. Guarding's own interruption ladder and hunting's
+    /// product keep their meanings; this is the stance's, not theirs.
+    /// </summary>
+    public const float CombatValueScale = 1.0f;
+
     /// <summary>How fast the horizon charge falls once an action would outlast the horizon, in ticks of overrun to zero.</summary>
     public const float HorizonOverrunToZero = 240f;
 
@@ -743,11 +756,4 @@ public static class Weights
     /// </summary>
     public const float WeaponExploreDangerCeiling = .5f;
 
-    /// <summary>
-    /// The step between aim candidates off the solver's intercept, radians, and how many steps each way. Three degrees is
-    /// under the companion's own aim noise, so the widest candidate is a deliberate miss for a straight shot at range and
-    /// harmless for anything that steers — which is the difference the learner has to be able to see.
-    /// </summary>
-    public const float WeaponAimOffsetRadians = (float)(System.Math.PI / 60.0);
-    public const int WeaponAimOffsetSteps = 2;
 }

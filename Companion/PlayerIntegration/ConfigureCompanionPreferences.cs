@@ -26,7 +26,9 @@ public sealed class CompanionPreferences
 
     public WorkPolicy Mining { get; set; } = WorkPolicy.Opportunistic;
     public WorkPolicy Chopping { get; set; } = WorkPolicy.Opportunistic;
-    public bool Hunting { get; set; } = true;
+    /// <summary>Whether the combat stance may run. Saved as "combat"; an older save that only
+    /// wrote "hunting" reads from that key, so turning hunting off stays off after the merge.</summary>
+    public bool Combat { get; set; } = true;
     public bool PotBreaking { get; set; } = true;
     public bool TorchPlacement { get; set; } = true;
     public CompanionDistanceMode DistanceMode { get; set; } = CompanionDistanceMode.Standard;
@@ -56,7 +58,7 @@ public sealed class CompanionPreferences
         tag["chopping"] = (int)Chopping;
         // NBT has a byte payload, not a Boolean payload. Keeping saves in native scalar types
         // also makes this contract independent of loader serializer registration order.
-        tag["hunting"] = (byte)(Hunting ? 1 : 0);
+        tag["combat"] = (byte)(Combat ? 1 : 0);
         tag["potBreaking"] = (byte)(PotBreaking ? 1 : 0);
         tag["torchPlacement"] = (byte)(TorchPlacement ? 1 : 0);
         tag["distanceMode"] = (int)DistanceMode;
@@ -68,7 +70,7 @@ public sealed class CompanionPreferences
         var preferences = new CompanionPreferences();
         preferences.Mining = ReadEnum(tag, "mining", WorkPolicy.Opportunistic);
         preferences.Chopping = ReadEnum(tag, "chopping", WorkPolicy.Opportunistic);
-        preferences.Hunting = ReadBool(tag, "hunting", true);
+        preferences.Combat = tag.ContainsKey("combat") ? ReadBool(tag, "combat", true) : ReadBool(tag, "hunting", true);
         preferences.PotBreaking = ReadBool(tag, "potBreaking", true);
         preferences.TorchPlacement = ReadBool(tag, "torchPlacement", true);
         preferences.DistanceMode = ReadEnum(tag, "distanceMode", CompanionDistanceMode.Standard);

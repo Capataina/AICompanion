@@ -7,7 +7,8 @@ using Terraria;
 using Terraria.GameContent;
 using Terraria.ModLoader;
 using AICompanion.Companion.Brain.Infrastructure.Movement;
-using AICompanion.Companion.Brain.Infrastructure.Aiming;
+using AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Recording;
+using AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Simulation;
 using AICompanion.Companion.CharacterBody;
 using AICompanion.Companion.DiagnosticsConfiguration;
 
@@ -77,13 +78,10 @@ public sealed class BrainOverlay : ModSystem
     public override void Load()
     {
         ToggleKey = KeybindLoader.RegisterKeybind(Mod, "BrainOverlay", "OemOpenBrackets");
-        TrajectoryAimer.CaptureRequested = () => MayCapture && ShowAiming;
-        TrajectoryAimer.TraceEvaluated = BrainInspectorSamples.RecordTrace;
     }
     public override void Unload()
     {
         ToggleKey = null; Enabled = false;
-        TrajectoryAimer.CaptureRequested = null; TrajectoryAimer.TraceEvaluated = null;
         BrainInspectorSamples.Reset();
     }
     public override void OnWorldLoad()
@@ -116,7 +114,7 @@ public sealed class BrainOverlay : ModSystem
         => new(12, 12, Math.Max(200, Math.Min(440, width - 24)), Math.Max(180, Math.Min(540, height - 24)));
     private static Rectangle Bounds => PanelBounds((int)(Main.screenWidth / Main.UIScale), (int)(Main.screenHeight / Main.UIScale));
     private static Point Mouse => new((int)(Main.mouseX / Main.UIScale), (int)(Main.mouseY / Main.UIScale));
-    private static readonly string[] labels = { "Show world drawings", "Enemies and their velocity", "Predicted enemy movement", "Incoming projectiles", "Current route and destination", "Alternative destinations", "Aiming and rejected shots", "Movement and dodge choices", "Targets and attention", "Where the purpose succeeds", "Where following wants it", "What it senses", "Cost of thinking", "Clearance field" };
+    private static readonly string[] labels = { "Show world drawings", "Enemies and their velocity", "Predicted enemy movement", "Incoming projectiles", "Current route and destination", "Alternative destinations", "Simulated uses and rejected aims", "Movement and dodge choices", "Targets and attention", "Where the purpose succeeds", "Where following wants it", "What it senses", "Cost of thinking", "Clearance field" };
     private static readonly string[] hints = {
         "Hide all drawings without losing your selected layers.", "Red boxes are observed bodies; arrows show current velocity.",
         "Yellow paths contain only samples the brain calculated. Future enemy decisions remain unknown.",
@@ -381,6 +379,27 @@ public sealed class BrainOverlay : ModSystem
         {
             Dot(sb, aim.Muzzle, Color.Gold, 7);
             HoverEvidence(aim.Muzzle, $"{aim.Weapon}: {aim.Outcome}. Evaluated launch: {aim.Launch?.ToString() ?? "none"}");
+        }
+        if (ShowAiming)
+        {
+            // The tick's simulated uses: predicted hits gold, bounce points cyan, beside the live shots'
+            // own flown paths in white. A wrong law is visible as two lines diverging.
+            foreach (SimulatedUse use in CacheSimulatedUses.Cached())
+            {
+                foreach (SimHit hit in use.Hits)
+                    Dot(sb, hit.Position, Color.Gold, 5);
+                foreach (SimBounce bounce in use.Bounces)
+                    Dot(sb, bounce.Position, Color.Cyan, 5);
+            }
+            foreach (FlightTrace trace in RecordProjectileFlights.OpenCompanionTraces())
+            {
+                var flown = new List<Vector2>();
+                foreach (FlightStep step in trace.Steps)
+                    if (step.Settled)
+                        flown.Add(step.Position);
+                if (flown.Count > 1)
+                    Path(sb, flown.ToArray(), Color.White * .8f);
+            }
         }
         if (ShowMovement)
         {

@@ -12,7 +12,7 @@ The brain turns one shared world observation into a body intent each tick. It do
 Brain/
 ├─ CLAUDE.md
 ├─ CoordinateBrainTick.cs
-├─ Activities/                 the seven competing jobs and the contract they implement
+├─ Activities/                 the six competing jobs and the contract they implement
 ├─ SharedBehaviours/           can take the body without winning a family comparison
 │  ├─ Safety/                  the hit prediction the evade layer reads
 │  └─ Recovery/                distant flight home
@@ -20,7 +20,7 @@ Brain/
                               tools, aiming, grants and recording; its own file lists them
 ```
 
-Weapons stay in `Companion/Weapons/`. The brain grants a free hand; the arsenal chooses target and weapon.
+Combat lives in the brain: the joint evaluator under `Activities/Combat/Planning/`, the weapon tables in `Infrastructure/WeaponKnowledge/`, the weapon, choice and landed-hit ledger in `Infrastructure/Interactions/Firing/`. The brain grants a free hand; the arsenal chooses target and weapon.
 
 ## One tick has one direction of flow
 
@@ -38,7 +38,7 @@ hands: arsenal fires after movement whenever no work tool owns the arm
 
 `Observation.Senses` is rebuilt first. Safety then predicts collisions and takes nothing, and selection scores every activity from the same facts; the winner acts and returns a kind of place, position selection chooses a point, and movement plans a route or hovers. Before the controls reach the motor they pass through the evade layer, which bends them away from a predicted hit and otherwise leaves them untouched, so avoiding damage sits on top of whatever the body is doing: the activity keeps its attempt and its hands, and the grant names the bent tick `evade`. The layer replaced a reflex and a combat-spacing search that each suspended the activity to take the body, which is the shape the owner ruled out on 15 September 2026; `SharedBehaviours/Safety/CLAUDE.md` carries why. The motor is the only writer to the live NPC body. Movement outcomes return to the next tick only as observed facts such as a stranded body, never as a lower stage changing a higher stage’s decision.
 
-Ordinary selection prepares candidates before comparison. The common evaluator supplies their values, each purpose family nominates its best positive-value child, and the parent chooses among those three nominations. An empty family nominates nothing; an entirely empty board has no ordinary activity. Keeping company combines reunion and hovering beside the player without changing purpose identity between methods. Collection compares known drops with uncertain pot contents as opportunities under one activity. The seven ordinary activities are mining, chopping, hunting, guarding, lighting, collecting and keeping company.
+Ordinary selection prepares candidates before comparison. The common evaluator supplies their values, each purpose family nominates its best positive-value child, and the parent chooses among those three nominations. An empty family nominates nothing; an entirely empty board has no ordinary activity. Keeping company combines reunion and hovering beside the player without changing purpose identity between methods. Collection compares known drops with uncertain pot contents as opportunities under one activity. The six ordinary activities are mining, chopping, combat, lighting, collecting and keeping company.
 
 Every branch returns a movement request and hand permission to the common finaliser. Ordinary travel with its evade bends and recovery flight therefore share one motor application and a retained grant describing its actual AI-phase output. The downed lifecycle enters that finaliser without running ordinary selection. The grant does not certify the subsequently integrated motion or a productive native effect.
 

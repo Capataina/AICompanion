@@ -13,6 +13,10 @@ public enum RequestKind
     Guard,
     /// <summary>A spot with a solved line of fire to the target.</summary>
     LineOfFire,
+    /// <summary>The combat stance's firing stand: hover the point a plan's volley was aimed from. Nothing
+    /// emits it yet — combat still asks for Guard and LineOfFire stands in this phase — so the positioner
+    /// scores it nothing until the planner lands beside it.</summary>
+    FireFrom,
     /// <summary>Exactly this point (an item, a trunk), no scoring.</summary>
     Exact,
     /// <summary>Stand still.</summary>
