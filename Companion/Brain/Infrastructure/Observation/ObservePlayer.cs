@@ -26,6 +26,12 @@ public sealed class PlayerSense
     /// <summary>Confidence-weighted travel direction and pace in px/tick from recent displacement.</summary>
     public Vector2 Intent => Activity.Travel;
     public bool IsTravelling => Intent.LengthSquared() > Weights.PlayerIntentTravelSpeed * Weights.PlayerIntentTravelSpeed;
+
+    /// <summary>
+    /// The direction the player is holding, at walking pace, even when that hold is not moving him: right into a wall,
+    /// down into the floor. Zero when no direction is held. The intent region reads it so the box still slides.
+    /// </summary>
+    public Vector2 HeldMove { get; private set; }
     public int TravelDirection => MathF.Sign(Intent.X);
 
     public float HealthFraction { get; private set; } = 1f;
@@ -85,6 +91,7 @@ public sealed class PlayerSense
         // These fields use negative values for no placement; valid IDs start at zero.
         bool placing = player.itemAnimation > 0 && (player.HeldItem.createTile >= TileID.Dirt || player.HeldItem.createWall >= WallID.None);
         Activity.Observe(Bottom, Velocity, IsChoppingTree || MinedOre != null || placing, IsDead, Main.GameUpdateCount);
+        HeldMove = ReadHeldMove(player);
         CompanionCanSeePlayer = LineOfSight.Between(companion, player);
         ObserveInterference(player, companion);
     }
@@ -101,6 +108,19 @@ public sealed class PlayerSense
         }
         else if (Interference != null && now >= interferenceUntil)
             Interference = null;
+    }
+
+    /// <summary>A held direction as a walking-pace vector, or zero when nothing is held.</summary>
+    private static Vector2 ReadHeldMove(Player player)
+    {
+        Vector2 held = Vector2.Zero;
+        if (player.controlLeft) held.X -= 1f;
+        if (player.controlRight) held.X += 1f;
+        if (player.controlUp) held.Y -= 1f;
+        if (player.controlDown) held.Y += 1f;
+        if (held == Vector2.Zero) return Vector2.Zero;
+        held.Normalize();
+        return held * Weights.IntentRegionHeldPace;
     }
 
     /// <summary>The tiles a body of this size covers with its feet at <paramref name="feet"/>, as a tile rectangle.</summary>

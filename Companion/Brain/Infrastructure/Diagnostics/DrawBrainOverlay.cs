@@ -394,7 +394,7 @@ public sealed class BrainOverlay : ModSystem
             if (brain.LastAction?.ActivityTarget is Vector2 work) { Line(sb, c.NPC.Center, work, Color.Cyan); Dot(sb, work, Color.Cyan, 8); }
             if (brain.LastRequest.Kind is Infrastructure.Position.RequestKind.WithPlayer or Infrastructure.Position.RequestKind.Guard) Line(sb, c.NPC.Center, brain.Senses.Player.Bottom, Color.White * .4f);
         }
-        if (ShowFollow) DrawFollow(sb, brain);
+        if (ShowFollow) DrawFollow(sb, brain, c.NPC);
         if (ShowSenses) DrawSensed(sb, brain);
         // One label for the companion however many layers have something to say about it, because two
         // labels above one body overlap into an unreadable smear the moment both layers are on.
@@ -415,7 +415,7 @@ public sealed class BrainOverlay : ModSystem
     /// distance band and the meeting place reunion priced. The success-region layer draws the admitted box on top where one
     /// exists; this one draws what the current tick wants, which is not the same thing whenever a destination is being held.
     /// </summary>
-    private static void DrawFollow(SpriteBatch sb, Brain brain)
+    private static void DrawFollow(SpriteBatch sb, Brain brain, NPC body)
     {
         var meeting = brain.Meeting;
         if (meeting.HasPlace)
@@ -433,9 +433,13 @@ public sealed class BrainOverlay : ModSystem
         // it there as a line from his feet, the target the body is pursuing across the box while it
         // accompanies him, and the pull as a tint on the box, so a body drifting to an edge is visible
         // before it is a complaint.
+        // The overlay can draw before the first brain tick has filled Senses.Companion; the NPC the
+        // layer already has is the body, so the pull is measured from that and not from a sense that
+        // has not been asked yet.
         Vector2 player = brain.Senses.Player.Bottom;
         var region = brain.Senses.Intent.Region;
-        float pull = MathF.Min(1f, region.Pull(brain.Senses.Companion.Center));
+        if (region.HalfSize.X < 1f) return;
+        float pull = MathF.Min(1f, region.Pull(body.Center));
         Color regionTint = Color.Lerp(Color.LightGreen, Color.Orange, pull);
         Box(sb, region.Centre, region.HalfSize, regionTint);
         if (region.Lead.LengthSquared() > 1f)

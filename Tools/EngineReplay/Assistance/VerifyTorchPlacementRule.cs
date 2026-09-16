@@ -88,8 +88,8 @@ internal static class VerifyTorchPlacementRule
             TheSameRoomLitByAPlacedTorchOffersNothing);
         Each("place: the same room in daylight, with him holding a torch, offers nothing",
             TheSameRoomInDaylightOffersNothing);
-        Each("place: rooms the world lights to 0.30, 0.45 and 0.70 offer nothing, with or without a torch in his hand",
-            MiddleBandRoomsOfferNothing);
+        Each("place: rooms the world lights to 0.55 and 0.70 offer nothing, with or without a torch in his hand, and a room at 0.30 is a job",
+            MiddleBandRoomsRespectTheDarkLevel);
         Each("place: a room a standing torch lights gets no second torch at the game's spacing while he holds a torch beside it",
             NoSecondTorchAtTheSpacingDistance);
         Each("place: a lamp-lit room with no bed, crossed by a player holding a torch, is offered nothing anywhere along his way",
@@ -268,7 +268,7 @@ internal static class VerifyTorchPlacementRule
         Require(site.X >= RoomLeft - 1 && site.X <= RoomRight && site.Y >= RoomTop && site.Y <= RoomBottom
             && RecommendTorchPlacement.Accepts(site, torch, ctx.Companion.StandIn.Player),
             $"the offered site must be a tile of the mined room the game's own torch step accepts; site={site} {OfferText(action, score)}");
-        Require(Lighting.Brightness(site.X, site.Y) >= Weights.LightDarkBelow,
+        Require(Lighting.Brightness(site.X, site.Y) > 0.2f,
             $"premise: the offered site is one his torch lights, or the row says nothing about carried light; engine {Lighting.Brightness(site.X, site.Y):0.000} at {site}");
     }
 
@@ -286,7 +286,7 @@ internal static class VerifyTorchPlacementRule
         Point standing = new((RoomLeft + RoomRight) / 2, RoomBottom);
         VerifyOreWork.Place(standing, TileID.Torches);
         Settle(ctx);
-        PresentEngineLight((_, _) => new Vector3(.02f), GameGlobalBrightness, placed: new[] { (standing, TorchColour()) });
+        PresentEngineLight((_, _) => new Vector3(.55f), GameGlobalBrightness, placed: new[] { (standing, TorchColour()) });
         ForceRefresh(ctx);
         Point spaced = new(RoomLeft, RoomBottom);
         Require(RecommendTorchPlacement.Accepts(spaced, torch, ctx.Companion.StandIn.Player),
@@ -324,15 +324,15 @@ internal static class VerifyTorchPlacementRule
         => $"score={score:0.000} offer={action.Eligibility}/{action.EligibilityReason} target={action.ActivityTarget}";
 
     /// <summary>
-    /// The sentinel's rooms: the world's own light at 0.30, 0.45 and 0.70 — every one above the dark level at the game's
-    /// brightness — once with nothing in his hand and once with his torch lighting the room he walked into holding it. Counting
-    /// carried light as darkness offered a torch in every held case, because every tile his torch outshone was taken for a dark
-    /// tile.
+    /// The sentinel's rooms at 0.55 and 0.70 — both above the dark level of 0.5 at the game's brightness — once with nothing
+    /// in his hand and once with his torch lighting the room. A room at 0.30 is below that bar and is a job, which is the
+    /// point of moving the bar: dim cave air the player's cursor still offered. Counting carried light as darkness offered
+    /// a torch in every held case, because every tile his torch outshone was taken for a dark tile.
     /// </summary>
-    private static void MiddleBandRoomsOfferNothing()
+    private static void MiddleBandRoomsRespectTheDarkLevel()
     {
         var offered = new List<string>();
-        foreach (float world in new[] { .30f, .45f, .70f })
+        foreach (float world in new[] { .55f, .70f })
             foreach (bool held in new[] { false, true })
             {
                 var ctx = Scene();
@@ -350,7 +350,22 @@ internal static class VerifyTorchPlacementRule
                 if (score > 0 || action.ActivityTarget is not null)
                     offered.Add($"world {world} held={held}: {OfferText(action, score)}");
             }
-        Require(offered.Count == 0, $"a room the world already lights must not be offered a torch, whatever he holds; {string.Join("; ", offered)}");
+        Require(offered.Count == 0, $"a room the world already lights above 0.5 must not be offered a torch, whatever he holds; {string.Join("; ", offered)}");
+
+        foreach (bool held in new[] { false, true })
+        {
+            var ctx = Scene();
+            BuildSealedRoom();
+            GiveTorches(ctx, held);
+            Settle(ctx);
+            var carried = held ? new[] { (ctx.Player.Center.ToTileCoordinates(), TorchColour()) } : Array.Empty<(Point, Vector3)>();
+            PresentEngineLight((_, _) => new Vector3(.30f), GameGlobalBrightness, placed: null, carried);
+            ForceRefresh(ctx);
+            var action = new LightUsefulArea();
+            float score = VerifyPreparedActivities.PrepareAndScore(action, ctx);
+            Require(score > 0 && action.Eligibility == Offer.Usable && action.ActivityTarget is not null,
+                $"a room at world light 0.30 is below 0.5 and must be a lighting job, held={held}; {OfferText(action, score)}");
+        }
     }
 
     /// <summary>
@@ -370,12 +385,13 @@ internal static class VerifyTorchPlacementRule
         Settle(ctx);
         PresentEngineLight((_, _) => new Vector3(.02f), GameGlobalBrightness, placed: new[] { (standing, TorchColour()) });
         float world = Lighting.Brightness(spaced.X, spaced.Y);
-        PresentEngineLight((_, _) => new Vector3(.02f), GameGlobalBrightness, placed: new[] { (standing, TorchColour()) },
+        PresentEngineLight((_, _) => new Vector3(.55f), GameGlobalBrightness, placed: new[] { (standing, TorchColour()) },
             (ctx.Player.Center.ToTileCoordinates(), TorchColour()));
         ForceRefresh(ctx);
-        Require(RecommendTorchPlacement.Accepts(spaced, torch, ctx.Companion.StandIn.Player) && world >= Weights.LightDarkBelow
+        Require(RecommendTorchPlacement.Accepts(spaced, torch, ctx.Companion.StandIn.Player)
+            && Lighting.Brightness(spaced.X, spaced.Y) >= Weights.LightDarkBelow
             && Lighting.Brightness(spaced.X, spaced.Y) > world,
-            $"premise: the spaced tile is one the game allows, lit by the standing torch, and outshone by his; world {world:0.000}, with his torch {Lighting.Brightness(spaced.X, spaced.Y):0.000}");
+            $"premise: the spaced tile is one the game allows, lit above the dark level, and outshone by his torch; standing-torch-only {world:0.000}, with his torch {Lighting.Brightness(spaced.X, spaced.Y):0.000}");
         var action = new LightUsefulArea();
         float score = VerifyPreparedActivities.PrepareAndScore(action, ctx);
         var reading = ctx.Companion.Brain.Senses.Light.ReadForPlacement(spaced, LightSense.Coverage.Current());
@@ -396,11 +412,13 @@ internal static class VerifyTorchPlacementRule
         GiveTorches(ctx, held: true);
         Settle(ctx);
         var lamp = new[] { (new Point((RoomLeft + RoomRight) / 2, RoomTop + 1), new Vector3(1f, .95f, .8f)) };
+        // Ambient above the dark level so a dim corner outside the lamp's falloff is not a new job; the row is about
+        // the lamp-lit room, not the cave the room sits in.
         var offered = new List<string>();
         for (int x = RoomLeft + 1; x <= RoomRight - 1; x += 4)
         {
             ctx.Player.position = new Vector2(x * 16, (RoomBottom + 1) * 16 - ctx.Player.height);
-            PresentEngineLight((_, _) => new Vector3(.02f), GameGlobalBrightness, lamp, (ctx.Player.Center.ToTileCoordinates(), TorchColour()));
+            PresentEngineLight((_, _) => new Vector3(.55f), GameGlobalBrightness, lamp, (ctx.Player.Center.ToTileCoordinates(), TorchColour()));
             ForceRefresh(ctx);
             var action = new LightUsefulArea();
             float score = VerifyPreparedActivities.PrepareAndScore(action, ctx);
@@ -432,7 +450,7 @@ internal static class VerifyTorchPlacementRule
             $"premise: the dark room's far tile reads dark before any torch is in the room; {light.ReadForPlacement(spaced, LightSense.Coverage.Current())}");
         Require(PlaceTorches.Place(standing, ctx.Companion.Bag.Items, ctx.Player, out _),
             "premise: the companion's placer puts its torch in the middle of the floor");
-        PresentEngineLight((_, _) => new Vector3(.02f), GameGlobalBrightness, placed: new[] { (standing, TorchColour()) },
+        PresentEngineLight((_, _) => new Vector3(.55f), GameGlobalBrightness, placed: new[] { (standing, TorchColour()) },
             (ctx.Player.Center.ToTileCoordinates(), TorchColour()));
         ForceRefresh(ctx);
         var reading = light.ReadForPlacement(spaced, LightSense.Coverage.Current());

@@ -91,29 +91,29 @@ public readonly record struct PlayerIntentRegion(Vector2 Centre, Vector2 HalfSiz
         => MathF.Min(halfSize.Y * 2f / 3f, MathF.Max(0f, halfSize.Y - slack));
 
     /// <summary>
-    /// How far the lead may carry the box before the player would stop being inside it by the slack. With the player
-    /// <c>p</c> below the centre of a box of half-size <c>h</c>, his offset from the centre is <c>(−lead.x, p − lead.y)</c>,
-    /// and staying inside by <c>s</c> needs <c>|lead.x| ≤ h.x − s</c> and <c>p − (h.y − s) ≤ lead.y ≤ p + (h.y − s)</c>.
-    /// With <c>p = 2h.y/3</c> that is an upward allowance of <c>h.y/3 − s</c> and a downward one of <c>5h.y/3 − s</c>: small
-    /// up, large down, which is exactly a drone that idles above the player and is dragged below him when he drops. Screen
-    /// y grows downward, so up is negative. A limit that would be negative is zero: the box cannot lead that way at all.
+    /// How far the lead may carry the box. Vertically the player stays inside by the slack: with him <c>p</c> below the
+    /// centre of a box of half-size <c>h</c>, <c>p − (h.y − s) ≤ lead.y ≤ p + (h.y − s)</c>, which at the bottom third is
+    /// a small lift of <c>h.y/3 − s</c> and a long drop of <c>5h.y/3 − s</c>. Horizontally the player clamps to the two
+    /// verticals that split the box into three equal strips, not to the left and right edges: walking right puts him on
+    /// the left third-line (<c>|lead.x| ≤ h.x/3</c>), walking left on the right one, so two thirds of the box stays ahead
+    /// and the box cannot run out to the far edge. Screen y grows downward, so up is negative. A limit that would be
+    /// negative is zero: the box cannot lead that way at all.
     /// </summary>
     public static (float Across, float Up, float Down) LeadLimits(Vector2 halfSize, float slack)
     {
         float below = PlayerBelowCentre(halfSize, slack);
         float room = MathF.Max(0f, halfSize.Y - slack);
-        return (MathF.Max(0f, halfSize.X - slack), MathF.Max(0f, room - below), room + below);
+        return (MathF.Max(0f, halfSize.X / 3f), MathF.Max(0f, room - below), room + below);
     }
 
     /// <summary>
     /// The region for a player whose centre is at <paramref name="playerCentre"/> and whose filtered lead is
     /// <paramref name="lead"/>. The box grows with its lead — up to the growth cap — by the lead's share of how far the fully
     /// grown box allows it to lead on that axis, the larger of the two axes' shares; the lead is then clamped against the
-    /// limits of the box it actually is. So at the clamp the box is fully grown and the player is exactly at its edge less
-    /// the slack, and short of the clamp the clamp does not bind: the grown limits exceed the lead's share of the full ones,
-    /// because the margin between them is <c>(1 − share)(base − slack)</c> on each axis. Where the base is itself smaller than
-    /// the slack allows for — the Close mode's upward allowance — the clamp can bind a little before full growth, and the
-    /// player stays inside regardless, which is the property; growth is the preference.
+    /// limits of the box it actually is. So at the clamp the box is fully grown and the player sits on a third-line
+    /// horizontally, or at the top or bottom edge less the slack vertically, and short of the clamp the clamp does not bind.
+    /// Where the base is itself smaller than the slack allows for — the Close mode's upward allowance — the clamp can bind a
+    /// little before full growth, and the player stays inside regardless, which is the property; growth is the preference.
     /// </summary>
     public static PlayerIntentRegion Around(Vector2 playerCentre, Vector2 lead, float comfortScale, bool travelling, float slack)
     {
@@ -211,7 +211,8 @@ public sealed class PlayerIntentRegionSense
 
     public void Update(NPC companion, PlayerSense player)
     {
-        Update(companion.Center, player.Position, player.Intent, player.IsTravelling, player.IsDead, player.Activity.Samples);
+        Update(companion.Center, player.Position, player.Intent, player.IsTravelling, player.IsDead, player.Activity.Samples,
+            player.HeldMove);
         ObserveWayToPlayer(companion.Center, player.Position);
     }
 
@@ -284,7 +285,7 @@ public sealed class PlayerIntentRegionSense
     /// and the real geometry with no game world behind it: a capture's player stands thousands of tiles from anything a
     /// headless tile map holds.</summary>
     public void Update(Vector2 companionCentre, Vector2 playerCentre, Vector2 intent,
-        bool travelling, bool dead, int samples)
+        bool travelling, bool dead, int samples, Vector2 held = default)
     {
         // A live interference footprint deliberately does not suppress the lead, and that was
         // measured rather than assumed. Suppressing it was tried, on the hypothesis that a lead
@@ -296,28 +297,43 @@ public sealed class PlayerIntentRegionSense
         // ticks in the player's way against 28 — since a region pulled back onto his feet is a region
         // that asks the companion to stand where he is walking. Courtesy is a positioning problem and
         // is answered where the companion's place is chosen, not by blinding the region.
-        Vector2 target = intent * Weights.IntentRegionLeadTicks;
-        // The same discontinuities that clear the intent history clear the lead: a death, a
-        // teleport or an unobserved interval leaves a filtered lead pointing at where the player
-        // was going before he stopped being there, and a companion sent towards a corpse.
-        // InferPlayerActivity.Observe is the authority — it resets its sample count on exactly
-        // those three — so the count reaching its first sample is the signal rather than a second
-        // copy of the test.
+        // The lead chases a pose, not an unclamped number. Rest is the pose with no lead; a hold
+        // pulls that pose to the third-line (or the vertical edge). Filtering toward the clamped
+        // pose is what makes a reverse at the clamp start on the first opposite key: chasing
+        // intent × 120 ticks first piled 360 px of lead behind a 92 px clamp, and a tap left had
+        // to unwind the pile before the box moved. Walk-history intent is not the horizontal drive
+        // — it is a second late.
+        // Vertical is both. A held up or down still slides the box with no tile progress, the
+        // same way a held right into a wall does. His own travel also moves it, at a fraction of
+        // the displacement, so walking off one block is a nudge and a long cave fall still fills
+        // the clamp. Treating any downward velocity as "go to the floor" was the snap: a one-tile
+        // drop saturated the pose and the companion followed it down. The internal lead is
+        // re-clamped after the travel add, so a long fall cannot pile past the clamp and have to
+        // unwind before the box comes back.
+        Vector2 drive = new(
+            held.X,
+            held.Y != 0f ? held.Y : intent.Y);
+        bool led = drive.LengthSquared() > 0f || travelling;
+        float scale = PlayerIntegration.CompanionPreferences.Current.FollowComfortScale;
+        float slack = Movement.Navigator.SettleRadius;
+        Vector2 previousLead = Region.Lead;
         if (dead || samples <= 1)
             lead = Vector2.Zero;
         else
-            // One-pole low pass. It matters at the stop rather than the start: a player who halts
-            // has his intent fall to nothing in one observation, and without this the region would
-            // snap back onto him and drag the destination with it.
-            lead += (target - lead) / MathF.Max(1f, Weights.IntentRegionFilterTicks);
-
-        Vector2 previousLead = Region.Lead;
+        {
+            Vector2 wanted = new(
+                held.X != 0f ? held.X * 100000f : 0f,
+                held.Y != 0f ? held.Y * 100000f : 0f);
+            Vector2 pose = PlayerIntentRegion.Around(playerCentre, wanted, scale, led, slack).Lead;
+            lead += (pose - lead) / MathF.Max(1f, Weights.IntentRegionFilterTicks);
+            lead.Y += intent.Y * Weights.IntentRegionVerticalTravelGain;
+            lead = PlayerIntentRegion.Around(playerCentre, lead, scale, led, slack).Lead;
+        }
         // The slack is the settle radius, the room every destination inside the region reserves, so the player's own
         // position is always a place the companion could be and count as inside.
-        Region = PlayerIntentRegion.Around(playerCentre, lead, PlayerIntegration.CompanionPreferences.Current.FollowComfortScale,
-            travelling, Movement.Navigator.SettleRadius) with
+        Region = PlayerIntentRegion.Around(playerCentre, lead, scale, led, slack) with
         {
-            Velocity = intent + (hasRegion ? Region.Lead - previousLead : Vector2.Zero),
+            Velocity = drive + (hasRegion ? Region.Lead - previousLead : Vector2.Zero),
         };
         hasRegion = true;
 

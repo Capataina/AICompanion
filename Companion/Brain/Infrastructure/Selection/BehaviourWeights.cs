@@ -181,9 +181,13 @@ public static class Weights
     public const double MeetingSearchMilliseconds = 1d;
     // Lighting reads only light the engine computed. One tile of open air is dark below this brightness,
     // and that single threshold is what both carrying and placing light mean by the word, so the companion
-    // cannot hold a torch where it would not place one or the reverse. Surface daylight reads near 1, a
-    // lit cave about 0.5, unlit caverns under 0.1: dim is not dark.
-    public const float LightDarkBelow = .22f;
+    // cannot hold a torch where it would not place one or the reverse. The player's smart cursor does not
+    // read brightness at all — only whether another torch already sits within eight tiles — and 0.22 left
+    // dim cave air the cursor still offered (0.24 to 0.47 on the 16 September play) counting as lit. 0.5 is
+    // the playtest bar after 0.4 felt right but still a little shy: a fully lit cave sits around here, unlit
+    // caverns still under 0.1, and the eight-tile spacing plus the sky veto still refuse a room already
+    // torched and the surface at night.
+    public const float LightDarkBelow = .5f;
     // The smallest the light field's window may be, in tiles either side of the companion, whatever the
     // screen says. These are the half-extents the lighting search used around the body before the field
     // existed, kept because a screen-derived window is not always real: with no screen at all the width is
@@ -506,29 +510,47 @@ public static class Weights
     public const int IntentRegionLeadTicks = 120;
 
     /// <summary>
-    /// The time constant of the one-pole filter on the lead, so the region drifts rather than snaps.
-    /// It exists for the stop, not the start: a player who halts leaves a region a second's worth of
-    /// travel ahead of him, and without the filter it would jump back onto his feet in one tick and
-    /// take the companion's destination with it. Shortening this makes a stop snap; lengthening it
-    /// leaves the companion committed to somewhere the player has stopped walking towards.
+    /// The time constant of the one-pole filter on the lead, so the region glides rather than snaps.
+    /// The hold is what starts a move — a reverse at the clamp has to begin on the first opposite
+    /// key, not after a second of leftover walk-history — and this is only how long the glide takes.
+    /// Twenty-four ticks still read as a snap on a one-block drop: the pose was already the floor,
+    /// and a third of a second of falling took the box most of the way there. Ninety-six is a
+    /// quarter of that rate, about two thirds of the way in a second and a half, so a tap eases
+    /// and a held cave-drop still fills the clamp.
     /// </summary>
-    public const int IntentRegionFilterTicks = 60;
+    public const int IntentRegionFilterTicks = 96;
 
     /// <summary>
-    /// How much larger the region is than the follow comfort it is built from, with no lead. The owner ruled a quarter larger
-    /// on 15 September 2026: the region stopped being a place the companion arrives at and became the place it lives and moves
-    /// through, and a box sized for arriving is too small to move about in.
+    /// How much larger the region is than the follow comfort it is built from, with no lead. 1 is the follow comfort itself.
+    /// A quarter larger was the 15 September 2026 ruling — the region had become a place to live in rather than arrive at —
+    /// and the 16 September play found that box too big, so the scale went back to one.
     /// </summary>
-    public const float IntentRegionBaseScale = 1.25f;
+    public const float IntentRegionBaseScale = 1f;
 
     /// <summary>
     /// The most the region grows with its own lead, as a share, reached exactly when the lead is at the clamp that keeps the
     /// player inside. A leading region is also a larger one — a player crossing broken ground is somewhere in a band rather
     /// than at a point — and growing with the lead's share of its own limit, rather than with a fixed distance, is what makes
-    /// "fully grown" and "led as far as it may" the same moment. The owner raised it from fifteen to twenty-five percent with
-    /// the base scale.
+    /// "fully grown" and "led as far as it may" the same moment. Fifteen percent is the original cap; twenty-five rode in with
+    /// the 1.25 scale and left with it.
     /// </summary>
-    public const float IntentRegionGrowthCap = .25f;
+    public const float IntentRegionGrowthCap = .15f;
+
+    /// <summary>
+    /// Pace, in pixels per tick, given to a held direction that is not producing displacement: holding right into a wall,
+    /// or down into the floor, still feeds the region's lead filter. Ordinary walking is about this fast, so the filter
+    /// has a real target to chase and the clamp still binds; a smaller number would leave the box barely sliding.
+    /// </summary>
+    public const float IntentRegionHeldPace = 3f;
+
+    /// <summary>
+    /// How much of the player's own vertical displacement the region takes as lead, on top of a held
+    /// up or down. One fifth is the 16 September play: walking off a single block moved the box all
+    /// the way to the floor because any downward velocity saturated the pose; at this gain a tile of
+    /// his is a fifth of a tile of the box, and a long fall still fills the clamp because the
+    /// displacement adds up. A held key is a separate input and is not replaced by this.
+    /// </summary>
+    public const float IntentRegionVerticalTravelGain = .2f;
 
     /// <summary>
     /// How long the body must be at rest inside the region before following reads as satisfied, and

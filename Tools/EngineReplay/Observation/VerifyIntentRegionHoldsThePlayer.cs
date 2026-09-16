@@ -12,21 +12,23 @@ using DistanceMode = live::AICompanion.Companion.PlayerIntegration.CompanionDist
 using Weights = live::AICompanion.Companion.Brain.Infrastructure.Selection.Weights;
 
 /// <summary>
-/// The player's intent region always holds the player, and is shaped the way the owner ruled on 15 September 2026: a quarter
-/// larger than the follow comfort, growing by up to a quarter as its lead reaches the clamp, with the player's centre at the
-/// centre of its bottom third and the lead clamped so he never leaves it.
+/// The player's intent region always holds the player, and is shaped the way the 16 September play asked: the follow comfort
+/// with no extra scale, growing by up to fifteen percent as its lead reaches the clamp, the player's centre at the centre of
+/// its bottom third, the horizontal lead stopping at the third-lines rather than the left and right edges, a held
+/// direction that is not moving him still sliding the box, and vertical travel that moves the box by a fraction of his
+/// own motion so a one-tile drop is a nudge and a long fall still fills the clamp.
 ///
-/// <para>The replay is the pass line the ruling came from. On the 14:16 capture of that day the player stood outside his own
-/// region on 5,226 of 35,011 rows, 14.9%, and on 37% of the rows he was falling, because the lead was clamped to half the
-/// screen. The capture's player track is committed beside the other scenarios, so this runs in a fresh clone, and it is fed
-/// through the real lead filter and the real player-activity inference rather than a copy of either; the region's
+/// <para>The replay is the pass line the 15 September ruling came from. On the 14:16 capture of that day the player stood
+/// outside his own region on 5,226 of 35,011 rows, 14.9%, and on 37% of the rows he was falling, because the lead was clamped
+/// to half the screen. The capture's player track is committed beside the other scenarios, so this runs in a fresh clone, and
+/// it is fed through the real lead filter and the real player-activity inference rather than a copy of either; the region's
 /// containment is a property of the geometry for every lead the filter can produce, so the track is the realistic input and
 /// not the only one — the sweep below is the rest.</para>
 ///
 /// <para>The geometry rows run on all three distance modes, because the Close mode's box is too short for the bottom third
 /// to leave the player inside by the slack, and a row that ran only on Standard would pass a placement that fails there.
-/// The expected base size is written as comfort times scale times 1.25 here, from the constants the ruling was made
-/// against, rather than read from the base-scale constant, so a change to that constant is a red row and not a silent one.</para>
+/// The expected base size and growth cap are written as the follow comfort and 1.15 here, rather than read from the scale
+/// constants, so a change to those constants is a red row and not a silent one.</para>
 /// </summary>
 internal static class VerifyIntentRegionHoldsThePlayer
 {
@@ -50,13 +52,15 @@ internal static class VerifyIntentRegionHoldsThePlayer
                 Each($"geometry on {mode}", () => { preferences.DistanceMode = mode; Geometry(mode); });
             // The capture was recorded on Standard: its first row's region is the unscaled follow comfort.
             Each("replay", () => { preferences.DistanceMode = DistanceMode.Standard; Replay(); });
+            Each("held direction", HeldDirectionSlidesTheBox);
+            Each("vertical travel", VerticalTravelMovesTheBox);
         }
         finally
         {
             preferences.DistanceMode = held;
         }
         if (failures.Count > 0) throw new InvalidOperationException(string.Join(" | ", failures));
-        Console.WriteLine("intent region: the geometry holds on every distance mode and the recorded player is inside his region on every row");
+        Console.WriteLine("intent region: the geometry holds on every distance mode, a held direction still slides the box, a one-tile drop is a nudge and a long fall still fills the clamp, and the recorded player is inside his region on every row");
         return 0;
     }
 
@@ -64,12 +68,14 @@ internal static class VerifyIntentRegionHoldsThePlayer
     {
         float slack = Navigator.SettleRadius;
         float scale = Preferences.Current.FollowComfortScale;
-        Vector2 expectedBase = new Vector2(Weights.FollowHorizontalComfort, Weights.FollowVerticalComfort) * scale * 1.25f;
+        Vector2 expectedBase = new Vector2(Weights.FollowHorizontalComfort, Weights.FollowVerticalComfort) * scale;
         Vector2 player = new(8000f, 4000f);
+        Require(Weights.IntentRegionBaseScale == 1f, $"{mode}: the region is the follow comfort, not a scaled-up box; scale {Weights.IntentRegionBaseScale}");
+        Require(MathF.Abs(Weights.IntentRegionGrowthCap - 0.15f) < 0.001f, $"{mode}: growth cap is fifteen percent; {Weights.IntentRegionGrowthCap}");
 
         var still = PlayerIntentRegion.Around(player, Vector2.Zero, scale, false, slack);
         float below = player.Y - still.Centre.Y;
-        Require(Near(still.HalfSize, expectedBase), $"{mode}: at zero lead the half-size must be 1.25 times the comfort; {still.HalfSize} against {expectedBase}");
+        Require(Near(still.HalfSize, expectedBase), $"{mode}: at zero lead the half-size must be the follow comfort; {still.HalfSize} against {expectedBase}");
         Require(MathF.Abs(player.X - still.Centre.X) < 0.01f, $"{mode}: at zero lead the box must be centred on the player horizontally; centre {still.Centre} player {player}");
         bool thirdFits = still.HalfSize.Y / 3f >= slack;
         float expectedBelow = thirdFits ? still.HalfSize.Y * 2f / 3f : still.HalfSize.Y - slack;
@@ -82,11 +88,16 @@ internal static class VerifyIntentRegionHoldsThePlayer
                      new Vector2(1, 1), new Vector2(-1, 1), new Vector2(1, -1), new Vector2(-1, -1) })
         {
             var full = PlayerIntentRegion.Around(player, direction * 100000f, scale, true, slack);
-            Require(Near(full.HalfSize, expectedBase * 1.25f), $"{mode} {direction}: at the clamp the half-size must be 1.25 times 1.25 times the comfort; {full.HalfSize} against {expectedBase * 1.25f}");
+            var grownLimits = PlayerIntentRegion.LeadLimits(expectedBase * 1.15f, slack);
+            bool canLead = (direction.X != 0f && grownLimits.Across > 0f)
+                || (direction.Y > 0f && grownLimits.Down > 0f)
+                || (direction.Y < 0f && grownLimits.Up > 0f);
+            if (canLead)
+                Require(Near(full.HalfSize, expectedBase * 1.15f), $"{mode} {direction}: at the clamp the half-size must be 1.15 times the comfort; {full.HalfSize} against {expectedBase * 1.15f}");
             Vector2 offset = player - full.Centre;
             if (direction.X != 0f)
-                Require(MathF.Abs(MathF.Abs(offset.X) - (full.HalfSize.X - slack)) < 0.01f,
-                    $"{mode} {direction}: at the clamp the player must be at the region's side edge less the slack; {Describe(full, player)}");
+                Require(MathF.Abs(MathF.Abs(offset.X) - full.HalfSize.X / 3f) < 0.01f,
+                    $"{mode} {direction}: at the clamp the player must be at a third-line, not the side edge; {Describe(full, player)}");
             if (direction.Y > 0f)
                 Require(MathF.Abs(offset.Y + (full.HalfSize.Y - slack)) < 0.01f,
                     $"{mode} {direction}: led downward to the clamp the player must be at the region's top edge less the slack; {Describe(full, player)}");
@@ -108,12 +119,88 @@ internal static class VerifyIntentRegionHoldsThePlayer
                 var region = PlayerIntentRegion.Around(player, lead, scale, true, slack);
                 checkedLeads++;
                 Require(Holds(region, player, slack), $"{mode}: lead {lead} must leave the player inside by the slack; {Describe(region, player)}");
-                bool grown = Near(region.HalfSize, expectedBase * 1.25f);
+                bool grown = Near(region.HalfSize, expectedBase * 1.15f);
                 if (thirdFits && !grown)
                     Require(Near(region.Lead, lead), $"{mode}: a lead short of full growth must not be clamped; asked {lead}, applied {region.Lead}, half-size {region.HalfSize}");
             }
         }
         Console.WriteLine($"intent region geometry on {mode}: base {expectedBase}, player {below:0.0} px below the centre at zero lead, {checkedLeads} leads held");
+    }
+
+    /// <summary>
+    /// Holding a direction that is not moving the player still slides the box: right into a wall until the left
+    /// third-line, down into the floor until the top edge. Displacement-based intent is zero in both cases.
+    /// </summary>
+    private static void HeldDirectionSlidesTheBox()
+    {
+        float slack = Navigator.SettleRadius;
+        Vector2 player = new(8000f, 4000f);
+        var sense = new PlayerIntentRegionSense();
+        Vector2 heldRight = new(Weights.IntentRegionHeldPace, 0f);
+        for (int i = 0; i < 500; i++)
+            sense.Update(player, player, Vector2.Zero, false, false, 60, heldRight);
+        var right = sense.Region;
+        float x = player.X - right.Centre.X;
+        Require(x < -1f, $"holding right must move the box ahead of the player; {Describe(right, player)}");
+        Require(MathF.Abs(x + right.HalfSize.X / 3f) < 1f,
+            $"holding right long enough must clamp to the left third-line; {Describe(right, player)}");
+        Require(Holds(right, player, slack), $"holding right must leave the player inside; {Describe(right, player)}");
+
+        sense.Update(player, player, Vector2.Zero, false, false, 60, new Vector2(-Weights.IntentRegionHeldPace, 0f));
+        float reversed = player.X - sense.Region.Centre.X;
+        Require(reversed > x + 1f,
+            $"a left hold at the right clamp must start moving the box left on the first tick; was {x:0.0}, now {reversed:0.0}; {Describe(sense.Region, player)}");
+
+        Vector2 leftoverRight = new(Weights.IntentRegionHeldPace, 0f);
+        for (int i = 0; i < 20; i++)
+            sense.Update(player, player, leftoverRight, true, false, 60, Vector2.Zero);
+        float released = player.X - sense.Region.Centre.X;
+        Require(released > reversed + 2f,
+            $"releasing the hold must ease back toward rest even if walk-intent still points right; was {reversed:0.0}, now {released:0.0}; {Describe(sense.Region, player)}");
+
+        sense = new PlayerIntentRegionSense();
+        Vector2 heldDown = new(0f, Weights.IntentRegionHeldPace);
+        for (int i = 0; i < 600; i++)
+            sense.Update(player, player, Vector2.Zero, false, false, 60, heldDown);
+        var down = sense.Region;
+        Require(down.Centre.Y > player.Y + 1f, $"holding down must sink the box; {Describe(down, player)}");
+        float y = player.Y - down.Centre.Y;
+        Require(MathF.Abs(y + (down.HalfSize.Y - slack)) < 1f,
+            $"holding down long enough must clamp the player to the top edge less the slack; {Describe(down, player)}");
+        Require(Holds(down, player, slack), $"holding down must leave the player inside; {Describe(down, player)}");
+    }
+
+    /// <summary>
+    /// Vertical travel moves the box by a fraction of the player's own motion, and that is a
+    /// different input from a held key. A one-tile drop with nothing held is a nudge, not a slam
+    /// to the floor; a long fall with nothing held still fills the clamp, so dropping into a cave
+    /// still takes the box with him.
+    /// </summary>
+    private static void VerticalTravelMovesTheBox()
+    {
+        float slack = Navigator.SettleRadius;
+        Vector2 player = new(8000f, 4000f);
+        const float tile = 16f;
+        int dropTicks = 8;
+        float vy = tile / dropTicks;
+        var sense = new PlayerIntentRegionSense();
+        for (int i = 0; i < dropTicks; i++)
+            sense.Update(player, player, new Vector2(0f, vy), true, false, 60);
+        var nudged = sense.Region;
+        Require(nudged.Lead.Y > 1f, $"a one-tile drop must move the box down; {Describe(nudged, player)}");
+        Require(nudged.Lead.Y < tile * 0.5f,
+            $"a one-tile drop must not slam the box toward the floor; lead {nudged.Lead.Y:0.0} px after {tile:0} px of fall; {Describe(nudged, player)}");
+        Require(Holds(nudged, player, slack), $"a one-tile drop must leave the player inside; {Describe(nudged, player)}");
+
+        sense = new PlayerIntentRegionSense();
+        for (int i = 0; i < 250; i++)
+            sense.Update(player, player, new Vector2(0f, 10f), true, false, 60);
+        var cave = sense.Region;
+        Require(cave.Centre.Y > player.Y + 1f, $"a long fall with nothing held must still sink the box; {Describe(cave, player)}");
+        float y = player.Y - cave.Centre.Y;
+        Require(MathF.Abs(y + (cave.HalfSize.Y - slack)) < 1f,
+            $"a long fall with nothing held must still clamp the player to the top edge less the slack; {Describe(cave, player)}");
+        Require(Holds(cave, player, slack), $"a long fall must leave the player inside; {Describe(cave, player)}");
     }
 
     private static void Replay()
