@@ -19,6 +19,22 @@
 
 cd "$(dirname "$0")/.." || exit 2
 
+# 2026-09-16, environment workaround, delete when the SDK is fixed: the .NET
+# 10.0.401 SDK's apphost creation fails on this machine for every project (MSB4018,
+# OverflowException in FileStatus.IsMemberOfGroup), so plain `dotnet run` dies after
+# compiling. -p:UseAppHost=false makes run launch the dll via exec instead.
+# Directory.Build.rsp already carries it for `dotnet build`, but run's launch
+# decision only honours CLI-passed properties, hence this wrapper.
+dotnet() {
+  case "$1" in
+    run|build)
+      sub="$1"; shift
+      command dotnet "$sub" -p:UseAppHost=false "$@"
+      ;;
+    *) command dotnet "$@" ;;
+  esac
+}
+
 case_filter=""
 rerun=0
 while [ $# -gt 0 ]; do

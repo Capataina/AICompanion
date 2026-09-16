@@ -25,6 +25,17 @@ fi
 
 cd "$(dirname "$0")/.." || exit 2
 
+# 2026-09-16, environment workaround, delete when the SDK is fixed: see Tools/verify.sh.
+dotnet() {
+  case "$1" in
+    run|build)
+      sub="$1"; shift
+      command dotnet "$sub" -p:UseAppHost=false "$@"
+      ;;
+    *) command dotnet "$@" ;;
+  esac
+}
+
 run=$(dotnet run --project Tools/Ledger -- begin --note "flake batch of $runs on '$name'")
 if [ -z "$run" ]; then
   echo "measure-flake: could not open a ledger run" >&2

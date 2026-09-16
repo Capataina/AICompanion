@@ -14,6 +14,17 @@
 # the capture or its revision could not be established — never 0 on a run that recorded nothing,
 # because an empty run file would resolve as a clean baseline and silence every later comparison.
 
+# 2026-09-16, environment workaround, delete when the SDK is fixed: see Tools/verify.sh.
+dotnet() {
+  case "$1" in
+    run|build)
+      sub="$1"; shift
+      command dotnet "$sub" -p:UseAppHost=false "$@"
+      ;;
+    *) command dotnet "$@" ;;
+  esac
+}
+
 capture="$1"
 note="$2"
 

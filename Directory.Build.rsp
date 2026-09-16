@@ -1,0 +1,11 @@
+# The .NET 10.0.401 SDK's apphost creation fails on this machine for every project
+# (MSB4018, OverflowException in FileStatus.IsMemberOfGroup while stating the
+# template), which broke every `dotnet run` in Tools/, including verify.sh.
+# Nothing here needs a native executable — the game loads AICompanion.dll and the
+# tools run through `dotnet run`/`dotnet exec` — so apphost generation is off
+# until the SDK is fixed. This covers `dotnet build`; `dotnet run`'s launch
+# decision only honours CLI-passed properties, so Tools/verify.sh (and
+# measure-flake, backfill-capture, corpus) carry a marked `dotnet()` wrapper with
+# the same flag. Delete this file and those wrappers together; no project
+# references either.
+/p:UseAppHost=false

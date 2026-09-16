@@ -21,6 +21,17 @@
 
 cd "$(dirname "$0")/.." || exit 2
 
+# 2026-09-16, environment workaround, delete when the SDK is fixed: see Tools/verify.sh.
+dotnet() {
+  case "$1" in
+    run|build)
+      sub="$1"; shift
+      command dotnet "$sub" -p:UseAppHost=false "$@"
+      ;;
+    *) command dotnet "$@" ;;
+  esac
+}
+
 overall=0
 plain_log=$(mktemp)
 nocache_log=$(mktemp)
