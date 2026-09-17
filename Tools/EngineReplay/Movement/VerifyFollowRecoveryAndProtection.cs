@@ -119,7 +119,7 @@ internal static class VerifyFollowRecoveryAndProtection
         companion.NPC.position = new Vector2(400, 900);
         for (int i = 0; i < Main.npc.Length; i++) Main.npc[i] = new NPC { whoAmI = i, active = false };
         var senses = companion.Brain.Senses;
-        var npc = new NPC { whoAmI = 4, active = true, life = 100, damage = 20, position = new Vector2(450, 880) };
+        var npc = new NPC { whoAmI = 4, active = true, life = 100, lifeMax = 100, damage = 20, position = new Vector2(450, 880) };
         Main.npc[4] = npc;
         senses.Update(companion.NPC, Main.player[0]);
         senses.SetInterventionEstimate(float.PositiveInfinity);
@@ -136,6 +136,7 @@ internal static class VerifyFollowRecoveryAndProtection
         VerifyPreparedActivities.PrepareAndScore(combat, context);
         Require(combat.OfferedPlan != null, $"the guard scene must offer a plan; reason={combat.EligibilityReason}");
         float entry = combat.Score();
+        float entryWeighted = combat.OfferedPlan.Weighted;
         Require(entry > Weights.Commitment, "immediate danger can interrupt committed following even nearby");
         Require(combat.OfferedPlan.PrimaryTarget == npc.whoAmI, "combat must bind its prepared offer to the protected enemy");
         Threat threat = senses.Threats.Threats.Find(t => t.Npc == npc)
@@ -159,16 +160,24 @@ internal static class VerifyFollowRecoveryAndProtection
         float retreat = VerifyPreparedActivities.PrepareAndScore(combat, context);
         Require(retreat > 0 && ReferenceEquals(combat.CommittedPlan, held),
             "a small retreat retains the committed protection of the same relevant threat");
+        // Genuinely irrelevant, to both bodies: zeroing only the player's side leaves the
+        // companion-side danger pricing the fight, which is self-defense honestly kept. There is
+        // no relevance timer to run down — the old guard's clear-ticks are gone with it, and the
+        // new planner reprices irrelevance the tick it sees it — so no tick is advanced: advancing
+        // past the stall window without firing would honestly stall, which is progress mechanics,
+        // not relevance, and would end the membership this row asserts is kept.
         threat.CanReachPlayer = false;
         threat.Urgency = 0;
+        threat.CanReachCompanion = false;
+        threat.UrgencyToCompanion = 0;
         senses.SetInterventionEstimate(float.PositiveInfinity);
-        int firstClear = senses.Tick;
-        Require(VerifyPreparedActivities.PrepareAndScore(combat, context) > 0, "one safe frame must not abandon protection");
-        typeof(live::AICompanion.Companion.Brain.Infrastructure.Observation.Senses).GetProperty("Tick")!.GetSetMethod(true)!.Invoke(senses,
-            new object[] { firstClear + Weights.GuardClearTicks });
         float cold = VerifyPreparedActivities.PrepareAndScore(combat, context);
-        Require(cold > 0 && cold < entry && ReferenceEquals(combat.CommittedPlan, held),
-            $"sustained irrelevance collapses the offer's value without ending its membership; entry={entry} cold={cold}");
+        // The collapse is read on the plans' unclamped value, not the scores: the offer maps the
+        // plan through the specified saturate, so a good fight still reads the clamp after losing
+        // its threat, and only the plans show the reprice. The matrix reads it the same way.
+        float coldWeighted = combat.OfferedPlan?.Weighted ?? 0f;
+        Require(cold > 0 && coldWeighted < entryWeighted && ReferenceEquals(combat.CommittedPlan, held),
+            $"irrelevance collapses the offer's value without ending its membership; entry={entryWeighted} ({entry}) cold={coldWeighted} ({cold})");
         threat.CanReachPlayer = true;
         threat.Urgency = 1;
         VerifyPreparedActivities.PrepareAndScore(combat, context);
@@ -180,11 +189,16 @@ internal static class VerifyFollowRecoveryAndProtection
         senses.SetInterventionEstimate(float.PositiveInfinity);
         Require(VerifyPreparedActivities.PrepareAndScore(combat, context) == 0 && combat.CommittedPlan == null, "disappeared threat releases commitment");
         companion.Brain.Chooser.Activity.Select(combat, context);
-        var replacement = new NPC { whoAmI = 5, active = true, life = 100, damage = 20, position = new Vector2(500, 880) };
+        var replacement = new NPC { whoAmI = 5, active = true, life = 100, lifeMax = 100, damage = 20, position = new Vector2(500, 880) };
         Main.npc[5] = replacement;
         var second = new Threat { Npc = replacement, CanReachPlayer = true, Urgency = 1f, EffectiveTicksToPlayer = 0 };
         senses.Threats.Threats.Add(second);
         typeof(live::AICompanion.Companion.Brain.Infrastructure.Observation.ThreatSense).GetProperty("MostUrgent")!.SetValue(senses.Threats, second);
+        // On the next tick, the way the brain would ask it: the enemy forecast is cached per tick,
+        // so planning the replacement on the cleared tick aims its sim at the old threat's forecast
+        // and the new body is invisible to every use.
+        typeof(live::AICompanion.Companion.Brain.Infrastructure.Observation.Senses).GetProperty("Tick")!.GetSetMethod(true)!.Invoke(senses,
+            new object[] { senses.Tick + 1 });
         float renewed = VerifyPreparedActivities.PrepareAndScore(combat, context);
         Require(renewed > 0 && combat.CommittedPlan != null && combat.CommittedPlan.PrimaryTarget == 5,
             $"the replacement threat must be offered and committed a fresh plan; renewed={renewed} reason={combat.EligibilityReason}");

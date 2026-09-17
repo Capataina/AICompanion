@@ -773,11 +773,16 @@ internal static class VerifyResponsiveFollowing
         {
             player.velocity = new Vector2(RunningSpeed, 0f);
             player.Bottom += player.velocity;
+            player.controlRight = true;
             VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
             companion.Brain.Senses.Update(companion.NPC, player);
         }
+        player.controlRight = false;
         var region = companion.Brain.Senses.Intent.Region;
-        Require(companion.Brain.Senses.Player.IsTravelling && region.Lead.Length() > 100f, FormattableString.Invariant(
+        // The lead chases the held key, not the observed pace, so a run without one reads no lead at
+        // all; and the lead it chases is the third-line clamp, 240 x 1.15 / 3 = 92 px fully grown, not
+        // the half-screen the old threshold was written against. Six hundred ticks saturate it.
+        Require(companion.Brain.Senses.Player.IsTravelling && region.Lead.X > 90f, FormattableString.Invariant(
             $"the curve row needs a led region, or its edge is the easy case: lead={region.Lead}"));
         float cap = live::AICompanion.Companion.Brain.Infrastructure.Selection.Weights.KeepCompanyFarCap;
         float leash = live::AICompanion.Companion.Brain.Infrastructure.Selection.Weights.LeashHard;
@@ -839,12 +844,20 @@ internal static class VerifyResponsiveFollowing
             // A diagonal climb, which is what a hill is: along and up together.
             player.velocity = new Vector2(2f, -1.5f);
             player.Bottom += player.velocity;
+            player.controlRight = true;
+            player.controlUp = true;
             VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
             companion.Brain.Senses.Update(companion.NPC, player);
         }
+        player.controlRight = false;
+        player.controlUp = false;
         var climbing = companion.Brain.Senses.Intent.Region;
         float cap = 1f + live::AICompanion.Companion.Brain.Infrastructure.Selection.Weights.IntentRegionGrowthCap;
-        Require(climbing.Lead.Y < -16f && climbing.Centre.Y < player.Bottom.Y - 16f, FormattableString.Invariant(
+        // The upward allowance is h/3 less the slack, 110.4/3 - 32 = 4.8 px fully grown: the player
+        // sits near the top of his own box, so there is almost nowhere to lead up to, and the climb
+        // is carried by growth and the box sitting above him rather than by the lead. The old line
+        // predates the clamp; what is asserted is the pin the travel presses into it.
+        Require(climbing.Lead.Y < -4f && climbing.Centre.Y < player.Bottom.Y - 16f, FormattableString.Invariant(
             $"a climbing player's region must lead above his feet: lead={climbing.Lead} centre={climbing.Centre} feet={player.Bottom}"));
         Require(climbing.HalfSize.Y > still.HalfSize.Y && climbing.HalfSize.X > still.HalfSize.X, FormattableString.Invariant(
             $"the region must grow on both axes with the lead, not only along it: still={still.HalfSize} climbing={climbing.HalfSize}"));

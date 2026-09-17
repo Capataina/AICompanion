@@ -1172,18 +1172,35 @@ public sealed class Positioner
         float worst = 0f;
         Rectangle body = new((int)(centre.X - CircleContact.Radius), (int)(centre.Y - CircleContact.Radius), (int)CircleContact.Diameter, (int)CircleContact.Diameter);
         foreach (ThreatRecord t in senses.Threats.Threats)
-        {
-            float d = Vector2.Distance(t.Npc.Center, centre);
-            float proximity = Consideration.Inverse(d, 160f) * 0.6f;
-            for (int tick = 0; tick <= 40; tick += 10)
-                if (t.PredictedHitbox(tick).Intersects(body))
-                {
-                    proximity = 1f;
-                    break;
-                }
-            worst = MathF.Max(worst, proximity);
-        }
+            worst = MathF.Max(worst, ThreatProximity(t, centre, body, 1f));
         return worst;
+    }
+
+    /// <summary>
+    /// The expected hit at this spot as a share of the companion's life: each threat's proximity times the
+    /// hit it lands on the body, summed. A sum rather than the exposure times the hardest hit anywhere,
+    /// because that product prices a distant lethal into every stand — a damage-100 body thirty tiles off
+    /// set the price of hits the mild zombie at the stand would land, and no fight beside any lethal was
+    /// ever worth starting. The distance term is gated by the threat's urgency to the companion, because a
+    /// body busy with the player is not incoming however near; a predicted hitbox overlap is not gated,
+    /// because a forecasted overlap is incoming by construction.
+    /// </summary>
+    public static float PredictedHarmAt(Vector2 centre, Senses.Senses senses, float companionLife)
+    {
+        float total = 0f;
+        Rectangle body = new((int)(centre.X - CircleContact.Radius), (int)(centre.Y - CircleContact.Radius), (int)CircleContact.Diameter, (int)CircleContact.Diameter);
+        foreach (ThreatRecord t in senses.Threats.Threats)
+            total += ThreatProximity(t, centre, body, Math.Clamp(t.UrgencyToCompanion, 0f, 1f)) * MathF.Max(0f, t.EffectiveDamageToCompanion);
+        return total / MathF.Max(1f, companionLife);
+    }
+
+    private static float ThreatProximity(ThreatRecord t, Vector2 centre, Rectangle body, float urgencyGate)
+    {
+        for (int tick = 0; tick <= 40; tick += 10)
+            if (t.PredictedHitbox(tick).Intersects(body))
+                return 1f;
+        float d = Vector2.Distance(t.Npc.Center, centre);
+        return Consideration.Inverse(d, 160f) * 0.6f * urgencyGate;
     }
 
     /// <summary>

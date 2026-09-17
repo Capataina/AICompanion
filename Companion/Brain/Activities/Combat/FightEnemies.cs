@@ -109,18 +109,27 @@ public sealed class FightEnemies : CompanionAction, ICandidateFunnelSource
         ServesPlayer = false;
         Funnel.Begin();
 
+        var positioner = ctx.Companion.Brain.Positioner;
+        bool running = ReferenceEquals(ctx.Companion.Brain.Chooser.Current, this);
+        ActionContext captured = ctx;
+        Func<Vector2, bool> allows = point => AllowsTarget(captured, point);
+        IReadOnlyList<EnemyForecast> enemies = combat.EnsureForecast(ctx);
+
         if (!PlayerIntegration.CompanionPreferences.Current.Combat)
         {
+            ReleaseCommitmentForRefusal(ctx, positioner, allows, enemies, running, "combat-disabled");
             Classify(OfferEligibility.PolicyForbidden, "combat-disabled");
             return;
         }
         if (combat.Weapons.Count == 0)
         {
+            ReleaseCommitmentForRefusal(ctx, positioner, allows, enemies, running, "no-weapon");
             Classify(OfferEligibility.NoOpportunity, "no-weapon");
             return;
         }
         if (ctx.Senses.Player.IsDead)
         {
+            ReleaseCommitmentForRefusal(ctx, positioner, allows, enemies, running, "player-dead");
             Classify(OfferEligibility.NoOpportunity, "player-dead");
             return;
         }
@@ -150,20 +159,16 @@ public sealed class FightEnemies : CompanionAction, ICandidateFunnelSource
         }
         if (eligible.Count == 0)
         {
+            ReleaseCommitmentForRefusal(ctx, positioner, allows, enemies, running, "no-eligible-target");
             preparedPlan = null;
             Classify(OfferEligibility.NoOpportunity, "no-eligible-target");
             return;
         }
 
-        var positioner = ctx.Companion.Brain.Positioner;
-        bool running = ReferenceEquals(ctx.Companion.Brain.Chooser.Current, this);
         // A null resolution refuses the stand the plan was priced from, so the next rescore searches afresh.
         if (ctx.Companion.Brain.LastRequest.Kind == RequestKind.FireFrom && positioner.LastResolveFailed)
             combat.Planner.Release("stand-resolution-failed");
-        ActionContext captured = ctx;
-        Func<Vector2, bool> allows = point => AllowsTarget(captured, point);
         CombatWeights weights = WeighCombatObjectives.ForSenses(ctx);
-        IReadOnlyList<EnemyForecast> enemies = combat.EnsureForecast(ctx);
 
         AttackPlan? plan = combat.Planner.Committed;
         if (plan != null && combat.Planner.Validate(ctx, positioner, allows, running))
@@ -226,16 +231,20 @@ public sealed class FightEnemies : CompanionAction, ICandidateFunnelSource
     /// <summary>
     /// The offer from a plan: its weighted outcome mapped into the utility band and lifted by the player's
     /// danger, so a threat on the player takes the body from a vein. The value, the plan and its target
-    /// generations are captured together, so repeated <see cref="Score"/> reads cannot retarget.
+    /// generations are captured together, so repeated <see cref="Score"/> reads cannot retarget. The offered
+    /// outcome is stamped onto the offered plan: pricing the score from a re-evaluation while leaving the
+    /// plan's search-time vector in place freezes the record's plan columns at the search while the score
+    /// moves, and an irrelevance reprice then reads as no reprice at all. The commitment keeps its own
+    /// search-time outcome — the offer is this tick's valuation, the commitment its schedule.
     /// </summary>
     private void OfferFromPlan(in ActionContext ctx, AttackPlan plan, CombatOutcome outcome, CombatWeights weights,
         int frontSize, bool cut)
     {
-        OfferedPlan = plan;
+        float weighted = weights.Weighted(outcome);
+        OfferedPlan = plan with { Outcome = outcome, Weighted = weighted };
         OfferedFrontSize = frontSize;
         OfferedCut = cut;
         OfferedSegment = Array.IndexOf(plan.Segments, plan.Current(PlanTick));
-        float weighted = weights.Weighted(outcome);
         preparedValue = Weights.CombatValueScale * Math.Clamp(weighted, 0f, 1f)
             * (1f + Weights.CombatPlayerDangerLift * Math.Clamp(ctx.Senses.Threats.PlayerDanger, 0f, 1f));
         foreach ((int slot, _) in plan.Validity.Targets)
@@ -252,6 +261,31 @@ public sealed class FightEnemies : CompanionAction, ICandidateFunnelSource
             }
         }
         Classify(OfferEligibility.Usable, "planned-attack");
+    }
+
+    /// <summary>
+    /// A refusal's half of commitment hygiene: a plan committed against a target that left eligibility
+    /// must be released with the reason validation names, not kept with a stale one while the offer
+    /// reads no fight — the hands fire the commitment, and the estimate reads its kill, so a stranded
+    /// plan shoots at an unattackable target under infinite protection's name. Validation names a stale
+    /// plan itself; a plan that still validates but solves nothing more ends as uses-stopped-solving;
+    /// only a plan that still solves is ended by the refusal, under the refusal's own name. Never offers.
+    /// </summary>
+    private static void ReleaseCommitmentForRefusal(in ActionContext ctx, Positioner positioner,
+        Func<Vector2, bool> inAllowance, IReadOnlyList<EnemyForecast> enemies, bool running, string refusal)
+    {
+        CompanionCombat combat = ctx.Companion.Combat;
+        if (combat.Planner.Committed == null)
+            return;
+        if (combat.Planner.Validate(ctx, positioner, inAllowance, running))
+        {
+            CombatWeights weights = WeighCombatObjectives.ForSenses(ctx);
+            AttackPlan plan = combat.Planner.Committed;
+            if (Reevaluate(ctx, combat, enemies, plan, weights) == null)
+                combat.Planner.Release("uses-stopped-solving");
+            else
+                combat.Planner.Release(refusal);
+        }
     }
 
     /// <summary>
@@ -306,6 +340,16 @@ public sealed class FightEnemies : CompanionAction, ICandidateFunnelSource
                 muzzle, sim, aim, aim, fireTick, out _, out _);
             if (attack == null)
                 continue;
+            // A re-flown use validates the plan only through its planned target: a trajectory that still hits,
+            // but only bodies the plan never targeted, is not the planned fight solving — it is a bystander in
+            // the way. Without this a plan whose target left the senses holds on a wrong-body hit, running to
+            // its horizon at an unlisted body instead of re-ranking onto the threats the senses actually list.
+            // The slot match is sound here because validity already pinned every planned slot's generation.
+            bool touchesTarget = false;
+            foreach (EvaluateAttackOutcomes.Hit hit in attack.Hits)
+                if (hit.Target == use.TargetSlot) { touchesTarget = true; break; }
+            if (!touchesTarget)
+                continue;
             attacks.Add(attack);
             if (overdue)
                 overdueCovered = true;
@@ -315,11 +359,15 @@ public sealed class FightEnemies : CompanionAction, ICandidateFunnelSource
         attacks.Reverse();
         float travel = Vector2.Distance(ctx.Npc.Center, segment.Stand.Stand) <= Weights.CombatStandArrivalPx ? 0f
             : Vector2.Distance(ctx.Npc.Center, segment.Stand.Stand) / OrbPace.MaxSpeed;
-        float worst = 0f;
-        foreach (ThreatRecord threat in ctx.Senses.Threats.Threats)
-            worst = MathF.Max(worst, threat.EffectiveDamageToCompanion);
-        var context = new EvaluateAttackOutcomes.PlanContext((int)travel, segment.Verdict.ExposureAtStand,
-            segment.Verdict.ExposureAlongTravel, worst, Math.Max(1, ctx.Player.statLife), Math.Max(1, ctx.Npc.life),
+        float harmAtStand = Positioner.PredictedHarmAt(segment.Stand.Stand, ctx.Senses, ctx.Npc.life);
+        float harmAlongTravel = 0f;
+        for (int sample = 1; sample <= 4; sample++)
+        {
+            Vector2 point = Vector2.Lerp(ctx.Npc.Center, segment.Stand.Stand, sample / 5f);
+            harmAlongTravel = MathF.Max(harmAlongTravel, Positioner.PredictedHarmAt(point, ctx.Senses, ctx.Npc.life));
+        }
+        var context = new EvaluateAttackOutcomes.PlanContext((int)travel, harmAtStand, harmAlongTravel,
+            Math.Max(1, ctx.Player.statLife), Math.Max(1, ctx.Npc.life),
             Math.Max(1, ctx.Companion.Mana.Max), 0f);
         var evalTargets = ForecastUses.AttackTargets(ctx);
         return EvaluateAttackOutcomes.EvaluateVector(attacks[0], attacks, evalTargets,

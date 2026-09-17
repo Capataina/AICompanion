@@ -117,15 +117,15 @@ internal static class VerifyOreWork
         // which the ore has left the work radius, and it is carried here so the emptiness of the band is a
         // row rather than a claim in a comment.
         // Since 15 September 2026 the work radius is 1000 px rather than 1120, and it is measured from where the player's
-        // region says he is going: his centre carried by the region's applied lead. The same day the lead stopped being
-        // clamped at half the screen and started being clamped so the player stays inside his own region — at most the grown
-        // box's half-width less the settle radius, which from the geometry is about 343 px. This scene walks him four pixels a
-        // tick for two seconds, which fills that clamp, so the ore at 640 is about 983 px from the heading, inside the radius:
-        // mining kept a value there (0.22 at the region commit, 0.26 after it) where the commit before the region change
-        // vetoed it. At 720 it is about 1063 px away, outside. The three gradient scenes sit inside at 400, 480 and 576. The
-        // table above was measured at the old radius and is kept for its shape.
-        const int VetoSeparation = 720;
-        foreach (int separation in new[] { 400, 480, 576, VetoSeparation })
+        // region says he is going: his centre carried by the region's applied lead. The 16 September reshape then clamped the
+        // lead to the box's third-lines — 240 x 1.15 / 3 = 92 px fully grown, replacing the 343 px the stay-inside clamp
+        // allowed — and made the lead chase the held key rather than the observed pace, so the walk
+        // holds the key the way a walking player does. Two seconds of walking fill 71% of the 92 px clamp, about 66 px, so the
+        // ore at 800 sits about 866 px from the heading, inside the radius, and at 1000 it sits about 1066 px away, outside,
+        // with the same sixty-odd margin the veto at 720 used to have. The gradient scenes sit inside at 400, 480, 576 and 800.
+        // The table above was measured at the old radius and is kept for its shape.
+        const int VetoSeparation = 1000;
+        foreach (int separation in new[] { 400, 480, 576, 800, VetoSeparation })
         foreach (bool nearlyDone in new[] { false, true })
         {
             Point ore = new(25, 89);
@@ -141,10 +141,12 @@ internal static class VerifyOreWork
             {
                 ctx.Player.velocity = new Vector2(4, 0);
                 ctx.Player.position += ctx.Player.velocity;
+                ctx.Player.controlRight = true;
                 VerifyObservedMotion.SetTick(Main.GameUpdateCount + 1);
                 brain.Senses.Update(ctx.Npc, ctx.Player);
                 workClock.PostUpdateEverything();
             }
+            ctx.Player.controlRight = false;
             Item pick = live::AICompanion.Companion.Brain.Infrastructure.Interactions.Mining.TileMiner.PickaxeFor(ctx.Player);
             if (nearlyDone)
                 while (ctx.Companion.Miner.EstimateRemaining(ore, pick) is { Hits: > 1 })
@@ -189,7 +191,7 @@ internal static class VerifyOreWork
         // The veto itself is asserted in the loop above, at VetoSeparation, so "the band is empty" is a row
         // rather than a sentence: mining is chosen at every separation inside the radius and worth exactly
         // nothing at the first one outside it, with nothing in between for the deleted half to have held at.
-        Require(fresh.Count == 3 && finishing.Count == 3,
+        Require(fresh.Count == 4 && finishing.Count == 4,
             FormattableString.Invariant($"the gradient must be measured at every separation; fresh={fresh.Count} finishing={finishing.Count}"));
     }
 

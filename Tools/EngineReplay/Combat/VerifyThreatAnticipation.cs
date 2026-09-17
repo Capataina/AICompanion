@@ -145,7 +145,12 @@ internal static class VerifyThreatAnticipation
         Main.player[0].dead = false;
         companion.NPC.position = new Vector2(400, 800);
         Main.player[0].position = new Vector2(500, 800);
-        var target = new NPC { whoAmI = 1, active = true, life = 100, lifeMax = 100, damage = 20,
+        // An ordinary zombie's 45 life, not a hundred: the starting bow forecasts about sixty
+        // damage inside the plan's horizon, so a hundred-life target honestly survives it and the
+        // estimate reads infinite with a plan committed — the old arsenal extrapolated the kill past
+        // its window, and the plan's estimate is the plan's own predicted kill tick, infinite where
+        // the plan predicts none. The mechanics below need a kill to count down to.
+        var target = new NPC { whoAmI = 1, active = true, life = 45, lifeMax = 45, damage = 20,
             width = 30, height = 40, position = new Vector2(510, 800), noGravity = true };
         Main.npc[1] = target;
         companion.Brain.Senses.Update(companion.NPC, Main.player[0]);
@@ -162,9 +167,13 @@ internal static class VerifyThreatAnticipation
         Require(float.IsFinite(estimate) && estimate > 0f,
             "the first intervention estimate must count down to a predicted kill rather than read infinite with a plan committed");
 
-        // Protection budgets repeat hits: one life left dies sooner than a hundred.
+        // Protection budgets repeat hits: one life left dies sooner than an ordinary zombie's.
+        // Re-asked on the next tick, the way the brain would ask it: the estimate is cached per tick,
+        // so asking twice in one tick across a replan reads the weakened target's answer as the
+        // healthy one's.
         target.life = 1;
         combat.Planner.Release("fixture-replan");
+        SetTick(companion, companion.Brain.Senses.Tick + 1);
         Require(VerifyPreparedActivities.PrepareAndScore(fight, context) > 0f && fight.OfferedPlan != null,
             $"the weakened target must be offered a fresh plan; reason={fight.EligibilityReason}");
         float singleHit = combat.EstimateInterventionTicks(context);
@@ -178,7 +187,7 @@ internal static class VerifyThreatAnticipation
             "the intervention estimate must count its predicted kill down with the clock, hands busy or not");
 
         // Inside solid rock nothing solves; back in the open the next tick solves again.
-        target.life = 100;
+        target.life = 45;
         Vector2 openPosition = target.position;
         for (int x = 39; x <= 43; x++)
         for (int y = 46; y <= 54; y++)

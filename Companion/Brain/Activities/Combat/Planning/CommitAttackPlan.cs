@@ -211,12 +211,15 @@ public sealed class CommitAttackPlan
         if (ctx.Senses.Tick >= segment.EndTick)
             return true;
         // All of the segment's targeted bodies gone after the plan hit them: the segment did its work.
+        // A body gone without a hit — a reused slot's new occupant, which fails the generation match
+        // while standing alive and well — is not done work; it falls through to target-gone-unplanned
+        // below, which names what changed rather than calling it complete.
         bool anyTarget = false;
         foreach ((int slot, int generation) in plan.Validity.Targets)
         {
             NPC body = Main.npc[slot];
             bool alive = body != null && body.active && body.life > 0 && HostileAttackSources.Generation(body) == generation;
-            if (alive)
+            if (alive || !hitByPlan.Contains((slot, generation)))
                 return false;
             anyTarget = true;
         }

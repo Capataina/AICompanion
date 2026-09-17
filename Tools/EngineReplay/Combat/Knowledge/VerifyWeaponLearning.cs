@@ -277,6 +277,19 @@ internal static class VerifyWeaponLearning
         int Opening(bool debuffLearned)
         {
             var scene = Scene(0f, new Vector2(-300f, 0f), floating: true, (GearSlot.FirstWeapon, ItemID.PlatinumBow), (GearSlot.SecondWeapon, ItemID.WoodenBow));
+            // The planted threat carries reachability but no urgency, so the zombie threatens nobody and
+            // threat and prevention are both zero: damage alone decides, and damage is a rate, so the
+            // boosted three-use plan ties the plain two-use one and the earlier first hit wins. A sensed
+            // threat always carries its urgency, so the record is restated with the sense's own rule and
+            // the bigger wounds remove more of a real threat. The draws do not move — same seed, same
+            // calls — only the danger the plans remove them against.
+            T planted = scene.Threats[0];
+            planted.Urgency = live::AICompanion.Companion.Brain.Infrastructure.Observation.ThreatUrgency.ToPlayer(
+                planted.EffectiveDamageToPlayer, scene.Ctx.Player.statLife, planted.IsBoss,
+                planted.TicksToPlayer, planted.Shoots, planted.HasSightOnPlayer);
+            planted.UrgencyToCompanion = live::AICompanion.Companion.Brain.Infrastructure.Observation.ThreatUrgency.ToCompanion(
+                planted.EffectiveDamageToCompanion, scene.Ctx.Npc.life, planted.IsBoss,
+                planted.TicksToCompanion, planted.Shoots, planted.HasSightOnCompanion);
             scene.Enemy.lifeMax = scene.Enemy.life = 500;
             L.Reset();
             TeachBurst(ItemID.PlatinumBow);
@@ -742,9 +755,11 @@ internal static class VerifyWeaponLearning
     /// as the committed plan id staying where the search stamped it. Declared before the run: the zombie drifting two pixels
     /// a tick with a velocity of its own, and the orb drifting a pixel a tick, keep the plan for three ticks; a second
     /// hostile appearing with urgency above what the plan admitted, the plan's primary leaving, the learner revising, and
-    /// the zombie jumping a hundred pixels each re-search on the tick they happen — the jump through the re-evaluation,
-    /// whose re-flown uses no longer solve, rather than through validity, which ordinary motion also survives.
-    /// Before this row the stamp hashed every hostile's centre and velocity, so the hold was renewed never.
+    /// the zombie displaced a hundred pixels sideways each re-search on the tick they happen — the displacement through
+    /// the re-evaluation, whose re-flown uses no longer solve, rather than through validity, which ordinary motion also
+    /// survives. Sideways, because the plan aims at the falling zombie's landing spot: a hundred pixels up falls back
+    /// into the same intercept, which still solves and rightly holds. Before this row the stamp hashed every hostile's
+    /// centre and velocity, so the hold was renewed never.
     /// </summary>
     public static int TheTargetHoldSurvivesOrdinaryMotion()
     {
@@ -773,6 +788,11 @@ internal static class VerifyWeaponLearning
             return (combat.Planner.Committed?.Id ?? -2) != before;
         }
 
+        // Walking before the plan is searched, not starting to walk on the first motion tick: a
+        // standstill-to-walk flip moves the intercept sixty pixels and the re-flown aims rightly miss
+        // it, which is a behaviour change, not ordinary drift. Ordinary drift is the forecast coming
+        // true, so the velocity it comes true at has to be the one the plan was searched against.
+        scene.Enemy.velocity = new Vector2(2f, .3f);
         int held = Establish();
         int keptTicks = 0;
         for (int i = 0; i < 3; i++)
@@ -800,7 +820,7 @@ internal static class VerifyWeaponLearning
         Establish();
         bool revising = Reranked(() => L.ObserveDebuff(ItemID.WoodenBow, NPCID.Zombie, applied: false, 0));
         Establish();
-        bool jumping = Reranked(() => scene.Enemy.position.Y -= 100f);
+        bool jumping = Reranked(() => scene.Enemy.position.X += 100f);
         EmitLedgerRows.Detail($"target hold: ordinary motion kept it {keptTicks} of 3 ticks; re-ranked on a hostile appearing {appearing}, leaving {leaving}, the learner revising {revising}, a hundred-pixel jump {jumping}");
         Require(motionHeld, $"ordinary motion of the target and the orb keeps the hold; kept {keptTicks} of 3 ticks");
         Require(appearing, "a hostile appearing re-ranks at once");

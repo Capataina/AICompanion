@@ -82,7 +82,10 @@ internal static class VerifyObservationLifecycle
         // what stays is which liquid the circle is touching, as an observation. The name is checked rather than
         // assumed because the schema appends columns and a reader that names them survives a bump — but only if it
         // names ones that exist.
-        foreach (string name in new[] { "liquid", "attack_value", "hunt_reason", "nav_status",
+        // `plan_value` where the arsenal's list named `attack_value`, and `plan_reason` where the
+        // hunt side's list named `hunt_reason`: the combat stance prices one plan and refuses with the
+        // search's reason, so those are the causal combat columns a reader names now.
+        foreach (string name in new[] { "liquid", "plan_value", "plan_reason", "nav_status",
             "player_intent_y", "player_intent_confidence", "player_intent_samples", "player_local_work_fraction", "collection_method" })
             Require(Array.IndexOf(names, name) >= 0, "causal sample field missing: " + name);
         float Number(string name) => float.Parse(values[Array.IndexOf(names, name)], System.Globalization.CultureInfo.InvariantCulture);

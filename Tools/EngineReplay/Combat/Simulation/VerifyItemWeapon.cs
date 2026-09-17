@@ -223,10 +223,16 @@ internal static class VerifyItemWeapon
         foreach (Projectile projectile in Main.projectile) anyProjectile |= projectile.active;
         Require(!anyProjectile, "a swing spawns no projectile");
 
-        // The same sword against a zombie ten tiles off: nothing to swing at, and nothing struck.
+        // The same sword against a zombie ten tiles off: the stance repositions rather than
+        // refusing, because hunting with a sword is travelling — the plan flies to the zombie and
+        // swings there. What must not happen is a swing from here.
         var (far, farEnemy, farCtx) = Scene(10, (GearSlot.FirstWeapon, ItemID.CopperBroadsword));
         int farLife = farEnemy.life;
-        Require(CombatFixture.Search(far, farCtx) == null, "a zombie out of the swing's reach is not a target for a sword alone");
+        var farPlan = CombatFixture.Search(far, farCtx);
+        Require(farPlan?.PrimaryTarget == farEnemy.whoAmI, "the far zombie is the plan's target for a sword, reached by reposition");
+        Require(farPlan!.Segments[0].Verdict.TravelTicks > 0, "the sword's plan travels to its target rather than swinging from here");
+        var farSword = (ItemWeapon)far.Combat.Weapons[0];
+        Require(farSword.InReach(farPlan.Segments[0].Stand.Stand, farEnemy), "the stand the plan travels to is inside the swing's reach of the zombie");
         var refused = CombatFixture.FireOnce(far, farCtx);
         Require(!refused.Fired && farEnemy.life == farLife,
             $"the sword refuses a body out of reach and strikes nothing; outcome={far.Combat.LastFireOutcome}");

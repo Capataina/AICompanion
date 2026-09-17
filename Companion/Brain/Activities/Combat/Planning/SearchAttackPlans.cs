@@ -200,12 +200,12 @@ public static class SearchAttackPlans
             travel = positioner.EstimatedTravelTicks(feet, tile)
                 ?? Vector2.Distance(ctx.Npc.Center, stand) / OrbPace.MaxSpeed;
         }
-        float atStand = Positioner.PredictedExposureAt(stand, ctx.Senses);
+        float atStand = Positioner.PredictedHarmAt(stand, ctx.Senses, ctx.Npc.life);
         float alongTravel = 0f;
         for (int sample = 1; sample <= 4; sample++)
         {
             Vector2 point = Vector2.Lerp(ctx.Npc.Center, stand, sample / 5f);
-            alongTravel = MathF.Max(alongTravel, Positioner.PredictedExposureAt(point, ctx.Senses));
+            alongTravel = MathF.Max(alongTravel, Positioner.PredictedHarmAt(point, ctx.Senses, ctx.Npc.life));
         }
         bool allowed = inAllowance(stand);
         string reason = reach switch
@@ -278,8 +278,8 @@ public static class SearchAttackPlans
         var attacks = new List<EvaluateAttackOutcomes.Attack>(candidates.Count);
         foreach (CandidateAttack candidate in candidates)
             attacks.Add(candidate.Attack);
-        var context = new EvaluateAttackOutcomes.PlanContext(travel, verdict.ExposureAtStand, verdict.ExposureAlongTravel,
-            WorstHit(ctx), Math.Max(1, ctx.Player.statLife), Math.Max(1, ctx.Npc.life), Math.Max(1, ctx.Companion.Mana.Max),
+        var context = new EvaluateAttackOutcomes.PlanContext(travel, verdict.HarmAtStand, verdict.HarmAlongTravel,
+            Math.Max(1, ctx.Player.statLife), Math.Max(1, ctx.Npc.life), Math.Max(1, ctx.Companion.Mana.Max),
             IntegrateCompanyGap(ctx, proposal.Stand, travel, horizon));
         int cooldown = Math.Max(0, combat.CooldownTicks);
 
@@ -337,14 +337,6 @@ public static class SearchAttackPlans
         foreach (int served in proposal.TargetSlots)
             if (served == slot) return true;
         return false;
-    }
-
-    private static float WorstHit(in ActionContext ctx)
-    {
-        float worst = 0f;
-        foreach (ThreatRecord threat in ctx.Senses.Threats.Threats)
-            worst = MathF.Max(worst, threat.EffectiveDamageToCompanion);
-        return worst;
     }
 
     /// <summary>

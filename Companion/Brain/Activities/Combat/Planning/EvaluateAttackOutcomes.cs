@@ -48,12 +48,12 @@ public static class EvaluateAttackOutcomes
 
     /// <summary>
     /// What the vector needs beyond the attacks themselves, all as numbers so this class still reads no world:
-    /// the ticks to reach the stand, the exposure at the stand and along the travel as shares of threat paths,
-    /// the hardest hit any threat lands on the body, the bodies' lives, the mana pool, and the company gap the
-    /// planner integrated over the segment, already in region-size times horizon units.
+    /// the ticks to reach the stand, the predicted harm at the stand and along the travel as shares of the
+    /// companion's life, the bodies' lives, the mana pool, and the company gap the planner integrated over
+    /// the segment, already in region-size times horizon units.
     /// </summary>
-    public readonly record struct PlanContext(int TravelTicks, float StandExposure, float TravelExposure,
-        float WorstHit, float PlayerLife, float CompanionLife, float ManaPool, float CompanyGap);
+    public readonly record struct PlanContext(int TravelTicks, float StandHarm, float TravelHarm,
+        float PlayerLife, float CompanionLife, float ManaPool, float CompanyGap);
 
     private const int MaxAttacks = 16;
 
@@ -187,13 +187,11 @@ public static class EvaluateAttackOutcomes
         }
         int duration = Math.Max(1, lastImpact);
         float playerLife = Math.Max(1f, context.PlayerLife);
-        float companionLife = Math.Max(1f, context.CompanionLife);
         return new CombatOutcome(
             DamagePerSecond: damage / (duration / 60f) / encounterLife,
             ThreatRemoved: threat,
             PlayerHarmPrevented: prevented / playerLife,
-            CompanionHarmTaken: (context.StandExposure * Math.Max(0, duration - context.TravelTicks) + context.TravelExposure * context.TravelTicks) / 60f
-                * Math.Max(0f, context.WorstHit) / companionLife,
+            CompanionHarmTaken: (context.StandHarm * Math.Max(0, duration - context.TravelTicks) + context.TravelHarm * context.TravelTicks) / 60f,
             PushDangerAdded: push,
             CompanyGap: Math.Max(0f, context.CompanyGap),
             TimeToFirstDamage: firstLanded < 0 ? 1f : Math.Clamp(firstLanded / (float)Math.Max(1, horizon), 0f, 1f),

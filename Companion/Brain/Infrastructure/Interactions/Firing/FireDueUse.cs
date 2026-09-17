@@ -232,11 +232,8 @@ public sealed class FireDueUse
     /// <summary>The travel context prices the use from here: no travel, the live exposure, no company gap beyond now.</summary>
     private static EvaluateAttackOutcomes.PlanContext TravelContext(in ActionContext ctx, Vector2 muzzle)
     {
-        float worst = 0f;
-        foreach (ThreatRecord threat in ctx.Senses.Threats.Threats)
-            worst = MathF.Max(worst, threat.EffectiveDamageToCompanion);
-        float exposure = Infrastructure.Position.Positioner.PredictedExposureAt(muzzle, ctx.Senses);
-        return new EvaluateAttackOutcomes.PlanContext(0, exposure, exposure, worst,
+        float harm = Infrastructure.Position.Positioner.PredictedHarmAt(muzzle, ctx.Senses, ctx.Npc.life);
+        return new EvaluateAttackOutcomes.PlanContext(0, harm, harm,
             Math.Max(1, ctx.Player.statLife), Math.Max(1, ctx.Npc.life), Math.Max(1, ctx.Companion.Mana.Max), 0f);
     }
 

@@ -544,6 +544,13 @@ internal static class VerifyCompanionActivities
                 // comparison below would be measuring the flood's budget instead of the scene's danger.
                 var primeHome = new live::AICompanion.Companion.Brain.Infrastructure.Position.PositionRequest(
                     live::AICompanion.Companion.Brain.Infrastructure.Position.RequestKind.WithPlayer, ctx.Player.Bottom);
+                // One resolve before the loop, unconditionally. SetUp settles the region and this
+                // scene then rewrites its terrain and resets the record, so ReachComplete still reads
+                // the settled flag while the flood it names is already invalid; without a refresh the
+                // loop exits at once on the stale true, the first tick refloods, and the hand-rolled
+                // loop below never grows the replacement the way the live tick would. The resolve
+                // refloods first if it must, and the loop then grows the flood that actually answers.
+                brain.Positioner.Resolve(primeHome, brain.Senses, null);
                 for (int i = 0; i < 3000 && !brain.Positioner.ReachComplete; i++)
                     brain.Positioner.Resolve(primeHome, brain.Senses, null);
                 Require(brain.Positioner.ReachComplete,

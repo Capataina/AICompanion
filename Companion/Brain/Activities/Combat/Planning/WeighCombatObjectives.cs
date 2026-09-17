@@ -70,18 +70,23 @@ public static class WeighCombatObjectives
     public static CombatWeights ForSenses(in ActionContext ctx)
     {
         var threats = ctx.Senses.Threats;
-        float total = 0f, alive = 0f;
+        float total = 0f, alive = 0f, playerTotal = 0f, playerAddressed = 0f;
         foreach (ThreatRecord threat in threats.Threats)
         {
             float danger = MathF.Max(threat.Urgency, threat.UrgencyToCompanion);
             total += danger;
             if (threat.Npc != null && threat.Npc.active && threat.Npc.life > 0)
                 alive += danger;
+            float toPlayer = MathF.Max(0f, threat.Urgency);
+            playerTotal += toPlayer;
+            if (threat.Npc != null && threat.Npc.active && threat.Npc.life > 0 && threat.Npc.CanBeChasedBy())
+                playerAddressed += toPlayer;
         }
         float missing = ctx.Npc.lifeMax > 0 ? 1f - ctx.Npc.life / (float)ctx.Npc.lifeMax : 0f;
         float mana = ctx.Companion.Mana.Max > 0 ? ctx.Companion.Mana.Current / ctx.Companion.Mana.Max : 1f;
         return For(threats.PlayerDanger, threats.CompanionDanger, missing,
-            ctx.Senses.Intent.Region.IsTravelling, total > 0f ? alive / total : 1f, mana);
+            ctx.Senses.Intent.Region.IsTravelling, total > 0f ? alive / total : 1f, mana,
+            playerTotal > 0f ? playerAddressed / playerTotal : 1f);
     }
 
     /// <param name="playerDanger">The threat sense's danger to the player, 0..1.</param>
@@ -90,11 +95,15 @@ public static class WeighCombatObjectives
     /// <param name="playerTravelling">Whether the intent region is leading the player somewhere.</param>
     /// <param name="dangerAliveShare">The share of the encounter's danger still on living bodies.</param>
     /// <param name="manaShare">The mana pool's current fill as a share of its maximum.</param>
+    /// <param name="dangerAddressedShare">The share of the player's danger on bodies the companion can chase:
+    /// waiting is only bad for the danger waiting could answer, so an unchaseable lethal beside him must not
+    /// tax a slow plan against what is chaseable the way his own danger does.</param>
     public static CombatWeights For(float playerDanger, float companionDanger, float missingLifeShare,
-        bool playerTravelling, float dangerAliveShare, float manaShare)
+        bool playerTravelling, float dangerAliveShare, float manaShare, float dangerAddressedShare = 1f)
     {
         float danger = Math.Clamp(playerDanger, 0f, 1f);
         float alive = Weights.CombatAliveShareFloor + (1f - Weights.CombatAliveShareFloor) * Math.Clamp(dangerAliveShare, 0f, 1f);
+        float addressed = Math.Clamp(dangerAddressedShare, 0f, 1f);
         float companyTravel = playerTravelling ? Weights.CombatCompanyTravelFactor : 1f / Weights.CombatCompanyTravelFactor;
         return new CombatWeights(
             Damage: Weights.CombatWeightDamage * alive,
@@ -103,7 +112,7 @@ public static class WeighCombatObjectives
             CompanionHarm: Weights.CombatWeightCompanionHarm * (0.5f + Math.Clamp(missingLifeShare, 0f, 1f) + Math.Clamp(companionDanger, 0f, 1f)),
             PushDanger: Weights.CombatWeightPushDanger,
             CompanyGap: Weights.CombatWeightCompanyGap * companyTravel / (1f + Weights.CombatDangerWeightLift * danger),
-            TimeToFirstDamage: Weights.CombatWeightTimeToFirstDamage * (1f + Weights.CombatDangerWeightLift * danger),
+            TimeToFirstDamage: Weights.CombatWeightTimeToFirstDamage * (1f + Weights.CombatDangerWeightLift * danger * addressed),
             Mana: Weights.CombatWeightMana * (0.25f + 0.75f * (1f - Math.Clamp(manaShare, 0f, 1f))));
     }
 }

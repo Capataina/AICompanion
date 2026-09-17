@@ -168,6 +168,7 @@ public sealed class TheHandsWorkWhileThreatened : ICheck
         Column? playerDead = session.Find("player_dead");
         Column? state = session.Find("state");
         Column? huntReason = session.Find("hunt_reason");
+        Column? planReason = session.Find("plan_reason");
 
         // No gap allowance, because a tick that fired *is* the break in the stretch. With one, a
         // healthy fight reads as one enormous finding: the reload ticks between two shots satisfy the
@@ -177,11 +178,15 @@ public sealed class TheHandsWorkWhileThreatened : ICheck
         //
         // `reachable` is hostiles that can reach the player, not hostiles hunting can shoot. A sealed
         // enemy the hunt already refused as no-reachable-firing-position is still reachable in that
-        // column; counting it as "the target chooser refused everything" is the wrong question.
+        // column; counting it as "the target chooser refused everything" is the wrong question. The
+        // stance's search refuses the same sealed enemy as no-use-reaches-target or
+        // no-reachable-stand, read the same way; stands-undecided is not excluded, because an
+        // unanswered search is not a proven absence and a stretch of it is the defect.
         var quiet = FindStretches.Where(session.Count, i =>
             reachable.Number[i] > 0f && shot.Number[i] == 0f && (fire == null || fire.Text[i] != "fired")
                 && (fresh != null ? fresh.Number[i] > 0f : playerDead?.Text[i] != "1") && state?.Text[i] != "downed"
-                && (huntReason == null || huntReason.Text[i].IndexOf("no-reachable-firing-position", StringComparison.Ordinal) < 0),
+                && (huntReason == null || huntReason.Text[i].IndexOf("no-reachable-firing-position", StringComparison.Ordinal) < 0)
+                && (planReason == null || (planReason.Text[i] != "no-use-reaches-target" && planReason.Text[i] != "no-reachable-stand")),
             MinTicks, allowGap: 0);
 
         foreach (var stretch in quiet)

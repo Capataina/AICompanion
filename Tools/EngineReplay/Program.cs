@@ -83,4 +83,5 @@ if (args.Contains("--combat-cost")) return VerifyEngineMotion.Run(combatCostOnly
 if (args.Contains("--combat-purpose")) return VerifyEngineMotion.Run(combatPurposeOnly: true);
 if (args.Contains("--safety-layer")) return VerifyEngineMotion.Run(safetyLayerOnly: true);
 if (args.Contains("--dodge-repro")) return VerifyEngineMotion.Run(dodgeReproOnly: true);
+if (args.Contains("--activities")) return VerifyEngineMotion.Run(activitiesOnly: true);
 return VerifyEngineMotion.Run(args.Contains("--lifecycle"), args.Contains("--liquids"));

@@ -24,7 +24,7 @@ using TerrainChanges = live::AICompanion.Companion.Brain.Infrastructure.Movement
 /// </summary>
 internal static class VerifyEngineMotion
 {
-    public static int Run(bool lifecycleOnly = false, bool liquidsOnly = false, bool workOnly = false, bool followOnly = false, bool protectionOnly = false, bool brainCostOnly = false, bool combatCostOnly = false, bool combatPurposeOnly = false, bool safetyLayerOnly = false, bool dodgeReproOnly = false)
+    public static int Run(bool lifecycleOnly = false, bool liquidsOnly = false, bool workOnly = false, bool followOnly = false, bool protectionOnly = false, bool brainCostOnly = false, bool combatCostOnly = false, bool combatPurposeOnly = false, bool safetyLayerOnly = false, bool dodgeReproOnly = false, bool activitiesOnly = false)
     {
         // The engine containers, the miniature world's dimensions and its tile map now belong to
         // ResetProcessState, which the entry point calls before dispatching any flag — they were
@@ -50,6 +50,7 @@ internal static class VerifyEngineMotion
         if (combatPurposeOnly) return VerifyCombatPurpose.Run();
         if (safetyLayerOnly) return VerifySafetyIsALayerOnTheJob.Run();
         if (dodgeReproOnly) return VerifySafetyIsALayerOnTheJob.ReproduceDodgeOnDryFloor();
+        if (activitiesOnly) return VerifyCompanionActivities.Run();
         int failed = 0;
         // Every fixture below used to be a term in one `failed += Verify*.Run()` sum, and the sum was
         // an abort dressed as a total: assertions here throw, so the first fixture to fail took the

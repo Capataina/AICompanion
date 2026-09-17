@@ -122,14 +122,21 @@ internal static class VerifyWayToPlayerIsAnsweredInThreeValues
         var world = Plug(300, 120);
         var sense = new PlayerIntentRegionSense();
         Vector2 player = new(150 * 16 + 8, 60 * 16), body = player + new Vector2(-64f, -40f);
-        sense.Update(body, player, Vector2.Zero, false, false, 60);
+        // Held, not walking: since the reshape the lead chases the held key rather than the observed
+        // pace, so a standing player with no held direction reads no lead and no growth, and the base
+        // region holds fewer corners than one slice closes. Holding a direction slides the box with no
+        // tile progress, the way the reshape says it does, and the led grown region is what the flood
+        // is resumed across. The assertions below are unchanged: they are about the flood, not the lead.
+        Vector2 held = new(Weights.IntentRegionHeldPace, 0f);
+        for (int tick = 0; tick < 600; tick++)
+            sense.Update(body, player, Vector2.Zero, false, false, 60, held);
         int corners = CornersInRegion(world, sense, player);
         int slices = (int)MathF.Ceiling(corners / (float)Weights.PlayerSideFloodExpansions);
         Require(slices >= 2, $"premise: the region must hold more corners than one slice closes, or nothing is unfinished; {corners} corners against {Weights.PlayerSideFloodExpansions}");
         var verdicts = new List<ReachVerdict>();
         for (int tick = 0; tick < 20; tick++)
         {
-            sense.Update(body, player, Vector2.Zero, false, false, 60);
+            sense.Update(body, player, Vector2.Zero, false, false, 60, held);
             verdicts.Add(sense.ObserveWayToPlayer(body, player));
         }
         string ledger = $"{corners} corners, {slices} slices; verdicts {string.Join(",", verdicts.Select(v => v.ToString()[0]))}";
