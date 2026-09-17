@@ -84,6 +84,9 @@ internal static class RestoreSnapshot
         // never lived. A trusted slot builds its records from the stamped values instead of re-decaying.
         RestoreThreatMemory(restored);
         companion.Brain.Senses.Update(companion.NPC, Main.player[Main.myPlayer]);
+        // The tick the snapshot was written at: the update above ran the audit's first tick, and everything
+        // downstream — the sampler's draws, the deferral waits, the replayed search — reads the live tick.
+        companion.Brain.Senses.AssumeTick(restored.Snapshot.SensesTick);
         companion.Brain.Senses.Intent.AssumeRegion(new PlayerIntentRegion(
             Shift(restored, snapshot.Player.Region.Centre), V(snapshot.Player.Region.Half),
             V(snapshot.Player.Region.Lead), snapshot.Player.Region.Travelling)

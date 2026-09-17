@@ -31,6 +31,10 @@ public sealed class Senses
     public Terraria.Player PlayerEntity { get; private set; } = null!;
     public int Tick { get; private set; }
 
+    /// <summary>Install the tick a snapshot was written at, after the restore's own update: the replayed search
+    /// draws the sampler at the recorded tick, prices fire ticks against it, and reads deferral waits in it.</summary>
+    public void AssumeTick(int tick) => Tick = tick;
+
     public float DistanceToPlayer { get; private set; }
 
     /// <summary>Applied after weapons inspect this tick's threats; infinity means no useful intervention was observed.</summary>

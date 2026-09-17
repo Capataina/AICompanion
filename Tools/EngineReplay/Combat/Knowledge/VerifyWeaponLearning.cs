@@ -386,9 +386,10 @@ internal static class VerifyWeaponLearning
     /// <summary>
     /// With something dangerous on a body the choice is the posterior mean's. The platinum bow's posterior is planted with a
     /// mean that ranks it below the wooden bow and a wide variance, the wooden bow's with a mean of the prior and almost no
-    /// variance. At no danger, some seed of the sampler draws the platinum bow above the wooden one — the premise that
-    /// exploration is live in this scene — and that seed repeats its choice. At the same seed with the zombie's urgency above
-    /// the declared ceiling the choice is the wooden bow, which is the mean's, and the forecast gate says it did not explore.
+    /// variance. At no danger, some tick's draw puts the platinum bow above the wooden one — the premise that exploration is
+    /// live in this scene — and a second search on that tick repeats the choice. On the same tick with the zombie's urgency
+    /// above the declared ceiling the choice is the wooden bow, which is the mean's, and the forecast gate says it did not
+    /// explore. Ticks are the sampler's seed now; a rolling seed the audit could not reproduce was the sampler before.
     /// </summary>
     private static void UnderRealDangerTheChoiceIsThePosteriorMean()
     {
@@ -400,23 +401,24 @@ internal static class VerifyWeaponLearning
         L.Assume(ItemID.WoodenBow, new float[L.FeatureCount], 1e-6f);
         Player player = scene.Ctx.Player;
 
-        int ChoiceAt(float urgency, int seed)
+        int ChoiceAt(float urgency)
         {
             scene.Threats[0].Urgency = urgency;
-            for (int i = 0; i < 13; i++) Restate(scene.Companion, player, scene.Threats);
-            L.Seed(seed);
             var plan = CombatFixture.Search(scene.Companion, scene.Ctx);
             return CombatFixture.OpeningWeapon(scene.Companion, plan)!.ItemType;
         }
 
         Require(Weights.WeaponExploreDangerCeiling < .9f, "premise: the danger this row uses is above the ceiling");
         int found = -1;
-        for (int seed = 0; seed < 200 && found < 0; seed++)
-            if (ChoiceAt(0f, seed) == ItemID.PlatinumBow) found = seed;
+        for (int attempt = 0; attempt < 200 && found < 0; attempt++)
+        {
+            for (int i = 0; i < 13; i++) Restate(scene.Companion, player, scene.Threats);
+            if (ChoiceAt(0f) == ItemID.PlatinumBow) found = scene.Ctx.Senses.Tick;
+        }
         Require(found >= 0, "premise: at no danger some draw explores to the weapon the mean ranks lower");
-        Require(ChoiceAt(0f, found) == ItemID.PlatinumBow && Forecasts.Explore(scene.Ctx), "premise: that draw repeats and the forecast explored");
-        int underDanger = ChoiceAt(.9f, found);
-        EmitLedgerRows.Detail(FormattableString.Invariant($"danger gate: seed {found} explores to the platinum bow at no danger; under danger it chooses item {underDanger}"));
+        Require(ChoiceAt(0f) == ItemID.PlatinumBow && Forecasts.Explore(scene.Ctx), "premise: that draw repeats and the forecast explored");
+        int underDanger = ChoiceAt(.9f);
+        EmitLedgerRows.Detail(FormattableString.Invariant($"danger gate: tick {found} explores to the platinum bow at no danger; under danger it chooses item {underDanger}"));
         Require(underDanger == ItemID.WoodenBow && !Forecasts.Explore(scene.Ctx),
             $"under danger above the ceiling the choice is the posterior mean's and nothing is explored; chose={underDanger} explored={Forecasts.Explore(scene.Ctx)}");
     }

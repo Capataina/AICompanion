@@ -37,18 +37,13 @@ internal static class AuditSearch
         bool Allows(Vector2 point) => Vector2.DistanceSquared(point, heading) <= radius * radius
             && Vector2.DistanceSquared(feet, heading) <= radius * radius;
         PlanningBudget budget = Budget(restored.Snapshot.AllowanceMs);
-        AttackLearning.ForceMeans = true;
-        SearchAttackPlans.SearchResult result;
-        try
-        {
-            result = SearchAttackPlans.SearchDepthOne(ctx, combat, positioner, Allows, restored.Weights,
-                restored.Snapshot.Plan?.Id ?? combat.NextPlanId++,
-                ref budget, new SearchAttackPlans.SearchOptions(restored.Proposals, restored.Verdicts));
-        }
-        finally
-        {
-            AttackLearning.ForceMeans = false;
-        }
+        // No forced means: the sampler draws deterministically at the restored tick, so the replay draws what
+        // the live search drew. Forcing means here would price the replay at the posterior mean against live
+        // samples and diverge on every calm snapshot; the sweep keeps its own forcing, where noise-free
+        // weight comparison is the point.
+        SearchAttackPlans.SearchResult result = SearchAttackPlans.SearchDepthOne(ctx, combat, positioner, Allows, restored.Weights,
+            restored.Snapshot.Plan?.Id ?? combat.NextPlanId++,
+            ref budget, new SearchAttackPlans.SearchOptions(restored.Proposals, restored.Verdicts));
         var verdict = new ReplayVerdict(false, new List<string>(), result.FrontSize, result.Plan?.Weighted ?? 0f,
             ctx.Senses.Threats.PlayerDanger, ctx.Senses.Threats.CompanionDanger);
         if (restored.CommittedShifted == null)

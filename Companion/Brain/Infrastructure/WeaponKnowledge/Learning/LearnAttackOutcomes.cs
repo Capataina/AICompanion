@@ -134,16 +134,15 @@ public static class AttackLearning
 
     private static readonly Dictionary<int, Model> models = new();
     private static readonly Dictionary<(int Item, int Npc), DebuffRecord> debuffs = new();
-    private static Random random = new(Environment.TickCount);
 
     /// <summary>Advances whenever anything learned changes.</summary>
     public static int Revision { get; private set; }
 
     /// <summary>
-    /// Read every factor at the posterior mean however the caller asks: the audit's replay seam. A live search in
-    /// the calm draws Thompson samples the snapshot cannot carry, so no replay can reproduce their noise; the means
-    /// are what the search knew, which is what the audit grades. Never set live; the audit sets and clears it around
-    /// each replay, and <see cref="Reset"/> clears it with everything else.
+    /// Read every factor at the posterior mean however the caller asks: the audit's sweep seam, so a weight sweep
+    /// compares weights rather than exploration noise. Exact replay does not need it — the sampler below is
+    /// deterministic in the tick, so a replay at the recorded tick draws what the live decision drew. Never set
+    /// live; the audit sets and clears it around each sweep, and <see cref="Reset"/> clears it with everything else.
     /// </summary>
     public static bool ForceMeans { get; set; }
 
@@ -192,11 +191,11 @@ public static class AttackLearning
             // The entry holds exactly the prior and no context, so creating it changes nothing Observe will later do with it.
             model.Types[npcType] = bias = new TypeBias(model);
         }
-        double[] theta = explore ? DrawFor(model, tick) : model.Mean;
+        double[] theta = explore ? DrawFor(itemType, model, tick) : model.Mean;
         double[] centre = bias is { Seen: > 0 } ? bias.Centre : model.Centre;
         double linear = 1.0;
         for (int i = 1; i < FeatureCount; i++) linear += theta[i] * (x[i] - centre[i]);
-        linear += bias == null ? model.TypePriorMean : explore ? DrawFor(bias, tick) : bias.Mean;
+        linear += bias == null ? model.TypePriorMean : explore ? DrawFor(itemType, npcType, bias, tick) : bias.Mean;
         float factor = (float)Math.Clamp(linear, 0.0, MaxOutcomeRatio);
         if (explore) LastSampledFactor = factor; else LastMeanFactor = factor;
         return factor;
@@ -390,34 +389,44 @@ public static class AttackLearning
     /// <summary>Restore the revision a bundle was exported at, so a replayed decision reads the same belief age.</summary>
     public static void RestoreRevision(int revision) => Revision = revision;
 
-    /// <summary>Seed the sampler and forget the tick's draws, so a fixture's draws are reproducible.</summary>
-    public static void Seed(int seed)
-    {
-        random = new Random(seed);
-        foreach (Model model in models.Values)
-        {
-            model.DrawTick = int.MinValue;
-            foreach (TypeBias bias in model.Types.Values) bias.DrawTick = int.MinValue;
-        }
-    }
-
-    /// <summary>Forget everything learned and seed the sampler, so a fixture measures the prior and its own learning rather than the previous case's.</summary>
+    /// <summary>Forget everything learned, so a fixture measures the prior and its own learning rather than the previous case's.
+    /// The sampler needs no seeding: every draw is seeded by the tick and the arm it is drawn for.</summary>
     public static void Reset()
     {
         models.Clear();
         debuffs.Clear();
-        random = new Random(0);
         LastSampledFactor = LastMeanFactor = 1f;
         ForceMeans = false;
         Revision++;
     }
 
-    private static double[] DrawFor(Model model, int tick)
+    /// <summary>
+    /// One Thompson draw per arm per tick, seeded by the tick and the arm: the same tick draws the same
+    /// coefficients in every run, so a calm live decision replays exactly, and arms sample independently
+    /// rather than sharing positions in one rolling stream. The mix is hand-rolled rather than
+    /// <c>HashCode.Combine</c> because the framework makes no stability promise and the audit needs one.
+    /// </summary>
+    private static int DrawSeed(int tick, int itemType, int npcType)
+    {
+        unchecked
+        {
+            uint h = (uint)tick * 0x9E3779B1u + 0x85EBCA6Bu;
+            h ^= (uint)itemType + 0x9E3779B1u + (h << 6) + (h >> 2);
+            h ^= (uint)npcType + 0x9E3779B1u + (h << 6) + (h >> 2);
+            h ^= h >> 16;
+            h *= 0x7FEB352Du;
+            h ^= h >> 15;
+            return (int)(h & 0x7FFFFFFFu);
+        }
+    }
+
+    private static double[] DrawFor(int itemType, Model model, int tick)
     {
         if (model.DrawTick == tick) return model.Draw;
         if (!model.CholeskyValid) Factorise(model);
+        var rng = new Random(DrawSeed(tick, itemType, 0));
         Span<double> z = stackalloc double[FeatureCount];
-        for (int i = 0; i < FeatureCount; i++) z[i] = Gaussian();
+        for (int i = 0; i < FeatureCount; i++) z[i] = Gaussian(rng);
         for (int i = 0; i < FeatureCount; i++)
         {
             double sum = model.Mean[i];
@@ -428,10 +437,11 @@ public static class AttackLearning
         return model.Draw;
     }
 
-    private static double DrawFor(TypeBias bias, int tick)
+    private static double DrawFor(int itemType, int npcType, TypeBias bias, int tick)
     {
         if (bias.DrawTick == tick) return bias.Draw;
-        bias.Draw = bias.Mean + Gaussian() / Math.Sqrt(bias.Precision);
+        var rng = new Random(DrawSeed(tick, itemType, npcType));
+        bias.Draw = bias.Mean + Gaussian(rng) / Math.Sqrt(bias.Precision);
         bias.DrawTick = tick;
         return bias.Draw;
     }
@@ -459,10 +469,10 @@ public static class AttackLearning
         model.CholeskyValid = true;
     }
 
-    private static double Gaussian()
+    private static double Gaussian(Random rng)
     {
-        double u1 = 1.0 - random.NextDouble();
-        double u2 = random.NextDouble();
+        double u1 = 1.0 - rng.NextDouble();
+        double u2 = rng.NextDouble();
         return Math.Sqrt(-2.0 * Math.Log(u1)) * Math.Cos(2.0 * Math.PI * u2);
     }
 }

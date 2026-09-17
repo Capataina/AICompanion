@@ -19,6 +19,8 @@ using live::AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Learning;
 using live::AICompanion.Companion.CharacterBody;
 using live::AICompanion.Companion.PlayerIntegration;
 using Recording = live::AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.Recording;
+using Forecasts = live::AICompanion.Companion.Brain.Infrastructure.Interactions.Firing.ForecastUses;
+using OrbPace = live::AICompanion.Companion.Brain.Infrastructure.Movement.OrbPace;
 
 namespace AICompanion.Tools.CombatAudit;
 
@@ -201,7 +203,37 @@ internal static class SelfTest
             restored.Weights, combat2.NextPlanId++, ref budget2,
             new SearchAttackPlans.SearchOptions(restored.Proposals));
         Require(dropped.Plan == null, "a verdict-less replay still offers a plan");
-        return $"stand {result.Plan!.Segments[0].Stand.Stand}, {result.FrontSize} on the front, verdict-less replay {dropped.Reason}";
+        // The second scene is calm: the zombie is fifteen tiles off, danger reads under the ceiling, and the
+        // search explores — draws Thompson samples — off taught outcomes. The replay restores the tick and the
+        // taught models, draws the same samples, and reproduces bit for bit. Dropping the tick stamp diverges
+        // the replay on damage, removal, prevention, weight and front size, so the half-row kills the mutation
+        // it names; it also killed the replay's forced means, which priced calm replays at the posterior mean
+        // against live samples until this scene showed the two apart.
+        Scene calm = Setup(60, new Vector2(50, 56), new Vector2(40, 54), null,
+            (25, NPCID.Zombie, new Vector2(65, 59)));
+        float reach = calm.Companion.Combat.Weapons[0].Reach;
+        float[] context = AttackLearning.Context(300f, reach, 0f, 0.1f, 0f, 0, 0f, OrbPace.MaxSpeed, false);
+        AttackLearning.Observe(ItemID.WoodenBow, NPCID.Zombie, context, 0.8f);
+        AttackLearning.Observe(ItemID.WoodenBow, NPCID.Zombie, context, 1.2f);
+        AttackLearning.Observe(ItemID.WoodenBow, NPCID.Zombie, context, 1.0f);
+        // Both hands taught, so whichever weapon wins is priced by a sample: teaching the bow alone left
+        // the knife — no evidence, factor one, nothing drawn — winning, and the replay proved nothing.
+        AttackLearning.Observe(ItemID.ThrowingKnife, NPCID.Zombie, context, 0.9f);
+        AttackLearning.Observe(ItemID.ThrowingKnife, NPCID.Zombie, context, 1.1f);
+        var calmCombat = calm.Companion.Combat;
+        CombatWeights calmWeights = WeighCombatObjectives.ForSenses(calm.Ctx);
+        Require(Forecasts.Explore(calm.Ctx), "premise: the calm scene explores");
+        var calmBudget = PlanningBudget.FromMilliseconds(1000f);
+        SearchAttackPlans.SearchResult calmResult = SearchAttackPlans.SearchDepthOne(calm.Ctx, calmCombat,
+            calm.Companion.Brain.Positioner, Allows(calm), calmWeights, calmCombat.NextPlanId++, ref calmBudget);
+        Require(calmResult.Plan != null, "the calm search offers nothing: " + calmResult.Reason);
+        Require(AttackLearning.LastSampledFactor != 1f, "the calm search drew no sample");
+        string calmJson = ExportCombatSnapshot.Build(calm.Ctx, calmCombat, calmResult.Plan, calmResult,
+            calmWeights, calmBudget, calm.Radius);
+        RestoredDecision calmRestored = RestoreSnapshot.Restore(calmJson);
+        AuditSearch.ReplayVerdict calmReplay = AuditSearch.Replay(calmRestored);
+        Require(calmReplay.Reproduced, "calm replay diverged: " + string.Join("; ", calmReplay.Diffs));
+        return $"stand {result.Plan!.Segments[0].Stand.Stand}, {result.FrontSize} on the front, verdict-less replay {dropped.Reason}, calm replay exact";
     }
 
     private static string ExhaustiveFindsBetterStand()
