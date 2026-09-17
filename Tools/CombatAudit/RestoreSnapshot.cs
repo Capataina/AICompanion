@@ -83,6 +83,10 @@ internal static class RestoreSnapshot
         // first observation, and the live decision divided by the decayed peak of a history the replay
         // never lived. A trusted slot builds its records from the stamped values instead of re-decaying.
         RestoreThreatMemory(restored);
+        // Generations and recent shots with the memory, ahead of the same update: the threat sense reads
+        // both while it builds its records — a zero-damage caster is a threat only through its shot, and
+        // a slot whose generation the restore never installed mismatches every validity target it names.
+        RestoreHostileShots(restored);
         companion.Brain.Senses.Update(companion.NPC, Main.player[Main.myPlayer]);
         // The tick the snapshot was written at: the update above ran the audit's first tick, and everything
         // downstream — the sampler's draws, the deferral waits, the replayed search — reads the live tick.
@@ -97,9 +101,15 @@ internal static class RestoreSnapshot
         RestoreAuthorship(restored, identity);
         companion.Combat.AssumeCooldown(snapshot.Cooldown);
         foreach (S.DeferredDto deferred in snapshot.Deferred)
+        {
+            // The live equality rebuilt in the audit's revision space: equal live reopens never, a stall
+            // the player's digging already reopened reopens here too. Pre-stamp snapshots carry zeroes
+            // for both and land on today's old behaviour — stamped current, so they hold.
+            int terrain = TerrainChanges.Revision + (deferred.Terrain - snapshot.TerrainRevision);
             companion.Combat.Planner.AssumeDeferred(deferred.Slot, deferred.Generation, deferred.Remaining,
                 Shift(restored, deferred.Target), Shift(restored, deferred.Body),
-                companion.Brain.Senses.Tick, TerrainChanges.Revision);
+                companion.Brain.Senses.Tick, terrain);
+        }
         foreach (int[] hit in snapshot.Hits)
             if (hit.Length >= 2)
                 companion.Combat.Planner.AssumeHit(hit[0], hit[1]);
@@ -337,6 +347,24 @@ internal static class RestoreSnapshot
             }
             threats.AssumeThreatMemory(dto.Slot, dto.Threat.PeakSpeed, dto.Threat.CanReachPlayer,
                 dto.Threat.CanReachCompanion);
+        }
+    }
+
+    private static void RestoreHostileShots(RestoredDecision restored)
+    {
+        foreach (S.NpcDto dto in restored.Snapshot.Npcs)
+        {
+            NPC npc = Main.npc[dto.Slot];
+            if (dto.Generation == 0 && dto.ShotDamage == 0)
+            {
+                // A live spawn always stamps a generation of at least one, so a zero pair is a snapshot
+                // written before the stamp: the replay runs generationless and shotless, and says so.
+                restored.Unresolved.Add($"npc[{dto.Slot}].threat-shots");
+                continue;
+            }
+            HostileAttackSources.AssumeGeneration(npc, dto.Generation);
+            if (dto.ShotDamage > 0)
+                HostileAttackSources.AssumeShot(npc, dto.Generation, (uint)dto.ShotTick, dto.ShotDamage);
         }
     }
 

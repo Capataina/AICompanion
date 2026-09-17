@@ -140,6 +140,9 @@ internal static class SelfTest
             npc.velocity = Vector2.Zero;
             npc.active = true;
             npc.whoAmI = slot;
+            // Spawned, like every live body: a directly placed NPC reads generation zero, which no live
+            // snapshot ever stamps, so without this every scene would file the pre-stamp unresolved note.
+            HostileAttackSources.Spawn(npc);
         }
         companion.Brain.Senses.Update(companion.NPC, player);
         companion.Brain.Senses.Update(companion.NPC, player);
@@ -233,7 +236,71 @@ internal static class SelfTest
         RestoredDecision calmRestored = RestoreSnapshot.Restore(calmJson);
         AuditSearch.ReplayVerdict calmReplay = AuditSearch.Replay(calmRestored);
         Require(calmReplay.Reproduced, "calm replay diverged: " + string.Join("; ", calmReplay.Diffs));
-        return $"stand {result.Plan!.Segments[0].Stand.Stand}, {result.FrontSize} on the front, verdict-less replay {dropped.Reason}, calm replay exact";
+        // The third scene shoots back and stalls: the zombie's contact damage is zeroed, so its recent
+        // hostile shot is its only teeth — the threat sense reads it as a threat only through the shot —
+        // and a second body carries an assumed deferral. The replay restores the generation, the shot and
+        // the deferral's hold, and reproduces bit for bit. Stripping the stamps from the JSON drops the
+        // threat from the replay, which diverges and names the missing stamp; advancing the terrain
+        // revision after the stall reopens the deferral on both sides, which stamping the deferral
+        // current — the old restore — would have held.
+        Scene hot = Setup(60, new Vector2(50, 56), new Vector2(40, 54), null,
+            (25, NPCID.Zombie, new Vector2(51, 59)),
+            (26, NPCID.Zombie, new Vector2(70, 59)));
+        NPC shooter = Main.npc[25];
+        shooter.damage = 0;
+        HostileAttackSources.Observe(new Projectile { hostile = true, damage = 37 }, new EntitySource_Parent(shooter));
+        hot.Companion.Brain.Senses.Update(hot.Companion.NPC, Main.player[Main.myPlayer]);
+        var hotCombat = hot.Companion.Combat;
+        int liveGen = HostileAttackSources.Generation(shooter);
+        Require(HostileAttackSources.RecentDamage(shooter) == 37, "premise: the live shot is not attributed");
+        int gen26 = HostileAttackSources.Generation(Main.npc[26]);
+        hotCombat.Planner.AssumeDeferred(26, gen26, 100, Main.npc[26].Center, hot.Companion.NPC.Bottom,
+            hot.Ctx.Senses.Tick, TerrainChanges.Revision);
+        Require(hotCombat.Planner.IsDeferred(hot.Ctx, 26, gen26, Main.npc[26].Center),
+            "premise: the live deferral does not hold");
+        CombatWeights hotWeights = WeighCombatObjectives.ForSenses(hot.Ctx);
+        var hotBudget = PlanningBudget.FromMilliseconds(1000f);
+        SearchAttackPlans.SearchResult hotResult = SearchAttackPlans.SearchDepthOne(hot.Ctx, hotCombat,
+            hot.Companion.Brain.Positioner, Allows(hot), hotWeights, hotCombat.NextPlanId++, ref hotBudget);
+        Require(hotResult.Plan != null, "the hot search offers nothing: " + hotResult.Reason);
+        string hotJson = ExportCombatSnapshot.Build(hot.Ctx, hotCombat, hotResult.Plan, hotResult,
+            hotWeights, hotBudget, hot.Radius);
+        RestoredDecision hotRestored = RestoreSnapshot.Restore(hotJson);
+        Require(HostileAttackSources.Generation(Main.npc[25]) == liveGen, "the restore drops the generation");
+        Require(HostileAttackSources.RecentDamage(Main.npc[25]) == 37, "the restore drops the shot");
+        Require(hotRestored.Companion.Combat.Planner.IsDeferred(hotRestored.Ctx, 26, gen26, Main.npc[26].Center),
+            "the restore drops the held deferral");
+        AuditSearch.ReplayVerdict hotReplay = AuditSearch.Replay(hotRestored);
+        Require(hotReplay.Reproduced, "hot replay diverged: " + string.Join("; ", hotReplay.Diffs));
+        string stripped = hotJson.Replace("\"ShotDamage\":37", "\"ShotDamage\":0").Replace("\"Generation\":1", "\"Generation\":0");
+        RestoredDecision strippedRestored = RestoreSnapshot.Restore(stripped);
+        Require(strippedRestored.Unresolved.Contains("npc[25].threat-shots"),
+            "the stripped restore names no missing stamp");
+        AuditSearch.ReplayVerdict strippedReplay = AuditSearch.Replay(strippedRestored);
+        Require(!strippedReplay.Reproduced, "a replay without the shot still reproduces");
+        // The reopen half: a dig after the stall, then the snapshot. Live reopens on the revision — read
+        // after the snapshot is built, because asking consumes the entry — and the restore reopens with it.
+        Scene stale = Setup(60, new Vector2(50, 56), new Vector2(40, 54), null,
+            (25, NPCID.Zombie, new Vector2(51, 59)));
+        var staleCombat = stale.Companion.Combat;
+        int staleGen = HostileAttackSources.Generation(Main.npc[25]);
+        staleCombat.Planner.AssumeDeferred(25, staleGen, 100, Main.npc[25].Center, stale.Companion.NPC.Bottom,
+            stale.Ctx.Senses.Tick, TerrainChanges.Revision);
+        TerrainChanges.Changed(50, 50);
+        CombatWeights staleWeights = WeighCombatObjectives.ForSenses(stale.Ctx);
+        var staleBudget = PlanningBudget.FromMilliseconds(1000f);
+        SearchAttackPlans.SearchResult staleResult = SearchAttackPlans.SearchDepthOne(stale.Ctx, staleCombat,
+            stale.Companion.Brain.Positioner, Allows(stale), staleWeights, staleCombat.NextPlanId++, ref staleBudget);
+        Require(staleResult.Plan != null, "the stale search offers nothing: " + staleResult.Reason);
+        string staleJson = ExportCombatSnapshot.Build(stale.Ctx, staleCombat, staleResult.Plan, staleResult,
+            staleWeights, staleBudget, stale.Radius);
+        Vector2 staleCentre = Main.npc[25].Center;
+        Require(!staleCombat.Planner.IsDeferred(stale.Ctx, 25, staleGen, staleCentre),
+            "premise: the dug deferral still holds live");
+        RestoredDecision staleRestored = RestoreSnapshot.Restore(staleJson);
+        Require(!staleRestored.Companion.Combat.Planner.IsDeferred(staleRestored.Ctx, 25, staleGen, Main.npc[25].Center),
+            "the restore holds a deferral the dig reopened");
+        return $"stand {result.Plan!.Segments[0].Stand.Stand}, {result.FrontSize} on the front, verdict-less replay {dropped.Reason}, calm replay exact, hot replay exact";
     }
 
     private static string ExhaustiveFindsBetterStand()

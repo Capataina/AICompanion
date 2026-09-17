@@ -14,8 +14,9 @@ namespace AICompanion.Tools.CombatAudit;
 /// The search audit: replay the snapshot's decision with its live budget and proposals and compare
 /// exactly, then price the committed plan against an exhaustive grid with a completed flood and report
 /// whether it is on that front, the weighted regret, and which generator would have proposed the better
-/// stand — or none. The replay runs at posterior means: a live search in the calm draws Thompson samples
-/// no snapshot carries, so the means are what the search knew and what the audit grades.
+/// stand — or none. The replay draws what the live search drew: the sampler is seeded by the restored
+/// tick, so even a calm live search replays exactly; only the weight sweep still forces means, where
+/// noise-free comparison is the point.
 /// </summary>
 internal static class AuditSearch
 {

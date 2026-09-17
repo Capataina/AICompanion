@@ -57,14 +57,15 @@ public sealed class CommitAttackPlan
 
     /// <summary>
     /// Bodies a stalled plan defers, with ticks remaining rather than absolute waits: the audit restores
-    /// into its own tick space, where the live absolute tick is meaningless. Terrain is not carried — the
-    /// audit's world is unedited since the restore, so an imported deferral is stamped current.
+    /// into its own tick space, where the live absolute tick is meaningless. Terrain is carried, and the
+    /// snapshot stamps the live revision beside it: the restore rebuilds the live equality or inequality
+    /// against its own revision, so a deferral the player's digging reopened reopens in the replay too.
     /// </summary>
-    public IReadOnlyDictionary<(int Slot, int Generation), (int Remaining, Vector2 Target, Vector2 Body)> ExportDeferred(int nowTick)
+    public IReadOnlyDictionary<(int Slot, int Generation), (int Remaining, Vector2 Target, Vector2 Body, int Terrain)> ExportDeferred(int nowTick)
     {
-        var copy = new Dictionary<(int Slot, int Generation), (int Remaining, Vector2 Target, Vector2 Body)>(deferred.Count);
+        var copy = new Dictionary<(int Slot, int Generation), (int Remaining, Vector2 Target, Vector2 Body, int Terrain)>(deferred.Count);
         foreach (var (key, failure) in deferred)
-            copy[key] = (failure.Until - nowTick, failure.Target, failure.Body);
+            copy[key] = (failure.Until - nowTick, failure.Target, failure.Body, failure.Terrain);
         return copy;
     }
 

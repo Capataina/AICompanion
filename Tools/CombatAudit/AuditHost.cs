@@ -104,6 +104,7 @@ internal static class AuditHost
         live::AICompanion.Companion.Brain.Infrastructure.WeaponKnowledge.KnowledgeRevision.Reset();
         live::AICompanion.Companion.Brain.Infrastructure.Interactions.Firing.ShotOutcomes.Clear();
         live::AICompanion.Companion.Brain.Infrastructure.Interactions.Firing.TrackLandedHits.Clear();
+        live::AICompanion.Companion.Brain.Infrastructure.Observation.HostileAttackSources.Clear();
         PredictObservedMotion.Clear();
         live::AICompanion.Companion.Brain.Infrastructure.Movement.TerrainChanges.Reset();
         Main.rand = new UnifiedRandom(12345);

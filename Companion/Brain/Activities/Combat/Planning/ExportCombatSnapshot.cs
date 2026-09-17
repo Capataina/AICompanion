@@ -48,8 +48,9 @@ public static class ExportCombatSnapshot
     public sealed record ThreatDto(float PeakSpeed, bool CanReachPlayer, bool CanReachCompanion);
     public sealed record NpcDto(int Slot, string Type, Vec Position, Vec Velocity, int Life, int LifeMax,
         int Defense, int Damage, float KnockbackResist, int Width, int Height, List<BuffDto> Buffs, bool OnFire,
-        bool NoGravity, bool NoTileCollide, TrackDto? Track, List<AddedByDto> AddedBy, ThreatDto? Threat = null);
-    public sealed record DeferredDto(int Slot, int Generation, int Remaining, Vec Target, Vec Body);
+        bool NoGravity, bool NoTileCollide, TrackDto? Track, List<AddedByDto> AddedBy, ThreatDto? Threat = null,
+        int Generation = 0, long ShotTick = 0, int ShotDamage = 0);
+    public sealed record DeferredDto(int Slot, int Generation, int Remaining, Vec Target, Vec Body, int Terrain = 0);
     public sealed record ProjectileDto(int Slot, string Type, Vec Position, Vec Velocity, int Width, int Height,
         int Damage, int ExtraUpdates);
     public sealed record RegionDto(Vec Centre, Vec Half, Vec Lead, Vec Heading, Vec Velocity, bool Travelling);
@@ -73,7 +74,8 @@ public static class ExportCombatSnapshot
         PersistWeaponKnowledge.Bundle Knowledge, List<NpcDto> Npcs, List<ProjectileDto> Projectiles,
         PlayerDto Player, TerrainDto Terrain, List<VerdictDto> Verdicts, float AllowanceMs, int Simulations,
         bool Cut, int Candidates, int FrontSize, float[] Weights, PlanDto? Plan, List<RejectedDto> Rejected,
-        bool Explored, int Cooldown, List<DeferredDto> Deferred, List<int[]> Hits, float AllowanceRadius);
+        bool Explored, int Cooldown, List<DeferredDto> Deferred, List<int[]> Hits, float AllowanceRadius,
+        int TerrainRevision = 0);
 
     public static string Build(in ActionContext ctx, CompanionCombat combat, AttackPlan? plan,
         SearchAttackPlans.SearchResult? search, CombatWeights weights, PlanningBudget budget,
@@ -118,6 +120,7 @@ public static class ExportCombatSnapshot
             PredictObservedMotion.ExportedTrack? track = PredictObservedMotion.ExportTrack(npc.whoAmI);
             ThreatDto? memory = ctx.Senses.Threats.TryExportMemory(npc.whoAmI, out float peak, out bool canP, out bool canC)
                 ? new ThreatDto(peak, canP, canC) : null;
+            (uint Tick, int Damage)? shot = HostileAttackSources.ExportShot(npc);
             npcs.Add(new NpcDto(npc.whoAmI, identity.NameOfNpc(npc.type),
                 V(npc.position), V(npc.velocity), npc.life, npc.lifeMax, npc.defense, npc.damage,
                 npc.knockBackResist, npc.width, npc.height, buffs, npc.onFire2, npc.noGravity, npc.noTileCollide,
@@ -125,7 +128,8 @@ public static class ExportCombatSnapshot
                     V(track.Acceleration), track.Gravity, track.MaxFallSpeed, track.WaterSpeed, track.LavaSpeed,
                     track.HoneySpeed, track.ShimmerSpeed, track.NoGravity, track.NoTileCollide, track.Wet,
                     track.LavaWet, track.HoneyWet, track.ShimmerWet, track.MeanError, track.ErrorSamples),
-                authors, memory));
+                authors, memory, HostileAttackSources.Generation(npc),
+                shot?.Tick ?? 0, shot?.Damage ?? 0));
         }
 
         var projectiles = new List<ProjectileDto>();
@@ -149,7 +153,7 @@ public static class ExportCombatSnapshot
         PlayerIntentRegion region = ctx.Senses.Intent.Region;
         var deferred = new List<DeferredDto>();
         foreach (var (key, wait) in combat.Planner.ExportDeferred(ctx.Senses.Tick))
-            deferred.Add(new DeferredDto(key.Slot, key.Generation, wait.Remaining, V(wait.Target), V(wait.Body)));
+            deferred.Add(new DeferredDto(key.Slot, key.Generation, wait.Remaining, V(wait.Target), V(wait.Body), wait.Terrain));
         var hits = new List<int[]>();
         foreach ((int slot, int generation) in combat.Planner.ExportHits())
             hits.Add(new[] { slot, generation });
@@ -174,7 +178,7 @@ public static class ExportCombatSnapshot
             plan == null ? null : ExportPlan(plan),
             ExportRejected(search?.Rejected),
             ForecastUses.Explore(ctx),
-            combat.CooldownTicks, deferred, hits, allowanceRadius);
+            combat.CooldownTicks, deferred, hits, allowanceRadius, TerrainChanges.Revision);
         return JsonSerializer.Serialize(snapshot, Json);
     }
 
